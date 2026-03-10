@@ -1,0 +1,46 @@
+# 依赖目录
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# 构建输出
+/dist/
+/unpackage/
+/unpackage/dist/
+
+# 本地环境文件
+.env.local
+.env.*.local
+
+# 编辑器配置
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+
+# 日志文件
+*.log
+logs/
+
+# 临时文件
+*.tmp
+*.temp
+.cache/
+
+# uni-app 特定
+.hbuilderx/
+
+# 测试覆盖率
+coverage/
+
+# 本地调试配置
+project.config.json
+project.private.config.json
