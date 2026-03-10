@@ -1,0 +1,19 @@
+# IDE
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# Maven
+AppBackend/target/
+AppBackend/.mvn/
+
+# Node (if needed)
+AppFrontend/node_modules/
+AppFrontend/dist/
+AppFrontend/unpackage/
+
+# OS
+.DS_Store
+Thumbs.db
