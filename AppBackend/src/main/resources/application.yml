@@ -21,3 +21,7 @@ spring:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: Asia/Shanghai
 
+jwt:
+  secret: your-256-bit-secret-key-here-make-it-long-enough-for-hs256
+  expiration: 86400000
+
