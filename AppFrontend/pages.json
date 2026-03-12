@@ -17,6 +17,28 @@
 			}
 		}
 	],
+	"subPackages": [
+		{
+			"root": "subpackage_activity",
+			"pages": [
+				{
+					"path": "activityList/activityList",
+					"style": {
+						"navigationBarTitleText": "社区活动",
+						"navigationBarBackgroundColor": "#4A90D9",
+						"navigationBarTextStyle": "white",
+						"enablePullDownRefresh": true
+					}
+				}
+			]
+		}
+	],
+	"preloadRule": {
+		"pages/index/index": {
+			"network": "all",
+			"packages": ["subpackage_activity"]
+		}
+	},
 	"globalStyle": {
 		"navigationBarTextStyle": "black",
 		"navigationBarTitleText": "智慧校园",

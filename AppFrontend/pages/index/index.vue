@@ -109,7 +109,7 @@
 					{ name: '图书馆', icon: '📖', bgColor: '#909399', path: '/pages/library/library' },
 					{ name: '校园卡', icon: '💳', bgColor: '#F56C6C', path: '/pages/card/card' },
 					{ name: '请假申请', icon: '📋', bgColor: '#8E44AD', path: '/pages/leave/leave' },
-					{ name: '社团活动', icon: '🎉', bgColor: '#FF6B6B', path: '/pages/activity/activity' },
+					{ name: '校园活动', icon: '🎉', bgColor: '#FF6B6B', path: '/subpackage_activity/activityList/activityList' },
 					{ name: '失物招领', icon: '🔍', bgColor: '#4ECDC4', path: '/pages/lostfound/lostfound' }
 				],
 				notices: [
