@@ -10,6 +10,9 @@
 				<text>🔔</text>
 				<text v-if="unreadCount > 0" class="badge">{{unreadCount}}</text>
 			</view>
+			<view class="user-avatar" @click="goToProfile">
+				<image :src="userAvatar" mode="aspectFill" class="avatar-img"></image>
+			</view>
 		</view>
 
 		<!-- 轮播图 -->
@@ -91,6 +94,8 @@
 	export default {
 		data() {
 			return {
+				userInfo: null,
+				userAvatar: '',
 				unreadCount: 3,
 				banners: [
 					{ image: 'https://picsum.photos/400/150?random=1', title: '新学期开学典礼', url: '' },
@@ -131,7 +136,11 @@
 			}
 		},
 		onLoad() {
+			this.checkLogin()
 			this.loadData()
+		},
+			onShow() {
+			this.checkLogin()
 		},
 		onPullDownRefresh() {
 			this.loadData()
@@ -140,6 +149,18 @@
 			}, 1000)
 		},
 		methods: {
+			checkLogin() {
+				const token = uni.getStorageSync('token')
+				const userInfoStr = uni.getStorageSync('userInfo')
+				if (!token || !userInfoStr) {
+					uni.reLaunch({
+						url: '/pages/login/login'
+					})
+					return
+				}
+				this.userInfo = JSON.parse(userInfoStr)
+				this.userAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${this.userInfo.username}`
+			},
 			loadData() {
 				// 这里可以调用接口加载真实数据
 				console.log('加载首页数据')
@@ -173,6 +194,34 @@
 			onServiceClick(item) {
 				uni.navigateTo({
 					url: item.path
+				})
+			},
+			goToProfile() {
+				uni.showActionSheet({
+					title: `您好，${this.userInfo?.username || '用户'}`,
+					itemList: ['个人中心', '退出登录'],
+					success: (res) => {
+						if (res.tapIndex === 0) {
+							uni.showToast({ title: '个人中心开发中', icon: 'none' })
+						} else if (res.tapIndex === 1) {
+							this.handleLogout()
+						}
+					}
+				})
+			},
+			handleLogout() {
+				uni.showModal({
+					title: '提示',
+					content: '确定要退出登录吗？',
+					success: (res) => {
+						if (res.confirm) {
+							uni.removeStorageSync('token')
+							uni.removeStorageSync('userInfo')
+							uni.reLaunch({
+								url: '/pages/login/login'
+							})
+						}
+					}
 				})
 			}
 		}
@@ -234,6 +283,17 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+	}
+
+	.user-avatar {
+		margin-left: 20rpx;
+	}
+
+	.avatar-img {
+		width: 60rpx;
+		height: 60rpx;
+		border-radius: 50%;
+		border: 2rpx solid white;
 	}
 
 	/* 轮播图 */
