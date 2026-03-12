@@ -118,7 +118,8 @@
 </template>
 
 <script>
-const API_BASE_URL = 'http://localhost:8080'
+import { login as apiLogin, register as apiRegister } from '../../api/user.js'
+import { getToken, setToken, setUserInfo } from '../../utils/storage.js'
 
 export default {
 	data() {
@@ -138,9 +139,7 @@ export default {
 		}
 	},
 	onLoad() {
-		// 检查是否已登录
-		const token = uni.getStorageSync('token')
-		if (token) {
+		if (getToken()) {
 			uni.switchTab({
 				url: '/pages/index/index'
 			})
@@ -197,60 +196,36 @@ export default {
 			if (!this.validateForm()) return
 
 			this.loading = true
-			const url = this.isLogin ? `${API_BASE_URL}/api/user/login` : `${API_BASE_URL}/api/user/register`
 			const data = {
 				username: this.formData.username.trim(),
 				password: this.formData.password
 			}
-			
 			if (!this.isLogin) {
 				if (this.formData.email) data.email = this.formData.email.trim()
 				if (this.formData.phone) data.phone = this.formData.phone.trim()
 			}
 
 			try {
-				const res = await uni.request({
-					url,
-					method: 'POST',
-					header: {
-						'Content-Type': 'application/json'
-					},
-					data
+				const result = this.isLogin ? await apiLogin(data) : await apiRegister(data)
+				setToken(result.data.token)
+				setUserInfo({
+					username: result.data.username,
+					role: result.data.role,
+					phone: result.data.phone
 				})
 
-				const result = res.data
-				if (result.code === 200) {
-					// 保存登录信息
-					uni.setStorageSync('token', result.data.token)
-					uni.setStorageSync('userInfo', JSON.stringify({
-						username: result.data.username,
-						role: result.data.role,
-						phone: result.data.phone
-					}))
+				uni.showToast({
+					title: this.isLogin ? '登录成功' : '注册成功',
+					icon: 'success'
+				})
 
-					uni.showToast({
-						title: this.isLogin ? '登录成功' : '注册成功',
-						icon: 'success'
+				setTimeout(() => {
+					uni.reLaunch({
+						url: '/pages/index/index'
 					})
-
-					// 跳转到首页
-					setTimeout(() => {
-						uni.reLaunch({
-							url: '/pages/index/index'
-						})
-					}, 1500)
-				} else {
-					uni.showToast({
-						title: result.msg || '请求失败',
-						icon: 'none'
-					})
-				}
+				}, 1500)
 			} catch (error) {
 				console.error('请求错误:', error)
-				uni.showToast({
-					title: '网络请求失败',
-					icon: 'none'
-				})
 			} finally {
 				this.loading = false
 			}
