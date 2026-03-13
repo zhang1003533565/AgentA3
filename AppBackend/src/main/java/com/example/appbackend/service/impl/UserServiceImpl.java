@@ -46,11 +46,7 @@ public class UserServiceImpl implements UserService {
         Role role;
         if (requestedRole != null && !requestedRole.isEmpty()) {
             role = roleRepository.findByName(requestedRole.toUpperCase())
-                    .orElseGet(() -> {
-                        // 如果角色不存在，使用默认STUDENT
-                        return roleRepository.findByName("STUDENT")
-                                .orElseThrow(() -> new RuntimeException("默认角色不存在，请先初始化角色数据"));
-                    });
+                    .orElseThrow(() -> new RuntimeException("请选择有效身份"));
         } else {
             role = roleRepository.findByName("STUDENT")
                     .orElseThrow(() -> new RuntimeException("默认角色不存在，请先初始化角色数据"));
@@ -67,6 +63,24 @@ public class UserServiceImpl implements UserService {
     public UserResponse login(LoginRequest request) {
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new RuntimeException("用户名或密码错误"));
+
+        if (!request.getPassword().equals(user.getPassword())) {
+            throw new RuntimeException("用户名或密码错误");
+        }
+
+        String token = jwtUtil.generateToken(user.getUsername(), roleName(user));
+        return new UserResponse(token, user.getUsername(), roleName(user), user.getPhone());
+    }
+
+    @Override
+    public UserResponse applogin(LoginRequest request) {
+
+        User user = userRepository.findByUsername(request.getUsername())
+                .orElseThrow(() -> new RuntimeException("用户名或密码错误"));
+        Role role=user.getRole();
+        if(!role.equals("student")){
+            throw new RuntimeException("请登录学生用户");
+        }
 
         if (!request.getPassword().equals(user.getPassword())) {
             throw new RuntimeException("用户名或密码错误");

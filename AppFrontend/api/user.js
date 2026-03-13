@@ -6,7 +6,7 @@ import { request } from '../utils/request.js'
 /** 登录 */
 export function login(data) {
   return request({
-    url: '/api/user/login',
+    url: '/api/auth/applogin',
     method: 'POST',
     data: {
       username: data.username,
@@ -24,7 +24,7 @@ export function register(data) {
   if (data.email) body.email = data.email
   if (data.phone) body.phone = data.phone
   return request({
-    url: '/api/user/register',
+    url: '/api/auth/register',
     method: 'POST',
     data: body
   })

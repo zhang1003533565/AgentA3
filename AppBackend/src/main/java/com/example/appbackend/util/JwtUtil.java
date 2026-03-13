@@ -22,17 +22,6 @@ public class JwtUtil {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
-    public String generateToken(String username) {
-        Date now = new Date();
-
-        return Jwts.builder()
-                .subject(username)
-                .issuedAt(now)
-                .expiration(new Date(System.currentTimeMillis()+expiration))
-                .signWith(getSigningKey())
-                .compact();
-    }
-
     public String generateToken(String username, String role) {
         Date now = new Date();
 

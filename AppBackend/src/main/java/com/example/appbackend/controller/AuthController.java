@@ -27,9 +27,16 @@ public class AuthController {
         return Result.success(response);
     }
 
-    @Operation(summary = "用户登录", description = "用户登录获取Token")
-    @PostMapping("/login")
-    public Result<UserResponse> login(@Valid @RequestBody LoginRequest request) {
+    @Operation(summary = "APP端登录", description = "学生用户APP端登录（仅允许学生角色）")
+    @PostMapping("/applogin")
+    public Result<UserResponse> applogin(@Valid @RequestBody LoginRequest request) {
+        UserResponse response = userService.applogin(request);
+        return Result.success(response);
+    }
+
+    @Operation(summary = "Web端登录", description = "Web端用户登录（支持所有角色）")
+    @PostMapping("/weblogin")
+    public Result<UserResponse> weblogin(@Valid @RequestBody LoginRequest request) {
         UserResponse response = userService.login(request);
         return Result.success(response);
     }
