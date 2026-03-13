@@ -30,7 +30,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/favicon.ico",
                         "/api/activities",
                         "/api/activities/**",
-                        "/api/category/**"
+                        "/api/categories",
+                        "/api/categories/**"
                 );
     }
 
