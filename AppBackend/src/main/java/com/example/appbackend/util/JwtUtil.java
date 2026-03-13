@@ -25,13 +25,33 @@ public class JwtUtil {
     public String generateToken(String username) {
         Date now = new Date();
 
-
         return Jwts.builder()
                 .subject(username)
                 .issuedAt(now)
                 .expiration(new Date(System.currentTimeMillis()+expiration))
                 .signWith(getSigningKey())
                 .compact();
+    }
+
+    public String generateToken(String username, String role) {
+        Date now = new Date();
+
+        return Jwts.builder()
+                .subject(username)
+                .claim("role", role)
+                .issuedAt(now)
+                .expiration(new Date(System.currentTimeMillis()+expiration))
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    public String getRoleFromToken(String token) {
+        Claims claims = Jwts.parser()
+                .verifyWith(getSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+        return claims.get("role", String.class);
     }
 
     public String getUsernameFromToken(String token) {

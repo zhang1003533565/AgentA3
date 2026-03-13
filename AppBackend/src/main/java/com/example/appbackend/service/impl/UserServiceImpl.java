@@ -40,13 +40,26 @@ public class UserServiceImpl implements UserService {
         user.setPassword(request.getPassword());
         user.setEmail(request.getEmail() != null && !request.getEmail().isEmpty() ? request.getEmail() : null);
         user.setPhone(request.getPhone() != null && !request.getPhone().isEmpty() ? request.getPhone() : null);
-        Role defaultRole = roleRepository.findByName("STUDENT")
-                .orElseThrow(() -> new RuntimeException("默认角色不存在，请先初始化角色数据"));
-        user.setRole(defaultRole);
+
+        // 获取用户选择的角色，如果没有选择或无效则默认为STUDENT
+        String requestedRole = request.getRole();
+        Role role;
+        if (requestedRole != null && !requestedRole.isEmpty()) {
+            role = roleRepository.findByName(requestedRole.toUpperCase())
+                    .orElseGet(() -> {
+                        // 如果角色不存在，使用默认STUDENT
+                        return roleRepository.findByName("STUDENT")
+                                .orElseThrow(() -> new RuntimeException("默认角色不存在，请先初始化角色数据"));
+                    });
+        } else {
+            role = roleRepository.findByName("STUDENT")
+                    .orElseThrow(() -> new RuntimeException("默认角色不存在，请先初始化角色数据"));
+        }
+        user.setRole(role);
 
         userRepository.save(user);
 
-        String token = jwtUtil.generateToken(user.getUsername());
+        String token = jwtUtil.generateToken(user.getUsername(), roleName(user));
         return new UserResponse(token, user.getUsername(), roleName(user), user.getPhone());
     }
 
@@ -59,7 +72,7 @@ public class UserServiceImpl implements UserService {
             throw new RuntimeException("用户名或密码错误");
         }
 
-        String token = jwtUtil.generateToken(user.getUsername());
+        String token = jwtUtil.generateToken(user.getUsername(), roleName(user));
         return new UserResponse(token, user.getUsername(), roleName(user), user.getPhone());
     }
 

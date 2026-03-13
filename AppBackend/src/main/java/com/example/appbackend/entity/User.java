@@ -28,8 +28,8 @@ public class User {
     @Column(length = 100)
     private String email;
 
-    @Column(name = "student_no", length = 50)
-    private String studentNo;
+    @Column(name = "personal_number", length = 50)
+    private String personalNumber;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "role_id")
