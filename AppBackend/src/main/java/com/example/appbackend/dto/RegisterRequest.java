@@ -29,4 +29,20 @@ public class RegisterRequest {
 
     @Schema(description = "角色(STUDENT/TEACHER)", example = "STUDENT")
     private String role;
+
+    @Schema(description = "真实姓名", example = "张三")
+    private String realName;
+
+    @Schema(description = "学院", example = "计算机学院")
+    private String college;
+
+    @Schema(description = "专业", example = "软件工程")
+    private String major;
+
+    @Schema(description = "班级", example = "软件21-1班")
+    private String className;
+
+    @Schema(description = "学号/工号", example = "2021001")
+    private String personalNumber;
+
 }
