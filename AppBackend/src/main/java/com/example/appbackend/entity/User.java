@@ -2,7 +2,6 @@ package com.example.appbackend.entity;
 
 import jakarta.persistence.*;
 import lombok.Data;
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
@@ -32,8 +31,9 @@ public class User {
     @Column(name = "student_no", length = 50)
     private String studentNo;
 
-    @Column(length = 20)
-    private String role = "STUDENT";
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "role_id")
+    private Role role;
 
     @Column(length = 255)
     private String avatar;
