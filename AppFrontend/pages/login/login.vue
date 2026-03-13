@@ -1,124 +1,233 @@
 <template>
-	<view class="login-container">
-		<!-- 背景装饰 -->
-		<view class="bg-decoration">
-			<view class="bg-circle circle-1"></view>
-			<view class="bg-circle circle-2"></view>
-			<view class="bg-circle circle-3"></view>
-		</view>
-
-		<view class="login-box">
-			<!-- Logo区域 -->
-			<view class="logo-section">
-				<view class="logo">🏫</view>
-				<text class="app-name">智慧校园</text>
-				<text class="app-slogan">Smart Campus</text>
+	<view class="login-page">
+		<!-- 居中卡片 -->
+		<view class="login-card">
+			<!-- 标题 & 品牌 -->
+			<view class="header">
+				<view class="logo-icon">
+					<view class="logo-symbol">SC</view>
+				</view>
+				<view class="title-wrapper">
+					<text class="title-cn">智慧校园</text>
+					<text class="title-en">SMART CAMPUS</text>
+					<text class="subtitle">
+						登录后即可查看校园活动、报名与签到
+					</text>
+				</view>
 			</view>
 
-			<!-- 登录/注册表单 -->
-			<view class="form-section">
-				<!-- 切换标签 -->
-				<view class="tab-bar">
-					<text 
-						class="tab-item" 
+			<!-- 登录 / 注册分段控制 -->
+			<view class="tabs">
+				<view class="tabs-track">
+					<view
+						class="tabs-slider"
+						:class="{ 'tabs-slider-right': !isLogin }"
+					></view>
+					<view
+						class="tabs-item"
 						:class="{ active: isLogin }"
 						@click="switchTab(true)"
-					>登录</text>
-					<text 
-						class="tab-item" 
+					>
+						<text>登录</text>
+					</view>
+					<view
+						class="tabs-item"
 						:class="{ active: !isLogin }"
 						@click="switchTab(false)"
-					>注册</text>
+					>
+						<text>注册</text>
+					</view>
 				</view>
+			</view>
 
-				<!-- 表单内容 -->
-				<view class="form-content">
-					<view class="input-group">
-						<text class="input-label">用户名</text>
-						<input 
-							class="input-field" 
-							type="text" 
+			<!-- 表单区域 -->
+			<view class="form">
+				<view class="input-group">
+					<text class="input-label">用户名</text>
+					<view class="input-shell">
+						<input
+							class="input-field"
+							type="text"
 							v-model="formData.username"
-							placeholder="请输入用户名"
+							placeholder="请输入学号/账号"
 							maxlength="50"
 						/>
 					</view>
+				</view>
 
-					<view class="input-group">
-						<text class="input-label">密码</text>
-						<input 
-							class="input-field" 
+				<view class="input-group">
+					<text class="input-label">密码</text>
+					<view class="input-shell">
+						<input
+							class="input-field"
 							:type="showPassword ? 'text' : 'password'"
 							v-model="formData.password"
 							placeholder="请输入密码（至少6位）"
 							maxlength="100"
 						/>
-						<text class="eye-icon" @click="togglePassword">{{ showPassword ? '👁️' : '👁️‍🗨️' }}</text>
+						<view class="eye-icon" @click="togglePassword">
+							<svg v-if="!showPassword" class="eye-svg" viewBox="0 0 24 24">
+								<path
+									d="M12 5C7 5 3.3 8.1 2 12c1.3 3.9 5 7 10 7s8.7-3.1 10-7c-1.3-3.9-5-7-10-7Z"
+									fill="none"
+									stroke="#6b7280"
+									stroke-width="1.8"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/>
+								<circle
+									cx="12"
+									cy="12"
+									r="3"
+									fill="none"
+									stroke="#6b7280"
+									stroke-width="1.8"
+								/>
+							</svg>
+							<svg v-else class="eye-svg" viewBox="0 0 24 24">
+								<path
+									d="M4.5 4.5 19.5 19.5"
+									fill="none"
+									stroke="#6b7280"
+									stroke-width="1.8"
+									stroke-linecap="round"
+								/>
+								<path
+									d="M5 8.5C6.8 6.4 9.3 5 12 5c4.3 0 7.9 2.8 9.5 7-0.7 2-1.9 3.6-3.4 4.8"
+									fill="none"
+									stroke="#6b7280"
+									stroke-width="1.8"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/>
+								<path
+									d="M15.5 15.5A4 4 0 0 1 8.5 8.5"
+									fill="none"
+									stroke="#6b7280"
+									stroke-width="1.8"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/>
+							</svg>
+						</view>
 					</view>
+				</view>
 
-					<!-- 注册额外字段 -->
-					<block v-if="!isLogin">
-						<view class="input-group">
-							<text class="input-label">确认密码</text>
-							<input 
-								class="input-field" 
+				<!-- 注册额外字段 -->
+				<block v-if="!isLogin">
+					<view class="input-group">
+						<text class="input-label">确认密码</text>
+						<view class="input-shell">
+							<input
+								class="input-field"
 								:type="showConfirmPassword ? 'text' : 'password'"
 								v-model="formData.confirmPassword"
 								placeholder="请再次输入密码"
 								maxlength="100"
 							/>
-							<text class="eye-icon" @click="toggleConfirmPassword">{{ showConfirmPassword ? '👁️' : '👁️‍🗨️' }}</text>
+							<view class="eye-icon" @click="toggleConfirmPassword">
+								<svg v-if="!showConfirmPassword" class="eye-svg" viewBox="0 0 24 24">
+									<path
+										d="M12 5C7 5 3.3 8.1 2 12c1.3 3.9 5 7 10 7s8.7-3.1 10-7c-1.3-3.9-5-7-10-7Z"
+										fill="none"
+										stroke="#6b7280"
+										stroke-width="1.8"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									/>
+									<circle
+										cx="12"
+										cy="12"
+										r="3"
+										fill="none"
+										stroke="#6b7280"
+										stroke-width="1.8"
+									/>
+								</svg>
+								<svg v-else class="eye-svg" viewBox="0 0 24 24">
+									<path
+										d="M4.5 4.5 19.5 19.5"
+										fill="none"
+										stroke="#6b7280"
+										stroke-width="1.8"
+										stroke-linecap="round"
+									/>
+									<path
+										d="M5 8.5C6.8 6.4 9.3 5 12 5c4.3 0 7.9 2.8 9.5 7-0.7 2-1.9 3.6-3.4 4.8"
+										fill="none"
+										stroke="#6b7280"
+										stroke-width="1.8"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									/>
+									<path
+										d="M15.5 15.5A4 4 0 0 1 8.5 8.5"
+										fill="none"
+										stroke="#6b7280"
+										stroke-width="1.8"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									/>
+								</svg>
+							</view>
 						</view>
+					</view>
 
-						<view class="input-group">
-							<text class="input-label">邮箱（选填）</text>
-							<input 
-								class="input-field" 
-								type="text" 
+					<view class="input-group">
+						<text class="input-label">邮箱（选填）</text>
+						<view class="input-shell">
+							<input
+								class="input-field"
+								type="text"
 								v-model="formData.email"
-								placeholder="请输入邮箱"
+								placeholder="用于找回密码和通知"
 								maxlength="100"
 							/>
 						</view>
+					</view>
 
-						<view class="input-group">
-							<text class="input-label">手机号（选填）</text>
-							<input 
-								class="input-field" 
-								type="number" 
+					<view class="input-group">
+						<text class="input-label">手机号（选填）</text>
+						<view class="input-shell">
+							<input
+								class="input-field"
+								type="number"
 								v-model="formData.phone"
-								placeholder="请输入手机号"
+								placeholder="用于接收活动提醒"
 								maxlength="11"
 							/>
 						</view>
-					</block>
-
-					<!-- 登录选项 -->
-					<view class="login-options" v-if="isLogin">
-						<view class="remember-me" @click="rememberMe = !rememberMe">
-							<text class="checkbox">{{ rememberMe ? '☑️' : '⬜' }}</text>
-							<text class="option-text">记住我</text>
-						</view>
-						<text class="forgot-password" @click="goToForgot">忘记密码?</text>
 					</view>
+				</block>
 
-					<!-- 提交按钮 -->
-					<button 
-						class="submit-btn" 
-						:loading="loading"
-						:disabled="loading"
-						@click="handleSubmit"
-					>
-						{{ loading ? (isLogin ? '登录中...' : '注册中...') : (isLogin ? '登 录' : '注 册') }}
-					</button>
+				<!-- 登录选项 -->
+				<view class="login-options" v-if="isLogin">
+					<view class="remember-me" @click="rememberMe = !rememberMe">
+						<view class="checkbox" :class="{ checked: rememberMe }">
+							<view class="checkbox-mark" v-if="rememberMe"></view>
+						</view>
+						<text class="option-text">记住我</text>
+					</view>
+					<text class="forgot-password" @click="goToForgot">忘记密码</text>
 				</view>
+
+				<!-- 提交按钮 -->
+				<button
+					class="primary-btn"
+					:loading="loading"
+					:disabled="loading"
+					@click="handleSubmit"
+				>
+					{{ loading ? (isLogin ? '登录中...' : '注册中...') : (isLogin ? '登录' : '注册') }}
+				</button>
 			</view>
 		</view>
 	</view>
 </template>
 
 <script>
-const API_BASE_URL = 'http://localhost:8080'
+import { login as apiLogin, register as apiRegister } from '../../api/user.js'
+import { getToken, setToken, setUserInfo } from '../../utils/storage.js'
 
 export default {
 	data() {
@@ -138,9 +247,7 @@ export default {
 		}
 	},
 	onLoad() {
-		// 检查是否已登录
-		const token = uni.getStorageSync('token')
-		if (token) {
+		if (getToken()) {
 			uni.switchTab({
 				url: '/pages/index/index'
 			})
@@ -197,60 +304,36 @@ export default {
 			if (!this.validateForm()) return
 
 			this.loading = true
-			const url = this.isLogin ? `${API_BASE_URL}/api/user/login` : `${API_BASE_URL}/api/user/register`
 			const data = {
 				username: this.formData.username.trim(),
 				password: this.formData.password
 			}
-			
 			if (!this.isLogin) {
 				if (this.formData.email) data.email = this.formData.email.trim()
 				if (this.formData.phone) data.phone = this.formData.phone.trim()
 			}
 
 			try {
-				const res = await uni.request({
-					url,
-					method: 'POST',
-					header: {
-						'Content-Type': 'application/json'
-					},
-					data
+				const result = this.isLogin ? await apiLogin(data) : await apiRegister(data)
+				setToken(result.data.token)
+				setUserInfo({
+					username: result.data.username,
+					role: result.data.role,
+					phone: result.data.phone
 				})
 
-				const result = res.data
-				if (result.code === 200) {
-					// 保存登录信息
-					uni.setStorageSync('token', result.data.token)
-					uni.setStorageSync('userInfo', JSON.stringify({
-						username: result.data.username,
-						role: result.data.role,
-						phone: result.data.phone
-					}))
+				uni.showToast({
+					title: this.isLogin ? '登录成功' : '注册成功',
+					icon: 'success'
+				})
 
-					uni.showToast({
-						title: this.isLogin ? '登录成功' : '注册成功',
-						icon: 'success'
+				setTimeout(() => {
+					uni.reLaunch({
+						url: '/pages/index/index'
 					})
-
-					// 跳转到首页
-					setTimeout(() => {
-						uni.reLaunch({
-							url: '/pages/index/index'
-						})
-					}, 1500)
-				} else {
-					uni.showToast({
-						title: result.msg || '请求失败',
-						icon: 'none'
-					})
-				}
+				}, 1500)
 			} catch (error) {
 				console.error('请求错误:', error)
-				uni.showToast({
-					title: '网络请求失败',
-					icon: 'none'
-				})
 			} finally {
 				this.loading = false
 			}
@@ -266,217 +349,285 @@ export default {
 </script>
 
 <style>
-	.login-container {
+	.login-page {
 		min-height: 100vh;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		background: linear-gradient(135deg, #eff6ff, #ffffff 45%, #e0e7ff);
+		display: flex;
+		align-items: flex-start;
+		justify-content: center;
+		padding: 80rpx 48rpx 40rpx;
 		position: relative;
 		overflow: hidden;
+		animation: page-fade-in 320ms ease-out;
+	}
+
+	.login-card {
+		width: 100%;
+		max-width: 640rpx;
+		padding: 20rpx 0 56rpx;
+		position: relative;
+		z-index: 1;
+		display: flex;
+		flex-direction: column;
+		row-gap: 32rpx;
+	}
+
+	/* 头部 */
+	.header {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		row-gap: 16rpx;
+	}
+
+	.logo-icon {
+		width: 72rpx;
+		height: 72rpx;
+		border-radius: 24rpx;
+	background-color: #eff6ff;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: 40rpx;
 	}
 
-	/* 背景装饰 */
-	.bg-decoration {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		overflow: hidden;
+	.logo-symbol {
+	color: #2563eb;
+		font-size: 34rpx;
+		font-weight: 600;
+		letter-spacing: 2rpx;
 	}
 
-	.bg-circle {
-		position: absolute;
-		border-radius: 50%;
-		background: rgba(255, 255, 255, 0.1);
-	}
-
-	.circle-1 {
-		width: 300rpx;
-		height: 300rpx;
-		top: -100rpx;
-		right: -100rpx;
-	}
-
-	.circle-2 {
-		width: 200rpx;
-		height: 200rpx;
-		bottom: -50rpx;
-		left: -50rpx;
-	}
-
-	.circle-3 {
-		width: 150rpx;
-		height: 150rpx;
-		top: 50%;
-		left: 10%;
-	}
-
-	/* 登录框 */
-	.login-box {
-		width: 100%;
-		max-width: 600rpx;
-		background: white;
-		border-radius: 30rpx;
-		padding: 60rpx 40rpx;
-		position: relative;
-		z-index: 10;
-		box-shadow: 0 20rpx 60rpx rgba(0, 0, 0, 0.3);
-	}
-
-	/* Logo区域 */
-	.logo-section {
+	.title-wrapper {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		margin-bottom: 50rpx;
-	}
-
-	.logo {
-		font-size: 100rpx;
-		margin-bottom: 20rpx;
-	}
-
-	.app-name {
-		font-size: 48rpx;
-		font-weight: bold;
-		color: #333;
-		margin-bottom: 10rpx;
-	}
-
-	.app-slogan {
-		font-size: 24rpx;
-		color: #999;
-	}
-
-	/* 标签栏 */
-	.tab-bar {
-		display: flex;
-		margin-bottom: 40rpx;
-		border-bottom: 2rpx solid #f0f0f0;
-	}
-
-	.tab-item {
-		flex: 1;
 		text-align: center;
-		padding: 20rpx 0;
-		font-size: 32rpx;
-		color: #999;
+	}
+
+	.title-cn {
+	font-size: 42rpx;
+		font-weight: 600;
+		color: #0f172a;
+	margin-bottom: 4rpx;
+	}
+
+	.title-en {
+		font-size: 22rpx;
+		color: #6b7280;
+	letter-spacing: 4rpx;
+	}
+
+	.subtitle {
+	margin-top: 8rpx;
+		font-size: 24rpx;
+		color: #6b7280;
+	}
+
+	/* 顶部标签 */
+	.tabs {
+		margin-top: 32rpx;
+	}
+
+	.tabs-track {
 		position: relative;
-		transition: all 0.3s;
+		display: flex;
+		background-color: rgba(15, 23, 42, 0.04);
+		backdrop-filter: blur(24rpx);
+		border-radius: 24rpx;
+		padding: 4rpx;
 	}
 
-	.tab-item.active {
-		color: #667eea;
-		font-weight: bold;
-	}
-
-	.tab-item.active::after {
-		content: '';
+	.tabs-slider {
 		position: absolute;
-		bottom: -2rpx;
-		left: 50%;
-		transform: translateX(-50%);
-		width: 60rpx;
-		height: 4rpx;
-		background: #667eea;
-		border-radius: 2rpx;
+		top: 4rpx;
+		bottom: 4rpx;
+		left: 4rpx;
+		width: calc(50% - 4rpx);
+		background-color: #ffffff;
+	border-radius: 20rpx;
+		box-shadow: 0 6rpx 18rpx rgba(15, 23, 42, 0.16);
+	transition: all 300ms ease-in-out;
+		z-index: 0;
 	}
 
-	/* 表单内容 */
-	.form-content {
+	.tabs-slider-right {
+		transform: translateX(100%);
+	}
+
+	.tabs-item {
+		flex: 1;
+		height: 72rpx;
+	border-radius: 20rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 26rpx;
+	color: #9ca3af;
+		position: relative;
+		z-index: 1;
+	}
+
+	.tabs-item.active {
+	color: #111827;
+	}
+
+	/* 表单 */
+	.form {
 		display: flex;
 		flex-direction: column;
-		gap: 30rpx;
+		row-gap: 24rpx;
+		margin-top: 32rpx;
 	}
 
 	.input-group {
 		display: flex;
 		flex-direction: column;
-		gap: 10rpx;
-		position: relative;
+	row-gap: 4rpx;
 	}
 
 	.input-label {
-		font-size: 26rpx;
-		color: #666;
-		font-weight: 500;
+	font-size: 22rpx;
+	color: #6b7280;
+	font-weight: 500;
+	}
+
+	.input-shell {
+		height: 88rpx;
+		border-radius: 24rpx;
+		background-color: #ffffff;
+	border-width: 2rpx;
+		border-style: solid;
+	border-color: transparent;
+		padding: 0 24rpx;
+		display: flex;
+		align-items: center;
+		transition: border-color 160ms ease-out, box-shadow 160ms ease-out,
+			background-color 160ms ease-out;
+	box-shadow: 0 2rpx 8rpx rgba(15, 23, 42, 0.04);
+	}
+
+	.input-shell:focus-within {
+		border-color: #3b82f6;
+		background-color: #ffffff;
+		box-shadow: 0 4rpx 24rpx rgba(15, 23, 42, 0.08);
 	}
 
 	.input-field {
-		height: 90rpx;
-		background: #f8f9fa;
-		border-radius: 16rpx;
-		padding: 0 30rpx;
-		font-size: 30rpx;
-		color: #333;
-		border: 2rpx solid transparent;
-		transition: all 0.3s;
+		flex: 1;
+		font-size: 28rpx;
+		color: #333333;
 	}
 
-	.input-field:focus {
-		border-color: #667eea;
-		background: white;
+	.input-field::placeholder {
+	color: #9ca3af;
 	}
 
 	.eye-icon {
-		position: absolute;
-		right: 30rpx;
-		bottom: 20rpx;
-		font-size: 36rpx;
-		padding: 10rpx;
+		width: 40rpx;
+		height: 40rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.eye-svg {
+		width: 32rpx;
+		height: 32rpx;
 	}
 
 	/* 登录选项 */
 	.login-options {
 		display: flex;
-		justify-content: space-between;
 		align-items: center;
-		margin-top: 10rpx;
+		justify-content: space-between;
+		margin-top: 12rpx;
 	}
 
 	.remember-me {
 		display: flex;
 		align-items: center;
-		gap: 10rpx;
+		column-gap: 12rpx;
 	}
 
 	.checkbox {
-		font-size: 32rpx;
+		width: 32rpx;
+		height: 32rpx;
+	border-radius: 8rpx;
+		border-width: 2rpx;
+		border-style: solid;
+	border-color: #e5e7eb;
+		background-color: #ffffff;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.checkbox.checked {
+		border-color: #2563eb;
+		background-color: #2563eb;
+	}
+
+	.checkbox-mark {
+		width: 16rpx;
+		height: 16rpx;
+		background-color: #ffffff;
 	}
 
 	.option-text {
-		font-size: 26rpx;
-		color: #666;
+	font-size: 24rpx;
+	color: #4b5563;
 	}
 
 	.forgot-password {
-		font-size: 26rpx;
-		color: #667eea;
+	font-size: 24rpx;
+	color: #2563eb;
+	font-weight: 500;
 	}
 
-	/* 提交按钮 */
-	.submit-btn {
-		margin-top: 20rpx;
-		height: 100rpx;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-		color: white;
-		font-size: 34rpx;
-		font-weight: bold;
-		border-radius: 50rpx;
-		border: none;
-		box-shadow: 0 10rpx 30rpx rgba(102, 126, 234, 0.4);
-		transition: all 0.3s;
+	/* 主按钮 */
+	.primary-btn {
+		margin-top: 48rpx;
+		width: 100%;
+		height: 92rpx;
+		line-height: 92rpx;
+		border-radius: 24rpx;
+		background: linear-gradient(90deg, #3b82f6, #2563eb);
+		color: #ffffff;
+		font-size: 30rpx;
+	font-weight: 600;
+		letter-spacing: 4rpx;
+		border-width: 2rpx;
+		border-style: solid;
+		border-color: #1d4ed8;
+		box-shadow: 0 12rpx 24rpx -6rpx rgba(37, 99, 235, 0.35);
+		transition: transform 200ms ease-out, box-shadow 200ms ease-out,
+			opacity 200ms ease-out;
 	}
 
-	.submit-btn:active {
-		transform: scale(0.98);
-		box-shadow: 0 5rpx 15rpx rgba(102, 126, 234, 0.4);
+	.primary-btn:hover {
+		transform: translateY(-4rpx);
+		box-shadow: 0 16rpx 30rpx -8rpx rgba(37, 99, 235, 0.4);
 	}
 
-	.submit-btn[disabled] {
+	.primary-btn:active {
+		transform: translateY(0) scale(0.98);
+		box-shadow: 0 10rpx 18rpx -6rpx rgba(37, 99, 235, 0.32);
+	}
+
+	.primary-btn[disabled] {
 		opacity: 0.7;
+	}
+
+	/* 悬浮助手按钮 */
+	/* 动效 */
+	@keyframes page-fade-in {
+		from {
+			opacity: 0;
+			transform: translate3d(0, 10rpx, 0);
+		}
+		to {
+			opacity: 1;
+			transform: translate3d(0, 0, 0);
+		}
 	}
 </style>
