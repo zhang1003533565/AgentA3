@@ -22,4 +22,19 @@ public class UserResponse {
 
     @Schema(description = "手机号")
     private String phone;
+
+    @Schema(description = "真实姓名")
+    private String realName;
+
+    @Schema(description = "学院")
+    private String college;
+
+    @Schema(description = "专业")
+    private String major;
+
+    @Schema(description = "班级")
+    private String className;
+
+    @Schema(description = "学号/工号")
+    private String personalNumber;
 }

@@ -5,6 +5,7 @@ import com.example.appbackend.dto.LoginRequest;
 import com.example.appbackend.dto.RegisterRequest;
 import com.example.appbackend.dto.PasswordChangeRequest;
 import com.example.appbackend.entity.Result;
+import com.example.appbackend.entity.User;
 import com.example.appbackend.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -42,9 +43,13 @@ public class AuthController {
     }
 
     @Operation(summary = "获取当前用户信息", description = "获取当前登录用户信息")
-    @GetMapping("/current")
-    public Result<UserResponse> getCurrentUser() {
-        return Result.success(null);
+    @GetMapping("/current/{id}")
+    public Result<UserResponse> getCurrentUser(@PathVariable Long id) {
+        UserResponse response=userService.current(id);
+        if(id==null){
+            return Result.error("用户不存在");
+        }
+        return Result.success(response);
     }
 
     @Operation(summary = "修改密码", description = "修改当前用户密码")
@@ -52,4 +57,5 @@ public class AuthController {
     public Result<Void> changePassword(@Valid @RequestBody PasswordChangeRequest request) {
         return Result.success();
     }
+
 }
