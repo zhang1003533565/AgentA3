@@ -2,11 +2,12 @@ package com.example.appbackend.entity;
 
 import jakarta.persistence.*;
 import lombok.Data;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
 @Entity
-@Table(name = "users")
+@Table(name = "sys_user")
 public class User {
 
     @Id
@@ -19,14 +20,35 @@ public class User {
     @Column(nullable = false)
     private String password;
 
-    @Column(length = 100)
-    private String email;
+    @Column(name = "real_name", length = 50)
+    private String realName;
 
     @Column(length = 20)
     private String phone;
 
+    @Column(length = 100)
+    private String email;
+
+    @Column(name = "student_no", length = 50)
+    private String studentNo;
+
     @Column(length = 20)
-    private String role;
+    private String role = "STUDENT";
+
+    @Column(length = 255)
+    private String avatar;
+
+    @Column(length = 100)
+    private String college;
+
+    @Column(length = 100)
+    private String major;
+
+    @Column(name = "class_name", length = 50)
+    private String className;
+
+    @Column(nullable = false)
+    private Integer status = 1;
 
     @Column(name = "create_time")
     private LocalDateTime createTime;
@@ -38,9 +60,6 @@ public class User {
     protected void onCreate() {
         createTime = LocalDateTime.now();
         updateTime = LocalDateTime.now();
-        if (role == null) {
-            role = "USER";
-        }
     }
 
     @PreUpdate
