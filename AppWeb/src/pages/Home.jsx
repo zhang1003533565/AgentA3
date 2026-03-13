@@ -46,14 +46,14 @@ function Home() {
   }
 
   const menuItems = [
-    { icon: '📅', title: '课程表', desc: '查看今日课程', color: '#4A90D9' },
-    { icon: '📊', title: '成绩查询', desc: '学期成绩一览', color: '#67C23A' },
-    { icon: '📝', title: '考试安排', desc: '考试时间与地点', color: '#E6A23C' },
-    { icon: '📖', title: '图书馆', desc: '借阅与预约', color: '#909399' },
-    { icon: '💳', title: '校园卡', desc: '充值与消费', color: '#F56C6C' },
-    { icon: '📋', title: '请假申请', desc: '在线提交请假', color: '#8E44AD' },
-    { icon: '🎉', title: '社团活动', desc: '校园活动报名', color: '#FF6B6B' },
-    { icon: '🔍', title: '失物招领', desc: '寻物与招领', color: '#4ECDC4' }
+    { icon: '📅', title: '课程表', desc: '查看今日课程', color: '#4A90D9', path: null },
+    { icon: '📊', title: '成绩查询', desc: '学期成绩一览', color: '#67C23A', path: null },
+    { icon: '📝', title: '考试安排', desc: '考试时间与地点', color: '#E6A23C', path: null },
+    { icon: '📖', title: '图书馆', desc: '借阅与预约', color: '#909399', path: null },
+    { icon: '💳', title: '校园卡', desc: '充值与消费', color: '#F56C6C', path: null },
+    { icon: '📋', title: '请假申请', desc: '在线提交请假', color: '#8E44AD', path: null },
+    { icon: '🎉', title: '活动管理', desc: '活动发布与管理', color: '#FF6B6B', path: '/activity/manage' },
+    { icon: '🔍', title: '失物招领', desc: '寻物与招领', color: '#4ECDC4', path: null }
   ]
 
   const notices = [
@@ -72,6 +72,14 @@ function Home() {
     clearAuth()
     message.success('已退出登录')
     navigate('/')
+  }
+
+  const handleMenuClick = (item) => {
+    if (item.path) {
+      navigate(item.path)
+    } else {
+      message.info('功能开发中，敬请期待')
+    }
   }
 
   if (!userInfo) {
@@ -134,7 +142,12 @@ function Home() {
           <h3 className="section-title">快捷功能</h3>
           <div className="menu-grid">
             {menuItems.map((item, index) => (
-              <div key={index} className="menu-card" style={{ '--card-color': item.color }}>
+              <div 
+                key={index} 
+                className="menu-card" 
+                style={{ '--card-color': item.color }}
+                onClick={() => handleMenuClick(item)}
+              >
                 <div className="menu-icon">{item.icon}</div>
                 <div className="menu-info">
                   <h4>{item.title}</h4>
