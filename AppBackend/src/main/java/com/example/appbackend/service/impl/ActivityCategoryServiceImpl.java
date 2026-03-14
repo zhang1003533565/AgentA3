@@ -25,8 +25,11 @@ public class ActivityCategoryServiceImpl implements ActivitiyCategoryService {
         }
         ActivityCategory activityCategory =new ActivityCategory();
         activityCategory.setCategoryName(categoryRequest.getCategoryName());
+        activityCategory.setSort(categoryRequest.getSort() != null ? categoryRequest.getSort() : 0);
+        activityCategory.setStatus(categoryRequest.getStatus() != null ? categoryRequest.getStatus() : 1);
         activityCategoryRepository.save(activityCategory);
-        return new CategoryResponse(activityCategory.getCategoryName(), activityCategory.getCreateTime());
+        return new CategoryResponse( activityCategory.getCategoryName(),
+                activityCategory.getSort(), activityCategory.getStatus(), activityCategory.getCreateTime());
 
     }
 
@@ -34,7 +37,8 @@ public class ActivityCategoryServiceImpl implements ActivitiyCategoryService {
     public List<CategoryResponse> getAllCategories() {
         List<ActivityCategory> categories = activityCategoryRepository.findAll();
         return categories.stream()
-                .map(cat -> new CategoryResponse(cat.getCategoryName(), cat.getCreateTime()))
+                .map(cat -> new CategoryResponse( cat.getCategoryName(),
+                        cat.getSort(), cat.getStatus(), cat.getCreateTime()))
                 .collect(Collectors.toList());
     }
 }

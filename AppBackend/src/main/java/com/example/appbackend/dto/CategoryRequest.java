@@ -11,6 +11,9 @@ public class CategoryRequest {
     @Schema(description = "分类名称", example = "学术活动")
     private String categoryName;
 
+    @Schema(description = "排序", example = "1")
+    private Integer sort;
 
-
+    @Schema(description = "状态 1-启用 0-禁用", example = "1")
+    private Integer status;
 }

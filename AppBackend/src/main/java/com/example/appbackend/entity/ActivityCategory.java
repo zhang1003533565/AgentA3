@@ -16,6 +16,9 @@ public class ActivityCategory {
     @Column(name = "category_name", nullable = false, length = 100)
     private String categoryName;
 
+    @Column(name = "sort")
+    private Integer sort = 0;
+
     @Column(nullable = false)
     private Integer status = 1;
 
