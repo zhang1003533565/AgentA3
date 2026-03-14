@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.*;
 @Tag(name = "活动管理", description = "活动接口")
 public class ActivityController {
 
+
     @Operation(summary = "活动列表", description = "获取活动列表")
     @GetMapping
     public Result<Object> getActivityList() {

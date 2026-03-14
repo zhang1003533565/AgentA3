@@ -2,6 +2,7 @@ package com.example.appbackend.controller;
 
 import com.example.appbackend.dto.*;
 import com.example.appbackend.entity.Result;
+import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,7 +24,7 @@ public class UserManagementController {
     private void checkAdminRole(HttpServletRequest request) {
         String role = (String) request.getAttribute("role");
         if (!ROLE_ADMIN.equals(role)) {
-            throw new RuntimeException("无权限操作，仅管理员可执行");
+            throw new BusinessException(Result.FORBIDDEN_CODE, "无权限操作，仅管理员可执行");
         }
     }
 

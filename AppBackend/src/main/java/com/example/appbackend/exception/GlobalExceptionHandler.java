@@ -1,6 +1,7 @@
 package com.example.appbackend.exception;
 
 import com.example.appbackend.entity.Result;
+import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.validation.FieldError;
@@ -15,6 +16,13 @@ import java.util.Map;
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(BusinessException.class)
+    public Result<?> handleBusinessException(BusinessException e, HttpServletResponse response) {
+        log.warn("业务异常: {}", e.getMessage());
+        response.setStatus(e.getCode());
+        return Result.error(e.getCode(), e.getMessage());
+    }
 
     @ExceptionHandler(RuntimeException.class)
     public Result<?> handleRuntimeException(RuntimeException e) {
