@@ -31,6 +31,7 @@ public class AuthController {
     @Operation(summary = "APP端登录", description = "学生用户APP端登录（仅允许学生角色）")
     @PostMapping("/applogin")
     public Result<UserResponse> applogin(@Valid @RequestBody LoginRequest request) {
+
         UserResponse response = userService.applogin(request);
         return Result.success(response);
     }

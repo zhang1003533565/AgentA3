@@ -85,6 +85,9 @@ public class UserServiceImpl implements UserService {
     public UserResponse login(LoginRequest request) {
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new RuntimeException("用户名或密码错误"));
+        if(user.getStatus()==0){
+            throw new RuntimeException("该用户已被禁用");
+        }
 
         if (!request.getPassword().equals(user.getPassword())) {
             throw new RuntimeException("用户名或密码错误");
@@ -100,6 +103,9 @@ public class UserServiceImpl implements UserService {
 
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new RuntimeException("用户名或密码错误"));
+        if(user.getStatus()==0){
+            throw new RuntimeException("该用户已被禁用");
+        }
 
         // 安全且逻辑正确的写法
         if(!"STUDENT".equals(roleName(user))){
