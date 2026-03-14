@@ -49,7 +49,7 @@ function Home() {
     { icon: '📅', title: '课程表', desc: '查看今日课程', color: '#4A90D9', path: null },
     { icon: '📊', title: '成绩查询', desc: '学期成绩一览', color: '#67C23A', path: null },
     { icon: '📝', title: '考试安排', desc: '考试时间与地点', color: '#E6A23C', path: null },
-    { icon: '📖', title: '图书馆', desc: '借阅与预约', color: '#909399', path: null },
+    { icon: '✅', title: '审核管理', desc: '报名审核管理', color: '#FAAD14', path: '/audit/manage' },
     { icon: '🏷️', title: '分类管理', desc: '活动分类管理', color: '#52C41A', path: '/category/manage' },
     { icon: '📋', title: '请假申请', desc: '在线提交请假', color: '#8E44AD', path: null },
     { icon: '🎉', title: '活动管理', desc: '活动发布与管理', color: '#FF6B6B', path: '/activity/manage' },
