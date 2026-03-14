@@ -8,6 +8,7 @@ import lombok.Data;
 @Schema(description = "修改密码请求")
 public class PasswordChangeRequest {
 
+
     @NotBlank(message = "旧密码不能为空")
     @Schema(description = "旧密码", example = "123456")
     private String oldPassword;

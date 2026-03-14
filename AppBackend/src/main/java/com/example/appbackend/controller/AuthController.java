@@ -5,10 +5,10 @@ import com.example.appbackend.dto.LoginRequest;
 import com.example.appbackend.dto.RegisterRequest;
 import com.example.appbackend.dto.PasswordChangeRequest;
 import com.example.appbackend.entity.Result;
-import com.example.appbackend.entity.User;
 import com.example.appbackend.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -54,7 +54,9 @@ public class AuthController {
 
     @Operation(summary = "修改密码", description = "修改当前用户密码")
     @PutMapping("/password")
-    public Result<Void> changePassword(@Valid @RequestBody PasswordChangeRequest request) {
+    public Result changePassword(HttpServletRequest httpRequest, @Valid @RequestBody PasswordChangeRequest request) {
+        String username = (String) httpRequest.getAttribute("username");
+        userService.password(username, request);
         return Result.success();
     }
 

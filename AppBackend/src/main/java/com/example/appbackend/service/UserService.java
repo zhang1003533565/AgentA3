@@ -1,5 +1,6 @@
 package com.example.appbackend.service;
 
+import com.example.appbackend.dto.PasswordChangeRequest;
 import com.example.appbackend.dto.UserResponse;
 import com.example.appbackend.dto.LoginRequest;
 import com.example.appbackend.dto.RegisterRequest;
@@ -15,4 +16,6 @@ public interface UserService {
     UserResponse applogin(@Valid LoginRequest request);
 
     UserResponse current(Long id);
+
+    void password(String username, @Valid PasswordChangeRequest request);
 }

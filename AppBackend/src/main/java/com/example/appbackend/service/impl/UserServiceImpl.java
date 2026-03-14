@@ -1,5 +1,6 @@
 package com.example.appbackend.service.impl;
 
+import com.example.appbackend.dto.PasswordChangeRequest;
 import com.example.appbackend.dto.UserResponse;
 import com.example.appbackend.dto.LoginRequest;
 import com.example.appbackend.dto.RegisterRequest;
@@ -117,6 +118,23 @@ public class UserServiceImpl implements UserService {
         // 当前用户信息接口不返回 token，由前端已有 token 保持登录状态
         return new UserResponse(null, user.getUsername(), roleName(user), user.getPhone(),
                 user.getRealName(), user.getCollege(), user.getMajor(), user.getClassName(), user.getPersonalNumber());
+    }
+
+    @Override
+    public void password(String username, PasswordChangeRequest request) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("用户不存在"));
+
+
+        if (!user.getPassword().equals(request.getOldPassword())) {
+            throw new RuntimeException("旧密码错误");
+        }
+        if(user.getPassword().equals(request.getNewPassword())){
+            throw new RuntimeException("新密码不可与旧密码相同");
+        }
+
+        user.setPassword(request.getNewPassword());
+        userRepository.save(user);
     }
 
 
