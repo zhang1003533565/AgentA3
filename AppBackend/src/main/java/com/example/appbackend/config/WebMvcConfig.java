@@ -17,8 +17,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
         registry.addInterceptor(jwtInterceptor)
                 .addPathPatterns("/api/**")
                 .excludePathPatterns(
-                        "/api/user/register",
-                        "/api/user/login",
+                        "/api/auth/register",
+                        "/api/auth/applogin",
+                        "/api/auth/weblogin",
                         "/swagger-ui.html",
                         "/swagger-ui/**",
                         "/v3/api-docs/**",
@@ -26,14 +27,18 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/swagger-resources/**",
                         "/webjars/**",
                         "/doc.html",
-                        "/favicon.ico"
+                        "/favicon.ico",
+                        "/api/activities",
+                        "/api/activities/**",
+                        "/api/categories",
+                        "/api/categories/**"
                 );
     }
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
-                .allowedOriginPatterns("*")
+                .allowedOrigins("http://localhost:5174", "http://localhost:5173")
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(true)
