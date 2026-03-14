@@ -12,6 +12,8 @@ import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/categories")
 @Tag(name = "活动分类管理", description = "活动分类接口")
@@ -34,8 +36,9 @@ public class CategoryController {
 
     @Operation(summary = "分类列表", description = "获取所有活动分类")
     @GetMapping
-    public Result<Object> getCategoryList() {
-        return Result.success();
+    public Result<List<CategoryResponse>> getCategoryList() {
+        List<CategoryResponse> categories = activitiyCategoryService.getAllCategories();
+        return Result.success(categories);
     }
 
     @Operation(summary = "创建分类", description = "创建活动分类（管理员/教师）")
