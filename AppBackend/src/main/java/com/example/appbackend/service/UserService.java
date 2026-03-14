@@ -1,9 +1,6 @@
 package com.example.appbackend.service;
 
-import com.example.appbackend.dto.PasswordChangeRequest;
-import com.example.appbackend.dto.UserResponse;
-import com.example.appbackend.dto.LoginRequest;
-import com.example.appbackend.dto.RegisterRequest;
+import com.example.appbackend.dto.*;
 import com.example.appbackend.entity.User;
 import jakarta.validation.Valid;
 
@@ -18,4 +15,14 @@ public interface UserService {
     UserResponse current(Long id);
 
     void password(String username, @Valid PasswordChangeRequest request);
+
+    PageResponse<UserListItem> getUserList(Integer page, Integer size, String username, String role, Integer status);
+
+    void updateUser(Long id, UserUpdateRequest request);
+
+    void enableUser(Long id);
+
+    void disableUser(Long id);
+
+    void resetPassword(Long id, String newPassword);
 }

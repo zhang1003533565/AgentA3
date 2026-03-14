@@ -47,7 +47,7 @@ public class AuthController {
     public Result<UserResponse> getCurrentUser(@PathVariable Long id) {
         UserResponse response=userService.current(id);
         if(id==null){
-            return Result.error("用户不存在");
+            return Result.error(401,"用户不存在");
         }
         return Result.success(response);
     }

@@ -1,9 +1,6 @@
 package com.example.appbackend.service.impl;
 
-import com.example.appbackend.dto.PasswordChangeRequest;
-import com.example.appbackend.dto.UserResponse;
-import com.example.appbackend.dto.LoginRequest;
-import com.example.appbackend.dto.RegisterRequest;
+import com.example.appbackend.dto.*;
 import com.example.appbackend.entity.Role;
 import com.example.appbackend.entity.User;
 import com.example.appbackend.repository.RoleRepository;
@@ -11,7 +8,13 @@ import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.UserService;
 import com.example.appbackend.util.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 public class UserServiceImpl implements UserService {
@@ -67,7 +70,7 @@ public class UserServiceImpl implements UserService {
                     .orElseThrow(() -> new RuntimeException("请选择有效身份"));
         } else {
             role = roleRepository.findByName("STUDENT")
-                    .orElseThrow(() -> new RuntimeException("默认角色不存在，请先初始化角色数据"));
+                    .orElseThrow(() -> new RuntimeException("无角色存在"));
         }
         user.setRole(role);
 
@@ -97,8 +100,9 @@ public class UserServiceImpl implements UserService {
 
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new RuntimeException("用户名或密码错误"));
-        Role role=user.getRole();
-        if(!role.equals("student")){
+
+        // 安全且逻辑正确的写法
+        if(!"STUDENT".equals(roleName(user))){
             throw new RuntimeException("请登录学生用户");
         }
 
@@ -134,6 +138,90 @@ public class UserServiceImpl implements UserService {
         }
 
         user.setPassword(request.getNewPassword());
+        userRepository.save(user);
+    }
+
+    @Override
+    public PageResponse<UserListItem> getUserList(Integer page, Integer size, String username, String role, Integer status) {
+        if (page == null || page < 1) {
+            page = 1;
+        }
+        if (size == null || size < 1) {
+            size = 10;
+        }
+
+        Pageable pageable = PageRequest.of(page - 1, size);
+        Page<User> userPage = userRepository.findByConditions(username, role, status, pageable);
+
+        List<UserListItem> records = new ArrayList<>();
+        for (User user : userPage.getContent()) {
+            UserListItem item = new UserListItem();
+            item.setId(user.getId());
+            item.setUsername(user.getUsername());
+            item.setRealName(user.getRealName());
+            item.setPersonalNumber(user.getPersonalNumber());
+            item.setPhone(user.getPhone());
+            item.setEmail(user.getEmail());
+            item.setRole(roleName(user));
+            item.setCollege(user.getCollege());
+            item.setMajor(user.getMajor());
+            item.setClassName(user.getClassName());
+            item.setStatus(user.getStatus());
+            item.setCreateTime(user.getCreateTime());
+            records.add(item);
+        }
+
+        return new PageResponse<>(records, userPage.getTotalElements(), page, size);
+    }
+
+    @Override
+    public void updateUser(Long id, UserUpdateRequest request) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("用户不存在"));
+
+        if (request.getRealName() != null) {
+            user.setRealName(request.getRealName());
+        }
+        if (request.getPhone() != null) {
+            user.setPhone(request.getPhone());
+        }
+        if (request.getEmail() != null) {
+            user.setEmail(request.getEmail());
+        }
+        if (request.getCollege() != null) {
+            user.setCollege(request.getCollege());
+        }
+        if (request.getMajor() != null) {
+            user.setMajor(request.getMajor());
+        }
+        if (request.getClassName() != null) {
+            user.setClassName(request.getClassName());
+        }
+
+        userRepository.save(user);
+    }
+
+    @Override
+    public void enableUser(Long id) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("用户不存在"));
+        user.setStatus(1);
+        userRepository.save(user);
+    }
+
+    @Override
+    public void disableUser(Long id) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("用户不存在"));
+        user.setStatus(0);
+        userRepository.save(user);
+    }
+
+    @Override
+    public void resetPassword(Long id, String newPassword) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("用户不存在"));
+        user.setPassword(newPassword);
         userRepository.save(user);
     }
 
