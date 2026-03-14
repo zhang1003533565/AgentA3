@@ -16,10 +16,7 @@ public class ActivityCategory {
     @Column(name = "category_name", nullable = false, length = 100)
     private String categoryName;
 
-    @Column
-    private Integer sort = 0;
-
-    @Column
+    @Column(nullable = false)
     private Integer status = 1;
 
     @Column(name = "create_time")
