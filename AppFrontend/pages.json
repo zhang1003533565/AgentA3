@@ -11,9 +11,37 @@
 			"path": "pages/index/index",
 			"style": {
 				"navigationBarTitleText": "智慧校园",
-				"navigationBarBackgroundColor": "#4A90D9",
-				"navigationBarTextStyle": "white",
+				"navigationStyle": "custom",
+				"navigationBarBackgroundColor": "#FFFFFF",
+				"navigationBarTextStyle": "black",
 				"enablePullDownRefresh": true
+			}
+		},
+		{
+			"path": "pages/activity/activity",
+			"style": {
+				"navigationBarTitleText": "活动",
+				"navigationStyle": "custom",
+				"navigationBarBackgroundColor": "#FFFFFF",
+				"navigationBarTextStyle": "black"
+			}
+		},
+		{
+			"path": "pages/message/message",
+			"style": {
+				"navigationBarTitleText": "通知与消息",
+				"navigationStyle": "custom",
+				"navigationBarBackgroundColor": "#FFFFFF",
+				"navigationBarTextStyle": "black"
+			}
+		},
+		{
+			"path": "pages/mine/mine",
+			"style": {
+				"navigationBarTitleText": "个人中心",
+				"navigationStyle": "custom",
+				"navigationBarBackgroundColor": "#FFFFFF",
+				"navigationBarTextStyle": "black"
 			}
 		}
 	],
@@ -24,10 +52,20 @@
 				{
 					"path": "activityList/activityList",
 					"style": {
-						"navigationBarTitleText": "社区活动",
-						"navigationBarBackgroundColor": "#4A90D9",
-						"navigationBarTextStyle": "white",
+						"navigationBarTitleText": "活动",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black",
 						"enablePullDownRefresh": true
+					}
+				},
+				{
+					"path": "activityDetail/activityDetail",
+					"style": {
+						"navigationBarTitleText": "活动详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
 					}
 				}
 			]
@@ -42,8 +80,8 @@
 	"globalStyle": {
 		"navigationBarTextStyle": "black",
 		"navigationBarTitleText": "智慧校园",
-		"navigationBarBackgroundColor": "#F8F8F8",
-		"backgroundColor": "#F8F8F8"
+		"navigationBarBackgroundColor": "#FFFFFF",
+		"backgroundColor": "#F7F7F9"
 	},
 	"uniIdRouter": {}
 }

@@ -1,0 +1,80 @@
+/**
+ * 智慧校园 - 工业级全局设计规范
+ * 画布极浅灰 + Header 纯白 + 无影化，层次靠色块与 1px 极细分割线
+ */
+
+/* ========== 色彩系统 ========== */
+$color-primary: #5C7A99;            // 主色 - 莫兰迪灰蓝
+$color-bg-canvas: #F7F7F9;           // 画布/页面背景 - 极浅灰
+$color-bg-header: #FFFFFF;          // Header 容器 - 纯白
+$color-bg-block: #FFFFFF;            // 内容区白块
+$color-divider: #EEEEEE;             // 极细分割线（1px，无影化层次）
+
+$color-text-title: #1D1D1F;          // 标题
+$color-text-body: #4A4A4A;          // 三级正文（14px Regular）
+$color-text-secondary: #8E8E93;      // 次要/时间
+
+$color-icon: #4A4A4A;                // 图标（兼容）
+$color-icon-line: #48484A;          // 线性图标主色（全站统一）
+$color-icon-active: $color-primary; // 图标激活/强调色（如 Tab 选中）
+$icon-primary-bg-5: rgba(92, 122, 153, 0.05); // 图标极淡背景圆（品牌色 5%）
+$color-bg-hover: #E8E9EC;
+$color-bg-mask: rgba(0, 0, 0, 0.4);
+
+$color-success: #6B9B7A;
+$color-warning: #B89B7A;
+$color-error: #A67B7B;
+
+/* 标签：背景 5% 透明度，文字加深 */
+$tag-primary-bg: rgba(92, 122, 153, 0.05);
+$tag-primary-text: #4A6278;
+$tag-gray-bg: rgba(142, 142, 147, 0.05);
+$tag-gray-text: #5C5C60;
+$tag-blue-bg: rgba(92, 122, 153, 0.05);
+$tag-blue-text: #4A6278;
+$tag-green-bg: rgba(107, 155, 122, 0.05);
+$tag-green-text: #4A6B57;
+$tag-orange-bg: rgba(184, 155, 122, 0.05);
+$tag-orange-text: #7A6B52;
+$tag-purple-bg: rgba(139, 122, 153, 0.05);
+$tag-purple-text: #5C4A6B;
+
+/* ========== 字体层级（工业级三级） ========== */
+/* 一级：大标题 24px Extra-Bold */
+$font-size-h1: 24px;
+$font-size-h1-rpx: 48rpx;
+$font-weight-h1: 800;                // Extra-Bold
+
+/* 二级：模块名 16px Semi-Bold */
+$font-size-h2: 16px;
+$font-size-h2-rpx: 32rpx;
+$font-weight-h2: 600;                // Semi-Bold
+
+/* 三级：正文 14px Regular #4A4A4A */
+$font-size-body: 14px;
+$font-size-body-rpx: 28rpx;
+$font-weight-body: 400;              // Regular
+
+$font-size-secondary: 12px;
+$font-size-secondary-rpx: 24rpx;
+
+/* 兼容旧变量名 */
+$font-size-title: $font-size-h2;
+$font-size-title-rpx: $font-size-h2-rpx;
+$color-bg-page: $color-bg-canvas;
+
+/* ========== 间距 ========== */
+$spacing-sm-rpx: 16rpx;
+$spacing-md-rpx: 24rpx;
+$spacing-base-rpx: 32rpx;
+$spacing-lg-rpx: 48rpx;
+$spacing-block: 24rpx;
+
+/* ========== 圆角 ========== */
+$radius-sm-rpx: 8rpx;
+$radius-base-rpx: 12rpx;
+$radius-lg-rpx: 24rpx;
+$radius-circle: 50%;
+
+/* ========== 无影化原则 ========== */
+// 严禁 box-shadow。层次仅通过：白/灰背景色块 + 1px 分割线（#EEEEEE）

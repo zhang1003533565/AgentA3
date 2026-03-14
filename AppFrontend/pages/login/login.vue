@@ -391,7 +391,7 @@ export default {
 	}
 
 	.logo-symbol {
-	color: #2563eb;
+	color: #5C7A99;
 		font-size: 34rpx;
 		font-weight: 600;
 		letter-spacing: 2rpx;
@@ -444,9 +444,8 @@ export default {
 		left: 4rpx;
 		width: calc(50% - 4rpx);
 		background-color: #ffffff;
-	border-radius: 20rpx;
-		box-shadow: 0 6rpx 18rpx rgba(15, 23, 42, 0.16);
-	transition: all 300ms ease-in-out;
+		border-radius: 20rpx;
+		transition: all 300ms ease-in-out;
 		z-index: 0;
 	}
 
@@ -495,21 +494,18 @@ export default {
 		height: 88rpx;
 		border-radius: 24rpx;
 		background-color: #ffffff;
-	border-width: 2rpx;
+		border-width: 2rpx;
 		border-style: solid;
-	border-color: transparent;
+		border-color: transparent;
 		padding: 0 24rpx;
 		display: flex;
 		align-items: center;
-		transition: border-color 160ms ease-out, box-shadow 160ms ease-out,
-			background-color 160ms ease-out;
-	box-shadow: 0 2rpx 8rpx rgba(15, 23, 42, 0.04);
+		transition: border-color 160ms ease-out, background-color 160ms ease-out;
 	}
 
 	.input-shell:focus-within {
-		border-color: #3b82f6;
+		border-color: #5C7A99;
 		background-color: #ffffff;
-		box-shadow: 0 4rpx 24rpx rgba(15, 23, 42, 0.08);
 	}
 
 	.input-field {
@@ -563,8 +559,8 @@ export default {
 	}
 
 	.checkbox.checked {
-		border-color: #2563eb;
-		background-color: #2563eb;
+		border-color: #5C7A99;
+		background-color: #5C7A99;
 	}
 
 	.checkbox-mark {
@@ -580,7 +576,7 @@ export default {
 
 	.forgot-password {
 	font-size: 24rpx;
-	color: #2563eb;
+	color: #5C7A99;
 	font-weight: 500;
 	}
 
@@ -591,27 +587,23 @@ export default {
 		height: 92rpx;
 		line-height: 92rpx;
 		border-radius: 24rpx;
-		background: linear-gradient(90deg, #3b82f6, #2563eb);
+		background: linear-gradient(90deg, #6B8BA4, #5C7A99);
 		color: #ffffff;
 		font-size: 30rpx;
-	font-weight: 600;
+		font-weight: 600;
 		letter-spacing: 4rpx;
 		border-width: 2rpx;
 		border-style: solid;
-		border-color: #1d4ed8;
-		box-shadow: 0 12rpx 24rpx -6rpx rgba(37, 99, 235, 0.35);
-		transition: transform 200ms ease-out, box-shadow 200ms ease-out,
-			opacity 200ms ease-out;
+		border-color: #4A6278;
+		transition: transform 200ms ease-out, opacity 200ms ease-out;
 	}
 
 	.primary-btn:hover {
 		transform: translateY(-4rpx);
-		box-shadow: 0 16rpx 30rpx -8rpx rgba(37, 99, 235, 0.4);
 	}
 
 	.primary-btn:active {
 		transform: translateY(0) scale(0.98);
-		box-shadow: 0 10rpx 18rpx -6rpx rgba(37, 99, 235, 0.32);
 	}
 
 	.primary-btn[disabled] {
