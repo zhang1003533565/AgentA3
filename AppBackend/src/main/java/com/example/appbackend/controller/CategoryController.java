@@ -52,7 +52,9 @@ public class CategoryController {
 
     @Operation(summary = "更新分类", description = "更新活动分类（管理员/教师）")
     @PutMapping("/{id}")
-    public Result<Void> updateCategory(@PathVariable Long id) {
+    public Result<Void> updateCategory(HttpServletRequest request, @PathVariable Long id,@RequestBody CategoryRequest categoryRequest) {
+        checkAdminRole(request);
+        activitiyCategoryService.update(id,categoryRequest);
         return Result.success();
     }
 

@@ -44,4 +44,25 @@ public class ActivityCategoryServiceImpl implements ActivitiyCategoryService {
                         cat.getSort(), cat.getStatus(), cat.getCreateTime()))
                 .collect(Collectors.toList());
     }
+
+    @Override
+    public void update(Long id, CategoryRequest categoryRequest) {
+        ActivityCategory activityCategory=activityCategoryRepository.findById(id).orElseThrow(()->new BusinessException(Result.FORBIDDEN_CODE,"用户不存在"));
+        // 分类名称
+        if (categoryRequest.getCategoryName() != null) {
+            activityCategory.setCategoryName(categoryRequest.getCategoryName());
+        }
+// 排序号
+        if (categoryRequest.getSort() != null) {
+            activityCategory.setSort(categoryRequest.getSort());
+        }
+// 状态
+        if (categoryRequest.getStatus() != null) {
+            activityCategory.setStatus(categoryRequest.getStatus());
+        }
+// 保存到数据库
+        activityCategoryRepository.save(activityCategory);
+    }
+
+
 }
