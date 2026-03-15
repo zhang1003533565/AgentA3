@@ -64,5 +64,11 @@ public class ActivityCategoryServiceImpl implements ActivitiyCategoryService {
         activityCategoryRepository.save(activityCategory);
     }
 
+    @Override
+    public void delete(Long id) {
+        ActivityCategory activityCategory=activityCategoryRepository.findById(id).orElseThrow(()->new BusinessException(Result.FORBIDDEN_CODE,"用户不存在"));
+        activityCategoryRepository.deleteById(id);
+    }
+
 
 }

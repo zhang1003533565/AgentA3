@@ -60,7 +60,8 @@ public class CategoryController {
 
     @Operation(summary = "删除分类", description = "删除活动分类（管理员）")
     @DeleteMapping("/{id}")
-    public Result<Void> deleteCategory(@PathVariable Long id) {
+    public Result<Void> deleteCategory(HttpServletRequest request, @PathVariable Long id) {
+        activitiyCategoryService.delete(id);
         return Result.success();
     }
 }

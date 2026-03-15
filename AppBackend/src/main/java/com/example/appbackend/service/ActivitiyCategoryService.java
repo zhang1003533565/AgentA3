@@ -13,4 +13,6 @@ public interface ActivitiyCategoryService {
     List<CategoryResponse> getAllCategories();
 
     void update(Long id,CategoryRequest categoryRequest);
+
+    void delete(Long id);
 }
