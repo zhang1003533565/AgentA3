@@ -4,6 +4,7 @@ import Home from './pages/Home'
 import ActivityManage from './pages/ActivityManage'
 import CategoryManage from './pages/CategoryManage'
 import AuditManage from './pages/AuditManage'
+import SignInManage from './pages/SignInManage'
 import './App.css'
 
 function App() {
@@ -15,6 +16,7 @@ function App() {
         <Route path="/activity/manage" element={<ActivityManage />} />
         <Route path="/category/manage" element={<CategoryManage />} />
         <Route path="/audit/manage" element={<AuditManage />} />
+        <Route path="/signin/manage" element={<SignInManage />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Router>
