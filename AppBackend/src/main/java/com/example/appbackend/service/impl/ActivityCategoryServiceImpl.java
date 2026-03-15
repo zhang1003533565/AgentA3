@@ -9,6 +9,7 @@ import com.example.appbackend.repository.ActivityCategoryRepository;
 import com.example.appbackend.service.ActivitiyCategoryService;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -25,19 +26,21 @@ public class ActivityCategoryServiceImpl implements ActivitiyCategoryService {
         }
         ActivityCategory activityCategory =new ActivityCategory();
         activityCategory.setCategoryName(categoryRequest.getCategoryName());
-        activityCategory.setSort(categoryRequest.getSort() != null ? categoryRequest.getSort() : 0);
+        activityCategory.setSort(categoryRequest.getSort() != null ? categoryRequest.getSort() : 1);
         activityCategory.setStatus(categoryRequest.getStatus() != null ? categoryRequest.getStatus() : 1);
         activityCategoryRepository.save(activityCategory);
-        return new CategoryResponse( activityCategory.getCategoryName(),
+        return new CategoryResponse(activityCategory.getId(), activityCategory.getCategoryName(),
                 activityCategory.getSort(), activityCategory.getStatus(), activityCategory.getCreateTime());
 
     }
 
     @Override
     public List<CategoryResponse> getAllCategories() {
-        List<ActivityCategory> categories = activityCategoryRepository.findAll();
+        // 按排序值升序、同序时按 ID 升序
+        Sort sort = Sort.by(Sort.Direction.ASC, "sort").and(Sort.by(Sort.Direction.ASC, "id"));
+        List<ActivityCategory> categories = activityCategoryRepository.findAll(sort);
         return categories.stream()
-                .map(cat -> new CategoryResponse( cat.getCategoryName(),
+                .map(cat -> new CategoryResponse(cat.getId(), cat.getCategoryName(),
                         cat.getSort(), cat.getStatus(), cat.getCreateTime()))
                 .collect(Collectors.toList());
     }

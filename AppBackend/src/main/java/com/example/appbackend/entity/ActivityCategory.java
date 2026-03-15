@@ -17,7 +17,7 @@ public class ActivityCategory {
     private String categoryName;
 
     @Column(name = "sort")
-    private Integer sort = 0;
+    private Integer sort = 1;
 
     @Column(nullable = false)
     private Integer status = 1;

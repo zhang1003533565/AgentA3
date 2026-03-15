@@ -1,5 +1,6 @@
 package com.example.appbackend.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -13,8 +14,10 @@ import java.time.LocalDateTime;
 @Schema(description = "分类响应")
 public class CategoryResponse {
 
+    @Schema(description = "分类ID")
+    private Long id;
 
-
+    @JsonProperty("name")  // 前端表格使用 name 字段
     @Schema(description = "分类名称", example = "学术活动")
     private String categoryName;
 
