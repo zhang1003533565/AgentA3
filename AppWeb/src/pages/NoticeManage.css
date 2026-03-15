@@ -1,0 +1,174 @@
+.notice-manage-container {
+  min-height: 100vh;
+  background-color: #f5f7fa;
+}
+
+/* 顶部导航 */
+.manage-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 24px;
+  height: 64px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.manage-header h1 {
+  margin: 0;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.user-name {
+  color: #fff;
+  font-size: 14px;
+}
+
+/* 主内容区 */
+.manage-main {
+  padding: 24px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+/* 操作栏 */
+.notice-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding: 20px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.notice-stats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 16px;
+}
+
+.notice-stats strong {
+  color: #ff4d4f;
+  font-size: 20px;
+}
+
+.notice-icon {
+  font-size: 24px;
+  color: #faad14;
+}
+
+/* 通知列表容器 */
+.notice-list-container {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* 通知列表 */
+.notice-list {
+  min-height: 400px;
+}
+
+.notice-item {
+  padding: 16px;
+  border-bottom: 1px solid #f0f0f0;
+  transition: background-color 0.3s;
+}
+
+.notice-item:hover {
+  background-color: #fafafa;
+}
+
+.notice-item.unread {
+  background-color: #e6f7ff;
+}
+
+.notice-item.unread:hover {
+  background-color: #bae7ff;
+}
+
+/* 通知类型图标 */
+.notice-type-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  background-color: #f0f0f0;
+}
+
+.notice-type-icon.type-1 {
+  background-color: #e6f7ff;
+}
+
+.notice-type-icon.type-2 {
+  background-color: #f6ffed;
+}
+
+.notice-type-icon.type-3 {
+  background-color: #fff7e6;
+}
+
+.notice-type-icon.type-4 {
+  background-color: #f9f0ff;
+}
+
+/* 未读标题 */
+.unread-title {
+  font-weight: 600;
+  color: #1890ff;
+}
+
+/* 通知时间 */
+.notice-time {
+  color: #999;
+  font-size: 12px;
+}
+
+/* 通知预览 */
+.notice-preview {
+  color: #666;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+/* 通知详情弹窗 */
+.notice-detail {
+  padding: 10px 0;
+}
+
+.notice-detail p {
+  margin-bottom: 12px;
+  line-height: 1.6;
+}
+
+.notice-content {
+  background-color: #f5f5f5;
+  padding: 12px;
+  border-radius: 4px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .notice-actions {
+    flex-direction: column;
+    gap: 16px;
+    align-items: stretch;
+  }
+}

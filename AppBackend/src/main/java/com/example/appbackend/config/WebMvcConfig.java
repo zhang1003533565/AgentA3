@@ -31,7 +31,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/api/activities",
                         "/api/activities/**",
                         "/api/categories",
-                        "/api/categories/**"
+                        "/api/categories/**",
+                        "/api/notices",
+                        "/api/notices/**"
                 );
     }
 

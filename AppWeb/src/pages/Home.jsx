@@ -56,6 +56,7 @@ function Home() {
     { icon: '🏷️', title: '分类管理', desc: '活动分类管理', color: '#52C41A', path: '/category/manage' },
     { icon: '✅', title: '审核管理', desc: '报名审核管理', color: '#FAAD14', path: '/audit/manage' },
     { icon: '📍', title: '签到管理', desc: '活动签到管理', color: '#13C2C2', path: '/signin/manage' },
+    { icon: '🔔', title: '通知管理', desc: '系统通知管理', color: '#722ED1', path: '/notice/manage' },
     { icon: '🔍', title: '失物招领', desc: '寻物与招领', color: '#4ECDC4', path: null }
   ]
 
