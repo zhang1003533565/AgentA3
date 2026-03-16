@@ -125,7 +125,11 @@
 					{ name: '校园卡', icon: 'credit-card', path: '/pages/card/card' },
 					{ name: '请假申请', icon: 'clipboard', path: '/pages/leave/leave' },
 					{ name: '校园活动', icon: 'compass', path: '/subpackage_activity/activityList/activityList' },
-					{ name: '失物招领', icon: 'search', path: '/pages/lostfound/lostfound' }
+					{ name: '校园论坛', icon: 'message-square', path: '/subpackage_forum/forumList/forumList' },
+					{ name: '失物招领', icon: 'search', path: '/pages/lostfound/lostfound' },
+					{ name: '空教室', icon: 'layout', path: '/pages/classroom/classroom' },
+					{ name: '快递查询', icon: 'package', path: '/pages/express/express' },
+					{ name: '更多', icon: 'more-horizontal', path: '/pages/more/more' }
 				],
 				notices: [
 					{ title: '关于2026年清明节放假安排的通知', time: '10:30', tag: '教务', type: 'jw' },
@@ -191,10 +195,13 @@
 				console.log('点击轮播图:', item)
 			},
 			onMenuClick(item) {
-				// 活动列表在子包中，使用 reLaunch 避免 H5 下动态加载子包报 500 / switchTab 限制
-				const activityListPath = '/subpackage_activity/activityList/activityList'
-				if (item.path === activityListPath) {
-					uni.reLaunch({ url: activityListPath })
+				// 活动列表和论坛在子包中，使用 reLaunch 避免 H5 下动态加载子包报 500 / switchTab 限制
+				const subpackagePaths = [
+					'/subpackage_activity/activityList/activityList',
+					'/subpackage_forum/forumList/forumList'
+				]
+				if (subpackagePaths.includes(item.path)) {
+					uni.reLaunch({ url: item.path })
 				} else {
 					uni.navigateTo({ url: item.path })
 				}
