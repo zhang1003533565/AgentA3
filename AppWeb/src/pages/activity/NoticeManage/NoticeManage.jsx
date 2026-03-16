@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { message, Modal, Button, List, Badge, Space, Popconfirm, Tabs, Empty } from 'antd'
 import { CheckOutlined, CheckCircleOutlined, DeleteOutlined, EyeOutlined, BellOutlined } from '@ant-design/icons'
-import { getNoticeList, markAsRead, markAllAsRead } from '../api/notice'
-import { getUserInfo, clearAuth } from '../utils/storage'
+import { getNoticeList, markAsRead, markAllAsRead } from '../../../api/notice'
+import { getUserInfo, clearAuth } from '../../../utils/storage'
 import './NoticeManage.css'
 
 const { TabPane } = Tabs

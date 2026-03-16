@@ -1,11 +1,11 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import Login from './pages/Login'
-import Home from './pages/Home'
-import ActivityManage from './pages/ActivityManage'
-import CategoryManage from './pages/CategoryManage'
-import AuditManage from './pages/AuditManage'
-import SignInManage from './pages/SignInManage'
-import NoticeManage from './pages/NoticeManage'
+import Login from './pages/Login/Login'
+import Home from './pages/Home/Home'
+import ActivityManage from './pages/activity/ActivityManage/ActivityManage'
+import CategoryManage from './pages/activity/CategoryManage/CategoryManage'
+import AuditManage from './pages/activity/AuditManage/AuditManage'
+import SignInManage from './pages/activity/SignInManage/SignInManage'
+import NoticeManage from './pages/activity/NoticeManage/NoticeManage'
 import './App.css'
 
 function App() {

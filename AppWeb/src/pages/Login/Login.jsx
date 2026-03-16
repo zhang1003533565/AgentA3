@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { message } from 'antd'
-import { login } from '../api/user'
-import { setToken, setUserInfo } from '../utils/storage'
+import { login } from '../../api/user'
+import { setToken, setUserInfo } from '../../utils/storage'
 import './Login.css'
 
 function Login() {

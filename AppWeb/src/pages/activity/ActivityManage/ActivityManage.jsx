@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { message, Modal, Form, Input, Select, DatePicker, InputNumber, Button, Table, Tag, Space, Popconfirm } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons'
-import { getActivityList, createActivity, updateActivity, deleteActivity, getCategoryList } from '../api/activity'
-import { getUserInfo, clearAuth } from '../utils/storage'
+import { getActivityList, createActivity, updateActivity, deleteActivity, getCategoryList } from '../../../api/activity'
+import { getUserInfo, clearAuth } from '../../../utils/storage'
 import './ActivityManage.css'
 
 const { RangePicker } = DatePicker

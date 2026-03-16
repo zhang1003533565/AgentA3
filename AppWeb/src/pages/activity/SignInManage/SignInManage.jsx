@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { message, Modal, Form, Select, Button, Table, Tag, Space, Popconfirm, Input, QRCode } from 'antd'
 import { CheckCircleOutlined, DownloadOutlined, QrcodeOutlined, SearchOutlined, UserAddOutlined } from '@ant-design/icons'
-import { getSignInList, supplementSignIn } from '../api/signin'
-import { getActivityList } from '../api/activity'
-import { getUserInfo, clearAuth } from '../utils/storage'
+import { getSignInList, supplementSignIn } from '../../../api/signin'
+import { getActivityList } from '../../../api/activity'
+import { getUserInfo, clearAuth } from '../../../utils/storage'
 import './SignInManage.css'
 
 const { Option } = Select

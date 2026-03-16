@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { message } from 'antd'
-import { getUserInfo, clearAuth } from '../utils/storage'
+import { getUserInfo, clearAuth } from '../../utils/storage'
 import './Home.css'
 
 function Home() {

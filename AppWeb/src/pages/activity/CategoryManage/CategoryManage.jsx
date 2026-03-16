@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { message, Modal, Form, Input, Button, Table, Space, Popconfirm, Switch } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons'
-import { getCategoryList, createCategory, updateCategory, deleteCategory } from '../api/category'
-import { getUserInfo, clearAuth } from '../utils/storage'
+import { getCategoryList, createCategory, updateCategory, deleteCategory } from '../../../api/category'
+import { getUserInfo, clearAuth } from '../../../utils/storage'
 import './CategoryManage.css'
 
 function CategoryManage() {
