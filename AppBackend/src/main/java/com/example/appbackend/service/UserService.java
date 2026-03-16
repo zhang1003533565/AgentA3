@@ -12,6 +12,8 @@ public interface UserService {
 
     UserResponse applogin(@Valid LoginRequest request);
 
+    UserResponse weblogin(@Valid LoginRequest request);
+
     UserResponse current(Long id);
 
     void password(String username, @Valid PasswordChangeRequest request);
