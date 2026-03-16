@@ -250,8 +250,6 @@
 </script>
 
 <style lang="scss">
-	@import "../../uni.scss";
-
 	/* 画布：极浅灰，无影化 */
 	.home-container {
 		min-height: 100vh;

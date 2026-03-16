@@ -122,7 +122,6 @@
 </script>
 
 <style lang="scss" scoped>
-	@import "../../theme.scss";
 	.page-wrap {
 		min-height: 100vh;
 		background-color: #F7F7F9;

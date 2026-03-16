@@ -262,7 +262,6 @@ export default {
 </script>
 
 <style lang="scss">
-@import "../../uni.scss";
 .activity-container {
   min-height: 100vh;
   background-color: #F7F7F9;

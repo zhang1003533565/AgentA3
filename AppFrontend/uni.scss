@@ -2,7 +2,7 @@
  * uni-app 全局样式变量
  * 接入智慧校园设计规范（theme.scss）：克制、模块化、无线条
  */
-@import "theme.scss";
+@import "@/theme.scss";
 
 $page-bg: $color-bg-canvas;
 $card-bg: $color-bg-block;
