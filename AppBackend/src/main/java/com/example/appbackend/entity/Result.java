@@ -1,5 +1,6 @@
 package com.example.appbackend.entity;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -7,23 +8,23 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@Schema(description = "统一响应结果")
 public class Result<T> {
 
+    @Schema(description = "状态码", example = "200")
     private Integer code;
+
+    @Schema(description = "消息", example = "success")
     private String msg;
+
+    @Schema(description = "数据")
     private T data;
 
-    // 成功状态码
     public static final int SUCCESS_CODE = 200;
-    // 错误状态码
     public static final int ERROR_CODE = 500;
-    // 参数错误
     public static final int BAD_REQUEST_CODE = 400;
-    // 未授权
     public static final int UNAUTHORIZED_CODE = 401;
-    // 禁止访问
     public static final int FORBIDDEN_CODE = 403;
-    // 资源不存在
     public static final int NOT_FOUND_CODE = 404;
 
     public static <T> Result<T> success() {
