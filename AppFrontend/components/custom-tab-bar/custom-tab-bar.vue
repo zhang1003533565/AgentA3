@@ -60,15 +60,126 @@ export default {
 };
 </script>
 <style lang='css'>
-@import './common.css';
-@import './index.rpx.css';
+.page view {
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
 
 .page {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
+  width: 750rpx;
   height: 250rpx;
+  background: #fff;
   z-index: 999;
+}
+
+.group_1 {
+  width: 750rpx;
+  background: url('/static/APPIcon/tabbar/tabbar_bg.png') 0rpx 0rpx no-repeat;
+  background-size: 750rpx 183rpx;
+  padding: 10rpx 101rpx 24rpx 101rpx;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.image-text_1 {
+  margin-top: 62rpx;
+}
+
+.label_1 {
+  width: 44rpx;
+  height: 45rpx;
+  align-self: center;
+}
+
+.text-group_1 {
+  overflow-wrap: break-word;
+  color: rgba(102, 102, 102, 1);
+  font-size: 24rpx;
+  text-align: center;
+  white-space: nowrap;
+  line-height: 32rpx;
+  margin-top: 9rpx;
+}
+
+.text-group_1.active {
+  color: rgba(0, 118, 255, 1);
+  font-weight: 500;
+}
+
+.group_2 {
+  border-radius: 50%;
+  padding: 0;
+}
+
+.image-text_2 {
+}
+
+.image_1 {
+  width: 140rpx;
+  height: 140rpx;
+}
+
+.text-group_2 {
+  overflow-wrap: break-word;
+  color: rgba(255, 255, 255, 1);
+  font-size: 24rpx;
+  font-family: PingFangSC-Medium;
+  font-weight: 500;
+  text-align: center;
+  white-space: nowrap;
+  line-height: 32rpx;
+  align-self: center;
+  margin-top: 12rpx;
+}
+
+.image-text_3 {
+  margin-top: 62rpx;
+}
+
+.label_2 {
+  width: 44rpx;
+  height: 44rpx;
+  margin-left: 4rpx;
+}
+
+.text-group_3 {
+  overflow-wrap: break-word;
+  color: rgba(102, 102, 102, 1);
+  font-size: 24rpx;
+  font-family: PingFangSC-Medium;
+  font-weight: 500;
+  text-align: center;
+  white-space: nowrap;
+  line-height: 32rpx;
+  margin-top: 10rpx;
+}
+
+.text-group_3.active {
+  color: rgba(0, 118, 255, 1);
+}
+
+.image_2 {
+  width: 750rpx;
+  height: 68rpx;
+}
+
+.flex-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.flex-row {
+  display: flex;
+  flex-direction: row;
+}
+
+.justify-between {
+  display: flex;
+  justify-content: space-between;
 }
 </style>
