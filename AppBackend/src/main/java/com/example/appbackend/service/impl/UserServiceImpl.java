@@ -76,7 +76,7 @@ public class UserServiceImpl implements UserService {
 
         userRepository.save(user);
 
-        String token = jwtUtil.generateToken(user.getUsername(), roleName(user));
+        String token = jwtUtil.generateToken(user.getUsername(), user.getId(), roleName(user));
         return new UserResponse(token, user.getUsername(), roleName(user), user.getPhone(),
                 user.getRealName(), user.getCollege(), user.getMajor(), user.getClassName(), user.getPersonalNumber());
     }
@@ -93,7 +93,7 @@ public class UserServiceImpl implements UserService {
             throw new RuntimeException("用户名或密码错误");
         }
 
-        String token = jwtUtil.generateToken(user.getUsername(), roleName(user));
+        String token = jwtUtil.generateToken(user.getUsername(), user.getId(), roleName(user));
         return new UserResponse(token, user.getUsername(), roleName(user), user.getPhone(),
                 user.getRealName(), user.getCollege(), user.getMajor(), user.getClassName(), user.getPersonalNumber());
     }
@@ -116,7 +116,7 @@ public class UserServiceImpl implements UserService {
             throw new RuntimeException("用户名或密码错误");
         }
 
-        String token = jwtUtil.generateToken(user.getUsername(), roleName(user));
+        String token = jwtUtil.generateToken(user.getUsername(), user.getId(), roleName(user));
         return new UserResponse(token, user.getUsername(), roleName(user), user.getPhone(),
                 user.getRealName(), user.getCollege(), user.getMajor(), user.getClassName(), user.getPersonalNumber());
     }

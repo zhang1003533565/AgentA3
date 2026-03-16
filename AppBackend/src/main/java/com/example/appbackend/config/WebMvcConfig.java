@@ -27,17 +27,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/swagger-resources/**",
                         "/webjars/**",
                         "/doc.html",
-                        "/favicon.ico",
-                        "/api/activities",
-<<<<<<< HEAD
-                        "/api/activities/**",
-                        "/api/categories",
-                        "/api/categories/**",
-                        "/api/notices",
-                        "/api/notices/**"
-=======
-                        "/api/activities/**"
->>>>>>> 57b007fb8b3cbe44d86b2a03982e5cc5609cee2d
+                        "/favicon.ico"
+
+
                 );
     }
 
