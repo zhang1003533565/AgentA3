@@ -1,44 +1,62 @@
 <template>
   <view class="page flex-col">
     <view class="group_1 flex-row justify-between">
-      <view class="image-text_1 flex-col">
+      <view class="image-text_1 flex-col" @click="onTab('index')">
         <image
           class="label_1"
           referrerpolicy="no-referrer"
-          :src="IMAGE_PATH + 'tabbar/tabbar_home_select.png'"
+          :src="current === 'index' ? '/static/APPIcon/tabbar/tabbar_home_select.png' : '/static/APPIcon/tabbar/tabbar_home_notselected.png'"
         />
-        <text class="text-group_1">首页</text>
+        <text class="text-group_1" :class="{ active: current === 'index' }">首页</text>
       </view>
       <view class="group_2 flex-row">
-        <view class="image-text_2 flex-col">
+        <view class="image-text_2 flex-col" @click="onTab('map')">
           <image
             class="image_1"
             referrerpolicy="no-referrer"
-            :src="IMAGE_PATH + 'tabbar/tabbar_code_icon.png'"
+            src="/static/APPIcon/tabbar/tabbar_code.png"
           />
-          <text class="text-group_2">地图</text>
         </view>
       </view>
-      <view class="image-text_3 flex-col">
+      <view class="image-text_3 flex-col" @click="onTab('mine')">
         <image
           class="label_2"
           referrerpolicy="no-referrer"
-          :src="IMAGE_PATH + 'tabbar/tabbar_me_notselected.png'"
+          :src="current === 'mine' ? '/static/APPIcon/tabbar/tabbar_me_select.png' : '/static/APPIcon/tabbar/tabbar_me_notselected.png'"
         />
-        <text class="text-group_3">我的</text>
+        <text class="text-group_3" :class="{ active: current === 'mine' }">我的</text>
       </view>
     </view>
   </view>
 </template>
 <script>
 export default {
-  data() {
-    return {
-      constants: {},
-      IMAGE_PATH: process.env.IMAGE_PATH
-    };
+  name: 'CustomTabBar',
+  props: {
+    current: {
+      type: String,
+      default: 'index'
+    }
   },
-  methods: {}
+  data() {
+    return {};
+  },
+  methods: {
+    onTab(type) {
+      const routes = {
+        'index': '/pages/index/index',
+        'map': '/pages/map/map',
+        'mine': '/pages/mine/mine'
+      };
+      const url = routes[type];
+      if (!url) return;
+      const pages = getCurrentPages();
+      const cur = pages[pages.length - 1];
+      const curRoute = cur ? ('/' + cur.route) : '';
+      if (curRoute === url) return;
+      uni.reLaunch({ url });
+    }
+  }
 };
 </script>
 <style lang='css'>
