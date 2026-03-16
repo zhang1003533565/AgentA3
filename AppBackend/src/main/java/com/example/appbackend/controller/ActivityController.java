@@ -201,33 +201,8 @@ public class ActivityController {
         return Result.success();
     }
 
-    @Operation(summary = "获取热门活动", description = "获取热门活动列表，按报名人数排序")
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "成功获取热门活动列表")
-    })
-    @GetMapping("/hot")
-    public Result<PageResponse<Activity>> getHotActivities(
-            @Parameter(description = "页码，从1开始", example = "1") 
-            @RequestParam(defaultValue = "1") Integer page,
-            @Parameter(description = "每页数量", example = "10") 
-            @RequestParam(defaultValue = "10") Integer size) {
-        PageResponse<Activity> list = activityService.getHotActivities(page, size);
-        return Result.success(list);
-    }
 
-    @Operation(summary = "发布活动通知", description = "为活动发布通知，需要教师权限")
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "发布成功"),
-        @ApiResponse(responseCode = "401", description = "未登录"),
-        @ApiResponse(responseCode = "403", description = "无权限"),
-        @ApiResponse(responseCode = "404", description = "活动不存在")
-    })
-    @PostMapping("/{activityId}/notices")
-    public Result<Void> publishNotice(
-            HttpServletRequest request, 
-            @Parameter(description = "活动ID", required = true, example = "1") 
-            @PathVariable Long activityId) {
-        checkTeacher(request);
-        return Result.success();
-    }
+
+
+
 }

@@ -8,7 +8,7 @@ public interface UserService {
 
     UserResponse register(RegisterRequest request);
 
-    UserResponse login(LoginRequest request);
+
 
     UserResponse applogin(@Valid LoginRequest request);
 

@@ -49,5 +49,5 @@ public interface ActivityService {
     /**
      * 获取热门活动
      */
-    PageResponse<Activity> getHotActivities(Integer page, Integer size);
+
 }

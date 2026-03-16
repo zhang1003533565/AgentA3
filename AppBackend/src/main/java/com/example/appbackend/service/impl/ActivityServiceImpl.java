@@ -100,15 +100,4 @@ public class ActivityServiceImpl implements ActivityService {
         activityRepository.save(activity);
     }
 
-    @Override
-    public PageResponse<Activity> getHotActivities(Integer page, Integer size) {
-        PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "currentPeople"));
-        Page<Activity> activityPage = activityRepository.findByStatus(Status.PUBLISHED, pageRequest);
-        return new PageResponse<>(
-            activityPage.getContent(),
-            activityPage.getTotalElements(),
-            page,
-            size
-        );
-    }
 }
