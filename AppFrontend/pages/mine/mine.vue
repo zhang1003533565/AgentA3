@@ -129,7 +129,7 @@ export default {
       uni.navigateTo({ url: '/pages/grade/grade' })
     },
     goToMyActivity() {
-      uni.reLaunch({ url: '/pages/activity/activity' })
+      uni.reLaunch({ url: '/subpackage_activity/activityList/activityList' })
     },
     goToChangePassword() {
       uni.showToast({ title: '修改密码开发中', icon: 'none' })

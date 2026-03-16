@@ -1,5 +1,6 @@
 <template>
   <view class="forum-container">
+    <nav-bar title="校园论坛" :showBack="false" />
     <!-- 顶部搜索栏 -->
     <view class="search-bar">
       <view class="search-input">
@@ -99,7 +100,9 @@
 </template>
 
 <script>
+import NavBar from '@/components/nav-bar/nav-bar.vue'
 export default {
+  components: { NavBar },
   data() {
     return {
       searchKeyword: '',

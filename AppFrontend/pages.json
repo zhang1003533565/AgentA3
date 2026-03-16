@@ -18,18 +18,9 @@
 			}
 		},
 		{
-			"path": "pages/activity/activity",
+			"path": "pages/map/map",
 			"style": {
-				"navigationBarTitleText": "活动",
-				"navigationStyle": "custom",
-				"navigationBarBackgroundColor": "#FFFFFF",
-				"navigationBarTextStyle": "black"
-			}
-		},
-		{
-			"path": "pages/message/message",
-			"style": {
-				"navigationBarTitleText": "通知与消息",
+				"navigationBarTitleText": "校园地图",
 				"navigationStyle": "custom",
 				"navigationBarBackgroundColor": "#FFFFFF",
 				"navigationBarTextStyle": "black"

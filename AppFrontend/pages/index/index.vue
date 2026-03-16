@@ -119,15 +119,9 @@
 				],
 				menus: [
 					{ name: '课程表', icon: 'calendar', path: '/pages/schedule/schedule' },
-					{ name: '成绩查询', icon: 'award', path: '/pages/grade/grade' },
-					{ name: '考试安排', icon: 'edit-3', path: '/pages/exam/exam' },
-					{ name: '图书馆', icon: 'book-open', path: '/pages/library/library' },
-					{ name: '校园卡', icon: 'credit-card', path: '/pages/card/card' },
-					{ name: '请假申请', icon: 'clipboard', path: '/pages/leave/leave' },
 					{ name: '校园活动', icon: 'compass', path: '/subpackage_activity/activityList/activityList' },
 					{ name: '校园论坛', icon: 'message-square', path: '/subpackage_forum/forumList/forumList' },
 					{ name: '失物招领', icon: 'search', path: '/pages/lostfound/lostfound' },
-					{ name: '空教室', icon: 'layout', path: '/pages/classroom/classroom' },
 					{ name: '快递查询', icon: 'package', path: '/pages/express/express' },
 					{ name: '更多', icon: 'more-horizontal', path: '/pages/more/more' }
 				],
