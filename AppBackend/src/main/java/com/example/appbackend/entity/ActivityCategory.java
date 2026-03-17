@@ -13,16 +13,16 @@ public class ActivityCategory {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "category_name", nullable = false, length = 100)
+    @Column(name = "category_name", nullable = false, length = 100, columnDefinition = "VARCHAR(100) NOT NULL COMMENT '分类名称'")
     private String categoryName;
 
-    @Column(name = "sort")
+    @Column(columnDefinition = "INT DEFAULT 1 COMMENT '排序'")
     private Integer sort = 1;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 1 COMMENT '状态: 1-启用, 0-禁用'")
     private Integer status = 1;
 
-    @Column(name = "create_time")
+    @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     private LocalDateTime createTime;
 
     @PrePersist

@@ -75,17 +75,17 @@
         </view>
       </view>
     </view>
-    <custom-tab-bar current="mine" />
+    <app-tab-bar current="mine" />
   </view>
 </template>
 
 <script>
-import CustomTabBar from '@/components/custom-tab-bar/custom-tab-bar.vue'
+import AppTabBar from '@/components/custom-tab-bar/custom-tab-bar.vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import IconLine from '@/components/icon-line/icon-line.vue'
 
 export default {
-  components: { CustomTabBar, NavBar, IconLine },
+  components: { AppTabBar, NavBar, IconLine },
   data() {
     return {
       userInfo: null,
@@ -129,7 +129,7 @@ export default {
       uni.navigateTo({ url: '/pages/grade/grade' })
     },
     goToMyActivity() {
-      uni.reLaunch({ url: '/pages/activity/activity' })
+      uni.reLaunch({ url: '/subpackage_activity/activityList/activityList' })
     },
     goToChangePassword() {
       uni.showToast({ title: '修改密码开发中', icon: 'none' })

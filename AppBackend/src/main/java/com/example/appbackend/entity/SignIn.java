@@ -15,22 +15,22 @@ public class SignIn {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "activity_id", nullable = false)
+    @Column(name = "activity_id", nullable = false, columnDefinition = "BIGINT NOT NULL COMMENT '活动ID'")
     private Long activityId;
 
-    @Column(name = "registration_id")
+    @Column(name = "registration_id", columnDefinition = "BIGINT COMMENT '报名ID'")
     private Long registrationId;
 
-    @Column(name = "user_id", nullable = false)
+    @Column(name = "user_id", nullable = false, columnDefinition = "BIGINT NOT NULL COMMENT '用户ID'")
     private Long userId;
 
-    @Column(name = "sign_in_time")
+    @Column(name = "sign_in_time", columnDefinition = "DATETIME COMMENT '签到时间'")
     private LocalDateTime signInTime;
 
-    @Column(name = "sign_in_status")
+    @Column(name = "sign_in_status", columnDefinition = "INT DEFAULT 0 COMMENT '签到状态: 0-未签到, 1-已签到'")
     private Integer signInStatus = 0;
 
-    @Column(name = "create_time")
+    @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     private LocalDateTime createTime;
 
     @ManyToOne(fetch = FetchType.LAZY)

@@ -181,8 +181,6 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-@import "../../theme.scss";
-
 .detail-page {
   min-height: 100vh;
   background-color: #F7F7F9;

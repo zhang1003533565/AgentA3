@@ -18,18 +18,9 @@
 			}
 		},
 		{
-			"path": "pages/activity/activity",
+			"path": "pages/map/map",
 			"style": {
-				"navigationBarTitleText": "活动",
-				"navigationStyle": "custom",
-				"navigationBarBackgroundColor": "#FFFFFF",
-				"navigationBarTextStyle": "black"
-			}
-		},
-		{
-			"path": "pages/message/message",
-			"style": {
-				"navigationBarTitleText": "通知与消息",
+				"navigationBarTitleText": "校园地图",
 				"navigationStyle": "custom",
 				"navigationBarBackgroundColor": "#FFFFFF",
 				"navigationBarTextStyle": "black"
@@ -69,12 +60,45 @@
 					}
 				}
 			]
+		},
+		{
+			"root": "subpackage_forum",
+			"pages": [
+				{
+					"path": "forumList/forumList",
+					"style": {
+						"navigationBarTitleText": "校园论坛",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black",
+						"enablePullDownRefresh": true
+					}
+				},
+				{
+					"path": "postDetail/postDetail",
+					"style": {
+						"navigationBarTitleText": "帖子详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "publishPost/publishPost",
+					"style": {
+						"navigationBarTitleText": "发布帖子",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
+			]
 		}
 	],
 	"preloadRule": {
 		"pages/index/index": {
 			"network": "all",
-			"packages": ["subpackage_activity"]
+			"packages": ["subpackage_activity", "subpackage_forum"]
 		}
 	},
 	"globalStyle": {

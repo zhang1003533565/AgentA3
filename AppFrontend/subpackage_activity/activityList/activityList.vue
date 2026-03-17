@@ -86,15 +86,13 @@
         <text v-else-if="activityList.length === 0">暂无活动</text>
       </view>
     </scroll-view>
-    <custom-tab-bar current="activity" />
   </view>
 </template>
 
 <script>
-import CustomTabBar from '@/components/custom-tab-bar/custom-tab-bar.vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 export default {
-  components: { CustomTabBar, NavBar },
+  components: { NavBar },
   data() {
     return {
       searchKeyword: '',
@@ -262,7 +260,6 @@ export default {
 </script>
 
 <style lang="scss">
-@import "../../uni.scss";
 .activity-container {
   min-height: 100vh;
   background-color: #F7F7F9;
