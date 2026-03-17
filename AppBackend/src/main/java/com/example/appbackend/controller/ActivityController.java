@@ -8,10 +8,9 @@ import com.example.appbackend.entity.User;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.ActivityService;
+import com.example.appbackend.service.FavoriteService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.media.Content;
-import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -26,6 +25,9 @@ public class ActivityController {
 
     @Autowired
     private ActivityService activityService;
+
+    @Autowired
+    private FavoriteService favoriteService;
 
     @Autowired
     private UserRepository userRepository;
@@ -201,8 +203,69 @@ public class ActivityController {
         return Result.success();
     }
 
+    @Operation(summary = "收藏活动", description = "收藏指定活动，需要用户登录")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "收藏成功"),
+        @ApiResponse(responseCode = "401", description = "未登录"),
+        @ApiResponse(responseCode = "400", description = "已经收藏过该活动"),
+        @ApiResponse(responseCode = "404", description = "活动不存在")
+    })
+    @PostMapping("/{id}/favorite")
+    public Result<Void> addFavorite(
+            HttpServletRequest request,
+            @Parameter(description = "活动ID", required = true, example = "1")
+            @PathVariable Long id) {
+        Long userId = (Long) request.getAttribute("userId");
+        favoriteService.addFavorite(userId, id);
+        return Result.success();
+    }
 
+    @Operation(summary = "取消收藏", description = "取消收藏指定活动，需要用户登录")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "取消收藏成功"),
+        @ApiResponse(responseCode = "401", description = "未登录"),
+        @ApiResponse(responseCode = "400", description = "未收藏该活动")
+    })
+    @DeleteMapping("/{id}/favorite")
+    public Result<Void> removeFavorite(
+            HttpServletRequest request,
+            @Parameter(description = "活动ID", required = true, example = "1")
+            @PathVariable Long id) {
+        Long userId = (Long) request.getAttribute("userId");
+        favoriteService.removeFavorite(userId, id);
+        return Result.success();
+    }
 
+    @Operation(summary = "获取我的收藏列表", description = "获取当前用户收藏的活动列表，需要用户登录")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "获取成功"),
+        @ApiResponse(responseCode = "401", description = "未登录")
+    })
+    @GetMapping("/favorites")
+    public Result<PageResponse<Activity>> getMyFavorites(
+            HttpServletRequest request,
+            @Parameter(description = "页码，从1开始", example = "1")
+            @RequestParam(defaultValue = "1") Integer page,
+            @Parameter(description = "每页数量", example = "10")
+            @RequestParam(defaultValue = "10") Integer size) {
+        Long userId = (Long) request.getAttribute("userId");
+        PageResponse<Activity> favorites = favoriteService.getUserFavorites(userId, page, size);
+        return Result.success(favorites);
+    }
 
+    @Operation(summary = "检查是否已收藏", description = "检查当前用户是否已收藏指定活动，需要用户登录")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "获取成功"),
+        @ApiResponse(responseCode = "401", description = "未登录")
+    })
+    @GetMapping("/{id}/favorite/status")
+    public Result<Boolean> checkFavoriteStatus(
+            HttpServletRequest request,
+            @Parameter(description = "活动ID", required = true, example = "1")
+            @PathVariable Long id) {
+        Long userId = (Long) request.getAttribute("userId");
+        boolean isFavorited = favoriteService.isFavorited(userId, id);
+        return Result.success(isFavorited);
+    }
 
 }
