@@ -91,12 +91,12 @@ export default {
 }
 
 .label_1 {
-  width: 44rpx;
-  height: 45rpx;
+  width: 80rpx;
+  height: 80rpx;
   align-self: center;
 }
 
-.text-group_1 {
+.text-group_1 { 
   overflow-wrap: break-word;
   color: rgba(102, 102, 102, 1);
   font-size: 24rpx;
@@ -120,8 +120,10 @@ export default {
 }
 
 .image_1 {
-  width: 140rpx;
-  height: 140rpx;
+  width: 160rpx;
+  height: 160rpx;
+  margin-bottom: 20rpx;
+  margin-left: 10rpx;
 }
 
 .text-group_2 {
@@ -132,7 +134,7 @@ export default {
   font-weight: 500;
   text-align: center;
   white-space: nowrap;
-  line-height: 32rpx;
+  line-height: 40rpx;
   align-self: center;
   margin-top: 12rpx;
 }
@@ -142,8 +144,8 @@ export default {
 }
 
 .label_2 {
-  width: 44rpx;
-  height: 44rpx;
+  width: 80rpx;
+  height: 80rpx;
   margin-left: 4rpx;
 }
 

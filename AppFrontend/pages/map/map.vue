@@ -66,16 +66,16 @@
       </view>
     </view>
 
-    <custom-tab-bar current="map" />
+    <app-tab-bar current="map" />
   </view>
 </template>
 
 <script>
-import CustomTabBar from '@/components/custom-tab-bar/custom-tab-bar.vue'
+import AppTabBar from '@/components/custom-tab-bar/custom-tab-bar.vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 
 export default {
-  components: { CustomTabBar, NavBar },
+  components: { AppTabBar, NavBar },
   data() {
     return {
       searchKeyword: '',
