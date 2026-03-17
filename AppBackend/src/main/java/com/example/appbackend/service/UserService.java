@@ -8,9 +8,11 @@ public interface UserService {
 
     UserResponse register(RegisterRequest request);
 
-    UserResponse login(LoginRequest request);
+
 
     UserResponse applogin(@Valid LoginRequest request);
+
+    UserResponse weblogin(@Valid LoginRequest request);
 
     UserResponse current(Long id);
 

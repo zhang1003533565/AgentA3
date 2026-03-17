@@ -81,12 +81,20 @@ public class UserServiceImpl implements UserService {
                 user.getRealName(), user.getCollege(), user.getMajor(), user.getClassName(), user.getPersonalNumber());
     }
 
+
+
     @Override
-    public UserResponse login(LoginRequest request) {
+    public UserResponse applogin(LoginRequest request) {
+
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new RuntimeException("用户名或密码错误"));
         if(user.getStatus()==0){
             throw new RuntimeException("该用户已被禁用");
+        }
+
+        // 安全且逻辑正确的写法
+        if(!"STUDENT".equals(roleName(user))&&!"TEACHER".equals(roleName(user))){
+            throw new RuntimeException("请登录学生或教师用户");
         }
 
         if (!request.getPassword().equals(user.getPassword())) {
@@ -99,7 +107,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public UserResponse applogin(LoginRequest request) {
+    public UserResponse weblogin(LoginRequest request) {
 
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new RuntimeException("用户名或密码错误"));
@@ -107,9 +115,9 @@ public class UserServiceImpl implements UserService {
             throw new RuntimeException("该用户已被禁用");
         }
 
-        // 安全且逻辑正确的写法
-        if(!"STUDENT".equals(roleName(user))){
-            throw new RuntimeException("请登录学生用户");
+        // Web后台只允许管理员登录
+        if(!"ADMIN".equals(roleName(user))){
+            throw new RuntimeException("Web后台仅限管理员登录");
         }
 
         if (!request.getPassword().equals(user.getPassword())) {

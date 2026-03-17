@@ -90,7 +90,7 @@ public class ActivityServiceImpl implements ActivityService {
         if (activity.getStatus() != Status.PENDING) {
             throw new BusinessException(400, "只有待审核的活动可以审核");
         }
-        if ("PUBLISHED".equals(auditStatus)) {
+        if ("APPROVED".equals(auditStatus)) {
             activity.setStatus(Status.PUBLISHED);
         } else if("REJECTED".equals(auditStatus)){
             activity.setStatus(Status.REJECTED);
@@ -100,15 +100,4 @@ public class ActivityServiceImpl implements ActivityService {
         activityRepository.save(activity);
     }
 
-    @Override
-    public PageResponse<Activity> getHotActivities(Integer page, Integer size) {
-        PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "currentPeople"));
-        Page<Activity> activityPage = activityRepository.findByStatus(Status.PUBLISHED, pageRequest);
-        return new PageResponse<>(
-            activityPage.getContent(),
-            activityPage.getTotalElements(),
-            page,
-            size
-        );
-    }
 }

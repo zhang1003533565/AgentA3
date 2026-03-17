@@ -12,6 +12,6 @@ public class Role {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 20)
+    @Column(nullable = false, unique = true, length = 20, columnDefinition = "VARCHAR(20) NOT NULL COMMENT '角色名称'")
     private String name;
 }

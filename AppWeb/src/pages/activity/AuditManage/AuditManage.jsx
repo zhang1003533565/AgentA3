@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { message, Modal, Form, Select, Button, Table, Tag, Space, Popconfirm, Input, Checkbox } from 'antd'
 import { CheckOutlined, CloseOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons'
-import { getRegistrationList, auditRegistration, batchAuditRegistration } from '../api/registration'
-import { getActivityList } from '../api/activity'
-import { getUserInfo, clearAuth } from '../utils/storage'
+import { getRegistrationList, auditRegistration, batchAuditRegistration } from '../../../api/registration'
+import { getActivityList } from '../../../api/activity'
+import { getUserInfo, clearAuth } from '../../../utils/storage'
 import './AuditManage.css'
 
 const { Option } = Select

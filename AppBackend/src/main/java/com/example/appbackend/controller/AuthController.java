@@ -51,16 +51,17 @@ public class AuthController {
         return Result.success(response);
     }
 
-    @Operation(summary = "Web端登录", description = "Web端用户登录，支持所有角色（学生、教师、管理员）")
+    @Operation(summary = "Web端登录", description = "Web端用户登录，仅允许管理员角色登录")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "登录成功"),
-        @ApiResponse(responseCode = "401", description = "用户名或密码错误")
+        @ApiResponse(responseCode = "401", description = "用户名或密码错误"),
+        @ApiResponse(responseCode = "403", description = "非管理员角色不允许Web端登录")
     })
     @PostMapping("/weblogin")
     public Result<UserResponse> weblogin(
             @Parameter(description = "登录信息", required = true) 
             @Valid @RequestBody LoginRequest request) {
-        UserResponse response = userService.login(request);
+        UserResponse response = userService.weblogin(request);
         return Result.success(response);
     }
 

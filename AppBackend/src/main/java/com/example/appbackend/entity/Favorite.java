@@ -15,13 +15,13 @@ public class Favorite {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "user_id", nullable = false)
+    @Column(name = "user_id", nullable = false, columnDefinition = "BIGINT NOT NULL COMMENT '用户ID'")
     private Long userId;
 
-    @Column(name = "activity_id", nullable = false)
+    @Column(name = "activity_id", nullable = false, columnDefinition = "BIGINT NOT NULL COMMENT '活动ID'")
     private Long activityId;
 
-    @Column(name = "create_time")
+    @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '收藏时间'")
     private LocalDateTime createTime;
 
     @ManyToOne(fetch = FetchType.LAZY)
