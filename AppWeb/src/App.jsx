@@ -6,6 +6,7 @@ import CategoryManage from './pages/CategoryManage'
 import AuditManage from './pages/AuditManage'
 import SignInManage from './pages/SignInManage'
 import NoticeManage from './pages/NoticeManage'
+import Statistics from './pages/Statistics'
 import './App.css'
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
         <Route path="/audit/manage" element={<AuditManage />} />
         <Route path="/signin/manage" element={<SignInManage />} />
         <Route path="/notice/manage" element={<NoticeManage />} />
+        <Route path="/statistics" element={<Statistics />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Router>
