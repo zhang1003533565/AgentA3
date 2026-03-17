@@ -90,7 +90,7 @@ public class ActivityServiceImpl implements ActivityService {
         if (activity.getStatus() != Status.PENDING) {
             throw new BusinessException(400, "只有待审核的活动可以审核");
         }
-        if ("PUBLISHED".equals(auditStatus)) {
+        if ("APPROVED".equals(auditStatus)) {
             activity.setStatus(Status.PUBLISHED);
         } else if("REJECTED".equals(auditStatus)){
             activity.setStatus(Status.REJECTED);
