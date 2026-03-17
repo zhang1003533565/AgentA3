@@ -1,7 +1,6 @@
 package com.example.appbackend.service;
 
 import com.example.appbackend.dto.*;
-import com.example.appbackend.entity.User;
 import jakarta.validation.Valid;
 
 public interface UserService {

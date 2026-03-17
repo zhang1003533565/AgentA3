@@ -88,7 +88,7 @@ public class AuthController {
         @ApiResponse(responseCode = "400", description = "旧密码错误")
     })
     @PutMapping("/password")
-    public Result changePassword(
+    public Result<Void> changePassword(
             HttpServletRequest httpRequest, 
             @Parameter(description = "密码修改信息", required = true) 
             @Valid @RequestBody PasswordChangeRequest request) {

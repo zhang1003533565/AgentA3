@@ -1,0 +1,165 @@
+.statistics-container {
+  min-height: 100vh;
+  background-color: #f5f7fa;
+}
+
+/* 顶部导航 */
+.statistics-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 20px 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.header-left h1 {
+  color: #fff;
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.back-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: #fff;
+}
+
+.back-btn:hover {
+  background: rgba(255, 255, 255, 0.3) !important;
+  color: #fff !important;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+}
+
+/* 主要内容 */
+.statistics-main {
+  padding: 24px 32px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* 核心指标卡片 */
+.stats-row {
+  margin-bottom: 24px;
+}
+
+.stat-card {
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transition: all 0.3s ease;
+  border: none;
+}
+
+.stat-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.stat-card :global(.ant-statistic-title) {
+  font-size: 14px;
+  color: #8c8c8c;
+  margin-bottom: 8px;
+}
+
+.stat-card :global(.ant-statistic-content) {
+  font-size: 32px;
+  font-weight: 600;
+}
+
+.stat-trend {
+  margin-top: 12px;
+  font-size: 13px;
+  color: #8c8c8c;
+  padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
+}
+
+/* 卡片颜色主题 */
+.stat-card-blue {
+  background: linear-gradient(135deg, #e6f7ff 0%, #fff 100%);
+  border-left: 4px solid #1890FF;
+}
+
+.stat-card-green {
+  background: linear-gradient(135deg, #f6ffed 0%, #fff 100%);
+  border-left: 4px solid #52C41A;
+}
+
+.stat-card-orange {
+  background: linear-gradient(135deg, #fff7e6 0%, #fff 100%);
+  border-left: 4px solid #FA8C16;
+}
+
+.stat-card-purple {
+  background: linear-gradient(135deg, #f9f0ff 0%, #fff 100%);
+  border-left: 4px solid #722ED1;
+}
+
+/* 详细统计 */
+.detail-row {
+  margin-top: 8px;
+}
+
+.detail-card {
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  border: none;
+}
+
+.detail-card :global(.ant-card-head) {
+  border-bottom: 1px solid #f0f0f0;
+  font-weight: 500;
+}
+
+.detail-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 0;
+}
+
+.detail-number {
+  font-size: 48px;
+  font-weight: 700;
+  color: #1890FF;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.detail-desc {
+  font-size: 14px;
+  color: #8c8c8c;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .statistics-header {
+    flex-direction: column;
+    gap: 16px;
+    padding: 16px;
+  }
+  
+  .header-right {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .statistics-main {
+    padding: 16px;
+  }
+  
+  .detail-number {
+    font-size: 36px;
+  }
+}

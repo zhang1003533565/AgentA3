@@ -57,11 +57,15 @@ function Home() {
     { icon: '✅', title: '审核管理', desc: '报名审核管理', color: '#FAAD14', path: '/audit/manage' },
     { icon: '📍', title: '签到管理', desc: '活动签到管理', color: '#13C2C2', path: '/signin/manage' },
     { icon: '🔔', title: '通知管理', desc: '系统通知管理', color: '#722ED1', path: '/notice/manage' },
+<<<<<<< HEAD:AppWeb/src/pages/Home.jsx
+    { icon: '📈', title: '数据统计', desc: '校园数据统计', color: '#1890FF', path: '/statistics' }
+=======
     { icon: '📝', title: '帖子管理', desc: '论坛帖子管理', color: '#EB2F96', path: '/forum/post' },
     { icon: '💬', title: '评论管理', desc: '评论审核管理', color: '#2F54EB', path: '/forum/comment' },
     { icon: '🏷️', title: '话题管理', desc: '话题标签管理', color: '#FA8C16', path: '/forum/topic' },
     { icon: '🚨', title: '举报处理', desc: '举报审核处理', color: '#F5222D', path: '/forum/report' },
     { icon: '🔍', title: '失物招领', desc: '寻物与招领', color: '#4ECDC4', path: null }
+>>>>>>> 0a7809a35f16c02fe1e50c18fe41fa7da5adcc0a:AppWeb/src/pages/Home/Home.jsx
   ]
 
   const notices = [
