@@ -15,4 +15,6 @@ public interface ActivitiyCategoryService {
     void update(Long id,CategoryRequest categoryRequest);
 
     void delete(Long id);
+
+    void deleteCategories(List<Long> ids);
 }

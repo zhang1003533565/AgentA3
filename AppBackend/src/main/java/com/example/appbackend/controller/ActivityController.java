@@ -18,6 +18,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/activities")
 @Tag(name = "活动管理", description = "活动的增删改查、审核、上下架等接口")
@@ -147,6 +149,22 @@ public class ActivityController {
         return Result.success();
     }
 
+    @Operation(summary = "批量删除活动", description = "批量删除活动，需要教师或管理员权限")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "删除成功"),
+        @ApiResponse(responseCode = "401", description = "未登录"),
+        @ApiResponse(responseCode = "403", description = "无权限")
+    })
+    @DeleteMapping("/batch")
+    public Result<Void> deleteActivities(
+            HttpServletRequest request,
+            @Parameter(description = "活动ID列表", required = true)
+            @RequestBody List<Long> ids) {
+        checkRole(request);
+        activityService.deleteActivities(ids);
+        return Result.success();
+    }
+
     @Operation(summary = "上下架活动", description = "更新活动状态（发布/下架），需要教师或管理员权限")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "操作成功"),
@@ -266,6 +284,43 @@ public class ActivityController {
         Long userId = (Long) request.getAttribute("userId");
         boolean isFavorited = favoriteService.isFavorited(userId, id);
         return Result.success(isFavorited);
+    }
+
+    @Operation(summary = "模糊搜索活动", description = "根据关键词模糊搜索活动标题、内容、地点、组织者")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "搜索成功"),
+        @ApiResponse(responseCode = "400", description = "参数错误")
+    })
+    @GetMapping("/search")
+    public Result<PageResponse<Activity>> searchActivities(
+            @Parameter(description = "页码，从1开始", example = "1")
+            @RequestParam(defaultValue = "1") Integer page,
+            @Parameter(description = "每页数量", example = "10")
+            @RequestParam(defaultValue = "10") Integer size,
+            @Parameter(description = "搜索关键词", example = "讲座")
+            @RequestParam String keyword) {
+        PageResponse<Activity> list = activityService.searchActivities(page, size, keyword);
+        return Result.success(list);
+    }
+
+    @Operation(summary = "筛选活动", description = "按分类和状态筛选活动")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "筛选成功"),
+        @ApiResponse(responseCode = "400", description = "参数错误")
+    })
+    @GetMapping("/filter")
+    public Result<PageResponse<Activity>> filterActivities(
+            @Parameter(description = "页码，从1开始", example = "1")
+            @RequestParam(defaultValue = "1") Integer page,
+            @Parameter(description = "每页数量", example = "10")
+            @RequestParam(defaultValue = "10") Integer size,
+            @Parameter(description = "分类ID", example = "1")
+            @RequestParam(required = false) Long categoryId,
+            @Parameter(description = "活动状态: DRAFT-草稿, PENDING-待审核, PUBLISHED-已发布, REJECTED-已驳回, CANCELLED-已取消, COMPLETED-已完成", example = "PUBLISHED")
+            @RequestParam(required = false) String status) {
+        Status statusEnum = status != null ? Status.valueOf(status) : null;
+        PageResponse<Activity> list = activityService.filterActivities(page, size, categoryId, statusEnum);
+        return Result.success(list);
     }
 
 }

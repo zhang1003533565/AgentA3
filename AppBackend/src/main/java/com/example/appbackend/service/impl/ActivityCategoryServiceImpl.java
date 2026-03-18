@@ -6,6 +6,7 @@ import com.example.appbackend.entity.ActivityCategory;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.ActivityCategoryRepository;
+import com.example.appbackend.repository.ActivityRepository;
 import com.example.appbackend.service.ActivitiyCategoryService;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +20,8 @@ import java.util.stream.Collectors;
 public class ActivityCategoryServiceImpl implements ActivitiyCategoryService {
     @Autowired
     ActivityCategoryRepository activityCategoryRepository;
+    @Autowired
+    ActivityRepository activityRepository;
     @Override
     public CategoryResponse addCategory(CategoryRequest categoryRequest) {
         if(activityCategoryRepository.existsActivityCategoryByCategoryName(categoryRequest.getCategoryName())){
@@ -69,7 +72,25 @@ public class ActivityCategoryServiceImpl implements ActivitiyCategoryService {
         if (!activityCategoryRepository.existsById(id)) {
             throw new BusinessException(Result.FORBIDDEN_CODE, "分类不存在");
         }
+        if(activityRepository.existsByCategoryId(id)){
+            throw new BusinessException(Result.FORBIDDEN_CODE,"已有活动绑定该分类，不得删除");
+        }
         activityCategoryRepository.deleteById(id);
+    }
+
+    @Override
+    public void deleteCategories(List<Long> ids) {
+        List<ActivityCategory> categories = activityCategoryRepository.findAllById(ids);
+        if (categories.isEmpty()) {
+            throw new BusinessException(Result.FORBIDDEN_CODE, "未找到指定的分类");
+        }
+        // 检查是否有分类已绑定活动
+        for (ActivityCategory category : categories) {
+            if (activityRepository.existsByCategoryId(category.getId())) {
+                throw new BusinessException(Result.FORBIDDEN_CODE, "分类「" + category.getCategoryName() + "」已有活动绑定，不可删除");
+            }
+        }
+        activityCategoryRepository.deleteAll(categories);
     }
 
 
