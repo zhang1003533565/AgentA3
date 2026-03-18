@@ -1,50 +1,33 @@
 <template>
-  <view class="activity-container">
-    <nav-bar title="校园活动" :showBack="true" />
+  <view class="my-activity-container">
+    <nav-bar title="我的活动" :showBack="true" />
 
-    <!-- 搜索框 + 右侧「我的活动」 -->
-    <view class="search-bar">
-      <view class="search-input">
-        <text class="iconfont icon-search"></text>
-        <input 
-          type="text" 
-          v-model="searchKeyword" 
-          placeholder="搜索活动名称"
-          placeholder-class="search-placeholder"
-          @confirm="handleSearch"
-        />
-      </view>
-      <view class="btn-my-activity" @click="goToMyActivity">我的活动</view>
-    </view>
-
-    <!-- 胶囊形状分类 Tab：选中品牌蓝底，未选中浅灰 -->
+    <!-- Tab：待参加 / 报名记录 / 已结束 -->
     <view class="category-wrap">
-      <scroll-view class="category-scroll" scroll-x :show-scrollbar="false">
-        <view class="category-list">
-          <view 
-            v-for="(item, index) in categories" 
-            :key="index"
-            class="category-item category-pill"
-            :class="{ active: currentCategory === item.id }"
-            @click="selectCategory(item.id)"
-          >
-            <text class="category-text">{{ item.name }}</text>
-          </view>
+      <view class="category-list">
+        <view
+          v-for="(item, index) in tabs"
+          :key="index"
+          class="category-item category-pill"
+          :class="{ active: currentTab === item.id }"
+          @click="selectTab(item.id)"
+        >
+          <text class="category-text">{{ item.name }}</text>
         </view>
-      </scroll-view>
+      </view>
     </view>
 
-    <!-- 活动列表 -->
-    <scroll-view 
-      class="activity-list" 
-      scroll-y 
+    <!-- 我的活动列表 -->
+    <scroll-view
+      class="activity-list"
+      scroll-y
       @scrolltolower="loadMore"
       refresher-enabled
       :refresher-triggered="isRefreshing"
       @refresherrefresh="onRefresh"
     >
-      <view 
-        v-for="(item, index) in activityList" 
+      <view
+        v-for="(item, index) in activityList"
         :key="item.id || index"
         class="activity-item"
         @click="goToDetail(item.id)"
@@ -69,8 +52,8 @@
             <view class="activity-people-wrap">
               <text class="activity-people-text">{{ item.currentPeople }}/{{ item.maxPeople }} 人</text>
               <view class="activity-progress-bar">
-                <view 
-                  class="activity-progress-fill" 
+                <view
+                  class="activity-progress-fill"
                   :style="{ width: progressPercent(item) }"
                 ></view>
               </view>
@@ -79,11 +62,10 @@
         </view>
       </view>
 
-      <!-- 加载更多 -->
       <view class="load-more">
         <text v-if="loading">加载中...</text>
         <text v-else-if="noMore">没有更多了</text>
-        <text v-else-if="activityList.length === 0">暂无活动</text>
+        <text v-else-if="activityList.length === 0">暂无相关活动</text>
       </view>
     </scroll-view>
   </view>
@@ -95,16 +77,12 @@ export default {
   components: { NavBar },
   data() {
     return {
-      searchKeyword: '',
-      currentCategory: 0,
+      currentTab: 'pending', // pending | signed | ended
       defaultCover: 'https://picsum.photos/seed/campus/800/450',
-      categories: [
-        { id: 0, name: '全部' },
-        { id: 1, name: '讲座' },
-        { id: 2, name: '比赛' },
-        { id: 3, name: '社团' },
-        { id: 4, name: '志愿' },
-        { id: 5, name: '体育' }
+      tabs: [
+        { id: 'pending', name: '待参加' },
+        { id: 'signed', name: '报名记录' },
+        { id: 'ended', name: '已结束' }
       ],
       activityList: [],
       page: 1,
@@ -115,15 +93,19 @@ export default {
     }
   },
   onLoad() {
-    this.loadActivityList()
+    this.loadList()
   },
   methods: {
-    // 加载活动列表
-    async loadActivityList() {
+    selectTab(tabId) {
+      this.currentTab = tabId
+      this.page = 1
+      this.noMore = false
+      this.loadList()
+    },
+    async loadList() {
       if (this.loading || this.noMore) return
-      
       this.loading = true
-      
+
       // 模拟数据，后续替换为真实接口
       setTimeout(() => {
         const mockData = [
@@ -146,83 +128,39 @@ export default {
             status: 'SIGNUP',
             currentPeople: 32,
             maxPeople: 50
-          },
-          {
-            id: 3,
-            title: '人工智能前沿讲座',
-            coverImage: 'https://picsum.photos/seed/activity3/800/450',
-            startTime: '2026-03-18 19:00',
-            location: '图书馆报告厅',
-            status: 'ONGOING',
-            currentPeople: 120,
-            maxPeople: 200
           }
         ]
-        
         if (this.page === 1) {
           this.activityList = mockData
         } else {
           this.activityList = [...this.activityList, ...mockData]
         }
-        
-        if (this.page >= 3) {
-          this.noMore = true
-        }
-        
+        if (this.page >= 2) this.noMore = true
         this.loading = false
         this.isRefreshing = false
-      }, 500)
+      }, 300)
     },
-    
-    // 搜索
-    handleSearch() {
-      this.page = 1
-      this.noMore = false
-      this.loadActivityList()
-    },
-    
-    // 选择分类
-    selectCategory(categoryId) {
-      this.currentCategory = categoryId
-      this.page = 1
-      this.noMore = false
-      this.loadActivityList()
-    },
-    
-    // 加载更多
     loadMore() {
       if (!this.loading && !this.noMore) {
         this.page++
-        this.loadActivityList()
+        this.loadList()
       }
     },
-    
-    // 下拉刷新
     onRefresh() {
       this.isRefreshing = true
       this.page = 1
       this.noMore = false
-      this.loadActivityList()
+      this.loadList()
     },
-    
-    // 跳转到详情
     goToDetail(id) {
       uni.navigateTo({
         url: `/subpackage_activity/activityDetail/activityDetail?id=${id}`
       })
     },
-    // 进入「我的活动」（待参加/报名记录/已结束）
-    goToMyActivity() {
-      uni.navigateTo({ url: '/subpackage_activity/myActivity/myActivity' })
-    },
-    
-    // 格式化时间
     formatTime(time) {
       if (!time) return ''
       return time.substring(5, 16).replace(' ', ' ')
     },
-    
-    // 获取状态样式
     getStatusClass(status) {
       const map = {
         'DRAFT': 'status-draft',
@@ -235,8 +173,6 @@ export default {
       }
       return map[status] || 'status-default'
     },
-    
-    // 获取状态文本
     getStatusText(status) {
       const map = {
         'DRAFT': '草稿',
@@ -249,7 +185,6 @@ export default {
       }
       return map[status] || '未知'
     },
-    // 报名进度百分比（已报名/总人数），用于进度条宽度
     progressPercent(item) {
       const max = item.maxPeople || 1
       const pct = Math.min(100, Math.round((item.currentPeople / max) * 100))
@@ -259,65 +194,17 @@ export default {
 }
 </script>
 
-<style lang="scss">
-.activity-container {
+<style lang="scss" scoped>
+.my-activity-container {
   min-height: 100vh;
   background-color: #F7F7F9;
   padding-bottom: 120rpx;
 }
 
-.search-bar {
-  display: flex;
-  align-items: center;
-  gap: 24rpx;
-  padding: 0 $spacing-lg-rpx $spacing-block;
-  background-color: #FFFFFF;
-}
-.search-input {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  height: 72rpx;
-  background-color: #F7F7F9;
-  border-radius: 16rpx;
-  padding: 0 $spacing-base-rpx;
-  border: none;
-}
-.btn-my-activity {
-  flex-shrink: 0;
-  padding: 0 28rpx;
-  height: 72rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 28rpx;
-  font-weight: 600;
-  color: $color-primary;
-}
-.search-input .icon-search {
-  font-size: 32rpx;
-  color: #4A4A4A;
-  margin-right: $spacing-base-rpx;
-}
-.search-input input {
-  flex: 1;
-  font-size: 28rpx;   /* 14px 三级 */
-  color: #4A4A4A;
-  font-weight: 400;
-}
-.search-placeholder {
-  color: #8E8E93;
-}
-
-/* 胶囊 Tab：选中品牌蓝底，未选中浅灰 */
 .category-wrap {
   background-color: #FFFFFF;
   margin-bottom: $spacing-block;
   border-bottom: 1px solid #EEEEEE;
-}
-.category-scroll {
-  white-space: nowrap;
 }
 .category-list {
   display: flex;
@@ -348,9 +235,8 @@ export default {
   color: #FFFFFF;
 }
 
-/* 活动列表：通栏、分隔线清晰，保证可滚动、内容不裁切 */
 .activity-list {
-  height: calc(100vh - 380rpx);
+  height: calc(100vh - 280rpx);
   padding: 0;
   padding-top: 24rpx;
   padding-bottom: 48rpx;
@@ -359,7 +245,7 @@ export default {
 }
 
 .activity-item {
-  padding: 0 0 32rpx;
+  padding: 0 $spacing-lg-rpx 32rpx;
   margin-bottom: 0;
   border-bottom: 1px solid #EEEEEE;
 }
@@ -367,13 +253,12 @@ export default {
   border-bottom: none;
 }
 
-/* 通栏列表项：4px 步进间距，图片与标题 12px，详情与标题 4px */
 .activity-cover-wrap {
   position: relative;
   width: 100%;
   height: 422rpx;
   border-radius: 8rpx;
-  margin-bottom: 24rpx;   /* 12px 图与标题间距 */
+  margin-bottom: 24rpx;
   background-color: #F7F7F9;
   overflow: hidden;
 }
@@ -382,7 +267,6 @@ export default {
   width: 100%;
   height: 422rpx;
 }
-/* Pill 状态标签：悬浮图片左上角，极浅底+深色字 */
 .activity-status-pill {
   position: absolute;
   left: 24rpx;
@@ -416,7 +300,7 @@ export default {
 }
 
 .activity-body {
-  padding: 0 $spacing-lg-rpx;
+  padding: 0;
 }
 
 .activity-title {
@@ -424,14 +308,13 @@ export default {
   font-weight: 600;
   color: #1D1D1F;
   line-height: 1.4;
-  margin-bottom: 8rpx;   /* 4px 标题与详情间距 */
+  margin-bottom: 8rpx;
 }
 
 .activity-meta {
   display: flex;
   flex-direction: column;
-  margin-top: 0;
-  gap: 4rpx;            /* 4px 步进 */
+  gap: 4rpx;
 }
 .meta-item {
   font-size: 24rpx;
@@ -445,9 +328,6 @@ export default {
 }
 
 .activity-tag-row {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
   margin-top: 8rpx;
 }
 .activity-people-wrap {
@@ -457,7 +337,7 @@ export default {
   min-width: 120rpx;
 }
 .activity-people-text {
-  font-size: 22rpx; /* 11px */
+  font-size: 22rpx;
   color: #8E8E93;
   margin-bottom: 6rpx;
 }
@@ -475,7 +355,7 @@ export default {
   transition: width 0.2s ease;
 }
 
-.activity-list .load-more {
+.load-more {
   text-align: center;
   padding: $spacing-lg-rpx;
   color: $color-text-secondary;

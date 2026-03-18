@@ -4,17 +4,13 @@
     <view class="detail-nav" :style="{ paddingTop: statusBarHeight + 'px' }">
       <view class="detail-nav-inner">
         <view class="nav-back" @click.stop="onBack">
-          <view class="nav-btn-inner">
-            <text class="nav-back-icon">‹</text>
-          </view>
+          <text class="nav-back-icon">‹</text>
         </view>
         <view class="nav-title-wrap">
           <text class="nav-title">活动详情</text>
         </view>
         <view class="nav-right" @click="onShare">
-          <view class="nav-btn-inner nav-btn-share">
-            <image class="nav-share-icon" src="/static/icons/icon-forward.svg" mode="aspectFit" />
-          </view>
+          <image class="nav-share-icon" src="/static/icons/line/share.svg" mode="aspectFit" />
         </view>
       </view>
     </view>
@@ -136,7 +132,7 @@ export default {
   },
   computed: {
     scrollPaddingTop() {
-      const bar = 34
+      const bar = 48
       return (this.statusBarHeight + bar) + 'px'
     }
   },
@@ -201,55 +197,54 @@ export default {
   z-index: 100;
 }
 .detail-nav-inner {
-  height: 60rpx;
+  position: relative;
+  height: 88rpx;
   display: flex;
   align-items: center;
+  justify-content: space-between;
 }
 .nav-back,
 .nav-right {
+  width: 88rpx;
+  height: 88rpx;
   display: flex;
   align-items: center;
-  justify-content: center;
-  margin-left: -16rpx;
+  justify-content: flex-start;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
 }
 .nav-right {
-  margin-left: 0;
-  margin-right: -16rpx;
-}
-.nav-btn-inner {
-  width: 64rpx;
-  height: 64rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
 }
 .nav-back-icon {
-  font-size: 40rpx;
+  font-size: 48rpx;
   color: #1D1D1F;
   line-height: 1;
-  font-weight: 600;
-  margin-left: -4rpx;
-}
-.nav-btn-share .nav-share-icon {
-  width: 36rpx;
-  height: 36rpx;
+  font-weight: 400;
 }
 .nav-title-wrap {
-  flex: 1;
-  min-width: 0;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
   display: flex;
   justify-content: center;
   align-items: center;
+  pointer-events: none;
 }
 .nav-title {
   font-size: 36rpx;
   font-weight: 700;
   color: #1D1D1F;
   letter-spacing: -0.03em;
+  line-height: 88rpx;
 }
 .nav-share-icon {
-  width: 36rpx;
-  height: 36rpx;
+  width: 40rpx;
+  height: 40rpx;
+  color: #111827;
 }
 
 .detail-scroll {

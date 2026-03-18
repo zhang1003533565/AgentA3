@@ -1,18 +1,21 @@
 <template>
   <view class="detail-container">
+    <nav-bar title="帖子详情" :showBack="true" />
     <!-- 帖子内容 -->
     <view class="post-section">
-      <!-- 用户信息 -->
+      <!-- 用户信息（点击头像/昵称进入个人主页） -->
       <view class="post-header">
-        <image class="user-avatar" :src="postDetail.avatar || '/static/logo.png'" mode="aspectFill" />
-        <view class="user-info">
+        <view class="user-avatar-wrap" @click="goUserProfile(postDetail)">
+          <image class="user-avatar" :src="postDetail.avatar || '/static/logo.png'" mode="aspectFill" />
+        </view>
+        <view class="user-info" @click="goUserProfile(postDetail)">
           <text class="user-name">{{ postDetail.userName }}</text>
           <text class="post-time">{{ postDetail.createTime }}</text>
         </view>
-        <view class="follow-btn" v-if="!postDetail.isFollow" @click="toggleFollow">
+        <view class="follow-btn" v-if="!postDetail.isFollow" @click.stop="toggleFollow">
           <text>+ 关注</text>
         </view>
-        <view class="follow-btn followed" v-else @click="toggleFollow">
+        <view class="follow-btn followed" v-else @click.stop="toggleFollow">
           <text>已关注</text>
         </view>
       </view>
@@ -58,10 +61,12 @@
           :key="index"
           class="comment-item"
         >
-          <image class="comment-avatar" :src="item.avatar || '/static/logo.png'" mode="aspectFill" />
+          <view class="comment-avatar-wrap" @click="goUserProfile(item)">
+            <image class="comment-avatar" :src="item.avatar || '/static/logo.png'" mode="aspectFill" />
+          </view>
           <view class="comment-content">
             <view class="comment-header">
-              <text class="comment-name">{{ item.userName }}</text>
+              <text class="comment-name comment-name--link" @click="goUserProfile(item)">{{ item.userName }}</text>
               <text class="comment-time">{{ item.createTime }}</text>
             </view>
             <text class="comment-text">{{ item.content }}</text>
@@ -139,12 +144,16 @@
 </template>
 
 <script>
+import NavBar from '@/components/nav-bar/nav-bar.vue'
+
 export default {
+  components: { NavBar },
   data() {
     return {
       postId: null,
       postDetail: {
         id: 1,
+        userId: '1',
         userName: '张三',
         avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhangsan',
         title: '分享一下我的考研经验',
@@ -178,12 +187,21 @@ export default {
       console.log('加载帖子详情:', this.postId)
     },
 
+    // 跳转用户个人主页
+    goUserProfile(user) {
+      const uid = user.userId || user.id || ''
+      uni.navigateTo({
+        url: '/subpackage_forum/userProfile/userProfile?id=' + encodeURIComponent(uid)
+      })
+    },
+
     // 加载评论列表
     loadComments() {
       // 模拟数据
       this.commentList = [
         {
           id: 1,
+          userId: '2',
           userName: '李四',
           avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lisi',
           content: '学长太强了！请问数学基础不好怎么办，现在开始来得及吗？',
@@ -197,6 +215,7 @@ export default {
         },
         {
           id: 2,
+          userId: '3',
           userName: '王五',
           avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=wangwu',
           content: 'mark，明年考研党先收藏了',
@@ -207,6 +226,7 @@ export default {
         },
         {
           id: 3,
+          userId: '4',
           userName: '赵六',
           avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhaoliu',
           content: '请问专业课真题在哪里可以找到呀？',
@@ -326,11 +346,16 @@ export default {
     align-items: center;
     margin-bottom: 24rpx;
 
+    .user-avatar-wrap {
+      margin-right: 16rpx;
+      flex-shrink: 0;
+    }
+
     .user-avatar {
       width: 80rpx;
       height: 80rpx;
       border-radius: 50%;
-      margin-right: 16rpx;
+      display: block;
     }
 
     .user-info {
@@ -448,12 +473,16 @@ export default {
     padding: 20rpx 0;
     border-bottom: 1rpx solid #F5F5F7;
 
+    .comment-avatar-wrap {
+      margin-right: 16rpx;
+      flex-shrink: 0;
+    }
+
     .comment-avatar {
       width: 64rpx;
       height: 64rpx;
       border-radius: 50%;
-      margin-right: 16rpx;
-      flex-shrink: 0;
+      display: block;
     }
 
     .comment-content {
@@ -470,6 +499,10 @@ export default {
           font-size: 26rpx;
           font-weight: 600;
           color: #1D1D1F;
+
+          &.comment-name--link {
+            color: #5C7A99;
+          }
         }
 
         .comment-time {

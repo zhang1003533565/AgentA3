@@ -1,32 +1,29 @@
 <template>
-  <view class="publish-container">
-    <!-- 标题输入 -->
+  <view class="post-editor">
     <view class="title-section">
-      <input 
+      <input
         class="title-input"
-        v-model="postForm.title"
+        v-model="form.title"
         placeholder="添加标题（选填）"
         :maxlength="50"
       />
-      <text class="char-count">{{ postForm.title.length }}/50</text>
+      <text class="char-count">{{ (form.title || '').length }}/50</text>
     </view>
 
-    <!-- 内容输入 -->
     <view class="content-section">
-      <textarea 
+      <textarea
         class="content-input"
-        v-model="postForm.content"
+        v-model="form.content"
         placeholder="分享你的想法、经验或问题..."
         :maxlength="2000"
       />
-      <text class="char-count">{{ postForm.content.length }}/2000</text>
+      <text class="char-count">{{ (form.content || '').length }}/2000</text>
     </view>
 
-    <!-- 图片上传 -->
     <view class="image-section">
       <view class="image-list">
-        <view 
-          v-for="(img, index) in postForm.images" 
+        <view
+          v-for="(img, index) in form.images"
           :key="index"
           class="image-item"
         >
@@ -35,9 +32,9 @@
             <text>×</text>
           </view>
         </view>
-        <view 
-          class="add-image-btn" 
-          v-if="postForm.images.length < 9"
+        <view
+          class="add-image-btn"
+          v-if="(form.images || []).length < 9"
           @click="chooseImage"
         >
           <text class="add-icon">+</text>
@@ -46,16 +43,15 @@
       </view>
     </view>
 
-    <!-- 话题选择 -->
     <view class="topic-section">
       <text class="section-label">选择话题</text>
-      <scroll-view class="topic-scroll" scroll-x>
+      <scroll-view class="topic-scroll" scroll-x :show-scrollbar="false">
         <view class="topic-list">
-          <view 
-            v-for="(item, index) in topics" 
+          <view
+            v-for="(item, index) in topics"
             :key="index"
             class="topic-item"
-            :class="{ active: postForm.topicId === item.id }"
+            :class="{ active: form.topicId === item.id }"
             @click="selectTopic(item.id)"
           >
             # {{ item.name }}
@@ -64,23 +60,19 @@
       </scroll-view>
     </view>
 
-    <!-- 发布设置 -->
     <view class="setting-section">
-      <view class="setting-item" @click="toggleAnonymous">
+      <view
+        class="setting-item"
+        :class="{ 'setting-item--pressed': switchPressed }"
+        @click="toggleAnonymous"
+        @touchstart="switchPressed = true"
+        @touchend="switchPressed = false"
+        @touchcancel="switchPressed = false"
+      >
         <text class="setting-label">匿名发布</text>
-        <view class="setting-switch" :class="{ active: postForm.isAnonymous }">
-          <text>{{ postForm.isAnonymous ? '开' : '关' }}</text>
+        <view class="setting-switch" :class="{ active: !!form.isAnonymous }">
+          <view class="setting-switch-thumb"></view>
         </view>
-      </view>
-    </view>
-
-    <!-- 底部操作栏 -->
-    <view class="bottom-bar">
-      <view class="draft-btn" @click="saveDraft">
-        <text>存草稿</text>
-      </view>
-      <view class="publish-btn" :class="{ disabled: !canPublish }" @click="publishPost">
-        <text>发布</text>
       </view>
     </view>
   </view>
@@ -88,97 +80,54 @@
 
 <script>
 export default {
-  data() {
-    return {
-      postForm: {
-        title: '',
-        content: '',
-        images: [],
-        topicId: null,
-        isAnonymous: false
-      },
-      topics: [
-        { id: 1, name: '校园生活' },
-        { id: 2, name: '学习交流' },
-        { id: 3, name: '求职招聘' },
-        { id: 4, name: '二手交易' },
-        { id: 5, name: '情感树洞' },
-        { id: 6, name: '美食探店' },
-        { id: 7, name: '求助问答' },
-        { id: 8, name: '失物招领' }
-      ]
+  name: 'PostEditor',
+  props: {
+    form: {
+      type: Object,
+      required: true
+    },
+    topics: {
+      type: Array,
+      default: () => []
     }
   },
-  computed: {
-    canPublish() {
-      return this.postForm.content.trim().length >= 10
+  data() {
+    return {
+      switchPressed: false
     }
   },
   methods: {
-    // 选择图片
     chooseImage() {
-      const remaining = 9 - this.postForm.images.length
+      const current = this.form.images || []
+      const remaining = 9 - current.length
       uni.chooseImage({
         count: remaining,
         sizeType: ['compressed'],
         sourceType: ['album', 'camera'],
         success: (res) => {
-          this.postForm.images = [...this.postForm.images, ...res.tempFilePaths]
+          const next = [...current, ...res.tempFilePaths]
+          this.$set(this.form, 'images', next)
         }
       })
     },
-
-    // 删除图片
     deleteImage(index) {
-      this.postForm.images.splice(index, 1)
+      const next = [...(this.form.images || [])]
+      next.splice(index, 1)
+      this.$set(this.form, 'images', next)
     },
-
-    // 选择话题
     selectTopic(topicId) {
-      this.postForm.topicId = this.postForm.topicId === topicId ? null : topicId
+      this.$set(this.form, 'topicId', this.form.topicId === topicId ? null : topicId)
     },
-
-    // 切换匿名
     toggleAnonymous() {
-      this.postForm.isAnonymous = !this.postForm.isAnonymous
-    },
-
-    // 存草稿
-    saveDraft() {
-      if (!this.postForm.content.trim()) {
-        uni.showToast({ title: '请输入内容', icon: 'none' })
-        return
-      }
-      // TODO: 保存到本地存储
-      uni.showToast({ title: '已保存草稿', icon: 'success' })
-    },
-
-    // 发布帖子
-    publishPost() {
-      if (!this.canPublish) {
-        uni.showToast({ title: '内容至少10个字', icon: 'none' })
-        return
-      }
-
-      // TODO: 调用后端接口
-      uni.showLoading({ title: '发布中...' })
-      setTimeout(() => {
-        uni.hideLoading()
-        uni.showToast({ title: '发布成功', icon: 'success' })
-        setTimeout(() => {
-          uni.navigateBack()
-        }, 1500)
-      }, 1000)
+      this.$set(this.form, 'isAnonymous', !this.form.isAnonymous)
     }
   }
 }
 </script>
 
 <style lang="scss">
-.publish-container {
-  min-height: 100vh;
-  background-color: #FFFFFF;
-  padding-bottom: 120rpx;
+.post-editor {
+  width: 100%;
 }
 
 .title-section {
@@ -303,6 +252,10 @@ export default {
     white-space: nowrap;
     margin: 0 -30rpx;
     padding: 0 30rpx;
+    scrollbar-width: none;
+    &::-webkit-scrollbar {
+      display: none;
+    }
   }
 
   .topic-list {
@@ -334,6 +287,12 @@ export default {
     align-items: center;
     padding: 28rpx 0;
     border-bottom: 1rpx solid #F0F0F0;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+
+    &.setting-item--pressed {
+      opacity: 0.85;
+      transform: scale(0.99);
+    }
 
     .setting-label {
       font-size: 28rpx;
@@ -341,67 +300,32 @@ export default {
     }
 
     .setting-switch {
-      width: 80rpx;
+      position: relative;
+      width: 88rpx;
       height: 48rpx;
       background-color: #E5E5EA;
       border-radius: 24rpx;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.3s;
-
-      text {
-        font-size: 22rpx;
-        color: #FFFFFF;
-      }
+      transition: background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 
       &.active {
         background-color: #5C7A99;
       }
     }
-  }
-}
 
-.bottom-bar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 16rpx 30rpx;
-  padding-bottom: calc(16rpx + env(safe-area-inset-bottom));
-  background-color: #FFFFFF;
-  border-top: 1rpx solid #F0F0F0;
-
-  .draft-btn {
-    padding: 20rpx 40rpx;
-    margin-right: 20rpx;
-
-    text {
-      font-size: 28rpx;
-      color: #8E8E93;
-    }
-  }
-
-  .publish-btn {
-    padding: 20rpx 60rpx;
-    background-color: #5C7A99;
-    border-radius: 40rpx;
-
-    text {
-      font-size: 28rpx;
-      color: #FFFFFF;
-      font-weight: 500;
+    .setting-switch-thumb {
+      position: absolute;
+      left: 4rpx;
+      top: 4rpx;
+      width: 40rpx;
+      height: 40rpx;
+      border-radius: 50%;
+      background-color: #FFFFFF;
+      box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.15);
+      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
-    &.disabled {
-      background-color: #E5E5EA;
-
-      text {
-        color: #8E8E93;
-      }
+    .setting-switch.active .setting-switch-thumb {
+      transform: translateX(40rpx);
     }
   }
 }

@@ -58,6 +58,16 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
 					}
+				},
+				{
+					"path": "myActivity/myActivity",
+					"style": {
+						"navigationBarTitleText": "我的活动",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black",
+						"enablePullDownRefresh": true
+					}
 				}
 			]
 		},
@@ -84,9 +94,9 @@
 					}
 				},
 				{
-					"path": "publishPost/publishPost",
+					"path": "userProfile/userProfile",
 					"style": {
-						"navigationBarTitleText": "发布帖子",
+						"navigationBarTitleText": "个人主页",
 						"navigationStyle": "custom",
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"

@@ -1,7 +1,7 @@
 <template>
   <view class="forum-container">
-    <nav-bar title="校园论坛" :showBack="false" />
-    <!-- 顶部搜索栏 -->
+    <nav-bar title="校园论坛" :showBack="true" />
+    <!-- 顶部搜索栏 + 个人主页入口 -->
     <view class="search-bar">
       <view class="search-input">
         <text class="search-icon">🔍</text>
@@ -12,13 +12,13 @@
           @confirm="handleSearch"
         />
       </view>
-      <view class="publish-btn" @click="goToPublish">
-        <text>发帖</text>
+      <view class="header-avatar-wrap" @click="goToUserProfile">
+        <image class="header-avatar" :src="currentUserAvatar || '/static/logo.png'" mode="aspectFill" />
       </view>
     </view>
 
-    <!-- 话题标签 -->
-    <scroll-view class="topic-scroll" scroll-x>
+    <!-- 话题标签：隐藏滚动条，保留滑动 -->
+    <scroll-view class="topic-scroll" scroll-x :show-scrollbar="false">
       <view class="topic-list">
         <view 
           v-for="(item, index) in topics" 
@@ -95,17 +95,63 @@
         <text v-else-if="noMore">没有更多了</text>
         <text v-else-if="postList.length === 0">暂无帖子，快来发布第一篇吧~</text>
       </view>
+      <!-- 底部留白，避免被悬浮发帖条遮挡 -->
+      <view class="post-list-bottom-pad" />
     </scroll-view>
+
+    <!-- 底部悬浮发帖条 -->
+    <view class="bottom-publish-bar" @click="openPublishModal">
+      <view class="bottom-publish-inner">
+        <view class="bottom-publish-placeholder">
+          <text class="placeholder-icon">✎</text>
+          <text class="placeholder-text">说点什么，分享你的校园生活...</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 发帖弹窗 -->
+    <view class="publish-modal-mask" v-if="showPublishModal" @click="closePublishModal" @touchmove.stop.prevent>
+      <view 
+        class="publish-modal-content" 
+        :class="{ 'publish-modal-show': publishModalAnimating }"
+        @click.stop
+      >
+        <!-- 这里嵌入发帖页面的内容 -->
+        <view class="modal-header">
+          <view class="modal-close" @click="closePublishModal">
+            <view class="close-chevron" />
+          </view>
+          <text class="modal-title">发帖</text>
+          <view class="modal-placeholder"></view>
+        </view>
+        
+        <scroll-view class="modal-body" scroll-y>
+          <post-editor :form="publishForm" :topics="publishTopics" />
+        </scroll-view>
+
+        <!-- 底部操作栏 -->
+        <view class="modal-footer">
+          <view class="draft-btn" @click="saveDraft">
+            <text>存草稿</text>
+          </view>
+          <view class="publish-btn" :class="{ disabled: !canPublish }" @click="publishPost">
+            <text>发布</text>
+          </view>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import PostEditor from '@/subpackage_forum/components/post-editor/post-editor.vue'
 export default {
-  components: { NavBar },
+  components: { NavBar, PostEditor },
   data() {
     return {
       searchKeyword: '',
+      currentUserAvatar: '', // 当前用户头像，可后续从登录态获取
       currentTopic: 0,
       topics: [
         { id: 0, name: '推荐' },
@@ -121,8 +167,38 @@ export default {
       pageSize: 10,
       loading: false,
       noMore: false,
-      isRefreshing: false
+      isRefreshing: false,
+      // 发帖弹窗相关
+      showPublishModal: false,
+      publishModalAnimating: false,
+      publishForm: {
+        title: '',
+        content: '',
+        images: [],
+        topicId: null,
+        isAnonymous: false
+      },
+      publishTopics: [
+        { id: 1, name: '校园生活' },
+        { id: 2, name: '学习交流' },
+        { id: 3, name: '求职招聘' },
+        { id: 4, name: '二手交易' },
+        { id: 5, name: '情感树洞' },
+        { id: 6, name: '美食探店' },
+        { id: 7, name: '求助问答' },
+        { id: 8, name: '失物招领' }
+      ]
     }
+  },
+  computed: {
+    canPublish() {
+      return this.publishForm.content.trim().length >= 10
+    }
+  },
+  onBackPress() {
+    if (!this.showPublishModal) return false
+    this.closePublishModal()
+    return true
   },
   onLoad() {
     this.loadPostList()
@@ -243,11 +319,11 @@ export default {
         url: `/subpackage_forum/postDetail/postDetail?id=${id}`
       })
     },
-    
-    // 跳转到发布
-    goToPublish() {
+
+    // 跳转论坛个人主页（我的）
+    goToUserProfile() {
       uni.navigateTo({
-        url: '/subpackage_forum/publishPost/publishPost'
+        url: '/subpackage_forum/userProfile/userProfile'
       })
     },
     
@@ -273,6 +349,48 @@ export default {
           }
         }
       })
+    },
+
+    openPublishModal() {
+      if (this.showPublishModal) return
+      this.showPublishModal = true
+      this.$nextTick(() => {
+        setTimeout(() => {
+          if (this.showPublishModal) this.publishModalAnimating = true
+        }, 0)
+      })
+    },
+
+    closePublishModal() {
+      if (!this.showPublishModal) return
+      this.publishModalAnimating = false
+      setTimeout(() => {
+        this.showPublishModal = false
+      }, 250)
+    },
+
+    saveDraft() {
+      if (!this.publishForm.content.trim()) {
+        uni.showToast({ title: '请输入内容', icon: 'none' })
+        return
+      }
+      uni.showToast({ title: '已保存草稿', icon: 'success' })
+    },
+
+    publishPost() {
+      if (!this.canPublish) {
+        uni.showToast({ title: '内容至少10个字', icon: 'none' })
+        return
+      }
+
+      uni.showLoading({ title: '发布中...' })
+      setTimeout(() => {
+        uni.hideLoading()
+        uni.showToast({ title: '发布成功', icon: 'success' })
+        setTimeout(() => {
+          this.closePublishModal()
+        }, 300)
+      }, 1000)
     }
   }
 }
@@ -282,7 +400,7 @@ export default {
 .forum-container {
   min-height: 100vh;
   background-color: #F7F7F9;
-  padding-bottom: 120rpx;
+  padding-bottom: 0;
 }
 
 .search-bar {
@@ -299,7 +417,7 @@ export default {
     background-color: #F5F5F7;
     border-radius: 36rpx;
     padding: 0 30rpx;
-    margin-right: 20rpx;
+    margin-right: 24rpx;
     
     .search-icon {
       font-size: 28rpx;
@@ -313,23 +431,35 @@ export default {
     }
   }
   
-  .publish-btn {
-    padding: 16rpx 32rpx;
-    background-color: #5C7A99;
-    border-radius: 32rpx;
-    
-    text {
-      font-size: 28rpx;
-      color: #FFFFFF;
-      font-weight: 500;
-    }
+  .header-avatar-wrap {
+    flex-shrink: 0;
+    width: 70rpx;
+    height: 70rpx;
+    border-radius: 50%;
+    border: 1rpx solid #E5E7EB;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+  
+  .header-avatar {
+    width: 100%;
+    height: 100%;
+    display: block;
   }
 }
 
 .topic-scroll {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   background-color: #FFFFFF;
   padding: 0 20rpx 20rpx;
   white-space: nowrap;
+  /* 隐藏横向滚动条，保留滑动 */
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
   
   .topic-list {
     display: flex;
@@ -359,7 +489,12 @@ export default {
     background-color: #FFFFFF;
     border-radius: 16rpx;
     padding: 24rpx;
-    margin-bottom: 20rpx;
+    margin-bottom: 28rpx;
+  }
+  
+  .post-list-bottom-pad {
+    height: 200rpx;
+    flex-shrink: 0;
   }
   
   .post-header {
@@ -465,5 +600,160 @@ export default {
     color: #999;
     font-size: 26rpx;
   }
+}
+
+/* 底部悬浮发帖条 */
+.bottom-publish-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  padding: 24rpx 32rpx;
+  padding-bottom: calc(24rpx + constant(safe-area-inset-bottom));
+  padding-bottom: calc(24rpx + env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(20rpx);
+  -webkit-backdrop-filter: blur(20rpx);
+  box-shadow: 0 -8rpx 20rpx rgba(0, 0, 0, 0.05);
+  z-index: 100;
+  box-sizing: border-box;
+}
+
+.bottom-publish-inner {
+  display: flex;
+  align-items: center;
+  height: 80rpx;
+  background-color: #F3F4F6;
+  border-radius: 40rpx;
+  padding: 0 28rpx;
+}
+
+.bottom-publish-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.placeholder-icon {
+  font-size: 32rpx;
+  color: #9CA3AF;
+  margin-right: 16rpx;
+}
+
+.placeholder-text {
+  font-size: 28rpx;
+  color: #9CA3AF;
+}
+
+.publish-modal-mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 999;
+}
+
+.publish-modal-content {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 86vh;
+  background: #FFFFFF;
+  border-top-left-radius: 24rpx;
+  border-top-right-radius: 24rpx;
+  transform: translateY(100%);
+  transition: transform 250ms ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.publish-modal-show {
+  transform: translateY(0);
+}
+
+.modal-header {
+  height: 96rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24rpx;
+  border-bottom: 1rpx solid #F0F0F0;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.modal-close {
+  width: 72rpx;
+  height: 72rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.close-chevron {
+  width: 18rpx;
+  height: 18rpx;
+  border-right: 3rpx solid #111827;
+  border-bottom: 3rpx solid #111827;
+  transform: rotate(45deg);
+  box-sizing: border-box;
+}
+
+.modal-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #1D1D1F;
+}
+
+.modal-placeholder {
+  width: 72rpx;
+  height: 72rpx;
+}
+
+.modal-body {
+  flex: 1;
+  padding: 24rpx;
+  box-sizing: border-box;
+}
+
+.modal-footer {
+  display: flex;
+  gap: 16rpx;
+  padding: 20rpx 24rpx;
+  padding-bottom: calc(20rpx + constant(safe-area-inset-bottom));
+  padding-bottom: calc(20rpx + env(safe-area-inset-bottom));
+  background: #FFFFFF;
+  border-top: 1rpx solid #F0F0F0;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.draft-btn,
+.publish-btn {
+  flex: 1;
+  height: 80rpx;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+}
+
+.draft-btn {
+  background: #F3F4F6;
+  color: #111827;
+}
+
+.publish-btn {
+  background: #5C7A99;
+  color: #FFFFFF;
+}
+
+.publish-btn.disabled {
+  opacity: 0.5;
 }
 </style>
