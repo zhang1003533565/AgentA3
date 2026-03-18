@@ -58,8 +58,8 @@ public class ActivityServiceImpl implements ActivityService {
     @Override
     public Activity updateActivity(Long id, Activity activity) {
         Activity existing = getActivityById(id);
-        if (existing.getStatus() != Status.DRAFT && existing.getStatus() != Status.REJECTED) {
-            throw new BusinessException(400, "只有草稿或被驳回的活动可以编辑");
+        if (existing.getStatus() != Status.DRAFT && existing.getStatus() != PUBLISHED) {
+            throw new BusinessException(400, "只有草稿或已发布的活动可以编辑");
         }
         activity.setId(id);
         activity.setOrganizerId(existing.getOrganizerId());

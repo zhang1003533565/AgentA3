@@ -76,11 +76,8 @@ public class Activity {
 
     public enum Status {
         DRAFT("草稿"),
-        PENDING("待审核"),
-        PUBLISHED("已发布"),
-        REJECTED("已驳回"),
-        CANCELLED("已取消"),
-        COMPLETED("已完成");
+        PUBLISHED("进行中"),
+        COMPLETED("已结束");
 
         private final String description;
 
