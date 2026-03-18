@@ -53,6 +53,14 @@
           </view>
           <text class="cell-arrow">›</text>
         </view>
+        <view class="cell-divider"></view>
+        <view class="cell" @click="goToSignIn">
+          <view class="cell-left">
+            <view class="cell-icon"><icon-line name="calendar" size="cell" /></view>
+            <text class="cell-label">活动签到</text>
+          </view>
+          <text class="cell-arrow">›</text>
+        </view>
       </view>
       <!-- 12px 灰色隔离条 -->
       <view class="gap-bar"></view>
@@ -130,6 +138,9 @@ export default {
     },
     goToMyActivity() {
       uni.reLaunch({ url: '/subpackage_activity/activityList/activityList' })
+    },
+    goToSignIn() {
+      uni.navigateTo({ url: '/subpackage_signin/signIn/signIn' })
     },
     goToChangePassword() {
       uni.showToast({ title: '修改密码开发中', icon: 'none' })

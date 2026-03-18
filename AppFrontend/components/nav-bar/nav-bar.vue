@@ -52,7 +52,9 @@
 		border-bottom: 1px solid #E2E8F0;
 		padding-left: 32rpx;
 		padding-right: 32rpx;
-		padding-bottom: 8rpx;
+		padding-bottom: 0;
+		position: relative;
+		z-index: 1000;
 
 		&.nav-bar--glass {
 			background: rgba(255, 255, 255, 0.72);

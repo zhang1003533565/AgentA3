@@ -9,6 +9,10 @@
 						<view class="search-icon-wrap"><icon-line name="search" size="service" /></view>
 						<input class="search-input" type="text" placeholder="搜索课程、通知、活动..." placeholder-class="search-placeholder" />
 					</view>
+					<view class="header-msg-btn" @click="goToMessage">
+						<icon-line name="message-circle" size="service" />
+						<view v-if="unreadCount > 0" class="msg-badge"></view>
+					</view>
 				</view>
 			</view>
 			<view class="banner-section">
@@ -120,10 +124,10 @@
 				menus: [
 					{ name: '课程表', icon: 'calendar', path: '/pages/schedule/schedule' },
 					{ name: '校园活动', icon: 'compass', path: '/subpackage_activity/activityList/activityList' },
-					{ name: '校园论坛', icon: 'message-square', path: '/subpackage_forum/forumList/forumList' },
+					{ name: '校园论坛', icon: 'message-circle', path: '/subpackage_forum/forumList/forumList' },
 					{ name: '失物招领', icon: 'search', path: '/pages/lostfound/lostfound' },
-					{ name: '快递查询', icon: 'package', path: '/pages/express/express' },
-					{ name: '更多', icon: 'more-horizontal', path: '/pages/more/more' }
+					{ name: '快递查询', icon: 'clipboard', path: '/pages/express/express' },
+					{ name: '更多', icon: 'more', path: '/pages/more/more' }
 				],
 				notices: [
 					{ title: '关于2026年清明节放假安排的通知', time: '10:30', tag: '教务', type: 'jw' },
@@ -182,7 +186,7 @@
 			},
 			goToMessage() {
 				uni.navigateTo({
-					url: '/pages/message/message'
+					url: '/subpackage_message/messageList/messageList'
 				})
 			},
 			onBannerClick(item) {
@@ -255,7 +259,7 @@
 	.home-container {
 		min-height: 100vh;
 		background-color: #F7F7F9;
-		padding-bottom: 120rpx;
+		padding-bottom: 260rpx;
 	}
 
 	/* 区域分隔：灰条，与画布同色 */
@@ -286,9 +290,12 @@
 		padding-right: 32rpx;
 	}
 	.header-search-row {
+		display: flex;
+		align-items: center;
 		padding-top: 16rpx;
 		padding-bottom: 20rpx;
 		margin-bottom: 0;
+		gap: 20rpx;
 	}
 	.search-box {
 		display: flex;
@@ -298,8 +305,29 @@
 		border: none;
 		border-radius: 16rpx;   /* 8px */
 		padding: 0 32rpx;
-		width: 100%;
+		flex: 1;
 		box-sizing: border-box;
+	}
+	.header-msg-btn {
+		position: relative;
+		width: 76rpx;
+		height: 76rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background-color: #F2F2F2;
+		border-radius: 16rpx;
+		color: #4A4A4A;
+	}
+	.msg-badge {
+		position: absolute;
+		top: 16rpx;
+		right: 16rpx;
+		width: 16rpx;
+		height: 16rpx;
+		background-color: #FF3B30;
+		border-radius: 50%;
+		border: 4rpx solid #F2F2F2;
 	}
 	.search-icon-wrap {
 		display: flex;

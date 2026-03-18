@@ -103,12 +103,50 @@
 					}
 				}
 			]
+		},
+		{
+			"root": "subpackage_message",
+			"pages": [
+				{
+					"path": "messageList/messageList",
+					"style": {
+						"navigationBarTitleText": "消息通知",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black",
+						"enablePullDownRefresh": true
+					}
+				},
+				{
+					"path": "messageDetail/messageDetail",
+					"style": {
+						"navigationBarTitleText": "消息详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
+			]
+		},
+		{
+			"root": "subpackage_signin",
+			"pages": [
+				{
+					"path": "signIn/signIn",
+					"style": {
+						"navigationBarTitleText": "活动签到",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
+			]
 		}
 	],
 	"preloadRule": {
 		"pages/index/index": {
 			"network": "all",
-			"packages": ["subpackage_activity", "subpackage_forum"]
+			"packages": ["subpackage_activity", "subpackage_forum", "subpackage_message", "subpackage_signin"]
 		}
 	},
 	"globalStyle": {
