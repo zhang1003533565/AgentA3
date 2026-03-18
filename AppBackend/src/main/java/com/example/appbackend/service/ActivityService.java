@@ -4,6 +4,8 @@ import com.example.appbackend.dto.PageResponse;
 import com.example.appbackend.entity.Activity;
 import com.example.appbackend.entity.Activity.Status;
 
+import java.util.List;
+
 public interface ActivityService {
 
     /**
@@ -32,6 +34,11 @@ public interface ActivityService {
     void deleteActivity(Long id);
 
     /**
+     * 批量删除活动
+     */
+    void deleteActivities(List<Long> ids);
+
+    /**
      * 更新活动状态
      */
     void updateActivityStatus(Long id, Status status);
@@ -47,7 +54,13 @@ public interface ActivityService {
     void auditActivity(Long id, String auditStatus);
 
     /**
-     * 获取热门活动
+     * 模糊搜索活动
      */
+    PageResponse<Activity> searchActivities(Integer page, Integer size, String keyword);
+
+    /**
+     * 按分类和状态筛选活动
+     */
+    PageResponse<Activity> filterActivities(Integer page, Integer size, Long categoryId, Status status);
 
 }

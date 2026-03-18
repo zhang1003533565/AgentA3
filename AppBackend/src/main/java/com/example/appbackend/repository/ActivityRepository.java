@@ -30,4 +30,29 @@ public interface ActivityRepository extends JpaRepository<Activity, Long>, JpaSp
     List<Activity> findByStatus(Status status);
 
     Page<Activity> findByStatus(Status status, Pageable pageable);
+
+    boolean existsByCategoryId(Long id);
+
+    /**
+     * 模糊搜索活动（搜索标题、内容、地点、组织者名称）
+     */
+    @Query("SELECT a FROM Activity a WHERE " +
+           "(:keyword IS NULL OR a.title LIKE %:keyword% " +
+           "OR a.content LIKE %:keyword% " +
+           "OR a.location LIKE %:keyword% " +
+           "OR a.organizerName LIKE %:keyword%)")
+    Page<Activity> searchByKeyword(
+            @Param("keyword") String keyword,
+            Pageable pageable);
+
+    /**
+     * 按分类和状态筛选活动
+     */
+    @Query("SELECT a FROM Activity a WHERE " +
+           "(:categoryId IS NULL OR a.categoryId = :categoryId) AND " +
+           "(:status IS NULL OR a.status = :status)")
+    Page<Activity> filterByCategoryAndStatus(
+            @Param("categoryId") Long categoryId,
+            @Param("status") Status status,
+            Pageable pageable);
 }

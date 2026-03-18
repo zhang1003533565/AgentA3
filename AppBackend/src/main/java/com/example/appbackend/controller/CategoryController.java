@@ -97,4 +97,19 @@ public class CategoryController {
         activitiyCategoryService.delete(id);
         return Result.success();
     }
+
+    @Operation(summary = "批量删除分类", description = "批量删除活动分类，需要管理员权限")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "删除成功"),
+        @ApiResponse(responseCode = "401", description = "未登录"),
+        @ApiResponse(responseCode = "403", description = "无权限")
+    })
+    @DeleteMapping("/batch")
+    public Result<Void> deleteCategories(
+            HttpServletRequest request,
+            @Parameter(description = "分类ID列表", required = true)
+            @RequestBody List<Long> ids) {
+        activitiyCategoryService.deleteCategories(ids);
+        return Result.success();
+    }
 }

@@ -19,4 +19,6 @@ public interface SignInRepository extends JpaRepository<SignIn, Long> {
     List<SignIn> findByUserId(Long userId);
 
     boolean existsByActivityIdAndUserId(Long activityId, Long userId);
+
+    boolean existsByActivityId(Long id);
 }
