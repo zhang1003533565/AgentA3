@@ -21,4 +21,6 @@ public interface SignInRepository extends JpaRepository<SignIn, Long> {
     boolean existsByActivityIdAndUserId(Long activityId, Long userId);
 
     boolean existsByActivityId(Long id);
+
+    void deleteByActivityId(Long activityId);
 }

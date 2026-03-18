@@ -41,6 +41,11 @@ public interface ActivityRepository extends JpaRepository<Activity, Long>, JpaSp
     /**
      * 按分类和状态筛选活动
      */
+    @Query("SELECT a FROM Activity a WHERE a.endTime < :currentTime AND a.status = :status")
+    List<Activity> findExpiredActivities(
+            @Param("currentTime") java.time.LocalDateTime currentTime,
+            @Param("status") Status status);
+
     @Query("SELECT a FROM Activity a WHERE " +
            "(:categoryId IS NULL OR a.categoryId = :categoryId) AND " +
            "(:status IS NULL OR a.status = :status)")

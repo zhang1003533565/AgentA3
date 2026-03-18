@@ -28,34 +28,17 @@ public interface ActivityService {
      */
     Activity updateActivity(Long id, Activity activity);
 
-    /**
-     * 删除活动
-     */
-    void deleteActivity(Long id);
 
-    /**
-     * 批量删除活动
-     */
-    void deleteActivities(List<Long> ids);
+    void deleteActivity(Long id, boolean isAdmin);
+
+
+    void deleteActivities(List<Long> ids, boolean isAdmin);
 
     /**
      * 更新活动状态
      */
     void updateActivityStatus(Long id, Status status);
 
-    /**
-     * 提交审核
-     */
-
-
-    /**
-     * 审核活动
-     */
-
-
-    /**
-     * 模糊搜索活动
-     */
     PageResponse<Activity> searchActivities(Integer page, Integer size, String keyword);
 
     /**
@@ -65,4 +48,9 @@ public interface ActivityService {
 
 
     void publishActivity(Long id);
+
+    /**
+     * 更新过期活动状态
+     */
+    void updateExpiredActivitiesStatus();
 }

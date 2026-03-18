@@ -6,6 +6,7 @@ import com.example.appbackend.entity.Activity.Status;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.ActivityRepository;
+import com.example.appbackend.repository.RegistrationRepository;
 import com.example.appbackend.repository.SignInRepository;
 import com.example.appbackend.service.ActivityService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +28,8 @@ public class ActivityServiceImpl implements ActivityService {
     private ActivityRepository activityRepository;
     @Autowired
     private SignInRepository signInRepository;
+    @Autowired
+    private RegistrationRepository registrationRepository;
 
     @Override
     public PageResponse<Activity> getActivityList(Integer page, Integer size, String title, Long categoryId, Status status) {
@@ -69,25 +72,34 @@ public class ActivityServiceImpl implements ActivityService {
     }
 
     @Override
-    public void deleteActivity(Long id) {
-        if(signInRepository.existsByActivityId(id)){
-            throw new BusinessException(400,"已有学生签到，不可删除该活动");
-        };
+    public void deleteActivity(Long id, boolean isAdmin) {
         Activity activity = getActivityById(id);
+        if (!isAdmin && activity.getStatus() != Status.DRAFT) {
+            throw new BusinessException(403, "只有草稿状态的活动可以删除");
+        }
+        signInRepository.deleteByActivityId(id);
+        registrationRepository.deleteByActivityId(id);
         activityRepository.delete(activity);
     }
 
     @Override
-    public void deleteActivities(List<Long> ids) {
+    public void deleteActivities(List<Long> ids, boolean isAdmin) {
         List<Activity> activities = activityRepository.findAllById(ids);
         if (activities.isEmpty()) {
             throw new BusinessException(404, "未找到指定的活动中活动");
         }
-        // 检查是否有活动存在签到记录
-        for (Activity activity : activities) {
-            if (signInRepository.existsByActivityId(activity.getId())) {
-                throw new BusinessException(400, "活动「" + activity.getTitle() + "」已有学生签到，不可删除");
+        // 非管理员只能删除草稿状态的活动
+        if (!isAdmin) {
+            for (Activity activity : activities) {
+                if (activity.getStatus() != Status.DRAFT) {
+                    throw new BusinessException(403, "只有草稿状态的活动可以删除");
+                }
             }
+        }
+        // 删除关联的报名和签到记录
+        for (Activity activity : activities) {
+            signInRepository.deleteByActivityId(activity.getId());
+            registrationRepository.deleteByActivityId(activity.getId());
         }
         activityRepository.deleteAll(activities);
     }
@@ -132,6 +144,18 @@ public class ActivityServiceImpl implements ActivityService {
         Activity activity=activityRepository.findById(id).orElseThrow(()->new BusinessException(Result.FORBIDDEN_CODE,"活动不存在"));
         activity.setStatus(Status.PUBLISHED);
         activityRepository.save(activity);
+    }
+
+    @Override
+    public void updateExpiredActivitiesStatus() {
+        List<Activity> expiredActivities = activityRepository.findExpiredActivities(
+                java.time.LocalDateTime.now(),
+                Status.PUBLISHED
+        );
+        for (Activity activity : expiredActivities) {
+            activity.setStatus(Status.COMPLETED);
+            activityRepository.save(activity);
+        }
     }
 
 }

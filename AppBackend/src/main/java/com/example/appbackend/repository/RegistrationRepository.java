@@ -18,4 +18,6 @@ public interface RegistrationRepository extends JpaRepository<Registration, Long
     Page<Registration> findByActivityId(Long activityId, Pageable pageable);
 
     boolean existsByActivityIdAndUserId(Long activityId, Long userId);
+
+    void deleteByActivityId(Long activityId);
 }

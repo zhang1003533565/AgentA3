@@ -74,7 +74,7 @@ public class ActivityController {
             @RequestParam(required = false) String title,
             @Parameter(description = "分类ID", example = "1") 
             @RequestParam(required = false) Long categoryId,
-            @Parameter(description = "活动状态: DRAFT-草稿, PENDING-待审核, PUBLISHED-已发布, REJECTED-已驳回, CANCELLED-已取消, COMPLETED-已完成", example = "PUBLISHED") 
+            @Parameter(description = "活动状态: DRAFT-草稿, PUBLISHED-已发布, REJECTED-已驳回, CANCELLED-已取消, COMPLETED-已完成", example = "PUBLISHED")
             @RequestParam(required = false) String status) {
         Status statusEnum = status != null ? Status.valueOf(status) : null;
         PageResponse<Activity> list = activityService.getActivityList(page, size, title, categoryId, statusEnum);
@@ -113,9 +113,16 @@ public class ActivityController {
         return Result.success(created);
     }
 
+    @Operation(summary = "发布活动", description = "发布活动，将活动状态从草稿变为已发布，需要教师或管理员权限")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "发布成功"),
+        @ApiResponse(responseCode = "401", description = "未登录"),
+        @ApiResponse(responseCode = "403", description = "无权限"),
+        @ApiResponse(responseCode = "404", description = "活动不存在")
+    })
     @PostMapping("publish/{id}")
     public Result<Activity> publishActivity(
-            @Parameter(description = "活动信息", required = true)
+            @Parameter(description = "活动ID", required = true, example = "1")
             @PathVariable Long id,
             HttpServletRequest request) {
         checkRole(request);
@@ -143,7 +150,7 @@ public class ActivityController {
         return Result.success(updated);
     }
 
-    @Operation(summary = "删除活动", description = "删除活动，需要教师或管理员权限")
+    @Operation(summary = "删除活动", description = "删除活动，管理员可删除所有，教师仅可删除草稿状态的活动")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "删除成功"),
         @ApiResponse(responseCode = "401", description = "未登录"),
@@ -156,11 +163,14 @@ public class ActivityController {
             @Parameter(description = "活动ID", required = true, example = "1") 
             @PathVariable Long id) {
         checkRole(request);
-        activityService.deleteActivity(id);
+        String role = (String) request.getAttribute("role");
+        activityService.deleteActivity(id, ROLE_ADMIN.equals(role));
         return Result.success();
     }
 
-    @Operation(summary = "批量删除活动", description = "批量删除活动，需要教师或管理员权限")
+
+
+    @Operation(summary = "批量删除活动", description = "批量删除活动，管理员可删除所有，教师仅可删除草稿状态的活动")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "删除成功"),
         @ApiResponse(responseCode = "401", description = "未登录"),
@@ -172,7 +182,8 @@ public class ActivityController {
             @Parameter(description = "活动ID列表", required = true)
             @RequestBody List<Long> ids) {
         checkRole(request);
-        activityService.deleteActivities(ids);
+        String role = (String) request.getAttribute("role");
+        activityService.deleteActivities(ids, ROLE_ADMIN.equals(role));
         return Result.success();
     }
 
