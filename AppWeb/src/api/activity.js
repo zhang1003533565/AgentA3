@@ -59,3 +59,30 @@ export const getCategoryList = () => {
     method: 'get'
   })
 }
+
+// 批量删除活动
+export const batchDeleteActivity = (ids) => {
+  return request({
+    url: '/api/activities/batch',
+    method: 'delete',
+    data: ids
+  })
+}
+
+// 搜索活动
+export const searchActivities = (params) => {
+  return request({
+    url: '/api/activities/search',
+    method: 'get',
+    params
+  })
+}
+
+// 筛选活动
+export const filterActivities = (params) => {
+  return request({
+    url: '/api/activities/filter',
+    method: 'get',
+    params
+  })
+}

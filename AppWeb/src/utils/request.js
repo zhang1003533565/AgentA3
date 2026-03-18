@@ -34,8 +34,6 @@ request.interceptors.response.use(
     
     // 如果返回的状态码不是 200，说明接口有问题，把错误信息抛出去
     if (res.code !== 200) {
-      message.error(res.msg || res.message || '请求失败')
-      
       // 401: Token过期或无效
       if (res.code === 401) {
         // 清除token并跳转到登录页
@@ -44,7 +42,12 @@ request.interceptors.response.use(
         window.location.href = '/'
       }
       
-      return Promise.reject(new Error(res.msg || res.message || '请求失败'))
+      // 返回一个带有错误信息的对象，让调用方处理显示
+      return Promise.reject({ 
+        message: res.msg || res.message || '请求失败',
+        code: res.code,
+        showMessage: true 
+      })
     }
     
     return res

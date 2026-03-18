@@ -24,7 +24,7 @@ function NavBar() {
   const activityMenuItems = [
     { key: 'activity', label: '🎉 活动管理', onClick: () => navigate('/activity/manage') },
     { key: 'category', label: '🏷️ 分类管理', onClick: () => navigate('/category/manage') },
-    { key: 'audit', label: '✅ 审核管理', onClick: () => navigate('/audit/manage') },
+    { key: 'audit', label: '✅ 报名审核', onClick: () => navigate('/audit/manage') },
     { key: 'signin', label: '📍 签到管理', onClick: () => navigate('/signin/manage') },
     { key: 'notice', label: '🔔 通知管理', onClick: () => navigate('/notice/manage') },
     { type: 'divider' },

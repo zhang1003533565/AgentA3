@@ -47,7 +47,9 @@ function Login() {
       }
     } catch (error) {
       console.error('登录失败:', error)
-      message.error(error.response?.data?.message || '登录失败，请检查用户名和密码')
+      // 显示错误消息 - 使用 alert 避免 Ant Design 兼容性问题
+      const errorMsg = error.message || error.msg || '登录失败，请检查用户名和密码'
+      alert(errorMsg)
     } finally {
       setLoading(false)
     }

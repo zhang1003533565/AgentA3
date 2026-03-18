@@ -1,21 +1,20 @@
 import { useState, useEffect, useRef } from 'react'
 import { message, Modal, Form, Input, Select, InputNumber, Button, Table, Tag, Space, Popconfirm } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons'
-import { getActivityList, createActivity, updateActivity, deleteActivity, getCategoryList } from '../../../api/activity'
+import { getActivityList, createActivity, updateActivity, deleteActivity, batchDeleteActivity, getCategoryList, searchActivities } from '../../../api/activity'
 import './ActivityManage.css'
 
 const { TextArea } = Input
 const { Option } = Select
 
-// 活动状态映射
+// 活动状态映射（与后端枚举对应）
 const statusMap = {
-  0: { text: '草稿', color: 'default' },
-  1: { text: '待审核', color: 'orange' },
-  2: { text: '报名中', color: 'green' },
-  3: { text: '报名结束', color: 'blue' },
-  4: { text: '进行中', color: 'processing' },
-  5: { text: '已结束', color: 'default' },
-  6: { text: '已取消', color: 'red' }
+  'DRAFT': { text: '草稿', color: 'default' },
+  'PENDING': { text: '待审核', color: 'orange' },
+  'PUBLISHED': { text: '已发布', color: 'green' },
+  'REJECTED': { text: '已驳回', color: 'red' },
+  'CANCELLED': { text: '已取消', color: 'default' },
+  'COMPLETED': { text: '已完成', color: 'blue' }
 }
 
 function ActivityManage() {
@@ -35,6 +34,7 @@ function ActivityManage() {
   const initialized = useRef(false)
   const [viewModalVisible, setViewModalVisible] = useState(false)
   const [viewRecord, setViewRecord] = useState(null)
+  const [selectedRowKeys, setSelectedRowKeys] = useState([])
 
   // 获取活动列表
   const fetchActivities = async (params = {}) => {
@@ -77,10 +77,37 @@ function ActivityManage() {
     }
   }, [])
 
-  // 搜索
+  // 搜索 - 使用搜索接口
   const handleSearch = (values) => {
     setPagination({ ...pagination, current: 1 })
-    fetchActivities(values)
+    const params = { page: 1, size: pagination.pageSize }
+    
+    if (values.keyword) {
+      // 有关键词时使用搜索接口（只传keyword）
+      fetchSearchResults({ ...params, keyword: values.keyword })
+    } else {
+      // 无关键词时使用普通列表（支持分类和状态筛选）
+      if (values.categoryId) params.categoryId = values.categoryId
+      if (values.status !== undefined && values.status !== null) params.status = values.status
+      fetchActivities(params)
+    }
+  }
+
+  // 搜索活动
+  const fetchSearchResults = async (params) => {
+    setLoading(true)
+    try {
+      const res = await searchActivities(params)
+      if (res.code === 200) {
+        setActivities(res.data?.records || [])
+        setPagination({
+          ...pagination,
+          total: res.data?.total || 0
+        })
+      }
+    } finally {
+      setLoading(false)
+    }
   }
 
   // 重置搜索
@@ -118,6 +145,18 @@ function ActivityManage() {
     setModalVisible(true)
   }
 
+  // 格式化日期时间为后端需要的格式
+  const formatDateTime = (dateTimeStr) => {
+    if (!dateTimeStr) return null
+    // 将 "2026-03-17T15:27" 或 "2026-03-17T15:27:00" 转换为 "2026-03-17 15:27:00"
+    const withoutT = dateTimeStr.replace('T', ' ')
+    // 如果已经有秒了，直接返回；否则加上秒
+    if (withoutT.match(/:\d{2}:\d{2}$/)) {
+      return withoutT
+    }
+    return withoutT + ':00'
+  }
+
   // 提交表单
   const handleSubmit = async () => {
     try {
@@ -130,10 +169,10 @@ function ActivityManage() {
         content: values.content,
         contactName: values.contactName,
         contactPhone: values.contactPhone,
-        startTime: values.startTime,
-        endTime: values.endTime,
-        signupStartTime: values.signupStartTime,
-        signupEndTime: values.signupEndTime
+        startTime: formatDateTime(values.startTime),
+        endTime: formatDateTime(values.endTime),
+        signupStartTime: formatDateTime(values.signupStartTime),
+        signupEndTime: formatDateTime(values.signupEndTime)
       }
 
       let res
@@ -164,6 +203,30 @@ function ActivityManage() {
     } catch (error) {
       console.error('删除失败:', error)
     }
+  }
+
+  // 批量删除活动
+  const handleBatchDelete = async () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请选择要删除的活动')
+      return
+    }
+    Modal.confirm({
+      title: '确认批量删除',
+      content: `确定要删除选中的 ${selectedRowKeys.length} 个活动吗？`,
+      onOk: async () => {
+        try {
+          const res = await batchDeleteActivity(selectedRowKeys)
+          if (res.code === 200) {
+            message.success('批量删除成功')
+            setSelectedRowKeys([])
+            fetchActivities()
+          }
+        } catch (error) {
+          console.error('批量删除失败:', error)
+        }
+      }
+    })
   }
 
   // 查看详情
@@ -280,7 +343,7 @@ function ActivityManage() {
             <Form.Item name="status">
               <Select placeholder="选择状态" allowClear style={{ width: 120 }}>
                 {Object.entries(statusMap).map(([key, value]) => (
-                  <Option key={key} value={parseInt(key)}>{value.text}</Option>
+                  <Option key={key} value={key}>{value.text}</Option>
                 ))}
               </Select>
             </Form.Item>
@@ -289,9 +352,16 @@ function ActivityManage() {
               <Button onClick={handleReset} style={{ marginLeft: 8 }}>重置</Button>
             </Form.Item>
           </Form>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            创建活动
-          </Button>
+          <Space>
+            {selectedRowKeys.length > 0 && (
+              <Button danger icon={<DeleteOutlined />} onClick={handleBatchDelete}>
+                批量删除 ({selectedRowKeys.length})
+              </Button>
+            )}
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+              创建活动
+            </Button>
+          </Space>
         </div>
 
         {/* 活动列表 */}
@@ -301,6 +371,10 @@ function ActivityManage() {
           rowKey="id"
           loading={loading}
           scroll={{ x: 1180 }}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: setSelectedRowKeys
+          }}
           pagination={{
             ...pagination,
             showSizeChanger: true,
