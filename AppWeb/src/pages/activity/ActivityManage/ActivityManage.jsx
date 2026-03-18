@@ -35,6 +35,7 @@ function ActivityManage() {
   const [viewModalVisible, setViewModalVisible] = useState(false)
   const [viewRecord, setViewRecord] = useState(null)
   const [selectedRowKeys, setSelectedRowKeys] = useState([])
+  const [batchDeleteModalVisible, setBatchDeleteModalVisible] = useState(false)
 
   // 获取活动列表
   const fetchActivities = async (params = {}) => {
@@ -197,36 +198,50 @@ function ActivityManage() {
     try {
       const res = await deleteActivity(id)
       if (res.code === 200) {
-        message.success('删除成功')
+        alert('删除成功')
         fetchActivities()
       }
     } catch (error) {
       console.error('删除失败:', error)
+      // 检查是否是外键约束错误
+      const errorMsg = error.message || error.msg || ''
+      if (errorMsg.includes('Cannot delete or update a parent row')) {
+        alert('该活动已有报名记录，无法删除')
+      } else {
+        alert('删除失败：' + (errorMsg || '未知错误'))
+      }
     }
   }
 
-  // 批量删除活动
-  const handleBatchDelete = async () => {
+  // 打开批量删除确认弹窗
+  const handleBatchDelete = () => {
     if (selectedRowKeys.length === 0) {
-      message.warning('请选择要删除的活动')
+      alert('请选择要删除的活动')
       return
     }
-    Modal.confirm({
-      title: '确认批量删除',
-      content: `确定要删除选中的 ${selectedRowKeys.length} 个活动吗？`,
-      onOk: async () => {
-        try {
-          const res = await batchDeleteActivity(selectedRowKeys)
-          if (res.code === 200) {
-            message.success('批量删除成功')
-            setSelectedRowKeys([])
-            fetchActivities()
-          }
-        } catch (error) {
-          console.error('批量删除失败:', error)
-        }
+    setBatchDeleteModalVisible(true)
+  }
+
+  // 确认批量删除
+  const confirmBatchDelete = async () => {
+    try {
+      const res = await batchDeleteActivity(selectedRowKeys)
+      if (res.code === 200) {
+        alert('批量删除成功')
+        setSelectedRowKeys([])
+        setBatchDeleteModalVisible(false)
+        fetchActivities()
       }
-    })
+    } catch (error) {
+      console.error('批量删除失败:', error)
+      // 检查是否是外键约束错误
+      const errorMsg = error.message || error.msg || ''
+      if (errorMsg.includes('Cannot delete or update a parent row')) {
+        alert('部分活动已有报名记录，无法删除')
+      } else {
+        alert('批量删除失败：' + (errorMsg || '未知错误'))
+      }
+    }
   }
 
   // 查看详情
@@ -531,6 +546,19 @@ function ActivityManage() {
             <p><strong>详情：</strong>{viewRecord.content}</p>
           </div>
         )}
+      </Modal>
+
+      {/* 批量删除确认弹窗 */}
+      <Modal
+        title="确认批量删除"
+        open={batchDeleteModalVisible}
+        onOk={confirmBatchDelete}
+        onCancel={() => setBatchDeleteModalVisible(false)}
+        okText="确定"
+        cancelText="取消"
+        okButtonProps={{ danger: true }}
+      >
+        <p>确定要删除选中的 {selectedRowKeys.length} 个活动吗？</p>
       </Modal>
     </div>
   )
