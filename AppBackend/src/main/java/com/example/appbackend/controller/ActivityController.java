@@ -101,7 +101,7 @@ public class ActivityController {
         @ApiResponse(responseCode = "403", description = "无权限")
     })
     @PostMapping
-    public Result<Activity> createActivity(
+    public Result<Activity> draftActivity(
             @Parameter(description = "活动信息", required = true) 
             @RequestBody Activity activity, 
             HttpServletRequest request) {
@@ -109,8 +109,19 @@ public class ActivityController {
         String username = (String) request.getAttribute("username");
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("用户不存在"));
-        Activity created = activityService.createActivity(activity, user.getId(), user.getRealName());
+        Activity created = activityService.draftActivity(activity, user.getId(), user.getRealName());
         return Result.success(created);
+    }
+
+    @PostMapping("publish/{id}")
+    public Result<Activity> publishActivity(
+            @Parameter(description = "活动信息", required = true)
+            @PathVariable Long id,
+            HttpServletRequest request) {
+        checkRole(request);
+
+        activityService.publishActivity(id);
+        return Result.success();
     }
 
     @Operation(summary = "更新活动", description = "更新活动信息，需要教师或管理员权限")
@@ -185,41 +196,9 @@ public class ActivityController {
         return Result.success();
     }
 
-    @Operation(summary = "提交审核", description = "提交活动进行审核，需要教师权限")
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "提交成功"),
-        @ApiResponse(responseCode = "401", description = "未登录"),
-        @ApiResponse(responseCode = "403", description = "无权限"),
-        @ApiResponse(responseCode = "404", description = "活动不存在")
-    })
-    @PostMapping("/{id}/submit")
-    public Result<Void> submitActivity(
-            HttpServletRequest request, 
-            @Parameter(description = "活动ID", required = true, example = "1") 
-            @PathVariable Long id) {
-        checkTeacher(request);
-        activityService.submitActivity(id);
-        return Result.success();
-    }
 
-    @Operation(summary = "审核活动", description = "审核活动（通过/驳回），需要管理员权限")
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "审核成功"),
-        @ApiResponse(responseCode = "401", description = "未登录"),
-        @ApiResponse(responseCode = "403", description = "无权限"),
-        @ApiResponse(responseCode = "404", description = "活动不存在")
-    })
-    @PostMapping("/{id}/audit")
-    public Result<Void> auditActivity(
-            HttpServletRequest request, 
-            @Parameter(description = "活动ID", required = true, example = "1") 
-            @PathVariable Long id, 
-            @Parameter(description = "审核状态: APPROVED-通过, REJECTED-驳回", required = true, example = "APPROVED") 
-            @RequestParam String auditStatus) {
-        checkAdminRole(request);
-        activityService.auditActivity(id, auditStatus);
-        return Result.success();
-    }
+
+
 
     @Operation(summary = "收藏活动", description = "收藏指定活动，需要用户登录")
     @ApiResponses(value = {

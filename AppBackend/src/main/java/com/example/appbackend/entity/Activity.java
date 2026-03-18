@@ -94,8 +94,8 @@ public class Activity {
     }
 
     @Enumerated(EnumType.STRING)
-    @Column(length = 20, columnDefinition = "VARCHAR(20) DEFAULT 'DRAFT' COMMENT '活动状态: DRAFT-草稿, PENDING-待审核, PUBLISHED-已发布, REJECTED-已驳回, CANCELLED-已取消, COMPLETED-已完成'")
-    @Schema(description = "活动状态: DRAFT-草稿, PENDING-待审核, PUBLISHED-已发布, REJECTED-已驳回, CANCELLED-已取消, COMPLETED-已完成", example = "DRAFT")
+    @Column(length = 20, columnDefinition = "VARCHAR(20) DEFAULT 'DRAFT' COMMENT '活动状态: DRAFT-草稿,  PUBLISHED-已发布, REJECTED-已驳回, CANCELLED-已取消, COMPLETED-已完成'")
+    @Schema(description = "活动状态: DRAFT-草稿 PUBLISHED-已发布, REJECTED-已驳回, CANCELLED-已取消, COMPLETED-已完成", example = "DRAFT")
     private Status status = Status.DRAFT;
 
 

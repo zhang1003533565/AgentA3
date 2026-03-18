@@ -55,4 +55,6 @@ public interface ActivityRepository extends JpaRepository<Activity, Long>, JpaSp
             @Param("categoryId") Long categoryId,
             @Param("status") Status status,
             Pageable pageable);
+
+
 }

@@ -17,6 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+import static com.example.appbackend.entity.Activity.Status.PUBLISHED;
+
 @Service
 @Transactional
 public class ActivityServiceImpl implements ActivityService {
@@ -45,7 +47,7 @@ public class ActivityServiceImpl implements ActivityService {
     }
 
     @Override
-    public Activity createActivity(Activity activity, Long userId, String organizerName) {
+    public Activity draftActivity(Activity activity, Long userId, String organizerName) {
         activity.setOrganizerId(userId);
         activity.setOrganizerName(organizerName);
         activity.setStatus(Status.DRAFT);
@@ -97,31 +99,9 @@ public class ActivityServiceImpl implements ActivityService {
         activityRepository.save(activity);
     }
 
-    @Override
-    public void submitActivity(Long id) {
-        Activity activity = getActivityById(id);
-        if (activity.getStatus() != Status.DRAFT && activity.getStatus() != Status.REJECTED) {
-            throw new BusinessException(400, "只有草稿或被驳回的活动可以提交审核");
-        }
-        activity.setStatus(Status.PENDING);
-        activityRepository.save(activity);
-    }
 
-    @Override
-    public void auditActivity(Long id, String auditStatus) {
-        Activity activity = getActivityById(id);
-        if (activity.getStatus() != Status.PENDING) {
-            throw new BusinessException(400, "只有待审核的活动可以审核");
-        }
-        if ("APPROVED".equals(auditStatus)) {
-            activity.setStatus(Status.PUBLISHED);
-        } else if("REJECTED".equals(auditStatus)){
-            activity.setStatus(Status.REJECTED);
-        }else {
-            throw new BusinessException(Result.FORBIDDEN_CODE,"传入正常状态");
-        }
-        activityRepository.save(activity);
-    }
+
+
 
     @Override
     public PageResponse<Activity> searchActivities(Integer page, Integer size, String keyword) {
@@ -145,6 +125,13 @@ public class ActivityServiceImpl implements ActivityService {
             page,
             size
         );
+    }
+
+    @Override
+    public void publishActivity(Long id) {
+        Activity activity=activityRepository.findById(id).orElseThrow(()->new BusinessException(Result.FORBIDDEN_CODE,"活动不存在"));
+        activity.setStatus(Status.PUBLISHED);
+        activityRepository.save(activity);
     }
 
 }

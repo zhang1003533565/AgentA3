@@ -21,7 +21,7 @@ public interface ActivityService {
     /**
      * 创建活动
      */
-    Activity createActivity(Activity activity, Long userId, String organizerName);
+    Activity draftActivity(Activity activity, Long userId, String organizerName);
 
     /**
      * 更新活动
@@ -46,12 +46,12 @@ public interface ActivityService {
     /**
      * 提交审核
      */
-    void submitActivity(Long id);
+
 
     /**
      * 审核活动
      */
-    void auditActivity(Long id, String auditStatus);
+
 
     /**
      * 模糊搜索活动
@@ -63,4 +63,6 @@ public interface ActivityService {
      */
     PageResponse<Activity> filterActivities(Integer page, Integer size, Long categoryId, Status status);
 
+
+    void publishActivity(Long id);
 }
