@@ -28,7 +28,7 @@ public class CategoryController {
     private static final String ROLE_ADMIN = "ADMIN";
     private static final String ROLE_TEACHER="TEACHER";
 
-    private void checkAdminRole(HttpServletRequest request) {
+    private void checkRole(HttpServletRequest request) {
         String role = (String) request.getAttribute("role");
         if (role == null || (!ROLE_ADMIN.equals(role) && !ROLE_TEACHER.equals(role))) {
             throw new BusinessException(Result.FORBIDDEN_CODE, "无权限操作，仅管理员、教师可执行");
@@ -58,7 +58,7 @@ public class CategoryController {
             HttpServletRequest request, 
             @Parameter(description = "分类信息", required = true) 
             @Valid @RequestBody CategoryRequest categoryRequest) {
-        checkAdminRole(request);
+        checkRole(request);
         CategoryResponse categoryResponse=activitiyCategoryService.addCategory(categoryRequest);
         return Result.success(categoryResponse);
     }
@@ -77,7 +77,7 @@ public class CategoryController {
             @PathVariable Long id,
             @Parameter(description = "分类信息", required = true) 
             @RequestBody CategoryRequest categoryRequest) {
-        checkAdminRole(request);
+        checkRole(request);
         activitiyCategoryService.update(id,categoryRequest);
         return Result.success();
     }
@@ -94,6 +94,7 @@ public class CategoryController {
             HttpServletRequest request, 
             @Parameter(description = "分类ID", required = true, example = "1") 
             @PathVariable Long id) {
+        checkRole(request);
         activitiyCategoryService.delete(id);
         return Result.success();
     }
@@ -109,6 +110,7 @@ public class CategoryController {
             HttpServletRequest request,
             @Parameter(description = "分类ID列表", required = true)
             @RequestBody List<Long> ids) {
+        checkRole(request);
         activitiyCategoryService.deleteCategories(ids);
         return Result.success();
     }
