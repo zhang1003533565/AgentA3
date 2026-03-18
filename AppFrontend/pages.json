@@ -141,12 +141,67 @@
 					}
 				}
 			]
+		},
+		{
+			"root": "subpackage_schedule",
+			"pages": [
+				{
+					"path": "schedule/schedule",
+					"style": {
+						"navigationBarTitleText": "我的课表",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "scheduleDetail/scheduleDetail",
+					"style": {
+						"navigationBarTitleText": "课程详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
+			]
+		},
+		{
+			"root": "subpackage_lostfound",
+			"pages": [
+				{
+					"path": "lostfoundList/lostfoundList",
+					"style": {
+						"navigationBarTitleText": "失物招领",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "lostfoundDetail/lostfoundDetail",
+					"style": {
+						"navigationBarTitleText": "信息详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "lostfoundPublish/lostfoundPublish",
+					"style": {
+						"navigationBarTitleText": "发布信息",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
+			]
 		}
 	],
 	"preloadRule": {
 		"pages/index/index": {
 			"network": "all",
-			"packages": ["subpackage_activity", "subpackage_forum", "subpackage_message", "subpackage_signin"]
+			"packages": ["subpackage_activity", "subpackage_forum", "subpackage_message", "subpackage_signin", "subpackage_schedule", "subpackage_lostfound"]
 		}
 	},
 	"globalStyle": {

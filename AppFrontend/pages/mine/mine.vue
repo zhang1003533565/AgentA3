@@ -131,7 +131,7 @@ export default {
       uni.showToast({ title: '功能开发中', icon: 'none' })
     },
     goToSchedule() {
-      uni.navigateTo({ url: '/pages/schedule/schedule' })
+      uni.navigateTo({ url: '/subpackage_schedule/schedule/schedule' })
     },
     goToGrade() {
       uni.navigateTo({ url: '/pages/grade/grade' })

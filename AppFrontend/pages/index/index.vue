@@ -122,10 +122,10 @@
 					{ image: 'https://picsum.photos/400/150?random=3', title: '校园美食节活动', url: '' }
 				],
 				menus: [
-					{ name: '课程表', icon: 'calendar', path: '/pages/schedule/schedule' },
+					{ name: '课程表', icon: 'calendar', path: '/subpackage_schedule/schedule/schedule' },
 					{ name: '校园活动', icon: 'compass', path: '/subpackage_activity/activityList/activityList' },
 					{ name: '校园论坛', icon: 'message-circle', path: '/subpackage_forum/forumList/forumList' },
-					{ name: '失物招领', icon: 'search', path: '/pages/lostfound/lostfound' },
+					{ name: '失物招领', icon: 'search', path: '/subpackage_lostfound/lostfoundList/lostfoundList' },
 					{ name: '快递查询', icon: 'clipboard', path: '/pages/express/express' },
 					{ name: '更多', icon: 'more', path: '/pages/more/more' }
 				],
@@ -214,7 +214,7 @@
 			},
 			goToSchedule() {
 				uni.navigateTo({
-					url: '/pages/schedule/schedule'
+					url: '/subpackage_schedule/schedule/schedule'
 				})
 			},
 			onServiceClick(item) {
