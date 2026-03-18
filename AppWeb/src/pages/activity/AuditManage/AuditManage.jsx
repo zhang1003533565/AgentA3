@@ -53,7 +53,7 @@ function AuditManage() {
     try {
       const res = await getActivityList()
       if (res.code === 200) {
-        setActivities(res.data || [])
+        setActivities(res.data?.records || [])
       }
     } catch (error) {
       console.error('获取活动列表失败:', error)

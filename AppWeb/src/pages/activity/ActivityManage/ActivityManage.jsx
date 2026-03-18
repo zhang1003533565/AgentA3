@@ -33,6 +33,8 @@ function ActivityManage() {
     total: 0
   })
   const initialized = useRef(false)
+  const [viewModalVisible, setViewModalVisible] = useState(false)
+  const [viewRecord, setViewRecord] = useState(null)
 
   // 获取活动列表
   const fetchActivities = async (params = {}) => {
@@ -166,23 +168,8 @@ function ActivityManage() {
 
   // 查看详情
   const handleView = (record) => {
-    Modal.info({
-      title: '活动详情',
-      width: 600,
-      content: (
-        <div className="activity-detail">
-          <p><strong>标题：</strong>{record.title}</p>
-          <p><strong>分类：</strong>{record.categoryName}</p>
-          <p><strong>地点：</strong>{record.location}</p>
-          <p><strong>人数：</strong>{record.currentPeople}/{record.maxPeople}</p>
-          <p><strong>活动时间：</strong>{record.startTime} 至 {record.endTime}</p>
-          <p><strong>报名时间：</strong>{record.signupStartTime} 至 {record.signupEndTime}</p>
-          <p><strong>联系人：</strong>{record.contactName} ({record.contactPhone})</p>
-          <p><strong>状态：</strong>{statusMap[record.status]?.text}</p>
-          <p><strong>详情：</strong>{record.content}</p>
-        </div>
-      )
-    })
+    setViewRecord(record)
+    setViewModalVisible(true)
   }
 
   // 表格列定义
@@ -190,12 +177,14 @@ function ActivityManage() {
     {
       title: 'ID',
       dataIndex: 'id',
-      width: 80
+      width: 60,
+      fixed: 'left'
     },
     {
       title: '活动标题',
       dataIndex: 'title',
-      ellipsis: true
+      ellipsis: true,
+      width: 200
     },
     {
       title: '分类',
@@ -207,30 +196,30 @@ function ActivityManage() {
       title: '地点',
       dataIndex: 'location',
       ellipsis: true,
-      width: 150
+      width: 140
     },
     {
-      title: '报名人数',
+      title: '人数',
       dataIndex: 'currentPeople',
-      width: 100,
+      width: 90,
       render: (text, record) => `${text}/${record.maxPeople}`
     },
     {
-      title: '活动开始时间',
-      dataIndex: 'startTime',
-      width: 160
-    },
-    {
-      title: '报名截止时间',
-      dataIndex: 'signupEndTime',
-      width: 160
+      title: '时间信息',
+      width: 170,
+      render: (_, record) => (
+        <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+          <div><span style={{ color: '#666' }}>活动:</span> {record.startTime?.slice(0, 10)}</div>
+          <div><span style={{ color: '#666' }}>截止:</span> {record.signupEndTime?.slice(0, 10)}</div>
+        </div>
+      )
     },
     {
       title: '状态',
       dataIndex: 'status',
-      width: 100,
+      width: 90,
       render: (status) => (
-        <Tag color={statusMap[status]?.color}>
+        <Tag color={statusMap[status]?.color} style={{ fontSize: 12, margin: 0 }}>
           {statusMap[status]?.text}
         </Tag>
       )
@@ -241,9 +230,10 @@ function ActivityManage() {
       width: 200,
       fixed: 'right',
       render: (_, record) => (
-        <Space size="small">
+        <Space size={4}>
           <Button 
             type="text" 
+            size="small"
             icon={<EyeOutlined />} 
             onClick={() => handleView(record)}
           >
@@ -251,6 +241,7 @@ function ActivityManage() {
           </Button>
           <Button 
             type="text" 
+            size="small"
             icon={<EditOutlined />} 
             onClick={() => handleEdit(record)}
           >
@@ -262,9 +253,7 @@ function ActivityManage() {
             okText="确定"
             cancelText="取消"
           >
-            <Button type="text" danger icon={<DeleteOutlined />}>
-              删除
-            </Button>
+            <Button type="text" danger size="small" icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>
         </Space>
       )
@@ -311,6 +300,7 @@ function ActivityManage() {
           dataSource={activities}
           rowKey="id"
           loading={loading}
+          scroll={{ x: 1180 }}
           pagination={{
             ...pagination,
             showSizeChanger: true,
@@ -320,7 +310,6 @@ function ActivityManage() {
             setPagination({ ...pagination, current: pag.current, pageSize: pag.pageSize })
             fetchActivities({ page: pag.current, size: pag.pageSize })
           }}
-          scroll={{ x: 1200 }}
         />
       </main>
 
@@ -445,6 +434,29 @@ function ActivityManage() {
             <TextArea rows={4} placeholder="请输入活动详情" maxLength={2000} showCount />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 查看详情弹窗 */}
+      <Modal
+        title="活动详情"
+        open={viewModalVisible}
+        onCancel={() => setViewModalVisible(false)}
+        width={600}
+        footer={null}
+      >
+        {viewRecord && (
+          <div className="activity-detail" style={{ padding: '16px 0' }}>
+            <p><strong>标题：</strong>{viewRecord.title}</p>
+            <p><strong>分类：</strong>{viewRecord.category?.categoryName}</p>
+            <p><strong>地点：</strong>{viewRecord.location}</p>
+            <p><strong>人数：</strong>{viewRecord.currentPeople}/{viewRecord.maxPeople}</p>
+            <p><strong>活动时间：</strong>{viewRecord.startTime} 至 {viewRecord.endTime}</p>
+            <p><strong>报名时间：</strong>{viewRecord.signupStartTime} 至 {viewRecord.signupEndTime}</p>
+            <p><strong>联系人：</strong>{viewRecord.contactName} ({viewRecord.contactPhone})</p>
+            <p><strong>状态：</strong><Tag color={statusMap[viewRecord.status]?.color}>{statusMap[viewRecord.status]?.text}</Tag></p>
+            <p><strong>详情：</strong>{viewRecord.content}</p>
+          </div>
+        )}
       </Modal>
     </div>
   )

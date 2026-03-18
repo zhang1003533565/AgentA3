@@ -37,7 +37,7 @@ function SignInManage() {
     try {
       const res = await getSignInList(activityId)
       if (res.code === 200) {
-        setSignIns(res.data || [])
+        setSignIns(res.data?.records || [])
       }
     } finally {
       setLoading(false)
@@ -47,9 +47,9 @@ function SignInManage() {
   // 获取活动列表
   const fetchActivities = async () => {
     try {
-      const res = await getActivityList()
+      const res = await getActivityList({ page: 1, size: 999 })
       if (res.code === 200) {
-        setActivities(res.data || [])
+        setActivities(res.data?.records || [])
       }
     } catch (error) {
       console.error('获取活动列表失败:', error)

@@ -1,10 +1,11 @@
 import request from '../utils/request'
 
 // 获取签到列表（按活动）
-export const getSignInList = (activityId) => {
+export const getSignInList = (activityId, page = 1, size = 999) => {
   return request({
     url: `/api/signins/activities/${activityId}/signins`,
-    method: 'get'
+    method: 'get',
+    params: { page, size }
   })
 }
 

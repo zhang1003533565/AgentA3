@@ -29,6 +29,20 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
+/* 紧凑表格样式 */
+.ant-table-tbody > tr > td {
+  padding: 8px 12px !important;
+}
+
+.ant-table-thead > tr > th {
+  padding: 10px 12px !important;
+  font-weight: 600;
+}
+
+.ant-table-tbody > tr {
+  height: 48px;
+}
+
 /* 表单行 */
 .form-row {
   display: flex;
