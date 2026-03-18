@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { message, Modal, Button, List, Badge, Space, Popconfirm, Tabs, Empty } from 'antd'
 import { CheckOutlined, CheckCircleOutlined, DeleteOutlined, EyeOutlined, BellOutlined } from '@ant-design/icons'
 import { getNoticeList, markAsRead, markAllAsRead } from '../../../api/notice'
-import { getUserInfo, clearAuth } from '../../../utils/storage'
 import './NoticeManage.css'
 
 const { TabPane } = Tabs
@@ -17,23 +15,10 @@ const typeMap = {
 }
 
 function NoticeManage() {
-  const navigate = useNavigate()
-  const [userInfo, setUserInfo] = useState(null)
   const [notices, setNotices] = useState([])
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('all')
   const [unreadCount, setUnreadCount] = useState(0)
-
-  // 检查登录状态
-  useEffect(() => {
-    const info = getUserInfo()
-    if (!info) {
-      message.error('请先登录')
-      navigate('/')
-      return
-    }
-    setUserInfo(info)
-  }, [navigate])
 
   // 获取通知列表
   const fetchNotices = async (status = null) => {
@@ -53,10 +38,8 @@ function NoticeManage() {
   }
 
   useEffect(() => {
-    if (userInfo) {
-      fetchNotices()
-    }
-  }, [userInfo])
+    fetchNotices()
+  }, [])
 
   // 标记已读
   const handleMarkAsRead = async (id) => {
@@ -107,13 +90,6 @@ function NoticeManage() {
     })
   }
 
-  // 退出登录
-  const handleLogout = () => {
-    clearAuth()
-    message.success('已退出登录')
-    navigate('/')
-  }
-
   // Tab切换
   const handleTabChange = (key) => {
     setActiveTab(key)
@@ -129,23 +105,8 @@ function NoticeManage() {
   // 过滤后的通知列表
   const filteredNotices = notices
 
-  if (!userInfo) {
-    return null
-  }
-
   return (
     <div className="notice-manage-container">
-      {/* 顶部导航 */}
-      <header className="manage-header">
-        <div className="header-left">
-          <h1>智慧校园 - 通知管理</h1>
-        </div>
-        <div className="header-right">
-          <span className="user-name">{userInfo.username}</span>
-          <Button onClick={handleLogout}>退出</Button>
-        </div>
-      </header>
-
       {/* 主内容 */}
       <main className="manage-main">
         {/* 操作栏 */}

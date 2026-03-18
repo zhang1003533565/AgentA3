@@ -1,36 +1,11 @@
 .topic-manage-container {
-  min-height: 100vh;
+  padding: 24px;
   background: #f0f2f5;
 }
 
-.manage-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 24px;
-  height: 64px;
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
-}
-
-.header-left h1 {
-  margin: 0;
-  font-size: 20px;
-  color: #1890ff;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.user-name {
-  color: #666;
-}
-
 .manage-main {
-  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
 }
 
 .search-bar {

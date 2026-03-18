@@ -1,14 +1,10 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { message, Modal, Form, Input, Button, Table, Space, Popconfirm, Switch } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons'
 import { getCategoryList, createCategory, updateCategory, deleteCategory } from '../../../api/category'
-import { getUserInfo, clearAuth } from '../../../utils/storage'
 import './CategoryManage.css'
 
 function CategoryManage() {
-  const navigate = useNavigate()
-  const [userInfo, setUserInfo] = useState(null)
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
@@ -16,17 +12,6 @@ function CategoryManage() {
   const [editingId, setEditingId] = useState(null)
   const [form] = Form.useForm()
   const [searchKeyword, setSearchKeyword] = useState('')
-
-  // 检查登录状态
-  useEffect(() => {
-    const info = getUserInfo()
-    if (!info) {
-      message.error('请先登录')
-      navigate('/')
-      return
-    }
-    setUserInfo(info)
-  }, [navigate])
 
   // 获取分类列表
   const fetchCategories = async () => {
@@ -42,10 +27,8 @@ function CategoryManage() {
   }
 
   useEffect(() => {
-    if (userInfo) {
-      fetchCategories()
-    }
-  }, [userInfo])
+    fetchCategories()
+  }, [])
 
   // 搜索过滤
   const filteredCategories = categories.filter(cat => 
@@ -107,13 +90,6 @@ function CategoryManage() {
     }
   }
 
-  // 退出登录
-  const handleLogout = () => {
-    clearAuth()
-    message.success('已退出登录')
-    navigate('/')
-  }
-
   // 表格列定义
   const columns = [
     {
@@ -173,23 +149,8 @@ function CategoryManage() {
     }
   ]
 
-  if (!userInfo) {
-    return null
-  }
-
   return (
     <div className="category-manage-container">
-      {/* 顶部导航 */}
-      <header className="manage-header">
-        <div className="header-left">
-          <h1>智慧校园 - 分类管理</h1>
-        </div>
-        <div className="header-right">
-          <span className="user-name">{userInfo.username}</span>
-          <Button onClick={handleLogout}>退出</Button>
-        </div>
-      </header>
-
       {/* 主内容 */}
       <main className="manage-main">
         {/* 搜索栏 */}

@@ -1,0 +1,9 @@
+.layout {
+  min-height: 100vh;
+  background: #f0f2f5;
+}
+
+.layout-content {
+  padding-top: 56px; /* 导航栏高度 */
+  min-height: calc(100vh - 56px);
+}

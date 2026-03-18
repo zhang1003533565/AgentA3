@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { message, Modal, Form, Select, Button, Table, Tag, Space, Popconfirm, Input, QRCode } from 'antd'
 import { CheckCircleOutlined, DownloadOutlined, QrcodeOutlined, SearchOutlined, UserAddOutlined } from '@ant-design/icons'
 import { getSignInList, supplementSignIn } from '../../../api/signin'
 import { getActivityList } from '../../../api/activity'
-import { getUserInfo, clearAuth } from '../../../utils/storage'
 import './SignInManage.css'
 
 const { Option } = Select
@@ -19,8 +17,6 @@ const statusMap = {
 }
 
 function SignInManage() {
-  const navigate = useNavigate()
-  const [userInfo, setUserInfo] = useState(null)
   const [signIns, setSignIns] = useState([])
   const [activities, setActivities] = useState([])
   const [loading, setLoading] = useState(false)
@@ -30,17 +26,6 @@ function SignInManage() {
   const [currentRecord, setCurrentRecord] = useState(null)
   const [selectedActivity, setSelectedActivity] = useState(null)
   const [searchForm] = Form.useForm()
-
-  // 检查登录状态
-  useEffect(() => {
-    const info = getUserInfo()
-    if (!info) {
-      message.error('请先登录')
-      navigate('/')
-      return
-    }
-    setUserInfo(info)
-  }, [navigate])
 
   // 获取签到列表
   const fetchSignIns = async (activityId) => {
@@ -72,10 +57,8 @@ function SignInManage() {
   }
 
   useEffect(() => {
-    if (userInfo) {
-      fetchActivities()
-    }
-  }, [userInfo])
+    fetchActivities()
+  }, [])
 
   // 活动选择变化
   const handleActivityChange = (activityId) => {
@@ -143,13 +126,6 @@ function SignInManage() {
         </div>
       )
     })
-  }
-
-  // 退出登录
-  const handleLogout = () => {
-    clearAuth()
-    message.success('已退出登录')
-    navigate('/')
   }
 
   // 表格列定义
@@ -240,23 +216,8 @@ function SignInManage() {
     absent: signIns.filter(s => s.signInStatus === 0 || s.signInStatus === 3).length
   }
 
-  if (!userInfo) {
-    return null
-  }
-
   return (
     <div className="signin-manage-container">
-      {/* 顶部导航 */}
-      <header className="manage-header">
-        <div className="header-left">
-          <h1>智慧校园 - 签到管理</h1>
-        </div>
-        <div className="header-right">
-          <span className="user-name">{userInfo.username}</span>
-          <Button onClick={handleLogout}>退出</Button>
-        </div>
-      </header>
-
       {/* 主内容 */}
       <main className="manage-main">
         {/* 统计卡片 */}

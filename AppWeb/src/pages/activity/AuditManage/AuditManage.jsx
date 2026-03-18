@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { message, Modal, Form, Select, Button, Table, Tag, Space, Popconfirm, Input, Checkbox } from 'antd'
 import { CheckOutlined, CloseOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons'
 import { getRegistrationList, auditRegistration, batchAuditRegistration } from '../../../api/registration'
 import { getActivityList } from '../../../api/activity'
-import { getUserInfo, clearAuth } from '../../../utils/storage'
 import './AuditManage.css'
 
 const { Option } = Select
@@ -21,8 +19,6 @@ const statusMap = {
 }
 
 function AuditManage() {
-  const navigate = useNavigate()
-  const [userInfo, setUserInfo] = useState(null)
   const [registrations, setRegistrations] = useState([])
   const [activities, setActivities] = useState([])
   const [loading, setLoading] = useState(false)
@@ -32,17 +28,6 @@ function AuditManage() {
   const [currentRecord, setCurrentRecord] = useState(null)
   const [isBatchAudit, setIsBatchAudit] = useState(false)
   const [searchForm] = Form.useForm()
-
-  // 检查登录状态
-  useEffect(() => {
-    const info = getUserInfo()
-    if (!info) {
-      message.error('请先登录')
-      navigate('/')
-      return
-    }
-    setUserInfo(info)
-  }, [navigate])
 
   // 获取报名列表
   const fetchRegistrations = async (params = {}) => {
@@ -76,11 +61,9 @@ function AuditManage() {
   }
 
   useEffect(() => {
-    if (userInfo) {
-      fetchRegistrations()
-      fetchActivities()
-    }
-  }, [userInfo])
+    fetchRegistrations()
+    fetchActivities()
+  }, [])
 
   // 搜索
   const handleSearch = (values) => {
@@ -144,13 +127,6 @@ function AuditManage() {
         </div>
       )
     })
-  }
-
-  // 退出登录
-  const handleLogout = () => {
-    clearAuth()
-    message.success('已退出登录')
-    navigate('/')
   }
 
   // 表格选择配置
@@ -243,23 +219,8 @@ function AuditManage() {
     }
   ]
 
-  if (!userInfo) {
-    return null
-  }
-
   return (
     <div className="audit-manage-container">
-      {/* 顶部导航 */}
-      <header className="manage-header">
-        <div className="header-left">
-          <h1>智慧校园 - 审核管理</h1>
-        </div>
-        <div className="header-right">
-          <span className="user-name">{userInfo.username}</span>
-          <Button onClick={handleLogout}>退出</Button>
-        </div>
-      </header>
-
       {/* 主内容 */}
       <main className="manage-main">
         {/* 搜索栏 */}

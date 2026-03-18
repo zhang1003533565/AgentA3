@@ -11,6 +11,7 @@ import PostManage from './pages/forum/PostManage/PostManage'
 import CommentManage from './pages/forum/CommentManage/CommentManage'
 import TopicManage from './pages/forum/TopicManage/TopicManage'
 import ReportManage from './pages/forum/ReportManage/ReportManage'
+import Layout from './components/Layout/Layout'
 import './App.css'
 
 function App() {
@@ -18,17 +19,19 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<Login />} />
-        <Route path="/home" element={<Home />} />
-        <Route path="/activity/manage" element={<ActivityManage />} />
-        <Route path="/category/manage" element={<CategoryManage />} />
-        <Route path="/audit/manage" element={<AuditManage />} />
-        <Route path="/signin/manage" element={<SignInManage />} />
-        <Route path="/notice/manage" element={<NoticeManage />} />
-        <Route path="/statistics" element={<Statistics />} />
-        <Route path="/forum/post" element={<PostManage />} />
-        <Route path="/forum/comment" element={<CommentManage />} />
-        <Route path="/forum/topic" element={<TopicManage />} />
-        <Route path="/forum/report" element={<ReportManage />} />
+        <Route element={<Layout />}>
+          <Route path="/home" element={<Home />} />
+          <Route path="/activity/manage" element={<ActivityManage />} />
+          <Route path="/category/manage" element={<CategoryManage />} />
+          <Route path="/audit/manage" element={<AuditManage />} />
+          <Route path="/signin/manage" element={<SignInManage />} />
+          <Route path="/notice/manage" element={<NoticeManage />} />
+          <Route path="/statistics" element={<Statistics />} />
+          <Route path="/forum/post" element={<PostManage />} />
+          <Route path="/forum/comment" element={<CommentManage />} />
+          <Route path="/forum/topic" element={<TopicManage />} />
+          <Route path="/forum/report" element={<ReportManage />} />
+        </Route>
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Router>

@@ -1,77 +1,10 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { message, Modal, Form, Input, Button, Table, Space, Popconfirm, Switch, Tag } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, FireOutlined } from '@ant-design/icons'
-import { getUserInfo, clearAuth } from '../../../utils/storage'
+import { getTopicList, createTopic, updateTopic, deleteTopic, toggleTopicHot } from '../../../api/forum'
 import './TopicManage.css'
 
-// 模拟数据
-const mockTopics = [
-  {
-    id: 1,
-    topicName: '学习交流',
-    topicIcon: '📚',
-    description: '学习心得、课程讨论、资料分享',
-    postCount: 256,
-    isHot: 1,
-    status: 1,
-    createTime: '2026-01-01 00:00:00'
-  },
-  {
-    id: 2,
-    topicName: '运动健身',
-    topicIcon: '🏃',
-    description: '运动约伴、健身心得、赛事讨论',
-    postCount: 128,
-    isHot: 1,
-    status: 1,
-    createTime: '2026-01-01 00:00:00'
-  },
-  {
-    id: 3,
-    topicName: '二手交易',
-    topicIcon: '💰',
-    description: '二手物品买卖、闲置转让',
-    postCount: 89,
-    isHot: 0,
-    status: 1,
-    createTime: '2026-01-05 00:00:00'
-  },
-  {
-    id: 4,
-    topicName: '美食推荐',
-    topicIcon: '🍜',
-    description: '校园美食、餐厅推荐、美食分享',
-    postCount: 167,
-    isHot: 1,
-    status: 1,
-    createTime: '2026-01-10 00:00:00'
-  },
-  {
-    id: 5,
-    topicName: '求职招聘',
-    topicIcon: '💼',
-    description: '实习招聘、求职经验、职场分享',
-    postCount: 45,
-    isHot: 0,
-    status: 1,
-    createTime: '2026-02-01 00:00:00'
-  },
-  {
-    id: 6,
-    topicName: '校园生活',
-    topicIcon: '🏫',
-    description: '校园趣事、生活分享、问题求助',
-    postCount: 312,
-    isHot: 1,
-    status: 1,
-    createTime: '2026-01-01 00:00:00'
-  }
-]
-
 function TopicManage() {
-  const navigate = useNavigate()
-  const [userInfo, setUserInfo] = useState(null)
   const [topics, setTopics] = useState([])
   const [loading, setLoading] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
@@ -80,33 +13,24 @@ function TopicManage() {
   const [form] = Form.useForm()
   const [searchKeyword, setSearchKeyword] = useState('')
 
-  // 检查登录状态
-  useEffect(() => {
-    const info = getUserInfo()
-    if (!info) {
-      message.error('请先登录')
-      navigate('/')
-      return
-    }
-    setUserInfo(info)
-  }, [navigate])
-
   // 获取话题列表
   const fetchTopics = async () => {
     setLoading(true)
     try {
-      await new Promise(resolve => setTimeout(resolve, 500))
-      setTopics(mockTopics)
+      const res = await getTopicList()
+      if (res.code === 200) {
+        setTopics(res.data || [])
+      }
+    } catch (error) {
+      console.error('获取话题列表失败:', error)
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    if (userInfo) {
-      fetchTopics()
-    }
-  }, [userInfo])
+    fetchTopics()
+  }, [])
 
   // 搜索过滤
   const filteredTopics = topics.filter(topic => 
@@ -129,9 +53,8 @@ function TopicManage() {
       topicName: record.topicName,
       topicIcon: record.topicIcon,
       description: record.description,
-      sort: record.sort || 0,
-      isHot: record.isHot,
-      status: record.status
+      isHot: record.isHot === 1,
+      status: record.status === 'ACTIVE'
     })
     setModalVisible(true)
   }
@@ -140,9 +63,24 @@ function TopicManage() {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields()
-      message.success(editingId ? '更新成功' : '创建成功')
-      setModalVisible(false)
-      fetchTopics()
+      const data = {
+        ...values,
+        isHot: values.isHot ? 1 : 0,
+        status: values.status ? 'ACTIVE' : 'INACTIVE'
+      }
+      
+      let res
+      if (editingId) {
+        res = await updateTopic(editingId, data)
+      } else {
+        res = await createTopic(data)
+      }
+
+      if (res.code === 200) {
+        message.success(editingId ? '更新成功' : '创建成功')
+        setModalVisible(false)
+        fetchTopics()
+      }
     } catch (error) {
       console.error('提交失败:', error)
     }
@@ -150,21 +88,28 @@ function TopicManage() {
 
   // 删除话题
   const handleDelete = async (id) => {
-    message.success('删除成功')
-    fetchTopics()
+    try {
+      const res = await deleteTopic(id)
+      if (res.code === 200) {
+        message.success('删除成功')
+        fetchTopics()
+      }
+    } catch (error) {
+      console.error('删除失败:', error)
+    }
   }
 
   // 切换热门状态
-  const handleToggleHot = (id, isHot) => {
-    message.success(isHot ? '已设为热门' : '已取消热门')
-    fetchTopics()
-  }
-
-  // 退出登录
-  const handleLogout = () => {
-    clearAuth()
-    message.success('已退出登录')
-    navigate('/')
+  const handleToggleHot = async (id, isHot) => {
+    try {
+      const res = await toggleTopicHot(id, isHot)
+      if (res.code === 200) {
+        message.success(isHot ? '已设为热门' : '已取消热门')
+        fetchTopics()
+      }
+    } catch (error) {
+      console.error('操作失败:', error)
+    }
   }
 
   // 表格列定义
@@ -206,8 +151,8 @@ function TopicManage() {
       dataIndex: 'status',
       width: 100,
       render: (status) => (
-        <span className={`status-tag ${status === 1 ? 'active' : 'inactive'}`}>
-          {status === 1 ? '启用' : '禁用'}
+        <span className={`status-tag ${status === 'ACTIVE' ? 'active' : 'inactive'}`}>
+          {status === 'ACTIVE' ? '启用' : '禁用'}
         </span>
       )
     },
@@ -252,23 +197,8 @@ function TopicManage() {
     }
   ]
 
-  if (!userInfo) {
-    return null
-  }
-
   return (
     <div className="topic-manage-container">
-      {/* 顶部导航 */}
-      <header className="manage-header">
-        <div className="header-left">
-          <h1>智慧校园 - 话题管理</h1>
-        </div>
-        <div className="header-right">
-          <span className="user-name">{userInfo.username}</span>
-          <Button onClick={handleLogout}>退出</Button>
-        </div>
-      </header>
-
       {/* 主内容 */}
       <main className="manage-main">
         {/* 搜索栏 */}
@@ -339,14 +269,6 @@ function TopicManage() {
           </Form.Item>
 
           <Form.Item
-            name="sort"
-            label="排序"
-            initialValue={0}
-          >
-            <Input type="number" placeholder="数字越小排序越靠前" />
-          </Form.Item>
-
-          <Form.Item
             name="isHot"
             label="热门话题"
             valuePropName="checked"
@@ -358,10 +280,8 @@ function TopicManage() {
           <Form.Item
             name="status"
             label="状态"
-            initialValue={1}
+            initialValue={true}
             valuePropName="checked"
-            getValueFromEvent={(checked) => checked ? 1 : 0}
-            getValueProps={(value) => ({ checked: value === 1 })}
           >
             <Switch checkedChildren="启用" unCheckedChildren="禁用" />
           </Form.Item>

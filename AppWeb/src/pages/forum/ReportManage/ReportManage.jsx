@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { message, Modal, Form, Input, Button, Table, Tag, Space, Select } from 'antd'
-import { EyeOutlined, CheckOutlined, CloseOutlined, SearchOutlined } from '@ant-design/icons'
-import { getUserInfo, clearAuth } from '../../../utils/storage'
+import { EyeOutlined, SearchOutlined } from '@ant-design/icons'
 import './ReportManage.css'
 
 const { Option } = Select
@@ -32,85 +30,7 @@ const reasonMap = {
   6: '其他'
 }
 
-// 模拟数据
-const mockReports = [
-  {
-    id: 1,
-    reporterId: 10,
-    reporterName: '举报者A',
-    targetId: 5,
-    targetType: 1,
-    targetTitle: '某帖子标题',
-    targetContent: '这是被举报的帖子内容...',
-    targetAuthor: '被举报用户X',
-    reason: 1,
-    reasonText: '垃圾广告',
-    description: '这个帖子全是广告链接，请管理员处理。',
-    status: 0,
-    handleBy: null,
-    handleTime: null,
-    handleResult: null,
-    createTime: '2026-03-15 14:30:00'
-  },
-  {
-    id: 2,
-    reporterId: 11,
-    reporterName: '举报者B',
-    targetId: 12,
-    targetType: 2,
-    targetTitle: '评论',
-    targetContent: '这是被举报的评论内容...',
-    targetAuthor: '被举报用户Y',
-    reason: 3,
-    reasonText: '人身攻击',
-    description: '这条评论有辱骂性语言。',
-    status: 0,
-    handleBy: null,
-    handleTime: null,
-    handleResult: null,
-    createTime: '2026-03-15 10:20:00'
-  },
-  {
-    id: 3,
-    reporterId: 12,
-    reporterName: '举报者C',
-    targetId: 8,
-    targetType: 1,
-    targetTitle: '某帖子标题2',
-    targetContent: '这是被举报的帖子内容...',
-    targetAuthor: '被举报用户Z',
-    reason: 2,
-    reasonText: '虚假信息',
-    description: '这个帖子发布的信息是假的。',
-    status: 1,
-    handleBy: '管理员',
-    handleTime: '2026-03-14 16:00:00',
-    handleResult: '已删除违规帖子，警告发布者',
-    createTime: '2026-03-14 15:00:00'
-  },
-  {
-    id: 4,
-    reporterId: 13,
-    reporterName: '举报者D',
-    targetId: 20,
-    targetType: 3,
-    targetTitle: '用户',
-    targetContent: '',
-    targetAuthor: '被举报用户W',
-    reason: 4,
-    reasonText: '色情低俗',
-    description: '该用户发布的内容涉及色情低俗。',
-    status: 2,
-    handleBy: '管理员',
-    handleTime: '2026-03-13 11:00:00',
-    handleResult: '经核实不属实，驳回举报',
-    createTime: '2026-03-13 10:00:00'
-  }
-]
-
 function ReportManage() {
-  const navigate = useNavigate()
-  const [userInfo, setUserInfo] = useState(null)
   const [reports, setReports] = useState([])
   const [loading, setLoading] = useState(false)
   const [searchForm] = Form.useForm()
@@ -123,37 +43,27 @@ function ReportManage() {
     total: 0
   })
 
-  // 检查登录状态
-  useEffect(() => {
-    const info = getUserInfo()
-    if (!info) {
-      message.error('请先登录')
-      navigate('/')
-      return
-    }
-    setUserInfo(info)
-  }, [navigate])
-
-  // 获取举报列表
+  // 获取举报列表（暂时使用空数据，等待后端API）
   const fetchReports = async (params = {}) => {
     setLoading(true)
     try {
-      await new Promise(resolve => setTimeout(resolve, 500))
-      setReports(mockReports)
+      // TODO: 等待后端实现举报API
+      // const res = await getReportList(params)
+      setReports([])
       setPagination({
         ...pagination,
-        total: mockReports.length
+        total: 0
       })
+    } catch (error) {
+      console.error('获取举报列表失败:', error)
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    if (userInfo) {
-      fetchReports()
-    }
-  }, [userInfo])
+    fetchReports()
+  }, [])
 
   // 搜索
   const handleSearch = (values) => {
@@ -191,12 +101,6 @@ function ReportManage() {
               <p><strong>处理结果：</strong>{record.handleResult}</p>
             </>
           )}
-          {record.targetContent && (
-            <>
-              <p><strong>被举报内容：</strong></p>
-              <div className="report-content">{record.targetContent}</div>
-            </>
-          )}
         </div>
       )
     })
@@ -213,19 +117,13 @@ function ReportManage() {
   const handleSubmit = async () => {
     try {
       const values = await handleForm.validateFields()
+      // TODO: 等待后端实现处理举报API
       message.success('处理成功')
       setHandleModalVisible(false)
       fetchReports()
     } catch (error) {
       console.error('处理失败:', error)
     }
-  }
-
-  // 退出登录
-  const handleLogout = () => {
-    clearAuth()
-    message.success('已退出登录')
-    navigate('/')
   }
 
   // 表格列定义
@@ -284,7 +182,7 @@ function ReportManage() {
     {
       title: '操作',
       key: 'action',
-      width: 180,
+      width: 150,
       fixed: 'right',
       render: (_, record) => (
         <Space size="small">
@@ -298,7 +196,6 @@ function ReportManage() {
           {record.status === 0 && (
             <Button 
               type="text" 
-              icon={<CheckOutlined />} 
               onClick={() => handleOpenModal(record)}
             >
               处理
@@ -309,23 +206,8 @@ function ReportManage() {
     }
   ]
 
-  if (!userInfo) {
-    return null
-  }
-
   return (
     <div className="report-manage-container">
-      {/* 顶部导航 */}
-      <header className="manage-header">
-        <div className="header-left">
-          <h1>智慧校园 - 举报处理</h1>
-        </div>
-        <div className="header-right">
-          <span className="user-name">{userInfo.username}</span>
-          <Button onClick={handleLogout}>退出</Button>
-        </div>
-      </header>
-
       {/* 主内容 */}
       <main className="manage-main">
         {/* 搜索栏 */}
@@ -363,6 +245,7 @@ function ReportManage() {
             showSizeChanger: true,
             showTotal: (total) => `共 ${total} 条`
           }}
+          locale={{ emptyText: '暂无举报记录' }}
           onChange={(pag) => {
             setPagination({ ...pagination, current: pag.current, pageSize: pag.pageSize })
             fetchReports({ page: pag.current, size: pag.pageSize })

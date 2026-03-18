@@ -1,9 +1,9 @@
-.activity-manage-container {
+/* 通用管理页面样式 */
+.manage-container {
   padding: 24px;
   background-color: #f5f7fa;
 }
 
-/* 主内容区 */
 .manage-main {
   max-width: 1400px;
   margin: 0 auto;
@@ -34,13 +34,8 @@
   display: flex;
 }
 
-/* 活动详情弹窗 */
-.activity-detail {
-  max-height: 400px;
-  overflow-y: auto;
-}
-
-.activity-detail p {
+/* 详情弹窗 */
+.detail-content p {
   margin-bottom: 12px;
   line-height: 1.6;
 }

@@ -1,49 +1,11 @@
-import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { message } from 'antd'
-import { getUserInfo, clearAuth } from '../../utils/storage'
+import { getUserInfo } from '../../utils/storage'
 import './Home.css'
 
 function Home() {
   const navigate = useNavigate()
-  const [currentTime, setCurrentTime] = useState(new Date())
-  const [userInfo, setUserInfo] = useState(null)
-
-  // 检查登录状态
-  useEffect(() => {
-    const info = getUserInfo()
-    if (!info) {
-      message.error('请先登录')
-      navigate('/')
-      return
-    }
-    setUserInfo(info)
-  }, [navigate])
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date())
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [])
-
-  const formatTime = (date) => {
-    return date.toLocaleTimeString('zh-CN', { 
-      hour: '2-digit', 
-      minute: '2-digit',
-      second: '2-digit'
-    })
-  }
-
-  const formatDate = (date) => {
-    const options = { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric', 
-      weekday: 'long' 
-    }
-    return date.toLocaleDateString('zh-CN', options)
-  }
+  const userInfo = getUserInfo()
 
   const menuItems = [
     { icon: '📅', title: '课程表', desc: '查看今日课程', color: '#4A90D9', path: null },
@@ -77,12 +39,6 @@ function Home() {
     { name: '计算机基础', location: '实验楼C102', time: '14:00-15:40', status: 'upcoming' }
   ]
 
-  const handleLogout = () => {
-    clearAuth()
-    message.success('已退出登录')
-    navigate('/')
-  }
-
   const handleMenuClick = (item) => {
     if (item.path) {
       navigate(item.path)
@@ -91,43 +47,14 @@ function Home() {
     }
   }
 
-  if (!userInfo) {
-    return null // 未登录时不渲染内容
-  }
-
   return (
     <div className="home-container">
-      {/* 顶部导航栏 */}
-      <header className="home-header">
-        <div className="header-left">
-          <h1>智慧校园</h1>
-        </div>
-        <div className="header-right">
-          <div className="time-display">
-            <span className="time">{formatTime(currentTime)}</span>
-            <span className="date">{formatDate(currentTime)}</span>
-          </div>
-          <div className="user-info">
-            <img 
-              src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${userInfo.username}`} 
-              alt="avatar" 
-              className="avatar" 
-            />
-            <div className="user-details">
-              <span className="user-name">{userInfo.username}</span>
-              <span className="user-role">{userInfo.role === 'USER' ? '学生' : userInfo.role}</span>
-            </div>
-            <button className="logout-btn" onClick={handleLogout}>退出</button>
-          </div>
-        </div>
-      </header>
-
       {/* 主内容区 */}
       <main className="home-main">
         {/* 欢迎横幅 */}
         <section className="welcome-banner">
           <div className="welcome-content">
-            <h2>欢迎回来，{userInfo.username}！</h2>
+            <h2>欢迎回来，{userInfo?.username}！</h2>
             <p>今天是你在智慧校园的第 <strong>128</strong> 天</p>
           </div>
           <div className="quick-stats">

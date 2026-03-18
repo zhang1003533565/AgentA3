@@ -1,0 +1,115 @@
+.navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+}
+
+.navbar-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+}
+
+/* Logo */
+.navbar-logo {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  transition: opacity 0.3s;
+}
+
+.navbar-logo:hover {
+  opacity: 0.8;
+}
+
+.logo-icon {
+  font-size: 24px;
+  margin-right: 8px;
+}
+
+.logo-text {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1890ff;
+}
+
+/* 导航菜单 */
+.navbar-menu {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #333;
+  font-size: 14px;
+  transition: all 0.3s;
+}
+
+.nav-item:hover {
+  background: #f0f5ff;
+  color: #1890ff;
+}
+
+.nav-item.active {
+  background: #e6f7ff;
+  color: #1890ff;
+  font-weight: 500;
+}
+
+.nav-item .anticon {
+  margin-right: 6px;
+}
+
+/* 用户信息 */
+.navbar-user {
+  display: flex;
+  align-items: center;
+}
+
+.user-name {
+  color: #333;
+  font-size: 14px;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logout-btn {
+  color: #666;
+}
+
+.logout-btn:hover {
+  color: #ff4d4f;
+}
+
+/* 下拉菜单样式 */
+.ant-dropdown-menu {
+  padding: 8px 0;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.ant-dropdown-menu-item {
+  padding: 10px 16px;
+  font-size: 14px;
+}
+
+.ant-dropdown-menu-item:hover {
+  background: #f0f5ff;
+}

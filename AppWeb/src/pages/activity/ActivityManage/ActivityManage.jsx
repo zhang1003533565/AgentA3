@@ -1,12 +1,9 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { message, Modal, Form, Input, Select, DatePicker, InputNumber, Button, Table, Tag, Space, Popconfirm } from 'antd'
+import { useState, useEffect, useRef } from 'react'
+import { message, Modal, Form, Input, Select, InputNumber, Button, Table, Tag, Space, Popconfirm } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons'
 import { getActivityList, createActivity, updateActivity, deleteActivity, getCategoryList } from '../../../api/activity'
-import { getUserInfo, clearAuth } from '../../../utils/storage'
 import './ActivityManage.css'
 
-const { RangePicker } = DatePicker
 const { TextArea } = Input
 const { Option } = Select
 
@@ -22,8 +19,6 @@ const statusMap = {
 }
 
 function ActivityManage() {
-  const navigate = useNavigate()
-  const [userInfo, setUserInfo] = useState(null)
   const [activities, setActivities] = useState([])
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(false)
@@ -37,17 +32,7 @@ function ActivityManage() {
     pageSize: 10,
     total: 0
   })
-
-  // 检查登录状态
-  useEffect(() => {
-    const info = getUserInfo()
-    if (!info) {
-      message.error('请先登录')
-      navigate('/')
-      return
-    }
-    setUserInfo(info)
-  }, [navigate])
+  const initialized = useRef(false)
 
   // 获取活动列表
   const fetchActivities = async (params = {}) => {
@@ -59,7 +44,7 @@ function ActivityManage() {
         ...params
       })
       if (res.code === 200) {
-        setActivities(res.data?.list || [])
+        setActivities(res.data?.records || [])
         setPagination({
           ...pagination,
           total: res.data?.total || 0
@@ -83,11 +68,12 @@ function ActivityManage() {
   }
 
   useEffect(() => {
-    if (userInfo) {
+    if (!initialized.current) {
+      initialized.current = true
       fetchActivities()
       fetchCategories()
     }
-  }, [userInfo])
+  }, [])
 
   // 搜索
   const handleSearch = (values) => {
@@ -122,8 +108,10 @@ function ActivityManage() {
       content: record.content,
       contactName: record.contactName,
       contactPhone: record.contactPhone,
-      timeRange: [record.startTime, record.endTime],
-      signupTimeRange: [record.signupStartTime, record.signupEndTime]
+      startTime: record.startTime,
+      endTime: record.endTime,
+      signupStartTime: record.signupStartTime,
+      signupEndTime: record.signupEndTime
     })
     setModalVisible(true)
   }
@@ -140,10 +128,10 @@ function ActivityManage() {
         content: values.content,
         contactName: values.contactName,
         contactPhone: values.contactPhone,
-        startTime: values.timeRange[0]?.format('YYYY-MM-DD HH:mm:ss'),
-        endTime: values.timeRange[1]?.format('YYYY-MM-DD HH:mm:ss'),
-        signupStartTime: values.signupTimeRange[0]?.format('YYYY-MM-DD HH:mm:ss'),
-        signupEndTime: values.signupTimeRange[1]?.format('YYYY-MM-DD HH:mm:ss')
+        startTime: values.startTime,
+        endTime: values.endTime,
+        signupStartTime: values.signupStartTime,
+        signupEndTime: values.signupEndTime
       }
 
       let res
@@ -197,13 +185,6 @@ function ActivityManage() {
     })
   }
 
-  // 退出登录
-  const handleLogout = () => {
-    clearAuth()
-    message.success('已退出登录')
-    navigate('/')
-  }
-
   // 表格列定义
   const columns = [
     {
@@ -218,8 +199,9 @@ function ActivityManage() {
     },
     {
       title: '分类',
-      dataIndex: 'categoryName',
-      width: 100
+      dataIndex: 'category',
+      width: 100,
+      render: (category) => category?.categoryName || '-'
     },
     {
       title: '地点',
@@ -289,23 +271,8 @@ function ActivityManage() {
     }
   ]
 
-  if (!userInfo) {
-    return null
-  }
-
   return (
     <div className="activity-manage-container">
-      {/* 顶部导航 */}
-      <header className="manage-header">
-        <div className="header-left">
-          <h1>智慧校园 - 活动管理</h1>
-        </div>
-        <div className="header-right">
-          <span className="user-name">{userInfo.username}</span>
-          <Button onClick={handleLogout}>退出</Button>
-        </div>
-      </header>
-
       {/* 主内容 */}
       <main className="manage-main">
         {/* 搜索栏 */}
@@ -412,21 +379,43 @@ function ActivityManage() {
             <Input placeholder="请输入活动地点" />
           </Form.Item>
 
-          <Form.Item
-            name="timeRange"
-            label="活动时间"
-            rules={[{ required: true, message: '请选择活动时间' }]}
-          >
-            <RangePicker showTime format="YYYY-MM-DD HH:mm:ss" style={{ width: '100%' }} />
-          </Form.Item>
+          <div className="form-row">
+            <Form.Item
+              name="startTime"
+              label="活动开始时间"
+              rules={[{ required: true, message: '请输入活动开始时间' }]}
+              style={{ flex: 1 }}
+            >
+              <Input type="datetime-local" style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item
+              name="endTime"
+              label="活动结束时间"
+              rules={[{ required: true, message: '请输入活动结束时间' }]}
+              style={{ flex: 1, marginLeft: 16 }}
+            >
+              <Input type="datetime-local" style={{ width: '100%' }} />
+            </Form.Item>
+          </div>
 
-          <Form.Item
-            name="signupTimeRange"
-            label="报名时间"
-            rules={[{ required: true, message: '请选择报名时间' }]}
-          >
-            <RangePicker showTime format="YYYY-MM-DD HH:mm:ss" style={{ width: '100%' }} />
-          </Form.Item>
+          <div className="form-row">
+            <Form.Item
+              name="signupStartTime"
+              label="报名开始时间"
+              rules={[{ required: true, message: '请输入报名开始时间' }]}
+              style={{ flex: 1 }}
+            >
+              <Input type="datetime-local" style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item
+              name="signupEndTime"
+              label="报名结束时间"
+              rules={[{ required: true, message: '请输入报名结束时间' }]}
+              style={{ flex: 1, marginLeft: 16 }}
+            >
+              <Input type="datetime-local" style={{ width: '100%' }} />
+            </Form.Item>
+          </div>
 
           <div className="form-row">
             <Form.Item

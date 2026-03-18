@@ -1,84 +1,20 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { message, Modal, Button, Table, Tag, Space, Popconfirm, Input, Select, Form } from 'antd'
 import { EyeOutlined, DeleteOutlined, SearchOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons'
-import { getUserInfo, clearAuth } from '../../../utils/storage'
+import { getPostList, deletePost, updatePostStatus } from '../../../api/forum'
 import './PostManage.css'
 
 const { Option } = Select
-const { TextArea } = Input
 
 // 帖子状态映射
 const statusMap = {
-  0: { text: '待审核', color: 'orange' },
-  1: { text: '已发布', color: 'green' },
-  2: { text: '已下架', color: 'default' },
-  3: { text: '已拒绝', color: 'red' }
+  'DRAFT': { text: '草稿', color: 'default' },
+  'PUBLISHED': { text: '已发布', color: 'green' },
+  'HIDDEN': { text: '已隐藏', color: 'orange' },
+  'DELETED': { text: '已删除', color: 'red' }
 }
 
-// 模拟数据
-const mockPosts = [
-  {
-    id: 1,
-    title: '关于期末考试复习的一些建议',
-    content: '马上就要期末考试了，大家有什么好的复习方法吗？我来分享一些我的经验...',
-    authorName: '张三',
-    authorId: 1,
-    topicName: '学习交流',
-    isAnonymous: 0,
-    viewCount: 256,
-    likeCount: 45,
-    commentCount: 12,
-    status: 1,
-    createTime: '2026-03-15 14:30:00'
-  },
-  {
-    id: 2,
-    title: '寻找羽毛球搭子',
-    content: '有没有喜欢打羽毛球的同学？周末一起打球呀！',
-    authorName: '匿名用户',
-    authorId: 2,
-    topicName: '运动健身',
-    isAnonymous: 1,
-    viewCount: 128,
-    likeCount: 23,
-    commentCount: 8,
-    status: 1,
-    createTime: '2026-03-15 10:20:00'
-  },
-  {
-    id: 3,
-    title: '二手自行车转让',
-    content: '毕业了，转让一辆九成新自行车，价格面议...',
-    authorName: '李四',
-    authorId: 3,
-    topicName: '二手交易',
-    isAnonymous: 0,
-    viewCount: 89,
-    likeCount: 15,
-    commentCount: 5,
-    status: 0,
-    createTime: '2026-03-14 16:45:00'
-  },
-  {
-    id: 4,
-    title: '食堂新开档口推荐',
-    content: '二食堂新开了一家麻辣烫，味道超级棒！推荐大家去尝尝...',
-    authorName: '王五',
-    authorId: 4,
-    topicName: '美食推荐',
-    isAnonymous: 0,
-    viewCount: 512,
-    likeCount: 89,
-    commentCount: 34,
-    status: 1,
-    createTime: '2026-03-14 12:00:00'
-  }
-]
-
 function PostManage() {
-  const navigate = useNavigate()
-  const [userInfo, setUserInfo] = useState(null)
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(false)
   const [searchForm] = Form.useForm()
@@ -88,38 +24,32 @@ function PostManage() {
     total: 0
   })
 
-  // 检查登录状态
-  useEffect(() => {
-    const info = getUserInfo()
-    if (!info) {
-      message.error('请先登录')
-      navigate('/')
-      return
-    }
-    setUserInfo(info)
-  }, [navigate])
-
   // 获取帖子列表
   const fetchPosts = async (params = {}) => {
     setLoading(true)
     try {
-      // 模拟API调用
-      await new Promise(resolve => setTimeout(resolve, 500))
-      setPosts(mockPosts)
-      setPagination({
-        ...pagination,
-        total: mockPosts.length
+      const res = await getPostList({
+        page: pagination.current,
+        size: pagination.pageSize,
+        ...params
       })
+      if (res.code === 200) {
+        setPosts(res.data?.list || res.data || [])
+        setPagination({
+          ...pagination,
+          total: res.data?.total || 0
+        })
+      }
+    } catch (error) {
+      console.error('获取帖子列表失败:', error)
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    if (userInfo) {
-      fetchPosts()
-    }
-  }, [userInfo])
+    fetchPosts()
+  }, [])
 
   // 搜索
   const handleSearch = (values) => {
@@ -142,8 +72,8 @@ function PostManage() {
       content: (
         <div className="post-detail">
           <p><strong>标题：</strong>{record.title}</p>
-          <p><strong>作者：</strong>{record.authorName}</p>
-          <p><strong>话题：</strong>{record.topicName}</p>
+          <p><strong>作者：</strong>{record.user?.realName || (record.isAnonymous ? '匿名用户' : '未知')}</p>
+          <p><strong>话题：</strong>{record.topic?.topicName || '无'}</p>
           <p><strong>浏览量：</strong>{record.viewCount}</p>
           <p><strong>点赞数：</strong>{record.likeCount}</p>
           <p><strong>评论数：</strong>{record.commentCount}</p>
@@ -156,35 +86,30 @@ function PostManage() {
     })
   }
 
-  // 审核通过
-  const handleApprove = async (id) => {
-    message.success('审核通过')
-    fetchPosts()
-  }
-
-  // 审核拒绝
-  const handleReject = async (id) => {
-    message.success('已拒绝')
-    fetchPosts()
+  // 下架帖子
+  const handleOffline = async (id) => {
+    try {
+      const res = await updatePostStatus(id, 'HIDDEN')
+      if (res.code === 200) {
+        message.success('已下架')
+        fetchPosts()
+      }
+    } catch (error) {
+      console.error('下架失败:', error)
+    }
   }
 
   // 删除帖子
   const handleDelete = async (id) => {
-    message.success('删除成功')
-    fetchPosts()
-  }
-
-  // 下架帖子
-  const handleOffline = async (id) => {
-    message.success('已下架')
-    fetchPosts()
-  }
-
-  // 退出登录
-  const handleLogout = () => {
-    clearAuth()
-    message.success('已退出登录')
-    navigate('/')
+    try {
+      const res = await deletePost(id)
+      if (res.code === 200) {
+        message.success('删除成功')
+        fetchPosts()
+      }
+    } catch (error) {
+      console.error('删除失败:', error)
+    }
   }
 
   // 表格列定义
@@ -202,13 +127,15 @@ function PostManage() {
     },
     {
       title: '作者',
-      dataIndex: 'authorName',
-      width: 100
+      dataIndex: 'user',
+      width: 100,
+      render: (user, record) => record.isAnonymous ? '匿名用户' : (user?.realName || '未知')
     },
     {
       title: '话题',
-      dataIndex: 'topicName',
-      width: 100
+      dataIndex: 'topic',
+      width: 100,
+      render: (topic) => topic?.topicName || '无'
     },
     {
       title: '浏览/点赞/评论',
@@ -245,27 +172,7 @@ function PostManage() {
           >
             查看
           </Button>
-          {record.status === 0 && (
-            <>
-              <Button 
-                type="text" 
-                style={{ color: '#52c41a' }}
-                icon={<CheckOutlined />} 
-                onClick={() => handleApprove(record.id)}
-              >
-                通过
-              </Button>
-              <Button 
-                type="text" 
-                danger
-                icon={<CloseOutlined />} 
-                onClick={() => handleReject(record.id)}
-              >
-                拒绝
-              </Button>
-            </>
-          )}
-          {record.status === 1 && (
+          {record.status === 'PUBLISHED' && (
             <Button 
               type="text" 
               onClick={() => handleOffline(record.id)}
@@ -288,23 +195,8 @@ function PostManage() {
     }
   ]
 
-  if (!userInfo) {
-    return null
-  }
-
   return (
     <div className="post-manage-container">
-      {/* 顶部导航 */}
-      <header className="manage-header">
-        <div className="header-left">
-          <h1>智慧校园 - 帖子管理</h1>
-        </div>
-        <div className="header-right">
-          <span className="user-name">{userInfo.username}</span>
-          <Button onClick={handleLogout}>退出</Button>
-        </div>
-      </header>
-
       {/* 主内容 */}
       <main className="manage-main">
         {/* 搜索栏 */}
@@ -313,18 +205,10 @@ function PostManage() {
             <Form.Item name="keyword">
               <Input placeholder="搜索帖子标题" prefix={<SearchOutlined />} allowClear />
             </Form.Item>
-            <Form.Item name="topicId">
-              <Select placeholder="选择话题" allowClear style={{ width: 120 }}>
-                <Option value={1}>学习交流</Option>
-                <Option value={2}>运动健身</Option>
-                <Option value={3}>二手交易</Option>
-                <Option value={4}>美食推荐</Option>
-              </Select>
-            </Form.Item>
             <Form.Item name="status">
               <Select placeholder="选择状态" allowClear style={{ width: 120 }}>
                 {Object.entries(statusMap).map(([key, value]) => (
-                  <Option key={key} value={parseInt(key)}>{value.text}</Option>
+                  <Option key={key} value={key}>{value.text}</Option>
                 ))}
               </Select>
             </Form.Item>
