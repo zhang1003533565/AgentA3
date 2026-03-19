@@ -39,8 +39,10 @@ public class JwtInterceptor implements HandlerInterceptor {
 
         String username = jwtUtil.getUsernameFromToken(token);
         String role = jwtUtil.getRoleFromToken(token);
+        Long userId = jwtUtil.getUserIdFromToken(token);
         request.setAttribute("username", username);
         request.setAttribute("role", role);
+        request.setAttribute("userId", userId);
 
         return true;
     }

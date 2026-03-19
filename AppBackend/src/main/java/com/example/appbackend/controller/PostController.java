@@ -3,7 +3,6 @@ package com.example.appbackend.controller;
 import com.example.appbackend.dto.*;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.service.PostService;
-import com.example.appbackend.util.JwtUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -24,23 +23,9 @@ public class PostController {
     @Autowired
     private PostService postService;
 
-    @Autowired
-    private JwtUtil jwtUtil;
-
-    private Long getUserIdFromToken(HttpServletRequest request) {
-        String token = extractToken(request);
-        if (token == null || !jwtUtil.validateToken(token)) {
-            return null;
-        }
-        return jwtUtil.getUserIdFromToken(token);
-    }
-
-    private String extractToken(HttpServletRequest request) {
-        String bearerToken = request.getHeader("Authorization");
-        if (bearerToken != null && bearerToken.startsWith("Bearer ")) {
-            return bearerToken.substring(7);
-        }
-        return null;
+    private Long getCurrentUserId(HttpServletRequest request) {
+        Object userId = request.getAttribute("userId");
+        return userId != null ? (Long) userId : null;
     }
 
     @Operation(summary = "发布帖子", description = "发布一个新帖子")
@@ -53,7 +38,7 @@ public class PostController {
     public Result<PostResponse> createPost(
             @Valid @RequestBody PostRequest postRequest,
             HttpServletRequest request) {
-        Long userId = getUserIdFromToken(request);
+        Long userId = getCurrentUserId(request);
         if (userId == null) {
             return Result.unauthorized("请先登录");
         }
@@ -74,7 +59,7 @@ public class PostController {
             @PathVariable Long id,
             @Valid @RequestBody PostRequest postRequest,
             HttpServletRequest request) {
-        Long userId = getUserIdFromToken(request);
+        Long userId = getCurrentUserId(request);
         if (userId == null) {
             return Result.unauthorized("请先登录");
         }
@@ -94,7 +79,7 @@ public class PostController {
             @Parameter(description = "帖子ID", required = true, example = "1")
             @PathVariable Long id,
             HttpServletRequest request) {
-        Long userId = getUserIdFromToken(request);
+        Long userId = getCurrentUserId(request);
         if (userId == null) {
             return Result.unauthorized("请先登录");
         }
@@ -112,7 +97,7 @@ public class PostController {
             @Parameter(description = "帖子ID", required = true, example = "1")
             @PathVariable Long id,
             HttpServletRequest request) {
-        Long currentUserId = getUserIdFromToken(request);
+        Long currentUserId = getCurrentUserId(request);
         PostResponse post = postService.getPostDetail(id, currentUserId);
         return Result.success("操作成功", post);
     }
@@ -136,7 +121,7 @@ public class PostController {
             @Parameter(description = "用户ID")
             @RequestParam(required = false) Long userId,
             HttpServletRequest request) {
-        Long currentUserId = getUserIdFromToken(request);
+        Long currentUserId = getCurrentUserId(request);
         PageResponse<PostListItem> page = postService.getPostList(pageNum, pageSize, topicId, keyword, sortBy, userId, currentUserId);
         return Result.success(page);
     }
