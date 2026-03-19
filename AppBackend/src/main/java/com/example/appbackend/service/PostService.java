@@ -1,7 +1,6 @@
 package com.example.appbackend.service;
 
 import com.example.appbackend.dto.*;
-import com.example.appbackend.entity.ForumPost;
 
 import java.util.List;
 
@@ -12,6 +11,10 @@ public interface PostService {
     PostResponse updatePost(Long id, PostRequest request, Long userId);
 
     void deletePost(Long id, Long userId);
+
+    void deletePostByAdmin(Long id);
+
+    void batchDeletePosts(List<Long> ids);
 
     PostResponse getPostDetail(Long id, Long currentUserId);
 

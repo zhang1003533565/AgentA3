@@ -39,6 +39,18 @@ public interface ForumPostRepository extends JpaRepository<ForumPost, Long> {
     void incrementViewCount(@Param("id") Long id);
 
     @Modifying
+    @Query("UPDATE ForumPost p SET p.commentCount = p.commentCount + 1 WHERE p.id = :id")
+    void incrementCommentCount(@Param("id") Long id);
+
+    @Modifying
+    @Query("UPDATE ForumPost p SET p.commentCount = p.commentCount - 1 WHERE p.id = :id AND p.commentCount > 0")
+    void decrementCommentCount(@Param("id") Long id);
+
+    @Modifying
     @Query("DELETE FROM ForumPost p WHERE p.id = :id")
     void deleteById(@Param("id") Long id);
+
+    @Modifying
+    @Query("DELETE FROM ForumPost p WHERE p.id IN :ids")
+    void deleteByIds(@Param("ids") List<Long> ids);
 }

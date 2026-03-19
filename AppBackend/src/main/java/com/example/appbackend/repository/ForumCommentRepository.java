@@ -14,11 +14,11 @@ import java.util.List;
 @Repository
 public interface ForumCommentRepository extends JpaRepository<ForumComment, Long> {
 
-    Page<ForumComment> findByPostIdAndStatusAndParentIdIsNull(Long postId, String status, Pageable pageable);
+    Page<ForumComment> findByPostIdAndParentIdIsNull(Long postId, Pageable pageable);
 
-    List<ForumComment> findByParentIdAndStatus(Long parentId, String status);
+    List<ForumComment> findByParentId(Long parentId);
 
-    long countByPostIdAndStatus(Long postId, String status);
+    long countByPostId(Long postId);
 
     @Modifying
     @Query("UPDATE ForumComment c SET c.likeCount = c.likeCount + 1 WHERE c.id = :id")
@@ -35,4 +35,15 @@ public interface ForumCommentRepository extends JpaRepository<ForumComment, Long
     @Modifying
     @Query("DELETE FROM ForumComment c WHERE c.postId = :postId")
     void deleteByPostId(@Param("postId") Long postId);
+
+    @Modifying
+    @Query("DELETE FROM ForumComment c WHERE c.id IN :ids")
+    void deleteByIds(@Param("ids") List<Long> ids);
+
+    @Query("SELECT c.id FROM ForumComment c WHERE c.postId = :postId AND c.id NOT IN " +
+           "(SELECT cc.parentId FROM ForumComment cc WHERE cc.parentId IS NOT NULL AND cc.postId = :postId)")
+    List<Long> findLeafCommentIdsByPostId(@Param("postId") Long postId);
+
+    @Query("SELECT COUNT(cc.id) FROM ForumComment cc WHERE cc.parentId = :parentId")
+    long countChildrenByParentId(@Param("parentId") Long parentId);
 }

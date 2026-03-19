@@ -40,10 +40,6 @@ public class ForumComment {
     @Schema(description = "点赞数", example = "10")
     private Integer likeCount = 0;
 
-    @Column(length = 20, columnDefinition = "VARCHAR(20) DEFAULT 'NORMAL' COMMENT '评论状态: NORMAL-正常, HIDDEN-已隐藏, DELETED-已删除'")
-    @Schema(description = "评论状态: NORMAL-正常, HIDDEN-已隐藏, DELETED-已删除", example = "NORMAL")
-    private String status = "NORMAL";
-
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     @Schema(description = "创建时间")
     private LocalDateTime createTime;

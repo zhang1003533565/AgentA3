@@ -14,7 +14,10 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -101,9 +104,57 @@ public class PostServiceImpl implements PostService {
             topicRepository.decrementPostCount(post.getTopicId());
         }
 
-        commentRepository.deleteByPostId(id);
+        deleteCommentsLeafFirst(id);
 
         postRepository.deleteById(id);
+    }
+
+    @Override
+    public void deletePostByAdmin(Long id) {
+        ForumPost post = postRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(404, "帖子不存在"));
+
+        if (post.getTopicId() != null) {
+            topicRepository.decrementPostCount(post.getTopicId());
+        }
+
+        deleteCommentsLeafFirst(id);
+
+        postRepository.deleteById(id);
+    }
+
+    @Override
+    public void batchDeletePosts(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+
+        for (Long id : ids) {
+            postRepository.findById(id).ifPresent(post -> {
+                if (post.getTopicId() != null) {
+                    topicRepository.decrementPostCount(post.getTopicId());
+                }
+                deleteCommentsLeafFirst(id);
+            });
+        }
+
+        postRepository.deleteByIds(ids);
+    }
+
+    private void deleteCommentsLeafFirst(Long postId) {
+        Set<Long> deleted = new HashSet<>();
+        List<Long> leafIds = commentRepository.findLeafCommentIdsByPostId(postId);
+
+        while (!leafIds.isEmpty()) {
+            deleted.addAll(leafIds);
+            commentRepository.deleteByIds(new ArrayList<>(leafIds));
+
+            List<Long> nextBatch = commentRepository.findLeafCommentIdsByPostId(postId)
+                    .stream()
+                    .filter(id -> !deleted.contains(id))
+                    .collect(Collectors.toList());
+            leafIds = nextBatch;
+        }
     }
 
     @Override
