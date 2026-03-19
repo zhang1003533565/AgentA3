@@ -84,12 +84,10 @@ public class RegistrationServiceImpl implements RegistrationService {
             throw new BusinessException(Result.FORBIDDEN_CODE, "无权取消该报名");
         }
 
-        if ("APPROVED".equals(registration.getStatus()) || "CONFIRMED".equals(registration.getStatus())) {
-            Activity activity = activityRepository.findById(registration.getActivityId())
-                    .orElseThrow(() -> new BusinessException(404, "活动不存在"));
-            activity.setCurrentPeople(Math.max(0, activity.getCurrentPeople() - 1));
-            activityRepository.save(activity);
-        }
+        Activity activity = activityRepository.findById(registration.getActivityId())
+                .orElseThrow(() -> new BusinessException(404, "活动不存在"));
+        activity.setCurrentPeople(Math.max(0, activity.getCurrentPeople() - 1));
+        activityRepository.save(activity);
 
         registrationRepository.delete(registration);
     }

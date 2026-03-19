@@ -2,7 +2,7 @@
   <view class="activity-container">
     <nav-bar title="校园活动" :showBack="true" />
 
-    <!-- 搜索框 + 右侧「我的活动」 -->
+    <!-- 搜索框独占一行 -->
     <view class="search-bar">
       <view class="search-input">
         <input 
@@ -16,24 +16,33 @@
           <image class="search-action-icon" src="/static/icons/line/search.svg" mode="aspectFit" />
         </view>
       </view>
-      <view class="btn-my-activity" @click="goToMyActivity">我的活动</view>
     </view>
 
-    <!-- 胶囊形状分类 Tab：选中品牌蓝底，未选中浅灰 -->
-    <view class="category-wrap">
-      <scroll-view class="category-scroll" scroll-x :show-scrollbar="false">
-        <view class="category-list">
-          <view 
-            v-for="(item, index) in categories" 
-            :key="index"
-            class="category-item category-pill"
-            :class="{ active: currentCategory === item.id }"
-            @click="selectCategory(item.id)"
-          >
-            <text class="category-text">{{ item.name }}</text>
+    <!-- 分类 Tab + 我的活动入口 -->
+    <view class="nav-secondary-wrap">
+      <view class="category-container">
+        <scroll-view class="category-scroll" scroll-x :show-scrollbar="false">
+          <view class="category-list">
+            <view 
+              v-for="(item, index) in categories" 
+              :key="index"
+              class="category-item"
+              :class="{ active: currentCategory === item.id }"
+              @click="selectCategory(item.id)"
+            >
+              <text class="category-text">{{ item.name }}</text>
+              <view class="active-line" v-if="currentCategory === item.id"></view>
+            </view>
           </view>
-        </view>
-      </scroll-view>
+        </scroll-view>
+      </view>
+      
+      <view class="divider-line"></view>
+      
+      <view class="btn-my-activity-wrap" @click="goToMyActivity">
+        <image class="my-activity-icon" src="/static/icons/line/calendar.svg" mode="aspectFit" />
+        <text class="my-activity-text">我的活动</text>
+      </view>
     </view>
 
     <!-- 活动列表 -->
@@ -94,6 +103,7 @@
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getActivityList, searchActivities, filterActivities } from '@/api/activity.js'
+import { getCategoryList } from '@/api/category.js'
 export default {
   components: { NavBar },
   data() {
@@ -102,12 +112,7 @@ export default {
       currentCategory: 0,
       defaultCover: 'https://picsum.photos/seed/campus/800/450',
       categories: [
-        { id: 0, name: '全部' },
-        { id: 1, name: '讲座' },
-        { id: 2, name: '比赛' },
-        { id: 3, name: '社团' },
-        { id: 4, name: '志愿' },
-        { id: 5, name: '体育' }
+        { id: 0, name: '全部' }
       ],
       activityList: [],
       page: 1,
@@ -117,10 +122,34 @@ export default {
       isRefreshing: false
     }
   },
-  onLoad() {
+  async onLoad() {
+    await this.loadCategories()
     this.loadActivityList()
   },
   methods: {
+    async loadCategories() {
+      try {
+        const res = await getCategoryList()
+        const list = (res && res.data) ? res.data : []
+
+        const categories = [{ id: 0, name: '全部' }]
+        for (const item of list) {
+          if (!item) continue
+          if (item.status !== undefined && item.status !== null && Number(item.status) !== 1) continue
+          categories.push({
+            id: item.id,
+            name: item.name || item.categoryName || ''
+          })
+        }
+
+        this.categories = categories
+        if (!this.categories.some((c) => c.id === this.currentCategory)) {
+          this.currentCategory = 0
+        }
+      } catch (e) {
+        // request.js 会统一 toast，这里不重复提示
+      }
+    },
     // 加载活动列表
     async loadActivityList() {
       if (this.loading || this.noMore) return
@@ -245,7 +274,7 @@ export default {
   display: flex;
   align-items: center;
   gap: 24rpx;
-  padding: 0 $spacing-lg-rpx $spacing-block;
+  padding: 16rpx $spacing-lg-rpx $spacing-block;
   background-color: #FFFFFF;
 }
 .search-input {
@@ -273,17 +302,6 @@ export default {
   width: 32rpx;
   height: 32rpx;
 }
-.btn-my-activity {
-  flex-shrink: 0;
-  padding: 0 28rpx;
-  height: 72rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 28rpx;
-  font-weight: 600;
-  color: $color-primary;
-}
 .search-input input {
   flex: 1;
   font-size: 28rpx;   /* 14px 三级 */
@@ -294,11 +312,18 @@ export default {
   color: #8E8E93;
 }
 
-/* 胶囊 Tab：选中品牌蓝底，未选中浅灰 */
-.category-wrap {
+/* 分类 Tab + 我的活动：文字样式，去除胶囊 */
+.nav-secondary-wrap {
+  display: flex;
+  align-items: center;
   background-color: #FFFFFF;
+  padding: 0 0 0 $spacing-lg-rpx;
   margin-bottom: $spacing-block;
-  border-bottom: 1px solid #EEEEEE;
+  border-bottom: 1px solid #F2F2F2;
+}
+.category-container {
+  flex: 1;
+  min-width: 0;
 }
 .category-scroll {
   white-space: nowrap;
@@ -306,30 +331,62 @@ export default {
 .category-list {
   display: flex;
   align-items: center;
-  padding: 0 $spacing-lg-rpx;
-  min-height: 88rpx;
-  gap: 24rpx;
+  min-height: 80rpx;
+  gap: 40rpx; /* 增加呼吸感 */
 }
-.category-item.category-pill {
+.category-item {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 16rpx 32rpx;
-  border-radius: 999rpx;
+  padding: 20rpx 0;
   flex-shrink: 0;
-  background-color: #F2F2F2;
-}
-.category-item.category-pill.active {
-  background-color: $color-primary;
 }
 .category-text {
-  font-size: 28rpx;
+  font-size: 26rpx; /* 稍微缩小 */
   font-weight: 400;
   color: #8E8E93;
+  transition: all 0.2s ease;
 }
 .category-item.active .category-text {
+  font-weight: 600;
+  color: #1D1D1F;
+}
+.active-line {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 32rpx;
+  height: 4rpx;
+  background-color: $color-primary;
+  border-radius: 2rpx;
+}
+
+/* 独立我的活动入口 */
+.divider-line {
+  width: 1px;
+  height: 40rpx;
+  background-color: #EEEEEE;
+  margin: 0 12rpx;
+}
+.btn-my-activity-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 20rpx;
+  gap: 4rpx;
+  flex-shrink: 0;
+}
+.my-activity-icon {
+  width: 32rpx;
+  height: 32rpx;
+}
+.my-activity-text {
+  font-size: 20rpx; /* 小文字 */
+  color: #8E8E93;
   font-weight: 500;
-  color: #FFFFFF;
 }
 
 /* 活动列表：通栏、分隔线清晰，保证可滚动、内容不裁切 */

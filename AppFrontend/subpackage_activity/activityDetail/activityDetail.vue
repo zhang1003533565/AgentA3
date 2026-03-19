@@ -96,13 +96,18 @@
           <text class="footer-btn-text">咨询</text>
         </view>
       </view>
-      <view class="btn-register" @click="onRegister">立即报名</view>
+      <view class="footer-right">
+        <view v-if="detail.registered" class="registered-tag">已报名</view>
+        <view v-if="detail.registered" class="btn-cancel" @click="onCancelRegistration">取消报名</view>
+        <view v-else class="btn-register" @click="onRegister">立即报名</view>
+      </view>
     </view>
   </view>
 </template>
 
 <script>
 import { getActivityDetail, addFavorite, removeFavorite, checkFavoriteStatus } from '@/api/activity.js'
+import { registerActivity, cancelRegistration, getMyRegistrations } from '@/api/registration.js'
 export default {
   data() {
     return {
@@ -123,7 +128,9 @@ export default {
         deadline: '',
         description: '',
         notes: [],
-        collected: false
+        collected: false,
+        registered: false,
+        registrationId: null
       }
     }
   },
@@ -173,6 +180,7 @@ export default {
         }
 
         await this.loadFavoriteStatus()
+        await this.loadRegistrationStatus()
       } catch (e) {
         // request.js 会统一 toast，这里不重复提示
       }
@@ -183,6 +191,27 @@ export default {
         const res = await checkFavoriteStatus(this.id)
         this.detail.collected = !!(res && res.data)
       } catch (e) {}
+    },
+    async loadRegistrationStatus() {
+      if (!this.id) return
+      try {
+        let page = 1
+        const size = 50
+        let found = null
+        for (let i = 0; i < 5; i++) {
+          const res = await getMyRegistrations({ page, size })
+          const records = (res && res.data && res.data.records) ? res.data.records : []
+          found = records.find((r) => r && String(r.activityId) === String(this.id))
+          if (found) break
+          if (!records.length) break
+          page++
+        }
+        this.detail.registered = !!found
+        this.detail.registrationId = found ? found.id : null
+      } catch (e) {
+        this.detail.registered = false
+        this.detail.registrationId = null
+      }
     },
     onBack() {
       const pages = getCurrentPages()
@@ -217,8 +246,33 @@ export default {
     onInquire() {
       uni.showToast({ title: '咨询', icon: 'none' })
     },
-    onRegister() {
-      uni.showToast({ title: '报名成功', icon: 'success' })
+    async onRegister() {
+      if (!this.id) return
+      if (this.detail.registered) {
+        uni.showToast({ title: '已报名', icon: 'none' })
+        return
+      }
+      try {
+        const res = await registerActivity(this.id)
+        this.detail.registered = true
+        this.detail.registrationId = res && res.data ? res.data.id : null
+        uni.showToast({ title: '报名成功', icon: 'success' })
+        await this.loadDetail()
+      } catch (e) {}
+    },
+    async onCancelRegistration() {
+      if (!this.detail.registered) return
+      if (!this.detail.registrationId) {
+        await this.loadRegistrationStatus()
+      }
+      if (!this.detail.registrationId) return
+      try {
+        await cancelRegistration(this.detail.registrationId)
+        this.detail.registered = false
+        this.detail.registrationId = null
+        uni.showToast({ title: '已取消报名', icon: 'none' })
+        await this.loadDetail()
+      } catch (e) {}
     },
     formatTime(time) {
       if (!time) return ''
@@ -499,14 +553,45 @@ export default {
   font-size: 22rpx;
   color: #8E8E93;
 }
+.footer-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16rpx;
+}
+.registered-tag {
+  height: 56rpx;
+  padding: 0 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: $color-primary;
+  background-color: rgba(59, 130, 246, 0.12);
+}
+.btn-cancel {
+  height: 80rpx;
+  padding: 0 28rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 40rpx;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #6B7280;
+  background-color: #FFFFFF;
+  border: 2rpx solid #E5E7EB;
+}
 .btn-register {
-  min-width: 280rpx;
+  min-width: 260rpx;
   height: 80rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 40rpx;
-  font-size: 32rpx;
+  font-size: 30rpx;
   font-weight: 700;
   color: #FFFFFF;
   background-color: $color-primary;

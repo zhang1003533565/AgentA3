@@ -73,6 +73,8 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { getMyRegistrations } from '@/api/registration.js'
+import { getActivityDetail } from '@/api/activity.js'
 export default {
   components: { NavBar },
   data() {
@@ -111,39 +113,46 @@ export default {
       if (this.loading || this.noMore) return
       this.loading = true
 
-      // 模拟数据，后续替换为真实接口
-      setTimeout(() => {
-        const mockData = [
-          {
-            id: 1,
-            title: '校园创新创业大赛',
-            coverImage: 'https://picsum.photos/seed/activity1/800/450',
-            startTime: '2026-03-20 14:00',
-            location: '学术报告厅',
-            status: 'SIGNUP',
-            currentPeople: 45,
-            maxPeople: 100
-          },
-          {
-            id: 2,
-            title: '春季篮球友谊赛',
-            coverImage: 'https://picsum.photos/seed/activity2/800/450',
-            startTime: '2026-03-22 16:00',
-            location: '体育馆',
-            status: 'SIGNUP',
-            currentPeople: 32,
-            maxPeople: 50
+      try {
+        const res = await getMyRegistrations({ page: this.page, size: this.pageSize })
+        const records = (res && res.data && res.data.records) ? res.data.records : []
+        const total = (res && res.data && typeof res.data.total === 'number') ? res.data.total : (res && res.data && res.data.total) || 0
+
+        const activities = await Promise.all(records.map(async (reg) => {
+          if (!reg || !reg.activityId) return null
+          try {
+            const detailRes = await getActivityDetail(reg.activityId)
+            const act = (detailRes && detailRes.data) ? detailRes.data : null
+            if (!act) return null
+            return {
+              ...act,
+              registrationStatus: reg.status,
+              registrationId: reg.id
+            }
+          } catch (e) {
+            return null
           }
-        ]
-        if (this.page === 1) {
-          this.activityList = mockData
-        } else {
-          this.activityList = [...this.activityList, ...mockData]
+        }))
+
+        let filtered = activities.filter(Boolean)
+        if (this.currentTab === 'pending') {
+          filtered = filtered.filter((a) => a.status === 'PUBLISHED')
+        } else if (this.currentTab === 'ended') {
+          filtered = filtered.filter((a) => a.status === 'COMPLETED')
         }
-        if (this.page >= 2) this.noMore = true
+
+        if (this.page === 1) {
+          this.activityList = filtered
+        } else {
+          this.activityList = [...this.activityList, ...filtered]
+        }
+
+        const maxPage = total ? Math.ceil(Number(total) / this.pageSize) : 0
+        this.noMore = maxPage ? this.page >= maxPage : records.length < this.pageSize
+      } finally {
         this.loading = false
         this.isRefreshing = false
-      }, 300)
+      }
     },
     loadMore() {
       if (!this.loading && !this.noMore) {
@@ -169,24 +178,16 @@ export default {
     getStatusClass(status) {
       const map = {
         'DRAFT': 'status-draft',
-        'PENDING': 'status-pending',
-        'SIGNUP': 'status-signup',
-        'SIGNUP_END': 'status-end',
-        'ONGOING': 'status-ongoing',
-        'ENDED': 'status-ended',
-        'CANCELLED': 'status-cancelled'
+        'PUBLISHED': 'status-ongoing',
+        'COMPLETED': 'status-ended'
       }
       return map[status] || 'status-default'
     },
     getStatusText(status) {
       const map = {
         'DRAFT': '草稿',
-        'PENDING': '待审核',
-        'SIGNUP': '报名中',
-        'SIGNUP_END': '报名结束',
-        'ONGOING': '进行中',
-        'ENDED': '已结束',
-        'CANCELLED': '已取消'
+        'PUBLISHED': '进行中',
+        'COMPLETED': '已结束'
       }
       return map[status] || '未知'
     },
