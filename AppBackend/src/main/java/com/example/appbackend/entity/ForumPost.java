@@ -36,10 +36,6 @@ public class ForumPost {
     @Schema(description = "话题ID", example = "1")
     private Long topicId;
 
-    @Column(name = "is_anonymous", columnDefinition = "INT DEFAULT 0 COMMENT '是否匿名: 0-否, 1-是'")
-    @Schema(description = "是否匿名: 0-否, 1-是", example = "0")
-    private Integer isAnonymous = 0;
-
     @Column(name = "view_count", columnDefinition = "INT DEFAULT 0 COMMENT '浏览量'")
     @Schema(description = "浏览量", example = "100")
     private Integer viewCount = 0;

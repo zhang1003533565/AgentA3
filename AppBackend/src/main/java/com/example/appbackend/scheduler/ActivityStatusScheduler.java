@@ -21,7 +21,7 @@ public class ActivityStatusScheduler {
     @Autowired
     private ActivityRepository activityRepository;
 
-    @Scheduled(fixedRate = 300000)
+    @Scheduled(fixedRate = 60000)
     @Transactional
     public void updateExpiredActivitiesStatus() {
         List<Activity> expiredActivities = activityRepository.findExpiredActivities(
