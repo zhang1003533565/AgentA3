@@ -68,6 +68,16 @@
 						"navigationBarTextStyle": "black",
 						"enablePullDownRefresh": true
 					}
+				},
+				{
+					"path": "favoriteActivity/favoriteActivity",
+					"style": {
+						"navigationBarTitleText": "我的收藏",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black",
+						"enablePullDownRefresh": true
+					}
 				}
 			]
 		},

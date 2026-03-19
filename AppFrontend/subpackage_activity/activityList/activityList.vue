@@ -5,7 +5,6 @@
     <!-- 搜索框 + 右侧「我的活动」 -->
     <view class="search-bar">
       <view class="search-input">
-        <text class="iconfont icon-search"></text>
         <input 
           type="text" 
           v-model="searchKeyword" 
@@ -13,6 +12,9 @@
           placeholder-class="search-placeholder"
           @confirm="handleSearch"
         />
+        <view class="search-action" @click.stop="handleSearch">
+          <image class="search-action-icon" src="/static/icons/line/search.svg" mode="aspectFit" />
+        </view>
       </view>
       <view class="btn-my-activity" @click="goToMyActivity">我的活动</view>
     </view>
@@ -91,6 +93,7 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { getActivityList, searchActivities, filterActivities } from '@/api/activity.js'
 export default {
   components: { NavBar },
   data() {
@@ -123,55 +126,35 @@ export default {
       if (this.loading || this.noMore) return
       
       this.loading = true
-      
-      // 模拟数据，后续替换为真实接口
-      setTimeout(() => {
-        const mockData = [
-          {
-            id: 1,
-            title: '校园创新创业大赛',
-            coverImage: 'https://picsum.photos/seed/activity1/800/450',
-            startTime: '2026-03-20 14:00',
-            location: '学术报告厅',
-            status: 'SIGNUP',
-            currentPeople: 45,
-            maxPeople: 100
-          },
-          {
-            id: 2,
-            title: '春季篮球友谊赛',
-            coverImage: 'https://picsum.photos/seed/activity2/800/450',
-            startTime: '2026-03-22 16:00',
-            location: '体育馆',
-            status: 'SIGNUP',
-            currentPeople: 32,
-            maxPeople: 50
-          },
-          {
-            id: 3,
-            title: '人工智能前沿讲座',
-            coverImage: 'https://picsum.photos/seed/activity3/800/450',
-            startTime: '2026-03-18 19:00',
-            location: '图书馆报告厅',
-            status: 'ONGOING',
-            currentPeople: 120,
-            maxPeople: 200
-          }
-        ]
-        
-        if (this.page === 1) {
-          this.activityList = mockData
+
+      try {
+        let res
+        const page = this.page
+        const size = this.pageSize
+
+        if (this.searchKeyword && this.searchKeyword.trim()) {
+          res = await searchActivities({ page, size, keyword: this.searchKeyword.trim() })
+        } else if (this.currentCategory && this.currentCategory !== 0) {
+          res = await filterActivities({ page, size, categoryId: this.currentCategory, status: 'PUBLISHED' })
         } else {
-          this.activityList = [...this.activityList, ...mockData]
+          res = await getActivityList({ page, size, status: 'PUBLISHED' })
         }
-        
-        if (this.page >= 3) {
-          this.noMore = true
+
+        const records = (res && res.data && res.data.records) ? res.data.records : []
+        const total = (res && res.data && typeof res.data.total === 'number') ? res.data.total : (res && res.data && res.data.total) || 0
+
+        if (this.page === 1) {
+          this.activityList = records
+        } else {
+          this.activityList = [...this.activityList, ...records]
         }
-        
+
+        const loadedCount = this.activityList.length
+        this.noMore = loadedCount >= (total || 0) || records.length < this.pageSize
+      } finally {
         this.loading = false
         this.isRefreshing = false
-      }, 500)
+      }
     },
     
     // 搜索
@@ -226,12 +209,8 @@ export default {
     getStatusClass(status) {
       const map = {
         'DRAFT': 'status-draft',
-        'PENDING': 'status-pending',
-        'SIGNUP': 'status-signup',
-        'SIGNUP_END': 'status-end',
-        'ONGOING': 'status-ongoing',
-        'ENDED': 'status-ended',
-        'CANCELLED': 'status-cancelled'
+        'PUBLISHED': 'status-ongoing',
+        'COMPLETED': 'status-ended'
       }
       return map[status] || 'status-default'
     },
@@ -240,12 +219,8 @@ export default {
     getStatusText(status) {
       const map = {
         'DRAFT': '草稿',
-        'PENDING': '待审核',
-        'SIGNUP': '报名中',
-        'SIGNUP_END': '报名结束',
-        'ONGOING': '进行中',
-        'ENDED': '已结束',
-        'CANCELLED': '已取消'
+        'PUBLISHED': '进行中',
+        'COMPLETED': '已结束'
       }
       return map[status] || '未知'
     },
@@ -284,6 +259,20 @@ export default {
   padding: 0 $spacing-base-rpx;
   border: none;
 }
+.search-action {
+  flex-shrink: 0;
+  width: 64rpx;
+  height: 64rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12rpx;
+  margin-left: 8rpx;
+}
+.search-action-icon {
+  width: 32rpx;
+  height: 32rpx;
+}
 .btn-my-activity {
   flex-shrink: 0;
   padding: 0 28rpx;
@@ -294,11 +283,6 @@ export default {
   font-size: 28rpx;
   font-weight: 600;
   color: $color-primary;
-}
-.search-input .icon-search {
-  font-size: 32rpx;
-  color: #4A4A4A;
-  margin-right: $spacing-base-rpx;
 }
 .search-input input {
   flex: 1;

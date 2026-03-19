@@ -102,30 +102,27 @@
 </template>
 
 <script>
+import { getActivityDetail, addFavorite, removeFavorite, checkFavoriteStatus } from '@/api/activity.js'
 export default {
   data() {
     return {
       statusBarHeight: 20,
       id: '',
       detail: {
-        title: '首届校园草地音乐节：夏日回响',
-        coverImage: 'https://picsum.photos/seed/lawn/800/450',
-        statusText: '进行中',
-        statusClass: 'status-ongoing',
-        organizerAvatar: 'https://api.dicebear.com/7.x/identicon/svg?seed=arts',
-        organizerName: '学生会文艺部',
-        organizerTag: '官方认证校园机构',
+        title: '',
+        coverImage: '',
+        statusText: '',
+        statusClass: '',
+        organizerAvatar: '',
+        organizerName: '',
+        organizerTag: '',
         followed: false,
-        activityDate: '2023年10月25日 19:00',
-        location: '校本部中心草坪',
-        remainingSpots: '42/200',
-        deadline: '10月23日 23:59',
-        description: '这是一场为全体师生准备的视听盛宴，让我们共同见证音乐的力量。\n\n汇聚校内10支知名乐队，涵盖流行、民谣、摇滚、电子等多种风格；创意市集与美食补给站，打造沉浸式校园文化体验。',
-        notes: [
-          '请务必携带学生证入场',
-          '为了环保，请尽量自带水杯',
-          '如遇天气原因，活动将延期或移至室内礼堂'
-        ],
+        activityDate: '',
+        location: '',
+        remainingSpots: '',
+        deadline: '',
+        description: '',
+        notes: [],
         collected: false
       }
     }
@@ -142,9 +139,51 @@ export default {
       this.statusBarHeight = sys.statusBarHeight || 20
     } catch (e) {}
     this.id = options.id || ''
-    // TODO: 根据 this.id 请求详情接口，替换 detail
+    this.loadDetail()
   },
   methods: {
+    async loadDetail() {
+      if (!this.id) return
+      try {
+        const res = await getActivityDetail(this.id)
+        const data = (res && res.data) ? res.data : {}
+
+        const statusMap = {
+          DRAFT: { text: '草稿', cls: 'status-default' },
+          PUBLISHED: { text: '进行中', cls: 'status-ongoing' },
+          COMPLETED: { text: '已结束', cls: 'status-ended' }
+        }
+        const status = statusMap[data.status] || { text: '未知', cls: 'status-default' }
+
+        this.detail = {
+          ...this.detail,
+          title: data.title || '',
+          coverImage: data.coverImage || '',
+          statusText: status.text,
+          statusClass: status.cls,
+          organizerName: data.organizerName || '',
+          organizerTag: '官方认证校园机构',
+          activityDate: this.formatRangeTime(data.startTime, data.endTime),
+          location: data.location || '',
+          remainingSpots: `${data.currentPeople || 0}/${data.maxPeople || 0}`,
+          deadline: this.formatTime(data.signupEndTime),
+          description: data.content || '',
+          notes: [],
+          collected: false
+        }
+
+        await this.loadFavoriteStatus()
+      } catch (e) {
+        // request.js 会统一 toast，这里不重复提示
+      }
+    },
+    async loadFavoriteStatus() {
+      if (!this.id) return
+      try {
+        const res = await checkFavoriteStatus(this.id)
+        this.detail.collected = !!(res && res.data)
+      } catch (e) {}
+    },
     onBack() {
       const pages = getCurrentPages()
       const canBack = pages && pages.length > 1
@@ -162,15 +201,38 @@ export default {
       this.detail.followed = !this.detail.followed
       uni.showToast({ title: this.detail.followed ? '已关注' : '已取消关注', icon: 'none' })
     },
-    onCollect() {
-      this.detail.collected = !this.detail.collected
-      uni.showToast({ title: this.detail.collected ? '已收藏' : '已取消收藏', icon: 'none' })
+    async onCollect() {
+      if (!this.id) return
+      const next = !this.detail.collected
+      try {
+        if (next) {
+          await addFavorite(this.id)
+        } else {
+          await removeFavorite(this.id)
+        }
+        this.detail.collected = next
+        uni.showToast({ title: next ? '已收藏' : '已取消收藏', icon: 'none' })
+      } catch (e) {}
     },
     onInquire() {
       uni.showToast({ title: '咨询', icon: 'none' })
     },
     onRegister() {
       uni.showToast({ title: '报名成功', icon: 'success' })
+    },
+    formatTime(time) {
+      if (!time) return ''
+      try {
+        return time.substring(0, 16).replace('T', ' ')
+      } catch (e) {
+        return ''
+      }
+    },
+    formatRangeTime(startTime, endTime) {
+      const start = this.formatTime(startTime)
+      const end = this.formatTime(endTime)
+      if (start && end) return `${start} - ${end}`
+      return start || end || ''
     }
   }
 }

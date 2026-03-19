@@ -6,6 +6,7 @@ import com.example.appbackend.entity.Favorite;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.ActivityRepository;
 import com.example.appbackend.repository.FavoriteRepository;
+import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.FavoriteService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -28,8 +29,21 @@ public class FavoriteServiceImpl implements FavoriteService {
     @Autowired
     private ActivityRepository activityRepository;
 
+    @Autowired
+    private UserRepository userRepository;
+
+    private void checkUser(Long userId) {
+        if (userId == null) {
+            throw new BusinessException(401, "未登录");
+        }
+        if (!userRepository.existsById(userId)) {
+            throw new BusinessException(401, "用户不存在");
+        }
+    }
+
     @Override
     public void addFavorite(Long userId, Long activityId) {
+        checkUser(userId);
         if (favoriteRepository.existsByUserIdAndActivityId(userId, activityId)) {
             throw new BusinessException(400, "已经收藏过该活动");
         }
@@ -44,6 +58,7 @@ public class FavoriteServiceImpl implements FavoriteService {
 
     @Override
     public void removeFavorite(Long userId, Long activityId) {
+        checkUser(userId);
         if (!favoriteRepository.existsByUserIdAndActivityId(userId, activityId)) {
             throw new BusinessException(400, "未收藏该活动");
         }
@@ -52,11 +67,13 @@ public class FavoriteServiceImpl implements FavoriteService {
 
     @Override
     public boolean isFavorited(Long userId, Long activityId) {
+        checkUser(userId);
         return favoriteRepository.existsByUserIdAndActivityId(userId, activityId);
     }
 
     @Override
     public PageResponse<Activity> getUserFavorites(Long userId, Integer page, Integer size) {
+        checkUser(userId);
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createTime"));
         Page<Favorite> favoritePage = favoriteRepository.findByUserId(userId, pageRequest);
         List<Activity> activities = favoritePage.getContent().stream()

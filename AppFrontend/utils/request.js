@@ -39,6 +39,10 @@ export function request(options) {
             reject(data)
           }
         } else {
+          if (res.statusCode === 401) {
+            clearAuth()
+            uni.reLaunch({ url: '/pages/login/login' })
+          }
           const msg = (res.data && (res.data.msg || res.data.message)) || `请求失败: ${res.statusCode}`
           uni.showToast({ title: msg, icon: 'none' })
           reject(res)

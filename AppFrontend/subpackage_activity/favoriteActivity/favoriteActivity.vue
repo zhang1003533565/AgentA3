@@ -1,23 +1,7 @@
 <template>
   <view class="my-activity-container">
-    <nav-bar title="我的活动" :showBack="true" />
+    <nav-bar title="我的收藏" :showBack="true" />
 
-    <!-- Tab：待参加 / 报名记录 / 已结束 -->
-    <view class="category-wrap">
-      <view class="category-list">
-        <view
-          v-for="(item, index) in tabs"
-          :key="index"
-          class="category-item category-pill"
-          :class="{ active: currentTab === item.id }"
-          @click="selectTab(item.id)"
-        >
-          <text class="category-text">{{ item.name }}</text>
-        </view>
-      </view>
-    </view>
-
-    <!-- 我的活动列表 -->
     <scroll-view
       class="activity-list"
       scroll-y
@@ -65,7 +49,7 @@
       <view class="load-more">
         <text v-if="loading">加载中...</text>
         <text v-else-if="noMore">没有更多了</text>
-        <text v-else-if="activityList.length === 0">暂无相关活动</text>
+        <text v-else-if="activityList.length === 0">暂无收藏</text>
       </view>
     </scroll-view>
   </view>
@@ -73,18 +57,13 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { getMyFavoriteList } from '@/api/activity.js'
+
 export default {
   components: { NavBar },
   data() {
     return {
-      currentTab: 'pending', // pending | signed | ended
       defaultCover: 'https://picsum.photos/seed/campus/800/450',
-      tabs: [
-        { id: 'pending', name: '待参加' },
-        { id: 'signed', name: '报名记录' },
-        { id: 'ended', name: '已结束' },
-        { id: 'favorite', name: '收藏' }
-      ],
       activityList: [],
       page: 1,
       pageSize: 10,
@@ -97,53 +76,26 @@ export default {
     this.loadList()
   },
   methods: {
-    selectTab(tabId) {
-      if (tabId === 'favorite') {
-        uni.navigateTo({ url: '/subpackage_activity/favoriteActivity/favoriteActivity' })
-        return
-      }
-      this.currentTab = tabId
-      this.page = 1
-      this.noMore = false
-      this.loadList()
-    },
     async loadList() {
       if (this.loading || this.noMore) return
       this.loading = true
+      try {
+        const res = await getMyFavoriteList({ page: this.page, size: this.pageSize })
+        const records = (res && res.data && res.data.records) ? res.data.records : []
+        const total = (res && res.data && typeof res.data.total === 'number') ? res.data.total : (res && res.data && res.data.total) || 0
 
-      // 模拟数据，后续替换为真实接口
-      setTimeout(() => {
-        const mockData = [
-          {
-            id: 1,
-            title: '校园创新创业大赛',
-            coverImage: 'https://picsum.photos/seed/activity1/800/450',
-            startTime: '2026-03-20 14:00',
-            location: '学术报告厅',
-            status: 'SIGNUP',
-            currentPeople: 45,
-            maxPeople: 100
-          },
-          {
-            id: 2,
-            title: '春季篮球友谊赛',
-            coverImage: 'https://picsum.photos/seed/activity2/800/450',
-            startTime: '2026-03-22 16:00',
-            location: '体育馆',
-            status: 'SIGNUP',
-            currentPeople: 32,
-            maxPeople: 50
-          }
-        ]
         if (this.page === 1) {
-          this.activityList = mockData
+          this.activityList = records
         } else {
-          this.activityList = [...this.activityList, ...mockData]
+          this.activityList = [...this.activityList, ...records]
         }
-        if (this.page >= 2) this.noMore = true
+
+        const loadedCount = this.activityList.length
+        this.noMore = loadedCount >= (total || 0) || records.length < this.pageSize
+      } finally {
         this.loading = false
         this.isRefreshing = false
-      }, 300)
+      }
     },
     loadMore() {
       if (!this.loading && !this.noMore) {
@@ -164,29 +116,25 @@ export default {
     },
     formatTime(time) {
       if (!time) return ''
-      return time.substring(5, 16).replace(' ', ' ')
+      try {
+        return time.substring(5, 16).replace(' ', ' ')
+      } catch (e) {
+        return ''
+      }
     },
     getStatusClass(status) {
       const map = {
         'DRAFT': 'status-draft',
-        'PENDING': 'status-pending',
-        'SIGNUP': 'status-signup',
-        'SIGNUP_END': 'status-end',
-        'ONGOING': 'status-ongoing',
-        'ENDED': 'status-ended',
-        'CANCELLED': 'status-cancelled'
+        'PUBLISHED': 'status-ongoing',
+        'COMPLETED': 'status-ended'
       }
       return map[status] || 'status-default'
     },
     getStatusText(status) {
       const map = {
         'DRAFT': '草稿',
-        'PENDING': '待审核',
-        'SIGNUP': '报名中',
-        'SIGNUP_END': '报名结束',
-        'ONGOING': '进行中',
-        'ENDED': '已结束',
-        'CANCELLED': '已取消'
+        'PUBLISHED': '进行中',
+        'COMPLETED': '已结束'
       }
       return map[status] || '未知'
     },
@@ -206,42 +154,8 @@ export default {
   padding-bottom: 120rpx;
 }
 
-.category-wrap {
-  background-color: #FFFFFF;
-  margin-bottom: $spacing-block;
-  border-bottom: 1px solid #EEEEEE;
-}
-.category-list {
-  display: flex;
-  align-items: center;
-  padding: 0 $spacing-lg-rpx;
-  min-height: 88rpx;
-  gap: 24rpx;
-}
-.category-item.category-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16rpx 32rpx;
-  border-radius: 999rpx;
-  flex-shrink: 0;
-  background-color: #F2F2F2;
-}
-.category-item.category-pill.active {
-  background-color: $color-primary;
-}
-.category-text {
-  font-size: 28rpx;
-  font-weight: 400;
-  color: #8E8E93;
-}
-.category-item.active .category-text {
-  font-weight: 500;
-  color: #FFFFFF;
-}
-
 .activity-list {
-  height: calc(100vh - 280rpx);
+  height: calc(100vh - 160rpx);
   padding: 0;
   padding-top: 24rpx;
   padding-bottom: 48rpx;
@@ -282,26 +196,6 @@ export default {
   font-weight: 500;
   background-color: rgba(255, 255, 255, 0.92);
   color: #1D1D1F;
-}
-.activity-status-pill.status-signup {
-  background-color: rgba(92, 122, 153, 0.12);
-  color: #4A6278;
-}
-.activity-status-pill.status-ongoing {
-  background-color: rgba(107, 155, 122, 0.12);
-  color: #4A6B57;
-}
-.activity-status-pill.status-ended,
-.activity-status-pill.status-end,
-.activity-status-pill.status-draft,
-.activity-status-pill.status-pending,
-.activity-status-pill.status-default {
-  background-color: rgba(142, 142, 147, 0.12);
-  color: #5C5C60;
-}
-.activity-status-pill.status-cancelled {
-  background-color: rgba(166, 123, 123, 0.15);
-  color: #A67B7B;
 }
 
 .activity-body {
