@@ -18,7 +18,7 @@ public interface ForumTopicRepository extends JpaRepository<ForumTopic, Long> {
 
     Page<ForumTopic> findByIsHotAndStatus(Integer isHot, String status, Pageable pageable);
 
-    List<ForumTopic> findTop5ByStatusOrderByPostCountDesc(String status);
+    List<ForumTopic> findByStatusOrderByPostCountDesc(String status, Pageable pageable);
 
     @Modifying
     @Query("UPDATE ForumTopic t SET t.postCount = t.postCount + 1 WHERE t.id = :id")
