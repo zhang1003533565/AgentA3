@@ -31,11 +31,6 @@ public class CommentServiceImpl implements CommentService {
     @Autowired
     private UserRepository userRepository;
 
-    @Autowired
-    private ForumLikeRepository likeRepository;
-
-    private static final int TARGET_TYPE_COMMENT = 2;
-
     @Override
     public CommentResponse createComment(CommentRequest request, Long userId) {
         if (!postRepository.findById(request.getPostId()).isPresent()) {
@@ -143,12 +138,7 @@ public class CommentServiceImpl implements CommentService {
             response.setReplyToUsername(replyToUser != null ? replyToUser.getRealName() : null);
         }
 
-        if (currentUserId != null) {
-            response.setIsLiked(likeRepository.existsByUserIdAndTargetIdAndTargetType(
-                    currentUserId, comment.getId(), TARGET_TYPE_COMMENT));
-        } else {
-            response.setIsLiked(false);
-        }
+        response.setIsLiked(false);
 
         if (children != null && !children.isEmpty()) {
             List<CommentResponse> childResponses = children.stream()

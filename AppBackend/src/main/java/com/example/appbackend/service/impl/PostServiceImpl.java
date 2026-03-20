@@ -39,8 +39,6 @@ public class PostServiceImpl implements PostService {
     @Autowired
     private ForumCommentRepository commentRepository;
 
-    private static final int TARGET_TYPE_POST = 1;
-
     @Override
     public PostResponse createPost(PostRequest request, Long userId) {
         ForumPost post = new ForumPost();
@@ -240,8 +238,8 @@ public class PostServiceImpl implements PostService {
         }
 
         if (currentUserId != null) {
-            response.setIsLiked(likeRepository.existsByUserIdAndTargetIdAndTargetType(
-                    currentUserId, post.getId(), TARGET_TYPE_POST));
+            response.setIsLiked(likeRepository.existsByUserIdAndTargetId(
+                    currentUserId, post.getId()));
         } else {
             response.setIsLiked(false);
         }
@@ -275,8 +273,8 @@ public class PostServiceImpl implements PostService {
         }
 
         if (currentUserId != null) {
-            item.setIsLiked(likeRepository.existsByUserIdAndTargetIdAndTargetType(
-                    currentUserId, post.getId(), TARGET_TYPE_POST));
+            item.setIsLiked(likeRepository.existsByUserIdAndTargetId(
+                    currentUserId, post.getId()));
         } else {
             item.setIsLiked(false);
         }
