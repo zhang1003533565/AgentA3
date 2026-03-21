@@ -218,16 +218,89 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
 					}
-				}
-			]
-		},
-		{
-			"root": "subpackage_stall",
-			"pages": [
+				},
 				{
 					"path": "stallDetail/stallDetail",
 					"style": {
 						"navigationBarTitleText": "档口详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
+			]
+		},
+		{
+			"root": "subpackage_sports",
+			"pages": [
+				{
+					"path": "sportsList/sportsList",
+					"style": {
+						"navigationBarTitleText": "运动场",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "sportsDetail/sportsDetail",
+					"style": {
+						"navigationBarTitleText": "场地详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
+			]
+		},
+		{
+			"root": "subpackage_teaching",
+			"pages": [
+				{
+					"path": "buildingList/buildingList",
+					"style": {
+						"navigationBarTitleText": "教学楼",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "buildingDetail/buildingDetail",
+					"style": {
+						"navigationBarTitleText": "教学楼详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
+			]
+		},
+		{
+			"root": "subpackage_dormitory",
+			"pages": [
+				{
+					"path": "dormitoryList/dormitoryList",
+					"style": {
+						"navigationBarTitleText": "宿舍楼",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "dormitoryDetail/dormitoryDetail",
+					"style": {
+						"navigationBarTitleText": "宿舍详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "dormitorySelect/dormitorySelect",
+					"style": {
+						"navigationBarTitleText": "宿舍选择",
 						"navigationStyle": "custom",
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
@@ -239,7 +312,7 @@
 	"preloadRule": {
 		"pages/index/index": {
 			"network": "all",
-			"packages": ["subpackage_activity", "subpackage_forum", "subpackage_message", "subpackage_signin", "subpackage_schedule", "subpackage_lostfound", "subpackage_facility", "subpackage_stall"]
+			"packages": ["subpackage_activity", "subpackage_forum", "subpackage_message", "subpackage_signin", "subpackage_schedule", "subpackage_lostfound", "subpackage_facility", "subpackage_sports", "subpackage_teaching", "subpackage_dormitory"]
 		}
 	},
 	"globalStyle": {

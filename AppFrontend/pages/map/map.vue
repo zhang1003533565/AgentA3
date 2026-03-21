@@ -303,9 +303,27 @@ export default {
       // TODO: 筛选地点
     },
     goToLocation(item) {
+      if (item.category === 1) {
+        uni.navigateTo({
+          url: `/subpackage_teaching/buildingDetail/buildingDetail?id=${item.id}`
+        })
+        return
+      }
       if (item.category === 2) {
         uni.navigateTo({
           url: `/subpackage_facility/restaurantDetail/restaurantDetail?id=${item.id}`
+        })
+        return
+      }
+      if (item.category === 4) {
+        uni.navigateTo({
+          url: `/subpackage_dormitory/dormitoryDetail/dormitoryDetail?id=${item.id}`
+        })
+        return
+      }
+      if (item.category === 5) {
+        uni.navigateTo({
+          url: `/subpackage_sports/sportsDetail/sportsDetail?id=${item.id}`
         })
         return
       }

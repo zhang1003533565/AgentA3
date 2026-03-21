@@ -150,7 +150,7 @@ export default {
     },
     goToStallDetail(stall) {
       uni.navigateTo({
-        url: `/subpackage_stall/stallDetail/stallDetail?stallId=${stall.id}&restaurantId=${this.restaurant.id}`
+        url: `/subpackage_facility/stallDetail/stallDetail?stallId=${stall.id}&restaurantId=${this.restaurant.id}`
       })
     }
   }
