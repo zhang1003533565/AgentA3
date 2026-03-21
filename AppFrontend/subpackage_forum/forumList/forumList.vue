@@ -17,20 +17,25 @@
       </view>
     </view>
 
-    <!-- 话题标签：隐藏滚动条，保留滑动 -->
-    <scroll-view class="topic-scroll" scroll-x :show-scrollbar="false">
-      <view class="topic-list">
-        <view 
-          v-for="(item, index) in topics" 
-          :key="index"
-          class="topic-item"
-          :class="{ active: currentTopic === item.id }"
-          @click="selectTopic(item.id)"
-        >
-          # {{ item.name }}
-        </view>
+    <!-- 分类 Tab：与「校园活动」一致的样式 -->
+    <view class="nav-secondary-wrap">
+      <view class="category-container">
+        <scroll-view class="category-scroll" scroll-x :show-scrollbar="false">
+          <view class="category-list">
+            <view
+              v-for="(item, index) in topics"
+              :key="index"
+              class="category-item"
+              :class="{ active: currentTopic === item.id }"
+              @click="selectTopic(item.id)"
+            >
+              <text class="category-text"># {{ item.name }}</text>
+              <view class="active-line" v-if="currentTopic === item.id"></view>
+            </view>
+          </view>
+        </scroll-view>
       </view>
-    </scroll-view>
+    </view>
 
     <!-- 帖子列表 -->
     <scroll-view 
@@ -448,37 +453,59 @@ export default {
   }
 }
 
-.topic-scroll {
-  position: sticky;
-  top: 0;
-  z-index: 10;
+/* 分类 Tab：对齐「校园活动」的文字 + 下划线风格 */
+.nav-secondary-wrap {
+  display: flex;
+  align-items: center;
   background-color: #FFFFFF;
-  padding: 0 20rpx 20rpx;
+  padding: 0 0 0 30rpx;
+  margin-bottom: 20rpx;
+  border-bottom: 1px solid #F2F2F2;
+}
+.category-container {
+  flex: 1;
+  min-width: 0;
+}
+.category-scroll {
   white-space: nowrap;
-  /* 隐藏横向滚动条，保留滑动 */
   scrollbar-width: none;
   &::-webkit-scrollbar {
     display: none;
   }
-  
-  .topic-list {
-    display: flex;
-  }
-  
-  .topic-item {
-    display: inline-block;
-    padding: 12rpx 28rpx;
-    margin-right: 16rpx;
-    font-size: 26rpx;
-    color: #666;
-    background-color: #F5F5F7;
-    border-radius: 32rpx;
-    
-    &.active {
-      color: #FFFFFF;
-      background-color: #5C7A99;
-    }
-  }
+}
+.category-list {
+  display: flex;
+  align-items: center;
+  min-height: 80rpx;
+  gap: 40rpx;
+}
+.category-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20rpx 0;
+  flex-shrink: 0;
+}
+.category-text {
+  font-size: 26rpx;
+  font-weight: 400;
+  color: #8E8E93;
+  transition: all 0.2s ease;
+}
+.category-item.active .category-text {
+  font-weight: 600;
+  color: #1D1D1F;
+}
+.active-line {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 32rpx;
+  height: 4rpx;
+  background-color: #5C7A99;
+  border-radius: 2rpx;
 }
 
 .post-list {

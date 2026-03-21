@@ -206,12 +206,40 @@
 					}
 				}
 			]
+		},
+		{
+			"root": "subpackage_facility",
+			"pages": [
+				{
+					"path": "restaurantDetail/restaurantDetail",
+					"style": {
+						"navigationBarTitleText": "餐厅详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
+			]
+		},
+		{
+			"root": "subpackage_stall",
+			"pages": [
+				{
+					"path": "stallDetail/stallDetail",
+					"style": {
+						"navigationBarTitleText": "档口详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
+			]
 		}
 	],
 	"preloadRule": {
 		"pages/index/index": {
 			"network": "all",
-			"packages": ["subpackage_activity", "subpackage_forum", "subpackage_message", "subpackage_signin", "subpackage_schedule", "subpackage_lostfound"]
+			"packages": ["subpackage_activity", "subpackage_forum", "subpackage_message", "subpackage_signin", "subpackage_schedule", "subpackage_lostfound", "subpackage_facility", "subpackage_stall"]
 		}
 	},
 	"globalStyle": {
