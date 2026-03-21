@@ -48,10 +48,6 @@ public class ForumPost {
     @Schema(description = "评论数", example = "20")
     private Integer commentCount = 0;
 
-    @Column(length = 20, columnDefinition = "VARCHAR(20) DEFAULT 'PUBLISHED' COMMENT '帖子状态: DRAFT-草稿, PUBLISHED-已发布, HIDDEN-已隐藏, DELETED-已删除'")
-    @Schema(description = "帖子状态: DRAFT-草稿, PUBLISHED-已发布, HIDDEN-已隐藏, DELETED-已删除", example = "PUBLISHED")
-    private String status = "PUBLISHED";
-
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     @Schema(description = "创建时间")
     private LocalDateTime createTime;

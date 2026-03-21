@@ -55,9 +55,6 @@ public class PostResponse {
     @Schema(description = "是否收藏", example = "false")
     private Boolean isFavorited;
 
-    @Schema(description = "帖子状态", example = "PUBLISHED")
-    private String status;
-
     @Schema(description = "创建时间")
     private LocalDateTime createTime;
 

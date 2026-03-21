@@ -15,8 +15,6 @@ public interface ForumFollowRepository extends JpaRepository<ForumFollow, Long> 
 
     boolean existsByUserIdAndFollowId(Long userId, Long followId);
 
-    void deleteByUserIdAndFollowId(Long userId, Long followId);
-
     Page<ForumFollow> findByFollowId(Long followId, Pageable pageable);
 
     Page<ForumFollow> findByUserId(Long userId, Pageable pageable);

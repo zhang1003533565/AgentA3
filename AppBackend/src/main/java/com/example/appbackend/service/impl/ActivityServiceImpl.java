@@ -157,5 +157,4 @@ public class ActivityServiceImpl implements ActivityService {
             activityRepository.save(activity);
         }
     }
-
 }

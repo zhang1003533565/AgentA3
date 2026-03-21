@@ -14,8 +14,8 @@ import java.util.List;
 @Repository
 public interface ForumPostRepository extends JpaRepository<ForumPost, Long> {
 
-    @Query("SELECT p FROM ForumPost p WHERE p.status = 'PUBLISHED' " +
-           "AND (:topicId IS NULL OR p.topicId = :topicId) " +
+    @Query("SELECT p FROM ForumPost p WHERE " +
+           "(:topicId IS NULL OR p.topicId = :topicId) " +
            "AND (:userId IS NULL OR p.userId = :userId) " +
            "AND (:keyword IS NULL OR p.title LIKE %:keyword% OR p.content LIKE %:keyword%)")
     Page<ForumPost> findPosts(
@@ -24,14 +24,12 @@ public interface ForumPostRepository extends JpaRepository<ForumPost, Long> {
             @Param("keyword") String keyword,
             Pageable pageable);
 
-    @Query("SELECT p FROM ForumPost p WHERE p.status = 'PUBLISHED' ORDER BY p.likeCount DESC, p.viewCount DESC")
+    @Query("SELECT p FROM ForumPost p ORDER BY p.likeCount DESC, p.viewCount DESC")
     Page<ForumPost> findHotPosts(Pageable pageable);
 
-    Page<ForumPost> findByStatus(String status, Pageable pageable);
+    Page<ForumPost> findByUserId(Long userId, Pageable pageable);
 
-    Page<ForumPost> findByUserIdAndStatus(Long userId, String status, Pageable pageable);
-
-    @Query("SELECT p FROM ForumPost p WHERE p.userId = :userId AND p.status = 'PUBLISHED' ORDER BY p.createTime DESC")
+    @Query("SELECT p FROM ForumPost p WHERE p.userId = :userId ORDER BY p.createTime DESC")
     Page<ForumPost> findUserPosts(@Param("userId") Long userId, Pageable pageable);
 
     @Modifying

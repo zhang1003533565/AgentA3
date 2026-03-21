@@ -47,7 +47,6 @@ public class PostServiceImpl implements PostService {
         post.setContent(request.getContent());
         post.setImages(request.getImages());
         post.setTopicId(request.getTopicId());
-        post.setStatus("PUBLISHED");
         post.setViewCount(0);
         post.setLikeCount(0);
         post.setCommentCount(0);
@@ -224,7 +223,6 @@ public class PostServiceImpl implements PostService {
         response.setViewCount(post.getViewCount());
         response.setLikeCount(post.getLikeCount());
         response.setCommentCount(post.getCommentCount());
-        response.setStatus(post.getStatus());
         response.setCreateTime(post.getCreateTime());
         response.setUpdateTime(post.getUpdateTime());
 
@@ -260,7 +258,6 @@ public class PostServiceImpl implements PostService {
         item.setViewCount(post.getViewCount());
         item.setLikeCount(post.getLikeCount());
         item.setCommentCount(post.getCommentCount());
-        item.setStatus(post.getStatus());
         item.setCreateTime(post.getCreateTime());
 
         User user = userRepository.findById(post.getUserId()).orElse(null);
