@@ -1,6 +1,8 @@
 package com.example.appbackend.repository;
 
 import com.example.appbackend.entity.ForumLike;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -17,4 +19,6 @@ public interface ForumLikeRepository extends JpaRepository<ForumLike, Long> {
     long countByTargetId(Long targetId);
 
     List<Long> findByUserIdAndTargetIdIn(Long userId, List<Long> targetIds);
+
+    Page<ForumLike> findByUserId(Long userId, Pageable pageable);
 }

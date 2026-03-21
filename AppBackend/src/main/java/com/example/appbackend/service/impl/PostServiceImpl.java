@@ -1,6 +1,7 @@
 package com.example.appbackend.service.impl;
 
 import com.example.appbackend.dto.*;
+import com.example.appbackend.entity.ForumLike;
 import com.example.appbackend.entity.ForumPost;
 import com.example.appbackend.entity.ForumTopic;
 import com.example.appbackend.entity.User;
@@ -210,6 +211,44 @@ public class PostServiceImpl implements PostService {
                 .collect(Collectors.toList());
 
         return new PageResponse<>(items, postPage.getTotalElements(), pageNum, pageSize);
+    }
+
+    @Override
+    public PageResponse<UserPostResponse> getUserPost(Long userId, Integer pageNum, Integer pageSize) {
+        PageRequest pageRequest=PageRequest.of(pageNum-1,pageSize);
+        Page<ForumPost> postPage=postRepository.findByUserId(userId,pageRequest);
+        List<UserPostResponse> items=postPage.getContent().stream()
+                .map(post->{
+                    UserPostResponse userPostResponse=new UserPostResponse();
+                    userPostResponse.setId(post.getId());
+                    userPostResponse.setTitle(post.getTitle());
+                    userPostResponse.setViewCount(post.getViewCount());
+                    userPostResponse.setLikeCount(post.getLikeCount());
+                    userPostResponse.setCommentCount(post.getCommentCount());
+                    userPostResponse.setCreateTime(post.getCreateTime());
+                    return userPostResponse;
+                }).collect(Collectors.toList());
+        return new PageResponse<>(items, postPage.getTotalElements(), pageNum, pageSize);
+    }
+
+    @Override
+    public PageResponse<UserLikeResponse> getUserLikes(Long userId, Integer pageNum, Integer pageSize) {
+        PageRequest pageRequest = PageRequest.of(pageNum - 1, pageSize, Sort.by(Sort.Direction.DESC, "createTime"));
+        Page<ForumLike> likePage = likeRepository.findByUserId(userId, pageRequest);
+
+        List<UserLikeResponse> items = likePage.getContent().stream()
+                .map(like -> {
+                    UserLikeResponse response = new UserLikeResponse();
+                    response.setId(like.getId());
+                    response.setPostId(like.getTargetId());
+                    ForumPost post = postRepository.findById(like.getTargetId()).orElse(null);
+                    response.setPostTitle(post != null ? post.getTitle() : null);
+                    response.setCreateTime(like.getCreateTime());
+                    return response;
+                })
+                .collect(Collectors.toList());
+
+        return new PageResponse<>(items, likePage.getTotalElements(), pageNum, pageSize);
     }
 
     private PostResponse toPostResponse(ForumPost post, Long currentUserId) {
