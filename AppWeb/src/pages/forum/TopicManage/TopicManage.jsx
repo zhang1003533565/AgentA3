@@ -19,7 +19,9 @@ function TopicManage() {
     try {
       const res = await getTopicList()
       if (res.code === 200) {
-        setTopics(res.data || [])
+        // 适配分页响应结构 { records: [...], total: ... }
+        const records = res.data?.records || res.data?.list || res.data || []
+        setTopics(Array.isArray(records) ? records : [])
       }
     } catch (error) {
       console.error('获取话题列表失败:', error)
@@ -128,6 +130,7 @@ function TopicManage() {
     {
       title: '话题名称',
       dataIndex: 'topicName',
+      width: 150,
       render: (text, record) => (
         <Space>
           {text}
@@ -138,7 +141,8 @@ function TopicManage() {
     {
       title: '描述',
       dataIndex: 'description',
-      ellipsis: true
+      ellipsis: true,
+      width: 200
     },
     {
       title: '帖子数',
@@ -164,7 +168,8 @@ function TopicManage() {
     {
       title: '操作',
       key: 'action',
-      width: 200,
+      width: 280,
+      fixed: 'right',
       render: (_, record) => (
         <Space size="small">
           <Button 
@@ -222,6 +227,7 @@ function TopicManage() {
           dataSource={filteredTopics}
           rowKey="id"
           loading={loading}
+          scroll={{ x: 1280 }}
           pagination={{
             pageSize: 10,
             showTotal: (total) => `共 ${total} 条`

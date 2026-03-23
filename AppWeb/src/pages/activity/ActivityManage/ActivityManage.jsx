@@ -41,15 +41,19 @@ function ActivityManage() {
   const fetchActivities = async (params = {}) => {
     setLoading(true)
     try {
+      // 使用传入的参数或当前分页状态
+      const page = params.page || pagination.current
+      const size = params.size || pagination.pageSize
       const res = await getActivityList({
-        page: pagination.current,
-        size: pagination.pageSize,
+        page,
+        size,
         ...params
       })
       if (res.code === 200) {
         setActivities(res.data?.records || [])
         setPagination({
-          ...pagination,
+          current: page,
+          pageSize: size,
           total: res.data?.total || 0
         })
       }
@@ -396,7 +400,8 @@ function ActivityManage() {
             showTotal: (total) => `共 ${total} 条`
           }}
           onChange={(pag) => {
-            setPagination({ ...pagination, current: pag.current, pageSize: pag.pageSize })
+            const newPagination = { ...pagination, current: pag.current, pageSize: pag.pageSize }
+            setPagination(newPagination)
             fetchActivities({ page: pag.current, size: pag.pageSize })
           }}
         />

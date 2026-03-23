@@ -34,7 +34,9 @@ function PostManage() {
         ...params
       })
       if (res.code === 200) {
-        setPosts(res.data?.list || res.data || [])
+        // 适配分页响应结构 { records: [...], total: ... }
+        const records = res.data?.records || res.data?.list || res.data || []
+        setPosts(Array.isArray(records) ? records : [])
         setPagination({
           ...pagination,
           total: res.data?.total || 0
