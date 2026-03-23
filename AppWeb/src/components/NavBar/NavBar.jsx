@@ -1,6 +1,6 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Dropdown, Button, Avatar, Space } from 'antd'
-import { DownOutlined, LogoutOutlined, HomeOutlined, CalendarOutlined, MessageOutlined } from '@ant-design/icons'
+import { DownOutlined, LogoutOutlined, HomeOutlined, CalendarOutlined, MessageOutlined, UserOutlined } from '@ant-design/icons'
 import { getUserInfo, clearAuth } from '../../utils/storage'
 import './NavBar.css'
 
@@ -17,6 +17,7 @@ function NavBar() {
         path.startsWith('/audit') || path.startsWith('/signin') || 
         path.startsWith('/notice')) return 'activity'
     if (path.startsWith('/forum')) return 'forum'
+    if (path.startsWith('/user')) return 'user'
     return 'home'
   }
 
@@ -37,6 +38,11 @@ function NavBar() {
     { key: 'comment', label: '💬 评论管理', onClick: () => navigate('/forum/comment') },
     { key: 'topic', label: '🏷️ 话题管理', onClick: () => navigate('/forum/topic') },
     { key: 'report', label: '🚨 举报处理', onClick: () => navigate('/forum/report') },
+  ]
+
+  // 用户子菜单项
+  const userMenuItems = [
+    { key: 'user', label: '👤 用户管理', onClick: () => navigate('/user/manage') },
   ]
 
   // 退出登录
@@ -76,6 +82,14 @@ function NavBar() {
             <div className={`nav-item ${getSelectedKey() === 'forum' ? 'active' : ''}`}>
               <MessageOutlined />
               <span>校园论坛</span>
+              <DownOutlined style={{ fontSize: 10, marginLeft: 4 }} />
+            </div>
+          </Dropdown>
+
+          <Dropdown menu={{ items: userMenuItems }} trigger={['hover']} placement="bottomLeft">
+            <div className={`nav-item ${getSelectedKey() === 'user' ? 'active' : ''}`}>
+              <UserOutlined />
+              <span>用户中心</span>
               <DownOutlined style={{ fontSize: 10, marginLeft: 4 }} />
             </div>
           </Dropdown>

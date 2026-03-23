@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { message, Modal, Button, Table, Tag, Space, Popconfirm, Input, Select, Form } from 'antd'
-import { EyeOutlined, DeleteOutlined, SearchOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons'
-import { getPostList, deletePost, updatePostStatus } from '../../../api/forum'
+import { EyeOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons'
+import { getPostList, deletePost } from '../../../api/forum'
 import './PostManage.css'
 
 const { Option } = Select
@@ -88,19 +88,6 @@ function PostManage() {
     })
   }
 
-  // 下架帖子
-  const handleOffline = async (id) => {
-    try {
-      const res = await updatePostStatus(id, 'HIDDEN')
-      if (res.code === 200) {
-        message.success('已下架')
-        fetchPosts()
-      }
-    } catch (error) {
-      console.error('下架失败:', error)
-    }
-  }
-
   // 删除帖子
   const handleDelete = async (id) => {
     try {
@@ -174,14 +161,6 @@ function PostManage() {
           >
             查看
           </Button>
-          {record.status === 'PUBLISHED' && (
-            <Button 
-              type="text" 
-              onClick={() => handleOffline(record.id)}
-            >
-              下架
-            </Button>
-          )}
           <Popconfirm
             title="确定删除该帖子吗？"
             onConfirm={() => handleDelete(record.id)}
@@ -201,6 +180,11 @@ function PostManage() {
     <div className="post-manage-container">
       {/* 主内容 */}
       <main className="manage-main">
+        {/* 页面标题 */}
+        <div className="page-header">
+          <h2>帖子管理</h2>
+        </div>
+
         {/* 搜索栏 */}
         <div className="search-bar">
           <Form form={searchForm} layout="inline" onFinish={handleSearch}>

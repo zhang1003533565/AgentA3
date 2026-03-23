@@ -39,6 +39,22 @@
   margin: 0 auto;
 }
 
+/* 页面标题 */
+.page-header {
+  margin-bottom: 20px;
+  padding: 16px 20px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.page-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f1f1f;
+}
+
 /* 搜索栏 */
 .search-bar {
   display: flex;

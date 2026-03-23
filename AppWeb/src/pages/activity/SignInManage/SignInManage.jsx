@@ -76,8 +76,9 @@ function SignInManage() {
   // 提交补签
   const handleSupplementSubmit = async () => {
     try {
-      const values = await supplementForm.validateFields()
-      const res = await supplementSignIn(currentRecord.id, values)
+      await supplementForm.validateFields()
+      // 后端接口: POST /api/signins/activity/{activityId}/student/{studentId}/supplement
+      const res = await supplementSignIn(selectedActivity, currentRecord.studentId)
 
       if (res.code === 200) {
         message.success('补签成功')
@@ -220,6 +221,11 @@ function SignInManage() {
     <div className="signin-manage-container">
       {/* 主内容 */}
       <main className="manage-main">
+        {/* 页面标题 */}
+        <div className="page-header">
+          <h2>签到管理</h2>
+        </div>
+
         {/* 统计卡片 */}
         <div className="stats-row">
           <div className="stat-card">

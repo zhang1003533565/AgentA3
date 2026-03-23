@@ -91,10 +91,10 @@ function AuditManage() {
       
       let res
       if (isBatchAudit) {
-        // 批量审核
+        // 批量审核 - 后端参数名是 auditStatus
         res = await batchAuditRegistration(selectedRowKeys, values.status, values.remark)
       } else {
-        // 单个审核
+        // 单个审核 - 后端参数名是 auditStatus
         res = await auditRegistration(currentRecord.id, values.status, values.remark)
       }
 
@@ -223,6 +223,11 @@ function AuditManage() {
     <div className="audit-manage-container">
       {/* 主内容 */}
       <main className="manage-main">
+        {/* 页面标题 */}
+        <div className="page-header">
+          <h2>报名审核</h2>
+        </div>
+
         {/* 搜索栏 */}
         <div className="search-bar">
           <Form form={searchForm} layout="inline" onFinish={handleSearch}>

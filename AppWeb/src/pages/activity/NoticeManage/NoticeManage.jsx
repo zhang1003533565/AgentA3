@@ -109,6 +109,11 @@ function NoticeManage() {
     <div className="notice-manage-container">
       {/* 主内容 */}
       <main className="manage-main">
+        {/* 页面标题 */}
+        <div className="page-header">
+          <h2>通知管理</h2>
+        </div>
+
         {/* 操作栏 */}
         <div className="notice-actions">
           <div className="notice-stats">

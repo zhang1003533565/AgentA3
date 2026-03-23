@@ -346,6 +346,11 @@ function ActivityManage() {
     <div className="activity-manage-container">
       {/* 主内容 */}
       <main className="manage-main">
+        {/* 页面标题 */}
+        <div className="page-header">
+          <h2>活动管理</h2>
+        </div>
+
         {/* 搜索栏 */}
         <div className="search-bar">
           <Form form={searchForm} layout="inline" onFinish={handleSearch}>

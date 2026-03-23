@@ -86,3 +86,11 @@ export const filterActivities = (params) => {
     params
   })
 }
+
+// 发布活动
+export const publishActivity = (id) => {
+  return request({
+    url: `/api/activities/publish/${id}`,
+    method: 'post'
+  })
+}

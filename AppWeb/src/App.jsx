@@ -11,6 +11,7 @@ import PostManage from './pages/forum/PostManage/PostManage'
 import CommentManage from './pages/forum/CommentManage/CommentManage'
 import TopicManage from './pages/forum/TopicManage/TopicManage'
 import ReportManage from './pages/forum/ReportManage/ReportManage'
+import UserManage from './pages/user/UserManage'
 import Layout from './components/Layout/Layout'
 import './App.css'
 
@@ -31,6 +32,7 @@ function App() {
           <Route path="/forum/comment" element={<CommentManage />} />
           <Route path="/forum/topic" element={<TopicManage />} />
           <Route path="/forum/report" element={<ReportManage />} />
+          <Route path="/user/manage" element={<UserManage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>

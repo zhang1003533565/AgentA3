@@ -1,10 +1,11 @@
 import request from '../utils/request'
 
 // 获取分类列表
-export const getCategoryList = () => {
+export const getCategoryList = (params = {}) => {
   return request({
     url: '/api/categories',
-    method: 'get'
+    method: 'get',
+    params
   })
 }
 
@@ -31,5 +32,14 @@ export const deleteCategory = (id) => {
   return request({
     url: `/api/categories/${id}`,
     method: 'delete'
+  })
+}
+
+// 批量删除分类
+export const batchDeleteCategory = (ids) => {
+  return request({
+    url: '/api/categories/batch',
+    method: 'delete',
+    data: ids
   })
 }

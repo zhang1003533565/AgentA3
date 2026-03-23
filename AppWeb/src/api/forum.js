@@ -25,15 +25,6 @@ export const deletePost = (id) => {
   })
 }
 
-// 更新帖子状态
-export const updatePostStatus = (id, status) => {
-  return request({
-    url: `/api/forum/posts/${id}/status`,
-    method: 'put',
-    params: { status }
-  })
-}
-
 // 获取评论列表
 export const getCommentList = (params) => {
   return request({
@@ -85,11 +76,22 @@ export const deleteTopic = (id) => {
   })
 }
 
-// 切换话题热门状态
-export const toggleTopicHot = (id, isHot) => {
+// ========== 审核相关接口（管理端） ==========
+
+// 批量删除帖子
+export const batchDeletePosts = (ids) => {
   return request({
-    url: `/api/forum/topics/${id}/hot`,
-    method: 'put',
-    params: { isHot }
+    url: '/api/audit/posts/batch',
+    method: 'delete',
+    data: ids
+  })
+}
+
+// 批量删除评论
+export const batchDeleteComments = (ids) => {
+  return request({
+    url: '/api/audit/comments/batch',
+    method: 'delete',
+    data: ids
   })
 }

@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
-import { message, Modal, Form, Input, Button, Table, Space, Popconfirm, Switch, Tag } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, FireOutlined } from '@ant-design/icons'
-import { getTopicList, createTopic, updateTopic, deleteTopic, toggleTopicHot } from '../../../api/forum'
+import { message, Modal, Form, Input, Button, Table, Space, Popconfirm, Tag, Select } from 'antd'
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons'
+import { getTopicList, createTopic, updateTopic, deleteTopic } from '../../../api/forum'
 import './TopicManage.css'
+
+const { Option } = Select
 
 function TopicManage() {
   const [topics, setTopics] = useState([])
@@ -101,19 +103,6 @@ function TopicManage() {
     }
   }
 
-  // 切换热门状态
-  const handleToggleHot = async (id, isHot) => {
-    try {
-      const res = await toggleTopicHot(id, isHot)
-      if (res.code === 200) {
-        message.success(isHot ? '已设为热门' : '已取消热门')
-        fetchTopics()
-      }
-    } catch (error) {
-      console.error('操作失败:', error)
-    }
-  }
-
   // 表格列定义
   const columns = [
     {
@@ -134,7 +123,7 @@ function TopicManage() {
       render: (text, record) => (
         <Space>
           {text}
-          {record.isHot === 1 && <Tag color="red" icon={<FireOutlined />}>热门</Tag>}
+          {record.isHot === 1 && <Tag color="red">热门</Tag>}
         </Space>
       )
     },
@@ -168,7 +157,7 @@ function TopicManage() {
     {
       title: '操作',
       key: 'action',
-      width: 280,
+      width: 200,
       fixed: 'right',
       render: (_, record) => (
         <Space size="small">
@@ -178,14 +167,6 @@ function TopicManage() {
             onClick={() => handleEdit(record)}
           >
             编辑
-          </Button>
-          <Button 
-            type="text" 
-            icon={<FireOutlined />}
-            style={{ color: record.isHot === 1 ? '#ff4d4f' : '#999' }}
-            onClick={() => handleToggleHot(record.id, record.isHot === 0 ? 1 : 0)}
-          >
-            {record.isHot === 1 ? '取消热门' : '设为热门'}
           </Button>
           <Popconfirm
             title="确定删除该话题吗？"
@@ -206,6 +187,11 @@ function TopicManage() {
     <div className="topic-manage-container">
       {/* 主内容 */}
       <main className="manage-main">
+        {/* 页面标题 */}
+        <div className="page-header">
+          <h2>话题管理</h2>
+        </div>
+
         {/* 搜索栏 */}
         <div className="search-bar">
           <Input
@@ -277,19 +263,23 @@ function TopicManage() {
           <Form.Item
             name="isHot"
             label="热门话题"
-            valuePropName="checked"
-            initialValue={false}
+            initialValue={0}
           >
-            <Switch checkedChildren="是" unCheckedChildren="否" />
+            <Select placeholder="请选择">
+              <Option value={1}>是</Option>
+              <Option value={0}>否</Option>
+            </Select>
           </Form.Item>
 
           <Form.Item
             name="status"
             label="状态"
-            initialValue={true}
-            valuePropName="checked"
+            initialValue="ACTIVE"
           >
-            <Switch checkedChildren="启用" unCheckedChildren="禁用" />
+            <Select placeholder="请选择">
+              <Option value="ACTIVE">启用</Option>
+              <Option value="INACTIVE">禁用</Option>
+            </Select>
           </Form.Item>
         </Form>
       </Modal>
