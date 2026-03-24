@@ -43,11 +43,13 @@ SET @status_exists = (
       AND TABLE_NAME = 'sys_user'
       AND COLUMN_NAME = 'status'
 );
+
 SET @add_status_sql = IF(
     @status_exists > 0,
     'SELECT 1',
     'ALTER TABLE sys_user ADD COLUMN status INT NOT NULL DEFAULT 1 COMMENT ''状态: 1-正常, 0-禁用'''
 );
+
 PREPARE add_status_stmt FROM @add_status_sql;
 EXECUTE add_status_stmt;
 DEALLOCATE PREPARE add_status_stmt;
@@ -262,5 +264,350 @@ INSERT INTO favorite_destination (id, user_id, marker_id, marker_name, longitude
 (6, 6, 3, '清真餐厅', 116.399500, 39.908500, 1, '清真美食', NOW()),
 (7, 6, 12, '竹园1号楼', 116.396500, 39.912000, 4, '宿舍', NOW()),
 (8, 7, 6, '田径场', 116.394500, 39.909000, 2, '跑步', NOW()),
-(9, 7, 10, '松园1号楼', 116.399000, 39.911500, 4, '宿舍', NOW()),
-(10, 8, 9, '图书馆', 116.397600, 39.909300, 3, '学习', NOW());
+(9, 7, 10, '松园1号楼', 116.399000, 39.911500, 4, '宿舍', NOW());
+-- =============================================
+-- 第四部分：第五阶段 - 校园旧物出售模块数据
+-- =============================================
+
+-- =============================================
+-- 第五阶段：建表语句
+-- =============================================
+
+-- 物品分类表
+CREATE TABLE IF NOT EXISTS secondhand_category (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '分类ID',
+    category_name VARCHAR(50) NOT NULL COMMENT '分类名称',
+    category_icon VARCHAR(255) COMMENT '分类图标URL',
+    sort INT DEFAULT 0 COMMENT '排序值（越小越前）',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-启用 2-禁用',
+    create_time DATETIME COMMENT '创建时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='物品分类表';
+
+-- 二手物品表
+CREATE TABLE IF NOT EXISTS secondhand_item (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '物品ID',
+    user_id BIGINT NOT NULL COMMENT '发布者ID',
+    category_id BIGINT COMMENT '分类ID',
+    title VARCHAR(200) NOT NULL COMMENT '物品标题',
+    description TEXT COMMENT '物品描述',
+    images TEXT COMMENT '图片URL列表(JSON数组)',
+    price DECIMAL(10,2) COMMENT '售价',
+    original_price DECIMAL(10,2) COMMENT '原价',
+    `condition` INT COMMENT '新旧程度: 1-全新 2-几乎全新 3-轻微使用痕迹 4-明显使用痕迹 5-仅限零件',
+    location VARCHAR(200) COMMENT '期望交易地点',
+    view_count INT DEFAULT 0 COMMENT '浏览量',
+    favorite_count INT DEFAULT 0 COMMENT '收藏数',
+    status INT NOT NULL DEFAULT 2 COMMENT '状态: 2-在售 3-已售出 4-已下架',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间',
+    FOREIGN KEY (user_id) REFERENCES sys_user(id),
+    FOREIGN KEY (category_id) REFERENCES secondhand_category(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='二手物品表';
+
+-- 物品收藏表
+CREATE TABLE IF NOT EXISTS secondhand_favorite (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '收藏ID',
+    user_id BIGINT NOT NULL COMMENT '用户ID',
+    item_id BIGINT NOT NULL COMMENT '物品ID',
+    create_time DATETIME COMMENT '收藏时间',
+    UNIQUE KEY uk_user_item (user_id, item_id),
+    FOREIGN KEY (user_id) REFERENCES sys_user(id),
+    FOREIGN KEY (item_id) REFERENCES secondhand_item(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='物品收藏表';
+
+-- 聊天会话表
+CREATE TABLE IF NOT EXISTS chat_session (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '会话ID',
+    item_id BIGINT NOT NULL COMMENT '关联物品ID',
+    buyer_id BIGINT NOT NULL COMMENT '买家ID',
+    seller_id BIGINT NOT NULL COMMENT '卖家ID',
+    last_message VARCHAR(500) COMMENT '最后一条消息内容',
+    last_time DATETIME COMMENT '最后消息时间',
+    buyer_unread_count INT DEFAULT 0 COMMENT '买家未读消息数',
+    seller_unread_count INT DEFAULT 0 COMMENT '卖家未读消息数',
+    create_time DATETIME COMMENT '创建时间',
+    FOREIGN KEY (item_id) REFERENCES secondhand_item(id),
+    FOREIGN KEY (buyer_id) REFERENCES sys_user(id),
+    FOREIGN KEY (seller_id) REFERENCES sys_user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='聊天会话表';
+
+-- 聊天消息表
+CREATE TABLE IF NOT EXISTS chat_message (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '消息ID',
+    session_id BIGINT NOT NULL COMMENT '会话ID',
+    sender_id BIGINT NOT NULL COMMENT '发送者ID',
+    message_type INT NOT NULL DEFAULT 1 COMMENT '消息类型: 1-文本 2-图片 3-位置',
+    content VARCHAR(1000) NOT NULL COMMENT '消息内容',
+    is_read TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否已读: 0-未读 1-已读',
+    create_time DATETIME COMMENT '发送时间',
+    FOREIGN KEY (session_id) REFERENCES chat_session(id),
+    FOREIGN KEY (sender_id) REFERENCES sys_user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='聊天消息表';
+
+-- =============================================
+-- 第五阶段：清空表数据（按依赖顺序）
+-- =============================================
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE secondhand_favorite;
+TRUNCATE TABLE chat_message;
+TRUNCATE TABLE chat_session;
+TRUNCATE TABLE secondhand_item;
+TRUNCATE TABLE secondhand_category;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- =============================================
+-- 物品分类数据
+-- =============================================
+INSERT INTO secondhand_category (id, category_name, category_icon, sort, status, create_time) VALUES
+(1, '数码产品', 'https://cdn.example.com/icons/digital.png', 1, 1, NOW()),
+(2, '书籍教材', 'https://cdn.example.com/icons/book.png', 2, 1, NOW()),
+(3, '服饰鞋包', 'https://cdn.example.com/icons/clothes.png', 3, 1, NOW()),
+(4, '生活用品', 'https://cdn.example.com/icons/daily.png', 4, 1, NOW()),
+(5, '文体娱乐', 'https://cdn.example.com/icons/sport.png', 5, 1, NOW());
+
+-- =============================================
+-- 二手物品数据（user_id=4卖家张三, user_id=5卖家李四, user_id=6买家王五, user_id=7买家赵六）
+-- =============================================
+INSERT INTO secondhand_item (id, user_id, category_id, title, description, images, price, original_price, `condition`, location, view_count, favorite_count, status, create_time, update_time) VALUES
+-- 数码产品
+(1, 4, 1, 'iPad Air 4 256G WiFi版', '2023年6月购入，功能完全正常，屏幕无划痕，带原装充电器和保护套。', '["https://picsum.photos/800/600?random=101","https://picsum.photos/800/600?random=102"]', 2800.00, 4999.00, 2, '图书馆门口', 256, 18, 2, NOW(), NOW()),
+(2, 4, 1, 'AirPods Pro 2代', '今年2月买的，用了两个月，成色几乎全新，配件齐全。', '["https://picsum.photos/800/600?random=103"]', 1200.00, 1899.00, 2, '松园1号楼', 189, 12, 2, NOW(), NOW()),
+(3, 5, 1, '小米12手机 8+256G', '骁龙8处理器，屏幕小手感好，拍照清晰，无维修无进水。', '["https://picsum.photos/800/600?random=104"]', 1500.00, 3699.00, 3, '学校南门', 320, 25, 2, NOW(), NOW()),
+(4, 5, 1, '联想ThinkPad笔记本电脑', '19年购入，日常办公流畅，键盘手感好，轻薄便携。', '["https://picsum.photos/800/600?random=105","https://picsum.photos/800/600?random=106"]', 2200.00, 5999.00, 3, '致远楼前', 145, 9, 2, NOW(), NOW()),
+-- 书籍教材
+(5, 4, 2, '考研全套资料 数学一+英语一', '包含高数、线代、概率全套教材及真题集，笔记较少，适合复习使用。', '["https://picsum.photos/800/600?random=107"]', 120.00, 350.00, 3, '博学楼', 480, 32, 2, NOW(), NOW()),
+(6, 5, 2, 'Python编程从入门到实践', '书籍保存完好，无折痕，有少量学习笔记，不影响阅读。', '["https://picsum.photos/800/600?random=108"]', 35.00, 84.00, 2, '图书馆', 210, 15, 2, NOW(), NOW()),
+(7, 6, 2, '大学物理教材（上下册）', '大二物理学教材，包含全部章节笔记，手写字迹工整。', '["https://picsum.photos/800/600?random=109"]', 45.00, 98.00, 3, '竹园1号楼', 98, 6, 2, NOW(), NOW()),
+-- 服饰鞋包
+(8, 7, 3, 'Nike Air Force 1 白色 42码', '穿了五六次，鞋底几乎无磨损，清洗后几乎看不出使用痕迹。', '["https://picsum.photos/800/600?random=110"]', 380.00, 799.00, 2, '学校中心广场', 560, 40, 2, NOW(), NOW()),
+(9, 7, 3, 'ONLY品牌女士连衣裙 M码', '只穿过一次参加活动，吊牌已剪，不影响穿着效果。', '["https://picsum.photos/800/600?random=111"]', 89.00, 499.00, 2, '南门', 167, 11, 2, NOW(), NOW()),
+-- 生活用品
+(10, 6, 4, '美的落地风扇', '去年夏天买的，用了一个月，拆卸方便，不占空间。', '["https://picsum.photos/800/600?random=112"]', 120.00, 299.00, 2, '松园2号楼', 88, 5, 2, NOW(), NOW()),
+(11, 6, 4, '小米台灯+收纳盒套装', '台灯支持多档亮度调节，收纳盒8格，桌面整理好帮手。', '["https://picsum.photos/800/600?random=113"]', 68.00, 159.00, 2, '竹园2号楼', 130, 8, 2, NOW(), NOW()),
+-- 文体娱乐
+(12, 8, 5, '威尔逊专业羽毛球拍', '单拍，带原装球拍袋，磅数22磅，进攻型球拍。', '["https://picsum.photos/800/600?random=114"]', 150.00, 380.00, 3, '东区运动场', 75, 4, 2, NOW(), NOW()),
+-- 已售出物品
+(13, 4, 1, '小米手环7 NFC版', '已售出示例，成色9新。', '["https://picsum.photos/800/600?random=115"]', 180.00, 299.00, 2, '南门', 0, 0, 3, DATE_SUB(NOW(), INTERVAL 5 DAY), DATE_SUB(NOW(), INTERVAL 5 DAY)),
+-- 已下架物品
+(14, 5, 2, '数字信号处理教材', '已下架示例。', '["https://picsum.photos/800/600?random=116"]', 30.00, 65.00, 4, '博学楼', 0, 0, 4, DATE_SUB(NOW(), INTERVAL 3 DAY), DATE_SUB(NOW(), INTERVAL 3 DAY));
+
+-- =============================================
+-- 物品收藏数据
+-- =============================================
+INSERT INTO secondhand_favorite (id, user_id, item_id, create_time) VALUES
+(1, 5, 1, NOW()),
+(2, 5, 8, NOW()),
+(3, 6, 2, NOW()),
+(4, 6, 5, NOW()),
+(5, 7, 3, NOW()),
+(6, 7, 4, NOW()),
+(7, 8, 5, NOW()),
+(8, 8, 9, NOW());
+
+-- =============================================
+-- 聊天会话数据
+-- =============================================
+INSERT INTO chat_session (id, item_id, buyer_id, seller_id, last_message, last_time, buyer_unread_count, seller_unread_count, create_time) VALUES
+(1, 1, 5, 4, '您好，请问还在吗？iPad有发票吗？', NOW(), 1, 0, NOW()),
+(2, 3, 6, 5, '可以便宜一点吗？', DATE_SUB(NOW(), INTERVAL 2 HOUR), 0, 1, DATE_SUB(NOW(), INTERVAL 5 HOUR)),
+(3, 5, 7, 4, '好的，周末在图书馆见。', DATE_SUB(NOW(), INTERVAL 1 DAY), 0, 0, DATE_SUB(NOW(), INTERVAL 2 DAY)),
+(4, 8, 6, 7, '鞋码是标准码吗？', DATE_SUB(NOW(), INTERVAL 3 DAY), 0, 0, DATE_SUB(NOW(), INTERVAL 4 DAY));
+
+-- =============================================
+-- 聊天消息数据
+-- =============================================
+INSERT INTO chat_message (id, session_id, sender_id, message_type, content, is_read, create_time) VALUES
+-- 会话1：买家李四(5) 咨询 卖家张三(4) 的iPad
+(1, 1, 5, 1, '您好，请问这个iPad还在吗？', 1, DATE_SUB(NOW(), INTERVAL 1 HOUR)),
+(2, 1, 4, 1, '在的，有什么想了解的吗？', 1, DATE_SUB(NOW(), INTERVAL 55 MINUTE)),
+(3, 1, 5, 1, '您好，请问还在吗？iPad有发票吗？', 0, DATE_SUB(NOW(), INTERVAL 30 MINUTE)),
+-- 会话2：买家王五(6) 咨询 卖家李四(5) 的手机
+(4, 2, 6, 1, '您好，请问小米12还在卖吗？', 1, DATE_SUB(NOW(), INTERVAL 5 HOUR)),
+(5, 2, 5, 1, '在的，随时可以看实物。', 1, DATE_SUB(NOW(), INTERVAL 4 HOUR)),
+(6, 2, 6, 1, '可以便宜一点吗？', 0, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
+-- 会话3：买家赵六(7) 咨询 卖家张三(4) 的考研资料
+(7, 3, 7, 1, '学长你好，考研资料还在吗？', 1, DATE_SUB(NOW(), INTERVAL 2 DAY)),
+(8, 3, 4, 1, '在的，数学一和英语一的都有。', 1, DATE_SUB(NOW(), INTERVAL '1 22' DAY_HOUR)),
+(9, 3, 7, 1, '价格可以商量吗？', 1, DATE_SUB(NOW(), INTERVAL '1 20' DAY_HOUR)),
+(10, 3, 4, 1, '好的，周末在图书馆见。', 0, DATE_SUB(NOW(), INTERVAL 1 DAY)),
+-- 会话4：买家王五(6) 咨询 卖家赵六(7) 的球鞋
+(11, 4, 6, 1, '你好，请问鞋还在吗？', 1, DATE_SUB(NOW(), INTERVAL 4 DAY)),
+(12, 4, 7, 1, '在的，42码标准码。', 1, DATE_SUB(NOW(), INTERVAL '3 23' DAY_HOUR)),
+(13, 4, 6, 1, '鞋码是标准码吗？', 0, DATE_SUB(NOW(), INTERVAL 3 DAY));
+
+-- =============================================
+-- 第五部分：第六阶段 - 校园特惠模块数据
+-- =============================================
+
+-- =============================================
+-- 第六阶段：建表语句
+-- =============================================
+
+-- 商家分类表
+CREATE TABLE IF NOT EXISTS merchant_category (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '分类ID',
+    category_name VARCHAR(50) NOT NULL COMMENT '分类名称',
+    category_icon VARCHAR(255) COMMENT '分类图标URL',
+    sort INT DEFAULT 0 COMMENT '排序值（越小越前）',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-启用 2-禁用',
+    create_time DATETIME COMMENT '创建时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商家分类表';
+
+-- 商家表
+CREATE TABLE IF NOT EXISTS merchant (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '商家ID',
+    merchant_name VARCHAR(100) NOT NULL COMMENT '商家名称',
+    category_id BIGINT COMMENT '分类ID',
+    description TEXT COMMENT '商家介绍',
+    logo VARCHAR(255) COMMENT '商家Logo URL',
+    images TEXT COMMENT '商家环境图片列表(JSON数组)',
+    address VARCHAR(200) NOT NULL COMMENT '商家地址',
+    longitude DECIMAL(10,7) COMMENT '经度',
+    latitude DECIMAL(10,7) COMMENT '纬度',
+    contact_name VARCHAR(50) COMMENT '联系人姓名',
+    contact_phone VARCHAR(20) NOT NULL COMMENT '联系电话',
+    business_hours VARCHAR(50) COMMENT '营业时间',
+    user_id BIGINT NOT NULL COMMENT '关联商家用户ID',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-正常营业 2-暂停营业 3-已禁用',
+    avg_score DECIMAL(2,1) DEFAULT 0 COMMENT '平均评分',
+    review_count INT DEFAULT 0 COMMENT '评价总数',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间',
+    FOREIGN KEY (category_id) REFERENCES merchant_category(id),
+    FOREIGN KEY (user_id) REFERENCES sys_user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商家表';
+
+-- 优惠活动表
+CREATE TABLE IF NOT EXISTS discount_activity (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '活动ID',
+    merchant_id BIGINT NOT NULL COMMENT '商家ID',
+    title VARCHAR(200) NOT NULL COMMENT '活动标题',
+    description TEXT COMMENT '活动描述',
+    cover_image VARCHAR(255) COMMENT '封面图片URL',
+    images TEXT COMMENT '活动图片列表(JSON数组)',
+    discount_type INT NOT NULL COMMENT '优惠类型: 1-折扣 2-满减 3-特价 4-买赠',
+    discount_value DECIMAL(10,2) COMMENT '优惠值',
+    original_price DECIMAL(10,2) COMMENT '原价',
+    current_price DECIMAL(10,2) COMMENT '现价',
+    start_time DATETIME COMMENT '活动开始时间',
+    end_time DATETIME COMMENT '活动结束时间',
+    use_rules TEXT COMMENT '使用规则',
+    total_count INT COMMENT '总名额',
+    remain_count INT COMMENT '剩余名额',
+    view_count INT DEFAULT 0 COMMENT '浏览量',
+    favorite_count INT DEFAULT 0 COMMENT '收藏数',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-进行中 2-已结束',
+    create_time DATETIME COMMENT '创建时间',
+    FOREIGN KEY (merchant_id) REFERENCES merchant(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='优惠活动表';
+
+-- 优惠收藏表
+CREATE TABLE IF NOT EXISTS discount_favorite (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '收藏ID',
+    user_id BIGINT NOT NULL COMMENT '用户ID',
+    activity_id BIGINT NOT NULL COMMENT '优惠活动ID',
+    create_time DATETIME COMMENT '收藏时间',
+    UNIQUE KEY uk_user_activity (user_id, activity_id),
+    FOREIGN KEY (user_id) REFERENCES sys_user(id),
+    FOREIGN KEY (activity_id) REFERENCES discount_activity(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='优惠活动收藏表';
+
+-- 商家评价表
+CREATE TABLE IF NOT EXISTS merchant_review (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '评价ID',
+    user_id BIGINT NOT NULL COMMENT '用户ID',
+    merchant_id BIGINT NOT NULL COMMENT '商家ID',
+    activity_id BIGINT COMMENT '关联优惠活动ID（可选）',
+    score INT NOT NULL COMMENT '评分（1-5分）',
+    content VARCHAR(1000) NOT NULL COMMENT '评价内容',
+    images TEXT COMMENT '评价图片列表(JSON数组)',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-正常 2-已删除',
+    create_time DATETIME COMMENT '创建时间',
+    UNIQUE KEY uk_user_merchant (user_id, merchant_id),
+    FOREIGN KEY (user_id) REFERENCES sys_user(id),
+    FOREIGN KEY (merchant_id) REFERENCES merchant(id),
+    FOREIGN KEY (activity_id) REFERENCES discount_activity(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商家评价表';
+
+-- =============================================
+-- 第六阶段：清空表数据（按依赖顺序）
+-- =============================================
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE discount_favorite;
+TRUNCATE TABLE merchant_review;
+TRUNCATE TABLE discount_activity;
+TRUNCATE TABLE merchant;
+TRUNCATE TABLE merchant_category;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- =============================================
+-- 商家分类数据
+-- =============================================
+INSERT INTO merchant_category (id, category_name, category_icon, sort, status, create_time) VALUES
+(1, '餐厅美食', 'https://cdn.example.com/icons/restaurant.png', 1, 1, NOW()),
+(2, '饮品甜点', 'https://cdn.example.com/icons/drink.png', 2, 1, NOW()),
+(3, '超市便利', 'https://cdn.example.com/icons/supermarket.png', 3, 1, NOW()),
+(4, '打印复印', 'https://cdn.example.com/icons/print.png', 4, 1, NOW());
+
+-- =============================================
+-- 商家数据（user_id=4张三, user_id=5李四, user_id=6王五, user_id=7赵六 担任商家账号）
+-- =============================================
+INSERT INTO merchant (id, merchant_name, category_id, description, logo, images, address, longitude, latitude, contact_name, contact_phone, business_hours, user_id, status, avg_score, review_count, create_time, update_time) VALUES
+(1, '学府餐厅', 1, '学校北门旁的平价餐厅，以川菜和本地家常菜为主，价格实惠，分量充足，是师生日常就餐的热门选择。', 'https://cdn.example.com/merchant/logo1.jpg', '["https://picsum.photos/800/600?random=201","https://picsum.photos/800/600?random=202"]', '学校北门向东200米', 116.397500, 39.909800, '李老板', '13812345601', '07:00-21:00', 4, 1, 4.5, 128, NOW(), NOW()),
+(2, '书香咖啡', 2, '位于图书馆一楼的咖啡店，环境安静，适合自习和小组讨论，提供咖啡、茶饮和轻食。', 'https://cdn.example.com/merchant/logo2.jpg', '["https://picsum.photos/800/600?random=203"]', '图书馆一层东侧', 116.397600, 39.909300, '王老板', '13812345602', '08:00-22:00', 5, 1, 4.8, 86, NOW(), NOW()),
+(3, '校园便利超市', 3, '日用品、文具、零食一应俱全，价格与外面持平，24小时营业，方便师生随时采购。', 'https://cdn.example.com/merchant/logo3.jpg', '["https://picsum.photos/800/600?random=204"]', '学校南门内50米', 116.397400, 39.909100, '张老板', '13812345603', '24小时营业', 6, 1, 4.2, 45, NOW(), NOW()),
+(4, '快印图文店', 4, '打印、复印、扫描、装订一站式服务，支持彩色打印和大幅面输出，价格公道，速度快。', 'https://cdn.example.com/merchant/logo4.jpg', '["https://picsum.photos/800/600?random=205"]', '博学楼地下一层', 116.397800, 39.909500, '赵老板', '13812345604', '08:00-20:00', 7, 1, 4.6, 62, NOW(), NOW());
+
+-- =============================================
+-- 优惠活动数据
+-- =============================================
+INSERT INTO discount_activity (id, merchant_id, title, description, cover_image, images, discount_type, discount_value, original_price, current_price, start_time, end_time, use_rules, total_count, remain_count, view_count, favorite_count, status, create_time) VALUES
+-- 学府餐厅活动
+(1, 1, '午餐特价套餐', '周一至周五11:00-13:00，特价午餐套餐限量供应，包含主食+两菜+汤。', 'https://picsum.photos/800/400?random=301', '["https://picsum.photos/800/600?random=302"]', 3, 19.90, 30.00, 19.90, '2026-03-01 00:00:00', '2026-06-30 23:59:59', '1. 仅限堂食\n2. 不可与店内其他优惠叠加\n3. 每人不限购买份数', 100, 50, 1280, 186, 1, NOW()),
+(2, 1, '学生满30减5', '在线支付满30元立减5元，适合多人拼单。', 'https://picsum.photos/800/400?random=303', NULL, 2, 5.00, NULL, NULL, '2026-03-01 00:00:00', '2026-06-30 23:59:59', '1. 在线支付可用\n2. 不可与其他满减叠加\n3. 每日限用一次', 0, 0, 860, 92, 1, NOW()),
+(3, 1, '新品8折尝鲜', '新菜品上市期间全场8折优惠，限时一周。', 'https://picsum.photos/800/400?random=304', NULL, 1, 0.80, NULL, NULL, DATE_SUB(NOW(), INTERVAL 10 DAY), DATE_SUB(NOW(), INTERVAL 3 DAY), '1. 仅限堂食\n2. 不与其他优惠同享', 0, 0, 560, 45, 2, NOW()),
+-- 书香咖啡活动
+(4, 2, '学生套餐 咖啡+蛋糕', '周一至周四，指定咖啡搭配任意蛋糕享套餐价。', 'https://picsum.photos/800/400?random=305', '["https://picsum.photos/800/600?random=306"]', 3, 28.00, 45.00, 28.00, '2026-03-01 00:00:00', '2026-06-30 23:59:59', '1. 需出示学生证\n2. 不与其他优惠叠加', 50, 28, 680, 110, 1, NOW()),
+(5, 2, '新品上市买一送一', '新品桂花拿铁上市，买任意一杯送同款一杯。', 'https://picsum.photos/800/400?random=307', NULL, 4, 1.00, NULL, NULL, DATE_SUB(NOW(), INTERVAL 5 DAY), DATE_SUB(NOW(), INTERVAL 1 DAY), '1. 每人限参与一次\n2. 可与好友共享', 0, 0, 920, 135, 2, NOW()),
+-- 校园便利超市活动
+(6, 3, '全场饮品8.5折', '指定饮料、牛奶、酸奶品类全场8.5折优惠。', 'https://picsum.photos/800/400?random=308', NULL, 1, 0.85, NULL, NULL, '2026-03-15 00:00:00', '2026-04-15 23:59:59', '1. 超市内全场饮品区可用\n2. 特价商品除外', 0, 0, 430, 58, 1, NOW()),
+(7, 3, '满50减10', '单笔消费满50元立减10元，超值划算。', 'https://picsum.photos/800/400?random=309', NULL, 2, 10.00, NULL, NULL, '2026-03-01 00:00:00', '2026-06-30 23:59:59', '1. 会员专享\n2. 不可与折扣同享', 0, 0, 310, 42, 1, NOW()),
+-- 快印图文店活动
+(8, 4, '打印套餐10元封顶', '单面黑白打印0.1元/张，10张以内仅收1元，10张以上10元封顶，适合日常打印需求。', 'https://picsum.photos/800/400?random=310', NULL, 3, 10.00, NULL, NULL, '2026-03-01 00:00:00', '2026-06-30 23:59:59', '1. 仅限黑白单面打印\n2. 需提前预约', 0, 0, 1250, 220, 1, NOW());
+
+-- =============================================
+-- 优惠收藏数据
+-- =============================================
+INSERT INTO discount_favorite (id, user_id, activity_id, create_time) VALUES
+(1, 4, 1, NOW()),
+(2, 4, 4, NOW()),
+(3, 5, 1, NOW()),
+(4, 5, 2, NOW()),
+(5, 5, 8, NOW()),
+(6, 6, 4, NOW()),
+(7, 6, 6, NOW()),
+(8, 7, 1, NOW()),
+(9, 7, 8, NOW()),
+(10, 8, 2, NOW()),
+(11, 8, 4, NOW());
+
+-- =============================================
+-- 商家评价数据
+-- =============================================
+INSERT INTO merchant_review (id, user_id, merchant_id, activity_id, score, content, images, status, create_time) VALUES
+-- 学府餐厅评价
+(1, 4, 1, NULL, 5, '学府餐厅的川菜味道非常正宗，水煮鱼份量足，辣椒香而不燥，价格也实惠！', '["https://picsum.photos/400/300?random=401"]', 1, NOW()),
+(2, 5, 1, 1, 5, '午餐特价套餐太划算了，19块9吃得很饱，口味也不错，强烈推荐！', NULL, 1, NOW()),
+(3, 6, 1, NULL, 4, '菜品味道不错，环境也干净，就是中午排队时间有点长，建议错峰就餐。', NULL, 1, DATE_SUB(NOW(), INTERVAL 3 DAY)),
+(4, 7, 1, 2, 5, '满30减5活动太香了，和室友拼单每人减了5块，开心！', NULL, 1, DATE_SUB(NOW(), INTERVAL 7 DAY)),
+(5, 8, 1, NULL, 4, '学府餐厅的早餐很不错，包子豆浆都很地道。', NULL, 1, DATE_SUB(NOW(), INTERVAL 10 DAY)),
+-- 书香咖啡评价
+(6, 4, 2, 4, 5, '咖啡味道很棒，拿铁香气浓郁，蛋糕也很新鲜。在图书馆看书累了来一杯特别惬意！', NULL, 1, NOW()),
+(7, 5, 2, NULL, 5, '环境非常安静，适合自习，WiFi速度快，插座也多，强烈推荐！', '["https://picsum.photos/400/300?random=402","https://picsum.photos/400/300?random=403"]', 1, DATE_SUB(NOW(), INTERVAL 2 DAY)),
+(8, 6, 2, 4, 4, '套餐很划算，咖啡+蛋糕的搭配很棒，就是人有点多，周末不好找位置。', NULL, 1, DATE_SUB(NOW(), INTERVAL 5 DAY)),
+-- 校园便利超市评价
+(9, 7, 3, 6, 4, '超市东西很全，24小时营业太方便了，饮料打折的时候买很划算！', NULL, 1, DATE_SUB(NOW(), INTERVAL 4 DAY)),
+(10, 8, 3, NULL, 3, '价格和外面差不多，没有明显优势，但24小时营业确实方便。', NULL, 1, DATE_SUB(NOW(), INTERVAL 8 DAY)),
+-- 快印图文店评价
+(11, 4, 4, 8, 5, '打印速度快，价格便宜，老板态度很好，彩色打印效果也很清晰！', NULL, 1, DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(12, 5, 4, NULL, 5, '打印套餐10元封顶太划算了，期末打印复习资料省了不少钱。', NULL, 1, DATE_SUB(NOW(), INTERVAL 6 DAY));
