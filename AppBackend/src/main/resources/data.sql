@@ -2,17 +2,129 @@
 -- 智慧校园系统初始化数据
 -- =============================================
 
--- 清空表数据（注意顺序，先删除有外键依赖的表）
+-- =============================================
+-- 第一部分：表创建语句（如果不存在则创建）
+-- =============================================
+
+-- 校园设施表
+CREATE TABLE IF NOT EXISTS campus_facility (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '设施ID',
+    facility_name VARCHAR(100) NOT NULL COMMENT '设施名称',
+    facility_type INT NOT NULL COMMENT '设施类型: 1-餐厅 2-运动场 3-教学楼 4-宿舍',
+    description TEXT COMMENT '设施描述',
+    location VARCHAR(200) COMMENT '位置描述',
+    longitude DECIMAL(10,7) COMMENT '经度',
+    latitude DECIMAL(10,7) COMMENT '纬度',
+    images TEXT COMMENT '图片列表(JSON数组)',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态: 0-禁用 1-启用',
+    deleted TINYINT DEFAULT 0 COMMENT '逻辑删除: 0-未删除 1-已删除',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='校园设施表';
+
+-- 设施评价表
+CREATE TABLE IF NOT EXISTS facility_review (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '评价ID',
+    facility_id BIGINT NOT NULL COMMENT '设施ID',
+    user_id BIGINT NOT NULL COMMENT '用户ID',
+    score INT NOT NULL COMMENT '评分: 1-5',
+    content TEXT COMMENT '评价内容',
+    images TEXT COMMENT '图片列表(JSON数组)',
+    create_time DATETIME COMMENT '创建时间',
+    FOREIGN KEY (facility_id) REFERENCES campus_facility(id),
+    FOREIGN KEY (user_id) REFERENCES sys_user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='设施评价表';
+
+-- 兼容旧库：确保 sys_user 表有 status 列（旧版数据库可能缺少）
+SET @status_exists = (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'sys_user'
+      AND COLUMN_NAME = 'status'
+);
+SET @add_status_sql = IF(
+    @status_exists > 0,
+    'SELECT 1',
+    'ALTER TABLE sys_user ADD COLUMN status INT NOT NULL DEFAULT 1 COMMENT ''状态: 1-正常, 0-禁用'''
+);
+PREPARE add_status_stmt FROM @add_status_sql;
+EXECUTE add_status_stmt;
+DEALLOCATE PREPARE add_status_stmt;
+
+-- 地图标记表
+CREATE TABLE IF NOT EXISTS map_marker (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '标记ID',
+    facility_id BIGINT NOT NULL COMMENT '关联设施ID',
+    icon_url VARCHAR(255) COMMENT '自定义图标URL',
+    description TEXT COMMENT '描述信息',
+    sort INT DEFAULT 0 COMMENT '排序',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态: 0-禁用 1-启用',
+    deleted TINYINT DEFAULT 0 COMMENT '逻辑删除: 0-未删除 1-已删除',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间',
+    FOREIGN KEY (facility_id) REFERENCES campus_facility(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='地图标记表';
+
+-- 地图配置表
+CREATE TABLE IF NOT EXISTS map_config (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '配置ID',
+    config_key VARCHAR(100) NOT NULL UNIQUE COMMENT '配置键',
+    config_value TEXT COMMENT '配置值',
+    description VARCHAR(255) COMMENT '配置说明',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='地图配置表';
+
+-- 导航记录表
+CREATE TABLE IF NOT EXISTS navigation_log (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '导航记录ID',
+    user_id BIGINT NOT NULL COMMENT '用户ID',
+    from_longitude DECIMAL(10,7) COMMENT '起点经度',
+    from_latitude DECIMAL(10,7) COMMENT '起点纬度',
+    to_marker_id BIGINT NOT NULL COMMENT '目标标记ID',
+    distance DECIMAL(10,2) COMMENT '导航距离（米）',
+    duration INT COMMENT '预计时长（秒）',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-进行中 2-已完成 3-已取消',
+    arrive_time DATETIME COMMENT '实际到达时间',
+    create_time DATETIME COMMENT '创建时间',
+    FOREIGN KEY (user_id) REFERENCES sys_user(id),
+    FOREIGN KEY (to_marker_id) REFERENCES map_marker(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='导航记录表';
+
+-- 收藏目的地表
+CREATE TABLE IF NOT EXISTS favorite_destination (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '收藏ID',
+    user_id BIGINT NOT NULL COMMENT '用户ID',
+    marker_id BIGINT NOT NULL COMMENT '标记ID',
+    marker_name VARCHAR(100) COMMENT '标记名称（快照）',
+    longitude DECIMAL(10,7) COMMENT '经度（快照）',
+    latitude DECIMAL(10,7) COMMENT '纬度（快照）',
+    facility_type INT COMMENT '设施类型（快照）',
+    remark VARCHAR(100) COMMENT '用户备注',
+    create_time DATETIME COMMENT '创建时间',
+    UNIQUE KEY uk_user_marker (user_id, marker_id),
+    FOREIGN KEY (user_id) REFERENCES sys_user(id),
+    FOREIGN KEY (marker_id) REFERENCES map_marker(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='收藏目的地表';
+
+-- =============================================
+-- 第二部分：清空表数据（注意顺序，先删除有外键依赖的表）
+-- =============================================
 SET FOREIGN_KEY_CHECKS = 0;
-TRUNCATE TABLE forum_comment;
-TRUNCATE TABLE forum_post;
-TRUNCATE TABLE forum_topic;
-TRUNCATE TABLE sign_in;
-TRUNCATE TABLE registration;
-TRUNCATE TABLE activity;
-TRUNCATE TABLE activity_category;
+
+-- 先清空地图/导航/评价表
+TRUNCATE TABLE favorite_destination;
+TRUNCATE TABLE navigation_log;
+TRUNCATE TABLE map_config;
+TRUNCATE TABLE map_marker;
+TRUNCATE TABLE facility_review;
+TRUNCATE TABLE campus_facility;
+
+-- 再清空原有表
 TRUNCATE TABLE sys_user;
 TRUNCATE TABLE sys_role;
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- =============================================
@@ -25,168 +137,130 @@ INSERT INTO sys_role (id, name) VALUES
 
 -- =============================================
 -- 2. 用户数据 (密码都是 admin123)
--- 明文秘密的密码: admin
 -- =============================================
-INSERT INTO sys_user (id, username, password, real_name, phone, email, personal_number, role_id, avatar, college, major, class_name, status, create_time, update_time) VALUES
--- 管理员 (用户名: admin, 密码: 123456)
-(1, 'admin', 'admin123', '系统管理员', '13800000001', 'admin@campus.edu.cn', 'A001', 1, NULL, NULL, NULL, NULL, 1, NOW(), NOW()),
--- 教师 (用户名: fjj, 密码: 123456)
-(2, 'fjj', 'admin123', '张老师', '13800000002', 'zhanglaoshi@campus.edu.cn', 'T001', 2, NULL, '计算机学院', NULL, NULL, 1, NOW(), NOW()),
--- 教师 (用户名: fjj2, 密码: 123456)
-(3, 'fjj2', 'admin123', '李老师', '13800000003', 'lilaoshi@campus.edu.cn', 'T002', 2, NULL, '外国语学院', NULL, NULL, 1, NOW(), NOW()),
--- 学生 (用户名: zzs, 密码: 123456)
-(4, 'zzs', 'admin123', '张三', '13800000004', 'zhangsan@stu.campus.edu.cn', 'S2021001', 3, NULL, '计算机学院', '软件工程', '软工2101', 1, NOW(), NOW()),
--- 学生 (用户名: lisi, 密码: 123456)
-(5, 'lisi', 'admin123', '李四', '13800000005', 'lisi@stu.campus.edu.cn', 'S2021002', 3, NULL, '计算机学院', '计算机科学', '计科2101', 1, NOW(), NOW()),
--- 学生 (用户名: wangwu, 密码: 123456)
-(6, 'wangwu', 'admin123', '王五', '13800000006', 'wangwu@stu.campus.edu.cn', 'S2021003', 3, NULL, '外国语学院', '英语', '英语2101', 1, NOW(), NOW()),
--- 学生 (用户名: zhaoliu, 密码: 123456)
-(7, 'zhaoliu', 'admin123', '赵六', '13800000007', 'zhaoliu@stu.campus.edu.cn', 'S2021004', 3, NULL, '计算机学院', '软件工程', '软工2101', 1, NOW(), NOW()),
--- 学生 (用户名: student05, 密码: 123456)
-(8, 'student05', 'admin123', '钱七', '13800000008', 'qianqi@stu.campus.edu.cn', 'S2021005', 3, NULL, '经济学院', '金融学', '金融2101', 1, NOW(), NOW());
-
--- =============================================
--- 3. 活动分类
--- =============================================
-INSERT INTO activity_category (id, category_name, sort, status, create_time) VALUES
-(1, '学术讲座', 1, 1, NOW()),
-(2, '文体活动', 2, 1, NOW()),
-(3, '志愿服务', 3, 1, NOW()),
-(4, '社团活动', 4, 1, NOW()),
-(5, '就业招聘', 5, 1, NOW()),
-(6, '竞赛培训', 6, 1, NOW());
+INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, status, create_time, update_time) VALUES
+-- 管理员 (用户名: admin, 密码: admin123)
+(1, 'admin', 'admin123', '系统管理员', '13800000001', 'admin@campus.edu.cn', 1, 1, NOW(), NOW()),
+-- 教师 (用户名: fjj, 密码: admin123)
+(2, 'fjj', 'admin123', '张老师', '13800000002', 'zhanglaoshi@campus.edu.cn', 2, 1, NOW(), NOW()),
+-- 教师 (用户名: fjj2, 密码: admin123)
+(3, 'fjj2', 'admin123', '李老师', '13800000003', 'lilaoshi@campus.edu.cn', 2, 1, NOW(), NOW()),
+-- 学生 (用户名: zzs, 密码: admin123)
+(4, 'zzs', 'admin123', '张三', '13800000004', 'zhangsan@stu.campus.edu.cn', 3, 1, NOW(), NOW()),
+-- 学生 (用户名: lisi, 密码: admin123)
+(5, 'lisi', 'admin123', '李四', '13800000005', 'lisi@stu.campus.edu.cn', 3, 1, NOW(), NOW()),
+-- 学生 (用户名: wangwu, 密码: admin123)
+(6, 'wangwu', 'admin123', '王五', '13800000006', 'wangwu@stu.campus.edu.cn', 3, 1, NOW(), NOW()),
+-- 学生 (用户名: zhaoliu, 密码: admin123)
+(7, 'zhaoliu', 'admin123', '赵六', '13800000007', 'zhaoliu@stu.campus.edu.cn', 3, 1, NOW(), NOW()),
+-- 学生 (用户名: student05, 密码: admin123)
+(8, 'student05', 'admin123', '钱七', '13800000008', 'qianqi@stu.campus.edu.cn', 3, 1, NOW(), NOW());
 
 -- =============================================
--- 4. 活动数据
+-- 3~9. 旧模块（活动/论坛）初始化数据
+-- 为避免历史库字段不一致导致启动失败，暂不在 data.sql 中写入这些测试数据
 -- =============================================
-INSERT INTO activity (id, title, cover_image, category_id, organizer_id, organizer_name, content, location, max_people, current_people, start_time, end_time, signup_start_time, signup_end_time, status, sign_in_type, sign_in_open, score, contact_name, contact_phone, create_time) VALUES
-(1, 'Python编程入门讲座', NULL, 1, 2, '计算机学院', '本次讲座将介绍Python编程基础知识，适合零基础同学参加。内容包括：Python环境搭建、基础语法、常用数据结构、函数定义等。', '图书馆报告厅', 100, 45, '2026-03-20 14:00:00', '2026-03-20 16:00:00', '2026-03-10 08:00:00', '2026-03-19 18:00:00', 'PUBLISHED', 1, false, 2.0, '张老师', '13800000002', NOW()),
-(2, '春季校园马拉松', NULL, 2, 2, '体育部', '春季校园马拉松比赛，全程5公里，欢迎全校师生参加。完赛者可获得2个学分。', '校园田径场', 500, 320, '2026-04-15 07:00:00', '2026-04-15 10:00:00', '2026-03-15 08:00:00', '2026-04-10 18:00:00', 'PUBLISHED', 1, false, 2.0, '李老师', '13800000003', NOW()),
-(3, '社区志愿服务活动', NULL, 3, 2, '青年志愿者协会', '走进社区，关爱老人，传递温暖。活动内容包括陪伴老人聊天、帮助打扫卫生、表演节目等。', '阳光社区', 30, 28, '2026-03-25 09:00:00', '2026-03-25 12:00:00', '2026-03-15 08:00:00', '2026-03-24 18:00:00', 'PUBLISHED', 1, false, 1.5, '张老师', '13800000002', NOW()),
-(4, '摄影社春季采风', NULL, 4, 2, '摄影社', '组织社员前往郊外进行春季采风摄影活动，优秀作品将在校内展出。', '郊外公园', 20, 15, '2026-03-22 08:00:00', '2026-03-22 17:00:00', '2026-03-12 08:00:00', '2026-03-21 18:00:00', 'PUBLISHED', 1, false, 1.0, '李老师', '13800000003', NOW()),
-(5, '2026届春季校园招聘会', NULL, 5, 1, '就业指导中心', '邀请100+知名企业参加，提供上千个就业岗位，欢迎应届毕业生参加。', '体育馆', 1000, 560, '2026-04-01 09:00:00', '2026-04-01 17:00:00', '2026-03-01 08:00:00', '2026-03-31 18:00:00', 'PUBLISHED', 1, false, 0.0, '就业中心', '13800000001', NOW()),
-(6, '数学建模竞赛培训', NULL, 6, 2, '数学系', '为即将到来的全国大学生数学建模竞赛进行赛前培训，包括建模方法、编程实现、论文写作等内容。', '教学楼A301', 50, 42, '2026-03-18 14:00:00', '2026-03-18 17:00:00', '2026-03-08 08:00:00', '2026-03-17 18:00:00', 'PUBLISHED', 1, false, 1.5, '张老师', '13800000002', NOW()),
-(7, '英语角活动', NULL, 2, 3, '外国语学院', '每周三下午的英语角活动，外教参与，主题交流，提升口语能力。', '外语楼一楼大厅', 50, 35, '2026-03-19 16:00:00', '2026-03-19 18:00:00', '2026-03-10 08:00:00', '2026-03-18 18:00:00', 'PUBLISHED', 1, false, 0.5, '李老师', '13800000003', NOW()),
-(8, '机器学习讲座', NULL, 1, 2, '计算机学院', '邀请业界专家分享机器学习前沿技术和应用案例，适合有一定编程基础的同学。', '图书馆报告厅', 80, 60, '2026-03-28 14:00:00', '2026-03-28 17:00:00', '2026-03-18 08:00:00', '2026-03-27 18:00:00', 'PUBLISHED', 1, false, 2.0, '张老师', '13800000002', NOW());
 
 -- =============================================
--- 5. 报名数据
+-- 第三部分：第三阶段 - 校园设施模块数据
 -- =============================================
-INSERT INTO registration (id, activity_id, user_id, status, signup_time, audit_time, audit_by, remark, create_time) VALUES
--- 活动1的报名
-(1, 1, 4, 'APPROVED', '2026-03-10 10:30:00', '2026-03-10 14:00:00', 2, NULL, NOW()),
-(2, 1, 5, 'APPROVED', '2026-03-11 09:20:00', '2026-03-11 14:00:00', 2, NULL, NOW()),
-(3, 1, 6, 'PENDING', '2026-03-12 15:40:00', NULL, NULL, NULL, NOW()),
--- 活动2的报名
-(4, 2, 4, 'APPROVED', '2026-03-16 08:30:00', '2026-03-16 10:00:00', 2, NULL, NOW()),
-(5, 2, 5, 'APPROVED', '2026-03-16 09:10:00', '2026-03-16 10:00:00', 2, NULL, NOW()),
-(6, 2, 7, 'APPROVED', '2026-03-17 11:20:00', '2026-03-17 14:00:00', 2, NULL, NOW()),
--- 活动3的报名
-(7, 3, 4, 'APPROVED', '2026-03-16 10:00:00', '2026-03-16 14:00:00', 2, NULL, NOW()),
-(8, 3, 7, 'APPROVED', '2026-03-17 09:30:00', '2026-03-17 14:00:00', 2, NULL, NOW()),
--- 活动6的报名
-(9, 6, 4, 'APPROVED', '2026-03-09 08:30:00', '2026-03-09 10:00:00', 2, NULL, NOW()),
-(10, 6, 5, 'APPROVED', '2026-03-09 09:00:00', '2026-03-09 10:00:00', 2, NULL, NOW()),
-(11, 6, 8, 'PENDING', '2026-03-10 14:20:00', NULL, NULL, '对数学建模很感兴趣', NOW());
 
 -- =============================================
--- 6. 签到数据
+-- 校园设施数据
 -- =============================================
-INSERT INTO sign_in (id, activity_id, registration_id, user_id, sign_in_time, sign_in_status, create_time) VALUES
--- 活动6已结束，有签到记录
-(1, 6, 9, 4, '2026-03-18 14:05:00', 1, NOW()),
-(2, 6, 10, 5, '2026-03-18 14:10:00', 1, NOW());
-
--- =============================================
--- 7. 论坛话题
--- =============================================
-INSERT INTO forum_topic (id, topic_name, topic_icon, description, post_count, is_hot, status, create_time) VALUES
-(1, '学习交流', '📚', '学习心得、课程讨论、资料分享', 15, 1, 'ACTIVE', NOW()),
-(2, '运动健身', '🏃', '运动约伴、健身心得、赛事讨论', 8, 1, 'ACTIVE', NOW()),
-(3, '二手交易', '💰', '二手物品买卖、闲置转让', 12, 0, 'ACTIVE', NOW()),
-(4, '美食推荐', '🍜', '校园美食、餐厅推荐、美食分享', 20, 1, 'ACTIVE', NOW()),
-(5, '求职招聘', '💼', '实习招聘、求职经验、职场分享', 10, 0, 'ACTIVE', NOW()),
-(6, '校园生活', '🏫', '校园趣事、生活分享、问题求助', 25, 1, 'ACTIVE', NOW()),
-(7, '考研考公', '📖', '考研经验、考公心得、资料交流', 18, 1, 'ACTIVE', NOW());
-
--- =============================================
--- 8. 论坛帖子
--- =============================================
-INSERT INTO forum_post (id, user_id, title, content, images, topic_id, view_count, like_count, comment_count,  create_time, update_time) VALUES
-(1, 4, '关于期末考试复习的一些建议', '马上就要期末考试了，大家有什么好的复习方法吗？我来分享一些我的经验：
-
-1. 制定复习计划，合理安排时间
-2. 重点复习老师上课强调的内容
-3. 多做往年真题，熟悉考试题型
-4. 组建学习小组，互相讨论
-
-希望对大家有帮助！', NULL, 1, 256, 45, 12,  '2026-03-15 14:30:00', '2026-03-15 14:30:00'),
-(2, 5, '寻找羽毛球搭子', '有没有喜欢打羽毛球的同学？周末一起打球呀！
-
-时间：周六下午3点
-地点：体育馆羽毛球场
-
-有兴趣的同学评论区留言~', NULL, 2, 128, 23, 8, '2026-03-15 10:20:00', '2026-03-15 10:20:00'),
-(3, 6, '二手自行车转让', '毕业了，转让一辆九成新自行车，价格面议。
-
-购买时间：2024年9月
-品牌：捷安特
-原价：800元
-现价：400元
-
-有意向的同学私信我~', NULL, 3, 89, 15, 5,  '2026-03-14 16:45:00', '2026-03-14 16:45:00'),
-(4, 7, '食堂新开档口推荐', '二食堂新开了一家麻辣烫，味道超级棒！推荐大家去尝尝~
-
-位置：二食堂二楼东侧
-人均：15-25元
-推荐菜品：牛肉丸、毛肚、宽粉
-
-老板说凭学生证打9折！', NULL, 4, 512, 89, 34,  '2026-03-14 12:00:00', '2026-03-14 12:00:00'),
-(5, 8, '考研英语复习经验分享', '分享一下我的考研英语复习经验，希望对学弟学妹们有帮助：
-
-1. 单词是基础，每天坚持背单词
-2. 阅读理解要多练，掌握技巧
-3. 作文要准备模板，但也要灵活运用
-4. 真题是最好的复习资料
-
-加油！考研人！', NULL, 7, 320, 67, 22,  '2026-03-13 20:30:00', '2026-03-13 20:30:00'),
-(6, 4, '有没有一起准备数学建模比赛的？', '今年想参加数学建模比赛，有没有同学一起组队？
-
-我的情况：
-- 计算机专业，擅长Python编程
-- 有一定的数学基础
-- 可以负责编程和论文排版
-
-寻找：擅长数学建模和论文写作的同学', NULL, 1, 156, 28, 10,'2026-03-12 15:00:00', '2026-03-12 15:00:00'),
-(7, 5, '校园跑步路线推荐', '推荐几条适合跑步的校园路线：
-
-1. 环湖路线：风景优美，约2公里
-2. 田径场：标准跑道，适合速度训练
-3. 教学区绕圈：安静安全，约1.5公里
-
-大家还有其他推荐吗？', NULL, 2, 98, 18, 6,  '2026-03-11 18:20:00', '2026-03-11 18:20:00'),
-(8, 6, '转让健身卡', '还有半年到期的健身房年卡转让，原价1200，现价600。
-
-健身房位置：学校东门
-设施齐全：器械区、有氧区、游泳池
-
-需要的同学联系我！', NULL, 3, 76, 12, 4,  '2026-03-10 14:30:00', '2026-03-10 14:30:00');
+INSERT INTO campus_facility (id, facility_name, facility_type, description, location, longitude, latitude, images, status, deleted, create_time, update_time) VALUES
+-- 餐厅 (类型1)
+(1, '第一学生餐厅', 1, '位于学校南门，主要提供快餐服务，菜品种类丰富，价格实惠。', '南门东侧100米', 116.397428, 39.90923, '["https://picsum.photos/800/600?random=1","https://picsum.photos/800/600?random=2"]', 1, 0, NOW(), NOW()),
+(2, '第二学生餐厅', 1, '位于学校中心区域，以地方特色菜为主，环境优雅。', '学校中心广场北侧', 116.398000, 39.910000, '["https://picsum.photos/800/600?random=3"]', 1, 0, NOW(), NOW()),
+(3, '清真餐厅', 1, '专门提供清真美食，食材新鲜，口味正宗。', '东门附近', 116.399500, 39.908500, '["https://picsum.photos/800/600?random=4"]', 1, 0, NOW(), NOW()),
+-- 运动场 (类型2)
+(4, '东区运动场', 2, '包含篮球场、足球场、羽毛球场等设施，是师生锻炼的首选之地。', '学校东区', 116.398500, 39.911000, '["https://picsum.photos/800/600?random=5"]', 1, 0, NOW(), NOW()),
+(5, '体育馆', 2, '室内体育馆，设有篮球场、羽毛球场、乒乓球室等。', '学校北门', 116.396000, 39.910500, '["https://picsum.photos/800/600?random=6"]', 1, 0, NOW(), NOW()),
+(6, '田径场', 2, '标准400米跑道，天然草坪足球场，适合跑步和足球运动。', '学校西侧', 116.394500, 39.909000, '["https://picsum.photos/800/600?random=7"]', 1, 0, NOW(), NOW()),
+-- 教学楼 (类型3)
+(7, '博学楼', 3, '学校主教学楼，设施齐全，教室宽敞明亮。', '学校中轴线', 116.397800, 39.909500, '["https://picsum.photos/800/600?random=8"]', 1, 0, NOW(), NOW()),
+(8, '致远楼', 3, '主要用于是实验教学，配备先进实验设备。', '博学楼东侧', 116.398200, 39.909700, '["https://picsum.photos/800/600?random=9"]', 1, 0, NOW(), NOW()),
+(9, '图书馆', 3, '学校图书馆，藏书丰富，学习环境舒适。', '学校中心', 116.397600, 39.909300, '["https://picsum.photos/800/600?random=10"]', 1, 0, NOW(), NOW()),
+-- 宿舍 (类型4)
+(10, '松园1号楼', 4, '男生宿舍楼，环境优美，设施完善。', '学校东区松园', 116.399000, 39.911500, '["https://picsum.photos/800/600?random=11"]', 1, 0, NOW(), NOW()),
+(11, '松园2号楼', 4, '男生宿舍楼，靠近食堂，生活便利。', '学校东区松园', 116.399200, 39.911300, '["https://picsum.photos/800/600?random=12"]', 1, 0, NOW(), NOW()),
+(12, '竹园1号楼', 4, '女生宿舍楼，安全安静，适合学习。', '学校北区竹园', 116.396500, 39.912000, '["https://picsum.photos/800/600?random=13"]', 1, 0, NOW(), NOW()),
+(13, '竹园2号楼', 4, '女生宿舍楼，距离图书馆近。', '学校北区竹园', 116.396700, 39.911800, '["https://picsum.photos/800/600?random=14"]', 1, 0, NOW(), NOW());
 
 -- =============================================
--- 9. 论坛评论
+-- 设施评价数据
 -- =============================================
-INSERT INTO forum_comment (id, post_id, user_id, parent_id, reply_to_id, content, like_count, create_time) VALUES
--- 帖子1的评论
-(1, 1, 5, NULL, NULL, '感谢分享！这些方法很实用，我已经开始尝试了。', 12, '2026-03-15 15:30:00'),
-(2, 1, 7, NULL, NULL, '请问有没有高数的复习资料可以分享一下？', 5, '2026-03-15 16:00:00'),
-(3, 1, 4, 2, 7, '有的，我稍后整理一下发到帖子里。', 8, '2026-03-15 16:15:00'),
--- 帖子2的评论
-(4, 2, 7, NULL, NULL, '我也想打球！周末下午可以吗？', 3, '2026-03-15 11:00:00'),
-(5, 2, 8, NULL, NULL, '算我一个！', 2, '2026-03-15 11:30:00'),
--- 帖子4的评论
-(6, 4, 4, NULL, NULL, '这家确实好吃！强烈推荐他们的牛肉丸！', 15, '2026-03-14 12:30:00'),
-(7, 4, 5, NULL, NULL, '中午刚去吃过，确实不错！', 8, '2026-03-14 13:00:00'),
-(8, 4, 6, NULL, NULL, '求问营业时间？', 3, '2026-03-14 13:30:00'),
--- 帖子5的评论
-(9, 5, 4, NULL, NULL, '学长分享得很详细，收藏了！', 10, '2026-03-13 21:00:00'),
-(10, 5, 7, NULL, NULL, '请问用的什么单词书？', 4, '2026-03-13 21:30:00');
+INSERT INTO facility_review (id, facility_id, user_id, score, content, images, create_time) VALUES
+-- 餐厅评价
+(1, 1, 4, 5, '第一学生餐厅的味道非常正宗，菜品丰富，价格实惠！', NULL, NOW()),
+(2, 1, 5, 4, '味道不错，就是人有点多，排队时间较长。', NULL, NOW()),
+(3, 1, 6, 5, '麻辣烫超级好吃，食材新鲜！', '["https://picsum.photos/400/300?random=30"]', NOW()),
+(4, 1, 7, 4, '面条做得不错，分量足，价格实惠。', NULL, NOW()),
+(5, 2, 4, 4, '粤式烧腊饭很好吃，环境也不错。', NULL, NOW()),
+-- 运动场评价
+(6, 4, 5, 5, '东区运动场设施很好，地面平整，灯光充足。', NULL, NOW()),
+(7, 4, 7, 4, '羽毛球场不错，就是有时候人多需要排队。', NULL, NOW()),
+(8, 5, 4, 5, '室内篮球馆环境很好，地板质量不错。', NULL, NOW()),
+-- 教学楼评价
+(9, 7, 5, 5, '博学楼很宽敞，座位舒适，投影清晰。', NULL, NOW()),
+(10, 7, 6, 4, '多媒体教室设备齐全，录播功能很实用。', NULL, NOW());
+
+-- =============================================
+-- 第四部分：第四阶段 - 校园地图导航模块数据
+-- =============================================
+
+-- =============================================
+-- 地图配置数据
+-- =============================================
+INSERT INTO map_config (id, config_key, config_value, description, create_time, update_time) VALUES
+(1, 'map_center_longitude', '116.397428', '地图中心经度', NOW(), NOW()),
+(2, 'map_center_latitude', '39.909500', '地图中心纬度', NOW(), NOW()),
+(3, 'map_zoom_level', '16', '默认缩放级别(1-20)', NOW(), NOW()),
+(4, 'map_boundary', '{"northEast":{"longitude":116.41,"latitude":39.92},"southWest":{"longitude":116.38,"latitude":39.89}}', '地图边界范围', NOW(), NOW());
+
+-- =============================================
+-- 地图标记数据
+-- =============================================
+INSERT INTO map_marker (id, facility_id, icon_url, description, sort, status, deleted, create_time, update_time) VALUES
+-- 餐厅标记 (按设施类型排序)
+(1, 1, NULL, '第一学生餐厅，提供多种餐饮选择', 1, 1, 0, NOW(), NOW()),
+(2, 2, NULL, '第二学生餐厅，地方特色菜为主', 2, 1, 0, NOW(), NOW()),
+(3, 3, NULL, '清真餐厅，提供清真美食', 3, 1, 0, NOW(), NOW()),
+-- 运动场标记
+(4, 4, NULL, '东区运动场，篮球场、足球场、羽毛球场', 4, 1, 0, NOW(), NOW()),
+(5, 5, NULL, '体育馆，室内运动场所', 5, 1, 0, NOW(), NOW()),
+(6, 6, NULL, '田径场，400米跑道和足球场', 6, 1, 0, NOW(), NOW()),
+-- 教学楼标记
+(7, 7, NULL, '博学楼，主教学楼', 7, 1, 0, NOW(), NOW()),
+(8, 8, NULL, '致远楼，实验教学楼', 8, 1, 0, NOW(), NOW()),
+(9, 9, NULL, '图书馆，学习中心', 9, 1, 0, NOW(), NOW()),
+-- 宿舍标记
+(10, 10, NULL, '松园1号楼，男生宿舍', 10, 1, 0, NOW(), NOW()),
+(11, 11, NULL, '松园2号楼，男生宿舍', 11, 1, 0, NOW(), NOW()),
+(12, 12, NULL, '竹园1号楼，女生宿舍', 12, 1, 0, NOW(), NOW()),
+(13, 13, NULL, '竹园2号楼，女生宿舍', 13, 1, 0, NOW(), NOW());
+
+-- =============================================
+-- 导航记录数据
+-- =============================================
+INSERT INTO navigation_log (id, user_id, from_longitude, from_latitude, to_marker_id, distance, duration, status, arrive_time, create_time) VALUES
+(1, 4, 116.397428, 39.909230, 1, 150.50, 120, 2, NOW(), NOW()),
+(2, 4, 116.397428, 39.909230, 7, 200.00, 180, 2, NOW(), NOW()),
+(3, 5, 116.399000, 39.911500, 4, 300.00, 240, 2, NOW(), NOW()),
+(4, 6, 116.396500, 39.912000, 9, 500.00, 400, 2, NOW(), NOW()),
+(5, 7, 116.396000, 39.910500, 5, 100.00, 60, 1, NULL, NOW());
+
+-- =============================================
+-- 收藏目的地数据
+-- =============================================
+INSERT INTO favorite_destination (id, user_id, marker_id, marker_name, longitude, latitude, facility_type, remark, create_time) VALUES
+(1, 4, 1, '第一学生餐厅', 116.397428, 39.909230, 1, '常去吃饭', NOW()),
+(2, 4, 7, '博学楼', 116.397800, 39.909500, 3, '上课地点', NOW()),
+(3, 4, 9, '图书馆', 116.397600, 39.909300, 3, '自习', NOW()),
+(4, 5, 2, '第二学生餐厅', 116.398000, 39.910000, 1, '喜欢吃粤菜', NOW()),
+(5, 5, 4, '东区运动场', 116.398500, 39.911000, 2, '打篮球', NOW()),
+(6, 6, 3, '清真餐厅', 116.399500, 39.908500, 1, '清真美食', NOW()),
+(7, 6, 12, '竹园1号楼', 116.396500, 39.912000, 4, '宿舍', NOW()),
+(8, 7, 6, '田径场', 116.394500, 39.909000, 2, '跑步', NOW()),
+(9, 7, 10, '松园1号楼', 116.399000, 39.911500, 4, '宿舍', NOW()),
+(10, 8, 9, '图书馆', 116.397600, 39.909300, 3, '学习', NOW());
