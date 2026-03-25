@@ -46,14 +46,6 @@ public class CampusFacility {
     @Schema(description = "图片列表(JSON数组)", example = "[\"https://xxx.com/img1.jpg\",\"https://xxx.com/img2.jpg\"]")
     private String images;
 
-    @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 1 COMMENT '状态: 0-禁用 1-启用'")
-    @Schema(description = "状态: 0-禁用 1-启用", example = "1")
-    private Integer status = 1;
-
-    @Column(name = "deleted", columnDefinition = "TINYINT DEFAULT 0 COMMENT '逻辑删除: 0-未删除 1-已删除'")
-    @Schema(description = "逻辑删除: 0-未删除 1-已删除", example = "0")
-    private Integer deleted = 0;
-
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     @Schema(description = "创建时间")
