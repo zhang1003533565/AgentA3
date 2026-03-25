@@ -1,17 +1,19 @@
 <template>
 	<view class="lostfound-container">
-		<nav-bar title="失物招领" />
-		
-		<view class="search-section" :style="{ top: navBarHeight + 'px' }">
-			<view class="search-bar">
-				<icon-line name="search" size="small" color="#8E8E93" />
-				<input type="text" v-model="searchQuery" placeholder="搜索失物或招领信息" class="search-input" />
+		<NavFixed>
+			<nav-bar title="失物招领" />
+			
+			<view class="search-section">
+				<view class="search-bar">
+					<icon-line name="search" size="small" color="#8E8E93" />
+					<input type="text" v-model="searchQuery" placeholder="搜索失物或招领信息" class="search-input" />
+				</view>
+				<view class="tabs">
+					<view class="tab-item" :class="{ active: currentTab === 'lost' }" @click="currentTab = 'lost'">寻物启事</view>
+					<view class="tab-item" :class="{ active: currentTab === 'found' }" @click="currentTab = 'found'">招领信息</view>
+				</view>
 			</view>
-			<view class="tabs">
-				<view class="tab-item" :class="{ active: currentTab === 'lost' }" @click="currentTab = 'lost'">寻物启事</view>
-				<view class="tab-item" :class="{ active: currentTab === 'found' }" @click="currentTab = 'found'">招领信息</view>
-			</view>
-		</view>
+		</NavFixed>
 
 		<scroll-view scroll-y class="list-content">
 			<view class="grid-list">
@@ -155,6 +157,7 @@
 	.list-content {
 		flex: 1;
 		height: 0;
+		padding-top: 220rpx !important;
 	}
 
 	.grid-list {

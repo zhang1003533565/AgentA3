@@ -1,41 +1,43 @@
 <template>
   <view class="forum-container">
-    <nav-bar title="校园论坛" :showBack="true" />
-    <!-- 顶部搜索栏 + 个人主页入口 -->
-    <view class="search-bar">
-      <view class="search-input">
-        <text class="search-icon">🔍</text>
-        <input 
-          type="text" 
-          v-model="searchKeyword" 
-          placeholder="搜索帖子、话题..."
-          @confirm="handleSearch"
-        />
+    <NavFixed>
+      <nav-bar title="校园论坛" :showBack="true" />
+      <!-- 顶部搜索栏 + 个人主页入口 -->
+      <view class="search-bar">
+        <view class="search-input">
+          <text class="search-icon">🔍</text>
+          <input 
+            type="text" 
+            v-model="searchKeyword" 
+            placeholder="搜索帖子、话题..."
+            @confirm="handleSearch"
+          />
+        </view>
+        <view class="header-avatar-wrap" @click="goToUserProfile">
+          <image class="header-avatar" :src="currentUserAvatar || '/static/logo.png'" mode="aspectFill" />
+        </view>
       </view>
-      <view class="header-avatar-wrap" @click="goToUserProfile">
-        <image class="header-avatar" :src="currentUserAvatar || '/static/logo.png'" mode="aspectFill" />
-      </view>
-    </view>
 
-    <!-- 分类 Tab：与「校园活动」一致的样式 -->
-    <view class="nav-secondary-wrap">
-      <view class="category-container">
-        <scroll-view class="category-scroll" scroll-x :show-scrollbar="false">
-          <view class="category-list">
-            <view
-              v-for="(item, index) in topics"
-              :key="index"
-              class="category-item"
-              :class="{ active: currentTopic === item.id }"
-              @click="selectTopic(item.id)"
-            >
-              <text class="category-text"># {{ item.name }}</text>
-              <view class="active-line" v-if="currentTopic === item.id"></view>
+      <!-- 分类 Tab：与「校园活动」一致的样式 -->
+      <view class="nav-secondary-wrap">
+        <view class="category-container">
+          <scroll-view class="category-scroll" scroll-x :show-scrollbar="false">
+            <view class="category-list">
+              <view
+                v-for="(item, index) in topics"
+                :key="index"
+                class="category-item"
+                :class="{ active: currentTopic === item.id }"
+                @click="selectTopic(item.id)"
+              >
+                <text class="category-text"># {{ item.name }}</text>
+                <view class="active-line" v-if="currentTopic === item.id"></view>
+              </view>
             </view>
-          </view>
-        </scroll-view>
+          </scroll-view>
+        </view>
       </view>
-    </view>
+    </NavFixed>
 
     <!-- 帖子列表 -->
     <scroll-view 
@@ -511,6 +513,7 @@ export default {
 .post-list {
   height: calc(100vh - 200rpx);
   padding: 20rpx;
+  padding-top: 280rpx !important;
   
   .post-item {
     background-color: #FFFFFF;

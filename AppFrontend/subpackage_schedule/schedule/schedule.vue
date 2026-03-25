@@ -1,8 +1,10 @@
 <template>
 	<view class="schedule-container">
-		<nav-bar title="我的课表" />
+		<NavFixed>
+			<nav-bar title="我的课表" />
+		</NavFixed>
 		
-		<view class="schedule-content" :style="{ paddingTop: navBarHeight + 'px' }">
+		<view class="schedule-content" style="padding-top: 120rpx;">
 			<!-- 这里简单模拟一个课表视图 -->
 			<view class="week-selector block-white">
 				<text class="week-text">第 5 周 (本周)</text>

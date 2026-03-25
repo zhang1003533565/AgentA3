@@ -1,49 +1,51 @@
 <template>
   <view class="activity-container">
-    <nav-bar title="校园活动" :showBack="true" />
+    <NavFixed>
+      <nav-bar title="校园活动" :showBack="true" />
 
-    <!-- 搜索框独占一行 -->
-    <view class="search-bar">
-      <view class="search-input">
-        <input 
-          type="text" 
-          v-model="searchKeyword" 
-          placeholder="搜索活动名称"
-          placeholder-class="search-placeholder"
-          @confirm="handleSearch"
-        />
-        <view class="search-action" @click.stop="handleSearch">
-          <image class="search-action-icon" src="/static/icons/line/search.svg" mode="aspectFit" />
+      <!-- 搜索框独占一行 -->
+      <view class="search-bar">
+        <view class="search-input">
+          <input 
+            type="text" 
+            v-model="searchKeyword" 
+            placeholder="搜索活动名称"
+            placeholder-class="search-placeholder"
+            @confirm="handleSearch"
+          />
+          <view class="search-action" @click.stop="handleSearch">
+            <image class="search-action-icon" src="/static/icons/line/search.svg" mode="aspectFit" />
+          </view>
         </view>
       </view>
-    </view>
 
-    <!-- 分类 Tab + 我的活动入口 -->
-    <view class="nav-secondary-wrap">
-      <view class="category-container">
-        <scroll-view class="category-scroll" scroll-x :show-scrollbar="false">
-          <view class="category-list">
-            <view 
-              v-for="(item, index) in categories" 
-              :key="index"
-              class="category-item"
-              :class="{ active: currentCategory === item.id }"
-              @click="selectCategory(item.id)"
-            >
-              <text class="category-text">{{ item.name }}</text>
-              <view class="active-line" v-if="currentCategory === item.id"></view>
+      <!-- 分类 Tab + 我的活动入口 -->
+      <view class="nav-secondary-wrap">
+        <view class="category-container">
+          <scroll-view class="category-scroll" scroll-x :show-scrollbar="false">
+            <view class="category-list">
+              <view 
+                v-for="(item, index) in categories" 
+                :key="index"
+                class="category-item"
+                :class="{ active: currentCategory === item.id }"
+                @click="selectCategory(item.id)"
+              >
+                <text class="category-text">{{ item.name }}</text>
+                <view class="active-line" v-if="currentCategory === item.id"></view>
+              </view>
             </view>
-          </view>
-        </scroll-view>
+          </scroll-view>
+        </view>
+        
+        <view class="divider-line"></view>
+        
+        <view class="btn-my-activity-wrap" @click="goToMyActivity">
+          <image class="my-activity-icon" src="/static/icons/line/calendar.svg" mode="aspectFit" />
+          <text class="my-activity-text">我的活动</text>
+        </view>
       </view>
-      
-      <view class="divider-line"></view>
-      
-      <view class="btn-my-activity-wrap" @click="goToMyActivity">
-        <image class="my-activity-icon" src="/static/icons/line/calendar.svg" mode="aspectFit" />
-        <text class="my-activity-text">我的活动</text>
-      </view>
-    </view>
+    </NavFixed>
 
     <!-- 活动列表 -->
     <scroll-view 
@@ -393,7 +395,7 @@ export default {
 .activity-list {
   height: calc(100vh - 380rpx);
   padding: 0;
-  padding-top: 24rpx;
+  padding-top: 280rpx !important;
   padding-bottom: 48rpx;
   background-color: #FFFFFF;
   box-sizing: border-box;
