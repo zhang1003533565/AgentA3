@@ -300,11 +300,26 @@ INSERT INTO favorite_destination (id, user_id, marker_id, marker_name, longitude
 CREATE TABLE IF NOT EXISTS secondhand_category (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '分类ID',
     category_name VARCHAR(50) NOT NULL COMMENT '分类名称',
-    category_icon VARCHAR(255) COMMENT '分类图标URL',
     sort INT DEFAULT 0 COMMENT '排序值（越小越前）',
-    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-启用 2-禁用',
     create_time DATETIME COMMENT '创建时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='物品分类表';
+
+-- 旧库迁移：移除已废弃列（不影响 secondhand_item 外键；列不存在时跳过）
+SET @sc_db := DATABASE();
+SET @sc_sql := (SELECT IF(COUNT(*) > 0,
+    'ALTER TABLE secondhand_category DROP COLUMN category_icon',
+    'SELECT 1') FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @sc_db AND TABLE_NAME = 'secondhand_category' AND COLUMN_NAME = 'category_icon');
+PREPARE sc_stmt FROM @sc_sql;
+EXECUTE sc_stmt;
+DEALLOCATE PREPARE sc_stmt;
+SET @sc_sql := (SELECT IF(COUNT(*) > 0,
+    'ALTER TABLE secondhand_category DROP COLUMN status',
+    'SELECT 1') FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @sc_db AND TABLE_NAME = 'secondhand_category' AND COLUMN_NAME = 'status');
+PREPARE sc_stmt FROM @sc_sql;
+EXECUTE sc_stmt;
+DEALLOCATE PREPARE sc_stmt;
 
 -- 二手物品表
 CREATE TABLE IF NOT EXISTS secondhand_item (
@@ -381,12 +396,12 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- =============================================
 -- 物品分类数据
 -- =============================================
-INSERT INTO secondhand_category (id, category_name, category_icon, sort, status, create_time) VALUES
-(1, '数码产品', 'https://cdn.example.com/icons/digital.png', 1, 1, NOW()),
-(2, '书籍教材', 'https://cdn.example.com/icons/book.png', 2, 1, NOW()),
-(3, '服饰鞋包', 'https://cdn.example.com/icons/clothes.png', 3, 1, NOW()),
-(4, '生活用品', 'https://cdn.example.com/icons/daily.png', 4, 1, NOW()),
-(5, '文体娱乐', 'https://cdn.example.com/icons/sport.png', 5, 1, NOW());
+INSERT INTO secondhand_category (id, category_name, sort, create_time) VALUES
+(1, '数码产品', 1, NOW()),
+(2, '书籍教材', 2, NOW()),
+(3, '服饰鞋包', 3, NOW()),
+(4, '生活用品', 4, NOW()),
+(5, '文体娱乐', 5, NOW());
 
 -- =============================================
 -- 二手物品数据（user_id=4卖家张三, user_id=5卖家李四, user_id=6买家王五, user_id=7买家赵六）
