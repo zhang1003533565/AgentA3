@@ -6,6 +6,21 @@
 -- 第一部分：表创建语句（如果不存在则创建）
 -- =============================================
 
+-- =============================================
+-- 校园设施表 - 清理旧status列（如存在）
+-- =============================================
+SET @col_exists = (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'campus_facility'
+      AND COLUMN_NAME = 'status'
+);
+SET @drop_col_sql = IF(@col_exists > 0, 'ALTER TABLE campus_facility DROP COLUMN status', 'SELECT 1');
+PREPARE drop_stmt FROM @drop_col_sql;
+EXECUTE drop_stmt;
+DEALLOCATE PREPARE drop_stmt;
+
 -- 校园设施表
 CREATE TABLE IF NOT EXISTS campus_facility (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '设施ID',
@@ -16,8 +31,6 @@ CREATE TABLE IF NOT EXISTS campus_facility (
     longitude DECIMAL(10,7) COMMENT '经度',
     latitude DECIMAL(10,7) COMMENT '纬度',
     images TEXT COMMENT '图片列表(JSON数组)',
-    status INT NOT NULL DEFAULT 1 COMMENT '状态: 0-禁用 1-启用',
-    deleted TINYINT DEFAULT 0 COMMENT '逻辑删除: 0-未删除 1-已删除',
     create_time DATETIME COMMENT '创建时间',
     update_time DATETIME COMMENT '更新时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='校园设施表';
@@ -54,15 +67,25 @@ PREPARE add_status_stmt FROM @add_status_sql;
 EXECUTE add_status_stmt;
 DEALLOCATE PREPARE add_status_stmt;
 
+-- 地图标记表 - 清理旧description列（如存在）
+SET @desc_col_exists = (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'map_marker'
+      AND COLUMN_NAME = 'description'
+);
+SET @drop_desc_sql = IF(@desc_col_exists > 0, 'ALTER TABLE map_marker DROP COLUMN description', 'SELECT 1');
+PREPARE drop_desc_stmt FROM @drop_desc_sql;
+EXECUTE drop_desc_stmt;
+DEALLOCATE PREPARE drop_desc_stmt;
+
 -- 地图标记表
 CREATE TABLE IF NOT EXISTS map_marker (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '标记ID',
     facility_id BIGINT NOT NULL COMMENT '关联设施ID',
     icon_url VARCHAR(255) COMMENT '自定义图标URL',
-    description TEXT COMMENT '描述信息',
     sort INT DEFAULT 0 COMMENT '排序',
-    status INT NOT NULL DEFAULT 1 COMMENT '状态: 0-禁用 1-启用',
-    deleted TINYINT DEFAULT 0 COMMENT '逻辑删除: 0-未删除 1-已删除',
     create_time DATETIME COMMENT '创建时间',
     update_time DATETIME COMMENT '更新时间',
     FOREIGN KEY (facility_id) REFERENCES campus_facility(id)
@@ -170,24 +193,24 @@ INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, 
 -- =============================================
 -- 校园设施数据
 -- =============================================
-INSERT INTO campus_facility (id, facility_name, facility_type, description, location, longitude, latitude, images, status, deleted, create_time, update_time) VALUES
+INSERT INTO campus_facility (id, facility_name, facility_type, description, location, longitude, latitude, images, create_time, update_time) VALUES
 -- 餐厅 (类型1)
-(1, '第一学生餐厅', 1, '位于学校南门，主要提供快餐服务，菜品种类丰富，价格实惠。', '南门东侧100米', 116.397428, 39.90923, '["https://picsum.photos/800/600?random=1","https://picsum.photos/800/600?random=2"]', 1, 0, NOW(), NOW()),
-(2, '第二学生餐厅', 1, '位于学校中心区域，以地方特色菜为主，环境优雅。', '学校中心广场北侧', 116.398000, 39.910000, '["https://picsum.photos/800/600?random=3"]', 1, 0, NOW(), NOW()),
-(3, '清真餐厅', 1, '专门提供清真美食，食材新鲜，口味正宗。', '东门附近', 116.399500, 39.908500, '["https://picsum.photos/800/600?random=4"]', 1, 0, NOW(), NOW()),
+(1, '第一学生餐厅', 1, '位于学校南门，主要提供快餐服务，菜品种类丰富，价格实惠。', '南门东侧100米', 116.397428, 39.90923, '["https://picsum.photos/800/600?random=1","https://picsum.photos/800/600?random=2"]', NOW(), NOW()),
+(2, '第二学生餐厅', 1, '位于学校中心区域，以地方特色菜为主，环境优雅。', '学校中心广场北侧', 116.398000, 39.910000, '["https://picsum.photos/800/600?random=3"]', NOW(), NOW()),
+(3, '清真餐厅', 1, '专门提供清真美食，食材新鲜，口味正宗。', '东门附近', 116.399500, 39.908500, '["https://picsum.photos/800/600?random=4"]', NOW(), NOW()),
 -- 运动场 (类型2)
-(4, '东区运动场', 2, '包含篮球场、足球场、羽毛球场等设施，是师生锻炼的首选之地。', '学校东区', 116.398500, 39.911000, '["https://picsum.photos/800/600?random=5"]', 1, 0, NOW(), NOW()),
-(5, '体育馆', 2, '室内体育馆，设有篮球场、羽毛球场、乒乓球室等。', '学校北门', 116.396000, 39.910500, '["https://picsum.photos/800/600?random=6"]', 1, 0, NOW(), NOW()),
-(6, '田径场', 2, '标准400米跑道，天然草坪足球场，适合跑步和足球运动。', '学校西侧', 116.394500, 39.909000, '["https://picsum.photos/800/600?random=7"]', 1, 0, NOW(), NOW()),
+(4, '东区运动场', 2, '包含篮球场、足球场、羽毛球场等设施，是师生锻炼的首选之地。', '学校东区', 116.398500, 39.911000, '["https://picsum.photos/800/600?random=5"]', NOW(), NOW()),
+(5, '体育馆', 2, '室内体育馆，设有篮球场、羽毛球场、乒乓球室等。', '学校北门', 116.396000, 39.910500, '["https://picsum.photos/800/600?random=6"]', NOW(), NOW()),
+(6, '田径场', 2, '标准400米跑道，天然草坪足球场，适合跑步和足球运动。', '学校西侧', 116.394500, 39.909000, '["https://picsum.photos/800/600?random=7"]', NOW(), NOW()),
 -- 教学楼 (类型3)
-(7, '博学楼', 3, '学校主教学楼，设施齐全，教室宽敞明亮。', '学校中轴线', 116.397800, 39.909500, '["https://picsum.photos/800/600?random=8"]', 1, 0, NOW(), NOW()),
-(8, '致远楼', 3, '主要用于是实验教学，配备先进实验设备。', '博学楼东侧', 116.398200, 39.909700, '["https://picsum.photos/800/600?random=9"]', 1, 0, NOW(), NOW()),
-(9, '图书馆', 3, '学校图书馆，藏书丰富，学习环境舒适。', '学校中心', 116.397600, 39.909300, '["https://picsum.photos/800/600?random=10"]', 1, 0, NOW(), NOW()),
+(7, '博学楼', 3, '学校主教学楼，设施齐全，教室宽敞明亮。', '学校中轴线', 116.397800, 39.909500, '["https://picsum.photos/800/600?random=8"]', NOW(), NOW()),
+(8, '致远楼', 3, '主要用于是实验教学，配备先进实验设备。', '博学楼东侧', 116.398200, 39.909700, '["https://picsum.photos/800/600?random=9"]', NOW(), NOW()),
+(9, '图书馆', 3, '学校图书馆，藏书丰富，学习环境舒适。', '学校中心', 116.397600, 39.909300, '["https://picsum.photos/800/600?random=10"]', NOW(), NOW()),
 -- 宿舍 (类型4)
-(10, '松园1号楼', 4, '男生宿舍楼，环境优美，设施完善。', '学校东区松园', 116.399000, 39.911500, '["https://picsum.photos/800/600?random=11"]', 1, 0, NOW(), NOW()),
-(11, '松园2号楼', 4, '男生宿舍楼，靠近食堂，生活便利。', '学校东区松园', 116.399200, 39.911300, '["https://picsum.photos/800/600?random=12"]', 1, 0, NOW(), NOW()),
-(12, '竹园1号楼', 4, '女生宿舍楼，安全安静，适合学习。', '学校北区竹园', 116.396500, 39.912000, '["https://picsum.photos/800/600?random=13"]', 1, 0, NOW(), NOW()),
-(13, '竹园2号楼', 4, '女生宿舍楼，距离图书馆近。', '学校北区竹园', 116.396700, 39.911800, '["https://picsum.photos/800/600?random=14"]', 1, 0, NOW(), NOW());
+(10, '松园1号楼', 4, '男生宿舍楼，环境优美，设施完善。', '学校东区松园', 116.399000, 39.911500, '["https://picsum.photos/800/600?random=11"]', NOW(), NOW()),
+(11, '松园2号楼', 4, '男生宿舍楼，靠近食堂，生活便利。', '学校东区松园', 116.399200, 39.911300, '["https://picsum.photos/800/600?random=12"]', NOW(), NOW()),
+(12, '竹园1号楼', 4, '女生宿舍楼，安全安静，适合学习。', '学校北区竹园', 116.396500, 39.912000, '["https://picsum.photos/800/600?random=13"]', NOW(), NOW()),
+(13, '竹园2号楼', 4, '女生宿舍楼，距离图书馆近。', '学校北区竹园', 116.396700, 39.911800, '["https://picsum.photos/800/600?random=14"]', NOW(), NOW());
 
 -- =============================================
 -- 设施评价数据
@@ -223,24 +246,24 @@ INSERT INTO map_config (id, config_key, config_value, description, create_time, 
 -- =============================================
 -- 地图标记数据
 -- =============================================
-INSERT INTO map_marker (id, facility_id, icon_url, description, sort, status, deleted, create_time, update_time) VALUES
+INSERT INTO map_marker (id, facility_id, icon_url, sort, create_time, update_time) VALUES
 -- 餐厅标记 (按设施类型排序)
-(1, 1, NULL, '第一学生餐厅，提供多种餐饮选择', 1, 1, 0, NOW(), NOW()),
-(2, 2, NULL, '第二学生餐厅，地方特色菜为主', 2, 1, 0, NOW(), NOW()),
-(3, 3, NULL, '清真餐厅，提供清真美食', 3, 1, 0, NOW(), NOW()),
+(1, 1, NULL, 1, NOW(), NOW()),
+(2, 2, NULL, 2, NOW(), NOW()),
+(3, 3, NULL, 3, NOW(), NOW()),
 -- 运动场标记
-(4, 4, NULL, '东区运动场，篮球场、足球场、羽毛球场', 4, 1, 0, NOW(), NOW()),
-(5, 5, NULL, '体育馆，室内运动场所', 5, 1, 0, NOW(), NOW()),
-(6, 6, NULL, '田径场，400米跑道和足球场', 6, 1, 0, NOW(), NOW()),
+(4, 4, NULL, 4, NOW(), NOW()),
+(5, 5, NULL, 5, NOW(), NOW()),
+(6, 6, NULL, 6, NOW(), NOW()),
 -- 教学楼标记
-(7, 7, NULL, '博学楼，主教学楼', 7, 1, 0, NOW(), NOW()),
-(8, 8, NULL, '致远楼，实验教学楼', 8, 1, 0, NOW(), NOW()),
-(9, 9, NULL, '图书馆，学习中心', 9, 1, 0, NOW(), NOW()),
+(7, 7, NULL, 7, NOW(), NOW()),
+(8, 8, NULL, 8, NOW(), NOW()),
+(9, 9, NULL, 9, NOW(), NOW()),
 -- 宿舍标记
-(10, 10, NULL, '松园1号楼，男生宿舍', 10, 1, 0, NOW(), NOW()),
-(11, 11, NULL, '松园2号楼，男生宿舍', 11, 1, 0, NOW(), NOW()),
-(12, 12, NULL, '竹园1号楼，女生宿舍', 12, 1, 0, NOW(), NOW()),
-(13, 13, NULL, '竹园2号楼，女生宿舍', 13, 1, 0, NOW(), NOW());
+(10, 10, NULL, 10, NOW(), NOW()),
+(11, 11, NULL, 11, NOW(), NOW()),
+(12, 12, NULL, 12, NOW(), NOW()),
+(13, 13, NULL, 13, NOW(), NOW());
 
 -- =============================================
 -- 导航记录数据
@@ -277,11 +300,26 @@ INSERT INTO favorite_destination (id, user_id, marker_id, marker_name, longitude
 CREATE TABLE IF NOT EXISTS secondhand_category (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '分类ID',
     category_name VARCHAR(50) NOT NULL COMMENT '分类名称',
-    category_icon VARCHAR(255) COMMENT '分类图标URL',
     sort INT DEFAULT 0 COMMENT '排序值（越小越前）',
-    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-启用 2-禁用',
     create_time DATETIME COMMENT '创建时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='物品分类表';
+
+-- 旧库迁移：移除已废弃列（不影响 secondhand_item 外键；列不存在时跳过）
+SET @sc_db := DATABASE();
+SET @sc_sql := (SELECT IF(COUNT(*) > 0,
+    'ALTER TABLE secondhand_category DROP COLUMN category_icon',
+    'SELECT 1') FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @sc_db AND TABLE_NAME = 'secondhand_category' AND COLUMN_NAME = 'category_icon');
+PREPARE sc_stmt FROM @sc_sql;
+EXECUTE sc_stmt;
+DEALLOCATE PREPARE sc_stmt;
+SET @sc_sql := (SELECT IF(COUNT(*) > 0,
+    'ALTER TABLE secondhand_category DROP COLUMN status',
+    'SELECT 1') FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @sc_db AND TABLE_NAME = 'secondhand_category' AND COLUMN_NAME = 'status');
+PREPARE sc_stmt FROM @sc_sql;
+EXECUTE sc_stmt;
+DEALLOCATE PREPARE sc_stmt;
 
 -- 二手物品表
 CREATE TABLE IF NOT EXISTS secondhand_item (
@@ -358,12 +396,12 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- =============================================
 -- 物品分类数据
 -- =============================================
-INSERT INTO secondhand_category (id, category_name, category_icon, sort, status, create_time) VALUES
-(1, '数码产品', 'https://cdn.example.com/icons/digital.png', 1, 1, NOW()),
-(2, '书籍教材', 'https://cdn.example.com/icons/book.png', 2, 1, NOW()),
-(3, '服饰鞋包', 'https://cdn.example.com/icons/clothes.png', 3, 1, NOW()),
-(4, '生活用品', 'https://cdn.example.com/icons/daily.png', 4, 1, NOW()),
-(5, '文体娱乐', 'https://cdn.example.com/icons/sport.png', 5, 1, NOW());
+INSERT INTO secondhand_category (id, category_name, sort, create_time) VALUES
+(1, '数码产品', 1, NOW()),
+(2, '书籍教材', 2, NOW()),
+(3, '服饰鞋包', 3, NOW()),
+(4, '生活用品', 4, NOW()),
+(5, '文体娱乐', 5, NOW());
 
 -- =============================================
 -- 二手物品数据（user_id=4卖家张三, user_id=5卖家李四, user_id=6买家王五, user_id=7买家赵六）

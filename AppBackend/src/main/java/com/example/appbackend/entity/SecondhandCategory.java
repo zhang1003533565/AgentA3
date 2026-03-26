@@ -21,17 +21,9 @@ public class SecondhandCategory {
     @Schema(description = "分类名称", example = "数码产品", requiredMode = Schema.RequiredMode.REQUIRED)
     private String categoryName;
 
-    @Column(name = "category_icon", length = 255, columnDefinition = "VARCHAR(255) COMMENT '分类图标URL'")
-    @Schema(description = "分类图标URL", example = "https://cdn.example.com/icons/digital.png")
-    private String categoryIcon;
-
     @Column(columnDefinition = "INT DEFAULT 0 COMMENT '排序值（越小越前）'")
     @Schema(description = "排序值（越小越前）", example = "1")
     private Integer sort = 0;
-
-    @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 1 COMMENT '状态: 1-启用 2-禁用'")
-    @Schema(description = "状态: 1-启用 2-禁用", example = "1")
-    private Integer status = 1;
 
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
