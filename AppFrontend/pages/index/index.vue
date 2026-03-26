@@ -126,6 +126,7 @@
 					{ name: '校园活动', icon: 'compass', path: '/subpackage_activity/activityList/activityList' },
 					{ name: '校园论坛', icon: 'message-circle', path: '/subpackage_forum/forumList/forumList' },
 					{ name: '失物招领', icon: 'search', path: '/subpackage_lostfound/lostfoundList/lostfoundList' },
+					{ name: '社区活动', icon: 'users', path: '/subpackage_community/communityActivity/communityActivity' },
 					{ name: '快递查询', icon: 'clipboard', path: '/pages/express/express' },
 					{ name: '更多', icon: 'more', path: '/pages/more/more' }
 				],

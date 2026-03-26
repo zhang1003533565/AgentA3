@@ -307,12 +307,45 @@
 					}
 				}
 			]
+		},
+		{
+			"root": "subpackage_community",
+			"pages": [
+				{
+					"path": "communityActivity/communityActivity",
+					"style": {
+						"navigationBarTitleText": "社区活动",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black",
+						"enablePullDownRefresh": true
+					}
+				},
+				{
+					"path": "communityDetail/communityDetail",
+					"style": {
+						"navigationBarTitleText": "活动详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "communityPublish/communityPublish",
+					"style": {
+						"navigationBarTitleText": "发布活动",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
+			]
 		}
 	],
 	"preloadRule": {
 		"pages/index/index": {
 			"network": "all",
-			"packages": ["subpackage_activity", "subpackage_forum", "subpackage_message", "subpackage_signin", "subpackage_schedule", "subpackage_lostfound", "subpackage_facility", "subpackage_sports", "subpackage_teaching", "subpackage_dormitory"]
+			"packages": ["subpackage_activity", "subpackage_forum", "subpackage_message", "subpackage_signin", "subpackage_schedule", "subpackage_lostfound", "subpackage_facility", "subpackage_sports", "subpackage_teaching", "subpackage_dormitory", "subpackage_community"]
 		}
 	},
 	"globalStyle": {
