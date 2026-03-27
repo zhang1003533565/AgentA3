@@ -1,0 +1,85 @@
+package com.example.appbackend.controller;
+
+import com.example.appbackend.dto.*;
+import com.example.appbackend.entity.Result;
+import com.example.appbackend.exception.BusinessException;
+import com.example.appbackend.service.ChatService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/chat")
+@Tag(name = "聊天", description = "聊天会话和消息接口")
+public class ChatController {
+
+    @Autowired private ChatService chatService;
+
+    private Long getUserId(HttpServletRequest request) {
+        Object userId = request.getAttribute("userId");
+        if (userId == null) throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
+        return (Long) userId;
+    }
+
+    // ========== 会话 ==========
+
+    @PostMapping("/session/{itemId}")
+    @Operation(summary = "创建/获取会话", description = "根据物品创建会话，同一买家+物品只创建一次")
+    public Result<ChatDTO.SessionVO> createOrGetSession(
+            @PathVariable Long itemId,
+            HttpServletRequest httpRequest) {
+        return Result.success(chatService.createOrGetSession(itemId, getUserId(httpRequest)));
+    }
+
+    @GetMapping("/session/list")
+    @Operation(summary = "聊天列表", description = "获取当前用户所有会话")
+    public Result<PageResponse<ChatDTO.SessionVO>> getSessionList(
+            @Parameter(description = "当前页码")
+            @RequestParam(defaultValue = "1") Integer current,
+            @Parameter(description = "每页条数")
+            @RequestParam(defaultValue = "20") Integer size,
+            HttpServletRequest httpRequest) {
+        return Result.success(chatService.getSessionList(getUserId(httpRequest), current, size));
+    }
+
+    @DeleteMapping("/session/{sessionId}")
+    @Operation(summary = "删除会话", description = "删除会话，同时删除该会话下的所有消息")
+    public Result<Void> deleteSession(
+            @PathVariable Long sessionId,
+            HttpServletRequest httpRequest) {
+        chatService.deleteSession(sessionId, getUserId(httpRequest));
+        return Result.success("删除成功", (Void) null);
+    }
+
+    // ========== 消息 ==========
+
+    @PostMapping("/message")
+    @Operation(summary = "发送消息")
+    public Result<ChatDTO.MessageVO> sendMessage(
+            @Valid @RequestBody ChatDTO.SendMessageRequest req,
+            HttpServletRequest httpRequest) {
+        return Result.success("发送成功", chatService.sendMessage(req, getUserId(httpRequest)));
+    }
+
+    @GetMapping("/message/list/{sessionId}")
+    @Operation(summary = "历史消息", description = "同时将未读消息标记为已读")
+    public Result<PageResponse<ChatDTO.MessageVO>> getHistoryMessages(
+            @PathVariable Long sessionId,
+            @Parameter(description = "当前页码")
+            @RequestParam(defaultValue = "1") Integer current,
+            @Parameter(description = "每页条数")
+            @RequestParam(defaultValue = "20") Integer size,
+            HttpServletRequest httpRequest) {
+        return Result.success(chatService.getHistoryMessages(sessionId, getUserId(httpRequest), current, size));
+    }
+
+    @GetMapping("/message/unread/count")
+    @Operation(summary = "未读消息总数")
+    public Result<Long> getUnreadCount(HttpServletRequest httpRequest) {
+        return Result.success(chatService.getUnreadCount(getUserId(httpRequest)));
+    }
+}

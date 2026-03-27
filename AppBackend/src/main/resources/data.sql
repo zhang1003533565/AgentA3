@@ -158,7 +158,8 @@ SET FOREIGN_KEY_CHECKS = 1;
 INSERT INTO sys_role (id, name) VALUES
 (1, 'ADMIN'),
 (2, 'TEACHER'),
-(3, 'STUDENT');
+(3, 'STUDENT'),
+(4, 'MERCHANT');
 
 -- =============================================
 -- 2. 用户数据 (密码都是 admin123)
@@ -179,7 +180,12 @@ INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, 
 -- 学生 (用户名: zhaoliu, 密码: admin123)
 (7, 'zhaoliu', 'admin123', '赵六', '13800000007', 'zhaoliu@stu.campus.edu.cn', 3, 1, NOW(), NOW()),
 -- 学生 (用户名: student05, 密码: admin123)
-(8, 'student05', 'admin123', '钱七', '13800000008', 'qianqi@stu.campus.edu.cn', 3, 1, NOW(), NOW());
+(8, 'student05', 'admin123', '钱七', '13800000008', 'qianqi@stu.campus.edu.cn', 3, 1, NOW(), NOW()),
+-- 商家用户 (用户名: merchant01~04, 密码: admin123, role_id=4)
+(9, 'merchant01', 'admin123', '学府餐厅老板', '13812345601', 'lishilaoban@campus.edu.cn', 4, 1, NOW(), NOW()),
+(10, 'merchant02', 'admin123', '书香咖啡老板', '13812345602', 'wanglaoban@campus.edu.cn', 4, 1, NOW(), NOW()),
+(11, 'merchant03', 'admin123', '校园超市老板', '13812345603', 'zhanglaoban@campus.edu.cn', 4, 1, NOW(), NOW()),
+(12, 'merchant04', 'admin123', '快印图文老板', '13812345604', 'zhaolaoban@campus.edu.cn', 4, 1, NOW(), NOW());
 
 -- =============================================
 -- 3~9. 旧模块（活动/论坛）初始化数据
@@ -523,56 +529,84 @@ CREATE TABLE IF NOT EXISTS discount_activity (
     description TEXT COMMENT '活动描述',
     cover_image VARCHAR(255) COMMENT '封面图片URL',
     images TEXT COMMENT '活动图片列表(JSON数组)',
-    discount_type INT NOT NULL COMMENT '优惠类型: 1-折扣 2-满减 3-特价 4-买赠',
-    discount_value DECIMAL(10,2) COMMENT '优惠值',
-    original_price DECIMAL(10,2) COMMENT '原价',
-    current_price DECIMAL(10,2) COMMENT '现价',
     start_time DATETIME COMMENT '活动开始时间',
     end_time DATETIME COMMENT '活动结束时间',
     use_rules TEXT COMMENT '使用规则',
     total_count INT COMMENT '总名额',
     remain_count INT COMMENT '剩余名额',
-    view_count INT DEFAULT 0 COMMENT '浏览量',
-    favorite_count INT DEFAULT 0 COMMENT '收藏数',
     status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-进行中 2-已结束',
     create_time DATETIME COMMENT '创建时间',
     FOREIGN KEY (merchant_id) REFERENCES merchant(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='优惠活动表';
 
--- 优惠收藏表
-CREATE TABLE IF NOT EXISTS discount_favorite (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '收藏ID',
+-- 旧库迁移：已移除 discount_type / discount_value / current_price / view_count / favorite_count / status（列不存在时跳过）
+SET @da_db := DATABASE();
+SET @da_sql := (SELECT IF(COUNT(*) > 0,
+    'ALTER TABLE discount_activity DROP COLUMN discount_type',
+    'SELECT 1') FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @da_db AND TABLE_NAME = 'discount_activity' AND COLUMN_NAME = 'discount_type');
+PREPARE da_stmt FROM @da_sql;
+EXECUTE da_stmt;
+DEALLOCATE PREPARE da_stmt;
+SET @da_sql := (SELECT IF(COUNT(*) > 0,
+    'ALTER TABLE discount_activity DROP COLUMN discount_value',
+    'SELECT 1') FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @da_db AND TABLE_NAME = 'discount_activity' AND COLUMN_NAME = 'discount_value');
+PREPARE da_stmt FROM @da_sql;
+EXECUTE da_stmt;
+DEALLOCATE PREPARE da_stmt;
+SET @da_sql := (SELECT IF(COUNT(*) > 0,
+    'ALTER TABLE discount_activity DROP COLUMN current_price',
+    'SELECT 1') FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @da_db AND TABLE_NAME = 'discount_activity' AND COLUMN_NAME = 'current_price');
+PREPARE da_stmt FROM @da_sql;
+EXECUTE da_stmt;
+DEALLOCATE PREPARE da_stmt;
+SET @da_sql := (SELECT IF(COUNT(*) > 0,
+    'ALTER TABLE discount_activity DROP COLUMN view_count',
+    'SELECT 1') FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @da_db AND TABLE_NAME = 'discount_activity' AND COLUMN_NAME = 'view_count');
+PREPARE da_stmt FROM @da_sql;
+EXECUTE da_stmt;
+DEALLOCATE PREPARE da_stmt;
+SET @da_sql := (SELECT IF(COUNT(*) > 0,
+    'ALTER TABLE discount_activity DROP COLUMN original_price',
+    'SELECT 1') FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @da_db AND TABLE_NAME = 'discount_activity' AND COLUMN_NAME = 'original_price');
+PREPARE da_stmt FROM @da_sql;
+EXECUTE da_stmt;
+DEALLOCATE PREPARE da_stmt;
+SET @da_sql := (SELECT IF(COUNT(*) > 0,
+    'ALTER TABLE discount_activity DROP COLUMN favorite_count',
+    'SELECT 1') FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @da_db AND TABLE_NAME = 'discount_activity' AND COLUMN_NAME = 'favorite_count');
+PREPARE da_stmt FROM @da_sql;
+EXECUTE da_stmt;
+DEALLOCATE PREPARE da_stmt;
+SET @da_sql := (SELECT IF(COUNT(*) > 0,
+    'ALTER TABLE discount_activity DROP COLUMN status',
+    'SELECT 1') FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @da_db AND TABLE_NAME = 'discount_activity' AND COLUMN_NAME = 'status');
+PREPARE da_stmt FROM @da_sql;
+EXECUTE da_stmt;
+DEALLOCATE PREPARE da_stmt;
+
+-- 优惠领取表
+CREATE TABLE IF NOT EXISTS discount_claim (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '领取记录ID',
     user_id BIGINT NOT NULL COMMENT '用户ID',
     activity_id BIGINT NOT NULL COMMENT '优惠活动ID',
-    create_time DATETIME COMMENT '收藏时间',
+    claim_time DATETIME COMMENT '领取时间',
     UNIQUE KEY uk_user_activity (user_id, activity_id),
     FOREIGN KEY (user_id) REFERENCES sys_user(id),
     FOREIGN KEY (activity_id) REFERENCES discount_activity(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='优惠活动收藏表';
-
--- 商家评价表
-CREATE TABLE IF NOT EXISTS merchant_review (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '评价ID',
-    user_id BIGINT NOT NULL COMMENT '用户ID',
-    merchant_id BIGINT NOT NULL COMMENT '商家ID',
-    activity_id BIGINT COMMENT '关联优惠活动ID（可选）',
-    score INT NOT NULL COMMENT '评分（1-5分）',
-    content VARCHAR(1000) NOT NULL COMMENT '评价内容',
-    images TEXT COMMENT '评价图片列表(JSON数组)',
-    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-正常 2-已删除',
-    create_time DATETIME COMMENT '创建时间',
-    UNIQUE KEY uk_user_merchant (user_id, merchant_id),
-    FOREIGN KEY (user_id) REFERENCES sys_user(id),
-    FOREIGN KEY (merchant_id) REFERENCES merchant(id),
-    FOREIGN KEY (activity_id) REFERENCES discount_activity(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商家评价表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='优惠活动领取记录表';
 
 -- =============================================
 -- 第六阶段：清空表数据（按依赖顺序）
 -- =============================================
 SET FOREIGN_KEY_CHECKS = 0;
-TRUNCATE TABLE discount_favorite;
-TRUNCATE TABLE merchant_review;
+TRUNCATE TABLE discount_claim;
 TRUNCATE TABLE discount_activity;
 TRUNCATE TABLE merchant;
 TRUNCATE TABLE merchant_category;
@@ -590,62 +624,26 @@ INSERT INTO merchant_category (id, category_name, category_icon, sort, status, c
 -- =============================================
 -- 商家数据（user_id=4张三, user_id=5李四, user_id=6王五, user_id=7赵六 担任商家账号）
 -- =============================================
-INSERT INTO merchant (id, merchant_name, category_id, description, logo, images, address, longitude, latitude, contact_name, contact_phone, business_hours, user_id, status, avg_score, review_count, create_time, update_time) VALUES
-(1, '学府餐厅', 1, '学校北门旁的平价餐厅，以川菜和本地家常菜为主，价格实惠，分量充足，是师生日常就餐的热门选择。', 'https://cdn.example.com/merchant/logo1.jpg', '["https://picsum.photos/800/600?random=201","https://picsum.photos/800/600?random=202"]', '学校北门向东200米', 116.397500, 39.909800, '李老板', '13812345601', '07:00-21:00', 4, 1, 4.5, 128, NOW(), NOW()),
-(2, '书香咖啡', 2, '位于图书馆一楼的咖啡店，环境安静，适合自习和小组讨论，提供咖啡、茶饮和轻食。', 'https://cdn.example.com/merchant/logo2.jpg', '["https://picsum.photos/800/600?random=203"]', '图书馆一层东侧', 116.397600, 39.909300, '王老板', '13812345602', '08:00-22:00', 5, 1, 4.8, 86, NOW(), NOW()),
-(3, '校园便利超市', 3, '日用品、文具、零食一应俱全，价格与外面持平，24小时营业，方便师生随时采购。', 'https://cdn.example.com/merchant/logo3.jpg', '["https://picsum.photos/800/600?random=204"]', '学校南门内50米', 116.397400, 39.909100, '张老板', '13812345603', '24小时营业', 6, 1, 4.2, 45, NOW(), NOW()),
-(4, '快印图文店', 4, '打印、复印、扫描、装订一站式服务，支持彩色打印和大幅面输出，价格公道，速度快。', 'https://cdn.example.com/merchant/logo4.jpg', '["https://picsum.photos/800/600?random=205"]', '博学楼地下一层', 116.397800, 39.909500, '赵老板', '13812345604', '08:00-20:00', 7, 1, 4.6, 62, NOW(), NOW());
+INSERT INTO merchant (id, merchant_name, category_id, description, logo, images, address, longitude, latitude, contact_name, contact_phone, business_hours, user_id, status, create_time, update_time) VALUES
+(1, '学府餐厅', 1, '学校北门旁的平价餐厅，以川菜和本地家常菜为主，价格实惠，分量充足，是师生日常就餐的热门选择。', 'https://cdn.example.com/merchant/logo1.jpg', '["https://picsum.photos/800/600?random=201","https://picsum.photos/800/600?random=202"]', '学校北门向东200米', 116.397500, 39.909800, '李老板', '13812345601', '07:00-21:00', 9, 1, NOW(), NOW()),
+(2, '书香咖啡', 2, '位于图书馆一楼的咖啡店，环境安静，适合自习和小组讨论，提供咖啡、茶饮和轻食。', 'https://cdn.example.com/merchant/logo2.jpg', '["https://picsum.photos/800/600?random=203"]', '图书馆一层东侧', 116.397600, 39.909300, '王老板', '13812345602', '08:00-22:00', 10, 1, NOW(), NOW()),
+(3, '校园便利超市', 3, '日用品、文具、零食一应俱全，价格与外面持平，24小时营业，方便师生随时采购。', 'https://cdn.example.com/merchant/logo3.jpg', '["https://picsum.photos/800/600?random=204"]', '学校南门内50米', 116.397400, 39.909100, '张老板', '13812345603', '24小时营业', 11, 1, NOW(), NOW()),
+(4, '快印图文店', 4, '打印、复印、扫描、装订一站式服务，支持彩色打印和大幅面输出，价格公道，速度快。', 'https://cdn.example.com/merchant/logo4.jpg', '["https://picsum.photos/800/600?random=205"]', '博学楼地下一层', 116.397800, 39.909500, '赵老板', '13812345604', '08:00-20:00', 12, 1, NOW(), NOW());
 
 -- =============================================
 -- 优惠活动数据
 -- =============================================
-INSERT INTO discount_activity (id, merchant_id, title, description, cover_image, images, discount_type, discount_value, original_price, current_price, start_time, end_time, use_rules, total_count, remain_count, view_count, favorite_count, status, create_time) VALUES
+INSERT INTO discount_activity (id, merchant_id, title, description, cover_image, images, start_time, end_time, use_rules, total_count, remain_count, create_time) VALUES
 -- 学府餐厅活动
-(1, 1, '午餐特价套餐', '周一至周五11:00-13:00，特价午餐套餐限量供应，包含主食+两菜+汤。', 'https://picsum.photos/800/400?random=301', '["https://picsum.photos/800/600?random=302"]', 3, 19.90, 30.00, 19.90, '2026-03-01 00:00:00', '2026-06-30 23:59:59', '1. 仅限堂食\n2. 不可与店内其他优惠叠加\n3. 每人不限购买份数', 100, 50, 1280, 186, 1, NOW()),
-(2, 1, '学生满30减5', '在线支付满30元立减5元，适合多人拼单。', 'https://picsum.photos/800/400?random=303', NULL, 2, 5.00, NULL, NULL, '2026-03-01 00:00:00', '2026-06-30 23:59:59', '1. 在线支付可用\n2. 不可与其他满减叠加\n3. 每日限用一次', 0, 0, 860, 92, 1, NOW()),
-(3, 1, '新品8折尝鲜', '新菜品上市期间全场8折优惠，限时一周。', 'https://picsum.photos/800/400?random=304', NULL, 1, 0.80, NULL, NULL, DATE_SUB(NOW(), INTERVAL 10 DAY), DATE_SUB(NOW(), INTERVAL 3 DAY), '1. 仅限堂食\n2. 不与其他优惠同享', 0, 0, 560, 45, 2, NOW()),
+(1, 1, '午餐特价套餐', '周一至周五11:00-13:00，特价午餐套餐限量供应，包含主食+两菜+汤。', 'https://picsum.photos/800/400?random=301', '["https://picsum.photos/800/600?random=302"]', '2026-03-01 00:00:00', '2026-12-31 23:59:59', '1. 仅限堂食\n2. 不可与店内其他优惠叠加\n3. 每人不限购买份数', 100, 50, NOW()),
+(2, 1, '学生满30减5', '在线支付满30元立减5元，适合多人拼单。', 'https://picsum.photos/800/400?random=303', NULL, '2026-03-01 00:00:00', '2026-12-31 23:59:59', '1. 在线支付可用\n2. 不可与其他满减叠加\n3. 每日限用一次', 0, 0, NOW()),
 -- 书香咖啡活动
-(4, 2, '学生套餐 咖啡+蛋糕', '周一至周四，指定咖啡搭配任意蛋糕享套餐价。', 'https://picsum.photos/800/400?random=305', '["https://picsum.photos/800/600?random=306"]', 3, 28.00, 45.00, 28.00, '2026-03-01 00:00:00', '2026-06-30 23:59:59', '1. 需出示学生证\n2. 不与其他优惠叠加', 50, 28, 680, 110, 1, NOW()),
-(5, 2, '新品上市买一送一', '新品桂花拿铁上市，买任意一杯送同款一杯。', 'https://picsum.photos/800/400?random=307', NULL, 4, 1.00, NULL, NULL, DATE_SUB(NOW(), INTERVAL 5 DAY), DATE_SUB(NOW(), INTERVAL 1 DAY), '1. 每人限参与一次\n2. 可与好友共享', 0, 0, 920, 135, 2, NOW()),
+(4, 2, '学生套餐 咖啡+蛋糕', '周一至周四，指定咖啡搭配任意蛋糕享套餐价。', 'https://picsum.photos/800/400?random=305', '["https://picsum.photos/800/600?random=306"]', '2026-03-01 00:00:00', '2026-12-31 23:59:59', '1. 需出示学生证\n2. 不与其他优惠叠加', 50, 28, NOW()),
 -- 校园便利超市活动
-(6, 3, '全场饮品8.5折', '指定饮料、牛奶、酸奶品类全场8.5折优惠。', 'https://picsum.photos/800/400?random=308', NULL, 1, 0.85, NULL, NULL, '2026-03-15 00:00:00', '2026-04-15 23:59:59', '1. 超市内全场饮品区可用\n2. 特价商品除外', 0, 0, 430, 58, 1, NOW()),
-(7, 3, '满50减10', '单笔消费满50元立减10元，超值划算。', 'https://picsum.photos/800/400?random=309', NULL, 2, 10.00, NULL, NULL, '2026-03-01 00:00:00', '2026-06-30 23:59:59', '1. 会员专享\n2. 不可与折扣同享', 0, 0, 310, 42, 1, NOW()),
+(6, 3, '全场饮品8.5折', '指定饮料、牛奶、酸奶品类全场8.5折优惠。', 'https://picsum.photos/800/400?random=308', NULL, '2026-03-15 00:00:00', '2026-12-31 23:59:59', '1. 超市内全场饮品区可用\n2. 特价商品除外', 0, 0, NOW()),
+(7, 3, '满50减10', '单笔消费满50元立减10元，超值划算。', 'https://picsum.photos/800/400?random=309', NULL, '2026-03-01 00:00:00', '2026-12-31 23:59:59', '1. 会员专享\n2. 不可与折扣同享', 0, 0, NOW()),
 -- 快印图文店活动
-(8, 4, '打印套餐10元封顶', '单面黑白打印0.1元/张，10张以内仅收1元，10张以上10元封顶，适合日常打印需求。', 'https://picsum.photos/800/400?random=310', NULL, 3, 10.00, NULL, NULL, '2026-03-01 00:00:00', '2026-06-30 23:59:59', '1. 仅限黑白单面打印\n2. 需提前预约', 0, 0, 1250, 220, 1, NOW());
+(8, 4, '打印套餐10元封顶', '单面黑白打印0.1元/张，10张以内仅收1元，10张以上10元封顶，适合日常打印需求。', 'https://picsum.photos/800/400?random=310', NULL, '2026-03-01 00:00:00', '2026-12-31 23:59:59', '1. 仅限黑白单面打印\n2. 需提前预约', 0, 0, NOW());
 
 -- =============================================
--- 优惠收藏数据
--- =============================================
-INSERT INTO discount_favorite (id, user_id, activity_id, create_time) VALUES
-(1, 4, 1, NOW()),
-(2, 4, 4, NOW()),
-(3, 5, 1, NOW()),
-(4, 5, 2, NOW()),
-(5, 5, 8, NOW()),
-(6, 6, 4, NOW()),
-(7, 6, 6, NOW()),
-(8, 7, 1, NOW()),
-(9, 7, 8, NOW()),
-(10, 8, 2, NOW()),
-(11, 8, 4, NOW());
-
--- =============================================
--- 商家评价数据
--- =============================================
-INSERT INTO merchant_review (id, user_id, merchant_id, activity_id, score, content, images, status, create_time) VALUES
--- 学府餐厅评价
-(1, 4, 1, NULL, 5, '学府餐厅的川菜味道非常正宗，水煮鱼份量足，辣椒香而不燥，价格也实惠！', '["https://picsum.photos/400/300?random=401"]', 1, NOW()),
-(2, 5, 1, 1, 5, '午餐特价套餐太划算了，19块9吃得很饱，口味也不错，强烈推荐！', NULL, 1, NOW()),
-(3, 6, 1, NULL, 4, '菜品味道不错，环境也干净，就是中午排队时间有点长，建议错峰就餐。', NULL, 1, DATE_SUB(NOW(), INTERVAL 3 DAY)),
-(4, 7, 1, 2, 5, '满30减5活动太香了，和室友拼单每人减了5块，开心！', NULL, 1, DATE_SUB(NOW(), INTERVAL 7 DAY)),
-(5, 8, 1, NULL, 4, '学府餐厅的早餐很不错，包子豆浆都很地道。', NULL, 1, DATE_SUB(NOW(), INTERVAL 10 DAY)),
--- 书香咖啡评价
-(6, 4, 2, 4, 5, '咖啡味道很棒，拿铁香气浓郁，蛋糕也很新鲜。在图书馆看书累了来一杯特别惬意！', NULL, 1, NOW()),
-(7, 5, 2, NULL, 5, '环境非常安静，适合自习，WiFi速度快，插座也多，强烈推荐！', '["https://picsum.photos/400/300?random=402","https://picsum.photos/400/300?random=403"]', 1, DATE_SUB(NOW(), INTERVAL 2 DAY)),
-(8, 6, 2, 4, 4, '套餐很划算，咖啡+蛋糕的搭配很棒，就是人有点多，周末不好找位置。', NULL, 1, DATE_SUB(NOW(), INTERVAL 5 DAY)),
--- 校园便利超市评价
-(9, 7, 3, 6, 4, '超市东西很全，24小时营业太方便了，饮料打折的时候买很划算！', NULL, 1, DATE_SUB(NOW(), INTERVAL 4 DAY)),
-(10, 8, 3, NULL, 3, '价格和外面差不多，没有明显优势，但24小时营业确实方便。', NULL, 1, DATE_SUB(NOW(), INTERVAL 8 DAY)),
--- 快印图文店评价
-(11, 4, 4, 8, 5, '打印速度快，价格便宜，老板态度很好，彩色打印效果也很清晰！', NULL, 1, DATE_SUB(NOW(), INTERVAL 1 DAY)),
-(12, 5, 4, NULL, 5, '打印套餐10元封顶太划算了，期末打印复习资料省了不少钱。', NULL, 1, DATE_SUB(NOW(), INTERVAL 6 DAY));
+-- 优惠活动数据

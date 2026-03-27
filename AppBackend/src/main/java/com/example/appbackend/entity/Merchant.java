@@ -70,13 +70,9 @@ public class Merchant {
     @Schema(description = "状态: 1-正常营业 2-暂停营业 3-已禁用", example = "1")
     private Integer status = 1;
 
-    @Column(name = "avg_score", precision = 2, scale = 1, columnDefinition = "DECIMAL(2,1) DEFAULT 0 COMMENT '平均评分'")
-    @Schema(description = "平均评分", example = "4.5")
-    private BigDecimal avgScore = BigDecimal.ZERO;
-
-    @Column(name = "review_count", columnDefinition = "INT DEFAULT 0 COMMENT '评价总数'")
-    @Schema(description = "评价总数", example = "128")
-    private Integer reviewCount = 0;
+    @Column(name = "view_count", columnDefinition = "INT DEFAULT 0 COMMENT '浏览量'")
+    @Schema(description = "浏览量", example = "500")
+    private Integer viewCount = 0;
 
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")

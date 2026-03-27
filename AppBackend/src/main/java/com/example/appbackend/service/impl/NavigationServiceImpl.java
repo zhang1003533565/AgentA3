@@ -18,7 +18,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -119,10 +118,6 @@ public class NavigationServiceImpl implements NavigationService {
         return new PageResponse<>(items, page.getTotalElements(), pageNum, pageSize);
     }
 
-    @Override
-    public List<MarkerSummaryItem> getFrequentDestinations(Long userId, Integer limit) {
-        return Collections.emptyList();
-    }
 
     private NavigationHistoryItem toHistoryItem(NavigationLog log) {
         NavigationHistoryItem item = new NavigationHistoryItem();

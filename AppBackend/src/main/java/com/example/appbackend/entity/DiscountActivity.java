@@ -4,7 +4,6 @@ import com.fasterxml.jackson.annotation.JsonFormat;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.persistence.*;
 import lombok.Data;
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
@@ -38,22 +37,6 @@ public class DiscountActivity {
     @Schema(description = "活动图片列表(JSON数组)", example = "[\"https://cdn.example.com/activity/img1.jpg\"]")
     private String images;
 
-    @Column(nullable = false, columnDefinition = "INT NOT NULL COMMENT '优惠类型: 1-折扣 2-满减 3-特价 4-买赠'")
-    @Schema(description = "优惠类型: 1-折扣 2-满减 3-特价 4-买赠", example = "3")
-    private Integer discountType;
-
-    @Column(name = "discount_value", precision = 10, scale = 2, columnDefinition = "DECIMAL(10,2) COMMENT '优惠值（折扣时为折扣率，满减时为减免金额）'")
-    @Schema(description = "优惠值", example = "19.90")
-    private BigDecimal discountValue;
-
-    @Column(name = "original_price", precision = 10, scale = 2, columnDefinition = "DECIMAL(10,2) COMMENT '原价'")
-    @Schema(description = "原价", example = "30.00")
-    private BigDecimal originalPrice;
-
-    @Column(name = "current_price", precision = 10, scale = 2, columnDefinition = "DECIMAL(10,2) COMMENT '现价'")
-    @Schema(description = "现价", example = "19.90")
-    private BigDecimal currentPrice;
-
     @Column(name = "start_time", columnDefinition = "DATETIME COMMENT '活动开始时间'")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     @Schema(description = "活动开始时间", example = "2024-03-15 00:00:00")
@@ -75,18 +58,6 @@ public class DiscountActivity {
     @Column(name = "remain_count", columnDefinition = "INT COMMENT '剩余名额'")
     @Schema(description = "剩余名额", example = "50")
     private Integer remainCount;
-
-    @Column(name = "view_count", columnDefinition = "INT DEFAULT 0 COMMENT '浏览量'")
-    @Schema(description = "浏览量", example = "320")
-    private Integer viewCount = 0;
-
-    @Column(name = "favorite_count", columnDefinition = "INT DEFAULT 0 COMMENT '收藏数'")
-    @Schema(description = "收藏数", example = "45")
-    private Integer favoriteCount = 0;
-
-    @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 1 COMMENT '状态: 1-进行中 2-已结束'")
-    @Schema(description = "状态: 1-进行中 2-已结束", example = "1")
-    private Integer status = 1;
 
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")

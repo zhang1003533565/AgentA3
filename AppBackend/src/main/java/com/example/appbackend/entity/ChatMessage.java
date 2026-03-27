@@ -33,8 +33,8 @@ public class ChatMessage {
     @Schema(description = "消息内容", example = "您好，请问还在吗？")
     private String content;
 
-    @Column(name = "is_read", nullable = false, columnDefinition = "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否已读: 0-未读 1-已读'")
-    @Schema(description = "是否已读: 0-未读 1-已读", example = "false")
+    @Column(name = "is_read", nullable = false, columnDefinition = "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '接收方是否已读：0-未读 1-已读（发送方对本消息永远视为已读）'")
+    @Schema(description = "接收方是否已读：0-未读 1-已读", example = "false")
     private Boolean isRead = false;
 
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '发送时间'")
