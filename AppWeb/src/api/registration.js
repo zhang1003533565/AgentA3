@@ -25,7 +25,23 @@ export const batchAuditRegistration = (registrationIds, auditStatus, remark) => 
   return request({
     url: '/api/registrations/batch-audit',
     method: 'put',
-    params: { registrationIds, auditStatus, remark }
+    params: { registrationIds, auditStatus, remark },
+    // Spring @RequestParam Long[] 需要能绑定成 registrationIds=1&registrationIds=2
+    // 避免 axios 默认序列化成 registrationIds[]=1&registrationIds[]=2 导致无法接收
+    paramsSerializer: (params) => {
+      const sp = new URLSearchParams()
+      const ids = params.registrationIds || []
+      ids.forEach((id) => {
+        sp.append('registrationIds', id)
+      })
+      if (params.auditStatus !== undefined && params.auditStatus !== null) {
+        sp.append('auditStatus', params.auditStatus)
+      }
+      if (params.remark !== undefined && params.remark !== null) {
+        sp.append('remark', params.remark)
+      }
+      return sp.toString()
+    }
   })
 }
 

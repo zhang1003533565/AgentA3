@@ -53,7 +53,9 @@ public class RegistrationServiceImpl implements RegistrationService {
             throw new BusinessException(400, "报名已结束");
         }
 
-        if (activity.getMaxPeople() > 0 && activity.getCurrentPeople()+1 >= activity.getMaxPeople()) {
+        // 名额校验：currentPeople 已达到 maxPeople 才算真正满额
+        // 原逻辑使用 currentPeople + 1 >= maxPeople 会导致 maxPeople=1 时首次报名也被拦截
+        if (activity.getMaxPeople() > 0 && activity.getCurrentPeople() >= activity.getMaxPeople()) {
             throw new BusinessException(400, "报名名额已满");
         }
 

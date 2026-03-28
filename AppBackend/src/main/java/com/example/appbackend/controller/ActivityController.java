@@ -36,23 +36,14 @@ public class ActivityController {
 
 
     private static final String ROLE_ADMIN = "ADMIN";
-    private static final String ROLE_TEACHER="TEACHER";
+    private static final String ROLE_TEACHER = "TEACHER";
 
-    private void checkAdminRole(HttpServletRequest request) {
+    /**
+     * 统一权限检查方法
+     * 检查用户是否为管理员或教师
+     */
+    private void checkRole(HttpServletRequest request) {
         String role = (String) request.getAttribute("role");
-        if (!ROLE_ADMIN.equals(role)) {
-            throw new BusinessException(Result.FORBIDDEN_CODE, "无权限操作，仅管理员可执行");
-        }
-    }
-    private void checkTeacher(HttpServletRequest request){
-        String role=(String) request.getAttribute("role");
-        if(!ROLE_TEACHER.equals(role)){
-            throw new BusinessException(Result.FORBIDDEN_CODE,"无权限操作，仅教师可执行");
-        }
-    }
-
-    private void checkRole(HttpServletRequest request){
-        String role=(String) request.getAttribute("role");
         if (role == null || (!ROLE_ADMIN.equals(role) && !ROLE_TEACHER.equals(role))) {
             throw new BusinessException(Result.FORBIDDEN_CODE, "无权限操作，仅管理员、教师可执行");
         }
