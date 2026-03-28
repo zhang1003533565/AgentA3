@@ -99,7 +99,7 @@ public class ActivityController {
         checkRole(request);
         String username = (String) request.getAttribute("username");
         User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("用户不存在"));
+                .orElseThrow(() -> new BusinessException(Result.UNAUTHORIZED_CODE, "用户不存在"));
         Activity created = activityService.draftActivity(activity, user.getId(), user.getRealName());
         return Result.success(created);
     }
@@ -117,7 +117,6 @@ public class ActivityController {
             @PathVariable Long id,
             HttpServletRequest request) {
         checkRole(request);
-
         activityService.publishActivity(id);
         return Result.success();
     }
