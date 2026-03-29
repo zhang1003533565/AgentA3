@@ -145,6 +145,7 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { getPostDetail } from '@/api/forum.js'
 
 export default {
   components: { NavBar },
@@ -184,9 +185,43 @@ export default {
   },
   methods: {
     // 加载帖子详情
-    loadPostDetail() {
+    async loadPostDetail() {
       console.log('加载帖子详情:', this.postId)
-      // 使用虚拟数据
+      
+      try {
+        // 尝试使用后端API
+        const res = await getPostDetail(this.postId)
+        console.log('API响应:', res)
+        
+        if (res.code === 200) {
+          const data = res.data
+          // 格式化后端数据
+          this.postDetail = {
+            id: data.id,
+            userId: data.authorId || data.userId,
+            userName: data.authorName || '匿名用户',
+            avatar: data.authorAvatar || '/static/logo.png',
+            title: data.title || '',
+            content: data.content || '',
+            images: data.images || [],
+            topicName: data.topicName || '默认话题',
+            likeCount: data.likeCount || 0,
+            commentCount: data.commentCount || 0,
+            viewCount: data.viewCount || 0,
+            collectCount: data.collectCount || 0,
+            isLiked: data.isLiked || false,
+            isCollected: data.isCollected || false,
+            isFollow: data.isFollow || false,
+            createTime: data.createTime || '刚刚'
+          }
+          console.log('使用后端数据:', this.postDetail)
+          return
+        }
+      } catch (error) {
+        console.log('后端API调用失败，使用虚拟数据:', error)
+      }
+      
+      // 回退到虚拟数据
       this.useMockPostData()
     },
     
