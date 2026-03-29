@@ -115,9 +115,10 @@ public class UserServiceImpl implements UserService {
             throw new RuntimeException("该用户已被禁用");
         }
 
-        // Web后台只允许管理员登录
-        if(!"ADMIN".equals(roleName(user))){
-            throw new RuntimeException("Web后台仅限管理员登录");
+        // Web后台允许管理员或商家登录
+        String userRole = roleName(user);
+        if (!"ADMIN".equals(userRole) && !"MERCHANT".equals(userRole)) {
+            throw new RuntimeException("Web后台仅限管理员或商家登录");
         }
 
         if (!request.getPassword().equals(user.getPassword())) {

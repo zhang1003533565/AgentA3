@@ -51,7 +51,7 @@ public class AuthController {
         return Result.success(response);
     }
 
-    @Operation(summary = "Web端登录", description = "Web端用户登录，仅允许管理员角色登录")
+    @Operation(summary = "Web端登录", description = "Web端用户登录，允许管理员或商家角色登录")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "登录成功"),
         @ApiResponse(responseCode = "401", description = "用户名或密码错误"),

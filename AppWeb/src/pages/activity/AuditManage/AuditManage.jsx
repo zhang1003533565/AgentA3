@@ -10,12 +10,9 @@ const { TextArea } = Input
 
 // 报名状态映射
 const statusMap = {
-  0: { text: '待审核', color: 'orange' },
-  1: { text: '已通过', color: 'green' },
-  2: { text: '已拒绝', color: 'red' },
-  3: { text: '已取消', color: 'default' },
-  4: { text: '已签到', color: 'blue' },
-  5: { text: '缺席', color: 'purple' }
+  PENDING: { text: '待审核', color: 'orange' },
+  APPROVED: { text: '已通过', color: 'green' },
+  REJECTED: { text: '已拒绝', color: 'red' }
 }
 
 function AuditManage() {
@@ -28,6 +25,7 @@ function AuditManage() {
   const [currentRecord, setCurrentRecord] = useState(null)
   const [isBatchAudit, setIsBatchAudit] = useState(false)
   const [searchForm] = Form.useForm()
+  const [activeActivityId, setActiveActivityId] = useState(null)
 
   // 获取报名列表
   const fetchRegistrations = async (params = {}) => {
@@ -37,7 +35,8 @@ function AuditManage() {
       if (params.activityId) {
         const res = await getRegistrationList(params.activityId)
         if (res.code === 200) {
-          setRegistrations(res.data || [])
+          // 后端返回 Result.data = PageResponse，需取 records
+          setRegistrations(res.data?.records || [])
         }
       } else {
         // 没有选择活动时，清空列表
@@ -53,26 +52,42 @@ function AuditManage() {
     try {
       const res = await getActivityList()
       if (res.code === 200) {
-        setActivities(res.data?.records || [])
+        const list = res.data?.records || []
+        setActivities(list)
+        return list
       }
     } catch (error) {
       console.error('获取活动列表失败:', error)
     }
+    return []
   }
 
   useEffect(() => {
-    fetchRegistrations()
-    fetchActivities()
+    // 初始化：先拉活动列表，再默认拉第一个活动的报名列表
+    ;(async () => {
+      const acts = await fetchActivities()
+      if (acts && acts.length > 0) {
+        const id = acts[0].id
+        setActiveActivityId(id)
+        searchForm.setFieldsValue({ activityId: id })
+        fetchRegistrations({ activityId: id })
+      } else {
+        setActiveActivityId(null)
+        setRegistrations([])
+      }
+    })()
   }, [])
 
   // 搜索
   const handleSearch = (values) => {
+    setActiveActivityId(values?.activityId || null)
     fetchRegistrations(values)
   }
 
   // 重置搜索
   const handleReset = () => {
     searchForm.resetFields()
+    setActiveActivityId(null)
     fetchRegistrations()
   }
 
@@ -102,7 +117,11 @@ function AuditManage() {
         message.success('审核成功')
         setAuditModalVisible(false)
         setSelectedRowKeys([])
-        fetchRegistrations()
+        if (activeActivityId) {
+          fetchRegistrations({ activityId: activeActivityId })
+        } else {
+          fetchRegistrations()
+        }
       }
     } catch (error) {
       console.error('审核失败:', error)
@@ -117,12 +136,10 @@ function AuditManage() {
       content: (
         <div className="registration-detail">
           <p><strong>报名ID：</strong>{record.id}</p>
-          <p><strong>活动名称：</strong>{record.activityName}</p>
+          <p><strong>活动ID：</strong>{record.activityId}</p>
           <p><strong>报名人：</strong>{record.realName || record.username}</p>
-          <p><strong>学号：</strong>{record.studentNo}</p>
-          <p><strong>手机号：</strong>{record.phone}</p>
           <p><strong>报名时间：</strong>{record.signupTime}</p>
-          <p><strong>状态：</strong>{statusMap[record.status]?.text}</p>
+          <p><strong>状态：</strong>{statusMap[record.status]?.text || record.status}</p>
           {record.remark && <p><strong>备注：</strong>{record.remark}</p>}
         </div>
       )
@@ -134,7 +151,7 @@ function AuditManage() {
     selectedRowKeys,
     onChange: (keys) => setSelectedRowKeys(keys),
     getCheckboxProps: (record) => ({
-      disabled: record.status !== 0 // 只能选中待审核的
+      disabled: record.status !== 'PENDING' // 只能选中待审核的
     })
   }
 
@@ -194,13 +211,13 @@ function AuditManage() {
           >
             查看
           </Button>
-          {record.status === 0 && (
+          {record.status === 'PENDING' && (
             <>
               <Button 
                 type="text" 
                 style={{ color: '#52c41a' }}
                 icon={<CheckOutlined />} 
-                onClick={() => handleAudit({ ...record, auditStatus: 1 })}
+                onClick={() => handleAudit({ ...record, auditStatus: 'APPROVED' })}
               >
                 通过
               </Button>
@@ -208,7 +225,7 @@ function AuditManage() {
                 type="text" 
                 danger
                 icon={<CloseOutlined />} 
-                onClick={() => handleAudit({ ...record, auditStatus: 2 })}
+                onClick={() => handleAudit({ ...record, auditStatus: 'REJECTED' })}
               >
                 拒绝
               </Button>
@@ -241,7 +258,7 @@ function AuditManage() {
             <Form.Item name="status">
               <Select placeholder="选择状态" allowClear style={{ width: 120 }}>
                 {Object.entries(statusMap).map(([key, value]) => (
-                  <Option key={key} value={parseInt(key)}>{value.text}</Option>
+                  <Option key={key} value={key}>{value.text}</Option>
                 ))}
               </Select>
             </Form.Item>
@@ -289,7 +306,7 @@ function AuditManage() {
           form={auditForm}
           layout="vertical"
           style={{ marginTop: 16 }}
-          initialValues={{ status: currentRecord?.auditStatus || 1 }}
+          initialValues={{ status: currentRecord?.auditStatus || 'APPROVED' }}
         >
           <Form.Item
             name="status"
@@ -297,8 +314,8 @@ function AuditManage() {
             rules={[{ required: true, message: '请选择审核结果' }]}
           >
             <Select placeholder="请选择审核结果">
-              <Option value={1}>通过</Option>
-              <Option value={2}>拒绝</Option>
+              <Option value={'APPROVED'}>通过</Option>
+              <Option value={'REJECTED'}>拒绝</Option>
             </Select>
           </Form.Item>
 

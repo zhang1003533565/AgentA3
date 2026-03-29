@@ -26,4 +26,7 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
                                 @Param("role") String role,
                                 @Param("status") Integer status,
                                 Pageable pageable);
+
+    @Query("SELECT u.role.name FROM User u WHERE u.id = :userId")
+    String findRoleNameById(@Param("userId") Long userId);
 }

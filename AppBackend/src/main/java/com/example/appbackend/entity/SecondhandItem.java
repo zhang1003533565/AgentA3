@@ -46,7 +46,7 @@ public class SecondhandItem {
     @Schema(description = "原价", example = "4999.00")
     private BigDecimal originalPrice;
 
-    @Column(columnDefinition = "INT COMMENT '新旧程度: 1-全新 2-几乎全新 3-轻微使用痕迹 4-明显使用痕迹 5-仅限零件'")
+    @Column(name = "`condition`", columnDefinition = "INT COMMENT '新旧程度: 1-全新 2-几乎全新 3-轻微使用痕迹 4-明显使用痕迹 5-仅限零件'")
     @Schema(description = "新旧程度: 1-全新 2-几乎全新 3-轻微使用痕迹 4-明显使用痕迹 5-仅限零件", example = "3")
     private Integer condition;
 

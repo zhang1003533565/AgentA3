@@ -36,23 +36,14 @@ public class ActivityController {
 
 
     private static final String ROLE_ADMIN = "ADMIN";
-    private static final String ROLE_TEACHER="TEACHER";
+    private static final String ROLE_TEACHER = "TEACHER";
 
-    private void checkAdminRole(HttpServletRequest request) {
+    /**
+     * 统一权限检查方法
+     * 检查用户是否为管理员或教师
+     */
+    private void checkRole(HttpServletRequest request) {
         String role = (String) request.getAttribute("role");
-        if (!ROLE_ADMIN.equals(role)) {
-            throw new BusinessException(Result.FORBIDDEN_CODE, "无权限操作，仅管理员可执行");
-        }
-    }
-    private void checkTeacher(HttpServletRequest request){
-        String role=(String) request.getAttribute("role");
-        if(!ROLE_TEACHER.equals(role)){
-            throw new BusinessException(Result.FORBIDDEN_CODE,"无权限操作，仅教师可执行");
-        }
-    }
-
-    private void checkRole(HttpServletRequest request){
-        String role=(String) request.getAttribute("role");
         if (role == null || (!ROLE_ADMIN.equals(role) && !ROLE_TEACHER.equals(role))) {
             throw new BusinessException(Result.FORBIDDEN_CODE, "无权限操作，仅管理员、教师可执行");
         }
@@ -108,7 +99,7 @@ public class ActivityController {
         checkRole(request);
         String username = (String) request.getAttribute("username");
         User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("用户不存在"));
+                .orElseThrow(() -> new BusinessException(Result.UNAUTHORIZED_CODE, "用户不存在"));
         Activity created = activityService.draftActivity(activity, user.getId(), user.getRealName());
         return Result.success(created);
     }
@@ -126,7 +117,6 @@ public class ActivityController {
             @PathVariable Long id,
             HttpServletRequest request) {
         checkRole(request);
-
         activityService.publishActivity(id);
         return Result.success();
     }

@@ -14,9 +14,19 @@ public class CountItem {
     @Schema(description = "设施类型")
     private Integer facilityType;
 
-    @Schema(description = "设施类型名称")
+    @Schema(description = "设施类型名称 / 名称")
     private String facilityTypeName;
 
     @Schema(description = "数量")
     private Integer count;
+
+    private String name;
+    private Integer value;
+    private Integer extra;
+
+    public CountItem(Integer facilityType, String facilityTypeName, Integer count) {
+        this.facilityType = facilityType;
+        this.facilityTypeName = facilityTypeName;
+        this.count = count;
+    }
 }

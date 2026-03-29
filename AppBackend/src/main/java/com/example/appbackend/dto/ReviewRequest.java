@@ -7,7 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 @Data
-@Schema(description = "评价提交请求")
+@Schema(name = "FacilityReviewCreateRequest", description = "设施评价提交请求")
 public class ReviewRequest {
 
     @NotNull(message = "设施ID不能为空")

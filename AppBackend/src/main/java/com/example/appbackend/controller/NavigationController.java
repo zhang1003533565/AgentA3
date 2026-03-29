@@ -12,7 +12,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/map/navigation")
@@ -78,17 +77,6 @@ public class NavigationController {
             HttpServletRequest httpRequest) {
         Long userId = (Long) httpRequest.getAttribute("userId");
         PageResponse<NavigationHistoryItem> result = navigationService.getNavigationHistory(userId, pageNum, pageSize);
-        return Result.success(result);
-    }
-
-    @GetMapping("/frequent")
-    @Operation(summary = "获取常用目的地", description = "获取用户访问最频繁的目的地")
-    public Result<List<MarkerSummaryItem>> getFrequentDestinations(
-            @Parameter(description = "返回数量，默认5")
-            @RequestParam(defaultValue = "5") Integer limit,
-            HttpServletRequest httpRequest) {
-        Long userId = (Long) httpRequest.getAttribute("userId");
-        List<MarkerSummaryItem> result = navigationService.getFrequentDestinations(userId, limit);
         return Result.success(result);
     }
 }

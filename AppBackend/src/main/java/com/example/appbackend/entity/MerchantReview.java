@@ -8,9 +8,7 @@ import java.time.LocalDateTime;
 
 @Data
 @Entity
-@Table(name = "merchant_review", uniqueConstraints = {
-    @UniqueConstraint(columnNames = {"user_id", "merchant_id"})
-})
+@Table(name = "merchant_review")
 @Schema(description = "商家评价实体")
 public class MerchantReview {
 
@@ -27,24 +25,24 @@ public class MerchantReview {
     @Schema(description = "商家ID", example = "3")
     private Long merchantId;
 
-    @Column(name = "activity_id", columnDefinition = "BIGINT COMMENT '关联优惠活动ID（可选）'")
-    @Schema(description = "关联优惠活动ID（可选）", example = "5")
+    @Column(name = "activity_id", columnDefinition = "BIGINT COMMENT '关联优惠活动ID'")
+    @Schema(description = "关联优惠活动ID", example = "5")
     private Long activityId;
 
-    @Column(nullable = false, columnDefinition = "INT NOT NULL COMMENT '评分（1-5分）'")
-    @Schema(description = "评分（1-5分）", example = "5")
+    @Column(nullable = false, columnDefinition = "INT NOT NULL COMMENT '评分（1-5）'")
+    @Schema(description = "评分（1-5）", example = "5")
     private Integer score;
 
     @Column(nullable = false, length = 1000, columnDefinition = "VARCHAR(1000) NOT NULL COMMENT '评价内容'")
-    @Schema(description = "评价内容", example = "餐厅环境很好，价格实惠，老板热情。下次还会再来！", requiredMode = Schema.RequiredMode.REQUIRED)
+    @Schema(description = "评价内容", example = "餐厅环境很好，价格实惠...")
     private String content;
 
     @Column(columnDefinition = "TEXT COMMENT '评价图片列表(JSON数组)'")
-    @Schema(description = "评价图片列表(JSON数组)", example = "[\"https://cdn.example.com/review/img1.jpg\"]")
+    @Schema(description = "评价图片列表(JSON数组)")
     private String images;
 
-    @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 1 COMMENT '状态: 1-正常 2-已删除'")
-    @Schema(description = "状态: 1-正常 2-已删除", example = "1")
+    @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 1 COMMENT '状态：1-正常 2-已删除'")
+    @Schema(description = "状态：1-正常 2-已删除", example = "1")
     private Integer status = 1;
 
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")

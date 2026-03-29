@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { message, Modal, Form, Input, Select, InputNumber, Button, Table, Tag, Space, Popconfirm } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons'
-import { getActivityList, createActivity, updateActivity, deleteActivity, batchDeleteActivity, getCategoryList, searchActivities } from '../../../api/activity'
+import { getActivityList, createActivity, updateActivity, deleteActivity, batchDeleteActivity, getCategoryList, searchActivities, publishActivity } from '../../../api/activity'
 import './ActivityManage.css'
 
 const { TextArea } = Input
@@ -217,6 +217,21 @@ function ActivityManage() {
     }
   }
 
+  // 发布活动（DRAFT -> PUBLISHED），用于让 AppFrontend 的“校园活动”可见
+  const handlePublish = async (id) => {
+    try {
+      const res = await publishActivity(id)
+      if (res.code === 200) {
+        message.success('发布成功')
+        fetchActivities()
+      }
+    } catch (error) {
+      console.error('发布失败:', error)
+      const errorMsg = error.message || error.msg || '发布失败'
+      message.error(errorMsg)
+    }
+  }
+
   // 打开批量删除确认弹窗
   const handleBatchDelete = () => {
     if (selectedRowKeys.length === 0) {
@@ -329,6 +344,15 @@ function ActivityManage() {
           >
             编辑
           </Button>
+          {record.status === 'DRAFT' && (
+            <Button
+              type="text"
+              size="small"
+              onClick={() => handlePublish(record.id)}
+            >
+              发布
+            </Button>
+          )}
           <Popconfirm
             title="确定删除该活动吗？"
             onConfirm={() => handleDelete(record.id)}
