@@ -176,15 +176,101 @@ export default {
     }
   },
   onLoad(options) {
+    console.log('页面加载参数:', options)
     this.postId = options.id
+    console.log('设置postId为:', this.postId)
     this.loadPostDetail()
     this.loadComments()
   },
   methods: {
     // 加载帖子详情
     loadPostDetail() {
-      // TODO: 调用后端接口
       console.log('加载帖子详情:', this.postId)
+      // 使用虚拟数据
+      this.useMockPostData()
+    },
+    
+    // 使用虚拟帖子数据
+    useMockPostData() {
+      const mockPosts = {
+        '1': {
+          id: 1,
+          userId: '1',
+          userName: '张三',
+          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhangsan',
+          title: '分享一下我的考研经验',
+          content: '今年成功上岸985，分享一下我的备考经验，希望对学弟学妹有帮助。\n\n1. 英语一定要坚持背单词，我每天早上7点开始背，用的是墨墨背单词，每天300个单词。\n\n2. 政治可以晚点开始，我是9月份开始的，跟的是徐涛老师的课，配合1000题刷题。\n\n3. 数学一定要多做真题，我把近20年的真题都做了3遍以上。\n\n4. 专业课要看目标院校的参考书目，最好能找到真题和学长学姐的笔记。\n\n祝大家都能上岸！有问题可以在评论区问我~',
+          images: [],
+          topicName: '学习交流',
+          likeCount: 128,
+          commentCount: 36,
+          viewCount: 1024,
+          collectCount: 45,
+          isLiked: false,
+          isCollected: false,
+          isFollow: false,
+          createTime: '2026-03-15 14:30'
+        },
+        '2': {
+          id: 2,
+          userId: '2',
+          userName: '李四',
+          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lisi',
+          title: '二食堂三楼糖醋排骨真的绝了',
+          content: '今天食堂新出的糖醋排骨真的绝了！强烈推荐大家去二食堂三楼尝尝，阿姨手抖都给我盛了一大勺。\n\n价格也很实惠，一份只要12块钱，肉很多汁，配上米饭简直完美。\n\n营业时间是早上10点到晚上8点，建议早点去，不然排队的人很多。',
+          images: ['https://picsum.photos/200/150?random=1'],
+          topicName: '美食探店',
+          likeCount: 256,
+          commentCount: 89,
+          viewCount: 2345,
+          collectCount: 67,
+          isLiked: true,
+          isCollected: true,
+          isFollow: false,
+          createTime: '2026-03-15 16:30'
+        },
+        '3': {
+          id: 3,
+          userId: '3',
+          userName: '王五',
+          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=wangwu',
+          title: '出二手自行车，九成新',
+          content: '毕业了出自行车，买来骑了不到半年，原价800现在400出，有意向的私聊~\n\n车型：捷安特ATX770\n购买时间：2025年9月\n骑行里程：约500公里\n车况：九成新，保养得很好\n配件：车锁、车灯、水壶架齐全\n\n诚心出售，可小刀，欢迎来看车试骑！',
+          images: ['https://picsum.photos/200/150?random=2', 'https://picsum.photos/200/150?random=3'],
+          topicName: '二手交易',
+          likeCount: 45,
+          commentCount: 12,
+          viewCount: 567,
+          collectCount: 23,
+          isLiked: false,
+          isCollected: false,
+          isFollow: false,
+          createTime: '2026-03-15 18:45'
+        },
+        '4': {
+          id: 4,
+          userId: '4',
+          userName: '赵六',
+          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhaoliu',
+          title: '有没有一起打羽毛球的小伙伴',
+          content: '周末想打羽毛球，一个人太无聊了，有没有想一起的？可以约体育馆~\n\n时间：本周六下午2点-5点\n地点：学校体育馆羽毛球馆\n水平：业余爱好者，不追求技术，主要是锻炼身体\n费用：场地费AA\n\n欢迎留言或者私信联系！',
+          images: [],
+          topicName: '校园生活',
+          likeCount: 67,
+          commentCount: 23,
+          viewCount: 890,
+          collectCount: 15,
+          isLiked: false,
+          isCollected: false,
+          isFollow: false,
+          createTime: '2026-03-15 20:15'
+        }
+      }
+      
+      // 根据postId获取对应的帖子数据
+      const postData = mockPosts[this.postId] || mockPosts['1'] // 默认显示第一个帖子
+      this.postDetail = { ...postData }
+      console.log('设置帖子详情为:', this.postDetail)
     },
 
     // 跳转用户个人主页

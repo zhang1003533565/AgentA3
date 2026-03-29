@@ -48,6 +48,28 @@
       :refresher-triggered="isRefreshing"
       @refresherrefresh="onRefresh"
     >
+      <!-- 顶部占位，避免被固定导航遮挡 -->
+      <view class="nav-placeholder"></view>
+      
+      <!-- 热门话题模块 -->
+      <view class="hot-topics-section">
+        <view class="hot-topics-header" @click="toggleHotTopics">
+          <text class="hot-topics-title">🔥 热门话题</text>
+          <text class="hot-topics-toggle">{{ showHotTopics ? '收起' : '展开' }}</text>
+        </view>
+        <view class="hot-topics-list" v-if="showHotTopics">
+          <view 
+            v-for="(topic, index) in hotTopics" 
+            :key="topic.id"
+            class="hot-topic-item"
+            @click="goToTopicDetail(topic.id)"
+          >
+            <view class="topic-rank" :class="'rank-' + (index + 1)">{{ index + 1 }}</view>
+            <text class="topic-name"># {{ topic.name }}</text>
+            <text class="topic-heat">{{ formatHeat(topic.heat) }}</text>
+          </view>
+        </view>
+      </view>
       <view 
         v-for="(item, index) in postList" 
         :key="index"
@@ -102,18 +124,13 @@
         <text v-else-if="noMore">没有更多了</text>
         <text v-else-if="postList.length === 0">暂无帖子，快来发布第一篇吧~</text>
       </view>
-      <!-- 底部留白，避免被悬浮发帖条遮挡 -->
+          <!-- 底部留白 -->
       <view class="post-list-bottom-pad" />
     </scroll-view>
 
-    <!-- 底部悬浮发帖条 -->
-    <view class="bottom-publish-bar" @click="openPublishModal">
-      <view class="bottom-publish-inner">
-        <view class="bottom-publish-placeholder">
-          <text class="placeholder-icon">✎</text>
-          <text class="placeholder-text">说点什么，分享你的校园生活...</text>
-        </view>
-      </view>
+    <!-- 底部悬浮发帖按钮 -->
+    <view class="fab-publish-btn" v-if="!showPublishModal" @click="openPublishModal">
+      <image class="fab-publish-icon" src="/static/APPIcon/forum/publish.png" mode="aspectFit" />
     </view>
 
     <!-- 发帖弹窗 -->
@@ -153,6 +170,8 @@
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import PostEditor from '@/subpackage_forum/components/post-editor/post-editor.vue'
+import { getPostList, getHotTopics, publishPost } from '@/api/forum.js'
+
 export default {
   components: { NavBar, PostEditor },
   data() {
@@ -194,7 +213,19 @@ export default {
         { id: 6, name: '美食探店' },
         { id: 7, name: '求助问答' },
         { id: 8, name: '失物招领' }
-      ]
+      ],
+      // 热门话题
+      hotTopics: [
+        { id: 1, name: '考研经验分享', heat: 9999 },
+        { id: 2, name: '食堂美食推荐', heat: 8567 },
+        { id: 3, name: '二手自行车转让', heat: 7234 },
+        { id: 4, name: '图书馆占座', heat: 6543 },
+        { id: 5, name: '社团招新', heat: 5432 },
+        { id: 6, name: '失物招领', heat: 4321 },
+        { id: 7, name: '兼职信息', heat: 3456 },
+        { id: 8, name: '校园跑腿', heat: 2345 }
+      ],
+      showHotTopics: true
     }
   },
   computed: {
@@ -217,76 +248,62 @@ export default {
       
       this.loading = true
       
-      // 模拟数据，后续替换为真实接口
-      setTimeout(() => {
-        const mockData = [
-          {
-            id: 1,
-            userName: '张三',
-            avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhangsan',
-            title: '分享一下我的考研经验',
-            content: '今年成功上岸985，分享一下我的备考经验，希望对学弟学妹有帮助。英语一定要坚持背单词，政治可以晚点开始...',
-            images: [],
-            topicName: '学习交流',
-            likeCount: 128,
-            commentCount: 36,
-            isLiked: false,
-            createTime: '2小时前'
-          },
-          {
-            id: 2,
-            userName: '李四',
-            avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lisi',
-            title: '',
-            content: '今天食堂新出的糖醋排骨真的绝了！强烈推荐大家去二食堂三楼尝尝，阿姨手抖都给我盛了一大勺',
-            images: ['https://picsum.photos/200/150?random=1'],
-            topicName: '美食探店',
-            likeCount: 256,
-            commentCount: 89,
-            isLiked: true,
-            createTime: '3小时前'
-          },
-          {
-            id: 3,
-            userName: '王五',
-            avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=wangwu',
-            title: '出二手自行车，九成新',
-            content: '毕业了出自行车，买来骑了不到半年，原价800现在400出，有意向的私聊~',
-            images: ['https://picsum.photos/200/150?random=2', 'https://picsum.photos/200/150?random=3'],
-            topicName: '二手交易',
-            likeCount: 45,
-            commentCount: 12,
-            isLiked: false,
-            createTime: '5小时前'
-          },
-          {
-            id: 4,
-            userName: '赵六',
-            avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhaoliu',
-            title: '有没有一起打羽毛球的小伙伴',
-            content: '周末想打羽毛球，一个人太无聊了，有没有想一起的？可以约体育馆~',
-            images: [],
-            topicName: '校园生活',
-            likeCount: 67,
-            commentCount: 23,
-            isLiked: false,
-            createTime: '昨天'
+      try {
+        const params = {
+          pageNum: this.page,
+          pageSize: this.pageSize,
+          topicId: this.currentTopic === 0 ? null : this.currentTopic
+        }
+        
+        console.log('请求参数:', params)
+        const res = await getPostList(params)
+        console.log('API响应:', res)
+        
+        if (res.code === 200) {
+          const data = res.data
+          const posts = data.records || data.list || []
+          
+          console.log('获取到的帖子数据:', posts)
+          
+          // 格式化数据以匹配前端显示
+          const formattedPosts = posts.map(post => ({
+            id: post.id,
+            userName: post.authorName || '匿名用户',
+            avatar: post.authorAvatar || '/static/logo.png',
+            title: post.title || '',
+            content: post.content || '',
+            images: post.images || [],
+            topicName: post.topicName || '默认话题',
+            likeCount: post.likeCount || 0,
+            commentCount: post.commentCount || 0,
+            viewCount: post.viewCount || 0,
+            isLiked: post.isLiked || false,
+            createTime: post.createTime || '刚刚'
+          }))
+          
+          if (this.page === 1) {
+            this.postList = formattedPosts
+          } else {
+            this.postList = [...this.postList, ...formattedPosts]
           }
-        ]
-        
-        if (this.page === 1) {
-          this.postList = mockData
+          
+          console.log('更新后的帖子列表:', this.postList)
+          
+          // 判断是否还有更多数据
+          if (formattedPosts.length < this.pageSize) {
+            this.noMore = true
+          }
         } else {
-          this.postList = [...this.postList, ...mockData]
+          uni.showToast({ title: res.message || '加载失败', icon: 'none' })
         }
-        
-        if (this.page >= 3) {
-          this.noMore = true
-        }
-        
+      } catch (error) {
+        console.error('加载帖子列表失败:', error)
+        // 使用虚拟数据
+        this.useMockPostListData()
+      } finally {
         this.loading = false
         this.isRefreshing = false
-      }, 500)
+      }
     },
     
     // 搜索
@@ -322,6 +339,8 @@ export default {
     
     // 跳转到详情
     goToDetail(id) {
+      console.log('点击帖子，ID:', id)
+      console.log('跳转URL:', `/subpackage_forum/postDetail/postDetail?id=${id}`)
       uni.navigateTo({
         url: `/subpackage_forum/postDetail/postDetail?id=${id}`
       })
@@ -383,21 +402,141 @@ export default {
       }
       uni.showToast({ title: '已保存草稿', icon: 'success' })
     },
+    
+    // 使用虚拟帖子列表数据
+    useMockPostListData() {
+      const mockData = [
+        {
+          id: 1,
+          userName: '张三',
+          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhangsan',
+          title: '分享一下我的考研经验',
+          content: '今年成功上岸985，分享一下我的备考经验，希望对学弟学妹有帮助。英语一定要坚持背单词，政治可以晚点开始...',
+          images: [],
+          topicName: '学习交流',
+          likeCount: 128,
+          commentCount: 36,
+          viewCount: 1234,
+          isLiked: false,
+          createTime: '2小时前'
+        },
+        {
+          id: 2,
+          userName: '李四',
+          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lisi',
+          title: '',
+          content: '今天食堂新出的糖醋排骨真的绝了！强烈推荐大家去二食堂三楼尝尝，阿姨手抖都给我盛了一大勺',
+          images: ['https://picsum.photos/200/150?random=1'],
+          topicName: '美食探店',
+          likeCount: 256,
+          commentCount: 89,
+          viewCount: 2345,
+          isLiked: true,
+          createTime: '3小时前'
+        },
+        {
+          id: 3,
+          userName: '王五',
+          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=wangwu',
+          title: '出二手自行车，九成新',
+          content: '毕业了出自行车，买来骑了不到半年，原价800现在400出，有意向的私聊~',
+          images: ['https://picsum.photos/200/150?random=2', 'https://picsum.photos/200/150?random=3'],
+          topicName: '二手交易',
+          likeCount: 45,
+          commentCount: 12,
+          viewCount: 567,
+          isLiked: false,
+          createTime: '5小时前'
+        },
+        {
+          id: 4,
+          userName: '赵六',
+          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhaoliu',
+          title: '有没有一起打羽毛球的小伙伴',
+          content: '周末想打羽毛球，一个人太无聊了，有没有想一起的？可以约体育馆~',
+          images: [],
+          topicName: '校园生活',
+          likeCount: 67,
+          commentCount: 23,
+          viewCount: 890,
+          isLiked: false,
+          createTime: '昨天'
+        }
+      ]
+      
+      if (this.page === 1) {
+        this.postList = mockData
+      } else {
+        // 分页模拟
+        const startIndex = (this.page - 1) * this.pageSize
+        const endIndex = startIndex + this.pageSize
+        const pagePosts = mockData.slice(startIndex, endIndex)
+        this.postList = [...this.postList, ...pagePosts]
+      }
+      
+      // 模拟没有更多数据
+      if (this.postList.length >= mockData.length) {
+        this.noMore = true
+      }
+    },
 
-    publishPost() {
+    async publishPost() {
       if (!this.canPublish) {
         uni.showToast({ title: '内容至少10个字', icon: 'none' })
         return
       }
 
       uni.showLoading({ title: '发布中...' })
-      setTimeout(() => {
+      
+      try {
+        const postData = {
+          title: this.publishForm.title,
+          content: this.publishForm.content,
+          images: this.publishForm.images,
+          topicId: this.publishForm.topicId
+        }
+        
+        const res = await publishPost(postData)
+        
+        if (res.code === 200) {
+          uni.hideLoading()
+          uni.showToast({ title: '发布成功', icon: 'success' })
+          setTimeout(() => {
+            this.closePublishModal()
+            // 重新加载帖子列表
+            this.page = 1
+            this.noMore = false
+            this.loadPostList()
+          }, 300)
+        } else {
+          uni.hideLoading()
+          uni.showToast({ title: res.message || '发布失败', icon: 'none' })
+        }
+      } catch (error) {
+        console.error('发布帖子失败:', error)
         uni.hideLoading()
-        uni.showToast({ title: '发布成功', icon: 'success' })
-        setTimeout(() => {
-          this.closePublishModal()
-        }, 300)
-      }, 1000)
+        uni.showToast({ title: '网络错误', icon: 'none' })
+      }
+    },
+
+    // 热门话题相关方法
+    toggleHotTopics() {
+      this.showHotTopics = !this.showHotTopics
+    },
+
+    formatHeat(heat) {
+      if (heat >= 10000) {
+        return (heat / 10000).toFixed(1) + 'w'
+      } else if (heat >= 1000) {
+        return (heat / 1000).toFixed(1) + 'k'
+      }
+      return heat.toString()
+    },
+
+    goToTopicDetail(topicId) {
+      uni.navigateTo({
+        url: `/subpackage_forum/topicDetail/topicDetail?topicId=${topicId}`
+      })
     }
   }
 }
@@ -511,9 +650,14 @@ export default {
 }
 
 .post-list {
-  height: calc(100vh - 200rpx);
-  padding: 20rpx;
-  padding-top: 280rpx !important;
+  height: 100vh;
+  padding: 0 20rpx;
+  padding-top: 20rpx;
+  
+  .nav-placeholder {
+    height: 280rpx;
+    flex-shrink: 0;
+  }
   
   .post-item {
     background-color: #FFFFFF;
@@ -523,7 +667,7 @@ export default {
   }
   
   .post-list-bottom-pad {
-    height: 200rpx;
+    height: 100rpx;
     flex-shrink: 0;
   }
   
@@ -632,48 +776,27 @@ export default {
   }
 }
 
-/* 底部悬浮发帖条 */
-.bottom-publish-bar {
+/* 悬浮发帖按钮 */
+.fab-publish-btn {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  right: 30rpx;
+  bottom: calc(200rpx + constant(safe-area-inset-bottom));
+  bottom: calc(200rpx + env(safe-area-inset-bottom));
+  width: 160rpx;
+  height: 160rpx;
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow: 0 6rpx 20rpx rgba(0, 0, 0, 0.15);
+  z-index: 9999;
+  background-color: #FFFFFF;
+  border: 2rpx solid #5C7A99;
+}
+
+.fab-publish-icon {
   width: 100%;
-  padding: 24rpx 32rpx;
-  padding-bottom: calc(24rpx + constant(safe-area-inset-bottom));
-  padding-bottom: calc(24rpx + env(safe-area-inset-bottom));
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(20rpx);
-  -webkit-backdrop-filter: blur(20rpx);
-  box-shadow: 0 -8rpx 20rpx rgba(0, 0, 0, 0.05);
-  z-index: 100;
-  box-sizing: border-box;
-}
-
-.bottom-publish-inner {
-  display: flex;
-  align-items: center;
-  height: 80rpx;
-  background-color: #F3F4F6;
-  border-radius: 40rpx;
-  padding: 0 28rpx;
-}
-
-.bottom-publish-placeholder {
-  flex: 1;
-  display: flex;
-  align-items: center;
-}
-
-.placeholder-icon {
-  font-size: 32rpx;
-  color: #9CA3AF;
-  margin-right: 16rpx;
-}
-
-.placeholder-text {
-  font-size: 28rpx;
-  color: #9CA3AF;
+  height: 100%;
+  display: block;
+  object-fit: contain;
 }
 
 .publish-modal-mask {
@@ -785,5 +908,100 @@ export default {
 
 .publish-btn.disabled {
   opacity: 0.5;
+}
+
+/* 热门话题模块 */
+.hot-topics-section {
+  background-color: #FFFFFF;
+  margin: 20rpx;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
+}
+
+.hot-topics-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20rpx;
+}
+
+.hot-topics-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #1D1D1F;
+}
+
+.hot-topics-toggle {
+  font-size: 26rpx;
+  color: #8E8E93;
+}
+
+.hot-topics-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.hot-topic-item {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid #F5F5F7;
+}
+
+.hot-topic-item:last-child {
+  border-bottom: none;
+}
+
+.topic-rank {
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 12rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26rpx;
+  font-weight: 600;
+  margin-right: 20rpx;
+  flex-shrink: 0;
+}
+
+/* 热度排名颜色 */
+.topic-rank.rank-1 {
+  background: linear-gradient(135deg, #FFD700, #FFA500);
+  color: #FFFFFF;
+}
+
+.topic-rank.rank-2 {
+  background: linear-gradient(135deg, #C0C0C0, #A0A0A0);
+  color: #FFFFFF;
+}
+
+.topic-rank.rank-3 {
+  background: linear-gradient(135deg, #CD7F32, #B87333);
+  color: #FFFFFF;
+}
+
+.topic-rank.rank-4,
+.topic-rank.rank-5,
+.topic-rank.rank-6,
+.topic-rank.rank-7,
+.topic-rank.rank-8 {
+  background-color: #F0F0F0;
+  color: #666666;
+}
+
+.topic-name {
+  flex: 1;
+  font-size: 28rpx;
+  color: #333333;
+  font-weight: 500;
+}
+
+.topic-heat {
+  font-size: 24rpx;
+  color: #FF6B6B;
+  font-weight: 500;
 }
 </style>
