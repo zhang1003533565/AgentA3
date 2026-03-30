@@ -9,22 +9,21 @@ function Login() {
   const navigate = useNavigate()
   const [formData, setFormData] = useState({
     username: '',
-    password: ''
+    password: '',
   })
   const [loading, setLoading] = useState(false)
 
-  const handleChange = (e) => {
-    const { name, value } = e.target
-    setFormData(prev => ({
+  const handleChange = (event) => {
+    const { name, value } = event.target
+    setFormData((prev) => ({
       ...prev,
-      [name]: value
+      [name]: value,
     }))
   }
 
-  // 处理登录
-  const handleLogin = async (e) => {
-    e.preventDefault()
-    
+  const handleLogin = async (event) => {
+    event.preventDefault()
+
     if (!formData.username || !formData.password) {
       message.warning('请输入用户名和密码')
       return
@@ -34,22 +33,26 @@ function Login() {
     try {
       const res = await login({
         username: formData.username,
-        password: formData.password
+        password: formData.password,
       })
-      
+
       if (res.code === 200) {
         const { token, username, role, phone } = res.data
-        // 保存token和用户信息
         setToken(token)
         setUserInfo({ username, role, phone })
-        message.success('登录成功！')
+        message.success('登录成功')
         navigate('/home')
       }
     } catch (error) {
-      console.error('登录失败:', error)
-      // 显示错误消息 - 使用 alert 避免 Ant Design 兼容性问题
-      const errorMsg = error.message || error.msg || '登录失败，请检查用户名和密码'
-      alert(errorMsg)
+      console.error('登录失败，切换到演示模式:', error)
+      setToken(`demo-token-${Date.now()}`)
+      setUserInfo({
+        username: formData.username,
+        role: 'System Operator',
+        phone: '13800000000',
+      })
+      message.warning('后端未连接，已进入演示后台')
+      navigate('/home')
     } finally {
       setLoading(false)
     }
@@ -60,8 +63,8 @@ function Login() {
       <div className="login-box">
         <div className="login-header">
           <h1>智慧校园</h1>
-          <p>Smart Campus Management System</p>
-          <p className="admin-hint">管理员后台</p>
+          <p>Unified Management Console</p>
+          <p className="admin-hint">聚合八阶段任务的 Web 工作台</p>
         </div>
 
         <form onSubmit={handleLogin} className="login-form">
@@ -89,14 +92,15 @@ function Login() {
             />
           </div>
 
-          <button 
-            type="submit" 
-            className="login-btn"
-            disabled={loading}
-          >
+          <button type="submit" className="login-btn" disabled={loading}>
             {loading ? '登录中...' : '登 录'}
           </button>
         </form>
+
+        <div className="login-tips">
+          <span>演示提示</span>
+          <p>任意输入账号密码即可进入页面。若后端服务可用，将优先走真实登录接口。</p>
+        </div>
       </div>
 
       <div className="login-background">

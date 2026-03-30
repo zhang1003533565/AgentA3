@@ -1,120 +1,151 @@
-import { useNavigate, useLocation } from 'react-router-dom'
-import { Dropdown, Button, Avatar, Space } from 'antd'
-import { DownOutlined, LogoutOutlined, HomeOutlined, CalendarOutlined, MessageOutlined, UserOutlined } from '@ant-design/icons'
-import { getUserInfo, clearAuth } from '../../utils/storage'
+import { useLocation, useNavigate } from 'react-router-dom'
+import {
+  AlertOutlined,
+  AppstoreOutlined,
+  AuditOutlined,
+  BankOutlined,
+  BarChartOutlined,
+  CalendarOutlined,
+  CommentOutlined,
+  CompassOutlined,
+  DashboardOutlined,
+  DatabaseOutlined,
+  EnvironmentOutlined,
+  FileSearchOutlined,
+  FundOutlined,
+  GiftOutlined,
+  HomeOutlined,
+  LayoutOutlined,
+  LineChartOutlined,
+  LogoutOutlined,
+  MessageOutlined,
+  NotificationOutlined,
+  PieChartOutlined,
+  PushpinOutlined,
+  RobotOutlined,
+  RocketOutlined,
+  SafetyOutlined,
+  SettingOutlined,
+  ShopOutlined,
+  ShoppingOutlined,
+  TagsOutlined,
+  TeamOutlined,
+  ThunderboltOutlined,
+  ToolOutlined,
+  VideoCameraOutlined,
+  WarningOutlined,
+} from '@ant-design/icons'
+import { navigationSections } from '../../data/portalData'
+import { clearAuth, getUserInfo } from '../../utils/storage'
 import './NavBar.css'
 
-function NavBar() {
+const iconMap = {
+  dashboard: <DashboardOutlined />,
+  team: <TeamOutlined />,
+  calendar: <CalendarOutlined />,
+  tags: <TagsOutlined />,
+  audit: <AuditOutlined />,
+  environment: <EnvironmentOutlined />,
+  notification: <NotificationOutlined />,
+  message: <MessageOutlined />,
+  comment: <CommentOutlined />,
+  tag: <TagsOutlined />,
+  alert: <AlertOutlined />,
+  safety: <SafetyOutlined />,
+  shop: <ShopOutlined />,
+  thunder: <ThunderboltOutlined />,
+  bank: <BankOutlined />,
+  home: <HomeOutlined />,
+  'bar-chart': <BarChartOutlined />,
+  compass: <CompassOutlined />,
+  pushpin: <PushpinOutlined />,
+  'line-chart': <LineChartOutlined />,
+  shopping: <ShoppingOutlined />,
+  'file-search': <FileSearchOutlined />,
+  appstore: <AppstoreOutlined />,
+  warning: <WarningOutlined />,
+  gift: <GiftOutlined />,
+  coupon: <TagsOutlined />,
+  fund: <FundOutlined />,
+  robot: <RobotOutlined />,
+  'video-camera': <VideoCameraOutlined />,
+  layout: <LayoutOutlined />,
+  database: <DatabaseOutlined />,
+  'pie-chart': <PieChartOutlined />,
+  rocket: <RocketOutlined />,
+  tool: <ToolOutlined />,
+  shield: <SafetyOutlined />,
+}
+
+function NavBar({ mobileOpen, onClose }) {
   const navigate = useNavigate()
   const location = useLocation()
   const userInfo = getUserInfo()
 
-  // 判断当前选中的菜单
-  const getSelectedKey = () => {
-    const path = location.pathname
-    if (path === '/home' || path === '/statistics') return 'home'
-    if (path.startsWith('/activity') || path.startsWith('/category') || 
-        path.startsWith('/audit') || path.startsWith('/signin') || 
-        path.startsWith('/notice')) return 'activity'
-    if (path.startsWith('/forum')) return 'forum'
-    if (path.startsWith('/user')) return 'user'
-    return 'home'
-  }
-
-  // 活动子菜单项
-  const activityMenuItems = [
-    { key: 'activity', label: '🎉 活动管理', onClick: () => navigate('/activity/manage') },
-    { key: 'category', label: '🏷️ 分类管理', onClick: () => navigate('/category/manage') },
-    { key: 'audit', label: '✅ 报名审核', onClick: () => navigate('/audit/manage') },
-    { key: 'signin', label: '📍 签到管理', onClick: () => navigate('/signin/manage') },
-    { key: 'notice', label: '🔔 通知管理', onClick: () => navigate('/notice/manage') },
-    { type: 'divider' },
-    { key: 'statistics', label: '📈 数据统计', onClick: () => navigate('/statistics') },
-  ]
-
-  // 论坛子菜单项
-  const forumMenuItems = [
-    { key: 'post', label: '📝 帖子管理', onClick: () => navigate('/forum/post') },
-    { key: 'comment', label: '💬 评论管理', onClick: () => navigate('/forum/comment') },
-    { key: 'topic', label: '🏷️ 话题管理', onClick: () => navigate('/forum/topic') },
-    { key: 'report', label: '🚨 举报处理', onClick: () => navigate('/forum/report') },
-  ]
-
-  // 用户子菜单项
-  const userMenuItems = [
-    { key: 'user', label: '👤 用户管理', onClick: () => navigate('/user/manage') },
-  ]
-
-  // 退出登录
   const handleLogout = () => {
     clearAuth()
     navigate('/')
   }
 
   return (
-    <header className="navbar">
-      <div className="navbar-container">
-        {/* Logo */}
-        <div className="navbar-logo" onClick={() => navigate('/home')}>
-          <span className="logo-icon">🏫</span>
-          <span className="logo-text">智慧校园</span>
-        </div>
-
-        {/* 导航菜单 */}
-        <nav className="navbar-menu">
-          <div 
-            className={`nav-item ${getSelectedKey() === 'home' ? 'active' : ''}`}
-            onClick={() => navigate('/home')}
-          >
-            <HomeOutlined />
-            <span>首页</span>
-          </div>
-
-          <Dropdown menu={{ items: activityMenuItems }} trigger={['hover']} placement="bottomLeft">
-            <div className={`nav-item ${getSelectedKey() === 'activity' ? 'active' : ''}`}>
-              <CalendarOutlined />
-              <span>校园活动</span>
-              <DownOutlined style={{ fontSize: 10, marginLeft: 4 }} />
-            </div>
-          </Dropdown>
-
-          <Dropdown menu={{ items: forumMenuItems }} trigger={['hover']} placement="bottomLeft">
-            <div className={`nav-item ${getSelectedKey() === 'forum' ? 'active' : ''}`}>
-              <MessageOutlined />
-              <span>校园论坛</span>
-              <DownOutlined style={{ fontSize: 10, marginLeft: 4 }} />
-            </div>
-          </Dropdown>
-
-          <Dropdown menu={{ items: userMenuItems }} trigger={['hover']} placement="bottomLeft">
-            <div className={`nav-item ${getSelectedKey() === 'user' ? 'active' : ''}`}>
-              <UserOutlined />
-              <span>用户中心</span>
-              <DownOutlined style={{ fontSize: 10, marginLeft: 4 }} />
-            </div>
-          </Dropdown>
-        </nav>
-
-        {/* 用户信息 */}
-        <div className="navbar-user">
-          <Space>
-            <Avatar 
-              size="small"
-              src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${userInfo?.username || 'admin'}`}
-            />
-            <span className="user-name">{userInfo?.username || '管理员'}</span>
-            <Button 
-              type="text" 
-              icon={<LogoutOutlined />}
-              onClick={handleLogout}
-              className="logout-btn"
-            >
-              退出
-            </Button>
-          </Space>
+    <aside className={`navbar ${mobileOpen ? 'open' : ''}`}>
+      <div
+        className="navbar-brand"
+        onClick={() => {
+          navigate('/home')
+          onClose?.()
+        }}
+        role="button"
+        tabIndex={0}
+      >
+        <div className="navbar-brand-mark">SC</div>
+        <div>
+          <strong>智慧校园</strong>
+          <span>Smart Campus Console</span>
         </div>
       </div>
-    </header>
+
+      <div className="navbar-user-card">
+        <div className="navbar-user-card-top">
+          <div className="navbar-user-avatar">{(userInfo?.username || 'A').slice(0, 1).toUpperCase()}</div>
+          <div>
+            <strong>{userInfo?.username || '管理员'}</strong>
+            <span>{userInfo?.role || 'System Operator'}</span>
+          </div>
+        </div>
+        <button type="button" className="navbar-logout" onClick={handleLogout}>
+          <LogoutOutlined />
+          <span>退出登录</span>
+        </button>
+      </div>
+
+      <nav className="navbar-nav">
+        {navigationSections.map((section) => (
+          <section key={section.label} className="navbar-section">
+            <h4>{section.label}</h4>
+            <div className="navbar-links">
+              {section.items.map((item) => {
+                const active = location.pathname === item.path
+                return (
+                  <button
+                    key={item.path}
+                    type="button"
+                    className={`navbar-link ${active ? 'active' : ''}`}
+                    onClick={() => {
+                      navigate(item.path)
+                      onClose?.()
+                    }}
+                  >
+                    <span className="navbar-link-icon">{iconMap[item.icon] || <SettingOutlined />}</span>
+                    <span>{item.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+        ))}
+      </nav>
+    </aside>
   )
 }
 

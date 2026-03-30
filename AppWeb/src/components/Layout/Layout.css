@@ -1,9 +1,116 @@
 .layout {
   min-height: 100vh;
-  background: #f0f2f5;
+  display: grid;
+  grid-template-columns: 308px minmax(0, 1fr);
+  background:
+    radial-gradient(circle at top left, rgba(14, 165, 164, 0.18), transparent 28%),
+    linear-gradient(180deg, #f8fbfc, #eff5f7 42%, #f7fafc 100%);
+}
+
+.layout-body {
+  min-width: 0;
+  padding: 22px 24px 28px;
+}
+
+.layout-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding: 8px 4px 24px;
+}
+
+.layout-topbar-left,
+.layout-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.layout-menu-trigger {
+  display: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+.layout-kicker {
+  display: inline-flex;
+  color: var(--brand-deep);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.layout-topbar h2 {
+  margin: 6px 0 0;
+  font-size: 28px;
+}
+
+.layout-topbar-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.layout-topbar-meta span {
+  color: var(--text-muted);
+  font-size: 13px;
 }
 
 .layout-content {
-  padding-top: 56px; /* 导航栏高度 */
-  min-height: calc(100vh - 56px);
+  min-width: 0;
+}
+
+.layout-mask {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .layout-body {
+    padding: 14px 14px 24px;
+  }
+
+  .layout-menu-trigger {
+    display: inline-flex;
+  }
+
+  .layout-topbar {
+    padding-bottom: 18px;
+  }
+
+  .layout-topbar-meta {
+    display: none;
+  }
+
+  .layout.sidebar-open .layout-mask {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.32);
+    border: none;
+    z-index: 9;
+  }
+}
+
+@media (max-width: 760px) {
+  .layout-topbar {
+    align-items: flex-start;
+  }
+
+  .layout-topbar-right {
+    margin-left: auto;
+  }
+
+  .layout-topbar h2 {
+    font-size: 24px;
+  }
 }

@@ -1,115 +1,154 @@
 .navbar {
-  position: fixed;
+  position: sticky;
   top: 0;
-  left: 0;
-  right: 0;
-  height: 56px;
-  background: #fff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  height: 100vh;
+  padding: 24px 18px;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.98)),
+    radial-gradient(circle at top right, rgba(14, 165, 164, 0.32), transparent 30%);
+  color: rgba(255, 255, 255, 0.92);
+  border-right: 1px solid rgba(148, 163, 184, 0.12);
+  overflow-y: auto;
+  z-index: 10;
 }
 
-.navbar-container {
-  max-width: 1400px;
-  margin: 0 auto;
-  height: 100%;
+.navbar-brand {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 24px;
-}
-
-/* Logo */
-.navbar-logo {
-  display: flex;
-  align-items: center;
+  gap: 14px;
+  padding: 14px 12px;
+  border-radius: 22px;
   cursor: pointer;
-  transition: opacity 0.3s;
+  background: rgba(255, 255, 255, 0.04);
 }
 
-.navbar-logo:hover {
-  opacity: 0.8;
+.navbar-brand-mark {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #14b8a6, #0f766e);
+  font-weight: 800;
+  letter-spacing: 0.08em;
 }
 
-.logo-icon {
-  font-size: 24px;
-  margin-right: 8px;
-}
-
-.logo-text {
+.navbar-brand strong,
+.navbar-user-card strong {
+  display: block;
   font-size: 18px;
-  font-weight: 600;
-  color: #1890ff;
 }
 
-/* 导航菜单 */
-.navbar-menu {
+.navbar-brand span,
+.navbar-user-card span,
+.navbar-section h4 {
+  color: rgba(226, 232, 240, 0.7);
+}
+
+.navbar-user-card {
+  padding: 16px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.navbar-user-card-top {
   display: flex;
   align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.navbar-user-avatar {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: rgba(20, 184, 166, 0.18);
+  font-weight: 700;
+}
+
+.navbar-logout {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 8px;
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  padding: 8px 16px;
-  border-radius: 6px;
+  height: 40px;
+  border: none;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
   cursor: pointer;
-  color: #333;
-  font-size: 14px;
-  transition: all 0.3s;
 }
 
-.nav-item:hover {
-  background: #f0f5ff;
-  color: #1890ff;
+.navbar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
-.nav-item.active {
-  background: #e6f7ff;
-  color: #1890ff;
-  font-weight: 500;
+.navbar-section h4 {
+  padding: 0 12px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.nav-item .anticon {
-  margin-right: 6px;
+.navbar-links {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-/* 用户信息 */
-.navbar-user {
+.navbar-link {
   display: flex;
   align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: none;
+  border-radius: 16px;
+  background: transparent;
+  color: rgba(248, 250, 252, 0.82);
+  cursor: pointer;
+  text-align: left;
+  transition: 0.2s ease;
 }
 
-.user-name {
-  color: #333;
-  font-size: 14px;
-  max-width: 100px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.navbar-link:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
 }
 
-.logout-btn {
-  color: #666;
+.navbar-link.active {
+  background: linear-gradient(135deg, rgba(20, 184, 166, 0.18), rgba(56, 189, 248, 0.18));
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(94, 234, 212, 0.18);
 }
 
-.logout-btn:hover {
-  color: #ff4d4f;
+.navbar-link-icon {
+  width: 18px;
+  display: inline-flex;
+  justify-content: center;
 }
 
-/* 下拉菜单样式 */
-.ant-dropdown-menu {
-  padding: 8px 0;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
+@media (max-width: 1100px) {
+  .navbar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    transform: translateX(-100%);
+    width: min(320px, calc(100vw - 48px));
+    transition: transform 0.24s ease;
+  }
 
-.ant-dropdown-menu-item {
-  padding: 10px 16px;
-  font-size: 14px;
-}
-
-.ant-dropdown-menu-item:hover {
-  background: #f0f5ff;
+  .navbar.open {
+    transform: translateX(0);
+  }
 }
