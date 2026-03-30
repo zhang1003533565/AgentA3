@@ -93,17 +93,41 @@
 }
 
 .navbar-section h4 {
-  padding: 0 12px;
-  margin-bottom: 10px;
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.navbar-section-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  margin-bottom: 10px;
+  border: none;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.7);
+  cursor: pointer;
 }
 
 .navbar-links {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  overflow: hidden;
+  transition: max-height 0.24s ease, opacity 0.24s ease;
+}
+
+.navbar-links.expanded {
+  max-height: 520px;
+  opacity: 1;
+}
+
+.navbar-links.collapsed {
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .navbar-link {

@@ -1,96 +1,115 @@
 import request from '../utils/request'
 
-// 获取活动列表
-export const getActivityList = (params) => {
+// ========== 活动管理（管理员 / 教师） ==========
+
+export const getActivityList = (params = {}) => {
+  const { page = 1, size = 10, title, categoryId, status } = params
   return request({
     url: '/api/activities',
     method: 'get',
-    params
+    params: {
+      page,
+      size,
+      title: title ?? params.keyword,
+      categoryId,
+      status,
+    },
   })
 }
 
-// 获取活动详情
-export const getActivityDetail = (id) => {
-  return request({
+export const getActivityDetail = (id) =>
+  request({
     url: `/api/activities/${id}`,
-    method: 'get'
+    method: 'get',
   })
-}
 
-// 创建活动
-export const createActivity = (data) => {
-  return request({
+export const createActivity = (data) =>
+  request({
     url: '/api/activities',
     method: 'post',
-    data
+    data,
   })
-}
 
-// 更新活动
-export const updateActivity = (id, data) => {
-  return request({
+export const updateActivity = (id, data) =>
+  request({
     url: `/api/activities/${id}`,
     method: 'put',
-    data
+    data,
   })
-}
 
-// 删除活动
-export const deleteActivity = (id) => {
-  return request({
+export const deleteActivity = (id) =>
+  request({
     url: `/api/activities/${id}`,
-    method: 'delete'
+    method: 'delete',
   })
-}
 
-// 上架/下架活动
-export const toggleActivityStatus = (id, status) => {
-  return request({
-    url: `/api/activities/${id}/status`,
-    method: 'put',
-    params: { status }
-  })
-}
-
-// 获取分类列表
-export const getCategoryList = () => {
-  return request({
-    url: '/api/categories',
-    method: 'get'
-  })
-}
-
-// 批量删除活动
-export const batchDeleteActivity = (ids) => {
-  return request({
+export const batchDeleteActivity = (ids) =>
+  request({
     url: '/api/activities/batch',
     method: 'delete',
-    data: ids
+    data: ids,
   })
-}
 
-// 搜索活动
-export const searchActivities = (params) => {
-  return request({
+export const updateActivityStatus = (id, status) =>
+  request({
+    url: `/api/activities/${id}/status`,
+    method: 'put',
+    params: { status },
+  })
+
+export const toggleActivityStatus = updateActivityStatus
+
+export const publishActivity = (id) =>
+  request({
+    url: `/api/activities/publish/${id}`,
+    method: 'post',
+  })
+
+export const searchActivities = (params = {}) =>
+  request({
     url: '/api/activities/search',
     method: 'get',
-    params
+    params,
   })
-}
 
-// 筛选活动
-export const filterActivities = (params) => {
-  return request({
+export const filterActivities = (params = {}) =>
+  request({
     url: '/api/activities/filter',
     method: 'get',
-    params
+    params,
   })
-}
 
-// 发布活动
-export const publishActivity = (id) => {
-  return request({
-    url: `/api/activities/publish/${id}`,
-    method: 'post'
+// ========== 活动收藏（如需要） ==========
+
+export const addActivityFavorite = (id) =>
+  request({
+    url: `/api/activities/${id}/favorite`,
+    method: 'post',
   })
-}
+
+export const removeActivityFavorite = (id) =>
+  request({
+    url: `/api/activities/${id}/favorite`,
+    method: 'delete',
+  })
+
+export const getMyActivityFavorites = (params = {}) =>
+  request({
+    url: '/api/activities/favorites',
+    method: 'get',
+    params,
+  })
+
+export const getActivityFavoriteStatus = (id) =>
+  request({
+    url: `/api/activities/${id}/favorite/status`,
+    method: 'get',
+  })
+
+// ========== 兼容旧引用 ==========
+
+export const getCategoryList = () =>
+  request({
+    url: '/api/categories',
+    method: 'get',
+  })

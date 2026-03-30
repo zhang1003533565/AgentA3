@@ -13,10 +13,10 @@ function Home() {
     <div className="home-container">
       <section className="home-hero">
         <div className="home-hero-copy">
-          <span className="home-kicker">八阶段任务驾驶舱</span>
-          <h1>把 `AppWeb` 作为统一后台入口，一次性覆盖活动、论坛、设施、地图、旧物、特惠、AI 与治理。</h1>
+          <span className="home-kicker">校园管理工作台</span>
+          <h1>把 `AppWeb` 作为统一后台入口，覆盖活动、论坛、设施、地图、旧物、特惠、AI 与系统治理。</h1>
           <p>
-            当前工作台聚合了阶段文档中所有 Web 侧任务。页面先以完整前端体验交付，后续再按模块逐步接后端接口。
+            当前工作台按业务模块组织，不再暴露开发阶段概念。页面先以完整前端体验交付，后续再按模块逐步接后端接口。
           </p>
           <div className="home-hero-actions">
             <Button type="primary" size="large" onClick={() => navigate('/activity/manage')}>

@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   AlertOutlined,
@@ -19,8 +20,10 @@ import {
   LineChartOutlined,
   LogoutOutlined,
   MessageOutlined,
+  MinusOutlined,
   NotificationOutlined,
   PieChartOutlined,
+  PlusOutlined,
   PushpinOutlined,
   RobotOutlined,
   RocketOutlined,
@@ -81,6 +84,30 @@ function NavBar({ mobileOpen, onClose }) {
   const navigate = useNavigate()
   const location = useLocation()
   const userInfo = getUserInfo()
+  const defaultOpen = useMemo(
+    () =>
+      navigationSections.reduce((acc, section) => {
+        const hasActiveChild = section.items.some((item) => item.path === location.pathname)
+        acc[section.label] = hasActiveChild || section.label === '总览'
+        return acc
+      }, {}),
+    [location.pathname]
+  )
+  const [openSections, setOpenSections] = useState(defaultOpen)
+
+  useEffect(() => {
+    setOpenSections((prev) => ({
+      ...prev,
+      ...defaultOpen,
+    }))
+  }, [defaultOpen])
+
+  const toggleSection = (label) => {
+    setOpenSections((prev) => ({
+      ...prev,
+      [label]: !prev[label],
+    }))
+  }
 
   const handleLogout = () => {
     clearAuth()
@@ -122,8 +149,15 @@ function NavBar({ mobileOpen, onClose }) {
       <nav className="navbar-nav">
         {navigationSections.map((section) => (
           <section key={section.label} className="navbar-section">
-            <h4>{section.label}</h4>
-            <div className="navbar-links">
+            <button
+              type="button"
+              className="navbar-section-toggle"
+              onClick={() => toggleSection(section.label)}
+            >
+              <h4>{section.label}</h4>
+              <span>{openSections[section.label] ? <MinusOutlined /> : <PlusOutlined />}</span>
+            </button>
+            <div className={`navbar-links ${openSections[section.label] ? 'expanded' : 'collapsed'}`}>
               {section.items.map((item) => {
                 const active = location.pathname === item.path
                 return (

@@ -7,7 +7,7 @@ export const navigationSections = [
     ],
   },
   {
-    label: '阶段一 · 校园活动',
+    label: '校园活动',
     items: [
       { path: '/activity/manage', label: '活动管理', icon: 'calendar', pageKey: 'activity-center' },
       { path: '/category/manage', label: '分类管理', icon: 'tags', pageKey: 'activity-category' },
@@ -17,7 +17,7 @@ export const navigationSections = [
     ],
   },
   {
-    label: '阶段二 · 校园论坛',
+    label: '校园论坛',
     items: [
       { path: '/forum/post', label: '帖子管理', icon: 'message', pageKey: 'forum-post' },
       { path: '/forum/comment', label: '评论管理', icon: 'comment', pageKey: 'forum-comment' },
@@ -27,7 +27,7 @@ export const navigationSections = [
     ],
   },
   {
-    label: '阶段三 · 校园设施',
+    label: '校园设施',
     items: [
       { path: '/facility/restaurant', label: '餐厅管理', icon: 'shop', pageKey: 'facility-restaurant' },
       { path: '/facility/sports', label: '运动场管理', icon: 'thunder', pageKey: 'facility-sports' },
@@ -37,7 +37,7 @@ export const navigationSections = [
     ],
   },
   {
-    label: '阶段四 · 地图导航',
+    label: '地图导航',
     items: [
       { path: '/map/config', label: '地图配置', icon: 'compass', pageKey: 'map-config' },
       { path: '/map/marker', label: '标记管理', icon: 'pushpin', pageKey: 'map-marker' },
@@ -45,7 +45,7 @@ export const navigationSections = [
     ],
   },
   {
-    label: '阶段五 · 旧物出售',
+    label: '旧物交易',
     items: [
       { path: '/market/item', label: '物品管理', icon: 'shopping', pageKey: 'market-item' },
       { path: '/market/audit', label: '物品审核', icon: 'file-search', pageKey: 'market-audit' },
@@ -54,7 +54,7 @@ export const navigationSections = [
     ],
   },
   {
-    label: '阶段六 · 校园特惠',
+    label: '校园特惠',
     items: [
       { path: '/discount/merchant', label: '商家管理', icon: 'shop', pageKey: 'discount-merchant' },
       { path: '/discount/activity', label: '优惠活动', icon: 'gift', pageKey: 'discount-activity' },
@@ -64,7 +64,7 @@ export const navigationSections = [
     ],
   },
   {
-    label: '阶段七 · AI 创作',
+    label: 'AI 创作',
     items: [
       { path: '/ai/model', label: '模型配置', icon: 'robot', pageKey: 'ai-model' },
       { path: '/ai/creation', label: '创作管理', icon: 'video-camera', pageKey: 'ai-creation' },
@@ -74,7 +74,7 @@ export const navigationSections = [
     ],
   },
   {
-    label: '阶段八 · 系统优化',
+    label: '系统中心',
     items: [
       { path: '/system/optimize', label: '优化中心', icon: 'rocket', pageKey: 'system-optimize' },
       { path: '/system/quality', label: '代码质量', icon: 'tool', pageKey: 'system-quality' },
@@ -84,14 +84,14 @@ export const navigationSections = [
 ]
 
 export const phaseCards = [
-  { title: '校园活动报名', phase: '阶段一', progress: 92, done: 5, todo: 1, route: '/activity/manage', accent: '#0f766e' },
-  { title: '校园论坛', phase: '阶段二', progress: 88, done: 5, todo: 1, route: '/forum/post', accent: '#2563eb' },
-  { title: '校园设施', phase: '阶段三', progress: 84, done: 5, todo: 2, route: '/facility/restaurant', accent: '#b45309' },
-  { title: '地图导航', phase: '阶段四', progress: 79, done: 3, todo: 2, route: '/map/config', accent: '#7c3aed' },
-  { title: '旧物出售', phase: '阶段五', progress: 86, done: 4, todo: 2, route: '/market/item', accent: '#c2410c' },
-  { title: '校园特惠', phase: '阶段六', progress: 83, done: 5, todo: 2, route: '/discount/merchant', accent: '#dc2626' },
-  { title: 'AI 创作', phase: '阶段七', progress: 76, done: 5, todo: 3, route: '/ai/model', accent: '#1d4ed8' },
-  { title: '系统优化', phase: '阶段八', progress: 68, done: 3, todo: 5, route: '/system/optimize', accent: '#334155' },
+  { title: '校园活动', phase: '活动运营', progress: 92, done: 5, todo: 1, route: '/activity/manage', accent: '#0f766e' },
+  { title: '校园论坛', phase: '内容社区', progress: 88, done: 5, todo: 1, route: '/forum/post', accent: '#2563eb' },
+  { title: '校园设施', phase: '设施服务', progress: 84, done: 5, todo: 2, route: '/facility/restaurant', accent: '#b45309' },
+  { title: '地图导航', phase: '位置服务', progress: 79, done: 3, todo: 2, route: '/map/config', accent: '#7c3aed' },
+  { title: '旧物交易', phase: '交易管理', progress: 86, done: 4, todo: 2, route: '/market/item', accent: '#c2410c' },
+  { title: '校园特惠', phase: '优惠运营', progress: 83, done: 5, todo: 2, route: '/discount/merchant', accent: '#dc2626' },
+  { title: 'AI 创作', phase: '创作平台', progress: 76, done: 5, todo: 3, route: '/ai/model', accent: '#1d4ed8' },
+  { title: '系统中心', phase: '治理与安全', progress: 68, done: 3, todo: 5, route: '/system/optimize', accent: '#334155' },
 ]
 
 export const dashboardMetrics = [
@@ -183,7 +183,7 @@ export const workspacePages = {
   }),
   'activity-center': createPage({
     title: '活动管理',
-    badge: '阶段一',
+    badge: '校园活动',
     description: '集中维护活动发布、编辑、上下架和报名周期，覆盖校园活动报名模块的主流程。',
     stats: [
       { label: '活动总数', value: '48', detail: '本周新增 5' },
@@ -219,7 +219,7 @@ export const workspacePages = {
   }),
   'activity-category': createPage({
     title: '活动分类管理',
-    badge: '阶段一',
+    badge: '校园活动',
     description: '维护活动分类、排序、推荐配置和启停状态，保证前台检索与推荐位统一。',
     stats: [
       { label: '分类数量', value: '14', detail: '启用 12 个' },
@@ -253,7 +253,7 @@ export const workspacePages = {
   }),
   'activity-audit': createPage({
     title: '报名审核',
-    badge: '阶段一',
+    badge: '校园活动',
     description: '处理活动报名审核、批量通过/拒绝和导出名册，支撑老师和社团负责人日常运营。',
     stats: [
       { label: '待审核报名', value: '127', detail: '超时 18 条' },
@@ -288,7 +288,7 @@ export const workspacePages = {
   }),
   'activity-signin': createPage({
     title: '签到管理',
-    badge: '阶段一',
+    badge: '校园活动',
     description: '管理活动签到规则、二维码有效期、补签记录和签到异常，确保现场流程可控。',
     stats: [
       { label: '今日签到场次', value: '9', detail: '定位签到 3 场' },
@@ -322,7 +322,7 @@ export const workspacePages = {
   }),
   'activity-notice': createPage({
     title: '通知管理',
-    badge: '阶段一',
+    badge: '校园活动',
     description: '发布活动公告、审核提醒和变更通知，统一活动消息触达策略。',
     stats: [
       { label: '本周通知', value: '23', detail: '已发送 19 条' },
@@ -356,7 +356,7 @@ export const workspacePages = {
   }),
   'forum-post': createPage({
     title: '帖子管理',
-    badge: '阶段二',
+    badge: '校园论坛',
     description: '管理论坛帖子、热帖推荐和违规下架，支持搜索、筛选和快速审核。',
     stats: [
       { label: '帖子总量', value: '8,432', detail: '今日新增 116' },
@@ -390,7 +390,7 @@ export const workspacePages = {
   }),
   'forum-comment': createPage({
     title: '评论管理',
-    badge: '阶段二',
+    badge: '校园论坛',
     description: '处理多级评论、敏感词拦截和评论举报，降低社区对立和违规外链扩散。',
     stats: [
       { label: '今日评论', value: '1,982', detail: '峰值 19:00-22:00' },
@@ -424,7 +424,7 @@ export const workspacePages = {
   }),
   'forum-topic': createPage({
     title: '话题管理',
-    badge: '阶段二',
+    badge: '校园论坛',
     description: '创建话题标签、设置热门推荐和话题合并，提升校园论坛内容聚合效率。',
     stats: [
       { label: '话题总数', value: '132', detail: '热门 18 个' },
@@ -457,7 +457,7 @@ export const workspacePages = {
   }),
   'forum-report': createPage({
     title: '举报处理',
-    badge: '阶段二',
+    badge: '校园论坛',
     description: '跟踪帖子、评论和用户举报，完成审核处理与处罚闭环。',
     stats: [
       { label: '待处理举报', value: '34', detail: '高优先级 9 条' },
@@ -491,7 +491,7 @@ export const workspacePages = {
   }),
   'forum-audit': createPage({
     title: '内容审核',
-    badge: '阶段二',
+    badge: '校园论坛',
     description: '集中审核高风险帖子、图片和用户内容，完善论坛内容安全策略。',
     stats: [
       { label: '待审核内容', value: '57', detail: '图片类 21 条' },
@@ -524,7 +524,7 @@ export const workspacePages = {
   }),
   'facility-restaurant': createPage({
     title: '餐厅管理',
-    badge: '阶段三',
+    badge: '校园设施',
     description: '维护餐厅、档口、菜系与营业时间，为学生端展示与评价提供基础数据。',
     stats: [
       { label: '餐厅数量', value: '6', detail: '档口 42 个' },
@@ -557,7 +557,7 @@ export const workspacePages = {
   }),
   'facility-sports': createPage({
     title: '运动场管理',
-    badge: '阶段三',
+    badge: '校园设施',
     description: '维护运动场开放时间、预约规则和使用状态，支持学生端查看与预约。',
     stats: [
       { label: '场地数量', value: '18', detail: '预约制 11 个' },
@@ -590,7 +590,7 @@ export const workspacePages = {
   }),
   'facility-teaching': createPage({
     title: '教学楼管理',
-    badge: '阶段三',
+    badge: '校园设施',
     description: '统一管理教学楼、教室、座位容量和设备信息，关联课程与使用状态。',
     stats: [
       { label: '教学楼', value: '12', detail: '教室 268 间' },
@@ -623,7 +623,7 @@ export const workspacePages = {
   }),
   'facility-dormitory': createPage({
     title: '宿舍管理',
-    badge: '阶段三',
+    badge: '校园设施',
     description: '维护宿舍楼、房间、床位和学生入住关系，支撑宿舍选择与室友查看。',
     stats: [
       { label: '宿舍楼', value: '14', detail: '床位 6,720 个' },
@@ -656,7 +656,7 @@ export const workspacePages = {
   }),
   'facility-analytics': createPage({
     title: '设施统计',
-    badge: '阶段三',
+    badge: '校园设施',
     description: '聚合餐厅、场地、教室和宿舍使用率，辅助设施运维与资源调配。',
     stats: [
       { label: '设施使用率', value: '81%', detail: '晚高峰明显' },
@@ -689,7 +689,7 @@ export const workspacePages = {
   }),
   'map-config': createPage({
     title: '地图配置',
-    badge: '阶段四',
+    badge: '地图导航',
     description: '管理地图中心点、缩放级别、边界和底图资源，作为校园导航基础配置。',
     stats: [
       { label: '地图版本', value: 'v2.3', detail: '本月更新 2 次' },
@@ -722,7 +722,7 @@ export const workspacePages = {
   }),
   'map-marker': createPage({
     title: '标记管理',
-    badge: '阶段四',
+    badge: '地图导航',
     description: '维护餐厅、教学楼、宿舍和运动场标记点，实现分类筛选和位置编辑。',
     stats: [
       { label: '标记总数', value: '186', detail: '启用 174 个' },
@@ -755,7 +755,7 @@ export const workspacePages = {
   }),
   'map-analytics': createPage({
     title: '导航统计',
-    badge: '阶段四',
+    badge: '地图导航',
     description: '查看热门设施访问量、搜索行为和导航记录，辅助地图优化与周边推荐。',
     stats: [
       { label: '今日地图访问', value: '6,428', detail: '移动端占 88%' },
@@ -788,7 +788,7 @@ export const workspacePages = {
   }),
   'market-item': createPage({
     title: '物品管理',
-    badge: '阶段五',
+    badge: '旧物交易',
     description: '管理校园二手物品列表、下架处理和浏览热度，支撑信息发布与沟通平台。',
     stats: [
       { label: '在售物品', value: '1,126', detail: '今日新增 58' },
@@ -822,7 +822,7 @@ export const workspacePages = {
   }),
   'market-audit': createPage({
     title: '物品审核',
-    badge: '阶段五',
+    badge: '旧物交易',
     description: '审核新发布物品、图片内容和标题描述，过滤违规交易与诈骗风险。',
     stats: [
       { label: '待审核', value: '42', detail: '图片问题 15 条' },
@@ -855,7 +855,7 @@ export const workspacePages = {
   }),
   'market-category': createPage({
     title: '旧物分类管理',
-    badge: '阶段五',
+    badge: '旧物交易',
     description: '维护二手市场分类、图标、排序和前台曝光，提升检索效率。',
     stats: [
       { label: '分类数', value: '7', detail: '全部已上线' },
@@ -885,7 +885,7 @@ export const workspacePages = {
   }),
   'market-report': createPage({
     title: '旧物举报处理',
-    badge: '阶段五',
+    badge: '旧物交易',
     description: '跟踪物品举报、用户处罚和风险闭环，保障线下交易安全。',
     stats: [
       { label: '举报待处理', value: '16', detail: '诈骗风险 3 条' },
@@ -918,7 +918,7 @@ export const workspacePages = {
   }),
   'discount-merchant': createPage({
     title: '商家管理',
-    badge: '阶段六',
+    badge: '校园特惠',
     description: '集中维护校内商家资料、联系人、地理位置和营业状态。',
     stats: [
       { label: '商家总数', value: '86', detail: '正常营业 79 家' },
@@ -951,7 +951,7 @@ export const workspacePages = {
   }),
   'discount-activity': createPage({
     title: '优惠活动',
-    badge: '阶段六',
+    badge: '校园特惠',
     description: '发布和管理特惠活动，覆盖折扣、满减、特价、买赠和优惠券玩法。',
     stats: [
       { label: '活动总数', value: '214', detail: '进行中 36 个' },
@@ -985,7 +985,7 @@ export const workspacePages = {
   }),
   'discount-coupon': createPage({
     title: '优惠券管理',
-    badge: '阶段六',
+    badge: '校园特惠',
     description: '维护优惠券发放、领取、过期和核销状态，支撑校园特惠核心闭环。',
     stats: [
       { label: '券种数量', value: '28', detail: '有效 17 种' },
@@ -1019,7 +1019,7 @@ export const workspacePages = {
   }),
   'discount-category': createPage({
     title: '商家分类管理',
-    badge: '阶段六',
+    badge: '校园特惠',
     description: '维护商家分类、图标和排序，保持商家列表与优惠活动筛选一致。',
     stats: [
       { label: '分类数', value: '6', detail: '全部已发布' },
@@ -1049,7 +1049,7 @@ export const workspacePages = {
   }),
   'discount-analytics': createPage({
     title: '特惠统计',
-    badge: '阶段六',
+    badge: '校园特惠',
     description: '查看优惠活动曝光、收藏、领取和核销表现，辅助商家运营。',
     stats: [
       { label: '本周核销', value: '1,584', detail: '打印与轻食领先' },
@@ -1082,7 +1082,7 @@ export const workspacePages = {
   }),
   'ai-model': createPage({
     title: '模型配置',
-    badge: '阶段七',
+    badge: 'AI 创作',
     description: '配置文本、图像和视频生成模型参数，管理 API Key、配额和默认策略。',
     stats: [
       { label: '模型通道', value: '9', detail: '文本 3 / 图像 3 / 视频 3' },
@@ -1115,7 +1115,7 @@ export const workspacePages = {
   }),
   'ai-creation': createPage({
     title: '创作管理',
-    badge: '阶段七',
+    badge: 'AI 创作',
     description: '查看用户创作项目、处理状态、内容审核和失败任务，贯穿 AI 创作全链路。',
     stats: [
       { label: '项目总数', value: '318', detail: '今日新增 24' },
@@ -1149,7 +1149,7 @@ export const workspacePages = {
   }),
   'ai-template': createPage({
     title: '模板管理',
-    badge: '阶段七',
+    badge: 'AI 创作',
     description: '管理视频风格模板、分镜模板和提示词前缀，沉淀稳定创作产能。',
     stats: [
       { label: '模板数量', value: '26', detail: '风格 11 / 分镜 15' },
@@ -1182,7 +1182,7 @@ export const workspacePages = {
   }),
   'ai-resource': createPage({
     title: '资源管理',
-    badge: '阶段七',
+    badge: 'AI 创作',
     description: '管理素材库、角色设定库、场景库和风格资源，控制可复用内容质量。',
     stats: [
       { label: '素材条目', value: '1,248', detail: '场景图 612 张' },
@@ -1215,7 +1215,7 @@ export const workspacePages = {
   }),
   'ai-analytics': createPage({
     title: '资源统计',
-    badge: '阶段七',
+    badge: 'AI 创作',
     description: '跟踪创作量、风格偏好和资源消耗，为模型选型与运营推广提供依据。',
     stats: [
       { label: '本周创作量', value: '124', detail: '较上周 +18%' },
@@ -1248,7 +1248,7 @@ export const workspacePages = {
   }),
   'system-optimize': createPage({
     title: '优化中心',
-    badge: '阶段八',
+    badge: '系统中心',
     description: '集中展示前七阶段的体验优化、性能改造和产品完善项，作为系统治理总面板。',
     stats: [
       { label: '优化任务', value: '42', detail: '进行中 16 项' },
@@ -1281,7 +1281,7 @@ export const workspacePages = {
   }),
   'system-quality': createPage({
     title: '代码质量',
-    badge: '阶段八',
+    badge: '系统中心',
     description: '跟踪组件统一、样式治理、公共方法抽取和技术债务清理进展。',
     stats: [
       { label: '技术债务项', value: '27', detail: '样式治理占 8 项' },
@@ -1314,7 +1314,7 @@ export const workspacePages = {
   }),
   'system-security': createPage({
     title: '安全与监控',
-    badge: '阶段八',
+    badge: '系统中心',
     description: '集中查看认证授权、日志审计、接口安全和运行监控指标。',
     stats: [
       { label: '安全告警', value: '6', detail: '登录风控 3 条' },

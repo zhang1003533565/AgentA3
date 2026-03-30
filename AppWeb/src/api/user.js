@@ -82,12 +82,5 @@ export const resetPassword = (id, newPassword) => {
   })
 }
 
-// ========== 其他 ==========
-
 // 退出登录
-export const logout = () => {
-  return request({
-    url: '/api/user/logout',
-    method: 'post'
-  })
-}
+export const logout = () => Promise.resolve({ code: 200, data: null, msg: 'ok' })

@@ -1,97 +1,154 @@
 import request from '../utils/request'
 
-// 获取帖子列表
-export const getPostList = (params) => {
-  return request({
+// ========== 帖子 ==========
+
+export const getPostList = (params = {}) =>
+  request({
     url: '/api/forum/posts',
     method: 'get',
-    params
+    params: {
+      pageNum: params.pageNum ?? params.page ?? 1,
+      pageSize: params.pageSize ?? params.size ?? 10,
+      topicId: params.topicId,
+      keyword: params.keyword,
+      sortBy: params.sortBy,
+      userId: params.userId,
+    },
   })
-}
 
-// 获取帖子详情
-export const getPostDetail = (id) => {
-  return request({
+export const getPostDetail = (id) =>
+  request({
     url: `/api/forum/posts/${id}`,
-    method: 'get'
+    method: 'get',
   })
-}
 
-// 删除帖子
-export const deletePost = (id) => {
-  return request({
+export const createPost = (data) =>
+  request({
+    url: '/api/forum/posts',
+    method: 'post',
+    data,
+  })
+
+export const updatePost = (id, data) =>
+  request({
     url: `/api/forum/posts/${id}`,
-    method: 'delete'
+    method: 'put',
+    data,
   })
-}
 
-// 获取评论列表
-export const getCommentList = (params) => {
-  return request({
+export const deletePost = (id) =>
+  request({
+    url: `/api/forum/posts/${id}`,
+    method: 'delete',
+  })
+
+export const getHotPosts = (params = {}) =>
+  request({
+    url: '/api/forum/posts/hot',
+    method: 'get',
+    params: {
+      pageNum: params.pageNum ?? params.page ?? 1,
+      pageSize: params.pageSize ?? params.size ?? 10,
+    },
+  })
+
+// ========== 评论 ==========
+
+export const getCommentList = (params = {}) =>
+  request({
     url: '/api/forum/comments',
     method: 'get',
-    params
+    params: {
+      postId: params.postId,
+      pageNum: params.pageNum ?? params.page ?? 1,
+      pageSize: params.pageSize ?? params.size ?? 20,
+    },
   })
-}
 
-// 删除评论
-export const deleteComment = (id) => {
-  return request({
+export const getCommentDetail = (id) =>
+  request({
     url: `/api/forum/comments/${id}`,
-    method: 'delete'
+    method: 'get',
   })
-}
 
-// 获取话题列表
-export const getTopicList = () => {
-  return request({
+export const createComment = (data) =>
+  request({
+    url: '/api/forum/comments',
+    method: 'post',
+    data,
+  })
+
+export const deleteComment = (id) =>
+  request({
+    url: `/api/forum/comments/${id}`,
+    method: 'delete',
+  })
+
+// ========== 话题 ==========
+
+export const getTopicList = (params = {}) =>
+  request({
     url: '/api/forum/topics',
-    method: 'get'
+    method: 'get',
+    params: {
+      pageNum: params.pageNum ?? params.page ?? 1,
+      pageSize: params.pageSize ?? params.size ?? 20,
+      isHot: params.isHot,
+      status: params.status,
+    },
   })
-}
 
-// 创建话题
-export const createTopic = (data) => {
-  return request({
+export const getHotTopics = (limit = 5) =>
+  request({
+    url: '/api/forum/topics/hot',
+    method: 'get',
+    params: { limit },
+  })
+
+export const createTopic = (data) =>
+  request({
     url: '/api/forum/topics',
     method: 'post',
-    data
+    data,
   })
-}
 
-// 更新话题
-export const updateTopic = (id, data) => {
-  return request({
+export const updateTopic = (id, data) =>
+  request({
     url: `/api/forum/topics/${id}`,
     method: 'put',
-    data
+    data,
   })
-}
 
-// 删除话题
-export const deleteTopic = (id) => {
-  return request({
+export const deleteTopic = (id) =>
+  request({
     url: `/api/forum/topics/${id}`,
-    method: 'delete'
-  })
-}
-
-// ========== 审核相关接口（管理端） ==========
-
-// 批量删除帖子
-export const batchDeletePosts = (ids) => {
-  return request({
-    url: '/api/audit/posts/batch',
     method: 'delete',
-    data: ids
   })
-}
 
-// 批量删除评论
-export const batchDeleteComments = (ids) => {
-  return request({
-    url: '/api/audit/comments/batch',
+// ========== 审核 / 管理 ==========
+
+export const adminDeletePost = (id) =>
+  request({
+    url: `/api/forum/audit/posts/${id}`,
     method: 'delete',
-    data: ids
   })
-}
+
+export const adminDeleteComment = (id) =>
+  request({
+    url: `/api/forum/audit/comments/${id}`,
+    method: 'delete',
+  })
+
+export const batchDeletePosts = (ids) =>
+  request({
+    url: '/api/forum/audit/posts/batch',
+    method: 'delete',
+    data: ids,
+  })
+
+export const batchDeleteComments = (ids) =>
+  request({
+    url: '/api/forum/audit/comments/batch',
+    method: 'delete',
+    data: ids,
+  })
