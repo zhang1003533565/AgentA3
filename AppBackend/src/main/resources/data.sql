@@ -646,4 +646,18 @@ INSERT INTO discount_activity (id, merchant_id, title, description, cover_image,
 (8, 4, '打印套餐10元封顶', '单面黑白打印0.1元/张，10张以内仅收1元，10张以上10元封顶，适合日常打印需求。', 'https://picsum.photos/800/400?random=310', NULL, '2026-03-01 00:00:00', '2026-12-31 23:59:59', '1. 仅限黑白单面打印\n2. 需提前预约', 0, 0, NOW());
 
 -- =============================================
+-- 论坛话题（forum_post.topic_id 外键依赖；与小程序分类/发帖选项 id 对齐）
+-- =============================================
+INSERT INTO forum_topic (id, topic_name, post_count, is_hot, status, create_time) VALUES
+(1, '校园生活', 0, 1, 'ACTIVE', NOW()),
+(2, '学习交流', 0, 1, 'ACTIVE', NOW()),
+(3, '求职招聘', 0, 1, 'ACTIVE', NOW()),
+(4, '二手交易', 0, 1, 'ACTIVE', NOW()),
+(5, '情感树洞', 0, 1, 'ACTIVE', NOW()),
+(6, '美食探店', 0, 1, 'ACTIVE', NOW()),
+(7, '求助问答', 0, 0, 'ACTIVE', NOW()),
+(8, '失物招领', 0, 0, 'ACTIVE', NOW())
+ON DUPLICATE KEY UPDATE topic_name = VALUES(topic_name), status = 'ACTIVE';
+
+-- =============================================
 -- 优惠活动数据

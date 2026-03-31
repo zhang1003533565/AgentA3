@@ -41,6 +41,12 @@ public class NavigationResponse {
     @Schema(description = "预计时长（秒）")
     private Integer estimatedTime;
 
-    @Schema(description = "路线坐标点")
+    @Schema(description = "路线坐标点（兼容旧版）")
     private List<RoutePoint> routePoints;
+
+    @Schema(description = "完整路线坐标点（腾讯API真实路线）")
+    private List<RoutePoint> polyline;
+
+    @Schema(description = "导航步骤列表")
+    private List<RouteStep> steps;
 }

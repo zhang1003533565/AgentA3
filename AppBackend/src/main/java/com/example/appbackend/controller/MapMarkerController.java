@@ -100,4 +100,14 @@ public class MapMarkerController {
         List<MarkerIconInfo> icons = mapService.getMarkerIcons();
         return Result.success(icons);
     }
+
+    @PostMapping("/building")
+    @Operation(summary = "管理员地图点击标点", description = "管理员点击地图同时创建设施和地图标记")
+    public Result<MarkerResponse> createBuildingMarker(
+            @Valid @RequestBody BuildingMarkerRequest request,
+            HttpServletRequest httpRequest) {
+        checkAdminRole(httpRequest);
+        MarkerResponse marker = mapService.createBuildingMarker(request);
+        return Result.success("建筑标注创建成功", marker);
+    }
 }

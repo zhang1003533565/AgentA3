@@ -8,6 +8,8 @@ import com.example.appbackend.entity.User;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.*;
 import com.example.appbackend.service.PostService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -40,13 +42,39 @@ public class PostServiceImpl implements PostService {
     @Autowired
     private ForumCommentRepository commentRepository;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    private String serializeImages(List<String> images) {
+        if (images == null || images.isEmpty()) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(images);
+        } catch (JsonProcessingException e) {
+            throw new BusinessException(400, "图片列表格式错误");
+        }
+    }
+
+    private void ensureTopicExists(Long topicId) {
+        if (topicId == null) {
+            return;
+        }
+        ForumTopic topic = topicRepository.findById(topicId)
+                .orElseThrow(() -> new BusinessException(400, "话题不存在，请重新选择话题"));
+        if (!"ACTIVE".equals(topic.getStatus())) {
+            throw new BusinessException(400, "该话题已停用");
+        }
+    }
+
     @Override
     public PostResponse createPost(PostRequest request, Long userId) {
+        ensureTopicExists(request.getTopicId());
         ForumPost post = new ForumPost();
         post.setUserId(userId);
         post.setTitle(request.getTitle());
         post.setContent(request.getContent());
-        post.setImages(request.getImages());
+        post.setImages(serializeImages(request.getImages()));
         post.setTopicId(request.getTopicId());
         post.setViewCount(0);
         post.setLikeCount(0);
@@ -72,9 +100,11 @@ public class PostServiceImpl implements PostService {
 
         Long oldTopicId = post.getTopicId();
 
+        ensureTopicExists(request.getTopicId());
+
         post.setTitle(request.getTitle());
         post.setContent(request.getContent());
-        post.setImages(request.getImages());
+        post.setImages(serializeImages(request.getImages()));
         post.setTopicId(request.getTopicId());
 
         ForumPost updatedPost = postRepository.save(post);

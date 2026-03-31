@@ -7,6 +7,8 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -22,8 +24,8 @@ public class PostRequest {
     @Schema(description = "帖子内容", example = "分享一下我的考研经验...")
     private String content;
 
-    @Schema(description = "图片URL列表(JSON数组格式)", example = "[\"https://example.com/img1.jpg\"]")
-    private String images;
+    @Schema(description = "图片URL列表", example = "[\"https://example.com/img1.jpg\"]")
+    private List<String> images;
 
     @Schema(description = "话题ID", example = "1")
     private Long topicId;

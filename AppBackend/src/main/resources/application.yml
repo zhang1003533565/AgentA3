@@ -29,6 +29,11 @@ jwt:
   secret: your-256-bit-secret-key-here-make-it-long-enough-for-hs256
   expiration: 86400000
 
+tencent:
+  map:
+    key: F2ABZ-VU4LH-BDKDF-W7XCC-RXYX2-4AB52
+    base-url: https://apis.map.qq.com
+
 springdoc:
   api-docs:
     version: openapi_3_0

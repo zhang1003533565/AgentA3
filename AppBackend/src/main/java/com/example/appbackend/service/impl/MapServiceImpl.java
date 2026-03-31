@@ -5,7 +5,7 @@ import com.example.appbackend.entity.*;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.*;
 import com.example.appbackend.service.MapService;
-import com.example.appbackend.service.NavigationService;
+import com.example.appbackend.util.GeoUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -41,9 +41,6 @@ public class MapServiceImpl implements MapService {
 
     @Autowired
     private NavigationLogRepository navigationLogRepository;
-
-    @Autowired
-    private NavigationService navigationService;
 
     @Override
     public MapConfigResponse getMapConfig() {
@@ -227,20 +224,23 @@ public class MapServiceImpl implements MapService {
         double effectiveRadius = radius != null ? radius : 500.0;
         int effectiveLimit = limit != null ? limit : 20;
 
-        // 查询所有设施（按类型筛选）
-        List<CampusFacility> facilities;
-        if (facilityType != null) {
-            facilities = facilityRepository.findByFacilityType(facilityType);
-        } else {
-            facilities = facilityRepository.findAll();
-        }
+        // 用 bounding-box 在数据库层预过滤，减少全量加载量
+        double[] bbox = haversineBoundingBox(latitude, longitude, effectiveRadius);
+        List<CampusFacility> facilities = facilityRepository.findNearby(
+                facilityType, bbox[0], bbox[1], bbox[2], bbox[3]);
 
-        // 计算每个设施到查询点的距离，并过滤在半径内的
+        // 在 bounding-box 内用 Haversine 精确过滤
         List<MarkerSummaryItem> nearbyItems = facilities.stream()
-                .filter(f -> f.getLongitude() != null && f.getLatitude() != null)
+                .filter(f -> {
+                    double dist = GeoUtils.distanceBetween(
+                            longitude, latitude,
+                            f.getLongitude().doubleValue(), f.getLatitude().doubleValue());
+                    return dist <= effectiveRadius;
+                })
                 .map(f -> {
-                    double dist = calculateDistance(latitude, longitude,
-                            f.getLatitude().doubleValue(), f.getLongitude().doubleValue());
+                    double dist = GeoUtils.distanceBetween(
+                            longitude, latitude,
+                            f.getLongitude().doubleValue(), f.getLatitude().doubleValue());
                     MarkerSummaryItem item = new MarkerSummaryItem();
                     item.setId(f.getId());
                     item.setFacilityId(f.getId());
@@ -254,7 +254,6 @@ public class MapServiceImpl implements MapService {
                     item.setDescription(f.getDescription());
                     return item;
                 })
-                .filter(item -> item.getDistance() <= effectiveRadius)
                 .sorted((a, b) -> {
                     if ("name".equalsIgnoreCase(sortBy)) {
                         return a.getMarkerName().compareTo(b.getMarkerName());
@@ -277,15 +276,15 @@ public class MapServiceImpl implements MapService {
     public NearbyCountResponse getNearbyCount(Double longitude, Double latitude, Double radius) {
         double effectiveRadius = radius != null ? radius : 1000.0;
 
-        // 查询所有设施
-        List<CampusFacility> allFacilities = facilityRepository.findAll();
+        double[] bbox = haversineBoundingBox(latitude, longitude, effectiveRadius);
+        List<CampusFacility> allFacilities = facilityRepository.findNearby(
+                null, bbox[0], bbox[1], bbox[2], bbox[3]);
 
-        // 按类型分组统计在半径内的设施数量
         Map<Integer, List<CampusFacility>> byType = allFacilities.stream()
-                .filter(f -> f.getLongitude() != null && f.getLatitude() != null)
                 .filter(f -> {
-                    double dist = calculateDistance(latitude, longitude,
-                            f.getLatitude().doubleValue(), f.getLongitude().doubleValue());
+                    double dist = GeoUtils.distanceBetween(
+                            longitude, latitude,
+                            f.getLongitude().doubleValue(), f.getLatitude().doubleValue());
                     return dist <= effectiveRadius;
                 })
                 .collect(Collectors.groupingBy(CampusFacility::getFacilityType));
@@ -302,17 +301,34 @@ public class MapServiceImpl implements MapService {
     }
 
     /**
-     * 计算两点之间的距离（米），使用 Haversine 公式
+     * Haversine 公式反算 bounding-box（度）。
+     * 返回 [latMin, latMax, lonMin, lonMax]。
      */
-    private double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-        final double R = 6371000.0; // 地球平均半径（米）
-        double dLat = Math.toRadians(lat2 - lat1);
-        double dLon = Math.toRadians(lon2 - lon1);
-        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
-                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
-                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c;
+    private double[] haversineBoundingBox(double lat, double lon, double radiusMeters) {
+        double earthRadius = 6371000.0;
+        double latDelta = Math.toDegrees(radiusMeters / earthRadius);
+        double lonDelta = Math.toDegrees(radiusMeters / earthRadius / Math.cos(Math.toRadians(lat)));
+        return new double[]{lat - latDelta, lat + latDelta, lon - lonDelta, lon + lonDelta};
+    }
+
+    @Override
+    public MarkerResponse createBuildingMarker(BuildingMarkerRequest request) {
+        CampusFacility facility = new CampusFacility();
+        facility.setFacilityName(request.getName());
+        facility.setFacilityType(request.getFacilityType());
+        facility.setLongitude(request.getLongitude());
+        facility.setLatitude(request.getLatitude());
+        facility.setLocation(request.getLocation());
+        facility.setDescription(request.getDescription());
+        CampusFacility saved = facilityRepository.save(facility);
+
+        MapMarker marker = new MapMarker();
+        marker.setFacilityId(saved.getId());
+        marker.setCreateTime(LocalDateTime.now());
+        marker.setUpdateTime(LocalDateTime.now());
+        MapMarker savedMarker = mapMarkerRepository.save(marker);
+
+        return toMarkerResponse(savedMarker, saved);
     }
 
     private Map<Long, CampusFacility> buildFacilityMap(List<MapMarker> markers) {

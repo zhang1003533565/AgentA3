@@ -9,6 +9,8 @@ import com.example.appbackend.repository.FacilityRepository;
 import com.example.appbackend.repository.MapMarkerRepository;
 import com.example.appbackend.repository.NavigationLogRepository;
 import com.example.appbackend.service.NavigationService;
+import com.example.appbackend.service.TencentMapService;
+import com.example.appbackend.util.GeoUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -18,7 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.Arrays;
+import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
@@ -34,28 +37,37 @@ public class NavigationServiceImpl implements NavigationService {
     @Autowired
     private FacilityRepository campusFacilityRepository;
 
+    @Autowired
+    private TencentMapService tencentMapService;
+
     @Override
     public NavigationResponse startNavigation(NavigationRequest request, Long userId) {
         MapMarker marker = mapMarkerRepository.findById(request.getToMarkerId())
                 .orElseThrow(() -> new BusinessException(404, "目标标记不存在"));
         CampusFacility facility = campusFacilityRepository.findById(marker.getFacilityId()).orElse(null);
 
+        BigDecimal toLng = facility != null ? facility.getLongitude() : BigDecimal.ZERO;
+        BigDecimal toLat = facility != null ? facility.getLatitude() : BigDecimal.ZERO;
+
+        // 调用腾讯地图路线规划API获取真实路线
+        NavigationRouteResponse routeResp = tencentMapService.getRoute(
+                request.getFromLongitude(), request.getFromLatitude(),
+                toLng, toLat, "walking");
+
+        // 使用腾讯API返回的真实距离和时间
+        double distance = routeResp.getDistance();
+        int estimatedTime = routeResp.getDuration();
+
         NavigationLog log = new NavigationLog();
         log.setUserId(userId);
         log.setFromLongitude(request.getFromLongitude());
         log.setFromLatitude(request.getFromLatitude());
         log.setToMarkerId(request.getToMarkerId());
-        log.setDistance(BigDecimal.ZERO);
-        log.setDuration(0);
+        log.setDistance(BigDecimal.valueOf(distance));
+        log.setDuration(estimatedTime);
         log.setStatus(1);
         log.setCreateTime(LocalDateTime.now());
         NavigationLog saved = navigationLogRepository.save(log);
-
-        BigDecimal toLng = facility != null ? facility.getLongitude() : BigDecimal.ZERO;
-        BigDecimal toLat = facility != null ? facility.getLatitude() : BigDecimal.ZERO;
-        double distance = calculateDistance(
-                request.getFromLongitude().doubleValue(), request.getFromLatitude().doubleValue(),
-                toLng.doubleValue(), toLat.doubleValue());
 
         NavigationResponse resp = new NavigationResponse();
         resp.setNavigationId(saved.getId());
@@ -66,31 +78,23 @@ public class NavigationServiceImpl implements NavigationService {
         resp.setToLongitude(toLng);
         resp.setToLatitude(toLat);
         resp.setDistance(distance);
-        resp.setEstimatedTime((int) (distance / 1.2));
+        resp.setEstimatedTime(estimatedTime);
+        // 兼容旧版 routePoints
         resp.setRoutePoints(Arrays.asList(
                 new RoutePoint(request.getFromLongitude(), request.getFromLatitude()),
                 new RoutePoint(toLng, toLat)
         ));
+        // 腾讯API真实路线
+        resp.setPolyline(routeResp.getPolyline());
+        resp.setSteps(routeResp.getSteps());
         return resp;
     }
 
     @Override
     public NavigationRouteResponse getRoute(BigDecimal fromLongitude, BigDecimal fromLatitude,
-                                              BigDecimal toLongitude, BigDecimal toLatitude, String mode) {
-        double distance = calculateDistance(
-                fromLongitude.doubleValue(), fromLatitude.doubleValue(),
-                toLongitude.doubleValue(), toLatitude.doubleValue());
-
-        NavigationRouteResponse resp = new NavigationRouteResponse();
-        resp.setDistance(distance);
-        resp.setDuration((int) (distance / 1.2));
-        resp.setMode(mode != null ? mode : "walking");
-        resp.setSteps(Collections.emptyList());
-        resp.setPolyline(Arrays.asList(
-                new RoutePoint(fromLongitude, fromLatitude),
-                new RoutePoint(toLongitude, toLatitude)
-        ));
-        return resp;
+                                            BigDecimal toLongitude, BigDecimal toLatitude, String mode) {
+        // 注意：toLongitude 是经度，toLatitude 是纬度，不要搞反
+        return tencentMapService.getRoute(fromLongitude, fromLatitude, toLongitude, toLatitude, mode);
     }
 
     @Override
@@ -146,14 +150,24 @@ public class NavigationServiceImpl implements NavigationService {
         return item;
     }
 
-    private double calculateDistance(double lon1, double lat1, double lon2, double lat2) {
-        double R = 6371000;
-        double dLat = Math.toRadians(lat2 - lat1);
-        double dLon = Math.toRadians(lon2 - lon1);
-        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
-                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
-                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c;
+    @Override
+    public ReverseGeocoderResponse reverseGeocode(BigDecimal longitude, BigDecimal latitude) {
+        return tencentMapService.reverseGeocode(longitude, latitude);
+    }
+
+    @Override
+    public GeocoderResponse geocode(String address, String region) {
+        return tencentMapService.geocode(address, region);
+    }
+
+    @Override
+    public PlaceSearchResponse searchPlaces(String keyword, String region,
+                                            BigDecimal latitude, BigDecimal longitude, Integer radius) {
+        return tencentMapService.searchPlaces(keyword, region, latitude, longitude, radius);
+    }
+
+    @Override
+    public CoordTranslateResponse translateCoords(List<CoordTranslateRequest.CoordPoint> points, Integer fromCoordSys) {
+        return tencentMapService.translateCoords(points, fromCoordSys);
     }
 }

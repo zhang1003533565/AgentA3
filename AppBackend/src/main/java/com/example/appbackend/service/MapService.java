@@ -36,4 +36,6 @@ public interface MapService {
     NearbyResponse getNearbyList(Double longitude, Double latitude, Double radius, Integer facilityType, Integer limit, String sortBy);
 
     NearbyCountResponse getNearbyCount(Double longitude, Double latitude, Double radius);
+
+    MarkerResponse createBuildingMarker(BuildingMarkerRequest request);
 }

@@ -1,10 +1,12 @@
 package com.example.appbackend.controller;
 
 import com.example.appbackend.dto.PageResponse;
+import com.example.appbackend.dto.PostListItem;
 import com.example.appbackend.dto.TopicRequest;
 import com.example.appbackend.dto.TopicResponse;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
+import com.example.appbackend.service.PostService;
 import com.example.appbackend.service.TopicService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -25,6 +27,9 @@ public class TopicController {
 
     @Autowired
     private TopicService topicService;
+
+    @Autowired
+    private PostService postService;
 
     private void checkRole(HttpServletRequest request){
         String role=(String) request.getAttribute("role");
@@ -68,6 +73,42 @@ public class TopicController {
             @RequestParam(defaultValue = "5") Integer limit) {
         List<TopicResponse> hotTopics = topicService.getHotTopics(limit);
         return Result.success("操作成功", hotTopics);
+    }
+
+    @Operation(summary = "获取话题详情", description = "根据ID获取话题信息")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "操作成功"),
+        @ApiResponse(responseCode = "404", description = "话题不存在")
+    })
+    @GetMapping("/{id}")
+    public Result<TopicResponse> getTopicDetail(
+            @Parameter(description = "话题ID", required = true, example = "1")
+            @PathVariable Long id) {
+        TopicResponse topic = topicService.getTopicById(id);
+        return Result.success("操作成功", topic);
+    }
+
+    @Operation(summary = "获取话题下的帖子列表", description = "分页查询指定话题下的帖子")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "操作成功")
+    })
+    @GetMapping("/{topicId}/posts")
+    public Result<PageResponse<PostListItem>> getTopicPosts(
+            @Parameter(description = "话题ID", required = true, example = "1")
+            @PathVariable Long topicId,
+            @Parameter(description = "页码", example = "1")
+            @RequestParam(defaultValue = "1") Integer pageNum,
+            @Parameter(description = "每页数量", example = "10")
+            @RequestParam(defaultValue = "10") Integer pageSize,
+            @Parameter(description = "关键词搜索")
+            @RequestParam(required = false) String keyword,
+            @Parameter(description = "排序方式")
+            @RequestParam(required = false) String sortBy,
+            HttpServletRequest request) {
+        Long currentUserId = getCurrentUserId(request);
+        PageResponse<PostListItem> page = postService.getPostList(
+                pageNum, pageSize, topicId, keyword, sortBy, null, currentUserId);
+        return Result.success(page);
     }
 
     @Operation(summary = "创建话题", description = "创建新话题（管理端）")
