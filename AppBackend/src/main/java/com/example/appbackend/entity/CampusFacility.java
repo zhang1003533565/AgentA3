@@ -26,6 +26,10 @@ public class CampusFacility {
     @Schema(description = "设施类型: 1-餐厅 2-运动场 3-教学楼 4-宿舍", example = "1")
     private Integer facilityType;
 
+    @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 1 COMMENT '设施状态: 1-正常/开放 2-维护中 3-关闭/不可用'")
+    @Schema(description = "设施状态: 1-正常/开放 2-维护中 3-关闭/不可用", example = "1")
+    private Integer status = 1;
+
     @Column(columnDefinition = "TEXT COMMENT '设施描述'")
     @Schema(description = "设施描述", example = "位于学校南门，主要提供快餐服务")
     private String description;
@@ -96,6 +100,36 @@ public class CampusFacility {
                 }
             }
             return null;
+        }
+    }
+
+    public enum FacilityStatus {
+        NORMAL(1, "正常/开放"),
+        MAINTENANCE(2, "维护中"),
+        CLOSED(3, "关闭/不可用");
+
+        private final Integer value;
+        private final String description;
+
+        FacilityStatus(Integer value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        public Integer getValue() {
+            return value;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+
+        public static FacilityStatus fromValue(Integer value) {
+            if (value == null) return NORMAL;
+            for (FacilityStatus s : values()) {
+                if (s.value.equals(value)) return s;
+            }
+            return NORMAL;
         }
     }
 }

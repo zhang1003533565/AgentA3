@@ -21,6 +21,9 @@ public class FacilityRequest {
     @Schema(description = "设施描述")
     private String description;
 
+    @Schema(description = "设施状态: 1-正常/开放 2-维护中 3-关闭/不可用")
+    private Integer status;
+
     @Schema(description = "位置描述")
     private String location;
 

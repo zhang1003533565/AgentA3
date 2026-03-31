@@ -32,17 +32,19 @@ public class FacilityController {
     }
 
     @GetMapping("/list")
-    @Operation(summary = "获取设施列表", description = "分页查询设施列表，支持类型、名称筛选")
+    @Operation(summary = "获取设施列表", description = "分页查询设施列表，支持类型、名称、状态筛选")
     public Result<PageResponse<CampusFacility>> getFacilityList(
             @Parameter(description = "设施类型：1-餐厅 2-运动场 3-教学楼 4-宿舍")
             @RequestParam(required = false) Integer type,
             @Parameter(description = "设施名称（模糊查询）")
             @RequestParam(required = false) String name,
+            @Parameter(description = "设施状态：1-正常/开放 2-维护中 3-关闭/不可用")
+            @RequestParam(required = false) Integer status,
             @Parameter(description = "页码，默认1")
             @RequestParam(defaultValue = "1") Integer pageNum,
             @Parameter(description = "每页数量，默认10")
             @RequestParam(defaultValue = "10") Integer pageSize) {
-        PageResponse<CampusFacility> result = facilityService.getFacilityList(type, name, pageNum, pageSize);
+        PageResponse<CampusFacility> result = facilityService.getFacilityList(type, name, status, pageNum, pageSize);
         return Result.success(result);
     }
 

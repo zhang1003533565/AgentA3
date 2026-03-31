@@ -40,4 +40,7 @@ public class BuildingMarkerRequest {
 
     @Schema(description = "描述信息", example = "新增的临时建筑标注")
     private String description;
+
+    @Schema(description = "设施状态: 1-正常/开放 2-维护中 3-关闭/不可用", example = "1")
+    private Integer status;
 }

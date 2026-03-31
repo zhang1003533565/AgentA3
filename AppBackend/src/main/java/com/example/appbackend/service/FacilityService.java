@@ -6,7 +6,7 @@ import com.example.appbackend.entity.CampusFacility;
 
 public interface FacilityService {
 
-    PageResponse<CampusFacility> getFacilityList(Integer type, String name, Integer pageNum, Integer pageSize);
+    PageResponse<CampusFacility> getFacilityList(Integer type, String name, Integer status, Integer pageNum, Integer pageSize);
 
     CampusFacility createFacility(FacilityRequest request);
 

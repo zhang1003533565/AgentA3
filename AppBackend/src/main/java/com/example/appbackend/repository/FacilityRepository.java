@@ -17,10 +17,12 @@ public interface FacilityRepository extends JpaRepository<CampusFacility, Long> 
 
     @Query("SELECT f FROM CampusFacility f WHERE " +
            "(:type IS NULL OR f.facilityType = :type) " +
-           "AND (:name IS NULL OR f.facilityName LIKE %:name%)")
+           "AND (:name IS NULL OR f.facilityName LIKE %:name%) " +
+           "AND (:status IS NULL OR f.status = :status)")
     Page<CampusFacility> findByConditions(
             @Param("type") Integer type,
             @Param("name") String name,
+            @Param("status") Integer status,
             Pageable pageable);
 
     List<CampusFacility> findByFacilityType(Integer facilityType);

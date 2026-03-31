@@ -40,9 +40,9 @@ public class FacilityServiceImpl implements FacilityService {
     private FacilityReviewRepository facilityReviewRepository;
 
     @Override
-    public PageResponse<CampusFacility> getFacilityList(Integer type, String name, Integer pageNum, Integer pageSize) {
+    public PageResponse<CampusFacility> getFacilityList(Integer type, String name, Integer status, Integer pageNum, Integer pageSize) {
         PageRequest pageRequest = PageRequest.of(pageNum - 1, pageSize, Sort.by(Sort.Direction.DESC, "id"));
-        Page<CampusFacility> page = facilityRepository.findByConditions(type, name, pageRequest);
+        Page<CampusFacility> page = facilityRepository.findByConditions(type, name, status, pageRequest);
         return new PageResponse<>(page.getContent(), page.getTotalElements(), pageNum, pageSize);
     }
 
@@ -56,6 +56,7 @@ public class FacilityServiceImpl implements FacilityService {
         facility.setLongitude(request.getLongitude());
         facility.setLatitude(request.getLatitude());
         facility.setImages(request.getImages());
+        facility.setStatus(request.getStatus() != null ? request.getStatus() : 1);
         facility.setCreateTime(LocalDateTime.now());
         facility.setUpdateTime(LocalDateTime.now());
         return facilityRepository.save(facility);
@@ -72,6 +73,7 @@ public class FacilityServiceImpl implements FacilityService {
         if (request.getLongitude() != null) facility.setLongitude(request.getLongitude());
         if (request.getLatitude() != null) facility.setLatitude(request.getLatitude());
         if (request.getImages() != null) facility.setImages(request.getImages());
+        if (request.getStatus() != null) facility.setStatus(request.getStatus());
         facility.setUpdateTime(LocalDateTime.now());
         return facilityRepository.save(facility);
     }

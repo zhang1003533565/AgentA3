@@ -320,6 +320,7 @@ public class MapServiceImpl implements MapService {
         facility.setLatitude(request.getLatitude());
         facility.setLocation(request.getLocation());
         facility.setDescription(request.getDescription());
+        facility.setStatus(request.getStatus() != null ? request.getStatus() : 1);
         CampusFacility saved = facilityRepository.save(facility);
 
         MapMarker marker = new MapMarker();
@@ -357,6 +358,7 @@ public class MapServiceImpl implements MapService {
         resp.setSort(m.getSort());
         resp.setCreateTime(m.getCreateTime());
         resp.setUpdateTime(m.getUpdateTime());
+        resp.setStatus(f != null ? f.getStatus() : 1);
         if (f != null && f.getImages() != null && !f.getImages().isBlank()) {
             try {
                 resp.setImages(OBJECT_MAPPER.readValue(f.getImages(), STRING_LIST_TYPE));
