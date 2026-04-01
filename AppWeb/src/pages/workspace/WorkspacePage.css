@@ -94,6 +94,10 @@
   gap: 18px;
 }
 
+.workspace-main-single {
+  grid-template-columns: 1fr;
+}
+
 .workspace-table-card,
 .workspace-side .ant-card {
   border: none;

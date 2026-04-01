@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
-import { Button, Card, Progress } from 'antd'
+import { Button, Card } from 'antd'
 import { ArrowRightOutlined } from '@ant-design/icons'
-import { dashboardBoards, dashboardMetrics, phaseCards } from '../../data/portalData'
+import { moduleCards, navigationSections } from '../../data/portalData'
 import { getUserInfo } from '../../utils/storage'
 import './Home.css'
 
@@ -14,29 +14,26 @@ function Home() {
       <section className="home-hero">
         <div className="home-hero-copy">
           <span className="home-kicker">校园管理工作台</span>
-          <h1>把 `AppWeb` 作为统一后台入口，覆盖活动、论坛、设施、地图、旧物、特惠、AI 与系统治理。</h1>
-          <p>
-            当前工作台按业务模块组织，不再暴露开发阶段概念。页面先以完整前端体验交付，后续再按模块逐步接后端接口。
-          </p>
+          <h1>统一进入各业务后台，所有数据以真实接口为准，不再展示演示统计。</h1>
+          <p>从左侧导航进入具体业务模块。已接入后端的页面会直接请求真实接口，未接入的模块只保留空态入口。</p>
           <div className="home-hero-actions">
             <Button type="primary" size="large" onClick={() => navigate('/activity/manage')}>
-              进入活动模块
+              进入活动管理
             </Button>
-            <Button size="large" onClick={() => navigate('/system/optimize')}>
-              查看优化中心
+            <Button size="large" onClick={() => navigate('/user/manage')}>
+              进入用户管理
             </Button>
           </div>
         </div>
 
         <div className="home-hero-panel">
-          <strong>{userInfo?.username || '管理员'}</strong>
-          <span>当前身份：{userInfo?.role || 'System Operator'}</span>
-          <div className="home-grid-mini">
-            {dashboardMetrics.map((item) => (
-              <div key={item.label} className={`home-mini-card ${item.tone}`}>
-                <span>{item.label}</span>
-                <strong>{item.value}</strong>
-                <em>{item.detail}</em>
+          <strong>{userInfo?.username || '-'}</strong>
+          <span>当前身份：{userInfo?.role || '-'}</span>
+          <div className="home-panel-list">
+            {navigationSections.map((section) => (
+              <div key={section.label} className="home-panel-item">
+                <strong>{section.label}</strong>
+                <span>{section.items.length} 个入口</span>
               </div>
             ))}
           </div>
@@ -44,59 +41,22 @@ function Home() {
       </section>
 
       <section className="home-phase-grid">
-        {phaseCards.map((item) => (
+        {moduleCards.map((item) => (
           <Card
             key={item.title}
             className="home-phase-card"
             styles={{ body: { padding: 24 } }}
             onClick={() => navigate(item.route)}
           >
-            <span className="phase-tag">{item.phase}</span>
+            <span className="phase-tag">业务模块</span>
             <h3>{item.title}</h3>
-            <div className="phase-meta">
-              <span>已完成 {item.done} 项</span>
-              <span>待推进 {item.todo} 项</span>
-            </div>
-            <Progress percent={item.progress} strokeColor={item.accent} trailColor="rgba(148,163,184,0.15)" />
+            <p className="home-card-desc">{item.description}</p>
             <button type="button">
               进入模块
               <ArrowRightOutlined />
             </button>
           </Card>
         ))}
-      </section>
-
-      <section className="home-board-grid">
-        <Card title="本轮待办" className="home-board-card">
-          <ul className="home-list">
-            {dashboardBoards.todo.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        </Card>
-
-        <Card title="本次交付内容" className="home-board-card">
-          <div className="home-release-list">
-            {dashboardBoards.releases.map((item) => (
-              <article key={item.title}>
-                <strong>{item.title}</strong>
-                <p>{item.detail}</p>
-                <span>{item.date}</span>
-              </article>
-            ))}
-          </div>
-        </Card>
-
-        <Card title="系统提醒" className="home-board-card">
-          <div className="home-alert-list">
-            {dashboardBoards.alerts.map((item) => (
-              <div key={item.content} className="home-alert-item">
-                <strong>{item.level}</strong>
-                <p>{item.content}</p>
-              </div>
-            ))}
-          </div>
-        </Card>
       </section>
     </div>
   )

@@ -44,15 +44,8 @@ function Login() {
         navigate('/home')
       }
     } catch (error) {
-      console.error('登录失败，切换到演示模式:', error)
-      setToken(`demo-token-${Date.now()}`)
-      setUserInfo({
-        username: formData.username,
-        role: 'System Operator',
-        phone: '13800000000',
-      })
-      message.warning('后端未连接，已进入演示后台')
-      navigate('/home')
+      console.error('登录失败:', error)
+      message.error(error?.message || '登录失败，请检查用户名和密码')
     } finally {
       setLoading(false)
     }
@@ -98,8 +91,8 @@ function Login() {
         </form>
 
         <div className="login-tips">
-          <span>演示提示</span>
-          <p>任意输入账号密码即可进入页面。若后端服务可用，将优先走真实登录接口。</p>
+          <span>登录提示</span>
+          <p>当前页面只使用真实后端登录接口，不再自动进入演示模式。</p>
         </div>
       </div>
 
