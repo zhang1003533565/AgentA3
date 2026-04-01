@@ -71,12 +71,26 @@ export default {
   left: 0;
   right: 0;
   width: 750rpx;
-  height: 250rpx;
-  background: #fff;
+  height: calc(262rpx + env(safe-area-inset-bottom));
+  background: transparent;
   z-index: 999;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.page::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 122rpx;
+  bottom: 0;
+  background: #ffffff;
+  z-index: 0;
 }
 
 .group_1 {
+  position: relative;
+  z-index: 1;
   width: 750rpx;
   background: url('/static/APPIcon/tabbar/tabbar_bg.png') 0rpx 0rpx no-repeat;
   background-size: 750rpx 183rpx;
