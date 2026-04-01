@@ -31,7 +31,7 @@
 </template>
 <script>
 export default {
-  name: 'CustomTabBar',
+  name: 'AppMainTabBar',
   props: {
     current: {
       type: String,

@@ -83,12 +83,12 @@
         </view>
       </view>
     </view>
-    <app-tab-bar current="mine" />
+    <app-main-tab-bar current="mine" />
   </view>
 </template>
 
 <script>
-import AppTabBar from '@/components/custom-tab-bar/custom-tab-bar.vue'
+import AppMainTabBar from '@/components/app-main-tab-bar/app-main-tab-bar.vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import IconLine from '@/components/icon-line/icon-line.vue'
 import { getMyRegistrations } from '@/api/registration.js'
@@ -96,7 +96,7 @@ import { getMyFavoriteList } from '@/api/activity.js'
 import { getUserInfo } from '@/utils/storage.js'
 
 export default {
-  components: { AppTabBar, NavBar, IconLine },
+  components: { AppMainTabBar, NavBar, IconLine },
   data() {
     return {
       userInfo: null,

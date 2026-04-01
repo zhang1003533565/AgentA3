@@ -100,16 +100,16 @@
 				</view>
 			</view>
 		</view>
-		<app-tab-bar current="index" />
+		<app-main-tab-bar current="index" />
 	</view>
 </template>
 
 <script>
-	import AppTabBar from '@/components/custom-tab-bar/custom-tab-bar.vue'
+	import AppMainTabBar from '@/components/app-main-tab-bar/app-main-tab-bar.vue'
 	import NavBar from '@/components/nav-bar/nav-bar.vue'
 	import IconLine from '@/components/icon-line/icon-line.vue'
 	export default {
-		components: { AppTabBar, NavBar, IconLine },
+		components: { AppMainTabBar, NavBar, IconLine },
 		data() {
 			return {
 				statusBarHeight: 20,

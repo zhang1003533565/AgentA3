@@ -276,11 +276,25 @@ export default {
 }
 </script>
 
+<style lang="scss">
+page,
+uni-page-body {
+  height: 100%;
+  overflow: hidden;
+}
+</style>
+
 <style lang="scss" scoped>
 .detail-page {
-  min-height: 100vh;
+  position: fixed;
+  inset: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: linear-gradient(180deg, #dff0ff 0%, #edf6ff 260rpx, #f7f9fc 480rpx, #f7f7f9 100%);
   padding-bottom: 140rpx;
+  box-sizing: border-box;
 }
 
 .detail-nav-action {
@@ -298,7 +312,8 @@ export default {
 }
 
 .detail-scroll {
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
 }
 
 /* 主图 + 状态标签 */

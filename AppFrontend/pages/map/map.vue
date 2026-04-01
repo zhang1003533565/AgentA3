@@ -89,16 +89,16 @@
     </view>
 
     <view class="tabbar-safe-pad" />
-    <app-tab-bar current="map" />
+    <app-main-tab-bar current="map" />
   </view>
 </template>
 
 <script>
-import AppTabBar from '@/components/custom-tab-bar/custom-tab-bar.vue'
+import AppMainTabBar from '@/components/app-main-tab-bar/app-main-tab-bar.vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 
 export default {
-  components: { AppTabBar, NavBar },
+  components: { AppMainTabBar, NavBar },
   data() {
     return {
       mapPlaceholderUrl: 'https://picsum.photos/seed/campusmap/1600/2400',

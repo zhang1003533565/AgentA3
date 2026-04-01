@@ -6,7 +6,7 @@
       :style="navStyle"
     >
       <view class="nav-status" :style="{ height: statusBarHeight + 'px' }"></view>
-      <view class="nav-inner" :style="{ height: heightRpx + 'rpx' }">
+      <view class="nav-inner" :style="{ height: heightRpx + 'rpx', gridTemplateColumns: navGridColumns }">
         <view class="nav-side nav-side--left">
           <slot name="left">
             <view
@@ -29,7 +29,7 @@
                 class="nav-title"
                 :style="{ color: titleColorValue, textAlign: titleAlign }"
               >
-                {{ title }}
+                {{ displayTitle }}
               </text>
               <text
                 v-if="subtitle"
@@ -143,11 +143,22 @@ export default {
     iconColorValue() {
       return this.iconColor
     },
+    displayTitle() {
+      if (!this.title) return ''
+      const chars = Array.from(this.title)
+      if (chars.length <= 10) {
+        return this.title
+      }
+      return chars.slice(0, 10).join('') + '...'
+    },
     showDefaultCapsule() {
-      return this.showWechatCapsule || (!!this.showBack && !this.rightText && !this.rightIcon)
+      return this.showWechatCapsule
     },
     totalHeightPx() {
       return this.statusBarHeight + this.rpxToPx(this.heightRpx)
+    },
+    navGridColumns() {
+      return this.showDefaultCapsule ? '92rpx 1fr 188rpx' : '112rpx 1fr 112rpx'
     },
     centerInset() {
       if (this.showDefaultCapsule) {
@@ -225,7 +236,7 @@ export default {
 
 .nav-inner {
   display: grid;
-  grid-template-columns: 92rpx 1fr 188rpx;
+  grid-template-columns: 112rpx 1fr 112rpx;
   align-items: center;
 }
 
@@ -257,14 +268,12 @@ export default {
 
 .nav-title {
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 32rpx;
   line-height: 1.2;
   font-weight: 700;
   color: #2c2f36;
   letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .nav-subtitle {
