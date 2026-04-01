@@ -5,7 +5,7 @@
 		<view class="msg-list">
 			<view class="msg-item" v-for="(item, index) in messages" :key="index" @click="goToDetail(item)">
 				<view class="msg-icon-wrap" :class="item.type">
-					<icon-line :name="getIcon(item.type)" size="service" />
+					<image class="msg-icon" :src="`/static/icons/line/${getIcon(item.type)}.svg`" mode="aspectFit" />
 					<view v-if="!item.isRead" class="unread-dot"></view>
 				</view>
 				<view class="msg-body">
@@ -29,9 +29,8 @@
 
 <script>
 	import NavBar from '@/components/nav-bar/nav-bar.vue'
-	import IconLine from '@/components/icon-line/icon-line.vue'
 	export default {
-		components: { NavBar, IconLine },
+		components: { NavBar },
 		data() {
 			return {
 				messages: [
@@ -150,6 +149,11 @@
 		&.activity { background-color: #7AA1D2; color: #FFFFFF; }
 		&.forum { background-color: #8CC08C; color: #FFFFFF; }
 		&.system { background-color: #E6B87A; color: #FFFFFF; }
+	}
+
+	.msg-icon {
+		width: 44rpx;
+		height: 44rpx;
 	}
 
 	.unread-dot {

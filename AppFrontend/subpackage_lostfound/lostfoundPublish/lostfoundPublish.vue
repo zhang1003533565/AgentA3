@@ -55,10 +55,9 @@
 
 <script>
 	import NavBar from '@/components/nav-bar/nav-bar.vue'
-	import IconLine from '@/components/icon-line/icon-line.vue'
 	
 	export default {
-		components: { NavBar, IconLine },
+		components: { NavBar },
 		data() {
 			return {
 				publishType: 'lost', // lost or found

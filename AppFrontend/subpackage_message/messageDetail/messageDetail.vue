@@ -18,7 +18,7 @@
 			<!-- 底部卡片链接 -->
 			<view v-if="message.type === 'activity' || message.type === 'forum'" class="link-card" @click="handleLinkClick">
 				<view class="link-icon" :class="message.type">
-					<icon-line :name="getIcon(message.type)" size="service" color="#FFFFFF" />
+					<image class="link-icon-img" :src="`/static/icons/line/${getIcon(message.type)}.svg`" mode="aspectFit" />
 				</view>
 				<view class="link-info">
 					<text class="link-title">{{ message.title }}</text>
@@ -89,7 +89,7 @@
 			},
 			goToActivity() {
 				uni.navigateTo({
-					url: '/subpackage_activity/activityDetail/activityDetail?id=1'
+					url: '/subpackage_community/communityDetail/communityDetail?id=1'
 				})
 			},
 			goToForum() {
@@ -178,6 +178,11 @@
 
 		&.activity { background-color: #7AA1D2; }
 		&.forum { background-color: #8CC08C; }
+	}
+
+	.link-icon-img {
+		width: 44rpx;
+		height: 44rpx;
 	}
 
 	.link-info {

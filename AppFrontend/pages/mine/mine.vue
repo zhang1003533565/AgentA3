@@ -32,7 +32,7 @@
       <view class="menu-block">
         <view class="cell" @click="goToSchedule">
           <view class="cell-left">
-            <view class="cell-icon"><icon-line name="calendar" size="cell" /></view>
+            <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/calendar.svg" mode="aspectFit" /></view>
             <text class="cell-label">我的课表</text>
           </view>
           <text class="cell-arrow">›</text>
@@ -40,7 +40,7 @@
         <view class="cell-divider"></view>
         <view class="cell" @click="goToGrade">
           <view class="cell-left">
-            <view class="cell-icon"><icon-line name="award" size="cell" /></view>
+            <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/award.svg" mode="aspectFit" /></view>
             <text class="cell-label">成绩查询</text>
           </view>
           <text class="cell-arrow">›</text>
@@ -48,7 +48,7 @@
         <view class="cell-divider"></view>
         <view class="cell" @click="goToMyActivity">
           <view class="cell-left">
-            <view class="cell-icon"><icon-line name="compass" size="cell" /></view>
+            <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/compass.svg" mode="aspectFit" /></view>
             <text class="cell-label">我的活动</text>
           </view>
           <text class="cell-arrow">›</text>
@@ -56,7 +56,7 @@
         <view class="cell-divider"></view>
         <view class="cell" @click="goToSignIn">
           <view class="cell-left">
-            <view class="cell-icon"><icon-line name="calendar" size="cell" /></view>
+            <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/calendar.svg" mode="aspectFit" /></view>
             <text class="cell-label">活动签到</text>
           </view>
           <text class="cell-arrow">›</text>
@@ -68,7 +68,7 @@
       <view class="menu-block">
         <view class="cell" @click="goToChangePassword">
           <view class="cell-left">
-            <view class="cell-icon"><icon-line name="lock" size="cell" /></view>
+            <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/lock.svg" mode="aspectFit" /></view>
             <text class="cell-label">修改密码</text>
           </view>
           <text class="cell-arrow">›</text>
@@ -76,7 +76,7 @@
         <view class="cell-divider"></view>
         <view class="cell" @click="logout">
           <view class="cell-left">
-            <view class="cell-icon"><icon-line name="log-out" size="cell" /></view>
+            <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/log-out.svg" mode="aspectFit" /></view>
             <text class="cell-label">退出登录</text>
           </view>
           <text class="cell-arrow">›</text>
@@ -90,13 +90,12 @@
 <script>
 import AppMainTabBar from '@/components/app-main-tab-bar/app-main-tab-bar.vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import IconLine from '@/components/icon-line/icon-line.vue'
 import { getMyRegistrations } from '@/api/registration.js'
 import { getMyFavoriteList } from '@/api/activity.js'
 import { getUserInfo } from '@/utils/storage.js'
 
 export default {
-  components: { AppMainTabBar, NavBar, IconLine },
+  components: { AppMainTabBar, NavBar },
   data() {
     return {
       userInfo: null,
@@ -160,7 +159,7 @@ export default {
       uni.navigateTo({ url: '/pages/grade/grade' })
     },
     goToMyActivity() {
-      uni.navigateTo({ url: '/subpackage_activity/myActivity/myActivity' })
+      uni.navigateTo({ url: '/subpackage_community/communityActivity/communityActivity' })
     },
     goToSignIn() {
       uni.navigateTo({ url: '/subpackage_signin/signIn/signIn' })
@@ -213,6 +212,10 @@ export default {
   border: 1px solid #EEEEEE;
   flex-shrink: 0;
   margin-right: 24rpx;
+}
+.cell-icon-img {
+  width: 40rpx;
+  height: 40rpx;
 }
 .user-info {
   flex: 1;

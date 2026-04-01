@@ -34,7 +34,7 @@
 			<!-- 底部链接卡片：模仿学习通风格 -->
 			<view class="link-card" @click="handleContact">
 				<view class="link-icon" :class="item.type">
-					<icon-line name="message-circle" size="service" color="#FFFFFF" />
+					<image class="link-icon-img" src="/static/icons/line/message-circle.svg" mode="aspectFit" />
 				</view>
 				<view class="link-info">
 					<text class="link-title">联系发布者: {{ item.contactName }}</text>
@@ -47,10 +47,9 @@
 
 <script>
 	import NavBar from '@/components/nav-bar/nav-bar.vue'
-	import IconLine from '@/components/icon-line/icon-line.vue'
 	
 	export default {
-		components: { NavBar, IconLine },
+		components: { NavBar },
 		data() {
 			return {
 				item: {
@@ -211,6 +210,11 @@
 			
 			&.lost { background-color: #FF3B30; }
 			&.found { background-color: #34C759; }
+		}
+
+		.link-icon-img {
+			width: 44rpx;
+			height: 44rpx;
 		}
 
 		.link-info {

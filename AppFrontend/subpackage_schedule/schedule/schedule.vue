@@ -17,7 +17,7 @@
 					<view class="course-info">
 						<text class="course-name">{{ course.name }}</text>
 						<view class="course-loc">
-							<icon-line name="map" size="small" color="#8E8E93" />
+							<image class="course-loc-icon" src="/static/icons/line/map.svg" mode="aspectFit" />
 							<text class="loc-text">{{ course.location }}</text>
 						</view>
 					</view>
@@ -30,10 +30,9 @@
 
 <script>
 	import NavBar from '@/components/nav-bar/nav-bar.vue'
-	import IconLine from '@/components/icon-line/icon-line.vue'
 	
 	export default {
-		components: { NavBar, IconLine },
+		components: { NavBar },
 		data() {
 			return {
 				courses: [
@@ -123,6 +122,11 @@
 				display: flex;
 				align-items: center;
 				gap: 4rpx;
+
+				.course-loc-icon {
+					width: 32rpx;
+					height: 32rpx;
+				}
 				
 				.loc-text {
 					font-size: 24rpx;

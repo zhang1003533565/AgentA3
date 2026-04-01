@@ -8,11 +8,11 @@
 					<text class="label">当前活动</text>
 					<text class="activity-title">{{ activity.title || '暂无正在进行的活动' }}</text>
 					<view class="info-row">
-						<icon-line name="calendar" size="small" />
+						<image class="info-icon" src="/static/icons/line/calendar.svg" mode="aspectFit" />
 						<text class="info-text">{{ activity.time || '-' }}</text>
 					</view>
 					<view class="info-row">
-						<icon-line name="map" size="small" />
+						<image class="info-icon" src="/static/icons/line/map.svg" mode="aspectFit" />
 						<text class="info-text">{{ activity.location || '-' }}</text>
 					</view>
 				</view>
@@ -28,13 +28,13 @@
 				<view class="action-section">
 					<view class="scan-box" @click="handleSignIn" v-if="signInStatus === 'pending'">
 						<view class="scan-icon-wrap">
-							<icon-line name="search" size="diamond" />
+							<image class="scan-icon" src="/static/icons/line/search.svg" mode="aspectFit" />
 						</view>
 						<text class="scan-tip">点击扫码签到</text>
 					</view>
 					
 					<view class="success-box" v-else-if="signInStatus === 'success'">
-						<icon-line name="award" size="diamond" color="#34C759" />
+						<image class="success-icon" src="/static/icons/line/award.svg" mode="aspectFit" />
 						<text class="success-time">签到时间：{{ signInTime }}</text>
 						<button class="done-btn" @click="goBack">返回首页</button>
 					</view>
@@ -43,7 +43,7 @@
 
 			<view class="notice-card block-white">
 				<view class="notice-header">
-					<icon-line name="message-circle" size="small" />
+					<image class="notice-icon" src="/static/icons/line/message-circle.svg" mode="aspectFit" />
 					<text class="notice-title">签到说明</text>
 				</view>
 				<view class="notice-body">
@@ -58,9 +58,8 @@
 
 <script>
 	import NavBar from '@/components/nav-bar/nav-bar.vue'
-	import IconLine from '@/components/icon-line/icon-line.vue'
 	export default {
-		components: { NavBar, IconLine },
+		components: { NavBar },
 		data() {
 			return {
 				navBarHeight: 88,
@@ -153,6 +152,12 @@
 			margin-bottom: 8rpx;
 			color: #4A4A4A;
 			font-size: 28rpx;
+
+			.info-icon {
+				width: 32rpx;
+				height: 32rpx;
+				flex-shrink: 0;
+			}
 		}
 	}
 
@@ -209,6 +214,11 @@
 		transition: all 0.2s;
 	}
 
+	.scan-icon {
+		width: 48rpx;
+		height: 48rpx;
+	}
+
 	.scan-tip {
 		font-size: 28rpx;
 		color: #8E8E93;
@@ -219,6 +229,11 @@
 		flex-direction: column;
 		align-items: center;
 		gap: 20rpx;
+	}
+
+	.success-icon {
+		width: 48rpx;
+		height: 48rpx;
 	}
 
 	.success-time {
@@ -252,6 +267,12 @@
 		gap: 12rpx;
 		margin-bottom: 20rpx;
 		color: #1D1D1F;
+
+		.notice-icon {
+			width: 32rpx;
+			height: 32rpx;
+			flex-shrink: 0;
+		}
 		
 		.notice-title {
 			font-size: 30rpx;

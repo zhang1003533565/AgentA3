@@ -40,7 +40,7 @@
 			<!-- 底部链接卡片：模仿学习通风格 -->
 			<view class="link-card" @click="goToMap">
 				<view class="link-icon">
-					<icon-line name="map" size="service" color="#FFFFFF" />
+					<image class="link-icon-img" src="/static/icons/line/map.svg" mode="aspectFit" />
 				</view>
 				<view class="link-info">
 					<text class="link-title">在地图中查看地点: {{ course.location }}</text>
@@ -53,10 +53,9 @@
 
 <script>
 	import NavBar from '@/components/nav-bar/nav-bar.vue'
-	import IconLine from '@/components/icon-line/icon-line.vue'
 	
 	export default {
-		components: { NavBar, IconLine },
+		components: { NavBar },
 		data() {
 			return {
 				course: {
@@ -202,6 +201,11 @@
 			justify-content: center;
 			margin-right: 20rpx;
 			flex-shrink: 0;
+		}
+
+		.link-icon-img {
+			width: 44rpx;
+			height: 44rpx;
 		}
 
 		.link-info {

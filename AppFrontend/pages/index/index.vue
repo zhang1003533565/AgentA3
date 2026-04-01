@@ -26,15 +26,25 @@
 					@click="navigate(item.path, item.mode)"
 				>
 					<view class="quick-icon" :class="`quick-icon--${item.theme}`">
-						<icon-line :name="item.icon" size="service" color="#4E7EA5" />
+						<image class="quick-icon-img" :src="`/static/icons/line/${item.icon}.svg`" mode="aspectFit" />
 					</view>
 					<text class="quick-label">{{ item.name }}</text>
 				</view>
 			</view>
 
 			<view class="headline-card" @click="goToNotice">
-				<text class="headline-tag">云游头条</text>
-				<text class="headline-text">{{ headline }}</text>
+				<view class="headline-horn" aria-hidden="true">
+					<view class="headline-horn-body"></view>
+					<view class="headline-horn-mouth"></view>
+					<view class="headline-horn-tail"></view>
+				</view>
+				<view class="headline-marquee">
+					<view class="headline-track">
+						<text class="headline-text">{{ headline }}</text>
+						<text class="headline-separator">·</text>
+						<text class="headline-text">{{ headline }}</text>
+					</view>
+				</view>
 				<view class="headline-arrow">›</view>
 			</view>
 
@@ -93,10 +103,9 @@
 
 <script>
 import AppMainTabBar from '@/components/app-main-tab-bar/app-main-tab-bar.vue'
-import IconLine from '@/components/icon-line/icon-line.vue'
 
 export default {
-	components: { AppMainTabBar, IconLine },
+	components: { AppMainTabBar },
 	data() {
 		return {
 			headline: '关于 2025 级新生校园服务一体通平台上线的通知',
@@ -118,11 +127,11 @@ export default {
 				}
 			],
 			quickChannels: [
-				{ name: '学', icon: 'book-open', path: '/subpackage_schedule/schedule/schedule', theme: 'mint' },
-				{ name: '住', icon: 'key', path: '/subpackage_dormitory/dormitoryList/dormitoryList', theme: 'sand' },
-				{ name: '食', icon: 'venue', path: '/subpackage_facility/restaurantDetail/restaurantDetail?id=3', theme: 'orange' },
-				{ name: '购', icon: 'credit-card', path: '/subpackage_lostfound/lostfoundList/lostfoundList', theme: 'peach' },
-				{ name: '行', icon: 'bus', path: '/pages/map/map', theme: 'sky' }
+				{ name: '活', icon: 'compass', path: '/subpackage_community/communityActivity/communityActivity', theme: 'mint' },
+				{ name: '食', icon: 'venue', path: '/subpackage_facility/restaurantDetail/restaurantDetail?id=3', theme: 'sand' },
+				{ name: '旧', icon: 'clipboard', path: '/subpackage_lostfound/lostfoundList/lostfoundList', theme: 'orange' },
+				{ name: '坛', icon: 'message-circle', path: '/subpackage_forum/forumList/forumList', mode: 'reLaunch', theme: 'peach' },
+				{ name: '惠', icon: 'award', path: '/pages/serviceHub/serviceHub?title=校园特惠', theme: 'sky' }
 			],
 			featureCards: [
 				{ title: '暖城乐购', desc: '校园服务', path: '/pages/serviceHub/serviceHub?title=校园服务', theme: 'amber' },
@@ -185,6 +194,11 @@ export default {
 	height: 602rpx;
 }
 
+.hero-swiper :deep(.uni-swiper-dots),
+.hero-swiper ::v-deep .uni-swiper-dots {
+	bottom: 56rpx !important;
+}
+
 .poster-card {
 	position: relative;
 	overflow: hidden;
@@ -210,7 +224,7 @@ export default {
 
 .main-content {
 	padding: 20rpx 28rpx 0;
-	margin-top: 0;
+	margin-top: -46rpx;
 	position: relative;
 	z-index: 3;
 }
@@ -255,30 +269,80 @@ export default {
 }
 
 .headline-card {
-	margin-top: 26rpx;
+	margin-top: 34rpx;
 	background: rgba(255, 255, 255, 0.82);
 	border-radius: 24rpx;
 	padding: 22rpx 24rpx;
 	display: flex;
 	align-items: center;
 	box-shadow: 0 10rpx 24rpx rgba(184, 195, 200, 0.16);
+	overflow: hidden;
 }
 
-.headline-tag {
+.headline-horn {
 	flex-shrink: 0;
-	font-size: 30rpx;
-	font-weight: 800;
-	color: #53b4b4;
+	position: relative;
+	width: 42rpx;
+	height: 42rpx;
+	margin-right: 18rpx;
+}
+
+.headline-horn-body {
+	position: absolute;
+	left: 0;
+	top: 10rpx;
+	width: 18rpx;
+	height: 20rpx;
+	background: #62b6b3;
+	border-radius: 6rpx;
+}
+
+.headline-horn-mouth {
+	position: absolute;
+	left: 14rpx;
+	top: 6rpx;
+	width: 0;
+	height: 0;
+	border-top: 14rpx solid transparent;
+	border-bottom: 14rpx solid transparent;
+	border-left: 20rpx solid #62b6b3;
+}
+
+.headline-horn-tail {
+	position: absolute;
+	left: 4rpx;
+	bottom: 0;
+	width: 8rpx;
+	height: 12rpx;
+	background: #4f8f90;
+	border-radius: 4rpx;
+	transform: skew(-10deg);
+}
+
+.headline-marquee {
+	flex: 1;
+	overflow: hidden;
+	min-width: 0;
+}
+
+.headline-track {
+	display: inline-flex;
+	align-items: center;
+	white-space: nowrap;
+	animation: headline-marquee 16s linear infinite;
+	will-change: transform;
 }
 
 .headline-text {
-	flex: 1;
-	margin-left: 18rpx;
 	font-size: 30rpx;
 	color: #4b585d;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	flex-shrink: 0;
+}
+
+.headline-separator {
+	margin: 0 34rpx;
+	font-size: 30rpx;
+	color: #88a2a4;
 }
 
 .headline-arrow {
@@ -292,6 +356,15 @@ export default {
 	align-items: center;
 	justify-content: center;
 	font-size: 22rpx;
+}
+
+@keyframes headline-marquee {
+	0% {
+		transform: translateX(100%);
+	}
+	100% {
+		transform: translateX(-100%);
+	}
 }
 
 .city-card {

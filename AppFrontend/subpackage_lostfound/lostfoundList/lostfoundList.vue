@@ -5,7 +5,7 @@
 			
 			<view class="search-section">
 				<view class="search-bar">
-					<icon-line name="search" size="small" color="#8E8E93" />
+					<image class="search-icon-img" src="/static/icons/line/search.svg" mode="aspectFit" />
 					<input type="text" v-model="searchQuery" placeholder="搜索失物或招领信息" class="search-input" />
 				</view>
 				<view class="tabs">
@@ -26,7 +26,7 @@
 							<view class="item-tag" :class="item.type">{{ item.type === 'lost' ? '寻物' : '招领' }}</view>
 						</view>
 						<view class="item-loc">
-							<icon-line name="map" size="small" color="#8E8E93" />
+							<image class="loc-icon-img" src="/static/icons/line/map.svg" mode="aspectFit" />
 							<text class="loc-text">{{ item.location }}</text>
 						</view>
 					</view>
@@ -40,7 +40,7 @@
 		</scroll-view>
 
 		<view class="fab-btn" @click="handlePublish">
-			<icon-line name="edit-3" size="large" color="#FFFFFF" class="fab-icon" />
+			<image class="fab-icon" src="/static/icons/line/edit-3.svg" mode="aspectFit" />
 			<text class="fab-text">发布</text>
 		</view>
 	</view>
@@ -48,13 +48,11 @@
 
 <script>
 	import NavBar from '@/components/nav-bar/nav-bar.vue'
-	import IconLine from '@/components/icon-line/icon-line.vue'
 	
 	export default {
-		components: { NavBar, IconLine },
+		components: { NavBar },
 		data() {
 			return {
-				navBarHeight: 88,
 				currentTab: 'found',
 				searchQuery: '',
 				items: [
@@ -74,10 +72,6 @@
 					return matchTab && matchSearch
 				})
 			}
-		},
-		onLoad() {
-			const sys = uni.getSystemInfoSync()
-			this.navBarHeight = sys.statusBarHeight + 44
 		},
 		methods: {
 			goToDetail(item) {
@@ -125,6 +119,12 @@
 		border-radius: 36rpx;
 		padding: 0 24rpx;
 		margin-bottom: 20rpx;
+
+		.search-icon-img {
+			width: 32rpx;
+			height: 32rpx;
+			flex-shrink: 0;
+		}
 		
 		.search-input {
 			flex: 1;
@@ -227,6 +227,12 @@
 				display: flex;
 				align-items: center;
 				gap: 4rpx;
+
+				.loc-icon-img {
+					width: 32rpx;
+					height: 32rpx;
+					flex-shrink: 0;
+				}
 				
 				.loc-text {
 					font-size: 22rpx;
