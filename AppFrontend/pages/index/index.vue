@@ -1,681 +1,489 @@
 <template>
-	<view class="home-container">
-		<!-- Header：统一 nav-bar + 搜索 + Banner -->
-		<view class="header-wrap">
-			<nav-bar title="智慧校园" :showBack="false" />
-			<view class="header-top">
-				<view class="header-search-row">
-					<view class="search-box">
-						<view class="search-icon-wrap"><icon-line name="search" size="service" /></view>
-						<input class="search-input" type="text" placeholder="搜索课程、通知、活动..." placeholder-class="search-placeholder" />
+	<view class="home-page">
+		<view class="hero-shell">
+			<swiper
+				class="hero-swiper"
+				indicator-dots
+				autoplay
+				circular
+				interval="3200"
+				duration="500"
+			>
+				<swiper-item v-for="item in heroSlides" :key="item.title">
+					<view class="poster-card" :class="`poster-card--${item.theme}`">
+						<image class="poster-image" :src="item.image" mode="aspectFill" />
 					</view>
-					<view class="header-msg-btn" @click="goToMessage">
-						<icon-line name="message-circle" size="service" />
-						<view v-if="unreadCount > 0" class="msg-badge"></view>
+				</swiper-item>
+			</swiper>
+		</view>
+
+		<view class="main-content">
+			<view class="quick-nav">
+				<view
+					v-for="item in quickChannels"
+					:key="item.name"
+					class="quick-item"
+					@click="navigate(item.path, item.mode)"
+				>
+					<view class="quick-icon" :class="`quick-icon--${item.theme}`">
+						<icon-line :name="item.icon" size="service" color="#4E7EA5" />
 					</view>
+					<text class="quick-label">{{ item.name }}</text>
 				</view>
 			</view>
-			<view class="banner-section">
-				<swiper class="banner-swiper" :indicator-dots="true" :autoplay="true" :interval="3000" :duration="500">
-					<swiper-item v-for="(item, index) in (banners || [])" :key="index">
-						<image class="banner-image" :src="item.image" mode="aspectFill" @click="onBannerClick(item)" />
-					</swiper-item>
-				</swiper>
+
+			<view class="headline-card" @click="goToNotice">
+				<text class="headline-tag">云游头条</text>
+				<text class="headline-text">{{ headline }}</text>
+				<view class="headline-arrow">›</view>
+			</view>
+
+			<view class="city-card">
+				<view class="skyline">
+					<view class="skyline-build skyline-build-a"></view>
+					<view class="skyline-build skyline-build-b"></view>
+					<view class="skyline-build skyline-build-c"></view>
+					<view class="skyline-build skyline-build-d"></view>
+					<view class="skyline-bridge"></view>
+					<view class="skyline-cloud skyline-cloud-a"></view>
+					<view class="skyline-cloud skyline-cloud-b"></view>
+				</view>
+
+				<view class="coupon-bubble" @click="goToServiceHub('惠民补贴')">
+					<text class="coupon-text">惠民补贴 | 点击领取</text>
+					<text class="coupon-arrow">›</text>
+				</view>
+
+				<view class="city-mascot">
+					<view class="mascot-head"></view>
+					<view class="mascot-face"></view>
+					<view class="mascot-body"></view>
+				</view>
+
+				<view class="city-stats">
+					<view class="city-stat">
+						<text class="city-stat-value">4月2日</text>
+						<text class="city-stat-label">活动日期</text>
+					</view>
+					<view class="city-stat">
+						<text class="city-stat-value">8个活动</text>
+						<text class="city-stat-label">热门活动</text>
+					</view>
+				</view>
+
+				<view class="feature-grid">
+					<view
+						v-for="item in featureCards"
+						:key="item.title"
+						class="feature-card"
+						:class="`feature-card--${item.theme}`"
+						@click="navigate(item.path, item.mode)"
+					>
+						<text class="feature-title">{{ item.title }}</text>
+						<text class="feature-desc">{{ item.desc }}</text>
+						<view class="feature-arrow">›</view>
+					</view>
+				</view>
 			</view>
 		</view>
 
-		<view class="section-divider"></view>
-		<view class="menu-section block-white">
-			<view class="menu-grid">
-				<view class="menu-item" v-for="(item, index) in (menus || [])" :key="index" @click="onMenuClick(item)">
-					<view class="menu-icon-wrap">
-						<icon-line :name="item.icon" size="diamond" />
-					</view>
-					<text class="menu-name">{{item.name}}</text>
-				</view>
-			</view>
-		</view>
-
-		<view class="section-divider"></view>
-		<view class="notice-section notice-course-fullwidth">
-			<view class="section-header-inner">
-				<view class="section-title-with-bar">
-					<view class="section-title-bar"></view>
-					<text class="section-title-inner">通知公告</text>
-				</view>
-				<text class="more" @click="goToNotice">更多 ></text>
-			</view>
-			<view class="notice-list">
-				<view class="notice-item" v-for="(item, index) in (notices || [])" :key="index" @click="onNoticeClick(item)">
-					<text class="notice-tag" :class="item.type">{{item.tag}}</text>
-					<text class="notice-title">{{item.title}}</text>
-					<text class="notice-time">{{item.time}}</text>
-				</view>
-			</view>
-		</view>
-
-		<view class="section-divider"></view>
-		<view class="course-section notice-course-fullwidth">
-			<view class="section-header-inner">
-				<view class="section-title-with-bar">
-					<view class="section-title-bar"></view>
-					<text class="section-title-inner">今日课程</text>
-				</view>
-				<text class="more" @click="goToSchedule">课表 ></text>
-			</view>
-			<view class="course-list">
-				<view class="course-item" v-for="(item, index) in (todayCourses || [])" :key="index" :class="item.status">
-					<view class="course-time" :class="{ 'course-time--ongoing': item.status === 'ongoing' }">
-						<text class="time-start">{{item.startTime}}</text>
-						<text class="time-end">{{item.endTime}}</text>
-					</view>
-					<view class="course-info">
-						<view class="course-row">
-							<text class="course-name">{{item.name}}</text>
-							<view class="course-status-text" :class="item.status"><view class="course-status-dot"></view><text>{{item.statusText}}</text></view>
-						</view>
-						<text class="course-location">{{item.location}}</text>
-					</view>
-				</view>
-				<view v-if="!(todayCourses && todayCourses.length)" class="empty-tip">
-					<text>今天没有课程，好好休息吧~</text>
-				</view>
-			</view>
-		</view>
-
-		<view class="section-divider"></view>
-		<view class="service-section block-white">
-			<view class="section-header">
-				<view class="section-title-with-bar">
-					<view class="section-title-bar"></view>
-					<text class="section-title">校园服务</text>
-				</view>
-			</view>
-			<view class="service-grid">
-				<view class="service-item" v-for="(item, index) in (services || [])" :key="index" @click="onServiceClick(item)">
-					<view class="service-icon-wrap">
-						<icon-line :name="item.icon" size="service" />
-					</view>
-					<text class="service-name">{{item.name}}</text>
-				</view>
-			</view>
-		</view>
 		<app-main-tab-bar current="index" />
 	</view>
 </template>
 
 <script>
-	import AppMainTabBar from '@/components/app-main-tab-bar/app-main-tab-bar.vue'
-	import NavBar from '@/components/nav-bar/nav-bar.vue'
-	import IconLine from '@/components/icon-line/icon-line.vue'
-	export default {
-		components: { AppMainTabBar, NavBar, IconLine },
-		data() {
-			return {
-				statusBarHeight: 20,
-				userInfo: null,
-				userAvatar: '',
-				unreadCount: 3,
-				banners: [
-					{ image: 'https://picsum.photos/400/150?random=1', title: '新学期开学典礼', url: '' },
-					{ image: 'https://picsum.photos/400/150?random=2', title: '图书馆开放时间调整', url: '' },
-					{ image: 'https://picsum.photos/400/150?random=3', title: '校园美食节活动', url: '' }
-				],
-				menus: [
-					{ name: '课程表', icon: 'calendar', path: '/subpackage_schedule/schedule/schedule' },
-					{ name: '校园活动', icon: 'compass', path: '/subpackage_activity/activityList/activityList' },
-					{ name: '校园论坛', icon: 'message-circle', path: '/subpackage_forum/forumList/forumList' },
-					{ name: '失物招领', icon: 'search', path: '/subpackage_lostfound/lostfoundList/lostfoundList' },
-					{ name: '社区活动', icon: 'users', path: '/subpackage_community/communityActivity/communityActivity' },
-					{ name: '快递查询', icon: 'clipboard', path: '/pages/serviceHub/serviceHub?title=快递查询' },
-					{ name: '更多', icon: 'more', path: '/pages/serviceHub/serviceHub?title=更多服务' }
-				],
-				notices: [
-					{ title: '关于2026年清明节放假安排的通知', time: '10:30', tag: '教务', type: 'jw' },
-					{ title: '图书馆电子资源使用培训讲座', time: '昨天', tag: '图书馆', type: 'tsg' },
-					{ title: '2026年春季学期奖学金评选开始', time: '昨天', tag: '学工', type: 'xg' },
-					{ title: '校园网络维护通知（3月12日）', time: '03-08', tag: '信息化', type: 'xxh' }
-				],
-				todayCourses: [
-					{ name: '高等数学', location: '教学楼A301', startTime: '08:00', endTime: '09:40', status: 'finished', statusText: '已结束' },
-					{ name: '大学英语', location: '教学楼B205', startTime: '10:00', endTime: '11:40', status: 'ongoing', statusText: '进行中' },
-					{ name: '计算机基础', location: '实验楼C102', startTime: '14:00', endTime: '15:40', status: 'upcoming', statusText: '待上课' }
-				],
-				services: [
-					{ name: '校车时刻', icon: 'bus', path: '/pages/serviceHub/serviceHub?title=校车时刻' },
-					{ name: '校历', icon: 'calendar-alt', path: '/pages/serviceHub/serviceHub?title=校历' },
-					{ name: '场馆预约', icon: 'venue', path: '/pages/serviceHub/serviceHub?title=场馆预约' },
-					{ name: '维修报修', icon: 'tool', path: '/pages/serviceHub/serviceHub?title=维修报修' },
-					{ name: '心理咨询', icon: 'message-circle', path: '/pages/serviceHub/serviceHub?title=心理咨询' },
-					{ name: '就业信息', icon: 'briefcase', path: '/pages/serviceHub/serviceHub?title=就业信息' },
-					{ name: '校园地图', icon: 'map', path: '/pages/map/map' },
-					{ name: '更多服务', icon: 'more', path: '/pages/serviceHub/serviceHub?title=更多服务' }
-				]
+import AppMainTabBar from '@/components/app-main-tab-bar/app-main-tab-bar.vue'
+import IconLine from '@/components/icon-line/icon-line.vue'
+
+export default {
+	components: { AppMainTabBar, IconLine },
+	data() {
+		return {
+			headline: '关于 2025 级新生校园服务一体通平台上线的通知',
+			heroSlides: [
+				{
+					title: 'slide-1',
+					image: 'https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1200&q=80',
+					theme: 'blue'
+				},
+				{
+					title: 'slide-2',
+					image: 'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=1200&q=80',
+					theme: 'violet'
+				},
+				{
+					title: 'slide-3',
+					image: 'https://images.unsplash.com/photo-1503676382389-4809596d5290?auto=format&fit=crop&w=1200&q=80',
+					theme: 'green'
+				}
+			],
+			quickChannels: [
+				{ name: '学', icon: 'book-open', path: '/subpackage_schedule/schedule/schedule', theme: 'mint' },
+				{ name: '住', icon: 'key', path: '/subpackage_dormitory/dormitoryList/dormitoryList', theme: 'sand' },
+				{ name: '食', icon: 'venue', path: '/subpackage_facility/restaurantDetail/restaurantDetail?id=3', theme: 'orange' },
+				{ name: '购', icon: 'credit-card', path: '/subpackage_lostfound/lostfoundList/lostfoundList', theme: 'peach' },
+				{ name: '行', icon: 'bus', path: '/pages/map/map', theme: 'sky' }
+			],
+			featureCards: [
+				{ title: '暖城乐购', desc: '校园服务', path: '/pages/serviceHub/serviceHub?title=校园服务', theme: 'amber' },
+				{ title: '汽车申报', desc: '访客登记', path: '/pages/serviceHub/serviceHub?title=访客登记', theme: 'mint' },
+				{ title: '一卡通充值', desc: '生活缴费', path: '/pages/serviceHub/serviceHub?title=一卡通充值', theme: 'sky' },
+				{ title: '论坛热帖', desc: '校园讨论', path: '/subpackage_forum/forumList/forumList', mode: 'reLaunch', theme: 'rose' }
+			]
+		}
+	},
+	onLoad() {
+		this.checkLogin()
+	},
+	onShow() {
+		this.checkLogin()
+	},
+	methods: {
+		checkLogin() {
+			const token = uni.getStorageSync('token')
+			const userInfoStr = uni.getStorageSync('userInfo')
+			if (!token || !userInfoStr) {
+				uni.reLaunch({
+					url: '/pages/login/login'
+				})
 			}
 		},
-		onLoad() {
-			const sys = uni.getSystemInfoSync()
-			this.statusBarHeight = sys.statusBarHeight || 20
-			this.checkLogin()
-			this.loadData()
-		},
-			onShow() {
-			this.checkLogin()
-		},
-		onPullDownRefresh() {
-			this.loadData()
-			setTimeout(() => {
-				uni.stopPullDownRefresh()
-			}, 1000)
-		},
-		methods: {
-			checkLogin() {
-				const token = uni.getStorageSync('token')
-				const userInfoStr = uni.getStorageSync('userInfo')
-				if (!token || !userInfoStr) {
-					uni.reLaunch({
-						url: '/pages/login/login'
-					})
-					return
-				}
-				this.userInfo = JSON.parse(userInfoStr)
-				this.userAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${this.userInfo.username}`
-			},
-			loadData() {
-				// 这里可以继续接首页聚合接口
-			},
-			goToMessage() {
-				uni.navigateTo({
-					url: '/subpackage_message/messageList/messageList'
-				})
-			},
-			onBannerClick(item) {
-				if (item.url) {
-					uni.navigateTo({ url: item.url })
-				}
-			},
-			onMenuClick(item) {
-				// 活动列表和论坛在子包中，使用 reLaunch 避免 H5 下动态加载子包报 500 / switchTab 限制
-				const subpackagePaths = [
-					'/subpackage_activity/activityList/activityList',
-					'/subpackage_forum/forumList/forumList'
-				]
-				if (subpackagePaths.includes(item.path)) {
-					uni.reLaunch({ url: item.path })
-				} else {
-					uni.navigateTo({ url: item.path })
-				}
-			},
-			goToNotice() {
-				uni.navigateTo({
-					url: '/pages/notice/notice'
-				})
-			},
-			onNoticeClick(item) {
-				uni.navigateTo({
-					url: '/pages/notice/notice'
-				})
-			},
-			goToSchedule() {
-				uni.navigateTo({
-					url: '/subpackage_schedule/schedule/schedule'
-				})
-			},
-			onServiceClick(item) {
-				uni.navigateTo({
-					url: item.path
-				})
-			},
-			goToProfile() {
-				uni.showActionSheet({
-					title: `您好，${this.userInfo?.username || '用户'}`,
-					itemList: ['个人中心', '退出登录'],
-					success: (res) => {
-						if (res.tapIndex === 0) {
-							uni.showToast({ title: '个人中心开发中', icon: 'none' })
-						} else if (res.tapIndex === 1) {
-							this.handleLogout()
-						}
-					}
-				})
-			},
-			handleLogout() {
-				uni.showModal({
-					title: '提示',
-					content: '确定要退出登录吗？',
-					success: (res) => {
-						if (res.confirm) {
-							uni.removeStorageSync('token')
-							uni.removeStorageSync('userInfo')
-							uni.reLaunch({
-								url: '/pages/login/login'
-							})
-						}
-					}
-				})
+		navigate(path, mode = 'navigateTo') {
+			if (mode === 'reLaunch') {
+				uni.reLaunch({ url: path })
+				return
 			}
+			uni.navigateTo({ url: path })
+		},
+		goToNotice() {
+			uni.navigateTo({
+				url: '/pages/notice/notice'
+			})
+		},
+		goToServiceHub(title) {
+			uni.navigateTo({
+				url: `/pages/serviceHub/serviceHub?title=${encodeURIComponent(title)}`
+			})
 		}
 	}
+}
 </script>
 
 <style lang="scss">
-	/* 画布：极浅灰，无影化 */
-	.home-container {
-		min-height: 100vh;
-		background-color: #F7F7F9;
-		padding-bottom: 260rpx;
-	}
+.home-page {
+	min-height: 100vh;
+	background: #f8f6ef;
+	padding-bottom: 240rpx;
+}
 
-	/* 区域分隔：灰条，与画布同色 */
-	.section-divider {
-		height: 20rpx;
-		background-color: #F7F7F9;
-		width: 100%;
-	}
+.hero-shell {
+	padding: 0;
+	position: relative;
+}
 
-	/* 通栏白块：无阴影 */
-	.block-white {
-		background-color: #FFFFFF;
-		border-radius: 12rpx;
-	}
+.hero-swiper {
+	height: 602rpx;
+}
 
-	/* ========== Header：纯白覆盖至顶部，消除状态栏区域灰边 ========== */
-	.header-wrap {
-		background-color: #FFFFFF;
-		padding-left: 32rpx;
-		padding-right: 32rpx;
-		padding-bottom: 0;
-	}
-	.header-top {
-		background-color: #FFFFFF;
-		margin-left: -32rpx;
-		margin-right: -32rpx;
-		padding-left: 32rpx;
-		padding-right: 32rpx;
-	}
-	.header-search-row {
-		display: flex;
-		align-items: center;
-		padding-top: 16rpx;
-		padding-bottom: 20rpx;
-		margin-bottom: 0;
-		gap: 20rpx;
-	}
-	.search-box {
-		display: flex;
-		align-items: center;
-		height: 76rpx;          /* 38px */
-		background-color: #F2F2F2;
-		border: none;
-		border-radius: 16rpx;   /* 8px */
-		padding: 0 32rpx;
-		flex: 1;
-		box-sizing: border-box;
-	}
-	.header-msg-btn {
-		position: relative;
-		width: 76rpx;
-		height: 76rpx;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background-color: #F2F2F2;
-		border-radius: 16rpx;
-		color: #4A4A4A;
-	}
-	.msg-badge {
-		position: absolute;
-		top: 16rpx;
-		right: 16rpx;
-		width: 16rpx;
-		height: 16rpx;
-		background-color: #FF3B30;
-		border-radius: 50%;
-		border: 4rpx solid #F2F2F2;
-	}
-	.search-icon-wrap {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		margin-right: 16rpx;
-		color: $color-icon-line;
-	}
-	.search-input {
-		flex: 1;
-		font-size: 28rpx;   /* 14px 三级 */
-		color: #4A4A4A;
-		font-weight: 400;
-	}
-	.search-placeholder {
-		color: #8E8E93;
-	}
-	.banner-section {
-		width: 100%;
-		margin-top: 48rpx;     /* 24px 上下呼吸感 */
-		margin-bottom: 48rpx;
-		border-radius: 12rpx;
-		overflow: hidden;
-	}
-	.banner-swiper {
-		height: 300rpx;
-		border-radius: 12rpx;  /* 6px */
-		overflow: hidden;
-	}
-	.banner-image {
-		width: 100%;
-		height: 100%;
-		display: block;
-	}
+.poster-card {
+	position: relative;
+	overflow: hidden;
+	border-radius: 0;
+	background: transparent;
+	height: 602rpx;
+}
 
-	/* ========== 金刚区：通栏白块 ========== */
-	.menu-section {
-		padding: 32rpx 32rpx;
-	}
-	.menu-grid {
-		display: grid;
-		grid-template-columns: repeat(4, 1fr);
-		gap: 16rpx 48rpx;
-	}
-	.menu-item {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-	}
-	.menu-icon-wrap {
-		width: 96rpx;
-		height: 96rpx;
-		border-radius: 50%;
-		background-color: $icon-primary-bg-5;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		margin-bottom: 8rpx;
-	}
-	.menu-name {
-		font-size: $font-size-body-rpx;
-		font-weight: 400;
-		color: #4A4A4A;
-	}
+.poster-card--violet {
+	background: transparent;
+}
 
-	/* ========== 通知公告 / 今日课程：白块 + 1px 分割线 ========== */
-	.notice-course-fullwidth {
-		background-color: #FFFFFF;
-		width: 100%;
-		border-radius: 12rpx;
-		border: none;
-	}
-	.notice-section .section-header-inner,
-	.course-section .section-header-inner {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 28rpx 32rpx 20rpx;
-	}
-	.section-title-with-bar {
-		display: flex;
-		align-items: center;
-		gap: 12rpx;
-	}
-	.section-title-bar {
-		width: 8rpx;
-		height: 28rpx;
-		background-color: $color-primary;
-		border-radius: 4rpx;
-		flex-shrink: 0;
-	}
-	.section-title-inner {
-		font-size: 32rpx;
-		font-weight: 600;
-		color: $color-text-title;
-		text-align: left;
-	}
-	.notice-section .more,
-	.course-section .more {
-		font-size: $font-size-body-rpx;
-		font-weight: 400;
-		color: #4A4A4A;
-	}
-	.notice-list {
-		display: flex;
-		flex-direction: column;
-		padding: 0 32rpx 24rpx;
-	}
-	.notice-item {
-		position: relative;
-		display: flex;
-		align-items: center;
-		height: 120rpx;
-		padding: 0;
-		box-sizing: border-box;
-	}
-	/* 1px 极细分割线，从标题文字处开始 */
-	.notice-item + .notice-item::before {
-		content: "";
-		position: absolute;
-		left: 140rpx;
-		right: 32rpx;
-		top: 0;
-		height: 1px;
-		background-color: #EEEEEE;
-	}
-	.notice-tag {
-		font-size: 24rpx;
-		padding: 4rpx 12rpx;
-		border-radius: 4rpx;  /* 2px */
-		margin-right: 20rpx;
-		white-space: nowrap;
-		flex-shrink: 0;
-	}
-	.notice-tag.jw {
-		background-color: rgba(0, 122, 255, 0.05);
-		color: #007AFF;
-	}
-	.notice-tag.tsg {
-		background-color: rgba(52, 199, 89, 0.05);
-		color: #34C759;
-	}
-	.notice-tag.xg {
-		background-color: rgba(255, 149, 0, 0.05);
-		color: #FF9500;
-	}
-	.notice-tag.xxh {
-		background-color: rgba(88, 86, 214, 0.05);
-		color: #5856D6;
-	}
-	.notice-title {
-		flex: 1;
-		font-size: 28rpx;   /* 14px 三级 Regular */
-		font-weight: 400;
-		color: #4A4A4A;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		min-width: 0;
-	}
-	.notice-time {
-		font-size: 24rpx;
-		font-weight: 400;
-		color: #8E8E93;
-		margin-left: 16rpx;
-		flex-shrink: 0;
-	}
+.poster-card--green {
+	background: transparent;
+}
 
-	/* ========== 今日课程：左时间右标题，状态 6px 圆点，压缩行高 ========== */
-	.course-section .course-list {
-		padding: 0 32rpx 24rpx;
-	}
-	.course-list {
-		display: flex;
-		flex-direction: column;
-	}
-	.course-item {
-		position: relative;
-		display: flex;
-		align-items: center;
-		height: 96rpx;
-		padding: 0;
-		box-sizing: border-box;
-	}
-	.course-item.finished .course-name,
-	.course-item.finished .course-location,
-	.course-item.finished .time-start,
-	.course-item.finished .time-end,
-	.course-item.finished .course-status-text {
-		color: #C7C7CC;
-	}
-	.course-item + .course-item::before {
-		content: "";
-		position: absolute;
-		left: 0;
-		right: 0;
-		top: 0;
-		height: 1px;
-		background-color: #EEEEEE;
-	}
-	.course-time {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		justify-content: center;
-		margin-right: 32rpx;  /* 16px 固定间距 */
-		padding-right: 0;
-		flex-shrink: 0;
-		min-width: 90rpx;
-	}
-	.course-time--ongoing .time-start,
-	.course-time--ongoing .time-end {
-		font-weight: 700;
-		color: #5C7A99;
-	}
-	.time-start {
-		font-size: 26rpx;
-		font-weight: 600;
-		color: #1D1D1F;
-	}
-	.time-end {
-		font-size: 24rpx;
-		font-weight: 400;
-		color: #4A4A4A;
-		margin-top: 2rpx;
-	}
-	.course-info {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		justify-content: center;
-		min-width: 0;
-	}
-	.course-row {
-		display: flex;
-		align-items: center;
-		gap: 12rpx;
-		margin-bottom: 4rpx;
-	}
-	.course-name {
-		font-size: $font-size-body-rpx;
-		font-weight: 400;
-		color: #4A4A4A;
-		flex: 1;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.course-status-text {
-		font-size: 24rpx;
-		font-weight: 400;
-		flex-shrink: 0;
-		display: inline-flex;
-		align-items: center;
-		gap: 8rpx;
-	}
-	.course-status-dot {
-		display: inline-block;
-		width: 12rpx;   /* 6px */
-		height: 12rpx;
-		border-radius: 50%;
-		flex-shrink: 0;
-	}
-	.course-status-text.finished .course-status-dot {
-		background-color: #C7C7CC;
-	}
-	.course-status-text.ongoing .course-status-dot {
-		background-color: #5C7A99;
-	}
-	.course-status-text.upcoming .course-status-dot {
-		background-color: #34C759;
-	}
-	.course-status-text.finished {
-		color: #C7C7CC;
-	}
-	.course-status-text.ongoing {
-		color: #5C7A99;
-	}
-	.course-status-text.upcoming {
-		color: #34C759;
-	}
-	.course-location {
-		font-size: 22rpx;
-		font-weight: 400;
-		color: #4A4A4A;
-	}
-	.empty-tip {
-		text-align: center;
-		padding: 48rpx;
-		color: #4A4A4A;
-		font-size: $font-size-body-rpx;
-		font-weight: 400;
-	}
+.poster-image {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+}
 
-	.section-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 32rpx 32rpx 24rpx 0;
-		margin-bottom: 0;
-	}
-	.section-header .section-title-with-bar {
-		display: flex;
-		align-items: center;
-		gap: 12rpx;
-	}
-	.section-header .section-title-bar {
-		width: 8rpx;
-		height: 28rpx;
-		background-color: $color-primary;
-		border-radius: 4rpx;
-		flex-shrink: 0;
-	}
-	.section-title {
-		font-size: 32rpx;
-		font-weight: 600;
-		color: #1D1D1F;
-	}
+.main-content {
+	padding: 20rpx 28rpx 0;
+	margin-top: 0;
+	position: relative;
+	z-index: 3;
+}
 
-	/* ========== 校园服务：通栏白块 ========== */
-	.service-section {
-		padding: 32rpx 32rpx;
-	}
-	.service-grid {
-		display: grid;
-		grid-template-columns: repeat(4, 1fr);
-		gap: 48rpx;
-	}
-	.service-item {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		padding: 24rpx 0;
-	}
-	.service-icon-wrap {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		margin-bottom: $spacing-sm-rpx;
-	}
-	.service-name {
-		font-size: $font-size-body-rpx;
-		font-weight: 400;
-		color: #3A3A3C;
-	}
+.quick-nav {
+	display: grid;
+	grid-template-columns: repeat(5, 1fr);
+	gap: 12rpx;
+	padding: 0 2rpx;
+}
+
+.quick-item {
+	background: rgba(255, 255, 255, 0.86);
+	border-radius: 24rpx;
+	padding: 16rpx 0 12rpx;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	box-shadow: 0 10rpx 22rpx rgba(160, 176, 184, 0.16);
+}
+
+.quick-icon {
+	width: 72rpx;
+	height: 72rpx;
+	border-radius: 22rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.quick-icon--mint { background: linear-gradient(180deg, #dff4dc, #c5ecb8); }
+.quick-icon--sand { background: linear-gradient(180deg, #f8edd1, #f3d89a); }
+.quick-icon--orange { background: linear-gradient(180deg, #fee5c3, #ffc785); }
+.quick-icon--peach { background: linear-gradient(180deg, #fde0d7, #fdc0ac); }
+.quick-icon--sky { background: linear-gradient(180deg, #dbf0fb, #b6dbf3); }
+
+.quick-label {
+	margin-top: 10rpx;
+	font-size: 34rpx;
+	font-weight: 700;
+	color: #4d7895;
+}
+
+.headline-card {
+	margin-top: 26rpx;
+	background: rgba(255, 255, 255, 0.82);
+	border-radius: 24rpx;
+	padding: 22rpx 24rpx;
+	display: flex;
+	align-items: center;
+	box-shadow: 0 10rpx 24rpx rgba(184, 195, 200, 0.16);
+}
+
+.headline-tag {
+	flex-shrink: 0;
+	font-size: 30rpx;
+	font-weight: 800;
+	color: #53b4b4;
+}
+
+.headline-text {
+	flex: 1;
+	margin-left: 18rpx;
+	font-size: 30rpx;
+	color: #4b585d;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.headline-arrow {
+	margin-left: 14rpx;
+	width: 34rpx;
+	height: 34rpx;
+	border-radius: 50%;
+	background: #4e8487;
+	color: #fff;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 22rpx;
+}
+
+.city-card {
+	position: relative;
+	margin-top: 30rpx;
+	padding: 32rpx 22rpx 24rpx;
+	border-radius: 34rpx;
+	background: linear-gradient(180deg, #f7f9ef 0%, #f6f8f0 100%);
+	box-shadow: 0 20rpx 40rpx rgba(180, 191, 166, 0.18);
+	overflow: hidden;
+}
+
+.skyline {
+	position: relative;
+	height: 170rpx;
+	margin-bottom: 18rpx;
+}
+
+.skyline-build {
+	position: absolute;
+	bottom: 20rpx;
+	background: linear-gradient(180deg, #b3e4ca, #8fd6b2);
+	border-radius: 12rpx 12rpx 0 0;
+}
+
+.skyline-build-a { left: 40rpx; width: 56rpx; height: 88rpx; }
+.skyline-build-b { left: 118rpx; width: 70rpx; height: 118rpx; }
+.skyline-build-c { left: 206rpx; width: 76rpx; height: 140rpx; }
+.skyline-build-d { left: 308rpx; width: 90rpx; height: 92rpx; background: linear-gradient(180deg, #f8c383, #f3a35f); }
+
+.skyline-bridge {
+	position: absolute;
+	left: 20rpx;
+	right: 24rpx;
+	bottom: 24rpx;
+	height: 22rpx;
+	border-radius: 20rpx;
+	background: linear-gradient(90deg, #ffd49a, #ffb978);
+}
+
+.skyline-cloud {
+	position: absolute;
+	background: rgba(255, 255, 255, 0.7);
+	border-radius: 999rpx;
+}
+
+.skyline-cloud-a {
+	right: 120rpx;
+	top: 30rpx;
+	width: 86rpx;
+	height: 22rpx;
+}
+
+.skyline-cloud-b {
+	right: 40rpx;
+	top: 64rpx;
+	width: 56rpx;
+	height: 18rpx;
+}
+
+.coupon-bubble {
+	display: inline-flex;
+	align-items: center;
+	padding: 16rpx 24rpx;
+	background: linear-gradient(180deg, #a7d7d2, #86c0c2);
+	border-radius: 24rpx;
+	box-shadow: 0 10rpx 20rpx rgba(116, 172, 177, 0.22);
+}
+
+.coupon-text {
+	font-size: 30rpx;
+	font-weight: 700;
+	color: #416972;
+}
+
+.coupon-arrow {
+	margin-left: 16rpx;
+	font-size: 28rpx;
+	color: #416972;
+}
+
+.city-mascot {
+	position: absolute;
+	right: 34rpx;
+	top: 174rpx;
+	width: 148rpx;
+	height: 178rpx;
+}
+
+.mascot-head {
+	position: absolute;
+	left: 24rpx;
+	top: 0;
+	width: 100rpx;
+	height: 86rpx;
+	border-radius: 44rpx;
+	background: linear-gradient(180deg, #eef5fd, #d8e5f4);
+	box-shadow: inset 0 -8rpx 0 rgba(165, 187, 205, 0.26);
+}
+
+.mascot-face {
+	position: absolute;
+	left: 42rpx;
+	top: 18rpx;
+	width: 68rpx;
+	height: 62rpx;
+	border-radius: 30rpx;
+	background: #ffe3c9;
+}
+
+.mascot-body {
+	position: absolute;
+	left: 36rpx;
+	top: 74rpx;
+	width: 82rpx;
+	height: 78rpx;
+	border-radius: 24rpx 24rpx 18rpx 18rpx;
+	background: linear-gradient(180deg, #f8c786, #ec8b47);
+}
+
+.city-stats {
+	display: flex;
+	align-items: center;
+	gap: 44rpx;
+	margin-top: 26rpx;
+	padding-right: 170rpx;
+}
+
+.city-stat {
+	display: flex;
+	flex-direction: column;
+}
+
+.city-stat-value {
+	font-size: 50rpx;
+	font-weight: 800;
+	color: #598698;
+	line-height: 1.1;
+}
+
+.city-stat-label {
+	margin-top: 6rpx;
+	font-size: 26rpx;
+	color: #7f9899;
+}
+
+.feature-grid {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 18rpx;
+	margin-top: 28rpx;
+}
+
+.feature-card {
+	position: relative;
+	min-height: 142rpx;
+	border-radius: 24rpx;
+	padding: 22rpx 20rpx;
+	overflow: hidden;
+}
+
+.feature-card--amber { background: linear-gradient(180deg, #fff2e3, #fff8f1); }
+.feature-card--mint { background: linear-gradient(180deg, #f0fbf2, #f8fff8); }
+.feature-card--sky { background: linear-gradient(180deg, #eef7ff, #f8fbff); }
+.feature-card--rose { background: linear-gradient(180deg, #fff0f0, #fff9f6); }
+
+.feature-title {
+	display: block;
+	font-size: 34rpx;
+	font-weight: 800;
+	color: #54727b;
+}
+
+.feature-desc {
+	display: block;
+	margin-top: 10rpx;
+	font-size: 24rpx;
+	color: #9ca9ad;
+}
+
+.feature-arrow {
+	position: absolute;
+	left: 18rpx;
+	bottom: 14rpx;
+	width: 26rpx;
+	height: 26rpx;
+	border-radius: 50%;
+	background: rgba(88, 122, 128, 0.12);
+	color: #6a8788;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 18rpx;
+}
 </style>
