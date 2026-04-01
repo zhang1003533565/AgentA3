@@ -651,6 +651,108 @@ INSERT INTO discount_activity (id, merchant_id, title, description, cover_image,
 (8, 4, '打印套餐10元封顶', '单面黑白打印0.1元/张，10张以内仅收1元，10张以上10元封顶，适合日常打印需求。', 'https://picsum.photos/800/400?random=310', NULL, '2026-03-01 00:00:00', '2026-12-31 23:59:59', '1. 仅限黑白单面打印\n2. 需提前预约', 0, 0, NOW());
 
 -- =============================================
+-- 第六部分：第七阶段 - 活动通知模块数据
+-- =============================================
+
+-- =============================================
+-- 第七阶段：建表语句
+-- =============================================
+
+-- 活动通知表
+CREATE TABLE IF NOT EXISTS activity_notice (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '通知ID',
+    activity_id BIGINT NOT NULL COMMENT '关联活动ID',
+    title VARCHAR(200) NOT NULL COMMENT '通知标题',
+    content TEXT COMMENT '通知内容',
+    publisher_id BIGINT COMMENT '发布人ID',
+    publisher_name VARCHAR(50) COMMENT '发布人名称',
+    status VARCHAR(20) NOT NULL DEFAULT 'PUBLISHED' COMMENT '通知状态: DRAFT-草稿, PUBLISHED-已发布',
+    publish_time DATETIME COMMENT '发布时间',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='活动通知表';
+
+-- =============================================
+-- 活动分类表
+-- =============================================
+CREATE TABLE IF NOT EXISTS activity_category (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '分类ID',
+    category_name VARCHAR(100) NOT NULL COMMENT '分类名称',
+    sort INT DEFAULT 1 COMMENT '排序',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-启用, 0-禁用',
+    create_time DATETIME COMMENT '创建时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='活动分类表';
+
+-- =============================================
+-- 活动表
+-- =============================================
+CREATE TABLE IF NOT EXISTS activity (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '活动ID',
+    title VARCHAR(200) NOT NULL COMMENT '活动标题',
+    cover_image VARCHAR(255) COMMENT '封面图片URL',
+    category_id BIGINT COMMENT '分类ID',
+    organizer_id BIGINT COMMENT '组织者ID',
+    organizer_name VARCHAR(100) COMMENT '组织者名称',
+    content TEXT COMMENT '活动内容',
+    location VARCHAR(200) COMMENT '活动地点',
+    max_people INT DEFAULT 0 COMMENT '最大人数',
+    current_people INT DEFAULT 0 COMMENT '当前报名人数',
+    start_time DATETIME COMMENT '活动开始时间',
+    end_time DATETIME COMMENT '活动结束时间',
+    signup_start_time DATETIME COMMENT '报名开始时间',
+    signup_end_time DATETIME COMMENT '报名结束时间',
+    status VARCHAR(20) DEFAULT 'DRAFT' COMMENT '活动状态: DRAFT-草稿, PUBLISHED-已发布, REJECTED-已驳回, CANCELLED-已取消, COMPLETED-已完成',
+    sign_in_type INT DEFAULT 1 COMMENT '签到类型: 1-现场签到, 2-二维码签到',
+    sign_in_open BOOLEAN DEFAULT FALSE COMMENT '签到是否开启',
+    score DECIMAL(3,1) DEFAULT 0 COMMENT '活动学分',
+    contact_name VARCHAR(50) COMMENT '联系人姓名',
+    contact_phone VARCHAR(20) COMMENT '联系电话',
+    create_time DATETIME COMMENT '创建时间',
+    FOREIGN KEY (category_id) REFERENCES activity_category(id),
+    FOREIGN KEY (organizer_id) REFERENCES sys_user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='活动表';
+
+-- =============================================
+-- 第七阶段：清空表数据
+-- =============================================
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE activity_category;
+TRUNCATE TABLE activity;
+TRUNCATE TABLE activity_notice;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- =============================================
+-- 活动分类测试数据
+-- =============================================
+INSERT INTO activity_category (id, category_name, sort, status, create_time) VALUES
+(1, '学术讲座', 1, 1, NOW()),
+(2, '体育活动', 2, 1, NOW()),
+(3, '社团活动', 3, 1, NOW()),
+(4, '志愿活动', 4, 1, NOW()),
+(5, '新生活动', 5, 1, NOW());
+
+-- =============================================
+-- 活动测试数据
+-- =============================================
+INSERT INTO activity (id, title, cover_image, category_id, organizer_id, organizer_name, content, location, max_people, current_people, start_time, end_time, signup_start_time, signup_end_time, status, sign_in_type, sign_in_open, score, contact_name, contact_phone, create_time) VALUES
+(1, 'Python编程讲座', 'https://picsum.photos/800/600?random=1', 1, 2, '张老师', '本次讲座将介绍Python编程基础知识，适合初学者参加。', '图书馆报告厅', 100, 50, '2026-03-20 14:00:00', '2026-03-20 16:00:00', '2026-03-15 08:00:00', '2026-03-19 18:00:00', 'PUBLISHED', 1, false, 2.0, '张老师', '13800138000', NOW()),
+(2, '校园篮球赛', 'https://picsum.photos/800/600?random=2', 2, 3, '李老师', '校园篮球联赛即将开始，欢迎各院系组队参加。', '篮球场', 200, 150, '2026-03-25 09:00:00', '2026-03-25 17:00:00', '2026-03-10 08:00:00', '2026-03-22 18:00:00', 'PUBLISHED', 1, false, 1.0, '李老师', '13800138001', NOW()),
+(3, '社团招新活动', 'https://picsum.photos/800/600?random=3', 3, 2, '张老师', '新学期社团招新活动，欢迎各位同学加入感兴趣的社团。', '图书馆前广场', 500, 300, '2026-03-18 10:00:00', '2026-03-18 16:00:00', '2026-03-10 08:00:00', '2026-03-17 18:00:00', 'PUBLISHED', 1, false, 0.5, '张老师', '13800138000', NOW()),
+(4, '校园环境美化', 'https://picsum.photos/800/600?random=4', 4, 3, '李老师', '组织志愿者活动，一起美化校园环境。', '校园各处', 100, 80, '2026-03-19 09:00:00', '2026-03-19 12:00:00', '2026-03-10 08:00:00', '2026-03-18 18:00:00', 'PUBLISHED', 1, false, 1.0, '李老师', '13800138001', NOW()),
+(5, '新生见面会', 'https://picsum.photos/800/600?random=5', 5, 2, '张老师', '新生见面会，介绍校园生活和学习注意事项。', '博学楼报告厅', 300, 250, '2026-03-21 14:00:00', '2026-03-21 16:00:00', '2026-03-10 08:00:00', '2026-03-20 18:00:00', 'PUBLISHED', 1, false, 0.5, '张老师', '13800138000', NOW());
+
+-- =============================================
+-- 活动通知测试数据
+-- =============================================
+INSERT INTO activity_notice (id, activity_id, title, content, publisher_id, publisher_name, status, publish_time, create_time, update_time) VALUES
+(1, 1, '讲座时间变更通知', '原定于本周五的校园讲座因故推迟到本周六上午9点，地点不变，请同学们相互转告。', 2, '张老师', 'PUBLISHED', NOW(), NOW(), NOW()),
+(2, 1, '讲座补充说明', '本次讲座特别邀请了业内知名专家前来分享，建议同学们提前准备好相关问题。', 2, '张老师', 'PUBLISHED', NOW(), NOW(), NOW()),
+(3, 2, '体育比赛报名即将截止', '校园篮球赛报名将于本周日截止，还未报名的同学请抓紧时间通过系统报名。', 3, '李老师', 'PUBLISHED', NOW(), NOW(), NOW()),
+(4, 3, '社团招新活动通知', '新学期社团招新活动定于下周一至周三在图书馆前广场举行，欢迎各位同学积极参与。', 2, '张老师', 'PUBLISHED', NOW(), NOW(), NOW()),
+(5, 4, '志愿者活动预告', '本周六将组织校园环境美化志愿活动，报名成功的同学请准时到达指定集合点。', 3, '李老师', 'PUBLISHED', NOW(), NOW(), NOW()),
+(6, 5, '新生见面会安排', '新生见面会将于本周三下午2点在博学楼报告厅举行，请新生准时参加。', 2, '张老师', 'PUBLISHED', NOW(), NOW(), NOW());
+
+-- =============================================
 -- 论坛话题（forum_post.topic_id 外键依赖；与小程序分类/发帖选项 id 对齐）
 -- =============================================
 INSERT INTO forum_topic (id, topic_name, post_count, is_hot, status, create_time) VALUES
