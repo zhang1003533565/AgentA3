@@ -357,6 +357,7 @@ export default {
 .community-container {
   min-height: 100vh;
   background-color: #F7F7F9;
+  overflow-x: hidden;
 }
 
 .search-bar {
@@ -412,15 +413,17 @@ export default {
 .category-list {
   display: flex;
   padding: 0 32rpx;
-  gap: 48rpx;
+  gap: 56rpx;
+  width: max-content;
 }
 
 .category-item {
   position: relative;
   padding: 12rpx 0;
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .category-text {
@@ -428,6 +431,7 @@ export default {
   color: #666;
   text-align: center;
   line-height: 1.4;
+  white-space: nowrap;
 }
 
 .category-item.active .category-text {
@@ -447,7 +451,9 @@ export default {
 }
 
 .activity-list {
+  width: 100%;
   padding: 280rpx 24rpx 24rpx;
+  box-sizing: border-box;
 }
 
 /* 分组样式 */
@@ -486,13 +492,16 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 20rpx;
+  width: 100%;
 }
 
 .activity-card {
+  width: 100%;
   background-color: #FFFFFF;
   border-radius: 16rpx;
   margin-bottom: 24rpx;
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 .activity-cover {
@@ -501,7 +510,9 @@ export default {
 }
 
 .activity-info {
+  width: 100%;
   padding: 24rpx;
+  box-sizing: border-box;
 }
 
 .activity-header {
@@ -509,6 +520,7 @@ export default {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16rpx;
+  gap: 16rpx;
 }
 
 .activity-title {
@@ -516,6 +528,7 @@ export default {
   font-weight: 600;
   color: #333;
   flex: 1;
+  min-width: 0;
 }
 
 .activity-tag {
@@ -621,8 +634,8 @@ export default {
 /* 发布按钮 - 新设计 */
 .fab-btn {
   position: fixed;
-  right: 40rpx;
-  bottom: 140rpx;
+  right: 28rpx;
+  bottom: 120rpx;
   width: 112rpx;
   height: 112rpx;
   background: linear-gradient(135deg, #FF6B6B 0%, #FF8E53 100%);
@@ -635,7 +648,7 @@ export default {
     0 8rpx 32rpx rgba(255, 107, 107, 0.4),
     0 4rpx 16rpx rgba(255, 107, 107, 0.2),
     inset 0 2rpx 4rpx rgba(255, 255, 255, 0.3);
-  z-index: 100;
+  z-index: 1200;
   transition: all 0.3s ease;
 }
 

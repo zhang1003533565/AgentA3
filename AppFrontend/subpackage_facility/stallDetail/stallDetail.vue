@@ -1,8 +1,8 @@
 <template>
   <view class="stall-detail-page">
-    <nav-bar :title="stall.name || '档口详情'" />
+    <nav-bar :title="stall.name || '档口详情'" fixed placeholder />
 
-    <scroll-view class="detail-scroll" scroll-y :style="{ paddingTop: navBarHeight + 'px' }">
+    <scroll-view class="detail-scroll" scroll-y :style="{ height: `calc(100vh - ${navBarHeight}px)` }">
       <view class="hero">
         <image class="hero-bg" :src="stall.image" mode="aspectFill" />
         <view class="hero-mask" />

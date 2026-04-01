@@ -1,8 +1,8 @@
 <template>
   <view class="restaurant-detail-page">
-    <nav-bar :title="restaurant.name || '餐厅详情'" />
+    <nav-bar :title="restaurant.name || '餐厅详情'" fixed placeholder />
 
-    <scroll-view class="detail-scroll" scroll-y :style="{ paddingTop: navBarHeight + 'px' }">
+    <scroll-view class="detail-scroll" scroll-y :style="{ height: `calc(100vh - ${navBarHeight}px)` }">
       <image class="banner" :src="restaurant.image" mode="aspectFill" />
 
       <view class="card">

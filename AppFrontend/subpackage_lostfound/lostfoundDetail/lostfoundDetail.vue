@@ -1,8 +1,8 @@
 <template>
 	<view class="lostfound-detail-container">
-		<nav-bar title="信息详情" />
+		<nav-bar title="信息详情" fixed placeholder />
 		
-		<view class="detail-content" :style="{ paddingTop: navBarHeight + 'px' }">
+		<view class="detail-content">
 			<image :src="item.image" mode="aspectFill" class="detail-img" />
 			
 			<view class="article-header">
@@ -53,7 +53,6 @@
 		components: { NavBar, IconLine },
 		data() {
 			return {
-				navBarHeight: 88,
 				item: {
 					id: null,
 					title: '',
@@ -67,9 +66,6 @@
 			}
 		},
 		onLoad(options) {
-			const sys = uni.getSystemInfoSync()
-			this.navBarHeight = sys.statusBarHeight + 44
-			
 			if (options.id) {
 				this.loadDetail(options.id)
 			}

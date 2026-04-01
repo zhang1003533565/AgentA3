@@ -1,6 +1,6 @@
 <template>
   <view class="detail-container">
-    <nav-bar title="帖子详情" :showBack="true" />
+    <nav-bar title="帖子详情" :showBack="true" fixed placeholder />
     <!-- 帖子内容 -->
     <view class="post-section">
       <!-- 用户信息（点击头像/昵称进入个人主页） -->

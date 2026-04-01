@@ -1,8 +1,8 @@
 <template>
 	<view class="schedule-detail-container">
-		<nav-bar title="课程详情" />
+		<nav-bar title="课程详情" fixed placeholder />
 		
-		<view class="detail-content" :style="{ paddingTop: navBarHeight + 'px' }">
+		<view class="detail-content">
 			<view class="article-header">
 				<text class="article-title">{{ course.name }}</text>
 				<view class="article-meta">
@@ -59,7 +59,6 @@
 		components: { NavBar, IconLine },
 		data() {
 			return {
-				navBarHeight: 88,
 				course: {
 					id: null,
 					name: '',
@@ -72,9 +71,6 @@
 			}
 		},
 		onLoad(options) {
-			const sys = uni.getSystemInfoSync()
-			this.navBarHeight = sys.statusBarHeight + 44
-			
 			if (options.id) {
 				this.loadCourseDetail(options.id)
 			}

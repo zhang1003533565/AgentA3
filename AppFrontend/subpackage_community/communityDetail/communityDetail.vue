@@ -1,8 +1,8 @@
 <template>
   <view class="detail-container">
-    <nav-bar title="活动详情" :showBack="true" />
+    <nav-bar title="活动详情" :showBack="true" fixed placeholder />
     
-    <scroll-view class="detail-content" scroll-y>
+    <scroll-view class="detail-content" scroll-y :style="{ height: `calc(100vh - ${navBarHeight}px)` }">
       <!-- 活动封面 -->
       <image class="detail-cover" :src="activity.cover || defaultCover" mode="aspectFill" />
       
@@ -83,6 +83,7 @@ export default {
   components: { NavBar },
   data() {
     return {
+      navBarHeight: 88,
       activityId: null,
       defaultCover: 'https://picsum.photos/seed/community/800/450',
       activity: {},
@@ -91,6 +92,8 @@ export default {
     }
   },
   onLoad(options) {
+    const sys = uni.getSystemInfoSync()
+    this.navBarHeight = (sys.statusBarHeight || 0) + 44
     this.activityId = options.id
     this.loadActivityDetail()
   },
@@ -184,7 +187,7 @@ export default {
 }
 
 .detail-content {
-  height: 100vh;
+  min-height: 0;
 }
 
 .detail-cover {

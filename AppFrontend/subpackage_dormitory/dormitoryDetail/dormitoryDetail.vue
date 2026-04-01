@@ -1,8 +1,8 @@
 <template>
   <view class="dorm-detail-page">
-    <nav-bar :title="dorm.name || '宿舍详情'" />
+    <nav-bar :title="dorm.name || '宿舍详情'" fixed placeholder />
 
-    <scroll-view class="detail-scroll" scroll-y :style="{ paddingTop: navBarHeight + 'px' }">
+    <scroll-view class="detail-scroll" scroll-y :style="{ height: `calc(100vh - ${navBarHeight}px)` }">
       <view class="hero">
         <image class="hero-image" :src="dorm.image" mode="aspectFill" />
         <view class="hero-mask" />
@@ -141,7 +141,7 @@ export default {
 
 <style lang="scss" scoped>
 .dorm-detail-page { min-height: 100vh; background: #f6f7fb; }
-.detail-scroll { height: 100vh; }
+.detail-scroll { min-height: 0; }
 .hero { margin: 24rpx 24rpx 0; position: relative; height: 280rpx; border-radius: 22rpx; overflow: hidden; }
 .hero-image { width: 100%; height: 100%; }
 .hero-mask { position: absolute; left: 0; right: 0; top: 0; bottom: 0; background: linear-gradient(180deg, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.45) 100%); }

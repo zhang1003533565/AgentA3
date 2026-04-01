@@ -1,8 +1,8 @@
 <template>
 	<view class="message-detail-container">
-		<nav-bar :title="messageTitle" />
+		<nav-bar :title="messageTitle" fixed placeholder />
 		
-		<view class="detail-content" :style="{ paddingTop: navBarHeight + 'px' }">
+		<view class="detail-content">
 			<view class="article-header">
 				<text class="article-title">{{ message.title }}</text>
 				<view class="article-meta">
@@ -35,7 +35,6 @@
 		components: { NavBar },
 		data() {
 			return {
-				navBarHeight: 88,
 				messageTitle: '消息详情',
 				message: {
 					id: null,
@@ -47,9 +46,6 @@
 			}
 		},
 		onLoad(options) {
-			const sys = uni.getSystemInfoSync()
-			this.navBarHeight = (sys.statusBarHeight || 20) + 44
-			
 			if (options.id) {
 				// 模拟获取详情，实际开发中应从后端或全局状态获取
 				this.loadMessageDetail(options.id)

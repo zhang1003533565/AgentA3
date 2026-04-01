@@ -74,50 +74,6 @@
 	],
 	"subPackages": [
 		{
-			"root": "subpackage_activity",
-			"pages": [
-				{
-					"path": "activityList/activityList",
-					"style": {
-						"navigationBarTitleText": "活动",
-						"navigationStyle": "custom",
-						"navigationBarBackgroundColor": "#FFFFFF",
-						"navigationBarTextStyle": "black",
-						"enablePullDownRefresh": true
-					}
-				},
-				{
-					"path": "activityDetail/activityDetail",
-					"style": {
-						"navigationBarTitleText": "活动详情",
-						"navigationStyle": "custom",
-						"navigationBarBackgroundColor": "#FFFFFF",
-						"navigationBarTextStyle": "black"
-					}
-				},
-				{
-					"path": "myActivity/myActivity",
-					"style": {
-						"navigationBarTitleText": "我的活动",
-						"navigationStyle": "custom",
-						"navigationBarBackgroundColor": "#FFFFFF",
-						"navigationBarTextStyle": "black",
-						"enablePullDownRefresh": true
-					}
-				},
-				{
-					"path": "favoriteActivity/favoriteActivity",
-					"style": {
-						"navigationBarTitleText": "我的收藏",
-						"navigationStyle": "custom",
-						"navigationBarBackgroundColor": "#FFFFFF",
-						"navigationBarTextStyle": "black",
-						"enablePullDownRefresh": true
-					}
-				}
-			]
-		},
-		{
 			"root": "subpackage_forum",
 			"pages": [
 				{
@@ -391,7 +347,7 @@
 	"preloadRule": {
 		"pages/index/index": {
 			"network": "all",
-			"packages": ["subpackage_activity", "subpackage_forum", "subpackage_message", "subpackage_signin", "subpackage_schedule", "subpackage_lostfound", "subpackage_facility", "subpackage_sports", "subpackage_teaching", "subpackage_dormitory", "subpackage_community"]
+			"packages": ["subpackage_forum", "subpackage_message", "subpackage_signin", "subpackage_schedule", "subpackage_lostfound", "subpackage_facility", "subpackage_sports", "subpackage_teaching", "subpackage_dormitory", "subpackage_community"]
 		}
 	},
 	"globalStyle": {
