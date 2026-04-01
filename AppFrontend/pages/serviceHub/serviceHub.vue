@@ -1,6 +1,16 @@
 <template>
   <view class="page">
-    <nav-bar :title="title" :showBack="true" />
+    <nav-bar
+      :title="title"
+      :showBack="true"
+      theme="wechat"
+      :showWechatCapsule="true"
+      :background="'transparent'"
+      :border="false"
+      :heightRpx="100"
+      :iconColor="'#2b3440'"
+      :titleColor="'#2b3440'"
+    />
     <view class="hero">
       <text class="hero-title">{{ title }}</text>
       <text class="hero-desc">该服务入口已补齐页面壳层，后续可以继续接具体业务接口。</text>
@@ -37,7 +47,7 @@ export default {
 <style lang="scss" scoped>
 .page {
   min-height: 100vh;
-  background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 35%, #f7f7f9 100%);
+  background: linear-gradient(180deg, #dff0ff 0%, #edf6ff 180rpx, #f7f9fc 360rpx, #f7f7f9 100%);
 }
 
 .hero,
@@ -47,6 +57,10 @@ export default {
   border-radius: 28rpx;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 20rpx 50rpx rgba(15, 23, 42, 0.05);
+}
+
+.hero {
+  margin-top: 8rpx;
 }
 
 .hero-title,

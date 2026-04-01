@@ -1,6 +1,6 @@
 <template>
   <view class="my-activity-container">
-    <nav-bar title="我的收藏" :showBack="true" />
+    <nav-bar title="我的收藏" :showBack="true" :fixed="true" :placeholder="true" />
 
     <scroll-view
       class="activity-list"
@@ -150,7 +150,7 @@ export default {
 <style lang="scss" scoped>
 .my-activity-container {
   min-height: 100vh;
-  background-color: #F7F7F9;
+  background: linear-gradient(180deg, #dff0ff 0%, #edf6ff 220rpx, #f7f9fc 400rpx, #f7f7f9 100%);
   padding-bottom: 120rpx;
 }
 

@@ -12,6 +12,7 @@
             <view
               v-if="showBack"
               class="nav-action nav-back"
+              :class="{ 'nav-action--wechat': theme === 'wechat' }"
               :style="actionStyle"
               @click="onBack"
             >
@@ -44,7 +45,21 @@
         <view class="nav-side nav-side--right">
           <slot name="right">
             <view
-              v-if="rightText || rightIcon"
+              v-if="showDefaultCapsule"
+              class="nav-capsule"
+            >
+              <view class="nav-capsule__dots">
+                <text class="nav-capsule__dot"></text>
+                <text class="nav-capsule__dot"></text>
+                <text class="nav-capsule__dot"></text>
+              </view>
+              <view class="nav-capsule__divider"></view>
+              <view class="nav-capsule__circle">
+                <text class="nav-capsule__circle-inner"></text>
+              </view>
+            </view>
+            <view
+              v-else-if="rightText || rightIcon"
               class="nav-action nav-right"
               :style="actionStyle"
               @click="$emit('right-click')"
@@ -82,10 +97,12 @@ export default {
     shadow: { type: Boolean, default: false },
     titleAlign: { type: String, default: 'center' },
     heightRpx: { type: Number, default: 88 },
-    background: { type: String, default: '#FFFFFF' },
+    background: { type: String, default: '' },
     titleColor: { type: String, default: '#1D1D1F' },
     subtitleColor: { type: String, default: '#8E8E93' },
-    iconColor: { type: String, default: '#1D1D1F' }
+    iconColor: { type: String, default: '#1D1D1F' },
+    theme: { type: String, default: 'default' },
+    showWechatCapsule: { type: Boolean, default: false }
   },
   data() {
     return {
@@ -100,13 +117,22 @@ export default {
         'nav-bar--fixed': this.fixed,
         'nav-bar--borderless': !this.border,
         'nav-bar--shadow': this.shadow,
-        'nav-bar--with-subtitle': !!this.subtitle
+        'nav-bar--with-subtitle': !!this.subtitle,
+        'nav-bar--wechat': this.theme === 'wechat'
       }
     },
     navStyle() {
-      return {
-        background: this.glass ? 'rgba(255,255,255,0.78)' : this.background
+      if (this.glass) {
+        return {
+          background: 'rgba(255,255,255,0.78)'
+        }
       }
+      if (this.background) {
+        return {
+          background: this.background
+        }
+      }
+      return {}
     },
     titleColorValue() {
       return this.titleColor
@@ -117,13 +143,24 @@ export default {
     iconColorValue() {
       return this.iconColor
     },
+    showDefaultCapsule() {
+      return this.showWechatCapsule || (!!this.showBack && !this.rightText && !this.rightIcon)
+    },
     totalHeightPx() {
       return this.statusBarHeight + this.rpxToPx(this.heightRpx)
     },
     centerInset() {
+      if (this.showDefaultCapsule) {
+        return '156rpx'
+      }
       return '112rpx'
     },
     actionStyle() {
+      if (this.showDefaultCapsule) {
+        return {
+          minWidth: '72rpx'
+        }
+      }
       return {
         minWidth: '88rpx'
       }
@@ -161,9 +198,9 @@ export default {
 
 .nav-bar {
   position: relative;
-  padding: 0 24rpx;
-  background: #ffffff;
-  border-bottom: 1px solid #e8ebef;
+  padding: 0 28rpx;
+  background: linear-gradient(180deg, #dff0ff 0%, #eaf5ff 100%);
+  border-bottom-color: rgba(177, 208, 235, 0.55);
 }
 
 .nav-bar--fixed {
@@ -188,7 +225,7 @@ export default {
 
 .nav-inner {
   display: grid;
-  grid-template-columns: 112rpx 1fr 112rpx;
+  grid-template-columns: 92rpx 1fr 188rpx;
   align-items: center;
 }
 
@@ -223,10 +260,11 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 36rpx;
+  font-size: 32rpx;
   line-height: 1.2;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  color: #2c2f36;
+  letter-spacing: 0;
 }
 
 .nav-subtitle {
@@ -255,10 +293,17 @@ export default {
   transform: scale(0.96);
 }
 
+.nav-action--wechat {
+  width: 72rpx;
+  height: 72rpx;
+  padding: 0;
+  border-radius: 50%;
+}
+
 .nav-back-icon {
-  font-size: 50rpx;
+  font-size: 64rpx;
   line-height: 1;
-  font-weight: 400;
+  font-weight: 300;
 }
 
 .nav-right-icon {
@@ -274,5 +319,55 @@ export default {
 
 .nav-placeholder {
   width: 100%;
+}
+
+.nav-capsule {
+  height: 74rpx;
+  min-width: 168rpx;
+  padding: 0 10rpx 0 22rpx;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(193, 213, 230, 0.85);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.65);
+}
+
+.nav-capsule__dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.nav-capsule__dot {
+  width: 8rpx;
+  height: 8rpx;
+  border-radius: 50%;
+  background: #222831;
+}
+
+.nav-capsule__divider {
+  width: 1px;
+  height: 30rpx;
+  margin: 0 12rpx;
+  background: rgba(34, 40, 49, 0.12);
+}
+
+.nav-capsule__circle {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  border: 4rpx solid #111827;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-capsule__circle-inner {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: #111827;
 }
 </style>

@@ -1,6 +1,6 @@
 <template>
   <view class="my-activity-container">
-    <nav-bar title="我的活动" :showBack="true" />
+    <nav-bar title="我的活动" :showBack="true" :fixed="true" :placeholder="true" />
 
     <!-- Tab：待参加 / 报名记录 / 已结束 -->
     <view class="category-wrap">
@@ -203,12 +203,12 @@ export default {
 <style lang="scss" scoped>
 .my-activity-container {
   min-height: 100vh;
-  background-color: #F7F7F9;
+  background: linear-gradient(180deg, #dff0ff 0%, #edf6ff 220rpx, #f7f9fc 420rpx, #f7f7f9 100%);
   padding-bottom: 120rpx;
 }
 
 .category-wrap {
-  background-color: #FFFFFF;
+  background-color: rgba(255, 255, 255, 0.96);
   margin-bottom: $spacing-block;
   border-bottom: 1px solid #EEEEEE;
 }

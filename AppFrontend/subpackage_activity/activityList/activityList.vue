@@ -268,7 +268,7 @@ export default {
 <style lang="scss">
 .activity-container {
   min-height: 100vh;
-  background-color: #F7F7F9;
+  background: linear-gradient(180deg, #dff0ff 0%, #edf6ff 240rpx, #f7f9fc 420rpx, #f7f7f9 100%);
   padding-bottom: 120rpx;
 }
 
@@ -277,7 +277,7 @@ export default {
   align-items: center;
   gap: 24rpx;
   padding: 16rpx $spacing-lg-rpx $spacing-block;
-  background-color: #FFFFFF;
+  background-color: transparent;
 }
 .search-input {
   flex: 1;
@@ -318,7 +318,7 @@ export default {
 .nav-secondary-wrap {
   display: flex;
   align-items: center;
-  background-color: #FFFFFF;
+  background-color: rgba(255, 255, 255, 0.96);
   padding: 0 0 0 $spacing-lg-rpx;
   margin-bottom: $spacing-block;
   border-bottom: 1px solid #F2F2F2;

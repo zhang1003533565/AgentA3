@@ -1,21 +1,14 @@
 <template>
   <view class="detail-page">
-    <!-- 顶部导航：返回 + 活动详情 + 分享 -->
-    <view class="detail-nav" :style="{ paddingTop: statusBarHeight + 'px' }">
-      <view class="detail-nav-inner">
-        <view class="nav-back" @click.stop="onBack">
-          <text class="nav-back-icon">‹</text>
-        </view>
-        <view class="nav-title-wrap">
-          <text class="nav-title">活动详情</text>
-        </view>
-        <view class="nav-right" @click="onShare">
+    <nav-bar title="活动详情" :showBack="true" :fixed="true" :placeholder="true">
+      <template #right>
+        <view class="detail-nav-action" @click="onShare">
           <image class="nav-share-icon" src="/static/icons/line/share.svg" mode="aspectFit" />
         </view>
-      </view>
-    </view>
+      </template>
+    </nav-bar>
 
-    <scroll-view class="detail-scroll" scroll-y :style="{ paddingTop: scrollPaddingTop }">
+    <scroll-view class="detail-scroll" scroll-y>
       <!-- 主图 + 状态标签（浮于图上） -->
       <view class="cover-wrap">
         <image class="cover-img" :src="detail.coverImage || detail.image" mode="aspectFill" />
@@ -106,12 +99,13 @@
 </template>
 
 <script>
+import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getActivityDetail, addFavorite, removeFavorite, checkFavoriteStatus } from '@/api/activity.js'
 import { registerActivity, cancelRegistration, getMyRegistrations } from '@/api/registration.js'
 export default {
+  components: { NavBar },
   data() {
     return {
-      statusBarHeight: 20,
       id: '',
       detail: {
         title: '',
@@ -134,17 +128,7 @@ export default {
       }
     }
   },
-  computed: {
-    scrollPaddingTop() {
-      const bar = 48
-      return (this.statusBarHeight + bar) + 'px'
-    }
-  },
   onLoad(options) {
-    try {
-      const sys = uni.getSystemInfoSync()
-      this.statusBarHeight = sys.statusBarHeight || 20
-    } catch (e) {}
     this.id = options.id || ''
     this.loadDetail()
   },
@@ -295,68 +279,18 @@ export default {
 <style lang="scss" scoped>
 .detail-page {
   min-height: 100vh;
-  background-color: #F7F7F9;
+  background: linear-gradient(180deg, #dff0ff 0%, #edf6ff 260rpx, #f7f9fc 480rpx, #f7f7f9 100%);
   padding-bottom: 140rpx;
 }
 
-/* 顶部导航：与 nav-bar 统一，右侧分享 */
-.detail-nav {
-  background-color: #FFFFFF;
-  border-bottom: 1px solid #E2E8F0;
-  padding-left: 32rpx;
-  padding-right: 32rpx;
-  padding-bottom: 8rpx;
-  position: fixed;
-  left: 0;
-  right: 0;
-  top: 0;
-  z-index: 100;
-}
-.detail-nav-inner {
-  position: relative;
-  height: 88rpx;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.nav-back,
-.nav-right {
+.detail-nav-action {
   width: 88rpx;
   height: 88rpx;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  flex-shrink: 0;
-  position: relative;
-  z-index: 1;
-}
-.nav-right {
   justify-content: flex-end;
 }
-.nav-back-icon {
-  font-size: 48rpx;
-  color: #1D1D1F;
-  line-height: 1;
-  font-weight: 400;
-}
-.nav-title-wrap {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  pointer-events: none;
-}
-.nav-title {
-  font-size: 36rpx;
-  font-weight: 700;
-  color: #1D1D1F;
-  letter-spacing: -0.03em;
-  line-height: 88rpx;
-}
+
 .nav-share-icon {
   width: 40rpx;
   height: 40rpx;
