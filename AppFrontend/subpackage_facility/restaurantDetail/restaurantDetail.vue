@@ -164,7 +164,7 @@ export default {
 }
 
 .detail-scroll {
-  height: 100vh;
+  min-height: 0;
 }
 
 .banner {

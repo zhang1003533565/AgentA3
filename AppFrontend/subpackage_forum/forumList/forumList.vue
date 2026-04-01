@@ -1,6 +1,6 @@
 <template>
   <view class="forum-container">
-    <NavFixed>
+    <view class="page-fixed-header">
       <nav-bar title="校园论坛" :showBack="true" />
       <!-- 顶部搜索栏 + 个人主页入口 -->
       <view class="search-bar">
@@ -37,7 +37,7 @@
           </scroll-view>
         </view>
       </view>
-    </NavFixed>
+    </view>
 
     <!-- 帖子列表 -->
     <scroll-view 
@@ -490,6 +490,14 @@ export default {
     height: 100%;
     display: block;
   }
+}
+
+.page-fixed-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 999;
 }
 
 /* 分类 Tab：对齐「校园活动」的文字 + 下划线风格 */

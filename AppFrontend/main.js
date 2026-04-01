@@ -13,11 +13,8 @@ app.$mount()
 
 // #ifdef VUE3
 import { createSSRApp } from 'vue'
-import NavFixed from '@/components/nav-fixed/nav-fixed.vue'
 export function createApp() {
   const app = createSSRApp(App)
-  // 全局注册固定导航组件
-  app.component('NavFixed', NavFixed)
   return {
     app
   }

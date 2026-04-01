@@ -1,6 +1,6 @@
 <template>
 	<view class="lostfound-container">
-		<NavFixed>
+		<view class="page-fixed-header">
 			<nav-bar title="失物招领" />
 			
 			<view class="search-section">
@@ -13,7 +13,7 @@
 					<view class="tab-item" :class="{ active: currentTab === 'found' }" @click="currentTab = 'found'">招领信息</view>
 				</view>
 			</view>
-		</NavFixed>
+		</view>
 
 		<scroll-view scroll-y class="list-content">
 			<view class="grid-list">
@@ -100,6 +100,14 @@
 		background-color: #F7F7F9;
 		display: flex;
 		flex-direction: column;
+	}
+
+	.page-fixed-header {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		z-index: 999;
 	}
 
 	.search-section {

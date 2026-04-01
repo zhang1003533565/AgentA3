@@ -1,10 +1,8 @@
 <template>
 	<view class="schedule-container">
-		<NavFixed>
-			<nav-bar title="我的课表" />
-		</NavFixed>
+		<nav-bar title="我的课表" fixed placeholder />
 		
-		<view class="schedule-content" style="padding-top: 120rpx;">
+		<view class="schedule-content">
 			<!-- 这里简单模拟一个课表视图 -->
 			<view class="week-selector block-white">
 				<text class="week-text">第 5 周 (本周)</text>
@@ -38,17 +36,12 @@
 		components: { NavBar, IconLine },
 		data() {
 			return {
-				navBarHeight: 88,
 				courses: [
 					{ id: 1, name: '软件工程', time: '08:00 - 09:35', section: '1-2', location: '教3-201', teacher: '张教授', type: '必修' },
 					{ id: 2, name: '计算机网络', time: '10:00 - 11:35', section: '3-4', location: '实验楼B402', teacher: '李博士', type: '必修' },
 					{ id: 3, name: '数据库系统', time: '14:00 - 15:35', section: '5-6', location: '教1-104', teacher: '王老师', type: '必修' }
 				]
 			}
-		},
-		onLoad() {
-			const sys = uni.getSystemInfoSync()
-			this.navBarHeight = sys.statusBarHeight + 44
 		},
 		methods: {
 			goToDetail(course) {

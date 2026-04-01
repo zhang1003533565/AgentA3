@@ -1,6 +1,6 @@
 <template>
   <view class="community-container">
-    <NavFixed>
+    <view class="page-fixed-header">
       <nav-bar title="社区活动" :showBack="true" />
 
       <!-- 搜索框 -->
@@ -36,7 +36,7 @@
           </view>
         </scroll-view>
       </view>
-    </NavFixed>
+    </view>
 
     <!-- 活动列表 - 按分类分组 -->
     <scroll-view 
@@ -366,6 +366,14 @@ export default {
   gap: 24rpx;
   padding: 16rpx 32rpx 24rpx;
   background-color: #FFFFFF;
+}
+
+.page-fixed-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 999;
 }
 
 .search-input {
