@@ -5,6 +5,7 @@ import com.example.appbackend.entity.Activity;
 import com.example.appbackend.entity.Activity.Status;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
+import com.example.appbackend.repository.ActivityNoticeRepository;
 import com.example.appbackend.repository.ActivityRepository;
 import com.example.appbackend.repository.RegistrationRepository;
 import com.example.appbackend.repository.SignInRepository;
@@ -26,6 +27,8 @@ public class ActivityServiceImpl implements ActivityService {
 
     @Autowired
     private ActivityRepository activityRepository;
+    @Autowired
+    private ActivityNoticeRepository activityNoticeRepository;
     @Autowired
     private SignInRepository signInRepository;
     @Autowired
@@ -77,6 +80,7 @@ public class ActivityServiceImpl implements ActivityService {
         if (!isAdmin && activity.getStatus() != Status.DRAFT) {
             throw new BusinessException(403, "只有草稿状态的活动可以删除");
         }
+        activityNoticeRepository.deleteByActivityId(id);
         signInRepository.deleteByActivityId(id);
         registrationRepository.deleteByActivityId(id);
         activityRepository.delete(activity);
@@ -96,8 +100,8 @@ public class ActivityServiceImpl implements ActivityService {
                 }
             }
         }
-        // 删除关联的报名和签到记录
         for (Activity activity : activities) {
+            activityNoticeRepository.deleteByActivityId(activity.getId());
             signInRepository.deleteByActivityId(activity.getId());
             registrationRepository.deleteByActivityId(activity.getId());
         }
