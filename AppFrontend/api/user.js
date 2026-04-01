@@ -29,3 +29,12 @@ export function register(data) {
     data: body
   })
 }
+
+/** 修改密码 */
+export function updatePassword(data) {
+  return request({
+    url: '/api/auth/password',
+    method: 'PUT',
+    data
+  })
+}

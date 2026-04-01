@@ -11,6 +11,7 @@ import { getToken, clearAuth } from './storage.js'
 export function request(options) {
   const url = options.url.startsWith('http') ? options.url : BASE_URL + options.url
   const token = getToken()
+  const payload = options.data !== undefined ? options.data : options.params
   const header = {
     'Content-Type': 'application/json',
     ...(options.header || {})
@@ -23,7 +24,7 @@ export function request(options) {
     uni.request({
       url,
       method: (options.method || 'GET').toUpperCase(),
-      data: options.data,
+      data: payload,
       header,
       success: (res) => {
         if (res.statusCode >= 200 && res.statusCode < 300) {

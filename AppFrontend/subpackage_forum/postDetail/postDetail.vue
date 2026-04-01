@@ -145,7 +145,15 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getPostDetail } from '@/api/forum.js'
+import {
+  createComment,
+  getCommentList,
+  getFollowStatus,
+  getPostDetail,
+  parseImageList,
+  toggleFollowUser,
+  togglePostLike
+} from '@/api/forum.js'
 
 export default {
   components: { NavBar },
@@ -153,22 +161,22 @@ export default {
     return {
       postId: null,
       postDetail: {
-        id: 1,
-        userId: '1',
-        userName: '张三',
-        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhangsan',
-        title: '分享一下我的考研经验',
-        content: '今年成功上岸985，分享一下我的备考经验，希望对学弟学妹有帮助。\n\n1. 英语一定要坚持背单词，我每天早上7点开始背，用的是墨墨背单词，每天300个单词。\n\n2. 政治可以晚点开始，我是9月份开始的，跟的是徐涛老师的课，配合1000题刷题。\n\n3. 数学一定要多做真题，我把近20年的真题都做了3遍以上。\n\n4. 专业课要看目标院校的参考书目，最好能找到真题和学长学姐的笔记。\n\n祝大家都能上岸！有问题可以在评论区问我~',
+        id: null,
+        userId: '',
+        userName: '',
+        avatar: '',
+        title: '',
+        content: '',
         images: [],
-        topicName: '学习交流',
-        likeCount: 128,
-        commentCount: 36,
-        viewCount: 1024,
-        collectCount: 45,
+        topicName: '',
+        likeCount: 0,
+        commentCount: 0,
+        viewCount: 0,
+        collectCount: 0,
         isLiked: false,
         isCollected: false,
         isFollow: false,
-        createTime: '2026-03-15 14:30'
+        createTime: ''
       },
       commentList: [],
       showCommentPopup: false,
@@ -177,222 +185,112 @@ export default {
     }
   },
   onLoad(options) {
-    console.log('页面加载参数:', options)
     this.postId = options.id
-    console.log('设置postId为:', this.postId)
     this.loadPostDetail()
     this.loadComments()
   },
   methods: {
-    // 加载帖子详情
     async loadPostDetail() {
-      console.log('加载帖子详情:', this.postId)
-      
       try {
-        // 尝试使用后端API
         const res = await getPostDetail(this.postId)
-        console.log('API响应:', res)
-        
-        if (res.code === 200) {
-          const data = res.data
-          // 格式化后端数据
-          this.postDetail = {
-            id: data.id,
-            userId: data.authorId || data.userId,
-            userName: data.authorName || '匿名用户',
-            avatar: data.authorAvatar || '/static/logo.png',
-            title: data.title || '',
-            content: data.content || '',
-            images: data.images || [],
-            topicName: data.topicName || '默认话题',
-            likeCount: data.likeCount || 0,
-            commentCount: data.commentCount || 0,
-            viewCount: data.viewCount || 0,
-            collectCount: data.collectCount || 0,
-            isLiked: data.isLiked || false,
-            isCollected: data.isCollected || false,
-            isFollow: data.isFollow || false,
-            createTime: data.createTime || '刚刚'
-          }
-          console.log('使用后端数据:', this.postDetail)
-          return
+        const data = res?.data || {}
+        this.postDetail = {
+          id: data.id,
+          userId: data.userId,
+          userName: data.username || '匿名用户',
+          avatar: data.avatar || '/static/logo.png',
+          title: data.title || '',
+          content: data.content || '',
+          images: parseImageList(data.images),
+          topicName: data.topicName || '',
+          likeCount: data.likeCount || 0,
+          commentCount: data.commentCount || 0,
+          viewCount: data.viewCount || 0,
+          collectCount: 0,
+          isLiked: !!data.isLiked,
+          isCollected: !!data.isFavorited,
+          isFollow: false,
+          createTime: this.formatDateTime(data.createTime)
         }
+        await this.loadFollowStatus()
       } catch (error) {
-        console.log('后端API调用失败，使用虚拟数据:', error)
+        uni.showToast({ title: '帖子加载失败', icon: 'none' })
       }
-      
-      // 回退到虚拟数据
-      this.useMockPostData()
     },
-    
-    // 使用虚拟帖子数据
-    useMockPostData() {
-      const mockPosts = {
-        '1': {
-          id: 1,
-          userId: '1',
-          userName: '张三',
-          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhangsan',
-          title: '分享一下我的考研经验',
-          content: '今年成功上岸985，分享一下我的备考经验，希望对学弟学妹有帮助。\n\n1. 英语一定要坚持背单词，我每天早上7点开始背，用的是墨墨背单词，每天300个单词。\n\n2. 政治可以晚点开始，我是9月份开始的，跟的是徐涛老师的课，配合1000题刷题。\n\n3. 数学一定要多做真题，我把近20年的真题都做了3遍以上。\n\n4. 专业课要看目标院校的参考书目，最好能找到真题和学长学姐的笔记。\n\n祝大家都能上岸！有问题可以在评论区问我~',
-          images: [],
-          topicName: '学习交流',
-          likeCount: 128,
-          commentCount: 36,
-          viewCount: 1024,
-          collectCount: 45,
-          isLiked: false,
-          isCollected: false,
-          isFollow: false,
-          createTime: '2026-03-15 14:30'
-        },
-        '2': {
-          id: 2,
-          userId: '2',
-          userName: '李四',
-          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lisi',
-          title: '二食堂三楼糖醋排骨真的绝了',
-          content: '今天食堂新出的糖醋排骨真的绝了！强烈推荐大家去二食堂三楼尝尝，阿姨手抖都给我盛了一大勺。\n\n价格也很实惠，一份只要12块钱，肉很多汁，配上米饭简直完美。\n\n营业时间是早上10点到晚上8点，建议早点去，不然排队的人很多。',
-          images: ['https://picsum.photos/200/150?random=1'],
-          topicName: '美食探店',
-          likeCount: 256,
-          commentCount: 89,
-          viewCount: 2345,
-          collectCount: 67,
-          isLiked: true,
-          isCollected: true,
-          isFollow: false,
-          createTime: '2026-03-15 16:30'
-        },
-        '3': {
-          id: 3,
-          userId: '3',
-          userName: '王五',
-          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=wangwu',
-          title: '出二手自行车，九成新',
-          content: '毕业了出自行车，买来骑了不到半年，原价800现在400出，有意向的私聊~\n\n车型：捷安特ATX770\n购买时间：2025年9月\n骑行里程：约500公里\n车况：九成新，保养得很好\n配件：车锁、车灯、水壶架齐全\n\n诚心出售，可小刀，欢迎来看车试骑！',
-          images: ['https://picsum.photos/200/150?random=2', 'https://picsum.photos/200/150?random=3'],
-          topicName: '二手交易',
-          likeCount: 45,
-          commentCount: 12,
-          viewCount: 567,
-          collectCount: 23,
-          isLiked: false,
-          isCollected: false,
-          isFollow: false,
-          createTime: '2026-03-15 18:45'
-        },
-        '4': {
-          id: 4,
-          userId: '4',
-          userName: '赵六',
-          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhaoliu',
-          title: '有没有一起打羽毛球的小伙伴',
-          content: '周末想打羽毛球，一个人太无聊了，有没有想一起的？可以约体育馆~\n\n时间：本周六下午2点-5点\n地点：学校体育馆羽毛球馆\n水平：业余爱好者，不追求技术，主要是锻炼身体\n费用：场地费AA\n\n欢迎留言或者私信联系！',
-          images: [],
-          topicName: '校园生活',
-          likeCount: 67,
-          commentCount: 23,
-          viewCount: 890,
-          collectCount: 15,
-          isLiked: false,
-          isCollected: false,
-          isFollow: false,
-          createTime: '2026-03-15 20:15'
-        }
+    async loadFollowStatus() {
+      if (!this.postDetail.userId) return
+      try {
+        const res = await getFollowStatus(this.postDetail.userId)
+        this.postDetail.isFollow = !!res?.data?.following
+      } catch (error) {
+        this.postDetail.isFollow = false
       }
-      
-      // 根据postId获取对应的帖子数据
-      const postData = mockPosts[this.postId] || mockPosts['1'] // 默认显示第一个帖子
-      this.postDetail = { ...postData }
-      console.log('设置帖子详情为:', this.postDetail)
     },
-
-    // 跳转用户个人主页
     goUserProfile(user) {
       const uid = user.userId || user.id || ''
       uni.navigateTo({
         url: '/subpackage_forum/userProfile/userProfile?id=' + encodeURIComponent(uid)
       })
     },
-
-    // 加载评论列表
-    loadComments() {
-      // 模拟数据
-      this.commentList = [
-        {
-          id: 1,
-          userId: '2',
-          userName: '李四',
-          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lisi',
-          content: '学长太强了！请问数学基础不好怎么办，现在开始来得及吗？',
-          likeCount: 23,
-          isLiked: false,
-          createTime: '2小时前',
-          replies: [
-            { userName: '张三', content: '来得及，我是3月份开始的，加油！' },
-            { userName: '李四', content: '好的谢谢学长！' }
-          ]
-        },
-        {
-          id: 2,
-          userId: '3',
-          userName: '王五',
-          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=wangwu',
-          content: 'mark，明年考研党先收藏了',
-          likeCount: 15,
-          isLiked: true,
-          createTime: '3小时前',
-          replies: []
-        },
-        {
-          id: 3,
-          userId: '4',
-          userName: '赵六',
-          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhaoliu',
-          content: '请问专业课真题在哪里可以找到呀？',
-          likeCount: 8,
-          isLiked: false,
-          createTime: '5小时前',
-          replies: []
-        }
-      ]
+    async loadComments() {
+      try {
+        const res = await getCommentList({
+          postId: this.postId,
+          pageNum: 1,
+          pageSize: 50
+        })
+        const records = res?.data?.records || []
+        this.commentList = records.map(this.formatCommentItem)
+      } catch (error) {
+        this.commentList = []
+      }
     },
-
-    // 预览图片
+    formatCommentItem(item) {
+      return {
+        id: item.id,
+        userId: item.userId,
+        userName: item.username || '匿名用户',
+        avatar: item.avatar || '/static/logo.png',
+        content: item.content || '',
+        likeCount: item.likeCount || 0,
+        isLiked: !!item.isLiked,
+        createTime: this.formatDateTime(item.createTime),
+        replies: (item.children || []).map((child) => ({
+          id: child.id,
+          userId: child.userId,
+          userName: child.username || '匿名用户',
+          content: child.content || '',
+          replyToUsername: child.replyToUsername || ''
+        }))
+      }
+    },
     previewImage(index) {
       uni.previewImage({
         urls: this.postDetail.images,
         current: index
       })
     },
-
-    // 关注/取消关注
-    toggleFollow() {
-      this.postDetail.isFollow = !this.postDetail.isFollow
-      uni.showToast({
-        title: this.postDetail.isFollow ? '关注成功' : '已取消关注',
-        icon: 'none'
-      })
+    async toggleFollow() {
+      if (!this.postDetail.userId) return
+      try {
+        await toggleFollowUser(this.postDetail.userId)
+        this.postDetail.isFollow = !this.postDetail.isFollow
+        uni.showToast({
+          title: this.postDetail.isFollow ? '关注成功' : '已取消关注',
+          icon: 'none'
+        })
+      } catch (error) {}
     },
-
-    // 点赞帖子
-    toggleLike() {
-      this.postDetail.isLiked = !this.postDetail.isLiked
-      this.postDetail.likeCount += this.postDetail.isLiked ? 1 : -1
+    async toggleLike() {
+      try {
+        const res = await togglePostLike(this.postId)
+        this.postDetail.isLiked = !!res?.data?.liked
+        this.postDetail.likeCount = Number(res?.data?.likeCount ?? this.postDetail.likeCount)
+      } catch (error) {}
     },
-
-    // 收藏帖子
     collectPost() {
-      this.postDetail.isCollected = !this.postDetail.isCollected
-      this.postDetail.collectCount += this.postDetail.isCollected ? 1 : -1
-      uni.showToast({
-        title: this.postDetail.isCollected ? '收藏成功' : '已取消收藏',
-        icon: 'none'
-      })
+      uni.showToast({ title: '帖子收藏接口暂未开放', icon: 'none' })
     },
-
-    // 分享帖子
     sharePost() {
       uni.showActionSheet({
         itemList: ['复制链接', '分享到微信'],
@@ -408,43 +306,43 @@ export default {
         }
       })
     },
-
-    // 显示评论输入框
     showCommentInput() {
       this.showCommentPopup = true
       this.replyTarget = null
     },
-
-    // 隐藏评论输入框
     hideCommentInput() {
       this.showCommentPopup = false
       this.commentContent = ''
       this.replyTarget = null
     },
-
-    // 回复评论
     replyComment(item) {
       this.replyTarget = item
       this.showCommentPopup = true
     },
-
-    // 点赞评论
     toggleCommentLike(item) {
-      item.isLiked = !item.isLiked
-      item.likeCount += item.isLiked ? 1 : -1
+      uni.showToast({ title: '评论点赞暂未开放', icon: 'none' })
     },
-
-    // 提交评论
-    submitComment() {
+    async submitComment() {
       if (!this.commentContent.trim()) {
         uni.showToast({ title: '请输入评论内容', icon: 'none' })
         return
       }
-
-      // TODO: 调用后端接口
-      uni.showToast({ title: '评论成功', icon: 'success' })
-      this.hideCommentInput()
-      this.loadComments()
+      try {
+        await createComment({
+          postId: this.postId,
+          content: this.commentContent.trim(),
+          parentId: this.replyTarget ? this.replyTarget.id : null,
+          replyToId: this.replyTarget ? this.replyTarget.userId : null
+        })
+        uni.showToast({ title: '评论成功', icon: 'success' })
+        this.hideCommentInput()
+        this.loadPostDetail()
+        this.loadComments()
+      } catch (error) {}
+    },
+    formatDateTime(value) {
+      if (!value) return '刚刚'
+      return String(value).replace('T', ' ').slice(0, 16)
     }
   }
 }

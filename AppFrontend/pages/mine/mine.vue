@@ -91,6 +91,9 @@
 import AppTabBar from '@/components/custom-tab-bar/custom-tab-bar.vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import IconLine from '@/components/icon-line/icon-line.vue'
+import { getMyRegistrations } from '@/api/registration.js'
+import { getMyFavoriteList } from '@/api/activity.js'
+import { getUserInfo } from '@/utils/storage.js'
 
 export default {
   components: { AppTabBar, NavBar, IconLine },
@@ -115,20 +118,40 @@ export default {
   },
   methods: {
     loadUser() {
-      const userInfoStr = uni.getStorageSync('userInfo')
-      if (userInfoStr) {
-        this.userInfo = JSON.parse(userInfoStr)
-        this.userAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${this.userInfo.username}`
-      } else {
+      const info = getUserInfo()
+      if (!info) {
         uni.reLaunch({ url: '/pages/login/login' })
+        return
+      }
+      this.userInfo = info
+      const seed = info.realName || info.username || info.studentId || 'mine-user'
+      this.userAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`
+    },
+    async loadStats() {
+      try {
+        const [registrationRes, favoriteRes] = await Promise.all([
+          getMyRegistrations({ page: 1, size: 100 }),
+          getMyFavoriteList({ page: 1, size: 100 })
+        ])
+        const registrations = registrationRes?.data?.records || []
+        const favorites = favoriteRes?.data?.records || []
+        const pendingCount = registrations.filter((item) => item.status === 'PENDING').length
+        const approvedCount = registrations.filter((item) => item.status === 'APPROVED').length
+        this.stats = {
+          points: approvedCount * 10 + favorites.length * 2,
+          certCount: approvedCount,
+          pending: pendingCount
+        }
+      } catch (error) {
+        this.stats = { points: 0, certCount: 0, pending: 0 }
       }
     },
-    loadStats() {
-      // TODO: 接口获取积分、证书数、待办数
-      this.stats = { points: 1280, certCount: 3, pending: 2 }
-    },
     onStatClick(type) {
-      uni.showToast({ title: '功能开发中', icon: 'none' })
+      if (type === 'pending' || type === 'cert') {
+        this.goToMyActivity()
+        return
+      }
+      uni.showToast({ title: '积分体系暂未接入', icon: 'none' })
     },
     goToSchedule() {
       uni.navigateTo({ url: '/subpackage_schedule/schedule/schedule' })
@@ -137,13 +160,13 @@ export default {
       uni.navigateTo({ url: '/pages/grade/grade' })
     },
     goToMyActivity() {
-      uni.reLaunch({ url: '/subpackage_activity/activityList/activityList' })
+      uni.navigateTo({ url: '/subpackage_activity/myActivity/myActivity' })
     },
     goToSignIn() {
       uni.navigateTo({ url: '/subpackage_signin/signIn/signIn' })
     },
     goToChangePassword() {
-      uni.showToast({ title: '修改密码开发中', icon: 'none' })
+      uni.navigateTo({ url: '/pages/changePassword/changePassword' })
     },
     logout() {
       uni.showModal({

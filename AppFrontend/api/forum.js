@@ -1,143 +1,181 @@
 import { request } from '@/utils/request'
 
-// 论坛相关API接口
+export function parseImageList(images) {
+  if (Array.isArray(images)) return images.filter(Boolean)
+  if (!images) return []
+  if (typeof images === 'string') {
+    try {
+      const parsed = JSON.parse(images)
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : []
+    } catch (e) {
+      return images
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    }
+  }
+  return []
+}
 
-// 获取话题详情
 export function getTopicDetail(topicId) {
   return request({
     url: `/api/forum/topics/${topicId}`,
-    method: 'get'
+    method: 'GET'
   })
 }
 
-// 获取话题下的帖子列表
-export function getTopicPosts(topicId, params) {
+export function getTopicPosts(topicId, params = {}) {
   return request({
     url: `/api/forum/topics/${topicId}/posts`,
-    method: 'get',
+    method: 'GET',
     params
   })
 }
 
-// 获取帖子列表
-export function getPostList(params) {
+export function getPostList(params = {}) {
   return request({
     url: '/api/forum/posts',
-    method: 'get',
+    method: 'GET',
     params
   })
 }
 
-// 获取热门帖子
-export function getHotPosts(params) {
+export function getHotPosts(params = {}) {
   return request({
     url: '/api/forum/posts/hot',
-    method: 'get',
+    method: 'GET',
     params
   })
 }
 
-// 获取帖子详情
 export function getPostDetail(postId) {
   return request({
     url: `/api/forum/posts/${postId}`,
-    method: 'get'
+    method: 'GET'
   })
 }
 
-// 发布新帖子
 export function publishPost(data) {
   return request({
     url: '/api/forum/posts',
-    method: 'post',
+    method: 'POST',
     data
   })
 }
 
-// 编辑帖子
 export function updatePost(postId, data) {
   return request({
     url: `/api/forum/posts/${postId}`,
-    method: 'put',
+    method: 'PUT',
     data
   })
 }
 
-// 删除帖子
 export function deletePost(postId) {
   return request({
     url: `/api/forum/posts/${postId}`,
-    method: 'delete'
+    method: 'DELETE'
   })
 }
 
-// 获取话题列表
-export function getTopicList(params) {
+export function getTopicList(params = {}) {
   return request({
     url: '/api/forum/topics',
-    method: 'get',
+    method: 'GET',
     params
   })
 }
 
-// 获取热门话题
-export function getHotTopics(params) {
+export function getHotTopics(params = {}) {
   return request({
     url: '/api/forum/topics/hot',
-    method: 'get',
+    method: 'GET',
     params
   })
 }
 
-// 点赞帖子
-export function likePost(postId) {
+export function togglePostLike(targetId) {
   return request({
-    url: `/api/forum/posts/${postId}/like`,
-    method: 'post'
+    url: '/api/forum/likes',
+    method: 'POST',
+    data: { targetId }
   })
 }
 
-// 取消点赞
-export function unlikePost(postId) {
+export function getPostLikeStatus(targetId) {
   return request({
-    url: `/api/forum/posts/${postId}/unlike`,
-    method: 'post'
+    url: '/api/forum/likes/status',
+    method: 'GET',
+    params: { targetId }
   })
 }
 
-// 收藏帖子
-export function favoritePost(postId) {
+export function getCommentList(params = {}) {
   return request({
-    url: `/api/forum/posts/${postId}/favorite`,
-    method: 'post'
-  })
-}
-
-// 取消收藏
-export function unfavoritePost(postId) {
-  return request({
-    url: `/api/forum/posts/${postId}/unfavorite`,
-    method: 'post'
-  })
-}
-
-// 获取用户收藏的帖子
-export function getUserFavorites(params) {
-  return request({
-    url: '/api/forum/favorites',
-    method: 'get',
+    url: '/api/forum/comments',
+    method: 'GET',
     params
   })
 }
 
-// 搜索帖子
-export function searchPosts(keyword, params) {
+export function createComment(data) {
   return request({
-    url: '/api/forum/posts/search',
-    method: 'get',
-    params: {
-      keyword,
-      ...params
-    }
+    url: '/api/forum/comments',
+    method: 'POST',
+    data
+  })
+}
+
+export function deleteComment(commentId) {
+  return request({
+    url: `/api/forum/comments/${commentId}`,
+    method: 'DELETE'
+  })
+}
+
+export function toggleFollowUser(followUserId) {
+  return request({
+    url: '/api/forum/follows',
+    method: 'POST',
+    data: { followId: followUserId }
+  })
+}
+
+export function getFollowStatus(userId) {
+  return request({
+    url: `/api/forum/follows/status/${userId}`,
+    method: 'GET'
+  })
+}
+
+export function getFollowers(userId, params = {}) {
+  return request({
+    url: `/api/forum/follows/followers/${userId}`,
+    method: 'GET',
+    params
+  })
+}
+
+export function getFollowing(userId, params = {}) {
+  return request({
+    url: `/api/forum/follows/following/${userId}`,
+    method: 'GET',
+    params
+  })
+}
+
+export function getUserPosts(userId, params = {}) {
+  return request({
+    url: `/api/forum/users/${userId}/posts`,
+    method: 'GET',
+    params
+  })
+}
+
+export function getUserLikes(userId, params = {}) {
+  return request({
+    url: `/api/forum/users/${userId}/likes`,
+    method: 'GET',
+    params
   })
 }

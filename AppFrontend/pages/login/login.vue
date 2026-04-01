@@ -317,9 +317,17 @@ export default {
 				const result = this.isLogin ? await apiLogin(data) : await apiRegister(data)
 				setToken(result.data.token)
 				setUserInfo({
+					id: result.data.id,
+					userId: result.data.id,
 					username: result.data.username,
 					role: result.data.role,
-					phone: result.data.phone
+					phone: result.data.phone,
+					realName: result.data.realName,
+					college: result.data.college,
+					major: result.data.major,
+					className: result.data.className,
+					personalNumber: result.data.personalNumber,
+					studentId: result.data.personalNumber
 				})
 
 				uni.showToast({

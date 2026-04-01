@@ -118,7 +118,7 @@
 
 <script>
 import PostEditor from '@/subpackage_forum/components/post-editor/post-editor.vue'
-import { getTopicDetail, getTopicPosts, publishPost } from '@/api/forum.js'
+import { getTopicDetail, getTopicPosts, parseImageList, publishPost } from '@/api/forum.js'
 
 export default {
   components: { PostEditor },
@@ -149,261 +149,92 @@ export default {
     }
   },
   onLoad(options) {
-    console.log('页面加载，参数:', options)
     if (options.topicId) {
       this.topicId = options.topicId
-      console.log('设置topicId为:', this.topicId)
       this.loadTopicInfo()
       this.loadPostList()
     }
   },
-  onShow() {
-    // 测试：页面显示时自动打开弹窗（用于调试）
-    // setTimeout(() => {
-    //   this.openPublishModal()
-    // }, 1000)
-  },
   methods: {
-    // 加载话题信息
     async loadTopicInfo() {
       try {
         const res = await getTopicDetail(this.topicId)
-        
-        if (res.code === 200) {
-          const topic = res.data
-          this.topicInfo = {
-            name: topic.topicName || '未知话题',
-            participants: topic.postCount || 0,
-            posts: topic.postCount || 0
-          }
-        } else {
-          // 使用虚拟数据
-          this.useMockTopicData()
+        const topic = res?.data || {}
+        this.topicInfo = {
+          name: topic.topicName || '未知话题',
+          participants: topic.postCount || 0,
+          posts: topic.postCount || 0
         }
       } catch (error) {
-        console.error('加载话题信息失败:', error)
-        // 使用虚拟数据
-        this.useMockTopicData()
+        this.topicInfo = {
+          name: '未知话题',
+          participants: 0,
+          posts: 0
+        }
       }
     },
-    
-    // 使用虚拟话题数据
-    useMockTopicData() {
-      const mockTopics = {
-        '1': { name: '考研经验分享', participants: 238, posts: 1127 },
-        '2': { name: '食堂美食推荐', participants: 156, posts: 892 },
-        '3': { name: '二手自行车转让', participants: 89, posts: 456 },
-        '4': { name: '图书馆占座', participants: 67, posts: 234 },
-        '5': { name: '社团招新', participants: 123, posts: 567 },
-        '6': { name: '失物招领', participants: 234, posts: 789 },
-        '7': { name: '兼职信息', participants: 98, posts: 345 },
-        '8': { name: '校园跑腿', participants: 45, posts: 123 }
-      }
-      
-      this.topicInfo = mockTopics[this.topicId] || { 
-        name: '默认话题', 
-        participants: 0, 
-        posts: 0 
-      }
-    },
-
-    // 加载帖子列表
     async loadPostList() {
       if (this.loading || this.noMore) return
-      
       this.loading = true
-      
       try {
         const params = {
           pageNum: this.page,
           pageSize: this.pageSize
         }
-        
         const res = await getTopicPosts(this.topicId, params)
-        
-        if (res.code === 200) {
-          const data = res.data
-          const posts = data.records || data.list || []
-          
-          // 格式化数据
-          const formattedPosts = posts.map(post => ({
-            id: post.id,
-            userName: post.authorName || '匿名用户',
-            avatar: post.authorAvatar || '/static/logo.png',
-            title: post.title || '',
-            content: post.content || '',
-            images: post.images || [],
-            likeCount: post.likeCount || 0,
-            commentCount: post.commentCount || 0,
-            viewCount: post.viewCount || 0,
-            isLiked: post.isLiked || false,
-            createTime: post.createTime || '刚刚'
-          }))
-          
-          if (this.page === 1) {
-            this.postList = formattedPosts
-          } else {
-            this.postList = [...this.postList, ...formattedPosts]
-          }
-          
-          // 判断是否还有更多数据
-          if (formattedPosts.length < this.pageSize) {
-            this.noMore = true
-          }
-        } else {
-          // 使用虚拟数据
-          this.useMockPostData()
-        }
+        const data = res?.data || {}
+        const posts = data.records || []
+        const formattedPosts = posts.map((post) => ({
+          id: post.id,
+          userName: post.username || '匿名用户',
+          avatar: post.avatar || '/static/logo.png',
+          title: post.title || '',
+          content: post.content || '',
+          images: parseImageList(post.images),
+          likeCount: post.likeCount || 0,
+          commentCount: post.commentCount || 0,
+          viewCount: post.viewCount || 0,
+          isLiked: !!post.isLiked,
+          createTime: this.formatDateTime(post.createTime)
+        }))
+        this.postList = this.page === 1 ? formattedPosts : [...this.postList, ...formattedPosts]
+        const total = Number(data.total || 0)
+        this.noMore = this.postList.length >= total || formattedPosts.length < this.pageSize
       } catch (error) {
-        console.error('加载帖子列表失败:', error)
-        // 使用虚拟数据
-        this.useMockPostData()
+        if (this.page === 1) this.postList = []
       } finally {
         this.loading = false
         this.isRefreshing = false
       }
     },
-    
-    // 使用虚拟帖子数据
-    useMockPostData() {
-      console.log('使用虚拟帖子数据，当前topicId:', this.topicId)
-      // 模拟不同话题的帖子数据
-      const mockPostsByTopic = {
-        '1': [
-          {
-            id: 1,
-            userName: '张三',
-            avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhangsan',
-            title: '分享一下我的考研经验',
-            content: '今年成功上岸985，分享一下我的备考经验，希望对学弟学妹有帮助。英语一定要坚持背单词，政治可以晚点开始...',
-            images: [],
-            likeCount: 128,
-            commentCount: 36,
-            viewCount: 1234,
-            isLiked: false,
-            createTime: '2小时前'
-          },
-          {
-            id: 2,
-            userName: '李四',
-            avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lisi',
-            title: '',
-            content: '求推荐数学复习资料，感觉自己基础不太扎实',
-            images: [],
-            likeCount: 45,
-            commentCount: 12,
-            viewCount: 567,
-            isLiked: true,
-            createTime: '5小时前'
-          }
-        ],
-        '2': [
-          {
-            id: 3,
-            userName: '王五',
-            avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=wangwu',
-            title: '二食堂三楼糖醋排骨真的绝了',
-            content: '今天食堂新出的糖醋排骨真的绝了！强烈推荐大家去二食堂三楼尝尝，阿姨手抖都给我盛了一大勺',
-            images: ['https://picsum.photos/200/150?random=1'],
-            likeCount: 256,
-            commentCount: 89,
-            viewCount: 2345,
-            isLiked: true,
-            createTime: '3小时前'
-          },
-          {
-            id: 4,
-            userName: '赵六',
-            avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhaoliu',
-            title: '',
-            content: '一食堂早餐推荐：豆浆油条配咸菜，yyds！',
-            images: [],
-            likeCount: 78,
-            commentCount: 23,
-            viewCount: 890,
-            isLiked: false,
-            createTime: '昨天'
-          }
-        ],
-        'default': [
-          {
-            id: 5,
-            userName: '匿名用户',
-            avatar: '/static/logo.png',
-            title: '欢迎参与话题讨论',
-            content: '这里是话题讨论区，欢迎大家积极发言，分享你的观点和经验。',
-            images: [],
-            likeCount: 15,
-            commentCount: 5,
-            viewCount: 156,
-            isLiked: false,
-            createTime: '刚刚'
-          }
-        ]
-      }
-      
-      const mockPosts = mockPostsByTopic[this.topicId] || mockPostsByTopic['default']
-      console.log('选中的虚拟帖子数据:', mockPosts)
-      
-      if (this.page === 1) {
-        this.postList = mockPosts
-        console.log('设置postList为:', this.postList)
-      } else {
-        // 分页模拟
-        const startIndex = (this.page - 1) * this.pageSize
-        const endIndex = startIndex + this.pageSize
-        const pagePosts = mockPosts.slice(startIndex, endIndex)
-        this.postList = [...this.postList, ...pagePosts]
-      }
-      
-      // 模拟没有更多数据
-      if (this.postList.length >= mockPosts.length) {
-        this.noMore = true
-      }
-    },
-
-    // 加载更多
     loadMore() {
       if (!this.loading && !this.noMore) {
         this.page++
         this.loadPostList()
       }
     },
-
-    // 下拉刷新
     onRefresh() {
       this.isRefreshing = true
       this.page = 1
       this.noMore = false
+      this.loadTopicInfo()
       this.loadPostList()
     },
-
-    // 跳转到帖子详情
     goToDetail(id) {
-      console.log('查看帖子详情:', id)
-      console.log('跳转URL:', `/subpackage_forum/postDetail/postDetail?id=${id}`)
       uni.navigateTo({
         url: `/subpackage_forum/postDetail/postDetail?id=${id}`
       })
     },
-
-    // 返回上一页
     goBack() {
       uni.navigateBack()
     },
-
-    // 打开发帖弹窗
     openPublishModal() {
-      console.log('点击参与话题按钮')
-      console.log('当前topicId:', this.topicId)
       if (this.showPublishModal) return
       this.showPublishModal = true
-      this.publishForm.topicId = this.topicId // 自动带上当前话题ID
-      console.log('showPublishModal设置为true')
+      this.publishForm.topicId = this.topicId
       this.$nextTick(() => {
         setTimeout(() => {
           if (this.showPublishModal) this.publishModalAnimating = true
-          console.log('publishModalAnimating设置为true')
         }, 0)
       })
     },
@@ -437,30 +268,32 @@ export default {
           title: this.publishForm.title,
           content: this.publishForm.content,
           images: this.publishForm.images,
-          topicId: this.topicId  // 自动带上当前话题ID
+          topicId: this.topicId
         }
-        
-        const res = await publishPost(postData)
-        
-        if (res.code === 200) {
-          uni.hideLoading()
-          uni.showToast({ title: '发布成功', icon: 'success' })
-          setTimeout(() => {
-            this.closePublishModal()
-            // 重新加载帖子列表
-            this.page = 1
-            this.noMore = false
-            this.loadPostList()
-          }, 300)
-        } else {
-          uni.hideLoading()
-          uni.showToast({ title: res.message || '发布失败', icon: 'none' })
-        }
-      } catch (error) {
-        console.error('发布帖子失败:', error)
+        await publishPost(postData)
         uni.hideLoading()
-        uni.showToast({ title: '网络错误', icon: 'none' })
+        uni.showToast({ title: '发布成功', icon: 'success' })
+        this.publishForm = {
+          title: '',
+          content: '',
+          images: [],
+          topicId: this.topicId,
+          isAnonymous: false
+        }
+        setTimeout(() => {
+          this.closePublishModal()
+          this.page = 1
+          this.noMore = false
+          this.loadPostList()
+          this.loadTopicInfo()
+        }, 300)
+      } catch (error) {
+        uni.hideLoading()
       }
+    },
+    formatDateTime(value) {
+      if (!value) return '刚刚'
+      return String(value).replace('T', ' ').slice(0, 16)
     }
   }
 }

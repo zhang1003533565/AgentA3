@@ -127,8 +127,8 @@
 					{ name: '校园论坛', icon: 'message-circle', path: '/subpackage_forum/forumList/forumList' },
 					{ name: '失物招领', icon: 'search', path: '/subpackage_lostfound/lostfoundList/lostfoundList' },
 					{ name: '社区活动', icon: 'users', path: '/subpackage_community/communityActivity/communityActivity' },
-					{ name: '快递查询', icon: 'clipboard', path: '/pages/express/express' },
-					{ name: '更多', icon: 'more', path: '/pages/more/more' }
+					{ name: '快递查询', icon: 'clipboard', path: '/pages/serviceHub/serviceHub?title=快递查询' },
+					{ name: '更多', icon: 'more', path: '/pages/serviceHub/serviceHub?title=更多服务' }
 				],
 				notices: [
 					{ title: '关于2026年清明节放假安排的通知', time: '10:30', tag: '教务', type: 'jw' },
@@ -142,14 +142,14 @@
 					{ name: '计算机基础', location: '实验楼C102', startTime: '14:00', endTime: '15:40', status: 'upcoming', statusText: '待上课' }
 				],
 				services: [
-					{ name: '校车时刻', icon: 'bus', path: '/pages/bus/bus' },
-					{ name: '校历', icon: 'calendar-alt', path: '/pages/calendar/calendar' },
-					{ name: '场馆预约', icon: 'venue', path: '/pages/venue/venue' },
-					{ name: '维修报修', icon: 'tool', path: '/pages/repair/repair' },
-					{ name: '心理咨询', icon: 'message-circle', path: '/pages/counseling/counseling' },
-					{ name: '就业信息', icon: 'briefcase', path: '/pages/jobs/jobs' },
+					{ name: '校车时刻', icon: 'bus', path: '/pages/serviceHub/serviceHub?title=校车时刻' },
+					{ name: '校历', icon: 'calendar-alt', path: '/pages/serviceHub/serviceHub?title=校历' },
+					{ name: '场馆预约', icon: 'venue', path: '/pages/serviceHub/serviceHub?title=场馆预约' },
+					{ name: '维修报修', icon: 'tool', path: '/pages/serviceHub/serviceHub?title=维修报修' },
+					{ name: '心理咨询', icon: 'message-circle', path: '/pages/serviceHub/serviceHub?title=心理咨询' },
+					{ name: '就业信息', icon: 'briefcase', path: '/pages/serviceHub/serviceHub?title=就业信息' },
 					{ name: '校园地图', icon: 'map', path: '/pages/map/map' },
-					{ name: '更多服务', icon: 'more', path: '/pages/services/services' }
+					{ name: '更多服务', icon: 'more', path: '/pages/serviceHub/serviceHub?title=更多服务' }
 				]
 			}
 		},
@@ -182,8 +182,7 @@
 				this.userAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${this.userInfo.username}`
 			},
 			loadData() {
-				// 这里可以调用接口加载真实数据
-				console.log('加载首页数据')
+				// 这里可以继续接首页聚合接口
 			},
 			goToMessage() {
 				uni.navigateTo({
@@ -191,7 +190,9 @@
 				})
 			},
 			onBannerClick(item) {
-				console.log('点击轮播图:', item)
+				if (item.url) {
+					uni.navigateTo({ url: item.url })
+				}
 			},
 			onMenuClick(item) {
 				// 活动列表和论坛在子包中，使用 reLaunch 避免 H5 下动态加载子包报 500 / switchTab 限制
@@ -211,7 +212,9 @@
 				})
 			},
 			onNoticeClick(item) {
-				console.log('点击通知:', item)
+				uni.navigateTo({
+					url: '/pages/notice/notice'
+				})
 			},
 			goToSchedule() {
 				uni.navigateTo({

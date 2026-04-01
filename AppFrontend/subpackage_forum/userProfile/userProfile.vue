@@ -29,16 +29,30 @@
         </view>
       </view>
 
-      <!-- 占位内容（无具体数据时展示） -->
       <view class="placeholder-section">
         <text class="placeholder-title">TA 的帖子</text>
-        <view class="placeholder-empty">
+        <view v-if="postList.length" class="post-list">
+          <view
+            v-for="item in postList"
+            :key="item.id"
+            class="post-item"
+            @click="goToPost(item.id)"
+          >
+            <text class="post-title">{{ item.title || '无标题帖子' }}</text>
+            <view class="post-meta">
+              <text>{{ item.createTime }}</text>
+              <text>{{ item.likeCount || 0 }} 赞</text>
+              <text>{{ item.commentCount || 0 }} 评</text>
+            </view>
+          </view>
+        </view>
+        <view v-else class="placeholder-empty">
           <image
             class="empty-icon"
             mode="aspectFit"
             src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23e5e7eb' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z'/%3E%3Cpolyline points='14 2 14 8 20 8'/%3E%3Cpath d='M9 15h2'/%3E%3Cpath d='M9 11h6'/%3E%3C/svg%3E"
           />
-          <text class="placeholder-desc">暂无更多数据，后续将展示该用户的发帖列表</text>
+          <text class="placeholder-desc">暂时没有可展示的帖子</text>
         </view>
       </view>
     </view>
@@ -47,12 +61,15 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { getFollowStatus, getUserPosts, toggleFollowUser } from '@/api/forum.js'
+import { getUserInfo } from '@/utils/storage.js'
 
 export default {
   components: { NavBar },
   data() {
     return {
       userId: '',
+      postList: [],
       userInfo: {
         userId: '',
         userName: '用户',
@@ -70,35 +87,75 @@ export default {
     this.loadUserProfile()
   },
   methods: {
-    loadUserProfile() {
-      // TODO: 根据 userId 调用后端接口获取用户信息
-      // 暂无具体数据时使用通用占位数据
-      const placeholderMap = {
-        '1': { userName: '张三', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhangsan', bio: '考研上岸选手，乐于分享学习经验。', postCount: 12, followCount: 28, fansCount: 156 },
-        '2': { userName: '李四', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lisi', bio: '校园生活爱好者。', postCount: 5, followCount: 15, fansCount: 42 },
-        '3': { userName: '王五', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=wangwu', bio: '这个人很懒，什么都没写~', postCount: 3, followCount: 8, fansCount: 20 },
-        '4': { userName: '赵六', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhaoliu', bio: '爱学习爱交流。', postCount: 7, followCount: 22, fansCount: 88 }
-      }
-      const placeholder = placeholderMap[this.userId] || {
-        userName: '用户' + (this.userId || ''),
-        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + (this.userId || 'user'),
-        bio: '这个人很懒，什么都没写~',
-        postCount: 0,
-        followCount: 0,
-        fansCount: 0
-      }
+    async loadUserProfile() {
+      const localUser = getUserInfo() || {}
+      const targetId = this.userId || localUser.id || localUser.userId || ''
+      this.userId = targetId
       this.userInfo = {
-        userId: this.userId,
-        ...placeholder,
-        isFollow: false
+        ...this.userInfo,
+        userId: targetId,
+        userName: localUser.username || localUser.realName || `用户${targetId || ''}`,
+        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(localUser.username || targetId || 'user')}`,
+        bio: localUser.college ? `${localUser.college}${localUser.major ? ` · ${localUser.major}` : ''}` : '这个人很懒，什么都没写~'
+      }
+
+      await Promise.all([this.loadPosts(), this.loadFollowMeta()])
+    },
+    async loadPosts() {
+      if (!this.userId) return
+      try {
+        const res = await getUserPosts(this.userId, { pageNum: 1, pageSize: 20 })
+        const records = res?.data?.records || []
+        this.postList = records.map((item) => ({
+          id: item.id,
+          title: item.title || '',
+          likeCount: item.likeCount || 0,
+          commentCount: item.commentCount || 0,
+          createTime: this.formatDateTime(item.createTime)
+        }))
+        this.userInfo.postCount = Number(res?.data?.total || this.postList.length)
+        if (records.length && !this.userInfo.userName.startsWith('用户')) {
+          return
+        }
+      } catch (error) {
+        this.postList = []
+        this.userInfo.postCount = 0
       }
     },
-    toggleFollow() {
-      this.userInfo.isFollow = !this.userInfo.isFollow
-      uni.showToast({
-        title: this.userInfo.isFollow ? '关注成功' : '已取消关注',
-        icon: 'none'
+    async loadFollowMeta() {
+      if (!this.userId) return
+      try {
+        const res = await getFollowStatus(this.userId)
+        this.userInfo.isFollow = !!res?.data?.following
+        this.userInfo.fansCount = Number(res?.data?.followerCount || 0)
+        this.userInfo.followCount = Number(res?.data?.followingCount || 0)
+      } catch (error) {
+        this.userInfo.isFollow = false
+      }
+    },
+    async toggleFollow() {
+      if (!this.userId) {
+        uni.showToast({ title: '当前用户信息不完整', icon: 'none' })
+        return
+      }
+      try {
+        await toggleFollowUser(this.userId)
+        this.userInfo.isFollow = !this.userInfo.isFollow
+        this.userInfo.fansCount += this.userInfo.isFollow ? 1 : -1
+        uni.showToast({
+          title: this.userInfo.isFollow ? '关注成功' : '已取消关注',
+          icon: 'none'
+        })
+      } catch (error) {}
+    },
+    goToPost(id) {
+      uni.navigateTo({
+        url: `/subpackage_forum/postDetail/postDetail?id=${id}`
       })
+    },
+    formatDateTime(value) {
+      if (!value) return ''
+      return String(value).replace('T', ' ').slice(0, 16)
     }
   }
 }
@@ -262,6 +319,34 @@ export default {
       border-radius: 999rpx;
       background: linear-gradient(to bottom, #6366f1, #3b82f6);
     }
+  }
+
+  .post-list {
+    display: flex;
+    flex-direction: column;
+    gap: 20rpx;
+  }
+
+  .post-item {
+    padding: 24rpx;
+    border-radius: 24rpx;
+    background: #f8fafc;
+  }
+
+  .post-title {
+    display: block;
+    font-size: 28rpx;
+    line-height: 1.5;
+    color: #111827;
+    font-weight: 600;
+  }
+
+  .post-meta {
+    display: flex;
+    gap: 24rpx;
+    margin-top: 12rpx;
+    font-size: 22rpx;
+    color: #9ca3af;
   }
 
   .placeholder-empty {

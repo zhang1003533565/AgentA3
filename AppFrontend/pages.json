@@ -34,6 +34,42 @@
 				"navigationBarBackgroundColor": "#FFFFFF",
 				"navigationBarTextStyle": "black"
 			}
+		},
+		{
+			"path": "pages/notice/notice",
+			"style": {
+				"navigationBarTitleText": "通知公告",
+				"navigationStyle": "custom",
+				"navigationBarBackgroundColor": "#FFFFFF",
+				"navigationBarTextStyle": "black"
+			}
+		},
+		{
+			"path": "pages/grade/grade",
+			"style": {
+				"navigationBarTitleText": "成绩查询",
+				"navigationStyle": "custom",
+				"navigationBarBackgroundColor": "#FFFFFF",
+				"navigationBarTextStyle": "black"
+			}
+		},
+		{
+			"path": "pages/changePassword/changePassword",
+			"style": {
+				"navigationBarTitleText": "修改密码",
+				"navigationStyle": "custom",
+				"navigationBarBackgroundColor": "#FFFFFF",
+				"navigationBarTextStyle": "black"
+			}
+		},
+		{
+			"path": "pages/serviceHub/serviceHub",
+			"style": {
+				"navigationBarTitleText": "校园服务",
+				"navigationStyle": "custom",
+				"navigationBarBackgroundColor": "#FFFFFF",
+				"navigationBarTextStyle": "black"
+			}
 		}
 	],
 	"subPackages": [
