@@ -755,7 +755,7 @@ INSERT INTO activity_notice (id, activity_id, title, content, publisher_id, publ
 -- =============================================
 -- 论坛话题（forum_post.topic_id 外键依赖；与小程序分类/发帖选项 id 对齐）
 -- =============================================
-INSERT INTO forum_topic (id, topic_name, post_count, is_hot, status, create_time) VALUES
+INSERT IGNORE INTO forum_topic (id, topic_name, post_count, is_hot, status, create_time) VALUES
 (1, '校园生活', 0, 1, 'ACTIVE', NOW()),
 (2, '学习交流', 0, 1, 'ACTIVE', NOW()),
 (3, '求职招聘', 0, 1, 'ACTIVE', NOW()),

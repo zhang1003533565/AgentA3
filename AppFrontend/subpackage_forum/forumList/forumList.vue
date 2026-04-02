@@ -30,7 +30,7 @@
                 :class="{ active: currentTopic === item.id }"
                 @click="selectTopic(item.id)"
               >
-                <text class="category-text"># {{ item.name }}</text>
+                <text class="category-text">{{ item.name }}</text>
                 <view class="active-line" v-if="currentTopic === item.id"></view>
               </view>
             </view>
@@ -51,69 +51,94 @@
       <!-- 顶部占位，避免被固定导航遮挡 -->
       <view class="nav-placeholder"></view>
       
-      <!-- 热门话题模块 -->
-      <view class="hot-topics-section">
-        <view class="hot-topics-header" @click="toggleHotTopics">
-          <text class="hot-topics-title">🔥 热门话题</text>
-          <text class="hot-topics-toggle">{{ showHotTopics ? '收起' : '展开' }}</text>
-        </view>
-        <view class="hot-topics-list" v-if="showHotTopics">
-          <view 
-            v-for="(topic, index) in hotTopics" 
-            :key="topic.id"
-            class="hot-topic-item"
-            @click="goToTopicDetail(topic.id)"
-          >
-            <view class="topic-rank" :class="'rank-' + (index + 1)">{{ index + 1 }}</view>
-            <text class="topic-name"># {{ topic.name }}</text>
-            <text class="topic-heat">{{ formatHeat(topic.heat) }}</text>
+      <!-- 全部：按时间排序显示所有帖子 -->
+      <view v-if="currentTopic === 0" class="all-posts">
+        <view 
+          v-for="(item, index) in sortedPosts" 
+          :key="index"
+          class="post-item"
+          @click="goToDetail(item.id)"
+        >
+          <!-- 用户信息 -->
+          <view class="post-header">
+            <image class="user-avatar" :src="item.avatar || '/static/logo.png'" mode="aspectFill" />
+            <view class="user-info">
+              <text class="user-name">{{ item.userName }}</text>
+              <text class="post-time">{{ item.createTime }}</text>
+            </view>
+          </view>
+
+          <!-- 帖子内容 -->
+          <view class="post-content">
+            <text class="post-title" v-if="item.title">{{ item.title }}</text>
+            <text class="post-text">{{ item.content }}</text>
+            <view class="post-images" v-if="item.images && item.images.length">
+              <image 
+                v-for="(img, imgIndex) in item.images.slice(0, 3)" 
+                :key="imgIndex"
+                class="post-image"
+                :src="img"
+                mode="aspectFill"
+              />
+            </view>
+          </view>
+
+          <!-- 互动数据 -->
+          <view class="post-footer">
+            <view class="action-item" @click.stop="toggleLike(item)">
+              <text class="action-icon">{{ item.isLiked ? '❤️' : '🤍' }}</text>
+              <text class="action-count">{{ item.likeCount || 0 }}</text>
+            </view>
+            <view class="action-item">
+              <text class="action-icon">💬</text>
+              <text class="action-count">{{ item.commentCount || 0 }}</text>
+            </view>
           </view>
         </view>
       </view>
-      <view 
-        v-for="(item, index) in postList" 
-        :key="index"
-        class="post-item"
-        @click="goToDetail(item.id)"
-      >
-        <!-- 用户信息 -->
-        <view class="post-header">
-          <image class="user-avatar" :src="item.avatar || '/static/logo.png'" mode="aspectFill" />
-          <view class="user-info">
-            <text class="user-name">{{ item.userName }}</text>
-            <text class="post-time">{{ item.createTime }}</text>
+      
+      <!-- 选中具体分类时，显示该分类的所有帖子（也按时间排序） -->
+      <view v-else>
+        <view 
+          v-for="(item, index) in sortedPosts" 
+          :key="index"
+          class="post-item"
+          @click="goToDetail(item.id)"
+        >
+          <!-- 用户信息 -->
+          <view class="post-header">
+            <image class="user-avatar" :src="item.avatar || '/static/logo.png'" mode="aspectFill" />
+            <view class="user-info">
+              <text class="user-name">{{ item.userName }}</text>
+              <text class="post-time">{{ item.createTime }}</text>
+            </view>
           </view>
-          <view class="topic-tag" v-if="item.topicName"># {{ item.topicName }}</view>
-        </view>
 
-        <!-- 帖子内容 -->
-        <view class="post-content">
-          <text class="post-title" v-if="item.title">{{ item.title }}</text>
-          <text class="post-text">{{ item.content }}</text>
-          <view class="post-images" v-if="item.images && item.images.length">
-            <image 
-              v-for="(img, imgIndex) in item.images.slice(0, 3)" 
-              :key="imgIndex"
-              class="post-image"
-              :src="img"
-              mode="aspectFill"
-            />
+          <!-- 帖子内容 -->
+          <view class="post-content">
+            <text class="post-title" v-if="item.title">{{ item.title }}</text>
+            <text class="post-text">{{ item.content }}</text>
+            <view class="post-images" v-if="item.images && item.images.length">
+              <image 
+                v-for="(img, imgIndex) in item.images.slice(0, 3)" 
+                :key="imgIndex"
+                class="post-image"
+                :src="img"
+                mode="aspectFill"
+              />
+            </view>
           </view>
-        </view>
 
-        <!-- 互动数据 -->
-        <view class="post-footer">
-          <view class="action-item" @click.stop="toggleLike(item)">
-            <text class="action-icon">{{ item.isLiked ? '❤️' : '🤍' }}</text>
-            <text class="action-count">{{ item.likeCount || 0 }}</text>
-          </view>
-          <view class="action-item">
-            <text class="action-icon">💬</text>
-            <text class="action-count">{{ item.commentCount || 0 }}</text>
-          </view>
-          <view class="action-item" @click.stop="sharePost(item)">
-            <text class="action-icon">🔗</text>
-            <text class="action-count">分享</text>
+          <!-- 互动数据 -->
+          <view class="post-footer">
+            <view class="action-item" @click.stop="toggleLike(item)">
+              <text class="action-icon">{{ item.isLiked ? '❤️' : '🤍' }}</text>
+              <text class="action-count">{{ item.likeCount || 0 }}</text>
+            </view>
+            <view class="action-item">
+              <text class="action-icon">💬</text>
+              <text class="action-count">{{ item.commentCount || 0 }}</text>
+            </view>
           </view>
         </view>
       </view>
@@ -122,7 +147,7 @@
       <view class="load-more">
         <text v-if="loading">加载中...</text>
         <text v-else-if="noMore">没有更多了</text>
-        <text v-else-if="postList.length === 0">暂无帖子，快来发布第一篇吧~</text>
+        <text v-else-if="postList.length === 0 && currentTopic !== 0">暂无帖子，快来发布第一篇吧~</text>
       </view>
           <!-- 底部留白 -->
       <view class="post-list-bottom-pad" />
@@ -130,7 +155,7 @@
 
     <!-- 底部悬浮发帖按钮 -->
     <view class="fab-publish-btn" v-if="!showPublishModal" @click="openPublishModal">
-      <image class="fab-publish-icon" src="/static/APPIcon/forum/publish.png" mode="aspectFit" />
+      <text class="fab-publish-icon">+</text>
     </view>
 
     <!-- 发帖弹窗 -->
@@ -184,10 +209,22 @@ export default {
   components: { NavBar, PostEditor },
   data() {
     return {
-      searchKeyword: '',
       currentUserAvatar: '',
       currentTopic: 0,
-      topics: [{ id: 0, name: '推荐' }],
+      topics: [
+        { id: 0, name: '全部' },
+        { id: 1, name: '热门' },
+        { id: 2, name: '最新' },
+        { id: 3, name: '📢公告' },
+        { id: 4, name: '💰集市' },
+        { id: 5, name: '😊求助' },
+        { id: 6, name: '🔑失物' },
+        { id: 7, name: '💕表白' },
+        { id: 8, name: '🍟美食' },
+        { id: 9, name: '🤝搭子' },
+        { id: 10, name: '📚学习资料' },
+        { id: 11, name: '🌸影忆青春' }
+      ],
       postList: [],
       page: 1,
       pageSize: 10,
@@ -210,6 +247,12 @@ export default {
     }
   },
   computed: {
+    // 按时间排序的帖子（时间晚的在上面）
+    sortedPosts() {
+      return [...this.postList].sort((a, b) => {
+        return new Date(b.createTime) - new Date(a.createTime)
+      })
+    },
     canPublish() {
       return this.publishForm.content.trim().length >= 10
     }
@@ -232,19 +275,20 @@ export default {
       this.currentUserAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`
     },
     async loadTopics() {
-      try {
-        const res = await getTopicList({ pageNum: 1, pageSize: 50, status: 'ACTIVE' })
-        const records = res?.data?.records || []
-        const list = records.map((item) => ({
-          id: item.id,
-          name: item.topicName || '未命名话题'
-        }))
-        this.topics = [{ id: 0, name: '推荐' }, ...list]
-        this.publishTopics = list
-      } catch (error) {
-        this.topics = [{ id: 0, name: '推荐' }]
-        this.publishTopics = []
-      }
+      // 使用本地定义的静态分类，不从API获取
+      this.publishTopics = [
+        { id: 1, name: '热门' },
+        { id: 2, name: '最新' },
+        { id: 3, name: '📢公告' },
+        { id: 4, name: '💰集市' },
+        { id: 5, name: '😊求助' },
+        { id: 6, name: '🔑失物' },
+        { id: 7, name: '💕表白' },
+        { id: 8, name: '🍟美食' },
+        { id: 9, name: '🤝搭子' },
+        { id: 10, name: '📚学习资料' },
+        { id: 11, name: '🌸影忆青春' }
+      ]
     },
     async loadHotTopicList() {
       try {
@@ -292,6 +336,7 @@ export default {
         content: post.content || '',
         images: parseImageList(post.images),
         topicName: post.topicName || '',
+        topicId: post.topicId || 0,
         likeCount: post.likeCount || 0,
         commentCount: post.commentCount || 0,
         viewCount: post.viewCount || 0,
@@ -345,21 +390,6 @@ export default {
         item.isLiked = !!res?.data?.liked
         item.likeCount = Number(res?.data?.likeCount ?? item.likeCount)
       } catch (error) {}
-    },
-    sharePost(item) {
-      uni.showActionSheet({
-        itemList: ['复制链接', '分享到微信'],
-        success: (res) => {
-          if (res.tapIndex === 0) {
-            uni.setClipboardData({
-              data: `https://campus.edu.cn/forum/post/${item.id}`,
-              success: () => {
-                uni.showToast({ title: '链接已复制', icon: 'success' })
-              }
-            })
-          }
-        }
-      })
     },
     openPublishModal() {
       if (this.showPublishModal) return
@@ -516,8 +546,16 @@ export default {
 .category-scroll {
   white-space: nowrap;
   scrollbar-width: none;
+  -ms-overflow-style: none;
   &::-webkit-scrollbar {
     display: none;
+  }
+  /* 隐藏滚动指示器 */
+  ::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+    background: transparent;
   }
 }
 .category-list {
@@ -564,6 +602,8 @@ export default {
     height: 280rpx;
     flex-shrink: 0;
   }
+  
+  /* 分组样式 - 已废弃 */
   
   .post-item {
     background-color: #FFFFFF;
@@ -688,21 +728,22 @@ export default {
   right: 30rpx;
   bottom: calc(200rpx + constant(safe-area-inset-bottom));
   bottom: calc(200rpx + env(safe-area-inset-bottom));
-  width: 160rpx;
-  height: 160rpx;
+  width: 100rpx;
+  height: 100rpx;
   border-radius: 50%;
-  overflow: hidden;
-  box-shadow: 0 6rpx 20rpx rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6rpx 20rpx rgba(0, 122, 255, 0.3);
   z-index: 9999;
-  background-color: #FFFFFF;
-  border: 2rpx solid #5C7A99;
+  background: linear-gradient(135deg, #007AFF, #00C6FF);
 }
 
 .fab-publish-icon {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: contain;
+  font-size: 56rpx;
+  font-weight: 300;
+  color: #FFFFFF;
+  line-height: 1;
 }
 
 .publish-modal-mask {
