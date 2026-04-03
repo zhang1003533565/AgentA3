@@ -1,5 +1,7 @@
 server:
   port: 8080
+  servlet:
+    context-path: /
 
 spring:
   application:
@@ -24,6 +26,10 @@ spring:
   jackson:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: Asia/Shanghai
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 10MB
 
 jwt:
   secret: your-256-bit-secret-key-here-make-it-long-enough-for-hs256
@@ -33,6 +39,18 @@ tencent:
   map:
     key: F2ABZ-VU4LH-BDKDF-W7XCC-RXYX2-4AB52
     base-url: https://apis.map.qq.com
+
+aliyun:
+  oss:
+    endpoint: oss-cn-beijing.aliyuncs.com
+    bucket-name: smart-campus111
+    access-key-id: LTAI5tG9NLKEfSZVw3EZ2d1E
+    access-key-secret: yagymAoKXBh0rDJT7ArNTeXDUhsuRX
+    base-url: https://smart-campus111.oss-cn-beijing.aliyuncs.com
+
+file:
+  upload-dir: uploads
+  base-url: http://localhost:8080
 
 springdoc:
   api-docs:
