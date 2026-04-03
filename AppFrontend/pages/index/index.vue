@@ -49,7 +49,7 @@
 			</view>
 
 			<view class="supplement-grid">
-				<view class="supplement-card supplement-card--ai" @click="goToServiceHub('AI创作')">
+			<view class="supplement-card supplement-card--ai" @click="goToAiCreate">
 					<text class="supplement-title">AI创作</text>
 					<text class="supplement-desc">文案、海报与灵感生成</text>
 					<view class="supplement-arrow">›</view>
@@ -134,6 +134,11 @@ export default {
 		goToServiceHub(title) {
 			uni.navigateTo({
 				url: `/pages/serviceHub/serviceHub?title=${encodeURIComponent(title)}`
+			})
+		},
+		goToAiCreate() {
+			uni.navigateTo({
+				url: '/subpackage_ai/aiCreate/aiCreate'
 			})
 		}
 	}
