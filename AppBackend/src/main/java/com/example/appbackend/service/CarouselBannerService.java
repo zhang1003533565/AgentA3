@@ -6,16 +6,7 @@ import java.util.List;
 
 public interface CarouselBannerService {
 
-    /**
-     * 上传轮播图图片并保存记录
-     *
-     * @param file 上传的图片文件
-     * @param title 标题（可选）
-     * @param linkUrl 跳转链接（可选）
-     * @param sortOrder 排序值
-     * @return 保存后的轮播图记录
-     */
-    CarouselBanner uploadBanner(MultipartFile file, String title, String linkUrl, Integer sortOrder);
+    CarouselBanner uploadBanner(MultipartFile file, String title, Integer sortOrder);
 
     /**
      * 获取所有已启用的轮播图（供前端展示）
@@ -35,7 +26,7 @@ public interface CarouselBannerService {
     /**
      * 更新轮播图信息
      */
-    CarouselBanner updateBanner(Long id, String title, String linkUrl, Integer sortOrder, Boolean enabled);
+    CarouselBanner updateBanner(Long id, String title, Integer sortOrder, Boolean enabled);
 
     /**
      * 删除轮播图

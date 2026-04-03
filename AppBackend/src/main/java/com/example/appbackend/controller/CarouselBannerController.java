@@ -39,13 +39,11 @@ public class CarouselBannerController {
             @RequestParam("file") MultipartFile file,
             @Parameter(description = "标题（可选）")
             @RequestParam(required = false) String title,
-            @Parameter(description = "跳转链接（可选）")
-            @RequestParam(required = false) String linkUrl,
             @Parameter(description = "排序值，值越小越靠前，默认0")
             @RequestParam(required = false, defaultValue = "0") Integer sortOrder,
             HttpServletRequest httpRequest) {
         checkRole(httpRequest);
-        CarouselBanner banner = carouselBannerService.uploadBanner(file, title, linkUrl, sortOrder);
+        CarouselBanner banner = carouselBannerService.uploadBanner(file, title, sortOrder);
         return Result.success("轮播图上传成功", banner);
     }
 
@@ -80,15 +78,13 @@ public class CarouselBannerController {
             @PathVariable Long id,
             @Parameter(description = "标题（可选）")
             @RequestParam(required = false) String title,
-            @Parameter(description = "跳转链接（可选）")
-            @RequestParam(required = false) String linkUrl,
             @Parameter(description = "排序值")
             @RequestParam(required = false) Integer sortOrder,
             @Parameter(description = "是否启用")
             @RequestParam(required = false) Boolean enabled,
             HttpServletRequest httpRequest) {
         checkRole(httpRequest);
-        CarouselBanner banner = carouselBannerService.updateBanner(id, title, linkUrl, sortOrder, enabled);
+        CarouselBanner banner = carouselBannerService.updateBanner(id, title, sortOrder, enabled);
         return Result.success("轮播图更新成功", banner);
     }
 

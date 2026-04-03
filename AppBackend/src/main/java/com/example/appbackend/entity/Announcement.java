@@ -8,22 +8,22 @@ import java.time.LocalDateTime;
 
 @Data
 @Entity
-@Table(name = "carousel_banner")
-@Schema(description = "轮播图实体")
-public class CarouselBanner {
+@Table(name = "announcement")
+@Schema(description = "公告实体")
+public class Announcement {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Schema(description = "轮播图ID", example = "1")
+    @Schema(description = "公告ID", example = "1")
     private Long id;
 
-    @Column(nullable = false, length = 500, columnDefinition = "VARCHAR(500) NOT NULL COMMENT '图片URL'")
-    @Schema(description = "图片URL", example = "https://example.com/banner1.jpg", requiredMode = Schema.RequiredMode.REQUIRED)
-    private String imageUrl;
-
-    @Column(length = 200, columnDefinition = "VARCHAR(200) COMMENT '标题'")
-    @Schema(description = "标题", example = "校园迎新活动")
+    @Column(nullable = false, length = 200, columnDefinition = "VARCHAR(200) NOT NULL COMMENT '公告标题'")
+    @Schema(description = "公告标题", example = "关于2026年春季学期开学通知", requiredMode = Schema.RequiredMode.REQUIRED)
     private String title;
+
+    @Column(nullable = false, columnDefinition = "TEXT NOT NULL COMMENT '公告内容'")
+    @Schema(description = "公告内容", example = "各位师生员工，新学期将于3月1日正式开始...", requiredMode = Schema.RequiredMode.REQUIRED)
+    private String content;
 
     @Column(nullable = false, columnDefinition = "INT DEFAULT 0 COMMENT '排序，值越小越靠前'")
     @Schema(description = "排序，值越小越靠前", example = "0")

@@ -43,7 +43,7 @@ public class CarouselBannerServiceImpl implements CarouselBannerService {
     private String baseUrl;
 
     @Override
-    public CarouselBanner uploadBanner(MultipartFile file, String title, String linkUrl, Integer sortOrder) {
+    public CarouselBanner uploadBanner(MultipartFile file, String title, Integer sortOrder) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "上传文件不能为空");
         }
@@ -79,7 +79,6 @@ public class CarouselBannerServiceImpl implements CarouselBannerService {
         CarouselBanner banner = new CarouselBanner();
         banner.setImageUrl(imageUrl);
         banner.setTitle(title);
-        banner.setLinkUrl(linkUrl);
         banner.setSortOrder(sortOrder != null ? sortOrder : 0);
         banner.setEnabled(true);
 
@@ -103,14 +102,11 @@ public class CarouselBannerServiceImpl implements CarouselBannerService {
     }
 
     @Override
-    public CarouselBanner updateBanner(Long id, String title, String linkUrl, Integer sortOrder, Boolean enabled) {
+    public CarouselBanner updateBanner(Long id, String title, Integer sortOrder, Boolean enabled) {
         CarouselBanner banner = getBannerById(id);
 
         if (title != null) {
             banner.setTitle(title);
-        }
-        if (linkUrl != null) {
-            banner.setLinkUrl(linkUrl);
         }
         if (sortOrder != null) {
             banner.setSortOrder(sortOrder);
