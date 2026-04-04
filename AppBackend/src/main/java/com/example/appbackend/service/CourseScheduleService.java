@@ -31,4 +31,20 @@ public interface CourseScheduleService {
      * @return 本周课表列表
      */
     List<CourseSchedule> getCurrentWeekSchedule(Long userId);
+
+    /**
+     * 获取用户指定周次的课表
+     * @param userId 用户 ID
+     * @param week 周次（1-20）
+     * @return 指定周次课表列表
+     */
+    List<CourseSchedule> getWeekSchedule(Long userId, int week);
+
+    /**
+     * 获取课程详情
+     * @param userId 用户 ID
+     * @param courseId 课程 ID
+     * @return 课程详情
+     */
+    CourseSchedule getCourseDetail(Long userId, Long courseId);
 }

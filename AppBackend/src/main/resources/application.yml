@@ -53,7 +53,7 @@ file:
   base-url: http://localhost:8080
 
 browser:
-  headless: false  # 可视化浏览器，调试用
+  headless: true  # 可视化浏览器，调试用
   default-url: https://jwx.hebiace.edu.cn/
 
 springdoc:

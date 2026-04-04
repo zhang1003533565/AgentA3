@@ -70,22 +70,40 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
             return List.of();
         }
 
+        return getWeekSchedule(userId, currentWeek);
+    }
+
+    @Override
+    public List<CourseSchedule> getWeekSchedule(Long userId, int week) {
         // 获取用户的所有课表
         List<CourseSchedule> allSchedules = courseScheduleRepository.findByUserId(userId);
 
-        // 过滤出本周的课程
+        // 过滤出指定周次的课程
         return allSchedules.stream()
                 .filter(schedule -> {
                     String weekRange = schedule.getWeekRange();
-                    System.out.println("DEBUG - 课程：" + schedule.getCourseName() + ", 周次范围：" + weekRange + ", 当前周次：" + currentWeek);
-                    boolean isInWeek = WeekCalculator.isWeekInRange(weekRange, currentWeek);
+                    System.out.println("DEBUG - 课程：" + schedule.getCourseName() + ", 周次范围：" + weekRange + ", 指定周次：" + week);
+                    boolean isInWeek = WeekCalculator.isWeekInRange(weekRange, week);
                     if (isInWeek) {
-                        System.out.println("DEBUG - 课程 " + schedule.getCourseName() + " 本周上课");
+                        System.out.println("DEBUG - 课程 " + schedule.getCourseName() + " 第" + week + "周上课");
                     } else {
-                        System.out.println("DEBUG - 课程 " + schedule.getCourseName() + " 本周不上课");
+                        System.out.println("DEBUG - 课程 " + schedule.getCourseName() + " 第" + week + "周不上课");
                     }
                     return isInWeek;
                 })
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public CourseSchedule getCourseDetail(Long userId, Long courseId) {
+        CourseSchedule schedule = courseScheduleRepository.findById(courseId)
+                .orElseThrow(() -> new RuntimeException("课程不存在"));
+
+        // 验证课程是否属于该用户
+        if (!schedule.getUserId().equals(userId)) {
+            throw new RuntimeException("无权查看该课程信息");
+        }
+
+        return schedule;
     }
 }

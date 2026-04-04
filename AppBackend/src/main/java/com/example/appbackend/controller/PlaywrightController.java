@@ -2,6 +2,7 @@ package com.example.appbackend.controller;
 
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.entity.User;
+import com.example.appbackend.entity.CourseSchedule;
 import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.CourseScheduleService;
 import com.example.appbackend.service.PlaywrightService;
@@ -433,7 +434,96 @@ public class PlaywrightController {
             result.put("count", schedule.size());
             result.put("schedule", schedule);
 
+            // 计算学期信息
+            String semester = calculateSemester(user.getSemesterStart());
+            result.put("semester", semester);
+
+            // 返回学期开始日期给前端
+            if (user.getSemesterStart() != null) {
+                result.put("semesterStart", user.getSemesterStart().toString());
+            }
+
             return Result.success(result);
+        } catch (Exception e) {
+            return Result.error("获取失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取用户指定周次的课表
+     */
+    @GetMapping("/jwx/schedule/week/{week}")
+    public Result<Map<String, Object>> getWeekSchedule(
+            @PathVariable Integer week,
+            HttpServletRequest request) {
+        try {
+            // 从请求属性中获取用户 ID（由 JwtInterceptor 设置）
+            Long userId = (Long) request.getAttribute("userId");
+            if (userId == null) {
+                return Result.error("未登录或 Token 无效");
+            }
+
+            // 验证周次范围
+            if (week == null || week < 1 || week > 20) {
+                return Result.error("周次必须在 1-20 之间");
+            }
+
+            var schedule = courseScheduleService.getWeekSchedule(userId, week);
+
+            // 获取用户信息用于计算学期
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new RuntimeException("用户不存在"));
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            result.put("currentWeek", week);
+            result.put("count", schedule.size());
+            result.put("schedule", schedule);
+
+            // 计算学期信息
+            String semester = calculateSemester(user.getSemesterStart());
+            result.put("semester", semester);
+
+            // 返回学期开始日期给前端
+            if (user.getSemesterStart() != null) {
+                result.put("semesterStart", user.getSemesterStart().toString());
+            }
+
+            return Result.success(result);
+        } catch (Exception e) {
+            return Result.error("获取失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取课程详情
+     */
+    @GetMapping("/jwx/schedule/{courseId}")
+    public Result<Map<String, Object>> getCourseDetail(
+            @PathVariable Long courseId,
+            HttpServletRequest request) {
+        try {
+            // 从请求属性中获取用户 ID（由 JwtInterceptor 设置）
+            Long userId = (Long) request.getAttribute("userId");
+            if (userId == null) {
+                return Result.error("未登录或 Token 无效");
+            }
+
+            CourseSchedule schedule = courseScheduleService.getCourseDetail(userId, courseId);
+
+            // 计算学期信息
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new RuntimeException("用户不存在"));
+            String semester = calculateSemester(user.getSemesterStart());
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            result.put("course", schedule);
+            result.put("semester", semester);
+
+            return Result.success(result);
+        } catch (RuntimeException e) {
+            return Result.error(e.getMessage());
         } catch (Exception e) {
             return Result.error("获取失败：" + e.getMessage());
         }
@@ -462,6 +552,54 @@ public class PlaywrightController {
             return Result.success(result);
         } catch (Exception e) {
             return Result.error("保存失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 根据学期开始日期和当前周次计算学期名称
+     * 假设：2-7 月为春季学期（第 2 学期），8-1 月为秋季学期（第 1 学期）
+     */
+    private String calculateSemester(java.time.LocalDate semesterStart) {
+        if (semesterStart == null) {
+            return "2025-2026 第 2 学期";
+        }
+
+        int startYear = semesterStart.getYear();
+        int startMonth = semesterStart.getMonthValue();
+
+        // 2-7 月为春季学期（第 2 学期），8-1 月为秋季学期（第 1 学期）
+        int semesterNum = (startMonth >= 2 && startMonth <= 7) ? 2 : 1;
+
+        // 学年计算：春季学期属于上一学年，秋季学期属于当前学年
+        int academicYearStart = semesterNum == 2 ? startYear - 1 : startYear;
+        int academicYearEnd = academicYearStart + 1;
+
+        return academicYearStart + "-" + academicYearEnd + " 第 " + semesterNum + " 学期";
+    }
+
+    /**
+     * 检查用户是否绑定了教务系统账号
+     */
+    @GetMapping("/jwx/user/check-jwx-bind")
+    public Result<Map<String, Object>> checkJwxBind(HttpServletRequest request) {
+        try {
+            Long userId = (Long) request.getAttribute("userId");
+            if (userId == null) {
+                return Result.error("未登录或 Token 无效");
+            }
+
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new RuntimeException("用户不存在"));
+
+            boolean binded = user.getJwxStudentId() != null && !user.getJwxStudentId().isEmpty()
+                          && user.getJwxPassword() != null && !user.getJwxPassword().isEmpty();
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("binded", binded);
+
+            return Result.success(result);
+        } catch (Exception e) {
+            return Result.error("检查失败：" + e.getMessage());
         }
     }
 

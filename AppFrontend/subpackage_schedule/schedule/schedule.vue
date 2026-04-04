@@ -2,13 +2,41 @@
 	<view class="schedule-page">
 		<!-- Header Bar（独立页面时显示） -->
 		<view v-if="showHeader" class="header-bar">
-			<view class="back-btn" @click="goBack">
-				<text class="back-icon">‹</text>
-				<text class="back-text">返回</text>
+			<view class="header-left">
+				<view class="back-btn" @click="goBack">
+					<image class="back-icon" src="/static/icons/back.png" mode="aspectFit" />
+				</view>
+				<view class="week-info-wrapper">
+					<view class="week-info" @click="showWeekSelector">
+						<text class="week-text">第{{ currentWeek }}周</text>
+						<text class="week-icon">›</text>
+					</view>
+					<view class="semester-info">
+						<text class="semester-text">{{ semester }}</text>
+					</view>
+				</view>
 			</view>
-			<text class="page-title">我的课表</text>
-			<view class="import-btn" @click="importSchedule">
-				<text class="import-icon">+</text>
+			<view class="header-actions">
+				<view class="share-btn" @click="shareSchedule">
+					<image class="share-icon" src="/static/icons/share.png" mode="aspectFit" />
+				</view>
+				<view class="import-btn" @click="showImportMenu">
+					<image class="import-icon" src="/static/icons/add.png" mode="aspectFit" />
+				</view>
+			</view>
+		</view>
+
+		<!-- 导入菜单弹窗 -->
+		<view v-if="showImportPopup" class="import-popup" @click="showImportPopup = false">
+			<view class="popup-content" @click.stop>
+				<view class="popup-item" @click="importFromJwx">
+					<text class="popup-title">教务系统导课</text>
+					<text class="popup-desc">导入至{{ semester }}</text>
+				</view>
+				<view class="popup-item" @click="shareSchedule">
+					<text class="popup-title">分享课程表</text>
+					<text class="popup-desc">生成课表海报分享给好友</text>
+				</view>
 			</view>
 		</view>
 
@@ -99,7 +127,10 @@ export default {
 			courses: [],
 			loading: false,
 			currentMonth: 3,
-			weekDates: [] // 存储本周每天的日期
+			weekDates: [], // 存储本周每天的日期
+			semester: '2025-2026 第 1 学期',
+			showImportPopup: false,
+			semesterStart: '' // 学期开始日期
 		}
 	},
 	mounted() {
@@ -128,6 +159,12 @@ export default {
 							const scheduleData = res.data.data
 							this.currentWeek = scheduleData.currentWeek || 1
 							this.courses = this.transformScheduleData(scheduleData.schedule || [])
+							if (scheduleData.semester) {
+								this.semester = scheduleData.semester
+							}
+							if (scheduleData.semesterStart) {
+								this.semesterStart = scheduleData.semesterStart
+							}
 							this.calculateWeekDates()
 						} else {
 							uni.showToast({
@@ -200,19 +237,42 @@ export default {
 
 		// 计算本周每天的日期
 		calculateWeekDates() {
-			const now = new Date()
-			const currentDay = now.getDay() || 7 // 获取当前星期几，周日为 7
-			const mondayOffset = currentDay - 1 // 计算与周一的差值
+			if (!this.semesterStart) {
+				// 如果没有学期开始日期，使用当前日期计算
+				this.calculateWeekDatesFromNow()
+				return
+			}
 
-			// 计算本周一的日期
+			// 解析学期开始日期
+			const startDate = new Date(this.semesterStart)
+
+			// 计算当前周的第一天（学期开始日期 + (currentWeek - 1) * 7 天）
+			const weekStart = new Date(startDate)
+			weekStart.setDate(startDate.getDate() + (this.currentWeek - 1) * 7)
+
+			// 计算本周每天的日期
+			this.weekDates = []
+			for (let i = 0; i < 7; i++) {
+				const date = new Date(weekStart)
+				date.setDate(weekStart.getDate() + i)
+				this.weekDates.push({
+					month: date.getMonth() + 1,
+					day: date.getDate()
+				})
+			}
+
+			// 设置当前月份
+			this.currentMonth = this.weekDates[0]?.month || new Date().getMonth() + 1
+		},
+		// 使用当前日期计算（兼容模式）
+		calculateWeekDatesFromNow() {
+			const now = new Date()
+			const currentDay = now.getDay() || 7
+			const mondayOffset = currentDay - 1
+
 			const monday = new Date(now)
 			monday.setDate(monday.getDate() - mondayOffset)
 
-			// 根据当前周数调整日期（假设每两周之间有 7 天间隔）
-			const weekOffset = (this.currentWeek - 1) * 7
-			monday.setDate(monday.getDate() + weekOffset)
-
-			// 计算本周每天的日期
 			this.weekDates = []
 			for (let i = 0; i < 7; i++) {
 				const date = new Date(monday)
@@ -223,7 +283,6 @@ export default {
 				})
 			}
 
-			// 设置当前月份
 			this.currentMonth = now.getMonth() + 1
 		},
 
@@ -236,6 +295,54 @@ export default {
 
 		goBack() {
 			uni.navigateBack()
+		},
+		showWeekSelector() {
+			const weeks = Array.from({ length: 20 }, (_, i) => i + 1)
+			uni.showActionSheet({
+				itemList: weeks.map(w => `第${w}周`),
+				success: (res) => {
+					const selectedWeek = res.tapIndex + 1
+					this.loadWeekSchedule(selectedWeek)
+				}
+			})
+		},
+		loadWeekSchedule(week) {
+			uni.showLoading({
+				title: '加载中...'
+			})
+			const token = uni.getStorageSync('token') || ''
+			uni.request({
+				url: `http://localhost:8080/api/browser/jwx/schedule/week/${week}`,
+				method: 'GET',
+				header: {
+					'Authorization': 'Bearer ' + token
+				},
+				success: (res) => {
+					uni.hideLoading()
+					if (res.statusCode === 200 && res.data.code === 200) {
+						const scheduleData = res.data.data
+						this.currentWeek = scheduleData.currentWeek || week
+						this.courses = this.transformScheduleData(scheduleData.schedule || [])
+						if (scheduleData.semester) {
+							this.semester = scheduleData.semester
+						}
+						this.calculateWeekDates()
+					} else {
+						uni.showToast({
+							title: res.data.message || '获取课表失败',
+							icon: 'none'
+						})
+					}
+				},
+				fail: (err) => {
+					uni.hideLoading()
+					console.error('加载课表失败:', err)
+					uni.showToast({
+						title: '加载失败',
+						icon: 'none'
+					})
+				}
+			})
 		},
 		courseStyle(course) {
 			const rowHeight = 240  // 每节的高度
@@ -298,9 +405,7 @@ export default {
 					uni.hideLoading()
 					if (res.statusCode === 200 && res.data.code === 200) {
 						const count = res.data.data.count || 0
-						// 导入成功后，调用获取本周课表接口重新加载数据
 						this.loadSchedule()
-
 						uni.showToast({
 							title: `成功导入 ${count} 门课程`,
 							icon: 'success'
@@ -321,7 +426,52 @@ export default {
 					})
 				}
 			})
-		}
+		},
+		// 分享课程表
+		shareSchedule() {
+			uni.showToast({ title: '功能开发中', icon: 'none' })
+		},
+		// 显示导入菜单
+		showImportMenu() {
+			this.showImportPopup = true
+		},
+		// 从教务系统导入
+		importFromJwx() {
+			this.showImportPopup = false
+			const token = uni.getStorageSync('token') || ''
+			uni.request({
+				url: 'http://localhost:8080/api/browser/jwx/user/check-jwx-bind',
+				method: 'GET',
+				header: {
+					'Authorization': 'Bearer ' + token
+				},
+				success: (res) => {
+					if (res.statusCode === 200 && res.data.code === 200 && res.data.data.binded) {
+						this.importSchedule()
+					} else {
+						uni.showModal({
+							title: '提示',
+							content: '您还未绑定教务系统账号，请先绑定后再导入课表',
+							confirmText: '去绑定',
+							success: (modalRes) => {
+								if (modalRes.confirm) {
+									uni.navigateTo({
+										url: '/pages/jwxBind/jwxBind'
+									})
+								}
+							}
+						})
+					}
+				},
+				fail: () => {
+					uni.showToast({ title: '网络错误', icon: 'none' })
+				}
+			})
+		},
+		// 通过分享导入
+		importFromShare() {
+			uni.showToast({ title: '功能开发中', icon: 'none' })
+		},
 	}
 }
 </script>
@@ -340,42 +490,102 @@ export default {
 }
 
 .header-bar {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	padding: 12rpx 30rpx 24rpx;
+}
+
+.header-left {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	padding: 12rpx 0 24rpx;
+	justify-content: flex-start;
+}
+
+.header-actions {
+	position: absolute;
+	right: 30rpx;
+	top: 50%;
+	transform: translateY(-50%);
+	display: flex;
+	align-items: center;
 }
 
 .back-btn {
 	display: flex;
 	align-items: center;
-	gap: 8rpx;
-	padding: 12rpx 16rpx;
-	background: #f5f5f5;
-	border-radius: 20rpx;
+	justify-content: center;
+	width: 72rpx;
+	height: 72rpx;
 }
 
 .back-icon {
-	font-size: 36rpx;
-	color: #333;
-	font-weight: 700;
-	line-height: 1;
+	width: 56rpx;
+	height: 56rpx;
 }
 
-.back-text {
-	font-size: 24rpx;
-	color: #333;
-	font-weight: 500;
+.header-left {
+	display: flex;
+	align-items: center;
+	gap: 16rpx;
 }
 
-.page-title {
+.week-info-wrapper {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 4rpx;
+}
+
+.week-info {
+	display: flex;
+	align-items: center;
+	gap: 4rpx;
+}
+
+.week-text {
+	font-size: 40rpx;
+	font-weight: 800;
+	color: #1D1D1F;
+}
+
+.week-icon {
 	font-size: 32rpx;
-	font-weight: 700;
 	color: #333;
+	transform: rotate(90deg);
 }
 
-.placeholder {
-	width: 100rpx;
+.semester-info {
+	display: flex;
+	align-items: center;
+}
+
+.semester-text {
+	font-size: 22rpx;
+	color: #999;
+}
+
+.header-actions {
+	position: absolute;
+	right: 30rpx;
+	top: 50%;
+	transform: translateY(-50%);
+	display: flex;
+	align-items: center;
+	gap: 20rpx;
+}
+
+.share-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 72rpx;
+	height: 72rpx;
+}
+
+.share-icon {
+	width: 56rpx;
+	height: 56rpx;
 }
 
 .import-btn {
@@ -384,15 +594,61 @@ export default {
 	justify-content: center;
 	width: 72rpx;
 	height: 72rpx;
-	background: #007aff;
+	background: #1D1D1F;
 	border-radius: 16rpx;
 }
 
 .import-icon {
-	font-size: 48rpx;
-	color: #fff;
-	font-weight: 300;
-	line-height: 1;
+	width: 56rpx;
+	height: 56rpx;
+	filter: brightness(0) invert(1);
+}
+
+// 导入弹窗
+.import-popup {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: rgba(0, 0, 0, 0.5);
+	z-index: 1000;
+	display: flex;
+	justify-content: flex-end;
+	align-items: flex-start;
+	padding-top: 140rpx;
+	padding-right: 30rpx;
+}
+
+.popup-content {
+	background: #fff;
+	border-radius: 16rpx;
+	width: 360rpx;
+	padding: 16rpx 0;
+	box-shadow: 0 4rpx 20rpx rgba(0, 0, 0, 0.15);
+	height: auto;
+}
+
+.popup-item {
+	padding: 16rpx 28rpx;
+	border-bottom: 1rpx solid #f0f0f0;
+	&:last-child {
+		border-bottom: none;
+	}
+}
+
+.popup-title {
+	display: block;
+	font-size: 30rpx;
+	font-weight: 600;
+	color: #333;
+	margin-bottom: 4rpx;
+}
+
+.popup-desc {
+	display: block;
+	font-size: 22rpx;
+	color: #999;
 }
 
 .weekday-bar {
