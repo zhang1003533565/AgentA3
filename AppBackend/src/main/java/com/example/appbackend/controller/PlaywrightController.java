@@ -5,6 +5,7 @@ import com.example.appbackend.entity.User;
 import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.CourseScheduleService;
 import com.example.appbackend.service.PlaywrightService;
+import com.example.appbackend.util.WeekCalculator;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.LoadState;
@@ -96,26 +97,119 @@ public class PlaywrightController {
             // 获取所有课表块，每个 div 单独作为一个数组元素
             List<Map<String, Object>> courseBlocks = (List<Map<String, Object>>) playwrightService.evaluate(newPage,
                 "() => { " +
-                "var blocks = []; " +
-                "var timetableConElements = document.querySelectorAll('div.timetable_con'); " +
-                "timetableConElements.forEach(function(el, idx) { " +
-                "  blocks.push({ " +
-                "    index: idx + 1, " +
-                "    outerHTML: el.outerHTML, " +
-                "    innerText: el.innerText " +
-                "  }); " +
-                "}); " +
-                "return blocks; " +
+                "  function cleanText(text) { " +
+                "    return (text || '').replace(/\\s+/g, ' ').trim(); " +
+                "  } " +
+                "  function parsePeriodWeek(text) { " +
+                "    const raw = cleanText(text); " +
+                "    const result = { sectionText: '', sectionStart: null, sectionEnd: null, weekText: '' }; " +
+                "    if (!raw) return result; " +
+                "    const normalized = raw.replace(/\\s+/g, ''); " +
+                "    const sectionMatch = normalized.match(/\\(([^)]+)\\)/); " +
+                "    if (sectionMatch) { " +
+                "      result.sectionText = sectionMatch[1]; " +
+                "      const secMatch = sectionMatch[1].match(/(\\d+)-(\\d+) 节/); " +
+                "      if (secMatch) { " +
+                "        result.sectionStart = Number(secMatch[1]); " +
+                "        result.sectionEnd = Number(secMatch[2]); " +
+                "      } " +
+                "    } " +
+                "    const weekPart = normalized.replace(/\\([^)]+\\)/, ''); " +
+                "    result.weekText = weekPart; " +
+                "    return result; " +
+                "  } " +
+                "  function extractRawFields(courseDiv) { " +
+                "    const rawFields = {}; " +
+                "    const rows = courseDiv.querySelectorAll('p'); " +
+                "    rows.forEach((p) => { " +
+                "      const labelEl = p.querySelector('span[title]'); " +
+                "      if (!labelEl) return; " +
+                "      const key = cleanText(labelEl.getAttribute('title')); " +
+                "      if (!key) return; " +
+                "      const value = cleanText(p.textContent); " +
+                "      rawFields[key] = value; " +
+                "    }); " +
+                "    return rawFields; " +
+                "  } " +
+                "  function extractCourseDiv(courseDiv, index) { " +
+                "    const rawFields = extractRawFields(courseDiv); " +
+                "    const courseName = cleanText(courseDiv.querySelector('.title')?.textContent || ''); " +
+                "    const periodInfo = parsePeriodWeek(rawFields['节/周'] || ''); " +
+                "    const parentTd = courseDiv.parentElement; " +
+                "    const tdId = parentTd?.id || ''; " +
+                "    let weekday = null; " +
+                "    if (tdId) { " +
+                "      const weekdayMatch = tdId.match(/^(\\d)-/); " +
+                "      if (weekdayMatch) { " +
+                "        weekday = Number(weekdayMatch[1]); " +
+                "      } " +
+                "    } " +
+                "    return { " +
+                "      index: index, " +
+                "      courseName: courseName, " +
+                "      sections: periodInfo.sectionText, " +
+                "      sectionStart: periodInfo.sectionStart, " +
+                "      sectionEnd: periodInfo.sectionEnd, " +
+                "      weekText: periodInfo.weekText, " +
+                "      weekday: weekday, " +
+                "      location: rawFields['上课地点'] || '', " +
+                "      teacher: rawFields['教师'] || '', " +
+                "      classCode: rawFields['教学班名称'] || '', " +
+                "      classComposition: rawFields['教学班组成'] || '', " +
+                "      assessmentType: rawFields['考核方式'] || '', " +
+                "      remark: rawFields['选课备注'] || '', " +
+                "      hourComposition: rawFields['课程学时组成'] || '', " +
+                "      weeklyHours: rawFields['周学时'] || '', " +
+                "      totalHours: rawFields['总学时'] || '', " +
+                "      credit: rawFields['学分'] || '', " +
+                "      rawFields: rawFields " +
+                "    }; " +
+                "  } " +
+                "  function extractAllCourses(selector) { " +
+                "    const divs = Array.from(document.querySelectorAll(selector)); " +
+                "    return divs.map((div, index) => extractCourseDiv(div, index)); " +
+                "  } " +
+                "  const courses = extractAllCourses('.timetable_con'); " +
+                "  console.log('提取到的课程数据：', courses.length); " +
+                "  return courses; " +
                 "}"
             );
 
             // 构建 rawData 格式用于解析保存
             StringBuilder rawDataBuilder = new StringBuilder();
-            for (Map<String, Object> block : courseBlocks) {
-                rawDataBuilder.append("=== 课表块 ").append(block.get("index")).append(" ===\n");
-                rawDataBuilder.append("\"innerText\": \"").append(block.get("innerText")).append("\"\n");
+            for (Map<String, Object> course : courseBlocks) {
+                rawDataBuilder.append("=== 课表块 ").append(course.get("index")).append(" ===\n");
+                rawDataBuilder.append("\"courseName\": \"").append(course.get("courseName")).append("\"\n");
+                rawDataBuilder.append("\"sections\": \"").append(course.get("sections")).append("\"\n");
+                rawDataBuilder.append("\"sectionStart\": ").append(course.get("sectionStart")).append("\n");
+                rawDataBuilder.append("\"sectionEnd\": ").append(course.get("sectionEnd")).append("\n");
+                rawDataBuilder.append("\"weekText\": \"").append(course.get("weekText")).append("\"\n");
+                Object weekdayVal = course.get("weekday");
+                if (weekdayVal != null) {
+                    rawDataBuilder.append("\"weekday\": ").append(weekdayVal).append("\n");
+                } else {
+                    rawDataBuilder.append("\"weekday\": null\n");
+                }
+                rawDataBuilder.append("\"location\": \"").append(course.get("location")).append("\"\n");
+                rawDataBuilder.append("\"teacher\": \"").append(course.get("teacher")).append("\"\n");
+                rawDataBuilder.append("\"classCode\": \"").append(course.get("classCode")).append("\"\n");
+                rawDataBuilder.append("\"classComposition\": \"").append(course.get("classComposition")).append("\"\n");
+                rawDataBuilder.append("\"assessmentType\": \"").append(course.get("assessmentType")).append("\"\n");
+                rawDataBuilder.append("\"hourComposition\": \"").append(course.get("hourComposition")).append("\"\n");
+                rawDataBuilder.append("\"weeklyHours\": \"").append(course.get("weeklyHours")).append("\"\n");
+                rawDataBuilder.append("\"totalHours\": \"").append(course.get("totalHours")).append("\"\n");
+                rawDataBuilder.append("\"credit\": \"").append(course.get("credit")).append("\"\n");
             }
             String rawData = rawDataBuilder.toString();
+
+            // 调试：打印第一个课表块的节次信息
+            if (!courseBlocks.isEmpty()) {
+                var firstBlock = courseBlocks.get(0);
+                System.out.println("DEBUG - courseName: " + firstBlock.get("courseName"));
+                System.out.println("DEBUG - sections: " + firstBlock.get("sections"));
+                System.out.println("DEBUG - sectionStart: " + firstBlock.get("sectionStart"));
+                System.out.println("DEBUG - sectionEnd: " + firstBlock.get("sectionEnd"));
+            }
 
             // 保存课表数据到数据库
             courseScheduleService.saveSchedule(user.getId(), jwxStudentId, rawData);
@@ -173,17 +267,101 @@ public class PlaywrightController {
             newPage.waitForLoadState(LoadState.NETWORKIDLE);
             Thread.sleep(2000);
 
-            // 获取所有课表块
+            // 获取所有课表块（包含节次信息）
             String rawData = (String) playwrightService.evaluate(newPage,
                 "() => { " +
-                "let output = []; " +
-                "var timetableConElements = document.querySelectorAll('div.timetable_con'); " +
-                "timetableConElements.forEach(function(el, idx) { " +
-                "output.push('=== 课表块 ' + (idx + 1) + ' ==='); " +
-                "output.push(el.innerText); " +
-                "output.push(''); " +
-                "}); " +
-                "return output.join('\\n'); " +
+                "  function cleanText(text) { " +
+                "    return (text || '').replace(/\\s+/g, ' ').trim(); " +
+                "  } " +
+                "  function parsePeriodWeek(text) { " +
+                "    const raw = cleanText(text); " +
+                "    const result = { sectionText: '', sectionStart: null, sectionEnd: null, weekText: '' }; " +
+                "    if (!raw) return result; " +
+                "    const normalized = raw.replace(/\\s+/g, ''); " +
+                "    const sectionMatch = normalized.match(/\\(([^)]+)\\)/); " +
+                "    if (sectionMatch) { " +
+                "      result.sectionText = sectionMatch[1]; " +
+                "      const secMatch = sectionMatch[1].match(/(\\d+)-(\\d+) 节/); " +
+                "      if (secMatch) { " +
+                "        result.sectionStart = Number(secMatch[1]); " +
+                "        result.sectionEnd = Number(secMatch[2]); " +
+                "      } " +
+                "    } " +
+                "    const weekPart = normalized.replace(/\\([^)]+\\)/, ''); " +
+                "    result.weekText = weekPart; " +
+                "    return result; " +
+                "  } " +
+                "  function extractRawFields(courseDiv) { " +
+                "    const rawFields = {}; " +
+                "    const rows = courseDiv.querySelectorAll('p'); " +
+                "    rows.forEach((p) => { " +
+                "      const labelEl = p.querySelector('span[title]'); " +
+                "      if (!labelEl) return; " +
+                "      const key = cleanText(labelEl.getAttribute('title')); " +
+                "      if (!key) return; " +
+                "      const value = cleanText(p.textContent); " +
+                "      rawFields[key] = value; " +
+                "    }); " +
+                "    return rawFields; " +
+                "  } " +
+                "  function extractCourseDiv(courseDiv, index) { " +
+                "    const rawFields = extractRawFields(courseDiv); " +
+                "    const courseName = cleanText(courseDiv.querySelector('.title')?.textContent || ''); " +
+                "    const periodInfo = parsePeriodWeek(rawFields['节/周'] || ''); " +
+                "    const parentTd = courseDiv.parentElement; " +
+                "    const tdId = parentTd?.id || ''; " +
+                "    let weekday = null; " +
+                "    if (tdId) { " +
+                "      const weekdayMatch = tdId.match(/^(\\d)-/); " +
+                "      if (weekdayMatch) { " +
+                "        weekday = Number(weekdayMatch[1]); " +
+                "      } " +
+                "    } " +
+                "    return { " +
+                "      index: index, " +
+                "      courseName: courseName, " +
+                "      sections: periodInfo.sectionText, " +
+                "      sectionStart: periodInfo.sectionStart, " +
+                "      sectionEnd: periodInfo.sectionEnd, " +
+                "      weekText: periodInfo.weekText, " +
+                "      weekday: weekday, " +
+                "      location: rawFields['上课地点'] || '', " +
+                "      teacher: rawFields['教师'] || '', " +
+                "      classCode: rawFields['教学班名称'] || '', " +
+                "      classComposition: rawFields['教学班组成'] || '', " +
+                "      assessmentType: rawFields['考核方式'] || '', " +
+                "      hourComposition: rawFields['课程学时组成'] || '', " +
+                "      weeklyHours: rawFields['周学时'] || '', " +
+                "      totalHours: rawFields['总学时'] || '', " +
+                "      credit: rawFields['学分'] || '' " +
+                "    }; " +
+                "  } " +
+                "  function extractAllCourses(selector) { " +
+                "    const divs = Array.from(document.querySelectorAll(selector)); " +
+                "    return divs.map((div, index) => extractCourseDiv(div, index)); " +
+                "  } " +
+                "  const courses = extractAllCourses('.timetable_con'); " +
+                "  let output = []; " +
+                "  courses.forEach(function(course) { " +
+                "    output.push('=== 课表块 ' + (course.index + 1) + ' ==='); " +
+                "    output.push('\"courseName\": \"' + course.courseName + '\"'); " +
+                "    output.push('\"sections\": \"' + course.sections + '\"'); " +
+                "    output.push('\"sectionStart\": ' + course.sectionStart); " +
+                "    output.push('\"sectionEnd\": ' + course.sectionEnd); " +
+                "    output.push('\"weekText\": \"' + course.weekText + '\"'); " +
+                "    output.push('\"weekday\": ' + course.weekday); " +
+                "    output.push('\"location\": \"' + course.location + '\"'); " +
+                "    output.push('\"teacher\": \"' + course.teacher + '\"'); " +
+                "    output.push('\"classCode\": \"' + course.classCode + '\"'); " +
+                "    output.push('\"classComposition\": \"' + course.classComposition + '\"'); " +
+                "    output.push('\"assessmentType\": \"' + course.assessmentType + '\"'); " +
+                "    output.push('\"hourComposition\": \"' + course.hourComposition + '\"'); " +
+                "    output.push('\"weeklyHours\": \"' + course.weeklyHours + '\"'); " +
+                "    output.push('\"totalHours\": \"' + course.totalHours + '\"'); " +
+                "    output.push('\"credit\": \"' + course.credit + '\"'); " +
+                "    output.push(''); " +
+                "  }); " +
+                "  return output.join('\\n'); " +
                 "}"
             );
 
@@ -221,6 +399,37 @@ public class PlaywrightController {
 
             Map<String, Object> result = new HashMap<>();
             result.put("success", true);
+            result.put("count", schedule.size());
+            result.put("schedule", schedule);
+
+            return Result.success(result);
+        } catch (Exception e) {
+            return Result.error("获取失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取用户本周的课表（根据学期开始日期自动计算当前周次）
+     */
+    @GetMapping("/jwx/schedule/current")
+    public Result<Map<String, Object>> getCurrentWeekSchedule(HttpServletRequest request) {
+        try {
+            // 从请求属性中获取用户 ID（由 JwtInterceptor 设置）
+            Long userId = (Long) request.getAttribute("userId");
+            if (userId == null) {
+                return Result.error("未登录或 Token 无效");
+            }
+
+            var schedule = courseScheduleService.getCurrentWeekSchedule(userId);
+
+            // 计算当前周次用于返回给前端
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new RuntimeException("用户不存在"));
+            int currentWeek = WeekCalculator.getCurrentWeek(user.getSemesterStart());
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            result.put("currentWeek", currentWeek);
             result.put("count", schedule.size());
             result.put("schedule", schedule);
 

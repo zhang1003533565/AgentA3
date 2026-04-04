@@ -53,6 +53,9 @@ public class User {
     @Column(name = "jwx_password", length = 100, columnDefinition = "VARCHAR(100) COMMENT '教务系统密码'")
     private String jwxPassword;
 
+    @Column(name = "semester_start", columnDefinition = "DATE COMMENT '学期开始日期'")
+    private java.time.LocalDate semesterStart;
+
     @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 1 COMMENT '状态：1-正常，0-禁用'")
     private Integer status = 1;
 

@@ -28,6 +28,9 @@ public class CourseSchedule {
     @Column(name = "class_sessions", length = 50, columnDefinition = "VARCHAR(50) COMMENT '节次，如：1-2 节，3-4 节'")
     private String classSessions;
 
+    @Column(name = "weekday", columnDefinition = "INT COMMENT '星期几：1-星期一，2-星期二，3-星期三，4-星期四，5-星期五，6-星期六，7-星期日'")
+    private Integer weekday;
+
     @Column(name = "location", length = 100, columnDefinition = "VARCHAR(100) COMMENT '上课地点'")
     private String location;
 

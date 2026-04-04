@@ -30,170 +30,153 @@ public class CourseScheduleParser {
             String block = blocks[i].trim();
             if (block.isEmpty()) continue;
 
-            // 提取 innerText 部分
-            String innerText = extractInnerText(block);
-            if (innerText != null && !innerText.isEmpty()) {
-                CourseSchedule schedule = parseInnerText(innerText.trim(), userId, studentId);
-                if (schedule != null && schedule.getCourseName() != null) {
-                    schedules.add(schedule);
+            // 提取各个字段
+            String courseName = extractField(block, "courseName");
+            String sections = extractField(block, "sections");
+            String sectionStartStr = extractField(block, "sectionStart");
+            String sectionEndStr = extractField(block, "sectionEnd");
+            String weekText = extractField(block, "weekText");
+            String weekdayStr = extractField(block, "weekday");
+            String location = extractField(block, "location");
+            String teacher = extractField(block, "teacher");
+            String classCode = extractField(block, "classCode");
+            String classComposition = extractField(block, "classComposition");
+            String assessmentType = extractField(block, "assessmentType");
+            String hourComposition = extractField(block, "hourComposition");
+            String weeklyHours = extractField(block, "weeklyHours");
+            String totalHours = extractField(block, "totalHours");
+            String credit = extractField(block, "credit");
+
+            // 跳过只有课程名称但其他字段都是空的记录（空数据）
+            if (courseName == null || courseName.isEmpty()) continue;
+            if ((weekText == null || weekText.isEmpty()) &&
+                (location == null || location.isEmpty()) &&
+                (teacher == null || teacher.isEmpty())) {
+                // 跳过空数据
+                continue;
+            }
+
+            CourseSchedule schedule = new CourseSchedule();
+            schedule.setUserId(userId);
+            schedule.setStudentId(studentId);
+            schedule.setCourseName(courseName);
+
+            // 设置节次信息
+            if (sections != null && !sections.isEmpty()) {
+                schedule.setClassSessions(sections);
+            }
+            // 设置周数
+            if (weekText != null && !weekText.isEmpty()) {
+                schedule.setWeekRange(weekText);
+            }
+            // 设置星期几
+            if (weekdayStr != null && !weekdayStr.isEmpty() && !"null".equals(weekdayStr)) {
+                try {
+                    schedule.setWeekday(Integer.parseInt(weekdayStr));
+                } catch (NumberFormatException e) {
+                    // 忽略
                 }
             }
+            // 设置地点
+            if (location != null && !location.isEmpty()) {
+                schedule.setLocation(location);
+            }
+            // 设置教师
+            if (teacher != null && !teacher.isEmpty()) {
+                schedule.setTeacherName(teacher);
+            }
+            // 设置教学班
+            if (classCode != null && !classCode.isEmpty()) {
+                schedule.setClassCode(classCode);
+            }
+            // 设置教学班组成
+            if (classComposition != null && !classComposition.isEmpty()) {
+                schedule.setClassComposition(classComposition);
+            }
+            // 设置考核方式
+            if (assessmentType != null && !assessmentType.isEmpty()) {
+                schedule.setAssessmentType(assessmentType);
+            }
+            // 解析学时组成
+            if (hourComposition != null && !hourComposition.isEmpty()) {
+                parseHours(schedule, hourComposition);
+            }
+            // 设置周学时
+            if (weeklyHours != null && !weeklyHours.isEmpty()) {
+                try {
+                    schedule.setWeeklyHours(Integer.parseInt(weeklyHours));
+                } catch (NumberFormatException e) {
+                    // 忽略
+                }
+            }
+            // 设置总学时
+            if (totalHours != null && !totalHours.isEmpty()) {
+                try {
+                    schedule.setTotalHours(Integer.parseInt(totalHours));
+                } catch (NumberFormatException e) {
+                    // 忽略
+                }
+            }
+            // 设置学分
+            if (credit != null && !credit.isEmpty()) {
+                try {
+                    schedule.setCredit(new BigDecimal(credit));
+                } catch (NumberFormatException e) {
+                    // 忽略
+                }
+            }
+
+            schedules.add(schedule);
         }
 
         return schedules;
     }
 
     /**
-     * 从块中提取 innerText
+     * 从块中提取字段值
      */
-    private static String extractInnerText(String block) {
-        // 查找 "innerText": "..." 部分
-        Pattern pattern = Pattern.compile("\"innerText\"\\s*:\\s*\"([^\"]*(?:\\\\\"[^\"]*)*)\"");
+    private static String extractField(String block, String fieldName) {
+        // 匹配 "fieldName": "value" 或 "fieldName": number
+        Pattern pattern = Pattern.compile("\"" + fieldName + "\"\\s*:\\s*\"?([^\"\\n]+)\"?");
         Matcher matcher = pattern.matcher(block);
         if (matcher.find()) {
-            String text = matcher.group(1);
-            // 处理转义字符
-            text = text.replace("\\\"", "\"").replace("\\\\", "\\").replace("\\n", "\n");
-            return text;
+            String value = matcher.group(1).trim();
+            // 如果是 null 字面量，返回 null
+            if ("null".equals(value)) {
+                return null;
+            }
+            return value;
         }
         return null;
     }
 
     /**
-     * 解析 innerText 内容
-     * 格式：课程名称 周数：X-X 周 校区：XX 校区 上课地点：XXX 教师：XXX 教学班：XXX 教学班组成：XXX 考核方式：XXX 选课备注：XXX 课程学时组成：理论:XX, 上机:XX 周学时：X 总学时：X 学分：X.X
-     */
-    private static CourseSchedule parseInnerText(String innerText, Long userId, String studentId) {
-        CourseSchedule schedule = new CourseSchedule();
-        schedule.setUserId(userId);
-        schedule.setStudentId(studentId);
-
-        // 1. 解析课程名称（第一个字段，到"周数："之前）
-        int weekIndex = innerText.indexOf("周数：");
-        if (weekIndex > 0) {
-            String courseName = innerText.substring(0, weekIndex).trim();
-            schedule.setCourseName(courseName);
-        } else {
-            return null;
-        }
-
-        // 2. 解析周数
-        Pattern weekPattern = Pattern.compile("周数：([^校]+)");
-        Matcher weekMatcher = weekPattern.matcher(innerText);
-        if (weekMatcher.find()) {
-            schedule.setWeekRange(weekMatcher.group(1).trim());
-        }
-
-        // 3. 解析校区
-        Pattern campusPattern = Pattern.compile("校区:?\\s*([朝阳东西南北上校区]+校区)");
-        Matcher campusMatcher = campusPattern.matcher(innerText);
-        if (campusMatcher.find()) {
-            schedule.setCampus(campusMatcher.group(1).trim());
-        }
-
-        // 4. 解析上课地点
-        Pattern locationPattern = Pattern.compile("上课地点：([^教教师]*)");
-        Matcher locationMatcher = locationPattern.matcher(innerText);
-        if (locationMatcher.find()) {
-            schedule.setLocation(locationMatcher.group(1).trim());
-        }
-
-        // 5. 解析教师
-        Pattern teacherPattern = Pattern.compile("教师\\s*：([^教]*)");
-        Matcher teacherMatcher = teacherPattern.matcher(innerText);
-        if (teacherMatcher.find()) {
-            schedule.setTeacherName(teacherMatcher.group(1).trim());
-        }
-
-        // 6. 解析教学班
-        Pattern classCodePattern = Pattern.compile("教学班：([^教]*)");
-        Matcher classCodeMatcher = classCodePattern.matcher(innerText);
-        if (classCodeMatcher.find()) {
-            schedule.setClassCode(classCodeMatcher.group(1).trim());
-        }
-
-        // 7. 解析教学班组成
-        Pattern classCompositionPattern = Pattern.compile("教学班组成：([^考]*)");
-        Matcher classCompositionMatcher = classCompositionPattern.matcher(innerText);
-        if (classCompositionMatcher.find()) {
-            schedule.setClassComposition(classCompositionMatcher.group(1).trim());
-        }
-
-        // 8. 解析考核方式
-        Pattern assessmentPattern = Pattern.compile("考核方式：([^选]*)");
-        Matcher assessmentMatcher = assessmentPattern.matcher(innerText);
-        if (assessmentMatcher.find()) {
-            schedule.setAssessmentType(assessmentMatcher.group(1).trim());
-        }
-
-        // 9. 解析课程学时组成
-        Pattern hoursPattern = Pattern.compile("课程学时组成：([^周]*)");
-        Matcher hoursMatcher = hoursPattern.matcher(innerText);
-        if (hoursMatcher.find()) {
-            parseHours(schedule, hoursMatcher.group(1).trim());
-        }
-
-        // 10. 解析周学时
-        Pattern weeklyHoursPattern = Pattern.compile("周学时：(\\d+)");
-        Matcher weeklyHoursMatcher = weeklyHoursPattern.matcher(innerText);
-        if (weeklyHoursMatcher.find()) {
-            schedule.setWeeklyHours(Integer.parseInt(weeklyHoursMatcher.group(1)));
-        }
-
-        // 11. 解析总学时
-        Pattern totalHoursPattern = Pattern.compile("总学时：(\\d+)");
-        Matcher totalHoursMatcher = totalHoursPattern.matcher(innerText);
-        if (totalHoursMatcher.find()) {
-            schedule.setTotalHours(Integer.parseInt(totalHoursMatcher.group(1)));
-        }
-
-        // 12. 解析学分
-        Pattern creditPattern = Pattern.compile("学分：([\\d.]+)");
-        Matcher creditMatcher = creditPattern.matcher(innerText);
-        if (creditMatcher.find()) {
-            try {
-                schedule.setCredit(new BigDecimal(creditMatcher.group(1)));
-            } catch (NumberFormatException e) {
-                // 忽略
-            }
-        }
-
-        return schedule;
-    }
-
-    /**
      * 解析学时信息
+     * 格式：理论:24, 上机:12 或 理论:24,实验:8
      */
     private static void parseHours(CourseSchedule schedule, String hoursInfo) {
         if (hoursInfo == null || hoursInfo.isEmpty()) return;
 
-        // 理论学时
-        Pattern theoryPattern = Pattern.compile("理论:(\\d+)");
+        // 解析理论学时
+        Pattern theoryPattern = Pattern.compile("理论\\s*:\\s*(\\d+)");
         Matcher theoryMatcher = theoryPattern.matcher(hoursInfo);
         if (theoryMatcher.find()) {
             schedule.setTheoryHours(Integer.parseInt(theoryMatcher.group(1)));
         }
 
-        // 上机学时
-        Pattern labPattern = Pattern.compile("上机:(\\d+)");
+        // 解析上机学时
+        Pattern labPattern = Pattern.compile("上机\\s*:\\s*(\\d+)");
         Matcher labMatcher = labPattern.matcher(hoursInfo);
         if (labMatcher.find()) {
             schedule.setLabHours(Integer.parseInt(labMatcher.group(1)));
         }
 
-        // 实验学时
-        Pattern expPattern = Pattern.compile("实验:(\\d+)");
+        // 解析实验学时
+        Pattern expPattern = Pattern.compile("实验\\s*:\\s*(\\d+)");
         Matcher expMatcher = expPattern.matcher(hoursInfo);
         if (expMatcher.find()) {
-            schedule.setLabHours(Integer.parseInt(expMatcher.group(1)));
-        }
-
-        // 实践学时
-        Pattern practicePattern = Pattern.compile("实践:(\\d+)");
-        Matcher practiceMatcher = practicePattern.matcher(hoursInfo);
-        if (practiceMatcher.find()) {
             if (schedule.getLabHours() == null || schedule.getLabHours() == 0) {
-                schedule.setLabHours(Integer.parseInt(practiceMatcher.group(1)));
+                schedule.setLabHours(Integer.parseInt(expMatcher.group(1)));
             }
         }
     }

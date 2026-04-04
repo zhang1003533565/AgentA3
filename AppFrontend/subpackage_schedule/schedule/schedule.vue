@@ -1,18 +1,47 @@
 <template>
 	<view class="schedule-page">
-		<image class="schedule-bg" :src="backgroundImage" mode="aspectFill" />
-		<view class="schedule-mask"></view>
-
 		<view class="schedule-shell">
+			<view class="header-bar">
+				<view class="back-btn" @click="goBack">
+					<text class="back-icon">‹</text>
+					<text class="back-text">返回</text>
+				</view>
+				<text class="page-title">我的课表</text>
+				<view class="import-btn" @click="importSchedule">
+					<text class="import-icon">+</text>
+				</view>
+			</view>
+
+			<!-- 星期栏 - 显示完整的星期，错位显示给节次列留空间 -->
 			<view class="weekday-bar">
-				<view
-					v-for="day in weekdays"
-					:key="day.value"
-					class="weekday-item"
-					:class="{ active: currentWeekday === day.value }"
-					@click="currentWeekday = day.value"
-				>
-					<text class="weekday-text">{{ day.label }}</text>
+				<view class="month-label">{{ currentMonth }}月</view>
+				<view class="weekday-item" :class="{ active: currentWeekday === 1 }" @click="switchDay(1)">
+					<text class="weekday-name">一</text>
+					<text class="weekday-date">{{ getWeekDayDate(1) }}</text>
+				</view>
+				<view class="weekday-item" :class="{ active: currentWeekday === 2 }" @click="switchDay(2)">
+					<text class="weekday-name">二</text>
+					<text class="weekday-date">{{ getWeekDayDate(2) }}</text>
+				</view>
+				<view class="weekday-item" :class="{ active: currentWeekday === 3 }" @click="switchDay(3)">
+					<text class="weekday-name">三</text>
+					<text class="weekday-date">{{ getWeekDayDate(3) }}</text>
+				</view>
+				<view class="weekday-item" :class="{ active: currentWeekday === 4 }" @click="switchDay(4)">
+					<text class="weekday-name">四</text>
+					<text class="weekday-date">{{ getWeekDayDate(4) }}</text>
+				</view>
+				<view class="weekday-item" :class="{ active: currentWeekday === 5 }" @click="switchDay(5)">
+					<text class="weekday-name">五</text>
+					<text class="weekday-date">{{ getWeekDayDate(5) }}</text>
+				</view>
+				<view class="weekday-item" :class="{ active: currentWeekday === 6 }" @click="switchDay(6)">
+					<text class="weekday-name">六</text>
+					<text class="weekday-date">{{ getWeekDayDate(6) }}</text>
+				</view>
+				<view class="weekday-item" :class="{ active: currentWeekday === 7 }" @click="switchDay(7)">
+					<text class="weekday-name">日</text>
+					<text class="weekday-date">{{ getWeekDayDate(7) }}</text>
 				</view>
 			</view>
 
@@ -24,6 +53,15 @@
 				</view>
 
 				<view class="course-board">
+					<!-- 横向分割线 -->
+					<view class="h-divider" v-for="i in periods.length" :key="'h'+i" :style="{ top: (i - 1) * 260 + 'rpx' }"></view>
+					<!-- 底部边界线 -->
+					<view class="h-divider" :style="{ top: periods.length * 260 + 'rpx' }"></view>
+
+					<!-- 纵向分割线 -->
+					<view class="v-divider" v-for="i in 6" :key="'v'+i" :style="{ left: (i * (100 / 7)) + '%' }"></view>
+
+					<!-- 课程卡片 -->
 					<view
 						v-for="course in visibleCourses"
 						:key="course.id"
@@ -38,18 +76,6 @@
 					</view>
 				</view>
 			</view>
-
-			<view class="footer-card">
-				<view class="footer-main">
-					<text class="footer-day">{{ currentDayLabel }}.</text>
-					<text class="footer-week">第5周</text>
-				</view>
-				<text class="footer-desc">今天有{{ visibleCourses.length }}门课程</text>
-				<view class="footer-actions">
-					<view class="footer-btn" @click="switchPrevDay">〈</view>
-					<view class="footer-btn" @click="switchNextDay">〉</view>
-				</view>
-			</view>
 		</view>
 	</view>
 </template>
@@ -58,56 +84,185 @@
 export default {
 	data() {
 		return {
-			backgroundImage: 'https://images.unsplash.com/photo-1517048676732-d65bc937f952?auto=format&fit=crop&w=1400&q=80',
-			currentWeekday: 4,
-			weekdays: [
-				{ value: 1, label: '一' },
-				{ value: 2, label: '二' },
-				{ value: 3, label: '三' },
-				{ value: 4, label: '四' },
-				{ value: 5, label: '五' },
-				{ value: 6, label: '六' },
-				{ value: 7, label: '日' }
-			],
-			periods: [1, 2, 3, 4, 5, 6],
-			courses: [
-				{ id: 1, day: 4, name: '深度学习', campus: '朝阳校区', location: '明德楼阶梯110', start: 1, end: 2, theme: 'green' },
-				{ id: 2, day: 4, name: '网络编程', campus: '朝阳校区', location: '明德楼505', start: 1, end: 2, theme: 'red' },
-				{ id: 3, day: 4, name: 'Python', campus: '朝阳校区', location: '明德楼阶梯110', start: 1, end: 2, theme: 'orange' },
-				{ id: 4, day: 4, name: '深度学习', campus: '朝阳校区', location: '图书馆松公共享机房4', start: 3, end: 4, theme: 'green' },
-				{ id: 5, day: 4, name: '软件工程', campus: '朝阳校区', location: 'A414', start: 3, end: 4, theme: 'red' },
-				{ id: 6, day: 4, name: 'Linux基础', campus: '朝阳校区', location: '明德楼403', start: 5, end: 6, theme: 'yellow' },
-				{ id: 7, day: 4, name: 'Linux基础', campus: '朝阳校区', location: '明德楼403', start: 5, end: 6, theme: 'yellow' },
-				{ id: 8, day: 3, name: '高等数学', campus: '朝阳校区', location: '教一101', start: 1, end: 2, theme: 'blue' },
-				{ id: 9, day: 5, name: '数据库系统', campus: '朝阳校区', location: '实训楼202', start: 3, end: 4, theme: 'purple' }
-			]
+			currentWeek: 1,
+			currentWeekday: 1,
+			periods: [1, 2, 3, 4, 5],
+			courses: [],
+			loading: false,
+			currentMonth: 3,
+			weekDates: [] // 存储本周每天的日期
 		}
+	},
+	onLoad() {
+		this.loadSchedule()
+		this.calculateWeekDates()
 	},
 	computed: {
 		visibleCourses() {
-			return this.courses.filter((course) => course.day === this.currentWeekday)
-		},
-		currentDayLabel() {
-			const map = { 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun' }
-			return map[this.currentWeekday] || 'Thu'
+			// 显示当前周的所有课程，按 weekday 分布到对应列
+			return this.courses.filter((course) => course.week === this.currentWeek)
 		}
 	},
 	methods: {
+		async loadSchedule() {
+			this.loading = true
+			try {
+				const token = uni.getStorageSync('token') || ''
+				uni.request({
+					url: 'http://localhost:8080/api/browser/jwx/schedule/current',
+					method: 'GET',
+					header: {
+						'Authorization': 'Bearer ' + token
+					},
+					success: (res) => {
+						this.loading = false
+						if (res.statusCode === 200 && res.data.code === 200) {
+							const scheduleData = res.data.data
+							this.currentWeek = scheduleData.currentWeek || 1
+							this.courses = this.transformScheduleData(scheduleData.schedule || [])
+						} else {
+							uni.showToast({
+								title: res.data.message || '获取课表失败',
+								icon: 'none'
+							})
+						}
+					},
+					fail: (err) => {
+						this.loading = false
+						console.error('加载课表失败:', err)
+						uni.showToast({
+							title: '加载失败',
+							icon: 'none'
+						})
+					}
+				})
+			} catch (error) {
+				this.loading = false
+				console.error('加载课表失败:', error)
+				uni.showToast({
+					title: '加载失败',
+					icon: 'none'
+				})
+			}
+		},
+
+		transformScheduleData(scheduleList) {
+			const themes = ['green', 'red', 'orange', 'yellow', 'blue', 'purple']
+
+			return scheduleList.map((item, index) => {
+				let startSection = 1
+				let endSection = 1
+
+				if (item.classSessions) {
+					const match = item.classSessions.match(/(\d+)-(\d+)\s*节/)
+					if (match) {
+						startSection = parseInt(match[1])
+						endSection = parseInt(match[2])
+					} else {
+						const singleMatch = item.classSessions.match(/(\d+)\s*节/)
+						if (singleMatch) {
+							startSection = parseInt(singleMatch[1])
+							endSection = startSection
+						}
+					}
+				}
+
+				// 每两节课为一行：1-2 节=第 1 行，3-4 节=第 2 行，5-6 节=第 3 行，7-8 节=第 4 行
+				const startRow = Math.ceil(startSection / 2)
+				const endRow = Math.ceil(endSection / 2)
+
+				return {
+					id: item.id,
+					week: this.currentWeek,
+					day: item.weekday || 1,
+					name: item.courseName,
+					campus: item.campus || '朝阳校区',
+					location: item.location || '',
+					start: startRow,
+					end: endRow,
+					theme: themes[index % themes.length]
+				}
+			})
+		},
+
+		getWeekDayName(day) {
+			const names = ['日', '一', '二', '三', '四', '五', '六']
+			return '星期' + names[day]
+		},
+
+		// 计算本周每天的日期
+		calculateWeekDates() {
+			const now = new Date()
+			const currentDay = now.getDay() || 7 // 获取当前星期几，周日为 7
+			const mondayOffset = currentDay - 1 // 计算与周一的差值
+
+			// 计算本周一的日期
+			const monday = new Date(now)
+			monday.setDate(monday.getDate() - mondayOffset)
+
+			// 根据当前周数调整日期（假设每两周之间有 7 天间隔）
+			const weekOffset = (this.currentWeek - 1) * 7
+			monday.setDate(monday.getDate() + weekOffset)
+
+			// 计算本周每天的日期
+			this.weekDates = []
+			for (let i = 0; i < 7; i++) {
+				const date = new Date(monday)
+				date.setDate(monday.getDate() + i)
+				this.weekDates.push({
+					month: date.getMonth() + 1,
+					day: date.getDate()
+				})
+			}
+
+			// 设置当前月份
+			this.currentMonth = now.getMonth() + 1
+		},
+
+		// 获取指定星期几的日期显示
+		getWeekDayDate(weekday) {
+			if (!this.weekDates[weekday - 1]) return ''
+			const { month, day } = this.weekDates[weekday - 1]
+			return day
+		},
+
+		goBack() {
+			uni.navigateBack()
+		},
 		courseStyle(course) {
-			const rowHeight = 156
-			const gap = 12
-			const top = (course.start - 1) * rowHeight + (course.start - 1) * gap
-			const height = (course.end - course.start + 1) * rowHeight + (course.end - course.start) * gap
-			const sameStartCourses = this.visibleCourses.filter((item) => item.start === course.start && item.end === course.end)
-			const order = sameStartCourses.findIndex((item) => item.id === course.id)
-			const width = sameStartCourses.length > 1 ? 128 : 138
-			const leftBase = 0
-			const left = leftBase + order * (width + 14)
+			const rowHeight = 240  // 每节的高度
+			const gap = 20         // 节间距
+			const boardWidth = 100 // 课程面板宽度百分比
+			const columnWidth = boardWidth / 7 // 每个星期列的宽度百分比
+
+			// 课程顶部位置：(节次 -1) * 每节高度 (260rpx = 240 + 20) + 10rpx 上边距
+			const top = (course.start - 1) * (rowHeight + gap) + 10
+
+			// 课程高度：课程行数 * 每节高度 + 行数间距 - 8rpx 下边距
+			const numRows = course.end - course.start + 1
+			const height = numRows * rowHeight + (numRows - 1) * gap - 16
+
+			// 同一列中同一时间段的课程处理
+			const sameColumnCourses = this.courses.filter(
+				(item) => item.day === course.day && item.start === course.start && item.end === course.end
+			)
+			const order = sameColumnCourses.findIndex((item) => item.id === course.id)
+
+			// 课程宽度：如果同一位置有多个课程，则平分列宽
+			const baseWidth = columnWidth - 2 // 每列基础宽度减去边距
+			const width = sameColumnCourses.length > 1 ? (baseWidth - 2) / sameColumnCourses.length : baseWidth
+
+			// 计算该列的起始位置
+			const columnLeft = (course.day - 1) * columnWidth + 1
+			// 同一列中多个课程的偏移
+			const offset = order * (width + 2)
+			const left = columnLeft + offset
+
 			return {
 				top: `${top}rpx`,
-				left: `${left}rpx`,
+				left: `${left}%`,
 				height: `${height}rpx`,
-				width: `${width}rpx`
+				width: `${width}%`
 			}
 		},
 		goToDetail(course) {
@@ -115,11 +270,49 @@ export default {
 				url: `/subpackage_schedule/scheduleDetail/scheduleDetail?id=${course.id}`
 			})
 		},
-		switchPrevDay() {
-			this.currentWeekday = this.currentWeekday === 1 ? 7 : this.currentWeekday - 1
+		switchDay(day) {
+			this.currentWeekday = day
 		},
-		switchNextDay() {
-			this.currentWeekday = this.currentWeekday === 7 ? 1 : this.currentWeekday + 1
+		// 导入课表
+		importSchedule() {
+			const token = uni.getStorageSync('token') || ''
+			uni.showLoading({
+				title: '正在导入课表...'
+			})
+
+			uni.request({
+				url: 'http://localhost:8080/api/browser/jwx/schedule/auto',
+				method: 'POST',
+				header: {
+					'Authorization': 'Bearer ' + token
+				},
+				success: (res) => {
+					uni.hideLoading()
+					if (res.statusCode === 200 && res.data.code === 200) {
+						const count = res.data.data.count || 0
+						// 导入成功后，调用获取本周课表接口重新加载数据
+						this.loadSchedule()
+
+						uni.showToast({
+							title: `成功导入 ${count} 门课程`,
+							icon: 'success'
+						})
+					} else {
+						uni.showToast({
+							title: res.data.message || '导入失败',
+							icon: 'none'
+						})
+					}
+				},
+				fail: (err) => {
+					uni.hideLoading()
+					console.error('导入课表失败:', err)
+					uni.showToast({
+						title: '网络错误',
+						icon: 'none'
+					})
+				}
+			})
 		}
 	}
 }
@@ -129,25 +322,7 @@ export default {
 .schedule-page {
 	position: relative;
 	min-height: 100vh;
-	overflow: hidden;
-}
-
-.schedule-bg,
-.schedule-mask {
-	position: absolute;
-	inset: 0;
-	width: 100%;
-	height: 100%;
-}
-
-.schedule-bg {
-	z-index: 0;
-}
-
-.schedule-mask {
-	z-index: 1;
-	background: linear-gradient(180deg, rgba(222, 236, 255, 0.16) 0%, rgba(227, 237, 255, 0.44) 100%);
-	backdrop-filter: blur(4rpx);
+	background: #fff;
 }
 
 .schedule-shell {
@@ -156,162 +331,216 @@ export default {
 	padding: 18rpx 18rpx 36rpx;
 }
 
+.header-bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 12rpx 0 24rpx;
+}
+
+.back-btn {
+	display: flex;
+	align-items: center;
+	gap: 8rpx;
+	padding: 12rpx 16rpx;
+	background: #f5f5f5;
+	border-radius: 20rpx;
+}
+
+.back-icon {
+	font-size: 36rpx;
+	color: #333;
+	font-weight: 700;
+	line-height: 1;
+}
+
+.back-text {
+	font-size: 24rpx;
+	color: #333;
+	font-weight: 500;
+}
+
+.page-title {
+	font-size: 32rpx;
+	font-weight: 700;
+	color: #333;
+}
+
+.placeholder {
+	width: 100rpx;
+}
+
+.import-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 72rpx;
+	height: 72rpx;
+	background: #007aff;
+	border-radius: 16rpx;
+}
+
+.import-icon {
+	font-size: 48rpx;
+	color: #fff;
+	font-weight: 300;
+	line-height: 1;
+}
+
 .weekday-bar {
 	display: grid;
-	grid-template-columns: repeat(7, 1fr);
+	grid-template-columns: 50rpx repeat(7, 1fr);
 	align-items: center;
-	background: rgba(255, 255, 255, 0.72);
+	background: #f5f5f5;
 	border-radius: 22rpx 22rpx 0 0;
-	padding: 18rpx 10rpx 0;
+	padding: 12rpx 6rpx 6rpx;
+}
+
+.month-label {
+	font-size: 24rpx;
+	color: #999;
+	text-align: center;
+	font-weight: 500;
 }
 
 .weekday-item {
 	display: flex;
+	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	height: 70rpx;
-	position: relative;
+	padding: 6rpx 0;
+	gap: 2rpx;
 }
 
-.weekday-item.active::after {
-	content: '';
-	position: absolute;
-	left: 22rpx;
-	right: 22rpx;
-	bottom: 6rpx;
-	height: 6rpx;
-	border-radius: 999rpx;
-	background: #5b8ef4;
-}
-
-.weekday-text {
-	font-size: 26rpx;
+.weekday-name {
+	font-size: 28rpx;
 	font-weight: 600;
-	color: rgba(65, 73, 86, 0.76);
+	color: #666;
 }
 
-.weekday-item.active .weekday-text {
-	color: #4b7cf3;
+.weekday-date {
+	font-size: 22rpx;
+	color: #999;
+	margin-top: 4rpx;
+}
+
+.weekday-item.active .weekday-name {
+	color: #007aff;
+	font-weight: 700;
+}
+
+.weekday-item.active .weekday-date {
+	color: #007aff;
 }
 
 .board-card {
 	display: flex;
 	align-items: flex-start;
-	background: rgba(255, 255, 255, 0.58);
+	background: #fff;
 	padding: 18rpx 14rpx 18rpx 10rpx;
 	border-radius: 0 0 24rpx 24rpx;
-	min-height: 1010rpx;
+	min-height: 1350rpx;
 }
 
 .period-column {
-	width: 36rpx;
+	width: 50rpx;
 	padding-top: 8rpx;
 }
 
 .period-item {
-	height: 168rpx;
+	height: 260rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 }
 
 .period-text {
-	font-size: 30rpx;
-	color: rgba(92, 102, 118, 0.72);
-	font-weight: 600;
+	font-size: 28rpx;
+	color: #999;
+	font-weight: 500;
 }
 
 .course-board {
 	position: relative;
 	flex: 1;
-	min-height: 1010rpx;
+	min-height: 1300rpx;
 	margin-left: 12rpx;
+}
+
+/* 横向分割线 */
+.h-divider {
+	position: absolute;
+	left: 0;
+	right: 0;
+	height: 1rpx;
+	background: #e5e5e5;
+	z-index: 1;
+}
+
+/* 纵向分割线 */
+.v-divider {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 1rpx;
+	background: #e5e5e5;
+	z-index: 1;
 }
 
 .course-block {
 	position: absolute;
-	border-radius: 24rpx;
-	padding: 18rpx 14rpx;
-	box-shadow: 0 12rpx 20rpx rgba(111, 124, 144, 0.1);
+	border-radius: 8rpx;
+	padding: 12rpx 8rpx;
 	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	justify-content: flex-start;
+	z-index: 2;
 }
 
-.course-block--green { background: linear-gradient(180deg, #a5ef55, #8ce53c); }
-.course-block--red { background: linear-gradient(180deg, #f59aa0, #f07c82); }
-.course-block--orange { background: linear-gradient(180deg, #f8ae7a, #f5965f); }
-.course-block--yellow { background: linear-gradient(180deg, #f8e06f, #f2d94d); }
-.course-block--blue { background: linear-gradient(180deg, #8bc6ff, #65aef0); }
-.course-block--purple { background: linear-gradient(180deg, #b9a6ff, #9b86ef); }
+/* 课程颜色主题 - 柔和马卡龙色系 */
+.course-block--green {
+	background: linear-gradient(135deg, #c8f5dc 0%, #95e8b8 100%);
+	color: #1a7f4b;
+}
+.course-block--red {
+	background: linear-gradient(135deg, #ffd6d6 0%, #ffb3b3 100%);
+	color: #c41e3a;
+}
+.course-block--orange {
+	background: linear-gradient(135deg, #ffe5cc 0%, #ffcc99 100%);
+	color: #cc6600;
+}
+.course-block--yellow {
+	background: linear-gradient(135deg, #fff5cc 0%, #ffe680 100%);
+	color: #b38f00;
+}
+.course-block--blue {
+	background: linear-gradient(135deg, #d6ebff 0%, #99d6ff 100%);
+	color: #0066cc;
+}
+.course-block--purple {
+	background: linear-gradient(135deg, #e8d6ff 0%, #cc99ff 100%);
+	color: #6633cc;
+}
 
 .course-title,
 .course-meta {
 	display: block;
-	color: rgba(255, 255, 255, 0.96);
-	line-height: 1.22;
+	color: rgba(0, 0, 0, 0.75);
+	line-height: 1.4;
 	word-break: break-all;
+	text-align: center;
 }
 
 .course-title {
-	font-size: 22rpx;
-	font-weight: 700;
+	font-size: 24rpx;
+	font-weight: 600;
 }
 
 .course-meta {
-	margin-top: 6rpx;
-	font-size: 20rpx;
-	font-weight: 600;
-}
-
-.footer-card {
-	margin-top: 16rpx;
-	background: rgba(255, 255, 255, 0.7);
-	border-radius: 26rpx;
-	padding: 18rpx 22rpx;
-	display: flex;
-	align-items: center;
-}
-
-.footer-main {
-	display: flex;
-	align-items: baseline;
-}
-
-.footer-day {
-	font-size: 54rpx;
-	font-weight: 800;
-	color: #1f2834;
-}
-
-.footer-week {
-	margin-left: 6rpx;
-	font-size: 36rpx;
-	font-weight: 600;
-	color: #4e5969;
-}
-
-.footer-desc {
-	margin-left: 16rpx;
-	font-size: 26rpx;
-	color: #748192;
-	flex: 1;
-}
-
-.footer-actions {
-	display: flex;
-	align-items: center;
-	gap: 14rpx;
-}
-
-.footer-btn {
-	width: 62rpx;
-	height: 62rpx;
-	border-radius: 14rpx;
-	background: rgba(255, 255, 255, 0.86);
-	border: 2rpx solid rgba(111, 124, 144, 0.18);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	font-size: 34rpx;
-	color: #4d596a;
+	margin-top: 4rpx;
+	font-size: 18rpx;
+	font-weight: 400;
 }
 </style>

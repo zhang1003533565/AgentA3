@@ -169,28 +169,28 @@ INSERT INTO sys_role (id, name) VALUES
 -- =============================================
 -- 2. 用户数据 (密码都是 admin123)
 -- =============================================
-INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, status, create_time, update_time,jwx_password,jwx_student_id) VALUES
+INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, status, create_time, update_time,jwx_password,jwx_student_id,semester_start) VALUES
 -- 管理员 (用户名: admin, 密码: admin123)
-(1, 'admin', 'admin123', '系统管理员', '13800000001', 'admin@campus.edu.cn', 1, 1, NOW(), NOW(),'313','32132313'),
+(1, 'admin', 'admin123', '系统管理员', '13800000001', 'admin@campus.edu.cn', 1, 1, NOW(), NOW(),'313','32132313','2026-02-24'),
 -- 教师 (用户名: fjj, 密码: admin123)
-(2, 'fjj', 'admin123', '张老师', '13800000002', 'zhanglaoshi@campus.edu.cn', 2, 1, NOW(), NOW(),'313','32132313'),
+(2, 'fjj', 'admin123', '张老师', '13800000002', 'zhanglaoshi@campus.edu.cn', 2, 1, NOW(), NOW(),'313','32132313','2026-02-24'),
 -- 教师 (用户名: fjj2, 密码: admin123)
-(3, 'fjj2', 'admin123', '李老师', '13800000003', 'lilaoshi@campus.edu.cn', 2, 1, NOW(), NOW(),'313','32132313'),
+(3, 'fjj2', 'admin123', '李老师', '13800000003', 'lilaoshi@campus.edu.cn', 2, 1, NOW(), NOW(),'313','32132313','2026-02-24'),
 -- 学生 (用户名: zzs, 密码: admin123)
-(4, 'zzs', 'admin123', '张三', '13800000004', 'zhangsan@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313'),
+(4, 'zzs', 'admin123', '张三', '13800000004', 'zhangsan@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313','2026-02-24'),
 -- 学生 (用户名: lisi, 密码: admin123)
-(5, 'lisi', 'admin123', '李四', '13800000005', 'lisi@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313'),
+(5, 'lisi', 'admin123', '李四', '13800000005', 'lisi@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313','2026-02-24'),
 -- 学生 (用户名: wangwu, 密码: admin123)
-(6, 'wangwu', 'admin123', '王五', '13800000006', 'wangwu@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313'),
+(6, 'wangwu', 'admin123', '王五', '13800000006', 'wangwu@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313','2026-02-24'),
 -- 学生 (用户名: zhaoliu, 密码: admin123)
-(7, 'zhaoliu', 'admin123', '赵六', '13800000007', 'zhaoliu@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313'),
+(7, 'zhaoliu', 'admin123', '赵六', '13800000007', 'zhaoliu@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313','2026-02-24'),
 -- 学生 (用户名: student05, 密码: admin123)
-(8, 'student05', 'admin123', '钱七', '13800000008', 'qianqi@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313'),
+(8, 'student05', 'admin123', '钱七', '13800000008', 'qianqi@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313','2026-02-24'),
 -- 商家用户 (用户名: merchant01~04, 密码: admin123, role_id=4)
-(9, 'merchant01', 'admin123', '学府餐厅老板', '13812345601', 'lishilaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313'),
-(10, 'merchant02', 'admin123', '书香咖啡老板', '13812345602', 'wanglaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313'),
-(11, 'merchant03', 'admin123', '校园超市老板', '13812345603', 'zhanglaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313'),
-(12, 'merchant04', 'admin123', '快印图文老板', '13812345604', 'zhaolaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313');
+(9, 'merchant01', 'admin123', '学府餐厅老板', '13812345601', 'lishilaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24'),
+(10, 'merchant02', 'admin123', '书香咖啡老板', '13812345602', 'wanglaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24'),
+(11, 'merchant03', 'admin123', '校园超市老板', '13812345603', 'zhanglaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24'),
+(12, 'merchant04', 'admin123', '快印图文老板', '13812345604', 'zhaolaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24');
 
 -- =============================================
 -- 3~9. 旧模块（活动/论坛）初始化数据
@@ -638,6 +638,98 @@ INSERT INTO merchant (id, merchant_name, category_id, description, logo, images,
 -- =============================================
 -- 优惠活动数据
 -- =============================================
+
+-- =============================================
+-- 第八阶段：课表模块数据
+-- =============================================
+
+-- 课表表
+CREATE TABLE IF NOT EXISTS course_schedule (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '课表 ID',
+    user_id BIGINT NOT NULL COMMENT '用户 ID（学号关联）',
+    student_id VARCHAR(50) COMMENT '学号',
+    course_name VARCHAR(200) NOT NULL COMMENT '课程名称',
+    week_range VARCHAR(200) COMMENT '周数范围，如：1-2 周，3-5 周',
+    class_sessions VARCHAR(50) COMMENT '节次，如：1-2 节，3-4 节',
+    weekday INT COMMENT '星期几：1-星期一，2-星期二，3-星期三，4-星期四，5-星期五，6-星期六，7-星期日',
+    location VARCHAR(100) COMMENT '上课地点',
+    campus VARCHAR(50) COMMENT '校区',
+    teacher_name VARCHAR(50) COMMENT '教师姓名',
+    class_code VARCHAR(100) COMMENT '教学班号',
+    class_composition VARCHAR(255) COMMENT '教学班组成',
+    assessment_type VARCHAR(20) COMMENT '考核方式：考试/考查',
+    theory_hours INT DEFAULT 0 COMMENT '理论学时',
+    lab_hours INT DEFAULT 0 COMMENT '实验/上机学时',
+    weekly_hours INT DEFAULT 0 COMMENT '周学时',
+    total_hours INT DEFAULT 0 COMMENT '总学时',
+    credit DECIMAL(3,1) DEFAULT 0 COMMENT '学分',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间',
+    FOREIGN KEY (user_id) REFERENCES sys_user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课表表';
+
+-- =============================================
+-- 第八阶段：清空表数据
+-- =============================================
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE course_schedule;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- =============================================
+-- 课表数据（用户 ID: 13, 学号：20233090117）
+-- =============================================
+INSERT INTO course_schedule (id, user_id, student_id, course_name, week_range, class_sessions, weekday, location, teacher_name, class_code, class_composition, assessment_type, theory_hours, lab_hours, weekly_hours, total_hours, credit, campus, create_time, update_time) VALUES
+(368, 13, '20233090117', '软件项目开发 A', '1-2 周', '1-2 节', 1, '朝阳校区明德楼阶梯 110', '李耀辉', '(2025-2026-2)-XX02007-01', '计 231;计 232;计 233;计 234;计 235', '考查', 24, 16, 12, 24, 2.5, NULL, NOW(), NOW()),
+(369, 13, '20233090117', '深度学习', '3-5 周，7-9 周，11-13 周', '1-2 节', 1, '朝阳校区明德楼阶梯 110', '赵明瞻', '(2025-2026-2)-XX03016-01', '计 231;计 232;计 233;计 234;计 235', '考查', 18, 14, 2, 18, 2.0, NULL, NOW(), NOW()),
+(370, 13, '20233090117', '【调】网络编程', '3-4 周，6-11 周', '1-2 节', 2, '朝阳校区明德楼 505', '付江龙', '(2025-2026-2)-XX02104-01', '计 231;计 232;计 233;计 234;计 235', '考试', 28, 12, 3, 28, 2.5, NULL, NOW(), NOW()),
+(371, 13, '20233090117', '软件项目开发 A', '1-2 周', '1-4 节', 2, '朝阳校区 A214', '李耀辉', '(2025-2026-2)-XX02007-01', '计 231;计 232;计 233;计 234;计 235', '考查', 24, 16, 12, 24, 2.5, NULL, NOW(), NOW()),
+(372, 13, '20233090117', '网络编程', '7-12 周', '3-4 节', 2, '朝阳校区图书馆一楼公共机房 3', '付江龙', '(2025-2026-2)-XX02104-01A', '计 231;计 232;计 233;计 234;计 235', '未安排', 28, 12, 2, 12, 2.5, NULL, NOW(), NOW()),
+(373, 13, '20233090117', '【调】Python 程序设计', '3 周，6-12 周', '1-2 节', 3, '朝阳校区明德楼阶梯 110', '范晶晶', '(2025-2026-2)-XX02303-01', '计 231;计 232;计 233;计 234', '考查', 20, 12, 2, 20, 2.0, NULL, NOW(), NOW()),
+(374, 13, '20233090117', '国家安全教育 C', '1-2 周', '1-2 节', 4, '朝阳校区明德楼 503', '樊智华', '(2025-2026-2)-SK030C2-20', '计 231;计 232;计 233;计 234;计 235;数据 231', '考查', 4, 0, 2, 4, 0.3, NULL, NOW(), NOW()),
+(375, 13, '20233090117', '【调】Python 程序设计', '12 周', '1-2 节', 4, '朝阳校区明德楼阶梯 110', '范晶晶', '(2025-2026-2)-XX02303-01', '计 231;计 232;计 233;计 234', '考查', 20, 12, 2, 20, 2.0, NULL, NOW(), NOW()),
+(376, 13, '20233090117', '软件项目开发 A', '1-2 周', '1-2 节', 5, '朝阳校区明德楼阶梯 110', '李耀辉', '(2025-2026-2)-XX02007-01', '计 231;计 232;计 233;计 234;计 235', '考查', 24, 16, 12, 24, 2.5, NULL, NOW(), NOW()),
+(377, 13, '20233090117', 'Python 程序设计', '7-8 周，10-13 周', '1-2 节', 5, '朝阳校区明德楼 503', '范晶晶', '(2025-2026-2)-XX02303-01A', '计 231;计 232;计 233;计 234', '未安排', 20, 12, 2, 12, 2.0, NULL, NOW(), NOW()),
+(378, 13, '20233090117', '深度学习', '5-7 周 (单),8-9 周，11-13 周', '3-4 节', 1, '朝阳校区图书馆一楼公共机房 4', '赵明瞻', '(2025-2026-2)-XX03016-01A', '计 231;计 232;计 233;计 234;计 235', '未安排', 18, 14, 2, 14, 2.0, NULL, NOW(), NOW()),
+(379, 13, '20233090117', '软件项目开发 A', '1-2 周', '3-4 节', 3, '朝阳校区 A414', '李耀辉', '(2025-2026-2)-XX02007-01', '计 231;计 232;计 233;计 234;计 235', '考查', 24, 16, 12, 24, 2.5, NULL, NOW(), NOW()),
+(380, 13, '20233090117', '软件项目开发 A', '1-2 周', '3-4 节', 4, '朝阳校区明德楼 407', '李耀辉', '(2025-2026-2)-XX02007-01', '计 231;计 232;计 233;计 234;计 235', '考查', 24, 16, 12, 24, 2.5, NULL, NOW(), NOW()),
+(381, 13, '20233090117', '软件工程', '3-13 周', '3-4 节', 4, '朝阳校区 A414', '李耀辉', '(2025-2026-2)-XX02009-01', '计 231;计 232;计 233;计 234;计 235', '考试', 32, 0, 3, 32, 2.0, NULL, NOW(), NOW()),
+(382, 13, '20233090117', '软件工程', '4-12 周 (双)', '3-4 节', 5, '朝阳校区明德楼 303', '李耀辉', '(2025-2026-2)-XX02009-01', '计 231;计 232;计 233;计 234;计 235', '考试', 32, 0, 3, 32, 2.0, NULL, NOW(), NOW()),
+(383, 13, '20233090117', 'Linux 系统', '3-5 周，7-9 周', '5-6 节', 1, '朝阳校区明德楼 403', '庞慧', '(2025-2026-2)-XX03012-03', '计 231;计 232;计 233;计 234', '考查', 24, 8, 3, 24, 2.0, NULL, NOW(), NOW()),
+(384, 13, '20233090117', 'Linux 系统', '3-5 周 (单),6-7 周，9-10 周', '5-6 节', 3, '朝阳校区明德楼 403', '庞慧', '(2025-2026-2)-XX03012-03', '计 231;计 232;计 233;计 234', '考查', 24, 8, 3, 24, 2.0, NULL, NOW(), NOW()),
+(385, 13, '20233090117', '物联网控制基础', '3-14 周', '5-6 节', 4, '朝阳校区明德楼 113', '王利霞', '(2025-2026-2)-XX05302-01', '计 231;计 232;计 233;计 234', '考查', 24, 8, 2, 24, 2.0, NULL, NOW(), NOW()),
+(386, 13, '20233090117', '计算机组装与维护', '3-5 周，7-9 周，11-12 周', '7-8 节', 1, '朝阳校区明德楼 503', '李劭杰', '(2025-2026-2)-XX03314-03', '计 231;计 232;计 233;计 234', '考查', 16, 0, 2, 16, 1.0, NULL, NOW(), NOW()),
+(387, 13, '20233090117', '形势与政策 F', '7-10 周', '7-8 节', 3, '朝阳校区明德楼阶梯 110', '樊智华', '(2025-2026-2)-SK030F1-14', '计 231;计 232;计 233;计 234;计 235;数据 231', '考查', 8, 0, 2, 8, 0.3, NULL, NOW(), NOW()),
+(388, 13, '20233090117', '【调】Python 程序设计', '12 周', '7-8 节', 3, '朝阳校区明德楼阶梯 110', '范晶晶', '(2025-2026-2)-XX02303-01', '计 231;计 232;计 233;计 234', '考查', 20, 12, 2, 20, 2.0, NULL, NOW(), NOW()),
+(389, 13, '20233090117', '【调】网络编程', '2-10 周 (双)', '7-8 节', 4, '朝阳校区明德楼 505', '付江龙', '(2025-2026-2)-XX02104-01', '计 231;计 232;计 233;计 234;计 235', '考试', 28, 12, 3, 28, 2.5, NULL, NOW(), NOW());
+
+-- =============================================
+-- 第九阶段：公告栏和轮播图表
+-- =============================================
+
+-- 公告栏表
+CREATE TABLE IF NOT EXISTS announcement (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '公告 ID',
+    title VARCHAR(200) NOT NULL COMMENT '公告标题',
+    content TEXT COMMENT '公告内容',
+    publisher_id BIGINT COMMENT '发布者 ID',
+    publisher_name VARCHAR(50) COMMENT '发布者名称',
+    publish_time DATETIME COMMENT '发布时间',
+    enabled TINYINT DEFAULT 1 COMMENT '是否启用：0-禁用，1-启用' NOT NULL,
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='公告栏表';
+
+-- 轮播图表
+CREATE TABLE IF NOT EXISTS carousel_banner (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '轮播图 ID',
+    title VARCHAR(100) COMMENT '轮播图标题',
+    image_url VARCHAR(255) NOT NULL COMMENT '图片 URL',
+    target_url VARCHAR(255) COMMENT '目标链接 URL',
+    sort INT DEFAULT 0 COMMENT '排序',
+    enabled TINYINT DEFAULT 1 COMMENT '是否启用：0-禁用，1-启用' NOT NULL,
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='轮播图表';
 INSERT INTO discount_activity (id, merchant_id, title, description, cover_image, images, start_time, end_time, use_rules, total_count, remain_count, create_time) VALUES
 -- 学府餐厅活动
 (1, 1, '午餐特价套餐', '周一至周五11:00-13:00，特价午餐套餐限量供应，包含主食+两菜+汤。', 'https://picsum.photos/800/400?random=301', '["https://picsum.photos/800/600?random=302"]', '2026-03-01 00:00:00', '2026-12-31 23:59:59', '1. 仅限堂食\n2. 不可与店内其他优惠叠加\n3. 每人不限购买份数', 100, 50, NOW()),

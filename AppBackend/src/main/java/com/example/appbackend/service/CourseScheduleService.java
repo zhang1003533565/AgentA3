@@ -24,4 +24,11 @@ public interface CourseScheduleService {
      * 删除用户的课表
      */
     void deleteSchedule(Long userId);
+
+    /**
+     * 获取用户本周的课表
+     * @param userId 用户 ID
+     * @return 本周课表列表
+     */
+    List<CourseSchedule> getCurrentWeekSchedule(Long userId);
 }
