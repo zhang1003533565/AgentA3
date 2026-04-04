@@ -1,6 +1,6 @@
 <template>
   <view class="page">
-    <nav-bar title="智能创作" :showBack="true" :showWechatCapsule="true" />
+    <nav-bar title="智能写作" :showBack="true" :showWechatCapsule="true" />
 
     <view class="content">
       <!-- Input Section -->
