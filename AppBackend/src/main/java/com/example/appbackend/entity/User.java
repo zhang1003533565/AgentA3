@@ -32,7 +32,7 @@ public class User {
     private String personalNumber;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "role_id", columnDefinition = "BIGINT COMMENT '角色ID'")
+    @JoinColumn(name = "role_id", columnDefinition = "BIGINT COMMENT '角色 ID'")
     private Role role;
 
     @Column(length = 255, columnDefinition = "VARCHAR(255) COMMENT '头像'")
@@ -47,7 +47,13 @@ public class User {
     @Column(name = "class_name", length = 50, columnDefinition = "VARCHAR(50) COMMENT '班级'")
     private String className;
 
-    @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 1 COMMENT '状态: 1-正常, 0-禁用'")
+    @Column(name = "jwx_student_id", length = 50, columnDefinition = "VARCHAR(50) COMMENT '教务系统学号'")
+    private String jwxStudentId;
+
+    @Column(name = "jwx_password", length = 100, columnDefinition = "VARCHAR(100) COMMENT '教务系统密码'")
+    private String jwxPassword;
+
+    @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 1 COMMENT '状态：1-正常，0-禁用'")
     private Integer status = 1;
 
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")

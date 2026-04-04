@@ -79,24 +79,43 @@ export default {
         followCount: 0,
         fansCount: 0,
         isFollow: false
-      }
+      },
+      userName: ''
     }
   },
   onLoad(options) {
     this.userId = options.id || options.userId || ''
+    this.userName = options.name || ''
     this.loadUserProfile()
   },
   methods: {
     async loadUserProfile() {
       const localUser = getUserInfo() || {}
+      // 如果有传入userId，显示该用户的主页；否则显示当前登录用户的主页
       const targetId = this.userId || localUser.id || localUser.userId || ''
       this.userId = targetId
-      this.userInfo = {
-        ...this.userInfo,
-        userId: targetId,
-        userName: localUser.username || localUser.realName || `用户${targetId || ''}`,
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(localUser.username || targetId || 'user')}`,
-        bio: localUser.college ? `${localUser.college}${localUser.major ? ` · ${localUser.major}` : ''}` : '这个人很懒，什么都没写~'
+      
+      // 判断是否是查看其他用户的主页
+      const isOtherUser = this.userId && this.userId !== localUser.id && this.userId !== localUser.userId
+      
+      if (isOtherUser) {
+        // 查看其他用户：使用传入的ID和用户名
+        this.userInfo = {
+          ...this.userInfo,
+          userId: targetId,
+          userName: this.userName || `用户${targetId}`,
+          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(this.userName || 'user' + targetId)}`,
+          bio: '这个人很懒，什么都没写~'
+        }
+      } else {
+        // 查看自己的主页：使用本地用户信息
+        this.userInfo = {
+          ...this.userInfo,
+          userId: targetId,
+          userName: localUser.username || localUser.realName || `用户${targetId || ''}`,
+          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(localUser.username || targetId || 'user')}`,
+          bio: localUser.college ? `${localUser.college}${localUser.major ? ` · ${localUser.major}` : ''}` : '这个人很懒，什么都没写~'
+        }
       }
 
       await Promise.all([this.loadPosts(), this.loadFollowMeta()])

@@ -169,28 +169,28 @@ INSERT INTO sys_role (id, name) VALUES
 -- =============================================
 -- 2. 用户数据 (密码都是 admin123)
 -- =============================================
-INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, status, create_time, update_time) VALUES
+INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, status, create_time, update_time,jwx_password,jwx_student_id) VALUES
 -- 管理员 (用户名: admin, 密码: admin123)
-(1, 'admin', 'admin123', '系统管理员', '13800000001', 'admin@campus.edu.cn', 1, 1, NOW(), NOW()),
+(1, 'admin', 'admin123', '系统管理员', '13800000001', 'admin@campus.edu.cn', 1, 1, NOW(), NOW(),'313','32132313'),
 -- 教师 (用户名: fjj, 密码: admin123)
-(2, 'fjj', 'admin123', '张老师', '13800000002', 'zhanglaoshi@campus.edu.cn', 2, 1, NOW(), NOW()),
+(2, 'fjj', 'admin123', '张老师', '13800000002', 'zhanglaoshi@campus.edu.cn', 2, 1, NOW(), NOW(),'313','32132313'),
 -- 教师 (用户名: fjj2, 密码: admin123)
-(3, 'fjj2', 'admin123', '李老师', '13800000003', 'lilaoshi@campus.edu.cn', 2, 1, NOW(), NOW()),
+(3, 'fjj2', 'admin123', '李老师', '13800000003', 'lilaoshi@campus.edu.cn', 2, 1, NOW(), NOW(),'313','32132313'),
 -- 学生 (用户名: zzs, 密码: admin123)
-(4, 'zzs', 'admin123', '张三', '13800000004', 'zhangsan@stu.campus.edu.cn', 3, 1, NOW(), NOW()),
+(4, 'zzs', 'admin123', '张三', '13800000004', 'zhangsan@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313'),
 -- 学生 (用户名: lisi, 密码: admin123)
-(5, 'lisi', 'admin123', '李四', '13800000005', 'lisi@stu.campus.edu.cn', 3, 1, NOW(), NOW()),
+(5, 'lisi', 'admin123', '李四', '13800000005', 'lisi@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313'),
 -- 学生 (用户名: wangwu, 密码: admin123)
-(6, 'wangwu', 'admin123', '王五', '13800000006', 'wangwu@stu.campus.edu.cn', 3, 1, NOW(), NOW()),
+(6, 'wangwu', 'admin123', '王五', '13800000006', 'wangwu@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313'),
 -- 学生 (用户名: zhaoliu, 密码: admin123)
-(7, 'zhaoliu', 'admin123', '赵六', '13800000007', 'zhaoliu@stu.campus.edu.cn', 3, 1, NOW(), NOW()),
+(7, 'zhaoliu', 'admin123', '赵六', '13800000007', 'zhaoliu@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313'),
 -- 学生 (用户名: student05, 密码: admin123)
-(8, 'student05', 'admin123', '钱七', '13800000008', 'qianqi@stu.campus.edu.cn', 3, 1, NOW(), NOW()),
+(8, 'student05', 'admin123', '钱七', '13800000008', 'qianqi@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313'),
 -- 商家用户 (用户名: merchant01~04, 密码: admin123, role_id=4)
-(9, 'merchant01', 'admin123', '学府餐厅老板', '13812345601', 'lishilaoban@campus.edu.cn', 4, 1, NOW(), NOW()),
-(10, 'merchant02', 'admin123', '书香咖啡老板', '13812345602', 'wanglaoban@campus.edu.cn', 4, 1, NOW(), NOW()),
-(11, 'merchant03', 'admin123', '校园超市老板', '13812345603', 'zhanglaoban@campus.edu.cn', 4, 1, NOW(), NOW()),
-(12, 'merchant04', 'admin123', '快印图文老板', '13812345604', 'zhaolaoban@campus.edu.cn', 4, 1, NOW(), NOW());
+(9, 'merchant01', 'admin123', '学府餐厅老板', '13812345601', 'lishilaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313'),
+(10, 'merchant02', 'admin123', '书香咖啡老板', '13812345602', 'wanglaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313'),
+(11, 'merchant03', 'admin123', '校园超市老板', '13812345603', 'zhanglaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313'),
+(12, 'merchant04', 'admin123', '快印图文老板', '13812345604', 'zhaolaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313');
 
 -- =============================================
 -- 3~9. 旧模块（活动/论坛）初始化数据

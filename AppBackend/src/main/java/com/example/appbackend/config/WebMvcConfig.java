@@ -30,8 +30,6 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/webjars/**",
                         "/doc.html",
                         "/favicon.ico"
-
-
                 );
     }
 

@@ -61,7 +61,7 @@
         >
           <!-- 用户信息 -->
           <view class="post-header">
-            <image class="user-avatar" :src="item.avatar || '/static/logo.png'" mode="aspectFill" />
+            <image class="user-avatar" :src="item.avatar || '/static/logo.png'" mode="aspectFill" @click.stop="goToUserProfile(item)" />
             <view class="user-info">
               <text class="user-name">{{ item.userName }}</text>
               <text class="post-time">{{ item.createTime }}</text>
@@ -107,7 +107,7 @@
         >
           <!-- 用户信息 -->
           <view class="post-header">
-            <image class="user-avatar" :src="item.avatar || '/static/logo.png'" mode="aspectFill" />
+            <image class="user-avatar" :src="item.avatar || '/static/logo.png'" mode="aspectFill" @click.stop="goToUserProfile(item)" />
             <view class="user-info">
               <text class="user-name">{{ item.userName }}</text>
               <text class="post-time">{{ item.createTime }}</text>
@@ -377,11 +377,11 @@ export default {
         url: `/subpackage_forum/postDetail/postDetail?id=${id}`
       })
     },
-    goToUserProfile() {
-      const userInfo = getUserInfo()
-      const userId = userInfo?.id || userInfo?.userId || ''
+    goToUserProfile(item) {
+      const userId = item?.userId || item?.id || ''
+      const userName = item?.userName || ''
       uni.navigateTo({
-        url: `/subpackage_forum/userProfile/userProfile?id=${encodeURIComponent(userId)}`
+        url: `/subpackage_forum/userProfile/userProfile?id=${encodeURIComponent(userId)}&name=${encodeURIComponent(userName)}`
       })
     },
     async toggleLike(item) {
