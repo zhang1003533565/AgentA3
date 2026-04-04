@@ -1,18 +1,19 @@
 <template>
 	<view class="schedule-page">
-		<view class="schedule-shell">
-			<view class="header-bar">
-				<view class="back-btn" @click="goBack">
-					<text class="back-icon">‹</text>
-					<text class="back-text">返回</text>
-				</view>
-				<text class="page-title">我的课表</text>
-				<view class="import-btn" @click="importSchedule">
-					<text class="import-icon">+</text>
-				</view>
+		<!-- Header Bar（独立页面时显示） -->
+		<view v-if="showHeader" class="header-bar">
+			<view class="back-btn" @click="goBack">
+				<text class="back-icon">‹</text>
+				<text class="back-text">返回</text>
 			</view>
+			<text class="page-title">我的课表</text>
+			<view class="import-btn" @click="importSchedule">
+				<text class="import-icon">+</text>
+			</view>
+		</view>
 
-			<!-- 星期栏 - 显示完整的星期，错位显示给节次列留空间 -->
+		<view class="schedule-shell">
+			<!-- 星期栏 -->
 			<view class="weekday-bar">
 				<view class="month-label">{{ currentMonth }}月</view>
 				<view class="weekday-item" :class="{ active: currentWeekday === 1 }" @click="switchDay(1)">
@@ -71,7 +72,7 @@
 						@click="goToDetail(course)"
 					>
 						<text class="course-title">{{ course.name }}</text>
-						<text class="course-meta">@{{ course.campus }}</text>
+						<text class="course-meta"></text>
 						<text class="course-meta">{{ course.location }}</text>
 					</view>
 				</view>
@@ -82,10 +83,18 @@
 
 <script>
 export default {
+	name: 'ScheduleBoard',
+	props: {
+		// 是否显示 Header Bar（独立页面时显示）
+		showHeader: {
+			type: Boolean,
+			default: true
+		}
+	},
 	data() {
 		return {
 			currentWeek: 1,
-			currentWeekday: 1,
+			currentWeekday: new Date().getDay() || 7,
 			periods: [1, 2, 3, 4, 5],
 			courses: [],
 			loading: false,
@@ -93,13 +102,12 @@ export default {
 			weekDates: [] // 存储本周每天的日期
 		}
 	},
-	onLoad() {
+	mounted() {
 		this.loadSchedule()
 		this.calculateWeekDates()
 	},
 	computed: {
 		visibleCourses() {
-			// 显示当前周的所有课程，按 weekday 分布到对应列
 			return this.courses.filter((course) => course.week === this.currentWeek)
 		}
 	},
@@ -120,6 +128,7 @@ export default {
 							const scheduleData = res.data.data
 							this.currentWeek = scheduleData.currentWeek || 1
 							this.courses = this.transformScheduleData(scheduleData.schedule || [])
+							this.calculateWeekDates()
 						} else {
 							uni.showToast({
 								title: res.data.message || '获取课表失败',
@@ -174,9 +183,8 @@ export default {
 				return {
 					id: item.id,
 					week: this.currentWeek,
-					day: item.weekday || 1,
+					weekday: item.weekday || 1,
 					name: item.courseName,
-					campus: item.campus || '朝阳校区',
 					location: item.location || '',
 					start: startRow,
 					end: endRow,
@@ -244,7 +252,7 @@ export default {
 
 			// 同一列中同一时间段的课程处理
 			const sameColumnCourses = this.courses.filter(
-				(item) => item.day === course.day && item.start === course.start && item.end === course.end
+				(item) => item.weekday === course.weekday && item.start === course.start && item.end === course.end
 			)
 			const order = sameColumnCourses.findIndex((item) => item.id === course.id)
 
@@ -253,7 +261,7 @@ export default {
 			const width = sameColumnCourses.length > 1 ? (baseWidth - 2) / sameColumnCourses.length : baseWidth
 
 			// 计算该列的起始位置
-			const columnLeft = (course.day - 1) * columnWidth + 1
+			const columnLeft = (course.weekday - 1) * columnWidth + 1
 			// 同一列中多个课程的偏移
 			const offset = order * (width + 2)
 			const left = columnLeft + offset

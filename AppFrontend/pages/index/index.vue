@@ -57,11 +57,11 @@
 				<view class="supplement-card supplement-card--course">
 					<text class="supplement-title">课程表</text>
 					<text class="supplement-desc">查看今日课程与本周安排</text>
-					<view class="supplement-arrow" @click.stop="switchHomeDay">›</view>
+					<view class="supplement-arrow" >›</view>
 				</view>
 			</view>
 
-			<home-schedule-card />
+			<ScheduleBoard :showHeader="false" />
 		</view>
 
 		<app-main-tab-bar current="index" />
@@ -70,10 +70,10 @@
 
 <script>
 import AppMainTabBar from '@/components/app-main-tab-bar/app-main-tab-bar.vue'
-import HomeScheduleCard from '@/components/home-schedule-card/home-schedule-card.vue'
+import ScheduleBoard from '@/subpackage_schedule/schedule/schedule.vue'
 
 export default {
-	components: { AppMainTabBar, HomeScheduleCard },
+	components: { AppMainTabBar, ScheduleBoard },
 	data() {
 		return {
 			headline: '关于 2025 级新生校园服务一体通平台上线的通知',
