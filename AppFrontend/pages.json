@@ -354,6 +354,15 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
 					}
+				},
+				{
+					"path": "smartWriting/smartWriting",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
 				}
 			]
 		}

@@ -9,7 +9,7 @@
         <view class="hero-section">
           <view class="hero-grid">
             <!-- 左侧大卡片：智能写作 -->
-            <view class="hero-main">
+            <view class="hero-main" @tap="goToSmartWriting">
               <view class="hero-main-text">
                 <text class="hero-main-title">智能写作</text>
                 <text class="hero-main-subtitle">Deepseek赋能</text>
@@ -186,6 +186,12 @@ const currentTools = computed(() => {
 // 方法：切换 Tab
 const switchTab = (index) => {
   activeTab.value = index
+}
+
+const goToSmartWriting = () => {
+  uni.navigateTo({
+    url: '/subpackage_ai/smartWriting/smartWriting'
+  })
 }
 </script>
 
