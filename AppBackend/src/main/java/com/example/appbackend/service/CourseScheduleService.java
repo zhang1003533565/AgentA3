@@ -47,4 +47,11 @@ public interface CourseScheduleService {
      * @return 课程详情
      */
     CourseSchedule getCourseDetail(Long userId, Long courseId);
+
+    /**
+     * 通过分享码复制他人课表
+     * @param userId 当前用户 ID
+     * @param shareCode 课表分享码
+     */
+    void copyScheduleByShareCode(Long userId, String shareCode);
 }

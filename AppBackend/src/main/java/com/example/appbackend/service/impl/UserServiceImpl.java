@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class UserServiceImpl implements UserService {
@@ -61,6 +62,17 @@ public class UserServiceImpl implements UserService {
         if (request.getPersonalNumber() != null && !request.getPersonalNumber().isEmpty()) {
             user.setPersonalNumber(request.getPersonalNumber());
         }
+        // 设置课表分享码，如果前端未传入则自动生成
+        if (request.getShareCode() != null && !request.getShareCode().isEmpty()) {
+            // 检查分享码是否已被使用
+            if (userRepository.existsByShareCode(request.getShareCode())) {
+                throw new RuntimeException("分享码已被使用");
+            }
+            user.setShareCode(request.getShareCode());
+        } else {
+            // 自动生成唯一分享码
+            user.setShareCode(generateShareCode());
+        }
 
         // 获取用户选择的角色，如果没有选择或无效则默认为STUDENT
         String requestedRole = request.getRole();
@@ -78,7 +90,7 @@ public class UserServiceImpl implements UserService {
 
         String token = jwtUtil.generateToken(user.getUsername(), user.getId(), roleName(user));
         return new UserResponse(token, user.getUsername(), roleName(user), user.getPhone(),
-                user.getRealName(), user.getCollege(), user.getMajor(), user.getClassName(), user.getPersonalNumber());
+                user.getRealName(), user.getCollege(), user.getMajor(), user.getClassName(), user.getPersonalNumber(), user.getShareCode());
     }
 
 
@@ -103,7 +115,7 @@ public class UserServiceImpl implements UserService {
 
         String token = jwtUtil.generateToken(user.getUsername(), user.getId(), roleName(user));
         return new UserResponse(token, user.getUsername(), roleName(user), user.getPhone(),
-                user.getRealName(), user.getCollege(), user.getMajor(), user.getClassName(), user.getPersonalNumber());
+                user.getRealName(), user.getCollege(), user.getMajor(), user.getClassName(), user.getPersonalNumber(), user.getShareCode());
     }
 
     @Override
@@ -127,7 +139,7 @@ public class UserServiceImpl implements UserService {
 
         String token = jwtUtil.generateToken(user.getUsername(), user.getId(), roleName(user));
         return new UserResponse(token, user.getUsername(), roleName(user), user.getPhone(),
-                user.getRealName(), user.getCollege(), user.getMajor(), user.getClassName(), user.getPersonalNumber());
+                user.getRealName(), user.getCollege(), user.getMajor(), user.getClassName(), user.getPersonalNumber(), user.getShareCode());
     }
 
     @Override
@@ -136,7 +148,7 @@ public class UserServiceImpl implements UserService {
                 .orElseThrow(() -> new RuntimeException("用户不存在"));
         // 当前用户信息接口不返回 token，由前端已有 token 保持登录状态
         return new UserResponse(null, user.getUsername(), roleName(user), user.getPhone(),
-                user.getRealName(), user.getCollege(), user.getMajor(), user.getClassName(), user.getPersonalNumber());
+                user.getRealName(), user.getCollege(), user.getMajor(), user.getClassName(), user.getPersonalNumber(), user.getShareCode());
     }
 
     @Override
@@ -243,5 +255,26 @@ public class UserServiceImpl implements UserService {
 
     private String roleName(User user) {
         return user.getRole() != null ? user.getRole().getName() : "STUDENT";
+    }
+
+    /**
+     * 生成唯一的课表分享码
+     * 格式：SCH + 时间戳后 6 位 + UUID 前 4 位
+     * 例如：SCH260405A1B2
+     */
+    private String generateShareCode() {
+        String code;
+        do {
+            // 使用时间戳后 6 位 + 4 位随机数
+            String timestamp = String.valueOf(System.currentTimeMillis()).substring(4);
+            String random = UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase();
+            code = "SCH" + timestamp + random;
+        } while (userRepository.existsByShareCode(code));
+        return code;
+    }
+
+    @Override
+    public User findByUsername(String username) {
+        return userRepository.findByUsername(username).orElse(null);
     }
 }

@@ -1,6 +1,7 @@
 package com.example.appbackend.service;
 
 import com.example.appbackend.dto.*;
+import com.example.appbackend.entity.User;
 import jakarta.validation.Valid;
 
 public interface UserService {
@@ -26,4 +27,6 @@ public interface UserService {
     void disableUser(Long id);
 
     void resetPassword(Long id, String newPassword);
+
+    User findByUsername(String username);
 }

@@ -50,6 +50,9 @@ public class User {
     @Column(name = "jwx_student_id", length = 50, columnDefinition = "VARCHAR(50) COMMENT '教务系统学号'")
     private String jwxStudentId;
 
+    @Column(name = "share_code", length = 32, unique = true, columnDefinition = "VARCHAR(32) UNIQUE COMMENT '课表分享码'")
+    private String shareCode;
+
     @Column(name = "jwx_password", length = 100, columnDefinition = "VARCHAR(100) COMMENT '教务系统密码'")
     private String jwxPassword;
 

@@ -37,4 +37,7 @@ public class UserResponse {
 
     @Schema(description = "学号/工号")
     private String personalNumber;
+
+    @Schema(description = "课表分享码")
+    private String shareCode;
 }

@@ -1,5 +1,8 @@
 <template>
-	<view class="schedule-page">
+	<view class="schedule-page"
+		@touchstart="handleTouchStart"
+		@touchmove="handleTouchMove"
+		@touchend="handleTouchEnd">
 		<!-- Header Bar（独立页面时显示） -->
 		<view v-if="showHeader" class="header-bar">
 			<view class="header-left">
@@ -9,7 +12,6 @@
 				<view class="week-info-wrapper">
 					<view class="week-info" @click="showWeekSelector">
 						<text class="week-text">第{{ currentWeek }}周</text>
-						<text class="week-icon">›</text>
 					</view>
 					<view class="semester-info">
 						<text class="semester-text">{{ semester }}</text>
@@ -33,9 +35,33 @@
 					<text class="popup-title">教务系统导课</text>
 					<text class="popup-desc">导入至{{ semester }}</text>
 				</view>
-				<view class="popup-item" @click="shareSchedule">
-					<text class="popup-title">分享课程表</text>
-					<text class="popup-desc">生成课表海报分享给好友</text>
+				<view class="popup-item" @click="openImportCodePopup">
+					<text class="popup-title">分享码导入</text>
+					<text class="popup-desc">使用好友分享码导入课表</text>
+				</view>
+			</view>
+		</view>
+
+		<!-- 分享码导入弹窗 -->
+		<view v-if="showImportCodePopup" class="import-code-popup" @click="showImportCodePopup = false">
+			<view class="import-code-content" @click.stop>
+				<view class="popup-header">
+					<text class="popup-title-text">分享码导入</text>
+					<text class="popup-close" @click="showImportCodePopup = false">×</text>
+				</view>
+				<view class="popup-body">
+					<text class="input-label">请输入好友的课表分享码</text>
+					<input
+						class="share-code-input"
+						type="text"
+						v-model="shareCodeInput"
+						placeholder="例如：SCH260405A1B2"
+						maxlength="20"
+					/>
+				</view>
+				<view class="popup-footer">
+					<button class="cancel-btn" @click="showImportCodePopup = false">取消</button>
+					<button class="confirm-btn" @click="confirmImportShareCode">导入课表</button>
 				</view>
 			</view>
 		</view>
@@ -130,7 +156,15 @@ export default {
 			weekDates: [], // 存储本周每天的日期
 			semester: '2025-2026 第 1 学期',
 			showImportPopup: false,
-			semesterStart: '' // 学期开始日期
+			showImportCodePopup: false,
+			shareCodeInput: '',
+			semesterStart: '',
+			myShareCode: '',
+			// 触摸滑动相关
+			touchStartX: 0,
+			touchStartY: 0,
+			touchMoveX: 0,
+			isSwiping: false
 		}
 	},
 	mounted() {
@@ -427,9 +461,108 @@ export default {
 				}
 			})
 		},
+		// 打开分享码导入弹窗
+		openImportCodePopup() {
+			this.showImportPopup = false
+			this.showImportCodePopup = true
+			this.shareCodeInput = ''
+		},
+		// 确认导入分享码
+		confirmImportShareCode() {
+			if (!this.shareCodeInput || !this.shareCodeInput.trim()) {
+				uni.showToast({ title: '请输入分享码', icon: 'none' })
+				return
+			}
+
+			const token = uni.getStorageSync('token') || ''
+			uni.showLoading({ title: '正在导入课表...' })
+
+			uni.request({
+				url: 'http://localhost:8080/api/schedule/copy',
+				method: 'POST',
+				header: {
+					'Authorization': 'Bearer ' + token,
+					'Content-Type': 'application/json'
+				},
+				data: {
+					shareCode: this.shareCodeInput.trim()
+				},
+				success: (res) => {
+					uni.hideLoading()
+					if (res.statusCode === 200 && res.data.code === 200) {
+						this.showImportCodePopup = false
+						this.shareCodeInput = ''
+						this.loadSchedule()
+						uni.showToast({ title: '课表导入成功', icon: 'success' })
+					} else {
+						uni.showToast({ title: res.data.message || '导入失败', icon: 'none' })
+					}
+				},
+				fail: (err) => {
+					uni.hideLoading()
+					console.error('导入课表失败:', err)
+					uni.showToast({ title: '网络错误', icon: 'none' })
+				}
+			})
+		},
 		// 分享课程表
 		shareSchedule() {
-			uni.showToast({ title: '功能开发中', icon: 'none' })
+			// 如果已经有分享码，直接复制
+			if (this.myShareCode) {
+				uni.setClipboardData({
+					data: this.myShareCode,
+					success: () => {
+						uni.showModal({
+							title: '复制成功',
+							content: '课表分享码已复制到剪贴板，好友可以使用该分享码导入你的课表',
+							showCancel: false,
+							confirmText: '我知道了'
+						})
+					}
+				})
+				return
+			}
+
+			// 否则先获取用户信息
+			const token = uni.getStorageSync('token') || ''
+			uni.showLoading({ title: '获取中...' })
+
+			uni.request({
+				url: 'http://localhost:8080/api/auth/current-user',
+				method: 'GET',
+				header: {
+					'Authorization': 'Bearer ' + token
+				},
+				success: (res) => {
+					uni.hideLoading()
+					if (res.statusCode === 200 && res.data.code === 200 && res.data.data) {
+						const userInfo = res.data.data
+						if (userInfo.shareCode) {
+							this.myShareCode = userInfo.shareCode
+							uni.setClipboardData({
+								data: this.myShareCode,
+								success: () => {
+									uni.showModal({
+										title: '复制成功',
+										content: `你的课表分享码是：${this.myShareCode}\n\n已复制到剪贴板，好友可以使用该分享码导入你的课表`,
+										showCancel: false,
+										confirmText: '我知道了'
+									})
+								}
+							})
+						} else {
+							uni.showToast({ title: '未找到分享码', icon: 'none' })
+						}
+					} else {
+						uni.showToast({ title: '获取失败', icon: 'none' })
+					}
+				},
+				fail: (err) => {
+					uni.hideLoading()
+					console.error('获取用户信息失败:', err)
+					uni.showToast({ title: '网络错误', icon: 'none' })
+				}
+			})
 		},
 		// 显示导入菜单
 		showImportMenu() {
@@ -471,6 +604,43 @@ export default {
 		// 通过分享导入
 		importFromShare() {
 			uni.showToast({ title: '功能开发中', icon: 'none' })
+		},
+		// 触摸滑动相关方法
+		handleTouchStart(e) {
+			this.touchStartX = e.touches[0].clientX
+			this.touchStartY = e.touches[0].clientY
+			this.touchMoveX = 0
+			this.isSwiping = false
+		},
+		handleTouchMove(e) {
+			const diffX = e.touches[0].clientX - this.touchStartX
+			const diffY = e.touches[0].clientY - this.touchStartY
+
+			// 只有水平滑动距离大于垂直距离时才认为是滑动
+			if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 10) {
+				this.isSwiping = true
+				this.touchMoveX = diffX
+			}
+		},
+		handleTouchEnd(e) {
+			if (!this.isSwiping) return
+
+			const threshold = 50 // 滑动距离阈值
+			if (this.touchMoveX > threshold) {
+				// 向右滑动 - 上一周
+				if (this.currentWeek > 1) {
+					this.loadWeekSchedule(this.currentWeek - 1)
+				} else {
+					uni.showToast({ title: '已经是第一周', icon: 'none' })
+				}
+			} else if (this.touchMoveX < -threshold) {
+				// 向左滑动 - 下一周
+				if (this.currentWeek < 20) {
+					this.loadWeekSchedule(this.currentWeek + 1)
+				} else {
+					uni.showToast({ title: '已经是最后一周', icon: 'none' })
+				}
+			}
 		},
 	}
 }
@@ -541,18 +711,19 @@ export default {
 	display: flex;
 	align-items: center;
 	gap: 4rpx;
+	cursor: pointer;
+	opacity: 0.9;
+	transition: opacity 0.2s;
+}
+
+.week-info:active {
+	opacity: 0.6;
 }
 
 .week-text {
 	font-size: 40rpx;
 	font-weight: 800;
 	color: #1D1D1F;
-}
-
-.week-icon {
-	font-size: 32rpx;
-	color: #333;
-	transform: rotate(90deg);
 }
 
 .semester-info {
@@ -649,6 +820,100 @@ export default {
 	display: block;
 	font-size: 22rpx;
 	color: #999;
+}
+
+// 分享码导入弹窗
+.import-code-popup {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: rgba(0, 0, 0, 0.5);
+	z-index: 1000;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+}
+
+.import-code-content {
+	background: #fff;
+	border-radius: 24rpx;
+	width: 560rpx;
+	padding: 0;
+	box-shadow: 0 4rpx 20rpx rgba(0, 0, 0, 0.15);
+	overflow: hidden;
+}
+
+.popup-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 24rpx 32rpx;
+	border-bottom: 1rpx solid #f0f0f0;
+}
+
+.popup-title-text {
+	font-size: 32rpx;
+	font-weight: 600;
+	color: #333;
+}
+
+.popup-close {
+	font-size: 48rpx;
+	color: #999;
+	line-height: 1;
+}
+
+.popup-body {
+	padding: 32rpx;
+	box-sizing: border-box;
+}
+
+.input-label {
+	display: block;
+	font-size: 28rpx;
+	color: #666;
+	margin-bottom: 16rpx;
+}
+
+.share-code-input {
+	width: 100%;
+	height: 80rpx;
+	background: #f5f5f5;
+	border-radius: 12rpx;
+	padding: 0 20rpx;
+	font-size: 28rpx;
+	color: #333;
+	box-sizing: border-box;
+}
+
+.popup-footer {
+	display: flex;
+	padding: 0 32rpx 32rpx;
+	gap: 20rpx;
+	box-sizing: border-box;
+}
+
+.cancel-btn,
+.confirm-btn {
+	flex: 1;
+	height: 76rpx;
+	line-height: 76rpx;
+	text-align: center;
+	border-radius: 12rpx;
+	font-size: 28rpx;
+	border: none;
+}
+
+.cancel-btn {
+	background: #f5f5f5;
+	color: #666;
+}
+
+.confirm-btn {
+	background: #1D1D1F;
+	color: #fff;
 }
 
 .weekday-bar {
