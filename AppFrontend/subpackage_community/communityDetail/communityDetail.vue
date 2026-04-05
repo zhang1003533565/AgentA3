@@ -98,13 +98,7 @@
     
     <!-- 底部操作栏 -->
     <view class="bottom-bar">
-      <view class="bar-left">
-        <view class="action-btn" @click="shareActivity">
-          <image class="action-icon" src="/static/icons/line/share.svg" mode="aspectFit" />
-          <text class="action-text">分享</text>
-        </view>
-      </view>
-      <view class="bar-right">
+      <view class="bar-right bar-right--full">
         <view 
           class="join-btn" 
           :class="{ disabled: !canJoin && !isJoined }"
@@ -245,12 +239,6 @@ export default {
             uni.showToast({ title: '已取消报名', icon: 'none' })
           } catch (error) {}
         }
-      })
-    },
-
-    shareActivity() {
-      uni.showShareMenu({
-        withShareTicket: true
       })
     },
 
@@ -521,26 +509,13 @@ export default {
   box-shadow: 0 -4rpx 20rpx rgba(0, 0, 0, 0.05);
 }
 
-.bar-left {
+.bar-right {
   display: flex;
-  gap: 48rpx;
+  justify-content: center;
 }
 
-.action-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8rpx;
-}
-
-.action-icon {
-  width: 40rpx;
-  height: 40rpx;
-}
-
-.action-text {
-  font-size: 22rpx;
-  color: #666;
+.bar-right--full {
+  width: 100%;
 }
 
 .join-btn {
