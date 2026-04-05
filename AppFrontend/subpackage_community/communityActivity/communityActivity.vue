@@ -73,11 +73,16 @@
                 <text class="activity-title">{{ item.title }}</text>
                 <view class="activity-tag" :class="item.status">{{ getStatusText(item.status) }}</view>
               </view>
+
+              <view class="activity-submeta">
+                <text class="category-chip">{{ item.categoryName || '未分类' }}</text>
+                <text class="signup-deadline" v-if="item.signupEndTime">截止 {{ formatDate(item.signupEndTime) }}</text>
+              </view>
               
               <view class="activity-meta">
                 <view class="meta-item">
                   <image class="meta-icon" src="/static/icons/line/calendar.svg" mode="aspectFit" />
-                  <text class="meta-text">{{ formatDate(item.startTime) }}</text>
+                  <text class="meta-text">{{ formatDateRange(item.startTime, item.endTime) }}</text>
                 </view>
                 <view class="meta-item">
                   <image class="meta-icon" src="/static/icons/line/map.svg" mode="aspectFit" />
@@ -124,6 +129,19 @@ import { getActivityList } from '@/api/activity.js'
 import { getCategoryList } from '@/api/category.js'
 
 const parseTime = (value) => (value ? new Date(value.replace(' ', 'T')) : null)
+const parseImageList = (images) => {
+  if (Array.isArray(images)) return images.filter(Boolean)
+  if (!images) return []
+  if (typeof images === 'string') {
+    try {
+      const parsed = JSON.parse(images)
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : []
+    } catch (error) {
+      return []
+    }
+  }
+  return []
+}
 
 export default {
   components: { NavBar },
@@ -203,8 +221,9 @@ export default {
         })
         const records = (res?.data?.records || []).map((item) => ({
           ...item,
-          cover: item.coverImage || '',
+          cover: item.coverImage || parseImageList(item.images)[0] || '',
           organizer: item.organizerName || '校园活动中心',
+          categoryName: item.category?.categoryName || this.getCategoryName(item.categoryId),
           status: this.getStatus(item)
         }))
 
@@ -250,6 +269,18 @@ export default {
       if (!dateStr) return ''
       const date = parseTime(dateStr)
       return `${date.getMonth() + 1}月${date.getDate()}日 ${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`
+    },
+
+    formatDateRange(start, end) {
+      if (!start) return ''
+      if (!end) return this.formatDate(start)
+      const endText = this.formatDate(end)
+      return `${this.formatDate(start)} - ${endText.split(' ')[1] || endText}`
+    },
+
+    getCategoryName(categoryId) {
+      const category = this.categories.find((item) => item.id === categoryId)
+      return category?.name || ''
     },
 
     getStatus(item) {
@@ -490,6 +521,30 @@ export default {
 .activity-tag.full {
   background-color: #FFF1F0;
   color: #FF4D4F;
+}
+
+.activity-submeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 18rpx;
+}
+
+.category-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 8rpx 16rpx;
+  border-radius: 999rpx;
+  background: #eef6f2;
+  color: #2c7a67;
+  font-size: 22rpx;
+  font-weight: 600;
+}
+
+.signup-deadline {
+  font-size: 22rpx;
+  color: #8b96a8;
 }
 
 .activity-meta {

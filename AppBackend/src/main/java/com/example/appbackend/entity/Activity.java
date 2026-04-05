@@ -26,6 +26,10 @@ public class Activity {
     @Schema(description = "封面图片URL", example = "https://example.com/cover.jpg")
     private String coverImage;
 
+    @Column(columnDefinition = "TEXT COMMENT '活动图片列表(JSON数组)'")
+    @Schema(description = "活动图片列表(JSON数组)", example = "[\"https://example.com/1.jpg\"]")
+    private String images;
+
     @Column(name = "category_id", columnDefinition = "BIGINT COMMENT '分类ID'")
     @Schema(description = "分类ID", example = "1")
     private Long categoryId;

@@ -87,7 +87,7 @@ function NavBar({ mobileOpen, onClose }) {
   const defaultOpen = useMemo(
     () =>
       navigationSections.reduce((acc, section) => {
-        const hasActiveChild = section.items.some((item) => item.path === location.pathname)
+        const hasActiveChild = section.items.some((item) => location.pathname === item.path || location.pathname.startsWith(`${item.path}/`) || (item.path === '/activity/manage' && location.pathname.startsWith('/activity/')))
         acc[section.label] = hasActiveChild || section.label === '总览'
         return acc
       }, {}),
@@ -159,7 +159,7 @@ function NavBar({ mobileOpen, onClose }) {
             </button>
             <div className={`navbar-links ${openSections[section.label] ? 'expanded' : 'collapsed'}`}>
               {section.items.map((item) => {
-                const active = location.pathname === item.path
+                const active = location.pathname === item.path || location.pathname.startsWith(`${item.path}/`) || (item.path === '/activity/manage' && location.pathname.startsWith('/activity/'))
                 return (
                   <button
                     key={item.path}

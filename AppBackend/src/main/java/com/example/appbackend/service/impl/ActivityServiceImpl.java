@@ -56,7 +56,7 @@ public class ActivityServiceImpl implements ActivityService {
     public Activity draftActivity(Activity activity, Long userId, String organizerName) {
         activity.setOrganizerId(userId);
         activity.setOrganizerName(organizerName);
-        activity.setStatus(Status.DRAFT);
+        activity.setStatus(Status.PUBLISHED);
         activity.setCurrentPeople(0);
         return activityRepository.save(activity);
     }
@@ -71,6 +71,7 @@ public class ActivityServiceImpl implements ActivityService {
         activity.setOrganizerId(existing.getOrganizerId());
         activity.setOrganizerName(existing.getOrganizerName());
         activity.setCurrentPeople(existing.getCurrentPeople());
+        activity.setStatus(existing.getStatus() == Status.COMPLETED ? Status.COMPLETED : Status.PUBLISHED);
         return activityRepository.save(activity);
     }
 

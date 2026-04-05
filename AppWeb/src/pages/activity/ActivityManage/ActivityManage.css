@@ -75,6 +75,44 @@
   line-height: 1.6;
 }
 
+.activity-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.activity-image-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+}
+
+.activity-image-card.cover {
+  border-color: #1677ff;
+  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.12);
+}
+
+.activity-image-card img {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 10px;
+  display: block;
+  margin-bottom: 10px;
+}
+
+.activity-image-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.activity-image-empty {
+  padding: 12px 0;
+  color: #8c8c8c;
+  font-size: 14px;
+}
+
 /* 响应式 */
 @media (max-width: 768px) {
   .search-bar {

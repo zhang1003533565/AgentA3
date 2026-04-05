@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Card, Empty, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, message } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
-import { deleteActivity, getActivityList, publishActivity } from '../../api/activity'
+import { createActivity, deleteActivity, getActivityList, publishActivity, updateActivity } from '../../api/activity'
 import { createCategory, getCategoryList, updateCategory } from '../../api/category'
 import { getDiscountActivityList } from '../../api/discount'
 import { createFacility, deleteFacility, getFacilityList, updateFacility } from '../../api/facility'
@@ -61,6 +61,16 @@ const toSummaryRows = (obj, prefix = '') =>
     label: prefix ? `${prefix}${label}` : label,
     value: Array.isArray(value) ? JSON.stringify(value) : String(value ?? '-'),
   }))
+
+const toDateTimeLocal = (value) => {
+  if (!value) return undefined
+  return String(value).replace(' ', 'T').slice(0, 16)
+}
+
+const toBackendDateTime = (value) => {
+  if (!value) return null
+  return `${value.replace('T', ' ')}:00`
+}
 
 const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextId }) => {
   switch (pageKey) {
@@ -200,6 +210,7 @@ function WorkspacePage({ pageKey }) {
   const [modalMode, setModalMode] = useState('create')
   const [editingRecord, setEditingRecord] = useState(null)
   const [merchantCategoryOptions, setMerchantCategoryOptions] = useState([])
+  const [activityCategoryOptions, setActivityCategoryOptions] = useState([])
   const [contextInput, setContextInput] = useState('')
   const [contextId, setContextId] = useState('')
   const [pagination, setPagination] = useState({
@@ -273,6 +284,7 @@ function WorkspacePage({ pageKey }) {
   }
 
   const formEnabledPages = [
+    'activity-center',
     'activity-category',
     'forum-topic',
     'facility-restaurant',
@@ -288,6 +300,11 @@ function WorkspacePage({ pageKey }) {
     setModalMode('create')
     setEditingRecord(null)
     form.resetFields()
+    if (pageKey === 'activity-center') {
+      const res = await getCategoryList()
+      const data = Array.isArray(res.data) ? res.data : []
+      setActivityCategoryOptions(data.map((item) => ({ value: item.id, label: item.name })))
+    }
     if (pageKey === 'discount-merchant') {
       const res = await getMerchantCategoryList()
       setMerchantCategoryOptions(Array.isArray(res.data) ? res.data : [])
@@ -298,33 +315,77 @@ function WorkspacePage({ pageKey }) {
   const openEditModal = async (record) => {
     setModalMode('edit')
     setEditingRecord(record)
+    if (pageKey === 'activity-center') {
+      const res = await getCategoryList()
+      const data = Array.isArray(res.data) ? res.data : []
+      setActivityCategoryOptions(data.map((item) => ({ value: item.id, label: item.name })))
+    }
     if (pageKey === 'discount-merchant') {
       const res = await getMerchantCategoryList()
       setMerchantCategoryOptions(Array.isArray(res.data) ? res.data : [])
     }
     form.setFieldsValue({
-      name: record.categoryName,
-      sort: record.sort,
-      status: record.status,
-      topicName: record.topicName,
-      topicIcon: record.topicIcon,
-      description: record.description,
-      isHot: record.isHot,
-      facilityName: record.facilityName,
-      facilityType: record.facilityType,
-      location: record.location,
-      longitude: record.longitude,
-      latitude: record.latitude,
-      images: typeof record.images === 'string' ? record.images : JSON.stringify(record.images || []),
-      categoryName: record.categoryName,
-      merchantName: record.merchantName,
-      categoryId: record.categoryId,
-      address: record.address,
-      contactPhone: record.contactPhone,
-      contactName: record.contactName,
-      businessHours: record.businessHours,
-      username: record.merchantUsername,
-      password: record.merchantPassword,
+      ...(pageKey === 'activity-center'
+        ? {
+            title: record.title,
+            categoryId: record.categoryId,
+            location: record.location,
+            maxPeople: record.maxPeople,
+            content: record.content,
+            contactName: record.contactName,
+            contactPhone: record.contactPhone,
+            startTime: toDateTimeLocal(record.startTime),
+            endTime: toDateTimeLocal(record.endTime),
+            signupStartTime: toDateTimeLocal(record.signupStartTime),
+            signupEndTime: toDateTimeLocal(record.signupEndTime),
+          }
+        : {}),
+      ...(pageKey === 'activity-category'
+        ? {
+            name: record.categoryName,
+            sort: record.sort,
+            status: record.status,
+          }
+        : {}),
+      ...(pageKey === 'forum-topic'
+        ? {
+            topicName: record.topicName,
+            topicIcon: record.topicIcon,
+            description: record.description,
+            isHot: record.isHot,
+            status: record.status,
+          }
+        : {}),
+      ...(['facility-restaurant', 'facility-sports', 'facility-teaching', 'facility-dormitory'].includes(pageKey)
+        ? {
+            facilityName: record.facilityName,
+            facilityType: record.facilityType,
+            description: record.description,
+            location: record.location,
+            longitude: record.longitude,
+            latitude: record.latitude,
+            images: typeof record.images === 'string' ? record.images : JSON.stringify(record.images || []),
+          }
+        : {}),
+      ...(['market-category', 'discount-category'].includes(pageKey)
+        ? {
+            categoryName: record.categoryName,
+            sort: record.sort,
+          }
+        : {}),
+      ...(pageKey === 'discount-merchant'
+        ? {
+            merchantName: record.merchantName,
+            categoryId: record.categoryId,
+            description: record.description,
+            address: record.address,
+            contactPhone: record.contactPhone,
+            contactName: record.contactName,
+            businessHours: record.businessHours,
+            username: record.merchantUsername,
+            password: record.merchantPassword,
+          }
+        : {}),
     })
     setModalOpen(true)
   }
@@ -333,6 +394,36 @@ function WorkspacePage({ pageKey }) {
     try {
       const values = await form.validateFields()
       const actionMap = {
+        'activity-center': {
+          create: () =>
+            createActivity({
+              title: values.title,
+              categoryId: values.categoryId,
+              location: values.location,
+              maxPeople: values.maxPeople,
+              content: values.content,
+              contactName: values.contactName,
+              contactPhone: values.contactPhone,
+              startTime: toBackendDateTime(values.startTime),
+              endTime: toBackendDateTime(values.endTime),
+              signupStartTime: toBackendDateTime(values.signupStartTime),
+              signupEndTime: toBackendDateTime(values.signupEndTime),
+            }),
+          edit: () =>
+            updateActivity(editingRecord.id, {
+              title: values.title,
+              categoryId: values.categoryId,
+              location: values.location,
+              maxPeople: values.maxPeople,
+              content: values.content,
+              contactName: values.contactName,
+              contactPhone: values.contactPhone,
+              startTime: toBackendDateTime(values.startTime),
+              endTime: toBackendDateTime(values.endTime),
+              signupStartTime: toBackendDateTime(values.signupStartTime),
+              signupEndTime: toBackendDateTime(values.signupEndTime),
+            }),
+        },
         'activity-category': {
           create: () => createCategory({ name: values.name, sort: values.sort, status: values.status }),
           edit: () => updateCategory(editingRecord.id, { name: values.name, sort: values.sort, status: values.status }),
@@ -384,6 +475,44 @@ function WorkspacePage({ pageKey }) {
 
   const renderModalFields = () => {
     switch (pageKey) {
+      case 'activity-center':
+        return (
+          <>
+            <Form.Item name="title" label="活动标题" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+            <Form.Item name="categoryId" label="活动分类" rules={[{ required: true }]}>
+              <Select options={activityCategoryOptions} />
+            </Form.Item>
+            <Form.Item name="location" label="活动地点" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+            <Form.Item name="maxPeople" label="人数上限" rules={[{ required: true }]}>
+              <InputNumber min={1} style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item name="startTime" label="开始时间" rules={[{ required: true }]}>
+              <Input type="datetime-local" />
+            </Form.Item>
+            <Form.Item name="endTime" label="结束时间" rules={[{ required: true }]}>
+              <Input type="datetime-local" />
+            </Form.Item>
+            <Form.Item name="signupStartTime" label="报名开始时间" rules={[{ required: true }]}>
+              <Input type="datetime-local" />
+            </Form.Item>
+            <Form.Item name="signupEndTime" label="报名截止时间" rules={[{ required: true }]}>
+              <Input type="datetime-local" />
+            </Form.Item>
+            <Form.Item name="contactName" label="联系人" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+            <Form.Item name="contactPhone" label="联系电话" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+            <Form.Item name="content" label="活动详情" rules={[{ required: true }]}>
+              <Input.TextArea rows={4} />
+            </Form.Item>
+          </>
+        )
       case 'activity-category':
         return (
           <>
@@ -512,6 +641,9 @@ function WorkspacePage({ pageKey }) {
       case 'activity-center':
         return (
           <Space size="small">
+            <Button size="small" onClick={() => openEditModal(record)}>
+              编辑
+            </Button>
             <Button size="small" loading={actionLoading} onClick={() => runAction(() => publishActivity(record.id), '活动已发布')}>
               发布
             </Button>
@@ -709,7 +841,6 @@ function WorkspacePage({ pageKey }) {
       <section className="workspace-main workspace-main-single">
         <Card
           className="workspace-table-card"
-          title="真实数据列表"
           extra={
             columns.length ? (
               <div className="workspace-filters">

@@ -4,7 +4,7 @@
     
     <scroll-view class="detail-content" scroll-y :style="{ height: `calc(100vh - ${navBarHeight}px)` }">
       <!-- 活动封面 -->
-      <image class="detail-cover" :src="activity.cover || defaultCover" mode="aspectFill" />
+      <image class="detail-cover" :src="activity.cover || defaultCover" mode="aspectFill" @click="previewCover" />
       
       <!-- 活动信息 -->
       <view class="info-section">
@@ -12,12 +12,17 @@
           <text class="detail-title">{{ activity.title }}</text>
           <view class="detail-tag" :class="activity.status">{{ getStatusText(activity.status) }}</view>
         </view>
+
+        <view class="detail-submeta">
+          <text class="category-chip">{{ activity.categoryName || '未分类' }}</text>
+          <text class="signup-deadline" v-if="activity.signupEndTime">报名截止 {{ formatDate(activity.signupEndTime) }}</text>
+        </view>
         
         <view class="detail-meta">
           <view class="meta-row">
             <image class="meta-icon" src="/static/icons/line/calendar.svg" mode="aspectFit" />
             <text class="meta-label">活动时间</text>
-            <text class="meta-value">{{ formatDate(activity.startTime) }}</text>
+            <text class="meta-value">{{ formatDateRange(activity.startTime, activity.endTime) }}</text>
           </view>
           <view class="meta-row">
             <image class="meta-icon" src="/static/icons/line/map.svg" mode="aspectFit" />
@@ -25,9 +30,24 @@
             <text class="meta-value">{{ activity.location }}</text>
           </view>
           <view class="meta-row">
+            <image class="meta-icon" src="/static/icons/line/calendar-alt.svg" mode="aspectFit" />
+            <text class="meta-label">报名时间</text>
+            <text class="meta-value">{{ formatDateRange(activity.signupStartTime, activity.signupEndTime) }}</text>
+          </view>
+          <view class="meta-row">
             <image class="meta-icon" src="/static/icons/line/user.svg" mode="aspectFit" />
             <text class="meta-label">报名人数</text>
             <text class="meta-value">{{ activity.currentPeople }}/{{ activity.maxPeople }}人</text>
+          </view>
+          <view class="meta-row">
+            <image class="meta-icon" src="/static/icons/line/message-circle.svg" mode="aspectFit" />
+            <text class="meta-label">联系人</text>
+            <text class="meta-value">{{ activity.contactName || '-' }}</text>
+          </view>
+          <view class="meta-row">
+            <image class="meta-icon" src="/static/icons/line/key.svg" mode="aspectFit" />
+            <text class="meta-label">联系电话</text>
+            <text class="meta-value">{{ activity.contactPhone || '-' }}</text>
           </view>
         </view>
         
@@ -45,6 +65,31 @@
       <view class="desc-section">
         <text class="section-title">活动详情</text>
         <text class="desc-content">{{ activity.description || '暂无活动详情' }}</text>
+      </view>
+
+      <view class="gallery-section" v-if="activity.gallery && activity.gallery.length">
+        <view class="gallery-header">
+          <text class="section-title">活动图片</text>
+          <text class="gallery-counter">{{ galleryCurrent + 1 }}/{{ activity.gallery.length }}</text>
+        </view>
+        <swiper
+          class="gallery-swiper"
+          circular
+          indicator-dots
+          indicator-color="rgba(255,255,255,0.45)"
+          indicator-active-color="#ffffff"
+          :current="galleryCurrent"
+          @change="handleGalleryChange"
+        >
+          <swiper-item v-for="(item, index) in activity.gallery" :key="`${item}-${index}`">
+            <image
+              class="gallery-slide-image"
+              :src="item"
+              mode="aspectFill"
+              @click="previewGallery(index)"
+            />
+          </swiper-item>
+        </swiper>
       </view>
       
       <!-- 底部安全区域 -->
@@ -78,6 +123,19 @@ import { getActivityDetail } from '@/api/activity.js'
 import { getMyRegistrations, registerActivity, cancelRegistration } from '@/api/registration.js'
 
 const parseTime = (value) => (value ? new Date(value.replace(' ', 'T')) : null)
+const parseImageList = (images) => {
+  if (Array.isArray(images)) return images.filter(Boolean)
+  if (!images) return []
+  if (typeof images === 'string') {
+    try {
+      const parsed = JSON.parse(images)
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : []
+    } catch (error) {
+      return []
+    }
+  }
+  return []
+}
 
 export default {
   components: { NavBar },
@@ -88,7 +146,8 @@ export default {
       defaultCover: 'https://picsum.photos/seed/community/800/450',
       activity: {},
       registrationId: null,
-      isJoined: false
+      isJoined: false,
+      galleryCurrent: 0
     }
   },
   async onLoad(options) {
@@ -119,13 +178,17 @@ export default {
       try {
         const res = await getActivityDetail(this.activityId)
         const item = res?.data || {}
+        const gallery = parseImageList(item.images)
         this.activity = {
           ...item,
-          cover: item.coverImage || '',
+          cover: item.coverImage || gallery[0] || '',
+          gallery,
           organizer: item.organizerName || '校园活动中心',
+          categoryName: item.category?.categoryName || '',
           description: item.content || '',
           status: this.getStatus(item)
         }
+        this.galleryCurrent = 0
       } catch (error) {
         uni.showToast({ title: '活动详情加载失败', icon: 'none' })
       }
@@ -191,10 +254,37 @@ export default {
       })
     },
 
+    previewCover() {
+      const url = this.activity.cover || this.defaultCover
+      uni.previewImage({
+        urls: this.activity.gallery && this.activity.gallery.length ? this.activity.gallery : [url],
+        current: url
+      })
+    },
+
+    previewGallery(index) {
+      const urls = this.activity.gallery && this.activity.gallery.length ? this.activity.gallery : [this.activity.cover || this.defaultCover]
+      uni.previewImage({
+        urls,
+        current: urls[index] || urls[0]
+      })
+    },
+
+    handleGalleryChange(event) {
+      this.galleryCurrent = event.detail.current || 0
+    },
+
     formatDate(dateStr) {
       if (!dateStr) return ''
       const date = parseTime(dateStr)
       return `${date.getMonth() + 1}月${date.getDate()}日 ${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`
+    },
+
+    formatDateRange(start, end) {
+      if (!start && !end) return '-'
+      if (!start) return this.formatDate(end)
+      if (!end) return this.formatDate(start)
+      return `${this.formatDate(start)} - ${this.formatDate(end)}`
     },
 
     getStatus(item) {
@@ -278,6 +368,30 @@ export default {
   color: #999;
 }
 
+.detail-submeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 28rpx;
+}
+
+.category-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 8rpx 16rpx;
+  border-radius: 999rpx;
+  background: #eef6f2;
+  color: #2c7a67;
+  font-size: 22rpx;
+  font-weight: 600;
+}
+
+.signup-deadline {
+  font-size: 22rpx;
+  color: #8b96a8;
+}
+
 .detail-meta {
   display: flex;
   flex-direction: column;
@@ -345,12 +459,29 @@ export default {
   margin-bottom: 24rpx;
 }
 
+.gallery-section {
+  background-color: #FFFFFF;
+  padding: 32rpx;
+  margin-bottom: 24rpx;
+}
+
+.gallery-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24rpx;
+}
+
 .section-title {
   font-size: 32rpx;
   font-weight: 600;
   color: #333;
-  margin-bottom: 24rpx;
   display: block;
+}
+
+.gallery-counter {
+  font-size: 24rpx;
+  color: #8b96a8;
 }
 
 .desc-content {
@@ -358,6 +489,18 @@ export default {
   color: #666;
   line-height: 1.8;
   white-space: pre-wrap;
+}
+
+.gallery-swiper {
+  width: 100%;
+  height: 420rpx;
+}
+
+.gallery-slide-image {
+  width: 100%;
+  height: 420rpx;
+  border-radius: 20rpx;
+  background: #f3f4f6;
 }
 
 .safe-area {
