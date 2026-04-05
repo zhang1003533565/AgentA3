@@ -696,12 +696,6 @@ function WorkspacePage({ pageKey }) {
     return <Empty description="页面配置不存在" />
   }
 
-  const summaryItems = [
-    { label: '当前模块', value: page.badge },
-    { label: '当前页条数', value: String(rows.length) },
-    { label: '接口总数', value: String(pagination.total) },
-  ]
-
   return (
     <div className="workspace-page">
       <section className="workspace-hero">
@@ -710,15 +704,6 @@ function WorkspacePage({ pageKey }) {
           <h1>{page.title}</h1>
           <p>{page.description}</p>
         </div>
-      </section>
-
-      <section className="workspace-stats">
-        {summaryItems.map((item) => (
-          <Card key={item.label} className="workspace-stat-card">
-            <span>{item.label}</span>
-            <strong>{item.value}</strong>
-          </Card>
-        ))}
       </section>
 
       <section className="workspace-main workspace-main-single">

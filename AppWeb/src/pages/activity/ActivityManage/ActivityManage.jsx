@@ -2,19 +2,36 @@ import { useState, useEffect, useRef } from 'react'
 import { message, Modal, Form, Input, Select, InputNumber, Button, Table, Tag, Space, Popconfirm } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons'
 import { getActivityList, createActivity, updateActivity, deleteActivity, batchDeleteActivity, getCategoryList, searchActivities, publishActivity } from '../../../api/activity'
+import { getRegistrationList, removeRegistrationByManager } from '../../../api/registration'
 import './ActivityManage.css'
 
 const { TextArea } = Input
 const { Option } = Select
 
-// 活动状态映射（与后端枚举对应）
 const statusMap = {
-  'DRAFT': { text: '草稿', color: 'default' },
-  'PENDING': { text: '待审核', color: 'orange' },
-  'PUBLISHED': { text: '已发布', color: 'green' },
-  'REJECTED': { text: '已驳回', color: 'red' },
-  'CANCELLED': { text: '已取消', color: 'default' },
-  'COMPLETED': { text: '已完成', color: 'blue' }
+  DRAFT: { text: '待发布', color: 'default' },
+  PUBLISHED: { text: '已发布', color: 'green' },
+  COMPLETED: { text: '已结束', color: 'blue' }
+}
+
+const parseTime = (value) => (value ? new Date(value.replace(' ', 'T')) : null)
+
+const getPhase = (record) => {
+  if (record.status === 'DRAFT') {
+    return { text: '待发布', color: 'default' }
+  }
+
+  const now = new Date()
+  const startTime = parseTime(record.startTime)
+  const endTime = parseTime(record.endTime)
+
+  if (endTime && now >= endTime) {
+    return { text: '已结束', color: 'blue' }
+  }
+  if (startTime && now >= startTime) {
+    return { text: '进行中', color: 'green' }
+  }
+  return { text: '报名中', color: 'gold' }
 }
 
 function ActivityManage() {
@@ -36,6 +53,10 @@ function ActivityManage() {
   const [viewRecord, setViewRecord] = useState(null)
   const [selectedRowKeys, setSelectedRowKeys] = useState([])
   const [batchDeleteModalVisible, setBatchDeleteModalVisible] = useState(false)
+  const [registrationModalVisible, setRegistrationModalVisible] = useState(false)
+  const [registrationLoading, setRegistrationLoading] = useState(false)
+  const [registrationRows, setRegistrationRows] = useState([])
+  const [registrationActivity, setRegistrationActivity] = useState(null)
 
   // 获取活动列表
   const fetchActivities = async (params = {}) => {
@@ -269,6 +290,40 @@ function ActivityManage() {
     setViewModalVisible(true)
   }
 
+  const handleViewRegistrations = async (record) => {
+    setRegistrationActivity(record)
+    setRegistrationModalVisible(true)
+    setRegistrationLoading(true)
+    try {
+      const res = await getRegistrationList(record.id, { page: 1, size: 999 })
+      if (res.code === 200) {
+        setRegistrationRows(res.data?.records || [])
+      }
+    } finally {
+      setRegistrationLoading(false)
+    }
+  }
+
+  const handleRemoveRegistration = async (registrationId) => {
+    try {
+      const res = await removeRegistrationByManager(registrationId)
+      if (res.code === 200) {
+        message.success('已移除报名人')
+        setRegistrationRows((rows) => rows.filter((item) => item.id !== registrationId))
+        setActivities((rows) => rows.map((item) => (
+          item.id === registrationActivity?.id
+            ? { ...item, currentPeople: Math.max(0, (item.currentPeople || 0) - 1) }
+            : item
+        )))
+        setRegistrationActivity((item) => (
+          item ? { ...item, currentPeople: Math.max(0, (item.currentPeople || 0) - 1) } : item
+        ))
+      }
+    } catch (error) {
+      console.error('移除报名失败:', error)
+    }
+  }
+
   // 表格列定义
   const columns = [
     {
@@ -312,7 +367,19 @@ function ActivityManage() {
       )
     },
     {
-      title: '状态',
+      title: '阶段',
+      width: 90,
+      render: (_, record) => {
+        const phase = getPhase(record)
+        return (
+          <Tag color={phase.color} style={{ fontSize: 12, margin: 0 }}>
+            {phase.text}
+          </Tag>
+        )
+      }
+    },
+    {
+      title: '发布状态',
       dataIndex: 'status',
       width: 90,
       render: (status) => (
@@ -353,6 +420,13 @@ function ActivityManage() {
               发布
             </Button>
           )}
+          <Button
+            type="text"
+            size="small"
+            onClick={() => handleViewRegistrations(record)}
+          >
+            报名名单
+          </Button>
           <Popconfirm
             title="确定删除该活动吗？"
             onConfirm={() => handleDelete(record.id)}
@@ -418,7 +492,7 @@ function ActivityManage() {
           dataSource={activities}
           rowKey="id"
           loading={loading}
-          scroll={{ x: 1180 }}
+          scroll={{ x: 1280 }}
           rowSelection={{
             selectedRowKeys,
             onChange: setSelectedRowKeys
@@ -576,10 +650,70 @@ function ActivityManage() {
             <p><strong>活动时间：</strong>{viewRecord.startTime} 至 {viewRecord.endTime}</p>
             <p><strong>报名时间：</strong>{viewRecord.signupStartTime} 至 {viewRecord.signupEndTime}</p>
             <p><strong>联系人：</strong>{viewRecord.contactName} ({viewRecord.contactPhone})</p>
-            <p><strong>状态：</strong><Tag color={statusMap[viewRecord.status]?.color}>{statusMap[viewRecord.status]?.text}</Tag></p>
+            <p><strong>活动阶段：</strong><Tag color={getPhase(viewRecord).color}>{getPhase(viewRecord).text}</Tag></p>
+            <p><strong>发布状态：</strong><Tag color={statusMap[viewRecord.status]?.color}>{statusMap[viewRecord.status]?.text}</Tag></p>
             <p><strong>详情：</strong>{viewRecord.content}</p>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        title={registrationActivity ? `${registrationActivity.title} 报名名单` : '报名名单'}
+        open={registrationModalVisible}
+        onCancel={() => setRegistrationModalVisible(false)}
+        footer={null}
+        width={820}
+      >
+        <div style={{ marginBottom: 16, color: '#666' }}>
+          当前报名人数：<strong>{registrationActivity?.currentPeople || 0}</strong>
+          {registrationActivity?.maxPeople ? ` / ${registrationActivity.maxPeople}` : ''}
+        </div>
+        <Table
+          rowKey="id"
+          loading={registrationLoading}
+          dataSource={registrationRows}
+          pagination={false}
+          locale={{ emptyText: '暂无报名记录' }}
+          columns={[
+            {
+              title: '姓名',
+              dataIndex: 'realName',
+              render: (text, record) => text || record.username || '-'
+            },
+            {
+              title: '学号/编号',
+              dataIndex: 'personalNumber',
+              render: (text) => text || '-'
+            },
+            {
+              title: '手机号',
+              dataIndex: 'phone',
+              render: (text) => text || '-'
+            },
+            {
+              title: '报名时间',
+              dataIndex: 'signupTime',
+              render: (text) => text || '-'
+            },
+            {
+              title: '操作',
+              key: 'action',
+              width: 120,
+              render: (_, record) => (
+                <Popconfirm
+                  title="确定移除该报名人吗？"
+                  onConfirm={() => handleRemoveRegistration(record.id)}
+                  okText="确定"
+                  cancelText="取消"
+                >
+                  <Button type="text" danger size="small">
+                    移除
+                  </Button>
+                </Popconfirm>
+              )
+            }
+          ]}
+        />
       </Modal>
 
       {/* 批量删除确认弹窗 */}

@@ -53,14 +53,6 @@
           </view>
           <text class="cell-arrow">›</text>
         </view>
-        <view class="cell-divider"></view>
-        <view class="cell" @click="goToSignIn">
-          <view class="cell-left">
-            <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/calendar.svg" mode="aspectFit" /></view>
-            <text class="cell-label">活动签到</text>
-          </view>
-          <text class="cell-arrow">›</text>
-        </view>
       </view>
       <!-- 12px 灰色隔离条 -->
       <view class="gap-bar"></view>
@@ -160,9 +152,6 @@ export default {
     },
     goToMyActivity() {
       uni.navigateTo({ url: '/subpackage_community/communityActivity/communityActivity' })
-    },
-    goToSignIn() {
-      uni.navigateTo({ url: '/subpackage_signin/signIn/signIn' })
     },
     goToChangePassword() {
       uni.navigateTo({ url: '/pages/changePassword/changePassword' })

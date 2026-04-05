@@ -58,15 +58,11 @@
           <image class="action-icon" src="/static/icons/line/share.svg" mode="aspectFit" />
           <text class="action-text">分享</text>
         </view>
-        <view class="action-btn" @click="collectActivity">
-          <image class="action-icon" :src="isCollected ? '/static/icons/line/star-fill.svg' : '/static/icons/line/star.svg'" mode="aspectFit" />
-          <text class="action-text">收藏</text>
-        </view>
       </view>
       <view class="bar-right">
         <view 
           class="join-btn" 
-          :class="{ disabled: !canJoin }"
+          :class="{ disabled: !canJoin && !isJoined }"
           @click="handleJoin"
         >
           {{ joinBtnText }}
@@ -78,6 +74,10 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { getActivityDetail } from '@/api/activity.js'
+import { getMyRegistrations, registerActivity, cancelRegistration } from '@/api/registration.js'
+
+const parseTime = (value) => (value ? new Date(value.replace(' ', 'T')) : null)
 
 export default {
   components: { NavBar },
@@ -87,91 +87,130 @@ export default {
       activityId: null,
       defaultCover: 'https://picsum.photos/seed/community/800/450',
       activity: {},
-      isCollected: false,
+      registrationId: null,
       isJoined: false
     }
   },
-  onLoad(options) {
+  async onLoad(options) {
     const sys = uni.getSystemInfoSync()
     this.navBarHeight = (sys.statusBarHeight || 0) + 44
     this.activityId = options.id
-    this.loadActivityDetail()
+    await this.loadActivityDetail()
+    await this.loadRegistrationState()
+  },
+  async onShow() {
+    if (!this.activityId) return
+    await this.loadActivityDetail()
+    await this.loadRegistrationState()
   },
   computed: {
     canJoin() {
       return this.activity.status === 'signup' && !this.isJoined && this.activity.currentPeople < this.activity.maxPeople
     },
     joinBtnText() {
-      if (this.isJoined) return '已报名'
+      if (this.isJoined) return '取消报名'
       if (this.activity.status === 'ended') return '已结束'
-      if (this.activity.status === 'full') return '已满员'
       if (this.activity.currentPeople >= this.activity.maxPeople) return '已满员'
       return '立即报名'
     }
   },
   methods: {
-    loadActivityDetail() {
-      // 模拟加载详情
-      this.activity = {
-        id: this.activityId,
-        title: '社区义务植树活动',
-        cover: '',
-        status: 'signup',
-        startTime: '2024-04-15 09:00',
-        location: '社区公园东门广场',
-        currentPeople: 45,
-        maxPeople: 50,
-        organizer: '社区居委会',
-        organizerAvatar: '',
-        description: '为美化社区环境，增强居民环保意识，社区居委会特组织本次义务植树活动。欢迎广大居民积极参与，共同为社区增添绿色！\n\n活动内容：\n1. 植树知识讲解\n2. 分组植树实践\n3. 合影留念\n\n注意事项：\n- 请穿着舒适的服装和鞋子\n- 活动提供植树工具\n- 建议自带饮用水'
+    async loadActivityDetail() {
+      try {
+        const res = await getActivityDetail(this.activityId)
+        const item = res?.data || {}
+        this.activity = {
+          ...item,
+          cover: item.coverImage || '',
+          organizer: item.organizerName || '校园活动中心',
+          description: item.content || '',
+          status: this.getStatus(item)
+        }
+      } catch (error) {
+        uni.showToast({ title: '活动详情加载失败', icon: 'none' })
       }
     },
-    
-    handleJoin() {
+
+    async loadRegistrationState() {
+      try {
+        const res = await getMyRegistrations({ page: 1, size: 100 })
+        const records = res?.data?.records || []
+        const current = records.find((item) => String(item.activityId) === String(this.activityId))
+        this.isJoined = Boolean(current)
+        this.registrationId = current?.id || null
+      } catch (error) {
+        this.isJoined = false
+        this.registrationId = null
+      }
+    },
+
+    async handleJoin() {
+      if (this.isJoined && this.registrationId) {
+        await this.handleCancel()
+        return
+      }
       if (!this.canJoin) return
-      
+
       uni.showModal({
         title: '确认报名',
         content: '确定要报名参加该活动吗？',
-        success: (res) => {
+        success: async (res) => {
           if (res.confirm) {
-            this.isJoined = true
-            this.activity.currentPeople++
-            uni.showToast({
-              title: '报名成功',
-              icon: 'success'
-            })
+            try {
+              const result = await registerActivity(this.activityId)
+              this.registrationId = result?.data?.id || null
+              this.isJoined = true
+              this.activity.currentPeople = (this.activity.currentPeople || 0) + 1
+              uni.showToast({ title: '报名成功', icon: 'success' })
+            } catch (error) {}
           }
         }
       })
     },
-    
-    collectActivity() {
-      this.isCollected = !this.isCollected
-      uni.showToast({
-        title: this.isCollected ? '收藏成功' : '取消收藏',
-        icon: 'none'
+
+    async handleCancel() {
+      uni.showModal({
+        title: '取消报名',
+        content: '确定取消当前活动报名吗？',
+        success: async (res) => {
+          if (!res.confirm || !this.registrationId) return
+          try {
+            await cancelRegistration(this.registrationId)
+            this.isJoined = false
+            this.registrationId = null
+            this.activity.currentPeople = Math.max(0, (this.activity.currentPeople || 1) - 1)
+            uni.showToast({ title: '已取消报名', icon: 'none' })
+          } catch (error) {}
+        }
       })
     },
-    
+
     shareActivity() {
       uni.showShareMenu({
         withShareTicket: true
       })
     },
-    
+
     formatDate(dateStr) {
       if (!dateStr) return ''
-      const date = new Date(dateStr)
+      const date = parseTime(dateStr)
       return `${date.getMonth() + 1}月${date.getDate()}日 ${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`
     },
-    
+
+    getStatus(item) {
+      const now = new Date()
+      const startTime = parseTime(item.startTime)
+      const endTime = parseTime(item.endTime)
+      if (endTime && now >= endTime) return 'ended'
+      if (startTime && now >= startTime) return 'ongoing'
+      return 'signup'
+    },
+
     getStatusText(status) {
       const map = {
-        'signup': '报名中',
-        'ongoing': '进行中',
-        'ended': '已结束',
-        'full': '已满员'
+        signup: '报名中',
+        ongoing: '进行中',
+        ended: '已结束'
       }
       return map[status] || '未知'
     }

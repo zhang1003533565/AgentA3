@@ -46,11 +46,11 @@ public class RegistrationServiceImpl implements RegistrationService {
         }
 
         LocalDateTime now = LocalDateTime.now();
-        if (activity.getSignupStartTime() != null && now.isBefore(activity.getSignupStartTime())) {
-            throw new BusinessException(400, "报名尚未开始");
-        }
         if (activity.getSignupEndTime() != null && now.isAfter(activity.getSignupEndTime())) {
             throw new BusinessException(400, "报名已结束");
+        }
+        if (activity.getStartTime() != null && !now.isBefore(activity.getStartTime())) {
+            throw new BusinessException(400, "活动已开始，无法继续报名");
         }
 
         // 名额校验：currentPeople 已达到 maxPeople 才算真正满额
@@ -66,7 +66,7 @@ public class RegistrationServiceImpl implements RegistrationService {
         Registration registration = new Registration();
         registration.setActivityId(activityId);
         registration.setUserId(userId);
-        registration.setStatus("PENDING");
+        registration.setStatus("APPROVED");
         registration.setSignupTime(LocalDateTime.now());
 
         Registration saved = registrationRepository.save(registration);
@@ -85,6 +85,19 @@ public class RegistrationServiceImpl implements RegistrationService {
         if (!registration.getUserId().equals(userId)) {
             throw new BusinessException(Result.FORBIDDEN_CODE, "无权取消该报名");
         }
+
+        Activity activity = activityRepository.findById(registration.getActivityId())
+                .orElseThrow(() -> new BusinessException(404, "活动不存在"));
+        activity.setCurrentPeople(Math.max(0, activity.getCurrentPeople() - 1));
+        activityRepository.save(activity);
+
+        registrationRepository.delete(registration);
+    }
+
+    @Override
+    public void removeRegistrationByManager(Long registrationId) {
+        Registration registration = registrationRepository.findById(registrationId)
+                .orElseThrow(() -> new BusinessException(404, "报名记录不存在"));
 
         Activity activity = activityRepository.findById(registration.getActivityId())
                 .orElseThrow(() -> new BusinessException(404, "活动不存在"));
@@ -117,9 +130,12 @@ public class RegistrationServiceImpl implements RegistrationService {
                     return new RegistrationListItem(
                             reg.getId(),
                             reg.getActivityId(),
+                            reg.getActivity() != null ? reg.getActivity().getTitle() : null,
                             reg.getUserId(),
                             user != null ? user.getUsername() : null,
                             user != null ? user.getRealName() : null,
+                            user != null ? user.getPersonalNumber() : null,
+                            user != null ? user.getPhone() : null,
                             reg.getStatus(),
                             reg.getSignupTime(),
                             reg.getAuditTime(),

@@ -1,7 +1,7 @@
 <template>
   <view class="community-container">
     <view class="page-fixed-header">
-      <nav-bar title="社区活动" :showBack="true" />
+      <nav-bar title="校园活动" :showBack="true" />
 
       <!-- 搜索框 -->
       <view class="search-bar">
@@ -9,7 +9,7 @@
           <input 
             type="text" 
             v-model="searchKeyword" 
-            placeholder="搜索社区活动"
+            placeholder="搜索校园活动"
             placeholder-class="search-placeholder"
             @confirm="handleSearch"
           />
@@ -115,16 +115,15 @@
       </view>
     </scroll-view>
 
-    <!-- 发布活动按钮 -->
-    <view class="fab-btn" @click="goToPublish" v-if="canPublish">
-      <image class="fab-icon" src="/static/icons/line/edit.svg" mode="aspectFit" />
-      <text class="fab-text">发布</text>
-    </view>
   </view>
 </template>
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { getActivityList } from '@/api/activity.js'
+import { getCategoryList } from '@/api/category.js'
+
+const parseTime = (value) => (value ? new Date(value.replace(' ', 'T')) : null)
 
 export default {
   components: { NavBar },
@@ -133,21 +132,13 @@ export default {
       searchKeyword: '',
       currentCategory: 0,
       defaultCover: 'https://picsum.photos/seed/community/800/450',
-      categories: [
-        { id: 0, name: '全部' },
-        { id: 1, name: '邻里互助' },
-        { id: 2, name: '志愿服务' },
-        { id: 3, name: '文体活动' },
-        { id: 4, name: '公益活动' },
-        { id: 5, name: '技能培训' }
-      ],
+      categories: [{ id: 0, name: '全部' }],
       activityList: [],
       page: 1,
       pageSize: 10,
       loading: false,
       noMore: false,
-      isRefreshing: false,
-      canPublish: true // 根据用户权限判断
+      isRefreshing: false
     }
   },
   computed: {
@@ -176,174 +167,109 @@ export default {
     }
   },
   onLoad() {
-    this.loadActivityList()
+    this.loadCategories()
+    this.loadActivityList(true)
   },
   methods: {
-    // 加载活动列表
+    async loadCategories() {
+      try {
+        const res = await getCategoryList()
+        const records = res?.data || []
+        this.categories = [{ id: 0, name: '全部' }, ...records.map((item) => ({
+          id: item.id,
+          name: item.name
+        }))]
+      } catch (error) {
+        this.categories = [{ id: 0, name: '全部' }]
+      }
+    },
+
     async loadActivityList(refresh = false) {
       if (this.loading) return
       this.loading = true
-      
+
       if (refresh) {
         this.page = 1
         this.noMore = false
       }
-      
-      // 模拟数据，实际调用API
-      setTimeout(() => {
-        const mockData = [
-          {
-            id: 1,
-            title: '社区义务植树活动',
-            cover: '',
-            status: 'ongoing',
-            startTime: '2024-04-15 09:00',
-            location: '社区公园',
-            currentPeople: 45,
-            maxPeople: 50,
-            organizer: '社区居委会',
-            organizerAvatar: '',
-            categoryId: 4 // 公益活动
-          },
-          {
-            id: 2,
-            title: '老年人智能手机培训',
-            cover: '',
-            status: 'signup',
-            startTime: '2024-04-20 14:00',
-            location: '社区活动中心',
-            currentPeople: 12,
-            maxPeople: 30,
-            organizer: '志愿者协会',
-            organizerAvatar: '',
-            categoryId: 5 // 技能培训
-          },
-          {
-            id: 3,
-            title: '社区篮球友谊赛',
-            cover: '',
-            status: 'ongoing',
-            startTime: '2024-04-18 18:00',
-            location: '社区篮球场',
-            currentPeople: 16,
-            maxPeople: 20,
-            organizer: '社区体育协会',
-            organizerAvatar: '',
-            categoryId: 3 // 文体活动
-          },
-          {
-            id: 4,
-            title: '邻里互助-义务维修家电',
-            cover: '',
-            status: 'signup',
-            startTime: '2024-04-22 09:00',
-            location: '社区服务中心',
-            currentPeople: 8,
-            maxPeople: 15,
-            organizer: '社区志愿者',
-            organizerAvatar: '',
-            categoryId: 1 // 邻里互助
-          },
-          {
-            id: 5,
-            title: '关爱孤寡老人志愿服务',
-            cover: '',
-            status: 'ongoing',
-            startTime: '2024-04-16 14:00',
-            location: '社区敬老院',
-            currentPeople: 20,
-            maxPeople: 25,
-            organizer: '爱心志愿者团队',
-            organizerAvatar: '',
-            categoryId: 2 // 志愿服务
-          },
-          {
-            id: 6,
-            title: '社区书法培训班',
-            cover: '',
-            status: 'signup',
-            startTime: '2024-04-25 19:00',
-            location: '社区文化活动室',
-            currentPeople: 5,
-            maxPeople: 20,
-            organizer: '社区文化中心',
-            organizerAvatar: '',
-            categoryId: 5 // 技能培训
-          }
-        ]
-        
+
+      try {
+        const res = await getActivityList({
+          page: this.page,
+          size: this.pageSize,
+          title: this.searchKeyword || undefined,
+          categoryId: this.currentCategory || undefined,
+          status: 'PUBLISHED'
+        })
+        const records = (res?.data?.records || []).map((item) => ({
+          ...item,
+          cover: item.coverImage || '',
+          organizer: item.organizerName || '校园活动中心',
+          status: this.getStatus(item)
+        }))
+
+        this.activityList = refresh ? records : [...this.activityList, ...records]
+        this.noMore = this.activityList.length >= (res?.data?.total || 0)
+      } catch (error) {
         if (refresh) {
-          this.activityList = mockData
-        } else {
-          this.activityList = [...this.activityList, ...mockData]
+          this.activityList = []
         }
-        
+      } finally {
         this.loading = false
         this.isRefreshing = false
-        
-        if (this.page >= 3) {
-          this.noMore = true
-        }
-      }, 500)
+      }
     },
-    
-    // 下拉刷新
+
     onRefresh() {
       this.isRefreshing = true
       this.loadActivityList(true)
     },
-    
-    // 加载更多
+
     loadMore() {
       if (this.noMore || this.loading) return
       this.page++
       this.loadActivityList()
     },
-    
-    // 搜索
+
     handleSearch() {
       this.loadActivityList(true)
     },
-    
-    // 选择分类
+
     selectCategory(id) {
       this.currentCategory = id
       this.loadActivityList(true)
     },
-    
-    // 跳转到详情
+
     goToDetail(item) {
       uni.navigateTo({
         url: `/subpackage_community/communityDetail/communityDetail?id=${item.id}`
       })
     },
-    
-    // 跳转到发布
-    goToPublish() {
-      uni.navigateTo({
-        url: '/subpackage_community/communityPublish/communityPublish'
-      })
-    },
-    
-    // 格式化日期
+
     formatDate(dateStr) {
       if (!dateStr) return ''
-      const date = new Date(dateStr)
+      const date = parseTime(dateStr)
       return `${date.getMonth() + 1}月${date.getDate()}日 ${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`
     },
-    
-    // 获取状态文本
+
+    getStatus(item) {
+      const now = new Date()
+      const startTime = parseTime(item.startTime)
+      const endTime = parseTime(item.endTime)
+      if (endTime && now >= endTime) return 'ended'
+      if (startTime && now >= startTime) return 'ongoing'
+      return 'signup'
+    },
+
     getStatusText(status) {
       const map = {
         'signup': '报名中',
         'ongoing': '进行中',
-        'ended': '已结束',
-        'full': '已满员'
+        'ended': '已结束'
       }
       return map[status] || '未知'
     },
-    
-    // 进度百分比
+
     progressPercent(item) {
       const max = item.maxPeople || 1
       const pct = Math.min(100, Math.round((item.currentPeople / max) * 100))

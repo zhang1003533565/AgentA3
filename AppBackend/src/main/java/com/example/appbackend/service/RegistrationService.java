@@ -17,6 +17,11 @@ public interface RegistrationService {
     void cancelRegistration(Long registrationId, Long userId);
 
     /**
+     * 管理端移除报名
+     */
+    void removeRegistrationByManager(Long registrationId);
+
+    /**
      * 获取我的报名列表
      */
     PageResponse<Registration> getMyRegistrations(Long userId, Integer page, Integer size);
