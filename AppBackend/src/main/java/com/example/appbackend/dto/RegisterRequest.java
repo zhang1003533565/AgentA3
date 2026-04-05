@@ -45,4 +45,7 @@ public class RegisterRequest {
     @Schema(description = "学号/工号", example = "2021001")
     private String personalNumber;
 
+    @Schema(description = "课表分享码", example = "SCH20260405001")
+    private String shareCode;
+
 }

@@ -342,12 +342,35 @@
 					}
 				}
 			]
+		},
+		{
+			"root": "subpackage_ai",
+			"pages": [
+				{
+					"path": "aiCreate/aiCreate",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "smartWriting/smartWriting",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
+			]
 		}
 	],
 	"preloadRule": {
 		"pages/index/index": {
 			"network": "all",
-			"packages": ["subpackage_forum", "subpackage_message", "subpackage_signin", "subpackage_schedule", "subpackage_lostfound", "subpackage_facility", "subpackage_sports", "subpackage_teaching", "subpackage_dormitory", "subpackage_community"]
+			"packages": ["subpackage_forum", "subpackage_message", "subpackage_signin", "subpackage_schedule", "subpackage_lostfound", "subpackage_facility", "subpackage_sports", "subpackage_teaching", "subpackage_dormitory", "subpackage_community", "subpackage_ai"]
 		}
 	},
 	"globalStyle": {

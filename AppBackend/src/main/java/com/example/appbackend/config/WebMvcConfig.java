@@ -7,9 +7,6 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
-import java.nio.file.Path;
-import java.nio.file.Paths;
-
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
 
@@ -24,6 +21,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/api/auth/register",
                         "/api/auth/applogin",
                         "/api/auth/weblogin",
+                        "/uploads/**",
                         "/swagger-ui.html",
                         "/swagger-ui/**",
                         "/v3/api-docs/**",
@@ -32,8 +30,6 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/webjars/**",
                         "/doc.html",
                         "/favicon.ico"
-
-
                 );
     }
 
@@ -49,8 +45,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        Path uploadDir = Paths.get("uploads").toAbsolutePath();
+        String uploadDir = System.getProperty("user.dir") + "/uploads/";
         registry.addResourceHandler("/uploads/**")
-                .addResourceLocations("file:" + uploadDir.toString() + "/");
+                .addResourceLocations("file:" + uploadDir);
     }
 }
