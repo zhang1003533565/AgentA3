@@ -1,6 +1,6 @@
 <template>
   <view class="community-container">
-    <view class="page-fixed-header">
+    <view id="pageFixedHeader" class="page-fixed-header">
       <nav-bar title="校园活动" :showBack="true" />
 
       <!-- 搜索框 -->
@@ -36,7 +36,21 @@
           </view>
         </scroll-view>
       </view>
+
+      <view class="status-filter">
+        <view
+          v-for="item in statusOptions"
+          :key="item.value"
+          class="status-chip"
+          :class="{ active: currentStatus === item.value }"
+          @click="selectStatus(item.value)"
+        >
+          {{ item.label }}
+        </view>
+      </view>
     </view>
+
+    <view class="page-fixed-placeholder" :style="{ height: headerHeight + 'px' }"></view>
 
     <!-- 活动列表 - 按分类分组 -->
     <scroll-view 
@@ -149,8 +163,16 @@ export default {
     return {
       searchKeyword: '',
       currentCategory: 0,
+      currentStatus: 'all',
+      headerHeight: 280,
       defaultCover: 'https://picsum.photos/seed/community/800/450',
       categories: [{ id: 0, name: '全部' }],
+      statusOptions: [
+        { label: '全部状态', value: 'all' },
+        { label: '报名中', value: 'signup' },
+        { label: '进行中', value: 'ongoing' },
+        { label: '已结束', value: 'ended' }
+      ],
       activityList: [],
       page: 1,
       pageSize: 10,
@@ -162,10 +184,12 @@ export default {
   computed: {
     // 按分类分组的活动
     groupedActivities() {
+      const filteredList = this.getSortedActivities()
+
       if (this.currentCategory !== 0) {
         // 选中特定分类，只显示该分类
         const category = this.categories.find(c => c.id === this.currentCategory)
-        const activities = this.activityList.filter(item => item.categoryId === this.currentCategory)
+        const activities = filteredList.filter(item => item.categoryId === this.currentCategory)
         return activities.length > 0 ? [{ categoryName: category.name, activities }] : []
       }
       
@@ -173,7 +197,7 @@ export default {
       const groups = []
       this.categories.forEach(category => {
         if (category.id === 0) return // 跳过"全部"
-        const activities = this.activityList.filter(item => item.categoryId === category.id)
+        const activities = filteredList.filter(item => item.categoryId === category.id)
         if (activities.length > 0) {
           groups.push({
             categoryName: category.name,
@@ -187,8 +211,20 @@ export default {
   onLoad() {
     this.loadCategories()
     this.loadActivityList(true)
+    this.$nextTick(() => {
+      this.measureHeaderHeight()
+    })
   },
   methods: {
+    measureHeaderHeight() {
+      const query = uni.createSelectorQuery().in(this)
+      query.select('#pageFixedHeader').boundingClientRect((rect) => {
+        if (rect && rect.height) {
+          this.headerHeight = rect.height
+        }
+      }).exec()
+    },
+
     async loadCategories() {
       try {
         const res = await getCategoryList()
@@ -199,6 +235,10 @@ export default {
         }))]
       } catch (error) {
         this.categories = [{ id: 0, name: '全部' }]
+      } finally {
+        this.$nextTick(() => {
+          this.measureHeaderHeight()
+        })
       }
     },
 
@@ -216,8 +256,7 @@ export default {
           page: this.page,
           size: this.pageSize,
           title: this.searchKeyword || undefined,
-          categoryId: this.currentCategory || undefined,
-          status: 'PUBLISHED'
+          categoryId: this.currentCategory || undefined
         })
         const records = (res?.data?.records || []).map((item) => ({
           ...item,
@@ -257,6 +296,13 @@ export default {
     selectCategory(id) {
       this.currentCategory = id
       this.loadActivityList(true)
+    },
+
+    selectStatus(status) {
+      this.currentStatus = status
+      this.$nextTick(() => {
+        this.measureHeaderHeight()
+      })
     },
 
     goToDetail(item) {
@@ -301,6 +347,30 @@ export default {
       return map[status] || '未知'
     },
 
+    getStatusPriority(status) {
+      const map = {
+        signup: 0,
+        ongoing: 1,
+        ended: 2
+      }
+      return map[status] ?? 99
+    },
+
+    getSortedActivities() {
+      const list = this.currentStatus === 'all'
+        ? this.activityList
+        : this.activityList.filter((item) => item.status === this.currentStatus)
+
+      return [...list].sort((a, b) => {
+        const priorityDiff = this.getStatusPriority(a.status) - this.getStatusPriority(b.status)
+        if (priorityDiff !== 0) return priorityDiff
+
+        const aTime = parseTime(a.startTime)?.getTime?.() || 0
+        const bTime = parseTime(b.startTime)?.getTime?.() || 0
+        return aTime - bTime
+      })
+    },
+
     progressPercent(item) {
       const max = item.maxPeople || 1
       const pct = Math.min(100, Math.round((item.currentPeople / max) * 100))
@@ -321,7 +391,7 @@ export default {
   display: flex;
   align-items: center;
   gap: 24rpx;
-  padding: 16rpx 32rpx 24rpx;
+  padding: 16rpx 32rpx 20rpx;
   background-color: #FFFFFF;
 }
 
@@ -331,6 +401,12 @@ export default {
   left: 0;
   right: 0;
   z-index: 999;
+  background-color: #FFFFFF;
+  box-shadow: 0 8rpx 24rpx rgba(15, 23, 42, 0.06);
+}
+
+.page-fixed-placeholder {
+  width: 100%;
 }
 
 .search-input {
@@ -368,7 +444,7 @@ export default {
 
 .category-wrap {
   background-color: #FFFFFF;
-  padding-bottom: 24rpx;
+  padding-bottom: 12rpx;
 }
 
 .category-scroll {
@@ -415,9 +491,40 @@ export default {
   border-radius: 2rpx;
 }
 
+.status-filter {
+  display: flex;
+  gap: 16rpx;
+  padding: 0 32rpx 20rpx;
+  background-color: #FFFFFF;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 112rpx;
+  height: 52rpx;
+  padding: 0 22rpx;
+  border-radius: 999rpx;
+  background: #F3F5F8;
+  color: #667085;
+  font-size: 24rpx;
+  flex-shrink: 0;
+  border: 2rpx solid transparent;
+}
+
+.status-chip.active {
+  background: #EEF4FF;
+  color: #007AFF;
+  font-weight: 600;
+  border-color: rgba(0, 122, 255, 0.12);
+}
+
 .activity-list {
   width: 100%;
-  padding: 280rpx 24rpx 24rpx;
+  padding: 24rpx;
   box-sizing: border-box;
 }
 
