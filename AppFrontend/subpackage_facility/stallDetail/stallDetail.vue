@@ -1,263 +1,239 @@
 <template>
-  <view class="stall-detail-page">
-    <nav-bar :title="stall.name || '档口详情'" fixed placeholder />
-
-    <scroll-view class="detail-scroll" scroll-y :style="{ height: `calc(100vh - ${navBarHeight}px)` }">
-      <view class="hero">
-        <image class="hero-bg" :src="stall.image" mode="aspectFill" />
-        <view class="hero-mask" />
-        <view class="hero-content">
-          <text class="hero-cuisine">{{ stall.cuisine }}</text>
-          <text class="hero-name">{{ stall.name }}</text>
-          <view class="hero-rating-row">
-            <text class="hero-score">★ {{ stall.score.toFixed(1) }}</text>
-            <text class="hero-count">{{ totalReviews }}条评价</text>
-          </view>
-        </view>
+  <view class="stall-page">
+    <view class="page-header">
+      <view class="header-back" @click="goBack">
+        <text class="back-icon">‹</text>
       </view>
+      <text class="header-title">{{ stallName }}</text>
+      <view class="header-placeholder"></view>
+    </view>
 
-      <view class="card">
-        <view class="title-row">
-          <text class="stall-name">{{ stall.name }}</text>
-          <text class="stall-score">★ {{ stall.score.toFixed(1) }}</text>
-        </view>
-        <text class="meta">所属餐厅：{{ stall.restaurantName }}</text>
-        <text class="meta">菜系：{{ stall.cuisine }}</text>
-        <text class="meta">营业时间：{{ stall.openTime }}</text>
-        <text class="meta">人均：{{ stall.price }}</text>
-        <text class="desc">{{ stall.description }}</text>
-
-        <view class="tag-row">
-          <text v-for="(tag, index) in stall.tags" :key="index" class="tag">{{ tag }}</text>
-        </view>
+    <scroll-view class="page-scroll" scroll-y>
+      <view class="empty-tip" v-if="dishList.length === 0">
+        <text>暂无菜品</text>
       </view>
-
-      <view class="card">
-        <text class="section-title">评分概览</text>
-        <view class="stat-item">
-          <text class="stat-label">口味</text>
-          <view class="bar-track"><view class="bar-fill" :style="{ width: scoreWidth(stall.tasteScore) }" /></view>
-          <text class="stat-value">{{ stall.tasteScore.toFixed(1) }}</text>
-        </view>
-        <view class="stat-item">
-          <text class="stat-label">服务</text>
-          <view class="bar-track"><view class="bar-fill" :style="{ width: scoreWidth(stall.serviceScore) }" /></view>
-          <text class="stat-value">{{ stall.serviceScore.toFixed(1) }}</text>
-        </view>
-        <view class="stat-item">
-          <text class="stat-label">环境</text>
-          <view class="bar-track"><view class="bar-fill" :style="{ width: scoreWidth(stall.envScore) }" /></view>
-          <text class="stat-value">{{ stall.envScore.toFixed(1) }}</text>
-        </view>
-      </view>
-
-      <view class="card">
-        <text class="section-title">用户评价</text>
-        <view v-for="(review, index) in stall.reviews" :key="index" class="review-item">
-          <view class="review-head">
-            <view class="review-user-wrap">
-              <view class="review-avatar">{{ review.user.slice(0, 1) }}</view>
-              <text class="review-user">{{ review.user }}</text>
+      <view
+        v-for="dish in dishList"
+        :key="dish.id"
+        class="dish-card"
+        @click="openDishReview(dish)"
+      >
+        <view class="dish-thumb" :style="dish.imageUrl ? { backgroundImage: `url(${dish.imageUrl})` } : {}"></view>
+        <view class="dish-content">
+          <view class="dish-title-row">
+            <view class="dish-title-group">
+              <text class="dish-name">{{ dish.name }}</text>
+              <text class="dish-price">¥{{ dish.price }}</text>
             </view>
-            <text class="review-score">{{ stars(review.score) }} {{ review.score }}分</text>
+            <view class="dish-rate-group">
+              <text class="dish-rate-label">评分</text>
+              <text class="dish-rate-value" :class="rateClass(dish.rating * 20)">{{ dish.rating }}</text>
+            </view>
           </view>
-          <text class="review-content">{{ review.content }}</text>
-          <view class="review-tags">
-            <text v-for="(tag, i) in review.tags" :key="i" class="review-tag">{{ tag }}</text>
+
+          <text class="dish-desc">口味：{{ dish.taste || '暂无' }}</text>
+
+          <view class="dish-comment-hint">
+            <text class="comment-icon">□</text>
+            <text class="comment-text">已售{{ dish.soldCount }}份</text>
           </view>
-          <text class="review-time">{{ review.time }}</text>
         </view>
-        <view v-if="!stall.reviews.length" class="empty-tip">暂无评价</view>
       </view>
 
-      <view class="bottom-gap" />
+      <view class="bottom-space"></view>
     </scroll-view>
 
-    <view class="bottom-bar">
-      <view class="action-btn secondary" @click="handleCollect">收藏</view>
-      <view class="action-btn primary" @click="handleReview">写评价</view>
+    <view v-if="activeDish" class="review-overlay" @click="closeDishReview">
+      <view class="review-sheet" @click.stop>
+        <view class="sheet-handle"></view>
+
+        <view class="sheet-header">
+          <text class="sheet-title">{{ activeDish.name }}</text>
+          <text class="sheet-count">{{ currentReviews.length }}条评论</text>
+        </view>
+
+        <scroll-view class="sheet-review-list" scroll-y>
+          <view
+            v-for="(review, index) in currentReviews"
+            :key="`${review.id}-${index}`"
+            class="review-card"
+          >
+            <view class="review-top">
+              <view class="review-user-box">
+                <view class="review-avatar">{{ getAvatar(review) }}</view>
+                <view class="review-user-meta">
+                  <text class="review-user">{{ review.isAnonymous ? '匿名用户' : (review.userName || '用户') }}</text>
+                  <text class="review-time">{{ formatTime(review.createTime) }}</text>
+                </view>
+              </view>
+              <view class="review-rating">
+                <text v-for="i in 5" :key="i" class="star" :class="{ active: i <= Math.round(review.rating) }">★</text>
+              </view>
+            </view>
+
+            <text class="review-content">{{ review.content || '暂无评价内容' }}</text>
+
+            <view v-if="review.images" class="review-images">
+              <image v-for="(img, idx) in review.images.split(',')" :key="idx" :src="img" mode="aspectFill" class="review-img" />
+            </view>
+          </view>
+          <view v-if="currentReviews.length === 0" class="no-review">
+            <text>暂无评价，快来抢沙发吧~</text>
+          </view>
+        </scroll-view>
+
+        <view class="sheet-editor">
+          <text class="editor-title">写评价</text>
+          <textarea
+            v-model="reviewDraft"
+            class="editor-input"
+            maxlength="200"
+            placeholder="分享你的用餐体验..."
+          />
+          <view class="editor-actions">
+            <view class="editor-upload">
+              <text class="upload-icon">◫</text>
+            </view>
+            <view class="editor-submit" @click="submitReview">发表评价</view>
+          </view>
+        </view>
+      </view>
     </view>
   </view>
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { createDishReview, getDishList, getDishReviewList } from '@/api/dining.js'
 
 export default {
-  components: { NavBar },
   data() {
     return {
-      navBarHeight: 88,
-      stall: {
-        id: '',
-        name: '',
-        image: '',
-        restaurantName: '',
-        cuisine: '',
-        openTime: '',
-        score: 0,
-        tasteScore: 0,
-        serviceScore: 0,
-        envScore: 0,
-        price: '',
-        description: '',
-        tags: [],
-        reviews: []
-      }
-    }
-  },
-  computed: {
-    totalReviews() {
-      return (this.stall.reviews || []).length
+      reviewDraft: '',
+      activeDish: null,
+      stallId: '',
+      stallName: '档口详情',
+      dishList: [],
+      // 当前菜品的评价列表
+      currentReviews: []
     }
   },
   onLoad(options) {
-    const sys = uni.getSystemInfoSync()
-    this.navBarHeight = (sys.statusBarHeight || 0) + 44
-    this.loadStall(options.stallId)
+    if (options.stallId) {
+      this.stallId = options.stallId
+    }
+    this.loadDishes()
   },
   methods: {
-    scoreWidth(score) {
-      const s = Math.max(0, Math.min(5, score || 0))
-      return `${(s / 5) * 100}%`
+    goBack() {
+      const pages = getCurrentPages()
+      if (pages.length <= 1) {
+        uni.reLaunch({ url: '/pages/index/index' })
+        return
+      }
+      uni.navigateBack({ delta: 1 })
     },
-    stars(score) {
-      const n = Math.max(1, Math.min(5, Math.round(score || 0)))
-      return '★'.repeat(n)
+    rateClass(rate) {
+      if (rate >= 95) return 'is-excellent'
+      if (rate >= 85) return 'is-good'
+      return 'is-warn'
     },
-    handleCollect() {
-      uni.showToast({ title: '已加入收藏', icon: 'none' })
+    openDishReview(dish) {
+      this.activeDish = dish
+      this.reviewDraft = ''
+      // 加载该菜品的评价
+      this.loadDishReviews(dish.id)
     },
-    handleReview() {
-      uni.showToast({ title: '评价功能开发中', icon: 'none' })
+    closeDishReview() {
+      this.activeDish = null
+      this.reviewDraft = ''
     },
-    loadStall(stallId) {
-      const mockData = {
-        '301': {
-          id: '301',
-          name: '家常菜档口',
-          image: 'https://picsum.photos/seed/stall301/1200/600',
-          restaurantName: '第一食堂',
-          cuisine: '中式快餐',
-          openTime: '10:30 - 13:30 / 16:30 - 19:30',
-          score: 4.7,
-          tasteScore: 4.8,
-          serviceScore: 4.6,
-          envScore: 4.3,
-          price: '15-25元',
-          description: '主打家常盖浇饭、两荤一素套餐，支持线上点单。',
-          tags: ['出餐快', '高性价比', '午餐热门'],
-          reviews: [
-            { user: '张同学', score: 5, content: '糖醋里脊很稳，排队也快。', time: '2小时前', tags: ['口味在线', '出餐快'] },
-            { user: '王同学', score: 4, content: '分量足，口味偏咸一点。', time: '昨天', tags: ['分量大'] }
-          ]
-        },
-        '302': {
-          id: '302',
-          name: '面食档口',
-          image: 'https://picsum.photos/seed/stall302/1200/600',
-          restaurantName: '第一食堂',
-          cuisine: '面条/饺子',
-          openTime: '07:00 - 20:30',
-          score: 4.5,
-          tasteScore: 4.6,
-          serviceScore: 4.4,
-          envScore: 4.2,
-          price: '10-20元',
-          description: '手擀面、牛肉面、水饺供应稳定，早餐时段人气高。',
-          tags: ['早餐推荐', '面食丰富'],
-          reviews: [
-            { user: '李同学', score: 5, content: '牛肉面汤底不错，推荐。', time: '1天前', tags: ['汤底好', '性价比高'] }
-          ]
-        },
-        '303': {
-          id: '303',
-          name: '轻食档口',
-          image: 'https://picsum.photos/seed/stall303/1200/600',
-          restaurantName: '第一食堂',
-          cuisine: '沙拉/简餐',
-          openTime: '09:00 - 19:00',
-          score: 4.3,
-          tasteScore: 4.2,
-          serviceScore: 4.3,
-          envScore: 4.5,
-          price: '18-30元',
-          description: '提供鸡胸肉沙拉、低脂便当和酸奶杯。',
-          tags: ['轻食', '健身友好'],
-          reviews: []
-        },
-        '401': {
-          id: '401',
-          name: '川湘风味',
-          image: 'https://picsum.photos/seed/stall401/1200/600',
-          restaurantName: '第二食堂',
-          cuisine: '川菜/湘菜',
-          openTime: '10:30 - 20:30',
-          score: 4.6,
-          tasteScore: 4.8,
-          serviceScore: 4.4,
-          envScore: 4.1,
-          price: '16-28元',
-          description: '麻辣、香辣口味为主，支持辣度选择。',
-          tags: ['重口味', '下饭'],
-          reviews: [
-            { user: '赵同学', score: 5, content: '回锅肉很香，下饭。', time: '30分钟前', tags: ['香辣', '菜量足'] },
-            { user: '陈同学', score: 4, content: '味道好，偶尔会偏辣。', time: '3天前', tags: ['辣度高'] }
-          ]
-        },
-        '402': {
-          id: '402',
-          name: '烤肉饭档口',
-          image: 'https://picsum.photos/seed/stall402/1200/600',
-          restaurantName: '第二食堂',
-          cuisine: '日韩料理',
-          openTime: '11:00 - 21:00',
-          score: 4.4,
-          tasteScore: 4.5,
-          serviceScore: 4.3,
-          envScore: 4.2,
-          price: '20-35元',
-          description: '现烤鸡腿饭、牛肉饭，酱汁口味偏甜。',
-          tags: ['现烤', '甜口'],
-          reviews: [
-            { user: '周同学', score: 4, content: '鸡腿很嫩，等餐10分钟左右。', time: '昨天', tags: ['肉质嫩'] }
-          ]
-        },
-        '403': {
-          id: '403',
-          name: '夜宵档口',
-          image: 'https://picsum.photos/seed/stall403/1200/600',
-          restaurantName: '第二食堂',
-          cuisine: '烧烤/小吃',
-          openTime: '17:00 - 22:00',
-          score: 4.2,
-          tasteScore: 4.3,
-          serviceScore: 4.1,
-          envScore: 3.9,
-          price: '12-30元',
-          description: '晚间供应炸串、烤串、炒粉，适合宵夜。',
-          tags: ['夜宵', '选择多'],
-          reviews: [
-            { user: '孙同学', score: 4, content: '夜里选择多，人也多。', time: '5天前', tags: ['晚间热门'] }
-          ]
+    submitReview() {
+      if (!this.reviewDraft.trim()) {
+        uni.showToast({ title: '请输入评价内容', icon: 'none' })
+        return
+      }
+      if (!this.activeDish) {
+        uni.showToast({ title: '请选择菜品', icon: 'none' })
+        return
+      }
+      // 调用提交评价接口
+      this.submitDishReview()
+    },
+    // 加载菜品评价
+    async loadDishReviews(dishId) {
+      try {
+        const res = await getDishReviewList({ dishId })
+        this.currentReviews = res.data || []
+      } catch (error) {
+        console.error('加载评价失败:', error)
+      }
+    },
+    // 提交菜品评价
+    async submitDishReview() {
+      try {
+        const token = uni.getStorageSync('token') || ''
+        if (!token) {
+          uni.showToast({ title: '请先登录', icon: 'none' })
+          return
+        }
+        await createDishReview({
+          dishId: this.activeDish.id,
+          stallId: this.activeDish.stallId,
+          rating: 5.0,
+          content: this.reviewDraft.trim(),
+          isAnonymous: false
+        })
+        uni.showToast({ title: '评价成功', icon: 'success' })
+        this.reviewDraft = ''
+        // 重新加载评价列表
+        this.loadDishReviews(this.activeDish.id)
+      } catch (error) {
+        console.error('提交评价失败:', error)
+        if (error?.code === 400 && error?.msg?.includes('已评价')) {
+          uni.showToast({ title: '您已评价过该菜品', icon: 'none' })
+        } else {
+          uni.showToast({ title: error?.msg || '评价失败', icon: 'none' })
         }
       }
+    },
+    async loadDishes() {
+      try {
+        const res = await getDishList({ stallId: this.stallId })
+        this.dishList = res.data || []
 
-      this.stall = mockData[stallId] || {
-        id: stallId || '',
-        name: '档口详情',
-        image: 'https://picsum.photos/seed/stalldefault/1200/600',
-        restaurantName: '未知餐厅',
-        cuisine: '未知菜系',
-        openTime: '暂无',
-        score: 0,
-        tasteScore: 0,
-        serviceScore: 0,
-        envScore: 0,
-        price: '暂无',
-        description: '暂无数据',
-        tags: [],
-        reviews: []
+        // 获取档口名称
+        if (this.dishList.length > 0) {
+          this.stallName = this.dishList[0].stallName || '档口详情'
+        }
+      } catch (error) {
+        console.error('加载菜品数据失败:', error)
+        uni.showToast({ title: '加载失败', icon: 'none' })
+      }
+    },
+    // 获取用户头像
+    getAvatar(review) {
+      if (review.isAnonymous) return '匿'
+      const name = review.userName || '用户'
+      return name.slice(0, 1)
+    },
+    // 格式化时间
+    formatTime(timeStr) {
+      if (!timeStr) return ''
+      try {
+        const date = new Date(timeStr)
+        const now = new Date()
+        const diff = now - date
+        const minutes = Math.floor(diff / 60000)
+        const hours = Math.floor(diff / 3600000)
+        const days = Math.floor(diff / 86400000)
+
+        if (minutes < 1) return '刚刚'
+        if (minutes < 60) return `${minutes}分钟前`
+        if (hours < 24) return `${hours}小时前`
+        if (days < 7) return `${days}天前`
+        return date.toLocaleDateString()
+      } catch (e) {
+        return timeStr
       }
     }
   }
@@ -265,299 +241,345 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-.stall-detail-page {
+.stall-page {
   min-height: 100vh;
-  background: #f6f7fb;
+  background: linear-gradient(180deg, #f7f2e8 0%, #f4ede1 32%, #f6f1e8 100%);
 }
 
-.detail-scroll {
-  min-height: 0;
-}
-
-.hero {
-  margin: 24rpx 24rpx 0;
-  border-radius: 24rpx;
-  overflow: hidden;
-  position: relative;
-  height: 260rpx;
-}
-
-.hero-bg {
-  width: 100%;
-  height: 100%;
-}
-
-.hero-mask {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.08) 0%, rgba(0, 0, 0, 0.5) 100%);
-}
-
-.hero-content {
-  position: absolute;
-  left: 24rpx;
-  right: 24rpx;
-  bottom: 22rpx;
-}
-
-.hero-cuisine {
-  display: inline-block;
-  font-size: 22rpx;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.22);
-  padding: 6rpx 14rpx;
-  border-radius: 999rpx;
-}
-
-.hero-name {
-  margin-top: 12rpx;
-  display: block;
-  font-size: 38rpx;
-  color: #fff;
-  font-weight: 700;
-}
-
-.hero-rating-row {
-  margin-top: 10rpx;
+.page-header {
+  height: 92rpx;
+  padding: 20rpx 28rpx 0;
   display: flex;
   align-items: center;
-  gap: 12rpx;
-}
-
-.hero-score {
-  font-size: 26rpx;
-  color: #ffd666;
-  font-weight: 600;
-}
-
-.hero-count {
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.92);
-}
-
-.card {
-  margin: 24rpx;
-  padding: 28rpx;
-  border-radius: 20rpx;
-  background: #fff;
-  box-shadow: 0 10rpx 24rpx rgba(31, 35, 41, 0.05);
-}
-
-.title-row {
-  display: flex;
   justify-content: space-between;
+  box-sizing: border-box;
+}
+
+.header-back,
+.header-placeholder {
+  width: 60rpx;
+  height: 60rpx;
+  display: flex;
   align-items: center;
+  justify-content: center;
+}
+
+.header-back {
+  border-radius: 18rpx;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.back-icon {
+  font-size: 42rpx;
+  color: #7f7468;
+  line-height: 1;
+}
+
+.header-title {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #2d2823;
+}
+
+.page-scroll {
+  height: calc(100vh - 92rpx);
+  padding: 18rpx 22rpx 0;
+  box-sizing: border-box;
+}
+
+.dish-card {
+  margin-bottom: 18rpx;
+  padding: 18rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.96);
+  display: flex;
+  gap: 18rpx;
+  box-shadow: 0 14rpx 30rpx rgba(184, 160, 119, 0.12);
+}
+
+.dish-thumb {
+  width: 118rpx;
+  height: 118rpx;
+  border-radius: 20rpx;
+  flex-shrink: 0;
+  background-size: cover;
+  background-position: center;
+  background-color: #f5f5f5;
+}
+
+.dish-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.dish-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 16rpx;
 }
 
-.stall-name {
-  font-size: 36rpx;
-  color: #1f2329;
+.dish-title-group {
+  min-width: 0;
+}
+
+.dish-name {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #2f2a25;
+}
+
+.dish-price {
+  margin-left: 10rpx;
+  font-size: 30rpx;
+  color: #d07e58;
   font-weight: 700;
 }
 
-.stall-score {
-  font-size: 26rpx;
-  color: #ff7d00;
-  font-weight: 600;
-}
-
-.meta {
-  margin-top: 12rpx;
-  display: block;
-  font-size: 24rpx;
-  color: #4e5969;
-}
-
-.desc {
-  margin-top: 16rpx;
-  display: block;
-  font-size: 25rpx;
-  color: #1f2329;
-  line-height: 1.7;
-}
-
-.tag-row {
-  margin-top: 16rpx;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12rpx;
-}
-
-.tag {
-  padding: 8rpx 16rpx;
-  border-radius: 999rpx;
-  background: #eef3ff;
-  color: #165dff;
-  font-size: 22rpx;
-}
-
-.section-title {
-  font-size: 30rpx;
-  font-weight: 600;
-  color: #1f2329;
-  margin-bottom: 18rpx;
-  display: block;
-}
-
-.stat-item {
-  display: flex;
-  align-items: center;
-  margin-bottom: 18rpx;
-}
-
-.stat-item:last-child {
-  margin-bottom: 0;
-}
-
-.stat-label {
-  width: 72rpx;
-  font-size: 24rpx;
-  color: #4e5969;
-}
-
-.bar-track {
-  flex: 1;
-  height: 14rpx;
-  border-radius: 999rpx;
-  background: #f2f3f5;
-  overflow: hidden;
-}
-
-.bar-fill {
-  height: 100%;
-  border-radius: 999rpx;
-  background: linear-gradient(90deg, #ffb84d 0%, #ff7d00 100%);
-}
-
-.stat-value {
-  width: 54rpx;
+.dish-rate-group {
+  flex-shrink: 0;
   text-align: right;
-  font-size: 24rpx;
-  color: #ff7d00;
 }
 
-.review-item {
+.dish-rate-label {
+  display: block;
+  font-size: 18rpx;
+  color: #b6aa9a;
+}
+
+.dish-rate-value {
+  margin-top: 4rpx;
+  display: block;
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
+.dish-rate-value.is-excellent {
+  color: #5ea465;
+}
+
+.dish-rate-value.is-good {
+  color: #7da24d;
+}
+
+.dish-rate-value.is-warn {
+  color: #d99138;
+}
+
+.dish-desc {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  color: #8f8478;
+  line-height: 1.5;
+}
+
+.dish-comment-hint {
+  margin-top: 14rpx;
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.comment-icon {
+  font-size: 18rpx;
+  color: #d2a35f;
+}
+
+.comment-text {
+  font-size: 20rpx;
+  color: #c39d69;
+}
+
+.bottom-space {
+  height: 32rpx;
+}
+
+.review-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(43, 37, 30, 0.32);
+  display: flex;
+  align-items: flex-end;
+  z-index: 99;
+}
+
+.review-sheet {
+  width: 100%;
+  max-height: 72vh;
+  background: #f9f6f0;
+  border-top-left-radius: 28rpx;
+  border-top-right-radius: 28rpx;
+  padding: 10rpx 22rpx 24rpx;
+  box-sizing: border-box;
+}
+
+.sheet-handle {
+  width: 74rpx;
+  height: 8rpx;
+  border-radius: 999rpx;
+  background: #d9d0c5;
+  margin: 8rpx auto 18rpx;
+}
+
+.sheet-header {
+  padding: 0 8rpx 18rpx;
+}
+
+.sheet-title {
+  display: block;
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #2d2925;
+}
+
+.sheet-count {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 20rpx;
+  color: #9f9385;
+}
+
+.sheet-review-list {
+  max-height: 560rpx;
+}
+
+.review-card {
+  margin-bottom: 16rpx;
   padding: 20rpx;
-  border-radius: 16rpx;
-  background: #f9fafc;
-  margin-bottom: 14rpx;
+  border-radius: 22rpx;
+  background: #ffffff;
 }
 
-.review-item:last-child {
-  margin-bottom: 0;
-}
-
-.review-head {
+.review-top {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
 }
 
-.review-user-wrap {
+.review-user-box {
   display: flex;
   align-items: center;
+  gap: 14rpx;
 }
 
 .review-avatar {
-  width: 44rpx;
-  height: 44rpx;
-  border-radius: 999rpx;
-  background: #d9e6ff;
-  color: #165dff;
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  background: #c9a15d;
+  color: #fff;
+  font-size: 20rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22rpx;
-  font-weight: 600;
-  margin-right: 10rpx;
+}
+
+.review-user-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
 }
 
 .review-user {
-  font-size: 26rpx;
-  color: #1f2329;
-  font-weight: 500;
-}
-
-.review-score {
-  font-size: 22rpx;
-  color: #ff7d00;
-}
-
-.review-content {
-  margin-top: 10rpx;
-  display: block;
   font-size: 24rpx;
-  color: #4e5969;
-  line-height: 1.7;
-}
-
-.review-tags {
-  margin-top: 10rpx;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10rpx;
-}
-
-.review-tag {
-  padding: 6rpx 12rpx;
-  border-radius: 999rpx;
-  background: #fff3e8;
-  color: #ff7d00;
-  font-size: 20rpx;
+  font-weight: 600;
+  color: #6a5e51;
 }
 
 .review-time {
-  margin-top: 8rpx;
-  display: block;
-  font-size: 22rpx;
-  color: #86909c;
+  font-size: 18rpx;
+  color: #b5ac9f;
 }
 
-.empty-tip {
-  padding: 20rpx 0 6rpx;
+.review-rating {
+  display: flex;
+  gap: 4rpx;
+}
+
+.review-rating .star {
+  font-size: 18rpx;
+  color: #d9d0c5;
+}
+
+.review-rating .star.active {
+  color: #f5c542;
+}
+
+.review-content {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  color: #6d645a;
+  line-height: 1.6;
+}
+
+.review-images {
+  margin-top: 12rpx;
+  display: flex;
+  gap: 12rpx;
+  flex-wrap: wrap;
+}
+
+.review-img {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 12rpx;
+}
+
+.no-review {
+  padding: 40rpx 0;
   text-align: center;
   font-size: 24rpx;
-  color: #86909c;
+  color: #b5ac9f;
 }
 
-.bottom-gap {
-  height: 120rpx;
+.sheet-editor {
+  margin-top: 14rpx;
+  padding: 18rpx 12rpx 0;
 }
 
-.bottom-bar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 18rpx 24rpx 26rpx;
-  background: #fff;
-  box-shadow: 0 -8rpx 24rpx rgba(31, 35, 41, 0.06);
+.editor-title {
+  display: block;
+  font-size: 24rpx;
+  color: #887d71;
+  margin-bottom: 14rpx;
+}
+
+.editor-input {
+  width: 100%;
+  height: 110rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 18rpx;
+  background: #ffffff;
+  box-sizing: border-box;
+  font-size: 24rpx;
+  color: #52483e;
+}
+
+.editor-actions {
+  margin-top: 18rpx;
   display: flex;
-  gap: 16rpx;
+  align-items: center;
+  justify-content: space-between;
 }
 
-.action-btn {
-  flex: 1;
-  height: 76rpx;
-  border-radius: 14rpx;
+.editor-upload {
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 12rpx;
+  border: 1rpx solid #ddd3c8;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 28rpx;
-  font-weight: 600;
+  color: #a89d91;
 }
 
-.action-btn.secondary {
-  color: #165dff;
-  background: #eef3ff;
-}
-
-.action-btn.primary {
+.editor-submit {
+  padding: 12rpx 26rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(90deg, #d7bb83 0%, #c49b57 100%);
   color: #fff;
-  background: linear-gradient(135deg, #4080ff 0%, #165dff 100%);
+  font-size: 22rpx;
 }
 </style>

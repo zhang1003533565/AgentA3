@@ -158,7 +158,7 @@ function NavBar({ mobileOpen, onClose }) {
               <span>{openSections[section.label] ? <MinusOutlined /> : <PlusOutlined />}</span>
             </button>
             <div className={`navbar-links ${openSections[section.label] ? 'expanded' : 'collapsed'}`}>
-              {section.items.map((item) => {
+              {section.items.filter((item) => !item.hidden).map((item) => {
                 const active = location.pathname === item.path || location.pathname.startsWith(`${item.path}/`) || (item.path === '/activity/manage' && location.pathname.startsWith('/activity/'))
                 return (
                   <button

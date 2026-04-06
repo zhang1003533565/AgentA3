@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Card, Empty, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, message } from 'antd'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { Button, Card, Empty, Form, Image, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, message } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
 import { createActivity, deleteActivity, getActivityList, publishActivity, updateActivity } from '../../api/activity'
 import { createCategory, getCategoryList, updateCategory } from '../../api/category'
 import { getDiscountActivityList } from '../../api/discount'
 import { createFacility, deleteFacility, getFacilityList, updateFacility } from '../../api/facility'
+import { createDish, createStall, deleteDish, deleteStall, getCanteenStallList, getDishList, updateDish, updateStall } from '../../api/dish'
 import { adminDeleteComment, adminDeletePost, createTopic, deleteTopic, getCommentList, getPostList, getTopicList, updateTopic } from '../../api/forum'
 import { deleteMarker, getFacilityHeat, getMapConfig, getMarkerList, getNavigationStatistics } from '../../api/map'
 import {
@@ -72,7 +74,7 @@ const toBackendDateTime = (value) => {
   return `${value.replace('T', ' ')}:00`
 }
 
-const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextId }) => {
+const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextId, urlStallId }) => {
   switch (pageKey) {
     case 'user-manage': {
       const res = await getUserList({ page: current, size: pageSize, username: keyword })
@@ -111,8 +113,9 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextI
       return { rows: res.data?.records || [], total: res.data?.total || 0 }
     }
     case 'facility-restaurant': {
-      const res = await getFacilityList({ type: 1, page: current, size: pageSize, name: keyword })
-      return { rows: res.data?.records || [], total: res.data?.total || 0 }
+      const res = await getCanteenStallList({ page: current, size: pageSize })
+      const rows = Array.isArray(res.data) ? res.data : []
+      return { rows, total: rows.length }
     }
     case 'facility-sports': {
       const res = await getFacilityList({ type: 2, page: current, size: pageSize, name: keyword })
@@ -125,6 +128,11 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextI
     case 'facility-dormitory': {
       const res = await getFacilityList({ type: 4, page: current, size: pageSize, name: keyword })
       return { rows: res.data?.records || [], total: res.data?.total || 0 }
+    }
+    case 'facility-stall-dish': {
+      if (!urlStallId) return { rows: [], total: 0 }
+      const res = await getDishList({ stallId: parseInt(urlStallId), name: keyword })
+      return { rows: res.data || [], total: res.data?.length || 0 }
     }
     case 'map-config': {
       const res = await getMapConfig()
@@ -186,6 +194,22 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextI
 }
 
 function renderCell(value, type, row) {
+  if (type === 'image') {
+    if (!value) {
+      return <span style={{ color: '#94a3b8' }}>暂无图片</span>
+    }
+    return (
+      <Image
+        src={value}
+        alt="preview"
+        width={56}
+        height={56}
+        style={{ objectFit: 'cover', borderRadius: 12 }}
+        fallback="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc1NicgaGVpZ2h0PSc1Nic+PHJlY3Qgd2lkdGg9JzU2JyBoZWlnaHQ9JzU2JyByeD0nMTInIGZpbGw9JyNlNWU3ZWInLz48dGV4dCB4PSc1MCUnIHk9JzUwJScgZm9udC1zaXplPScxMicgZmlsbD0nIzY0NzQ4YicgdGV4dC1hbmNob3I9J21pZGRsZScgZHk9Jy4zNWVtJz7ml6Dlm748L3RleHQ+PC9zdmc+"
+      />
+    )
+  }
+
   if (type === 'tag' || type === 'status') {
     const text = value === undefined || value === null || value === '' ? '-' : String(value)
     return <Tag color={colorMap[text] || 'default'}>{text}</Tag>
@@ -199,6 +223,9 @@ function renderCell(value, type, row) {
 }
 
 function WorkspacePage({ pageKey }) {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [searchParams] = useSearchParams()
   const page = getWorkspacePage(pageKey)
   const [form] = Form.useForm()
   const [keyword, setKeyword] = useState('')
@@ -213,11 +240,15 @@ function WorkspacePage({ pageKey }) {
   const [activityCategoryOptions, setActivityCategoryOptions] = useState([])
   const [contextInput, setContextInput] = useState('')
   const [contextId, setContextId] = useState('')
+  const [urlStallId, setUrlStallId] = useState('')
+  const [urlStallName, setUrlStallName] = useState('')
   const [pagination, setPagination] = useState({
     current: 1,
     pageSize: 10,
     total: 0,
   })
+  const stallImagePreview = Form.useWatch('image', form)
+  const dishImagePreview = Form.useWatch('imageUrl', form)
 
   useEffect(() => {
     let cancelled = false
@@ -232,6 +263,7 @@ function WorkspacePage({ pageKey }) {
           keyword,
           status,
           contextId,
+          urlStallId,
         })
         if (!cancelled) {
           setRows(result.rows)
@@ -260,7 +292,22 @@ function WorkspacePage({ pageKey }) {
     return () => {
       cancelled = true
     }
-  }, [contextId, page, pageKey, pagination.current, pagination.pageSize, keyword, status])
+  }, [contextId, page, pageKey, pagination.current, pagination.pageSize, keyword, status, urlStallId])
+
+  // 解析 URL 参数（仅 facility-stall-dish 页面）
+  useEffect(() => {
+    if (pageKey !== 'facility-stall-dish') return
+
+    const stallId = searchParams.get('stallId')
+    const stallName = searchParams.get('stallName')
+    if (stallId) {
+      setUrlStallId(stallId)
+      setUrlStallName(stallName || '')
+    } else {
+      setUrlStallId('')
+      setUrlStallName('')
+    }
+  }, [pageKey, searchParams])
 
   const runAction = async (fn, successText) => {
     setActionLoading(true)
@@ -273,6 +320,7 @@ function WorkspacePage({ pageKey }) {
         keyword,
         status,
         contextId,
+        urlStallId,
       })
       setRows(result.rows)
       setPagination((prev) => ({ ...prev, total: result.total }))
@@ -291,6 +339,7 @@ function WorkspacePage({ pageKey }) {
     'facility-sports',
     'facility-teaching',
     'facility-dormitory',
+    'facility-stall-dish',
     'market-category',
     'discount-category',
     'discount-merchant',
@@ -309,6 +358,9 @@ function WorkspacePage({ pageKey }) {
       const res = await getMerchantCategoryList()
       setMerchantCategoryOptions(Array.isArray(res.data) ? res.data : [])
     }
+    if (pageKey === 'facility-stall-dish') {
+      form.setFieldsValue({ stallId: parseInt(urlStallId) })
+    }
     setModalOpen(true)
   }
 
@@ -323,6 +375,9 @@ function WorkspacePage({ pageKey }) {
     if (pageKey === 'discount-merchant') {
       const res = await getMerchantCategoryList()
       setMerchantCategoryOptions(Array.isArray(res.data) ? res.data : [])
+    }
+    if (pageKey === 'facility-stall-dish') {
+      form.setFieldsValue({ stallId: `${record.stallId} (${record.stallName})` })
     }
     form.setFieldsValue({
       ...(pageKey === 'activity-center'
@@ -356,6 +411,22 @@ function WorkspacePage({ pageKey }) {
             status: record.status,
           }
         : {}),
+      ...(pageKey === 'facility-restaurant'
+        ? {
+            stallName: record.stallName,
+            restaurantId: record.restaurantId,
+            floor: record.floor,
+            category: record.category,
+            location: record.location,
+            score: record.score,
+            avgPrice: record.avgPrice,
+            businessHours: record.businessHours,
+            image: record.image,
+            description: record.description,
+            status: record.status,
+            sort: record.sort,
+          }
+        : {}),
       ...(['facility-restaurant', 'facility-sports', 'facility-teaching', 'facility-dormitory'].includes(pageKey)
         ? {
             facilityName: record.facilityName,
@@ -384,6 +455,17 @@ function WorkspacePage({ pageKey }) {
             businessHours: record.businessHours,
             username: record.merchantUsername,
             password: record.merchantPassword,
+          }
+        : {}),
+      ...(pageKey === 'facility-stall-dish'
+        ? {
+            name: record.name,
+            stallId: record.stallId,
+            price: typeof record.price === 'string' ? parseFloat(record.price) : record.price,
+            category: record.category,
+            taste: record.taste,
+            imageUrl: record.imageUrl,
+            isAvailable: record.isAvailable,
           }
         : {}),
     })
@@ -432,10 +514,6 @@ function WorkspacePage({ pageKey }) {
           create: () => createTopic(values),
           edit: () => updateTopic(editingRecord.id, values),
         },
-        'facility-restaurant': {
-          create: () => createFacility(values),
-          edit: () => updateFacility(editingRecord.id, values),
-        },
         'facility-sports': {
           create: () => createFacility(values),
           edit: () => updateFacility(editingRecord.id, values),
@@ -448,6 +526,10 @@ function WorkspacePage({ pageKey }) {
           create: () => createFacility(values),
           edit: () => updateFacility(editingRecord.id, values),
         },
+        'facility-restaurant': {
+          create: () => createStall(values),
+          edit: () => updateStall(editingRecord.id, values),
+        },
         'market-category': {
           create: () => createSecondhandCategory(values),
           edit: () => updateSecondhandCategory(editingRecord.id, values),
@@ -459,6 +541,10 @@ function WorkspacePage({ pageKey }) {
         'discount-merchant': {
           create: () => createMerchant(values),
           edit: () => updateMerchant(editingRecord.id, values),
+        },
+        'facility-stall-dish': {
+          create: () => createDish(values),
+          edit: () => updateDish(editingRecord.id, values),
         },
       }
       const entry = actionMap[pageKey]
@@ -548,6 +634,47 @@ function WorkspacePage({ pageKey }) {
           </>
         )
       case 'facility-restaurant':
+        return (
+          <>
+            <Form.Item name="stallName" label="档口名称" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+            <Form.Item name="restaurantId" label="所属餐厅" rules={[{ required: true }]}>
+              <Select options={[
+                { value: 1, label: '第一学生餐厅' },
+                { value: 2, label: '第二学生餐厅' },
+                { value: 3, label: '清真餐厅' },
+              ]} />
+            </Form.Item>
+            <Form.Item name="floor" label="楼层">
+              <Input />
+            </Form.Item>
+            <Form.Item name="category" label="品类">
+              <Input />
+            </Form.Item>
+            <Form.Item name="location" label="位置">
+              <Input />
+            </Form.Item>
+            <Form.Item name="description" label="描述">
+              <Input.TextArea rows={3} />
+            </Form.Item>
+            <Form.Item name="image" label="档口照片">
+              <Input placeholder="请输入档口图片 URL" />
+            </Form.Item>
+            <div className="workspace-image-editor">
+              <span className="workspace-image-editor__label">照片预览</span>
+              {stallImagePreview ? (
+                <Image
+                  src={stallImagePreview}
+                  alt="档口照片预览"
+                  className="workspace-image-editor__preview"
+                />
+              ) : (
+                <div className="workspace-image-editor__empty">输入图片地址后可在这里预览</div>
+              )}
+            </div>
+          </>
+        )
       case 'facility-sports':
       case 'facility-teaching':
       case 'facility-dormitory':
@@ -618,6 +745,58 @@ function WorkspacePage({ pageKey }) {
             <Form.Item name="password" label="密码" rules={[{ required: true }]}>
               <Input.Password />
             </Form.Item>
+          </>
+        )
+      case 'facility-stall-dish':
+        return (
+          <>
+            <Form.Item name="stallId" label="所属档口" rules={[{ required: true }]}>
+              <Input disabled />
+            </Form.Item>
+            <Form.Item name="name" label="菜品名称" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+            <Form.Item name="price" label="价格" rules={[{ required: true }]}>
+              <InputNumber min={0} precision={2} style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item name="category" label="分类" rules={[{ required: true }]}>
+              <Select options={[
+                { value: '早餐', label: '早餐' },
+                { value: '面食', label: '面食' },
+                { value: '米饭', label: '米饭' },
+                { value: '小吃', label: '小吃' },
+                { value: '饮品', label: '饮品' },
+                { value: '麻辣烫', label: '麻辣烫' },
+                { value: '自选快餐', label: '自选快餐' },
+              ]} />
+            </Form.Item>
+            <Form.Item name="taste" label="口味">
+              <Select options={[
+                { value: '清淡', label: '清淡' },
+                { value: '麻辣', label: '麻辣' },
+                { value: '酸辣', label: '酸辣' },
+                { value: '甜味', label: '甜味' },
+                { value: '咸味', label: '咸味' },
+              ]} />
+            </Form.Item>
+            <Form.Item name="imageUrl" label="图片地址">
+              <Input placeholder="请输入菜品图片 URL" />
+            </Form.Item>
+            <Form.Item name="isAvailable" label="状态" rules={[{ required: true }]}>
+              <Select options={[{ value: true, label: '上架' }, { value: false, label: '下架' }]} />
+            </Form.Item>
+            <div className="workspace-image-editor">
+              <span className="workspace-image-editor__label">菜品图片预览</span>
+              {dishImagePreview ? (
+                <Image
+                  src={dishImagePreview}
+                  alt="菜品图片预览"
+                  className="workspace-image-editor__preview"
+                />
+              ) : (
+                <div className="workspace-image-editor__empty">输入图片地址后可在这里预览</div>
+              )}
+            </div>
           </>
         )
       default:
@@ -697,15 +876,20 @@ function WorkspacePage({ pageKey }) {
       case 'activity-category':
         return <Button size="small" onClick={() => openEditModal(record)}>编辑</Button>
       case 'facility-restaurant':
-      case 'facility-sports':
-      case 'facility-teaching':
-      case 'facility-dormitory':
         return (
           <Space size="small">
             <Button size="small" onClick={() => openEditModal(record)}>
               编辑
             </Button>
-            <Popconfirm title="确定删除该设施吗？" onConfirm={() => runAction(() => deleteFacility(record.id), '设施已删除')}>
+            <Button
+              size="small"
+              onClick={() => {
+                navigate(`/facility/stall-dish?stallId=${record.id}&stallName=${encodeURIComponent(record.stallName || '未知档口')}`)
+              }}
+            >
+              查看菜品
+            </Button>
+            <Popconfirm title="确定删除该档口吗？" onConfirm={() => runAction(() => deleteStall(record.id), '档口已删除')}>
               <Button size="small" danger loading={actionLoading}>
                 删除
               </Button>
@@ -779,6 +963,19 @@ function WorkspacePage({ pageKey }) {
             </Popconfirm>
           </Space>
         )
+      case 'facility-stall-dish':
+        return (
+          <Space size="small">
+            <Button size="small" onClick={() => openEditModal(record)}>
+              编辑
+            </Button>
+            <Popconfirm title="确定删除该菜品吗？" onConfirm={() => runAction(() => deleteDish(record.id), '菜品已删除')}>
+              <Button size="small" danger loading={actionLoading}>
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
+        )
       default:
         return null
     }
@@ -804,6 +1001,7 @@ function WorkspacePage({ pageKey }) {
       'facility-sports',
       'facility-teaching',
       'facility-dormitory',
+      'facility-stall-dish',
       'map-marker',
       'market-item',
       'market-audit',
@@ -833,8 +1031,11 @@ function WorkspacePage({ pageKey }) {
       <section className="workspace-hero">
         <div>
           <span className="workspace-badge">{page.badge}</span>
-          <h1>{page.title}</h1>
+          <h1>{pageKey === 'facility-stall-dish' && urlStallName ? `${page.title} - ${urlStallName}` : page.title}</h1>
           <p>{page.description}</p>
+          {pageKey === 'facility-stall-dish' ? (
+            <p>当前档口 ID：{urlStallId || '未获取到'}</p>
+          ) : null}
         </div>
       </section>
 
@@ -859,24 +1060,6 @@ function WorkspacePage({ pageKey }) {
                   disabled
                   options={page.filters.status.map((item) => ({ value: item, label: item }))}
                 />
-                {page.requiresInput ? (
-                  <>
-                    <Input
-                      placeholder={page.inputPlaceholder}
-                      value={contextInput}
-                      onChange={(event) => setContextInput(event.target.value)}
-                    />
-                    <Button
-                      type="primary"
-                      onClick={() => {
-                        setPagination((prev) => ({ ...prev, current: 1 }))
-                        setContextId(contextInput.trim())
-                      }}
-                    >
-                      加载
-                    </Button>
-                  </>
-                ) : null}
                 {pageKey === 'activity-signin' && contextId ? (
                   <>
                     <Button size="small" loading={actionLoading} onClick={() => runAction(() => openSignIn(contextId), '签到已开启')}>
