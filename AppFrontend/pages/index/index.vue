@@ -18,17 +18,50 @@
 		</view>
 
 		<view class="main-content">
-			<view class="quick-nav">
-				<view
-					v-for="item in quickChannels"
-					:key="item.name"
-					class="quick-item"
-					@click="navigate(item.path, item.mode)"
-				>
-					<view class="quick-icon" :class="`quick-icon--${item.theme}`">
-						<image class="quick-icon-img" :src="`/static/icons/line/${item.icon}.svg`" mode="aspectFit" />
+			<view class="home-quick-entry">
+				<view class="home-quick-entry__item" @click="navigate('/subpackage_community/communityActivity/communityActivity')">
+					<view class="home-quick-entry__icon-wrapper">
+						<image class="home-quick-entry__icon home-quick-entry__icon--xlarge" src="/static/APPIcon/tabbar/compass.png" mode="aspectFit" />
 					</view>
-					<text class="quick-label">{{ item.name }}</text>
+					<view class="home-quick-entry__card">
+						<text class="home-quick-entry__text">活</text>
+					</view>
+				</view>
+
+				<view class="home-quick-entry__item" @click="navigate('/subpackage_facility/restaurantDetail/restaurantDetail?id=3')">
+					<view class="home-quick-entry__icon-wrapper">
+						<image class="home-quick-entry__icon home-quick-entry__icon--medium" src="/static/APPIcon/tabbar/venue.png" mode="aspectFit" />
+					</view>
+					<view class="home-quick-entry__card">
+						<text class="home-quick-entry__text">食</text>
+					</view>
+				</view>
+
+				<view class="home-quick-entry__item" @click="navigate('/subpackage_lostfound/lostfoundList/lostfoundList')">
+					<view class="home-quick-entry__icon-wrapper">
+						<image class="home-quick-entry__icon" src="/static/APPIcon/tabbar/clipboard.png" mode="aspectFit" />
+					</view>
+					<view class="home-quick-entry__card">
+						<text class="home-quick-entry__text">失</text>
+					</view>
+				</view>
+
+				<view class="home-quick-entry__item" @click="navigate('/subpackage_forum/forumList/forumList', 'reLaunch')">
+					<view class="home-quick-entry__icon-wrapper">
+						<image class="home-quick-entry__icon home-quick-entry__icon--small" src="/static/APPIcon/tabbar/message-circle.png" mode="aspectFit" />
+					</view>
+					<view class="home-quick-entry__card">
+						<text class="home-quick-entry__text">坛</text>
+					</view>
+				</view>
+
+				<view class="home-quick-entry__item" @click="navigate('/pages/serviceHub/serviceHub?title=校园特惠')">
+					<view class="home-quick-entry__icon-wrapper">
+						<image class="home-quick-entry__icon" src="/static/APPIcon/tabbar/award.png" mode="aspectFit" />
+					</view>
+					<view class="home-quick-entry__card">
+						<text class="home-quick-entry__text">惠</text>
+					</view>
 				</view>
 			</view>
 
@@ -49,7 +82,7 @@
 			</view>
 
 			<view class="supplement-grid">
-			<view class="supplement-card supplement-card--ai" @click="goToAiCreate">
+				<view class="supplement-card supplement-card--ai" @click="goToServiceHub('AI创作')">
 					<text class="supplement-title">AI创作</text>
 					<text class="supplement-desc">文案、海报与灵感生成</text>
 					<view class="supplement-arrow">›</view>
@@ -57,11 +90,11 @@
 				<view class="supplement-card supplement-card--course">
 					<text class="supplement-title">课程表</text>
 					<text class="supplement-desc">查看今日课程与本周安排</text>
-					<view class="supplement-arrow" >›</view>
+					<view class="supplement-arrow" @click.stop="switchHomeDay">›</view>
 				</view>
 			</view>
 
-			<ScheduleBoard :showHeader="false" />
+			<home-schedule-card />
 		</view>
 
 		<app-main-tab-bar current="index" />
@@ -70,10 +103,10 @@
 
 <script>
 import AppMainTabBar from '@/components/app-main-tab-bar/app-main-tab-bar.vue'
-import ScheduleBoard from '@/subpackage_schedule/schedule/schedule.vue'
+import HomeScheduleCard from '@/components/home-schedule-card/home-schedule-card.vue'
 
 export default {
-	components: { AppMainTabBar, ScheduleBoard },
+	components: { AppMainTabBar, HomeScheduleCard },
 	data() {
 		return {
 			headline: '关于 2025 级新生校园服务一体通平台上线的通知',
@@ -93,13 +126,6 @@ export default {
 					image: 'https://images.unsplash.com/photo-1503676382389-4809596d5290?auto=format&fit=crop&w=1200&q=80',
 					theme: 'green'
 				}
-			],
-			quickChannels: [
-				{ name: '活', icon: 'compass', path: '/subpackage_community/communityActivity/communityActivity', theme: 'mint' },
-				{ name: '食', icon: 'venue', path: '/subpackage_facility/restaurantDetail/restaurantDetail?id=3', theme: 'sand' },
-				{ name: '旧', icon: 'clipboard', path: '/subpackage_lostfound/lostfoundList/lostfoundList', theme: 'orange' },
-				{ name: '坛', icon: 'message-circle', path: '/subpackage_forum/forumList/forumList', mode: 'reLaunch', theme: 'peach' },
-				{ name: '惠', icon: 'award', path: '/pages/serviceHub/serviceHub?title=校园特惠', theme: 'sky' }
 			]
 		}
 	},
@@ -136,9 +162,9 @@ export default {
 				url: `/pages/serviceHub/serviceHub?title=${encodeURIComponent(title)}`
 			})
 		},
-		goToAiCreate() {
+		switchHomeDay() {
 			uni.navigateTo({
-				url: '/subpackage_ai/aiCreate/aiCreate'
+				url: '/subpackage_schedule/schedule/schedule'
 			})
 		}
 	}
@@ -196,43 +222,80 @@ export default {
 	z-index: 3;
 }
 
-.quick-nav {
-	display: grid;
-	grid-template-columns: repeat(5, 1fr);
-	gap: 12rpx;
-	padding: 0 2rpx;
+.home-quick-entry {
+	display: flex;
+	justify-content: space-between;
+	padding: 0 24rpx;
+	margin-top: 24rpx;
 }
 
-.quick-item {
-	background: rgba(255, 255, 255, 0.86);
-	border-radius: 24rpx;
-	padding: 16rpx 0 12rpx;
+.home-quick-entry__item {
+	position: relative;
+	width: 120rpx;
+	height: 150rpx;
 	display: flex;
-	flex-direction: column;
-	align-items: center;
-	box-shadow: 0 10rpx 22rpx rgba(160, 176, 184, 0.16);
-}
-
-.quick-icon {
-	width: 72rpx;
-	height: 72rpx;
-	border-radius: 22rpx;
-	display: flex;
-	align-items: center;
 	justify-content: center;
+	align-items: flex-end;
 }
 
-.quick-icon--mint { background: linear-gradient(180deg, #dff4dc, #c5ecb8); }
-.quick-icon--sand { background: linear-gradient(180deg, #f8edd1, #f3d89a); }
-.quick-icon--orange { background: linear-gradient(180deg, #fee5c3, #ffc785); }
-.quick-icon--peach { background: linear-gradient(180deg, #fde0d7, #fdc0ac); }
-.quick-icon--sky { background: linear-gradient(180deg, #dbf0fb, #b6dbf3); }
+.home-quick-entry__icon-wrapper {
+	position: absolute;
+	left: 50%;
+	top: -32rpx;
+	transform: translateX(-50%);
+	z-index: 2;
 
-.quick-label {
-	margin-top: 10rpx;
-	font-size: 34rpx;
-	font-weight: 700;
-	color: #4d7895;
+	width: 200rpx;
+	height: 200rpx;
+
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	pointer-events: none;
+}
+
+.home-quick-entry__card {
+	position: relative;
+	width: 100%;
+	height: 96rpx;
+	background: #ffffff;
+	border-radius: 28rpx;
+	box-shadow: 0 8rpx 20rpx rgba(0, 0, 0, 0.06);
+	display: flex;
+	justify-content: center;
+	align-items: flex-end;
+	padding-bottom: 16rpx;
+	box-sizing: border-box;
+	z-index: 1;
+}
+
+.home-quick-entry__icon {
+	width: 200rpx;
+	height: 200rpx;
+	display: block;
+	object-fit: contain;
+}
+
+.home-quick-entry__icon--xlarge {
+	width: 240rpx;
+	height: 240rpx;
+}
+
+.home-quick-entry__icon--medium {
+	width: 175rpx;
+	height: 175rpx;
+}
+
+.home-quick-entry__icon--small {
+	width: 160rpx;
+	height: 160rpx;
+}
+
+.home-quick-entry__text {
+	font-size: 24rpx;
+	color: #4f7f8f;
+	font-weight: 600;
+	line-height: 1;
 }
 
 .headline-card {
