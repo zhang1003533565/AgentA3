@@ -142,7 +142,6 @@
 						:class="[
 							`course-block--${course.theme}`,
 							{
-								'course-block--inactive': !course.isCurrentWeek,
 								'course-block--with-banner': shouldShowNonCurrentFlag(course)
 							}
 						]"
@@ -255,6 +254,7 @@ export default {
 			periods: PERIODS,
 			periodHeight: PERIOD_HEIGHT,
 			periodGap: PERIOD_GAP,
+			rawSchedules: [],
 			courses: [],
 			loading: false,
 			currentMonth: 3,
@@ -359,7 +359,8 @@ export default {
 				success: (res) => {
 					this.loading = false
 					if (res.statusCode === 200 && res.data.code === 200) {
-						this.courses = this.transformScheduleData(res.data.data || [])
+						this.rawSchedules = res.data.data || []
+						this.courses = this.transformScheduleData(this.rawSchedules)
 						this.calculateWeekDates()
 						return
 					}
@@ -506,7 +507,7 @@ export default {
 		},
 		loadWeekSchedule(week) {
 			this.currentWeek = week
-			this.courses = this.transformScheduleData(this.courses)
+			this.courses = this.transformScheduleData(this.rawSchedules)
 			this.calculateWeekDates()
 		},
 		getSlotKey(course) {
@@ -520,8 +521,7 @@ export default {
 			return course.slotCount || this.getSlotCourses(course).length
 		},
 		shouldShowNonCurrentFlag(course) {
-			// 只有当前选中日的课程槽，本周无课但存在跨周课程时，才显示“非本周”
-			return course.weekday === this.currentWeekday && !course.isCurrentWeek
+			return !course.isCurrentWeek
 		},
 		courseStyle(course) {
 			const rowHeight = this.periodHeight
@@ -1363,18 +1363,18 @@ export default {
 
 /* 课程颜色主题 - 贴近参考图 */
 .course-block--green {
-	background: #e8f5f0;
-	color: #5cb8a3;
+	background: #edfdf7;
+	color: #2aa98b;
 }
 .course-block--green .course-accent {
-	background: #7dd3c0;
+	background: #43c6a5;
 }
 .course-block--red {
-	background: #f5f5f5;
-	color: #9ca3af;
+	background: #fff1f3;
+	color: #ef5a78;
 }
 .course-block--red .course-accent {
-	background: #d1d5db;
+	background: #fb7185;
 }
 .course-block--orange {
 	background: #fff8e1;
@@ -1403,15 +1403,6 @@ export default {
 }
 .course-block--purple .course-accent {
 	background: #c084fc;
-}
-
-.course-block--inactive {
-	background: #f3f4f6 !important;
-	color: #9ca3af !important;
-}
-
-.course-block--inactive .course-accent {
-	background: #d1d5db !important;
 }
 
 .course-title {
