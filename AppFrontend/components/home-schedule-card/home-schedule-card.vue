@@ -226,7 +226,7 @@ export default {
 }
 
 .home-period-item {
-	height: 100rpx;
+	height: 148rpx;
 	display: flex;
 	align-items: center;
 	justify-content: flex-end;
