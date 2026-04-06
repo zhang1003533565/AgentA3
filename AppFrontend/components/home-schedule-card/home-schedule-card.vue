@@ -7,7 +7,6 @@
 				:key="day.value"
 				class="home-day-item"
 				:class="{ active: currentDay === day.value }"
-				@click="currentDay = day.value"
 			>
 				<text class="home-day-text">{{ day.label }}</text>
 			</view>
@@ -72,6 +71,7 @@ import { getCurrentSchedule } from '@/api/schedule.js'
 const HOME_PERIOD_HEIGHT = 144
 const HOME_PERIOD_GAP = 4
 const HOME_PERIOD_STEP = HOME_PERIOD_HEIGHT + HOME_PERIOD_GAP
+const HOME_COURSE_THEMES = ['green', 'red', 'orange', 'yellow', 'green', 'red']
 
 export default {
 	name: 'HomeScheduleCard',
@@ -94,24 +94,13 @@ export default {
 				[1, 6],
 				[7, 10]
 			],
-			courses: [
-				{ id: 1, day: 4, name: '深度学习', location: '明德楼110', start: 1, end: 2, theme: 'green' },
-				{ id: 2, day: 4, name: '网络编程', location: '明德楼505', start: 1, end: 2, theme: 'red' },
-				{ id: 3, day: 4, name: 'Python', location: '明德楼110', start: 1, end: 2, theme: 'orange' },
-				{ id: 4, day: 4, name: '深度学习', location: '图书馆机房', start: 3, end: 4, theme: 'green' },
-				{ id: 5, day: 4, name: '软件工程', location: 'A414', start: 3, end: 4, theme: 'red' },
-				{ id: 6, day: 4, name: 'Linux', location: '明德楼403', start: 5, end: 6, theme: 'yellow' },
-				{ id: 7, day: 4, name: '形势与政策', location: '明德楼110', start: 7, end: 8, theme: 'green' }
-			]
+			courses: []
 		}
 	},
 	mounted() {
 		this.loadCurrentWeek()
 	},
 	computed: {
-		dayCourses() {
-			return this.courses.filter((course) => course.day === this.currentDay && !course.hidden)
-		},
 		currentPeriodRange() {
 			return this.periodWindows[this.currentPeriodPage] || this.periodWindows[0]
 		},
@@ -121,7 +110,7 @@ export default {
 		},
 		visibleCourses() {
 			const [start, end] = this.currentPeriodRange
-			return this.dayCourses.filter((course) => course.start >= start && course.end <= end)
+			return this.courses.filter((course) => course.start >= start && course.end <= end)
 		},
 		boardHeight() {
 			return this.visiblePeriods.length * HOME_PERIOD_STEP
@@ -145,11 +134,61 @@ export default {
 		async loadCurrentWeek() {
 			try {
 				const res = await getCurrentSchedule()
-				const week = res?.data?.currentWeek
+				const payload = res?.data || {}
+				const week = payload.currentWeek
 				if (week) {
 					this.currentWeek = week
 				}
+				this.courses = this.transformSchedule(payload.schedule || [])
+				const hasCourseInCurrentPage = this.visibleCourses.length > 0
+				const hasLateCourse = this.courses.some((course) => course.start >= 7)
+				if (!hasCourseInCurrentPage && hasLateCourse) {
+					this.currentPeriodPage = 1
+				}
 			} catch (error) {}
+		},
+		transformSchedule(scheduleList) {
+			return scheduleList.flatMap((item, index) => {
+				const sessions = this.parseClassSessions(item.classSessions)
+				if (!sessions) return []
+				const courseName = item.courseName || item.name || ''
+				const location = item.location || ''
+				const courseChunks = []
+
+				for (let chunkStart = sessions.start; chunkStart <= sessions.end; chunkStart += 2) {
+					const chunkEnd = Math.min(chunkStart + 1, sessions.end)
+					courseChunks.push({
+						id: `${item.id || index}-${chunkStart}-${chunkEnd}`,
+						day: item.weekday || 1,
+						name: courseName,
+						location,
+						start: chunkStart,
+						end: chunkEnd,
+						theme: HOME_COURSE_THEMES[index % HOME_COURSE_THEMES.length]
+					})
+				}
+
+				return courseChunks
+			})
+		},
+		parseClassSessions(classSessions) {
+			if (!classSessions) return null
+			const rangeMatch = classSessions.match(/(\d+)-(\d+)\s*节/)
+			if (rangeMatch) {
+				return {
+					start: Number(rangeMatch[1]),
+					end: Number(rangeMatch[2])
+				}
+			}
+			const singleMatch = classSessions.match(/(\d+)\s*节/)
+			if (singleMatch) {
+				const section = Number(singleMatch[1])
+				return {
+					start: section,
+					end: section
+				}
+			}
+			return null
 		},
 		switchPeriodPage(step) {
 			const nextPage = this.currentPeriodPage + step
@@ -161,12 +200,9 @@ export default {
 			const gap = HOME_PERIOD_GAP
 			const [visibleStart] = this.currentPeriodRange
 			const top = (course.start - visibleStart) * rowHeight + (course.start - visibleStart) * gap
-			const sameStartCourses = this.visibleCourses.filter((item) => item.start === course.start && item.end === course.end)
-			const order = sameStartCourses.findIndex((item) => item.id === course.id)
 			const columnWidth = 100 / 7
-			const width = columnWidth * 0.74
-			const startColumn = Math.floor((7 - sameStartCourses.length) / 2)
-			const left = (startColumn + order) * columnWidth
+			const width = columnWidth
+			const left = (course.day - 1) * columnWidth
 			const height = (course.end - course.start + 1) * rowHeight + (course.end - course.start) * gap
 			return {
 				top: `${top}rpx`,
@@ -240,6 +276,8 @@ export default {
 	background: #ffffff;
 	border-radius: 22rpx;
 	padding: 6rpx 0 6rpx 0;
+	overflow: hidden;
+	box-sizing: border-box;
 }
 
 .home-period-col {
@@ -269,6 +307,8 @@ export default {
 	min-height: 690rpx;
 	margin-left: 14rpx;
 	background: transparent;
+	overflow: hidden;
+	box-sizing: border-box;
 }
 
 .home-h-divider {
@@ -300,14 +340,19 @@ export default {
 	justify-content: center;
 	align-items: center;
 	z-index: 2;
+	box-sizing: border-box;
+	max-width: 100%;
 }
 
 .home-course-content {
 	flex: 1;
 	width: 100%;
+	max-width: 100%;
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	overflow: hidden;
+	box-sizing: border-box;
 }
 
 .home-course-block--green {
@@ -332,12 +377,16 @@ export default {
 
 .home-course-title {
 	display: block;
+	width: 100%;
 	max-width: 100%;
 	text-align: center;
 	word-break: break-all;
+	overflow-wrap: anywhere;
 	line-height: 1.18;
 	font-size: 22rpx;
 	font-weight: 700;
+	box-sizing: border-box;
+	overflow: hidden;
 }
 
 .home-schedule-footer {
