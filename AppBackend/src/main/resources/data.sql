@@ -191,7 +191,6 @@ INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, 
 (10, 'merchant02', 'admin123', '书香咖啡老板', '13812345602', 'wanglaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000010'),
 (11, 'merchant03', 'admin123', '校园超市老板', '13812345603', 'zhanglaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000011'),
 (12, 'merchant04', 'admin123', '快印图文老板', '13812345604', 'zhaolaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000012');
-
 -- =============================================
 -- 3~9. 旧模块（活动/论坛）初始化数据
 -- 为避免历史库字段不一致导致启动失败，暂不在 data.sql 中写入这些测试数据
@@ -858,6 +857,230 @@ INSERT IGNORE INTO forum_topic (id, topic_name, post_count, is_hot, status, crea
 (7, '求助问答', 0, 0, 'ACTIVE', NOW()),
 (8, '失物招领', 0, 0, 'ACTIVE', NOW())
 ON DUPLICATE KEY UPDATE topic_name = VALUES(topic_name), status = 'ACTIVE';
+
+-- =============================================
+-- 第十阶段：食堂档口模块数据
+-- =============================================
+
+-- =============================================
+-- 食堂档口表
+-- =============================================
+CREATE TABLE IF NOT EXISTS canteen_stall (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '档口 ID',
+    stall_name VARCHAR(100) NOT NULL COMMENT '档口名称',
+    restaurant_id BIGINT NOT NULL COMMENT '所属餐厅 ID',
+    floor VARCHAR(20) COMMENT '楼层',
+    category VARCHAR(50) COMMENT '品类/菜系',
+    location VARCHAR(200) COMMENT '位置描述',
+    score DECIMAL(3,2) DEFAULT 0 COMMENT '评分 (0-5)',
+    review_count INT DEFAULT 0 COMMENT '评价总数',
+    recommend_rate INT DEFAULT 0 COMMENT '推荐率 (%)',
+    avg_price DECIMAL(10,2) COMMENT '人均价格',
+    business_hours VARCHAR(100) COMMENT '营业时间',
+    image VARCHAR(255) COMMENT '档口图片 URL',
+    description TEXT COMMENT '档口描述',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-营业中 2-休息中 3-已关闭',
+    sort INT DEFAULT 0 COMMENT '排序值',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间',
+    FOREIGN KEY (restaurant_id) REFERENCES campus_facility(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='食堂档口表';
+
+-- =============================================
+-- 食堂档口数据
+-- =============================================
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE canteen_stall;
+SET FOREIGN_KEY_CHECKS = 1;
+
+INSERT INTO canteen_stall (id, stall_name, restaurant_id, floor, category, location, score, review_count, recommend_rate, avg_price, business_hours, image, description, status, sort, create_time, update_time) VALUES
+-- 第一学生餐厅 (restaurant_id=1) 的档口
+(1, '早餐包子铺', 1, '1F', '早餐', '食堂东侧', 4.8, 527, 88, 12.0, '06:30-09:30', 'https://picsum.photos/seed/stall001/400/300', '主营鲜肉包、菜包、豆浆、油条等早餐，现包现蒸，新鲜美味。', 1, 1, NOW(), NOW()),
+(2, '麻辣烫档口', 1, '3F', '面食', '食堂西侧', 4.5, 508, 82, 18.0, '10:30-20:30', 'https://picsum.photos/seed/stall002/400/300', '自选麻辣烫，多种食材可选，麻酱香浓，口味正宗。', 1, 2, NOW(), NOW()),
+(3, '石锅拌饭', 1, '2F', '米饭', '食堂中部', 4.3, 431, 78, 16.0, '10:30-20:00', 'https://picsum.photos/seed/stall003/400/300', '韩式石锅拌饭，锅巴香脆，牛肉嫩滑，酱料正宗。', 1, 3, NOW(), NOW()),
+(4, '黄焖鸡米饭', 1, '2F', '米饭', '食堂北侧', 4.0, 289, 71, 15.0, '10:30-20:00', 'https://picsum.photos/seed/stall004/400/300', '经典黄焖鸡，鸡肉嫩滑，汤汁浓郁，拌饭绝佳。', 1, 4, NOW(), NOW()),
+(5, '兰州拉面', 1, '1F', '面食', '食堂南门', 4.6, 612, 85, 14.0, '07:00-20:30', 'https://picsum.photos/seed/stall005/400/300', '手工拉面，汤鲜面劲道，牛肉片足，正宗西北风味。', 1, 5, NOW(), NOW()),
+(6, '沙县小吃', 1, '2F', '小吃', '食堂东侧', 4.2, 345, 76, 10.0, '08:00-20:00', 'https://picsum.photos/seed/stall006/400/300', '拌面、扁肉、蒸饺、炖罐等经典沙县美食。', 1, 6, NOW(), NOW()),
+
+-- 第二学生餐厅 (restaurant_id=2) 的档口
+(7, '自选快餐', 2, '1F', '米饭', '食堂大厅', 4.4, 478, 80, 13.0, '10:30-19:00', 'https://picsum.photos/seed/stall007/400/300', '多种菜品自选，两荤两素搭配，价格实惠。', 1, 1, NOW(), NOW()),
+(8, '奶茶饮品站', 2, '2F', '饮品', '食堂北侧', 4.7, 720, 90, 8.0, '09:00-21:00', 'https://picsum.photos/seed/stall008/400/300', '珍珠奶茶、柠檬茶、芒果冰沙等各式饮品。', 1, 2, NOW(), NOW()),
+(9, '煎饼果子', 2, '1F', '早餐', '食堂东门', 4.5, 390, 86, 9.0, '06:30-09:30', 'https://picsum.photos/seed/stall009/400/300', '正宗天津煎饼果子，薄脆加蛋加肠，料足味美。', 1, 3, NOW(), NOW()),
+(10, '重庆小面', 2, '3F', '面食', '食堂西侧', 4.4, 456, 83, 15.0, '10:30-20:30', 'https://picsum.photos/seed/stall010/400/300', '麻辣鲜香，正宗重庆风味，豌杂面、酸辣粉可选。', 1, 4, NOW(), NOW()),
+
+-- 清真餐厅 (restaurant_id=3) 的档口
+(11, '清真牛肉面', 3, '1F', '面食', '食堂大厅', 4.6, 280, 87, 16.0, '07:00-20:00', 'https://picsum.photos/seed/stall011/400/300', '清真认证，牛肉新鲜，汤底醇厚，面条筋道。', 1, 1, NOW(), NOW()),
+(12, '新疆大盘鸡', 3, '1F', '米饭', '食堂北侧', 4.5, 195, 84, 22.0, '10:30-20:00', 'https://picsum.photos/seed/stall012/400/300', '正宗新疆风味，鸡肉鲜嫩，土豆软糯，配皮带面。', 1, 2, NOW(), NOW()),
+(13, '烤羊肉串', 3, '1F', '小吃', '食堂东门', 4.7, 320, 89, 5.0, '11:00-21:00', 'https://picsum.photos/seed/stall013/400/300', '现烤羊肉串，外焦里嫩，孜然香气扑鼻。', 1, 3, NOW(), NOW());
+
+-- =============================================
+-- 菜品表
+-- =============================================
+DROP TABLE IF EXISTS dish_review;
+DROP TABLE IF EXISTS dish;
+CREATE TABLE IF NOT EXISTS dish (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '菜品 ID',
+    name VARCHAR(100) NOT NULL COMMENT '菜品名称',
+    stall_id BIGINT NOT NULL COMMENT '所属档口 ID',
+    price DECIMAL(10,2) NOT NULL COMMENT '菜品价格',
+    category VARCHAR(50) COMMENT '菜品分类',
+    image_url VARCHAR(255) COMMENT '菜品图片 URL',
+    rating DECIMAL(3,2) DEFAULT 0 COMMENT '菜品评分 (0-5)',
+    sold_count INT DEFAULT 0 COMMENT '销量',
+    is_available TINYINT(1) DEFAULT 1 COMMENT '是否可用：1-可售 0-停售',
+    taste VARCHAR(100) COMMENT '口味类型',
+    description TEXT COMMENT '菜品描述',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间',
+    FOREIGN KEY (stall_id) REFERENCES canteen_stall(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='菜品表';
+
+-- =============================================
+-- 菜品数据
+-- =============================================
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE dish;
+SET FOREIGN_KEY_CHECKS = 1;
+
+INSERT INTO dish (id, name, stall_id, price, category, image_url, rating, sold_count, is_available, taste, description, create_time, update_time) VALUES
+-- 早餐包子铺 (stall_id=1) 的菜品
+(1, '鲜肉包', 1, 2.50, '包子', 'https://picsum.photos/seed/dish001/300/300', 4.8, 1200, 1, '咸鲜', '新鲜猪肉馅，皮薄馅大，汁多味美。', NOW(), NOW()),
+(2, '菜包', 1, 2.00, '包子', 'https://picsum.photos/seed/dish002/300/300', 4.5, 800, 1, '清淡', '青菜香菇馅，清淡健康。', NOW(), NOW()),
+(3, '豆浆', 1, 1.50, '饮品', 'https://picsum.photos/seed/dish003/300/300', 4.6, 950, 1, '微甜', '现磨豆浆，香浓可口。', NOW(), NOW()),
+(4, '油条', 1, 2.00, '油炸', 'https://picsum.photos/seed/dish004/300/300', 4.7, 1100, 1, '咸香', '现炸油条，外酥里嫩。', NOW(), NOW()),
+
+-- 麻辣烫档口 (stall_id=2) 的菜品
+(5, '麻辣烫自选', 2, 18.00, '麻辣烫', 'https://picsum.photos/seed/dish005/300/300', 4.5, 890, 1, '麻辣', '多种食材自选，麻酱香浓。', NOW(), NOW()),
+(6, '方便面', 2, 5.00, '面食', 'https://picsum.photos/seed/dish006/300/300', 4.2, 450, 1, '麻辣', '经典方便面，可加各种配菜。', NOW(), NOW()),
+
+-- 石锅拌饭 (stall_id=3) 的菜品
+(7, '牛肉石锅拌饭', 3, 18.00, '拌饭', 'https://picsum.photos/seed/dish007/300/300', 4.6, 620, 1, '微辣', '韩式牛肉石锅拌饭，锅巴香脆。', NOW(), NOW()),
+(8, '五花肉石锅拌饭', 3, 16.00, '拌饭', 'https://picsum.photos/seed/dish008/300/300', 4.4, 380, 1, '微辣', '五花肉石锅拌饭，香嫩可口。', NOW(), NOW()),
+(9, '芝士年糕', 3, 12.00, '小吃', 'https://picsum.photos/seed/dish009/300/300', 4.5, 290, 1, '微甜', '韩式芝士年糕，拉丝浓郁。', NOW(), NOW()),
+
+-- 黄焖鸡米饭 (stall_id=4) 的菜品
+(10, '黄焖鸡米饭', 4, 15.00, '米饭', 'https://picsum.photos/seed/dish010/300/300', 4.3, 750, 1, '咸鲜', '经典黄焖鸡，汤汁浓郁。', NOW(), NOW()),
+(11, '黄焖排骨米饭', 4, 18.00, '米饭', 'https://picsum.photos/seed/dish011/300/300', 4.4, 320, 1, '咸鲜', '黄焖排骨，肉质鲜嫩。', NOW(), NOW()),
+(12, '金针菇', 4, 3.00, '配菜', 'https://picsum.photos/seed/dish012/300/300', 4.2, 180, 1, '清淡', '新鲜金针菇，配菜佳品。', NOW(), NOW()),
+
+-- 兰州拉面 (stall_id=5) 的菜品
+(13, '牛肉拉面', 5, 14.00, '拉面', 'https://picsum.photos/seed/dish013/300/300', 4.7, 980, 1, '清淡', '手工拉面，汤鲜面劲道。', NOW(), NOW()),
+(14, '羊肉拉面', 5, 16.00, '拉面', 'https://picsum.photos/seed/dish014/300/300', 4.5, 420, 1, '清淡', '羊肉拉面，西北风味。', NOW(), NOW()),
+(15, '凉拌牛肉', 5, 12.00, '凉菜', 'https://picsum.photos/seed/dish015/300/300', 4.6, 280, 1, '五香', '凉拌牛肉，香辣可口。', NOW(), NOW()),
+
+-- 沙县小吃 (stall_id=6) 的菜品
+(16, '拌面', 6, 5.00, '面食', 'https://picsum.photos/seed/dish016/300/300', 4.3, 650, 1, '咸香', '经典拌面，花生酱香浓。', NOW(), NOW()),
+(17, '扁肉', 6, 6.00, '馄饨', 'https://picsum.photos/seed/dish017/300/300', 4.4, 520, 1, '清淡', '沙县扁肉，皮薄馅嫩。', NOW(), NOW()),
+(18, '蒸饺', 6, 8.00, '饺子', 'https://picsum.photos/seed/dish018/300/300', 4.2, 380, 1, '咸鲜', '沙县蒸饺，馅料丰富。', NOW(), NOW()),
+(19, '排骨炖罐', 6, 10.00, '炖汤', 'https://picsum.photos/seed/dish019/300/300', 4.5, 290, 1, '清淡', '排骨炖汤，营养丰富。', NOW(), NOW()),
+
+-- 自选快餐 (stall_id=7) 的菜品
+(20, '两荤两素套餐', 7, 13.00, '套餐', 'https://picsum.photos/seed/dish020/300/300', 4.4, 720, 1, '家常', '两荤两素搭配，价格实惠。', NOW(), NOW()),
+(21, '一荤两素套餐', 7, 11.00, '套餐', 'https://picsum.photos/seed/dish021/300/300', 4.2, 480, 1, '家常', '一荤两素，经济实惠。', NOW(), NOW()),
+
+-- 奶茶饮品站 (stall_id=8) 的菜品
+(22, '珍珠奶茶', 8, 8.00, '奶茶', 'https://picsum.photos/seed/dish022/300/300', 4.7, 1100, 1, '微甜', '经典珍珠奶茶，Q 弹可口。', NOW(), NOW()),
+(23, '柠檬茶', 8, 6.00, '果茶', 'https://picsum.photos/seed/dish023/300/300', 4.5, 680, 1, '酸甜', '新鲜柠檬茶，清爽解渴。', NOW(), NOW()),
+(24, '芒果冰沙', 8, 10.00, '冰沙', 'https://picsum.photos/seed/dish024/300/300', 4.6, 420, 1, '微甜', '新鲜芒果冰沙，夏日必备。', NOW(), NOW()),
+
+-- 煎饼果子 (stall_id=9) 的菜品
+(25, '经典煎饼', 9, 6.00, '煎饼', 'https://picsum.photos/seed/dish025/300/300', 4.5, 580, 1, '咸香', '经典煎饼果子，薄脆可口。', NOW(), NOW()),
+(26, '加蛋煎饼', 9, 8.00, '煎饼', 'https://picsum.photos/seed/dish026/300/300', 4.6, 420, 1, '咸香', '加蛋煎饼，营养更丰富。', NOW(), NOW()),
+(27, '加肠煎饼', 9, 9.00, '煎饼', 'https://picsum.photos/seed/dish027/300/300', 4.5, 350, 1, '咸香', '加肠煎饼，肉香四溢。', NOW(), NOW()),
+
+-- 重庆小面 (stall_id=10) 的菜品
+(28, '豌杂面', 10, 15.00, '小面', 'https://picsum.photos/seed/dish028/300/300', 4.6, 680, 1, '麻辣', '豌杂面，豌豆软糯，杂酱香浓。', NOW(), NOW()),
+(29, '酸辣粉', 10, 12.00, '米粉', 'https://picsum.photos/seed/dish029/300/300', 4.5, 520, 1, '酸辣', '酸辣粉，酸爽开胃。', NOW(), NOW()),
+(30, '肥肠面', 10, 18.00, '小面', 'https://picsum.photos/seed/dish030/300/300', 4.4, 280, 1, '麻辣', '肥肠面，肥肠软糯入味。', NOW(), NOW()),
+
+-- 清真牛肉面 (stall_id=11) 的菜品
+(31, '清真牛肉面', 11, 16.00, '牛肉面', 'https://picsum.photos/seed/dish031/300/300', 4.7, 520, 1, '清淡', '清真牛肉面，汤底醇厚。', NOW(), NOW()),
+(32, '牛杂面', 11, 18.00, '牛肉面', 'https://picsum.photos/seed/dish032/300/300', 4.5, 280, 1, '清淡', '牛杂面，配料丰富。', NOW(), NOW()),
+(33, '凉拌牛腱', 11, 15.00, '凉菜', 'https://picsum.photos/seed/dish033/300/300', 4.6, 190, 1, '五香', '凉拌牛腱，肉质紧实。', NOW(), NOW()),
+
+-- 新疆大盘鸡 (stall_id=12) 的菜品
+(34, '大盘鸡', 12, 45.00, '大盘鸡', 'https://picsum.photos/seed/dish034/300/300', 4.7, 380, 1, '麻辣', '新疆大盘鸡，配皮带面。', NOW(), NOW()),
+(35, '小盘鸡', 12, 28.00, '大盘鸡', 'https://picsum.photos/seed/dish035/300/300', 4.5, 220, 1, '麻辣', '小盘鸡，适合一人食。', NOW(), NOW()),
+(36, '手抓饭', 12, 18.00, '米饭', 'https://picsum.photos/seed/dish036/300/300', 4.4, 180, 1, '咸香', '新疆手抓饭，羊肉香浓。', NOW(), NOW()),
+
+-- 烤羊肉串 (stall_id=13) 的菜品
+(37, '烤羊肉串', 13, 5.00, '烤串', 'https://picsum.photos/seed/dish037/300/300', 4.8, 850, 1, '孜然', '现烤羊肉串，外焦里嫩。', NOW(), NOW()),
+(38, '烤鸡翅', 13, 8.00, '烤串', 'https://picsum.photos/seed/dish038/300/300', 4.6, 420, 1, '孜然', '烤鸡翅，外酥里嫩。', NOW(), NOW()),
+(39, '馕饼', 13, 3.00, '主食', 'https://picsum.photos/seed/dish039/300/300', 4.3, 280, 1, '原味', '新疆馕饼，配烤串绝佳。', NOW(), NOW());
+
+-- =============================================
+-- 菜品评价表
+-- =============================================
+CREATE TABLE IF NOT EXISTS dish_review (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '评价 ID',
+    dish_id BIGINT NOT NULL COMMENT '菜品 ID',
+    user_id BIGINT NOT NULL COMMENT '用户 ID',
+    stall_id BIGINT NOT NULL COMMENT '档口 ID',
+    rating DECIMAL(3,2) NOT NULL COMMENT '评分 (0-5)',
+    content TEXT COMMENT '评价内容',
+    images TEXT COMMENT '评价图片 URLs，逗号分隔',
+    is_anonymous TINYINT(1) DEFAULT 0 COMMENT '是否匿名：1-匿名 0-公开',
+    helpful_count INT DEFAULT 0 COMMENT '有帮助数',
+    reply_count INT DEFAULT 0 COMMENT '回复数',
+    status INT DEFAULT 1 COMMENT '状态：1-正常 0-隐藏 2-已删除',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间',
+    FOREIGN KEY (dish_id) REFERENCES dish(id),
+    FOREIGN KEY (stall_id) REFERENCES canteen_stall(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='菜品评价表';
+
+-- =============================================
+-- 菜品评价数据
+-- =============================================
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE dish_review;
+SET FOREIGN_KEY_CHECKS = 1;
+
+INSERT INTO dish_review (id, dish_id, user_id, stall_id, rating, content, images, is_anonymous, helpful_count, reply_count, status, create_time, update_time) VALUES
+-- 鲜肉包 (dish_id=1) 的评价
+(1, 1, 1001, 1, 5.00, '鲜肉包真的很好吃，皮薄馅大，汁水很足！每天早上都要来两个。', 'https://picsum.photos/seed/review001/200/200', 0, 12, 3, 1, NOW(), NOW()),
+(2, 1, 1002, 1, 4.50, '味道不错，就是有时候要排队很久。', NULL, 0, 5, 1, 1, NOW(), NOW()),
+(3, 1, 1003, 1, 5.00, '早餐首选，包子新鲜热乎，老板人也好。', NULL, 0, 8, 0, 1, NOW(), NOW()),
+
+-- 菜包 (dish_id=2) 的评价
+(4, 2, 1004, 1, 4.00, '青菜馅很新鲜，清淡健康，适合不喜欢油腻的人。', NULL, 0, 3, 0, 1, NOW(), NOW()),
+(5, 2, 1005, 1, 4.50, '菜包味道好，馅料足，价格实惠。', NULL, 0, 6, 2, 1, NOW(), NOW()),
+
+-- 豆浆 (dish_id=3) 的评价
+(6, 3, 1006, 1, 5.00, '现磨豆浆，香浓可口，配包子完美！', NULL, 0, 10, 1, 1, NOW(), NOW()),
+(7, 3, 1007, 1, 4.00, '豆浆味道纯正，就是有时候有点烫。', NULL, 0, 2, 0, 1, NOW(), NOW()),
+
+-- 油条 (dish_id=4) 的评价
+(8, 4, 1008, 1, 4.50, '油条炸得酥脆，配豆浆很好吃。', 'https://picsum.photos/seed/review002/200/200', 0, 7, 0, 1, NOW(), NOW()),
+(9, 4, 1009, 1, 3.50, '有时候偏软，早点去会更好。', NULL, 0, 4, 1, 1, NOW(), NOW()),
+
+-- 麻辣烫自选 (dish_id=5) 的评价
+(10, 5, 1010, 2, 4.50, '麻辣烫味道很好，可以自选食材，丰俭由人。', 'https://picsum.photos/seed/review003/200/200', 0, 15, 5, 1, NOW(), NOW()),
+(11, 5, 1011, 2, 4.00, '麻酱香浓，食材新鲜，就是价格稍微有点贵。', NULL, 0, 6, 2, 1, NOW(), NOW()),
+(12, 5, 1012, 2, 5.00, '超级好吃！每次都要加好多菜，老板人也很好。', NULL, 0, 9, 0, 1, NOW(), NOW()),
+
+-- 牛肉石锅拌饭 (dish_id=7) 的评价
+(13, 7, 1013, 3, 4.50, '石锅拌饭很正宗，锅巴香脆，牛肉嫩滑。', 'https://picsum.photos/seed/review004/200/200', 0, 11, 3, 1, NOW(), NOW()),
+(14, 7, 1014, 3, 4.00, '味道不错，就是量有点少。', NULL, 0, 4, 1, 1, NOW(), NOW()),
+
+-- 黄焖鸡米饭 (dish_id=10) 的评价
+(15, 10, 1015, 4, 4.50, '黄焖鸡味道很好，汤汁浓郁，拌饭一绝！', NULL, 0, 18, 4, 1, NOW(), NOW()),
+(16, 10, 1016, 4, 4.00, '鸡肉嫩滑，土豆软糯，就是有时候等得有点久。', NULL, 0, 5, 0, 1, NOW(), NOW()),
+(17, 10, 1017, 4, 5.00, '超级好吃，每次必点！', 'https://picsum.photos/seed/review005/200/200', 0, 12, 2, 1, NOW(), NOW()),
+
+-- 牛肉拉面 (dish_id=13) 的评价
+(18, 13, 1018, 5, 5.00, '兰州拉面很正宗，汤鲜面劲道，牛肉片足。', NULL, 0, 20, 6, 1, NOW(), NOW()),
+(19, 13, 1019, 5, 4.50, '味道好，量大实惠，推荐！', NULL, 0, 8, 1, 1, NOW(), NOW()),
+
+-- 珍珠奶茶 (dish_id=22) 的评价
+(20, 22, 1020, 8, 4.50, '珍珠奶茶很好喝，珍珠 Q 弹，甜度适中。', 'https://picsum.photos/seed/review006/200/200', 0, 14, 3, 1, NOW(), NOW()),
+(21, 22, 1021, 8, 5.00, '最爱这家的奶茶，比外面卖的好喝多了！', NULL, 0, 9, 0, 1, NOW(), NOW()),
+(22, 22, 1022, 8, 4.00, '味道不错，就是有时候要等很久。', NULL, 0, 3, 1, 1, NOW(), NOW()),
+
+-- 烤羊肉串 (dish_id=37) 的评价
+(23, 37, 1023, 13, 5.00, '羊肉串很正宗，外焦里嫩，孜然味十足！', 'https://picsum.photos/seed/review007/200/200', 0, 25, 8, 1, NOW(), NOW()),
+(24, 37, 1024, 13, 4.50, '新鲜现烤，肉质好，价格实惠。', NULL, 0, 11, 2, 1, NOW(), NOW()),
+(25, 37, 1025, 13, 5.00, '超级好吃！每次都要来几串。', NULL, 0, 16, 0, 1, NOW(), NOW());
 
 -- =============================================
 -- 优惠活动数据

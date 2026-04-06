@@ -170,6 +170,51 @@
   background: linear-gradient(90deg, var(--brand), #38bdf8);
 }
 
+.workspace-image-editor {
+  margin-top: 4px;
+  margin-bottom: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.9);
+  border: 1px dashed rgba(148, 163, 184, 0.4);
+}
+
+.workspace-image-editor__label {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.workspace-image-editor__preview {
+  width: 120px !important;
+  height: 120px !important;
+  border-radius: 16px;
+  object-fit: cover;
+  overflow: hidden;
+}
+
+.workspace-image-editor__preview img {
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+}
+
+.workspace-image-editor__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 120px;
+  height: 120px;
+  border-radius: 16px;
+  background: #f1f5f9;
+  color: #94a3b8;
+  font-size: 12px;
+  text-align: center;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
 @media (max-width: 1100px) {
   .workspace-stats,
   .workspace-main {

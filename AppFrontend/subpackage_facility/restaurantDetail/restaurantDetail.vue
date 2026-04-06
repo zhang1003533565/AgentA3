@@ -1,337 +1,900 @@
 <template>
-  <view class="restaurant-detail-page">
-    <nav-bar :title="restaurant.name || '餐厅详情'" fixed placeholder />
-
-    <scroll-view class="detail-scroll" scroll-y :style="{ height: `calc(100vh - ${navBarHeight}px)` }">
-      <image class="banner" :src="restaurant.image" mode="aspectFill" />
-
-      <view class="card">
-        <view class="header-row">
-          <text class="title">{{ restaurant.name }}</text>
-          <text class="distance">{{ restaurant.distance }}</text>
-        </view>
-        <text class="desc">{{ restaurant.description }}</text>
-        <text class="meta">营业时间：{{ restaurant.openTime }}</text>
-        <text class="meta">位置：{{ restaurant.location }}</text>
+  <view class="canteen-page">
+    <view class="top-bar">
+      <view class="back-btn" @click="goBack">
+        <text class="back-arrow">‹</text>
+        <text class="back-text">返回</text>
       </view>
+    </view>
+    <view class="top-search" @click="openSearch">
+      <text class="search-icon">⌕</text>
+      <text class="search-placeholder">搜索菜品 / 档口 / 评价关键词...</text>
+    </view>
 
-      <view class="card">
-        <text class="section-title">菜系分类</text>
-        <scroll-view class="cuisine-scroll" scroll-x :show-scrollbar="false">
-          <view class="cuisine-row">
+    <view class="canteen-tabs">
+      <view
+        v-for="item in canteenList"
+        :key="item.id"
+        class="canteen-tab"
+        :class="{ active: currentRestaurantId === item.id }"
+        @click="switchRestaurant(item.id)"
+      >
+        <text class="canteen-tab-text">{{ item.name }}</text>
+      </view>
+    </view>
+
+    <scroll-view class="page-scroll" scroll-y>
+      <view class="section-block">
+        <text class="section-title">人气热榜</text>
+        <scroll-view class="hot-scroll" scroll-x :show-scrollbar="false">
+          <view class="hot-row">
             <view
-              v-for="(item, index) in cuisineOptions"
-              :key="index"
-              class="cuisine-chip"
-              :class="{ active: currentCuisine === item }"
-              @click="selectCuisine(item)"
+              v-for="item in hotRanking"
+              :key="item.id"
+              class="hot-card"
+              @click="openStallDetail(item)"
             >
-              <text class="cuisine-chip-text">{{ item }}</text>
+              <view class="hot-cover" :class="item.foodClass">
+                <text class="hot-tag">{{ item.tag }}</text>
+              </view>
+              <view class="hot-bottom">
+                <text class="hot-rate">推荐率 {{ item.recommendRate }}%</text>
+                <text class="hot-name">{{ item.stallName }}</text>
+                <view class="hot-meta">
+                  <text>{{ item.category }}</text>
+                  <text>人均 ¥{{ item.avgPrice }}</text>
+                </view>
+              </view>
             </view>
+          </view>
+          <view class="empty-hot-tip" v-if="hotRanking.length === 0">
+            <text>暂无数据</text>
           </view>
         </scroll-view>
       </view>
 
-      <view class="card">
-        <text class="section-title">档口列表</text>
-        <view v-for="(stall, index) in filteredStalls" :key="index" class="stall-item" @click="goToStallDetail(stall)">
-          <view class="stall-left">
-            <text class="stall-name">{{ stall.name }}</text>
-            <text class="stall-type">{{ stall.cuisine }}</text>
-            <view class="stall-rating-row">
-              <text class="stall-score">评分 {{ stall.score.toFixed(1) }}</text>
-              <text class="stall-count">{{ stall.reviewCount }}条评价</text>
+      <view class="stall-list">
+        <view
+          v-for="stall in filteredStalls"
+          :key="stall.id"
+          class="stall-card"
+          @click="openStallDetail(stall)"
+        >
+          <view class="stall-main">
+            <view class="stall-thumb" :class="getStallFoodClass(stall.category)"></view>
+            <view class="stall-content">
+              <view class="stall-title-row">
+                <text class="stall-name">{{ stall.stallName }}</text>
+                <text class="stall-category">{{ stall.category }}</text>
+              </view>
+              <view class="stall-meta-row">
+                <text>评价{{ stall.reviewCount }}</text>
+                <text>人均¥{{ stall.avgPrice }}</text>
+                <text>推荐率{{ stall.recommendRate }}%</text>
+              </view>
+              <view class="recommend-line">
+                <text class="recommend-label">推荐率</text>
+                <view class="recommend-track">
+                  <view class="recommend-fill" :style="{ width: stall.recommendRate + '%' }"></view>
+                </view>
+              </view>
+              <text class="stall-location">{{ currentRestaurant.name }} {{ stall.floor }}</text>
             </view>
-            <text class="stall-comment">{{ stall.latestComment }}</text>
           </view>
-          <view class="stall-right">
-            <text class="stall-time">{{ stall.openTime }}</text>
-            <text class="stall-arrow">></text>
+
+          <view class="stall-footer">
+            <view class="review-snippet">
+              <text class="review-icon">♨</text>
+              <text class="review-text">{{ stall.description || '暂无评价' }}</text>
+            </view>
+            <view class="review-btn">看评价</view>
           </view>
         </view>
-        <view v-if="!filteredStalls.length" class="empty-tip">暂无该菜系档口</view>
       </view>
+
+      <view class="empty-tip" v-if="filteredStalls.length === 0">
+        <text>暂无档口数据</text>
+      </view>
+
+      <!-- 菜品列表 -->
+      <view class="dish-section" v-if="filteredDishes.length > 0">
+        <text class="section-title">菜品推荐</text>
+        <view class="dish-grid">
+          <view
+            v-for="dish in filteredDishes"
+            :key="dish.id"
+            class="dish-card"
+            @click="openDishDetail(dish)"
+          >
+            <view class="dish-image" :style="{ backgroundImage: dish.imageUrl ? `url(${dish.imageUrl})` : 'none' }"></view>
+            <view class="dish-info">
+              <view class="dish-name-row">
+                <text class="dish-name">{{ dish.name }}</text>
+                <text class="dish-price">¥{{ dish.price }}</text>
+              </view>
+              <view class="dish-meta">
+                <text class="dish-rating">★ {{ dish.rating }}</text>
+                <text class="dish-sold">已售{{ dish.soldCount }}</text>
+                <text class="dish-reviews">{{ getReviewCount(dish.id) }}条评价</text>
+              </view>
+              <view class="dish-category-tag">{{ dish.category }}</view>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <view class="bottom-space"></view>
     </scroll-view>
+
+    <view v-if="showSearchPanel" class="search-mask" @click="closeSearch">
+      <view class="search-panel" @click.stop>
+        <view class="search-panel-top">
+          <view class="search-input-wrap">
+            <text class="search-icon">⌕</text>
+            <input
+              v-model="searchQuery"
+              class="search-input"
+              placeholder="搜索菜品、档口、评价..."
+              confirm-type="search"
+              @confirm="performSearch"
+            />
+          </view>
+          <text class="search-cancel" @click="closeSearch">取消</text>
+        </view>
+
+        <view class="panel-section" v-if="searchHistory.length">
+          <view class="panel-header">
+            <text class="panel-title">历史搜索</text>
+            <text class="panel-action" @click="clearHistory">清除</text>
+          </view>
+          <view class="tag-wrap">
+            <text
+              v-for="item in searchHistory"
+              :key="item"
+              class="soft-tag"
+              @click="quickSearch(item)"
+            >{{ item }}</text>
+          </view>
+        </view>
+
+        <view class="panel-section">
+          <view class="panel-header">
+            <text class="panel-title">猜你想搜</text>
+          </view>
+          <view class="tag-wrap">
+            <text
+              v-for="item in suggestKeywords"
+              :key="item"
+              class="soft-tag"
+              @click="quickSearch(item)"
+            >{{ item }}</text>
+          </view>
+        </view>
+
+        <view class="panel-section">
+          <view class="panel-header">
+            <text class="panel-title">周边热搜</text>
+          </view>
+          <view class="trend-list">
+            <view v-for="(item, index) in weeklyHot" :key="item.name" class="trend-item" @click="quickSearch(item.name)">
+              <text class="trend-index">{{ index + 1 }}</text>
+              <text class="trend-name">{{ item.name }}</text>
+              <text class="trend-badge">{{ item.badge }}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { getCanteenStallList, getDishList, getDishReviewCount } from '@/api/dining.js'
 
 export default {
-  components: { NavBar },
   data() {
     return {
-      navBarHeight: 88,
-      restaurant: {
-        id: '',
-        name: '',
-        description: '',
-        distance: '',
-        location: '',
-        openTime: '',
-        image: '',
-        stalls: []
-      },
-      currentCuisine: '全部'
+      showSearchPanel: false,
+      searchQuery: '',
+      searchHistory: ['肉包', '早餐', '面食'],
+      suggestKeywords: ['黄焖米饭', '石锅拌饭', '兰州拉面', '奶茶', '麻辣烫'],
+      weeklyHot: [
+        { name: '包子', badge: '热' },
+        { name: '麻辣烫', badge: '热' },
+        { name: '自选快餐', badge: '新' },
+        { name: '重庆小面', badge: '新' },
+        { name: '沙县小吃', badge: '热' }
+      ],
+      currentRestaurantId: '1',
+      // 食堂（餐厅）列表 - 对应 campus_facility 表 facility_type=1 的数据
+      canteenList: [
+        { id: '1', name: '第一学生餐厅' },
+        { id: '2', name: '第二学生餐厅' },
+        { id: '3', name: '清真餐厅' }
+      ],
+      // 从 API 加载的档口数据
+      stallList: [],
+      // 从 API 加载的菜品数据
+      dishList: [],
+      // 评价数量映射表
+      reviewCountMap: {}
     }
   },
   computed: {
-    cuisineOptions() {
-      const result = ['全部']
-      const set = new Set()
-      ;(this.restaurant.stalls || []).forEach((stall) => {
-        if (stall.cuisine && !set.has(stall.cuisine)) {
-          set.add(stall.cuisine)
-          result.push(stall.cuisine)
-        }
-      })
-      return result
+    currentRestaurant() {
+      return this.canteenList.find(item => item.id === this.currentRestaurantId) || this.canteenList[0]
     },
+    // 过滤当前食堂的档口
     filteredStalls() {
-      if (this.currentCuisine === '全部') {
-        return this.restaurant.stalls || []
-      }
-      return (this.restaurant.stalls || []).filter((stall) => stall.cuisine === this.currentCuisine)
+      return this.stallList.filter(stall => stall.restaurantId.toString() === this.currentRestaurantId)
+    },
+    // 人气热榜 - 按推荐率排序取前 3
+    hotRanking() {
+      return [...this.filteredStalls]
+        .sort((a, b) => b.recommendRate - a.recommendRate)
+        .slice(0, 3)
+        .map((item, index) => ({
+          ...item,
+          tag: `${item.category} Top${index + 1}`,
+          foodClass: this.getFoodClass(index)
+        }))
+    },
+    // 过滤当前食堂的菜品
+    filteredDishes() {
+      // 获取当前餐厅所有档口的 ID
+      const currentStallIds = this.filteredStalls.map(stall => stall.id)
+      // 过滤出属于这些档口的菜品
+      return this.dishList.filter(dish => currentStallIds.includes(dish.stallId))
     }
   },
   onLoad(options) {
-    const sys = uni.getSystemInfoSync()
-    this.navBarHeight = (sys.statusBarHeight || 0) + 44
-    this.loadRestaurant(options.id)
+    if (options && options.id) {
+      this.currentRestaurantId = options.id
+    }
+    // 加载档口数据
+    this.loadStalls()
+    // 加载菜品数据
+    this.loadDishes()
   },
   methods: {
-    loadRestaurant(id) {
-      const mockData = {
-        '3': {
-          id: '3',
-          name: '第一食堂',
-          description: '学生餐厅、教工餐厅',
-          distance: '180m',
-          location: '生活区中轴线北侧',
-          openTime: '06:30 - 21:00',
-          image: 'https://picsum.photos/seed/canteen1detail/900/500',
-          stalls: [
-            { id: '301', name: '家常菜档口', cuisine: '中式快餐', openTime: '10:30 - 13:30 / 16:30 - 19:30', score: 4.7, reviewCount: 128, latestComment: '菜量足，出餐快，午高峰排队稍长。' },
-            { id: '302', name: '面食档口', cuisine: '面条/饺子', openTime: '07:00 - 20:30', score: 4.5, reviewCount: 96, latestComment: '牛肉面口味稳定，汤底不错。' },
-            { id: '303', name: '轻食档口', cuisine: '沙拉/简餐', openTime: '09:00 - 19:00', score: 4.3, reviewCount: 67, latestComment: '鸡胸肉套餐热量标识清晰。' }
-          ]
-        },
-        '4': {
-          id: '4',
-          name: '第二食堂',
-          description: '特色风味餐厅',
-          distance: '350m',
-          location: '图书馆东侧',
-          openTime: '07:00 - 22:00',
-          image: 'https://picsum.photos/seed/canteen2detail/900/500',
-          stalls: [
-            { id: '401', name: '川湘风味', cuisine: '川菜/湘菜', openTime: '10:30 - 20:30', score: 4.6, reviewCount: 142, latestComment: '辣度可选，水煮鱼很受欢迎。' },
-            { id: '402', name: '烤肉饭档口', cuisine: '日韩料理', openTime: '11:00 - 21:00', score: 4.4, reviewCount: 85, latestComment: '酱汁偏甜，分量够。' },
-            { id: '403', name: '夜宵档口', cuisine: '烧烤/小吃', openTime: '17:00 - 22:00', score: 4.2, reviewCount: 53, latestComment: '烤串种类多，晚间人气高。' }
-          ]
+    goBack() {
+      uni.navigateBack()
+    },
+    // 获取食物样式类
+    getFoodClass(index) {
+      const classes = ['food-gold', 'food-cream', 'food-amber', 'food-sand', 'food-brown', 'food-green', 'food-red', 'food-tan']
+      return classes[index % classes.length]
+    },
+    // 根据品类获取档口图片样式类
+    getStallFoodClass(category) {
+      const classMap = {
+        '早餐': 'food-gold',
+        '面食': 'food-cream',
+        '米饭': 'food-sand',
+        '小吃': 'food-brown',
+        '饮品': 'food-green'
+      }
+      return classMap[category] || 'food-amber'
+    },
+    // 加载档口数据
+    async loadStalls() {
+      try {
+        const res = await getCanteenStallList()
+        this.stallList = res.data || []
+      } catch (error) {
+        console.error('加载档口数据失败:', error)
+      }
+    },
+    // 加载菜品数据
+    async loadDishes() {
+      try {
+        const res = await getDishList()
+        this.dishList = res.data || []
+        // 加载每个菜品的评价数量
+        this.loadReviewCounts()
+      } catch (error) {
+        console.error('加载菜品数据失败:', error)
+      }
+    },
+    // 加载评价数量
+    async loadReviewCounts() {
+      try {
+        for (const dish of this.dishList) {
+          const res = await getDishReviewCount({ dishId: dish.id })
+          this.$set(this.reviewCountMap, dish.id, res.data)
         }
+      } catch (error) {
+        console.error('加载评价数量失败:', error)
       }
-
-      this.restaurant = mockData[id] || {
-        id: id || '',
-        name: '餐厅详情',
-        description: '暂无数据',
-        distance: '--',
-        location: '暂无',
-        openTime: '暂无',
-        image: 'https://picsum.photos/seed/canteendefault/900/500',
-        stalls: []
-      }
-      this.currentCuisine = '全部'
     },
-    selectCuisine(cuisine) {
-      this.currentCuisine = cuisine
+    // 获取菜品评价数量
+    getReviewCount(dishId) {
+      return this.reviewCountMap[dishId] || 0
     },
-    goToStallDetail(stall) {
+    // 切换食堂
+    switchRestaurant(id) {
+      this.currentRestaurantId = id
+    },
+    // 打开档口详情
+    openStallDetail(stall) {
       uni.navigateTo({
-        url: `/subpackage_facility/stallDetail/stallDetail?stallId=${stall.id}&restaurantId=${this.restaurant.id}`
+        url: `/subpackage_facility/stallDetail/stallDetail?stallId=${stall.id}&restaurantId=${stall.restaurantId}`
       })
+    },
+    // 打开菜品详情
+    openDishDetail(dish) {
+      uni.navigateTo({
+        url: `/subpackage_facility/dishDetail/dishDetail?dishId=${dish.id}`
+      })
+    },
+    openSearch() {
+      this.showSearchPanel = true
+    },
+    closeSearch() {
+      this.showSearchPanel = false
+    },
+    performSearch() {
+      const keyword = (this.searchQuery || '').trim()
+      if (!keyword) {
+        uni.showToast({ title: '请输入搜索内容', icon: 'none' })
+        return
+      }
+      this.pushHistory(keyword)
+      this.showSearchPanel = false
+      uni.showToast({ title: `已搜索：${keyword}`, icon: 'none' })
+    },
+    quickSearch(keyword) {
+      this.searchQuery = keyword
+      this.performSearch()
+    },
+    pushHistory(keyword) {
+      const next = [keyword, ...this.searchHistory.filter((item) => item !== keyword)]
+      this.searchHistory = next.slice(0, 6)
+    },
+    clearHistory() {
+      this.searchHistory = []
     }
   }
 }
 </script>
 
 <style lang="scss" scoped>
-.restaurant-detail-page {
+.canteen-page {
   min-height: 100vh;
-  background: #f6f7fb;
+  background: linear-gradient(180deg, #f7f2e8 0%, #f5efe4 36%, #f6f1e9 100%);
+  padding: 24rpx 22rpx 0;
+  box-sizing: border-box;
 }
 
-.detail-scroll {
-  min-height: 0;
+.top-bar {
+  display: flex;
+  align-items: center;
+  height: 88rpx;
+  margin-bottom: 12rpx;
 }
 
-.banner {
-  width: 100%;
-  height: 360rpx;
-  background: #e9ebf1;
+.back-btn {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 12rpx 16rpx;
+  border-radius: 32rpx;
+  background: rgba(255, 255, 255, 0.7);
 }
 
-.card {
-  margin: 24rpx;
-  padding: 28rpx;
+.back-arrow {
+  font-size: 42rpx;
+  color: #4a433c;
+  line-height: 1;
+}
+
+.back-text {
+  font-size: 24rpx;
+  color: #4a433c;
+}
+
+.top-search {
+  height: 72rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.82);
+  display: flex;
+  align-items: center;
+  padding: 0 24rpx;
+  color: #b8afa3;
+  box-shadow: 0 8rpx 24rpx rgba(180, 157, 122, 0.08);
+}
+
+.search-icon {
+  font-size: 30rpx;
+}
+
+.search-placeholder {
+  margin-left: 14rpx;
+  font-size: 24rpx;
+}
+
+.canteen-tabs {
+  margin-top: 18rpx;
+  display: flex;
+  gap: 16rpx;
+}
+
+.canteen-tab {
+  flex: 1;
+  height: 68rpx;
   border-radius: 20rpx;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #a49a8e;
 }
 
-.header-row {
+.canteen-tab.active {
+  background: #ffffff;
+  color: #47413b;
+  box-shadow: 0 10rpx 24rpx rgba(183, 160, 123, 0.14);
+}
+
+.canteen-tab-text {
+  font-size: 24rpx;
+  font-weight: 600;
+}
+
+.page-scroll {
+  height: calc(100vh - 150rpx);
+  padding-top: 24rpx;
+}
+
+.section-block {
+  margin-bottom: 28rpx;
+}
+
+.section-title {
+  display: block;
+  font-size: 38rpx;
+  font-weight: 700;
+  color: #231f1b;
+  margin-bottom: 20rpx;
+}
+
+.hot-scroll {
+  white-space: nowrap;
+}
+
+.hot-row {
+  display: inline-flex;
+  gap: 18rpx;
+  padding-right: 12rpx;
+}
+
+.hot-card {
+  width: 292rpx;
+  border-radius: 28rpx;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18rpx 36rpx rgba(184, 160, 119, 0.12);
+}
+
+.hot-cover {
+  height: 160rpx;
+  padding: 18rpx;
+  position: relative;
+}
+
+.hot-tag {
+  position: absolute;
+  left: 16rpx;
+  top: 16rpx;
+  padding: 8rpx 16rpx;
+  border-radius: 999rpx;
+  background: rgba(98, 83, 57, 0.72);
+  color: #fff;
+  font-size: 20rpx;
+}
+
+.hot-bottom {
+  padding: 18rpx 18rpx 20rpx;
+}
+
+.hot-rate {
+  display: block;
+  font-size: 24rpx;
+  color: #bc9356;
+  font-weight: 700;
+}
+
+.hot-name {
+  display: block;
+  margin-top: 14rpx;
+  font-size: 30rpx;
+  color: #2f2924;
+  font-weight: 700;
+}
+
+.hot-meta {
+  margin-top: 10rpx;
+  display: flex;
+  justify-content: space-between;
+  font-size: 22rpx;
+  color: #8d8377;
+}
+
+.stall-list {
+  display: flex;
+  flex-direction: column;
+  gap: 24rpx;
+}
+
+.stall-card {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 28rpx;
+  padding: 22rpx;
+  box-shadow: 0 16rpx 34rpx rgba(184, 160, 119, 0.12);
+}
+
+.stall-main {
+  display: flex;
+  gap: 20rpx;
+}
+
+.stall-thumb {
+  width: 154rpx;
+  height: 154rpx;
+  border-radius: 24rpx;
+  flex-shrink: 0;
+}
+
+.stall-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.stall-title-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16rpx;
 }
 
-.title {
-  font-size: 38rpx;
-  font-weight: 700;
-  color: #1f2329;
-}
-
-.distance {
-  font-size: 26rpx;
-  color: #86909c;
-}
-
-.desc {
-  margin-top: 14rpx;
-  font-size: 28rpx;
-  color: #4e5969;
-  display: block;
-}
-
-.meta {
-  margin-top: 10rpx;
-  font-size: 24rpx;
-  color: #86909c;
-  display: block;
-}
-
-.section-title {
-  font-size: 30rpx;
-  font-weight: 600;
-  color: #1f2329;
-  margin-bottom: 20rpx;
-  display: block;
-}
-
-.cuisine-scroll {
-  width: 100%;
-}
-
-.cuisine-row {
-  display: inline-flex;
-  padding-right: 12rpx;
-}
-
-.cuisine-chip {
-  height: 56rpx;
-  border-radius: 999rpx;
-  background: #f2f3f5;
-  padding: 0 24rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 16rpx;
-}
-
-.cuisine-chip.active {
-  background: #165dff;
-}
-
-.cuisine-chip-text {
-  font-size: 24rpx;
-  color: #4e5969;
-}
-
-.cuisine-chip.active .cuisine-chip-text {
-  color: #fff;
-}
-
-.stall-item {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 18rpx 0;
-  border-bottom: 1rpx solid #f2f3f5;
-}
-
-.stall-item:last-child {
-  border-bottom: none;
-}
-
-.stall-left {
-  flex: 1;
-  min-width: 0;
-}
-
 .stall-name {
-  display: block;
-  font-size: 28rpx;
-  color: #1f2329;
-  font-weight: 500;
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #2e2925;
 }
 
-.stall-type {
-  display: block;
-  margin-top: 6rpx;
-  font-size: 24rpx;
-  color: #86909c;
+.stall-category {
+  flex-shrink: 0;
+  padding: 8rpx 16rpx;
+  border-radius: 16rpx;
+  background: #f3e8d5;
+  color: #8f7048;
+  font-size: 20rpx;
 }
 
-.stall-rating-row {
-  margin-top: 8rpx;
+.stall-meta-row {
+  margin-top: 10rpx;
+  display: flex;
+  gap: 16rpx;
+  flex-wrap: wrap;
+  font-size: 22rpx;
+  color: #91877b;
+}
+
+.recommend-line {
+  margin-top: 14rpx;
   display: flex;
   align-items: center;
   gap: 12rpx;
 }
 
-.stall-score {
-  font-size: 24rpx;
-  color: #ff7d00;
-  font-weight: 500;
-}
-
-.stall-count {
+.recommend-label {
   font-size: 22rpx;
-  color: #86909c;
+  color: #b08b57;
+  flex-shrink: 0;
 }
 
-.stall-comment {
+.recommend-track {
+  flex: 1;
+  height: 10rpx;
+  border-radius: 999rpx;
+  background: #efe5d8;
+  overflow: hidden;
+}
+
+.recommend-fill {
+  height: 100%;
+  border-radius: 999rpx;
+  background: linear-gradient(90deg, #dfc18c 0%, #bf8f4f 100%);
+}
+
+.stall-location {
+  display: block;
+  margin-top: 14rpx;
+  font-size: 20rpx;
+  color: #b3ab9d;
+}
+
+.dish-preview-row {
+  margin-top: 18rpx;
+  display: flex;
+  gap: 16rpx;
+}
+
+.dish-preview {
+  flex: 1;
+  min-width: 0;
+}
+
+.dish-preview-thumb {
+  width: 100%;
+  height: 82rpx;
+  border-radius: 16rpx;
+}
+
+.dish-preview-name {
   display: block;
   margin-top: 8rpx;
-  font-size: 22rpx;
-  color: #4e5969;
+  font-size: 20rpx;
+  color: #6f675c;
+  text-align: center;
 }
 
-.stall-right {
-  margin-left: 16rpx;
+.stall-footer {
+  margin-top: 18rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+
+.review-snippet {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  color: #9d8e7d;
+}
+
+.review-icon {
+  color: #d6a24f;
+  font-size: 22rpx;
+}
+
+.review-text {
+  font-size: 22rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-btn {
+  flex-shrink: 0;
+  padding: 10rpx 18rpx;
+  border-radius: 999rpx;
+  background: #f3ece2;
+  color: #8d7c68;
+  font-size: 20rpx;
+}
+
+/* 菜品列表样式 */
+.dish-section {
+  margin-top: 36rpx;
+}
+
+.dish-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20rpx;
+}
+
+.dish-card {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 24rpx;
+  overflow: hidden;
+  box-shadow: 0 12rpx 28rpx rgba(184, 160, 119, 0.1);
+}
+
+.dish-image {
+  width: 100%;
+  height: 240rpx;
+  background-size: cover;
+  background-position: center;
+  background-color: #f5f5f5;
+}
+
+.dish-info {
+  padding: 16rpx;
+}
+
+.dish-name-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10rpx;
+}
+
+.dish-name {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #2e2925;
+}
+
+.dish-price {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #c9a55c;
+}
+
+.dish-meta {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 10rpx;
+  font-size: 20rpx;
+  color: #9a8f80;
+}
+
+.dish-rating {
+  color: #d4a843;
+  font-weight: 600;
+}
+
+.dish-sold {
+  color: #9a8f80;
+}
+
+.dish-taste {
+  color: #9a8f80;
+}
+
+.dish-category-tag {
+  display: inline-block;
+  padding: 6rpx 12rpx;
+  background: #f5e9d7;
+  color: #c9a55c;
+  font-size: 18rpx;
+  border-radius: 8rpx;
+}
+
+.bottom-space {
+  height: 36rpx;
+}
+
+.search-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(243, 238, 229, 0.96);
+  z-index: 99;
+}
+
+.search-panel {
+  padding: 24rpx 26rpx 40rpx;
+}
+
+.search-panel-top {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+}
+
+.search-input-wrap {
+  flex: 1;
+  height: 72rpx;
+  border-radius: 22rpx;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  padding: 0 22rpx;
+}
+
+.search-input {
+  flex: 1;
+  height: 72rpx;
+  margin-left: 12rpx;
+  font-size: 24rpx;
+  color: #3e3730;
+}
+
+.search-cancel {
+  font-size: 24rpx;
+  color: #8d8172;
+}
+
+.panel-section {
+  margin-top: 42rpx;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+}
+
+.panel-title {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #2e2925;
+}
+
+.panel-action {
+  font-size: 22rpx;
+  color: #b4a796;
+}
+
+.tag-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18rpx;
+}
+
+.soft-tag {
+  padding: 12rpx 20rpx;
+  border-radius: 999rpx;
+  background: #fff;
+  color: #8c8175;
+  font-size: 22rpx;
+}
+
+.trend-list {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  gap: 18rpx;
 }
 
-.stall-time {
-  font-size: 22rpx;
-  color: #165dff;
+.trend-item {
+  display: flex;
+  align-items: center;
+  padding: 8rpx 0;
 }
 
-.stall-arrow {
-  margin-top: 12rpx;
-  color: #c9cdd4;
-  font-size: 28rpx;
-  line-height: 1;
-}
-
-.empty-tip {
-  padding: 20rpx 0 6rpx;
-  text-align: center;
+.trend-index {
+  width: 36rpx;
   font-size: 24rpx;
-  color: #86909c;
+  color: #c0a06d;
+}
+
+.trend-name {
+  flex: 1;
+  font-size: 24rpx;
+  color: #4a433c;
+}
+
+.trend-badge {
+  padding: 4rpx 12rpx;
+  border-radius: 999rpx;
+  background: #f5e9d7;
+  color: #ce8e55;
+  font-size: 18rpx;
+}
+
+.food-gold {
+  background: radial-gradient(circle at 30% 30%, #ead8b0 0%, #cfaf74 58%, #b58a4d 100%);
+}
+
+.food-amber {
+  background: radial-gradient(circle at 30% 30%, #f7ddb0 0%, #efc46e 56%, #d69d43 100%);
+}
+
+.food-cream {
+  background: radial-gradient(circle at 30% 30%, #efe2c3 0%, #dec490 56%, #c39b59 100%);
+}
+
+.food-red {
+  background: radial-gradient(circle at 30% 30%, #f6b09b 0%, #e56c4d 55%, #b14630 100%);
+}
+
+.food-brown {
+  background: radial-gradient(circle at 30% 30%, #efc3a8 0%, #d18e60 56%, #9e5a35 100%);
+}
+
+.food-sand {
+  background: radial-gradient(circle at 30% 30%, #ecd5a9 0%, #d6b173 56%, #b3844a 100%);
+}
+
+.food-green {
+  background: radial-gradient(circle at 30% 30%, #d9efc3 0%, #9bc26e 56%, #6b9341 100%);
 }
 </style>

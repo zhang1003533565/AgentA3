@@ -27,6 +27,7 @@ export const navigationSections = [
     label: '校园设施',
     items: [
       { path: '/facility/restaurant', label: '餐厅管理', icon: 'shop', pageKey: 'facility-restaurant' },
+      { path: '/facility/stall-dish', label: '档口菜品管理', icon: 'shop', pageKey: 'facility-stall-dish', hidden: true },
       { path: '/facility/sports', label: '运动场管理', icon: 'thunder', pageKey: 'facility-sports' },
       { path: '/facility/teaching', label: '教学楼管理', icon: 'bank', pageKey: 'facility-teaching' },
       { path: '/facility/dormitory', label: '宿舍管理', icon: 'home', pageKey: 'facility-dormitory' },
@@ -148,6 +149,25 @@ const columns = {
     { title: '类型', dataIndex: 'facilityType', type: 'tag' },
     { title: '位置', dataIndex: 'location' },
     { title: '状态', dataIndex: 'status', type: 'status' },
+  ],
+  stall: [
+    { title: '照片', dataIndex: 'image', type: 'image' },
+    { title: '档口名称', dataIndex: 'stallName' },
+    { title: '品类', dataIndex: 'category', type: 'tag' },
+    { title: '楼层', dataIndex: 'floor' },
+    { title: '餐厅', dataIndex: 'restaurantName' },
+    { title: '评分', dataIndex: 'score' },
+    { title: '人均价', dataIndex: 'avgPrice' },
+  ],
+  dish: [
+    { title: '照片', dataIndex: 'imageUrl', type: 'image' },
+    { title: '菜品名称', dataIndex: 'name' },
+    { title: '档口', dataIndex: 'stallName', type: 'tag' },
+    { title: '分类', dataIndex: 'category', type: 'tag' },
+    { title: '价格', dataIndex: 'price' },
+    { title: '评分', dataIndex: 'rating' },
+    { title: '销量', dataIndex: 'soldCount' },
+    { title: '状态', dataIndex: 'isAvailable', type: 'status' },
   ],
   mapConfig: [
     { title: '配置项', dataIndex: 'key' },
@@ -312,9 +332,10 @@ export const workspacePages = {
   'facility-restaurant': createPage({
     title: '餐厅管理',
     badge: '校园设施',
-    description: '查看设施列表中的餐厅类数据。',
-    columns: columns.facility,
-    emptyText: '暂无餐厅数据',
+    description: '查看和维护餐厅档口数据。',
+    columns: columns.stall,
+    filters: ['全部'],
+    emptyText: '暂无档口数据',
   }),
   'facility-sports': createPage({
     title: '运动场管理',
@@ -336,6 +357,14 @@ export const workspacePages = {
     description: '查看设施列表中的宿舍数据。',
     columns: columns.facility,
     emptyText: '暂无宿舍数据',
+  }),
+  'facility-stall-dish': createPage({
+    title: '档口菜品管理',
+    badge: '校园设施',
+    description: '查看和维护该档口的菜品列表。',
+    columns: columns.dish,
+    filters: ['全部'],
+    emptyText: '暂无菜品数据',
   }),
   'facility-analytics': createPage({
     title: '设施统计',
