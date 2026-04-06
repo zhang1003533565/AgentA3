@@ -93,6 +93,10 @@
               <text class="action-icon">💬</text>
               <text class="action-count">{{ item.commentCount || 0 }}</text>
             </view>
+            <view class="action-item view-count">
+              <text class="action-icon">👁️</text>
+              <text class="action-count">{{ item.viewCount || 0 }}</text>
+            </view>
           </view>
         </view>
       </view>
@@ -138,6 +142,10 @@
             <view class="action-item">
               <text class="action-icon">💬</text>
               <text class="action-count">{{ item.commentCount || 0 }}</text>
+            </view>
+            <view class="action-item view-count">
+              <text class="action-icon">👁️</text>
+              <text class="action-count">{{ item.viewCount || 0 }}</text>
             </view>
           </view>
         </view>
