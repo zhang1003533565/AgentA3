@@ -130,12 +130,12 @@ public class CommentServiceImpl implements CommentService {
         response.setCreateTime(comment.getCreateTime());
 
         User user = userRepository.findById(comment.getUserId()).orElse(null);
-        response.setUsername(user != null ? user.getRealName() : "匿名用户");
+        response.setUsername(user != null ? user.getUsername() : "匿名用户");
         response.setAvatar(user != null ? user.getAvatar() : null);
 
         if (comment.getReplyToId() != null) {
             User replyToUser = userRepository.findById(comment.getReplyToId()).orElse(null);
-            response.setReplyToUsername(replyToUser != null ? replyToUser.getRealName() : null);
+            response.setReplyToUsername(replyToUser != null ? replyToUser.getUsername() : null);
         }
 
         response.setIsLiked(false);
