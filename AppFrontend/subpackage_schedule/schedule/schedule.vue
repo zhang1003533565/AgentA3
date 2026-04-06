@@ -4,37 +4,37 @@
 		@touchmove="handleTouchMove"
 		@touchend="handleTouchEnd">
 		<!-- Header Bar（独立页面时显示） -->
-		<view v-if="showHeader" class="header-bar">
-			<view class="header-left">
-				<view class="menu-btn" @click="goBack">
-					<view class="menu-line"></view>
-					<view class="menu-line"></view>
-					<view class="menu-line"></view>
-				</view>
-				<view class="week-info-wrapper">
-					<view class="week-info" @click="showWeekSelector">
-						<text class="week-text">第{{ currentWeek }}周</text>
-						<text class="week-caret">▼</text>
+		<view v-if="showHeader" class="header-shell">
+			<nav-bar title="我的课表" :showBack="true" fixed placeholder />
+			<view class="header-module">
+				<view class="header-main">
+					<view class="header-left">
+						<view class="week-info-wrapper">
+							<view class="week-info" @click="showWeekSelector">
+								<text class="week-text">第{{ currentWeek }}周</text>
+								<text class="week-caret">▼</text>
+							</view>
+							<view class="semester-info">
+								<text class="semester-text">{{ semester }}</text>
+							</view>
+						</view>
 					</view>
-					<view class="semester-info">
-						<text class="semester-text">{{ semester }}</text>
+					<view class="header-actions">
+						<view class="utility-btn" @click="shareSchedule">
+							<view class="utility-copy">
+								<view class="copy-back"></view>
+								<view class="copy-front"></view>
+							</view>
+						</view>
+						<view class="utility-btn" @click="showImportMenu">
+							<view class="utility-expand">
+								<text class="expand-arrow">↗</text>
+							</view>
+						</view>
+						<view class="import-btn" @click="showImportMenu">
+							<text class="import-plus">+</text>
+						</view>
 					</view>
-				</view>
-			</view>
-			<view class="header-actions">
-				<view class="utility-btn" @click="shareSchedule">
-					<view class="utility-copy">
-						<view class="copy-back"></view>
-						<view class="copy-front"></view>
-					</view>
-				</view>
-				<view class="utility-btn" @click="showImportMenu">
-					<view class="utility-expand">
-						<text class="expand-arrow">↗</text>
-					</view>
-				</view>
-				<view class="import-btn" @click="showImportMenu">
-					<text class="import-plus">+</text>
 				</view>
 			</view>
 		</view>
@@ -195,6 +195,8 @@
 </template>
 
 <script>
+import NavBar from '@/components/nav-bar/nav-bar.vue'
+
 const PERIOD_HEIGHT = 140
 const PERIOD_GAP = 8
 const PERIODS = [
@@ -238,6 +240,7 @@ const isWeekInRange = (weekRange, currentWeek) => {
 
 export default {
 	name: 'ScheduleBoard',
+	components: { NavBar },
 	props: {
 		// 是否显示 Header Bar（独立页面时显示）
 		showHeader: {
@@ -855,12 +858,23 @@ export default {
 	padding: 0 6rpx 20rpx;
 }
 
-.header-bar {
+.header-shell {
 	position: relative;
+	z-index: 3;
+}
+
+.header-module {
+	position: relative;
+	background: linear-gradient(180deg, #dff0ff 0%, #eaf5ff 100%);
+	border-bottom: 1rpx solid rgba(177, 208, 235, 0.55);
+	padding: 18rpx 28rpx 18rpx;
+}
+
+.header-main {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	padding: 14rpx 20rpx 14rpx;
+	padding: 8rpx 0 6rpx;
 }
 
 .header-left {
@@ -884,7 +898,7 @@ export default {
 }
 
 .week-text {
-	font-size: 21px;
+	font-size: 42rpx;
 	font-weight: 800;
 	color: #1D1D1F;
 	line-height: 1;
@@ -903,7 +917,7 @@ export default {
 
 .semester-text {
 	font-size: 20rpx;
-	color: #b0b4bb;
+	color: #8f97a3;
 }
 
 .header-actions {
