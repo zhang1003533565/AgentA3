@@ -5,7 +5,9 @@ import com.example.appbackend.dto.LoginRequest;
 import com.example.appbackend.dto.RegisterRequest;
 import com.example.appbackend.dto.PasswordChangeRequest;
 import com.example.appbackend.entity.Result;
+import com.example.appbackend.entity.User;
 import com.example.appbackend.service.UserService;
+import com.example.appbackend.util.JwtUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -23,6 +25,9 @@ public class AuthController {
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private JwtUtil jwtUtil;
 
     @Operation(summary = "用户注册", description = "注册新用户账号")
     @ApiResponses(value = {
@@ -78,6 +83,28 @@ public class AuthController {
         if(id==null){
             return Result.error(401,"用户不存在");
         }
+        return Result.success(response);
+    }
+
+    @Operation(summary = "获取当前登录用户信息", description = "获取当前登录用户的信息（根据 token）")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "获取成功"),
+        @ApiResponse(responseCode = "401", description = "未登录")
+    })
+    @GetMapping("/current-user")
+    public Result<UserResponse> getCurrentUserInfo(HttpServletRequest request) {
+        String username = (String) request.getAttribute("username");
+        if (username == null) {
+            return Result.error(401, "未登录");
+        }
+        User user = userService.findByUsername(username);
+        if (user == null) {
+            return Result.error(404, "用户不存在");
+        }
+        String roleName = user.getRole() != null ? user.getRole().getName() : "STUDENT";
+        String token = jwtUtil.generateToken(user.getUsername(), user.getId(), roleName);
+        UserResponse response = new UserResponse(token, user.getUsername(), roleName, user.getPhone(),
+                user.getRealName(), user.getCollege(), user.getMajor(), user.getClassName(), user.getPersonalNumber(), user.getShareCode());
         return Result.success(response);
     }
 

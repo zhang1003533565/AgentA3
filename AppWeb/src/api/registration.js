@@ -11,6 +11,13 @@ export const getRegistrationList = (activityId, params = {}) => {
   })
 }
 
+export const removeRegistrationByManager = (id) => {
+  return request({
+    url: `/api/registrations/${id}/manage`,
+    method: 'delete'
+  })
+}
+
 // 审核报名
 export const auditRegistration = (id, auditStatus, remark) => {
   return request({

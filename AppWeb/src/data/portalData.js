@@ -11,9 +11,6 @@ export const navigationSections = [
     items: [
       { path: '/activity/manage', label: '活动管理', icon: 'calendar', pageKey: 'activity-center' },
       { path: '/category/manage', label: '分类管理', icon: 'tags', pageKey: 'activity-category' },
-      { path: '/audit/manage', label: '报名审核', icon: 'audit', pageKey: 'activity-audit' },
-      { path: '/signin/manage', label: '签到管理', icon: 'environment', pageKey: 'activity-signin' },
-      { path: '/notice/manage', label: '通知管理', icon: 'notification', pageKey: 'activity-notice' },
     ],
   },
   {
@@ -84,7 +81,7 @@ export const navigationSections = [
 ]
 
 export const moduleCards = [
-  { title: '校园活动', description: '活动发布、分类、报名审核与签到', route: '/activity/manage' },
+  { title: '校园活动', description: '活动发布、分类与基础报名管理', route: '/activity/manage' },
   { title: '校园论坛', description: '帖子、评论、话题与内容治理', route: '/forum/post' },
   { title: '校园设施', description: '设施管理、地图关联与基础信息维护', route: '/facility/restaurant' },
   { title: '地图导航', description: '地图配置、标记管理与导航统计', route: '/map/config' },

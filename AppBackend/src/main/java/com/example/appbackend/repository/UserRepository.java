@@ -18,6 +18,10 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 
     boolean existsByEmail(String email);
 
+    boolean existsByShareCode(String shareCode);
+
+    Optional<User> findByShareCode(String shareCode);
+
     @Query("SELECT u FROM User u WHERE " +
            "(:username IS NULL OR u.username LIKE %:username%) AND " +
            "(:role IS NULL OR u.role.name = :role) AND " +

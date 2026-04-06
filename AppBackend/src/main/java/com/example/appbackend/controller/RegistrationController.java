@@ -76,6 +76,23 @@ public class RegistrationController {
         return Result.success();
     }
 
+    @Operation(summary = "管理端移除报名", description = "管理员或教师移除指定报名人")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "移除成功"),
+        @ApiResponse(responseCode = "401", description = "未登录"),
+        @ApiResponse(responseCode = "403", description = "无权限"),
+        @ApiResponse(responseCode = "404", description = "报名记录不存在")
+    })
+    @DeleteMapping("/{id}/manage")
+    public Result<Void> removeRegistrationByManager(
+            @Parameter(description = "报名记录ID", required = true, example = "1")
+            @PathVariable Long id,
+            HttpServletRequest request) {
+        checkRole(request);
+        registrationService.removeRegistrationByManager(id);
+        return Result.success();
+    }
+
     @Operation(summary = "我的报名列表", description = "获取当前用户的报名记录列表")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "获取成功"),
