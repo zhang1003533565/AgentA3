@@ -6,12 +6,15 @@
 		<!-- Header Bar（独立页面时显示） -->
 		<view v-if="showHeader" class="header-bar">
 			<view class="header-left">
-				<view class="back-btn" @click="goBack">
-					<image class="back-icon" src="/static/icons/back.png" mode="aspectFit" />
+				<view class="menu-btn" @click="goBack">
+					<view class="menu-line"></view>
+					<view class="menu-line"></view>
+					<view class="menu-line"></view>
 				</view>
 				<view class="week-info-wrapper">
 					<view class="week-info" @click="showWeekSelector">
 						<text class="week-text">第{{ currentWeek }}周</text>
+						<text class="week-caret">▼</text>
 					</view>
 					<view class="semester-info">
 						<text class="semester-text">{{ semester }}</text>
@@ -19,11 +22,19 @@
 				</view>
 			</view>
 			<view class="header-actions">
-				<view class="share-btn" @click="shareSchedule">
-					<image class="share-icon" src="/static/icons/share.png" mode="aspectFit" />
+				<view class="utility-btn" @click="shareSchedule">
+					<view class="utility-copy">
+						<view class="copy-back"></view>
+						<view class="copy-front"></view>
+					</view>
+				</view>
+				<view class="utility-btn" @click="showImportMenu">
+					<view class="utility-expand">
+						<text class="expand-arrow">↗</text>
+					</view>
 				</view>
 				<view class="import-btn" @click="showImportMenu">
-					<image class="import-icon" src="/static/icons/add.png" mode="aspectFit" />
+					<text class="import-plus">+</text>
 				</view>
 			</view>
 		</view>
@@ -102,32 +113,80 @@
 
 			<view class="board-card">
 				<view class="period-column">
-					<view v-for="period in periods" :key="period" class="period-item">
-						<text class="period-text">{{ period }}</text>
+					<view v-for="period in periods" :key="period.index" class="period-item">
+						<text class="period-text">{{ period.index }}</text>
+						<text class="period-time">{{ period.start }}</text>
+						<text class="period-time">{{ period.end }}</text>
 					</view>
 				</view>
 
 				<view class="course-board">
 					<!-- 横向分割线 -->
-					<view class="h-divider" v-for="i in periods.length" :key="'h'+i" :style="{ top: (i - 1) * 260 + 'rpx' }"></view>
+					<view
+						class="h-divider"
+						v-for="i in periods.length"
+						:key="'h'+i"
+						:style="{ top: (i - 1) * (periodHeight + periodGap) + 'rpx' }"
+					></view>
 					<!-- 底部边界线 -->
-					<view class="h-divider" :style="{ top: periods.length * 260 + 'rpx' }"></view>
+					<view class="h-divider" :style="{ top: periods.length * (periodHeight + periodGap) + 'rpx' }"></view>
 
 					<!-- 纵向分割线 -->
 					<view class="v-divider" v-for="i in 6" :key="'v'+i" :style="{ left: (i * (100 / 7)) + '%' }"></view>
 
 					<!-- 课程卡片 -->
 					<view
-						v-for="course in visibleCourses"
-						:key="course.id"
+						v-for="course in displayCourses"
+						:key="course.renderId || course.id"
 						class="course-block"
-						:class="`course-block--${course.theme}`"
+						:class="[
+							`course-block--${course.theme}`,
+							{
+								'course-block--inactive': !course.isCurrentWeek,
+								'course-block--with-banner': shouldShowNonCurrentFlag(course)
+							}
+						]"
 						:style="courseStyle(course)"
 						@click="goToDetail(course)"
 					>
-						<text class="course-title">{{ course.name }}</text>
-						<text class="course-meta"></text>
-						<text class="course-meta">{{ course.location }}</text>
+						<view
+							class="course-accent"
+							:class="{ 'course-accent--hidden': shouldShowNonCurrentFlag(course) }"
+						></view>
+						<view v-if="getSlotCourseCount(course) > 1" class="course-badge">
+							{{ getSlotCourseCount(course) }}
+						</view>
+						<view v-if="shouldShowNonCurrentFlag(course)" class="course-week-banner">非本周</view>
+						<view class="course-content">
+							<text class="course-title">{{ course.name }}@{{ course.location }}</text>
+						</view>
+					</view>
+				</view>
+			</view>
+		</view>
+
+		<view v-if="showCoursePopup" class="course-popup-mask" @click="closeCoursePopup">
+			<view class="course-popup-stack" @click.stop>
+				<view v-if="courseDetailLoading" class="course-popup course-popup--loading">
+					<view class="course-popup-loading">加载中...</view>
+				</view>
+				<view
+					v-else
+					v-for="course in popupCourses"
+					:key="`popup-${course.id}`"
+					class="course-popup"
+				>
+					<view class="course-popup-header">
+						<view class="course-popup-title-wrap">
+							<text class="course-popup-title">{{ course.courseName || course.name }}</text>
+						</view>
+						<view class="course-popup-edit" @click="closeCoursePopup">关闭</view>
+					</view>
+					<view class="course-popup-body">
+						<text class="course-popup-weeks">{{ course.weekRange || '周次待同步' }}</text>
+						<text class="course-popup-line">{{ formatPopupSchedule(course) }}</text>
+						<text class="course-popup-line">教室: {{ course.location || '-' }}</text>
+						<text class="course-popup-line">老师: {{ course.teacherName || '-' }}</text>
 					</view>
 				</view>
 			</view>
@@ -136,6 +195,47 @@
 </template>
 
 <script>
+const PERIOD_HEIGHT = 140
+const PERIOD_GAP = 8
+const PERIODS = [
+	{ index: 1, start: '08:00', end: '08:45' },
+	{ index: 2, start: '08:55', end: '09:40' },
+	{ index: 3, start: '10:00', end: '10:45' },
+	{ index: 4, start: '10:55', end: '11:40' },
+	{ index: 5, start: '14:30', end: '15:15' },
+	{ index: 6, start: '15:25', end: '16:10' },
+	{ index: 7, start: '16:20', end: '17:05' },
+	{ index: 8, start: '17:15', end: '18:00' },
+	{ index: 9, start: '18:30', end: '19:15' },
+	{ index: 10, start: '19:25', end: '20:10' }
+]
+
+const isWeekInRange = (weekRange, currentWeek) => {
+	if (!weekRange || !currentWeek) return false
+	const normalized = String(weekRange).replace(/\s+/g, '')
+	const parts = normalized.split(/[，,]/).filter(Boolean)
+
+	return parts.some((part) => {
+		const oddOnly = part.includes('单')
+		const evenOnly = part.includes('双')
+		const purePart = part.replace(/\(单\)|\(双\)|单|双|周/g, '')
+
+		if (purePart.includes('-')) {
+			const [start, end] = purePart.split('-').map(Number)
+			if (!start || !end || currentWeek < start || currentWeek > end) return false
+			if (oddOnly && currentWeek % 2 === 0) return false
+			if (evenOnly && currentWeek % 2 !== 0) return false
+			return true
+		}
+
+		const week = Number(purePart)
+		if (!week || week !== currentWeek) return false
+		if (oddOnly && currentWeek % 2 === 0) return false
+		if (evenOnly && currentWeek % 2 !== 0) return false
+		return true
+	})
+}
+
 export default {
 	name: 'ScheduleBoard',
 	props: {
@@ -149,7 +249,9 @@ export default {
 		return {
 			currentWeek: 1,
 			currentWeekday: new Date().getDay() || 7,
-			periods: [1, 2, 3, 4, 5],
+			periods: PERIODS,
+			periodHeight: PERIOD_HEIGHT,
+			periodGap: PERIOD_GAP,
 			courses: [],
 			loading: false,
 			currentMonth: 3,
@@ -160,6 +262,10 @@ export default {
 			shareCodeInput: '',
 			semesterStart: '',
 			myShareCode: '',
+			showCoursePopup: false,
+			courseDetailLoading: false,
+			selectedCourse: {},
+			popupCourses: [],
 			// 触摸滑动相关
 			touchStartX: 0,
 			touchStartY: 0,
@@ -172,8 +278,24 @@ export default {
 		this.calculateWeekDates()
 	},
 	computed: {
-		visibleCourses() {
-			return this.courses.filter((course) => course.week === this.currentWeek)
+		displayCourses() {
+			const grouped = new Map()
+			this.courses.forEach((course) => {
+				const key = this.getSlotKey(course)
+				if (!grouped.has(key)) {
+					grouped.set(key, [])
+				}
+				grouped.get(key).push(course)
+			})
+
+			return Array.from(grouped.values()).map((slotCourses) => {
+				const currentCourse = slotCourses.find((item) => item.isCurrentWeek)
+				const representative = currentCourse || slotCourses[0]
+				return {
+					...representative,
+					slotCount: slotCourses.length
+				}
+			})
 		}
 	},
 	methods: {
@@ -188,19 +310,18 @@ export default {
 						'Authorization': 'Bearer ' + token
 					},
 					success: (res) => {
-						this.loading = false
 						if (res.statusCode === 200 && res.data.code === 200) {
 							const scheduleData = res.data.data
 							this.currentWeek = scheduleData.currentWeek || 1
-							this.courses = this.transformScheduleData(scheduleData.schedule || [])
 							if (scheduleData.semester) {
 								this.semester = scheduleData.semester
 							}
 							if (scheduleData.semesterStart) {
 								this.semesterStart = scheduleData.semesterStart
 							}
-							this.calculateWeekDates()
+							this.loadAllSchedules(token)
 						} else {
+							this.loading = false
 							uni.showToast({
 								title: res.data.message || '获取课表失败',
 								icon: 'none'
@@ -225,21 +346,54 @@ export default {
 				})
 			}
 		},
+		loadAllSchedules(token) {
+			uni.request({
+				url: 'http://localhost:8080/api/schedule',
+				method: 'GET',
+				header: {
+					'Authorization': 'Bearer ' + token
+				},
+				success: (res) => {
+					this.loading = false
+					if (res.statusCode === 200 && res.data.code === 200) {
+						this.courses = this.transformScheduleData(res.data.data || [])
+						this.calculateWeekDates()
+						return
+					}
+					uni.showToast({
+						title: res.data.message || '获取课表失败',
+						icon: 'none'
+					})
+				},
+				fail: (err) => {
+					this.loading = false
+					console.error('加载全部课表失败:', err)
+					uni.showToast({
+						title: '加载失败',
+						icon: 'none'
+					})
+				}
+			})
+		},
 
 		transformScheduleData(scheduleList) {
 			const themes = ['green', 'red', 'orange', 'yellow', 'blue', 'purple']
-
-			return scheduleList.map((item, index) => {
+			return scheduleList.flatMap((item, index) => {
+				const courseName = item.courseName || item.name || ''
+				const teacherName = item.teacherName || ''
+				const location = item.location || ''
+				const classSessions = item.classSessions || ''
+				const weekRange = item.weekRange || ''
 				let startSection = 1
 				let endSection = 1
 
-				if (item.classSessions) {
-					const match = item.classSessions.match(/(\d+)-(\d+)\s*节/)
+				if (classSessions) {
+					const match = classSessions.match(/(\d+)-(\d+)\s*节/)
 					if (match) {
 						startSection = parseInt(match[1])
 						endSection = parseInt(match[2])
 					} else {
-						const singleMatch = item.classSessions.match(/(\d+)\s*节/)
+						const singleMatch = classSessions.match(/(\d+)\s*节/)
 						if (singleMatch) {
 							startSection = parseInt(singleMatch[1])
 							endSection = startSection
@@ -247,20 +401,27 @@ export default {
 					}
 				}
 
-				// 每两节课为一行：1-2 节=第 1 行，3-4 节=第 2 行，5-6 节=第 3 行，7-8 节=第 4 行
-				const startRow = Math.ceil(startSection / 2)
-				const endRow = Math.ceil(endSection / 2)
-
-				return {
-					id: item.id,
-					week: this.currentWeek,
-					weekday: item.weekday || 1,
-					name: item.courseName,
-					location: item.location || '',
-					start: startRow,
-					end: endRow,
-					theme: themes[index % themes.length]
+				const courseChunks = []
+				for (let chunkStart = startSection; chunkStart <= endSection; chunkStart += 2) {
+					const chunkEnd = Math.min(chunkStart + 1, endSection)
+					courseChunks.push({
+						id: item.id,
+						renderId: `${item.id}-${chunkStart}-${chunkEnd}`,
+						weekday: item.weekday || 1,
+						name: courseName,
+						courseName,
+						teacherName,
+						location,
+						classSessions,
+						weekRange,
+						start: chunkStart,
+						end: chunkEnd,
+						theme: themes[index % themes.length],
+						isCurrentWeek: isWeekInRange(weekRange, this.currentWeek)
+					})
 				}
+
+				return courseChunks
 			})
 		},
 
@@ -341,86 +502,121 @@ export default {
 			})
 		},
 		loadWeekSchedule(week) {
-			uni.showLoading({
-				title: '加载中...'
-			})
-			const token = uni.getStorageSync('token') || ''
-			uni.request({
-				url: `http://localhost:8080/api/browser/jwx/schedule/week/${week}`,
-				method: 'GET',
-				header: {
-					'Authorization': 'Bearer ' + token
-				},
-				success: (res) => {
-					uni.hideLoading()
-					if (res.statusCode === 200 && res.data.code === 200) {
-						const scheduleData = res.data.data
-						this.currentWeek = scheduleData.currentWeek || week
-						this.courses = this.transformScheduleData(scheduleData.schedule || [])
-						if (scheduleData.semester) {
-							this.semester = scheduleData.semester
-						}
-						this.calculateWeekDates()
-					} else {
-						uni.showToast({
-							title: res.data.message || '获取课表失败',
-							icon: 'none'
-						})
-					}
-				},
-				fail: (err) => {
-					uni.hideLoading()
-					console.error('加载课表失败:', err)
-					uni.showToast({
-						title: '加载失败',
-						icon: 'none'
-					})
-				}
-			})
+			this.currentWeek = week
+			this.courses = this.transformScheduleData(this.courses)
+			this.calculateWeekDates()
+		},
+		getSlotKey(course) {
+			return [course.weekday, course.start, course.end].join('-')
+		},
+		getSlotCourses(course) {
+			const key = this.getSlotKey(course)
+			return this.courses.filter((item) => this.getSlotKey(item) === key)
+		},
+		getSlotCourseCount(course) {
+			return course.slotCount || this.getSlotCourses(course).length
+		},
+		shouldShowNonCurrentFlag(course) {
+			// 只有当前选中日的课程槽，本周无课但存在跨周课程时，才显示“非本周”
+			return course.weekday === this.currentWeekday && !course.isCurrentWeek
 		},
 		courseStyle(course) {
-			const rowHeight = 240  // 每节的高度
-			const gap = 20         // 节间距
-			const boardWidth = 100 // 课程面板宽度百分比
-			const columnWidth = boardWidth / 7 // 每个星期列的宽度百分比
+			const rowHeight = this.periodHeight
+			const gap = this.periodGap
 
-			// 课程顶部位置：(节次 -1) * 每节高度 (260rpx = 240 + 20) + 10rpx 上边距
-			const top = (course.start - 1) * (rowHeight + gap) + 10
+			const top = (course.start - 1) * (rowHeight + gap)
 
-			// 课程高度：课程行数 * 每节高度 + 行数间距 - 8rpx 下边距
 			const numRows = course.end - course.start + 1
-			const height = numRows * rowHeight + (numRows - 1) * gap - 16
+			// 完全铺满，不留间隙
+			const height = numRows * rowHeight + (numRows - 1) * gap
 
-			// 同一列中同一时间段的课程处理
-			const sameColumnCourses = this.courses.filter(
-				(item) => item.weekday === course.weekday && item.start === course.start && item.end === course.end
-			)
-			const order = sameColumnCourses.findIndex((item) => item.id === course.id)
-
-			// 课程宽度：如果同一位置有多个课程，则平分列宽
-			const baseWidth = columnWidth - 2 // 每列基础宽度减去边距
-			const width = sameColumnCourses.length > 1 ? (baseWidth - 2) / sameColumnCourses.length : baseWidth
-
-			// 计算该列的起始位置
-			const columnLeft = (course.weekday - 1) * columnWidth + 1
-			// 同一列中多个课程的偏移
-			const offset = order * (width + 2)
-			const left = columnLeft + offset
+			// 使用 calc 计算精确宽度：100% / 7 列，不留边距
+			const columnIndex = course.weekday - 1
+			const left = `calc(${columnIndex} * (100% / 7))`
+			const width = `calc(100% / 7)`
 
 			return {
 				top: `${top}rpx`,
-				left: `${left}%`,
+				left: left,
 				height: `${height}rpx`,
-				width: `${width}%`
+				width: width
 			}
 		},
-		goToDetail(course) {
-			uni.navigateTo({
-				url: `/subpackage_schedule/scheduleDetail/scheduleDetail?id=${course.id}`
-			})
+		async goToDetail(course) {
+			this.showCoursePopup = true
+			this.courseDetailLoading = true
+			const slotCourses = this.getSlotCourses(course)
+			this.selectedCourse = { ...course }
+			this.popupCourses = slotCourses.map((item) => ({ ...item }))
+
+			try {
+				const token = uni.getStorageSync('token') || ''
+				const detailRequests = slotCourses.map((item) => new Promise((resolve) => {
+					uni.request({
+						url: `http://localhost:8080/api/browser/jwx/schedule/${item.id}`,
+						method: 'GET',
+						header: {
+							'Authorization': 'Bearer ' + token
+						},
+						success: (res) => {
+							if (res.statusCode === 200 && res.data.code === 200 && res.data.data?.course) {
+								resolve({
+									...item,
+									...res.data.data.course
+								})
+								return
+							}
+							resolve(item)
+						},
+						fail: () => resolve(item)
+					})
+				}))
+
+				const detailCourses = await Promise.all(detailRequests)
+				this.popupCourses = detailCourses
+				this.selectedCourse = detailCourses[0] || { ...course }
+			} finally {
+				this.courseDetailLoading = false
+			}
+		},
+		closeCoursePopup() {
+			this.showCoursePopup = false
+			this.popupCourses = []
 		},
 		switchDay(day) {
 			this.currentWeekday = day
+		},
+		getWeekdayLabel(day) {
+			const names = ['日', '一', '二', '三', '四', '五', '六']
+			return `周${names[day] || ''}`
+		},
+		formatPopupSchedule(course) {
+			if (!course) return '-'
+			const weekText = this.getWeekdayLabel(course.weekday || 1)
+			const sessionText = course.classSessions || `${course.start || '-'}-${course.end || '-'}节`
+			const timeText = this.getTimeRangeBySessions(course.classSessions, course.start, course.end)
+			return `${weekText} | ${sessionText}${timeText ? ` | ${timeText}` : ''}`
+		},
+		getTimeRangeBySessions(classSessions, startSection, endSection) {
+			let start = startSection
+			let end = endSection
+			if (classSessions) {
+				const match = classSessions.match(/(\d+)-(\d+)\s*节/)
+				if (match) {
+					start = Number(match[1])
+					end = Number(match[2])
+				} else {
+					const singleMatch = classSessions.match(/(\d+)\s*节/)
+					if (singleMatch) {
+						start = Number(singleMatch[1])
+						end = Number(singleMatch[1])
+					}
+				}
+			}
+			const startPeriod = this.periods.find((item) => item.index === Number(start))
+			const endPeriod = this.periods.find((item) => item.index === Number(end))
+			if (!startPeriod || !endPeriod) return ''
+			return `${startPeriod.start}-${endPeriod.end}`
 		},
 		// 导入课表
 		importSchedule() {
@@ -650,54 +846,27 @@ export default {
 .schedule-page {
 	position: relative;
 	min-height: 100vh;
-	background: #fff;
+	background: #ffffff;
 }
 
 .schedule-shell {
 	position: relative;
 	z-index: 2;
-	padding: 18rpx 18rpx 36rpx;
+	padding: 0 6rpx 20rpx;
 }
 
 .header-bar {
 	position: relative;
 	display: flex;
-	flex-direction: column;
-	padding: 12rpx 30rpx 24rpx;
+	align-items: center;
+	justify-content: space-between;
+	padding: 14rpx 20rpx 14rpx;
 }
 
 .header-left {
 	display: flex;
 	align-items: center;
-	justify-content: flex-start;
-}
-
-.header-actions {
-	position: absolute;
-	right: 30rpx;
-	top: 50%;
-	transform: translateY(-50%);
-	display: flex;
-	align-items: center;
-}
-
-.back-btn {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 72rpx;
-	height: 72rpx;
-}
-
-.back-icon {
-	width: 56rpx;
-	height: 56rpx;
-}
-
-.header-left {
-	display: flex;
-	align-items: center;
-	gap: 16rpx;
+	gap: 14rpx;
 }
 
 .week-info-wrapper {
@@ -710,20 +879,21 @@ export default {
 .week-info {
 	display: flex;
 	align-items: center;
-	gap: 4rpx;
+	gap: 8rpx;
 	cursor: pointer;
-	opacity: 0.9;
-	transition: opacity 0.2s;
-}
-
-.week-info:active {
-	opacity: 0.6;
 }
 
 .week-text {
-	font-size: 40rpx;
+	font-size: 21px;
 	font-weight: 800;
 	color: #1D1D1F;
+	line-height: 1;
+}
+
+.week-caret {
+	font-size: 22rpx;
+	color: #333;
+	margin-top: 4rpx;
 }
 
 .semester-info {
@@ -732,47 +902,104 @@ export default {
 }
 
 .semester-text {
-	font-size: 22rpx;
-	color: #999;
+	font-size: 20rpx;
+	color: #b0b4bb;
 }
 
 .header-actions {
-	position: absolute;
-	right: 30rpx;
-	top: 50%;
-	transform: translateY(-50%);
 	display: flex;
 	align-items: center;
-	gap: 20rpx;
+	gap: 18rpx;
 }
 
-.share-btn {
+.menu-btn {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	width: 44rpx;
+	height: 44rpx;
+	gap: 6rpx;
+}
+
+.menu-line {
+	width: 26rpx;
+	height: 3rpx;
+	border-radius: 999rpx;
+	background: #1d1d1f;
+}
+
+.utility-btn {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 72rpx;
-	height: 72rpx;
+	width: 48rpx;
+	height: 48rpx;
 }
 
-.share-icon {
-	width: 56rpx;
-	height: 56rpx;
+.utility-copy {
+	position: relative;
+	width: 32rpx;
+	height: 32rpx;
+}
+
+.copy-back,
+.copy-front {
+	position: absolute;
+	border: 3rpx solid #1d1d1f;
+	border-radius: 8rpx;
+	background: transparent;
+}
+
+.copy-back {
+	width: 22rpx;
+	height: 22rpx;
+	left: 10rpx;
+	top: 0;
+	opacity: 0.7;
+}
+
+.copy-front {
+	width: 22rpx;
+	height: 22rpx;
+	left: 2rpx;
+	top: 8rpx;
+}
+
+.utility-expand {
+	width: 34rpx;
+	height: 34rpx;
+	border: 3rpx solid #1d1d1f;
+	border-radius: 10rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+}
+
+.expand-arrow {
+	font-size: 24rpx;
+	font-weight: 700;
+	color: #1d1d1f;
+	line-height: 1;
 }
 
 .import-btn {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 72rpx;
-	height: 72rpx;
+	width: 52rpx;
+	height: 52rpx;
 	background: #1D1D1F;
-	border-radius: 16rpx;
+	border-radius: 12rpx;
 }
 
-.import-icon {
-	width: 56rpx;
-	height: 56rpx;
-	filter: brightness(0) invert(1);
+.import-plus {
+	color: #fff;
+	font-size: 40rpx;
+	font-weight: 500;
+	line-height: 1;
+	margin-top: -4rpx;
 }
 
 // 导入弹窗
@@ -918,18 +1145,19 @@ export default {
 
 .weekday-bar {
 	display: grid;
-	grid-template-columns: 50rpx repeat(7, 1fr);
+	grid-template-columns: 52rpx repeat(7, 1fr);
 	align-items: center;
-	background: #f5f5f5;
-	border-radius: 22rpx 22rpx 0 0;
-	padding: 12rpx 6rpx 6rpx;
+	background: #ffffff;
+	padding: 0 0 6rpx;
+	border-bottom: 1rpx solid #f3f4f7;
 }
 
 .month-label {
-	font-size: 24rpx;
-	color: #999;
+	font-size: 20rpx;
+	color: #9ca2aa;
 	text-align: center;
-	font-weight: 500;
+	font-weight: 600;
+	line-height: 1.15;
 }
 
 .weekday-item {
@@ -937,63 +1165,84 @@ export default {
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	padding: 6rpx 0;
-	gap: 2rpx;
+	padding: 4rpx 0;
+	gap: 4rpx;
 }
 
 .weekday-name {
-	font-size: 28rpx;
+	font-size: 20rpx;
 	font-weight: 600;
-	color: #666;
+	color: #747981;
 }
 
 .weekday-date {
-	font-size: 22rpx;
-	color: #999;
-	margin-top: 4rpx;
+	width: 42rpx;
+	height: 42rpx;
+	border-radius: 10rpx;
+	background: transparent;
+	font-size: 20rpx;
+	color: #a8adb5;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-weight: 600;
 }
 
 .weekday-item.active .weekday-name {
-	color: #007aff;
-	font-weight: 700;
+	color: #1d1d1f;
 }
 
 .weekday-item.active .weekday-date {
-	color: #007aff;
+	color: #ffffff;
+	background: #111111;
 }
 
 .board-card {
 	display: flex;
 	align-items: flex-start;
 	background: #fff;
-	padding: 18rpx 14rpx 18rpx 10rpx;
-	border-radius: 0 0 24rpx 24rpx;
-	min-height: 1350rpx;
+	padding: 2rpx 0 10rpx;
+	min-height: 1280rpx;
 }
 
 .period-column {
-	width: 50rpx;
-	padding-top: 8rpx;
+	width: 52rpx;
+	padding-top: 0;
 }
 
 .period-item {
-	height: 260rpx;
+	height: 148rpx;
 	display: flex;
+	flex-direction: column;
 	align-items: center;
-	justify-content: center;
+	justify-content: flex-start;
+	gap: 4rpx;
+	padding-top: 8rpx;
+	box-sizing: border-box;
+	border-bottom: 1rpx solid #f0f0f0;
 }
 
 .period-text {
-	font-size: 28rpx;
-	color: #999;
-	font-weight: 500;
+	font-size: 24rpx;
+	color: #6b7280;
+	font-weight: 700;
+	line-height: 1;
+}
+
+.period-time {
+	font-size: 16rpx;
+	color: #9ca3af;
+	line-height: 1.3;
 }
 
 .course-board {
 	position: relative;
 	flex: 1;
-	min-height: 1300rpx;
-	margin-left: 12rpx;
+	min-height: 1280rpx;
+	margin-left: 2rpx;
+	background:
+		linear-gradient(to right, #f4f5f8 1rpx, transparent 1rpx) 0 0 / calc(100% / 7) 100%,
+		transparent;
 }
 
 /* 横向分割线 */
@@ -1002,7 +1251,7 @@ export default {
 	left: 0;
 	right: 0;
 	height: 1rpx;
-	background: #e5e5e5;
+	background: #f5f6f9;
 	z-index: 1;
 }
 
@@ -1012,64 +1261,256 @@ export default {
 	top: 0;
 	bottom: 0;
 	width: 1rpx;
-	background: #e5e5e5;
+	background: #f4f5f8;
 	z-index: 1;
 }
 
 .course-block {
 	position: absolute;
-	border-radius: 8rpx;
-	padding: 12rpx 8rpx;
+	border-radius: 16rpx;
+	padding: 14rpx 4rpx 12rpx;
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
 	justify-content: flex-start;
+	align-items: center;
+	z-index: 2;
+	box-sizing: border-box;
+	box-shadow: inset 0 0 0 2rpx rgba(255, 255, 255, 0.95);
+	background-clip: padding-box;
+}
+
+.course-block--with-banner {
+	padding-top: 32rpx;
+}
+
+.course-content {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding-top: 0;
+	box-sizing: border-box;
+	flex: 1;
+}
+
+.course-accent {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: 20rpx;
+	border-radius: 16rpx 16rpx 0 0;
+	opacity: 1;
+}
+
+.course-accent--hidden {
+	display: none;
+}
+
+.course-badge {
+	position: absolute;
+	top: -2rpx;
+	right: 0rpx;
+	min-width: 20rpx;
+	height: 22rpx;
+	padding: 0 2rpx;
+	border-radius: 999rpx;
+	background: #8f7cf7;
+	color: #ffffff;
+	font-size: 13rpx;
+	font-weight: 700;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 3rpx solid #ffffff;
+	box-shadow: 0 2rpx 6rpx rgba(143, 124, 247, 0.12);
+	z-index: 4;
+	line-height: 1;
+}
+
+.course-week-banner {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: 34rpx;
+	background: #aeb4bc;
+	color: #ffffff;
+	font-size: 16rpx;
+	font-weight: 600;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 16rpx 16rpx 0 0;
+	letter-spacing: 0;
 	z-index: 2;
 }
 
-/* 课程颜色主题 - 柔和马卡龙色系 */
+/* 课程颜色主题 - 贴近参考图 */
 .course-block--green {
-	background: linear-gradient(135deg, #c8f5dc 0%, #95e8b8 100%);
-	color: #1a7f4b;
+	background: #e8f5f0;
+	color: #5cb8a3;
+}
+.course-block--green .course-accent {
+	background: #7dd3c0;
 }
 .course-block--red {
-	background: linear-gradient(135deg, #ffd6d6 0%, #ffb3b3 100%);
-	color: #c41e3a;
+	background: #f5f5f5;
+	color: #9ca3af;
+}
+.course-block--red .course-accent {
+	background: #d1d5db;
 }
 .course-block--orange {
-	background: linear-gradient(135deg, #ffe5cc 0%, #ffcc99 100%);
-	color: #cc6600;
+	background: #fff8e1;
+	color: #f59e0b;
+}
+.course-block--orange .course-accent {
+	background: #fbbf24;
 }
 .course-block--yellow {
-	background: linear-gradient(135deg, #fff5cc 0%, #ffe680 100%);
-	color: #b38f00;
+	background: #fefce8;
+	color: #eab308;
+}
+.course-block--yellow .course-accent {
+	background: #facc15;
 }
 .course-block--blue {
-	background: linear-gradient(135deg, #d6ebff 0%, #99d6ff 100%);
-	color: #0066cc;
+	background: #eff6ff;
+	color: #3b82f6;
+}
+.course-block--blue .course-accent {
+	background: #60a5fa;
 }
 .course-block--purple {
-	background: linear-gradient(135deg, #e8d6ff 0%, #cc99ff 100%);
-	color: #6633cc;
+	background: #faf5ff;
+	color: #a855f7;
+}
+.course-block--purple .course-accent {
+	background: #c084fc;
 }
 
-.course-title,
-.course-meta {
-	display: block;
-	color: rgba(0, 0, 0, 0.75);
-	line-height: 1.4;
-	word-break: break-all;
-	text-align: center;
+.course-block--inactive {
+	background: #f3f4f6 !important;
+	color: #9ca3af !important;
+}
+
+.course-block--inactive .course-accent {
+	background: #d1d5db !important;
 }
 
 .course-title {
-	font-size: 24rpx;
-	font-weight: 600;
+	display: block;
+	line-height: 1.3;
+	word-break: break-all;
+	text-align: center;
+	max-width: 100%;
+	writing-mode: horizontal-tb;
+	text-orientation: mixed;
+	letter-spacing: 0;
+	white-space: normal;
 }
 
-.course-meta {
-	margin-top: 4rpx;
-	font-size: 18rpx;
-	font-weight: 400;
+.course-title {
+	font-size: 22rpx;
+	font-weight: 700;
+	margin-top: 0;
+	line-height: 1.22;
+}
+
+.course-popup-mask {
+	position: fixed;
+	inset: 0;
+	background: rgba(255, 255, 255, 0.62);
+	backdrop-filter: blur(6px);
+	-webkit-backdrop-filter: blur(6px);
+	z-index: 1200;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24rpx;
+	box-sizing: border-box;
+}
+
+.course-popup-stack {
+	width: 100%;
+	max-width: 620rpx;
+	display: flex;
+	flex-direction: column;
+	gap: 22rpx;
+}
+
+.course-popup {
+	width: 100%;
+	background: rgba(240, 243, 247, 0.96);
+	border-radius: 28rpx;
+	padding: 28rpx 30rpx;
+	box-sizing: border-box;
+	box-shadow: 0 18rpx 40rpx rgba(31, 35, 41, 0.12);
+}
+
+.course-popup--loading {
+	min-height: 180rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.course-popup-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16rpx;
+	margin-bottom: 18rpx;
+}
+
+.course-popup-title-wrap {
+	flex: 1;
+}
+
+.course-popup-title {
+	display: block;
+	font-size: 38rpx;
+	font-weight: 700;
+	color: #1f2329;
+	line-height: 1.3;
+}
+
+.course-popup-edit {
+	flex-shrink: 0;
+	min-width: 90rpx;
+	height: 54rpx;
+	border-radius: 14rpx;
+	background: #ffffff;
+	color: #8a8f98;
+	font-size: 24rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.course-popup-body {
+	display: flex;
+	flex-direction: column;
+	gap: 16rpx;
+}
+
+.course-popup-weeks {
+	font-size: 30rpx;
+	color: #50555d;
+	font-weight: 500;
+}
+
+.course-popup-line {
+	font-size: 29rpx;
+	color: #737983;
+	line-height: 1.55;
+}
+
+.course-popup-loading {
+	font-size: 28rpx;
+	color: #737983;
+	padding: 20rpx 0;
 }
 </style>
