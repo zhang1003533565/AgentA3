@@ -11,20 +11,6 @@
             <text class="user-id">学号 {{ userInfo ? (userInfo.studentId || '—') : '—' }}</text>
           </view>
         </view>
-        <view class="stats-row">
-          <view class="stat-item" @click="onStatClick('points')">
-            <text class="stat-value">{{ stats.points }}</text>
-            <text class="stat-label">我的积分</text>
-          </view>
-          <view class="stat-item" @click="onStatClick('cert')">
-            <text class="stat-value">{{ stats.certCount }}</text>
-            <text class="stat-label">获得证书</text>
-          </view>
-          <view class="stat-item" @click="onStatClick('pending')">
-            <text class="stat-value">{{ stats.pending }}</text>
-            <text class="stat-label">待办申请</text>
-          </view>
-        </view>
       </view>
       <!-- 12px 灰色隔离条 -->
       <view class="gap-bar"></view>
@@ -34,14 +20,6 @@
           <view class="cell-left">
             <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/calendar.svg" mode="aspectFit" /></view>
             <text class="cell-label">我的课表</text>
-          </view>
-          <text class="cell-arrow">›</text>
-        </view>
-        <view class="cell-divider"></view>
-        <view class="cell" @click="goToGrade">
-          <view class="cell-left">
-            <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/award.svg" mode="aspectFit" /></view>
-            <text class="cell-label">成绩查询</text>
           </view>
           <text class="cell-arrow">›</text>
         </view>
@@ -82,8 +60,6 @@
 <script>
 import AppMainTabBar from '@/components/app-main-tab-bar/app-main-tab-bar.vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getMyRegistrations } from '@/api/registration.js'
-import { getMyFavoriteList } from '@/api/activity.js'
 import { getUserInfo } from '@/utils/storage.js'
 
 export default {
@@ -91,21 +67,14 @@ export default {
   data() {
     return {
       userInfo: null,
-      userAvatar: '',
-      stats: {
-        points: 0,
-        certCount: 0,
-        pending: 0
-      }
+      userAvatar: ''
     }
   },
   onLoad() {
     this.loadUser()
-    this.loadStats()
   },
   onShow() {
     this.loadUser()
-    this.loadStats()
   },
   methods: {
     loadUser() {
@@ -118,40 +87,11 @@ export default {
       const seed = info.realName || info.username || info.studentId || 'mine-user'
       this.userAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`
     },
-    async loadStats() {
-      try {
-        const [registrationRes, favoriteRes] = await Promise.all([
-          getMyRegistrations({ page: 1, size: 100 }),
-          getMyFavoriteList({ page: 1, size: 100 })
-        ])
-        const registrations = registrationRes?.data?.records || []
-        const favorites = favoriteRes?.data?.records || []
-        const pendingCount = registrations.filter((item) => item.status === 'PENDING').length
-        const approvedCount = registrations.filter((item) => item.status === 'APPROVED').length
-        this.stats = {
-          points: approvedCount * 10 + favorites.length * 2,
-          certCount: approvedCount,
-          pending: pendingCount
-        }
-      } catch (error) {
-        this.stats = { points: 0, certCount: 0, pending: 0 }
-      }
-    },
-    onStatClick(type) {
-      if (type === 'pending' || type === 'cert') {
-        this.goToMyActivity()
-        return
-      }
-      uni.showToast({ title: '积分体系暂未接入', icon: 'none' })
-    },
     goToSchedule() {
       uni.navigateTo({ url: '/subpackage_schedule/schedule/schedule' })
     },
-    goToGrade() {
-      uni.navigateTo({ url: '/pages/grade/grade' })
-    },
     goToMyActivity() {
-      uni.navigateTo({ url: '/subpackage_community/communityActivity/communityActivity' })
+      uni.navigateTo({ url: '/subpackage_community/myActivities/myActivities' })
     },
     goToChangePassword() {
       uni.navigateTo({ url: '/pages/changePassword/changePassword' })
@@ -219,30 +159,6 @@ export default {
   color: #1D1D1F;
 }
 .user-id {
-  font-size: 24rpx;
-  font-weight: 400;
-  color: #8E8E93;
-}
-.stats-row {
-  display: flex;
-  align-items: stretch;
-  justify-content: space-around;
-  padding-top: 32rpx;
-  border-top: 1px solid #F2F2F7;
-}
-.stat-item {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8rpx;
-}
-.stat-value {
-  font-size: 40rpx;
-  font-weight: 700;
-  color: #1D1D1F;
-}
-.stat-label {
   font-size: 24rpx;
   font-weight: 400;
   color: #8E8E93;

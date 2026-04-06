@@ -82,7 +82,7 @@
 			</view>
 
 			<view class="supplement-grid">
-				<view class="supplement-card supplement-card--ai" @click="goToServiceHub('AI创作')">
+				<view class="supplement-card supplement-card--ai" @click="navigate('/subpackage_ai/aiCreate/aiCreate')">
 					<text class="supplement-title">AI创作</text>
 					<text class="supplement-desc">文案、海报与灵感生成</text>
 					<view class="supplement-arrow">›</view>

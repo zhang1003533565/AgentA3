@@ -314,6 +314,15 @@
 			"root": "subpackage_community",
 			"pages": [
 				{
+					"path": "myActivities/myActivities",
+					"style": {
+						"navigationBarTitleText": "我的活动",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "communityActivity/communityActivity",
 					"style": {
 						"navigationBarTitleText": "社区活动",
