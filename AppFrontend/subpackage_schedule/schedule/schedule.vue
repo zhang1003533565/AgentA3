@@ -142,6 +142,7 @@
 						:class="[
 							`course-block--${course.theme}`,
 							{
+								'course-block--inactive': !course.isCurrentWeek,
 								'course-block--with-banner': shouldShowNonCurrentFlag(course)
 							}
 						]"
@@ -1403,6 +1404,15 @@ export default {
 }
 .course-block--purple .course-accent {
 	background: #c084fc;
+}
+
+.course-block--inactive {
+	background: #f3f4f6 !important;
+	color: #9ca3af !important;
+}
+
+.course-block--inactive .course-accent {
+	background: #c8ced8 !important;
 }
 
 .course-title {
