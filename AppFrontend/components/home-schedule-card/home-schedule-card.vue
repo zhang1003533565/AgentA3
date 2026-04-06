@@ -383,7 +383,7 @@ export default {
 	word-break: break-all;
 	overflow-wrap: anywhere;
 	line-height: 1.18;
-	font-size: 22rpx;
+	font-size: 20rpx;
 	font-weight: 700;
 	box-sizing: border-box;
 	overflow: hidden;

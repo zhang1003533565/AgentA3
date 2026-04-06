@@ -87,11 +87,6 @@
 					<text class="supplement-desc">文案、海报与灵感生成</text>
 					<view class="supplement-arrow">›</view>
 				</view>
-				<view class="supplement-card supplement-card--course">
-					<text class="supplement-title">课程表</text>
-					<text class="supplement-desc">查看今日课程与本周安排</text>
-					<view class="supplement-arrow" @click.stop="switchHomeDay">›</view>
-				</view>
 			</view>
 
 			<home-schedule-card />
@@ -160,11 +155,6 @@ export default {
 		goToServiceHub(title) {
 			uni.navigateTo({
 				url: `/pages/serviceHub/serviceHub?title=${encodeURIComponent(title)}`
-			})
-		},
-		switchHomeDay() {
-			uni.navigateTo({
-				url: '/subpackage_schedule/schedule/schedule'
 			})
 		}
 	}
