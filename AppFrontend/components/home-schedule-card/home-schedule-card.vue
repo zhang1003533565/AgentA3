@@ -50,8 +50,8 @@
 
 		<view class="home-schedule-footer" @click="goToSchedule">
 			<view class="home-schedule-footer-text">
-				<text class="home-schedule-week">课表 {{ currentDayLabel }}. 第5周</text>
-				<text class="home-schedule-desc">今天有{{ dayCourses.length }}门课程</text>
+				<text class="home-schedule-week">课表 {{ currentDayLabel }}. 第{{ currentWeek }}周</text>
+				<text class="home-schedule-desc">{{ currentDateText }}</text>
 			</view>
 			<view class="home-schedule-switch" @click.stop>
 				<view class="home-schedule-switch-btn" :class="{ disabled: currentPeriodPage <= 0 }" @click.stop="switchPeriodPage(-1)">
@@ -67,6 +67,8 @@
 </template>
 
 <script>
+import { getCurrentSchedule } from '@/api/schedule.js'
+
 const HOME_PERIOD_HEIGHT = 144
 const HOME_PERIOD_GAP = 4
 const HOME_PERIOD_STEP = HOME_PERIOD_HEIGHT + HOME_PERIOD_GAP
@@ -74,9 +76,11 @@ const HOME_PERIOD_STEP = HOME_PERIOD_HEIGHT + HOME_PERIOD_GAP
 export default {
 	name: 'HomeScheduleCard',
 	data() {
+		const today = new Date()
 		return {
-			currentDay: 4,
+			currentDay: today.getDay() || 7,
 			currentPeriodPage: 0,
+			currentWeek: 1,
 			weekdays: [
 				{ value: 1, label: '一' },
 				{ value: 2, label: '二' },
@@ -100,6 +104,9 @@ export default {
 				{ id: 7, day: 4, name: '形势与政策', location: '明德楼110', start: 7, end: 8, theme: 'green' }
 			]
 		}
+	},
+	mounted() {
+		this.loadCurrentWeek()
 	},
 	computed: {
 		dayCourses() {
@@ -125,9 +132,25 @@ export default {
 		currentDayLabel() {
 			const map = { 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun' }
 			return map[this.currentDay] || 'Thu'
+		},
+		currentDateText() {
+			const now = new Date()
+			const year = now.getFullYear()
+			const month = now.getMonth() + 1
+			const day = now.getDate()
+			return `${year}年${month}月${day}日`
 		}
 	},
 	methods: {
+		async loadCurrentWeek() {
+			try {
+				const res = await getCurrentSchedule()
+				const week = res?.data?.currentWeek
+				if (week) {
+					this.currentWeek = week
+				}
+			} catch (error) {}
+		},
 		switchPeriodPage(step) {
 			const nextPage = this.currentPeriodPage + step
 			if (nextPage < 0 || nextPage >= this.periodWindows.length) return

@@ -10,7 +10,7 @@
 				<view class="header-main">
 					<view class="header-left">
 						<view class="week-info-wrapper">
-							<view class="week-info" @click="showWeekSelector">
+							<view class="week-info" :class="{ 'week-info--current': isCurrentRealWeek }" @click="showWeekSelector">
 								<text class="week-text">第{{ currentWeek }}周</text>
 								<text class="week-caret">▼</text>
 							</view>
@@ -81,31 +81,31 @@
 			<!-- 星期栏 -->
 			<view class="weekday-bar">
 				<view class="month-label">{{ currentMonth }}月</view>
-				<view class="weekday-item" :class="{ active: currentWeekday === 1 }" @click="switchDay(1)">
+				<view class="weekday-item" :class="{ active: shouldHighlightWeekday(1), today: isTodayWeekday(1) }" @click="switchDay(1)">
 					<text class="weekday-name">一</text>
 					<text class="weekday-date">{{ getWeekDayDate(1) }}</text>
 				</view>
-				<view class="weekday-item" :class="{ active: currentWeekday === 2 }" @click="switchDay(2)">
+				<view class="weekday-item" :class="{ active: shouldHighlightWeekday(2), today: isTodayWeekday(2) }" @click="switchDay(2)">
 					<text class="weekday-name">二</text>
 					<text class="weekday-date">{{ getWeekDayDate(2) }}</text>
 				</view>
-				<view class="weekday-item" :class="{ active: currentWeekday === 3 }" @click="switchDay(3)">
+				<view class="weekday-item" :class="{ active: shouldHighlightWeekday(3), today: isTodayWeekday(3) }" @click="switchDay(3)">
 					<text class="weekday-name">三</text>
 					<text class="weekday-date">{{ getWeekDayDate(3) }}</text>
 				</view>
-				<view class="weekday-item" :class="{ active: currentWeekday === 4 }" @click="switchDay(4)">
+				<view class="weekday-item" :class="{ active: shouldHighlightWeekday(4), today: isTodayWeekday(4) }" @click="switchDay(4)">
 					<text class="weekday-name">四</text>
 					<text class="weekday-date">{{ getWeekDayDate(4) }}</text>
 				</view>
-				<view class="weekday-item" :class="{ active: currentWeekday === 5 }" @click="switchDay(5)">
+				<view class="weekday-item" :class="{ active: shouldHighlightWeekday(5), today: isTodayWeekday(5) }" @click="switchDay(5)">
 					<text class="weekday-name">五</text>
 					<text class="weekday-date">{{ getWeekDayDate(5) }}</text>
 				</view>
-				<view class="weekday-item" :class="{ active: currentWeekday === 6 }" @click="switchDay(6)">
+				<view class="weekday-item" :class="{ active: shouldHighlightWeekday(6), today: isTodayWeekday(6) }" @click="switchDay(6)">
 					<text class="weekday-name">六</text>
 					<text class="weekday-date">{{ getWeekDayDate(6) }}</text>
 				</view>
-				<view class="weekday-item" :class="{ active: currentWeekday === 7 }" @click="switchDay(7)">
+				<view class="weekday-item" :class="{ active: shouldHighlightWeekday(7), today: isTodayWeekday(7) }" @click="switchDay(7)">
 					<text class="weekday-name">日</text>
 					<text class="weekday-date">{{ getWeekDayDate(7) }}</text>
 				</view>
@@ -251,6 +251,7 @@ export default {
 	data() {
 		return {
 			currentWeek: 1,
+			actualCurrentWeek: 1,
 			currentWeekday: new Date().getDay() || 7,
 			periods: PERIODS,
 			periodHeight: PERIOD_HEIGHT,
@@ -282,6 +283,9 @@ export default {
 		this.calculateWeekDates()
 	},
 	computed: {
+		isCurrentRealWeek() {
+			return this.currentWeek === this.actualCurrentWeek
+		},
 		displayCourses() {
 			const grouped = new Map()
 			this.courses.forEach((course) => {
@@ -294,9 +298,8 @@ export default {
 
 			return Array.from(grouped.values()).map((slotCourses) => {
 				const currentCourse = slotCourses.find((item) => item.isCurrentWeek)
-				const representative = currentCourse || slotCourses[0]
 				return {
-					...representative,
+					...(currentCourse || slotCourses[0]),
 					slotCount: slotCourses.length
 				}
 			})
@@ -317,6 +320,7 @@ export default {
 						if (res.statusCode === 200 && res.data.code === 200) {
 							const scheduleData = res.data.data
 							this.currentWeek = scheduleData.currentWeek || 1
+							this.actualCurrentWeek = scheduleData.currentWeek || 1
 							if (scheduleData.semester) {
 								this.semester = scheduleData.semester
 							}
@@ -445,10 +449,13 @@ export default {
 
 			// 解析学期开始日期
 			const startDate = new Date(this.semesterStart)
+			const startWeekday = startDate.getDay() || 7
+			const firstWeekMonday = new Date(startDate)
+			firstWeekMonday.setDate(startDate.getDate() - (startWeekday - 1))
 
-			// 计算当前周的第一天（学期开始日期 + (currentWeek - 1) * 7 天）
-			const weekStart = new Date(startDate)
-			weekStart.setDate(startDate.getDate() + (this.currentWeek - 1) * 7)
+			// 计算当前周的周一，而不是直接把学期开始日当成周一
+			const weekStart = new Date(firstWeekMonday)
+			weekStart.setDate(firstWeekMonday.getDate() + (this.currentWeek - 1) * 7)
 
 			// 计算本周每天的日期
 			this.weekDates = []
@@ -491,6 +498,15 @@ export default {
 			if (!this.weekDates[weekday - 1]) return ''
 			const { month, day } = this.weekDates[weekday - 1]
 			return day
+		},
+		isTodayWeekday(weekday) {
+			const targetDate = this.weekDates[weekday - 1]
+			if (!targetDate) return false
+			const now = new Date()
+			return targetDate.month === now.getMonth() + 1 && targetDate.day === now.getDate()
+		},
+		shouldHighlightWeekday(weekday) {
+			return this.isCurrentRealWeek && this.currentWeekday === weekday
 		},
 
 		goBack() {
@@ -898,6 +914,11 @@ export default {
 	cursor: pointer;
 }
 
+.week-info--current .week-text,
+.week-info--current .week-caret {
+	color: #ef6b5f;
+}
+
 .week-text {
 	font-size: 42rpx;
 	font-weight: 800;
@@ -1210,6 +1231,10 @@ export default {
 .weekday-item.active .weekday-date {
 	color: #ffffff;
 	background: #111111;
+}
+
+.weekday-item.today.active .weekday-date {
+	background: #ef6b5f;
 }
 
 .board-card {
