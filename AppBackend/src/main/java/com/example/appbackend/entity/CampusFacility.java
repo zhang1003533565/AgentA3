@@ -46,6 +46,14 @@ public class CampusFacility {
     @Schema(description = "纬度", example = "39.90923")
     private BigDecimal latitude;
 
+    @Column(name = "image_x", precision = 8, scale = 6, columnDefinition = "DECIMAL(8,6) COMMENT '地图图片横向坐标(0-1)'")
+    @Schema(description = "地图图片横向坐标(0-1)", example = "0.452100")
+    private BigDecimal imageX;
+
+    @Column(name = "image_y", precision = 8, scale = 6, columnDefinition = "DECIMAL(8,6) COMMENT '地图图片纵向坐标(0-1)'")
+    @Schema(description = "地图图片纵向坐标(0-1)", example = "0.387500")
+    private BigDecimal imageY;
+
     @Column(columnDefinition = "TEXT COMMENT '图片列表(JSON数组)'")
     @Schema(description = "图片列表(JSON数组)", example = "[\"https://xxx.com/img1.jpg\",\"https://xxx.com/img2.jpg\"]")
     private String images;

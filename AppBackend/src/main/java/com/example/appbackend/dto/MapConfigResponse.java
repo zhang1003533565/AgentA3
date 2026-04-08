@@ -7,6 +7,9 @@ import lombok.Data;
 @Schema(description = "地图配置响应")
 public class MapConfigResponse {
 
+    @Schema(description = "地图底图图片地址")
+    private String mapImageUrl;
+
     @Schema(description = "地图中心经度")
     private Double centerLongitude;
 
@@ -18,4 +21,10 @@ public class MapConfigResponse {
 
     @Schema(description = "边界范围")
     private Object boundary;
+
+    @Schema(description = "标定模式：boundary/controlPoints")
+    private String calibrationMode;
+
+    @Schema(description = "控制点配置（JSON）")
+    private Object controlPoints;
 }

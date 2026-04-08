@@ -25,6 +25,38 @@ PREPARE alter_stmt FROM @alter_status_sql;
 EXECUTE alter_stmt;
 DEALLOCATE PREPARE alter_stmt;
 
+SET @image_x_exists = (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'campus_facility'
+      AND COLUMN_NAME = 'image_x'
+);
+SET @add_image_x_sql = IF(
+    @image_x_exists > 0,
+    'SELECT 1',
+    'ALTER TABLE campus_facility ADD COLUMN image_x DECIMAL(8,6) COMMENT ''地图图片横向坐标(0-1)'' AFTER latitude'
+);
+PREPARE add_image_x_stmt FROM @add_image_x_sql;
+EXECUTE add_image_x_stmt;
+DEALLOCATE PREPARE add_image_x_stmt;
+
+SET @image_y_exists = (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'campus_facility'
+      AND COLUMN_NAME = 'image_y'
+);
+SET @add_image_y_sql = IF(
+    @image_y_exists > 0,
+    'SELECT 1',
+    'ALTER TABLE campus_facility ADD COLUMN image_y DECIMAL(8,6) COMMENT ''地图图片纵向坐标(0-1)'' AFTER image_x'
+);
+PREPARE add_image_y_stmt FROM @add_image_y_sql;
+EXECUTE add_image_y_stmt;
+DEALLOCATE PREPARE add_image_y_stmt;
+
 -- 校园设施表
 CREATE TABLE IF NOT EXISTS campus_facility (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '设施ID',
@@ -35,6 +67,8 @@ CREATE TABLE IF NOT EXISTS campus_facility (
     location VARCHAR(200) COMMENT '位置描述',
     longitude DECIMAL(10,7) COMMENT '经度',
     latitude DECIMAL(10,7) COMMENT '纬度',
+    image_x DECIMAL(8,6) COMMENT '地图图片横向坐标(0-1)',
+    image_y DECIMAL(8,6) COMMENT '地图图片纵向坐标(0-1)',
     images TEXT COMMENT '图片列表(JSON数组)',
     create_time DATETIME COMMENT '创建时间',
     update_time DATETIME COMMENT '更新时间'
@@ -203,24 +237,24 @@ INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, 
 -- =============================================
 -- 校园设施数据
 -- =============================================
-INSERT INTO campus_facility (id, facility_name, facility_type, status, description, location, longitude, latitude, images, create_time, update_time) VALUES
+INSERT INTO campus_facility (id, facility_name, facility_type, status, description, location, longitude, latitude, image_x, image_y, images, create_time, update_time) VALUES
 -- 餐厅 (类型1，状态1=正常/开放)
-(1, '第一学生餐厅', 1, 1, '位于学校南门，主要提供快餐服务，菜品种类丰富，价格实惠。', '南门东侧100米', 116.397428, 39.90923, '["https://picsum.photos/800/600?random=1","https://picsum.photos/800/600?random=2"]', NOW(), NOW()),
-(2, '第二学生餐厅', 1, 1, '位于学校中心区域，以地方特色菜为主，环境优雅。', '学校中心广场北侧', 116.398000, 39.910000, '["https://picsum.photos/800/600?random=3"]', NOW(), NOW()),
-(3, '清真餐厅', 1, 1, '专门提供清真美食，食材新鲜，口味正宗。', '东门附近', 116.399500, 39.908500, '["https://picsum.photos/800/600?random=4"]', NOW(), NOW()),
+(1, '第一学生餐厅', 1, 1, '位于学校南门，主要提供快餐服务，菜品种类丰富，价格实惠。', '南门东侧100米', 116.397428, 39.90923, NULL, NULL, '["https://picsum.photos/800/600?random=1","https://picsum.photos/800/600?random=2"]', NOW(), NOW()),
+(2, '第二学生餐厅', 1, 1, '位于学校中心区域，以地方特色菜为主，环境优雅。', '学校中心广场北侧', 116.398000, 39.910000, NULL, NULL, '["https://picsum.photos/800/600?random=3"]', NOW(), NOW()),
+(3, '清真餐厅', 1, 1, '专门提供清真美食，食材新鲜，口味正宗。', '东门附近', 116.399500, 39.908500, NULL, NULL, '["https://picsum.photos/800/600?random=4"]', NOW(), NOW()),
 -- 运动场 (类型2，状态: 1=正常 2=维护中 3=关闭)
-(4, '东区运动场', 2, 1, '包含篮球场、足球场、羽毛球场等设施，是师生锻炼的首选之地。', '学校东区', 116.398500, 39.911000, '["https://picsum.photos/800/600?random=5"]', NOW(), NOW()),
-(5, '体育馆', 2, 2, '室内体育馆，设有篮球场、羽毛球场、乒乓球室等。', '学校北门', 116.396000, 39.910500, '["https://picsum.photos/800/600?random=6"]', NOW(), NOW()),
-(6, '田径场', 2, 1, '标准400米跑道，天然草坪足球场，适合跑步和足球运动。', '学校西侧', 116.394500, 39.909000, '["https://picsum.photos/800/600?random=7"]', NOW(), NOW()),
+(4, '东区运动场', 2, 1, '包含篮球场、足球场、羽毛球场等设施，是师生锻炼的首选之地。', '学校东区', 116.398500, 39.911000, NULL, NULL, '["https://picsum.photos/800/600?random=5"]', NOW(), NOW()),
+(5, '体育馆', 2, 2, '室内体育馆，设有篮球场、羽毛球场、乒乓球室等。', '学校北门', 116.396000, 39.910500, NULL, NULL, '["https://picsum.photos/800/600?random=6"]', NOW(), NOW()),
+(6, '田径场', 2, 1, '标准400米跑道，天然草坪足球场，适合跑步和足球运动。', '学校西侧', 116.394500, 39.909000, NULL, NULL, '["https://picsum.photos/800/600?random=7"]', NOW(), NOW()),
 -- 教学楼 (类型3，状态: 1=正常 2=维护中 3=关闭)
-(7, '博学楼', 3, 1, '学校主教学楼，设施齐全，教室宽敞明亮。', '学校中轴线', 116.397800, 39.909500, '["https://picsum.photos/800/600?random=8"]', NOW(), NOW()),
-(8, '致远楼', 3, 3, '主要用于实验教学，配备先进实验设备。', '博学楼东侧', 116.398200, 39.909700, '["https://picsum.photos/800/600?random=9"]', NOW(), NOW()),
-(9, '图书馆', 3, 1, '学校图书馆，藏书丰富，学习环境舒适。', '学校中心', 116.397600, 39.909300, '["https://picsum.photos/800/600?random=10"]', NOW(), NOW()),
+(7, '博学楼', 3, 1, '学校主教学楼，设施齐全，教室宽敞明亮。', '学校中轴线', 116.397800, 39.909500, NULL, NULL, '["https://picsum.photos/800/600?random=8"]', NOW(), NOW()),
+(8, '致远楼', 3, 3, '主要用于实验教学，配备先进实验设备。', '博学楼东侧', 116.398200, 39.909700, NULL, NULL, '["https://picsum.photos/800/600?random=9"]', NOW(), NOW()),
+(9, '图书馆', 3, 1, '学校图书馆，藏书丰富，学习环境舒适。', '学校中心', 116.397600, 39.909300, NULL, NULL, '["https://picsum.photos/800/600?random=10"]', NOW(), NOW()),
 -- 宿舍 (类型4)
-(10, '松园1号楼', 4, 1, '男生宿舍楼，环境优美，设施完善。', '学校东区松园', 116.399000, 39.911500, '["https://picsum.photos/800/600?random=11"]', NOW(), NOW()),
-(11, '松园2号楼', 4, 1, '男生宿舍楼，靠近食堂，生活便利。', '学校东区松园', 116.399200, 39.911300, '["https://picsum.photos/800/600?random=12"]', NOW(), NOW()),
-(12, '竹园1号楼', 4, 1, '女生宿舍楼，安全安静，适合学习。', '学校北区竹园', 116.396500, 39.912000, '["https://picsum.photos/800/600?random=13"]', NOW(), NOW()),
-(13, '竹园2号楼', 4, 1, '女生宿舍楼，距离图书馆近。', '学校北区竹园', 116.396700, 39.911800, '["https://picsum.photos/800/600?random=14"]', NOW(), NOW());
+(10, '松园1号楼', 4, 1, '男生宿舍楼，环境优美，设施完善。', '学校东区松园', 116.399000, 39.911500, NULL, NULL, '["https://picsum.photos/800/600?random=11"]', NOW(), NOW()),
+(11, '松园2号楼', 4, 1, '男生宿舍楼，靠近食堂，生活便利。', '学校东区松园', 116.399200, 39.911300, NULL, NULL, '["https://picsum.photos/800/600?random=12"]', NOW(), NOW()),
+(12, '竹园1号楼', 4, 1, '女生宿舍楼，安全安静，适合学习。', '学校北区竹园', 116.396500, 39.912000, NULL, NULL, '["https://picsum.photos/800/600?random=13"]', NOW(), NOW()),
+(13, '竹园2号楼', 4, 1, '女生宿舍楼，距离图书馆近。', '学校北区竹园', 116.396700, 39.911800, NULL, NULL, '["https://picsum.photos/800/600?random=14"]', NOW(), NOW());
 
 -- =============================================
 -- 设施评价数据
@@ -251,7 +285,10 @@ INSERT INTO map_config (id, config_key, config_value, description, create_time, 
 (1, 'map_center_longitude', '116.397428', '地图中心经度', NOW(), NOW()),
 (2, 'map_center_latitude', '39.909500', '地图中心纬度', NOW(), NOW()),
 (3, 'map_zoom_level', '16', '默认缩放级别(1-20)', NOW(), NOW()),
-(4, 'map_boundary', '{"northEast":{"longitude":116.41,"latitude":39.92},"southWest":{"longitude":116.38,"latitude":39.89}}', '地图边界范围', NOW(), NOW());
+(4, 'map_boundary', '{"northEast":{"longitude":116.41,"latitude":39.92},"southWest":{"longitude":116.38,"latitude":39.89}}', '地图边界范围', NOW(), NOW()),
+(5, 'map_image_url', '', '地图底图图片地址', NOW(), NOW()),
+(6, 'map_calibration_mode', 'boundary', '地图标定模式', NOW(), NOW()),
+(7, 'map_control_points', '[]', '地图控制点配置(JSON数组)', NOW(), NOW());
 
 -- =============================================
 -- 地图标记数据

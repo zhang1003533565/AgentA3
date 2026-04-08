@@ -215,9 +215,192 @@
   box-sizing: border-box;
 }
 
+.workspace-map-config {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  gap: 24px;
+}
+
+.workspace-map-config__preview,
+.workspace-map-config__form {
+  padding: 24px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.88), rgba(255, 255, 255, 0.98));
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.workspace-map-config__preview-head h3 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.workspace-map-config__preview-head p {
+  margin: 0 0 16px;
+  color: var(--text-muted);
+}
+
+.workspace-map-config__image-shell {
+  margin-top: 16px;
+  min-height: 320px;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px dashed rgba(148, 163, 184, 0.38);
+  background: #f8fafc;
+}
+
+.workspace-map-config__image-stage {
+  position: relative;
+  min-height: 320px;
+  cursor: crosshair;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workspace-map-config__image {
+  width: 100%;
+  min-height: 320px;
+  max-height: 70vh;
+  object-fit: contain;
+  background: #f8fafc;
+  display: block;
+}
+
+.workspace-map-config__marker {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: #ef4444;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: 0 8px 18px rgba(239, 68, 68, 0.28);
+  border: 2px solid #fff;
+}
+
+.workspace-map-config__marker--draft {
+  background: #2563eb;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.28);
+}
+
+.workspace-map-config__point-list {
+  display: grid;
+  gap: 10px;
+}
+
+.workspace-map-config__point-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.workspace-map-config__point-tip {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(219, 234, 254, 0.72);
+  border: 1px solid rgba(96, 165, 250, 0.28);
+  color: #1d4ed8;
+  font-size: 13px;
+}
+
+.workspace-map-config__point-item strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.workspace-map-config__point-item span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.workspace-map-config__point-empty {
+  padding: 16px;
+  border-radius: 14px;
+  background: #f8fafc;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.workspace-map-config__advanced {
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 0.98));
+}
+
+.workspace-map-config__advanced-head {
+  margin-bottom: 18px;
+}
+
+.workspace-map-config__advanced-head h4 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+.workspace-map-config__advanced-head p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.workspace-map-config__image-empty {
+  min-height: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: 14px;
+  padding: 24px;
+  text-align: center;
+}
+
+.workspace-map-config__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.workspace-map-config__grid label,
+.workspace-map-config__field label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.workspace-map-config__field {
+  margin-bottom: 20px;
+}
+
+.workspace-map-config__tips {
+  margin-bottom: 20px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: rgba(15, 118, 110, 0.06);
+  color: var(--text-muted);
+  display: grid;
+  gap: 8px;
+}
+
 @media (max-width: 1100px) {
   .workspace-stats,
   .workspace-main {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-map-config {
     grid-template-columns: 1fr;
   }
 }
@@ -240,5 +423,9 @@
   .workspace-filters .ant-input-affix-wrapper,
   .workspace-filters .ant-select {
     width: 100%;
+  }
+
+  .workspace-map-config__grid {
+    grid-template-columns: 1fr;
   }
 }
