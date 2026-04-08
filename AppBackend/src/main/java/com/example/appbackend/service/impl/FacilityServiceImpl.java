@@ -122,34 +122,11 @@ public class FacilityServiceImpl implements FacilityService {
 
         Point normalized = resolveByControlPoints(facility.getLongitude().doubleValue(), facility.getLatitude().doubleValue());
         if (normalized == null) {
-            normalized = resolveByBoundary(facility.getLongitude().doubleValue(), facility.getLatitude().doubleValue());
-        }
-        if (normalized == null) {
             return;
         }
 
         facility.setImageX(toDecimal(normalized.x));
         facility.setImageY(toDecimal(normalized.y));
-    }
-
-    private Point resolveByBoundary(double longitude, double latitude) {
-        try {
-            String boundaryRaw = getConfig("map_boundary");
-            if (boundaryRaw == null || boundaryRaw.isBlank()) return null;
-            Map<String, Object> boundary = OBJECT_MAPPER.readValue(boundaryRaw, new TypeReference<>() {});
-            Map<String, Object> northEast = safeMap(boundary.get("northEast"));
-            Map<String, Object> southWest = safeMap(boundary.get("southWest"));
-            double minLng = toDouble(southWest.get("longitude"));
-            double maxLng = toDouble(northEast.get("longitude"));
-            double minLat = toDouble(southWest.get("latitude"));
-            double maxLat = toDouble(northEast.get("latitude"));
-            if (maxLng == minLng || maxLat == minLat) return null;
-            double x = (longitude - minLng) / (maxLng - minLng);
-            double y = (maxLat - latitude) / (maxLat - minLat);
-            return clampPoint(new Point(x, y));
-        } catch (Exception e) {
-            return null;
-        }
     }
 
     private Point resolveByControlPoints(double longitude, double latitude) {

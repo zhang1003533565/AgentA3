@@ -57,6 +57,10 @@ PREPARE add_image_y_stmt FROM @add_image_y_sql;
 EXECUTE add_image_y_stmt;
 DEALLOCATE PREPARE add_image_y_stmt;
 
+ALTER TABLE campus_facility
+    MODIFY COLUMN longitude DECIMAL(18,14) COMMENT '经度',
+    MODIFY COLUMN latitude DECIMAL(18,14) COMMENT '纬度';
+
 -- 校园设施表
 CREATE TABLE IF NOT EXISTS campus_facility (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '设施ID',
@@ -65,8 +69,8 @@ CREATE TABLE IF NOT EXISTS campus_facility (
     status INT NOT NULL DEFAULT 1 COMMENT '设施状态: 1-正常/开放 2-维护中 3-关闭/不可用',
     description TEXT COMMENT '设施描述',
     location VARCHAR(200) COMMENT '位置描述',
-    longitude DECIMAL(10,7) COMMENT '经度',
-    latitude DECIMAL(10,7) COMMENT '纬度',
+    longitude DECIMAL(18,14) COMMENT '经度',
+    latitude DECIMAL(18,14) COMMENT '纬度',
     image_x DECIMAL(8,6) COMMENT '地图图片横向坐标(0-1)',
     image_y DECIMAL(8,6) COMMENT '地图图片纵向坐标(0-1)',
     images TEXT COMMENT '图片列表(JSON数组)',
@@ -285,10 +289,10 @@ INSERT INTO map_config (id, config_key, config_value, description, create_time, 
 (1, 'map_center_longitude', '116.397428', '地图中心经度', NOW(), NOW()),
 (2, 'map_center_latitude', '39.909500', '地图中心纬度', NOW(), NOW()),
 (3, 'map_zoom_level', '16', '默认缩放级别(1-20)', NOW(), NOW()),
-(4, 'map_boundary', '{"northEast":{"longitude":116.41,"latitude":39.92},"southWest":{"longitude":116.38,"latitude":39.89}}', '地图边界范围', NOW(), NOW()),
-(5, 'map_image_url', '', '地图底图图片地址', NOW(), NOW()),
-(6, 'map_calibration_mode', 'boundary', '地图标定模式', NOW(), NOW()),
-(7, 'map_control_points', '[]', '地图控制点配置(JSON数组)', NOW(), NOW());
+(4, 'map_boundary', '', '地图边界范围（已弃用）', NOW(), NOW()),
+(5, 'map_image_url', 'http://localhost:8080/uploads/b07b041a-69aa-458e-9872-73c4e8617614.jpg', '地图底图图片地址', NOW(), NOW()),
+(6, 'map_calibration_mode', 'controlPoints', '地图标定模式', NOW(), NOW()),
+(7, 'map_control_points', '[{"name":"图书馆","imageX":0.516304,"imageY":0.482971,"longitude":114.897014,"latitude":40.755502},{"name":"西门","imageX":0.168478,"imageY":0.482971,"longitude":114.895694,"latitude":40.755526},{"name":"南门","imageX":0.475543,"imageY":0.957522,"longitude":114.897038,"latitude":40.754008},{"name":"北门","imageX":0.502717,"imageY":0.041082,"longitude":114.897004,"latitude":40.758127}]', '地图控制点配置(JSON数组)', NOW(), NOW());
 
 -- =============================================
 -- 地图标记数据

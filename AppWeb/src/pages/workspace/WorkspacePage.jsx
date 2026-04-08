@@ -64,102 +64,59 @@ const roundCoordinate = (value) => {
   return numeric === null ? '' : String(Number(numeric.toFixed(7)))
 }
 
-const solve3x3Linear = (matrix, vector) => {
-  const a = matrix.map((row, index) => [...row, vector[index]])
-  for (let col = 0; col < 3; col += 1) {
-    let pivot = col
-    for (let row = col + 1; row < 3; row += 1) {
-      if (Math.abs(a[row][col]) > Math.abs(a[pivot][col])) {
-        pivot = row
-      }
-    }
-    if (Math.abs(a[pivot][col]) < 1e-10) return null
-    if (pivot !== col) {
-      const temp = a[pivot]
-      a[pivot] = a[col]
-      a[col] = temp
-    }
-    const factor = a[col][col]
-    for (let j = col; j < 4; j += 1) {
-      a[col][j] /= factor
-    }
-    for (let row = 0; row < 3; row += 1) {
-      if (row === col) continue
-      const ratio = a[row][col]
-      for (let j = col; j < 4; j += 1) {
-        a[row][j] -= ratio * a[col][j]
-      }
-    }
-  }
-  return [a[0][3], a[1][3], a[2][3]]
-}
-
-const solveAffineCoefficients = (points, targetKey) => {
-  if (!Array.isArray(points) || points.length < 3) return null
-  const design = points.map((point) => [
-    toFiniteNumber(point.longitude),
-    toFiniteNumber(point.latitude),
-    1,
-  ])
-  const target = points.map((point) => toFiniteNumber(point[targetKey]))
-  if (design.some((row) => row[0] === null || row[1] === null) || target.some((value) => value === null)) {
-    return null
-  }
-  const ata = [
-    [0, 0, 0],
-    [0, 0, 0],
-    [0, 0, 0],
-  ]
-  const atb = [0, 0, 0]
-  for (let i = 0; i < design.length; i += 1) {
-    for (let row = 0; row < 3; row += 1) {
-      atb[row] += design[i][row] * target[i]
-      for (let col = 0; col < 3; col += 1) {
-        ata[row][col] += design[i][row] * design[i][col]
-      }
-    }
-  }
-  return solve3x3Linear(ata, atb)
-}
-
 const estimateGeoByImagePoint = (imageX, imageY, mapConfigForm) => {
   const x = toFiniteNumber(imageX)
   const y = toFiniteNumber(imageY)
   if (x === null || y === null) return null
 
-  if (mapConfigForm.calibrationMode === 'controlPoints') {
-    const controlPoints = parseJsonText(mapConfigForm.controlPoints, [])
-    const xCoeff = solveAffineCoefficients(controlPoints, 'imageX')
-    const yCoeff = solveAffineCoefficients(controlPoints, 'imageY')
-    if (xCoeff && yCoeff) {
-      const determinant = xCoeff[0] * yCoeff[1] - xCoeff[1] * yCoeff[0]
-      if (Math.abs(determinant) > 1e-10) {
-        const rhsX = x - xCoeff[2]
-        const rhsY = y - yCoeff[2]
-        const longitude = (rhsX * yCoeff[1] - xCoeff[1] * rhsY) / determinant
-        const latitude = (xCoeff[0] * rhsY - rhsX * yCoeff[0]) / determinant
-        return {
-          longitude: roundCoordinate(longitude),
-          latitude: roundCoordinate(latitude),
-        }
+  const controlPoints = parseJsonText(mapConfigForm.controlPoints, [])
+    .map((point) => ({
+      imageX: toFiniteNumber(point.imageX),
+      imageY: toFiniteNumber(point.imageY),
+      longitude: toFiniteNumber(point.longitude),
+      latitude: toFiniteNumber(point.latitude),
+    }))
+    .filter((point) => (
+      point.imageX !== null &&
+      point.imageY !== null &&
+      point.longitude !== null &&
+      point.latitude !== null
+    ))
+
+  if (controlPoints.length < 3) return null
+
+  const withDistance = controlPoints
+    .map((point) => {
+      const dx = x - point.imageX
+      const dy = y - point.imageY
+      return {
+        ...point,
+        distance: Math.hypot(dx, dy),
       }
+    })
+    .sort((a, b) => a.distance - b.distance)
+
+  if (withDistance[0]?.distance < 1e-9) {
+    return {
+      longitude: roundCoordinate(withDistance[0].longitude),
+      latitude: roundCoordinate(withDistance[0].latitude),
     }
   }
 
-  const boundary = parseJsonText(mapConfigForm.boundary, null)
-  const northEast = boundary?.northEast
-  const southWest = boundary?.southWest
-  const minLng = toFiniteNumber(southWest?.longitude)
-  const maxLng = toFiniteNumber(northEast?.longitude)
-  const minLat = toFiniteNumber(southWest?.latitude)
-  const maxLat = toFiniteNumber(northEast?.latitude)
-  if ([minLng, maxLng, minLat, maxLat].some((value) => value === null)) return null
-  if (maxLng === minLng || maxLat === minLat) return null
-  const longitude = minLng + x * (maxLng - minLng)
-  const latitude = maxLat - y * (maxLat - minLat)
+  const nearestPoints = withDistance.slice(0, Math.min(6, withDistance.length))
+  const weighted = nearestPoints.reduce((acc, point) => {
+    const weight = 1 / Math.max(point.distance ** 2, 1e-12)
+    acc.total += weight
+    acc.longitude += point.longitude * weight
+    acc.latitude += point.latitude * weight
+    return acc
+  }, { total: 0, longitude: 0, latitude: 0 })
+
+  if (!weighted.total) return null
+
   return {
-    longitude: roundCoordinate(longitude),
-    latitude: roundCoordinate(latitude),
+    longitude: roundCoordinate(weighted.longitude / weighted.total),
+    latitude: roundCoordinate(weighted.latitude / weighted.total),
   }
 }
 
@@ -372,8 +329,7 @@ function WorkspacePage({ pageKey }) {
     centerLongitude: '',
     centerLatitude: '',
     zoomLevel: 16,
-    calibrationMode: 'boundary',
-    boundary: '',
+    calibrationMode: 'controlPoints',
     controlPoints: '[]',
   })
   const [mapConfigSaving, setMapConfigSaving] = useState(false)
@@ -483,8 +439,7 @@ function WorkspacePage({ pageKey }) {
           centerLongitude: data.centerLongitude ?? '',
           centerLatitude: data.centerLatitude ?? '',
           zoomLevel: data.zoomLevel ?? 16,
-          calibrationMode: data.calibrationMode || 'boundary',
-          boundary: data.boundary ? JSON.stringify(data.boundary, null, 2) : '',
+          calibrationMode: 'controlPoints',
           controlPoints: JSON.stringify(data.controlPoints || [], null, 2),
         })
       } catch (error) {
@@ -1368,7 +1323,7 @@ function WorkspacePage({ pageKey }) {
             <div className="workspace-map-config__advanced">
               <div className="workspace-map-config__advanced-head">
                 <h4>高级标定</h4>
-                <p>需要时再维护中心点、边界和控制点。点击左侧底图可录入控制点图坐标。</p>
+                <p>需要时再维护中心点和控制点。点击左侧底图可录入控制点图坐标。</p>
               </div>
               <div className="workspace-map-config__grid">
                 <div>
@@ -1398,26 +1353,9 @@ function WorkspacePage({ pageKey }) {
                   />
                 </div>
                 <div>
-                  <label>标定模式</label>
-                  <Select
-                    value={mapConfigForm.calibrationMode}
-                    options={[
-                      { value: 'boundary', label: '边界坐标' },
-                      { value: 'controlPoints', label: '控制点标定' },
-                    ]}
-                    onChange={(value) => setMapConfigForm((prev) => ({ ...prev, calibrationMode: value }))}
-                  />
+                  <label>标定方式</label>
+                  <Input value="控制点标定" readOnly />
                 </div>
-              </div>
-
-              <div className="workspace-map-config__field">
-                <label>边界坐标 JSON</label>
-                <Input.TextArea
-                  rows={8}
-                  value={mapConfigForm.boundary}
-                  onChange={(event) => setMapConfigForm((prev) => ({ ...prev, boundary: event.target.value }))}
-                  placeholder={`未配置时这里为空。\n如需边界标定，请手动填写：\n{\n  "northEast": { "longitude": 116.41, "latitude": 39.92 },\n  "southWest": { "longitude": 116.38, "latitude": 39.89 }\n}`}
-                />
               </div>
 
               <div className="workspace-map-config__field">
@@ -1547,28 +1485,26 @@ function WorkspacePage({ pageKey }) {
               </div>
 
               <div className="workspace-map-config__tips">
-                <div>边界坐标用于简单线性标定，适合规则平面图。</div>
-                <div>控制点至少维护 3 个，推荐 4 个，适合后续做更精确的图片坐标映射。</div>
+                <div>当前仅使用控制点标定。</div>
+                <div>控制点至少维护 3 个，推荐 4 个以上，点位越多越利于提高映射精度。</div>
               </div>
               <div className="workspace-map-config__actions">
                 <Button
                   loading={mapConfigSaving}
                   onClick={async () => {
                     try {
-                      const boundaryParsed = mapConfigForm.boundary?.trim() ? JSON.parse(mapConfigForm.boundary) : null
                       const controlPointsParsed = mapConfigForm.controlPoints?.trim() ? JSON.parse(mapConfigForm.controlPoints) : []
                       setMapConfigSaving(true)
                       await updateMapConfig({
                         centerLongitude: mapConfigForm.centerLongitude === '' ? null : Number(mapConfigForm.centerLongitude),
                         centerLatitude: mapConfigForm.centerLatitude === '' ? null : Number(mapConfigForm.centerLatitude),
                         zoomLevel: mapConfigForm.zoomLevel ?? 16,
-                        calibrationMode: mapConfigForm.calibrationMode,
-                        boundary: boundaryParsed ? JSON.stringify(boundaryParsed) : '',
+                        calibrationMode: 'controlPoints',
                         controlPoints: JSON.stringify(controlPointsParsed),
                       })
                       message.success('高级标定保存成功')
                     } catch (error) {
-                      message.error(error instanceof SyntaxError ? '边界坐标或控制点 JSON 格式不正确' : (error?.message || '高级标定保存失败'))
+                      message.error(error instanceof SyntaxError ? '控制点 JSON 格式不正确' : (error?.message || '高级标定保存失败'))
                     } finally {
                       setMapConfigSaving(false)
                     }

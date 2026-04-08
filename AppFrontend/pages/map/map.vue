@@ -13,12 +13,14 @@
           :scale-max="3"
           :x="mapState.x"
           :y="mapState.y"
+          :style="mapCanvasStyle"
           @change="onMapChange"
           @scale="onMapScale"
         >
-          <image class="map-bg-image" :src="mapImageUrl" mode="aspectFill" />
+          <image class="map-bg-image" :src="mapImageUrl" mode="scaleToFill" />
 
           <view
+            v-if="currentLocation.visible"
             class="user-location-map"
             :style="{ top: currentLocation.top, left: currentLocation.left }"
             @click.stop="focusUserLocation"
@@ -94,7 +96,7 @@
 
       <view v-if="!visibleLocations.length" class="map-empty-state">
         <text class="map-empty-title">暂无地图点位</text>
-        <text class="map-empty-desc">请先在后台完成地图标定并为建筑配置经纬度。</text>
+        <text class="map-empty-desc">请先在后台为建筑配置地图图片坐标后再查看。</text>
       </view>
 
       <view class="popup-map" :class="{ show: !!selectedLocation }" @click.stop>
@@ -138,12 +140,22 @@ export default {
       currentCategory: 0,
       selectedLocation: null,
       mapImageUrl: '/static/map.png',
+      mapImageSize: {
+        width: 750,
+        height: 1334
+      },
+      mapViewport: {
+        width: 375,
+        height: 667
+      },
+      controlPoints: [],
       currentLocation: {
         name: '我的位置',
-        top: '67%',
-        left: '56%',
-        longitude: 114.487632,
-        latitude: 38.033966
+        top: '50%',
+        left: '50%',
+        longitude: null,
+        latitude: null,
+        visible: false
       },
       mapState: {
         x: 0,
@@ -163,6 +175,9 @@ export default {
     }
   },
   computed: {
+    mapCanvasStyle() {
+      return `width:${this.mapImageSize.width}px;height:${this.mapImageSize.height}px;`
+    },
     visibleLocations() {
       const keyword = (this.searchKeyword || '').trim().toLowerCase()
       return this.locationList.filter((item) => {
@@ -177,41 +192,141 @@ export default {
     try {
       const sys = uni.getSystemInfoSync()
       this.statusBarHeight = sys.statusBarHeight || 20
+      this.mapViewport = {
+        width: sys.windowWidth || 375,
+        height: sys.windowHeight || 667
+      }
     } catch (e) {}
+    this.initMapCanvas()
     this.loadMapData()
   },
   methods: {
+    initMapCanvas() {
+      uni.getImageInfo({
+        src: this.mapImageUrl,
+        success: (res) => {
+          const imageWidth = res.width || 750
+          const imageHeight = res.height || 1334
+          const viewportWidth = this.mapViewport.width || 375
+          const viewportHeight = this.mapViewport.height || 667
+          const imageRatio = imageWidth / imageHeight
+          const viewportRatio = viewportWidth / viewportHeight
+          let canvasWidth = viewportWidth
+          let canvasHeight = viewportHeight
+          if (imageRatio > viewportRatio) {
+            canvasHeight = viewportWidth / imageRatio
+          } else {
+            canvasWidth = viewportHeight * imageRatio
+          }
+          this.mapImageSize = {
+            width: canvasWidth,
+            height: canvasHeight
+          }
+          this.mapState.x = (viewportWidth - canvasWidth) / 2
+          this.mapState.y = (viewportHeight - canvasHeight) / 2
+        },
+        fail: () => {
+          const viewportWidth = this.mapViewport.width || 375
+          const viewportHeight = this.mapViewport.height || 667
+          this.mapImageSize = {
+            width: viewportWidth,
+            height: viewportHeight
+          }
+          this.mapState.x = 0
+          this.mapState.y = 0
+        }
+      })
+    },
     async loadMapData() {
       try {
         const [configRes, facilityRes] = await Promise.all([
           getMapConfig(),
           getFacilityList({ pageSize: 100 })
         ])
-        const mapImageUrl = configRes?.data?.mapImageUrl
-        if (mapImageUrl) {
-          this.mapImageUrl = mapImageUrl
-        }
-
+        this.controlPoints = Array.isArray(configRes?.data?.controlPoints) ? configRes.data.controlPoints : []
         const records = facilityRes?.data?.records || []
         this.locationList = records
           .map((item) => this.toLocationItem(item))
           .filter(Boolean)
+        this.fetchCurrentLocation()
         this.syncNearestLocation()
         this.refreshSelectedLocation()
       } catch (error) {
         console.error('加载地图数据失败', error)
       }
     },
+    fetchCurrentLocation() {
+      uni.getLocation({
+        type: 'gcj02',
+        success: (res) => {
+          this.currentLocation.longitude = Number(res.longitude)
+          this.currentLocation.latitude = Number(res.latitude)
+          this.syncCurrentLocationPosition()
+          this.syncNearestLocation()
+        },
+        fail: () => {
+          this.currentLocation.visible = false
+        }
+      })
+    },
+    estimateImagePointByGeo(longitude, latitude) {
+      if (longitude == null || latitude == null) return null
+      const points = (this.controlPoints || [])
+        .map((point) => ({
+          imageX: point.imageX != null ? Number(point.imageX) : null,
+          imageY: point.imageY != null ? Number(point.imageY) : null,
+          longitude: point.longitude != null ? Number(point.longitude) : null,
+          latitude: point.latitude != null ? Number(point.latitude) : null,
+        }))
+        .filter((point) => point.imageX != null && point.imageY != null && point.longitude != null && point.latitude != null)
+      if (points.length < 3) return null
+      const nearest = points
+        .map((point) => ({
+          ...point,
+          distance: Math.hypot(longitude - point.longitude, latitude - point.latitude)
+        }))
+        .sort((a, b) => a.distance - b.distance)
+      if (nearest[0] && nearest[0].distance < 1e-12) {
+        return {
+          imageX: nearest[0].imageX,
+          imageY: nearest[0].imageY
+        }
+      }
+      const sampled = nearest.slice(0, Math.min(6, nearest.length))
+      const weighted = sampled.reduce((acc, point) => {
+        const weight = 1 / Math.max(point.distance ** 2, 1e-12)
+        acc.total += weight
+        acc.imageX += point.imageX * weight
+        acc.imageY += point.imageY * weight
+        return acc
+      }, { total: 0, imageX: 0, imageY: 0 })
+      if (!weighted.total) return null
+      return {
+        imageX: weighted.imageX / weighted.total,
+        imageY: weighted.imageY / weighted.total
+      }
+    },
+    syncCurrentLocationPosition() {
+      const point = this.estimateImagePointByGeo(this.currentLocation.longitude, this.currentLocation.latitude)
+      if (!point) {
+        this.currentLocation.visible = false
+        return
+      }
+      this.currentLocation.top = `${(point.imageY * 100).toFixed(2)}%`
+      this.currentLocation.left = `${(point.imageX * 100).toFixed(2)}%`
+      this.currentLocation.visible = true
+    },
     toLocationItem(item) {
       const longitude = item.longitude != null ? Number(item.longitude) : null
       const latitude = item.latitude != null ? Number(item.latitude) : null
       const imageX = item.imageX != null ? Number(item.imageX) : null
       const imageY = item.imageY != null ? Number(item.imageY) : null
+      if (imageX == null || imageY == null) return null
       const typeClass = this.getTypeClass(item.facilityType, item.facilityName)
       const icon = this.getFacilityIcon(item.facilityType, item.facilityName)
       const route = this.getFacilityRoute(item)
-      const top = imageY != null ? `${(imageY * 100).toFixed(2)}%` : this.getFallbackPosition(item.facilityName).top
-      const left = imageX != null ? `${(imageX * 100).toFixed(2)}%` : this.getFallbackPosition(item.facilityName).left
+      const top = `${(imageY * 100).toFixed(2)}%`
+      const left = `${(imageX * 100).toFixed(2)}%`
       return {
         id: item.id,
         name: item.facilityName,
@@ -228,20 +343,6 @@ export default {
         longitude,
         latitude,
       }
-    },
-    getFallbackPosition(name) {
-      const positionMap = {
-        博学楼: { top: '16%', left: '24%' },
-        致远楼: { top: '21%', left: '40%' },
-        图书馆: { top: '36%', left: '50%' },
-        第一学生餐厅: { top: '56%', left: '30%' },
-        第二学生餐厅: { top: '62%', left: '22%' },
-        清真餐厅: { top: '72%', left: '64%' },
-        体育馆: { top: '60%', left: '66%' },
-        田径场: { top: '84%', left: '52%' },
-        松园1号楼: { top: '46%', left: '82%' },
-      }
-      return positionMap[name] || { top: '50%', left: '50%' }
     },
     getTypeClass(type, name) {
       if (name && name.includes('图书馆')) return 'library'
@@ -339,6 +440,10 @@ export default {
       return nearest
     },
     syncNearestLocation() {
+      if (this.currentLocation.longitude == null || this.currentLocation.latitude == null) {
+        this.currentLocation.name = '我的位置'
+        return
+      }
       const nearest = this.getNearestLocation()
       if (!nearest) return
       this.currentLocation.name = `我的位置 · 近${nearest.shortName}`
@@ -401,9 +506,11 @@ export default {
       }
       this.mapState.scale = 1.2
       uni.showToast({
-        title: nearest
-          ? `已定位到固定起点，附近最近是 ${nearest.name}`
-          : `当前位置已固定为 ${this.currentLocation.latitude}, ${this.currentLocation.longitude}`,
+        title: this.currentLocation.longitude == null || this.currentLocation.latitude == null
+          ? '当前位置获取失败'
+          : nearest
+          ? `已定位当前位置，附近最近是 ${nearest.name}`
+          : `当前位置：${this.currentLocation.latitude}, ${this.currentLocation.longitude}`,
         icon: 'none'
       })
     },
@@ -426,11 +533,11 @@ export default {
       const distance = this.formatDistance(item.longitude, item.latitude)
       uni.showModal({
         title: item.name,
-        content: `${item.detail}\n固定起点到目标距离 ${distance}`,
+        content: `${item.detail}\n当前位置到目标距离 ${distance}`,
         confirmText: '开始导航',
         success: (res) => {
           if (res.confirm) {
-            uni.showToast({ title: `已规划从固定起点到${item.name}`, icon: 'none' })
+            uni.showToast({ title: `已规划到${item.name}`, icon: 'none' })
           }
         }
       })
@@ -455,7 +562,7 @@ export default {
           ? (route.distance >= 1000 ? `${(route.distance / 1000).toFixed(2)}km` : `${Math.round(route.distance)}m`)
           : this.formatDistance(item.longitude, item.latitude)
         const contentLines = [
-          `固定起点：${this.currentLocation.name}`,
+          `当前位置：${this.currentLocation.name}`,
           `目标地点：${item.name}`,
           `步行距离：${routeDistanceText}`,
           `预计时间：${this.formatDuration(route.duration)}`

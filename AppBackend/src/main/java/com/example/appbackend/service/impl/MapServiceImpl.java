@@ -50,7 +50,7 @@ public class MapServiceImpl implements MapService {
         resp.setCenterLatitude(getConfigDouble("map_center_latitude", 39.90923));
         resp.setZoomLevel(getConfigInt("map_zoom_level", 16));
         resp.setBoundary(parseJsonConfig("map_boundary"));
-        resp.setCalibrationMode(getConfigString("map_calibration_mode", "boundary"));
+        resp.setCalibrationMode(getConfigString("map_calibration_mode", "controlPoints"));
         resp.setControlPoints(parseJsonConfig("map_control_points"));
         return resp;
     }

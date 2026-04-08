@@ -85,6 +85,7 @@
 
 <script>
 	import NavBar from '@/components/nav-bar/nav-bar.vue'
+	import { BASE_URL } from '@/utils/config.js'
 
 	export default {
 		components: { NavBar },
@@ -122,7 +123,7 @@
 					const token = uni.getStorageSync('token') || ''
 
 					uni.request({
-						url: `http://localhost:8080/api/browser/jwx/schedule/${courseId}`,
+						url: `${BASE_URL}/api/browser/jwx/schedule/${courseId}`,
 						method: 'GET',
 						header: {
 							'Authorization': 'Bearer ' + token

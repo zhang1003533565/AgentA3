@@ -38,11 +38,11 @@ public class CampusFacility {
     @Schema(description = "位置描述", example = "南门东侧100米")
     private String location;
 
-    @Column(precision = 10, scale = 7, columnDefinition = "DECIMAL(10,7) COMMENT '经度'")
+    @Column(precision = 18, scale = 14, columnDefinition = "DECIMAL(18,14) COMMENT '经度'")
     @Schema(description = "经度", example = "116.397428")
     private BigDecimal longitude;
 
-    @Column(precision = 10, scale = 7, columnDefinition = "DECIMAL(10,7) COMMENT '纬度'")
+    @Column(precision = 18, scale = 14, columnDefinition = "DECIMAL(18,14) COMMENT '纬度'")
     @Schema(description = "纬度", example = "39.90923")
     private BigDecimal latitude;
 
