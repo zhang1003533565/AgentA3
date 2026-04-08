@@ -1,342 +1,592 @@
 <template>
   <view class="map-page">
-    <view class="map-layer" :style="mapLayerStyle">
-      <image class="map-bg" :src="mapPlaceholderUrl" mode="aspectFill" />
-      <view class="map-dim" :style="mapDimStyle" />
-    </view>
+    <view class="map-fullscreen">
+      <movable-area class="map-stage" @click="closePopup">
+        <movable-view
+          class="map-canvas"
+          direction="all"
+          inertia
+          out-of-bounds
+          scale
+          :scale="mapState.scale"
+          :scale-min="1"
+          :scale-max="3"
+          :x="mapState.x"
+          :y="mapState.y"
+          :style="mapCanvasStyle"
+          @change="onMapChange"
+          @scale="onMapScale"
+        >
+          <image class="map-bg-image" :src="mapImageUrl" mode="scaleToFill" />
 
-    <view class="nav-layer">
-      <nav-bar title="校园地图" :showBack="false" />
-    </view>
+          <view
+            v-if="currentLocation.visible"
+            class="user-location-map"
+            :style="{ top: currentLocation.top, left: currentLocation.left }"
+            @click.stop="focusUserLocation"
+          >
+            <view class="user-loc-pulse" />
+            <view class="user-loc-dot">
+              <text class="user-loc-icon">◎</text>
+            </view>
+            <text class="user-location-label">{{ currentLocation.name }}</text>
+          </view>
 
-    <view class="search-floating-container" :class="{ dragging: sheet.dragging }" :style="searchContainerStyle">
-      <view class="search-capsule">
-        <view class="search-left">
-          <text class="search-icon">🔍</text>
-          <input
-            class="search-input"
-            type="text"
-            v-model="searchKeyword"
-            placeholder="搜索地点..."
-            @confirm="handleSearch"
-          />
+          <view
+            v-for="item in visibleLocations"
+            :key="item.id"
+            class="building-marker"
+            :class="{ active: selectedLocation && selectedLocation.id === item.id }"
+            :style="{ top: item.top, left: item.left }"
+            @click.stop="selectLocation(item)"
+          >
+            <view class="marker-icon" :class="item.typeClass">
+              <text class="marker-emoji">{{ item.icon }}</text>
+            </view>
+            <text class="marker-label">{{ item.shortName }}</text>
+          </view>
+        </movable-view>
+      </movable-area>
+
+      <view class="top-controls" :style="{ paddingTop: `${statusBarHeight + 10}px` }">
+        <view class="back-btn-map" @click.stop="handleBack">
+          <text class="back-icon">‹</text>
         </view>
-        <view class="search-right">
-          <text class="search-action">🎤</text>
-          <view class="search-divider" />
-          <text class="search-action">📷</text>
+
+        <view class="search-bar-map" @click.stop>
+          <view class="search-box-map">
+            <text class="search-icon">⌕</text>
+            <input
+              class="search-input-map"
+              type="text"
+              v-model="searchKeyword"
+              placeholder="搜索教学楼、食堂、宿舍..."
+              confirm-type="search"
+              @input="handleKeywordInput"
+              @confirm="handleSearch"
+            />
+            <text v-if="searchKeyword" class="search-clear" @click.stop="clearSearch">×</text>
+          </view>
         </view>
       </view>
-    </view>
 
-    <!-- 顶层全宽拖拽触发区，确保不被搜索框挡住 -->
-    <view 
-      class="drag-trigger-area" 
-      :style="dragTriggerStyle"
-      @touchstart="onSheetTouchStart"
-      @touchmove.stop.prevent="onSheetTouchMove"
-      @touchend="onSheetTouchEnd"
-    />
-
-    <view class="sheet" :class="{ dragging: sheet.dragging, expanded: sheet.currentHeightPx > sheet.midHeightPx }" :style="sheetStyle">
-      <view class="sheet-handle-area" id="sheetHeader">
-        <view class="sheet-handle" :class="{ hidden: sheet.currentHeightPx > sheet.midHeightPx }" :style="{ transition: 'opacity 0.3s ease-in-out' }" />
+      <view class="compass-map" @click.stop>
+        <text class="compass-text">N</text>
       </view>
 
-      <view class="sheet-content">
-        <scroll-view class="chips" scroll-x :show-scrollbar="false">
-          <view class="chips-row">
+      <view class="current-loc-map" @click.stop="focusUserLocation">
+        <text class="current-loc-icon">◎</text>
+      </view>
+
+      <view class="filter-bar-map" @click.stop>
+        <scroll-view class="filter-scroll" scroll-x :show-scrollbar="false">
+          <view class="filter-row">
             <view
-              v-for="(item, index) in categories"
-              :key="index"
-              class="chip"
+              v-for="item in categories"
+              :key="item.id"
+              class="filter-item-map"
               :class="{ active: currentCategory === item.id }"
               @click="selectCategory(item.id)"
             >
-              <text class="chip-text">{{ item.name }}</text>
+              {{ item.name }}
             </view>
           </view>
         </scroll-view>
       </view>
 
-      <scroll-view 
-        class="sheet-body" 
-        scroll-y 
-        :show-scrollbar="false" 
-        :style="sheetBodyStyle"
-      >
-        <view class="list">
-          <view
-            v-for="(item, index) in filteredLocations"
-            :key="index"
-            class="list-item"
-            @click="goToLocation(item)"
-          >
-            <image class="thumb" :src="item.thumb" mode="aspectFill" />
-            <view class="info">
-              <text class="title">{{ item.name }}</text>
-              <text class="subtitle">{{ item.description }}</text>
-            </view>
-            <view class="right">
-              <text class="distance">{{ item.distance }}</text>
-              <view class="nav-circle" @click.stop="goToLocation(item)">
-                <text class="nav-arrow">➤</text>
-              </view>
+      <view v-if="!visibleLocations.length" class="map-empty-state">
+        <text class="map-empty-title">暂无地图点位</text>
+        <text class="map-empty-desc">请先在后台为建筑配置地图图片坐标后再查看。</text>
+      </view>
+
+      <view class="popup-map" :class="{ show: !!selectedLocation }" @click.stop>
+        <view class="popup-handle-map" />
+        <view v-if="selectedLocation">
+          <view class="popup-image-map" :class="selectedLocation.typeClass">
+            <view class="popup-image-mask" />
+            <text class="popup-image-emoji">{{ selectedLocation.icon }}</text>
+            <view class="popup-image-copy">
+              <text class="popup-image-title">{{ selectedLocation.name }}</text>
+              <text class="popup-image-subtitle">{{ selectedLocation.detail }}</text>
             </view>
           </view>
+
+          <text class="popup-title-map">{{ selectedLocation.name }}</text>
+          <view class="popup-detail-map">
+            <text class="popup-detail-icon">📍</text>
+            <text>{{ selectedLocation.distance }} · {{ selectedLocation.detail }}</text>
+          </view>
+          <view class="popup-desc-map">{{ selectedLocation.description }}</view>
+
+          <view class="popup-actions-map">
+            <button class="popup-btn secondary" @click="closePopup">关闭</button>
+            <button class="popup-btn primary" @click="startNavigation(selectedLocation)">开始导航</button>
+          </view>
         </view>
-      </scroll-view>
+      </view>
     </view>
 
-    <view class="tabbar-safe-pad" />
-    <app-main-tab-bar current="map" />
   </view>
 </template>
 
 <script>
-import AppMainTabBar from '@/components/app-main-tab-bar/app-main-tab-bar.vue'
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { getFacilityList, getMapConfig, getNavigationRoute } from '@/api/map'
 
 export default {
-  components: { AppMainTabBar, NavBar },
   data() {
     return {
-      mapPlaceholderUrl: 'https://picsum.photos/seed/campusmap/1600/2400',
+      statusBarHeight: 20,
       searchKeyword: '',
       currentCategory: 0,
+      selectedLocation: null,
+      mapImageUrl: '/static/map.png',
+      mapImageSize: {
+        width: 750,
+        height: 1334
+      },
+      mapViewport: {
+        width: 375,
+        height: 667
+      },
+      controlPoints: [],
+      currentLocation: {
+        name: '我的位置',
+        top: '50%',
+        left: '50%',
+        longitude: null,
+        latitude: null,
+        visible: false
+      },
+      mapState: {
+        x: 0,
+        y: 0,
+        scale: 1
+      },
       categories: [
-        { id: 0, name: '全部', icon: '📍' },
-        { id: 1, name: '教学楼', icon: '🏫' },
-        { id: 2, name: '食堂', icon: '🍚' },
-        { id: 3, name: '图书馆', icon: '📚' },
-        { id: 4, name: '宿舍', icon: '🏠' },
-        { id: 5, name: '运动场', icon: '⚽' },
-        { id: 6, name: '其他', icon: '🏛️' }
+        { id: 0, name: '全部' },
+        { id: 1, name: '教学楼' },
+        { id: 2, name: '行政办公' },
+        { id: 3, name: '食堂' },
+        { id: 4, name: '生活服务' },
+        { id: 5, name: '运动场馆' },
+        { id: 6, name: '校门' }
       ],
-      locationList: [
-        { id: 1, name: '教学楼A栋', icon: '🏫', description: '计算机学院、软件学院', distance: '320m', category: 1, thumb: 'https://picsum.photos/seed/buildingA/200/200' },
-        { id: 2, name: '教学楼B栋', icon: '🏫', description: '经济管理学院、外国语学院', distance: '450m', category: 1, thumb: 'https://picsum.photos/seed/buildingB/200/200' },
-        { id: 3, name: '第一食堂', icon: '🍚', description: '学生餐厅、教工餐厅', distance: '180m', category: 2, thumb: 'https://picsum.photos/seed/canteen1/200/200' },
-        { id: 4, name: '第二食堂', icon: '🍚', description: '特色风味餐厅', distance: '350m', category: 2, thumb: 'https://picsum.photos/seed/canteen2/200/200' },
-        { id: 5, name: '图书馆', icon: '📚', description: '藏书200万册，自习室开放', distance: '280m', category: 3, thumb: 'https://picsum.photos/seed/library/200/200' },
-        { id: 6, name: '学生宿舍1号楼', icon: '🏠', description: '男生宿舍', distance: '520m', category: 4, thumb: 'https://picsum.photos/seed/dorm1/200/200' },
-        { id: 7, name: '体育馆', icon: '🏟️', description: '篮球、羽毛球、游泳馆', distance: '600m', category: 5, thumb: 'https://picsum.photos/seed/gym/200/200' },
-        { id: 8, name: '田径场', icon: '⚽', description: '400米标准跑道', distance: '550m', category: 5, thumb: 'https://picsum.photos/seed/track/200/200' }
-      ],
-
-      sheet: {
-        tabBarHeightPx: 0,
-        windowHeightPx: 0,
-        windowWidthPx: 0,
-        minHeightPx: 0,
-        midHeightPx: 0,
-        maxHeightPx: 0,
-        currentHeightPx: 0,
-        headerHeightPx: 0,
-        dragging: false,
-        startY: 0,
-        startHeightPx: 0
-      }
+      locationList: []
     }
   },
   computed: {
-    filteredLocations() {
-      const kw = (this.searchKeyword || '').trim().toLowerCase()
+    mapCanvasStyle() {
+      return `width:${this.mapImageSize.width}px;height:${this.mapImageSize.height}px;`
+    },
+    visibleLocations() {
+      const keyword = (this.searchKeyword || '').trim().toLowerCase()
       return this.locationList.filter((item) => {
-        const inCategory = this.currentCategory === 0 ? true : item.category === this.currentCategory
-        if (!inCategory) return false
-        if (!kw) return true
-        const hay = `${item.name} ${item.description}`.toLowerCase()
-        return hay.includes(kw)
+        const matchedCategory = this.currentCategory === 0 || item.category === this.currentCategory
+        if (!matchedCategory) return false
+        if (!keyword) return true
+        return `${item.name} ${item.shortName} ${item.detail}`.toLowerCase().includes(keyword)
       })
-    },
-    sheetStyle() {
-      const { tabBarHeightPx, maxHeightPx, currentHeightPx } = this.sheet
-      const translateYPx = Math.max(0, maxHeightPx - currentHeightPx)
-      return {
-        bottom: `${tabBarHeightPx}px`,
-        height: `${maxHeightPx}px`,
-        transform: `translateY(${translateYPx}px)`,
-        overflow: 'visible'
-      }
-    },
-    searchContainerStyle() {
-      const { tabBarHeightPx, maxHeightPx, currentHeightPx } = this.sheet
-      const translateYPx = Math.max(0, maxHeightPx - currentHeightPx)
-      // 搜索框始终在面板顶部边缘
-      const bottomPx = tabBarHeightPx + currentHeightPx
-      return {
-        bottom: `${bottomPx}px`,
-        transform: 'translateY(50%)',
-        zIndex: 35
-      }
-    },
-    sheetBodyStyle() {
-      const header = this.sheet.headerHeightPx || 0
-      const h = Math.max(0, this.sheet.currentHeightPx - header)
-      return {
-        height: `${h}px`
-      }
-    },
-    dragTriggerStyle() {
-      const { tabBarHeightPx, currentHeightPx } = this.sheet
-      return {
-        position: 'fixed',
-        left: 0,
-        right: 0,
-        bottom: `${tabBarHeightPx + currentHeightPx - 40}px`,
-        height: '100px',
-        zIndex: 50,
-        backgroundColor: 'transparent'
-      }
-    },
-    mapProgress() {
-      const { minHeightPx, maxHeightPx, currentHeightPx } = this.sheet
-      const range = Math.max(1, maxHeightPx - minHeightPx)
-      const p = (currentHeightPx - minHeightPx) / range
-      return Math.min(1, Math.max(0, p))
-    },
-    mapLayerStyle() {
-      const p = this.mapProgress
-      const scale = 1 - 0.03 * p
-      const blur = 2 * p
-      const bottom = this.sheet.tabBarHeightPx || 0
-      return {
-        transform: `scale(${scale})`,
-        filter: `blur(${blur}px)`,
-        bottom: `${bottom}px`
-      }
-    },
-    mapDimStyle() {
-      const p = this.mapProgress
-      const a = 0.18 * p
-      return {
-        backgroundColor: `rgba(0,0,0,${a})`
-      }
     }
   },
   onLoad() {
-    this.initSheetMetrics()
-    this.$nextTick(() => {
-      this.measureSheetHeader()
-    })
+    try {
+      const sys = uni.getSystemInfoSync()
+      this.statusBarHeight = sys.statusBarHeight || 20
+      this.mapViewport = {
+        width: sys.windowWidth || 375,
+        height: sys.windowHeight || 667
+      }
+    } catch (e) {}
+    this.initMapCanvas()
+    this.loadMapData()
   },
   methods: {
-    measureSheetHeader() {
-      const query = uni.createSelectorQuery().in(this)
-      query.select('#sheetHeader').boundingClientRect()
-      query.select('.sheet-content').boundingClientRect()
-      query.exec((res) => {
-        const handleRect = res && res[0] ? res[0] : null
-        const contentRect = res && res[1] ? res[1] : null
-        const h1 = handleRect && handleRect.height ? handleRect.height : 0
-        const h2 = contentRect && contentRect.height ? contentRect.height : 0
-        const headerHeightPx = h1 + h2
-        if (headerHeightPx > 0) {
-          this.sheet.headerHeightPx = headerHeightPx
+    initMapCanvas() {
+      uni.getImageInfo({
+        src: this.mapImageUrl,
+        success: (res) => {
+          const imageWidth = res.width || 750
+          const imageHeight = res.height || 1334
+          const viewportWidth = this.mapViewport.width || 375
+          const viewportHeight = this.mapViewport.height || 667
+          const imageRatio = imageWidth / imageHeight
+          const viewportRatio = viewportWidth / viewportHeight
+          let canvasWidth = viewportWidth
+          let canvasHeight = viewportHeight
+          if (imageRatio > viewportRatio) {
+            canvasHeight = viewportWidth / imageRatio
+          } else {
+            canvasWidth = viewportHeight * imageRatio
+          }
+          this.mapImageSize = {
+            width: canvasWidth,
+            height: canvasHeight
+          }
+          this.mapState.x = (viewportWidth - canvasWidth) / 2
+          this.mapState.y = (viewportHeight - canvasHeight) / 2
+        },
+        fail: () => {
+          const viewportWidth = this.mapViewport.width || 375
+          const viewportHeight = this.mapViewport.height || 667
+          this.mapImageSize = {
+            width: viewportWidth,
+            height: viewportHeight
+          }
+          this.mapState.x = 0
+          this.mapState.y = 0
         }
       })
     },
-    initSheetMetrics() {
-      const info = uni.getSystemInfoSync()
-      const windowHeightPx = info.windowHeight || 0
-      const windowWidthPx = info.windowWidth || 0
-      const tabBarHeightPx = windowWidthPx ? (250 * windowWidthPx) / 750 : 0
-
-      const minHeightPx = windowHeightPx * 0.15
-      const midHeightPx = windowHeightPx * 0.4
-      const maxHeightPx = windowHeightPx * 0.7 // 强制最高只能滑到 70%，确保顶部露出地图区域
-
-      this.sheet.windowHeightPx = windowHeightPx
-      this.sheet.windowWidthPx = windowWidthPx
-      this.sheet.tabBarHeightPx = tabBarHeightPx
-      this.sheet.minHeightPx = minHeightPx
-      this.sheet.midHeightPx = midHeightPx
-      this.sheet.maxHeightPx = maxHeightPx
-      this.sheet.currentHeightPx = midHeightPx
+    async loadMapData() {
+      try {
+        const [configRes, facilityRes] = await Promise.all([
+          getMapConfig(),
+          getFacilityList({ pageSize: 100 })
+        ])
+        this.controlPoints = Array.isArray(configRes?.data?.controlPoints) ? configRes.data.controlPoints : []
+        const records = facilityRes?.data?.records || []
+        this.locationList = records
+          .map((item) => this.toLocationItem(item))
+          .filter(Boolean)
+        this.fetchCurrentLocation()
+        this.syncNearestLocation()
+        this.refreshSelectedLocation()
+      } catch (error) {
+        console.error('加载地图数据失败', error)
+      }
     },
-    clampHeight(h) {
-      return Math.max(this.sheet.minHeightPx, Math.min(this.sheet.maxHeightPx, h))
+    fetchCurrentLocation() {
+      uni.getLocation({
+        type: 'gcj02',
+        success: (res) => {
+          this.currentLocation.longitude = Number(res.longitude)
+          this.currentLocation.latitude = Number(res.latitude)
+          this.syncCurrentLocationPosition()
+          this.syncNearestLocation()
+        },
+        fail: () => {
+          this.currentLocation.visible = false
+        }
+      })
     },
-    snapHeight(h) {
-      const { minHeightPx, midHeightPx, maxHeightPx } = this.sheet
-      const points = [minHeightPx, midHeightPx, maxHeightPx]
-      let best = points[0]
-      let bestDist = Math.abs(h - best)
-      for (let i = 1; i < points.length; i++) {
-        const d = Math.abs(h - points[i])
-        if (d < bestDist) {
-          bestDist = d
-          best = points[i]
+    estimateImagePointByGeo(longitude, latitude) {
+      if (longitude == null || latitude == null) return null
+      const points = (this.controlPoints || [])
+        .map((point) => ({
+          imageX: point.imageX != null ? Number(point.imageX) : null,
+          imageY: point.imageY != null ? Number(point.imageY) : null,
+          longitude: point.longitude != null ? Number(point.longitude) : null,
+          latitude: point.latitude != null ? Number(point.latitude) : null,
+        }))
+        .filter((point) => point.imageX != null && point.imageY != null && point.longitude != null && point.latitude != null)
+      if (points.length < 3) return null
+      const nearest = points
+        .map((point) => ({
+          ...point,
+          distance: Math.hypot(longitude - point.longitude, latitude - point.latitude)
+        }))
+        .sort((a, b) => a.distance - b.distance)
+      if (nearest[0] && nearest[0].distance < 1e-12) {
+        return {
+          imageX: nearest[0].imageX,
+          imageY: nearest[0].imageY
         }
       }
-      return best
+      const sampled = nearest.slice(0, Math.min(6, nearest.length))
+      const weighted = sampled.reduce((acc, point) => {
+        const weight = 1 / Math.max(point.distance ** 2, 1e-12)
+        acc.total += weight
+        acc.imageX += point.imageX * weight
+        acc.imageY += point.imageY * weight
+        return acc
+      }, { total: 0, imageX: 0, imageY: 0 })
+      if (!weighted.total) return null
+      return {
+        imageX: weighted.imageX / weighted.total,
+        imageY: weighted.imageY / weighted.total
+      }
     },
-    onSheetTouchStart(e) {
-      const touch = (e.touches && e.touches[0]) || null
-      if (!touch) return
-      this.sheet.dragging = true
-      this.sheet.startY = touch.clientY
-      this.sheet.startHeightPx = this.sheet.currentHeightPx
+    syncCurrentLocationPosition() {
+      const point = this.estimateImagePointByGeo(this.currentLocation.longitude, this.currentLocation.latitude)
+      if (!point) {
+        this.currentLocation.visible = false
+        return
+      }
+      this.currentLocation.top = `${(point.imageY * 100).toFixed(2)}%`
+      this.currentLocation.left = `${(point.imageX * 100).toFixed(2)}%`
+      this.currentLocation.visible = true
     },
-    onSheetTouchMove(e) {
-      if (!this.sheet.dragging) return
-      const touch = (e.touches && e.touches[0]) || null
-      if (!touch) return
-      const dy = this.sheet.startY - touch.clientY
-      const next = this.clampHeight(this.sheet.startHeightPx + dy)
-      this.sheet.currentHeightPx = next
+    toLocationItem(item) {
+      const longitude = item.longitude != null ? Number(item.longitude) : null
+      const latitude = item.latitude != null ? Number(item.latitude) : null
+      const imageX = item.imageX != null ? Number(item.imageX) : null
+      const imageY = item.imageY != null ? Number(item.imageY) : null
+      if (imageX == null || imageY == null) return null
+      const typeClass = this.getTypeClass(item.facilityType, item.facilityName)
+      const icon = this.getFacilityIcon(item.facilityType, item.facilityName)
+      const route = this.getFacilityRoute(item)
+      const top = `${(imageY * 100).toFixed(2)}%`
+      const left = `${(imageX * 100).toFixed(2)}%`
+      return {
+        id: item.id,
+        name: item.facilityName,
+        shortName: this.getShortName(item.facilityName),
+        icon,
+        category: item.facilityType === 1 ? 3 : item.facilityType === 2 ? 5 : item.facilityType === 3 ? 1 : 4,
+        typeClass,
+        distance: this.formatDistance(longitude, latitude),
+        detail: item.location || this.getTypeLabel(item.facilityType),
+        description: item.description || '暂无简介',
+        top,
+        left,
+        route,
+        longitude,
+        latitude,
+      }
     },
-    onSheetTouchEnd() {
-      if (!this.sheet.dragging) return
-      this.sheet.dragging = false
-      this.sheet.currentHeightPx = this.snapHeight(this.sheet.currentHeightPx)
-      this.$nextTick(() => {
-        this.measureSheetHeader()
+    getTypeClass(type, name) {
+      if (name && name.includes('图书馆')) return 'library'
+      if (type === 1) return 'canteen'
+      if (type === 2) return 'sport'
+      if (type === 3) return 'teaching'
+      if (type === 4) return 'dorm'
+      return 'admin'
+    },
+    getFacilityIcon(type, name) {
+      if (name && name.includes('图书馆')) return '📚'
+      if (type === 1) return '🍚'
+      if (type === 2) return '🏟'
+      if (type === 3) return '🏫'
+      if (type === 4) return '🏠'
+      return '📍'
+    },
+    getShortName(name) {
+      if (!name) return '地点'
+      if (name.length <= 4) return name
+      return name.slice(0, 4)
+    },
+    getTypeLabel(type) {
+      const map = { 1: '食堂', 2: '运动场馆', 3: '教学楼', 4: '宿舍' }
+      return map[type] || '校园地点'
+    },
+    getFacilityRoute(item) {
+      if (item.facilityType === 1) {
+        return `/subpackage_facility/restaurantDetail/restaurantDetail?id=${item.id}`
+      }
+      if (item.facilityType === 2) {
+        return `/subpackage_sports/sportsDetail/sportsDetail?id=${item.id}`
+      }
+      if (item.facilityType === 3) {
+        return `/subpackage_teaching/buildingDetail/buildingDetail?id=${item.id}`
+      }
+      if (item.facilityType === 4) {
+        return `/subpackage_dormitory/dormitoryDetail/dormitoryDetail?id=${item.id}`
+      }
+      return ''
+    },
+    toRadians(value) {
+      return (value * Math.PI) / 180
+    },
+    calculateDistance(longitude, latitude) {
+      if (longitude == null || latitude == null) return null
+      const earthRadius = 6371000
+      const lat1 = this.toRadians(this.currentLocation.latitude)
+      const lat2 = this.toRadians(latitude)
+      const deltaLat = this.toRadians(latitude - this.currentLocation.latitude)
+      const deltaLng = this.toRadians(longitude - this.currentLocation.longitude)
+      const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2)
+        + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2)
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+      return earthRadius * c
+    },
+    formatDistance(longitude, latitude) {
+      const distance = this.calculateDistance(longitude, latitude)
+      if (distance == null) return '--'
+      if (distance >= 1000) return `${(distance / 1000).toFixed(2)}km`
+      return `${Math.round(distance)}m`
+    },
+    formatDuration(seconds) {
+      if (!seconds && seconds !== 0) return '--'
+      if (seconds < 60) return `${seconds}秒`
+      const minutes = Math.round(seconds / 60)
+      if (minutes < 60) return `${minutes}分钟`
+      const hours = Math.floor(minutes / 60)
+      const remainMinutes = minutes % 60
+      return remainMinutes ? `${hours}小时${remainMinutes}分钟` : `${hours}小时`
+    },
+    refreshSelectedLocation() {
+      if (!this.visibleLocations.length) {
+        this.selectedLocation = null
+        return
+      }
+      if (!this.selectedLocation) {
+        this.selectedLocation = this.visibleLocations[0]
+        return
+      }
+      const matched = this.visibleLocations.find((item) => item.id === this.selectedLocation.id)
+      this.selectedLocation = matched || this.visibleLocations[0]
+    },
+    getNearestLocation() {
+      let nearest = null
+      let minDistance = Number.POSITIVE_INFINITY
+      this.locationList.forEach((item) => {
+        const distance = this.calculateDistance(item.longitude, item.latitude)
+        if (distance == null) return
+        if (distance < minDistance) {
+          minDistance = distance
+          nearest = item
+        }
       })
+      return nearest
+    },
+    syncNearestLocation() {
+      if (this.currentLocation.longitude == null || this.currentLocation.latitude == null) {
+        this.currentLocation.name = '我的位置'
+        return
+      }
+      const nearest = this.getNearestLocation()
+      if (!nearest) return
+      this.currentLocation.name = `我的位置 · 近${nearest.shortName}`
+    },
+    handleBack() {
+      const pages = getCurrentPages()
+      if (pages.length <= 1) {
+        uni.reLaunch({ url: '/pages/index/index' })
+        return
+      }
+      uni.navigateBack({ delta: 1 })
+    },
+    clearSearch() {
+      this.searchKeyword = ''
+      if (!this.visibleLocations.length) {
+        this.selectedLocation = null
+        return
+      }
+      this.selectedLocation = this.visibleLocations[0]
     },
     handleSearch() {
-      // TODO: 搜索地点
+      if (!this.visibleLocations.length) {
+        this.selectedLocation = null
+        uni.showToast({ title: '未找到匹配地点', icon: 'none' })
+        return
+      }
+      this.selectedLocation = this.visibleLocations[0]
+    },
+    handleKeywordInput() {
+      if (!this.visibleLocations.length) {
+        this.selectedLocation = null
+        return
+      }
+      if (!this.selectedLocation || !this.visibleLocations.some((item) => item.id === this.selectedLocation.id)) {
+        this.selectedLocation = this.visibleLocations[0]
+      }
     },
     selectCategory(categoryId) {
       this.currentCategory = categoryId
-      // TODO: 筛选地点
+      if (!this.visibleLocations.length) {
+        this.selectedLocation = null
+        return
+      }
+      if (!this.selectedLocation || !this.visibleLocations.some((item) => item.id === this.selectedLocation.id)) {
+        this.selectedLocation = this.visibleLocations[0]
+      }
     },
-    goToLocation(item) {
-      if (item.category === 1) {
-        uni.navigateTo({
-          url: `/subpackage_teaching/buildingDetail/buildingDetail?id=${item.id}`
-        })
+    selectLocation(item) {
+      this.selectedLocation = item
+    },
+    closePopup() {
+      this.selectedLocation = null
+    },
+    focusUserLocation() {
+      const nearest = this.getNearestLocation() || this.locationList[0]
+      this.currentCategory = 0
+      this.searchKeyword = ''
+      if (nearest) {
+        this.selectedLocation = nearest
+      }
+      this.mapState.scale = 1.2
+      uni.showToast({
+        title: this.currentLocation.longitude == null || this.currentLocation.latitude == null
+          ? '当前位置获取失败'
+          : nearest
+          ? `已定位当前位置，附近最近是 ${nearest.name}`
+          : `当前位置：${this.currentLocation.latitude}, ${this.currentLocation.longitude}`,
+        icon: 'none'
+      })
+    },
+    onMapChange(e) {
+      const { x, y } = e.detail || {}
+      if (typeof x === 'number') this.mapState.x = x
+      if (typeof y === 'number') this.mapState.y = y
+    },
+    onMapScale(e) {
+      const { scale, x, y } = e.detail || {}
+      if (typeof scale === 'number') this.mapState.scale = scale
+      if (typeof x === 'number') this.mapState.x = x
+      if (typeof y === 'number') this.mapState.y = y
+    },
+    navigateToLocation(item) {
+      if (item.route) {
+        uni.navigateTo({ url: item.route })
         return
       }
-      if (item.category === 2) {
-        uni.navigateTo({
-          url: `/subpackage_facility/restaurantDetail/restaurantDetail?id=${item.id}`
-        })
-        return
-      }
-      if (item.category === 4) {
-        uni.navigateTo({
-          url: `/subpackage_dormitory/dormitoryDetail/dormitoryDetail?id=${item.id}`
-        })
-        return
-      }
-      if (item.category === 5) {
-        uni.navigateTo({
-          url: `/subpackage_sports/sportsDetail/sportsDetail?id=${item.id}`
-        })
-        return
-      }
+      const distance = this.formatDistance(item.longitude, item.latitude)
       uni.showModal({
         title: item.name,
-        content: `距离: ${item.distance}\n${item.description}`,
+        content: `${item.detail}\n当前位置到目标距离 ${distance}`,
         confirmText: '开始导航',
         success: (res) => {
           if (res.confirm) {
-            uni.showToast({ title: '导航功能开发中', icon: 'none' })
+            uni.showToast({ title: `已规划到${item.name}`, icon: 'none' })
           }
         }
       })
+    },
+    async startNavigation(item) {
+      if (item.longitude == null || item.latitude == null) {
+        uni.showToast({ title: '该地点暂未配置经纬度', icon: 'none' })
+        return
+      }
+      uni.showLoading({ title: '规划路线中...' })
+      try {
+        const res = await getNavigationRoute({
+          fromLongitude: this.currentLocation.longitude,
+          fromLatitude: this.currentLocation.latitude,
+          toLongitude: item.longitude,
+          toLatitude: item.latitude,
+          mode: 'walking'
+        })
+        const route = res?.data || {}
+        const steps = Array.isArray(route.steps) ? route.steps.slice(0, 3) : []
+        const routeDistanceText = route.distance != null
+          ? (route.distance >= 1000 ? `${(route.distance / 1000).toFixed(2)}km` : `${Math.round(route.distance)}m`)
+          : this.formatDistance(item.longitude, item.latitude)
+        const contentLines = [
+          `当前位置：${this.currentLocation.name}`,
+          `目标地点：${item.name}`,
+          `步行距离：${routeDistanceText}`,
+          `预计时间：${this.formatDuration(route.duration)}`
+        ]
+        steps.forEach((step, index) => {
+          if (step?.instruction) {
+            contentLines.push(`${index + 1}. ${step.instruction}`)
+          }
+        })
+        uni.showModal({
+          title: `${item.name} 导航方案`,
+          content: contentLines.join('\n'),
+          confirmText: item.route ? '查看详情' : '知道了',
+          success: (modalRes) => {
+            if (modalRes.confirm && item.route) {
+              uni.navigateTo({ url: item.route })
+            }
+          }
+        })
+      } catch (error) {
+        uni.showToast({ title: error?.message || '路线规划失败', icon: 'none' })
+      } finally {
+        uni.hideLoading()
+      }
     }
   }
 }
@@ -345,296 +595,464 @@ export default {
 <style lang="scss" scoped>
 .map-page {
   position: fixed;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  height: 100vh;
+  inset: 0;
   overflow: hidden;
-  background-color: #fff;
+  background: #efe9de;
 }
 
-.map-layer {
-  position: fixed;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  overflow: hidden;
-  transform-origin: center center;
-  transition: transform 180ms ease, filter 180ms ease;
-}
-
-.map-bg {
+.map-fullscreen {
   position: absolute;
-  left: 0;
-  top: 0;
+  inset: 0;
+  overflow: hidden;
+  background: #e8e1d4;
+}
+
+.map-stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+.map-canvas {
   width: 100%;
   height: 100%;
 }
 
-.map-dim {
+.map-bg-image {
   position: absolute;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  transition: background-color 180ms ease;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
-.nav-layer {
-  position: fixed;
-  left: 0;
+.top-controls {
+  position: absolute;
+  left: 28rpx;
+  right: 28rpx;
   top: 0;
-  right: 0;
-  z-index: 40;
-}
-
-.sheet {
-  position: fixed;
-  left: 0;
-  right: 0;
-  z-index: 30;
-  background: rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(20px);
-  border-radius: 24px 24px 0 0;
-  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.08);
+  z-index: 50;
   display: flex;
-  flex-direction: column;
-  transition: transform 350ms cubic-bezier(0.19, 1, 0.22, 1), background-color 0.3s;
-  overflow: visible;
+  align-items: center;
 }
 
-.sheet.expanded {
-  background: #ffffff;
-}
-
-.sheet.dragging {
-  transition: none;
-}
-
-.sheet-handle-area {
-  padding: 8px 16px 4px 16px;
-  flex-shrink: 0;
-  position: relative;
-  z-index: 2;
-}
-
-.sheet-content {
-  padding: 18px 16px 12px 16px; /* 增加顶部内边距，给跨越的搜索框留空间 */
+.back-btn-map {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 22rpx;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1rpx solid rgba(0, 0, 0, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10rpx 28rpx rgba(0, 0, 0, 0.08);
   flex-shrink: 0;
 }
 
-.sheet-handle {
-  width: 36px;
-  height: 5px;
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 999px;
-  margin: 0 auto;
-  transition: opacity 0.3s;
+.back-icon {
+  font-size: 42rpx;
+  color: rgba(0, 0, 0, 0.55);
+  line-height: 1;
 }
 
-.sheet-handle.hidden {
-  opacity: 0;
-}
-
-.drag-trigger-area {
-  /* 仅用于捕获手势 */
-  background: transparent;
-}
-
-.search-floating-container {
-  position: fixed;
-  left: 0;
-  right: 0;
-  padding: 0 16px;
-  transition: bottom 350ms cubic-bezier(0.19, 1, 0.22, 1), transform 350ms cubic-bezier(0.19, 1, 0.22, 1);
-}
-
-.search-floating-container.dragging {
-  transition: none;
-}
-
-.search-capsule {
-  height: 48px;
-  border-radius: 12px;
-  background: #ffffff;
-  padding: 0 12px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12); /* 更明显的阴影，体现跨越层级 */
-  border: 1px solid rgba(0, 0, 0, 0.05);
-}
-
-.search-divider {
-  width: 1px;
-  height: 16px;
-  background: rgba(0, 0, 0, 0.06);
-  margin: 0 8px;
-}
-
-.search-left {
-  display: flex;
-  align-items: center;
+.search-bar-map {
   flex: 1;
-  min-width: 0;
+  margin-left: 18rpx;
+}
+
+.search-box-map {
+  height: 76rpx;
+  padding: 0 24rpx;
+  display: flex;
+  align-items: center;
+  border-radius: 28rpx;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12rpx 36rpx rgba(0, 0, 0, 0.1);
 }
 
 .search-icon {
-  font-size: 16px;
-  color: rgba(0, 0, 0, 0.5);
-  margin-right: 8px;
+  font-size: 30rpx;
+  color: rgba(0, 0, 0, 0.34);
+  margin-right: 14rpx;
 }
 
-.search-input {
+.search-input-map {
   flex: 1;
-  font-size: 14px;
-  color: #111;
+  font-size: 28rpx;
+  color: #1e1e1e;
 }
 
-.search-right {
-  display: flex;
-  align-items: center;
+.search-clear {
+  width: 40rpx;
+  text-align: center;
+  font-size: 30rpx;
+  color: rgba(0, 0, 0, 0.32);
 }
 
-.search-action {
-  width: 30px;
-  height: 30px;
+.user-location-map {
+  position: absolute;
+  z-index: 18;
+  transform: translate(-50%, -50%);
+}
+
+.user-loc-pulse {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 50%;
+  background: rgba(205, 174, 125, 0.26);
+  transform: translate(-50%, -50%);
+  animation: pulse 2s infinite;
+}
+
+.user-loc-dot {
+  width: 42rpx;
+  height: 42rpx;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #d5b27d, #bb9157);
+  border: 6rpx solid #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
-  color: rgba(0, 0, 0, 0.55);
+  box-shadow: 0 8rpx 22rpx rgba(0, 0, 0, 0.18);
 }
 
-.chips {
-  margin-top: 12px;
-  width: 100%;
-}
-
-.chips-row {
-  display: inline-flex;
-  padding-right: 16px;
-}
-
-.chip {
-  height: 32px;
-  padding: 0 16px;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f0f0f0;
-  margin-right: 8px;
-  flex-shrink: 0;
-  width: auto;
-  min-width: fit-content;
-}
-
-.chip-text {
-  font-size: 13px;
-  color: #111;
-  white-space: nowrap;
-}
-
-.chip.active {
-  background: #007aff;
-}
-
-.chip.active .chip-text {
+.user-loc-icon,
+.current-loc-icon {
+  font-size: 22rpx;
   color: #fff;
+  line-height: 1;
 }
 
-.sheet-body {
-  width: 100%;
-  flex: 1;
-  min-height: 0;
-  position: relative;
-  z-index: 10;
-}
-
-.list {
-  padding: 12px 16px 18px 16px;
-}
-
-.list-item {
-  display: flex;
-  align-items: center;
-  padding: 12px;
-  border-radius: 16px;
-  background: #fff;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
-  margin-bottom: 12px;
-}
-
-.thumb {
-  width: 60px;
-  height: 60px;
-  border-radius: 14px;
-  background: #eee;
-  margin-right: 12px;
-}
-
-.info {
-  flex: 1;
-  min-width: 0;
-}
-
-.title {
-  display: block;
-  font-size: 15px;
-  font-weight: 700;
-  color: #111;
-  margin-bottom: 6px;
-}
-
-.subtitle {
-  font-size: 12px;
-  color: rgba(0, 0, 0, 0.5);
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.user-location-label {
+  position: absolute;
+  top: 54rpx;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6rpx 14rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.92);
+  color: rgba(0, 0, 0, 0.68);
+  font-size: 20rpx;
+  font-weight: 600;
   white-space: nowrap;
+  box-shadow: 0 4rpx 14rpx rgba(0, 0, 0, 0.08);
 }
 
-.right {
+@keyframes pulse {
+  0% {
+    transform: translate(-50%, -50%) scale(0.8);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1.8);
+    opacity: 0;
+  }
+}
+
+.building-marker {
+  position: absolute;
+  z-index: 16;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  margin-left: 10px;
+  align-items: center;
+  transform: translate(-50%, -50%);
+  transition: transform 0.22s ease;
 }
 
-.distance {
-  font-size: 12px;
-  color: rgba(0, 0, 0, 0.5);
-  margin-bottom: 10px;
+.building-marker.active {
+  transform: translate(-50%, -50%) scale(1.08);
 }
 
-.nav-circle {
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  background: #007aff;
+.marker-icon {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 28rpx;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 12rpx 28rpx rgba(0, 0, 0, 0.16);
+  position: relative;
 }
 
-.nav-arrow {
+.marker-icon::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 28rpx;
+  background:
+    radial-gradient(circle at 28% 24%, rgba(255, 255, 255, 0.4), transparent 48%),
+    radial-gradient(circle at 72% 74%, rgba(0, 0, 0, 0.18), transparent 60%);
+}
+
+.marker-icon.teaching { background: linear-gradient(145deg, #6b9eff, #4a82e8); }
+.marker-icon.admin { background: linear-gradient(145deg, #8b7aff, #6b4aff); }
+.marker-icon.canteen { background: linear-gradient(145deg, #ffb24b, #ff8c12); }
+.marker-icon.library { background: linear-gradient(145deg, #b044ff, #9022cc); }
+.marker-icon.sport { background: linear-gradient(145deg, #2fd3d8, #00b2be); }
+.marker-icon.dorm { background: linear-gradient(145deg, #5dc65d, #42a542); }
+.marker-icon.gate { background: linear-gradient(145deg, #4caf50, #2e7d32); }
+
+.marker-emoji {
+  position: relative;
+  z-index: 1;
+  font-size: 38rpx;
+}
+
+.marker-label {
+  margin-top: 10rpx;
+  padding: 6rpx 14rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.9);
+  color: rgba(0, 0, 0, 0.68);
+  font-size: 22rpx;
+  font-weight: 600;
+  box-shadow: 0 4rpx 14rpx rgba(0, 0, 0, 0.08);
+}
+
+.filter-bar-map {
+  position: absolute;
+  left: 28rpx;
+  right: 28rpx;
+  bottom: 36rpx;
+  z-index: 24;
+}
+
+.filter-scroll {
+  white-space: nowrap;
+}
+
+.filter-row {
+  display: inline-flex;
+  padding-right: 20rpx;
+}
+
+.filter-item-map {
+  flex-shrink: 0;
+  margin-right: 14rpx;
+  padding: 14rpx 26rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1rpx solid rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 24rpx;
+  font-weight: 700;
+  box-shadow: 0 6rpx 16rpx rgba(0, 0, 0, 0.05);
+}
+
+.filter-item-map.active {
+  background: #cdae7d;
+  border-color: #cdae7d;
   color: #fff;
-  font-size: 14px;
 }
 
-.tabbar-safe-pad {
-  position: fixed;
+.map-empty-state {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 26;
+  width: 440rpx;
+  padding: 28rpx 30rpx;
+  border-radius: 28rpx;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 12rpx 36rpx rgba(0, 0, 0, 0.12);
+  text-align: center;
+}
+
+.map-empty-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #1e1e1e;
+}
+
+.map-empty-desc {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  line-height: 1.7;
+  color: rgba(0, 0, 0, 0.52);
+}
+
+.current-loc-map,
+.compass-map {
+  position: absolute;
+  bottom: 122rpx;
+  width: 84rpx;
+  height: 84rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 22;
+}
+
+.current-loc-map {
+  right: 28rpx;
+  background: rgba(255, 255, 255, 0.96);
+  border: 4rpx solid #cdae7d;
+  box-shadow: 0 8rpx 20rpx rgba(0, 0, 0, 0.12);
+}
+
+.compass-map {
+  left: 28rpx;
+  background: linear-gradient(145deg, #fff, #f4f4f0);
+  border: 4rpx solid rgba(205, 174, 125, 0.45);
+  box-shadow: 0 10rpx 26rpx rgba(0, 0, 0, 0.12);
+}
+
+.compass-text {
+  font-size: 30rpx;
+  font-weight: 800;
+  color: #c05f45;
+}
+
+.popup-map {
+  position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 250rpx;
-  background: #fff;
-  z-index: 25;
+  z-index: 30;
+  padding: 28rpx 28rpx 30rpx;
+  background: rgba(255, 255, 255, 0.98);
+  border-radius: 36rpx 36rpx 0 0;
+  box-shadow: 0 -12rpx 40rpx rgba(0, 0, 0, 0.16);
+  transform: translateY(110%);
+  opacity: 0;
   pointer-events: none;
-  box-shadow: 0 -2px 10px rgba(0,0,0,0.02);
+  transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
 }
+
+.popup-map.show {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.popup-handle-map {
+  width: 84rpx;
+  height: 10rpx;
+  margin: 0 auto 24rpx;
+  border-radius: 999rpx;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.popup-image-map {
+  position: relative;
+  height: 212rpx;
+  border-radius: 28rpx;
+  padding: 26rpx;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  margin-bottom: 22rpx;
+}
+
+.popup-image-map.teaching { background: linear-gradient(135deg, #7ba9ff 0%, #4a82e8 100%); }
+.popup-image-map.admin { background: linear-gradient(135deg, #9686ff 0%, #6b4aff 100%); }
+.popup-image-map.canteen { background: linear-gradient(135deg, #ffbb5d 0%, #ff8b1e 100%); }
+.popup-image-map.library { background: linear-gradient(135deg, #b45cff 0%, #8420c8 100%); }
+.popup-image-map.sport { background: linear-gradient(135deg, #35dce0 0%, #00aab6 100%); }
+.popup-image-map.dorm { background: linear-gradient(135deg, #77d06f 0%, #3d9b45 100%); }
+.popup-image-map.gate { background: linear-gradient(135deg, #67be64 0%, #2f7f39 100%); }
+
+.popup-image-mask {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 18% 22%, rgba(255, 255, 255, 0.35), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, rgba(0, 0, 0, 0.22) 100%);
+}
+
+.popup-image-emoji {
+  position: absolute;
+  right: 28rpx;
+  top: 22rpx;
+  font-size: 88rpx;
+  opacity: 0.92;
+}
+
+.popup-image-copy {
+  position: relative;
+  z-index: 1;
+}
+
+.popup-image-title {
+  display: block;
+  font-size: 38rpx;
+  font-weight: 800;
+  color: #fff;
+}
+
+.popup-image-subtitle {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.popup-title-map {
+  display: block;
+  font-size: 36rpx;
+  font-weight: 800;
+  color: #1e1e1e;
+}
+
+.popup-detail-map {
+  margin-top: 10rpx;
+  display: flex;
+  align-items: center;
+  font-size: 24rpx;
+  color: rgba(0, 0, 0, 0.48);
+}
+
+.popup-detail-icon {
+  margin-right: 8rpx;
+}
+
+.popup-desc-map {
+  margin-top: 18rpx;
+  padding: 22rpx;
+  border-radius: 22rpx;
+  background: rgba(0, 0, 0, 0.035);
+  font-size: 25rpx;
+  line-height: 1.7;
+  color: rgba(0, 0, 0, 0.62);
+}
+
+.popup-actions-map {
+  display: flex;
+  gap: 18rpx;
+  margin-top: 22rpx;
+}
+
+.popup-btn {
+  flex: 1;
+  height: 84rpx;
+  line-height: 84rpx;
+  border-radius: 24rpx;
+  font-size: 28rpx;
+  font-weight: 700;
+  border: none;
+}
+
+.popup-btn::after {
+  border: none;
+}
+
+.popup-btn.secondary {
+  background: #f4f0e8;
+  color: #7d6748;
+}
+
+.popup-btn.primary {
+  background: linear-gradient(135deg, #d3b17e 0%, #b68d58 100%);
+  color: #fff;
+  box-shadow: 0 10rpx 24rpx rgba(182, 141, 88, 0.28);
+}
+
 </style>

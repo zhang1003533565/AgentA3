@@ -38,13 +38,21 @@ public class CampusFacility {
     @Schema(description = "位置描述", example = "南门东侧100米")
     private String location;
 
-    @Column(precision = 10, scale = 7, columnDefinition = "DECIMAL(10,7) COMMENT '经度'")
+    @Column(precision = 18, scale = 14, columnDefinition = "DECIMAL(18,14) COMMENT '经度'")
     @Schema(description = "经度", example = "116.397428")
     private BigDecimal longitude;
 
-    @Column(precision = 10, scale = 7, columnDefinition = "DECIMAL(10,7) COMMENT '纬度'")
+    @Column(precision = 18, scale = 14, columnDefinition = "DECIMAL(18,14) COMMENT '纬度'")
     @Schema(description = "纬度", example = "39.90923")
     private BigDecimal latitude;
+
+    @Column(name = "image_x", precision = 8, scale = 6, columnDefinition = "DECIMAL(8,6) COMMENT '地图图片横向坐标(0-1)'")
+    @Schema(description = "地图图片横向坐标(0-1)", example = "0.452100")
+    private BigDecimal imageX;
+
+    @Column(name = "image_y", precision = 8, scale = 6, columnDefinition = "DECIMAL(8,6) COMMENT '地图图片纵向坐标(0-1)'")
+    @Schema(description = "地图图片纵向坐标(0-1)", example = "0.387500")
+    private BigDecimal imageY;
 
     @Column(columnDefinition = "TEXT COMMENT '图片列表(JSON数组)'")
     @Schema(description = "图片列表(JSON数组)", example = "[\"https://xxx.com/img1.jpg\",\"https://xxx.com/img2.jpg\"]")

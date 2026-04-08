@@ -35,6 +35,12 @@ public class FacilityRequest {
     @Schema(description = "纬度")
     private BigDecimal latitude;
 
+    @Schema(description = "地图图片横向坐标(0-1)，为空时由系统根据经纬度自动计算")
+    private BigDecimal imageX;
+
+    @Schema(description = "地图图片纵向坐标(0-1)，为空时由系统根据经纬度自动计算")
+    private BigDecimal imageY;
+
     @Schema(description = "图片列表（JSON数组）")
     private String images;
 }

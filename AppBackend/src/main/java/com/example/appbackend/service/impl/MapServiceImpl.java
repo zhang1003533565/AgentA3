@@ -45,15 +45,21 @@ public class MapServiceImpl implements MapService {
     @Override
     public MapConfigResponse getMapConfig() {
         MapConfigResponse resp = new MapConfigResponse();
+        resp.setMapImageUrl(getConfigString("map_image_url", null));
         resp.setCenterLongitude(getConfigDouble("map_center_longitude", 116.397428));
         resp.setCenterLatitude(getConfigDouble("map_center_latitude", 39.90923));
         resp.setZoomLevel(getConfigInt("map_zoom_level", 16));
-        resp.setBoundary(null);
+        resp.setBoundary(parseJsonConfig("map_boundary"));
+        resp.setCalibrationMode(getConfigString("map_calibration_mode", "controlPoints"));
+        resp.setControlPoints(parseJsonConfig("map_control_points"));
         return resp;
     }
 
     @Override
     public void updateMapConfig(MapConfigUpdateRequest request) {
+        if (request.getMapImageUrl() != null) {
+            saveOrUpdateConfig("map_image_url", request.getMapImageUrl());
+        }
         if (request.getCenterLongitude() != null) {
             saveOrUpdateConfig("map_center_longitude", String.valueOf(request.getCenterLongitude()));
         }
@@ -65,6 +71,12 @@ public class MapServiceImpl implements MapService {
         }
         if (request.getBoundary() != null) {
             saveOrUpdateConfig("map_boundary", request.getBoundary());
+        }
+        if (request.getCalibrationMode() != null) {
+            saveOrUpdateConfig("map_calibration_mode", request.getCalibrationMode());
+        }
+        if (request.getControlPoints() != null) {
+            saveOrUpdateConfig("map_control_points", request.getControlPoints());
         }
     }
 
@@ -352,6 +364,8 @@ public class MapServiceImpl implements MapService {
         resp.setMarkerName(f != null ? f.getFacilityName() : "");
         resp.setLongitude(f != null ? f.getLongitude() : null);
         resp.setLatitude(f != null ? f.getLatitude() : null);
+        resp.setImageX(f != null ? f.getImageX() : null);
+        resp.setImageY(f != null ? f.getImageY() : null);
         resp.setIconUrl(m.getIconUrl());
         resp.setDescription(f != null ? f.getDescription() : "");
         resp.setLocation(f != null ? f.getLocation() : "");
@@ -385,6 +399,24 @@ public class MapServiceImpl implements MapService {
                     try { return Integer.parseInt(c.getConfigValue()); }
                     catch (Exception e) { return defaultVal; }
                 }).orElse(defaultVal);
+    }
+
+    private String getConfigString(String key, String defaultVal) {
+        return mapConfigRepository.findByConfigKey(key)
+                .map(MapConfig::getConfigValue)
+                .orElse(defaultVal);
+    }
+
+    private Object parseJsonConfig(String key) {
+        String raw = getConfigString(key, null);
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return OBJECT_MAPPER.readValue(raw, Object.class);
+        } catch (Exception e) {
+            return raw;
+        }
     }
 
     private void saveOrUpdateConfig(String key, String value) {

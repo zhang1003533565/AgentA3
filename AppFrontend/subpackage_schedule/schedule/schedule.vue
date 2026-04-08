@@ -196,6 +196,7 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { BASE_URL } from '@/utils/config.js'
 
 const PERIOD_HEIGHT = 140
 const PERIOD_GAP = 8
@@ -311,7 +312,7 @@ export default {
 			try {
 				const token = uni.getStorageSync('token') || ''
 				uni.request({
-					url: 'http://localhost:8080/api/browser/jwx/schedule/current',
+					url: `${BASE_URL}/api/browser/jwx/schedule/current`,
 					method: 'GET',
 					header: {
 						'Authorization': 'Bearer ' + token
@@ -356,7 +357,7 @@ export default {
 		},
 		loadAllSchedules(token) {
 			uni.request({
-				url: 'http://localhost:8080/api/schedule',
+				url: `${BASE_URL}/api/schedule`,
 				method: 'GET',
 				header: {
 					'Authorization': 'Bearer ' + token
@@ -573,7 +574,7 @@ export default {
 				const token = uni.getStorageSync('token') || ''
 				const detailRequests = slotCourses.map((item) => new Promise((resolve) => {
 					uni.request({
-						url: `http://localhost:8080/api/browser/jwx/schedule/${item.id}`,
+						url: `${BASE_URL}/api/browser/jwx/schedule/${item.id}`,
 						method: 'GET',
 						header: {
 							'Authorization': 'Bearer ' + token
@@ -646,7 +647,7 @@ export default {
 			})
 
 			uni.request({
-				url: 'http://localhost:8080/api/browser/jwx/schedule/auto',
+				url: `${BASE_URL}/api/browser/jwx/schedule/auto`,
 				method: 'POST',
 				header: {
 					'Authorization': 'Bearer ' + token
@@ -694,7 +695,7 @@ export default {
 			uni.showLoading({ title: '正在导入课表...' })
 
 			uni.request({
-				url: 'http://localhost:8080/api/schedule/copy',
+				url: `${BASE_URL}/api/schedule/copy`,
 				method: 'POST',
 				header: {
 					'Authorization': 'Bearer ' + token,
@@ -744,7 +745,7 @@ export default {
 			uni.showLoading({ title: '获取中...' })
 
 			uni.request({
-				url: 'http://localhost:8080/api/auth/current-user',
+				url: `${BASE_URL}/api/auth/current-user`,
 				method: 'GET',
 				header: {
 					'Authorization': 'Bearer ' + token
@@ -789,7 +790,7 @@ export default {
 			this.showImportPopup = false
 			const token = uni.getStorageSync('token') || ''
 			uni.request({
-				url: 'http://localhost:8080/api/browser/jwx/user/check-jwx-bind',
+				url: `${BASE_URL}/api/browser/jwx/user/check-jwx-bind`,
 				method: 'GET',
 				header: {
 					'Authorization': 'Bearer ' + token
