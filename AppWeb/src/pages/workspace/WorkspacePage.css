@@ -221,6 +221,37 @@
   gap: 24px;
 }
 
+.workspace-marker-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.workspace-marker-preview-card {
+  border-radius: 24px !important;
+}
+
+.workspace-marker-preview-card__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.workspace-marker-preview-card__notice {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 247, 237, 0.92);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  color: #b45309;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .workspace-map-config__preview,
 .workspace-map-config__form {
   padding: 24px;
@@ -266,6 +297,14 @@
   display: block;
 }
 
+.workspace-map-config__image-stage--preview {
+  cursor: default;
+}
+
+.workspace-map-config__image-stage--editing {
+  cursor: crosshair;
+}
+
 .workspace-map-config__marker {
   position: absolute;
   width: 22px;
@@ -281,6 +320,31 @@
   font-weight: 700;
   box-shadow: 0 8px 18px rgba(239, 68, 68, 0.28);
   border: 2px solid #fff;
+}
+
+.workspace-map-preview__marker {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  border: 2px solid #fff;
+  background: #0f766e;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: 0 10px 24px rgba(15, 118, 110, 0.28);
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.workspace-map-preview__marker.active {
+  background: #dc2626;
+  box-shadow: 0 14px 28px rgba(220, 38, 38, 0.3);
+  transform: translate(-50%, -50%) scale(1.08);
 }
 
 .workspace-map-config__marker--draft {
@@ -394,13 +458,62 @@
   gap: 8px;
 }
 
+.workspace-map-config__actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+
+.workspace-marker-editor__hint {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(219, 234, 254, 0.6);
+  color: #1d4ed8;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.workspace-marker-editor {
+  margin-bottom: 18px;
+  padding: 20px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.82), rgba(255, 255, 255, 0.98));
+}
+
+.workspace-marker-editor__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.workspace-marker-editor__head h3 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+
+.workspace-marker-editor__head p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.workspace-table-row--active > td {
+  background: rgba(219, 234, 254, 0.55) !important;
+}
+
 @media (max-width: 1100px) {
   .workspace-stats,
   .workspace-main {
     grid-template-columns: 1fr;
   }
 
-  .workspace-map-config {
+  .workspace-map-config,
+  .workspace-marker-layout {
     grid-template-columns: 1fr;
   }
 }

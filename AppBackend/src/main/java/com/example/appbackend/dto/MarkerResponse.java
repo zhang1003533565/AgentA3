@@ -32,6 +32,12 @@ public class MarkerResponse {
     @Schema(description = "纬度")
     private BigDecimal latitude;
 
+    @Schema(description = "地图图片横向坐标(0-1)")
+    private BigDecimal imageX;
+
+    @Schema(description = "地图图片纵向坐标(0-1)")
+    private BigDecimal imageY;
+
     @Schema(description = "图标URL")
     private String iconUrl;
 

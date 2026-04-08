@@ -364,6 +364,8 @@ public class MapServiceImpl implements MapService {
         resp.setMarkerName(f != null ? f.getFacilityName() : "");
         resp.setLongitude(f != null ? f.getLongitude() : null);
         resp.setLatitude(f != null ? f.getLatitude() : null);
+        resp.setImageX(f != null ? f.getImageX() : null);
+        resp.setImageY(f != null ? f.getImageY() : null);
         resp.setIconUrl(m.getIconUrl());
         resp.setDescription(f != null ? f.getDescription() : "");
         resp.setLocation(f != null ? f.getLocation() : "");

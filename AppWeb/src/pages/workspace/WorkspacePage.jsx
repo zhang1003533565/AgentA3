@@ -54,6 +54,115 @@ const normalizePointNumber = (value) => {
   return Math.max(0, Math.min(1, Number(numeric.toFixed(6))))
 }
 
+const toFiniteNumber = (value) => {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : null
+}
+
+const roundCoordinate = (value) => {
+  const numeric = toFiniteNumber(value)
+  return numeric === null ? '' : String(Number(numeric.toFixed(7)))
+}
+
+const solve3x3Linear = (matrix, vector) => {
+  const a = matrix.map((row, index) => [...row, vector[index]])
+  for (let col = 0; col < 3; col += 1) {
+    let pivot = col
+    for (let row = col + 1; row < 3; row += 1) {
+      if (Math.abs(a[row][col]) > Math.abs(a[pivot][col])) {
+        pivot = row
+      }
+    }
+    if (Math.abs(a[pivot][col]) < 1e-10) return null
+    if (pivot !== col) {
+      const temp = a[pivot]
+      a[pivot] = a[col]
+      a[col] = temp
+    }
+    const factor = a[col][col]
+    for (let j = col; j < 4; j += 1) {
+      a[col][j] /= factor
+    }
+    for (let row = 0; row < 3; row += 1) {
+      if (row === col) continue
+      const ratio = a[row][col]
+      for (let j = col; j < 4; j += 1) {
+        a[row][j] -= ratio * a[col][j]
+      }
+    }
+  }
+  return [a[0][3], a[1][3], a[2][3]]
+}
+
+const solveAffineCoefficients = (points, targetKey) => {
+  if (!Array.isArray(points) || points.length < 3) return null
+  const design = points.map((point) => [
+    toFiniteNumber(point.longitude),
+    toFiniteNumber(point.latitude),
+    1,
+  ])
+  const target = points.map((point) => toFiniteNumber(point[targetKey]))
+  if (design.some((row) => row[0] === null || row[1] === null) || target.some((value) => value === null)) {
+    return null
+  }
+  const ata = [
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+  ]
+  const atb = [0, 0, 0]
+  for (let i = 0; i < design.length; i += 1) {
+    for (let row = 0; row < 3; row += 1) {
+      atb[row] += design[i][row] * target[i]
+      for (let col = 0; col < 3; col += 1) {
+        ata[row][col] += design[i][row] * design[i][col]
+      }
+    }
+  }
+  return solve3x3Linear(ata, atb)
+}
+
+const estimateGeoByImagePoint = (imageX, imageY, mapConfigForm) => {
+  const x = toFiniteNumber(imageX)
+  const y = toFiniteNumber(imageY)
+  if (x === null || y === null) return null
+
+  if (mapConfigForm.calibrationMode === 'controlPoints') {
+    const controlPoints = parseJsonText(mapConfigForm.controlPoints, [])
+    const xCoeff = solveAffineCoefficients(controlPoints, 'imageX')
+    const yCoeff = solveAffineCoefficients(controlPoints, 'imageY')
+    if (xCoeff && yCoeff) {
+      const determinant = xCoeff[0] * yCoeff[1] - xCoeff[1] * yCoeff[0]
+      if (Math.abs(determinant) > 1e-10) {
+        const rhsX = x - xCoeff[2]
+        const rhsY = y - yCoeff[2]
+        const longitude = (rhsX * yCoeff[1] - xCoeff[1] * rhsY) / determinant
+        const latitude = (xCoeff[0] * rhsY - rhsX * yCoeff[0]) / determinant
+        return {
+          longitude: roundCoordinate(longitude),
+          latitude: roundCoordinate(latitude),
+        }
+      }
+    }
+  }
+
+  const boundary = parseJsonText(mapConfigForm.boundary, null)
+  const northEast = boundary?.northEast
+  const southWest = boundary?.southWest
+  const minLng = toFiniteNumber(southWest?.longitude)
+  const maxLng = toFiniteNumber(northEast?.longitude)
+  const minLat = toFiniteNumber(southWest?.latitude)
+  const maxLat = toFiniteNumber(northEast?.latitude)
+  if ([minLng, maxLng, minLat, maxLat].some((value) => value === null)) return null
+  if (maxLng === minLng || maxLat === minLat) return null
+  const longitude = minLng + x * (maxLng - minLng)
+  const latitude = maxLat - y * (maxLat - minLat)
+  return {
+    longitude: roundCoordinate(longitude),
+    latitude: roundCoordinate(latitude),
+  }
+}
+
 const colorMap = {
   true: 'green',
   false: 'default',
@@ -264,15 +373,27 @@ function WorkspacePage({ pageKey }) {
     centerLatitude: '',
     zoomLevel: 16,
     calibrationMode: 'boundary',
-    boundary: JSON.stringify({
-      northEast: { longitude: 116.41, latitude: 39.92 },
-      southWest: { longitude: 116.38, latitude: 39.89 },
-    }, null, 2),
+    boundary: '',
     controlPoints: '[]',
   })
   const [mapConfigSaving, setMapConfigSaving] = useState(false)
   const [mapImageUploading, setMapImageUploading] = useState(false)
   const [showAdvancedCalibration, setShowAdvancedCalibration] = useState(false)
+  const [selectedMarkerId, setSelectedMarkerId] = useState(null)
+  const [markerEditorOpen, setMarkerEditorOpen] = useState(false)
+  const [markerEditorMode, setMarkerEditorMode] = useState('create')
+  const [markerEditorSaving, setMarkerEditorSaving] = useState(false)
+  const [markerDraft, setMarkerDraft] = useState({
+    facilityName: '',
+    facilityType: 1,
+    location: '',
+    description: '',
+    status: 1,
+    longitude: '',
+    latitude: '',
+    imageX: '',
+    imageY: '',
+  })
   const [controlPointDraft, setControlPointDraft] = useState({
     name: '',
     imageX: '',
@@ -349,7 +470,7 @@ function WorkspacePage({ pageKey }) {
   }, [pageKey, searchParams])
 
   useEffect(() => {
-    if (pageKey !== 'map-config') return
+    if (!['map-config', 'map-marker'].includes(pageKey)) return
 
     let cancelled = false
     const loadMapConfig = async () => {
@@ -363,10 +484,7 @@ function WorkspacePage({ pageKey }) {
           centerLatitude: data.centerLatitude ?? '',
           zoomLevel: data.zoomLevel ?? 16,
           calibrationMode: data.calibrationMode || 'boundary',
-          boundary: JSON.stringify(data.boundary || {
-            northEast: { longitude: 116.41, latitude: 39.92 },
-            southWest: { longitude: 116.38, latitude: 39.89 },
-          }, null, 2),
+          boundary: data.boundary ? JSON.stringify(data.boundary, null, 2) : '',
           controlPoints: JSON.stringify(data.controlPoints || [], null, 2),
         })
       } catch (error) {
@@ -382,21 +500,36 @@ function WorkspacePage({ pageKey }) {
     }
   }, [pageKey])
 
+  useEffect(() => {
+    if (pageKey !== 'map-marker') return
+    if (!rows.length) {
+      setSelectedMarkerId(null)
+      return
+    }
+    if (!rows.some((item) => item.id === selectedMarkerId)) {
+      setSelectedMarkerId(rows[0]?.id ?? null)
+    }
+  }, [pageKey, rows, selectedMarkerId])
+
+  const refreshPageData = async () => {
+    const result = await loadWorkspaceData(pageKey, {
+      current: pagination.current,
+      pageSize: pagination.pageSize,
+      keyword,
+      status,
+      contextId,
+      urlStallId,
+    })
+    setRows(result.rows)
+    setPagination((prev) => ({ ...prev, total: result.total }))
+  }
+
   const runAction = async (fn, successText) => {
     setActionLoading(true)
     try {
       await fn()
       message.success(successText)
-      const result = await loadWorkspaceData(pageKey, {
-        current: pagination.current,
-        pageSize: pagination.pageSize,
-        keyword,
-        status,
-        contextId,
-        urlStallId,
-      })
-      setRows(result.rows)
-      setPagination((prev) => ({ ...prev, total: result.total }))
+      await refreshPageData()
     } catch (error) {
       message.error(error?.message || '操作失败')
     } finally {
@@ -1229,7 +1362,9 @@ function WorkspacePage({ pageKey }) {
               {showAdvancedCalibration ? '收起高级标定' : '进入高级标定'}
             </Button>
           </div>
-          {showAdvancedCalibration ? (
+        </div>
+        {showAdvancedCalibration ? (
+          <div className="workspace-map-config__form">
             <div className="workspace-map-config__advanced">
               <div className="workspace-map-config__advanced-head">
                 <h4>高级标定</h4>
@@ -1281,7 +1416,7 @@ function WorkspacePage({ pageKey }) {
                   rows={8}
                   value={mapConfigForm.boundary}
                   onChange={(event) => setMapConfigForm((prev) => ({ ...prev, boundary: event.target.value }))}
-                  placeholder={`{\n  "northEast": { "longitude": 116.41, "latitude": 39.92 },\n  "southWest": { "longitude": 116.38, "latitude": 39.89 }\n}`}
+                  placeholder={`未配置时这里为空。\n如需边界标定，请手动填写：\n{\n  "northEast": { "longitude": 116.41, "latitude": 39.92 },\n  "southWest": { "longitude": 116.38, "latitude": 39.89 }\n}`}
                 />
               </div>
 
@@ -1443,10 +1578,322 @@ function WorkspacePage({ pageKey }) {
                 </Button>
               </div>
             </div>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </div>
     </Card>
+  )
+
+  const markerRows = Array.isArray(rows) ? rows.map((item) => ({
+    ...item,
+    position: item.longitude && item.latitude ? `${item.longitude}, ${item.latitude}` : '-',
+  })) : []
+  const markersWithImageCoords = markerRows.filter((item) => item.imageX !== null && item.imageX !== undefined && item.imageY !== null && item.imageY !== undefined)
+  const markersWithoutImageCoords = markerRows.filter((item) => item.imageX === null || item.imageX === undefined || item.imageY === null || item.imageY === undefined)
+  const selectedMarker = markerRows.find((item) => item.id === selectedMarkerId) || null
+
+  const openMarkerCreate = () => {
+    setMarkerEditorMode('create')
+    setMarkerDraft({
+      facilityName: '',
+      facilityType: 1,
+      location: '',
+      description: '',
+      status: 1,
+      longitude: '',
+      latitude: '',
+      imageX: '',
+      imageY: '',
+    })
+    setMarkerEditorOpen(true)
+  }
+
+  const openMarkerReposition = () => {
+    if (!selectedMarker) {
+      message.warning('请先在右侧表格中选中一个标记')
+      return
+    }
+    setMarkerEditorMode('reposition')
+    setMarkerDraft({
+      facilityName: selectedMarker.markerName || '',
+      facilityType: selectedMarker.facilityType || 1,
+      location: selectedMarker.location || '',
+      description: selectedMarker.description || '',
+      status: selectedMarker.status || 1,
+      longitude: selectedMarker.longitude ? String(selectedMarker.longitude) : '',
+      latitude: selectedMarker.latitude ? String(selectedMarker.latitude) : '',
+      imageX: selectedMarker.imageX ? String(selectedMarker.imageX) : '',
+      imageY: selectedMarker.imageY ? String(selectedMarker.imageY) : '',
+    })
+    setMarkerEditorOpen(true)
+  }
+
+  const applyMarkerDraftFromMapPoint = (imageX, imageY) => {
+    const estimated = estimateGeoByImagePoint(imageX, imageY, mapConfigForm)
+    setMarkerDraft((prev) => ({
+      ...prev,
+      imageX: imageX.toFixed(6),
+      imageY: imageY.toFixed(6),
+      longitude: estimated?.longitude ?? prev.longitude,
+      latitude: estimated?.latitude ?? prev.latitude,
+    }))
+  }
+
+  const saveMarkerDraft = async () => {
+    const longitude = toFiniteNumber(markerDraft.longitude)
+    const latitude = toFiniteNumber(markerDraft.latitude)
+    const imageX = toFiniteNumber(markerDraft.imageX)
+    const imageY = toFiniteNumber(markerDraft.imageY)
+    if (!markerDraft.facilityName.trim()) {
+      message.warning('请填写标记名称')
+      return
+    }
+    if (longitude === null || latitude === null) {
+      message.warning('请填写有效的经纬度')
+      return
+    }
+    if (imageX === null || imageY === null) {
+      message.warning('请先在左侧底图上点击取点')
+      return
+    }
+    setMarkerEditorSaving(true)
+    try {
+      const payload = {
+        facilityName: markerDraft.facilityName.trim(),
+        facilityType: markerDraft.facilityType,
+        location: markerDraft.location,
+        description: markerDraft.description,
+        status: markerDraft.status,
+        longitude,
+        latitude,
+        imageX,
+        imageY,
+        images: '[]',
+      }
+      await (markerEditorMode === 'create'
+        ? createFacility(payload)
+        : updateFacility(selectedMarker.facilityId, payload))
+      await refreshPageData()
+      setMarkerEditorOpen(false)
+      message.success(markerEditorMode === 'create' ? '标点新增成功' : '标点位置已更新')
+    } catch (error) {
+      message.error(error?.message || (markerEditorMode === 'create' ? '标点新增失败' : '位置更新失败'))
+    } finally {
+      setMarkerEditorSaving(false)
+    }
+  }
+
+  const renderMarkerManagePanel = () => (
+    <div className="workspace-marker-layout">
+      <Card className="workspace-marker-preview-card">
+        <div className="workspace-map-config__preview-head">
+          <h3>标点预览</h3>
+          <p>左侧展示底图和已有标记点。新增或调整位置时，先点按钮，再点击底图取点。</p>
+        </div>
+        <div className="workspace-map-config__image-shell">
+          {mapConfigForm.mapImageUrl ? (
+            <div
+              className={`workspace-map-config__image-stage workspace-map-config__image-stage--preview${markerEditorOpen ? ' workspace-map-config__image-stage--editing' : ''}`}
+              onClick={(event) => {
+                if (!markerEditorOpen) return
+                const rect = event.currentTarget.getBoundingClientRect()
+                if (!rect.width || !rect.height) return
+                const imageX = normalizePointNumber((event.clientX - rect.left) / rect.width)
+                const imageY = normalizePointNumber((event.clientY - rect.top) / rect.height)
+                applyMarkerDraftFromMapPoint(imageX, imageY)
+              }}
+            >
+              <img
+                src={mapConfigForm.mapImageUrl}
+                alt="地图标点预览"
+                className="workspace-map-config__image"
+              />
+              {markerEditorOpen && markerDraft.imageX !== '' && markerDraft.imageY !== '' ? (
+                <div
+                  className="workspace-map-config__marker workspace-map-config__marker--draft"
+                  style={{
+                    left: `${Number(markerDraft.imageX || 0) * 100}%`,
+                    top: `${Number(markerDraft.imageY || 0) * 100}%`,
+                  }}
+                  title="当前待保存位置"
+                >
+                  <span>+</span>
+                </div>
+              ) : null}
+              {markersWithImageCoords.map((marker, index) => (
+                <button
+                  key={marker.id || `marker-${index}`}
+                  type="button"
+                  className={`workspace-map-preview__marker${marker.id === selectedMarkerId ? ' active' : ''}`}
+                  style={{
+                    left: `${Number(marker.imageX || 0) * 100}%`,
+                    top: `${Number(marker.imageY || 0) * 100}%`,
+                  }}
+                  title={marker.markerName || `标记${index + 1}`}
+                  onClick={() => setSelectedMarkerId(marker.id)}
+                >
+                  <span>{index + 1}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="workspace-map-config__image-empty">请先在地图配置中上传底图</div>
+          )}
+        </div>
+        <div className="workspace-marker-preview-card__meta">
+          <div>已显示标点 {markersWithImageCoords.length} 个</div>
+          <div>未映射到底图 {markersWithoutImageCoords.length} 个</div>
+        </div>
+        {markersWithoutImageCoords.length ? (
+          <div className="workspace-marker-preview-card__notice">
+            以下标记还没有底图坐标，暂时不会显示在左侧预览中：
+            {` ${markersWithoutImageCoords.map((item) => item.markerName).join('、')}`}
+          </div>
+        ) : null}
+        <div className="workspace-map-config__actions">
+          <Button type="primary" onClick={openMarkerCreate}>
+            新增标点
+          </Button>
+          <Button onClick={openMarkerReposition} disabled={!selectedMarker}>
+            设置选中位置
+          </Button>
+        </div>
+      </Card>
+
+      <Card
+        className="workspace-table-card"
+        extra={
+          <div className="workspace-filters">
+            <Input
+              allowClear
+              placeholder="搜索关键字"
+              prefix={<SearchOutlined />}
+              value={keyword}
+              onChange={(event) => {
+                setPagination((prev) => ({ ...prev, current: 1 }))
+                setKeyword(event.target.value)
+              }}
+            />
+            <Select
+              value="全部"
+              disabled
+              options={page.filters.status.map((item) => ({ value: item, label: item }))}
+            />
+          </div>
+        }
+      >
+        {markerEditorOpen ? (
+          <div className="workspace-marker-editor">
+            <div className="workspace-marker-editor__head">
+              <div>
+                <h3>{markerEditorMode === 'create' ? '新增标点' : '设置标点位置'}</h3>
+                <p>右侧填写信息，左侧地图点击取点。</p>
+              </div>
+              <Button onClick={() => setMarkerEditorOpen(false)}>
+                收起
+              </Button>
+            </div>
+            <Form layout="vertical">
+              <Form.Item label="标记名称" required>
+                <Input
+                  value={markerDraft.facilityName}
+                  onChange={(event) => setMarkerDraft((prev) => ({ ...prev, facilityName: event.target.value }))}
+                  placeholder="例如 图书馆"
+                />
+              </Form.Item>
+              <Form.Item label="设施类型" required>
+                <Select
+                  value={markerDraft.facilityType}
+                  options={[
+                    { value: 1, label: '餐厅' },
+                    { value: 2, label: '运动场' },
+                    { value: 3, label: '教学楼' },
+                    { value: 4, label: '宿舍' },
+                  ]}
+                  onChange={(value) => setMarkerDraft((prev) => ({ ...prev, facilityType: value }))}
+                />
+              </Form.Item>
+              <Form.Item label="位置说明">
+                <Input
+                  value={markerDraft.location}
+                  onChange={(event) => setMarkerDraft((prev) => ({ ...prev, location: event.target.value }))}
+                  placeholder="例如 南门东侧"
+                />
+              </Form.Item>
+              <Form.Item label="描述">
+                <Input.TextArea
+                  rows={3}
+                  value={markerDraft.description}
+                  onChange={(event) => setMarkerDraft((prev) => ({ ...prev, description: event.target.value }))}
+                  placeholder="可选"
+                />
+              </Form.Item>
+              <div className="workspace-map-config__grid">
+                <div>
+                  <label>经度</label>
+                  <Input
+                    value={markerDraft.longitude}
+                    onChange={(event) => setMarkerDraft((prev) => ({ ...prev, longitude: event.target.value }))}
+                    placeholder="点击底图后自动推算，也可手填"
+                  />
+                </div>
+                <div>
+                  <label>纬度</label>
+                  <Input
+                    value={markerDraft.latitude}
+                    onChange={(event) => setMarkerDraft((prev) => ({ ...prev, latitude: event.target.value }))}
+                    placeholder="点击底图后自动推算，也可手填"
+                  />
+                </div>
+                <div>
+                  <label>图片横坐标</label>
+                  <Input value={markerDraft.imageX} readOnly placeholder="点击左侧底图取点" />
+                </div>
+                <div>
+                  <label>图片纵坐标</label>
+                  <Input value={markerDraft.imageY} readOnly placeholder="点击左侧底图取点" />
+                </div>
+              </div>
+              <div className="workspace-marker-editor__hint">
+                先点击左侧地图取点。若高级标定已配置，系统会自动推算经纬度；否则请手动填写。
+              </div>
+              <div className="workspace-map-config__actions">
+                <Button onClick={() => setMarkerEditorOpen(false)}>
+                  取消
+                </Button>
+                <Button type="primary" loading={markerEditorSaving} onClick={saveMarkerDraft}>
+                  确定
+                </Button>
+              </div>
+            </Form>
+          </div>
+        ) : null}
+        <Table
+          columns={columns}
+          dataSource={markerRows}
+          loading={loading}
+          rowKey={(record) => record.id || record.key || JSON.stringify(record)}
+          locale={{ emptyText: page.emptyText }}
+          pagination={{
+            current: pagination.current,
+            pageSize: pagination.pageSize,
+            total: pagination.total,
+            showSizeChanger: true,
+          }}
+          onRow={(record) => ({
+            onClick: () => setSelectedMarkerId(record.id),
+            className: record.id === selectedMarkerId ? 'workspace-table-row--active' : '',
+          })}
+          onChange={(nextPagination) => {
+            setPagination((prev) => ({
+              ...prev,
+              current: nextPagination.current,
+              pageSize: nextPagination.pageSize,
+            }))
+          }}
+        />
+      </Card>
+    </div>
   )
 
   return (
@@ -1463,7 +1910,7 @@ function WorkspacePage({ pageKey }) {
       </section>
 
       <section className="workspace-main workspace-main-single">
-        {pageKey === 'map-config' ? renderMapConfigPanel() : (
+        {pageKey === 'map-config' ? renderMapConfigPanel() : pageKey === 'map-marker' ? renderMarkerManagePanel() : (
         <Card
           className="workspace-table-card"
           extra={
