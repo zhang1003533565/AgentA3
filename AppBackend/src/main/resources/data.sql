@@ -228,7 +228,9 @@ INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, 
 (9, 'merchant01', 'admin123', '学府餐厅老板', '13812345601', 'lishilaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000009'),
 (10, 'merchant02', 'admin123', '书香咖啡老板', '13812345602', 'wanglaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000010'),
 (11, 'merchant03', 'admin123', '校园超市老板', '13812345603', 'zhanglaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000011'),
-(12, 'merchant04', 'admin123', '快印图文老板', '13812345604', 'zhaolaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000012');
+(12, 'merchant04', 'admin123', '快印图文老板', '13812345604', 'zhaolaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000012'),
+(13,'20233090117','Liu007517!','刘子鋆','18330177876','18330177876@163.com',3,1,NOW(),NOW(),'Liu007517!','20233090117','2026-03-02','SCH2026030001');
+
 -- =============================================
 -- 3~9. 旧模块（活动/论坛）初始化数据
 -- 为避免历史库字段不一致导致启动失败，暂不在 data.sql 中写入这些测试数据
@@ -782,6 +784,85 @@ INSERT INTO discount_activity (id, merchant_id, title, description, cover_image,
 -- 快印图文店活动
 (8, 4, '打印套餐10元封顶', '单面黑白打印0.1元/张，10张以内仅收1元，10张以上10元封顶，适合日常打印需求。', 'https://picsum.photos/800/400?random=310', NULL, '2026-03-01 00:00:00', '2026-12-31 23:59:59', '1. 仅限黑白单面打印\n2. 需提前预约', 0, 0, NOW());
 
+
+-- =============================================
+-- 第十阶段：优惠券模块数据
+-- =============================================
+
+-- 先删除旧表，避免历史字段结构影响初始化
+SET FOREIGN_KEY_CHECKS = 0;
+DROP TABLE IF EXISTS user_coupon;
+DROP TABLE IF EXISTS promotion_coupon;
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- 优惠券表
+CREATE TABLE promotion_coupon (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '优惠券 ID',
+    coupon_name VARCHAR(100) NOT NULL COMMENT '优惠券名称',
+    category VARCHAR(20) COMMENT '分类：coupon-食堂优惠卡，card-校园卡，ad-代理服务，life-生活服务',
+    merchant_id BIGINT COMMENT '关联商家 ID',
+    stall_id BIGINT COMMENT '关联档口 ID',
+    facility_id BIGINT COMMENT '关联设施 ID',
+    total_quantity INT NOT NULL COMMENT '发放总量',
+    start_date DATE COMMENT '开始日期',
+    end_date DATE COMMENT '结束日期',
+    image_url VARCHAR(255) COMMENT '图片 URL',
+    tag_type VARCHAR(20) COMMENT '标签：new-新品，hot-热门，recommend-推荐',
+    pickup_location VARCHAR(255) COMMENT '线下领取位置',
+    description TEXT COMMENT '优惠券描述',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态：1-上架 2-下架',
+    sort_order INT DEFAULT 0 COMMENT '排序值',
+    is_banner TINYINT(1) DEFAULT 0 COMMENT '是否 Banner 展示',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间',
+    FOREIGN KEY (merchant_id) REFERENCES merchant(id),
+    FOREIGN KEY (stall_id) REFERENCES canteen_stall(id),
+    FOREIGN KEY (facility_id) REFERENCES campus_facility(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='优惠券表';
+
+-- 用户优惠券表（记录领取关系）
+CREATE TABLE user_coupon (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '记录 ID',
+    user_id BIGINT NOT NULL COMMENT '用户 ID',
+    coupon_id BIGINT NOT NULL COMMENT '优惠券 ID',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态：1-未使用 2-已使用 3-已过期',
+    claim_count INT NOT NULL DEFAULT 1 COMMENT '领取次数',
+    receiver_name VARCHAR(50) COMMENT '联系人',
+    receiver_phone VARCHAR(20) COMMENT '手机号',
+    remark VARCHAR(255) COMMENT '备注',
+    claim_time DATETIME COMMENT '领取时间',
+    use_time DATETIME COMMENT '使用时间',
+    expiry_time DATETIME COMMENT '过期时间',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间',
+    UNIQUE KEY uk_user_coupon (user_id, coupon_id),
+    FOREIGN KEY (user_id) REFERENCES sys_user(id),
+    FOREIGN KEY (coupon_id) REFERENCES promotion_coupon(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户优惠券表';
+
+-- 优惠券测试数据
+INSERT INTO promotion_coupon (id, coupon_name, category, merchant_id, stall_id, facility_id, total_quantity, start_date, end_date, image_url, tag_type, pickup_location, description, status, sort_order, is_banner, create_time, update_time) VALUES
+-- 食堂优惠券
+(1, '第一学生餐厅满减券', 'coupon', 1, NULL, 1, 500, '2026-03-01', '2026-12-31', 'https://picsum.photos/200/200?random=501', 'hot', '第一学生餐厅一楼服务台', '线下领取纸质优惠券，凭校园卡每人可领取 1 张，适用于第一学生餐厅堂食消费。', 1, 1, 1, NOW(), NOW()),
+(2, '早餐专享券', 'coupon', 1, 1, 1, 300, '2026-03-01', '2026-06-30', 'https://picsum.photos/200/200?random=502', 'new', '第一学生餐厅早餐窗口旁领取点', '早餐时段线下发放，凭学生证领取，适用于早餐包子铺及指定早餐档口。', 1, 2, 1, NOW(), NOW()),
+(3, '麻辣烫专享券', 'coupon', 1, 2, 1, 200, '2026-03-15', '2026-09-30', 'https://picsum.photos/200/200?random=503', 'recommend', '第一学生餐厅二楼麻辣烫档口收银台', '线下领取后当日可用，适用于麻辣烫档口消费。', 1, 3, 0, NOW(), NOW()),
+(4, '石锅拌饭优惠券', 'coupon', 1, 3, 1, 150, '2026-03-01', '2026-12-31', 'https://picsum.photos/200/200?random=504', '', '第一学生餐厅二楼石锅拌饭窗口', '适用于韩式石锅拌饭窗口，线下领取纸券后点餐出示即可使用。', 1, 4, 0, NOW(), NOW()),
+(5, '兰州拉面优惠券', 'coupon', 1, 5, 1, 400, '2026-03-01', '2026-12-31', 'https://picsum.photos/200/200?random=505', 'hot', '第一学生餐厅一楼兰州拉面窗口', '线下领取餐券后可在拉面窗口使用。', 1, 5, 0, NOW(), NOW()),
+-- 饮品优惠券
+(6, '书香咖啡学生套餐券', 'coupon', 2, NULL, 9, 200, '2026-03-01', '2026-12-31', 'https://picsum.photos/200/200?random=506', 'recommend', '图书馆一楼书香咖啡服务台', '在书香咖啡前台线下领取，适用于咖啡加蛋糕学生套餐。', 1, 6, 1, NOW(), NOW()),
+(7, '奶茶专享券', 'coupon', 2, 8, 2, 300, '2026-03-15', '2026-09-30', 'https://picsum.photos/200/200?random=507', 'new', '第二学生餐厅奶茶饮品站收银处', '线下领取后到店使用，适用于指定饮品优惠活动。', 1, 7, 0, NOW(), NOW()),
+-- 超市优惠券
+(8, '校园超市通用券', 'coupon', 3, NULL, NULL, 500, '2026-03-01', '2026-12-31', 'https://picsum.photos/200/200?random=508', 'hot', '校园便利超市入口服务台', '在超市服务台线下领取，适用于超市日常消费场景。', 1, 8, 1, NOW(), NOW()),
+(9, '饮品专区优惠券', 'coupon', 3, NULL, NULL, 300, '2026-03-15', '2026-09-30', 'https://picsum.photos/200/200?random=509', '', '校园便利超市饮品区服务点', '饮品专区线下券，适用于指定饮品区商品。', 1, 9, 0, NOW(), NOW()),
+-- 打印优惠券
+(10, '打印店专享券', 'coupon', 4, NULL, 7, 100, '2026-03-01', '2026-12-31', 'https://picsum.photos/200/200?random=510', 'recommend', '教学区快印图文店收银台', '线下登记领取后可直接到店使用，适用于日常打印场景。', 1, 10, 0, NOW(), NOW()),
+-- 校园卡类优惠券
+(11, '校园卡服务券', 'card', NULL, NULL, NULL, 1000, '2026-03-01', '2026-12-31', 'https://picsum.photos/200/200?random=511', 'hot', '学生活动中心一楼校园卡服务中心', '需本人持校园卡到窗口线下领取，适用于校园卡相关业务办理。', 1, 11, 1, NOW(), NOW()),
+-- 代理服务券
+(12, '代理服务券', 'ad', NULL, NULL, NULL, 500, '2026-03-01', '2026-12-31', 'https://picsum.photos/200/200?random=512', '', '网络服务中心一楼业务办理处', '线下领取服务券后办理代理充值等相关业务。', 1, 12, 0, NOW(), NOW()),
+-- 生活服务券
+(13, '洗衣服务券', 'life', NULL, NULL, 10, 200, '2026-03-15', '2026-09-30', 'https://picsum.photos/200/200?random=513', 'new', '宿舍区自助洗衣房服务台', '在洗衣房服务台线下领取，适用于宿舍区洗衣服务。', 1, 13, 0, NOW(), NOW()),
+(14, '理发店体验券', 'life', NULL, NULL, NULL, 100, '2026-03-01', '2026-06-30', 'https://picsum.photos/200/200?random=514', 'recommend', '商业街校园理发店收银台', '新生首次到店可在线下领取体验券。', 1, 14, 0, NOW(), NOW());
 -- =============================================
 -- 第六部分：第七阶段 - 活动通知模块数据
 -- =============================================
