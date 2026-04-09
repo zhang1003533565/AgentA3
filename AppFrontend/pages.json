@@ -374,12 +374,26 @@
 					}
 				}
 			]
+		},
+		{
+			"root": "subpackage_notice",
+			"pages": [
+				{
+					"path": "noticeDetail/noticeDetail",
+					"style": {
+						"navigationBarTitleText": "公告详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
+			]
 		}
 	],
 	"preloadRule": {
 		"pages/index/index": {
 			"network": "all",
-			"packages": ["subpackage_forum", "subpackage_message", "subpackage_signin", "subpackage_schedule", "subpackage_lostfound", "subpackage_facility", "subpackage_sports", "subpackage_teaching", "subpackage_dormitory", "subpackage_community", "subpackage_ai"]
+			"packages": ["subpackage_forum", "subpackage_message", "subpackage_signin", "subpackage_schedule", "subpackage_lostfound", "subpackage_facility", "subpackage_sports", "subpackage_teaching", "subpackage_dormitory", "subpackage_community", "subpackage_ai", "subpackage_notice"]
 		}
 	},
 	"globalStyle": {

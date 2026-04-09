@@ -2,7 +2,7 @@
   <view class="page">
     <nav-bar title="通知公告" :showBack="true" />
     <view class="notice-list">
-      <view v-for="item in notices" :key="item.title" class="notice-item">
+      <view v-for="item in notices" :key="item.id" class="notice-item" @click="goToDetail(item.id)">
         <view class="notice-top">
           <text class="notice-tag">{{ item.tag }}</text>
           <text class="notice-time">{{ item.time }}</text>
@@ -10,22 +10,52 @@
         <text class="notice-title">{{ item.title }}</text>
         <text class="notice-content">{{ item.content }}</text>
       </view>
+      <view v-if="notices.length === 0" class="empty-state">
+        <text class="empty-text">暂无公告</text>
+      </view>
     </view>
   </view>
 </template>
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { getEnabledAnnouncements } from '@/api/notice.js'
 
 export default {
   components: { NavBar },
   data() {
     return {
-      notices: [
-        { tag: '教务', time: '2026-04-01 10:30', title: '关于 2026 年清明节放假安排的通知', content: '4 月 4 日至 4 月 6 日放假调休，请各位同学合理安排学习与出行。' },
-        { tag: '图书馆', time: '2026-03-31 16:20', title: '图书馆电子资源使用培训讲座', content: '本周五晚 19:00 在图书馆学术报告厅举行，欢迎同学报名参加。' },
-        { tag: '学工', time: '2026-03-30 14:00', title: '2026 年春季学期奖学金评选开始', content: '请符合条件的同学于本周内完成系统申请与材料提交。' }
-      ]
+      notices: []
+    }
+  },
+  onLoad() {
+    this.fetchNotices()
+  },
+  onShow() {
+    this.fetchNotices()
+  },
+  methods: {
+    async fetchNotices() {
+      try {
+        const res = await getEnabledAnnouncements()
+        if (res.code === 200 && res.data) {
+          this.notices = res.data.map(item => ({
+            id: item.id,
+            tag: '公告',
+            time: item.createTime,
+            title: item.title,
+            content: item.content
+          }))
+        }
+      } catch (err) {
+        console.error('获取公告列表失败:', err)
+        uni.showToast({ title: '获取公告失败', icon: 'none' })
+      }
+    },
+    goToDetail(id) {
+      uni.navigateTo({
+        url: `/subpackage_notice/noticeDetail/noticeDetail?id=${id}`
+      })
     }
   }
 }
@@ -77,5 +107,17 @@ export default {
   display: block;
   margin-top: 12rpx;
   line-height: 1.7;
+}
+
+.empty-state {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 400rpx;
+}
+
+.empty-text {
+  font-size: 28rpx;
+  color: #999;
 }
 </style>
