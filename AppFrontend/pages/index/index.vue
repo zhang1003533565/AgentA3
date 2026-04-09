@@ -55,7 +55,7 @@
 					</view>
 				</view>
 
-				<view class="home-quick-entry__item" @click="navigate('/pages/serviceHub/serviceHub?title=校园特惠')">
+				<view class="home-quick-entry__item" @click="navigate('/pages/promotion/promotion')">
 					<view class="home-quick-entry__icon-wrapper">
 						<image class="home-quick-entry__icon" src="/static/APPIcon/tabbar/award.png" mode="aspectFit" />
 					</view>
