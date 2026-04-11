@@ -80,7 +80,8 @@ public class AnnouncementController {
                 announcement.getTitle(),
                 announcement.getContent(),
                 announcement.getSortOrder(),
-                announcement.getEnabled()
+                announcement.getEnabled(),
+                announcement.getIsTop()
         );
         return Result.success("公告更新成功", updated);
     }

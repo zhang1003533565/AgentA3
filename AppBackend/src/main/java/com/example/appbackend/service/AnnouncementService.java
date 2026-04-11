@@ -28,7 +28,7 @@ public interface AnnouncementService {
     /**
      * 更新公告信息
      */
-    Announcement updateAnnouncement(Long id, String title, String content, Integer sortOrder, Boolean enabled);
+    Announcement updateAnnouncement(Long id, String title, String content, Integer sortOrder, Boolean enabled, Boolean isTop);
 
     /**
      * 删除公告

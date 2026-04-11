@@ -1,7 +1,6 @@
 package com.example.appbackend.service;
 
 import com.microsoft.playwright.*;
-import com.microsoft.playwright.options.AriaRole;
 import com.microsoft.playwright.options.LoadState;
 import org.springframework.stereotype.Service;
 import java.util.List;

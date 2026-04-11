@@ -96,6 +96,7 @@ public class PlaywrightController {
             Thread.sleep(2000);
 
             // 获取所有课表块，每个 div 单独作为一个数组元素
+            @SuppressWarnings("unchecked")
             List<Map<String, Object>> courseBlocks = (List<Map<String, Object>>) playwrightService.evaluate(newPage,
                 "() => { " +
                 "  function cleanText(text) { " +

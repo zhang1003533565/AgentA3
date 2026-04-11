@@ -66,10 +66,9 @@
 			</view>
 
 			<view class="headline-card" @click="goToNotice">
-				<view class="headline-horn" aria-hidden="true">
-					<view class="headline-horn-body"></view>
-					<view class="headline-horn-mouth"></view>
-					<view class="headline-horn-tail"></view>
+				<view class="headline-left">
+					<view class="headline-dot"></view>
+					<text class="headline-label">公告</text>
 				</view>
 				<view class="headline-marquee">
 					<view class="headline-track">
@@ -78,7 +77,9 @@
 						<text class="headline-text">{{ headline }}</text>
 					</view>
 				</view>
-				<view class="headline-arrow">›</view>
+				<view class="headline-arrow">
+					<view class="arrow-line"></view>
+				</view>
 			</view>
 
 			<view class="supplement-grid">
@@ -164,6 +165,7 @@ export default {
 		return {
 			headline: '',
 			announcements: [],
+
 			heroSlides: [
 				{
 					title: 'slide-1',
@@ -231,8 +233,11 @@ export default {
 				console.error('获取公告失败:', err)
 				this.headline = '暂无公告'
 			}
-		}
-	}
+		},
+
+
+	},
+
 }
 </script>
 
@@ -365,53 +370,35 @@ export default {
 
 .headline-card {
 	margin-top: 34rpx;
-	background: rgba(255, 255, 255, 0.82);
-	border-radius: 24rpx;
-	padding: 22rpx 24rpx;
+	background: #FFFFFF;
+	border-radius: 16rpx;
+	padding: 20rpx 24rpx;
 	display: flex;
 	align-items: center;
-	box-shadow: 0 10rpx 24rpx rgba(184, 195, 200, 0.16);
+	box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
 	overflow: hidden;
 }
 
-.headline-horn {
+/* 左侧标签区域 */
+.headline-left {
 	flex-shrink: 0;
-	position: relative;
-	width: 42rpx;
-	height: 42rpx;
-	margin-right: 18rpx;
+	display: flex;
+	align-items: center;
+	gap: 12rpx;
+	margin-right: 20rpx;
 }
 
-.headline-horn-body {
-	position: absolute;
-	left: 0;
-	top: 10rpx;
-	width: 18rpx;
-	height: 20rpx;
-	background: #62b6b3;
-	border-radius: 6rpx;
+.headline-dot {
+	width: 6rpx;
+	height: 6rpx;
+	border-radius: 50%;
+	background: #5C7A99;
 }
 
-.headline-horn-mouth {
-	position: absolute;
-	left: 14rpx;
-	top: 6rpx;
-	width: 0;
-	height: 0;
-	border-top: 14rpx solid transparent;
-	border-bottom: 14rpx solid transparent;
-	border-left: 20rpx solid #62b6b3;
-}
-
-.headline-horn-tail {
-	position: absolute;
-	left: 4rpx;
-	bottom: 0;
-	width: 8rpx;
-	height: 12rpx;
-	background: #4f8f90;
-	border-radius: 4rpx;
-	transform: skew(-10deg);
+.headline-label {
+	font-size: 24rpx;
+	color: #5C7A99;
+	font-weight: 500;
 }
 
 .headline-marquee {
@@ -429,28 +416,34 @@ export default {
 }
 
 .headline-text {
-	font-size: 30rpx;
+	font-size: 28rpx;
 	color: #4b585d;
 	flex-shrink: 0;
 }
 
 .headline-separator {
 	margin: 0 34rpx;
-	font-size: 30rpx;
+	font-size: 28rpx;
 	color: #88a2a4;
 }
 
+/* 右侧简约箭头 */
 .headline-arrow {
-	margin-left: 14rpx;
-	width: 34rpx;
-	height: 34rpx;
-	border-radius: 50%;
-	background: #4e8487;
-	color: #fff;
+	flex-shrink: 0;
+	margin-left: 16rpx;
+	width: 40rpx;
+	height: 40rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	font-size: 22rpx;
+}
+
+.arrow-line {
+	width: 8rpx;
+	height: 8rpx;
+	border-right: 2rpx solid #B0B8C0;
+	border-bottom: 2rpx solid #B0B8C0;
+	transform: rotate(-45deg);
 }
 
 @keyframes headline-marquee {

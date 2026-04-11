@@ -33,6 +33,10 @@ public class Announcement {
     @Schema(description = "是否启用: true-启用, false-禁用", example = "true")
     private Boolean enabled = true;
 
+    @Column(name = "is_top", nullable = false, columnDefinition = "TINYINT DEFAULT 0 COMMENT '是否置顶: 0-否, 1-是'")
+    @Schema(description = "是否置顶: true-置顶, false-不置顶", example = "false")
+    private Boolean isTop = false;
+
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     @Schema(description = "创建时间")

@@ -49,8 +49,9 @@ public class DishServiceImpl implements DishService {
         BeanUtils.copyProperties(request, dish);
 
         // 验证档口是否存在
-        CanteenStall stall = canteenStallRepository.findById(request.getStallId())
-                .orElseThrow(() -> new BusinessException(404, "所属档口不存在"));
+        if (!canteenStallRepository.existsById(request.getStallId())) {
+            throw new BusinessException(404, "所属档口不存在");
+        }
 
         dishRepository.save(dish);
         return convertToDTO(dish);

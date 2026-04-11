@@ -198,6 +198,4 @@ public class WeekCalculator {
                 .trim();
     }
 
-    // 中文字符"周"的 Unicode 编码
-    private static final String ZHOU = "\u5468";
 }

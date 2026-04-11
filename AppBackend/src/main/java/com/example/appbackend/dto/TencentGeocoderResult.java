@@ -4,8 +4,6 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
-import java.util.List;
-
 /**
  * 腾讯地图地址解析（地址 → 坐标）响应
  * 文档：https://lbs.qq.com/service/webService/webServiceGuide/geocoder/geocoder

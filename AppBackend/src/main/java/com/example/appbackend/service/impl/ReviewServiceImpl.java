@@ -2,7 +2,6 @@ package com.example.appbackend.service.impl;
 
 import com.example.appbackend.dto.*;
 import com.example.appbackend.entity.FacilityReview;
-import com.example.appbackend.entity.MapMarker;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.FacilityReviewRepository;
 import com.example.appbackend.repository.MapMarkerRepository;

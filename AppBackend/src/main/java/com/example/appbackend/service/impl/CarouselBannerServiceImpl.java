@@ -2,7 +2,6 @@ package com.example.appbackend.service.impl;
 
 import com.aliyun.oss.OSS;
 import com.aliyun.oss.OSSClientBuilder;
-import com.aliyun.oss.OSSException;
 import com.example.appbackend.entity.CarouselBanner;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.entity.Result;

@@ -1,7 +1,6 @@
 package com.example.appbackend.service;
 
 import com.example.appbackend.dto.*;
-import com.example.appbackend.entity.MapMarker;
 
 import java.math.BigDecimal;
 import java.util.List;

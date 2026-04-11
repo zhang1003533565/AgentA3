@@ -105,11 +105,11 @@ public class PromotionCouponServiceImpl implements PromotionCouponService {
                     .orElseThrow(() -> new BusinessException(404, "关联商家不存在"));
         }
         if (request.getStallId() != null) {
-            CanteenStall stall = canteenStallRepository.findById(request.getStallId())
+            canteenStallRepository.findById(request.getStallId())
                     .orElseThrow(() -> new BusinessException(404, "关联档口不存在"));
         }
         if (request.getFacilityId() != null) {
-            CampusFacility facility = facilityRepository.findById(request.getFacilityId())
+            facilityRepository.findById(request.getFacilityId())
                     .orElseThrow(() -> new BusinessException(404, "关联设施不存在"));
         }
 

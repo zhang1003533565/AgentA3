@@ -49,7 +49,7 @@ public class CanteenStallServiceImpl implements CanteenStallService {
         BeanUtils.copyProperties(request, stall);
 
         // 验证餐厅是否存在
-        CampusFacility restaurant = facilityRepository.findById(request.getRestaurantId())
+        facilityRepository.findById(request.getRestaurantId())
                 .orElseThrow(() -> new BusinessException(404, "所属餐厅不存在"));
 
         canteenStallRepository.save(stall);

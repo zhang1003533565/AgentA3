@@ -5,7 +5,6 @@ import com.example.appbackend.dto.FavoriteRequest;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.service.MapFavoriteService;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;

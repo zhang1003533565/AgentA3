@@ -33,8 +33,6 @@ public class CourseScheduleParser {
             // 提取各个字段
             String courseName = extractField(block, "courseName");
             String sections = extractField(block, "sections");
-            String sectionStartStr = extractField(block, "sectionStart");
-            String sectionEndStr = extractField(block, "sectionEnd");
             String weekText = extractField(block, "weekText");
             String weekdayStr = extractField(block, "weekday");
             String location = extractField(block, "location");

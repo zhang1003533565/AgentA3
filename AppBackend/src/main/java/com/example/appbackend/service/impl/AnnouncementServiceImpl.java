@@ -36,12 +36,12 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
     @Override
     public List<Announcement> getEnabledAnnouncements() {
-        return announcementRepository.findByEnabledTrueOrderBySortOrderAsc();
+        return announcementRepository.findByEnabledTrueOrderByIsTopDescSortOrderAsc();
     }
 
     @Override
     public List<Announcement> getAllAnnouncements() {
-        return announcementRepository.findAllByOrderBySortOrderAsc();
+        return announcementRepository.findAllByOrderByIsTopDescSortOrderAsc();
     }
 
     @Override
@@ -52,7 +52,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
     @Override
     @Transactional
-    public Announcement updateAnnouncement(Long id, String title, String content, Integer sortOrder, Boolean enabled) {
+    public Announcement updateAnnouncement(Long id, String title, String content, Integer sortOrder, Boolean enabled, Boolean isTop) {
         Announcement announcement = getAnnouncementById(id);
 
         if (title != null && !title.trim().isEmpty()) {
@@ -66,6 +66,17 @@ public class AnnouncementServiceImpl implements AnnouncementService {
         }
         if (enabled != null) {
             announcement.setEnabled(enabled);
+        }
+        if (isTop != null) {
+            // 如果设置为置顶，先取消其他置顶
+            if (isTop) {
+                List<Announcement> topAnnouncements = announcementRepository.findByIsTopTrueAndEnabledTrueAndIdNot(id);
+                for (Announcement top : topAnnouncements) {
+                    top.setIsTop(false);
+                    announcementRepository.save(top);
+                }
+            }
+            announcement.setIsTop(isTop);
         }
 
         return announcementRepository.save(announcement);

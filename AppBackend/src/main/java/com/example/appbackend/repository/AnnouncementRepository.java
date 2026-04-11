@@ -9,12 +9,17 @@ import java.util.List;
 public interface AnnouncementRepository extends JpaRepository<Announcement, Long> {
 
     /**
-     * 查询所有已启用的公告，按排序字段升序排列
+     * 查询所有已启用的公告，按置顶降序、排序字段升序排列
      */
-    List<Announcement> findByEnabledTrueOrderBySortOrderAsc();
+    List<Announcement> findByEnabledTrueOrderByIsTopDescSortOrderAsc();
 
     /**
-     * 查询所有公告，按排序字段升序排列
+     * 查询所有公告，按置顶降序、排序字段升序排列
      */
-    List<Announcement> findAllByOrderBySortOrderAsc();
+    List<Announcement> findAllByOrderByIsTopDescSortOrderAsc();
+
+    /**
+     * 查询所有已置顶且启用的公告（排除指定ID）
+     */
+    List<Announcement> findByIsTopTrueAndEnabledTrueAndIdNot(Long id);
 }

@@ -13,8 +13,6 @@ import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
 @RestController
 @RequestMapping("/api/forum/posts")
 @Tag(name = "帖子管理", description = "帖子的发布、编辑、删除、查询等接口")
