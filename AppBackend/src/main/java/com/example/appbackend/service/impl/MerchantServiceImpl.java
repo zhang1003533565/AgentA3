@@ -48,6 +48,8 @@ public class MerchantServiceImpl implements MerchantService {
                     vo.setId(c.getId());
                     vo.setCategoryName(c.getCategoryName());
                     vo.setSort(c.getSort());
+                    vo.setStatus(c.getStatus());
+                    vo.setStatusText(c.getStatus() != null && c.getStatus() == 1 ? "启用" : "禁用");
                     return vo;
                 }).collect(Collectors.toList());
     }
@@ -62,6 +64,8 @@ public class MerchantServiceImpl implements MerchantService {
         vo.setId(c.getId());
         vo.setCategoryName(c.getCategoryName());
         vo.setSort(c.getSort());
+        vo.setStatus(c.getStatus());
+        vo.setStatusText(c.getStatus() != null && c.getStatus() == 1 ? "启用" : "禁用");
         return vo;
     }
 

@@ -2,6 +2,7 @@ package com.example.appbackend.controller;
 
 import com.example.appbackend.dto.*;
 import com.example.appbackend.entity.Result;
+import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.service.CommentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -24,6 +25,13 @@ public class CommentController {
     private Long getCurrentUserId(HttpServletRequest request) {
         Object userId = request.getAttribute("userId");
         return userId != null ? (Long) userId : null;
+    }
+
+    private void checkAdmin(HttpServletRequest request) {
+        String role = (String) request.getAttribute("role");
+        if (!"ADMIN".equals(role)) {
+            throw new BusinessException(Result.FORBIDDEN_CODE, "只有管理员可操作");
+        }
     }
 
     @Operation(summary = "发布评论", description = "对帖子发布评论，支持回复已有评论")
@@ -62,6 +70,27 @@ public class CommentController {
             return Result.unauthorized("请先登录");
         }
         commentService.deleteComment(id, userId);
+        return Result.success("删除成功", null);
+    }
+
+    @Operation(summary = "管理员删除评论", description = "管理员删除指定评论")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "删除成功"),
+        @ApiResponse(responseCode = "401", description = "未登录"),
+        @ApiResponse(responseCode = "403", description = "无权限"),
+        @ApiResponse(responseCode = "404", description = "评论不存在")
+    })
+    @DeleteMapping("/admin/{id}")
+    public Result<Void> adminDeleteComment(
+            @Parameter(description = "评论ID", required = true, example = "1")
+            @PathVariable Long id,
+            HttpServletRequest request) {
+        Long userId = getCurrentUserId(request);
+        if (userId == null) {
+            return Result.unauthorized("请先登录");
+        }
+        checkAdmin(request);
+        commentService.deleteCommentByAdmin(id);
         return Result.success("删除成功", null);
     }
 

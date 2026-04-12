@@ -84,6 +84,12 @@ export const deleteComment = (id) =>
     method: 'delete',
   })
 
+export const adminDeleteComment = (id) =>
+  request({
+    url: `/api/forum/comments/admin/${id}`,
+    method: 'delete',
+  })
+
 // ========== 话题 ==========
 
 export const getTopicList = (params = {}) =>
@@ -126,29 +132,3 @@ export const deleteTopic = (id) =>
   })
 
 // ========== 审核 / 管理 ==========
-
-export const adminDeletePost = (id) =>
-  request({
-    url: `/api/forum/audit/posts/${id}`,
-    method: 'delete',
-  })
-
-export const adminDeleteComment = (id) =>
-  request({
-    url: `/api/forum/audit/comments/${id}`,
-    method: 'delete',
-  })
-
-export const batchDeletePosts = (ids) =>
-  request({
-    url: '/api/forum/audit/posts/batch',
-    method: 'delete',
-    data: ids,
-  })
-
-export const batchDeleteComments = (ids) =>
-  request({
-    url: '/api/forum/audit/comments/batch',
-    method: 'delete',
-    data: ids,
-  })

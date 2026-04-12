@@ -231,6 +231,78 @@ INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, 
 (12, 'merchant04', 'admin123', '快印图文老板', '13812345604', 'zhaolaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000012'),
 (13,'20233090117','Liu007517!','刘子鋆','18330177876','18330177876@163.com',3,1,NOW(),NOW(),'Liu007517!','20233090117','2026-03-02','SCH2026030001');
 
+UPDATE sys_user SET
+    avatar = 'https://picsum.photos/seed/avatar-admin/240/240',
+    personal_number = 'A20260001',
+    college = '信息化管理中心',
+    major = '系统运维',
+    class_name = '管理员组'
+WHERE id = 1;
+
+UPDATE sys_user SET
+    avatar = 'https://picsum.photos/seed/avatar-teacher-1/240/240',
+    personal_number = 'T20260001',
+    college = '信息工程学院',
+    major = '软件工程',
+    class_name = '教师组'
+WHERE id = 2;
+
+UPDATE sys_user SET
+    avatar = 'https://picsum.photos/seed/avatar-teacher-2/240/240',
+    personal_number = 'T20260002',
+    college = '管理学院',
+    major = '工商管理',
+    class_name = '教师组'
+WHERE id = 3;
+
+UPDATE sys_user SET
+    avatar = 'https://picsum.photos/seed/avatar-student-zzs/240/240',
+    personal_number = '20233090001',
+    college = '计算机与人工智能学院',
+    major = '软件工程',
+    class_name = '软件2301班'
+WHERE id = 4;
+
+UPDATE sys_user SET
+    avatar = 'https://picsum.photos/seed/avatar-student-lisi/240/240',
+    personal_number = '20233090002',
+    college = '计算机与人工智能学院',
+    major = '数据科学与大数据技术',
+    class_name = '数科2302班'
+WHERE id = 5;
+
+UPDATE sys_user SET
+    avatar = 'https://picsum.photos/seed/avatar-student-wangwu/240/240',
+    personal_number = '20233090003',
+    college = '经济学院',
+    major = '金融学',
+    class_name = '金融2301班'
+WHERE id = 6;
+
+UPDATE sys_user SET
+    avatar = 'https://picsum.photos/seed/avatar-student-zhaoliu/240/240',
+    personal_number = '20233090004',
+    college = '外国语学院',
+    major = '英语',
+    class_name = '英语2301班'
+WHERE id = 7;
+
+UPDATE sys_user SET
+    avatar = 'https://picsum.photos/seed/avatar-student-qianqi/240/240',
+    personal_number = '20233090005',
+    college = '建筑与设计学院',
+    major = '环境设计',
+    class_name = '环设2302班'
+WHERE id = 8;
+
+UPDATE sys_user SET
+    avatar = 'https://picsum.photos/seed/avatar-student-liuziyun/240/240',
+    personal_number = '20233090117',
+    college = '计算机与人工智能学院',
+    major = '网络工程',
+    class_name = '网工2301班'
+WHERE id = 13;
+
 -- =============================================
 -- 3~9. 旧模块（活动/论坛）初始化数据
 -- 为避免历史库字段不一致导致启动失败，暂不在 data.sql 中写入这些测试数据
@@ -980,6 +1052,93 @@ INSERT IGNORE INTO forum_topic (id, topic_name, post_count, is_hot, status, crea
 (8, '失物招领', 0, 0, 'ACTIVE', NOW())
 ON DUPLICATE KEY UPDATE topic_name = VALUES(topic_name), status = 'ACTIVE';
 
+CREATE TABLE IF NOT EXISTS forum_follow (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '关注ID',
+    user_id BIGINT NOT NULL COMMENT '关注者ID',
+    follow_id BIGINT NOT NULL COMMENT '被关注用户ID',
+    create_time DATETIME COMMENT '创建时间',
+    UNIQUE KEY uk_forum_follow_user_follow (user_id, follow_id),
+    FOREIGN KEY (user_id) REFERENCES sys_user(id),
+    FOREIGN KEY (follow_id) REFERENCES sys_user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='论坛关注表';
+
+CREATE TABLE IF NOT EXISTS forum_like (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '点赞ID',
+    user_id BIGINT NOT NULL COMMENT '点赞用户ID',
+    target_id BIGINT NOT NULL COMMENT '帖子ID',
+    create_time DATETIME COMMENT '创建时间',
+    UNIQUE KEY uk_forum_like_user_target (user_id, target_id),
+    FOREIGN KEY (user_id) REFERENCES sys_user(id),
+    FOREIGN KEY (target_id) REFERENCES forum_post(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='论坛帖子点赞表';
+
+-- 论坛帖子与评论测试数据
+SET FOREIGN_KEY_CHECKS = 0;
+DELETE FROM forum_like WHERE id BETWEEN 1 AND 50;
+DELETE FROM forum_follow WHERE id BETWEEN 1 AND 50;
+DELETE FROM forum_comment WHERE id BETWEEN 1 AND 20;
+DELETE FROM forum_post WHERE id BETWEEN 1 AND 20;
+SET FOREIGN_KEY_CHECKS = 1;
+
+INSERT INTO forum_post (id, user_id, title, content, images, topic_id, view_count, like_count, comment_count, create_time, update_time) VALUES
+(1, 4, '图书馆最近自习区哪个位置最安静？', '最近准备期中复习，想找一个下午和晚上都比较安静的位置。有没有同学推荐一下图书馆或者教学楼里适合长期自习的角落？', '["https://picsum.photos/seed/forum-post-1/720/480"]', 2, 186, 4, 3, '2026-04-08 19:20:00', '2026-04-08 19:20:00'),
+(2, 5, '北区食堂二楼新开的窗口怎么样', '今天路过看到北区食堂二楼新开了一家轻食窗口，想问问已经吃过的同学味道和性价比怎么样，适不适合减脂期？', '["https://picsum.photos/seed/forum-post-2/720/480"]', 6, 243, 4, 2, '2026-04-09 12:10:00', '2026-04-09 12:10:00'),
+(3, 6, '春招双选会投简历前要准备什么', '学院通知下周有春招双选会，我是第一次参加线下招聘会。除了简历，还需要提前准备自我介绍或者作品集吗？想听听学长学姐建议。', '[]', 3, 312, 5, 2, '2026-04-09 21:00:00', '2026-04-09 21:00:00'),
+(4, 4, '宿舍晚上断网之后还有没有备用方案', '我们宿舍这两天晚上网络不太稳定，刚好又在赶课程作业。大家一般会用手机热点还是去哪里找备用网络？', '[]', 1, 129, 2, 1, '2026-04-10 22:35:00', '2026-04-10 22:35:00'),
+(5, 5, '想出一辆九成新的自行车，校内交易走什么方式更安全', '最近准备把平时代步的自行车转掉，担心线下交易容易扯皮。有没有同学分享一下校内二手交易更稳妥的流程或者注意事项？', '["https://picsum.photos/seed/forum-post-5/720/480"]', 4, 204, 3, 1, '2026-04-11 15:45:00', '2026-04-11 15:45:00'),
+(6, 7, '求助：学生卡丢了，补办流程复杂吗', '今天晚上在操场附近找不到学生卡了，已经去失物招领问过还没有消息。补办一般多久能下来，临时进图书馆有没有替代办法？', '[]', 7, 267, 3, 1, '2026-04-11 20:18:00', '2026-04-11 20:18:00');
+
+INSERT INTO forum_comment (id, post_id, user_id, parent_id, reply_to_id, content, like_count, create_time) VALUES
+(1, 1, 5, NULL, NULL, '三楼靠窗那排如果不是饭点，整体会比较安静，插座也够用。', 9, '2026-04-08 19:35:00'),
+(2, 1, 6, NULL, NULL, '我最近都在博学楼空教室复习，晚上人比图书馆少很多。', 6, '2026-04-08 20:02:00'),
+(3, 1, 4, 2, 6, '这个建议不错，我明天去看看空教室情况。', 3, '2026-04-08 20:15:00'),
+(4, 2, 4, NULL, NULL, '轻食窗口鸡胸肉和玉米杯还可以，价格比校外便宜一点。', 12, '2026-04-09 12:30:00'),
+(5, 2, 7, NULL, NULL, '如果你在减脂，建议备注少酱，不然整体热量还是有点高。', 8, '2026-04-09 13:06:00'),
+(6, 3, 4, NULL, NULL, '简历建议至少准备 5 份纸质版，很多企业现场会直接收。', 14, '2026-04-09 21:15:00'),
+(7, 3, 5, NULL, NULL, '如果有作品集或者项目经历，最好打印一个精简版带上。', 7, '2026-04-09 21:33:00'),
+(8, 4, 6, NULL, NULL, '我一般直接去图书馆一楼，用校园网会稳定很多。', 5, '2026-04-10 22:48:00'),
+(9, 5, 6, NULL, NULL, '建议当面验车并保留聊天记录，价格和车况提前说清楚。', 11, '2026-04-11 16:10:00'),
+(10, 6, 8, NULL, NULL, '补办不算复杂，先在辅导员系统挂失，然后去服务大厅办临时证明。', 10, '2026-04-11 20:40:00');
+
+INSERT INTO forum_like (id, user_id, target_id, create_time) VALUES
+(1, 5, 1, '2026-04-08 19:40:00'),
+(2, 6, 1, '2026-04-08 20:05:00'),
+(3, 7, 1, '2026-04-08 20:40:00'),
+(4, 13, 1, '2026-04-08 21:18:00'),
+(5, 4, 2, '2026-04-09 12:28:00'),
+(6, 6, 2, '2026-04-09 12:40:00'),
+(7, 8, 2, '2026-04-09 13:15:00'),
+(8, 13, 2, '2026-04-09 14:02:00'),
+(9, 4, 3, '2026-04-09 21:08:00'),
+(10, 5, 3, '2026-04-09 21:20:00'),
+(11, 7, 3, '2026-04-09 21:31:00'),
+(12, 8, 3, '2026-04-09 22:05:00'),
+(13, 13, 3, '2026-04-09 22:26:00'),
+(14, 5, 4, '2026-04-10 22:49:00'),
+(15, 8, 4, '2026-04-10 23:10:00'),
+(16, 4, 5, '2026-04-11 15:58:00'),
+(17, 7, 5, '2026-04-11 16:20:00'),
+(18, 13, 5, '2026-04-11 16:42:00'),
+(19, 4, 6, '2026-04-11 20:28:00'),
+(20, 5, 6, '2026-04-11 20:44:00'),
+(21, 13, 6, '2026-04-11 21:06:00');
+
+INSERT INTO forum_follow (id, user_id, follow_id, create_time) VALUES
+(1, 5, 4, '2026-04-06 18:00:00'),
+(2, 6, 4, '2026-04-06 18:10:00'),
+(3, 7, 5, '2026-04-07 09:20:00'),
+(4, 8, 5, '2026-04-07 11:00:00'),
+(5, 13, 6, '2026-04-07 16:35:00'),
+(6, 4, 6, '2026-04-08 08:45:00'),
+(7, 5, 7, '2026-04-08 12:12:00'),
+(8, 6, 13, '2026-04-09 10:05:00'),
+(9, 7, 4, '2026-04-09 20:15:00'),
+(10, 8, 6, '2026-04-10 14:30:00');
+
+UPDATE forum_topic SET post_count = 1 WHERE id IN (1, 3, 4, 6, 7);
+UPDATE forum_topic SET post_count = 1 WHERE id = 2;
+UPDATE forum_topic SET post_count = 0 WHERE id IN (5, 8);
+
 -- =============================================
 -- 第十阶段：食堂档口模块数据
 -- =============================================
@@ -1206,3 +1365,51 @@ INSERT INTO dish_review (id, dish_id, user_id, stall_id, rating, content, images
 
 -- =============================================
 -- 优惠活动数据
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS system_config (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '配置 ID',
+    config_key VARCHAR(100) NOT NULL UNIQUE COMMENT '配置键',
+    config_value TEXT NOT NULL COMMENT '配置值',
+    config_group VARCHAR(50) COMMENT '配置分组',
+    description VARCHAR(255) COMMENT '配置说明',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态：1-启用 0-禁用',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统配置表';
+
+DELETE FROM system_config WHERE config_key IN (
+  'ai.provider', 'ai.base-url', 'ai.api-key', 'ai.model',
+  'ai.app.models', 'ai.app.default-model', 'ai.app.word-count-options', 'ai.app.tone-options',
+  'ai.app.tabs', 'ai.app.quick-actions', 'ai.app.tool-categories',
+  'ai.service.base-url', 'ai.service.api-key', 'ai.service.model'
+);
+
+INSERT INTO system_config (id, config_key, config_value, config_group, description, status, create_time, update_time) VALUES
+(1, 'jwt.secret', 'smart-campus-jwt-secret-key-please-change-this-seed-value', 'security', 'JWT 签名密钥', 1, NOW(), NOW()),
+(2, 'jwt.expiration', '86400000', 'security', 'JWT 过期时间，单位毫秒', 1, NOW(), NOW()),
+(3, 'tencent.map.key', 'F2ABZ-VU4LH-BDKDF-W7XCC-RXYX2-4AB52', 'map', '腾讯地图 WebService 密钥', 1, NOW(), NOW()),
+(4, 'tencent.map.base-url', 'https://apis.map.qq.com', 'map', '腾讯地图接口基础地址', 1, NOW(), NOW()),
+(5, 'aliyun.oss.endpoint', 'oss-cn-beijing.aliyuncs.com', 'oss', '阿里云 OSS 节点', 1, NOW(), NOW()),
+(6, 'aliyun.oss.bucket-name', 'smart-campus111', 'oss', '阿里云 OSS Bucket 名称', 1, NOW(), NOW()),
+(7, 'aliyun.oss.access-key-id', 'LTAI5tG9NLKEfSZVw3EZ2d1E', 'oss', '阿里云 OSS AccessKeyId', 1, NOW(), NOW()),
+(8, 'aliyun.oss.access-key-secret', 'yagymAoKXBh0rDJT7ArNTeXDUhsuRX', 'oss', '阿里云 OSS AccessKeySecret', 1, NOW(), NOW()),
+(9, 'aliyun.oss.base-url', 'https://smart-campus111.oss-cn-beijing.aliyuncs.com', 'oss', '阿里云 OSS 访问基础地址', 1, NOW(), NOW()),
+(10, 'browser.headless', 'true', 'browser', '浏览器自动化是否无头运行', 1, NOW(), NOW()),
+(11, 'browser.default-url', 'https://jwx.hebiace.edu.cn/', 'browser', '浏览器自动化默认打开地址', 1, NOW(), NOW()),
+(12, 'ai.app.models', '[{"name":"DeepSeek","desc":"深度求索，擅长逻辑推理","icon":"/static/icons/ai create/DeepSeek.png"},{"name":"豆包","desc":"字节跳动，多模态能力强","icon":"/static/icons/ai create/doubao.png"},{"name":"通义千问","desc":"阿里巴巴，综合能力出色","icon":"/static/icons/ai create/Tongyi-Qianwen.png"}]', 'ai', '智能写作模型列表', 1, NOW(), NOW()),
+(13, 'ai.app.default-model', 'DeepSeek', 'ai', '智能写作默认模型', 1, NOW(), NOW()),
+(14, 'ai.app.word-count-options', '["自动","200字以内","500字左右","800字以上","1000字以上"]', 'ai', '智能写作字数选项', 1, NOW(), NOW()),
+(15, 'ai.app.tone-options', '["正式","幽默","严谨","感性","专业"]', 'ai', '智能写作语气选项', 1, NOW(), NOW()),
+(16, 'ai.app.tabs', '["热门工具","格式转换","校园必备","职场创意","社交媒体"]', 'ai', 'AI 创作首页标签', 1, NOW(), NOW()),
+(17, 'ai.app.quick-actions', '[{"name":"AI对话","icon":"/static/icons/ai create/ai chat.png","themeColor":"#3B82F6","lightColor":"rgba(59, 130, 246, 0.7)"},{"name":"AI伪原创","icon":"/static/icons/ai create/ai original.png","themeColor":"#8B5CF6","lightColor":"rgba(139, 92, 246, 0.7)"},{"name":"文案提取","icon":"/static/icons/ai create/extract.png","themeColor":"#10B981","lightColor":"rgba(16, 185, 129, 0.7)"},{"name":"视频去字幕","icon":"/static/icons/ai create/remove.png","themeColor":"#F59E0B","lightColor":"rgba(245, 158, 11, 0.7)"},{"name":"AI玩图","icon":"/static/icons/ai create/ai img.png","themeColor":"#EC4899","lightColor":"rgba(236, 72, 153, 0.7)"}]', 'ai', 'AI 创作首页快捷工具', 1, NOW(), NOW()),
+(18, 'ai.app.tool-categories', '{"hot":[{"name":"去水印","desc":"快速去水印超便捷","icon":"/static/icons/ai create/watermark.png","themeColor":"#FF6B6B","lightColor":"rgba(255, 107, 107, 0.35)"},{"name":"照片跳舞","desc":"唤醒静图灵动起舞","icon":"/static/icons/ai create/dance.png","themeColor":"#FF9F43","lightColor":"rgba(255, 159, 67, 0.35)"},{"name":"图生视频","desc":"图片一键生成视频","icon":"/static/icons/ai create/img-video.png","themeColor":"#A55EEA","lightColor":"rgba(165, 94, 234, 0.35)"},{"name":"提词器","desc":"视频录制提词","icon":"/static/icons/ai create/teleprompter.png","themeColor":"#5C7A99","lightColor":"rgba(92, 122, 153, 0.35)"},{"name":"文章续写","desc":"智能续写妙笔生花","icon":"/static/icons/ai create/writing.png","themeColor":"#FECA57","lightColor":"rgba(254, 202, 87, 0.35)"},{"name":"视频转字幕","desc":"视频转字幕快又准","icon":"/static/icons/ai create/subtitle.png","themeColor":"#48DBFB","lightColor":"rgba(72, 219, 251, 0.35)"},{"name":"AI证件照","desc":"AI证件照超省心","icon":"/static/icons/ai create/id-photo.png","themeColor":"#1DD1A1","lightColor":"rgba(29, 209, 161, 0.35)"},{"name":"视频加字幕","desc":"一键视频添加字幕","icon":"/static/icons/ai create/add-sub.png","themeColor":"#FF6B6B","lightColor":"rgba(255, 107, 107, 0.35)"},{"name":"视频二创","desc":"一键二创视频焕新","icon":"/static/icons/ai create/video-edit.png","themeColor":"#8B5CF6","lightColor":"rgba(139, 92, 246, 0.35)"},{"name":"人声分离","desc":"轻松分离纯净人声","icon":"/static/icons/ai create/vocal.png","themeColor":"#FF9F43","lightColor":"rgba(255, 159, 67, 0.35)"},{"name":"文生图","desc":"一键生成精美图片","icon":"/static/icons/ai create/text-img.png","themeColor":"#5C7A99","lightColor":"rgba(92, 122, 153, 0.35)"},{"name":"更多工具","desc":"总有一款适合你","icon":"/static/icons/ai create/more.png","themeColor":"#C8D6E5","lightColor":"rgba(200, 214, 229, 0.35)"}],"format":[{"name":"PPT转PDF","desc":"一键PPT转PDF","icon":"/static/icons/ai create/ppt-pdf.png","themeColor":"#FF6B6B","lightColor":"rgba(255, 107, 107, 0.35)"},{"name":"PDF转PPT","desc":"一键PDF转PPT","icon":"/static/icons/ai create/pdf-ppt.png","themeColor":"#5C7A99","lightColor":"rgba(92, 122, 153, 0.35)"},{"name":"PDF转Excel","desc":"PDF秒变Excel","icon":"/static/icons/ai create/pdf-excel.png","themeColor":"#1DD1A1","lightColor":"rgba(29, 209, 161, 0.35)"},{"name":"PPT转图片","desc":"一键PPT秒变图片","icon":"/static/icons/ai create/ppt-img.png","themeColor":"#A55EEA","lightColor":"rgba(165, 94, 234, 0.35)"},{"name":"PDF转Word","desc":"PDF转Word快准稳","icon":"/static/icons/ai create/pdf-word.png","themeColor":"#5C7A99","lightColor":"rgba(92, 122, 153, 0.35)"},{"name":"PDF转图片","desc":"一键PDF秒变图片","icon":"/static/icons/ai create/pdf-img.png","themeColor":"#FF9F43","lightColor":"rgba(255, 159, 67, 0.35)"},{"name":"Word转PDF","desc":"Word转PDF快准稳","icon":"/static/icons/ai create/word-pdf.png","themeColor":"#3B82F6","lightColor":"rgba(59, 130, 246, 0.35)"},{"name":"视频格式转换","desc":"一键改变视频格式","icon":"/static/icons/ai create/video-convert.png","themeColor":"#1DD1A1","lightColor":"rgba(29, 209, 161, 0.35)"}],"campus":[{"name":"实践报告","desc":"轻松搞定实践报告","icon":"/static/icons/ai create/report.png","themeColor":"#FF6B6B","lightColor":"rgba(255, 107, 107, 0.35)"},{"name":"课程报告","desc":"课程报告助力提升","icon":"/static/icons/ai create/course.png","themeColor":"#FF9F43","lightColor":"rgba(255, 159, 67, 0.35)"},{"name":"英语作文","desc":"轻松写出高分作文","icon":"/static/icons/ai create/english.png","themeColor":"#A55EEA","lightColor":"rgba(165, 94, 234, 0.35)"},{"name":"活动总结","desc":"快速完成活动复盘","icon":"/static/icons/ai create/summary.png","themeColor":"#FF6B6B","lightColor":"rgba(255, 107, 107, 0.35)"},{"name":"学科出题","desc":"一键出题精准教学","icon":"/static/icons/ai create/exam.png","themeColor":"#5C7A99","lightColor":"rgba(92, 122, 153, 0.35)"},{"name":"学习计划","desc":"定制计划高效学习","icon":"/static/icons/ai create/plan.png","themeColor":"#1DD1A1","lightColor":"rgba(29, 209, 161, 0.35)"},{"name":"考研题目","desc":"一键生成考研好题","icon":"/static/icons/ai create/graduate.png","themeColor":"#5C7A99","lightColor":"rgba(92, 122, 153, 0.35)"},{"name":"文章主题大纲","desc":"轻松搞定文章框架","icon":"/static/icons/ai create/outline.png","themeColor":"#1DD1A1","lightColor":"rgba(29, 209, 161, 0.35)"},{"name":"雅思大作文","desc":"一键生成雅思佳作","icon":"/static/icons/ai create/ielts.png","themeColor":"#FF6B6B","lightColor":"rgba(255, 107, 107, 0.35)"},{"name":"思想汇报","desc":"一键搞定思想汇报","icon":"/static/icons/ai create/thought.png","themeColor":"#A55EEA","lightColor":"rgba(165, 94, 234, 0.35)"}],"work":[{"name":"PPT大纲","desc":"智能规划PPT要点","icon":"/static/icons/ai create/ppt-outline.png","themeColor":"#EF4444","lightColor":"rgba(239, 68, 68, 0.35)"},{"name":"简历制作","desc":"轻松打造吸睛简历","icon":"/static/icons/ai create/resume.png","themeColor":"#5C7A99","lightColor":"rgba(92, 122, 153, 0.35)"},{"name":"心得体会","desc":"一键生成心得感悟","icon":"/static/icons/ai create/feeling.png","themeColor":"#A55EEA","lightColor":"rgba(165, 94, 234, 0.35)"},{"name":"工作总结","desc":"助力产出优质总结","icon":"/static/icons/ai create/work-summary.png","themeColor":"#FF9F43","lightColor":"rgba(255, 159, 67, 0.35)"},{"name":"文本比较","desc":"智能分析文本异同","icon":"/static/icons/ai create/compare.png","themeColor":"#5C7A99","lightColor":"rgba(92, 122, 153, 0.35)"},{"name":"长文本写作","desc":"一键生成优质长文","icon":"/static/icons/ai create/long-text.png","themeColor":"#1DD1A1","lightColor":"rgba(29, 209, 161, 0.35)"},{"name":"周报日报","desc":"轻松搞定周报撰写","icon":"/static/icons/ai create/weekly.png","themeColor":"#5C7A99","lightColor":"rgba(92, 122, 153, 0.35)"},{"name":"影视解说","desc":"助力打造爆款解说","icon":"/static/icons/ai create/movie.png","themeColor":"#A55EEA","lightColor":"rgba(165, 94, 234, 0.35)"},{"name":"文章配图","desc":"快速生成图文搭配","icon":"/static/icons/ai create/article-img.png","themeColor":"#FF6B6B","lightColor":"rgba(255, 107, 107, 0.35)"},{"name":"合同模板","desc":"一键获取合同模板","icon":"/static/icons/ai create/contract.png","themeColor":"#5C7A99","lightColor":"rgba(92, 122, 153, 0.35)"}],"social":[{"name":"视频灵感","desc":"助力开启灵感源泉","icon":"/static/icons/ai create/video-inspire.png","themeColor":"#FF6B6B","lightColor":"rgba(255, 107, 107, 0.35)"},{"name":"短视频文案","desc":"开启爆款视频之路","icon":"/static/icons/ai create/short-video.png","themeColor":"#5C7A99","lightColor":"rgba(92, 122, 153, 0.35)"},{"name":"视频标题","desc":"生成吸睛标题","icon":"/static/icons/ai create/video-title.png","themeColor":"#A55EEA","lightColor":"rgba(165, 94, 234, 0.35)"},{"name":"AI写小说","desc":"智能编写奇妙故事","icon":"/static/icons/ai create/novel.png","themeColor":"#FF9F43","lightColor":"rgba(255, 159, 67, 0.35)"},{"name":"旅游攻略","desc":"开启畅玩旅行指南","icon":"/static/icons/ai create/travel.png","themeColor":"#1DD1A1","lightColor":"rgba(29, 209, 161, 0.35)"},{"name":"视频介绍","desc":"轻松打造亮眼推介","icon":"/static/icons/ai create/video-intro.png","themeColor":"#5C7A99","lightColor":"rgba(92, 122, 153, 0.35)"},{"name":"种草文案","desc":"一键生成心动安利","icon":"/static/icons/ai create/recommend.png","themeColor":"#FF6B6B","lightColor":"rgba(255, 107, 107, 0.35)"},{"name":"智能翻译","desc":"智能打破语言壁垒","icon":"/static/icons/ai create/translate.png","themeColor":"#A55EEA","lightColor":"rgba(165, 94, 234, 0.35)"},{"name":"好评文案","desc":"简单生成诚意好评","icon":"/static/icons/ai create/review.png","themeColor":"#1DD1A1","lightColor":"rgba(29, 209, 161, 0.35)"},{"name":"带货标题","desc":"一键生成吸睛标题","icon":"/static/icons/ai create/sales.png","themeColor":"#5C7A99","lightColor":"rgba(92, 122, 153, 0.35)"}]}', 'ai', 'AI 创作工具分类配置', 1, NOW(), NOW()),
+(19, 'ai.service.base-url', 'https://api.deepseek.com/v1', 'ai', 'AI 服务接口地址', 1, NOW(), NOW()),
+(20, 'ai.service.api-key', 'sk-07e34e882e704e07ae1d33288036724d', 'ai', 'AI 服务密钥', 1, NOW(), NOW()),
+(21, 'ai.service.model', 'deepseek-chat', 'ai', 'AI 服务模型 ID', 1, NOW(), NOW())
+ON DUPLICATE KEY UPDATE
+config_value = VALUES(config_value),
+config_group = VALUES(config_group),
+description = VALUES(description),
+status = VALUES(status),
+update_time = NOW();

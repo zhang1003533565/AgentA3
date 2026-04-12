@@ -1,6 +1,6 @@
 <template>
   <view class="page">
-    <nav-bar title="智能写作" :showBack="true" :showWechatCapsule="true" />
+    <nav-bar title="智能写作" :showBack="true" />
 
     <view class="content">
       <!-- Input Section -->
@@ -76,6 +76,19 @@
       <!-- Main CTA -->
       <view class="create-btn" @tap="onCreate">AI创作</view>
 
+      <view v-if="loading" class="result-card result-card--loading">
+        <text class="result-title">生成中</text>
+        <text class="result-content">正在调用 DeepSeek，请稍候...</text>
+      </view>
+
+      <view v-if="result" class="result-card">
+        <view class="result-head">
+          <text class="result-title">生成结果</text>
+          <text class="result-model">{{ resultModel }}</text>
+        </view>
+        <text class="result-content">{{ result }}</text>
+      </view>
+
       <!-- Examples Section -->
       <view class="examples-section">
         <view class="examples-header">
@@ -86,7 +99,7 @@
 
         <view class="examples-list">
           <!-- Example 1: 新闻稿 -->
-          <view class="example-item">
+          <view class="example-item" @tap="applyExample('苹果公司宣布取消造车计划')">
             <view class="example-header">
               <view class="tag-icon-wrapper">
                 <text class="tag-icon">✦</text>
@@ -99,7 +112,7 @@
           </view>
 
           <!-- Example 2: 知识科普 -->
-          <view class="example-item">
+          <view class="example-item" @tap="applyExample('春季流感如何防治')">
             <view class="example-header">
               <view class="tag-icon-wrapper">
                 <text class="tag-icon">✦</text>
@@ -112,7 +125,7 @@
           </view>
 
           <!-- Example 3: 产品种草 -->
-          <view class="example-item">
+          <view class="example-item" @tap="applyExample('兰蔻小黑瓶')">
             <view class="example-header">
               <view class="tag-icon-wrapper">
                 <text class="tag-icon">✦</text>
@@ -232,11 +245,15 @@
 <script setup>
 import { ref, computed } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { writeWithAi } from '@/api/ai.js'
 
 const prompt = ref('')
 const showModelPopup = ref(false)
 const showWordCountPopup = ref(false)
 const showTonePopup = ref(false)
+const loading = ref(false)
+const result = ref('')
+const resultModel = ref('')
 const selectedModel = ref('DeepSeek')
 const selectedWordCount = ref('自动')
 const selectedTone = ref('正式')
@@ -343,12 +360,44 @@ const showHistory = () => {
   uni.showToast({ title: '历史记录', icon: 'none' })
 }
 
-const onCreate = () => {
+const applyExample = (content) => {
+  prompt.value = content
+}
+
+const onCreate = async () => {
   if (!prompt.value.trim()) {
     uni.showToast({ title: '请输入内容', icon: 'none' })
     return
   }
-  uni.showToast({ title: '开始创作', icon: 'success' })
+  loading.value = true
+  result.value = ''
+  resultModel.value = ''
+  try {
+    const res = await writeWithAi({
+      prompt: prompt.value.trim(),
+      tone: selectedTone.value,
+      wordCount: selectedWordCount.value,
+      modelName: selectedModel.value
+    })
+    result.value = res.data?.content || ''
+    resultModel.value = res.data?.model || selectedModel.value
+    if (!result.value) {
+      uni.showToast({ title: 'AI 未返回内容', icon: 'none' })
+      return
+    }
+    uni.showToast({ title: '创作完成', icon: 'success' })
+  } catch (error) {
+    console.error('AI创作失败', error)
+    const message =
+      error?.msg ||
+      error?.message ||
+      error?.data?.msg ||
+      error?.data?.message ||
+      'AI 创作失败'
+    uni.showToast({ title: message, icon: 'none' })
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 
@@ -444,6 +493,44 @@ const onCreate = () => {
   display: flex;
   flex-direction: column;
   gap: 24rpx;
+}
+
+.result-card {
+  margin-top: 28rpx;
+  background: #ffffff;
+  border-radius: 16rpx;
+  padding: 28rpx 32rpx;
+  box-shadow: 0 20rpx 40rpx rgba(25, 27, 35, 0.04);
+}
+
+.result-card--loading {
+  background: linear-gradient(180deg, #eef3ff 0%, #ffffff 100%);
+}
+
+.result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 16rpx;
+}
+
+.result-title {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #191b23;
+}
+
+.result-model {
+  font-size: 22rpx;
+  color: #4f46e5;
+}
+
+.result-content {
+  font-size: 28rpx;
+  line-height: 1.8;
+  color: #434655;
+  white-space: pre-wrap;
 }
 
 .config-card {

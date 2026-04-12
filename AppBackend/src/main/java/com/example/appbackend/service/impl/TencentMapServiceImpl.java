@@ -2,12 +2,12 @@ package com.example.appbackend.service.impl;
 
 import com.example.appbackend.dto.*;
 import com.example.appbackend.exception.BusinessException;
+import com.example.appbackend.service.SystemConfigService;
 import com.example.appbackend.service.TencentMapService;
 import com.example.appbackend.util.GeoUtils;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -35,14 +35,14 @@ public class TencentMapServiceImpl implements TencentMapService {
     private static final String DRIVING = "driving";
     private static final String BICYCLING = "bicycling";
 
-    @Value("${tencent.map.key}")
-    private String tencentMapKey;
-
     @Autowired
     private WebClient tencentMapWebClient;
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private SystemConfigService systemConfigService;
 
     @Override
     public NavigationRouteResponse getRoute(
@@ -58,9 +58,13 @@ public class TencentMapServiceImpl implements TencentMapService {
         final BigDecimal fromLon = fromNorm[1];
         final BigDecimal toLat = toNorm[0];
         final BigDecimal toLon = toNorm[1];
+        final String tencentMapKey = systemConfigService.getValue("tencent.map.key", "");
+        final String baseUrl = systemConfigService.getValue("tencent.map.base-url", "https://apis.map.qq.com");
 
         String json = tencentMapWebClient.get()
                 .uri(uriBuilder -> uriBuilder
+                        .scheme(extractScheme(baseUrl))
+                        .host(extractHost(baseUrl))
                         .path("/ws/direction/v1/{mode}")
                         .queryParam("from", formatCoord(fromLat) + "," + formatCoord(fromLon))
                         .queryParam("to", formatCoord(toLat) + "," + formatCoord(toLon))
@@ -132,6 +136,15 @@ public class TencentMapServiceImpl implements TencentMapService {
         if (mode == null) return WALKING;
         String lower = mode.toLowerCase();
         return (lower.equals(WALKING) || lower.equals(DRIVING) || lower.equals(BICYCLING)) ? lower : WALKING;
+    }
+
+    private String extractScheme(String baseUrl) {
+        return baseUrl != null && baseUrl.startsWith("http://") ? "http" : "https";
+    }
+
+    private String extractHost(String baseUrl) {
+        if (baseUrl == null || baseUrl.isBlank()) return "apis.map.qq.com";
+        return baseUrl.replaceFirst("^https?://", "").replaceAll("/+$", "");
     }
 
     private String formatCoord(BigDecimal coord) {
@@ -219,8 +232,12 @@ public class TencentMapServiceImpl implements TencentMapService {
         BigDecimal[] fixed = GeoUtils.normalizeChinaLatLng(latitude, longitude);
         final BigDecimal latFixed = fixed[0];
         final BigDecimal lngFixed = fixed[1];
+        final String tencentMapKey = systemConfigService.getValue("tencent.map.key", "");
+        final String baseUrl = systemConfigService.getValue("tencent.map.base-url", "https://apis.map.qq.com");
         String json = tencentMapWebClient.get()
                 .uri(uriBuilder -> uriBuilder
+                        .scheme(extractScheme(baseUrl))
+                        .host(extractHost(baseUrl))
                         .path("/ws/geocoder/v1/")
                         .queryParam("location", formatCoord(latFixed) + "," + formatCoord(lngFixed))
                         .queryParam("key", tencentMapKey)
@@ -277,9 +294,13 @@ public class TencentMapServiceImpl implements TencentMapService {
     // -------------------------------------------------------------------------
     @Override
     public GeocoderResponse geocode(String address, String region) {
+        final String tencentMapKey = systemConfigService.getValue("tencent.map.key", "");
+        final String baseUrl = systemConfigService.getValue("tencent.map.base-url", "https://apis.map.qq.com");
         String json = tencentMapWebClient.get()
                 .uri(uriBuilder -> {
-                    uriBuilder.path("/ws/geocoder/v1/")
+                    uriBuilder.scheme(extractScheme(baseUrl))
+                            .host(extractHost(baseUrl))
+                            .path("/ws/geocoder/v1/")
                             .queryParam("address", address)
                             .queryParam("key", tencentMapKey);
                     if (region != null && !region.isBlank()) {
@@ -365,9 +386,13 @@ public class TencentMapServiceImpl implements TencentMapService {
     public PlaceSearchResponse searchPlaces(String keyword, String region,
                                             BigDecimal latitude, BigDecimal longitude, Integer radius) {
         StringBuilder uri = new StringBuilder("/ws/place/v1/suggestion");
+        final String tencentMapKey = systemConfigService.getValue("tencent.map.key", "");
+        final String baseUrl = systemConfigService.getValue("tencent.map.base-url", "https://apis.map.qq.com");
         String json = tencentMapWebClient.get()
                 .uri(uriBuilder -> {
-                    uriBuilder.path(uri.toString())
+                    uriBuilder.scheme(extractScheme(baseUrl))
+                            .host(extractHost(baseUrl))
+                            .path(uri.toString())
                             .queryParam("keyword", keyword)
                             .queryParam("key", tencentMapKey);
                     if (region != null && !region.isBlank()) {
@@ -465,9 +490,13 @@ public class TencentMapServiceImpl implements TencentMapService {
                 .collect(Collectors.joining(";"));
 
         int type = (fromCoordSys != null && fromCoordSys > 0 && fromCoordSys <= 4) ? fromCoordSys : 4;
+        final String tencentMapKey = systemConfigService.getValue("tencent.map.key", "");
+        final String baseUrl = systemConfigService.getValue("tencent.map.base-url", "https://apis.map.qq.com");
 
         String json = tencentMapWebClient.get()
                 .uri(uriBuilder -> uriBuilder
+                        .scheme(extractScheme(baseUrl))
+                        .host(extractHost(baseUrl))
                         .path("/ws/coord/v1/translate")
                         .queryParam("locations", coords)
                         .queryParam("type", type)

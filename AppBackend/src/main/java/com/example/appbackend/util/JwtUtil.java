@@ -2,7 +2,7 @@ package com.example.appbackend.util;
 
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
-import org.springframework.beans.factory.annotation.Value;
+import com.example.appbackend.service.SystemConfigService;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
@@ -12,13 +12,17 @@ import java.util.Date;
 @Component
 public class JwtUtil {
 
-    @Value("${jwt.secret}")
-    private String secret;
+    private static final String DEFAULT_SECRET = "smart-campus-jwt-secret-key-please-change-this-seed-value";
+    private static final long DEFAULT_EXPIRATION = 86400000L;
 
-    @Value("${jwt.expiration}")
-    private Long expiration;
+    private final SystemConfigService systemConfigService;
+
+    public JwtUtil(SystemConfigService systemConfigService) {
+        this.systemConfigService = systemConfigService;
+    }
 
     private SecretKey getSigningKey() {
+        String secret = systemConfigService.getValue("jwt.secret", DEFAULT_SECRET);
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
@@ -30,7 +34,7 @@ public class JwtUtil {
                 .claim("role", role)
                 .claim("userId", userId)
                 .issuedAt(now)
-                .expiration(new Date(System.currentTimeMillis()+expiration))
+                .expiration(new Date(System.currentTimeMillis() + systemConfigService.getLongValue("jwt.expiration", DEFAULT_EXPIRATION)))
                 .signWith(getSigningKey())
                 .compact();
     }

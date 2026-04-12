@@ -19,8 +19,6 @@ export const navigationSections = [
       { path: '/forum/post', label: '帖子管理', icon: 'message', pageKey: 'forum-post' },
       { path: '/forum/comment', label: '评论管理', icon: 'comment', pageKey: 'forum-comment' },
       { path: '/forum/topic', label: '话题管理', icon: 'tag', pageKey: 'forum-topic' },
-      { path: '/forum/report', label: '举报处理', icon: 'alert', pageKey: 'forum-report' },
-      { path: '/forum/audit', label: '内容审核', icon: 'safety', pageKey: 'forum-audit' },
     ],
   },
   {
@@ -46,9 +44,7 @@ export const navigationSections = [
     label: '旧物交易',
     items: [
       { path: '/market/item', label: '物品管理', icon: 'shopping', pageKey: 'market-item' },
-      { path: '/market/audit', label: '物品审核', icon: 'file-search', pageKey: 'market-audit' },
       { path: '/market/category', label: '分类管理', icon: 'appstore', pageKey: 'market-category' },
-      { path: '/market/report', label: '举报处理', icon: 'warning', pageKey: 'market-report' },
     ],
   },
   {
@@ -56,27 +52,14 @@ export const navigationSections = [
     items: [
       { path: '/discount/merchant', label: '商家管理', icon: 'shop', pageKey: 'discount-merchant' },
       { path: '/discount/activity', label: '优惠活动', icon: 'gift', pageKey: 'discount-activity' },
-      { path: '/discount/coupon', label: '优惠券管理', icon: 'coupon', pageKey: 'discount-coupon' },
       { path: '/discount/category', label: '分类管理', icon: 'tags', pageKey: 'discount-category' },
       { path: '/discount/analytics', label: '特惠统计', icon: 'fund', pageKey: 'discount-analytics' },
     ],
   },
   {
-    label: 'AI 创作',
+    label: 'AI 模块',
     items: [
-      { path: '/ai/model', label: '模型配置', icon: 'robot', pageKey: 'ai-model' },
-      { path: '/ai/creation', label: '创作管理', icon: 'video-camera', pageKey: 'ai-creation' },
-      { path: '/ai/template', label: '模板管理', icon: 'layout', pageKey: 'ai-template' },
-      { path: '/ai/resource', label: '资源管理', icon: 'database', pageKey: 'ai-resource' },
-      { path: '/ai/analytics', label: '资源统计', icon: 'pie-chart', pageKey: 'ai-analytics' },
-    ],
-  },
-  {
-    label: '系统中心',
-    items: [
-      { path: '/system/optimize', label: '优化中心', icon: 'rocket', pageKey: 'system-optimize' },
-      { path: '/system/quality', label: '代码质量', icon: 'tool', pageKey: 'system-quality' },
-      { path: '/system/security', label: '安全与监控', icon: 'shield', pageKey: 'system-security' },
+      { path: '/ai/model', label: '模型配置', icon: 'robot', pageKey: 'system-config' },
     ],
   },
 ]
@@ -88,8 +71,7 @@ export const moduleCards = [
   { title: '地图导航', description: '地图配置、标记管理与导航统计', route: '/map/config' },
   { title: '旧物交易', description: '物品、分类与后台审核管理', route: '/market/item' },
   { title: '校园特惠', description: '商家、优惠活动与分类运营', route: '/discount/merchant' },
-  { title: 'AI 创作', description: '模型、创作、模板与资源中心', route: '/ai/model' },
-  { title: '系统中心', description: '系统优化、代码质量与安全监控', route: '/system/optimize' },
+  { title: 'AI 模块', description: '维护 AI 模型配置并测试接口连通性', route: '/ai/model' },
 ]
 
 const columns = {
@@ -108,7 +90,7 @@ const columns = {
     { title: '开始时间', dataIndex: 'startTime' },
   ],
   activityCategory: [
-    { title: '分类名称', dataIndex: 'categoryName' },
+    { title: '分类名称', dataIndex: 'name' },
     { title: '排序', dataIndex: 'sort' },
     { title: '状态', dataIndex: 'status', type: 'status' },
   ],
@@ -127,12 +109,13 @@ const columns = {
   ],
   post: [
     { title: '标题', dataIndex: 'title' },
-    { title: '作者', dataIndex: 'authorName' },
+    { title: '作者', dataIndex: 'username' },
     { title: '话题', dataIndex: 'topicName', type: 'tag' },
     { title: '点赞数', dataIndex: 'likeCount' },
     { title: '发布时间', dataIndex: 'createTime' },
   ],
   comment: [
+    { title: '所属帖子', dataIndex: 'postTitle' },
     { title: '内容', dataIndex: 'content' },
     { title: '作者', dataIndex: 'authorName' },
     { title: '点赞数', dataIndex: 'likeCount' },
@@ -208,6 +191,12 @@ const columns = {
     { title: '优惠类型', dataIndex: 'discountTypeText', type: 'tag' },
     { title: '状态', dataIndex: 'statusText', type: 'status' },
     { title: '有效期', dataIndex: 'timeRange' },
+  ],
+  systemConfig: [
+    { title: '服务商', dataIndex: 'provider', type: 'tag' },
+    { title: 'API Key', dataIndex: 'apiKeyMasked' },
+    { title: '状态', dataIndex: 'statusText', type: 'status' },
+    { title: '更新时间', dataIndex: 'updateTime' },
   ],
   summary: [
     { title: '指标', dataIndex: 'label' },
@@ -300,12 +289,9 @@ export const workspacePages = {
   'forum-comment': createPage({
     title: '评论管理',
     badge: '校园论坛',
-    description: '需要先指定帖子后，才能查看对应评论记录。',
+    description: '按帖子归属查看对应评论记录。',
     columns: columns.comment,
-    emptyText: '请先在页面逻辑中指定帖子 ID 后再加载评论数据',
-    requiresInput: true,
-    inputLabel: '帖子 ID',
-    inputPlaceholder: '请输入帖子 ID',
+    emptyText: '请选择帖子后查看评论数据',
   }),
   'forum-topic': createPage({
     title: '话题管理',
@@ -314,20 +300,6 @@ export const workspacePages = {
     columns: columns.topic,
     filters: ['全部'],
     emptyText: '暂无话题数据',
-  }),
-  'forum-report': createPage({
-    title: '举报处理',
-    badge: '校园论坛',
-    description: '当前后端未提供论坛举报列表接口。',
-    columns: [],
-    emptyText: '举报接口尚未提供',
-  }),
-  'forum-audit': createPage({
-    title: '内容审核',
-    badge: '校园论坛',
-    description: '当前后端仅提供删除接口，未提供审核列表接口。',
-    columns: [],
-    emptyText: '内容审核列表接口尚未提供',
   }),
   'facility-restaurant': createPage({
     title: '餐厅管理',
@@ -369,9 +341,9 @@ export const workspacePages = {
   'facility-analytics': createPage({
     title: '设施统计',
     badge: '校园设施',
-    description: '当前后端未提供设施统计汇总列表接口。',
-    columns: [],
-    emptyText: '设施统计接口尚未提供',
+    description: '汇总展示设施数量、状态分布和热度排名。',
+    columns: columns.summary,
+    emptyText: '暂无设施统计数据',
   }),
   'map-config': createPage({
     title: '地图配置',
@@ -391,7 +363,7 @@ export const workspacePages = {
     title: '导航统计',
     badge: '地图导航',
     description: '查看地图导航与设施热度统计。',
-    columns: columns.summary,
+    columns: [],
     emptyText: '暂无导航统计数据',
   }),
   'market-item': createPage({
@@ -401,26 +373,12 @@ export const workspacePages = {
     columns: columns.secondhandItem,
     emptyText: '暂无物品数据',
   }),
-  'market-audit': createPage({
-    title: '物品审核',
-    badge: '旧物交易',
-    description: '当前复用后台物品列表，建议按状态筛选待审核物品。',
-    columns: columns.secondhandItem,
-    emptyText: '暂无待审核物品数据',
-  }),
   'market-category': createPage({
     title: '分类管理',
     badge: '旧物交易',
     description: '查看旧物分类列表。',
     columns: columns.secondhandCategory,
     emptyText: '暂无旧物分类数据',
-  }),
-  'market-report': createPage({
-    title: '举报处理',
-    badge: '旧物交易',
-    description: '当前后端未提供旧物举报接口。',
-    columns: [],
-    emptyText: '旧物举报接口尚未提供',
   }),
   'discount-merchant': createPage({
     title: '商家管理',
@@ -436,13 +394,6 @@ export const workspacePages = {
     columns: columns.discountActivity,
     emptyText: '暂无优惠活动数据',
   }),
-  'discount-coupon': createPage({
-    title: '优惠券管理',
-    badge: '校园特惠',
-    description: '当前后端未提供独立优惠券管理接口。',
-    columns: [],
-    emptyText: '优惠券接口尚未提供',
-  }),
   'discount-category': createPage({
     title: '分类管理',
     badge: '校园特惠',
@@ -457,61 +408,12 @@ export const workspacePages = {
     columns: columns.summary,
     emptyText: '暂无特惠统计数据',
   }),
-  'ai-model': createPage({
+  'system-config': createPage({
     title: '模型配置',
-    badge: 'AI 创作',
-    description: '当前后端未提供 AI 模型配置接口。',
-    columns: [],
-    emptyText: 'AI 模型接口尚未提供',
-  }),
-  'ai-creation': createPage({
-    title: '创作管理',
-    badge: 'AI 创作',
-    description: '当前后端未提供创作项目接口。',
-    columns: [],
-    emptyText: 'AI 创作接口尚未提供',
-  }),
-  'ai-template': createPage({
-    title: '模板管理',
-    badge: 'AI 创作',
-    description: '当前后端未提供模板管理接口。',
-    columns: [],
-    emptyText: 'AI 模板接口尚未提供',
-  }),
-  'ai-resource': createPage({
-    title: '资源管理',
-    badge: 'AI 创作',
-    description: '当前后端未提供资源管理接口。',
-    columns: [],
-    emptyText: 'AI 资源接口尚未提供',
-  }),
-  'ai-analytics': createPage({
-    title: '资源统计',
-    badge: 'AI 创作',
-    description: '当前后端未提供 AI 统计接口。',
-    columns: [],
-    emptyText: 'AI 统计接口尚未提供',
-  }),
-  'system-optimize': createPage({
-    title: '优化中心',
-    badge: '系统中心',
-    description: '当前为管理页面入口，后端无对应列表接口。',
-    columns: [],
-    emptyText: '系统优化接口尚未提供',
-  }),
-  'system-quality': createPage({
-    title: '代码质量',
-    badge: '系统中心',
-    description: '当前为治理页面入口，后端无对应列表接口。',
-    columns: [],
-    emptyText: '代码质量接口尚未提供',
-  }),
-  'system-security': createPage({
-    title: '安全与监控',
-    badge: '系统中心',
-    description: '当前为治理页面入口，后端无对应列表接口。',
-    columns: [],
-    emptyText: '安全监控接口尚未提供',
+    badge: 'AI 模块',
+    description: '仅维护 DeepSeek 的 API Key，并直接测试连通性。',
+    columns: columns.systemConfig,
+    emptyText: '暂无 DeepSeek 配置数据',
   }),
 }
 

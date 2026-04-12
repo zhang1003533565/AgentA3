@@ -29,6 +29,8 @@ public class MerchantDTO {
         private Long id;
         private String categoryName;
         private Integer sort;
+        private Integer status;
+        private String statusText;
     }
 
     @Data

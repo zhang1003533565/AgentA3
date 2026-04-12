@@ -78,6 +78,7 @@ const iconMap = {
   rocket: <RocketOutlined />,
   tool: <ToolOutlined />,
   shield: <SafetyOutlined />,
+  setting: <SettingOutlined />,
 }
 
 function NavBar({ mobileOpen, onClose }) {

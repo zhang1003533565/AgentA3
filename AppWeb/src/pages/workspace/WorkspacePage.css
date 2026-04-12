@@ -221,6 +221,49 @@
   gap: 24px;
 }
 
+.workspace-analytics {
+  display: grid;
+  gap: 18px;
+}
+
+.workspace-analytics__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.workspace-analytics__stat-card {
+  border: none !important;
+  border-radius: 22px !important;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.06);
+}
+
+.workspace-analytics__stat-card .ant-card-body {
+  padding: 22px 24px;
+}
+
+.workspace-analytics__stat-card span {
+  display: block;
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.workspace-analytics__stat-card strong {
+  display: block;
+  margin-top: 10px;
+  font-size: 32px;
+}
+
+.workspace-analytics__charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.workspace-analytics__wide {
+  grid-column: 1 / -1;
+}
+
 .workspace-marker-layout {
   display: grid;
   grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
@@ -513,8 +556,13 @@
   }
 
   .workspace-map-config,
-  .workspace-marker-layout {
+  .workspace-marker-layout,
+  .workspace-analytics__charts {
     grid-template-columns: 1fr;
+  }
+
+  .workspace-analytics__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -538,7 +586,8 @@
     width: 100%;
   }
 
-  .workspace-map-config__grid {
+  .workspace-map-config__grid,
+  .workspace-analytics__stats {
     grid-template-columns: 1fr;
   }
 }

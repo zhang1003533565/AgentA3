@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button, Card, Empty, Form, Image, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, Upload, message } from 'antd'
 import { SearchOutlined, UploadOutlined } from '@ant-design/icons'
+import * as echarts from 'echarts'
 import { createActivity, deleteActivity, getActivityList, publishActivity, updateActivity } from '../../api/activity'
 import { createCategory, getCategoryList, updateCategory } from '../../api/category'
 import { getDiscountActivityList } from '../../api/discount'
 import { createFacility, deleteFacility, getFacilityList, updateFacility } from '../../api/facility'
 import { createDish, createStall, deleteDish, deleteStall, getCanteenStallList, getDishList, updateDish, updateStall } from '../../api/dish'
-import { adminDeleteComment, adminDeletePost, createTopic, deleteTopic, getCommentList, getPostList, getTopicList, updateTopic } from '../../api/forum'
+import { adminDeleteComment, createTopic, deleteTopic, getCommentList, getPostList, getTopicList, updateTopic } from '../../api/forum'
 import { deleteMarker, getFacilityHeat, getMapConfig, getMarkerList, getNavigationStatistics, updateMapConfig } from '../../api/map'
 import {
   createMerchant,
@@ -34,6 +35,7 @@ import {
   updateSecondhandCategory,
 } from '../../api/secondhand'
 import { closeSignIn, getSignInList, openSignIn } from '../../api/signin'
+import { getSystemConfigList, testSystemConfig, updateSystemConfig } from '../../api/systemConfig'
 import { getUploadUrl } from '../../api/upload'
 import { disableUser, enableUser, getUserList } from '../../api/user'
 import { getWorkspacePage } from '../../data/portalData'
@@ -146,6 +148,11 @@ const toSummaryRows = (obj, prefix = '') =>
     value: Array.isArray(value) ? JSON.stringify(value) : String(value ?? '-'),
   }))
 
+const parseSummaryList = (value) => {
+  const list = parseJsonText(value, [])
+  return Array.isArray(list) ? list : []
+}
+
 const toDateTimeLocal = (value) => {
   if (!value) return undefined
   return String(value).replace(' ', 'T').slice(0, 16)
@@ -156,7 +163,28 @@ const toBackendDateTime = (value) => {
   return `${value.replace('T', ' ')}:00`
 }
 
-const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextId, urlStallId }) => {
+function EChart({ option, height = 320 }) {
+  const chartRef = useRef(null)
+
+  useEffect(() => {
+    if (!chartRef.current) return undefined
+
+    const chart = echarts.init(chartRef.current)
+    chart.setOption(option)
+
+    const handleResize = () => chart.resize()
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      chart.dispose()
+    }
+  }, [option])
+
+  return <div ref={chartRef} style={{ width: '100%', height }} />
+}
+
+const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextId, urlStallId, currentPostTitle }) => {
   switch (pageKey) {
     case 'user-manage': {
       const res = await getUserList({ page: current, size: pageSize, username: keyword })
@@ -188,7 +216,29 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextI
     case 'forum-comment': {
       if (!contextId) return { rows: [], total: 0 }
       const res = await getCommentList({ postId: contextId, page: current, size: pageSize })
-      return { rows: res.data?.records || [], total: res.data?.total || 0 }
+      const records = Array.isArray(res.data?.records) ? res.data.records : []
+      const flattenedRows = records.flatMap((item) => {
+        const parentRow = {
+          ...item,
+          postTitle: currentPostTitle,
+          authorName: item.username,
+        }
+        const childRows = Array.isArray(item.children)
+          ? item.children.map((child) => ({
+              ...child,
+              postTitle: currentPostTitle,
+              authorName: child.username,
+            }))
+          : []
+        return [parentRow, ...childRows]
+      })
+      const filteredRows = keyword
+        ? flattenedRows.filter((item) => {
+            const text = `${item.content || ''} ${item.username || ''} ${item.authorName || ''}`.toLowerCase()
+            return text.includes(String(keyword).toLowerCase())
+          })
+        : flattenedRows
+      return { rows: filteredRows, total: filteredRows.length || res.data?.total || 0 }
     }
     case 'forum-topic': {
       const res = await getTopicList({ page: current, size: pageSize })
@@ -215,6 +265,42 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextI
       if (!urlStallId) return { rows: [], total: 0 }
       const res = await getDishList({ stallId: parseInt(urlStallId), name: keyword })
       return { rows: res.data || [], total: res.data?.length || 0 }
+    }
+    case 'facility-analytics': {
+      const [restaurantRes, sportsRes, teachingRes, dormitoryRes, heatRes] = await Promise.all([
+        getFacilityList({ type: 1, page: 1, size: 100 }),
+        getFacilityList({ type: 2, page: 1, size: 100 }),
+        getFacilityList({ type: 3, page: 1, size: 100 }),
+        getFacilityList({ type: 4, page: 1, size: 100 }),
+        getFacilityHeat({ limit: 5 }),
+      ])
+
+      const allFacilities = [
+        ...(restaurantRes.data?.records || []),
+        ...(sportsRes.data?.records || []),
+        ...(teachingRes.data?.records || []),
+        ...(dormitoryRes.data?.records || []),
+      ]
+
+      const countByStatus = (status) => allFacilities.filter((item) => item.status === status).length
+
+      const rows = [
+        { id: 'facility-total', label: '设施总数', value: String(allFacilities.length) },
+        { id: 'facility-restaurant', label: '餐厅数量', value: String(restaurantRes.data?.total || restaurantRes.data?.records?.length || 0) },
+        { id: 'facility-sports', label: '运动场数量', value: String(sportsRes.data?.total || sportsRes.data?.records?.length || 0) },
+        { id: 'facility-teaching', label: '教学楼数量', value: String(teachingRes.data?.total || teachingRes.data?.records?.length || 0) },
+        { id: 'facility-dormitory', label: '宿舍数量', value: String(dormitoryRes.data?.total || dormitoryRes.data?.records?.length || 0) },
+        { id: 'facility-status-normal', label: '正常开放设施', value: String(countByStatus(1)) },
+        { id: 'facility-status-maintenance', label: '维护中设施', value: String(countByStatus(2)) },
+        { id: 'facility-status-closed', label: '关闭设施', value: String(countByStatus(3)) },
+        ...((Array.isArray(heatRes.data) ? heatRes.data : []).map((item, index) => ({
+          id: `facility-heat-${index}`,
+          label: `热度榜 ${index + 1} · ${item.markerName || item.facilityName || `设施 ${index + 1}`}`,
+          value: `访问 ${item.visitCount ?? item.viewCount ?? 0} / 导航 ${item.navigationCount ?? 0}`,
+        }))),
+      ]
+
+      return { rows, total: rows.length }
     }
     case 'map-config': {
       const res = await getMapConfig()
@@ -270,6 +356,42 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextI
       ]
       return { rows, total: rows.length }
     }
+    case 'system-config': {
+      const res = await getSystemConfigList({
+        page: current,
+        size: pageSize,
+        keyword,
+        prefixes: 'ai.service.',
+      })
+      const records = Array.isArray(res.data?.records) ? res.data.records : []
+      const baseUrlConfig = records.find((item) => item.configKey === 'ai.service.base-url')
+      const apiKeyConfig = records.find((item) => item.configKey === 'ai.service.api-key')
+      const modelConfig = records.find((item) => item.configKey === 'ai.service.model')
+      const status = [baseUrlConfig?.status, apiKeyConfig?.status, modelConfig?.status].some((item) => Number(item) === 0) ? 0 : 1
+      const updateTime = [baseUrlConfig?.updateTime, apiKeyConfig?.updateTime, modelConfig?.updateTime]
+        .filter(Boolean)
+        .sort()
+        .slice(-1)[0] || null
+      const rows = (baseUrlConfig || apiKeyConfig || modelConfig)
+        ? [{
+            id: 'deepseek-config',
+            provider: 'DeepSeek',
+            apiKeyMasked: (() => {
+              const text = String(apiKeyConfig?.configValue || '')
+              if (!text) return '-'
+              if (text.length <= 10) return text
+              return `${text.slice(0, 6)}****${text.slice(-4)}`
+            })(),
+            status,
+            statusText: status === 1 ? '启用' : '禁用',
+            updateTime,
+            apiKeyConfigId: apiKeyConfig?.id,
+            rawApiKey: apiKeyConfig?.configValue || '',
+            description: 'DeepSeek API Key 配置',
+          }]
+        : []
+      return { rows, total: rows.length }
+    }
     default:
       return { rows: [], total: 0 }
   }
@@ -320,6 +442,7 @@ function WorkspacePage({ pageKey }) {
   const [editingRecord, setEditingRecord] = useState(null)
   const [merchantCategoryOptions, setMerchantCategoryOptions] = useState([])
   const [activityCategoryOptions, setActivityCategoryOptions] = useState([])
+  const [forumPostOptions, setForumPostOptions] = useState([])
   const [contextInput, setContextInput] = useState('')
   const [contextId, setContextId] = useState('')
   const [urlStallId, setUrlStallId] = useState('')
@@ -380,6 +503,7 @@ function WorkspacePage({ pageKey }) {
           status,
           contextId,
           urlStallId,
+          currentPostTitle: searchParams.get('postTitle') || forumPostOptions.find((item) => item.value === String(contextId))?.label || '',
         })
         if (!cancelled) {
           setRows(result.rows)
@@ -408,9 +532,52 @@ function WorkspacePage({ pageKey }) {
     return () => {
       cancelled = true
     }
-  }, [contextId, page, pageKey, pagination.current, pagination.pageSize, keyword, status, urlStallId])
+  }, [contextId, forumPostOptions, page, pageKey, pagination.current, pagination.pageSize, keyword, searchParams, status, urlStallId])
 
   // 解析 URL 参数（仅 facility-stall-dish 页面）
+  useEffect(() => {
+    if (pageKey !== 'forum-comment') return
+
+    let cancelled = false
+    const loadPostOptions = async () => {
+      try {
+        const res = await getPostList({ page: 1, size: 100 })
+        if (cancelled) return
+        const records = res.data?.records || []
+        const options = records.map((item) => ({
+          value: String(item.id),
+          label: `${item.title}（#${item.id}）`,
+        }))
+        setForumPostOptions(options)
+        if (!searchParams.get('postId') && !contextId && options.length) {
+          setContextId(options[0].value)
+          setContextInput(options[0].value)
+          setPagination((prev) => ({ ...prev, current: 1 }))
+        }
+      } catch {
+        if (!cancelled) {
+          setForumPostOptions([])
+        }
+      }
+    }
+
+    loadPostOptions()
+    return () => {
+      cancelled = true
+    }
+  }, [contextId, pageKey, searchParams])
+
+  useEffect(() => {
+    if (pageKey !== 'forum-comment') return
+
+    const postId = searchParams.get('postId')
+    if (postId) {
+      setContextId(postId)
+      setContextInput(postId)
+      setPagination((prev) => ({ ...prev, current: 1 }))
+    }
+  }, [pageKey, searchParams])
+
   useEffect(() => {
     if (pageKey !== 'facility-stall-dish') return
 
@@ -474,6 +641,7 @@ function WorkspacePage({ pageKey }) {
       status,
       contextId,
       urlStallId,
+      currentPostTitle: searchParams.get('postTitle') || forumPostOptions.find((item) => item.value === String(contextId))?.label || '',
     })
     setRows(result.rows)
     setPagination((prev) => ({ ...prev, total: result.total }))
@@ -558,7 +726,7 @@ function WorkspacePage({ pageKey }) {
         : {}),
       ...(pageKey === 'activity-category'
         ? {
-            name: record.categoryName,
+            name: record.name,
             sort: record.sort,
             status: record.status,
           }
@@ -627,6 +795,14 @@ function WorkspacePage({ pageKey }) {
             taste: record.taste,
             imageUrl: record.imageUrl,
             isAvailable: record.isAvailable,
+          }
+        : {}),
+      ...(pageKey === 'system-config'
+        ? {
+            provider: record.provider,
+            apiKey: record.rawApiKey,
+            description: record.description,
+            status: record.status,
           }
         : {}),
     })
@@ -706,6 +882,15 @@ function WorkspacePage({ pageKey }) {
         'facility-stall-dish': {
           create: () => createDish(values),
           edit: () => updateDish(editingRecord.id, values),
+        },
+        'system-config': {
+          edit: async () => {
+            await updateSystemConfig(editingRecord.apiKeyConfigId, {
+              configValue: values.apiKey,
+              description: 'AI 服务密钥',
+              status: values.status,
+            })
+          },
         },
       }
       const entry = actionMap[pageKey]
@@ -960,6 +1145,20 @@ function WorkspacePage({ pageKey }) {
             </div>
           </>
         )
+      case 'system-config':
+        return (
+          <>
+            <Form.Item name="provider" label="服务商">
+              <Input disabled />
+            </Form.Item>
+            <Form.Item name="apiKey" label="API Key" rules={[{ required: true }]}>
+              <Input.Password />
+            </Form.Item>
+            <Form.Item name="status" label="状态" rules={[{ required: true }]}>
+              <Select options={[{ value: 1, label: '启用' }, { value: 0, label: '禁用' }]} />
+            </Form.Item>
+          </>
+        )
       default:
         return null
     }
@@ -1007,11 +1206,11 @@ function WorkspacePage({ pageKey }) {
         )
       case 'forum-post':
         return (
-          <Popconfirm title="确定删除该帖子吗？" onConfirm={() => runAction(() => adminDeletePost(record.id), '帖子已删除')}>
-            <Button size="small" danger loading={actionLoading}>
-              删除
+          <Space size="small">
+            <Button size="small" onClick={() => navigate(`/forum/comment?postId=${record.id}&postTitle=${encodeURIComponent(record.title || '')}`)}>
+              查看评论
             </Button>
-          </Popconfirm>
+          </Space>
         )
       case 'forum-comment':
         return (
@@ -1137,6 +1336,33 @@ function WorkspacePage({ pageKey }) {
             </Popconfirm>
           </Space>
         )
+      case 'system-config':
+        return (
+          <Space size="small">
+            <Button size="small" onClick={() => openEditModal(record)}>
+              编辑
+            </Button>
+            <Button
+              size="small"
+              loading={actionLoading}
+              onClick={() => runAction(async () => {
+                const res = await testSystemConfig(record.apiKeyConfigId)
+                Modal.info({
+                  title: res.data?.success ? '连通测试成功' : '连通测试失败',
+                  content: (
+                    <div>
+                      <p>服务商：DeepSeek</p>
+                      <p>目标地址：{res.data?.target || '-'}</p>
+                      <p>结果：{res.data?.detail || '-'}</p>
+                    </div>
+                  ),
+                })
+              }, '测试完成')}
+            >
+              测试
+            </Button>
+          </Space>
+        )
       default:
         return null
     }
@@ -1169,6 +1395,7 @@ function WorkspacePage({ pageKey }) {
       'market-category',
       'discount-category',
       'discount-merchant',
+      'system-config',
     ].includes(pageKey)
 
     if (!hasActions) return baseColumns
@@ -1520,6 +1747,340 @@ function WorkspacePage({ pageKey }) {
     </Card>
   )
 
+  const renderFacilityAnalyticsPanel = () => {
+    const metricMap = Object.fromEntries(rows.map((item) => [item.label, item.value]))
+    const categoryOption = {
+      tooltip: { trigger: 'item' },
+      series: [{
+        type: 'pie',
+        radius: ['42%', '70%'],
+        center: ['50%', '48%'],
+        label: { formatter: '{b}\n{c}' },
+        data: [
+          { name: '餐厅', value: Number(metricMap['餐厅数量'] || 0) },
+          { name: '运动场', value: Number(metricMap['运动场数量'] || 0) },
+          { name: '教学楼', value: Number(metricMap['教学楼数量'] || 0) },
+          { name: '宿舍', value: Number(metricMap['宿舍数量'] || 0) },
+        ],
+      }],
+    }
+
+    const statusOption = {
+      grid: { left: 16, right: 16, top: 16, bottom: 12, containLabel: true },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      xAxis: {
+        type: 'category',
+        data: ['正常开放', '维护中', '关闭'],
+        axisLine: { lineStyle: { color: '#cbd5e1' } },
+      },
+      yAxis: {
+        type: 'value',
+        splitLine: { lineStyle: { color: '#e2e8f0' } },
+      },
+      series: [{
+        type: 'bar',
+        barWidth: 38,
+        data: [
+          Number(metricMap['正常开放设施'] || 0),
+          Number(metricMap['维护中设施'] || 0),
+          Number(metricMap['关闭设施'] || 0),
+        ],
+        itemStyle: {
+          borderRadius: [8, 8, 0, 0],
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: '#2563eb' },
+            { offset: 1, color: '#14b8a6' },
+          ]),
+        },
+      }],
+    }
+
+    const heatRows = rows.filter((item) => item.label.startsWith('热度榜'))
+    const heatOption = {
+      grid: { left: 16, right: 16, top: 12, bottom: 12, containLabel: true },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      xAxis: {
+        type: 'value',
+        splitLine: { lineStyle: { color: '#e2e8f0' } },
+      },
+      yAxis: {
+        type: 'category',
+        data: heatRows.map((item) => item.label.replace(/^热度榜 \d+ · /, '')),
+        axisTick: { show: false },
+        axisLine: { show: false },
+      },
+      series: [{
+        type: 'bar',
+        barWidth: 18,
+        data: heatRows.map((item) => {
+          const match = String(item.value).match(/访问\s+(\d+)/)
+          return Number(match?.[1] || 0)
+        }),
+        itemStyle: {
+          borderRadius: [0, 8, 8, 0],
+          color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [
+            { offset: 0, color: '#0f766e' },
+            { offset: 1, color: '#38bdf8' },
+          ]),
+        },
+      }],
+    }
+
+    const statCards = [
+      { label: '设施总数', value: metricMap['设施总数'] || '0' },
+      { label: '正常开放', value: metricMap['正常开放设施'] || '0' },
+      { label: '维护中', value: metricMap['维护中设施'] || '0' },
+      { label: '关闭设施', value: metricMap['关闭设施'] || '0' },
+    ]
+
+    return (
+      <div className="workspace-analytics">
+        <div className="workspace-analytics__stats">
+          {statCards.map((item) => (
+            <Card key={item.label} className="workspace-analytics__stat-card">
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </Card>
+          ))}
+        </div>
+
+        <div className="workspace-analytics__charts">
+          <Card className="workspace-table-card" title="设施类型分布">
+            <EChart option={categoryOption} height={320} />
+          </Card>
+          <Card className="workspace-table-card" title="设施状态分布">
+            <EChart option={statusOption} height={320} />
+          </Card>
+          <Card className="workspace-table-card workspace-analytics__wide" title="设施热度榜">
+            {heatRows.length ? <EChart option={heatOption} height={340} /> : <Empty description="暂无热度数据" />}
+          </Card>
+        </div>
+      </div>
+    )
+  }
+
+  const renderMapAnalyticsPanel = () => {
+    const metricMap = Object.fromEntries(rows.map((item) => [item.label, item.value]))
+    const totalNavigations = Number(metricMap['navigation.totalNavigations'] || 0)
+    const todayNavigations = Number(metricMap['navigation.todayNavigations'] || 0)
+    const completedNavigations = Number(metricMap['navigation.completedNavigations'] || 0)
+    const cancelledNavigations = Number(metricMap['navigation.cancelledNavigations'] || 0)
+    const averageDuration = Number(metricMap['navigation.averageDuration'] || 0)
+
+    const destinationRows = rows.filter((item) => !String(item.label).startsWith('navigation.'))
+    const destinationOption = {
+      grid: { left: 16, right: 16, top: 12, bottom: 12, containLabel: true },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      xAxis: {
+        type: 'value',
+        splitLine: { lineStyle: { color: '#e2e8f0' } },
+      },
+      yAxis: {
+        type: 'category',
+        data: destinationRows.map((item) => item.label),
+        axisTick: { show: false },
+        axisLine: { show: false },
+      },
+      series: [{
+        type: 'bar',
+        barWidth: 18,
+        data: destinationRows.map((item) => Number(item.value || 0)),
+        itemStyle: {
+          borderRadius: [0, 8, 8, 0],
+          color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [
+            { offset: 0, color: '#0f766e' },
+            { offset: 1, color: '#3b82f6' },
+          ]),
+        },
+      }],
+    }
+
+    const statusOption = {
+      tooltip: { trigger: 'item' },
+      series: [{
+        type: 'pie',
+        radius: ['44%', '72%'],
+        center: ['50%', '48%'],
+        label: { formatter: '{b}\n{c}' },
+        data: [
+          { name: '已完成', value: completedNavigations },
+          { name: '已取消', value: cancelledNavigations },
+          { name: '其他', value: Math.max(totalNavigations - completedNavigations - cancelledNavigations, 0) },
+        ],
+      }],
+    }
+
+    const statCards = [
+      { label: '累计导航', value: totalNavigations },
+      { label: '今日导航', value: todayNavigations },
+      { label: '已完成导航', value: completedNavigations },
+      { label: '平均时长(秒)', value: averageDuration },
+    ]
+
+    return (
+      <div className="workspace-analytics">
+        <div className="workspace-analytics__stats">
+          {statCards.map((item) => (
+            <Card key={item.label} className="workspace-analytics__stat-card">
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </Card>
+          ))}
+        </div>
+
+        <div className="workspace-analytics__charts">
+          <Card className="workspace-table-card" title="导航状态分布">
+            <EChart option={statusOption} height={320} />
+          </Card>
+          <Card className="workspace-table-card" title="热门目的地">
+            {destinationRows.length ? <EChart option={destinationOption} height={320} /> : <Empty description="暂无热门目的地数据" />}
+          </Card>
+        </div>
+      </div>
+    )
+  }
+
+  const renderDiscountAnalyticsPanel = () => {
+    const metricMap = Object.fromEntries(rows.map((item) => [item.label, item.value]))
+    const totalMerchants = Number(metricMap['discount.totalMerchants'] || 0)
+    const totalActivities = Number(metricMap['discount.totalActivities'] || 0)
+    const activeActivities = Number(metricMap['discount.activeActivities'] || 0)
+    const totalReviews = Number(metricMap['discount.totalReviews'] || 0)
+    const avgScore = Number(metricMap['discount.avgScore'] || 0)
+    const totalItems = Number(metricMap['secondhand.totalItems'] || 0)
+    const onSaleItems = Number(metricMap['secondhand.onSaleItems'] || 0)
+    const soldItems = Number(metricMap['secondhand.soldItems'] || 0)
+    const offlineItems = Number(metricMap['secondhand.offlineItems'] || 0)
+
+    const topMerchants = parseSummaryList(metricMap['discount.topMerchants'])
+    const activityTrend = parseSummaryList(metricMap['discount.activityTrend'])
+    const categoryDistribution = parseSummaryList(metricMap['secondhand.categoryDistribution'])
+
+    const trendOption = {
+      grid: { left: 16, right: 16, top: 18, bottom: 18, containLabel: true },
+      tooltip: { trigger: 'axis' },
+      xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: activityTrend.map((item, index) => item.name || item.label || `统计点${index + 1}`),
+        axisLine: { lineStyle: { color: '#cbd5e1' } },
+      },
+      yAxis: {
+        type: 'value',
+        splitLine: { lineStyle: { color: '#e2e8f0' } },
+      },
+      series: [{
+        type: 'line',
+        smooth: true,
+        symbolSize: 8,
+        data: activityTrend.map((item) => Number(item.count ?? item.value ?? 0)),
+        lineStyle: { width: 3, color: '#2563eb' },
+        itemStyle: { color: '#0f766e' },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(37, 99, 235, 0.3)' },
+            { offset: 1, color: 'rgba(20, 184, 166, 0.04)' },
+          ]),
+        },
+      }],
+    }
+
+    const merchantOption = {
+      grid: { left: 16, right: 16, top: 12, bottom: 12, containLabel: true },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      xAxis: {
+        type: 'value',
+        splitLine: { lineStyle: { color: '#e2e8f0' } },
+      },
+      yAxis: {
+        type: 'category',
+        data: topMerchants.map((item, index) => item.name || `商家 ${index + 1}`),
+        axisTick: { show: false },
+        axisLine: { show: false },
+      },
+      series: [{
+        type: 'bar',
+        barWidth: 18,
+        data: topMerchants.map((item) => Number(item.count ?? item.value ?? 0)),
+        itemStyle: {
+          borderRadius: [0, 8, 8, 0],
+          color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [
+            { offset: 0, color: '#0f766e' },
+            { offset: 1, color: '#38bdf8' },
+          ]),
+        },
+      }],
+    }
+
+    const categoryOption = {
+      tooltip: { trigger: 'item' },
+      series: [{
+        type: 'pie',
+        radius: ['44%', '72%'],
+        center: ['50%', '48%'],
+        label: { formatter: '{b}\n{c}' },
+        data: categoryDistribution.map((item, index) => ({
+          name: item.name || `分类 ${index + 1}`,
+          value: Number(item.count ?? item.value ?? 0),
+        })),
+      }],
+    }
+
+    const statusOption = {
+      tooltip: { trigger: 'item' },
+      series: [{
+        type: 'pie',
+        radius: ['42%', '70%'],
+        center: ['50%', '48%'],
+        label: { formatter: '{b}\n{c}' },
+        data: [
+          { name: '在售旧物', value: onSaleItems },
+          { name: '已售旧物', value: soldItems },
+          { name: '已下架旧物', value: offlineItems },
+        ],
+      }],
+    }
+
+    const statCards = [
+      { label: '商家总数', value: totalMerchants },
+      { label: '优惠活动', value: totalActivities },
+      { label: '进行中活动', value: activeActivities },
+      { label: '平均评分', value: avgScore ? avgScore.toFixed(1) : '0.0' },
+      { label: '评价总数', value: totalReviews },
+      { label: '旧物总量', value: totalItems },
+      { label: '在售旧物', value: onSaleItems },
+      { label: '已售旧物', value: soldItems },
+    ]
+
+    return (
+      <div className="workspace-analytics">
+        <div className="workspace-analytics__stats">
+          {statCards.map((item) => (
+            <Card key={item.label} className="workspace-analytics__stat-card">
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </Card>
+          ))}
+        </div>
+
+        <div className="workspace-analytics__charts">
+          <Card className="workspace-table-card" title="优惠活动趋势">
+            {activityTrend.length ? <EChart option={trendOption} height={320} /> : <Empty description="暂无活动趋势数据" />}
+          </Card>
+          <Card className="workspace-table-card" title="热门商家">
+            {topMerchants.length ? <EChart option={merchantOption} height={320} /> : <Empty description="暂无商家排行数据" />}
+          </Card>
+          <Card className="workspace-table-card" title="旧物分类分布">
+            {categoryDistribution.length ? <EChart option={categoryOption} height={320} /> : <Empty description="暂无旧物分类数据" />}
+          </Card>
+          <Card className="workspace-table-card" title="旧物状态分布">
+            <EChart option={statusOption} height={320} />
+          </Card>
+        </div>
+      </div>
+    )
+  }
+
   const markerRows = Array.isArray(rows) ? rows.map((item) => ({
     ...item,
     position: item.longitude && item.latitude ? `${item.longitude}, ${item.latitude}` : '-',
@@ -1846,7 +2407,7 @@ function WorkspacePage({ pageKey }) {
       </section>
 
       <section className="workspace-main workspace-main-single">
-        {pageKey === 'map-config' ? renderMapConfigPanel() : pageKey === 'map-marker' ? renderMarkerManagePanel() : (
+        {pageKey === 'map-config' ? renderMapConfigPanel() : pageKey === 'map-marker' ? renderMarkerManagePanel() : pageKey === 'facility-analytics' ? renderFacilityAnalyticsPanel() : pageKey === 'map-analytics' ? renderMapAnalyticsPanel() : pageKey === 'discount-analytics' ? renderDiscountAnalyticsPanel() : (
         <Card
           className="workspace-table-card"
           extra={
@@ -1862,6 +2423,21 @@ function WorkspacePage({ pageKey }) {
                     setKeyword(event.target.value)
                   }}
                 />
+                {pageKey === 'forum-comment' ? (
+                  <Select
+                    allowClear
+                    placeholder="选择帖子"
+                    value={contextId || undefined}
+                    options={forumPostOptions}
+                    style={{ minWidth: 280 }}
+                    onChange={(value) => {
+                      const nextValue = value ? String(value) : ''
+                      setPagination((prev) => ({ ...prev, current: 1 }))
+                      setContextId(nextValue)
+                      setContextInput(nextValue)
+                    }}
+                  />
+                ) : null}
                 <Select
                   value="全部"
                   disabled

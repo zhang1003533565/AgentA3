@@ -7,8 +7,8 @@ import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.repository.CarouselBannerRepository;
 import com.example.appbackend.service.CarouselBannerService;
+import com.example.appbackend.service.SystemConfigService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -23,23 +23,8 @@ public class CarouselBannerServiceImpl implements CarouselBannerService {
     @Autowired
     private CarouselBannerRepository carouselBannerRepository;
 
-    @Value("${aliyun.oss.endpoint}")
-    private String endpoint;
-
-    @Value("${aliyun.oss.bucket-name}")
-    private String bucketName;
-
-    @Value("${aliyun.oss.access-key-id}")
-    private String accessKeyId;
-
-    @Value("${aliyun.oss.access-key-secret}")
-    private String accessKeySecret;
-
-    @Value("${aliyun.oss.base-url}")
-    private String ossBaseUrl;
-
-    @Value("${file.base-url:http://localhost:8080}")
-    private String baseUrl;
+    @Autowired
+    private SystemConfigService systemConfigService;
 
     @Override
     public CarouselBanner uploadBanner(MultipartFile file, String title, Integer sortOrder) {
@@ -62,6 +47,12 @@ public class CarouselBannerServiceImpl implements CarouselBannerService {
                 : ".jpg";
         String newFileName = UUID.randomUUID().toString() + suffix;
         String objectName = "carousel/" + newFileName;
+
+        String endpoint = systemConfigService.getValue("aliyun.oss.endpoint", "oss-cn-beijing.aliyuncs.com");
+        String bucketName = systemConfigService.getValue("aliyun.oss.bucket-name", "smart-campus111");
+        String accessKeyId = systemConfigService.getValue("aliyun.oss.access-key-id", "");
+        String accessKeySecret = systemConfigService.getValue("aliyun.oss.access-key-secret", "");
+        String ossBaseUrl = systemConfigService.getValue("aliyun.oss.base-url", "https://smart-campus111.oss-cn-beijing.aliyuncs.com");
 
         OSS ossClient = new OSSClientBuilder().build(endpoint, accessKeyId, accessKeySecret);
 
@@ -123,6 +114,10 @@ public class CarouselBannerServiceImpl implements CarouselBannerService {
 
         String objectName = extractObjectName(banner.getImageUrl());
         if (objectName != null) {
+            String endpoint = systemConfigService.getValue("aliyun.oss.endpoint", "oss-cn-beijing.aliyuncs.com");
+            String bucketName = systemConfigService.getValue("aliyun.oss.bucket-name", "smart-campus111");
+            String accessKeyId = systemConfigService.getValue("aliyun.oss.access-key-id", "");
+            String accessKeySecret = systemConfigService.getValue("aliyun.oss.access-key-secret", "");
             OSS ossClient = new OSSClientBuilder().build(endpoint, accessKeyId, accessKeySecret);
             try {
                 ossClient.deleteObject(bucketName, objectName);

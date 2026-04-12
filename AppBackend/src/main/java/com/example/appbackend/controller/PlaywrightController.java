@@ -6,11 +6,11 @@ import com.example.appbackend.entity.CourseSchedule;
 import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.CourseScheduleService;
 import com.example.appbackend.service.PlaywrightService;
+import com.example.appbackend.service.SystemConfigService;
 import com.example.appbackend.util.WeekCalculator;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.LoadState;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -25,19 +25,16 @@ public class PlaywrightController {
     private final PlaywrightService playwrightService;
     private final CourseScheduleService courseScheduleService;
     private final UserRepository userRepository;
-
-    @Value("${browser.headless:true}")
-    private boolean headless;
-
-    @Value("${browser.default-url:https://jwx.hebiace.edu.cn/}")
-    private String defaultUrl;
+    private final SystemConfigService systemConfigService;
 
     public PlaywrightController(PlaywrightService playwrightService,
                                 CourseScheduleService courseScheduleService,
-                                UserRepository userRepository) {
+                                UserRepository userRepository,
+                                SystemConfigService systemConfigService) {
         this.playwrightService = playwrightService;
         this.courseScheduleService = courseScheduleService;
         this.userRepository = userRepository;
+        this.systemConfigService = systemConfigService;
     }
 
     /**
@@ -65,6 +62,8 @@ public class PlaywrightController {
 
         BrowserContext context = null;
         try {
+            boolean headless = systemConfigService.getBooleanValue("browser.headless", true);
+            String defaultUrl = systemConfigService.getValue("browser.default-url", "https://jwx.hebiace.edu.cn/");
             context = playwrightService.createBrowserContext(headless);
             Page page = playwrightService.navigate(context, defaultUrl);
             page.waitForLoadState(LoadState.NETWORKIDLE);
@@ -239,6 +238,8 @@ public class PlaywrightController {
     public Result<Map<String, Object>> getSchedule(@RequestBody JwxLoginRequest request) {
         BrowserContext context = null;
         try {
+            boolean headless = systemConfigService.getBooleanValue("browser.headless", true);
+            String defaultUrl = systemConfigService.getValue("browser.default-url", "https://jwx.hebiace.edu.cn/");
             context = playwrightService.createBrowserContext(headless);
             Page page = playwrightService.navigate(context, defaultUrl);
             page.waitForLoadState(LoadState.NETWORKIDLE);

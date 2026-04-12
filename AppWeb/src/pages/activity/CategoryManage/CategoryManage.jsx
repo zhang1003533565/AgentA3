@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { message, Modal, Form, Input, Button, Table, Space, Popconfirm, Switch } from 'antd'
+import { message, Modal, Form, Input, InputNumber, Button, Table, Space, Popconfirm } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons'
 import { getCategoryList, createCategory, updateCategory, deleteCategory } from '../../../api/category'
 import './CategoryManage.css'
@@ -49,7 +49,7 @@ function CategoryManage() {
     setEditingId(record.id)
     form.setFieldsValue({
       name: record.name,
-      sort: record.sort || 0,
+      sort: record.sort ?? 0,
       status: record.status !== undefined ? record.status : 1
     })
     setModalVisible(true)
@@ -214,7 +214,7 @@ function CategoryManage() {
             label="排序"
             initialValue={0}
           >
-            <Input type="number" placeholder="数字越小排序越靠前" />
+            <InputNumber min={0} placeholder="数字越小排序越靠前" style={{ width: '100%' }} />
           </Form.Item>
 
           <Form.Item
