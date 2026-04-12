@@ -1,6 +1,7 @@
 package com.example.appbackend.service;
 
 import com.example.appbackend.dto.DishReviewDTO;
+import com.example.appbackend.dto.DishReviewSummaryDTO;
 
 import java.util.List;
 
@@ -45,4 +46,14 @@ public interface DishReviewService {
      * 统计档口的评价数量
      */
     int countByStallId(Long stallId);
+
+    /**
+     * 获取菜品评价摘要
+     */
+    DishReviewSummaryDTO getSummaryByDishId(Long dishId);
+
+    /**
+     * 获取档口评价摘要
+     */
+    DishReviewSummaryDTO getSummaryByStallId(Long stallId);
 }

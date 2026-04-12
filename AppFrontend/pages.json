@@ -244,6 +244,15 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
 					}
+				},
+				{
+					"path": "dishDetail/dishDetail",
+					"style": {
+						"navigationBarTitleText": "菜品详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
 				}
 			]
 		},
@@ -408,7 +417,21 @@
 	"preloadRule": {
 		"pages/index/index": {
 			"network": "all",
-			"packages": ["subpackage_promotion", "subpackage_forum", "subpackage_message", "subpackage_signin", "subpackage_schedule", "subpackage_lostfound", "subpackage_facility", "subpackage_sports", "subpackage_teaching", "subpackage_dormitory", "subpackage_community", "subpackage_ai", "subpackage_notice"]
+			"packages": [
+				"subpackage_promotion",
+				"subpackage_forum",
+				"subpackage_message",
+				"subpackage_signin",
+				"subpackage_schedule",
+				"subpackage_lostfound",
+				"subpackage_facility",
+				"subpackage_sports",
+				"subpackage_teaching",
+				"subpackage_dormitory",
+				"subpackage_community",
+				"subpackage_ai",
+				"subpackage_notice"
+			]
 		}
 	},
 	"globalStyle": {

@@ -102,7 +102,7 @@
 </template>
 
 <script>
-import { createDishReview, getDishList, getDishReviewList } from '@/api/dining.js'
+import { createDishReview, getDishList, getDishReviewList, getDishReviewSummary } from '@/api/dining.js'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 
 export default {
@@ -117,7 +117,14 @@ export default {
       stallName: '档口详情',
       dishList: [],
       // 当前菜品的评价列表
-      currentReviews: []
+      currentReviews: [],
+      currentReviewSummary: {
+        totalCount: 0,
+        recommendCount: 0,
+        neutralCount: 0,
+        avoidCount: 0,
+        recommendRate: 0
+      }
     }
   },
   onLoad(options) {
@@ -135,8 +142,15 @@ export default {
     openDishReview(dish) {
       this.activeDish = dish
       this.reviewDraft = ''
-      // 加载该菜品的评价
+      this.currentReviewSummary = {
+        totalCount: 0,
+        recommendCount: 0,
+        neutralCount: 0,
+        avoidCount: 0,
+        recommendRate: 0
+      }
       this.loadDishReviews(dish.id)
+      this.loadDishReviewSummary(dish.id)
     },
     closeDishReview() {
       this.activeDish = null
@@ -163,6 +177,14 @@ export default {
         console.error('加载评价失败:', error)
       }
     },
+    async loadDishReviewSummary(dishId) {
+      try {
+        const res = await getDishReviewSummary({ dishId })
+        this.currentReviewSummary = res.data || this.currentReviewSummary
+      } catch (error) {
+        console.error('加载评价摘要失败:', error)
+      }
+    },
     // 提交菜品评价
     async submitDishReview() {
       try {
@@ -180,8 +202,8 @@ export default {
         })
         uni.showToast({ title: '评价成功', icon: 'success' })
         this.reviewDraft = ''
-        // 重新加载评价列表
         this.loadDishReviews(this.activeDish.id)
+        this.loadDishReviewSummary(this.activeDish.id)
       } catch (error) {
         console.error('提交评价失败:', error)
         if (error?.code === 400 && error?.msg?.includes('已评价')) {

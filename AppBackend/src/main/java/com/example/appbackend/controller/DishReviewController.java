@@ -1,6 +1,7 @@
 package com.example.appbackend.controller;
 
 import com.example.appbackend.dto.DishReviewDTO;
+import com.example.appbackend.dto.DishReviewSummaryDTO;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.service.DishReviewService;
@@ -118,5 +119,24 @@ public class DishReviewController {
             throw new BusinessException(400, "请提供菜品 ID 或档口 ID");
         }
         return Result.success(count);
+    }
+
+    @GetMapping("/summary")
+    @Operation(summary = "获取评价摘要", description = "统计菜品或档口的推荐/一般/避雷分布与好评率")
+    public Result<DishReviewSummaryDTO> getReviewSummary(
+            @Parameter(description = "菜品 ID")
+            @RequestParam(required = false) Long dishId,
+            @Parameter(description = "档口 ID")
+            @RequestParam(required = false) Long stallId) {
+
+        DishReviewSummaryDTO result;
+        if (dishId != null) {
+            result = dishReviewService.getSummaryByDishId(dishId);
+        } else if (stallId != null) {
+            result = dishReviewService.getSummaryByStallId(stallId);
+        } else {
+            throw new BusinessException(400, "请提供菜品 ID 或档口 ID");
+        }
+        return Result.success(result);
     }
 }
