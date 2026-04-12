@@ -175,7 +175,7 @@ export default {
 <style lang="scss" scoped>
 .promotion-page {
   min-height: 100vh;
-  background: linear-gradient(145deg, #f0e9de 0%, #e5ddd0 50%, #ded3c5 100%);
+  background: #F7F7F9;
   padding-bottom: 40rpx;
 }
 
@@ -187,19 +187,19 @@ export default {
   padding: 22rpx 24rpx;
   background: #fff;
   border-radius: 28rpx;
-  border: 2rpx solid #e5ded3;
+  border: none;
   box-shadow: 0 4rpx 24rpx rgba(0, 0, 0, 0.03);
 }
 
 .search-icon {
   font-size: 36rpx;
-  color: #9c8b74;
+  color: #999;
 }
 
 .search-placeholder {
   flex: 1;
   font-size: 26rpx;
-  color: #9c8b74;
+  color: #999;
 }
 
 .category-scroll {
@@ -215,8 +215,8 @@ export default {
   height: 280rpx;
   border-radius: 32rpx;
   overflow: hidden;
-  border: 2rpx solid #e5ded3;
-  box-shadow: 0 12rpx 32rpx rgba(44, 36, 22, 0.08);
+  border: none;
+  box-shadow: 0 12rpx 32rpx rgba(0, 0, 0, 0.08);
 }
 
 .banner-image {
@@ -239,17 +239,17 @@ export default {
   padding: 16rpx 30rpx;
   border-radius: 999rpx;
   background: #fff;
-  border: 2rpx solid #e5ded3;
+  border: 2rpx solid transparent;
   font-size: 24rpx;
   font-weight: 600;
-  color: #6b5d4d;
+  color: #666;
 }
 
 .category-pill.active {
-  background: #2c2416;
-  color: #fff;
-  border-color: #2c2416;
-  box-shadow: 0 8rpx 24rpx rgba(44, 36, 22, 0.24);
+  background: #EEF4FF;
+  color: #5C7A99;
+  border-color: #5C7A99;
+  box-shadow: 0 8rpx 24rpx rgba(0, 122, 255, 0.1);
 }
 
 .promo-grid {
@@ -263,9 +263,10 @@ export default {
   background: #fff;
   border-radius: 36rpx;
   padding: 28rpx;
-  border: 2rpx solid #e5ded3;
+  border: none;
   display: flex;
   gap: 20rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.04);
 }
 
 .promo-card-left {
@@ -316,7 +317,7 @@ export default {
 .promo-card-title {
   font-size: 30rpx;
   font-weight: 700;
-  color: #2c2416;
+  color: #333;
   line-height: 1.35;
   flex: 1;
 }
@@ -324,7 +325,7 @@ export default {
 .promo-card-desc {
   display: block;
   font-size: 24rpx;
-  color: #6b5d4d;
+  color: #666;
   margin-top: 12rpx;
   line-height: 1.55;
 }
@@ -336,7 +337,7 @@ export default {
   gap: 12rpx;
   margin-top: 20rpx;
   padding-top: 20rpx;
-  border-top: 2rpx dashed #e5ded3;
+  border-top: 2rpx dashed #eee;
 }
 
 .promo-card-contact {
@@ -351,7 +352,7 @@ export default {
   width: 48rpx;
   height: 48rpx;
   border-radius: 12rpx;
-  background: linear-gradient(145deg, #c4a35a, #a68b45);
+  background: linear-gradient(135deg, #5C7A99, #8BB8D9);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -365,13 +366,13 @@ export default {
 
 .promo-card-contact-text {
   font-size: 22rpx;
-  color: #9c8b74;
+  color: #666;
   flex: 1;
 }
 
 .promo-card-time {
   font-size: 20rpx;
-  color: #9c8b74;
+  color: #999;
   flex-shrink: 0;
 }
 
@@ -382,6 +383,6 @@ export default {
 
 .empty-text {
   font-size: 26rpx;
-  color: #9c8b74;
+  color: #999;
 }
 </style>

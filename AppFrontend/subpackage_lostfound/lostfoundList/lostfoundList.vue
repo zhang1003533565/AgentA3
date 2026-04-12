@@ -74,18 +74,18 @@
           </view>
 
           <view class="bottom-bar">
-            <view class="bar-item" @click="go('pgMyItems')">
-              <text class="bar-icon">⬡</text>
-              <span>我发布的</span>
+            <view class="bar-item" @click="goToMyItems">
+              <text class="bar-icon">📝</text>
+              <span>发布</span>
             </view>
             <view class="bar-post-wrap">
-              <view class="bar-post" @click="go('pgPub')">
+              <view class="bar-post" @click="goToPublish">
                 <text>＋</text>
               </view>
             </view>
-            <view class="bar-item" @click="go('pgMyMsg')">
+            <view class="bar-item" @click="goToMessages">
               <text class="bar-icon">💬</text>
-              <span>我的<br/>消息</span>
+              <span>消息</span>
             </view>
           </view>
         </scroll-view>
@@ -314,7 +314,7 @@
             </view>
             <button
               class="micard-btn"
-              :style="{ borderColor: item.status === 'online' ? '#E07A5F' : '#6FBF73', color: item.status === 'online' ? '#E07A5F' : '#6FBF73' }"
+              :style="{ borderColor: item.status === 'online' ? '#5C8AB8' : '#6FBF73', color: item.status === 'online' ? '#5C8AB8' : '#6FBF73' }"
               @click="toggleStatus(item.id)"
             >
               {{ item.status === 'online' ? '下架' : '上架' }}
@@ -555,6 +555,21 @@ export default {
       }
       this.currentPage = pageMap[page] || 'list'
     },
+    goToPublish() {
+      uni.navigateTo({
+        url: '/subpackage_lostfound/lostfoundPublish/lostfoundPublish'
+      })
+    },
+    goToMyItems() {
+      uni.navigateTo({
+        url: '/subpackage_lostfound/myItems/myItems'
+      })
+    },
+    goToMessages() {
+      uni.navigateTo({
+        url: '/subpackage_lostfound/myMessages/myMessages'
+      })
+    },
     showDetail(id) {
       const item = this.items.find(i => i.id === id)
       if (item) {
@@ -764,12 +779,12 @@ export default {
 .page-root {
   width: 100%;
   min-height: 100vh;
-  background: #EFE9DE;
+  background: #F0F5FA;
 }
 
 .screen {
   width: 100%;
-  background: #EFE9DE;
+  background: #F0F5FA;
   min-height: 100vh;
 }
 
@@ -779,7 +794,7 @@ export default {
   margin: 0 auto;
   box-sizing: border-box;
   padding: 0 16rpx;
-  background: #EFE9DE;
+  background: #E8F0F8;
   min-height: 100vh;
   position: relative;
 }
@@ -847,8 +862,8 @@ export default {
 
 .type-tab.on {
   background: #fff;
-  color: #CDAE7D;
-  box-shadow: 0 4rpx 12rpx rgba(205, 174, 125, 0.25);
+  color: #5C7A99;
+  box-shadow: 0 4rpx 12rpx rgba(92, 122, 153, 0.15);
 }
 
 .cats-scroll {
@@ -872,9 +887,9 @@ export default {
 }
 
 .cat.on {
-  background: #CDAE7D;
+  background: #5C7A99;
   color: #fff;
-  box-shadow: 0 8rpx 24rpx rgba(205, 174, 125, 0.55);
+  box-shadow: 0 8rpx 24rpx rgba(92, 122, 153, 0.25);
 }
 
 /* grid */
@@ -910,7 +925,7 @@ export default {
 }
 
 .type-badge.sell {
-  background: rgba(212, 133, 106, 0.9);
+  background: rgba(92, 138, 184, 0.9);
 }
 
 .type-badge.want {
@@ -920,7 +935,7 @@ export default {
 .gimg {
   width: 100%;
   aspect-ratio: 1;
-  background: linear-gradient(135deg, rgba(205, 174, 125, 0.35), rgba(184, 146, 92, 0.35));
+  background: linear-gradient(135deg, rgba(123, 168, 212, 0.35), rgba(92, 138, 184, 0.35));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -952,7 +967,7 @@ export default {
 .gprice {
   font-size: 32rpx;
   font-weight: 800;
-  color: #D4856A;
+  color: #5C8AB8;
 }
 
 .gprice small {
@@ -975,7 +990,7 @@ export default {
   width: 28rpx;
   height: 28rpx;
   border-radius: 50%;
-  background: #CDAE7D;
+  background: #7ba8d4;
   color: #fff;
   display: flex;
   align-items: center;
@@ -997,35 +1012,35 @@ export default {
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  justify-content: space-around;
+  justify-content: center;
+  gap: 24rpx;
   background: rgba(255, 255, 255, 0.98);
   backdrop-filter: blur(40rpx);
   border-radius: 999rpx;
-  padding: 10rpx 20rpx;
+  padding: 12rpx 24rpx;
   box-shadow: 0 6rpx 24rpx rgba(0, 0, 0, 0.08);
   z-index: 60;
-  width: 36%;
-  max-width: 280rpx;
 }
 
 .bar-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2rpx;
-  padding: 4rpx 16rpx;
+  gap: 4rpx;
+  padding: 8rpx 12rpx;
   border-radius: 12rpx;
-  color: rgba(0, 0, 0, 0.45);
-  font-size: 20rpx;
+  color: rgba(0, 0, 0, 0.5);
+  font-size: 22rpx;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.3;
   text-align: center;
+  min-width: 80rpx;
 }
 
 .bar-icon {
-  font-size: 32rpx;
-  margin-bottom: 2rpx;
-  opacity: 0.5;
+  font-size: 36rpx;
+  margin-bottom: 4rpx;
+  opacity: 0.6;
 }
 
 .bar-post-wrap {
@@ -1039,12 +1054,12 @@ export default {
   width: 88rpx;
   height: 88rpx;
   border-radius: 50%;
-  background: linear-gradient(135deg, #CDAE7D, #B8925C);
+  background: linear-gradient(135deg, #7ba8d4, #5c8ab8);
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4rpx 20rpx rgba(205, 174, 125, 0.45);
+  box-shadow: 0 4rpx 20rpx rgba(123, 168, 212, 0.45);
   font-size: 44rpx;
   font-weight: 700;
 }
@@ -1053,7 +1068,7 @@ export default {
 .dimg {
   width: 100%;
   aspect-ratio: 3 / 2;
-  background: linear-gradient(135deg, rgba(205, 174, 125, 0.35), rgba(184, 146, 92, 0.35));
+  background: linear-gradient(135deg, rgba(123, 168, 212, 0.35), rgba(92, 138, 184, 0.35));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1086,7 +1101,7 @@ export default {
 .dprice {
   font-size: 56rpx;
   font-weight: 900;
-  color: #D4856A;
+  color: #5C8AB8;
   margin-bottom: 12rpx;
 }
 
@@ -1125,7 +1140,7 @@ export default {
   width: 96rpx;
   height: 96rpx;
   border-radius: 50%;
-  background: linear-gradient(135deg, #CDAE7D, #B8925C);
+  background: linear-gradient(135deg, #7ba8d4, #5c8ab8);
   color: #fff;
   display: flex;
   align-items: center;
@@ -1162,7 +1177,7 @@ export default {
   left: 0;
   right: 0;
   padding: 24rpx 32rpx 56rpx;
-  background: linear-gradient(to top, rgba(239, 233, 222, 1) 0%, rgba(239, 233, 222, 0.98) 100%);
+  background: linear-gradient(to top, rgba(232, 240, 248, 1) 0%, rgba(232, 240, 248, 0.98) 100%);
   border-top: 2rpx solid rgba(0, 0, 0, 0.06);
   z-index: 50;
 }
@@ -1170,12 +1185,12 @@ export default {
 .abtn {
   height: 88rpx;
   border-radius: 24rpx;
-  background: #CDAE7D;
+  background: #7ba8d4;
   color: #fff;
   font-size: 30rpx;
   font-weight: 800;
   border: none;
-  box-shadow: 0 8rpx 24rpx rgba(205, 174, 125, 0.6);
+  box-shadow: 0 8rpx 24rpx rgba(123, 168, 212, 0.6);
 }
 
 /* publish */
@@ -1217,7 +1232,7 @@ export default {
 }
 
 .opt.on {
-  background: #CDAE7D;
+  background: #7ba8d4;
   color: #fff;
 }
 
@@ -1248,7 +1263,7 @@ export default {
   width: 100%;
   height: 88rpx;
   border-radius: 24rpx;
-  background: #CDAE7D;
+  background: #7ba8d4;
   color: #fff;
   font-size: 30rpx;
   font-weight: 800;
@@ -1356,7 +1371,7 @@ export default {
   width: 64rpx;
   height: 64rpx;
   border-radius: 50%;
-  background: #CDAE7D;
+  background: #7ba8d4;
   color: #fff;
   display: flex;
   align-items: center;
@@ -1367,11 +1382,11 @@ export default {
 }
 
 .mava-r {
-  background: #CDAE7D;
+  background: #7ba8d4;
 }
 
 .mava-s {
-  background: #CDAE7D;
+  background: #7ba8d4;
 }
 
 .mbub {
@@ -1384,7 +1399,7 @@ export default {
 }
 
 .mbub-s {
-  background: #CDAE7D;
+  background: #7ba8d4;
   color: #fff;
 }
 
@@ -1410,7 +1425,7 @@ export default {
 .excard-new {
   margin: 32rpx 0;
   padding: 40rpx;
-  background: rgba(205, 174, 125, 0.1);
+  background: rgba(123, 168, 212, 0.1);
   border-radius: 24rpx;
   text-align: center;
 }
@@ -1431,7 +1446,7 @@ export default {
 .excard-new-btn {
   padding: 20rpx 48rpx;
   border-radius: 999rpx;
-  background: #CDAE7D;
+  background: #7ba8d4;
   color: #fff;
   font-size: 28rpx;
   font-weight: 700;
@@ -1475,7 +1490,7 @@ export default {
   width: 80rpx;
   height: 80rpx;
   border-radius: 50%;
-  background: #CDAE7D;
+  background: #7ba8d4;
   color: #fff;
   display: flex;
   align-items: center;
@@ -1490,13 +1505,13 @@ export default {
 
 .rev-icon-new {
   font-size: 36rpx;
-  color: #CDAE7D;
+  color: #7ba8d4;
 }
 
 .rev-phone-new {
   font-size: 36rpx;
   font-weight: 800;
-  color: #B8925C;
+  color: #5c8ab8;
   margin-bottom: 8rpx;
 }
 
@@ -1510,7 +1525,7 @@ export default {
   bottom: 0;
   left: 0;
   right: 0;
-  background: rgba(239, 233, 222, 0.98);
+  background: rgba(232, 240, 248, 0.98);
   padding: 16rpx 32rpx 24rpx;
   border-top: none;
   z-index: 10;
@@ -1526,8 +1541,8 @@ export default {
   background: rgba(255, 255, 255, 0.95);
   font-size: 24rpx;
   font-weight: 700;
-  color: #CDAE7D;
-  border: 2rpx solid rgba(205, 174, 125, 0.3);
+  color: #7ba8d4;
+  border: 2rpx solid rgba(123, 168, 212, 0.3);
   text-align: center;
   box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.08);
   backdrop-filter: blur(10rpx);
@@ -1536,8 +1551,8 @@ export default {
 }
 
 .chat-ex-btn-new.exchanged {
-  color: rgba(205, 174, 125, 0.5);
-  border-color: rgba(205, 174, 125, 0.15);
+  color: rgba(123, 168, 212, 0.5);
+  border-color: rgba(123, 168, 212, 0.15);
   background: rgba(255, 255, 255, 0.6);
 }
 
@@ -1566,7 +1581,7 @@ export default {
   width: 72rpx;
   height: 72rpx;
   border-radius: 50%;
-  background: #CDAE7D;
+  background: #7ba8d4;
   color: #fff;
   display: flex;
   align-items: center;
@@ -1591,7 +1606,7 @@ export default {
   width: 120rpx;
   height: 120rpx;
   border-radius: 16rpx;
-  background: linear-gradient(135deg, rgba(205, 174, 125, 0.35), rgba(184, 146, 92, 0.35));
+  background: linear-gradient(135deg, rgba(123, 168, 212, 0.35), rgba(92, 138, 184, 0.35));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1619,7 +1634,7 @@ export default {
 .miprice {
   font-size: 32rpx;
   font-weight: 800;
-  color: #D4856A;
+  color: #5C8AB8;
 }
 
 .miprice small {
@@ -1664,7 +1679,7 @@ export default {
   width: 96rpx;
   height: 96rpx;
   border-radius: 50%;
-  background: #CDAE7D;
+  background: #7ba8d4;
   color: #fff;
   display: flex;
   align-items: center;
@@ -1704,7 +1719,7 @@ export default {
   display: inline-block;
   padding: 4rpx 12rpx;
   border-radius: 999rpx;
-  background: #D4856A;
+  background: #5C8AB8;
   color: #fff;
   font-size: 20rpx;
   font-weight: 700;

@@ -221,6 +221,24 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
 					}
+				},
+				{
+					"path": "myItems/myItems",
+					"style": {
+						"navigationBarTitleText": "我发布的",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "myMessages/myMessages",
+					"style": {
+						"navigationBarTitleText": "我的消息",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
 				}
 			]
 		},

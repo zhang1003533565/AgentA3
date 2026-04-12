@@ -260,7 +260,7 @@ export default {
 <style lang="scss" scoped>
 .stall-page {
   min-height: 100vh;
-  background: linear-gradient(180deg, #f7f2e8 0%, #f4ede1 32%, #f6f1e8 100%);
+  background: #F0F5FA;
 }
 
 .page-scroll {
@@ -273,10 +273,10 @@ export default {
   margin-bottom: 18rpx;
   padding: 18rpx;
   border-radius: 24rpx;
-  background: rgba(255, 255, 255, 0.96);
+  background: rgba(255, 255, 255, 0.98);
   display: flex;
   gap: 18rpx;
-  box-shadow: 0 14rpx 30rpx rgba(184, 160, 119, 0.12);
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.04);
 }
 
 .dish-thumb {
@@ -308,13 +308,13 @@ export default {
 .dish-name {
   font-size: 34rpx;
   font-weight: 700;
-  color: #2f2a25;
+  color: #333;
 }
 
 .dish-price {
   margin-left: 10rpx;
   font-size: 30rpx;
-  color: #d07e58;
+  color: #5C7A99;
   font-weight: 700;
 }
 
@@ -326,7 +326,7 @@ export default {
 .dish-rate-label {
   display: block;
   font-size: 18rpx;
-  color: #b6aa9a;
+  color: #999;
 }
 
 .dish-rate-value {
@@ -337,22 +337,22 @@ export default {
 }
 
 .dish-rate-value.is-excellent {
-  color: #5ea465;
+  color: #4CAF50;
 }
 
 .dish-rate-value.is-good {
-  color: #7da24d;
+  color: #8BC34A;
 }
 
 .dish-rate-value.is-warn {
-  color: #d99138;
+  color: #FF9800;
 }
 
 .dish-desc {
   display: block;
   margin-top: 10rpx;
   font-size: 22rpx;
-  color: #8f8478;
+  color: #666;
   line-height: 1.5;
 }
 
@@ -365,12 +365,12 @@ export default {
 
 .comment-icon {
   font-size: 18rpx;
-  color: #d2a35f;
+  color: #5C7A99;
 }
 
 .comment-text {
   font-size: 20rpx;
-  color: #c39d69;
+  color: #5C7A99;
 }
 
 .bottom-space {
@@ -389,7 +389,7 @@ export default {
 .review-sheet {
   width: 100%;
   max-height: 72vh;
-  background: #f9f6f0;
+  background: #E8F0F8;
   border-top-left-radius: 28rpx;
   border-top-right-radius: 28rpx;
   padding: 10rpx 22rpx 24rpx;
@@ -400,7 +400,7 @@ export default {
   width: 74rpx;
   height: 8rpx;
   border-radius: 999rpx;
-  background: #d9d0c5;
+  background: #B8D0E8;
   margin: 8rpx auto 18rpx;
 }
 
@@ -412,14 +412,14 @@ export default {
   display: block;
   font-size: 34rpx;
   font-weight: 700;
-  color: #2d2925;
+  color: #2c3e50;
 }
 
 .sheet-count {
   display: block;
   margin-top: 8rpx;
   font-size: 20rpx;
-  color: #9f9385;
+  color: #7a8a9a;
 }
 
 .sheet-review-list {
@@ -449,7 +449,7 @@ export default {
   width: 40rpx;
   height: 40rpx;
   border-radius: 50%;
-  background: #c9a15d;
+  background: #7ba8d4;
   color: #fff;
   font-size: 20rpx;
   display: flex;
@@ -466,12 +466,12 @@ export default {
 .review-user {
   font-size: 24rpx;
   font-weight: 600;
-  color: #6a5e51;
+  color: #4a6080;
 }
 
 .review-time {
   font-size: 18rpx;
-  color: #b5ac9f;
+  color: #9ab0c0;
 }
 
 .review-rating {
@@ -481,7 +481,7 @@ export default {
 
 .review-rating .star {
   font-size: 18rpx;
-  color: #d9d0c5;
+  color: #B8D0E8;
 }
 
 .review-rating .star.active {
@@ -492,7 +492,7 @@ export default {
   display: block;
   margin-top: 12rpx;
   font-size: 24rpx;
-  color: #6d645a;
+  color: #5a6a7a;
   line-height: 1.6;
 }
 
@@ -513,7 +513,7 @@ export default {
   padding: 40rpx 0;
   text-align: center;
   font-size: 24rpx;
-  color: #b5ac9f;
+  color: #9ab0c0;
 }
 
 .sheet-editor {
@@ -524,7 +524,7 @@ export default {
 .editor-title {
   display: block;
   font-size: 24rpx;
-  color: #887d71;
+  color: #6a8a9a;
   margin-bottom: 14rpx;
 }
 
@@ -536,7 +536,7 @@ export default {
   background: #ffffff;
   box-sizing: border-box;
   font-size: 24rpx;
-  color: #52483e;
+  color: #4a5a6a;
 }
 
 .editor-actions {
@@ -550,17 +550,17 @@ export default {
   width: 48rpx;
   height: 48rpx;
   border-radius: 12rpx;
-  border: 1rpx solid #ddd3c8;
+  border: 1rpx solid #c0d0e0;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #a89d91;
+  color: #8a9aaa;
 }
 
 .editor-submit {
   padding: 12rpx 26rpx;
   border-radius: 999rpx;
-  background: linear-gradient(90deg, #d7bb83 0%, #c49b57 100%);
+  background: linear-gradient(90deg, #7ba8d4 0%, #5c8ab8 100%);
   color: #fff;
   font-size: 22rpx;
 }

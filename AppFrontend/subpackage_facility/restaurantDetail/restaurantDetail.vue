@@ -362,7 +362,7 @@ export default {
 <style lang="scss" scoped>
 .canteen-page {
   min-height: 100vh;
-  background: linear-gradient(180deg, #f7f2e8 0%, #f5efe4 36%, #f6f1e9 100%);
+  background: #F7F7F9;
   padding: 24rpx 22rpx 0;
   box-sizing: border-box;
 }
@@ -370,12 +370,12 @@ export default {
 .top-search {
   height: 72rpx;
   border-radius: 24rpx;
-  background: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.95);
   display: flex;
   align-items: center;
   padding: 0 24rpx;
-  color: #b8afa3;
-  box-shadow: 0 8rpx 24rpx rgba(180, 157, 122, 0.08);
+  color: #999;
+  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.04);
 }
 
 .search-icon {
@@ -385,6 +385,7 @@ export default {
 .search-placeholder {
   margin-left: 14rpx;
   font-size: 24rpx;
+  color: #999;
 }
 
 .canteen-tabs {
@@ -397,17 +398,17 @@ export default {
   flex: 1;
   height: 68rpx;
   border-radius: 20rpx;
-  background: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #a49a8e;
+  color: #666;
 }
 
 .canteen-tab.active {
-  background: #ffffff;
-  color: #47413b;
-  box-shadow: 0 10rpx 24rpx rgba(183, 160, 123, 0.14);
+  background: #EEF4FF;
+  color: #5C7A99;
+  box-shadow: 0 10rpx 24rpx rgba(0, 122, 255, 0.1);
 }
 
 .canteen-tab-text {
@@ -428,7 +429,7 @@ export default {
   display: block;
   font-size: 38rpx;
   font-weight: 700;
-  color: #231f1b;
+  color: #333;
   margin-bottom: 20rpx;
 }
 
@@ -446,8 +447,8 @@ export default {
   width: 292rpx;
   border-radius: 28rpx;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 18rpx 36rpx rgba(184, 160, 119, 0.12);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.06);
 }
 
 .hot-cover {
@@ -462,7 +463,7 @@ export default {
   top: 16rpx;
   padding: 8rpx 16rpx;
   border-radius: 999rpx;
-  background: rgba(98, 83, 57, 0.72);
+  background: #5C7A99;
   color: #fff;
   font-size: 20rpx;
 }
@@ -474,7 +475,7 @@ export default {
 .hot-rate {
   display: block;
   font-size: 24rpx;
-  color: #bc9356;
+  color: #5C7A99;
   font-weight: 700;
 }
 
@@ -482,7 +483,7 @@ export default {
   display: block;
   margin-top: 14rpx;
   font-size: 30rpx;
-  color: #2f2924;
+  color: #333;
   font-weight: 700;
 }
 
@@ -491,7 +492,7 @@ export default {
   display: flex;
   justify-content: space-between;
   font-size: 22rpx;
-  color: #8d8377;
+  color: #666;
 }
 
 .stall-list {
@@ -504,7 +505,7 @@ export default {
   background: rgba(255, 255, 255, 0.95);
   border-radius: 28rpx;
   padding: 22rpx;
-  box-shadow: 0 16rpx 34rpx rgba(184, 160, 119, 0.12);
+  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.04);
 }
 
 .stall-main {
@@ -534,15 +535,15 @@ export default {
 .stall-name {
   font-size: 32rpx;
   font-weight: 700;
-  color: #2e2925;
+  color: #333;
 }
 
 .stall-category {
   flex-shrink: 0;
   padding: 8rpx 16rpx;
   border-radius: 16rpx;
-  background: #f3e8d5;
-  color: #8f7048;
+  background: #EEF4FF;
+  color: #5C7A99;
   font-size: 20rpx;
 }
 
@@ -552,7 +553,7 @@ export default {
   gap: 16rpx;
   flex-wrap: wrap;
   font-size: 22rpx;
-  color: #91877b;
+  color: #666;
 }
 
 .recommend-line {
@@ -564,7 +565,7 @@ export default {
 
 .recommend-label {
   font-size: 22rpx;
-  color: #b08b57;
+  color: #5C7A99;
   flex-shrink: 0;
 }
 
@@ -572,21 +573,21 @@ export default {
   flex: 1;
   height: 10rpx;
   border-radius: 999rpx;
-  background: #efe5d8;
+  background: #eee;
   overflow: hidden;
 }
 
 .recommend-fill {
   height: 100%;
   border-radius: 999rpx;
-  background: linear-gradient(90deg, #dfc18c 0%, #bf8f4f 100%);
+  background: linear-gradient(90deg, #5C7A99 0%, #8BB8D9 100%);
 }
 
 .stall-location {
   display: block;
   margin-top: 14rpx;
   font-size: 20rpx;
-  color: #b3ab9d;
+  color: #999;
 }
 
 .dish-preview-row {
@@ -628,11 +629,11 @@ export default {
   display: flex;
   align-items: center;
   gap: 8rpx;
-  color: #9d8e7d;
+  color: #666;
 }
 
 .review-icon {
-  color: #d6a24f;
+  color: #5C7A99;
   font-size: 22rpx;
 }
 
@@ -641,14 +642,15 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: #666;
 }
 
 .review-btn {
   flex-shrink: 0;
   padding: 10rpx 18rpx;
   border-radius: 999rpx;
-  background: #f3ece2;
-  color: #8d7c68;
+  background: #EEF4FF;
+  color: #5C7A99;
   font-size: 20rpx;
 }
 
@@ -692,13 +694,13 @@ export default {
 .dish-name {
   font-size: 28rpx;
   font-weight: 600;
-  color: #2e2925;
+  color: #333;
 }
 
 .dish-price {
   font-size: 30rpx;
   font-weight: 700;
-  color: #c9a55c;
+  color: #5C7A99;
 }
 
 .dish-meta {
@@ -711,23 +713,23 @@ export default {
 }
 
 .dish-rating {
-  color: #d4a843;
+  color: #5C7A99;
   font-weight: 600;
 }
 
 .dish-sold {
-  color: #9a8f80;
+  color: #666;
 }
 
 .dish-taste {
-  color: #9a8f80;
+  color: #666;
 }
 
 .dish-category-tag {
   display: inline-block;
   padding: 6rpx 12rpx;
-  background: #f5e9d7;
-  color: #c9a55c;
+  background: #EEF4FF;
+  color: #5C7A99;
   font-size: 18rpx;
   border-radius: 8rpx;
 }
@@ -845,30 +847,30 @@ export default {
 }
 
 .food-gold {
-  background: radial-gradient(circle at 30% 30%, #ead8b0 0%, #cfaf74 58%, #b58a4d 100%);
+  background: radial-gradient(circle at 30% 30%, #a8c8e8 0%, #7ba8d4 58%, #5c8ab8 100%);
 }
 
 .food-amber {
-  background: radial-gradient(circle at 30% 30%, #f7ddb0 0%, #efc46e 56%, #d69d43 100%);
+  background: radial-gradient(circle at 30% 30%, #b8d4f0 0%, #8cb8e0 56%, #6a9cc8 100%);
 }
 
 .food-cream {
-  background: radial-gradient(circle at 30% 30%, #efe2c3 0%, #dec490 56%, #c39b59 100%);
+  background: radial-gradient(circle at 30% 30%, #c0d8f0 0%, #94b8dc 56%, #7098c0 100%);
 }
 
 .food-red {
-  background: radial-gradient(circle at 30% 30%, #f6b09b 0%, #e56c4d 55%, #b14630 100%);
+  background: radial-gradient(circle at 30% 30%, #a0c4e8 0%, #6a9cd4 55%, #4a7cb0 100%);
 }
 
 .food-brown {
-  background: radial-gradient(circle at 30% 30%, #efc3a8 0%, #d18e60 56%, #9e5a35 100%);
+  background: radial-gradient(circle at 30% 30%, #b0d0ec 0%, #80a8d8 56%, #5888bc 100%);
 }
 
 .food-sand {
-  background: radial-gradient(circle at 30% 30%, #ecd5a9 0%, #d6b173 56%, #b3844a 100%);
+  background: radial-gradient(circle at 30% 30%, #b8d4f0 0%, #88b0dc 56%, #6090c4 100%);
 }
 
 .food-green {
-  background: radial-gradient(circle at 30% 30%, #d9efc3 0%, #9bc26e 56%, #6b9341 100%);
+  background: radial-gradient(circle at 30% 30%, #a8d0e8 0%, #78b0d8 56%, #5090c0 100%);
 }
 </style>

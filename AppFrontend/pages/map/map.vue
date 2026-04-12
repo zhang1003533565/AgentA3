@@ -597,14 +597,14 @@ export default {
   position: fixed;
   inset: 0;
   overflow: hidden;
-  background: #efe9de;
+  background: #e8f0f8;
 }
 
 .map-fullscreen {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  background: #e8e1d4;
+  background: #dce8f2;
 }
 
 .map-stage {
@@ -703,7 +703,7 @@ export default {
   width: 96rpx;
   height: 96rpx;
   border-radius: 50%;
-  background: rgba(205, 174, 125, 0.26);
+  background: rgba(123, 168, 212, 0.26);
   transform: translate(-50%, -50%);
   animation: pulse 2s infinite;
 }
@@ -712,7 +712,7 @@ export default {
   width: 42rpx;
   height: 42rpx;
   border-radius: 50%;
-  background: linear-gradient(145deg, #d5b27d, #bb9157);
+  background: linear-gradient(145deg, #7ba8d4, #5c8ab8);
   border: 6rpx solid #fff;
   display: flex;
   align-items: center;
@@ -844,8 +844,8 @@ export default {
 }
 
 .filter-item-map.active {
-  background: #cdae7d;
-  border-color: #cdae7d;
+  background: #7ba8d4;
+  border-color: #7ba8d4;
   color: #fff;
 }
 
@@ -894,21 +894,21 @@ export default {
 .current-loc-map {
   right: 28rpx;
   background: rgba(255, 255, 255, 0.96);
-  border: 4rpx solid #cdae7d;
+  border: 4rpx solid #7ba8d4;
   box-shadow: 0 8rpx 20rpx rgba(0, 0, 0, 0.12);
 }
 
 .compass-map {
   left: 28rpx;
   background: linear-gradient(145deg, #fff, #f4f4f0);
-  border: 4rpx solid rgba(205, 174, 125, 0.45);
+  border: 4rpx solid rgba(123, 168, 212, 0.45);
   box-shadow: 0 10rpx 26rpx rgba(0, 0, 0, 0.12);
 }
 
 .compass-text {
   font-size: 30rpx;
   font-weight: 800;
-  color: #c05f45;
+  color: #5c8ab8;
 }
 
 .popup-map {
@@ -1045,14 +1045,14 @@ export default {
 }
 
 .popup-btn.secondary {
-  background: #f4f0e8;
-  color: #7d6748;
+  background: #e8f0f8;
+  color: #5c8ab8;
 }
 
 .popup-btn.primary {
-  background: linear-gradient(135deg, #d3b17e 0%, #b68d58 100%);
+  background: linear-gradient(135deg, #7ba8d4 0%, #5c8ab8 100%);
   color: #fff;
-  box-shadow: 0 10rpx 24rpx rgba(182, 141, 88, 0.28);
+  box-shadow: 0 10rpx 24rpx rgba(92, 138, 184, 0.28);
 }
 
 </style>

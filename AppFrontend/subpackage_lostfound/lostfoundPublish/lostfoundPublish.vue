@@ -1,259 +1,359 @@
 <template>
-	<view class="publish-container">
-		<nav-bar :title="publishType === 'lost' ? '发布寻物' : '发布招领'" />
-		
-		<view class="publish-content">
-			<!-- 类型切换 -->
-			<view class="type-selector block-white">
-				<view class="type-item" :class="{ active: publishType === 'lost' }" @click="publishType = 'lost'">
-					<text class="type-text">寻物启事</text>
-				</view>
-				<view class="type-item" :class="{ active: publishType === 'found' }" @click="publishType = 'found'">
-					<text class="type-text">招领信息</text>
-				</view>
-			</view>
+  <view class="page-root">
+    <view class="screen">
+      <view class="container">
+        <nav-bar :title="publishType === 'sell' ? '发布闲置' : '发布求物'" :fixed="true" :placeholder="true" />
+        
+        <scroll-view scroll-y class="page-body pub-body">
+          <view class="fg">
+            <view class="fl">类型</view>
+            <view class="opts">
+              <view class="opt" :class="{ on: publishType === 'sell' }" @click="publishType = 'sell'">🏷️ 出售闲置</view>
+              <view class="opt" :class="{ on: publishType === 'want' }" @click="publishType = 'want'">🔍 求物</view>
+            </view>
+          </view>
 
-			<!-- 表单部分 -->
-			<view class="form-section block-white">
-				<view class="form-item">
-					<text class="label">标题</text>
-					<input type="text" v-model="formData.title" placeholder="请输入物品名称" class="form-input" />
-				</view>
-				
-				<view class="form-item">
-					<text class="label">地点</text>
-					<input type="text" v-model="formData.location" placeholder="请输入发现或丢失地点" class="form-input" />
-				</view>
+          <view class="fg">
+            <view class="fl">商品图片</view>
+            <view class="upload-list">
+              <view
+                v-for="(img, index) in publishForm.images"
+                :key="index"
+                class="upload-item preview-item"
+              >
+                <image class="upload-preview" :src="img" mode="aspectFill" @click="previewImg(img)" />
+                <view class="upload-delete" @click.stop="removeImg(index)">×</view>
+              </view>
+              <view
+                v-if="publishForm.images.length < 9"
+                class="upload-item upload-add"
+                @click="choosePublishImage"
+              >
+                <text class="upload-icon">🖼️</text>
+                <text class="upload-text">添加图片</text>
+              </view>
+            </view>
+          </view>
 
-				<view class="form-item">
-					<text class="label">联系方式</text>
-					<input type="text" v-model="formData.contact" placeholder="请输入联系电话或微信号" class="form-input" />
-				</view>
+          <view class="fg">
+            <view class="fl">{{ publishType === 'sell' ? '商品名称' : '求物名称' }}</view>
+            <view class="input-wrap">
+              <input class="fi" v-model="publishForm.name" :placeholder="publishType === 'sell' ? '起个名字' : '想要什么'" />
+            </view>
+          </view>
 
-				<view class="form-item no-border">
-					<text class="label">详情描述</text>
-					<textarea v-model="formData.desc" placeholder="请详细描述物品特征..." class="form-textarea" />
-				</view>
-			</view>
+          <view class="fg" v-if="publishType === 'sell'">
+            <view class="fl">售价（元）</view>
+            <view class="input-wrap">
+              <input class="fi" v-model="publishForm.price" type="number" placeholder="输入售价" />
+            </view>
+          </view>
 
-			<!-- 图片上传 (模拟) -->
-			<view class="image-section block-white">
-				<text class="label">添加图片</text>
-				<view class="upload-grid">
-					<view class="upload-btn" @click="handleUpload">
-						<view class="plus-icon"></view>
-					</view>
-				</view>
-			</view>
+          <view class="fg">
+            <view class="fl">{{ publishType === 'sell' ? '商品描述' : '求物描述' }}</view>
+            <view class="input-wrap">
+              <textarea class="ft" v-model="publishForm.desc" :placeholder="publishType === 'sell' ? '描述一下情况...' : '描述一下需求...'" />
+            </view>
+          </view>
 
-			<view class="submit-btn-wrap">
-				<button class="submit-btn" @click="handleSubmit">立即发布</button>
-			</view>
-		</view>
-	</view>
+          <view class="fg">
+            <view class="fl">分类</view>
+            <view class="opts">
+              <view
+                v-for="cat in categories.filter(c => c.key !== 'all')"
+                :key="cat.key"
+                class="opt"
+                :class="{ on: publishForm.cat === cat.key }"
+                @click="publishForm.cat = cat.key"
+              >
+                {{ cat.label }}
+              </view>
+            </view>
+          </view>
+
+          <view class="fg">
+            <view class="fl">微信号</view>
+            <view class="input-wrap">
+              <input class="fi" v-model="publishForm.phone" placeholder="你的微信号" maxlength="30" />
+            </view>
+          </view>
+
+          <button class="pbtn" @click="publish">发布{{ publishType === 'sell' ? '闲置' : '求物' }}</button>
+        </scroll-view>
+      </view>
+    </view>
+  </view>
 </template>
 
 <script>
-	import NavBar from '@/components/nav-bar/nav-bar.vue'
-	
-	export default {
-		components: { NavBar },
-		data() {
-			return {
-				publishType: 'lost', // lost or found
-				formData: {
-					title: '',
-					location: '',
-					contact: '',
-					desc: ''
-				}
-			}
-		},
-		onLoad(options) {
-			if (options.type) {
-				this.publishType = options.type
-			}
-		},
-		methods: {
-			handleUpload() {
-				uni.chooseImage({
-					count: 1,
-					success: (res) => {
-						uni.showToast({ title: '图片已选择', icon: 'none' })
-					}
-				})
-			},
-			handleSubmit() {
-				if (!this.formData.title || !this.formData.location) {
-					uni.showToast({ title: '请完善标题和地点', icon: 'none' })
-					return
-				}
-				uni.showLoading({ title: '提交中...' })
-				setTimeout(() => {
-					uni.hideLoading()
-					uni.showToast({ title: '发布成功', icon: 'success' })
-					setTimeout(() => {
-						uni.navigateBack()
-					}, 1500)
-				}, 1000)
-			}
-		}
-	}
+import NavBar from '@/components/nav-bar/nav-bar.vue'
+
+const STORAGE_KEYS = {
+  items: 'items'
+}
+
+const CATEGORIES = [
+  { key: 'all', label: '全部' },
+  { key: 'digital', label: '数码' },
+  { key: 'book', label: '教材图书' },
+  { key: 'daily', label: '生活日用' },
+  { key: 'other', label: '其他' }
+]
+
+export default {
+  components: {
+    NavBar
+  },
+  data() {
+    return {
+      publishType: 'sell',
+      categories: CATEGORIES,
+      publishForm: {
+        name: '',
+        price: '',
+        desc: '',
+        cat: '',
+        phone: '',
+        images: []
+      },
+      items: []
+    }
+  },
+  onLoad(options) {
+    if (options.type) {
+      this.publishType = options.type
+    }
+    this.loadFromStorage()
+  },
+  methods: {
+    loadFromStorage() {
+      try {
+        const stored = uni.getStorageSync(STORAGE_KEYS.items)
+        if (stored) {
+          this.items = JSON.parse(stored)
+        }
+      } catch (e) {
+        console.error('加载数据失败', e)
+      }
+    },
+    saveToStorage() {
+      try {
+        uni.setStorageSync(STORAGE_KEYS.items, JSON.stringify(this.items))
+      } catch (e) {
+        console.error('保存数据失败', e)
+      }
+    },
+    choosePublishImage() {
+      uni.chooseImage({
+        count: 9 - this.publishForm.images.length,
+        sizeType: ['compressed'],
+        sourceType: ['album', 'camera'],
+        success: (res) => {
+          this.publishForm.images = [...this.publishForm.images, ...res.tempFilePaths]
+        }
+      })
+    },
+    removeImg(index) {
+      this.publishForm.images.splice(index, 1)
+    },
+    previewImg(src) {
+      uni.previewImage({
+        urls: this.publishForm.images,
+        current: src
+      })
+    },
+    publish() {
+      if (!this.publishForm.name.trim()) {
+        uni.showToast({ title: '请输入名称', icon: 'none' })
+        return
+      }
+      const newItem = {
+        id: Date.now(),
+        name: this.publishForm.name,
+        desc: this.publishForm.desc,
+        price: this.publishType === 'sell' ? parseFloat(this.publishForm.price) || 0 : 0,
+        type: this.publishType,
+        status: 'online',
+        cat: this.publishForm.cat || 'other',
+        images: this.publishForm.images,
+        userId: 'me',
+        userName: '我',
+        userPhone: this.publishForm.phone,
+        userAva: null,
+        ctime: Date.now()
+      }
+      this.items.unshift(newItem)
+      this.saveToStorage()
+      uni.showToast({ title: '发布成功！', icon: 'success' })
+      setTimeout(() => {
+        uni.navigateBack()
+      }, 1000)
+    }
+  }
+}
 </script>
 
 <style lang="scss">
-	.publish-container {
-		min-height: 100vh;
-		background-color: #F7F7F9;
-	}
+.page-root {
+  width: 100%;
+  min-height: 100vh;
+  background: #F0F5FA;
+}
 
-	.publish-content {
-		padding: 24rpx 32rpx;
-	}
+.screen {
+  width: 100%;
+  background: #F0F5FA;
+  min-height: 100vh;
+}
 
-	.type-selector {
-		display: flex;
-		padding: 8rpx;
-		border-radius: 16rpx;
-		margin-bottom: 24rpx;
-		
-		.type-item {
-			flex: 1;
-			height: 72rpx;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			border-radius: 12rpx;
-			transition: all 0.2s;
-			
-			.type-text {
-				font-size: 28rpx;
-				color: #8E8E93;
-			}
-			
-			&.active {
-				background-color: #7AA1D2;
-				.type-text {
-					color: #FFFFFF;
-					font-weight: 600;
-				}
-			}
-		}
-	}
+.container {
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: 0 16rpx;
+  background: #E8F0F8;
+  min-height: 100vh;
+  position: relative;
+}
 
-	.form-section {
-		border-radius: 20rpx;
-		padding: 0 32rpx;
-		margin-bottom: 24rpx;
-	}
+.page-body {
+  flex: 1;
+  overflow-y: auto;
+}
 
-	.form-item {
-		display: flex;
-		align-items: center;
-		padding: 32rpx 0;
-		border-bottom: 1rpx solid #F0F0F2;
-		
-		&.no-border { border-bottom: none; }
-		
-		.label {
-			width: 160rpx;
-			font-size: 30rpx;
-			color: #1D1D1F;
-		}
-		
-		.form-input {
-			flex: 1;
-			font-size: 30rpx;
-			color: #3A3A3C;
-		}
-		
-		.form-textarea {
-			flex: 1;
-			height: 200rpx;
-			font-size: 30rpx;
-			color: #3A3A3C;
-			padding-top: 8rpx;
-		}
-	}
+.pub-body {
+  padding: 32rpx 24rpx;
+}
 
-	.image-section {
-		border-radius: 20rpx;
-		padding: 32rpx;
-		margin-bottom: 60rpx;
-		
-		.label {
-			font-size: 30rpx;
-			color: #1D1D1F;
-			display: block;
-			margin-bottom: 24rpx;
-		}
-		
-		.upload-grid {
-			display: flex;
-			flex-wrap: wrap;
-			gap: 20rpx;
-		}
-		
-		.upload-btn {
-			width: 160rpx;
-			height: 160rpx;
-			background-color: #F2F2F7;
-			border-radius: 12rpx;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			border: 1rpx dashed #C7C7CC;
-			position: relative;
-			
-			.plus-icon {
-				width: 48rpx;
-				height: 48rpx;
-				position: relative;
-				
-				&::before, &::after {
-					content: '';
-					position: absolute;
-					background-color: #8E8E93;
-					border-radius: 2rpx;
-				}
-				
-				&::before {
-					width: 100%;
-					height: 4rpx;
-					left: 0;
-					top: 50%;
-					transform: translateY(-50%);
-				}
-				
-				&::after {
-					width: 4rpx;
-					height: 100%;
-					top: 0;
-					left: 50%;
-					transform: translateX(-50%);
-				}
-			}
-		}
-	}
+.fg {
+  margin-bottom: 32rpx;
+}
 
-	.submit-btn-wrap {
-		padding: 0 40rpx;
-	}
+.fl {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.7);
+  margin-bottom: 12rpx;
+}
 
-	.submit-btn {
-		width: 100%;
-		height: 88rpx;
-		line-height: 88rpx;
-		background-color: #7AA1D2;
-		color: #FFFFFF;
-		border-radius: 44rpx;
-		font-size: 32rpx;
-		font-weight: 600;
-		border: none;
-		&::after { border: none; }
-		
-		&:active {
-			opacity: 0.8;
-		}
-	}
+.opts {
+  display: flex;
+  gap: 12rpx;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.opt {
+  padding: 14rpx 20rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 24rpx;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.5);
+  text-align: center;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+}
+
+.opt.on {
+  background: #7ba8d4;
+  color: #fff;
+}
+
+.input-wrap {
+  background: #fff;
+  border-radius: 20rpx;
+  overflow: hidden;
+}
+
+.fi {
+  width: 100%;
+  padding: 20rpx 24rpx;
+  font-size: 26rpx;
+  background: transparent;
+}
+
+.ft {
+  width: 100%;
+  height: 200rpx;
+  padding: 20rpx 24rpx;
+  font-size: 26rpx;
+  background: transparent;
+}
+
+.upload-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+
+.upload-item {
+  width: 160rpx;
+  height: 160rpx;
+  border-radius: 16rpx;
+  overflow: hidden;
+}
+
+.preview-item {
+  position: relative;
+}
+
+.upload-preview {
+  width: 100%;
+  height: 100%;
+}
+
+.upload-delete {
+  position: absolute;
+  top: 8rpx;
+  right: 8rpx;
+  width: 36rpx;
+  height: 36rpx;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 50%;
+  color: #fff;
+  font-size: 24rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.upload-add {
+  background: rgba(255, 255, 255, 0.6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  border: 2rpx dashed rgba(0, 0, 0, 0.15);
+}
+
+.upload-icon {
+  font-size: 40rpx;
+}
+
+.upload-text {
+  font-size: 20rpx;
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.pbtn {
+  width: 100%;
+  height: 88rpx;
+  border-radius: 24rpx;
+  background: linear-gradient(135deg, #7ba8d4, #5c8ab8);
+  color: #fff;
+  font-size: 30rpx;
+  font-weight: 800;
+  border: none;
+  margin-top: 20rpx;
+}
+
+.pbtn::after {
+  border: none;
+}
 </style>

@@ -183,7 +183,7 @@ export default {
 <style lang="scss" scoped>
 .search-page {
   min-height: 100vh;
-  background: linear-gradient(145deg, #f0e9de 0%, #e5ddd0 50%, #ded3c5 100%);
+  background: linear-gradient(145deg, #e8f0f8 0%, #dce8f2 50%, #d0e0ec 100%);
 }
 
 .search-top {
@@ -198,23 +198,23 @@ export default {
   padding: 22rpx 24rpx;
   background: #fff;
   border-radius: 28rpx;
-  border: 2rpx solid #e5ded3;
+  border: 2rpx solid #c0d0e0;
 }
 
 .search-icon {
   font-size: 36rpx;
-  color: #9c8b74;
+  color: #7a9ab8;
 }
 
 .search-input {
   flex: 1;
   font-size: 26rpx;
-  color: #6b5d4d;
+  color: #4a6080;
 }
 
 .clear-btn {
   font-size: 34rpx;
-  color: #9c8b74;
+  color: #7a9ab8;
   line-height: 1;
 }
 
@@ -224,7 +224,7 @@ export default {
 
 .section-card {
   background: rgba(255, 255, 255, 0.82);
-  border: 2rpx solid #e5ded3;
+  border: 2rpx solid #c0d0e0;
   border-radius: 32rpx;
   padding: 28rpx;
   margin-bottom: 20rpx;
@@ -240,7 +240,7 @@ export default {
 .result-title {
   font-size: 30rpx;
   font-weight: 700;
-  color: #2c2416;
+  color: #2c3e50;
 }
 
 .hot-list {
@@ -253,14 +253,14 @@ export default {
 .hot-pill {
   padding: 16rpx 28rpx;
   background: #fff;
-  border: 2rpx solid #e5ded3;
+  border: 2rpx solid #c0d0e0;
   border-radius: 999rpx;
   font-size: 24rpx;
-  color: #6b5d4d;
+  color: #4a6080;
 }
 
 .history-pill {
-  background: #f8f3eb;
+  background: #e8f0f8;
 }
 
 .result-head {
@@ -272,7 +272,7 @@ export default {
 
 .result-count {
   font-size: 22rpx;
-  color: #9c8b74;
+  color: #7a9ab8;
 }
 
 .promo-grid {
@@ -285,7 +285,7 @@ export default {
   background: #fff;
   border-radius: 36rpx;
   padding: 28rpx;
-  border: 2rpx solid #e5ded3;
+  border: 2rpx solid #c0d0e0;
   display: flex;
   gap: 20rpx;
 }
@@ -303,19 +303,19 @@ export default {
 }
 
 .promo-card-left.coupon {
-  background: linear-gradient(145deg, #f5e6d3, #e8d5be);
+  background: linear-gradient(145deg, #c8dcf0, #a8c4e0);
 }
 
 .promo-card-left.card {
-  background: linear-gradient(145deg, #e8e3f5, #d5d0e8);
+  background: linear-gradient(145deg, #d8d8f0, #b8b8e0);
 }
 
 .promo-card-left.ad {
-  background: linear-gradient(145deg, #e5f5f0, #d0e8e2);
+  background: linear-gradient(145deg, #c8f0e8, #a8e0d8);
 }
 
 .promo-card-left.life {
-  background: linear-gradient(145deg, #f8e8e4, #f1d3c8);
+  background: linear-gradient(145deg, #e8d8f0, #d8c0e8);
 }
 
 .promo-card-image {
@@ -332,14 +332,14 @@ export default {
   display: block;
   font-size: 30rpx;
   font-weight: 700;
-  color: #2c2416;
+  color: #2c3e50;
   line-height: 1.35;
 }
 
 .promo-card-desc {
   display: block;
   font-size: 24rpx;
-  color: #6b5d4d;
+  color: #4a6080;
   margin-top: 12rpx;
   line-height: 1.55;
 }
@@ -351,7 +351,7 @@ export default {
   gap: 12rpx;
   margin-top: 20rpx;
   padding-top: 20rpx;
-  border-top: 2rpx dashed #e5ded3;
+  border-top: 2rpx dashed #c0d0e0;
 }
 
 .promo-card-contact {
@@ -366,7 +366,7 @@ export default {
   width: 48rpx;
   height: 48rpx;
   border-radius: 12rpx;
-  background: linear-gradient(145deg, #c4a35a, #a68b45);
+  background: linear-gradient(145deg, #7ba8d4, #5c8ab8);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -380,13 +380,13 @@ export default {
 
 .promo-card-contact-text {
   font-size: 22rpx;
-  color: #9c8b74;
+  color: #7a9ab8;
   flex: 1;
 }
 
 .promo-card-time {
   font-size: 20rpx;
-  color: #9c8b74;
+  color: #7a9ab8;
   flex-shrink: 0;
 }
 
@@ -397,6 +397,6 @@ export default {
 
 .empty-text {
   font-size: 26rpx;
-  color: #9c8b74;
+  color: #7a9ab8;
 }
 </style>

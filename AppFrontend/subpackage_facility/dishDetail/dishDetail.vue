@@ -427,7 +427,7 @@ export default {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #f7f2e8 0%, #f4ede1 32%, #f6f1e8 100%);
+  background: #F7F7F9;
 }
 
 .page-scroll {
@@ -443,7 +443,7 @@ export default {
   align-items: center;
   gap: 28rpx;
   padding: 36rpx 28rpx;
-  background: linear-gradient(to bottom, rgba(239,233,222,1) 0%, rgba(239,233,222,.98) 100%);
+  background: #fff;
   border-bottom: 1rpx solid rgba(0,0,0,.06);
 }
 
@@ -452,7 +452,7 @@ export default {
   height: 144rpx;
   border-radius: 28rpx;
   flex-shrink: 0;
-  background: linear-gradient(135deg, rgba(205,174,125,.9), rgba(184,146,92,.9));
+  background: linear-gradient(135deg, #5C7A99, #8BB8D9);
   background-size: cover;
   background-position: center;
 }
@@ -493,16 +493,17 @@ export default {
 .dish-info-price {
   font-size: 44rpx;
   font-weight: 900;
-  color: #c9a55c;
+  color: #5C7A99;
 }
 
 /* 评分总览 */
 .detail-rating-overview {
-  background: linear-gradient(135deg, rgba(205,174,125,.1) 0%, rgba(255,255,255,.8) 50%, rgba(184,146,92,.05) 100%);
+  background: #fff;
   border-radius: 36rpx;
   padding: 36rpx;
   margin: 28rpx;
-  border: 1rpx solid rgba(205,174,125,.15);
+  border: none;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.04);
 }
 
 .detail-rating-top {
@@ -515,7 +516,7 @@ export default {
 .detail-rating-score {
   font-size: 84rpx;
   font-weight: 900;
-  color: #8b6914;
+  color: #5C7A99;
   line-height: 1;
 }
 
@@ -560,11 +561,11 @@ export default {
 
 /* 关键词云 */
 .detail-keywords {
-  background: rgba(255,255,255,.92);
+  background: #fff;
   border-radius: 32rpx;
   padding: 32rpx;
   margin: 0 28rpx 28rpx;
-  border: 1rpx solid rgba(0,0,0,.06);
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.04);
 }
 
 .detail-keywords-title {
@@ -835,7 +836,7 @@ export default {
 .review-editor-submit {
   font-size: 28rpx;
   font-weight: 700;
-  color: #8b6914;
+  color: #5C7A99;
 }
 
 /* 推荐/一般/避雷选择 */
