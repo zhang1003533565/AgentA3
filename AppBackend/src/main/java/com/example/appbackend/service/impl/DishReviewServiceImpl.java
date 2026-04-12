@@ -1,13 +1,16 @@
 package com.example.appbackend.service.impl;
 
 import com.example.appbackend.dto.DishReviewDTO;
+import com.example.appbackend.dto.DishReviewSummaryDTO;
 import com.example.appbackend.entity.DishReview;
 import com.example.appbackend.entity.Dish;
 import com.example.appbackend.entity.CanteenStall;
+import com.example.appbackend.entity.User;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.DishReviewRepository;
 import com.example.appbackend.repository.DishRepository;
 import com.example.appbackend.repository.CanteenStallRepository;
+import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.DishReviewService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +18,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -29,6 +33,11 @@ public class DishReviewServiceImpl implements DishReviewService {
 
     @Autowired
     private CanteenStallRepository canteenStallRepository;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Override
     public List<DishReviewDTO> getReviewsByDishId(Long dishId) {
@@ -54,6 +63,11 @@ public class DishReviewServiceImpl implements DishReviewService {
         // 验证菜品是否存在
         Dish dish = dishRepository.findById(request.getDishId())
                 .orElseThrow(() -> new BusinessException(404, "菜品不存在"));
+
+        DishReview existingReview = dishReviewRepository.findByDishIdAndUserId(request.getDishId(), userId);
+        if (existingReview != null && existingReview.getStatus() != null && existingReview.getStatus() == 1) {
+            throw new BusinessException(400, "您已评价过该菜品");
+        }
 
         DishReview review = new DishReview();
         review.setDishId(request.getDishId());
@@ -136,6 +150,16 @@ public class DishReviewServiceImpl implements DishReviewService {
         return dishReviewRepository.countByStallIdAndStatus(stallId, 1);
     }
 
+    @Override
+    public DishReviewSummaryDTO getSummaryByDishId(Long dishId) {
+        return buildSummary(dishReviewRepository.findByDishIdAndStatus(dishId, 1));
+    }
+
+    @Override
+    public DishReviewSummaryDTO getSummaryByStallId(Long stallId) {
+        return buildSummary(dishReviewRepository.findByStallIdAndStatus(stallId, 1));
+    }
+
     private DishReviewDTO convertToDTO(DishReview review) {
         DishReviewDTO dto = new DishReviewDTO();
         BeanUtils.copyProperties(review, dto);
@@ -156,7 +180,41 @@ public class DishReviewServiceImpl implements DishReviewService {
             }
         }
 
+        if (review.getUserId() != null) {
+            User user = userRepository.findById(review.getUserId()).orElse(null);
+            if (user != null) {
+                dto.setUserName(user.getRealName() != null && !user.getRealName().isBlank() ? user.getRealName() : user.getUsername());
+                dto.setUserAvatar(user.getAvatar());
+            }
+        }
+
+        if (review.getCreateTime() != null) {
+            dto.setCreateTime(review.getCreateTime().format(DATE_TIME_FORMATTER));
+        }
+
         return dto;
+    }
+
+    private DishReviewSummaryDTO buildSummary(List<DishReview> reviews) {
+        DishReviewSummaryDTO summary = new DishReviewSummaryDTO();
+        int totalCount = reviews.size();
+        int recommendCount = (int) reviews.stream()
+                .filter(review -> review.getRating() != null && review.getRating().compareTo(BigDecimal.valueOf(4)) >= 0)
+                .count();
+        int neutralCount = (int) reviews.stream()
+                .filter(review -> review.getRating() != null && review.getRating().compareTo(BigDecimal.valueOf(3)) == 0)
+                .count();
+        int avoidCount = (int) reviews.stream()
+                .filter(review -> review.getRating() != null && review.getRating().compareTo(BigDecimal.valueOf(3)) < 0)
+                .count();
+        int recommendRate = totalCount == 0 ? 0 : Math.round((recommendCount * 100.0f) / totalCount);
+
+        summary.setTotalCount(totalCount);
+        summary.setRecommendCount(recommendCount);
+        summary.setNeutralCount(neutralCount);
+        summary.setAvoidCount(avoidCount);
+        summary.setRecommendRate(recommendRate);
+        return summary;
     }
 
     /**
