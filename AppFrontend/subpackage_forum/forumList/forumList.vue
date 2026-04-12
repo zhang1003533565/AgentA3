@@ -48,16 +48,6 @@
       :refresher-triggered="isRefreshing"
       @refresherrefresh="onRefresh"
     >
-      <!-- 顶部占位，避免被固定导航遮挡 -->
-      <view class="nav-placeholder"></view>
-      
-      <!-- 置顶公告栏 -->
-      <view class="sticky-notice" v-if="currentTopic === 0" :class="{ expanded: isNoticeExpanded }">
-        <text class="notice-label">置顶</text>
-        <text class="notice-text" :class="{ expanded: isNoticeExpanded }">有发的帖子被自动屏蔽的，可以联系管理员恢复帖子哦</text>
-        <text class="notice-expand" @click="toggleNotice">{{ isNoticeExpanded ? '收起' : '展开' }}</text>
-      </view>
-      
       <!-- 全部：按时间排序显示所有帖子 -->
       <view v-if="currentTopic === 0" class="all-posts">
         <view 
@@ -258,8 +248,7 @@ export default {
       },
       publishTopics: [],
       hotTopics: [],
-      showHotTopics: true,
-      isNoticeExpanded: false
+      showHotTopics: true
     }
   },
   computed: {
@@ -285,9 +274,6 @@ export default {
     this.loadPostList()
   },
   methods: {
-    toggleNotice() {
-      this.isNoticeExpanded = !this.isNoticeExpanded
-    },
     loadCurrentUser() {
       const userInfo = getUserInfo()
       const seed = userInfo?.username || 'forum-user'
@@ -491,9 +477,11 @@ export default {
 
 <style lang="scss">
 .forum-container {
-  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
   background-color: #F7F7F9;
-  padding-bottom: 0;
+  overflow: hidden;
 }
 
 .search-bar {
@@ -542,10 +530,7 @@ export default {
 }
 
 .page-fixed-header {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
+  flex-shrink: 0;
   z-index: 999;
 }
 
@@ -613,62 +598,10 @@ export default {
 }
 
 .post-list {
-  height: 100vh;
-  padding: 0 20rpx;
-  padding-top: 20rpx;
-  
-  .nav-placeholder {
-    height: 280rpx;
-    flex-shrink: 0;
-  }
-  
-  /* 置顶公告栏 */
-  .sticky-notice {
-    display: flex;
-    align-items: flex-start;
-    background-color: #FFFFFF;
-    border-radius: 12rpx;
-    padding: 16rpx 20rpx;
-    margin: 8rpx 0 16rpx 0;
-    
-    .notice-label {
-      font-size: 22rpx;
-      color: #007AFF;
-      font-weight: 600;
-      margin-right: 12rpx;
-      flex-shrink: 0;
-      padding: 2rpx 0;
-    }
-    
-    .notice-text {
-      flex: 1;
-      font-size: 26rpx;
-      color: #333;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      line-height: 1.5;
-      
-      &.expanded {
-        white-space: normal;
-        overflow: visible;
-      }
-    }
-    
-    .notice-expand {
-      font-size: 24rpx;
-      color: #999;
-      margin-left: 12rpx;
-      flex-shrink: 0;
-      padding: 2rpx 8rpx;
-      
-      &:active {
-        opacity: 0.7;
-      }
-    }
-  }
-  
-  /* 分组样式 - 已废弃 */
+  flex: 1;
+  height: 0;
+  padding: 20rpx 20rpx 0;
+  box-sizing: border-box;
   
   .post-item {
     background-color: #FFFFFF;
