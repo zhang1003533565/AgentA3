@@ -825,13 +825,24 @@ CREATE TABLE IF NOT EXISTS announcement (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '公告 ID',
     title VARCHAR(200) NOT NULL COMMENT '公告标题',
     content TEXT COMMENT '公告内容',
-    publisher_id BIGINT COMMENT '发布者 ID',
-    publisher_name VARCHAR(50) COMMENT '发布者名称',
-    publish_time DATETIME COMMENT '发布时间',
+    sort_order INT DEFAULT 0 COMMENT '排序，值越小越靠前' NOT NULL,
     enabled TINYINT DEFAULT 1 COMMENT '是否启用：0-禁用，1-启用' NOT NULL,
+    is_top TINYINT DEFAULT 0 COMMENT '是否置顶：0-否，1-是' NOT NULL,
     create_time DATETIME COMMENT '创建时间',
     update_time DATETIME COMMENT '更新时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='公告栏表';
+
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE announcement;
+SET FOREIGN_KEY_CHECKS = 1;
+
+INSERT INTO announcement (id, title, content, sort_order, enabled, is_top, create_time, update_time) VALUES
+(1, '关于 2026 年春季学期期中教学安排的通知', '本周起进入期中教学检查阶段。请各学院按要求完成课堂秩序、作业批改、实验教学和考勤记录自查，学生如遇课程调整请以教务系统通知为准。', 1, 1, 1, '2026-04-07 09:00:00', '2026-04-07 09:00:00'),
+(2, '图书馆自习区开放时间延长', '为配合同学们近期复习备考，图书馆一层和三层自习区自 2026 年 4 月 8 日起延长开放至 23:00，请自觉保持安静并带走个人物品。', 2, 1, 0, '2026-04-08 10:30:00', '2026-04-08 10:30:00'),
+(3, '校园网络设备维护公告', '信息化中心将于 2026 年 4 月 13 日 22:30 至 23:30 对宿舍区核心交换设备进行维护。维护期间校园网和部分认证服务可能短时波动，请提前做好数据保存。', 3, 1, 0, '2026-04-11 16:20:00', '2026-04-11 16:20:00'),
+(4, '毕业生就业双选会报名提醒', '本周六在大学生活动中心举行春季就业双选会，请 2026 届毕业生提前准备纸质简历和电子简历二维码，入场时需携带学生证。', 4, 1, 0, '2026-04-10 14:00:00', '2026-04-10 14:00:00'),
+(5, '宿舍安全检查温馨提示', '近期将开展宿舍安全专项检查，请勿使用违规电器，不要在阳台和走廊堆放杂物，离开宿舍前请确认断电锁门。', 5, 1, 0, '2026-04-09 18:40:00', '2026-04-09 18:40:00'),
+(6, '测试草稿公告（禁用）', '这是一条禁用状态的测试公告，不应在前台列表中展示。', 99, 0, 0, '2026-04-06 12:00:00', '2026-04-06 12:00:00');
 
 -- 轮播图表
 CREATE TABLE IF NOT EXISTS carousel_banner (
