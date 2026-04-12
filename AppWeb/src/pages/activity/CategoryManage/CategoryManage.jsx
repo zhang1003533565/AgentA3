@@ -153,11 +153,6 @@ function CategoryManage() {
     <div className="category-manage-container">
       {/* 主内容 */}
       <main className="manage-main">
-        {/* 页面标题 */}
-        <div className="page-header">
-          <h2>分类管理</h2>
-        </div>
-
         {/* 搜索栏 */}
         <div className="search-bar">
           <Input

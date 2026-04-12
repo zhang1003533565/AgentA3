@@ -2395,16 +2395,18 @@ function WorkspacePage({ pageKey }) {
 
   return (
     <div className="workspace-page">
-      <section className="workspace-hero">
-        <div>
-          <span className="workspace-badge">{page.badge}</span>
-          <h1>{pageKey === 'facility-stall-dish' && urlStallName ? `${page.title} - ${urlStallName}` : page.title}</h1>
-          <p>{page.description}</p>
-          {pageKey === 'facility-stall-dish' ? (
-            <p>当前档口 ID：{urlStallId || '未获取到'}</p>
-          ) : null}
-        </div>
-      </section>
+      {page.title && (
+        <section className="workspace-hero">
+          <div>
+            <span className="workspace-badge">{page.badge}</span>
+            <h1>{pageKey === 'facility-stall-dish' && urlStallName ? `${page.title} - ${urlStallName}` : page.title}</h1>
+            <p>{page.description}</p>
+            {pageKey === 'facility-stall-dish' ? (
+              <p>当前档口 ID：{urlStallId || '未获取到'}</p>
+            ) : null}
+          </div>
+        </section>
+      )}
 
       <section className="workspace-main workspace-main-single">
         {pageKey === 'map-config' ? renderMapConfigPanel() : pageKey === 'map-marker' ? renderMarkerManagePanel() : pageKey === 'facility-analytics' ? renderFacilityAnalyticsPanel() : pageKey === 'map-analytics' ? renderMapAnalyticsPanel() : pageKey === 'discount-analytics' ? renderDiscountAnalyticsPanel() : (
