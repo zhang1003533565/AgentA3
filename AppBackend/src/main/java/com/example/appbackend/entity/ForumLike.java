@@ -13,6 +13,8 @@ import java.time.LocalDateTime;
 @Schema(description = "论坛点赞实体")
 public class ForumLike {
 
+    public static final String TARGET_TYPE_POST = "POST";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Schema(description = "点赞ID", example = "1")
@@ -26,6 +28,11 @@ public class ForumLike {
     @Schema(description = "帖子ID", example = "1")
     private Long targetId;
 
+    @Column(name = "target_type", nullable = false, length = 20,
+            columnDefinition = "VARCHAR(20) NOT NULL DEFAULT 'POST' COMMENT '点赞目标类型'")
+    @Schema(description = "点赞目标类型", example = "POST")
+    private String targetType = TARGET_TYPE_POST;
+
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '点赞时间'")
     @Schema(description = "点赞时间")
     private LocalDateTime createTime;
@@ -36,6 +43,9 @@ public class ForumLike {
 
     @PrePersist
     protected void onCreate() {
+        if (targetType == null || targetType.isBlank()) {
+            targetType = TARGET_TYPE_POST;
+        }
         createTime = LocalDateTime.now();
     }
 }

@@ -42,6 +42,7 @@ public class LikeServiceImpl implements LikeService {
             ForumLike newLike = new ForumLike();
             newLike.setUserId(userId);
             newLike.setTargetId(targetId);
+            newLike.setTargetType(ForumLike.TARGET_TYPE_POST);
             likeRepository.save(newLike);
             postRepository.incrementLikeCount(targetId);
             liked = true;
