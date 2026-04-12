@@ -227,7 +227,9 @@ INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, 
 -- 商家用户 (用户名: merchant01~04, 密码: admin123, role_id=4)
 (9, 'merchant01', 'admin123', '学府餐厅老板', '13812345601', 'lishilaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000009'),
 (10, 'merchant02', 'admin123', '书香咖啡老板', '13812345602', 'wanglaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000010'),
-(11, 'merchant03', 'admin123', '校园超市老板', '13812345603', 'zhanglaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000011');
+(11, 'merchant03', 'admin123', '校园超市老板', '13812345603', 'zhanglaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000011'),
+(12, 'merchant04', 'admin123', '快印图文老板', '13812345604', 'zhaolaoban@campus.edu.cn', 4, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000012'),
+(13, '20233090117', 'Liu007517!', '刘子鋆', '18330177876', '18330177876@163.com', 3, 1, NOW(), NOW(),'Liu007517!','20233090117','2026-03-02','SCH2026030001');
 UPDATE sys_user SET
     avatar = 'https://picsum.photos/seed/avatar-admin/240/240',
     personal_number = 'A20260001',
