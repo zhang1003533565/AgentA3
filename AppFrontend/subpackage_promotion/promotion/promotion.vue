@@ -1,20 +1,10 @@
 <template>
   <view class="promotion-page">
-    <view class="header">
-      <view class="header-row">
-        <view class="back-btn" @click="goBack">
-          <text class="back-icon">‹</text>
-        </view>
-        <view class="header-title-wrap">
-          <text class="header-title">优惠上新</text>
-          <text class="header-subtitle">发现校园周边优惠福利</text>
-        </view>
-      </view>
+    <nav-bar title="优惠上新" :fixed="true" :placeholder="true" />
 
-      <view class="search-bar" @click="openSearchPage">
-        <text class="search-icon">⌕</text>
-        <text class="search-placeholder">搜索优惠信息...</text>
-      </view>
+    <view class="search-bar" @click="openSearchPage">
+      <text class="search-icon">⌕</text>
+      <text class="search-placeholder">搜索优惠信息...</text>
     </view>
 
     <view class="category-scroll">
@@ -97,6 +87,7 @@
 
 <script>
 import { getPromotionCouponList } from '@/api/promotion.js'
+import NavBar from '@/components/nav-bar/nav-bar.vue'
 
 const CATEGORY_OPTIONS = [
   { value: 'all', label: '全部' },
@@ -107,6 +98,7 @@ const CATEGORY_OPTIONS = [
 ]
 
 export default {
+  components: { NavBar },
   data() {
     return {
       categories: CATEGORY_OPTIONS,
@@ -163,15 +155,7 @@ export default {
       this.activeCategory = category
     },
     openSearchPage() {
-      uni.navigateTo({ url: '/pages/promotion/search' })
-    },
-    goBack() {
-      const pages = getCurrentPages()
-      if (pages.length <= 1) {
-        uni.reLaunch({ url: '/pages/index/index' })
-        return
-      }
-      uni.navigateBack({ delta: 1 })
+      uni.navigateTo({ url: '/subpackage_promotion/promotionSearch/promotionSearch' })
     },
     formatPickupLocation(item) {
       return item.pickupLocation || item.stallName || item.merchantName || item.facilityName || '线下咨询'
@@ -195,55 +179,8 @@ export default {
   padding-bottom: 40rpx;
 }
 
-.header {
-  padding: 24rpx 24rpx 12rpx;
-  background: linear-gradient(180deg, #f5efe6 60%, rgba(245, 239, 230, 0) 100%);
-}
-
-.header-row {
-  display: flex;
-  align-items: center;
-  gap: 18rpx;
-}
-
-.back-btn {
-  width: 72rpx;
-  height: 72rpx;
-  border-radius: 24rpx;
-  background: #fff;
-  border: 2rpx solid #e5ded3;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.03);
-}
-
-.back-icon {
-  font-size: 40rpx;
-  color: #6b5d4d;
-  line-height: 1;
-}
-
-.header-title-wrap {
-  flex: 1;
-}
-
-.header-title {
-  display: block;
-  font-size: 44rpx;
-  font-weight: 700;
-  color: #2c2416;
-}
-
-.header-subtitle {
-  display: block;
-  margin-top: 4rpx;
-  font-size: 24rpx;
-  color: #9c8b74;
-}
-
 .search-bar {
-  margin-top: 24rpx;
+  margin: 24rpx;
   display: flex;
   align-items: center;
   gap: 12rpx;

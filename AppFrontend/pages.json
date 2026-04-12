@@ -61,37 +61,33 @@
 				"navigationBarBackgroundColor": "#FFFFFF",
 				"navigationBarTextStyle": "black"
 			}
-		},
-		{
-			"path": "pages/serviceHub/serviceHub",
-			"style": {
-				"navigationBarTitleText": "校园服务",
-				"navigationStyle": "custom",
-				"navigationBarBackgroundColor": "#FFFFFF",
-				"navigationBarTextStyle": "black"
-			}
-		},
-		{
-			"path": "pages/promotion/promotion",
-			"style": {
-				"navigationBarTitleText": "优惠上新",
-				"navigationStyle": "custom",
-				"navigationBarBackgroundColor": "#FFFFFF",
-				"navigationBarTextStyle": "black",
-				"enablePullDownRefresh": true
-			}
-		},
-		{
-			"path": "pages/promotion/search",
-			"style": {
-				"navigationBarTitleText": "搜索优惠",
-				"navigationStyle": "custom",
-				"navigationBarBackgroundColor": "#FFFFFF",
-				"navigationBarTextStyle": "black"
-			}
 		}
 	],
 	"subPackages": [
+		{
+			"root": "subpackage_promotion",
+			"pages": [
+				{
+					"path": "promotion/promotion",
+					"style": {
+						"navigationBarTitleText": "优惠上新",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black",
+						"enablePullDownRefresh": true
+					}
+				},
+				{
+					"path": "promotionSearch/promotionSearch",
+					"style": {
+						"navigationBarTitleText": "搜索优惠",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
+			]
+		},
 		{
 			"root": "subpackage_forum",
 			"pages": [
@@ -412,7 +408,7 @@
 	"preloadRule": {
 		"pages/index/index": {
 			"network": "all",
-			"packages": ["subpackage_forum", "subpackage_message", "subpackage_signin", "subpackage_schedule", "subpackage_lostfound", "subpackage_facility", "subpackage_sports", "subpackage_teaching", "subpackage_dormitory", "subpackage_community", "subpackage_ai", "subpackage_notice"]
+			"packages": ["subpackage_promotion", "subpackage_forum", "subpackage_message", "subpackage_signin", "subpackage_schedule", "subpackage_lostfound", "subpackage_facility", "subpackage_sports", "subpackage_teaching", "subpackage_dormitory", "subpackage_community", "subpackage_ai", "subpackage_notice"]
 		}
 	},
 	"globalStyle": {

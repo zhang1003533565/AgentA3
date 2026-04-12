@@ -1,11 +1,11 @@
 <template>
   <view class="canteen-page">
-    <view class="top-bar">
-      <view class="back-btn" @click="goBack">
-        <text class="back-arrow">‹</text>
-        <text class="back-text">返回</text>
-      </view>
-    </view>
+    <nav-bar
+      :title="currentRestaurant.name"
+      :fixed="true"
+      :placeholder="true"
+      :border="true"
+    />
     <view class="top-search" @click="openSearch">
       <text class="search-icon">⌕</text>
       <text class="search-placeholder">搜索菜品 / 档口 / 评价关键词...</text>
@@ -190,8 +190,12 @@
 
 <script>
 import { getCanteenStallList, getDishList, getDishReviewCount } from '@/api/dining.js'
+import NavBar from '@/components/nav-bar/nav-bar.vue'
 
 export default {
+  components: {
+    NavBar
+  },
   data() {
     return {
       showSearchPanel: false,
@@ -257,9 +261,6 @@ export default {
     this.loadDishes()
   },
   methods: {
-    goBack() {
-      uni.navigateBack()
-    },
     // 获取食物样式类
     getFoodClass(index) {
       const classes = ['food-gold', 'food-cream', 'food-amber', 'food-sand', 'food-brown', 'food-green', 'food-red', 'food-tan']
@@ -364,33 +365,6 @@ export default {
   background: linear-gradient(180deg, #f7f2e8 0%, #f5efe4 36%, #f6f1e9 100%);
   padding: 24rpx 22rpx 0;
   box-sizing: border-box;
-}
-
-.top-bar {
-  display: flex;
-  align-items: center;
-  height: 88rpx;
-  margin-bottom: 12rpx;
-}
-
-.back-btn {
-  display: flex;
-  align-items: center;
-  gap: 8rpx;
-  padding: 12rpx 16rpx;
-  border-radius: 32rpx;
-  background: rgba(255, 255, 255, 0.7);
-}
-
-.back-arrow {
-  font-size: 42rpx;
-  color: #4a433c;
-  line-height: 1;
-}
-
-.back-text {
-  font-size: 24rpx;
-  color: #4a433c;
 }
 
 .top-search {

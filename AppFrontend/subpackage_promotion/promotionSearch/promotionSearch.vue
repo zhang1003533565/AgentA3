@@ -1,28 +1,19 @@
 <template>
   <view class="search-page">
-    <view class="search-header">
-      <view class="title-row">
-        <view class="back-btn" @click="goBack">
-          <text class="back-icon">‹</text>
-        </view>
-        <view class="page-title-wrap">
-          <text class="page-title">优惠券搜索</text>
-        </view>
-      </view>
+    <nav-bar title="优惠券搜索" :fixed="true" :placeholder="true" />
 
-      <view class="search-top">
-        <view class="search-box">
-          <text class="search-icon">⌕</text>
-          <input
-            v-model.trim="searchKeyword"
-            class="search-input"
-            placeholder="搜索优惠名称、描述或领取位置"
-            confirm-type="search"
-            focus
-            @confirm="handleSearch"
-          />
-          <text v-if="searchKeyword" class="clear-btn" @click="clearSearch">×</text>
-        </view>
+    <view class="search-top">
+      <view class="search-box">
+        <text class="search-icon">⌕</text>
+        <input
+          v-model.trim="searchKeyword"
+          class="search-input"
+          placeholder="搜索优惠名称、描述或领取位置"
+          confirm-type="search"
+          focus
+          @confirm="handleSearch"
+        />
+        <text v-if="searchKeyword" class="clear-btn" @click="clearSearch">×</text>
       </view>
     </view>
 
@@ -111,8 +102,10 @@
 
 <script>
 import { getPromotionCouponList } from '@/api/promotion.js'
+import NavBar from '@/components/nav-bar/nav-bar.vue'
 
 export default {
+  components: { NavBar },
   data() {
     return {
       searchKeyword: '',
@@ -172,9 +165,6 @@ export default {
     clearSearch() {
       this.searchKeyword = ''
     },
-    goBack() {
-      uni.navigateBack({ delta: 1 })
-    },
     formatPickupLocation(item) {
       return item.pickupLocation || item.stallName || item.merchantName || item.facilityName || '线下咨询'
     },
@@ -196,52 +186,8 @@ export default {
   background: linear-gradient(145deg, #f0e9de 0%, #e5ddd0 50%, #ded3c5 100%);
 }
 
-.search-header {
-  padding: 24rpx 24rpx 12rpx;
-  background: linear-gradient(180deg, #f5efe6 60%, rgba(245, 239, 230, 0) 100%);
-}
-
 .search-top {
-  margin-top: 20rpx;
-}
-
-.title-row {
-  display: flex;
-  align-items: center;
-  gap: 18rpx;
-}
-
-.page-title-wrap {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-
-.page-title {
-  display: block;
-  font-size: 40rpx;
-  font-weight: 700;
-  color: #2c2416;
-  line-height: 1.2;
-}
-
-.back-btn {
-  width: 72rpx;
-  height: 72rpx;
-  border-radius: 24rpx;
-  background: #fff;
-  border: 2rpx solid #e5ded3;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.back-icon {
-  font-size: 40rpx;
-  color: #6b5d4d;
-  line-height: 1;
+  padding: 24rpx;
 }
 
 .search-box {

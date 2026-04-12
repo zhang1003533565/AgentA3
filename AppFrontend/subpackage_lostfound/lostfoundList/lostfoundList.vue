@@ -4,13 +4,7 @@
       <view class="container">
       <!-- 列表页 -->
       <view v-if="currentPage === 'list'" class="page page-list">
-        <view class="nav">
-          <view class="nav-back" @click="goBack">
-            <text class="nav-back-icon">‹</text>
-          </view>
-          <view class="nav-title">校园集市</view>
-          <view class="nav-right"></view>
-        </view>
+        <nav-bar title="校园集市" :fixed="true" :placeholder="true" />
 
         <scroll-view scroll-y class="page-body">
           <view class="search">
@@ -99,13 +93,7 @@
 
       <!-- 详情页 -->
       <view v-else-if="currentPage === 'detail'" class="page page-detail">
-        <view class="nav">
-          <view class="nav-back" @click="go('pgList')">
-            <text class="nav-back-icon">‹</text>
-          </view>
-          <view class="nav-title">详情</view>
-          <view class="nav-right"></view>
-        </view>
+        <nav-bar title="详情" :fixed="true" :placeholder="true" @back="go('pgList')" />
 
         <scroll-view scroll-y class="page-body">
           <view class="dimg">
@@ -139,13 +127,7 @@
 
       <!-- 发布页 -->
       <view v-else-if="currentPage === 'publish'" class="page page-publish">
-        <view class="nav">
-          <view class="nav-back" @click="go('pgList')">
-            <text class="nav-back-icon">‹</text>
-          </view>
-          <view class="nav-title">{{ publishType === 'sell' ? '发布闲置' : '发布求物' }}</view>
-          <view class="nav-right"></view>
-        </view>
+        <nav-bar :title="publishType === 'sell' ? '发布闲置' : '发布求物'" :fixed="true" :placeholder="true" @back="go('pgList')" />
 
         <scroll-view scroll-y class="page-body pub-body">
           <view class="fg">
@@ -227,13 +209,7 @@
 
       <!-- 聊天页 -->
       <view v-else-if="currentPage === 'chat'" class="page page-chat">
-        <view class="nav">
-          <view class="nav-back" @click="go('pgDetail')">
-            <text class="nav-back-icon">‹</text>
-          </view>
-          <view class="nav-title">{{ curChat ? curChat.otherName : '聊天' }}</view>
-          <view class="nav-right"></view>
-        </view>
+        <nav-bar :title="curChat ? curChat.otherName : '聊天'" :fixed="true" :placeholder="true" @back="go('pgDetail')" />
 
         <scroll-view scroll-y class="chat-body" :scroll-into-view="scrollBottom" scroll-with-animation @scroll="onChatScroll">
           <view v-for="m in chatMessages" :key="m.id" :id="'msg-' + m.id">
@@ -316,13 +292,7 @@
 
       <!-- 我的发布 -->
       <view v-else-if="currentPage === 'myitems'" class="page page-myitems">
-        <view class="nav">
-          <view class="nav-back" @click="go('pgList')">
-            <text class="nav-back-icon">‹</text>
-          </view>
-          <view class="nav-title">我发布的</view>
-          <view class="nav-right"></view>
-        </view>
+        <nav-bar title="我发布的" :fixed="true" :placeholder="true" @back="go('pgList')" />
 
         <scroll-view scroll-y class="page-body">
           <view v-if="myItems.length === 0" class="empty">
@@ -355,13 +325,7 @@
 
       <!-- 我的消息 -->
       <view v-else-if="currentPage === 'mymessages'" class="page page-mymessages">
-        <view class="nav">
-          <view class="nav-back" @click="go('pgList')">
-            <text class="nav-back-icon">‹</text>
-          </view>
-          <view class="nav-title">我的消息</view>
-          <view class="nav-right"></view>
-        </view>
+        <nav-bar title="我的消息" :fixed="true" :placeholder="true" @back="go('pgList')" />
 
         <scroll-view scroll-y class="page-body">
           <view v-if="chats.length === 0" class="empty">
@@ -390,6 +354,8 @@
 </template>
 
 <script>
+import NavBar from '@/components/nav-bar/nav-bar.vue'
+
 const STORAGE_KEYS = {
   items: 'items',
   chats: 'chats',
@@ -429,6 +395,9 @@ function defaultItems() {
 }
 
 export default {
+  components: {
+    NavBar
+  },
   data() {
     return {
       categories: CATEGORIES,
@@ -585,11 +554,6 @@ export default {
         'pgMyMsg': 'mymessages'
       }
       this.currentPage = pageMap[page] || 'list'
-    },
-    goBack() {
-      uni.redirectTo({
-        url: '/pages/index/index'
-      })
     },
     showDetail(id) {
       const item = this.items.find(i => i.id === id)
@@ -829,43 +793,6 @@ export default {
 .page-body {
   flex: 1;
   overflow-y: auto;
-}
-
-/* nav */
-.nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 88rpx;
-  padding: 0 24rpx;
-  background: rgba(239, 233, 222, 0.95);
-  backdrop-filter: blur(20rpx);
-  position: sticky;
-  top: 0;
-  z-index: 50;
-}
-
-.nav-back {
-  width: 60rpx;
-  height: 60rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.nav-back-icon {
-  font-size: 48rpx;
-  color: rgba(0, 0, 0, 0.5);
-}
-
-.nav-title {
-  font-size: 32rpx;
-  font-weight: 700;
-  color: rgba(0, 0, 0, 0.85);
-}
-
-.nav-right {
-  width: 60rpx;
 }
 
 /* search */

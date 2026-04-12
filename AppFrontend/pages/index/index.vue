@@ -55,7 +55,7 @@
 					</view>
 				</view>
 
-				<view class="home-quick-entry__item" @click="navigate('/pages/promotion/promotion')">
+				<view class="home-quick-entry__item" @click="navigate('/subpackage_promotion/promotion/promotion')">
 					<view class="home-quick-entry__icon-wrapper">
 						<image class="home-quick-entry__icon" src="/static/APPIcon/tabbar/award.png" mode="aspectFit" />
 					</view>
@@ -213,11 +213,6 @@ export default {
 		goToNotice() {
 			uni.navigateTo({
 				url: '/pages/notice/notice'
-			})
-		},
-		goToServiceHub(title) {
-			uni.navigateTo({
-				url: `/pages/serviceHub/serviceHub?title=${encodeURIComponent(title)}`
 			})
 		},
 		async fetchAnnouncements() {

@@ -1,12 +1,11 @@
 <template>
   <view class="stall-page">
-    <view class="page-header">
-      <view class="header-back" @click="goBack">
-        <text class="back-icon">‹</text>
-      </view>
-      <text class="header-title">{{ stallName }}</text>
-      <view class="header-placeholder"></view>
-    </view>
+    <nav-bar
+      :title="stallName"
+      :fixed="true"
+      :placeholder="true"
+      :border="true"
+    />
 
     <scroll-view class="page-scroll" scroll-y>
       <view class="empty-tip" v-if="dishList.length === 0">
@@ -104,8 +103,12 @@
 
 <script>
 import { createDishReview, getDishList, getDishReviewList } from '@/api/dining.js'
+import NavBar from '@/components/nav-bar/nav-bar.vue'
 
 export default {
+  components: {
+    NavBar
+  },
   data() {
     return {
       reviewDraft: '',
@@ -124,14 +127,6 @@ export default {
     this.loadDishes()
   },
   methods: {
-    goBack() {
-      const pages = getCurrentPages()
-      if (pages.length <= 1) {
-        uni.reLaunch({ url: '/pages/index/index' })
-        return
-      }
-      uni.navigateBack({ delta: 1 })
-    },
     rateClass(rate) {
       if (rate >= 95) return 'is-excellent'
       if (rate >= 85) return 'is-good'
@@ -244,41 +239,6 @@ export default {
 .stall-page {
   min-height: 100vh;
   background: linear-gradient(180deg, #f7f2e8 0%, #f4ede1 32%, #f6f1e8 100%);
-}
-
-.page-header {
-  height: 92rpx;
-  padding: 20rpx 28rpx 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  box-sizing: border-box;
-}
-
-.header-back,
-.header-placeholder {
-  width: 60rpx;
-  height: 60rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.header-back {
-  border-radius: 18rpx;
-  background: rgba(255, 255, 255, 0.62);
-}
-
-.back-icon {
-  font-size: 42rpx;
-  color: #7f7468;
-  line-height: 1;
-}
-
-.header-title {
-  font-size: 30rpx;
-  font-weight: 700;
-  color: #2d2823;
 }
 
 .page-scroll {
