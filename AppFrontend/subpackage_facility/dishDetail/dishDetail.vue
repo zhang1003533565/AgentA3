@@ -7,70 +7,70 @@
       :border="true"
     />
 
-    <!-- 菜品信息卡片 -->
-    <view class="dish-info-card">
-      <view class="dish-info-img" :style="dishInfo.imageUrl ? { backgroundImage: `url(${dishInfo.imageUrl})` } : {}"></view>
-      <view class="dish-info-right">
-        <text class="dish-info-name">{{ dishInfo.name || '菜品名称' }}</text>
-        <view class="dish-info-stall">
-          <text class="stall-icon">📍</text>
-          <text>{{ dishInfo.stallName || '档口位置' }}</text>
-        </view>
-        <view class="dish-info-price-row">
-          <text class="dish-info-price">¥{{ dishInfo.price || '0.0' }}</text>
-        </view>
-      </view>
-    </view>
-
-    <!-- 评分总览 -->
-    <view class="detail-rating-overview">
-      <view class="detail-rating-top">
-        <text class="detail-rating-score">{{ recommendRate }}%</text>
-        <text class="detail-rating-label">好评率</text>
-      </view>
-      <view class="detail-rating-stats">
-        <view class="detail-stat-box">
-          <text class="detail-stat-value total">{{ totalCount }}</text>
-          <text class="detail-stat-label">总评价</text>
-        </view>
-        <view class="detail-stat-box">
-          <text class="detail-stat-value good">{{ recommendCount }}</text>
-          <text class="detail-stat-label">推荐</text>
-        </view>
-        <view class="detail-stat-box">
-          <text class="detail-stat-value neutral">{{ neutralCount }}</text>
-          <text class="detail-stat-label">一般</text>
-        </view>
-        <view class="detail-stat-box">
-          <text class="detail-stat-value bad">{{ avoidCount }}</text>
-          <text class="detail-stat-label">避雷</text>
+    <scroll-view class="page-scroll" scroll-y>
+      <!-- 菜品信息卡片 -->
+      <view class="dish-info-card">
+        <view class="dish-info-img" :style="dishInfo.imageUrl ? { backgroundImage: `url(${dishInfo.imageUrl})` } : {}"></view>
+        <view class="dish-info-right">
+          <text class="dish-info-name">{{ dishInfo.name || '菜品名称' }}</text>
+          <view class="dish-info-stall">
+            <text class="stall-icon">📍</text>
+            <text>{{ dishInfo.stallName || '档口位置' }}</text>
+          </view>
+          <view class="dish-info-price-row">
+            <text class="dish-info-price">¥{{ dishInfo.price || '0.0' }}</text>
+          </view>
         </view>
       </view>
-    </view>
 
-    <!-- 关键词云 -->
-    <view class="detail-keywords" v-if="keywords.length > 0">
-      <view class="detail-keywords-title">大家怎么说</view>
-      <view class="detail-keywords-cloud">
-        <text
-          v-for="(keyword, index) in keywords"
-          :key="index"
-          class="detail-keyword"
-          :class="keyword.type"
-        >
-          {{ keyword.text }}<text class="keyword-count">{{ keyword.count }}</text>
-        </text>
+      <!-- 评分总览 -->
+      <view class="detail-rating-overview">
+        <view class="detail-rating-top">
+          <text class="detail-rating-score">{{ recommendRate }}%</text>
+          <text class="detail-rating-label">好评率</text>
+        </view>
+        <view class="detail-rating-stats">
+          <view class="detail-stat-box">
+            <text class="detail-stat-value total">{{ totalCount }}</text>
+            <text class="detail-stat-label">总评价</text>
+          </view>
+          <view class="detail-stat-box">
+            <text class="detail-stat-value good">{{ recommendCount }}</text>
+            <text class="detail-stat-label">推荐</text>
+          </view>
+          <view class="detail-stat-box">
+            <text class="detail-stat-value neutral">{{ neutralCount }}</text>
+            <text class="detail-stat-label">一般</text>
+          </view>
+          <view class="detail-stat-box">
+            <text class="detail-stat-value bad">{{ avoidCount }}</text>
+            <text class="detail-stat-label">避雷</text>
+          </view>
+        </view>
       </view>
-    </view>
 
-    <!-- 评价列表标题 -->
-    <view class="detail-reviews-header">
-      <text class="detail-reviews-title">全部评价</text>
-      <text class="detail-reviews-count">{{ reviewList.length }}条</text>
-    </view>
+      <!-- 关键词云 -->
+      <view class="detail-keywords" v-if="keywords.length > 0">
+        <view class="detail-keywords-title">大家怎么说</view>
+        <view class="detail-keywords-cloud">
+          <text
+            v-for="(keyword, index) in keywords"
+            :key="index"
+            class="detail-keyword"
+            :class="keyword.type"
+          >
+            {{ keyword.text }}<text class="keyword-count">{{ keyword.count }}</text>
+          </text>
+        </view>
+      </view>
 
-    <!-- 评价列表 -->
-    <scroll-view class="detail-reviews-list" scroll-y>
+      <!-- 评价列表标题 -->
+      <view class="detail-reviews-header">
+        <text class="detail-reviews-title">全部评价</text>
+        <text class="detail-reviews-count">{{ reviewList.length }}条</text>
+      </view>
+
+      <!-- 评价列表 -->
       <view
         v-for="(review, index) in reviewList"
         :key="`${review.id}-${index}`"
@@ -110,6 +110,7 @@
       <view v-if="reviewList.length === 0" class="no-review">
         <text>暂无评价，快来抢沙发吧~</text>
       </view>
+
       <view class="bottom-space"></view>
     </scroll-view>
 
@@ -423,8 +424,17 @@ export default {
 
 <style lang="scss" scoped>
 .dish-detail-page {
-  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: linear-gradient(180deg, #f7f2e8 0%, #f4ede1 32%, #f6f1e8 100%);
+}
+
+.page-scroll {
+  flex: 1;
+  height: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 /* 菜品信息卡片 */
@@ -619,16 +629,11 @@ export default {
 }
 
 /* 评价列表 */
-.detail-reviews-list {
-  height: calc(100vh - 600rpx);
-  padding: 0 28rpx;
-}
-
 .detail-review-card {
+  margin: 0 28rpx 20rpx;
   background: rgba(255,255,255,.95);
   border-radius: 28rpx;
   padding: 28rpx;
-  margin-bottom: 20rpx;
   border: 1rpx solid rgba(0,0,0,.06);
 }
 
@@ -755,7 +760,7 @@ export default {
 }
 
 .bottom-space {
-  height: 180rpx;
+  height: 140rpx;
 }
 
 /* 底部写评价栏 */
