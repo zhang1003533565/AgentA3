@@ -322,6 +322,46 @@
   background: #f8fafc;
 }
 
+.workspace-map-config__amap-shell {
+  margin-top: 16px;
+  min-height: 320px;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: linear-gradient(180deg, rgba(241, 247, 255, 0.95), rgba(255, 255, 255, 0.98));
+  position: relative;
+}
+
+.workspace-map-config__amap-canvas {
+  width: 100%;
+  min-height: 320px;
+  height: 420px;
+}
+
+.workspace-map-config__map-error {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(254, 242, 242, 0.96);
+  border: 1px solid rgba(248, 113, 113, 0.24);
+  color: #b91c1c;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.workspace-map-config__legacy-tip {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(219, 234, 254, 0.8);
+  border: 1px solid rgba(96, 165, 250, 0.22);
+  color: #1d4ed8;
+  font-size: 13px;
+}
+
 .workspace-map-config__image-stage {
   position: relative;
   min-height: 320px;
@@ -518,6 +558,98 @@
   line-height: 1.6;
 }
 
+.workspace-marker-search {
+  margin-bottom: 18px;
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(240, 249, 255, 0.78);
+  border: 1px solid rgba(125, 211, 252, 0.28);
+}
+
+.workspace-marker-search__bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.workspace-marker-search__results {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.workspace-marker-search__result {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(255, 255, 255, 0.96);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.workspace-marker-search__result:hover {
+  border-color: rgba(37, 99, 235, 0.28);
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.08);
+  transform: translateY(-1px);
+}
+
+.workspace-marker-search__result.active {
+  border-color: rgba(37, 99, 235, 0.42);
+  background: rgba(239, 246, 255, 0.98);
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.1);
+}
+
+.workspace-marker-search__result strong,
+.workspace-marker-search__result span,
+.workspace-marker-search__result em {
+  display: block;
+}
+
+.workspace-marker-search__result strong {
+  color: var(--text-main);
+  font-size: 14px;
+}
+
+.workspace-marker-search__result span {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.workspace-marker-search__result em {
+  margin-top: 6px;
+  color: #1d4ed8;
+  font-style: normal;
+  font-size: 12px;
+}
+
+.workspace-amap-search-pin {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #f97316;
+  border: 3px solid #fff;
+  box-shadow: 0 10px 22px rgba(249, 115, 22, 0.36);
+  position: relative;
+}
+
+.workspace-amap-search-pin::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 2px;
+  height: 16px;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, rgba(249, 115, 22, 0.85), rgba(249, 115, 22, 0));
+}
+
 .workspace-marker-editor {
   margin-bottom: 18px;
   padding: 20px;
@@ -588,6 +720,10 @@
 
   .workspace-map-config__grid,
   .workspace-analytics__stats {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-marker-search__bar {
     grid-template-columns: 1fr;
   }
 }

@@ -8,6 +8,7 @@ import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.FacilityRepository;
 import com.example.appbackend.repository.MapMarkerRepository;
 import com.example.appbackend.repository.NavigationLogRepository;
+import com.example.appbackend.service.AmapMapService;
 import com.example.appbackend.service.NavigationService;
 import com.example.appbackend.service.TencentMapService;
 import com.example.appbackend.util.GeoUtils;
@@ -40,6 +41,9 @@ public class NavigationServiceImpl implements NavigationService {
     @Autowired
     private TencentMapService tencentMapService;
 
+    @Autowired
+    private AmapMapService amapMapService;
+
     @Override
     public NavigationResponse startNavigation(NavigationRequest request, Long userId) {
         MapMarker marker = mapMarkerRepository.findById(request.getToMarkerId())
@@ -50,7 +54,7 @@ public class NavigationServiceImpl implements NavigationService {
         BigDecimal toLat = facility != null ? facility.getLatitude() : BigDecimal.ZERO;
 
         // 调用腾讯地图路线规划API获取真实路线
-        NavigationRouteResponse routeResp = tencentMapService.getRoute(
+        NavigationRouteResponse routeResp = getPreferredRoute(
                 request.getFromLongitude(), request.getFromLatitude(),
                 toLng, toLat, "walking");
 
@@ -93,8 +97,7 @@ public class NavigationServiceImpl implements NavigationService {
     @Override
     public NavigationRouteResponse getRoute(BigDecimal fromLongitude, BigDecimal fromLatitude,
                                             BigDecimal toLongitude, BigDecimal toLatitude, String mode) {
-        // 注意：toLongitude 是经度，toLatitude 是纬度，不要搞反
-        return tencentMapService.getRoute(fromLongitude, fromLatitude, toLongitude, toLatitude, mode);
+        return getPreferredRoute(fromLongitude, fromLatitude, toLongitude, toLatitude, mode);
     }
 
     @Override
@@ -152,22 +155,43 @@ public class NavigationServiceImpl implements NavigationService {
 
     @Override
     public ReverseGeocoderResponse reverseGeocode(BigDecimal longitude, BigDecimal latitude) {
-        return tencentMapService.reverseGeocode(longitude, latitude);
+        try {
+            return amapMapService.reverseGeocode(longitude, latitude);
+        } catch (BusinessException error) {
+            return tencentMapService.reverseGeocode(longitude, latitude);
+        }
     }
 
     @Override
     public GeocoderResponse geocode(String address, String region) {
-        return tencentMapService.geocode(address, region);
+        try {
+            return amapMapService.geocode(address, region);
+        } catch (BusinessException error) {
+            return tencentMapService.geocode(address, region);
+        }
     }
 
     @Override
     public PlaceSearchResponse searchPlaces(String keyword, String region,
                                             BigDecimal latitude, BigDecimal longitude, Integer radius) {
-        return tencentMapService.searchPlaces(keyword, region, latitude, longitude, radius);
+        try {
+            return amapMapService.searchPlaces(keyword, region, latitude, longitude, radius);
+        } catch (BusinessException error) {
+            return tencentMapService.searchPlaces(keyword, region, latitude, longitude, radius);
+        }
     }
 
     @Override
     public CoordTranslateResponse translateCoords(List<CoordTranslateRequest.CoordPoint> points, Integer fromCoordSys) {
         return tencentMapService.translateCoords(points, fromCoordSys);
+    }
+
+    private NavigationRouteResponse getPreferredRoute(BigDecimal fromLongitude, BigDecimal fromLatitude,
+                                                      BigDecimal toLongitude, BigDecimal toLatitude, String mode) {
+        try {
+            return amapMapService.getRoute(fromLongitude, fromLatitude, toLongitude, toLatitude, mode);
+        } catch (BusinessException error) {
+            return tencentMapService.getRoute(fromLongitude, fromLatitude, toLongitude, toLatitude, mode);
+        }
     }
 }

@@ -1,52 +1,22 @@
 <template>
   <view class="map-page">
     <view class="map-fullscreen">
-      <movable-area class="map-stage" @click="closePopup">
-        <movable-view
-          class="map-canvas"
-          direction="all"
-          inertia
-          out-of-bounds
-          scale
-          :scale="mapState.scale"
-          :scale-min="1"
-          :scale-max="3"
-          :x="mapState.x"
-          :y="mapState.y"
-          :style="mapCanvasStyle"
-          @change="onMapChange"
-          @scale="onMapScale"
-        >
-          <image class="map-bg-image" :src="mapImageUrl" mode="scaleToFill" />
-
-          <view
-            v-if="currentLocation.visible"
-            class="user-location-map"
-            :style="{ top: currentLocation.top, left: currentLocation.left }"
-            @click.stop="focusUserLocation"
-          >
-            <view class="user-loc-pulse" />
-            <view class="user-loc-dot">
-              <text class="user-loc-icon">◎</text>
-            </view>
-            <text class="user-location-label">{{ currentLocation.name }}</text>
-          </view>
-
-          <view
-            v-for="item in visibleLocations"
-            :key="item.id"
-            class="building-marker"
-            :class="{ active: selectedLocation && selectedLocation.id === item.id }"
-            :style="{ top: item.top, left: item.left }"
-            @click.stop="selectLocation(item)"
-          >
-            <view class="marker-icon" :class="item.typeClass">
-              <text class="marker-emoji">{{ item.icon }}</text>
-            </view>
-            <text class="marker-label">{{ item.shortName }}</text>
-          </view>
-        </movable-view>
-      </movable-area>
+      <map
+        id="campusAmap"
+        class="amap-native"
+        :latitude="mapCenter.latitude"
+        :longitude="mapCenter.longitude"
+        :scale="mapScale"
+        :markers="amapMarkers"
+        :polyline="amapPolylines"
+        :show-location="true"
+        :enable-rotate="false"
+        :show-compass="false"
+        :show-scale="false"
+        @markertap="onMarkerTap"
+        @callouttap="onCalloutTap"
+        @tap="closePopup"
+      />
 
       <view class="top-controls" :style="{ paddingTop: `${statusBarHeight + 10}px` }">
         <view class="back-btn-map" @click.stop="handleBack">
@@ -70,10 +40,6 @@
         </view>
       </view>
 
-      <view class="compass-map" @click.stop>
-        <text class="compass-text">N</text>
-      </view>
-
       <view class="current-loc-map" @click.stop="focusUserLocation">
         <text class="current-loc-icon">◎</text>
       </view>
@@ -94,9 +60,9 @@
         </scroll-view>
       </view>
 
-      <view v-if="!visibleLocations.length" class="map-empty-state">
+      <view v-if="!visibleLocations.length && !tempSearchLocation" class="map-empty-state">
         <text class="map-empty-title">暂无地图点位</text>
-        <text class="map-empty-desc">请先在后台为建筑配置地图图片坐标后再查看。</text>
+        <text class="map-empty-desc">请先在后台为设施补全经纬度后再查看。</text>
       </view>
 
       <view class="popup-map" :class="{ show: !!selectedLocation }" @click.stop>
@@ -132,7 +98,13 @@
 
 <script>
 import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant.vue'
-import { getMarkerList, getMapConfig, getNavigationRoute } from '@/api/map'
+import { getMarkerList, searchPlaces } from '@/api/map'
+
+const DEFAULT_MAP_CENTER = {
+  longitude: 114.897014,
+  latitude: 40.755502
+}
+const DEFAULT_MAP_SCALE = 16
 
 export default {
   components: {
@@ -144,28 +116,16 @@ export default {
       searchKeyword: '',
       currentCategory: 0,
       selectedLocation: null,
-      mapImageUrl: '/static/map.png',
-      mapImageSize: {
-        width: 750,
-        height: 1334
+      mapScale: DEFAULT_MAP_SCALE,
+      mapCenter: {
+        longitude: DEFAULT_MAP_CENTER.longitude,
+        latitude: DEFAULT_MAP_CENTER.latitude
       },
-      mapViewport: {
-        width: 375,
-        height: 667
-      },
-      controlPoints: [],
+      navigationPolyline: [],
       currentLocation: {
         name: '我的位置',
-        top: '50%',
-        left: '50%',
         longitude: null,
-        latitude: null,
-        visible: false
-      },
-      mapState: {
-        x: 0,
-        y: 0,
-        scale: 1
+        latitude: null
       },
       categories: [
         { id: 0, name: '全部' },
@@ -176,12 +136,66 @@ export default {
         { id: 5, name: '运动场馆' },
         { id: 6, name: '校门' }
       ],
-      locationList: []
+      locationList: [],
+      tempSearchLocation: null
     }
   },
   computed: {
-    mapCanvasStyle() {
-      return `width:${this.mapImageSize.width}px;height:${this.mapImageSize.height}px;`
+    amapMarkers() {
+      const markers = this.visibleLocations
+        .filter((item) => item.longitude != null && item.latitude != null)
+        .map((item) => ({
+          id: Number(item.id),
+          longitude: Number(item.longitude),
+          latitude: Number(item.latitude),
+          iconPath: this.getMarkerIconPath(item),
+          width: 34,
+          height: 42,
+          alpha: this.selectedLocation && this.selectedLocation.id === item.id ? 1 : 0.92,
+          callout: {
+            content: item.shortName || item.name,
+            display: this.selectedLocation && this.selectedLocation.id === item.id ? 'ALWAYS' : 'BYCLICK',
+            borderRadius: 14,
+            padding: 8,
+            fontSize: 12,
+            color: '#1f3f7c',
+            bgColor: '#ffffff'
+          }
+        }))
+      if (this.tempSearchLocation && this.tempSearchLocation.longitude != null && this.tempSearchLocation.latitude != null) {
+        markers.push({
+          id: -9999,
+          longitude: Number(this.tempSearchLocation.longitude),
+          latitude: Number(this.tempSearchLocation.latitude),
+          iconPath: this.getMarkerIconPath(this.tempSearchLocation, true),
+          width: 30,
+          height: 38,
+          alpha: 1,
+          callout: {
+            content: this.tempSearchLocation.shortName || this.tempSearchLocation.name || '搜索结果',
+            display: 'ALWAYS',
+            borderRadius: 14,
+            padding: 8,
+            fontSize: 12,
+            color: '#9a3412',
+            bgColor: '#fff7ed'
+          }
+        })
+      }
+      return markers
+    },
+    amapPolylines() {
+      return this.navigationPolyline.length
+        ? [{
+            points: this.navigationPolyline,
+            color: '#4d86f8',
+            width: 8,
+            dottedLine: false,
+            arrowLine: true,
+            borderColor: '#9cc0ff',
+            borderWidth: 2
+          }]
+        : []
     },
     visibleLocations() {
       const keyword = (this.searchKeyword || '').trim().toLowerCase()
@@ -197,58 +211,18 @@ export default {
     try {
       const sys = uni.getSystemInfoSync()
       this.statusBarHeight = sys.statusBarHeight || 20
-      this.mapViewport = {
-        width: sys.windowWidth || 375,
-        height: sys.windowHeight || 667
-      }
     } catch (e) {}
-    this.initMapCanvas()
     this.loadMapData()
   },
   methods: {
-    initMapCanvas() {
-      uni.getImageInfo({
-        src: this.mapImageUrl,
-        success: (res) => {
-          const imageWidth = res.width || 750
-          const imageHeight = res.height || 1334
-          const viewportWidth = this.mapViewport.width || 375
-          const viewportHeight = this.mapViewport.height || 667
-          const imageRatio = imageWidth / imageHeight
-          const viewportRatio = viewportWidth / viewportHeight
-          let canvasWidth = viewportWidth
-          let canvasHeight = viewportHeight
-          if (imageRatio > viewportRatio) {
-            canvasHeight = viewportWidth / imageRatio
-          } else {
-            canvasWidth = viewportHeight * imageRatio
-          }
-          this.mapImageSize = {
-            width: canvasWidth,
-            height: canvasHeight
-          }
-          this.mapState.x = (viewportWidth - canvasWidth) / 2
-          this.mapState.y = (viewportHeight - canvasHeight) / 2
-        },
-        fail: () => {
-          const viewportWidth = this.mapViewport.width || 375
-          const viewportHeight = this.mapViewport.height || 667
-          this.mapImageSize = {
-            width: viewportWidth,
-            height: viewportHeight
-          }
-          this.mapState.x = 0
-          this.mapState.y = 0
-        }
-      })
-    },
     async loadMapData() {
       try {
-        const [configRes, markerRes] = await Promise.all([
-          getMapConfig(),
-          getMarkerList({ pageSize: 100 })
-        ])
-        this.controlPoints = Array.isArray(configRes?.data?.controlPoints) ? configRes.data.controlPoints : []
+        const markerRes = await getMarkerList({ pageSize: 100 })
+        this.mapCenter = {
+          longitude: DEFAULT_MAP_CENTER.longitude,
+          latitude: DEFAULT_MAP_CENTER.latitude
+        }
+        this.mapScale = DEFAULT_MAP_SCALE
         const records = markerRes?.data?.records || []
         this.locationList = records
           .map((item) => this.toMarkerItem(item))
@@ -266,100 +240,21 @@ export default {
         success: (res) => {
           this.currentLocation.longitude = Number(res.longitude)
           this.currentLocation.latitude = Number(res.latitude)
-          this.syncCurrentLocationPosition()
           this.syncNearestLocation()
         },
         fail: () => {
-          this.currentLocation.visible = false
+          this.currentLocation.longitude = null
+          this.currentLocation.latitude = null
         }
       })
-    },
-    estimateImagePointByGeo(longitude, latitude) {
-      if (longitude == null || latitude == null) return null
-      const points = (this.controlPoints || [])
-        .map((point) => ({
-          imageX: point.imageX != null ? Number(point.imageX) : null,
-          imageY: point.imageY != null ? Number(point.imageY) : null,
-          longitude: point.longitude != null ? Number(point.longitude) : null,
-          latitude: point.latitude != null ? Number(point.latitude) : null,
-        }))
-        .filter((point) => point.imageX != null && point.imageY != null && point.longitude != null && point.latitude != null)
-      if (points.length < 3) return null
-      const nearest = points
-        .map((point) => ({
-          ...point,
-          distance: Math.hypot(longitude - point.longitude, latitude - point.latitude)
-        }))
-        .sort((a, b) => a.distance - b.distance)
-      if (nearest[0] && nearest[0].distance < 1e-12) {
-        return {
-          imageX: nearest[0].imageX,
-          imageY: nearest[0].imageY
-        }
-      }
-      const sampled = nearest.slice(0, Math.min(6, nearest.length))
-      const weighted = sampled.reduce((acc, point) => {
-        const weight = 1 / Math.max(point.distance ** 2, 1e-12)
-        acc.total += weight
-        acc.imageX += point.imageX * weight
-        acc.imageY += point.imageY * weight
-        return acc
-      }, { total: 0, imageX: 0, imageY: 0 })
-      if (!weighted.total) return null
-      return {
-        imageX: weighted.imageX / weighted.total,
-        imageY: weighted.imageY / weighted.total
-      }
-    },
-    syncCurrentLocationPosition() {
-      const point = this.estimateImagePointByGeo(this.currentLocation.longitude, this.currentLocation.latitude)
-      if (!point) {
-        this.currentLocation.visible = false
-        return
-      }
-      this.currentLocation.top = `${(point.imageY * 100).toFixed(2)}%`
-      this.currentLocation.left = `${(point.imageX * 100).toFixed(2)}%`
-      this.currentLocation.visible = true
-    },
-    toLocationItem(item) {
-      const longitude = item.longitude != null ? Number(item.longitude) : null
-      const latitude = item.latitude != null ? Number(item.latitude) : null
-      const imageX = item.imageX != null ? Number(item.imageX) : null
-      const imageY = item.imageY != null ? Number(item.imageY) : null
-      if (imageX == null || imageY == null) return null
-      const typeClass = this.getTypeClass(item.facilityType, item.facilityName)
-      const icon = this.getFacilityIcon(item.facilityType, item.facilityName)
-      const route = this.getFacilityRoute(item)
-      const top = `${(imageY * 100).toFixed(2)}%`
-      const left = `${(imageX * 100).toFixed(2)}%`
-      return {
-        id: item.id,
-        name: item.facilityName,
-        shortName: this.getShortName(item.facilityName),
-        icon,
-        category: item.facilityType === 1 ? 3 : item.facilityType === 2 ? 5 : item.facilityType === 3 ? 1 : 4,
-        typeClass,
-        distance: this.formatDistance(longitude, latitude),
-        detail: item.location || this.getTypeLabel(item.facilityType),
-        description: item.description || '暂无简介',
-        top,
-        left,
-        route,
-        longitude,
-        latitude,
-      }
     },
     toMarkerItem(item) {
       const longitude = item.longitude != null ? Number(item.longitude) : null
       const latitude = item.latitude != null ? Number(item.latitude) : null
-      const imageX = item.imageX != null ? Number(item.imageX) : null
-      const imageY = item.imageY != null ? Number(item.imageY) : null
-      if (imageX == null || imageY == null) return null
+      if (longitude == null || latitude == null) return null
       const typeClass = this.getTypeClass(item.facilityType, item.markerName)
       const icon = this.getFacilityIcon(item.facilityType, item.markerName)
       const route = this.getMarkerRoute(item)
-      const top = `${(imageY * 100).toFixed(2)}%`
-      const left = `${(imageX * 100).toFixed(2)}%`
       return {
         id: item.id,
         name: item.markerName,
@@ -370,8 +265,6 @@ export default {
         distance: this.formatDistance(longitude, latitude),
         detail: item.location || this.getTypeLabel(item.facilityType),
         description: item.description || '暂无简介',
-        top,
-        left,
         route,
         longitude,
         latitude,
@@ -407,6 +300,10 @@ export default {
       if (type === 3) return '🏫'
       if (type === 4) return '🏠'
       return '📍'
+    },
+    getMarkerIconPath(item, isSearch = false) {
+      if (isSearch) return '/static/icons/lcoal/dingwei.png'
+      return '/static/icons/lcoal/dingwei.png'
     },
     getShortName(name) {
       if (!name) return '地点'
@@ -453,26 +350,14 @@ export default {
       if (distance >= 1000) return `${(distance / 1000).toFixed(2)}km`
       return `${Math.round(distance)}m`
     },
-    formatDuration(seconds) {
-      if (!seconds && seconds !== 0) return '--'
-      if (seconds < 60) return `${seconds}秒`
-      const minutes = Math.round(seconds / 60)
-      if (minutes < 60) return `${minutes}分钟`
-      const hours = Math.floor(minutes / 60)
-      const remainMinutes = minutes % 60
-      return remainMinutes ? `${hours}小时${remainMinutes}分钟` : `${hours}小时`
-    },
     refreshSelectedLocation() {
       if (!this.visibleLocations.length) {
         this.selectedLocation = null
         return
       }
-      if (!this.selectedLocation) {
-        this.selectedLocation = this.visibleLocations[0]
-        return
-      }
+      if (!this.selectedLocation) return
       const matched = this.visibleLocations.find((item) => item.id === this.selectedLocation.id)
-      this.selectedLocation = matched || this.visibleLocations[0]
+      this.selectedLocation = matched || null
     },
     getNearestLocation() {
       let nearest = null
@@ -506,53 +391,104 @@ export default {
     },
     clearSearch() {
       this.searchKeyword = ''
-      if (!this.visibleLocations.length) {
-        this.selectedLocation = null
-        return
-      }
-      this.selectedLocation = this.visibleLocations[0]
+      this.tempSearchLocation = null
+      this.refreshSelectedLocation()
     },
-    handleSearch() {
-      if (!this.visibleLocations.length) {
-        this.selectedLocation = null
-        uni.showToast({ title: '未找到匹配地点', icon: 'none' })
+    async handleSearch() {
+      const keyword = (this.searchKeyword || '').trim()
+      if (!keyword) {
+        this.tempSearchLocation = null
+        this.refreshSelectedLocation()
         return
       }
-      this.selectedLocation = this.visibleLocations[0]
+      if (this.visibleLocations.length) {
+        this.tempSearchLocation = null
+        const firstVisible = this.visibleLocations[0]
+        this.mapCenter = {
+          longitude: Number(firstVisible.longitude),
+          latitude: Number(firstVisible.latitude)
+        }
+        this.mapScale = 17
+        return
+      }
+      try {
+        const res = await searchPlaces({
+          keyword,
+          latitude: this.mapCenter.latitude,
+          longitude: this.mapCenter.longitude,
+          radius: 5000
+        })
+        const first = res?.data?.pois?.[0]
+        if (!first || first.longitude == null || first.latitude == null) {
+          this.tempSearchLocation = null
+          this.selectedLocation = null
+          uni.showToast({ title: '未找到匹配地点', icon: 'none' })
+          return
+        }
+        const item = {
+          id: 'temp-search-poi',
+          name: first.title || keyword,
+          shortName: this.getShortName(first.title || keyword),
+          icon: '📍',
+          category: 0,
+          typeClass: 'admin',
+          distance: first.distance != null ? `${first.distance}m` : '--',
+          detail: first.address || first.district || first.typeDesc || '搜索结果',
+          description: first.typeDesc || '地图搜索结果',
+          top: '50%',
+          left: '50%',
+          route: '',
+          longitude: Number(first.longitude),
+          latitude: Number(first.latitude)
+        }
+        this.tempSearchLocation = item
+        this.selectedLocation = null
+        this.mapCenter = {
+          longitude: Number(item.longitude),
+          latitude: Number(item.latitude)
+        }
+        this.mapScale = 17
+      } catch (error) {
+        this.tempSearchLocation = null
+        this.selectedLocation = null
+        uni.showToast({ title: '地点搜索失败', icon: 'none' })
+      }
     },
     handleKeywordInput() {
-      if (!this.visibleLocations.length) {
-        this.selectedLocation = null
-        return
-      }
-      if (!this.selectedLocation || !this.visibleLocations.some((item) => item.id === this.selectedLocation.id)) {
-        this.selectedLocation = this.visibleLocations[0]
-      }
+      this.tempSearchLocation = null
+      this.refreshSelectedLocation()
     },
     selectCategory(categoryId) {
       this.currentCategory = categoryId
-      if (!this.visibleLocations.length) {
-        this.selectedLocation = null
-        return
-      }
-      if (!this.selectedLocation || !this.visibleLocations.some((item) => item.id === this.selectedLocation.id)) {
-        this.selectedLocation = this.visibleLocations[0]
-      }
+      this.refreshSelectedLocation()
     },
     selectLocation(item) {
       this.selectedLocation = item
+      if (item && item.longitude != null && item.latitude != null) {
+        this.mapCenter = {
+          longitude: Number(item.longitude),
+          latitude: Number(item.latitude)
+        }
+        this.mapScale = 17
+      }
     },
     closePopup() {
       this.selectedLocation = null
+      this.navigationPolyline = []
     },
     focusUserLocation() {
       const nearest = this.getNearestLocation() || this.locationList[0]
       this.currentCategory = 0
       this.searchKeyword = ''
-      if (nearest) {
-        this.selectedLocation = nearest
+      this.selectedLocation = null
+      this.tempSearchLocation = null
+      if (this.currentLocation.longitude != null && this.currentLocation.latitude != null) {
+        this.mapCenter = {
+          longitude: Number(this.currentLocation.longitude),
+          latitude: Number(this.currentLocation.latitude)
+        }
+        this.mapScale = 17
       }
-      this.mapState.scale = 1.2
       uni.showToast({
         title: this.currentLocation.longitude == null || this.currentLocation.latitude == null
           ? '当前位置获取失败'
@@ -562,16 +498,37 @@ export default {
         icon: 'none'
       })
     },
-    onMapChange(e) {
-      const { x, y } = e.detail || {}
-      if (typeof x === 'number') this.mapState.x = x
-      if (typeof y === 'number') this.mapState.y = y
+    onMarkerTap(event) {
+      const markerId = Number(event?.detail?.markerId ?? event?.detail?.id)
+      if (markerId === -9999 && this.tempSearchLocation) {
+        this.mapCenter = {
+          longitude: Number(this.tempSearchLocation.longitude),
+          latitude: Number(this.tempSearchLocation.latitude)
+        }
+        this.mapScale = 17
+        this.selectedLocation = null
+        return
+      }
+      const marker = this.visibleLocations.find((item) => Number(item.id) === markerId)
+      if (marker) {
+        this.mapCenter = {
+          longitude: Number(marker.longitude),
+          latitude: Number(marker.latitude)
+        }
+        this.mapScale = 17
+        this.selectedLocation = null
+      }
     },
-    onMapScale(e) {
-      const { scale, x, y } = e.detail || {}
-      if (typeof scale === 'number') this.mapState.scale = scale
-      if (typeof x === 'number') this.mapState.x = x
-      if (typeof y === 'number') this.mapState.y = y
+    onCalloutTap(event) {
+      const markerId = Number(event?.detail?.markerId ?? event?.detail?.id)
+      if (markerId === -9999 && this.tempSearchLocation) {
+        this.selectLocation(this.tempSearchLocation)
+        return
+      }
+      const marker = this.visibleLocations.find((item) => Number(item.id) === markerId)
+      if (marker) {
+        this.selectLocation(marker)
+      }
     },
     navigateToLocation(item) {
       if (item.route) {
@@ -595,46 +552,17 @@ export default {
         uni.showToast({ title: '该地点暂未配置经纬度', icon: 'none' })
         return
       }
-      uni.showLoading({ title: '规划路线中...' })
-      try {
-        const res = await getNavigationRoute({
-          fromLongitude: this.currentLocation.longitude,
-          fromLatitude: this.currentLocation.latitude,
-          toLongitude: item.longitude,
-          toLatitude: item.latitude,
-          mode: 'walking'
-        })
-        const route = res?.data || {}
-        const steps = Array.isArray(route.steps) ? route.steps.slice(0, 3) : []
-        const routeDistanceText = route.distance != null
-          ? (route.distance >= 1000 ? `${(route.distance / 1000).toFixed(2)}km` : `${Math.round(route.distance)}m`)
-          : this.formatDistance(item.longitude, item.latitude)
-        const contentLines = [
-          `当前位置：${this.currentLocation.name}`,
-          `目标地点：${item.name}`,
-          `步行距离：${routeDistanceText}`,
-          `预计时间：${this.formatDuration(route.duration)}`
-        ]
-        steps.forEach((step, index) => {
-          if (step?.instruction) {
-            contentLines.push(`${index + 1}. ${step.instruction}`)
-          }
-        })
-        uni.showModal({
-          title: `${item.name} 导航方案`,
-          content: contentLines.join('\n'),
-          confirmText: item.route ? '查看详情' : '知道了',
-          success: (modalRes) => {
-            if (modalRes.confirm && item.route) {
-              uni.navigateTo({ url: item.route })
-            }
-          }
-        })
-      } catch (error) {
-        uni.showToast({ title: error?.message || '路线规划失败', icon: 'none' })
-      } finally {
-        uni.hideLoading()
-      }
+      this.navigationPolyline = []
+      uni.openLocation({
+        latitude: Number(item.latitude),
+        longitude: Number(item.longitude),
+        name: item.name,
+        address: item.detail || item.description || item.name,
+        scale: 18,
+        fail: () => {
+          uni.showToast({ title: '打开导航失败', icon: 'none' })
+        }
+      })
     }
   }
 }
@@ -646,6 +574,11 @@ export default {
   inset: 0;
   overflow: hidden;
   background: #e8f0f8;
+  --map-blue-1: #4d86f8;
+  --map-blue-2: #76a8ff;
+  --map-blue-3: #dfeaff;
+  --map-blue-4: #eef4ff;
+  --map-blue-shadow: rgba(77, 134, 248, 0.24);
 }
 
 .map-fullscreen {
@@ -655,24 +588,12 @@ export default {
   background: #dce8f2;
 }
 
-.map-stage {
+.amap-native {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   z-index: 1;
-}
-
-.map-canvas {
-  width: 100%;
-  height: 100%;
-}
-
-.map-bg-image {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
 }
 
 .top-controls {
@@ -738,127 +659,11 @@ export default {
   color: rgba(0, 0, 0, 0.32);
 }
 
-.user-location-map {
-  position: absolute;
-  z-index: 18;
-  transform: translate(-50%, -50%);
-}
-
-.user-loc-pulse {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 96rpx;
-  height: 96rpx;
-  border-radius: 50%;
-  background: rgba(123, 168, 212, 0.26);
-  transform: translate(-50%, -50%);
-  animation: pulse 2s infinite;
-}
-
-.user-loc-dot {
-  width: 42rpx;
-  height: 42rpx;
-  border-radius: 50%;
-  background: linear-gradient(145deg, #7ba8d4, #5c8ab8);
-  border: 6rpx solid #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 8rpx 22rpx rgba(0, 0, 0, 0.18);
-}
-
 .user-loc-icon,
 .current-loc-icon {
   font-size: 22rpx;
   color: #fff;
   line-height: 1;
-}
-
-.user-location-label {
-  position: absolute;
-  top: 54rpx;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 6rpx 14rpx;
-  border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.92);
-  color: rgba(0, 0, 0, 0.68);
-  font-size: 20rpx;
-  font-weight: 600;
-  white-space: nowrap;
-  box-shadow: 0 4rpx 14rpx rgba(0, 0, 0, 0.08);
-}
-
-@keyframes pulse {
-  0% {
-    transform: translate(-50%, -50%) scale(0.8);
-    opacity: 1;
-  }
-  100% {
-    transform: translate(-50%, -50%) scale(1.8);
-    opacity: 0;
-  }
-}
-
-.building-marker {
-  position: absolute;
-  z-index: 16;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  transform: translate(-50%, -50%);
-  transition: transform 0.22s ease;
-}
-
-.building-marker.active {
-  transform: translate(-50%, -50%) scale(1.08);
-}
-
-.marker-icon {
-  width: 88rpx;
-  height: 88rpx;
-  border-radius: 28rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 12rpx 28rpx rgba(0, 0, 0, 0.16);
-  position: relative;
-}
-
-.marker-icon::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 28rpx;
-  background:
-    radial-gradient(circle at 28% 24%, rgba(255, 255, 255, 0.4), transparent 48%),
-    radial-gradient(circle at 72% 74%, rgba(0, 0, 0, 0.18), transparent 60%);
-}
-
-.marker-icon.teaching { background: linear-gradient(145deg, #6b9eff, #4a82e8); }
-.marker-icon.admin { background: linear-gradient(145deg, #8b7aff, #6b4aff); }
-.marker-icon.canteen { background: linear-gradient(145deg, #ffb24b, #ff8c12); }
-.marker-icon.library { background: linear-gradient(145deg, #b044ff, #9022cc); }
-.marker-icon.sport { background: linear-gradient(145deg, #2fd3d8, #00b2be); }
-.marker-icon.dorm { background: linear-gradient(145deg, #5dc65d, #42a542); }
-.marker-icon.gate { background: linear-gradient(145deg, #4caf50, #2e7d32); }
-
-.marker-emoji {
-  position: relative;
-  z-index: 1;
-  font-size: 38rpx;
-}
-
-.marker-label {
-  margin-top: 10rpx;
-  padding: 6rpx 14rpx;
-  border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.9);
-  color: rgba(0, 0, 0, 0.68);
-  font-size: 22rpx;
-  font-weight: 600;
-  box-shadow: 0 4rpx 14rpx rgba(0, 0, 0, 0.08);
 }
 
 .filter-bar-map {
@@ -892,9 +697,10 @@ export default {
 }
 
 .filter-item-map.active {
-  background: #7ba8d4;
-  border-color: #7ba8d4;
+  background: linear-gradient(135deg, var(--map-blue-2), var(--map-blue-1));
+  border-color: var(--map-blue-1);
   color: #fff;
+  box-shadow: 0 8rpx 20rpx var(--map-blue-shadow);
 }
 
 .map-empty-state {
@@ -926,8 +732,7 @@ export default {
   color: rgba(0, 0, 0, 0.52);
 }
 
-.current-loc-map,
-.compass-map {
+.current-loc-map {
   position: absolute;
   bottom: 122rpx;
   width: 84rpx;
@@ -942,21 +747,8 @@ export default {
 .current-loc-map {
   right: 28rpx;
   background: rgba(255, 255, 255, 0.96);
-  border: 4rpx solid #7ba8d4;
-  box-shadow: 0 8rpx 20rpx rgba(0, 0, 0, 0.12);
-}
-
-.compass-map {
-  left: 28rpx;
-  background: linear-gradient(145deg, #fff, #f4f4f0);
-  border: 4rpx solid rgba(123, 168, 212, 0.45);
-  box-shadow: 0 10rpx 26rpx rgba(0, 0, 0, 0.12);
-}
-
-.compass-text {
-  font-size: 30rpx;
-  font-weight: 800;
-  color: #5c8ab8;
+  border: 4rpx solid var(--map-blue-2);
+  box-shadow: 0 10rpx 24rpx rgba(77, 134, 248, 0.18);
 }
 
 .popup-map {
@@ -966,9 +758,9 @@ export default {
   bottom: 0;
   z-index: 30;
   padding: 28rpx 28rpx 30rpx;
-  background: rgba(255, 255, 255, 0.98);
+  background: linear-gradient(180deg, rgba(250, 252, 255, 0.98), rgba(241, 247, 255, 0.98));
   border-radius: 36rpx 36rpx 0 0;
-  box-shadow: 0 -12rpx 40rpx rgba(0, 0, 0, 0.16);
+  box-shadow: 0 -12rpx 40rpx rgba(55, 94, 171, 0.18);
   transform: translateY(110%);
   opacity: 0;
   pointer-events: none;
@@ -1000,13 +792,13 @@ export default {
   margin-bottom: 22rpx;
 }
 
-.popup-image-map.teaching { background: linear-gradient(135deg, #7ba9ff 0%, #4a82e8 100%); }
-.popup-image-map.admin { background: linear-gradient(135deg, #9686ff 0%, #6b4aff 100%); }
-.popup-image-map.canteen { background: linear-gradient(135deg, #ffbb5d 0%, #ff8b1e 100%); }
-.popup-image-map.library { background: linear-gradient(135deg, #b45cff 0%, #8420c8 100%); }
-.popup-image-map.sport { background: linear-gradient(135deg, #35dce0 0%, #00aab6 100%); }
-.popup-image-map.dorm { background: linear-gradient(135deg, #77d06f 0%, #3d9b45 100%); }
-.popup-image-map.gate { background: linear-gradient(135deg, #67be64 0%, #2f7f39 100%); }
+.popup-image-map.teaching { background: linear-gradient(135deg, #7aa8ff 0%, #4b84f6 100%); }
+.popup-image-map.admin { background: linear-gradient(135deg, #8daeff 0%, #5b84ef 100%); }
+.popup-image-map.canteen { background: linear-gradient(135deg, #86b5ff 0%, #4d86f8 100%); }
+.popup-image-map.library { background: linear-gradient(135deg, #97b9ff 0%, #668ff6 100%); }
+.popup-image-map.sport { background: linear-gradient(135deg, #75bcff 0%, #3f92ef 100%); }
+.popup-image-map.dorm { background: linear-gradient(135deg, #8bc1ff 0%, #5f97ef 100%); }
+.popup-image-map.gate { background: linear-gradient(135deg, #8bb4ff 0%, #4d82ea 100%); }
 
 .popup-image-mask {
   position: absolute;
@@ -1047,7 +839,7 @@ export default {
   display: block;
   font-size: 36rpx;
   font-weight: 800;
-  color: #1e1e1e;
+  color: #1f3f7c;
 }
 
 .popup-detail-map {
@@ -1066,10 +858,10 @@ export default {
   margin-top: 18rpx;
   padding: 22rpx;
   border-radius: 22rpx;
-  background: rgba(0, 0, 0, 0.035);
+  background: var(--map-blue-4);
   font-size: 25rpx;
   line-height: 1.7;
-  color: rgba(0, 0, 0, 0.62);
+  color: rgba(34, 55, 96, 0.72);
 }
 
 .popup-actions-map {
@@ -1093,14 +885,14 @@ export default {
 }
 
 .popup-btn.secondary {
-  background: #e8f0f8;
-  color: #5c8ab8;
+  background: var(--map-blue-3);
+  color: var(--map-blue-1);
 }
 
 .popup-btn.primary {
-  background: linear-gradient(135deg, #7ba8d4 0%, #5c8ab8 100%);
+  background: linear-gradient(135deg, var(--map-blue-2) 0%, var(--map-blue-1) 100%);
   color: #fff;
-  box-shadow: 0 10rpx 24rpx rgba(92, 138, 184, 0.28);
+  box-shadow: 0 10rpx 24rpx var(--map-blue-shadow);
 }
 
 </style>

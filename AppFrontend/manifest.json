@@ -57,6 +57,15 @@
     },
     /* 快应用特有相关 */
     "quickapp" : {},
+    "h5" : {
+        "sdkConfigs" : {
+            "maps" : {
+                "amap" : {
+                    "key" : "64bc139adb6a611277fb8f6821b371ac"
+                }
+            }
+        }
+    },
     /* 小程序特有相关 */
     "mp-weixin" : {
         "appid" : "",

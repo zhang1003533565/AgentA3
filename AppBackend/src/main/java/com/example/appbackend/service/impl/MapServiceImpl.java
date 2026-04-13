@@ -43,51 +43,6 @@ public class MapServiceImpl implements MapService {
     private NavigationLogRepository navigationLogRepository;
 
     @Override
-    public MapConfigResponse getMapConfig() {
-        MapConfigResponse resp = new MapConfigResponse();
-        resp.setMapImageUrl(getConfigString("map_image_url", null));
-        resp.setCenterLongitude(getConfigDouble("map_center_longitude", 116.397428));
-        resp.setCenterLatitude(getConfigDouble("map_center_latitude", 39.90923));
-        resp.setZoomLevel(getConfigInt("map_zoom_level", 16));
-        resp.setBoundary(parseJsonConfig("map_boundary"));
-        resp.setCalibrationMode(getConfigString("map_calibration_mode", "controlPoints"));
-        resp.setControlPoints(parseJsonConfig("map_control_points"));
-        return resp;
-    }
-
-    @Override
-    public void updateMapConfig(MapConfigUpdateRequest request) {
-        if (request.getMapImageUrl() != null) {
-            saveOrUpdateConfig("map_image_url", request.getMapImageUrl());
-        }
-        if (request.getCenterLongitude() != null) {
-            saveOrUpdateConfig("map_center_longitude", String.valueOf(request.getCenterLongitude()));
-        }
-        if (request.getCenterLatitude() != null) {
-            saveOrUpdateConfig("map_center_latitude", String.valueOf(request.getCenterLatitude()));
-        }
-        if (request.getZoomLevel() != null) {
-            saveOrUpdateConfig("map_zoom_level", String.valueOf(request.getZoomLevel()));
-        }
-        if (request.getBoundary() != null) {
-            saveOrUpdateConfig("map_boundary", request.getBoundary());
-        }
-        if (request.getCalibrationMode() != null) {
-            saveOrUpdateConfig("map_calibration_mode", request.getCalibrationMode());
-        }
-        if (request.getControlPoints() != null) {
-            saveOrUpdateConfig("map_control_points", request.getControlPoints());
-        }
-    }
-
-    @Override
-    public String getConfigItem(String configKey) {
-        return mapConfigRepository.findByConfigKey(configKey)
-                .map(MapConfig::getConfigValue)
-                .orElse(null);
-    }
-
-    @Override
     public PageResponse<MarkerResponse> getMarkerList(Integer facilityType, String keyword, Integer pageNum, Integer pageSize) {
         PageRequest pageRequest = PageRequest.of(pageNum - 1, pageSize, Sort.by(Sort.Direction.ASC, "sort"));
         Page<MapMarker> page = mapMarkerRepository.findByConditions(facilityType, keyword, pageRequest);

@@ -35,7 +35,6 @@ export const navigationSections = [
   {
     label: '地图导航',
     items: [
-      { path: '/map/config', label: '地图配置', icon: 'compass', pageKey: 'map-config' },
       { path: '/map/marker', label: '标记管理', icon: 'pushpin', pageKey: 'map-marker' },
       { path: '/map/analytics', label: '导航统计', icon: 'line-chart', pageKey: 'map-analytics' },
     ],
@@ -68,7 +67,7 @@ export const moduleCards = [
   { title: '校园活动', description: '活动发布、分类与基础报名管理', route: '/activity/manage' },
   { title: '校园论坛', description: '帖子、评论、话题与内容治理', route: '/forum/post' },
   { title: '校园设施', description: '设施管理、地图关联与基础信息维护', route: '/facility/restaurant' },
-  { title: '地图导航', description: '地图配置、标记管理与导航统计', route: '/map/config' },
+  { title: '地图导航', description: '标记管理与导航统计', route: '/map/marker' },
   { title: '旧物交易', description: '物品、分类与后台审核管理', route: '/market/item' },
   { title: '校园特惠', description: '商家、优惠活动与分类运营', route: '/discount/merchant' },
   { title: 'AI 模块', description: '维护 AI 模型配置并测试接口连通性', route: '/ai/model' },
@@ -344,13 +343,6 @@ export const workspacePages = {
     description: '汇总展示设施数量、状态分布和热度排名。',
     columns: columns.summary,
     emptyText: '暂无设施统计数据',
-  }),
-  'map-config': createPage({
-    title: '',
-    badge: '',
-    description: '',
-    columns: columns.mapConfig,
-    emptyText: '暂无地图配置数据',
   }),
   'map-marker': createPage({
     title: '',

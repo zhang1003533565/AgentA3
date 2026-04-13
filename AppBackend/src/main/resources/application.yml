@@ -47,6 +47,13 @@ tencent:
     key: F2ABZ-VU4LH-BDKDF-W7XCC-RXYX2-4AB52
     base-url: https://apis.map.qq.com
 
+amap:
+  app:
+    key: e4cbde60bc0dc20719889d7f585d9452
+  web:
+    key: 64bc139adb6a611277fb8f6821b371ac
+    base-url: https://restapi.amap.com
+
 deepseek:
   base-url: https://api.deepseek.com
   api-key: sk-07e34e882e704e07ae1d33288036724d

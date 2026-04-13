@@ -1,26 +1,5 @@
 import request from '../utils/request'
 
-// ========== 地图配置 ==========
-
-export const getMapConfig = () =>
-  request({
-    url: '/api/v1/map/config',
-    method: 'get',
-  })
-
-export const updateMapConfig = (data) =>
-  request({
-    url: '/api/v1/map/config',
-    method: 'put',
-    data,
-  })
-
-export const getMapConfigItem = (configKey) =>
-  request({
-    url: `/api/v1/map/config/item/${configKey}`,
-    method: 'get',
-  })
-
 // ========== 地图标记 ==========
 
 export const getMarkerList = (params = {}) =>

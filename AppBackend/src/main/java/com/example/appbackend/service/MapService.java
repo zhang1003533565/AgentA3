@@ -6,12 +6,6 @@ import java.util.List;
 
 public interface MapService {
 
-    MapConfigResponse getMapConfig();
-
-    void updateMapConfig(MapConfigUpdateRequest request);
-
-    String getConfigItem(String configKey);
-
     PageResponse<MarkerResponse> getMarkerList(Integer facilityType, String keyword, Integer pageNum, Integer pageSize);
 
     MarkerResponse getMarkerDetail(Long id);
