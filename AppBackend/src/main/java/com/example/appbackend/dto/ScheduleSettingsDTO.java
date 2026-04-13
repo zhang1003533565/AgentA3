@@ -1,0 +1,22 @@
+package com.example.appbackend.dto;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Schema(description = "课表设置")
+public class ScheduleSettingsDTO {
+
+    @Schema(description = "教务系统学号", example = "32132313")
+    private String jwxStudentId;
+
+    @Schema(description = "教务系统密码", example = "313")
+    private String jwxPassword;
+
+    @Schema(description = "学期开始日期", example = "2026-02-24")
+    private String semesterStart;
+}

@@ -194,10 +194,12 @@
         </view>
       </view>
     </view>
+    <ai-float-assistant />
   </view>
 </template>
 
 <script>
+import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant.vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import PostEditor from '@/subpackage_forum/components/post-editor/post-editor.vue'
 import {
@@ -211,7 +213,7 @@ import {
 import { getUserInfo } from '@/utils/storage.js'
 
 export default {
-  components: { NavBar, PostEditor },
+  components: { AiFloatAssistant, NavBar, PostEditor },
   data() {
     return {
       currentUserAvatar: '',

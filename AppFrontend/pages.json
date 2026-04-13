@@ -85,6 +85,15 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
 					}
+				},
+				{
+					"path": "promotionDetail/promotionDetail",
+					"style": {
+						"navigationBarTitleText": "优惠详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
 				}
 			]
 		},
@@ -185,6 +194,15 @@
 					"path": "scheduleDetail/scheduleDetail",
 					"style": {
 						"navigationBarTitleText": "课程详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "scheduleSettings/scheduleSettings",
+					"style": {
+						"navigationBarTitleText": "课表设置",
 						"navigationStyle": "custom",
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"

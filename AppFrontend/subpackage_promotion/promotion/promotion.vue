@@ -45,6 +45,7 @@
         v-for="item in filteredCoupons"
         :key="item.id"
         class="promo-card"
+        @click="openCouponDetail(item)"
       >
         <view class="promo-card-left" :class="item.category || 'coupon'">
           <image
@@ -82,10 +83,12 @@
     <view v-else-if="!isLoading" class="empty-state">
       <text class="empty-text">暂无匹配的优惠信息</text>
     </view>
+    <ai-float-assistant />
   </view>
 </template>
 
 <script>
+import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant.vue'
 import { getPromotionCouponList } from '@/api/promotion.js'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 
@@ -98,7 +101,7 @@ const CATEGORY_OPTIONS = [
 ]
 
 export default {
-  components: { NavBar },
+  components: { AiFloatAssistant, NavBar },
   data() {
     return {
       categories: CATEGORY_OPTIONS,
@@ -156,6 +159,14 @@ export default {
     },
     openSearchPage() {
       uni.navigateTo({ url: '/subpackage_promotion/promotionSearch/promotionSearch' })
+    },
+    openCouponDetail(item) {
+      if (!item || !item.id) {
+        return
+      }
+      uni.navigateTo({
+        url: `/subpackage_promotion/promotionDetail/promotionDetail?id=${item.id}`
+      })
     },
     formatPickupLocation(item) {
       return item.pickupLocation || item.stallName || item.merchantName || item.facilityName || '线下咨询'

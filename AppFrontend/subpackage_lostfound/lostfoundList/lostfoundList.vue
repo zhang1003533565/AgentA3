@@ -350,10 +350,12 @@
       <view v-if="toastText" class="toast show">{{ toastText }}</view>
       </view>
     </view>
+    <ai-float-assistant />
   </view>
 </template>
 
 <script>
+import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant.vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 
 const STORAGE_KEYS = {
@@ -396,6 +398,7 @@ function defaultItems() {
 
 export default {
   components: {
+    AiFloatAssistant,
     NavBar
   },
   data() {

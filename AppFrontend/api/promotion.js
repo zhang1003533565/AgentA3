@@ -7,3 +7,10 @@ export function getPromotionCouponList(params = {}) {
     params
   })
 }
+
+export function getPromotionCouponDetail(id) {
+  return request({
+    url: `/api/v1/promotion-coupon/${id}`,
+    method: 'GET'
+  })
+}

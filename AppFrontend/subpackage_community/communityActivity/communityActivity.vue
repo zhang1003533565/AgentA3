@@ -134,10 +134,12 @@
       </view>
     </scroll-view>
 
+    <ai-float-assistant />
   </view>
 </template>
 
 <script>
+import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant.vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getActivityList } from '@/api/activity.js'
 import { getCategoryList } from '@/api/category.js'
@@ -158,7 +160,7 @@ const parseImageList = (images) => {
 }
 
 export default {
-  components: { NavBar },
+  components: { AiFloatAssistant, NavBar },
   data() {
     return {
       searchKeyword: '',

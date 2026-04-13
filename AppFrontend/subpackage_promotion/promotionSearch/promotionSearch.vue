@@ -62,6 +62,7 @@
           v-for="item in filteredCoupons"
           :key="item.id"
           class="promo-card"
+          @click="openCouponDetail(item)"
         >
           <view class="promo-card-left" :class="item.category || 'coupon'">
             <image
@@ -161,6 +162,14 @@ export default {
     },
     applyHistoryKeyword(keyword) {
       this.searchKeyword = keyword
+    },
+    openCouponDetail(item) {
+      if (!item || !item.id) {
+        return
+      }
+      uni.navigateTo({
+        url: `/subpackage_promotion/promotionDetail/promotionDetail?id=${item.id}`
+      })
     },
     clearSearch() {
       this.searchKeyword = ''

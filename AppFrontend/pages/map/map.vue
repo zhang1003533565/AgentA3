@@ -126,13 +126,18 @@
       </view>
     </view>
 
+    <ai-float-assistant />
   </view>
 </template>
 
 <script>
+import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant.vue'
 import { getMarkerList, getMapConfig, getNavigationRoute } from '@/api/map'
 
 export default {
+  components: {
+    AiFloatAssistant
+  },
   data() {
     return {
       statusBarHeight: 20,

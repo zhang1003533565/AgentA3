@@ -49,3 +49,18 @@ export function checkJwxBind() {
     method: 'GET'
   })
 }
+
+export function getScheduleSettings() {
+  return request({
+    url: '/api/schedule/settings',
+    method: 'GET'
+  })
+}
+
+export function updateScheduleSettings(data) {
+  return request({
+    url: '/api/schedule/settings',
+    method: 'PUT',
+    data
+  })
+}

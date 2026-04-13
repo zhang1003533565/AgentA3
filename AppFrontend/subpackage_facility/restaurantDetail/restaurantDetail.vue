@@ -185,15 +185,18 @@
         </view>
       </view>
     </view>
+    <ai-float-assistant />
   </view>
 </template>
 
 <script>
+import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant.vue'
 import { getCanteenStallList, getDishList, getDishReviewCount } from '@/api/dining.js'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 
 export default {
   components: {
+    AiFloatAssistant,
     NavBar
   },
   data() {

@@ -11,6 +11,8 @@ import com.example.appbackend.util.WeekCalculator;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.LoadState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -21,6 +23,7 @@ import jakarta.servlet.http.HttpServletRequest;
 @RestController
 @RequestMapping("/api/browser")
 public class PlaywrightController {
+    private static final Logger log = LoggerFactory.getLogger(PlaywrightController.class);
 
     private final PlaywrightService playwrightService;
     private final CourseScheduleService courseScheduleService;
@@ -45,8 +48,10 @@ public class PlaywrightController {
         // 从请求属性中获取用户 ID（由 JwtInterceptor 设置）
         Long userId = (Long) request.getAttribute("userId");
         if (userId == null) {
+            log.warn("课表自动导入失败：未登录或 token 无效");
             return Result.error("未登录或 Token 无效");
         }
+        log.info("课表自动导入开始，userId={}", userId);
 
         // 从数据库获取用户的教务系统账号密码
         User user = userRepository.findById(userId)
@@ -54,9 +59,12 @@ public class PlaywrightController {
 
         String jwxStudentId = user.getJwxStudentId();
         String jwxPassword = user.getJwxPassword();
+        log.info("读取课表绑定信息，userId={}, jwxStudentId={}, semesterStart={}",
+                userId, jwxStudentId, user.getSemesterStart());
 
         if (jwxStudentId == null || jwxStudentId.isEmpty() ||
             jwxPassword == null || jwxPassword.isEmpty()) {
+            log.warn("课表自动导入失败：教务账号或密码未绑定，userId={}", userId);
             return Result.error("请先绑定教务系统账号和密码");
         }
 
@@ -93,6 +101,7 @@ public class PlaywrightController {
 
             newPage.waitForLoadState(LoadState.NETWORKIDLE);
             Thread.sleep(2000);
+            log.info("教务系统课表页面加载完成，userId={}, currentUrl={}", userId, newPage.url());
 
             // 获取所有课表块，每个 div 单独作为一个数组元素
             @SuppressWarnings("unchecked")
@@ -175,6 +184,7 @@ public class PlaywrightController {
                 "  return courses; " +
                 "}"
             );
+            log.info("教务系统页面解析完成，userId={}, 抓取到课表块数量={}", userId, courseBlocks.size());
 
             // 构建 rawData 格式用于解析保存
             StringBuilder rawDataBuilder = new StringBuilder();
@@ -206,10 +216,17 @@ public class PlaywrightController {
             // 调试：打印第一个课表块的节次信息
             if (!courseBlocks.isEmpty()) {
                 var firstBlock = courseBlocks.get(0);
-                System.out.println("DEBUG - courseName: " + firstBlock.get("courseName"));
-                System.out.println("DEBUG - sections: " + firstBlock.get("sections"));
-                System.out.println("DEBUG - sectionStart: " + firstBlock.get("sectionStart"));
-                System.out.println("DEBUG - sectionEnd: " + firstBlock.get("sectionEnd"));
+                log.info("首条课表块，userId={}, courseName={}, sections={}, sectionStart={}, sectionEnd={}, weekText={}, weekday={}, location={}",
+                        userId,
+                        firstBlock.get("courseName"),
+                        firstBlock.get("sections"),
+                        firstBlock.get("sectionStart"),
+                        firstBlock.get("sectionEnd"),
+                        firstBlock.get("weekText"),
+                        firstBlock.get("weekday"),
+                        firstBlock.get("location"));
+            } else {
+                log.warn("未抓取到任何课表块，userId={}, 请检查教务页面结构或账号课表是否为空", userId);
             }
 
             // 保存课表数据到数据库
@@ -217,6 +234,7 @@ public class PlaywrightController {
 
             // 获取保存后的课表
             var savedSchedule = courseScheduleService.getUserSchedule(user.getId());
+            log.info("课表自动导入完成，userId={}, 保存后的课程数量={}", userId, savedSchedule.size());
 
             Map<String, Object> result = new HashMap<>();
             result.put("success", true);
@@ -225,6 +243,7 @@ public class PlaywrightController {
 
             return Result.success(result);
         } catch (Exception e) {
+            log.error("课表自动导入异常，userId={}, message={}", userId, e.getMessage(), e);
             return Result.error("操作失败：" + e.getMessage());
         } finally {
             playwrightService.closeBrowser(context);
@@ -420,6 +439,7 @@ public class PlaywrightController {
             // 从请求属性中获取用户 ID（由 JwtInterceptor 设置）
             Long userId = (Long) request.getAttribute("userId");
             if (userId == null) {
+                log.warn("获取当前周课表失败：未登录或 token 无效");
                 return Result.error("未登录或 Token 无效");
             }
 
@@ -429,6 +449,8 @@ public class PlaywrightController {
             User user = userRepository.findById(userId)
                     .orElseThrow(() -> new RuntimeException("用户不存在"));
             int currentWeek = WeekCalculator.getCurrentWeek(user.getSemesterStart());
+            log.info("获取当前周课表，userId={}, semesterStart={}, currentWeek={}, courseCount={}",
+                    userId, user.getSemesterStart(), currentWeek, schedule.size());
 
             Map<String, Object> result = new HashMap<>();
             result.put("success", true);

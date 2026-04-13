@@ -1,5 +1,7 @@
 package com.example.appbackend.controller;
 
+import com.example.appbackend.dto.ScheduleSettingsDTO;
+import com.example.appbackend.dto.ScheduleSettingsUpdateRequest;
 import com.example.appbackend.entity.CourseSchedule;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.entity.User;
@@ -13,9 +15,11 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -161,6 +165,46 @@ public class CourseScheduleController {
         }
         Long userId = getCurrentUserId(request);
         courseScheduleService.copyScheduleByShareCode(userId, shareCode.trim());
+        return Result.success();
+    }
+
+    @Operation(summary = "获取课表设置", description = "获取当前用户的教务系统账号、密码和学期开始日期")
+    @GetMapping("/settings")
+    public Result<ScheduleSettingsDTO> getScheduleSettings(HttpServletRequest request) {
+        Long userId = getCurrentUserId(request);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(404, "用户不存在"));
+        return Result.success(new ScheduleSettingsDTO(
+                user.getJwxStudentId(),
+                user.getJwxPassword(),
+                user.getSemesterStart() != null ? user.getSemesterStart().toString() : ""
+        ));
+    }
+
+    @Operation(summary = "更新课表设置", description = "更新当前用户的教务系统账号、密码和学期开始日期")
+    @PutMapping("/settings")
+    public Result<Void> updateScheduleSettings(
+            HttpServletRequest request,
+            @Valid @RequestBody ScheduleSettingsUpdateRequest body) {
+        Long userId = getCurrentUserId(request);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(404, "用户不存在"));
+
+        user.setJwxStudentId(body.getJwxStudentId() != null ? body.getJwxStudentId().trim() : null);
+        user.setJwxPassword(body.getJwxPassword() != null ? body.getJwxPassword().trim() : null);
+
+        String semesterStart = body.getSemesterStart();
+        if (semesterStart == null || semesterStart.trim().isEmpty()) {
+            user.setSemesterStart(null);
+        } else {
+            try {
+                user.setSemesterStart(LocalDate.parse(semesterStart.trim()));
+            } catch (Exception e) {
+                throw new BusinessException(400, "学期开始日期格式不正确");
+            }
+        }
+
+        userRepository.save(user);
         return Result.success();
     }
 }

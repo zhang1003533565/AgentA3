@@ -3,20 +3,26 @@ package com.example.appbackend.service.impl;
 import com.example.appbackend.dto.LlmChatRequest;
 import com.example.appbackend.dto.LlmChatResponse;
 import com.example.appbackend.entity.Result;
-import com.example.appbackend.exception.BusinessException;
-import com.example.appbackend.graph.AiConversationState;
 import com.example.appbackend.entity.CampusFacility;
 import com.example.appbackend.entity.CanteenStall;
+import com.example.appbackend.entity.CourseSchedule;
 import com.example.appbackend.entity.Dish;
 import com.example.appbackend.entity.Merchant;
 import com.example.appbackend.entity.PromotionCoupon;
+import com.example.appbackend.entity.User;
+import com.example.appbackend.exception.BusinessException;
+import com.example.appbackend.graph.AiConversationState;
 import com.example.appbackend.repository.CanteenStallRepository;
 import com.example.appbackend.repository.DishRepository;
 import com.example.appbackend.repository.FacilityRepository;
 import com.example.appbackend.repository.MerchantRepository;
 import com.example.appbackend.repository.PromotionCouponRepository;
+import com.example.appbackend.repository.UserRepository;
+import com.example.appbackend.service.CourseScheduleService;
 import com.example.appbackend.service.LlmMemoryService;
+import com.example.appbackend.util.JwtUtil;
 import com.example.appbackend.util.LlmConfigUtil;
+import com.example.appbackend.util.WeekCalculator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.bsc.langgraph4j.GraphStateException;
@@ -31,6 +37,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -62,6 +69,9 @@ public class LangGraphAiService {
     private final DishRepository dishRepository;
     private final PromotionCouponRepository promotionCouponRepository;
     private final MerchantRepository merchantRepository;
+    private final CourseScheduleService courseScheduleService;
+    private final UserRepository userRepository;
+    private final JwtUtil jwtUtil;
     private final org.bsc.langgraph4j.CompiledGraph<AiConversationState> compiledGraph;
 
     public LangGraphAiService(LlmMemoryService llmMemoryService,
@@ -72,7 +82,10 @@ public class LangGraphAiService {
                               CanteenStallRepository canteenStallRepository,
                               DishRepository dishRepository,
                               PromotionCouponRepository promotionCouponRepository,
-                              MerchantRepository merchantRepository) {
+                              MerchantRepository merchantRepository,
+                              CourseScheduleService courseScheduleService,
+                              UserRepository userRepository,
+                              JwtUtil jwtUtil) {
         this.llmMemoryService = llmMemoryService;
         this.llmConfigUtil = llmConfigUtil;
         this.webClientBuilder = webClientBuilder;
@@ -82,6 +95,9 @@ public class LangGraphAiService {
         this.dishRepository = dishRepository;
         this.promotionCouponRepository = promotionCouponRepository;
         this.merchantRepository = merchantRepository;
+        this.courseScheduleService = courseScheduleService;
+        this.userRepository = userRepository;
+        this.jwtUtil = jwtUtil;
         this.compiledGraph = buildGraph();
     }
 
@@ -134,10 +150,12 @@ public class LangGraphAiService {
         String sessionId = llmMemoryService.getOrCreateSessionId(token, request.getSessionId());
         String sessionToken = llmMemoryService.resolveSessionToken(token, sessionId);
         String prompt = StringUtils.hasText(request.getPrompt()) ? request.getPrompt() : DEFAULT_PROMPT;
+        Long userId = extractUserId(token);
 
         Map<String, Object> initData = new LinkedHashMap<>();
         initData.put(AiConversationState.SESSION_ID, sessionId);
         initData.put(AiConversationState.SESSION_TOKEN, sessionToken);
+        initData.put(AiConversationState.USER_ID, userId);
         initData.put(AiConversationState.MODEL, llmConfigUtil.getModel());
         initData.put(AiConversationState.PROMPT, prompt);
         initData.put(AiConversationState.INPUT, request.getInput());
@@ -233,6 +251,9 @@ public class LangGraphAiService {
     private class ExtractKeywordNode implements NodeAction<AiConversationState> {
         @Override
         public Map<String, Object> apply(AiConversationState state) {
+            if (isScheduleIntent(state.input())) {
+                return Map.of(AiConversationState.SEARCH_KEYWORD, "课表查询");
+            }
             String keyword = extractSearchKeyword(state.input());
             return Map.of(AiConversationState.SEARCH_KEYWORD, keyword);
         }
@@ -241,7 +262,9 @@ public class LangGraphAiService {
     private class SearchCanteenNode implements NodeAction<AiConversationState> {
         @Override
         public Map<String, Object> apply(AiConversationState state) {
-            List<Map<String, Object>> results = searchByKeyword(state.searchKeyword());
+            List<Map<String, Object>> results = isScheduleIntent(state.input())
+                    ? searchScheduleByInput(state.input(), state.userId())
+                    : searchByKeyword(state.searchKeyword());
             return Map.of(AiConversationState.SEARCH_RESULTS, results);
         }
     }
@@ -251,7 +274,7 @@ public class LangGraphAiService {
         public Map<String, Object> apply(AiConversationState state) {
             List<Map<String, String>> requestMessages = new ArrayList<>();
             requestMessages.add(message("system", state.prompt()));
-            if (StringUtils.hasText(state.searchKeyword())) {
+            if (StringUtils.hasText(state.searchKeyword()) || (state.searchResults() != null && !state.searchResults().isEmpty())) {
                 requestMessages.add(message("system", buildSearchFactsPrompt(state.searchKeyword(), state.searchResults())));
             }
             requestMessages.addAll(toLlmMessages(state.history()));
@@ -365,6 +388,78 @@ public class LangGraphAiService {
         return keyword;
     }
 
+    private Long extractUserId(String authorization) {
+        try {
+            String token = normalizeBearerToken(authorization);
+            return jwtUtil.getUserIdFromToken(token);
+        } catch (Exception e) {
+            throw new BusinessException(Result.UNAUTHORIZED_CODE, "未登录或Token无效");
+        }
+    }
+
+    private String normalizeBearerToken(String authorization) {
+        if (!StringUtils.hasText(authorization)) {
+            throw new BusinessException(Result.UNAUTHORIZED_CODE, "未登录或Token无效");
+        }
+        return authorization.startsWith("Bearer ") ? authorization.substring(7) : authorization;
+    }
+
+    private boolean isScheduleIntent(String input) {
+        if (!StringUtils.hasText(input)) {
+            return false;
+        }
+        String text = normalizeText(input);
+        return text.contains("课表")
+                || text.contains("课程安排")
+                || text.contains("下节课")
+                || text.contains("下一节课")
+                || text.contains("再下一节课")
+                || text.contains("后一节课")
+                || text.contains("下一门课")
+                || text.contains("再下一门课")
+                || text.contains("下门课")
+                || text.contains("今天有什么课")
+                || text.contains("明天有什么课")
+                || text.contains("后天有什么课")
+                || text.contains("今天有课吗")
+                || text.contains("明天有课吗")
+                || text.contains("本周有什么课")
+                || text.contains("这周有什么课")
+                || text.contains("接下来有什么课")
+                || text.contains("接下来哪门课")
+                || text.contains("第几节有课")
+                || text.matches(".*第\\d+周.*")
+                || text.matches(".*周[一二三四五六日天].*有.*课.*")
+                || text.matches(".*星期[一二三四五六日天].*有.*课.*");
+    }
+
+    private List<Map<String, Object>> searchScheduleByInput(String input, Long userId) {
+        if (userId == null) {
+            return List.of();
+        }
+
+        Integer requestedWeek = resolveRequestedWeek(input, userId);
+        Integer requestedWeekday = resolveRequestedWeekday(input);
+
+        List<CourseSchedule> schedules = requestedWeek != null
+                ? courseScheduleService.getWeekSchedule(userId, requestedWeek)
+                : courseScheduleService.getCurrentWeekSchedule(userId);
+
+        if (requestedWeekday != null) {
+            schedules = schedules.stream()
+                    .filter(item -> requestedWeekday.equals(item.getWeekday()))
+                    .toList();
+        }
+
+        return schedules.stream()
+                .sorted(Comparator
+                        .comparing(CourseSchedule::getWeekday, Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(item -> parseSessionStart(item.getClassSessions()), Comparator.nullsLast(Comparator.naturalOrder())))
+                .limit(12)
+                .map(item -> courseScheduleResult(item, requestedWeek, requestedWeekday))
+                .toList();
+    }
+
     private List<Map<String, Object>> searchByKeyword(String keyword) {
         if (!StringUtils.hasText(keyword)) {
             return List.of();
@@ -438,6 +533,17 @@ public class LangGraphAiService {
     }
 
     private String buildSearchFactsPrompt(String keyword, List<Map<String, Object>> searchResults) {
+        if ("课表查询".equals(keyword)) {
+            if (searchResults == null || searchResults.isEmpty()) {
+                return "系统已执行课表查询，但当前没有查到匹配课程。请明确告诉用户：可能本周无课、当天无课，或尚未导入课表。";
+            }
+            try {
+                return "系统已经完成当前用户的课表查询。下面这些是受控查询返回的课程结果，请严格依据这些课程信息回答，不要编造不存在的课程安排："
+                        + objectMapper.writeValueAsString(searchResults);
+            } catch (Exception e) {
+                return "系统已经完成当前用户的课表查询，并找到了 " + searchResults.size() + " 条课程结果。";
+            }
+        }
         if (searchResults == null || searchResults.isEmpty()) {
             return "系统搜索关键词为：" + keyword + "。当前没有找到完全匹配的食堂/档口/菜品，请你明确告诉用户未匹配到，并可以给出更适合搜索的关键词建议。";
         }
@@ -493,6 +599,104 @@ public class LangGraphAiService {
         normalized = normalized.replaceAll("[。！!？，,；;]", "");
         normalized = normalized.trim();
         return normalized.length() > 24 ? normalized.substring(0, 24) : normalized;
+    }
+
+    private Integer resolveRequestedWeek(String input, Long userId) {
+        if (!StringUtils.hasText(input) || userId == null) {
+            return null;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("第\\s*(\\d+)\\s*周").matcher(input);
+        if (matcher.find()) {
+            return Integer.parseInt(matcher.group(1));
+        }
+        return resolveCurrentWeek(userId);
+    }
+
+    private Integer resolveRequestedWeekday(String input) {
+        if (!StringUtils.hasText(input)) {
+            return null;
+        }
+        String text = input.replaceAll("\\s+", "");
+        if (text.contains("今天")) {
+            return toWeekdayCode(LocalDate.now());
+        }
+        if (text.contains("明天")) {
+            return toWeekdayCode(LocalDate.now().plusDays(1));
+        }
+        if (text.contains("后天")) {
+            return toWeekdayCode(LocalDate.now().plusDays(2));
+        }
+        if (text.contains("周一") || text.contains("星期一")) return 1;
+        if (text.contains("周二") || text.contains("星期二")) return 2;
+        if (text.contains("周三") || text.contains("星期三")) return 3;
+        if (text.contains("周四") || text.contains("星期四")) return 4;
+        if (text.contains("周五") || text.contains("星期五")) return 5;
+        if (text.contains("周六") || text.contains("星期六")) return 6;
+        if (text.contains("周日") || text.contains("周天") || text.contains("星期日") || text.contains("星期天")) return 7;
+        return null;
+    }
+
+    private Integer resolveCurrentWeek(Long userId) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null || user.getSemesterStart() == null) {
+            return null;
+        }
+        int week = WeekCalculator.getCurrentWeek(user.getSemesterStart());
+        return week > 0 ? week : null;
+    }
+
+    private Integer toWeekdayCode(LocalDate date) {
+        int day = date.getDayOfWeek().getValue();
+        return day >= 1 && day <= 7 ? day : null;
+    }
+
+    private Integer parseSessionStart(String sessions) {
+        if (!StringUtils.hasText(sessions)) {
+            return null;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(\\d+)").matcher(sessions);
+        return matcher.find() ? Integer.parseInt(matcher.group(1)) : null;
+    }
+
+    private Map<String, Object> courseScheduleResult(CourseSchedule schedule, Integer requestedWeek, Integer requestedWeekday) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("type", "course_schedule");
+        result.put("id", schedule.getId());
+        result.put("name", schedule.getCourseName());
+        result.put("teacherName", schedule.getTeacherName());
+        result.put("location", schedule.getLocation());
+        result.put("weekday", schedule.getWeekday());
+        result.put("weekdayText", formatWeekday(schedule.getWeekday()));
+        result.put("classSessions", schedule.getClassSessions());
+        result.put("weekRange", schedule.getWeekRange());
+        result.put("assessmentType", schedule.getAssessmentType());
+        result.put("campus", schedule.getCampus());
+        result.put("classCode", schedule.getClassCode());
+        result.put("credit", schedule.getCredit());
+        if (requestedWeek != null) {
+            result.put("requestedWeek", requestedWeek);
+        }
+        if (requestedWeekday != null) {
+            result.put("requestedWeekday", requestedWeekday);
+            result.put("requestedWeekdayText", formatWeekday(requestedWeekday));
+        }
+        return result;
+    }
+
+    private String formatWeekday(Integer weekday) {
+        if (weekday == null) {
+            return "";
+        }
+        return switch (weekday) {
+            case 1 -> "周一";
+            case 2 -> "周二";
+            case 3 -> "周三";
+            case 4 -> "周四";
+            case 5 -> "周五";
+            case 6 -> "周六";
+            case 7 -> "周日";
+            default -> "";
+        };
     }
 
     private Map<String, Object> restaurantResult(CampusFacility facility) {

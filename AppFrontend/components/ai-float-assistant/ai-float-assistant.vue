@@ -38,7 +38,21 @@
 					:class="message.role === 'user' ? 'ai-message-row--user' : 'ai-message-row--assistant'"
 				>
 					<view class="ai-message-bubble" :class="message.role === 'user' ? 'ai-message-bubble--user' : 'ai-message-bubble--assistant'">
-						<text class="ai-message-content">{{ message.content }}</text>
+						<view v-if="message.role === 'assistant'" class="ai-message-content">
+							<view
+								v-for="(line, lineIndex) in formatAnswerLines(message.content)"
+								:key="`${message.id}-line-${lineIndex}`"
+								class="ai-message-line"
+								:class="{
+									'ai-message-line--bullet': line.type === 'bullet',
+									'ai-message-line--empty': line.type === 'empty'
+								}"
+							>
+								<text v-if="line.type === 'bullet'" class="ai-message-line__dot"></text>
+								<text class="ai-message-line__text">{{ line.text }}</text>
+							</view>
+						</view>
+						<text v-else class="ai-message-content">{{ message.content }}</text>
 
 						<view v-if="message.searchKeyword" class="ai-message-debug">
 							<text class="ai-message-debug__label">关键词</text>
@@ -47,18 +61,61 @@
 
 						<view v-if="message.matchedResults && message.matchedResults.length" class="ai-message-result-list">
 							<view
-								v-for="item in message.matchedResults"
-								:key="`${message.id}-${item.type}-${item.id || item.name}`"
-								class="ai-message-result-card"
+								v-for="group in groupMatchedResults(message.matchedResults)"
+								:key="`${message.id}-${group.type}`"
+								class="ai-message-result-group"
 							>
-								<view class="ai-message-result-card__top">
-									<text class="ai-message-result-card__type">{{ formatResultType(item.type) }}</text>
-									<text class="ai-message-result-card__name">{{ item.name || item.title || '未命名结果' }}</text>
+								<view class="ai-message-result-group__header">
+									<text class="ai-message-result-group__title">{{ group.label }}</text>
+									<text class="ai-message-result-group__count">{{ group.items.length }} 条</text>
 								</view>
-								<text v-if="item.description" class="ai-message-result-card__desc">{{ item.description }}</text>
-								<text v-if="item.facilityName" class="ai-message-result-card__meta">所属食堂：{{ item.facilityName }}</text>
-								<text v-if="item.stallName" class="ai-message-result-card__meta">所属档口：{{ item.stallName }}</text>
-								<text v-if="item.pickupLocation" class="ai-message-result-card__meta">领取地点：{{ item.pickupLocation }}</text>
+
+								<view
+									v-for="item in group.items"
+									:key="`${message.id}-${group.type}-${item.id || item.name}`"
+									class="ai-message-result-card"
+									:class="{ 'ai-message-result-card--schedule': item.type === 'course_schedule' }"
+									@click="openResultDetail(item)"
+								>
+									<view class="ai-message-result-card__top">
+										<text class="ai-message-result-card__type">{{ formatResultType(item.type) }}</text>
+										<text class="ai-message-result-card__name">{{ item.name || item.title || '未命名结果' }}</text>
+									</view>
+
+									<view v-if="item.type === 'course_schedule'" class="ai-message-result-card__schedule-table">
+										<view
+											v-for="detail in getResultDetails(item)"
+											:key="`${message.id}-${group.type}-${item.id || item.name}-${detail.label}`"
+											class="ai-message-result-card__schedule-row"
+										>
+											<text class="ai-message-result-card__schedule-label">{{ detail.label }}</text>
+											<text class="ai-message-result-card__schedule-value">{{ detail.value }}</text>
+										</view>
+									</view>
+
+									<view v-if="getResultHighlights(item).length" class="ai-message-result-card__highlights">
+										<text
+											v-for="highlight in getResultHighlights(item)"
+											:key="`${message.id}-${group.type}-${item.id || item.name}-${highlight}`"
+											class="ai-message-result-card__highlight"
+										>
+											{{ highlight }}
+										</text>
+									</view>
+
+									<view v-if="item.type !== 'course_schedule' && getResultDetails(item).length" class="ai-message-result-card__detail-table">
+										<view
+											v-for="detail in getResultDetails(item)"
+											:key="`${message.id}-${group.type}-${item.id || item.name}-${detail.label}`"
+											class="ai-message-result-card__detail-row"
+										>
+											<text class="ai-message-result-card__detail-label">{{ detail.label }}</text>
+											<text class="ai-message-result-card__detail-value">{{ detail.value }}</text>
+										</view>
+									</view>
+
+									<text v-if="item.description" class="ai-message-result-card__desc">{{ item.description }}</text>
+								</view>
 							</view>
 						</view>
 					</view>
@@ -277,9 +334,147 @@ export default {
 				restaurant: '食堂',
 				stall: '档口',
 				dish: '菜品',
-				coupon: '优惠券'
+				coupon: '优惠券',
+				course_schedule: '课程'
 			}
 			return map[type] || '结果'
+		},
+		formatAnswerLines(content) {
+			const normalized = String(content || '').replace(/\*\*(.*?)\*\*/g, '$1')
+			if (!normalized) {
+				return []
+			}
+			return normalized.split('\n').map(line => line.trim()).map((line) => {
+				if (!line) {
+					return { type: 'empty', text: '' }
+				}
+				if (line.startsWith('- ')) {
+					return { type: 'bullet', text: line.slice(2).trim() }
+				}
+				return { type: 'text', text: line }
+			})
+		},
+		groupMatchedResults(results) {
+			const grouped = {
+				restaurant: [],
+				stall: [],
+				dish: [],
+				coupon: [],
+				course_schedule: []
+			}
+			;(Array.isArray(results) ? results : []).forEach((item) => {
+				if (item && grouped[item.type]) {
+					grouped[item.type].push(item)
+				}
+			})
+			return ['course_schedule', 'restaurant', 'stall', 'dish', 'coupon']
+				.filter(type => grouped[type].length)
+				.map(type => ({
+					type,
+					label: this.formatResultType(type),
+					items: grouped[type]
+				}))
+		},
+		formatCurrency(value) {
+			const amount = Number(value)
+			if (!Number.isFinite(amount)) {
+				return ''
+			}
+			return `¥${amount % 1 === 0 ? amount.toFixed(0) : amount.toFixed(2)}`
+		},
+		formatScore(value) {
+			const score = Number(value)
+			if (!Number.isFinite(score)) {
+				return ''
+			}
+			return score.toFixed(2)
+		},
+		getResultHighlights(item) {
+			const highlights = []
+			if (item.type === 'stall') {
+				if (item.category) highlights.push(item.category)
+				if (item.avgPrice !== undefined && item.avgPrice !== null) highlights.push(`均价 ${this.formatCurrency(item.avgPrice)}`)
+				if (item.score !== undefined && item.score !== null) highlights.push(`评分 ${this.formatScore(item.score)}`)
+			} else if (item.type === 'course_schedule') {
+				if (item.requestedWeekdayText) highlights.push(item.requestedWeekdayText)
+				else if (item.weekdayText) highlights.push(item.weekdayText)
+				if (item.requestedWeek) highlights.push(`第${item.requestedWeek}周`)
+				if (item.classSessions) highlights.push(item.classSessions)
+			} else if (item.type === 'dish') {
+				if (item.category) highlights.push(item.category)
+				if (item.taste) highlights.push(item.taste)
+				if (item.price !== undefined && item.price !== null) highlights.push(`价格 ${this.formatCurrency(item.price)}`)
+				if (item.rating !== undefined && item.rating !== null) highlights.push(`评分 ${this.formatScore(item.rating)}`)
+			} else if (item.type === 'coupon') {
+				if (item.tagType) highlights.push(this.formatCouponTag(item.tagType))
+				if (item.startDate && item.endDate) highlights.push(`${item.startDate} - ${item.endDate}`)
+			} else if (item.type === 'restaurant') {
+				if (item.location) highlights.push(item.location)
+			}
+			return highlights
+		},
+		getResultDetails(item) {
+			const details = []
+			if (item.type === 'restaurant') {
+				if (item.location) details.push({ label: '位置', value: item.location })
+			}
+			if (item.type === 'course_schedule') {
+				if (item.requestedWeek || item.weekRange) details.push({ label: '周次', value: item.requestedWeek ? `第${item.requestedWeek}周` : item.weekRange })
+				if (item.weekdayText) details.push({ label: '星期', value: item.weekdayText })
+				if (item.classSessions) details.push({ label: '时间', value: item.classSessions })
+				if (item.location) details.push({ label: '地点', value: item.location })
+				if (item.teacherName) details.push({ label: '教师', value: item.teacherName })
+				if (item.assessmentType) details.push({ label: '考核', value: item.assessmentType })
+				if (item.credit !== undefined && item.credit !== null && `${item.credit}` !== '') details.push({ label: '学分', value: String(item.credit) })
+			}
+			if (item.type === 'stall') {
+				if (item.restaurantId) details.push({ label: '所属食堂', value: `餐厅 #${item.restaurantId}` })
+			}
+			if (item.type === 'dish') {
+				if (item.stallId) details.push({ label: '所属档口', value: `档口 #${item.stallId}` })
+			}
+			if (item.type === 'coupon') {
+				if (item.facilityName) details.push({ label: '所属食堂', value: item.facilityName })
+				if (item.stallName) details.push({ label: '所属档口', value: item.stallName })
+				if (item.pickupLocation) details.push({ label: '领取地点', value: item.pickupLocation })
+			}
+			return details
+		},
+		formatCouponTag(tagType) {
+			const map = {
+				hot: '热门',
+				new: '上新',
+				recommend: '推荐'
+			}
+			return map[tagType] || tagType
+		},
+		openResultDetail(item) {
+			const url = this.getResultDetailUrl(item)
+			if (!url) {
+				return
+			}
+			uni.navigateTo({ url })
+		},
+		getResultDetailUrl(item) {
+			if (!item || !item.type || !item.id) {
+				return ''
+			}
+			if (item.type === 'restaurant') {
+				return `/subpackage_facility/restaurantDetail/restaurantDetail?id=${item.id}`
+			}
+			if (item.type === 'stall') {
+				return `/subpackage_facility/stallDetail/stallDetail?stallId=${item.id}`
+			}
+			if (item.type === 'dish') {
+				return `/subpackage_facility/dishDetail/dishDetail?dishId=${item.id}`
+			}
+			if (item.type === 'coupon') {
+				return `/subpackage_promotion/promotionDetail/promotionDetail?id=${item.id}`
+			}
+			if (item.type === 'course_schedule') {
+				return `/subpackage_schedule/scheduleDetail/scheduleDetail?id=${item.id}`
+			}
+			return ''
 		},
 		getTouchPoint(event) {
 			const touch = event.touches && event.touches[0]
@@ -485,8 +680,8 @@ export default {
 	border-radius: 50%;
 	background:
 		radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0) 38%),
-		linear-gradient(145deg, #0f5d73, #1f9d8b 58%, #f0c674);
-	box-shadow: 0 18rpx 40rpx rgba(16, 79, 97, 0.24);
+		linear-gradient(145deg, #3478f6, #5a9bff 58%, #8fd3ff);
+	box-shadow: 0 18rpx 40rpx rgba(52, 120, 246, 0.28);
 	animation: ai-fab-pulse 2.8s ease-in-out infinite;
 }
 
@@ -513,11 +708,11 @@ export default {
 .ai-assistant-panel {
 	position: fixed;
 	background:
-		linear-gradient(180deg, rgba(255, 253, 249, 0.98), rgba(245, 249, 251, 0.98)),
+		linear-gradient(180deg, rgba(248, 251, 255, 0.98), rgba(241, 247, 255, 0.98)),
 		#ffffff;
 	border-radius: 36rpx;
-	border: 2rpx solid rgba(14, 93, 115, 0.1);
-	box-shadow: 0 24rpx 56rpx rgba(27, 57, 77, 0.18);
+	border: 2rpx solid rgba(69, 126, 243, 0.1);
+	box-shadow: 0 24rpx 56rpx rgba(45, 86, 170, 0.18);
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
@@ -539,7 +734,7 @@ export default {
 	justify-content: space-between;
 	background:
 		radial-gradient(circle at top right, rgba(255, 255, 255, 0.14), transparent 30%),
-		linear-gradient(135deg, #0f5d73, #1f8f84 78%);
+		linear-gradient(135deg, #3d7df5, #5a93ff 78%);
 	color: #fff;
 	flex-shrink: 0;
 }
@@ -574,7 +769,7 @@ export default {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	background: rgba(255, 255, 255, 0.16);
+	background: rgba(255, 255, 255, 0.2);
 	font-size: 22rpx;
 }
 
@@ -614,14 +809,14 @@ export default {
 
 .ai-message-bubble--assistant {
 	background: rgba(255, 255, 255, 0.96);
-	border: 2rpx solid rgba(12, 83, 96, 0.06);
-	box-shadow: 0 10rpx 24rpx rgba(50, 78, 93, 0.06);
+	border: 2rpx solid rgba(61, 125, 245, 0.06);
+	box-shadow: 0 10rpx 24rpx rgba(72, 103, 163, 0.08);
 }
 
 .ai-message-bubble--user {
-	background: linear-gradient(135deg, #1a6f76, #2f9b90);
+	background: linear-gradient(135deg, #3d7df5, #69a6ff);
 	color: #ffffff;
-	box-shadow: 0 12rpx 26rpx rgba(20, 111, 118, 0.18);
+	box-shadow: 0 12rpx 26rpx rgba(61, 125, 245, 0.2);
 }
 
 .ai-message-content {
@@ -631,22 +826,54 @@ export default {
 	word-break: break-all;
 }
 
+.ai-message-line {
+	display: flex;
+	align-items: flex-start;
+	min-height: 34rpx;
+}
+
+.ai-message-line + .ai-message-line {
+	margin-top: 8rpx;
+}
+
+.ai-message-line--empty {
+	min-height: 18rpx;
+}
+
+.ai-message-line__dot {
+	flex: 0 0 10rpx;
+	width: 10rpx;
+	height: 10rpx;
+	margin-top: 18rpx;
+	margin-right: 12rpx;
+	border-radius: 50%;
+	background: #4a88f7;
+}
+
+.ai-message-line__text {
+	flex: 1;
+	font-size: 27rpx;
+	line-height: 1.72;
+	color: inherit;
+	word-break: break-all;
+}
+
 .ai-message-debug {
 	margin-top: 18rpx;
 	padding: 14rpx 18rpx;
 	border-radius: 20rpx;
-	background: #eef7f6;
+	background: #edf4ff;
 }
 
 .ai-message-debug__label {
 	font-size: 20rpx;
-	color: #5e7980;
+	color: #6b7f9b;
 	margin-right: 10rpx;
 }
 
 .ai-message-debug__value {
 	font-size: 22rpx;
-	color: #125164;
+	color: #2d6ce0;
 	font-weight: 600;
 }
 
@@ -657,10 +884,49 @@ export default {
 	gap: 14rpx;
 }
 
+.ai-message-result-group {
+	padding: 18rpx;
+	background: rgba(236, 244, 255, 0.84);
+	border-radius: 22rpx;
+}
+
+.ai-message-result-group__header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 14rpx;
+}
+
+.ai-message-result-group__title {
+	font-size: 24rpx;
+	font-weight: 700;
+	color: #284f96;
+}
+
+.ai-message-result-group__count {
+	font-size: 20rpx;
+	color: #7488a3;
+}
+
+.ai-message-result-group + .ai-message-result-group {
+	margin-top: 8rpx;
+}
+
 .ai-message-result-card {
 	padding: 18rpx;
-	background: linear-gradient(180deg, #f6fbfa, #f2f6f5);
+	background: linear-gradient(180deg, #f8fbff, #eef4ff);
 	border-radius: 20rpx;
+	cursor: pointer;
+}
+
+.ai-message-result-card--schedule {
+	background: linear-gradient(180deg, #ffffff, #f4f8ff);
+	border: 2rpx solid rgba(85, 133, 240, 0.12);
+	box-shadow: 0 10rpx 22rpx rgba(72, 109, 184, 0.08);
+}
+
+.ai-message-result-card + .ai-message-result-card {
+	margin-top: 12rpx;
 }
 
 .ai-message-result-card__top {
@@ -673,8 +939,8 @@ export default {
 .ai-message-result-card__type {
 	padding: 6rpx 14rpx;
 	border-radius: 999rpx;
-	background: #dfeee8;
-	color: #225e57;
+	background: #dfeaff;
+	color: #356fdb;
 	font-size: 20rpx;
 }
 
@@ -684,13 +950,93 @@ export default {
 	color: #20323c;
 }
 
+.ai-message-result-card__highlights {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10rpx;
+	margin-top: 12rpx;
+}
+
+.ai-message-result-card__highlight {
+	padding: 6rpx 12rpx;
+	border-radius: 999rpx;
+	background: #e8f1ff;
+	color: #476b9d;
+	font-size: 20rpx;
+}
+
+.ai-message-result-card__detail-table {
+	margin-top: 14rpx;
+	padding: 12rpx 14rpx;
+	background: rgba(255, 255, 255, 0.86);
+	border-radius: 16rpx;
+}
+
+.ai-message-result-card__schedule-table {
+	margin-top: 14rpx;
+	border-radius: 18rpx;
+	overflow: hidden;
+	background: rgba(255, 255, 255, 0.92);
+	border: 2rpx solid rgba(83, 129, 234, 0.1);
+}
+
+.ai-message-result-card__schedule-row {
+	display: flex;
+	align-items: flex-start;
+	padding: 14rpx 16rpx;
+	gap: 14rpx;
+}
+
+.ai-message-result-card__schedule-row + .ai-message-result-card__schedule-row {
+	border-top: 2rpx solid rgba(83, 129, 234, 0.08);
+}
+
+.ai-message-result-card__schedule-label {
+	flex: 0 0 76rpx;
+	font-size: 21rpx;
+	font-weight: 700;
+	color: #4d75bd;
+}
+
+.ai-message-result-card__schedule-value {
+	flex: 1;
+	font-size: 22rpx;
+	line-height: 1.55;
+	color: #274261;
+	word-break: break-all;
+}
+
+.ai-message-result-card__detail-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 12rpx;
+}
+
+.ai-message-result-card__detail-row + .ai-message-result-card__detail-row {
+	margin-top: 8rpx;
+}
+
+.ai-message-result-card__detail-label {
+	flex: 0 0 92rpx;
+	font-size: 21rpx;
+	color: #7183a0;
+}
+
+.ai-message-result-card__detail-value {
+	flex: 1;
+	font-size: 21rpx;
+	line-height: 1.5;
+	color: #375170;
+	word-break: break-all;
+}
+
 .ai-message-result-card__desc,
 .ai-message-result-card__meta {
 	display: block;
 	margin-top: 10rpx;
 	font-size: 22rpx;
 	line-height: 1.6;
-	color: #5f6f79;
+	color: #60728d;
 }
 
 .ai-assistant-panel__quick {
@@ -707,8 +1053,8 @@ export default {
 	min-width: 0;
 	padding: 10rpx 12rpx;
 	border-radius: 999rpx;
-	background: rgba(226, 241, 239, 0.9);
-	color: #2f5f66;
+	background: rgba(229, 240, 255, 0.96);
+	color: #496d9c;
 	font-size: 21rpx;
 	text-align: center;
 	white-space: nowrap;
@@ -719,7 +1065,7 @@ export default {
 .ai-assistant-panel__composer {
 	padding: 16rpx 22rpx 22rpx;
 	background: rgba(255, 255, 255, 0.9);
-	border-top: 2rpx solid rgba(14, 93, 115, 0.05);
+	border-top: 2rpx solid rgba(61, 125, 245, 0.06);
 	backdrop-filter: blur(14px);
 	flex-shrink: 0;
 }
@@ -730,9 +1076,9 @@ export default {
 	max-height: 220rpx;
 	padding: 18rpx 20rpx;
 	box-sizing: border-box;
-	background: linear-gradient(180deg, #ffffff, #f9fbfc);
+	background: linear-gradient(180deg, #ffffff, #f7faff);
 	border-radius: 22rpx;
-	border: 2rpx solid rgba(16, 93, 115, 0.06);
+	border: 2rpx solid rgba(61, 125, 245, 0.08);
 	font-size: 28rpx;
 	line-height: 1.5;
 }
@@ -749,21 +1095,21 @@ export default {
 	flex: 1;
 	font-size: 20rpx;
 	line-height: 1.5;
-	color: #6b7b82;
+	color: #6f82a0;
 }
 
 .ai-assistant-panel__send {
 	min-width: 132rpx;
 	height: 72rpx;
 	border-radius: 999rpx;
-	background: linear-gradient(135deg, #0f5d73, #1c8d80);
+	background: linear-gradient(135deg, #4a82f7, #6baeff);
 	color: #fff;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	font-size: 26rpx;
 	font-weight: 700;
-	box-shadow: 0 14rpx 24rpx rgba(15, 93, 115, 0.18);
+	box-shadow: 0 14rpx 24rpx rgba(74, 130, 247, 0.24);
 }
 
 .ai-assistant-panel__send--disabled {

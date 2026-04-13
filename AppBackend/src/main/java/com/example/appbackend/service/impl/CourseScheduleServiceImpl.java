@@ -7,6 +7,8 @@ import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.CourseScheduleService;
 import com.example.appbackend.util.CourseScheduleParser;
 import com.example.appbackend.util.WeekCalculator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +18,7 @@ import java.util.stream.Collectors;
 
 @Service
 public class CourseScheduleServiceImpl implements CourseScheduleService {
+    private static final Logger log = LoggerFactory.getLogger(CourseScheduleServiceImpl.class);
 
     @Autowired
     private CourseScheduleRepository courseScheduleRepository;
@@ -31,11 +34,11 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
 
         // 使用工具类解析课表数据
         List<CourseSchedule> schedules = CourseScheduleParser.parse(rawData, userId, studentId);
-
-        System.out.println("DEBUG - 解析到的有效课程数：" + schedules.size());
+        log.info("课表解析完成，userId={}, studentId={}, 解析到有效课程数={}", userId, studentId, schedules.size());
 
         // 保存新课表
         courseScheduleRepository.saveAll(schedules);
+        log.info("课表保存完成，userId={}, 保存课程数={}", userId, schedules.size());
     }
 
     @Override
@@ -62,11 +65,11 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
 
         // 计算当前周次
         int currentWeek = WeekCalculator.getCurrentWeek(user.getSemesterStart());
-
-        System.out.println("DEBUG - 当前周次：" + currentWeek + ", 学期开始日期：" + user.getSemesterStart());
+        log.info("计算当前周次，userId={}, semesterStart={}, currentWeek={}", userId, user.getSemesterStart(), currentWeek);
 
         if (currentWeek <= 0) {
-            System.out.println("DEBUG - 学期还未开始或没有设置学期开始日期");
+            log.warn("当前周课表为空：学期未开始或未设置开学日期，userId={}, semesterStart={}, currentWeek={}",
+                    userId, user.getSemesterStart(), currentWeek);
             return List.of();
         }
 
@@ -77,21 +80,18 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
     public List<CourseSchedule> getWeekSchedule(Long userId, int week) {
         // 获取用户的所有课表
         List<CourseSchedule> allSchedules = courseScheduleRepository.findByUserId(userId);
+        log.info("按周查询课表，userId={}, week={}, 全部课程数={}", userId, week, allSchedules.size());
 
         // 过滤出指定周次的课程
-        return allSchedules.stream()
+        List<CourseSchedule> result = allSchedules.stream()
                 .filter(schedule -> {
                     String weekRange = schedule.getWeekRange();
-                    System.out.println("DEBUG - 课程：" + schedule.getCourseName() + ", 周次范围：" + weekRange + ", 指定周次：" + week);
                     boolean isInWeek = WeekCalculator.isWeekInRange(weekRange, week);
-                    if (isInWeek) {
-                        System.out.println("DEBUG - 课程 " + schedule.getCourseName() + " 第" + week + "周上课");
-                    } else {
-                        System.out.println("DEBUG - 课程 " + schedule.getCourseName() + " 第" + week + "周不上课");
-                    }
                     return isInWeek;
                 })
                 .collect(Collectors.toList());
+        log.info("按周查询结果，userId={}, week={}, 命中课程数={}", userId, week, result.size());
+        return result;
     }
 
     @Override

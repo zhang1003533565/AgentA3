@@ -20,6 +20,11 @@
 						</view>
 					</view>
 					<view class="header-actions">
+						<view class="utility-btn" @click="openScheduleSettings">
+							<view class="utility-gear">
+								<text class="gear-icon">⚙</text>
+							</view>
+						</view>
 						<view class="utility-btn" @click="shareSchedule">
 							<view class="utility-copy">
 								<view class="copy-back"></view>
@@ -785,6 +790,11 @@ export default {
 		showImportMenu() {
 			this.showImportPopup = true
 		},
+		openScheduleSettings() {
+			uni.navigateTo({
+				url: '/subpackage_schedule/scheduleSettings/scheduleSettings'
+			})
+		},
 		// 从教务系统导入
 		importFromJwx() {
 			this.showImportPopup = false
@@ -806,7 +816,7 @@ export default {
 							success: (modalRes) => {
 								if (modalRes.confirm) {
 									uni.navigateTo({
-										url: '/pages/jwxBind/jwxBind'
+										url: '/subpackage_schedule/scheduleSettings/scheduleSettings'
 									})
 								}
 							}
@@ -978,6 +988,23 @@ export default {
 	position: relative;
 	width: 32rpx;
 	height: 32rpx;
+}
+
+.utility-gear {
+	width: 34rpx;
+	height: 34rpx;
+	border: 3rpx solid #1d1d1f;
+	border-radius: 10rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+}
+
+.gear-icon {
+	font-size: 22rpx;
+	line-height: 1;
+	color: #1d1d1f;
 }
 
 .copy-back,
