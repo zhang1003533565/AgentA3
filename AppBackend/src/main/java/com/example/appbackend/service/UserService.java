@@ -29,4 +29,6 @@ public interface UserService {
     void resetPassword(Long id, String newPassword);
 
     User findByUsername(String username);
+
+    void updateAvatar(String username, String avatarUrl);
 }

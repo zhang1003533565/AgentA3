@@ -217,6 +217,8 @@ export default {
   data() {
     return {
       currentUserAvatar: '',
+      currentUserId: '',
+      currentUserName: '',
       currentTopic: 0,
       topics: [
         { id: 0, name: '全部' },
@@ -279,7 +281,9 @@ export default {
     loadCurrentUser() {
       const userInfo = getUserInfo()
       const seed = userInfo?.username || 'forum-user'
-      this.currentUserAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`
+      this.currentUserId = userInfo?.id || userInfo?.userId || ''
+      this.currentUserName = userInfo?.username || userInfo?.realName || ''
+      this.currentUserAvatar = userInfo?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`
     },
     async loadTopics() {
       // 使用本地定义的静态分类，不从API获取
@@ -385,10 +389,11 @@ export default {
       })
     },
     goToUserProfile(item) {
-      const userId = item?.userId || item?.id || ''
-      const userName = item?.userName || ''
+      const userId = item?.userId || item?.id || this.currentUserId
+      const userName = item?.userName || this.currentUserName || ''
+      const avatar = item?.avatar || this.currentUserAvatar || ''
       uni.navigateTo({
-        url: `/subpackage_forum/userProfile/userProfile?id=${encodeURIComponent(userId)}&name=${encodeURIComponent(userName)}`
+        url: `/subpackage_forum/userProfile/userProfile?id=${encodeURIComponent(userId)}&name=${encodeURIComponent(userName)}&avatar=${encodeURIComponent(avatar)}`
       })
     },
     async toggleLike(item) {

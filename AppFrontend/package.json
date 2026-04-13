@@ -1,0 +1,8 @@
+{
+  "name": "AppFrontend",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "compressorjs": "^1.3.0"
+  }
+}

@@ -69,6 +69,7 @@ export default {
   data() {
     return {
       userId: '',
+      userAvatar: '',
       postList: [],
       userInfo: {
         userId: '',
@@ -86,6 +87,7 @@ export default {
   onLoad(options) {
     this.userId = options.id || options.userId || ''
     this.userName = options.name || ''
+    this.userAvatar = decodeURIComponent(options.avatar || '')
     this.loadUserProfile()
   },
   methods: {
@@ -104,16 +106,17 @@ export default {
           ...this.userInfo,
           userId: targetId,
           userName: this.userName || `用户${targetId}`,
-          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(this.userName || 'user' + targetId)}`,
+          avatar: this.userAvatar || '/static/logo.png',
           bio: '这个人很懒，什么都没写~'
         }
       } else {
         // 查看自己的主页：使用本地用户信息
+        const seed = localUser.username || targetId || 'user'
         this.userInfo = {
           ...this.userInfo,
           userId: targetId,
           userName: localUser.username || localUser.realName || `用户${targetId || ''}`,
-          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(localUser.username || targetId || 'user')}`,
+          avatar: localUser.avatar || this.userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`,
           bio: localUser.college ? `${localUser.college}${localUser.major ? ` · ${localUser.major}` : ''}` : '这个人很懒，什么都没写~'
         }
       }

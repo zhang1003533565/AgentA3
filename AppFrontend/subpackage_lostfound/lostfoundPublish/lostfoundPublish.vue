@@ -88,9 +88,9 @@
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import {
   createSecondhandItem,
-  getSecondhandCategories,
-  uploadSecondhandImage
+  getSecondhandCategories
 } from '@/api/secondhand'
+import { getUploadErrorMessage, uploadImages } from '@/utils/upload'
 
 const CATEGORIES = [
   { key: '1', label: '数码产品' }
@@ -141,8 +141,14 @@ export default {
         count: 9 - this.publishForm.images.length,
         sizeType: ['compressed'],
         sourceType: ['album', 'camera'],
-        success: (res) => {
-          this.publishForm.images = [...this.publishForm.images, ...res.tempFilePaths]
+        success: async (res) => {
+          const files = res.tempFilePaths
+          try {
+            const urls = await uploadImages(files)
+            this.publishForm.images = [...this.publishForm.images, ...urls]
+          } catch (e) {
+            uni.showToast({ title: getUploadErrorMessage(e), icon: 'none' })
+          }
         }
       })
     },
@@ -174,15 +180,11 @@ export default {
       }
       try {
         uni.showLoading({ title: '发布中...' })
-        const imageUrls = await Promise.all(this.publishForm.images.map((filePath) => {
-          if (/^https?:\/\//.test(filePath)) return Promise.resolve(filePath)
-          return uploadSecondhandImage(filePath)
-        }))
         await createSecondhandItem({
           categoryId: Number(this.publishForm.cat),
           title: this.publishForm.name.trim(),
           description: this.publishForm.desc.trim(),
-          images: imageUrls,
+          images: this.publishForm.images,
           price: Number(this.publishForm.price),
           condition: 2,
           location: '校内自提'

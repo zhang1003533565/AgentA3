@@ -124,4 +124,25 @@ public class AuthController {
         return Result.success();
     }
 
+    @Operation(summary = "更新头像", description = "更新当前登录用户的头像")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "更新成功"),
+        @ApiResponse(responseCode = "401", description = "未登录")
+    })
+    @PutMapping("/avatar")
+    public Result<Void> updateAvatar(
+            HttpServletRequest httpRequest,
+            @RequestBody java.util.Map<String, String> body) {
+        String username = (String) httpRequest.getAttribute("username");
+        if (username == null) {
+            return Result.error(401, "未登录");
+        }
+        String avatarUrl = body.get("avatarUrl");
+        if (avatarUrl == null || avatarUrl.isBlank()) {
+            return Result.error(400, "头像地址不能为空");
+        }
+        userService.updateAvatar(username, avatarUrl);
+        return Result.success();
+    }
+
 }

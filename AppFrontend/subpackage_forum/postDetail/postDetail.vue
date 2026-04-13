@@ -228,8 +228,10 @@ export default {
     },
     goUserProfile(user) {
       const uid = user.userId || user.id || ''
+      const name = user.userName || user.username || ''
+      const avatar = user.avatar || ''
       uni.navigateTo({
-        url: '/subpackage_forum/userProfile/userProfile?id=' + encodeURIComponent(uid)
+        url: `/subpackage_forum/userProfile/userProfile?id=${encodeURIComponent(uid)}&name=${encodeURIComponent(name)}&avatar=${encodeURIComponent(avatar)}`
       })
     },
     async loadComments() {

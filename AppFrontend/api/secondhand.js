@@ -1,6 +1,4 @@
 import { request } from '@/utils/request'
-import { BASE_URL } from '@/utils/config.js'
-import { getToken } from '@/utils/storage.js'
 
 export function getSecondhandCategories() {
   return request({
@@ -93,26 +91,6 @@ export function getChatUnreadCount() {
 }
 
 export function uploadSecondhandImage(filePath) {
-  const token = getToken()
-  return new Promise((resolve, reject) => {
-    uni.uploadFile({
-      url: `${BASE_URL}/api/upload/image`,
-      filePath,
-      name: 'file',
-      header: token ? { Authorization: `Bearer ${token}` } : {},
-      success: (res) => {
-        try {
-          const data = JSON.parse(res.data || '{}')
-          if (res.statusCode >= 200 && res.statusCode < 300 && data.code === 200) {
-            resolve(data.data?.url || '')
-            return
-          }
-          reject(data)
-        } catch (error) {
-          reject(error)
-        }
-      },
-      fail: reject
-    })
-  })
+  const { uploadImage } = require('../utils/upload.js')
+  return uploadImage(filePath)
 }

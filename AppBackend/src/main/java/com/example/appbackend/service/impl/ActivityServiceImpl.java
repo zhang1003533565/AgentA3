@@ -38,6 +38,7 @@ public class ActivityServiceImpl implements ActivityService {
     public PageResponse<Activity> getActivityList(Integer page, Integer size, String title, Long categoryId, Status status) {
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createTime"));
         Page<Activity> activityPage = activityRepository.findByConditions(title, categoryId, status, pageRequest);
+        activityPage.getContent().forEach(this::fillOrganizerAvatar);
         return new PageResponse<>(
             activityPage.getContent(),
             activityPage.getTotalElements(),
@@ -48,8 +49,10 @@ public class ActivityServiceImpl implements ActivityService {
 
     @Override
     public Activity getActivityById(Long id) {
-        return activityRepository.findById(id)
+        Activity activity = activityRepository.findById(id)
             .orElseThrow(() -> new BusinessException(404, "活动不存在"));
+        fillOrganizerAvatar(activity);
+        return activity;
     }
 
     @Override
@@ -160,6 +163,15 @@ public class ActivityServiceImpl implements ActivityService {
         for (Activity activity : expiredActivities) {
             activity.setStatus(Status.COMPLETED);
             activityRepository.save(activity);
+        }
+    }
+
+    private void fillOrganizerAvatar(Activity activity) {
+        if (activity == null) {
+            return;
+        }
+        if (activity.getOrganizer() != null) {
+            activity.setOrganizerAvatar(activity.getOrganizer().getAvatar());
         }
     }
 }

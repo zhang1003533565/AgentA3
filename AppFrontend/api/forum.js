@@ -1,4 +1,10 @@
 import { request } from '@/utils/request'
+import { uploadImage } from '@/utils/upload'
+
+/** 上传论坛图片 */
+export function uploadForumImage(filePath) {
+  return uploadImage(filePath)
+}
 
 export function parseImageList(images) {
   if (Array.isArray(images)) return images.filter(Boolean)

@@ -60,11 +60,6 @@
         </scroll-view>
       </view>
 
-      <view v-if="!visibleLocations.length && !tempSearchLocation" class="map-empty-state">
-        <text class="map-empty-title">暂无地图点位</text>
-        <text class="map-empty-desc">请先在后台为设施补全经纬度后再查看。</text>
-      </view>
-
       <view class="popup-map" :class="{ show: !!selectedLocation }" @click.stop>
         <view class="popup-handle-map" />
         <view v-if="selectedLocation">
@@ -154,7 +149,7 @@ export default {
           alpha: this.selectedLocation && this.selectedLocation.id === item.id ? 1 : 0.92,
           callout: {
             content: item.shortName || item.name,
-            display: this.selectedLocation && this.selectedLocation.id === item.id ? 'ALWAYS' : 'BYCLICK',
+            display: 'ALWAYS',
             borderRadius: 14,
             padding: 8,
             fontSize: 12,
@@ -240,11 +235,16 @@ export default {
         success: (res) => {
           this.currentLocation.longitude = Number(res.longitude)
           this.currentLocation.latitude = Number(res.latitude)
+          this.refreshLocationDistances()
           this.syncNearestLocation()
+          this.refreshSelectedLocation()
         },
         fail: () => {
           this.currentLocation.longitude = null
           this.currentLocation.latitude = null
+          this.refreshLocationDistances()
+          this.syncNearestLocation()
+          this.refreshSelectedLocation()
         }
       })
     },
@@ -334,6 +334,7 @@ export default {
     },
     calculateDistance(longitude, latitude) {
       if (longitude == null || latitude == null) return null
+      if (this.currentLocation.longitude == null || this.currentLocation.latitude == null) return null
       const earthRadius = 6371000
       const lat1 = this.toRadians(this.currentLocation.latitude)
       const lat2 = this.toRadians(latitude)
@@ -349,6 +350,18 @@ export default {
       if (distance == null) return '--'
       if (distance >= 1000) return `${(distance / 1000).toFixed(2)}km`
       return `${Math.round(distance)}m`
+    },
+    refreshLocationDistances() {
+      this.locationList = this.locationList.map((item) => ({
+        ...item,
+        distance: this.formatDistance(item.longitude, item.latitude)
+      }))
+      if (this.tempSearchLocation) {
+        this.tempSearchLocation = {
+          ...this.tempSearchLocation,
+          distance: this.formatDistance(this.tempSearchLocation.longitude, this.tempSearchLocation.latitude)
+        }
+      }
     },
     refreshSelectedLocation() {
       if (!this.visibleLocations.length) {
@@ -501,22 +514,12 @@ export default {
     onMarkerTap(event) {
       const markerId = Number(event?.detail?.markerId ?? event?.detail?.id)
       if (markerId === -9999 && this.tempSearchLocation) {
-        this.mapCenter = {
-          longitude: Number(this.tempSearchLocation.longitude),
-          latitude: Number(this.tempSearchLocation.latitude)
-        }
-        this.mapScale = 17
-        this.selectedLocation = null
+        this.selectLocation(this.tempSearchLocation)
         return
       }
       const marker = this.visibleLocations.find((item) => Number(item.id) === markerId)
       if (marker) {
-        this.mapCenter = {
-          longitude: Number(marker.longitude),
-          latitude: Number(marker.latitude)
-        }
-        this.mapScale = 17
-        this.selectedLocation = null
+        this.selectLocation(marker)
       }
     },
     onCalloutTap(event) {

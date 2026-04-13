@@ -5,7 +5,7 @@
       <!-- 头部：纯白背景 -->
       <view class="header-block">
         <view class="user-row">
-          <image class="avatar" :src="userAvatar" mode="aspectFill" />
+          <image class="avatar" :src="userAvatar" mode="aspectFill" @click="changeAvatar" />
           <view class="user-info">
             <text class="user-name">{{ userInfo ? userInfo.username : '未登录' }}</text>
             <text class="user-id">学号 {{ userInfo ? (userInfo.studentId || '—') : '—' }}</text>
@@ -60,7 +60,9 @@
 <script>
 import AppMainTabBar from '@/components/app-main-tab-bar/app-main-tab-bar.vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getUserInfo } from '@/utils/storage.js'
+import { getUserInfo, setUserInfo } from '@/utils/storage.js'
+import { updateAvatar } from '@/api/user.js'
+import { getUploadErrorMessage, uploadImage } from '@/utils/upload.js'
 
 export default {
   components: { AppMainTabBar, NavBar },
@@ -84,8 +86,38 @@ export default {
         return
       }
       this.userInfo = info
-      const seed = info.realName || info.username || info.studentId || 'mine-user'
-      this.userAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`
+      if (info.avatar) {
+        this.userAvatar = info.avatar
+      } else {
+        const seed = info.realName || info.username || info.studentId || 'mine-user'
+        this.userAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`
+      }
+    },
+    changeAvatar() {
+      uni.chooseImage({
+        count: 1,
+        sizeType: ['compressed'],
+        sourceType: ['album', 'camera'],
+        success: async (res) => {
+          const filePath = res.tempFilePaths[0]
+          uni.showLoading({ title: '上传中...' })
+          try {
+            const url = await uploadImage(filePath)
+            await updateAvatar(url)
+            // 更新本地存储
+            const info = getUserInfo()
+            info.avatar = url
+            setUserInfo(info)
+            this.userInfo = info
+            this.userAvatar = url
+            uni.hideLoading()
+            uni.showToast({ title: '头像已更新', icon: 'success' })
+          } catch (e) {
+            uni.hideLoading()
+            uni.showToast({ title: getUploadErrorMessage(e), icon: 'none' })
+          }
+        }
+      })
     },
     goToSchedule() {
       uni.navigateTo({ url: '/subpackage_schedule/schedule/schedule' })
@@ -141,6 +173,7 @@ export default {
   border: 1px solid #EEEEEE;
   flex-shrink: 0;
   margin-right: 24rpx;
+  active-opacity: 0.7;
 }
 .cell-icon-img {
   width: 40rpx;

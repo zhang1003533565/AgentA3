@@ -38,3 +38,18 @@ export function updatePassword(data) {
     data
   })
 }
+
+/** 更新头像 */
+export function updateAvatar(avatarUrl) {
+  return request({
+    url: '/api/auth/avatar',
+    method: 'PUT',
+    data: { avatarUrl }
+  })
+}
+
+/** 上传头像图片到服务器 */
+export function uploadUserAvatar(filePath) {
+  const { uploadImage } = require('../utils/upload.js')
+  return uploadImage(filePath)
+}

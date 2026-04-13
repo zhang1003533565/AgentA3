@@ -79,6 +79,7 @@
 </template>
 
 <script>
+import { getUploadErrorMessage, uploadImages } from '@/utils/upload'
 export default {
   name: 'PostEditor',
   props: {
@@ -104,9 +105,15 @@ export default {
         count: remaining,
         sizeType: ['compressed'],
         sourceType: ['album', 'camera'],
-        success: (res) => {
-          const next = [...current, ...res.tempFilePaths]
-          this.$set(this.form, 'images', next)
+        success: async (res) => {
+          const files = res.tempFilePaths
+          try {
+            const urls = await uploadImages(files)
+            const next = [...(this.form.images || []), ...urls]
+            this.$set(this.form, 'images', next)
+          } catch (e) {
+            uni.showToast({ title: getUploadErrorMessage(e), icon: 'none' })
+          }
         }
       })
     },

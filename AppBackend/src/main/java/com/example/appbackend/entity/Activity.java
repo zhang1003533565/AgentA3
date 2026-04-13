@@ -42,6 +42,10 @@ public class Activity {
     @Schema(description = "组织者名称", example = "计算机学院")
     private String organizerName;
 
+    @Transient
+    @Schema(description = "组织者头像", example = "https://example.com/avatar.jpg")
+    private String organizerAvatar;
+
     @Column(columnDefinition = "TEXT COMMENT '活动内容'")
     @Schema(description = "活动内容", example = "本次讲座将介绍Python编程基础知识")
     private String content;
