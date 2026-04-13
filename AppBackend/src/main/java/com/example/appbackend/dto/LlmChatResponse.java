@@ -5,6 +5,9 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+import java.util.Map;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -19,6 +22,12 @@ public class LlmChatResponse {
 
     @Schema(description = "模型名称")
     private String model;
+
+    @Schema(description = "AI 整理出的搜索关键词")
+    private String searchKeyword;
+
+    @Schema(description = "本地匹配到的候选结果")
+    private List<Map<String, Object>> matchedResults;
 
     @Schema(description = "模型回答")
     private String answer;

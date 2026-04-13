@@ -8,10 +8,12 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @RequestMapping
@@ -29,5 +31,15 @@ public class LlmController {
     public Result<LlmChatResponse> chat(@Valid @RequestBody LlmChatRequest request, HttpServletRequest httpRequest) {
         String authorization = httpRequest.getHeader("Authorization");
         return Result.success(llmService.chat(request, authorization));
+    }
+
+    @PostMapping(
+            value = {"/api/ai/chat/stream", "/api/llm/chat/stream"},
+            produces = MediaType.TEXT_EVENT_STREAM_VALUE
+    )
+    @Operation(summary = "AI 对话流式输出", description = "SSE 输出 AI 回答增量内容")
+    public SseEmitter streamChat(@Valid @RequestBody LlmChatRequest request, HttpServletRequest httpRequest) {
+        String authorization = httpRequest.getHeader("Authorization");
+        return llmService.streamChat(request, authorization);
     }
 }

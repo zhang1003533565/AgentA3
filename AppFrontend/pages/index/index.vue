@@ -150,17 +150,20 @@
 			<home-schedule-card />
 		</view>
 
+		<ai-float-assistant />
+
 		<app-main-tab-bar current="index" />
 	</view>
 </template>
 
 <script>
 import AppMainTabBar from '@/components/app-main-tab-bar/app-main-tab-bar.vue'
+import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant.vue'
 import HomeScheduleCard from '@/components/home-schedule-card/home-schedule-card.vue'
 import { getEnabledAnnouncements } from '@/api/notice.js'
 
 export default {
-	components: { AppMainTabBar, HomeScheduleCard },
+	components: { AppMainTabBar, HomeScheduleCard, AiFloatAssistant },
 	data() {
 		return {
 			headline: '',

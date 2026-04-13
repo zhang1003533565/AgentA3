@@ -8,9 +8,13 @@ import com.example.appbackend.graph.AiConversationState;
 import com.example.appbackend.entity.CampusFacility;
 import com.example.appbackend.entity.CanteenStall;
 import com.example.appbackend.entity.Dish;
+import com.example.appbackend.entity.Merchant;
+import com.example.appbackend.entity.PromotionCoupon;
 import com.example.appbackend.repository.CanteenStallRepository;
 import com.example.appbackend.repository.DishRepository;
 import com.example.appbackend.repository.FacilityRepository;
+import com.example.appbackend.repository.MerchantRepository;
+import com.example.appbackend.repository.PromotionCouponRepository;
 import com.example.appbackend.service.LlmMemoryService;
 import com.example.appbackend.util.LlmConfigUtil;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -24,15 +28,20 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 import static org.bsc.langgraph4j.StateGraph.END;
@@ -51,6 +60,8 @@ public class LangGraphAiService {
     private final FacilityRepository facilityRepository;
     private final CanteenStallRepository canteenStallRepository;
     private final DishRepository dishRepository;
+    private final PromotionCouponRepository promotionCouponRepository;
+    private final MerchantRepository merchantRepository;
     private final org.bsc.langgraph4j.CompiledGraph<AiConversationState> compiledGraph;
 
     public LangGraphAiService(LlmMemoryService llmMemoryService,
@@ -59,7 +70,9 @@ public class LangGraphAiService {
                               ObjectMapper objectMapper,
                               FacilityRepository facilityRepository,
                               CanteenStallRepository canteenStallRepository,
-                              DishRepository dishRepository) {
+                              DishRepository dishRepository,
+                              PromotionCouponRepository promotionCouponRepository,
+                              MerchantRepository merchantRepository) {
         this.llmMemoryService = llmMemoryService;
         this.llmConfigUtil = llmConfigUtil;
         this.webClientBuilder = webClientBuilder;
@@ -67,10 +80,53 @@ public class LangGraphAiService {
         this.facilityRepository = facilityRepository;
         this.canteenStallRepository = canteenStallRepository;
         this.dishRepository = dishRepository;
+        this.promotionCouponRepository = promotionCouponRepository;
+        this.merchantRepository = merchantRepository;
         this.compiledGraph = buildGraph();
     }
 
     public LlmChatResponse chat(LlmChatRequest request, String token) {
+        return executeChat(request, token);
+    }
+
+    public SseEmitter streamChat(LlmChatRequest request, String token) {
+        SseEmitter emitter = new SseEmitter(0L);
+        CompletableFuture.runAsync(() -> {
+            try {
+                LlmChatResponse response = executeChat(request, token);
+                sendEvent(emitter, "session", Map.of(
+                        "sessionId", response.getSessionId(),
+                        "sessionToken", response.getSessionToken(),
+                        "model", response.getModel()
+                ));
+                sendEvent(emitter, "search", Map.of(
+                        "searchKeyword", response.getSearchKeyword(),
+                        "matchedResults", response.getMatchedResults()
+                ));
+                for (String chunk : chunkAnswer(response.getAnswer())) {
+                    sendEvent(emitter, "delta", Map.of("content", chunk));
+                    sleepQuietly(35);
+                }
+                sendEvent(emitter, "done", Map.of(
+                        "answer", response.getAnswer(),
+                        "searchKeyword", response.getSearchKeyword(),
+                        "matchedResults", response.getMatchedResults()
+                ));
+                emitter.complete();
+            } catch (Exception e) {
+                try {
+                    sendEvent(emitter, "error", Map.of(
+                            "message", e.getMessage()
+                    ));
+                } catch (Exception ignored) {
+                }
+                emitter.completeWithError(e);
+            }
+        });
+        return emitter;
+    }
+
+    private LlmChatResponse executeChat(LlmChatRequest request, String token) {
         if (!llmConfigUtil.hasApiKey()) {
             throw new BusinessException(Result.ERROR_CODE, "未配置 DEEPSEEK_API_KEY");
         }
@@ -98,7 +154,50 @@ public class LangGraphAiService {
         }
 
         AiConversationState state = finalState.get();
-        return new LlmChatResponse(sessionId, sessionToken, state.model(), state.answer());
+        return new LlmChatResponse(
+                sessionId,
+                sessionToken,
+                state.model(),
+                state.searchKeyword(),
+                state.searchResults(),
+                state.answer()
+        );
+    }
+
+    private void sendEvent(SseEmitter emitter, String eventName, Object data) throws Exception {
+        emitter.send(SseEmitter.event()
+                .name(eventName)
+                .data(data, MediaType.APPLICATION_JSON));
+    }
+
+    private List<String> chunkAnswer(String answer) {
+        List<String> chunks = new ArrayList<>();
+        if (!StringUtils.hasText(answer)) {
+            return chunks;
+        }
+        StringBuilder current = new StringBuilder();
+        for (int i = 0; i < answer.length(); i++) {
+            char ch = answer.charAt(i);
+            current.append(ch);
+            boolean shouldFlush = current.length() >= 12
+                    || "，。！？；：,.!?;\n".indexOf(ch) >= 0;
+            if (shouldFlush) {
+                chunks.add(current.toString());
+                current.setLength(0);
+            }
+        }
+        if (current.length() > 0) {
+            chunks.add(current.toString());
+        }
+        return chunks;
+    }
+
+    private void sleepQuietly(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private org.bsc.langgraph4j.CompiledGraph<AiConversationState> buildGraph() {
@@ -273,25 +372,64 @@ public class LangGraphAiService {
         String normalizedKeyword = normalizeText(keyword);
 
         List<Map<String, Object>> results = new ArrayList<>();
+        Set<Long> matchedRestaurantIds = new HashSet<>();
+        Set<Long> matchedStallIds = new HashSet<>();
+        Set<Long> couponIds = new HashSet<>();
 
         facilityRepository.findByFacilityType(CampusFacility.FacilityType.RESTAURANT.getValue()).stream()
                 .filter(item -> containsKeyword(normalizedKeyword, item.getFacilityName(), item.getDescription(), item.getLocation()))
                 .limit(5)
-                .forEach(item -> results.add(restaurantResult(item)));
+                .forEach(item -> {
+                    results.add(restaurantResult(item));
+                    matchedRestaurantIds.add(item.getId());
+                });
 
         canteenStallRepository.findAll().stream()
                 .filter(item -> item.getStatus() != null && item.getStatus() == 1)
                 .filter(item -> containsKeyword(normalizedKeyword, item.getStallName(), item.getCategory(), item.getDescription(), item.getLocation()))
                 .sorted(Comparator.comparing(CanteenStall::getScore, Comparator.nullsLast(Comparator.reverseOrder())))
                 .limit(8)
-                .forEach(item -> results.add(stallResult(item)));
+                .forEach(item -> {
+                    results.add(stallResult(item));
+                    matchedStallIds.add(item.getId());
+                    if (item.getRestaurantId() != null) {
+                        matchedRestaurantIds.add(item.getRestaurantId());
+                    }
+                });
 
         dishRepository.findAll().stream()
                 .filter(item -> Boolean.TRUE.equals(item.getIsAvailable()))
                 .filter(item -> containsKeyword(normalizedKeyword, item.getName(), item.getCategory(), item.getTaste(), item.getDescription()))
                 .sorted(Comparator.comparing(Dish::getRating, Comparator.nullsLast(Comparator.reverseOrder())))
                 .limit(8)
-                .forEach(item -> results.add(dishResult(item)));
+                .forEach(item -> {
+                    results.add(dishResult(item));
+                    if (item.getStallId() != null) {
+                        matchedStallIds.add(item.getStallId());
+                        CanteenStall stall = canteenStallRepository.findById(item.getStallId()).orElse(null);
+                        if (stall != null && stall.getRestaurantId() != null) {
+                            matchedRestaurantIds.add(stall.getRestaurantId());
+                        }
+                    }
+                });
+
+        promotionCouponRepository.findByStatusOrderBySortOrderAsc(1).stream()
+                .filter(item -> containsKeyword(normalizedKeyword,
+                        item.getCouponName(),
+                        item.getDescription(),
+                        item.getPickupLocation(),
+                        item.getTagType(),
+                        resolveCouponMerchantName(item),
+                        resolveCouponStallName(item),
+                        resolveCouponFacilityName(item)))
+                .limit(8)
+                .forEach(item -> {
+                    results.add(couponResult(item));
+                    couponIds.add(item.getId());
+                });
+
+        collectRelatedCouponsByStalls(matchedStallIds, results, couponIds);
+        collectRelatedCouponsByFacilities(matchedRestaurantIds, results, couponIds);
 
         while (results.size() > 10) {
             results.remove(results.size() - 1);
@@ -390,5 +528,72 @@ public class LangGraphAiService {
         result.put("rating", dish.getRating());
         result.put("price", dish.getPrice());
         return result;
+    }
+
+    private Map<String, Object> couponResult(PromotionCoupon coupon) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("type", "coupon");
+        result.put("id", coupon.getId());
+        result.put("name", coupon.getCouponName());
+        result.put("category", coupon.getCategory());
+        result.put("tagType", coupon.getTagType());
+        result.put("pickupLocation", coupon.getPickupLocation());
+        result.put("description", coupon.getDescription());
+        result.put("merchantName", resolveCouponMerchantName(coupon));
+        result.put("stallName", resolveCouponStallName(coupon));
+        result.put("facilityName", resolveCouponFacilityName(coupon));
+        result.put("startDate", coupon.getStartDate());
+        result.put("endDate", coupon.getEndDate());
+        return result;
+    }
+
+    private void collectRelatedCouponsByStalls(Collection<Long> stallIds,
+                                               List<Map<String, Object>> results,
+                                               Set<Long> couponIds) {
+        for (Long stallId : stallIds) {
+            if (stallId == null) {
+                continue;
+            }
+            promotionCouponRepository.findByStallIdAndStatus(stallId, 1).stream()
+                    .filter(coupon -> couponIds.add(coupon.getId()))
+                    .forEach(coupon -> results.add(couponResult(coupon)));
+        }
+    }
+
+    private void collectRelatedCouponsByFacilities(Collection<Long> facilityIds,
+                                                   List<Map<String, Object>> results,
+                                                   Set<Long> couponIds) {
+        for (Long facilityId : facilityIds) {
+            if (facilityId == null) {
+                continue;
+            }
+            promotionCouponRepository.findByFacilityIdAndStatus(facilityId, 1).stream()
+                    .filter(coupon -> couponIds.add(coupon.getId()))
+                    .forEach(coupon -> results.add(couponResult(coupon)));
+        }
+    }
+
+    private String resolveCouponMerchantName(PromotionCoupon coupon) {
+        if (coupon.getMerchantId() == null) {
+            return null;
+        }
+        Merchant merchant = merchantRepository.findById(coupon.getMerchantId()).orElse(null);
+        return merchant != null ? merchant.getMerchantName() : null;
+    }
+
+    private String resolveCouponStallName(PromotionCoupon coupon) {
+        if (coupon.getStallId() == null) {
+            return null;
+        }
+        CanteenStall stall = canteenStallRepository.findById(coupon.getStallId()).orElse(null);
+        return stall != null ? stall.getStallName() : null;
+    }
+
+    private String resolveCouponFacilityName(PromotionCoupon coupon) {
+        if (coupon.getFacilityId() == null) {
+            return null;
+        }
+        CampusFacility facility = facilityRepository.findById(coupon.getFacilityId()).orElse(null);
+        return facility != null ? facility.getFacilityName() : null;
     }
 }
