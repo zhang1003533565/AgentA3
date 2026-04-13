@@ -16,6 +16,10 @@ function ActivityManage() {
   const [selectedRowKeys, setSelectedRowKeys] = useState([])
   const [searchForm] = Form.useForm()
   const initialized = useRef(false)
+  const [queryParams, setQueryParams] = useState({
+    keyword: '',
+    categoryId: undefined,
+  })
   const [pagination, setPagination] = useState({
     current: 1,
     pageSize: 10,
@@ -27,36 +31,30 @@ function ActivityManage() {
     try {
       const page = params.page || pagination.current
       const size = params.size || pagination.pageSize
-      const res = await getActivityList({
+      const mergedParams = {
+        ...queryParams,
+        ...params,
         page,
         size,
-        ...params,
-      })
+      }
+      const requestFn = mergedParams.keyword ? searchActivities : getActivityList
+      const res = await requestFn(mergedParams)
       if (res.code === 200) {
-        setActivities(res.data?.records || [])
+        const records = res.data?.records || []
+        const total = res.data?.total || 0
+        const maxPage = Math.max(1, Math.ceil(total / size))
+
+        if (page > maxPage && total > 0) {
+          fetchActivities({ ...mergedParams, page: maxPage, size })
+          return
+        }
+
+        setActivities(records)
         setPagination({
           current: page,
           pageSize: size,
-          total: res.data?.total || 0,
+          total,
         })
-      }
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const fetchSearchResults = async (params) => {
-    setLoading(true)
-    try {
-      const res = await searchActivities(params)
-      if (res.code === 200) {
-        setActivities(res.data?.records || [])
-        setPagination((prev) => ({
-          ...prev,
-          current: params.page || 1,
-          pageSize: params.size || prev.pageSize,
-          total: res.data?.total || 0,
-        }))
       }
     } finally {
       setLoading(false)
@@ -83,22 +81,28 @@ function ActivityManage() {
   }, [])
 
   const handleSearch = (values) => {
-    const params = { page: 1, size: pagination.pageSize }
-    setPagination((prev) => ({ ...prev, current: 1 }))
-
-    if (values.keyword) {
-      fetchSearchResults({ ...params, keyword: values.keyword })
-      return
+    const nextQueryParams = {
+      keyword: values.keyword?.trim() || '',
+      categoryId: values.categoryId,
     }
-
-    if (values.categoryId) params.categoryId = values.categoryId
+    const params = {
+      ...nextQueryParams,
+      page: 1,
+      size: pagination.pageSize,
+    }
+    setQueryParams(nextQueryParams)
+    setPagination((prev) => ({ ...prev, current: 1 }))
     fetchActivities(params)
   }
 
   const handleReset = () => {
     searchForm.resetFields()
+    setQueryParams({
+      keyword: '',
+      categoryId: undefined,
+    })
     setPagination((prev) => ({ ...prev, current: 1 }))
-    fetchActivities({ page: 1, size: pagination.pageSize })
+    fetchActivities({ keyword: '', categoryId: undefined, page: 1, size: pagination.pageSize })
   }
 
   const handleDelete = async (id) => {
@@ -106,7 +110,7 @@ function ActivityManage() {
       const res = await deleteActivity(id)
       if (res.code === 200) {
         message.success('删除成功')
-        fetchActivities()
+        fetchActivities({ ...queryParams, page: pagination.current, size: pagination.pageSize })
       }
     } catch (error) {
       message.error(error.message || '删除失败')
@@ -119,7 +123,7 @@ function ActivityManage() {
       if (res.code === 200) {
         message.success('批量删除成功')
         setSelectedRowKeys([])
-        fetchActivities()
+        fetchActivities({ ...queryParams, page: pagination.current, size: pagination.pageSize })
       }
     } catch (error) {
       message.error(error.message || '批量删除失败')
@@ -247,7 +251,7 @@ function ActivityManage() {
           }}
           onChange={(pag) => {
             setPagination((prev) => ({ ...prev, current: pag.current, pageSize: pag.pageSize }))
-            fetchActivities({ page: pag.current, size: pag.pageSize })
+            fetchActivities({ ...queryParams, page: pag.current, size: pag.pageSize })
           }}
         />
       </main>

@@ -248,7 +248,7 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextI
       return { rows: res.data || [], total: res.data?.length || 0 }
     }
     case 'facility-analytics': {
-      const [restaurantRes, sportsRes, teachingRes, dormitoryRes, heatRes] = await Promise.all([
+      const [restaurantRes, sportsRes, teachingRes, dormitoryRes, heatRes] = await Promise.allSettled([
         getFacilityList({ type: 1, page: 1, size: 100 }),
         getFacilityList({ type: 2, page: 1, size: 100 }),
         getFacilityList({ type: 3, page: 1, size: 100 }),
@@ -256,25 +256,43 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextI
         getFacilityHeat({ limit: 5 }),
       ])
 
+      const getPageRecords = (result) => (
+        result.status === 'fulfilled'
+          ? (result.value.data?.records || [])
+          : []
+      )
+
+      const getPageTotal = (result) => (
+        result.status === 'fulfilled'
+          ? (result.value.data?.total || result.value.data?.records?.length || 0)
+          : 0
+      )
+
+      const getListData = (result) => (
+        result.status === 'fulfilled' && Array.isArray(result.value.data)
+          ? result.value.data
+          : []
+      )
+
       const allFacilities = [
-        ...(restaurantRes.data?.records || []),
-        ...(sportsRes.data?.records || []),
-        ...(teachingRes.data?.records || []),
-        ...(dormitoryRes.data?.records || []),
+        ...getPageRecords(restaurantRes),
+        ...getPageRecords(sportsRes),
+        ...getPageRecords(teachingRes),
+        ...getPageRecords(dormitoryRes),
       ]
 
       const countByStatus = (status) => allFacilities.filter((item) => item.status === status).length
 
       const rows = [
         { id: 'facility-total', label: '设施总数', value: String(allFacilities.length) },
-        { id: 'facility-restaurant', label: '餐厅数量', value: String(restaurantRes.data?.total || restaurantRes.data?.records?.length || 0) },
-        { id: 'facility-sports', label: '运动场数量', value: String(sportsRes.data?.total || sportsRes.data?.records?.length || 0) },
-        { id: 'facility-teaching', label: '教学楼数量', value: String(teachingRes.data?.total || teachingRes.data?.records?.length || 0) },
-        { id: 'facility-dormitory', label: '宿舍数量', value: String(dormitoryRes.data?.total || dormitoryRes.data?.records?.length || 0) },
+        { id: 'facility-restaurant', label: '餐厅数量', value: String(getPageTotal(restaurantRes)) },
+        { id: 'facility-sports', label: '运动场数量', value: String(getPageTotal(sportsRes)) },
+        { id: 'facility-teaching', label: '教学楼数量', value: String(getPageTotal(teachingRes)) },
+        { id: 'facility-dormitory', label: '宿舍数量', value: String(getPageTotal(dormitoryRes)) },
         { id: 'facility-status-normal', label: '正常开放设施', value: String(countByStatus(1)) },
         { id: 'facility-status-maintenance', label: '维护中设施', value: String(countByStatus(2)) },
         { id: 'facility-status-closed', label: '关闭设施', value: String(countByStatus(3)) },
-        ...((Array.isArray(heatRes.data) ? heatRes.data : []).map((item, index) => ({
+        ...(getListData(heatRes).map((item, index) => ({
           id: `facility-heat-${index}`,
           label: `热度榜 ${index + 1} · ${item.markerName || item.facilityName || `设施 ${index + 1}`}`,
           value: `访问 ${item.visitCount ?? item.viewCount ?? 0} / 导航 ${item.navigationCount ?? 0}`,
@@ -465,6 +483,24 @@ function WorkspacePage({ pageKey }) {
     position: item.longitude && item.latitude ? `${item.longitude}, ${item.latitude}` : '-',
   })) : []
   const selectedMarker = markerRows.find((item) => item.id === selectedMarkerId) || null
+
+  useEffect(() => {
+    setKeyword('')
+    setRows([])
+    setContextInput('')
+    setContextId('')
+    setUrlStallId('')
+    setUrlStallName('')
+    setSelectedMarkerId(null)
+    setActiveSearchPoi(null)
+    setMarkerSearchKeyword('')
+    setMarkerSearchResults([])
+    setPagination((prev) => ({
+      ...prev,
+      current: 1,
+      total: 0,
+    }))
+  }, [pageKey])
 
   useEffect(() => {
     let cancelled = false
@@ -1629,7 +1665,7 @@ function WorkspacePage({ pageKey }) {
       }],
     }
 
-    const heatRows = rows.filter((item) => item.label.startsWith('热度榜'))
+    const heatRows = rows.filter((item) => String(item?.label || '').startsWith('热度榜'))
     const heatOption = {
       grid: { left: 16, right: 16, top: 12, bottom: 12, containLabel: true },
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },

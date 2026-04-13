@@ -34,7 +34,11 @@
               class="hot-card"
               @click="openStallDetail(item)"
             >
-              <view class="hot-cover" :class="item.foodClass">
+              <view
+                class="hot-cover"
+                :class="[item.foodClass, { 'has-image': !!item.image }]"
+                :style="item.image ? { backgroundImage: `url(${item.image})` } : {}"
+              >
                 <text class="hot-tag">{{ item.tag }}</text>
               </view>
               <view class="hot-bottom">
@@ -61,7 +65,11 @@
           @click="openStallDetail(stall)"
         >
           <view class="stall-main">
-            <view class="stall-thumb" :class="getStallFoodClass(stall.category)"></view>
+            <view
+              class="stall-thumb"
+              :class="[getStallFoodClass(stall.category), { 'has-image': !!stall.image }]"
+              :style="stall.image ? { backgroundImage: `url(${stall.image})` } : {}"
+            ></view>
             <view class="stall-content">
               <view class="stall-title-row">
                 <text class="stall-name">{{ stall.stallName }}</text>
@@ -458,6 +466,16 @@ export default {
   height: 160rpx;
   padding: 18rpx;
   position: relative;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.hot-cover.has-image::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(18, 42, 84, 0.08) 0%, rgba(18, 42, 84, 0.28) 100%);
 }
 
 .hot-tag {
@@ -521,6 +539,9 @@ export default {
   height: 154rpx;
   border-radius: 24rpx;
   flex-shrink: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 .stall-content {
