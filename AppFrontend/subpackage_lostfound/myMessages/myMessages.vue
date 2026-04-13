@@ -28,9 +28,16 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { getChatSessions } from '@/api/secondhand'
 
-const STORAGE_KEYS = {
-  chats: 'chats'
+function normalizeSession(item) {
+  return {
+    id: item.sessionId,
+    otherName: item.otherUsername || item.sellerName || '用户',
+    lastMsg: item.lastMessage || '暂无消息',
+    lastTime: item.lastTime || '',
+    unread: item.unreadCount || 0
+  }
 }
 
 export default {
@@ -42,25 +49,24 @@ export default {
       chats: []
     }
   },
-  onLoad() {
-    this.loadFromStorage()
+  async onLoad() {
+    await this.loadSessions()
   },
-  onShow() {
-    this.loadFromStorage()
+  async onShow() {
+    await this.loadSessions()
   },
   methods: {
-    loadFromStorage() {
+    async loadSessions() {
       try {
-        const stored = uni.getStorageSync(STORAGE_KEYS.chats)
-        if (stored) {
-          this.chats = JSON.parse(stored)
-        }
+        const res = await getChatSessions({ current: 1, size: 100 })
+        const records = Array.isArray(res?.data?.records) ? res.data.records : []
+        this.chats = records.map(normalizeSession)
       } catch (e) {
         console.error('加载数据失败', e)
       }
     },
     fmt(ts) {
-      const d = new Date(ts)
+      const d = new Date(String(ts).replace(/-/g, '/'))
       const now = new Date()
       const diff = now - d
       if (diff < 60000) return '刚刚'
@@ -69,9 +75,8 @@ export default {
       return `${d.getMonth() + 1}/${d.getDate()}`
     },
     openChat(id) {
-      uni.showToast({
-        title: '聊天功能开发中',
-        icon: 'none'
+      uni.navigateTo({
+        url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?sessionId=${id}`
       })
     }
   }

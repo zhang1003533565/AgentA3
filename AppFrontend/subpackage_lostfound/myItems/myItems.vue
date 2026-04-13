@@ -38,12 +38,26 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-
-const STORAGE_KEYS = {
-  items: 'items'
-}
+import { getMySecondhandItems, offlineSecondhandItem, onlineSecondhandItem } from '@/api/secondhand'
 
 const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
+
+function formatTimestamp(value) {
+  if (!value) return ''
+  return value.replace('T', ' ')
+}
+
+function normalizeItem(item) {
+  return {
+    id: item.id,
+    name: item.title,
+    price: item.price,
+    type: 'sell',
+    status: item.status === 2 ? 'online' : item.status === 4 ? 'offline' : 'sold',
+    images: Array.isArray(item.images) ? item.images : [],
+    ctime: formatTimestamp(item.createTime)
+  }
+}
 
 export default {
   components: {
@@ -51,43 +65,39 @@ export default {
   },
   data() {
     return {
-      items: []
+      items: [],
+      loading: false
     }
   },
   computed: {
     myItems() {
-      return this.items.filter(item => item.userId === 'me')
+      return this.items
     }
   },
-  onLoad() {
-    this.loadFromStorage()
+  async onLoad() {
+    await this.loadItems()
   },
-  onShow() {
-    this.loadFromStorage()
+  async onShow() {
+    await this.loadItems()
   },
   methods: {
-    loadFromStorage() {
+    async loadItems() {
       try {
-        const stored = uni.getStorageSync(STORAGE_KEYS.items)
-        if (stored) {
-          this.items = JSON.parse(stored)
-        }
+        this.loading = true
+        const res = await getMySecondhandItems({ current: 1, size: 100 })
+        this.items = Array.isArray(res?.data?.records) ? res.data.records.map(normalizeItem) : []
       } catch (e) {
         console.error('加载数据失败', e)
-      }
-    },
-    saveToStorage() {
-      try {
-        uni.setStorageSync(STORAGE_KEYS.items, JSON.stringify(this.items))
-      } catch (e) {
-        console.error('保存数据失败', e)
+      } finally {
+        this.loading = false
       }
     },
     emoji(id) {
       return EMOJIS[id % EMOJIS.length]
     },
     fmt(ts) {
-      const d = new Date(ts)
+      const time = typeof ts === 'string' ? new Date(ts.replace(/-/g, '/')).getTime() : ts
+      const d = new Date(time)
       const now = new Date()
       const diff = now - d
       if (diff < 60000) return '刚刚'
@@ -95,15 +105,23 @@ export default {
       if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
       return `${d.getMonth() + 1}/${d.getDate()}`
     },
-    toggleStatus(id) {
+    async toggleStatus(id) {
       const item = this.items.find(i => i.id === id)
-      if (item) {
-        item.status = item.status === 'online' ? 'offline' : 'online'
-        this.saveToStorage()
-        uni.showToast({
-          title: item.status === 'online' ? '已上架' : '已下架',
-          icon: 'none'
-        })
+      if (!item) return
+      try {
+        if (item.status === 'online') {
+          await offlineSecondhandItem(id)
+          uni.showToast({ title: '已下架', icon: 'none' })
+        } else if (item.status === 'offline') {
+          await onlineSecondhandItem(id)
+          uni.showToast({ title: '已上架', icon: 'none' })
+        } else {
+          uni.showToast({ title: '已售出商品不能重新操作', icon: 'none' })
+          return
+        }
+        await this.loadItems()
+      } catch (error) {
+        console.error('更新状态失败', error)
       }
     },
     goToDetail(id) {

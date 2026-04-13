@@ -46,6 +46,13 @@ tencent:
   map:
     key: F2ABZ-VU4LH-BDKDF-W7XCC-RXYX2-4AB52
     base-url: https://apis.map.qq.com
+  cos:
+    secret-id: AKIDsjNo2b1EF3d5MPEqEPM6buzrVxCE2e5K
+    secret-key: 6yc3GF0XszsXzDH7j8KK6f193kEWaQ3a
+    region: ap-beijing
+    bucket: luke-1332125786
+    domain: https://luke-1332125786.cos.ap-beijing.myqcloud.com
+    upload-prefix: smart-campus/media
 
 amap:
   app:

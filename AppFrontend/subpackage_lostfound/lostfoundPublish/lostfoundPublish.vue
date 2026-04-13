@@ -2,14 +2,13 @@
   <view class="page-root">
     <view class="screen">
       <view class="container">
-        <nav-bar :title="publishType === 'sell' ? '发布闲置' : '发布求物'" :fixed="true" :placeholder="true" />
+        <nav-bar title="发布闲置" :fixed="true" :placeholder="true" />
         
         <scroll-view scroll-y class="page-body pub-body">
           <view class="fg">
             <view class="fl">类型</view>
             <view class="opts">
-              <view class="opt" :class="{ on: publishType === 'sell' }" @click="publishType = 'sell'">🏷️ 出售闲置</view>
-              <view class="opt" :class="{ on: publishType === 'want' }" @click="publishType = 'want'">🔍 求物</view>
+              <view class="opt on">🏷️ 出售闲置</view>
             </view>
           </view>
 
@@ -36,13 +35,13 @@
           </view>
 
           <view class="fg">
-            <view class="fl">{{ publishType === 'sell' ? '商品名称' : '求物名称' }}</view>
+            <view class="fl">商品名称</view>
             <view class="input-wrap">
-              <input class="fi" v-model="publishForm.name" :placeholder="publishType === 'sell' ? '起个名字' : '想要什么'" />
+              <input class="fi" v-model="publishForm.name" placeholder="起个名字" />
             </view>
           </view>
 
-          <view class="fg" v-if="publishType === 'sell'">
+          <view class="fg">
             <view class="fl">售价（元）</view>
             <view class="input-wrap">
               <input class="fi" v-model="publishForm.price" type="number" placeholder="输入售价" />
@@ -50,9 +49,9 @@
           </view>
 
           <view class="fg">
-            <view class="fl">{{ publishType === 'sell' ? '商品描述' : '求物描述' }}</view>
+            <view class="fl">商品描述</view>
             <view class="input-wrap">
-              <textarea class="ft" v-model="publishForm.desc" :placeholder="publishType === 'sell' ? '描述一下情况...' : '描述一下需求...'" />
+              <textarea class="ft" v-model="publishForm.desc" placeholder="描述一下情况..." />
             </view>
           </view>
 
@@ -78,7 +77,7 @@
             </view>
           </view>
 
-          <button class="pbtn" @click="publish">发布{{ publishType === 'sell' ? '闲置' : '求物' }}</button>
+          <button class="pbtn" @click="publish">发布闲置</button>
         </scroll-view>
       </view>
     </view>
@@ -87,17 +86,14 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-
-const STORAGE_KEYS = {
-  items: 'items'
-}
+import {
+  createSecondhandItem,
+  getSecondhandCategories,
+  uploadSecondhandImage
+} from '@/api/secondhand'
 
 const CATEGORIES = [
-  { key: 'all', label: '全部' },
-  { key: 'digital', label: '数码' },
-  { key: 'book', label: '教材图书' },
-  { key: 'daily', label: '生活日用' },
-  { key: 'other', label: '其他' }
+  { key: '1', label: '数码产品' }
 ]
 
 export default {
@@ -115,32 +111,29 @@ export default {
         cat: '',
         phone: '',
         images: []
-      },
-      items: []
+      }
     }
   },
-  onLoad(options) {
+  async onLoad(options) {
     if (options.type) {
       this.publishType = options.type
     }
-    this.loadFromStorage()
+    await this.loadCategories()
   },
   methods: {
-    loadFromStorage() {
+    async loadCategories() {
       try {
-        const stored = uni.getStorageSync(STORAGE_KEYS.items)
-        if (stored) {
-          this.items = JSON.parse(stored)
+        const res = await getSecondhandCategories()
+        const records = Array.isArray(res?.data) ? res.data : []
+        this.categories = records.map((item) => ({
+          key: String(item.id),
+          label: item.categoryName
+        }))
+        if (!this.publishForm.cat && this.categories.length) {
+          this.publishForm.cat = this.categories[0].key
         }
       } catch (e) {
-        console.error('加载数据失败', e)
-      }
-    },
-    saveToStorage() {
-      try {
-        uni.setStorageSync(STORAGE_KEYS.items, JSON.stringify(this.items))
-      } catch (e) {
-        console.error('保存数据失败', e)
+        console.error('加载分类失败', e)
       }
     },
     choosePublishImage() {
@@ -162,32 +155,47 @@ export default {
         current: src
       })
     },
-    publish() {
+    async publish() {
       if (!this.publishForm.name.trim()) {
         uni.showToast({ title: '请输入名称', icon: 'none' })
         return
       }
-      const newItem = {
-        id: Date.now(),
-        name: this.publishForm.name,
-        desc: this.publishForm.desc,
-        price: this.publishType === 'sell' ? parseFloat(this.publishForm.price) || 0 : 0,
-        type: this.publishType,
-        status: 'online',
-        cat: this.publishForm.cat || 'other',
-        images: this.publishForm.images,
-        userId: 'me',
-        userName: '我',
-        userPhone: this.publishForm.phone,
-        userAva: null,
-        ctime: Date.now()
+      if (!this.publishForm.desc.trim() || this.publishForm.desc.trim().length < 10) {
+        uni.showToast({ title: '描述至少10个字', icon: 'none' })
+        return
       }
-      this.items.unshift(newItem)
-      this.saveToStorage()
-      uni.showToast({ title: '发布成功！', icon: 'success' })
-      setTimeout(() => {
-        uni.navigateBack()
-      }, 1000)
+      if (!this.publishForm.price || Number(this.publishForm.price) <= 0) {
+        uni.showToast({ title: '请输入正确售价', icon: 'none' })
+        return
+      }
+      if (!this.publishForm.images.length) {
+        uni.showToast({ title: '至少上传一张图片', icon: 'none' })
+        return
+      }
+      try {
+        uni.showLoading({ title: '发布中...' })
+        const imageUrls = await Promise.all(this.publishForm.images.map((filePath) => {
+          if (/^https?:\/\//.test(filePath)) return Promise.resolve(filePath)
+          return uploadSecondhandImage(filePath)
+        }))
+        await createSecondhandItem({
+          categoryId: Number(this.publishForm.cat),
+          title: this.publishForm.name.trim(),
+          description: this.publishForm.desc.trim(),
+          images: imageUrls,
+          price: Number(this.publishForm.price),
+          condition: 2,
+          location: '校内自提'
+        })
+        uni.showToast({ title: '发布成功！', icon: 'success' })
+        setTimeout(() => {
+          uni.navigateBack()
+        }, 1000)
+      } catch (error) {
+        console.error('发布失败', error)
+      } finally {
+        uni.hideLoading()
+      }
     }
   }
 }
@@ -208,10 +216,9 @@ export default {
 
 .container {
   width: 100%;
-  max-width: 430px;
   margin: 0 auto;
   box-sizing: border-box;
-  padding: 0 16rpx;
+  padding: 0 48rpx;
   background: #E8F0F8;
   min-height: 100vh;
   position: relative;

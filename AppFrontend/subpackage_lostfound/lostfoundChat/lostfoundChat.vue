@@ -6,14 +6,13 @@
 
         <scroll-view scroll-y class="chat-body" :scroll-into-view="scrollBottom" scroll-with-animation @scroll="onChatScroll">
           <view v-for="m in chatMessages" :key="m.id" :id="'msg-' + m.id">
-            <view v-if="m.type === 'sys'" class="msys">{{ m.content }}</view>
-            <view v-else class="msg" :class="m.type">
+            <view class="msg" :class="m.type">
               <view v-if="m.type === 's'" class="msg-content-s">
                 <view class="msg-bubble-group">
                   <view class="mbub mbub-s">
                     <text>{{ m.content }}</text>
                   </view>
-                  <view class="mtime mtime-s">{{ new Date(m.time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) }}</view>
+                  <view class="mtime mtime-s">{{ formatClock(m.time) }}</view>
                 </view>
                 <view class="mava mava-s">我</view>
               </view>
@@ -23,56 +22,15 @@
                   <view class="mbub mbub-r">
                     <text>{{ m.content }}</text>
                   </view>
-                  <view class="mtime mtime-r">{{ new Date(m.time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) }}</view>
+                  <view class="mtime mtime-r">{{ formatClock(m.time) }}</view>
                 </view>
               </view>
             </view>
           </view>
-
-          <view v-if="exchangeStatus.status === 'none'" class="excard-new">
-            <view class="excard-new-title">想要进一步沟通？</view>
-            <view class="excard-new-desc">交换微信后可以更方便联系</view>
-            <button class="excard-new-btn" @click="reqExchange">申请交换微信</button>
-          </view>
-          <view v-else-if="exchangeStatus.status === 'pending'" class="excard-new">
-            <view class="excard-new-title">等待对方同意</view>
-            <view class="excard-new-desc">对方同意后互相显示微信号</view>
-            <button class="excard-new-btn" disabled>等待中...</button>
-          </view>
-
-          <view
-            v-if="exchangeStatus.status === 'done' && !isNearBottom"
-            class="revealed-new revealed-flow"
-          >
-            <view class="rev-row-new">
-              <view class="rev-ava-new">我</view>
-              <view class="rev-icon-new">⇄</view>
-              <view class="rev-ava-new them">{{ curChat ? curChat.otherName[0] : '' }}</view>
-            </view>
-            <view class="rev-phone-new">{{ curChat ? curChat.otherPhone : 'wx_******' }}</view>
-            <view class="rev-label-new">对方微信号</view>
-          </view>
         </scroll-view>
 
-        <view
-          v-if="exchangeStatus.status === 'done' && isNearBottom"
-          class="revealed-new revealed-fixed"
-        >
-          <view class="rev-row-new">
-            <view class="rev-ava-new">我</view>
-            <view class="rev-icon-new">⇄</view>
-            <view class="rev-ava-new them">{{ curChat ? curChat.otherName[0] : '' }}</view>
-          </view>
-          <view class="rev-phone-new">{{ curChat ? curChat.otherPhone : 'wx_******' }}</view>
-          <view class="rev-label-new">对方微信号</view>
-        </view>
-
         <view class="chat-footer-new">
-          <view class="chat-ex-btn-new" :class="{ 'exchanged': exchangeStatus.status === 'done' }" :disabled="exchangeStatus.status !== 'none'" @click="reqExchange">
-            {{ exchangeStatus.status === 'none' ? '交换微信' : (exchangeStatus.status === 'pending' ? '等待同意...' : '已交换') }}
-          </view>
           <view class="chat-input-bar">
-            <view class="chat-input-icon">🖼️</view>
             <input v-model="messageInput" class="chat-input-new" placeholder="输入消息..." @confirm="sendMsg" />
             <view class="chat-send-btn" @click="sendMsg">
               <text>➤</text>
@@ -86,12 +44,30 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import {
+  createOrGetChatSession,
+  getChatMessages,
+  getChatSessions,
+  sendChatMessage
+} from '@/api/secondhand'
 
-const STORAGE_KEYS = {
-  items: 'items',
-  chats: 'chats',
-  msgs: 'msgs',
-  exStatus: 'exStatus'
+function normalizeSession(item) {
+  return {
+    id: item.sessionId,
+    itemId: item.itemId,
+    otherName: item.otherUsername || item.sellerName || '用户',
+    lastMsg: item.lastMessage || '',
+    lastTime: item.lastTime || ''
+  }
+}
+
+function normalizeMessage(item) {
+  return {
+    id: item.id,
+    type: item.isMine ? 's' : 'r',
+    content: item.content,
+    time: item.createTime || ''
+  }
 }
 
 export default {
@@ -101,8 +77,9 @@ export default {
   data() {
     return {
       itemId: null,
-      curItem: null,
+      sessionId: null,
       curChat: null,
+      messages: [],
       messageInput: '',
       scrollBottom: '',
       isNearBottom: false
@@ -110,77 +87,30 @@ export default {
   },
   computed: {
     chatMessages() {
-      if (!this.curChat) return []
-      const list = this.msgs[this.curChat.id] || []
-      return list
-    },
-    exchangeStatus() {
-      if (!this.curChat) return { status: 'none' }
-      return this.exStatus[this.curChat.id] || { status: 'none' }
+      return this.messages
     }
   },
-  onLoad(options) {
+  async onLoad(options) {
     this.itemId = options.itemId
-    this.initChat()
+    this.sessionId = options.sessionId
+    await this.initChat()
   },
   methods: {
-    initChat() {
+    async initChat() {
       try {
-        const items = uni.getStorageSync(STORAGE_KEYS.items) || []
-        const item = items.find(i => String(i.id) === String(this.itemId))
-        if (!item) {
-          uni.showToast({ title: '商品不存在', icon: 'none' })
-          setTimeout(() => uni.navigateBack(), 1500)
+        if (!this.sessionId && this.itemId) {
+          const sessionRes = await createOrGetChatSession(this.itemId)
+          this.sessionId = sessionRes?.data?.sessionId
+        }
+        if (!this.sessionId) {
+          uni.showToast({ title: '会话不存在', icon: 'none' })
           return
         }
-        this.curItem = item
-
-        const chats = uni.getStorageSync(STORAGE_KEYS.chats) || []
-        let chat = chats.find(c => c.itemId === item.id)
-
-        if (!chat) {
-          const firstMsgId = Date.now()
-          chat = {
-            id: 'c_' + firstMsgId,
-            itemId: item.id,
-            itemName: item.name,
-            otherId: item.userId,
-            otherName: item.userName,
-            otherPhone: item.userPhone,
-            otherAva: item.userAva,
-            lastMsg: '你好',
-            lastTime: firstMsgId,
-            unread: 0
-          }
-          chats.unshift(chat)
-          
-          const msgs = uni.getStorageSync(STORAGE_KEYS.msgs) || {}
-          msgs[chat.id] = [{
-            id: firstMsgId,
-            type: 's',
-            content: '你好',
-            time: firstMsgId
-          }]
-          
-          const exStatus = uni.getStorageSync(STORAGE_KEYS.exStatus) || {}
-          exStatus[chat.id] = { status: 'none' }
-          
-          uni.setStorageSync(STORAGE_KEYS.chats, chats)
-          uni.setStorageSync(STORAGE_KEYS.msgs, msgs)
-          uni.setStorageSync(STORAGE_KEYS.exStatus, exStatus)
-        }
-
-        this.curChat = chat
-        chat.unread = 0
-        uni.setStorageSync(STORAGE_KEYS.chats, chats)
-
-        this.$nextTick(() => {
-          const list = this.msgs[this.curChat.id] || []
-          if (list.length) {
-            this.scrollBottom = 'msg-' + list[list.length - 1].id
-          }
-          this.updateCardPosition()
-        })
+        const sessionListRes = await getChatSessions({ current: 1, size: 100 })
+        const sessions = Array.isArray(sessionListRes?.data?.records) ? sessionListRes.data.records : []
+        const matched = sessions.find((item) => Number(item.sessionId) === Number(this.sessionId))
+        this.curChat = matched ? normalizeSession(matched) : { id: this.sessionId, otherName: '聊天' }
+        await this.loadMessages()
       } catch (e) {
         console.error('初始化聊天失败', e)
       }
@@ -210,116 +140,43 @@ export default {
           })
       })
     },
-    sendMsg() {
-      const c = this.messageInput.trim()
-      if (!c || !this.curChat) return
-
-      const msgId = Date.now()
-      const msgs = uni.getStorageSync(STORAGE_KEYS.msgs) || {}
-      const chats = uni.getStorageSync(STORAGE_KEYS.chats) || []
-
-      if (!msgs[this.curChat.id]) {
-        msgs[this.curChat.id] = []
-      }
-
-      msgs[this.curChat.id].push({
-        id: msgId,
-        type: 's',
-        content: c,
-        time: msgId
-      })
-
-      this.curChat.lastMsg = c
-      this.curChat.lastTime = msgId
-      this.messageInput = ''
-      
-      uni.setStorageSync(STORAGE_KEYS.msgs, msgs)
-      uni.setStorageSync(STORAGE_KEYS.chats, chats)
-      this.scrollBottom = 'msg-' + msgId
-
-      this.$nextTick(() => {
-        this.updateCardPosition()
-      })
-
-      setTimeout(() => {
-        const replyId = Date.now()
-        const msgs2 = uni.getStorageSync(STORAGE_KEYS.msgs) || {}
-        const chats2 = uni.getStorageSync(STORAGE_KEYS.chats) || []
-        
-        if (!msgs2[this.curChat.id]) {
-          msgs2[this.curChat.id] = []
-        }
-
-        msgs2[this.curChat.id].push({
-          id: replyId,
-          type: 'r',
-          content: '在的，可以聊聊～',
-          time: replyId
-        })
-
-        this.curChat.lastMsg = '在的，可以聊聊～'
-        this.curChat.lastTime = replyId
-        
-        uni.setStorageSync(STORAGE_KEYS.msgs, msgs2)
-        uni.setStorageSync(STORAGE_KEYS.chats, chats2)
-        this.scrollBottom = 'msg-' + replyId
-
+    async loadMessages() {
+      try {
+        const res = await getChatMessages(this.sessionId, { current: 1, size: 100 })
+        const records = Array.isArray(res?.data?.records) ? res.data.records : []
+        this.messages = records.map(normalizeMessage)
         this.$nextTick(() => {
+          if (this.messages.length) {
+            this.scrollBottom = `msg-${this.messages[this.messages.length - 1].id}`
+          }
           this.updateCardPosition()
         })
-      }, 1500)
+      } catch (error) {
+        console.error('加载消息失败', error)
+      }
+    },
+    formatClock(value) {
+      if (!value) return ''
+      const date = new Date(value.replace(/-/g, '/'))
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    },
+    async sendMsg() {
+      const c = this.messageInput.trim()
+      if (!c || !this.sessionId) return
+      try {
+        await sendChatMessage({
+          sessionId: Number(this.sessionId),
+          content: c,
+          messageType: 1
+        })
+        this.messageInput = ''
+        await this.loadMessages()
+      } catch (error) {
+        console.error('发送消息失败', error)
+      }
     },
     reqExchange() {
-      if (!this.curChat) return
-      const exStatus = uni.getStorageSync(STORAGE_KEYS.exStatus) || {}
-      const msgs = uni.getStorageSync(STORAGE_KEYS.msgs) || {}
-      
-      if (exStatus[this.curChat.id]?.status !== 'none') return
-
-      exStatus[this.curChat.id] = { status: 'pending' }
-      uni.setStorageSync(STORAGE_KEYS.exStatus, exStatus)
-
-      const sysId1 = Date.now()
-      if (!msgs[this.curChat.id]) {
-        msgs[this.curChat.id] = []
-      }
-      msgs[this.curChat.id].push({
-        id: sysId1,
-        type: 'sys',
-        content: '你申请交换微信',
-        time: sysId1
-      })
-
-      uni.setStorageSync(STORAGE_KEYS.msgs, msgs)
-      this.scrollBottom = 'msg-' + sysId1
-      uni.showToast({ title: '已发送请求', icon: 'none' })
-
-      setTimeout(() => {
-        const exStatus2 = uni.getStorageSync(STORAGE_KEYS.exStatus) || {}
-        const msgs2 = uni.getStorageSync(STORAGE_KEYS.msgs) || {}
-        
-        exStatus2[this.curChat.id] = { status: 'done' }
-        uni.setStorageSync(STORAGE_KEYS.exStatus, exStatus2)
-
-        const sysId2 = Date.now()
-        if (!msgs2[this.curChat.id]) {
-          msgs2[this.curChat.id] = []
-        }
-        msgs2[this.curChat.id].push({
-          id: sysId2,
-          type: 'sys',
-          content: '对方同意交换微信',
-          time: sysId2
-        })
-
-        uni.setStorageSync(STORAGE_KEYS.msgs, msgs2)
-        this.scrollBottom = 'msg-' + sysId2
-        uni.showToast({ title: '已交换微信', icon: 'none' })
-
-        this.$nextTick(() => {
-          this.updateCardPosition()
-        })
-      }, 2500)
+      uni.showToast({ title: '该功能暂未接入后端', icon: 'none' })
     }
   }
 }

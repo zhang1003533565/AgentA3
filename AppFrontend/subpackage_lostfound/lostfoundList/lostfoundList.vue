@@ -357,43 +357,44 @@
 <script>
 import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant.vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-
-const STORAGE_KEYS = {
-  items: 'items',
-  chats: 'chats',
-  msgs: 'msgs',
-  exStatus: 'exStatus'
-}
+import { getSecondhandCategories, getSecondhandItemList } from '@/api/secondhand'
 
 const CATEGORIES = [
-  { key: 'all', label: '全部' },
-  { key: 'digital', label: '数码' },
-  { key: 'book', label: '教材图书' },
-  { key: 'daily', label: '生活日用' },
-  { key: 'other', label: '其他' }
+  { key: 'all', label: '全部' }
 ]
 
 const TYPE_TABS = [
   { value: 'all', label: '全部' },
-  { value: 'sell', label: '出售' },
-  { value: 'want', label: '求物' }
+  { value: 'sell', label: '出售' }
 ]
 
 const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
 
-function defaultItems() {
-  return [
-    { id: 1, name: 'iPhone 12 Pro 256G', desc: '用了两年，一直带壳贴膜，保护得很好。电池健康度85%，功能全部正常。', price: 2800, type: 'sell', status: 'online', cat: 'digital', images: [], userId: 'u1', userName: '小明', userPhone: 'wx_xiaoming2024', userAva: null, ctime: Date.now() - 7200000 },
-    { id: 2, name: '《高等数学》同济第七版', desc: '上下册全套，有笔记但很整洁，考研必备。', price: 35, type: 'sell', status: 'online', cat: 'book', images: [], userId: 'me', userName: '我', userPhone: 'wx_mine_123', userAva: null, ctime: Date.now() - 172800000 },
-    { id: 3, name: '求：二手自行车', desc: '校内代步用，能骑就行，预算200以内。', price: 200, type: 'want', status: 'online', cat: 'other', images: [], userId: 'u3', userName: '大一新生', userPhone: 'wx_freshman', userAva: null, ctime: Date.now() - 1800000 },
-    { id: 4, name: '求：考研英语资料', desc: '需要26考研英语一全套资料，真题+解析。', price: 100, type: 'want', status: 'online', cat: 'book', images: [], userId: 'me', userName: '我', userPhone: 'wx_mine_123', userAva: null, ctime: Date.now() - 3600000 },
-    { id: 5, name: '求：宿舍床上桌', desc: '考研需要，求一个稳固的床上桌，可自提。', price: 50, type: 'want', status: 'online', cat: 'other', images: [], userId: 'u5', userName: '躺平选手', userPhone: 'wx_tangping', userAva: null, ctime: Date.now() - 5400000 },
-    { id: 6, name: '机械键盘 Cherry轴', desc: 'Cherry MX Red轴，87键，RGB背光，用了半年。', price: 320, type: 'sell', status: 'online', cat: 'digital', images: [], userId: 'u6', userName: '键盘侠', userPhone: 'wx_keyboard', userAva: null, ctime: Date.now() - 86400000 },
-    { id: 7, name: '求：四级英语真题', desc: '需要近几年四级真题，带听力音频的。', price: 30, type: 'want', status: 'online', cat: 'book', images: [], userId: 'u7', userName: '四六级战士', userPhone: 'wx_cet4', userAva: null, ctime: Date.now() - 10800000 },
-    { id: 8, name: '小米台灯1S', desc: '护眼台灯，三档调光，宿舍神器。', price: 65, type: 'sell', status: 'online', cat: 'digital', images: [], userId: 'u8', userName: '毕业清仓', userPhone: 'wx_grad2024', userAva: null, ctime: Date.now() - 14400000 },
-    { id: 9, name: '求：健身卡转让', desc: '校内健身房月卡，还剩20天，价格好商量。', price: 80, type: 'want', status: 'online', cat: 'other', images: [], userId: 'u9', userName: '运动达人', userPhone: 'wx_fitness', userAva: null, ctime: Date.now() - 21600000 },
-    { id: 10, name: '《计算机网络》谢希仁', desc: '第七版，有少量笔记，不影响阅读。', price: 25, type: 'sell', status: 'online', cat: 'book', images: [], userId: 'u10', userName: '学霸笔记', userPhone: 'wx_study', userAva: null, ctime: Date.now() - 28800000 }
-  ]
+function formatTimestamp(value) {
+  if (!value) return ''
+  return value.replace('T', ' ')
+}
+
+function normalizeItem(item) {
+  return {
+    id: item.id,
+    name: item.title,
+    desc: item.description || '',
+    price: item.price,
+    type: 'sell',
+    status: item.status === 2 ? 'online' : item.status === 4 ? 'offline' : 'sold',
+    cat: String(item.categoryId || 'other'),
+    images: Array.isArray(item.images) ? item.images : [],
+    userId: item.userId,
+    userName: item.seller?.username || '用户',
+    userPhone: item.seller?.phone || '',
+    userAva: item.seller?.avatar || '',
+    ctime: formatTimestamp(item.createTime),
+    rawStatus: item.status,
+    categoryName: item.categoryName || '',
+    conditionText: item.conditionText || '',
+    location: item.location || ''
+  }
 }
 
 export default {
@@ -410,9 +411,6 @@ export default {
       currentType: 'all',
       searchKeyword: '',
       items: [],
-      chats: [],
-      msgs: {},
-      exStatus: {},
       curItem: {},
       imgIdx: 0,
       curChat: null,
@@ -428,7 +426,8 @@ export default {
         phone: '',
         images: []
       },
-      isNearBottom: false
+      isNearBottom: false,
+      pageLoading: false
     }
   },
   computed: {
@@ -436,33 +435,50 @@ export default {
       const keyword = this.searchKeyword.trim().toLowerCase()
       return this.items.filter(item => {
         if (item.status !== 'online') return false
-        if (this.currentCat !== 'all' && item.cat !== this.currentCat) return false
+        if (this.currentCat !== 'all' && String(item.cat) !== String(this.currentCat)) return false
         if (this.currentType !== 'all' && item.type !== this.currentType) return false
         if (!keyword) return true
         return item.name.toLowerCase().includes(keyword) || item.desc.toLowerCase().includes(keyword)
       })
     },
-    myItems() {
-      return this.items.filter(item => item.userId === 'me')
-    },
-    chatMessages() {
-      if (!this.curChat) return []
-      const list = this.msgs[this.curChat.id] || []
-      return list
-    },
     exchangeStatus() {
-      if (!this.curChat) return { status: 'none' }
-      return this.exStatus[this.curChat.id] || { status: 'none' }
+      return { status: 'none' }
     }
   },
-  onLoad() {
-    this.loadFromStorage()
-    if (this.items.length === 0) {
-      this.items = defaultItems()
-      this.saveToStorage()
-    }
+  async onLoad() {
+    await Promise.all([this.loadCategories(), this.loadItems()])
+  },
+  async onShow() {
+    await this.loadItems()
   },
   methods: {
+    async loadCategories() {
+      try {
+        const res = await getSecondhandCategories()
+        const records = Array.isArray(res?.data) ? res.data : []
+        this.categories = [
+          { key: 'all', label: '全部' },
+          ...records.map((item) => ({
+            key: String(item.id),
+            label: item.categoryName
+          }))
+        ]
+      } catch (error) {
+        console.error('加载分类失败', error)
+      }
+    },
+    async loadItems() {
+      try {
+        this.pageLoading = true
+        const res = await getSecondhandItemList({ current: 1, size: 100, sort: 'latest' })
+        const records = Array.isArray(res?.data?.records) ? res.data.records : []
+        this.items = records.map(normalizeItem)
+      } catch (error) {
+        console.error('加载集市列表失败', error)
+      } finally {
+        this.pageLoading = false
+      }
+    },
     onChatScroll(e) {
       const { scrollTop, scrollHeight, clientHeight } = e.detail
       const distanceToBottom = scrollHeight - scrollTop - clientHeight
@@ -520,32 +536,13 @@ export default {
     },
     fmt(ts) {
       if (!ts) return ''
-      const diff = Date.now() - ts
+      const time = typeof ts === 'string' ? new Date(ts.replace(/-/g, '/')).getTime() : ts
+      const diff = Date.now() - time
       if (diff < 60000) return '刚刚'
       if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
       if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
-      const d = new Date(ts)
+      const d = new Date(time)
       return `${d.getMonth() + 1}/${d.getDate()}`
-    },
-    loadFromStorage() {
-      try {
-        this.items = uni.getStorageSync(STORAGE_KEYS.items) || []
-        this.chats = uni.getStorageSync(STORAGE_KEYS.chats) || []
-        this.msgs = uni.getStorageSync(STORAGE_KEYS.msgs) || {}
-        this.exStatus = uni.getStorageSync(STORAGE_KEYS.exStatus) || {}
-      } catch (e) {
-        console.error('加载数据失败', e)
-      }
-    },
-    saveToStorage() {
-      try {
-        uni.setStorageSync(STORAGE_KEYS.items, this.items)
-        uni.setStorageSync(STORAGE_KEYS.chats, this.chats)
-        uni.setStorageSync(STORAGE_KEYS.msgs, this.msgs)
-        uni.setStorageSync(STORAGE_KEYS.exStatus, this.exStatus)
-      } catch (e) {
-        console.error('保存数据失败', e)
-      }
     },
     go(page) {
       const pageMap = {
@@ -578,186 +575,21 @@ export default {
         url: `/subpackage_lostfound/lostfoundDetail/lostfoundDetail?id=${id}`
       })
     },
-    publish() {
-      if (!this.publishForm.name.trim()) {
-        this.showToast('请输入名称')
-        return
-      }
-      const newItem = {
-        id: Date.now(),
-        name: this.publishForm.name,
-        desc: this.publishForm.desc,
-        price: this.publishType === 'sell' ? parseFloat(this.publishForm.price) || 0 : 0,
-        type: this.publishType,
-        status: 'online',
-        cat: this.publishForm.cat || 'other',
-        images: this.publishForm.images,
-        userId: 'me',
-        userName: '我',
-        userPhone: this.publishForm.phone,
-        userAva: null,
-        ctime: Date.now()
-      }
-      this.items.unshift(newItem)
-      this.saveToStorage()
-      this.showToast('发布成功！')
-      // 清空表单
-      this.publishForm = {
-        name: '',
-        price: '',
-        desc: '',
-        cat: '',
-        phone: '',
-        images: []
-      }
-      setTimeout(() => this.go('pgList'), 800)
-    },
+    publish() {},
     openChat() {
-      if (!this.curItem) return
-      let c = this.chats.find(x => x.itemId === this.curItem.id)
-
-      if (!c) {
-        const firstMsgId = Date.now()
-        c = {
-          id: 'c_' + firstMsgId,
-          itemId: this.curItem.id,
-          itemName: this.curItem.name,
-          otherId: this.curItem.userId,
-          otherName: this.curItem.userName,
-          otherPhone: this.curItem.userPhone,
-          otherAva: this.curItem.userAva,
-          lastMsg: '你好',
-          lastTime: firstMsgId,
-          unread: 0
-        }
-
-        this.chats.unshift(c)
-        this.msgs[c.id] = [{
-          id: firstMsgId,
-          type: 's',
-          content: '你好',
-          time: firstMsgId
-        }]
-        this.exStatus[c.id] = { status: 'none' }
-        this.saveToStorage()
-      }
-
-      this.curChat = c
-      this.go('pgChat')
-
-      this.$nextTick(() => {
-        const list = this.msgs[this.curChat.id] || []
-        if (list.length) {
-          this.scrollBottom = 'msg-' + list[list.length - 1].id
-        }
-        this.updateCardPosition()
+      if (!this.curItem?.id) return
+      uni.navigateTo({
+        url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?itemId=${this.curItem.id}`
       })
     },
-    sendMsg() {
-      const c = this.messageInput.trim()
-      if (!c || !this.curChat) return
-
-      const msgId = Date.now()
-
-      this.msgs[this.curChat.id].push({
-        id: msgId,
-        type: 's',
-        content: c,
-        time: msgId
-      })
-
-      this.curChat.lastMsg = c
-      this.curChat.lastTime = msgId
-      this.messageInput = ''
-      this.saveToStorage()
-      this.scrollBottom = 'msg-' + msgId
-
-      this.$nextTick(() => {
-        this.updateCardPosition()
-      })
-
-      setTimeout(() => {
-        const replyId = Date.now()
-
-        this.msgs[this.curChat.id].push({
-          id: replyId,
-          type: 'r',
-          content: '在的，可以聊聊～',
-          time: replyId
-        })
-
-        this.curChat.lastMsg = '在的，可以聊聊～'
-        this.curChat.lastTime = replyId
-        this.saveToStorage()
-        this.scrollBottom = 'msg-' + replyId
-
-        this.$nextTick(() => {
-          this.updateCardPosition()
-        })
-      }, 1500)
-    },
+    sendMsg() {},
     reqExchange() {
-      if (!this.curChat) return
-      const ex = this.exStatus[this.curChat.id] || { status: 'none' }
-      if (ex.status !== 'none') return
-
-      ex.status = 'pending'
-      this.exStatus[this.curChat.id] = ex
-
-      const sysId1 = Date.now()
-      this.msgs[this.curChat.id].push({
-        id: sysId1,
-        type: 'sys',
-        content: '你申请交换微信',
-        time: sysId1
-      })
-
-      this.saveToStorage()
-      this.scrollBottom = 'msg-' + sysId1
-      this.showToast('已发送请求')
-
-      setTimeout(() => {
-        ex.status = 'done'
-        this.exStatus[this.curChat.id] = ex
-
-        const sysId2 = Date.now()
-        this.msgs[this.curChat.id].push({
-          id: sysId2,
-          type: 'sys',
-          content: '对方同意交换微信',
-          time: sysId2
-        })
-
-        this.saveToStorage()
-        this.scrollBottom = 'msg-' + sysId2
-        this.showToast('已交换微信')
-
-        this.$nextTick(() => {
-          this.updateCardPosition()
-        })
-      }, 2500)
+      uni.showToast({ title: '暂未开放微信交换', icon: 'none' })
     },
-    toggleStatus(id) {
-      const item = this.items.find(i => i.id === id)
-      if (item) {
-        item.status = item.status === 'online' ? 'offline' : 'online'
-        this.saveToStorage()
-        this.showToast(item.status === 'online' ? '已上架' : '已下架')
-      }
-    },
+    toggleStatus() {},
     openChatFromList(id) {
-      this.curChat = this.chats.find(c => c.id === id)
-      if (!this.curChat) return
-      this.curChat.unread = 0
-      this.saveToStorage()
-      this.go('pgChat')
-
-      this.$nextTick(() => {
-        const list = this.msgs[this.curChat.id] || []
-        if (list.length) {
-          this.scrollBottom = 'msg-' + list[list.length - 1].id
-        }
-        this.updateCardPosition()
+      uni.navigateTo({
+        url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?sessionId=${id}`
       })
     },
     previewImg(src) {

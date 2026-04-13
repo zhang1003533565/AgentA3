@@ -9,6 +9,109 @@ import '../ActivityManage/ActivityManage.css'
 import { parseImageList, toBackendDateTime, toDateTimeInput } from '../activityHelpers'
 
 const { TextArea } = Input
+const MAX_UPLOAD_BYTES = 4.5 * 1024 * 1024
+const MAX_IMAGE_EDGE = 1600
+
+const parseUploadResponse = (response) => {
+  if (!response) return null
+  if (typeof response === 'string') {
+    try {
+      return JSON.parse(response)
+    } catch (error) {
+      return null
+    }
+  }
+  return response
+}
+
+const readFileAsDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+
+const loadImageElement = (src) =>
+  new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = src
+  })
+
+const canvasToBlob = (canvas, type, quality) =>
+  new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob)
+        return
+      }
+      reject(new Error('图片压缩失败'))
+    }, type, quality)
+  })
+
+const compressImageFile = async (file) => {
+  if (!(file instanceof File)) return file
+  if (file.size <= MAX_UPLOAD_BYTES) return file
+
+  const lowerName = (file.name || '').toLowerCase()
+  const isGif = lowerName.endsWith('.gif') || file.type === 'image/gif'
+  if (isGif) {
+    throw new Error('GIF 图片过大，请先压缩后再上传')
+  }
+
+  const dataUrl = await readFileAsDataUrl(file)
+  const image = await loadImageElement(dataUrl)
+  const ratio = Math.min(1, MAX_IMAGE_EDGE / Math.max(image.width, image.height))
+  const width = Math.max(1, Math.round(image.width * ratio))
+  const height = Math.max(1, Math.round(image.height * ratio))
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d')
+  context.drawImage(image, 0, 0, width, height)
+
+  const outputType = file.type === 'image/png' ? 'image/png' : 'image/jpeg'
+  const qualitySteps = outputType === 'image/png' ? [0.92] : [0.9, 0.82, 0.74, 0.66, 0.58, 0.5]
+
+  let compressedBlob = null
+  for (const quality of qualitySteps) {
+    const blob = await canvasToBlob(canvas, outputType, quality)
+    compressedBlob = blob
+    if (blob.size <= MAX_UPLOAD_BYTES) break
+  }
+
+  if (!compressedBlob) {
+    throw new Error('图片压缩失败')
+  }
+
+  const extension = outputType === 'image/png' ? '.png' : '.jpg'
+  const filename = lowerName.replace(/\.[^.]+$/, '') || 'upload-image'
+  return new File([compressedBlob], `${filename}${extension}`, { type: outputType })
+}
+
+const uploadImageFile = async ({ file, onSuccess, onError }) => {
+  try {
+    const compressedFile = await compressImageFile(file)
+    const formData = new FormData()
+    formData.append('file', compressedFile)
+    const response = await fetch(getUploadUrl(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+      },
+      body: formData,
+    })
+    const result = await response.json()
+    if (!response.ok || result?.code !== 200) {
+      throw new Error(result?.msg || '上传失败')
+    }
+    onSuccess(result)
+  } catch (error) {
+    onError(error)
+  }
+}
 
 function ActivityEditor() {
   const navigate = useNavigate()
@@ -21,6 +124,7 @@ function ActivityEditor() {
   const [uploading, setUploading] = useState(false)
   const [imageUploading, setImageUploading] = useState(false)
   const [galleryImages, setGalleryImages] = useState([])
+  const coverImageValue = Form.useWatch('coverImage', form)
 
   useEffect(() => {
     const run = async () => {
@@ -95,6 +199,59 @@ function ActivityEditor() {
     }
   }
 
+  const handleCoverUploadChange = ({ file }) => {
+    if (file.status === 'uploading') {
+      setUploading(true)
+      return
+    }
+    if (file.status === 'done') {
+      setUploading(false)
+      const response = parseUploadResponse(file.response)
+      const url = response?.data?.url
+      if (response?.code === 200 && url) {
+        form.setFieldsValue({ coverImage: url })
+        message.success('图片上传成功')
+      } else {
+        message.error(response?.msg || '上传返回内容异常')
+      }
+      return
+    }
+    if (file.status === 'error') {
+      setUploading(false)
+      message.error(file.error?.message || '图片上传失败')
+    }
+  }
+
+  const handleGalleryUploadChange = ({ file }) => {
+    if (file.status === 'uploading') {
+      setImageUploading(true)
+      return
+    }
+    if (file.status === 'done') {
+      setImageUploading(false)
+      const response = parseUploadResponse(file.response)
+      const url = response?.data?.url
+      if (response?.code === 200 && url) {
+        setGalleryImages((prev) => {
+          const next = [...prev, url]
+          form.setFieldValue('images', next)
+          if (!form.getFieldValue('coverImage')) {
+            form.setFieldValue('coverImage', url)
+          }
+          return next
+        })
+        message.success('活动图片上传成功')
+      } else {
+        message.error(response?.msg || '上传返回内容异常')
+      }
+      return
+    }
+    if (file.status === 'error') {
+      setImageUploading(false)
+      message.error(file.error?.message || '活动图片上传失败')
+    }
+  }
+
   return (
     <div className="activity-manage-container">
       <main className="manage-main">
@@ -114,31 +271,9 @@ function ActivityEditor() {
 
             <Upload
               name="file"
-              action={getUploadUrl()}
-              headers={{
-                Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
-              }}
               showUploadList={false}
-              onChange={({ file }) => {
-                if (file.status === 'uploading') {
-                  setUploading(true)
-                  return
-                }
-                if (file.status === 'done') {
-                  setUploading(false)
-                  const url = file.response?.data?.url
-                  if (url) {
-                    form.setFieldValue('coverImage', url)
-                    message.success('图片上传成功')
-                  } else {
-                    message.error('上传返回内容异常')
-                  }
-                }
-                if (file.status === 'error') {
-                  setUploading(false)
-                  message.error('图片上传失败')
-                }
-              }}
+              customRequest={uploadImageFile}
+              onChange={handleCoverUploadChange}
             >
               <Button icon={<UploadOutlined />} loading={uploading} style={{ marginBottom: 16 }}>
                 上传封面图片
@@ -147,10 +282,10 @@ function ActivityEditor() {
 
             <Form.Item shouldUpdate noStyle>
               {() =>
-                form.getFieldValue('coverImage') ? (
+                coverImageValue ? (
                   <div style={{ marginBottom: 24 }}>
                     <img
-                      src={form.getFieldValue('coverImage')}
+                      src={coverImageValue}
                       alt="活动封面"
                       style={{ width: 240, height: 140, objectFit: 'cover', borderRadius: 12, border: '1px solid #e5e7eb' }}
                     />
@@ -162,38 +297,9 @@ function ActivityEditor() {
             <Form.Item label="活动图片">
               <Upload
                 name="file"
-                action={getUploadUrl()}
-                headers={{
-                  Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
-                }}
                 showUploadList={false}
-                onChange={({ file }) => {
-                  if (file.status === 'uploading') {
-                    setImageUploading(true)
-                    return
-                  }
-                  if (file.status === 'done') {
-                    setImageUploading(false)
-                    const url = file.response?.data?.url
-                    if (url) {
-                      setGalleryImages((prev) => {
-                        const next = [...prev, url]
-                        form.setFieldValue('images', next)
-                        if (!form.getFieldValue('coverImage')) {
-                          form.setFieldValue('coverImage', url)
-                        }
-                        return next
-                      })
-                      message.success('活动图片上传成功')
-                    } else {
-                      message.error('上传返回内容异常')
-                    }
-                  }
-                  if (file.status === 'error') {
-                    setImageUploading(false)
-                    message.error('活动图片上传失败')
-                  }
-                }}
+                customRequest={uploadImageFile}
+                onChange={handleGalleryUploadChange}
               >
                 <Button icon={<UploadOutlined />} loading={imageUploading} style={{ marginBottom: 16 }}>
                   上传活动图片

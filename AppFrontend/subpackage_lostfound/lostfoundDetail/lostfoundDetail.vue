@@ -39,15 +39,28 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-
-const STORAGE_KEYS = {
-  items: 'items',
-  chats: 'chats',
-  msgs: 'msgs',
-  exStatus: 'exStatus'
-}
+import { getSecondhandItemDetail } from '@/api/secondhand'
 
 const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
+
+function formatTimestamp(value) {
+  if (!value) return ''
+  return value.replace('T', ' ')
+}
+
+function normalizeItem(item) {
+  return {
+    id: item.id,
+    name: item.title,
+    desc: item.description || '',
+    price: item.price,
+    type: 'sell',
+    images: Array.isArray(item.images) ? item.images : [],
+    userName: item.seller?.username || '用户',
+    userAva: item.seller?.avatar || '',
+    ctime: formatTimestamp(item.createTime)
+  }
+}
 
 export default {
   components: {
@@ -60,23 +73,19 @@ export default {
       imgIdx: 0
     }
   },
-  onLoad(options) {
+  async onLoad(options) {
     this.itemId = options.id
-    this.loadItem()
+    await this.loadItem()
   },
   methods: {
-    loadItem() {
+    async loadItem() {
       try {
-        const items = uni.getStorageSync(STORAGE_KEYS.items) || []
-        const item = items.find(i => String(i.id) === String(this.itemId))
-        if (item) {
-          this.curItem = item
-        } else {
-          uni.showToast({ title: '商品不存在', icon: 'none' })
-          setTimeout(() => uni.navigateBack(), 1500)
-        }
+        const res = await getSecondhandItemDetail(this.itemId)
+        this.curItem = normalizeItem(res?.data || {})
       } catch (e) {
         console.error('加载数据失败', e)
+        uni.showToast({ title: '商品不存在', icon: 'none' })
+        setTimeout(() => uni.navigateBack(), 1500)
       }
     },
     emoji(id) {
@@ -84,11 +93,12 @@ export default {
     },
     fmt(ts) {
       if (!ts) return ''
-      const diff = Date.now() - ts
+      const time = typeof ts === 'string' ? new Date(ts.replace(/-/g, '/')).getTime() : ts
+      const diff = Date.now() - time
       if (diff < 60000) return '刚刚'
       if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
       if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
-      const d = new Date(ts)
+      const d = new Date(time)
       return `${d.getMonth() + 1}/${d.getDate()}`
     },
     openChat() {
