@@ -159,6 +159,11 @@
 
 		<view
 			class="ai-assistant-fab"
+			:class="{
+				'ai-assistant-fab--collapsed': fabCollapsed,
+				'ai-assistant-fab--left': fabDockSide === 'left',
+				'ai-assistant-fab--right': fabDockSide === 'right'
+			}"
 			:style="fabStyle"
 			@tap.stop="handleFabTap"
 			@touchstart.stop="onTouchStart"
@@ -190,8 +195,14 @@ export default {
 			screenWidth: 375,
 			screenHeight: 667,
 			fabSize: 56,
+			fabBottomSpacing: 110,
+			defaultFabLeft: 0,
+			defaultFabTop: 0,
 			fabLeft: 0,
 			fabTop: 0,
+			fabCollapsed: false,
+			fabDockSide: 'right',
+			collapseTimer: null,
 			dragging: false,
 			dragMoved: false,
 			dragStartX: 0,
@@ -248,11 +259,14 @@ export default {
 	},
 	mounted() {
 		this.initFloatingPosition()
+		this.scheduleFabCollapse()
 	},
 	beforeDestroy() {
+		this.clearFabCollapseTimer()
 		this.removeMouseListeners()
 	},
 	beforeUnmount() {
+		this.clearFabCollapseTimer()
 		this.removeMouseListeners()
 	},
 	methods: {
@@ -261,8 +275,15 @@ export default {
 			this.screenWidth = systemInfo.windowWidth || 375
 			this.screenHeight = systemInfo.windowHeight || 667
 			this.fabSize = 56
-			this.fabLeft = Math.max(12, this.screenWidth - this.fabSize - 16)
-			this.fabTop = Math.max(120, this.screenHeight - this.fabSize - 190)
+			const safeAreaBottomInset = systemInfo.safeArea
+				? Math.max(0, this.screenHeight - systemInfo.safeArea.bottom)
+				: 0
+			this.fabBottomSpacing = Math.max(140, safeAreaBottomInset + 112)
+			this.defaultFabLeft = Math.max(12, this.screenWidth - this.fabSize - 16)
+			this.defaultFabTop = Math.max(120, this.screenHeight - this.fabSize - this.fabBottomSpacing)
+			this.fabLeft = this.defaultFabLeft
+			this.fabTop = this.defaultFabTop
+			this.updateFabDockSide()
 		},
 		ensureSessionId() {
 			const saved = uni.getStorageSync(STORAGE_KEY)
@@ -277,13 +298,22 @@ export default {
 			return `app-ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 		},
 		togglePanel() {
+			this.resetFabPosition()
 			this.panelVisible = !this.panelVisible
+			this.fabCollapsed = false
+			if (this.panelVisible) {
+				this.clearFabCollapseTimer()
+			} else {
+				this.scheduleFabCollapse()
+			}
 			this.$nextTick(() => {
 				this.scrollToBottom()
 			})
 		},
 		closePanel() {
+			this.resetFabPosition()
 			this.panelVisible = false
+			this.scheduleFabCollapse()
 		},
 		resetSession() {
 			this.sessionId = this.createSessionId()
@@ -488,6 +518,8 @@ export default {
 			return { x: 0, y: 0 }
 		},
 		startDrag(x, y) {
+			this.clearFabCollapseTimer()
+			this.fabCollapsed = false
 			this.dragging = true
 			this.dragMoved = false
 			this.dragStartX = x
@@ -505,7 +537,8 @@ export default {
 				this.dragMoved = true
 			}
 			this.fabLeft = this.clamp(this.originLeft + deltaX, 12, this.screenWidth - this.fabSize - 12)
-			this.fabTop = this.clamp(this.originTop + deltaY, 80, this.screenHeight - this.fabSize - 90)
+			this.fabTop = this.clamp(this.originTop + deltaY, 80, this.screenHeight - this.fabSize - this.fabBottomSpacing)
+			this.updateFabDockSide()
 		},
 		endDrag() {
 			if (!this.dragging) {
@@ -513,6 +546,13 @@ export default {
 			}
 			if (this.dragMoved) {
 				this.suppressNextTap = true
+				const edgeLeft = 12
+				const edgeRight = this.screenWidth - this.fabSize - 12
+				this.fabLeft = this.fabLeft + this.fabSize / 2 < this.screenWidth / 2 ? edgeLeft : edgeRight
+				this.updateFabDockSide()
+				if (!this.panelVisible) {
+					this.scheduleFabCollapse()
+				}
 			}
 			this.dragging = false
 			this.dragMoved = false
@@ -520,6 +560,11 @@ export default {
 		handleFabTap() {
 			if (this.suppressNextTap) {
 				this.suppressNextTap = false
+				return
+			}
+			if (this.fabCollapsed) {
+				this.fabCollapsed = false
+				this.scheduleFabCollapse()
 				return
 			}
 			this.togglePanel()
@@ -560,6 +605,31 @@ export default {
 			}
 			document.removeEventListener('mousemove', this.onMouseMove)
 			document.removeEventListener('mouseup', this.onMouseUp)
+		},
+		clearFabCollapseTimer() {
+			if (!this.collapseTimer) {
+				return
+			}
+			clearTimeout(this.collapseTimer)
+			this.collapseTimer = null
+		},
+		scheduleFabCollapse() {
+			this.clearFabCollapseTimer()
+			if (this.panelVisible || this.dragging) {
+				return
+			}
+			this.collapseTimer = setTimeout(() => {
+				this.fabCollapsed = true
+				this.collapseTimer = null
+			}, 1800)
+		},
+		updateFabDockSide() {
+			this.fabDockSide = this.fabLeft + this.fabSize / 2 < this.screenWidth / 2 ? 'left' : 'right'
+		},
+		resetFabPosition() {
+			this.fabLeft = this.defaultFabLeft
+			this.fabTop = this.defaultFabTop
+			this.updateFabDockSide()
 		},
 		clamp(value, min, max) {
 			return Math.min(Math.max(value, min), max)
@@ -672,6 +742,24 @@ export default {
 	align-items: center;
 	justify-content: center;
 	cursor: pointer;
+	transition: transform 0.22s ease, opacity 0.22s ease;
+}
+
+.ai-assistant-fab--collapsed.ai-assistant-fab--right {
+	transform: translateX(52rpx);
+}
+
+.ai-assistant-fab--collapsed.ai-assistant-fab--left {
+	transform: translateX(-52rpx);
+}
+
+.ai-assistant-fab--collapsed .ai-assistant-fab__halo {
+	opacity: 0.9;
+	box-shadow: 0 14rpx 30rpx rgba(52, 120, 246, 0.2);
+}
+
+.ai-assistant-fab--collapsed .ai-assistant-fab__core {
+	background: rgba(255, 255, 255, 0.22);
 }
 
 .ai-assistant-fab__halo {
