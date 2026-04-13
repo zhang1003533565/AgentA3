@@ -15,6 +15,14 @@ export function getFacilityList(params = {}) {
   })
 }
 
+export function getMarkerList(params = {}) {
+  return request({
+    url: '/api/v1/map/marker/list',
+    method: 'GET',
+    params,
+  })
+}
+
 export function getNavigationRoute(params = {}) {
   return request({
     url: '/api/v1/map/navigation/route',

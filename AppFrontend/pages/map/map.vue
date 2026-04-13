@@ -130,7 +130,7 @@
 </template>
 
 <script>
-import { getFacilityList, getMapConfig, getNavigationRoute } from '@/api/map'
+import { getMarkerList, getMapConfig, getNavigationRoute } from '@/api/map'
 
 export default {
   data() {
@@ -239,14 +239,14 @@ export default {
     },
     async loadMapData() {
       try {
-        const [configRes, facilityRes] = await Promise.all([
+        const [configRes, markerRes] = await Promise.all([
           getMapConfig(),
-          getFacilityList({ pageSize: 100 })
+          getMarkerList({ pageSize: 100 })
         ])
         this.controlPoints = Array.isArray(configRes?.data?.controlPoints) ? configRes.data.controlPoints : []
-        const records = facilityRes?.data?.records || []
+        const records = markerRes?.data?.records || []
         this.locationList = records
-          .map((item) => this.toLocationItem(item))
+          .map((item) => this.toMarkerItem(item))
           .filter(Boolean)
         this.fetchCurrentLocation()
         this.syncNearestLocation()
@@ -343,6 +343,49 @@ export default {
         longitude,
         latitude,
       }
+    },
+    toMarkerItem(item) {
+      const longitude = item.longitude != null ? Number(item.longitude) : null
+      const latitude = item.latitude != null ? Number(item.latitude) : null
+      const imageX = item.imageX != null ? Number(item.imageX) : null
+      const imageY = item.imageY != null ? Number(item.imageY) : null
+      if (imageX == null || imageY == null) return null
+      const typeClass = this.getTypeClass(item.facilityType, item.markerName)
+      const icon = this.getFacilityIcon(item.facilityType, item.markerName)
+      const route = this.getMarkerRoute(item)
+      const top = `${(imageY * 100).toFixed(2)}%`
+      const left = `${(imageX * 100).toFixed(2)}%`
+      return {
+        id: item.id,
+        name: item.markerName,
+        shortName: this.getShortName(item.markerName),
+        icon,
+        category: item.facilityType === 1 ? 3 : item.facilityType === 2 ? 5 : item.facilityType === 3 ? 1 : 4,
+        typeClass,
+        distance: this.formatDistance(longitude, latitude),
+        detail: item.location || this.getTypeLabel(item.facilityType),
+        description: item.description || '暂无简介',
+        top,
+        left,
+        route,
+        longitude,
+        latitude,
+      }
+    },
+    getMarkerRoute(item) {
+      if (item.facilityType === 1) {
+        return `/subpackage_facility/restaurantDetail/restaurantDetail?id=${item.facilityId}`
+      }
+      if (item.facilityType === 2) {
+        return `/subpackage_sports/sportsDetail/sportsDetail?id=${item.facilityId}`
+      }
+      if (item.facilityType === 3) {
+        return `/subpackage_teaching/buildingDetail/buildingDetail?id=${item.facilityId}`
+      }
+      if (item.facilityType === 4) {
+        return `/subpackage_dormitory/dormitoryDetail/dormitoryDetail?id=${item.facilityId}`
+      }
+      return ''
     },
     getTypeClass(type, name) {
       if (name && name.includes('图书馆')) return 'library'
