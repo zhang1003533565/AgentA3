@@ -574,12 +574,9 @@ export default {
       })
     },
     showDetail(id) {
-      const item = this.items.find(i => i.id === id)
-      if (item) {
-        this.curItem = item
-        this.imgIdx = 0
-        this.go('pgDetail')
-      }
+      uni.navigateTo({
+        url: `/subpackage_lostfound/lostfoundDetail/lostfoundDetail?id=${id}`
+      })
     },
     publish() {
       if (!this.publishForm.name.trim()) {

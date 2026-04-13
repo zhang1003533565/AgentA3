@@ -216,7 +216,7 @@
 				{
 					"path": "lostfoundList/lostfoundList",
 					"style": {
-						"navigationBarTitleText": "失物招领",
+						"navigationBarTitleText": "校园集市",
 						"navigationStyle": "custom",
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
@@ -225,7 +225,16 @@
 				{
 					"path": "lostfoundDetail/lostfoundDetail",
 					"style": {
-						"navigationBarTitleText": "信息详情",
+						"navigationBarTitleText": "详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "lostfoundChat/lostfoundChat",
+					"style": {
+						"navigationBarTitleText": "聊天",
 						"navigationStyle": "custom",
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"

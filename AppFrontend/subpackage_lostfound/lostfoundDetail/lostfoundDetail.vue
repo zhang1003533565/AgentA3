@@ -1,240 +1,260 @@
 <template>
-	<view class="lostfound-detail-container">
-		<nav-bar title="信息详情" fixed placeholder />
-		
-		<view class="detail-content">
-			<image :src="item.image" mode="aspectFill" class="detail-img" />
-			
-			<view class="article-header">
-				<text class="article-title">{{ item.title }}</text>
-				<view class="article-meta">
-					<text class="article-type" :class="item.type">{{ item.type === 'lost' ? '寻物启事' : '招领信息' }}</text>
-					<text class="article-time">{{ item.date }} 发布</text>
-				</view>
-			</view>
-			
-			<view class="article-body">
-				<view class="info-group block-white">
-					<view class="info-item">
-						<text class="label">地点</text>
-						<text class="value">{{ item.location }}</text>
-					</view>
-					<view class="info-item">
-						<text class="label">联系人</text>
-						<text class="value">{{ item.contactName }}</text>
-					</view>
-				</view>
-				
-				<view class="description-section">
-					<text class="section-title">详细描述</text>
-					<text class="article-text">{{ item.desc }}</text>
-				</view>
-			</view>
-			
-			<!-- 底部链接卡片：模仿学习通风格 -->
-			<view class="link-card" @click="handleContact">
-				<view class="link-icon" :class="item.type">
-					<image class="link-icon-img" src="/static/icons/line/message-circle.svg" mode="aspectFit" />
-				</view>
-				<view class="link-info">
-					<text class="link-title">联系发布者: {{ item.contactName }}</text>
-				</view>
-				<text class="link-arrow">›</text>
-			</view>
-		</view>
-	</view>
+  <view class="page-root">
+    <view class="screen">
+      <view class="container">
+        <nav-bar title="详情" :fixed="true" :placeholder="true" />
+
+        <scroll-view scroll-y class="page-body">
+          <view class="dimg">
+            <image v-if="curItem.images && curItem.images.length" :src="curItem.images[imgIdx]" mode="aspectFill" class="dimg-src" />
+            <text v-else class="dimg-emoji">{{ curItem.emoji || emoji(curItem.id) }}</text>
+            <view v-if="curItem.images && curItem.images.length > 1" class="counter">{{ imgIdx + 1 }}/{{ curItem.images.length }}</view>
+          </view>
+
+          <view class="dinfo">
+            <view v-if="curItem.type === 'sell'" class="dprice">
+              <small>¥</small>{{ curItem.price }}
+            </view>
+            <view class="dtitle">{{ curItem.name }}</view>
+            <view class="ddesc">{{ curItem.desc }}</view>
+          </view>
+
+          <view class="seller" @click="openChat">
+            <view class="sava">{{ curItem.userName ? curItem.userName.slice(0,1) : '' }}</view>
+            <view class="sinfo">
+              <view class="sname">{{ curItem.userName }}</view>
+              <view class="stime">{{ fmt(curItem.ctime) }}</view>
+            </view>
+            <view class="sarrow">›</view>
+          </view>
+        </scroll-view>
+
+        <view class="abar">
+          <button class="abtn" @click="openChat">{{ curItem.type === 'want' ? '我有' : '我想要' }}</button>
+        </view>
+      </view>
+    </view>
+  </view>
 </template>
 
 <script>
-	import NavBar from '@/components/nav-bar/nav-bar.vue'
-	
-	export default {
-		components: { NavBar },
-		data() {
-			return {
-				item: {
-					id: null,
-					title: '',
-					type: '',
-					date: '',
-					location: '',
-					contactName: '',
-					desc: '',
-					image: ''
-				}
-			}
-		},
-		onLoad(options) {
-			if (options.id) {
-				this.loadDetail(options.id)
-			}
-		},
-		methods: {
-			loadDetail(id) {
-				const mockData = {
-					'1': { id: 1, title: '蓝色小钱包', type: 'found', date: '刚刚', location: '一食堂二楼', contactName: '王同学', desc: '在二楼靠窗的桌子上捡到一个蓝色钱包，里面有少量现金和一张校园卡，请失主联系我。', image: 'https://picsum.photos/400/300?random=11' },
-					'2': { id: 2, title: '校园卡-张三', type: 'found', date: '10分钟前', location: '图书馆5楼', contactName: '李同学', desc: '图书馆5楼阅览室捡到一张校园卡，姓名张三，学号2021xxxx。', image: 'https://picsum.photos/400/300?random=12' },
-					'3': { id: 3, title: '丢失黑色雨伞', type: 'lost', date: '1小时前', location: '教2-101', contactName: '赵同学', desc: '今天下午第一节课在教2-101上课，走的时候忘拿雨伞了，黑色天堂伞，伞柄有划痕，看到的同学麻烦联系我，谢谢！', image: 'https://picsum.photos/400/300?random=13' }
-				}
-				if (mockData[id]) {
-					this.item = mockData[id]
-				}
-			},
-			handleContact() {
-				uni.showModal({
-					title: '联系方式',
-					content: '联系电话：138****8888',
-					showCancel: false
-				})
-			}
-		}
-	}
+import NavBar from '@/components/nav-bar/nav-bar.vue'
+
+const STORAGE_KEYS = {
+  items: 'items',
+  chats: 'chats',
+  msgs: 'msgs',
+  exStatus: 'exStatus'
+}
+
+const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
+
+export default {
+  components: {
+    NavBar
+  },
+  data() {
+    return {
+      itemId: null,
+      curItem: {},
+      imgIdx: 0
+    }
+  },
+  onLoad(options) {
+    this.itemId = options.id
+    this.loadItem()
+  },
+  methods: {
+    loadItem() {
+      try {
+        const items = uni.getStorageSync(STORAGE_KEYS.items) || []
+        const item = items.find(i => String(i.id) === String(this.itemId))
+        if (item) {
+          this.curItem = item
+        } else {
+          uni.showToast({ title: '商品不存在', icon: 'none' })
+          setTimeout(() => uni.navigateBack(), 1500)
+        }
+      } catch (e) {
+        console.error('加载数据失败', e)
+      }
+    },
+    emoji(id) {
+      return EMOJIS[(id || 0) % EMOJIS.length]
+    },
+    fmt(ts) {
+      if (!ts) return ''
+      const diff = Date.now() - ts
+      if (diff < 60000) return '刚刚'
+      if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
+      if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
+      const d = new Date(ts)
+      return `${d.getMonth() + 1}/${d.getDate()}`
+    },
+    openChat() {
+      if (!this.curItem || !this.curItem.id) return
+      uni.navigateTo({
+        url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?itemId=${this.curItem.id}`
+      })
+    }
+  }
+}
 </script>
 
-<style lang="scss">
-	.lostfound-detail-container {
-		min-height: 100vh;
-		background-color: #FFFFFF;
-	}
+<style scoped>
+.page-root {
+  width: 100%;
+  min-height: 100vh;
+  background: #F0F5FA;
+}
 
-	.detail-content {
-		padding: 40rpx 40rpx;
-	}
+.screen {
+  width: 100%;
+  background: #F0F5FA;
+  min-height: 100vh;
+}
 
-	.detail-img {
-		width: 100%;
-		height: 400rpx;
-		border-radius: 20rpx;
-		margin-bottom: 40rpx;
-		background-color: #F2F2F7;
-	}
+.container {
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: 0 16rpx;
+  background: #E8F0F8;
+  min-height: 100vh;
+  position: relative;
+}
 
-	.article-header {
-		margin-bottom: 40rpx;
-	}
+.page-body {
+  flex: 1;
+  overflow-y: auto;
+}
 
-	.article-title {
-		font-size: 44rpx;
-		font-weight: 700;
-		color: #1D1D1F;
-		line-height: 1.4;
-		margin-bottom: 24rpx;
-		display: block;
-	}
+.dimg {
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  background: linear-gradient(135deg, rgba(123, 168, 212, 0.35), rgba(92, 138, 184, 0.35));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 160rpx;
+  overflow: hidden;
+  position: relative;
+}
 
-	.article-meta {
-		display: flex;
-		align-items: center;
-		gap: 20rpx;
-	}
+.dimg-src {
+  width: 100%;
+  height: 100%;
+}
 
-	.article-type {
-		font-size: 26rpx;
-		&.lost { color: #FF3B30; }
-		&.found { color: #34C759; }
-	}
+.counter {
+  position: absolute;
+  bottom: 24rpx;
+  right: 24rpx;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  padding: 8rpx 20rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  font-weight: 600;
+}
 
-	.article-time {
-		font-size: 26rpx;
-		color: #B2B2B2;
-	}
+.dinfo {
+  padding: 32rpx;
+}
 
-	.article-body {
-		margin-bottom: 60rpx;
-	}
+.dprice {
+  font-size: 56rpx;
+  font-weight: 900;
+  color: #5C8AB8;
+  margin-bottom: 12rpx;
+}
 
-	.info-group {
-		padding: 24rpx 32rpx;
-		border-radius: 16rpx;
-		margin-bottom: 40rpx;
-		background-color: #F8F9FB;
-		
-		.info-item {
-			display: flex;
-			justify-content: space-between;
-			padding: 16rpx 0;
-			border-bottom: 1rpx solid #E5E5EA;
-			
-			&:last-child {
-				border-bottom: none;
-			}
-			
-			.label {
-				font-size: 28rpx;
-				color: #8E8E93;
-			}
-			.value {
-				font-size: 28rpx;
-				color: #1D1D1F;
-				font-weight: 500;
-			}
-		}
-	}
+.dprice small {
+  font-size: 32rpx;
+  font-weight: 600;
+}
 
-	.description-section {
-		.section-title {
-			font-size: 32rpx;
-			font-weight: 600;
-			color: #1D1D1F;
-			margin-bottom: 16rpx;
-			display: block;
-		}
-		.article-text {
-			font-size: 30rpx;
-			color: #3A3A3C;
-			line-height: 1.8;
-		}
-	}
+.dtitle {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.85);
+  margin-bottom: 24rpx;
+  line-height: 1.4;
+}
 
-	.link-card {
-		display: flex;
-		align-items: center;
-		background-color: #F8F9FB;
-		padding: 24rpx;
-		border-radius: 12rpx;
-		transition: background-color 0.2s;
+.ddesc {
+  font-size: 30rpx;
+  color: rgba(0, 0, 0, 0.5);
+  line-height: 1.7;
+  margin-bottom: 32rpx;
+}
 
-		&:active {
-			background-color: #F0F2F5;
-		}
-		
-		.link-icon {
-			width: 80rpx;
-			height: 80rpx;
-			border-radius: 12rpx;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			margin-right: 20rpx;
-			flex-shrink: 0;
-			
-			&.lost { background-color: #FF3B30; }
-			&.found { background-color: #34C759; }
-		}
+.seller {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  padding: 32rpx;
+  background: #fff;
+  border-radius: 20rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+  margin: 0 32rpx 32rpx;
+}
 
-		.link-icon-img {
-			width: 44rpx;
-			height: 44rpx;
-		}
+.sava {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #7ba8d4, #5c8ab8);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36rpx;
+  font-weight: 700;
+  flex-shrink: 0;
+}
 
-		.link-info {
-			flex: 1;
-			min-width: 0;
-			
-			.link-title {
-				font-size: 28rpx;
-				color: #1D1D1F;
-				font-weight: 500;
-				overflow: hidden;
-				text-overflow: ellipsis;
-				white-space: nowrap;
-			}
-		}
+.sinfo {
+  flex: 1;
+}
 
-		.link-arrow {
-			font-size: 36rpx;
-			color: #C7C7CC;
-			margin-left: 12rpx;
-		}
-	}
+.sname {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.stime {
+  font-size: 24rpx;
+  color: rgba(0, 0, 0, 0.5);
+  margin-top: 4rpx;
+}
+
+.sarrow {
+  font-size: 28rpx;
+  color: rgba(0, 0, 0, 0.2);
+}
+
+.abar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 24rpx 32rpx 56rpx;
+  background: linear-gradient(to top, rgba(232, 240, 248, 1) 0%, rgba(232, 240, 248, 0.98) 100%);
+  border-top: 2rpx solid rgba(0, 0, 0, 0.06);
+  z-index: 50;
+}
+
+.abtn {
+  height: 88rpx;
+  border-radius: 24rpx;
+  background: #7ba8d4;
+  color: #fff;
+  font-size: 30rpx;
+  font-weight: 800;
+  border: none;
+  box-shadow: 0 8rpx 24rpx rgba(123, 168, 212, 0.6);
+}
 </style>
