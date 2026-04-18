@@ -172,18 +172,23 @@ export default {
 			heroSlides: [
 				{
 					title: 'slide-1',
-					image: 'https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1200&q=80',
+					image: '/static/index/1.png',
 					theme: 'blue'
 				},
 				{
 					title: 'slide-2',
-					image: 'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=1200&q=80',
+					image: '/static/index/2.jpg',
 					theme: 'violet'
 				},
 				{
 					title: 'slide-3',
-					image: 'https://images.unsplash.com/photo-1503676382389-4809596d5290?auto=format&fit=crop&w=1200&q=80',
+					image: '/static/index/3.jpg',
 					theme: 'green'
+				},
+				{
+					title: 'slide-4',
+					image: '/static/index/4.jpg',
+					theme: 'orange'
 				}
 			]
 		}
