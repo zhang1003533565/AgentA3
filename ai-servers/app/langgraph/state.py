@@ -1,0 +1,17 @@
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
+
+@dataclass
+class ConversationState:
+    session_id: str
+    session_token: str
+    authorization: str
+    prompt: str
+    input_text: str
+    model: str
+    user_id: Optional[int]
+    history: List[Dict[str, str]] = field(default_factory=list)
+    search_keyword: str = ""
+    matched_results: List[Dict[str, Any]] = field(default_factory=list)
+    answer: str = ""

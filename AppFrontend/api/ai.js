@@ -50,7 +50,8 @@ export async function streamChatWithAi(data, handlers = {}) {
       break
     }
     buffer += decoder.decode(value, { stream: true })
-    const frames = buffer.split('\n\n')
+    const normalized = buffer.replace(/\r\n/g, '\n')
+    const frames = normalized.split('\n\n')
     buffer = frames.pop() || ''
 
     frames.forEach((frame) => {

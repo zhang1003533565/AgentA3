@@ -5,6 +5,8 @@
 *.iml
 *.iws
 *.ipr
+.venv/
+.env
 
 # Maven
 AppBackend/target/

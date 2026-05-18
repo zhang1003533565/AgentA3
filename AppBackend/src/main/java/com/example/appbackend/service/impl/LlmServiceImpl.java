@@ -9,19 +9,19 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @Service
 public class LlmServiceImpl implements LlmService {
 
-    private final LangGraphAiService langGraphAiService;
+    private final PythonAiProxyService pythonAiProxyService;
 
-    public LlmServiceImpl(LangGraphAiService langGraphAiService) {
-        this.langGraphAiService = langGraphAiService;
+    public LlmServiceImpl(PythonAiProxyService pythonAiProxyService) {
+        this.pythonAiProxyService = pythonAiProxyService;
     }
 
     @Override
     public LlmChatResponse chat(LlmChatRequest request, String token) {
-        return langGraphAiService.chat(request, token);
+        return pythonAiProxyService.chat(request, token);
     }
 
     @Override
     public SseEmitter streamChat(LlmChatRequest request, String token) {
-        return langGraphAiService.streamChat(request, token);
+        return pythonAiProxyService.streamChat(request, token);
     }
 }

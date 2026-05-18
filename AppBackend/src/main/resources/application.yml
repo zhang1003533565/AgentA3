@@ -61,15 +61,10 @@ amap:
     key: 64bc139adb6a611277fb8f6821b371ac
     base-url: https://restapi.amap.com
 
-deepseek:
-  base-url: https://api.deepseek.com
-  api-key: sk-07e34e882e704e07ae1d33288036724d
-  model: deepseek-chat
-
-llm:
-  memory:
-    ttl-minutes: ${LLM_MEMORY_TTL_MINUTES:120}
-    max-messages: ${LLM_MEMORY_MAX_MESSAGES:20}
+ai:
+  python:
+    base-url: ${AI_PYTHON_BASE_URL:http://localhost:8081}
+    timeout-seconds: ${AI_PYTHON_TIMEOUT_SECONDS:65}
 
 aliyun:
   oss:
