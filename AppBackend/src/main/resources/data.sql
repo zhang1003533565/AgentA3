@@ -865,6 +865,61 @@ INSERT INTO discount_activity (id, merchant_id, title, description, cover_image,
 
 
 -- =============================================
+-- 第十阶段：食堂档口模块数据
+-- =============================================
+
+-- =============================================
+-- 食堂档口表
+-- =============================================
+CREATE TABLE IF NOT EXISTS canteen_stall (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '档口 ID',
+    stall_name VARCHAR(100) NOT NULL COMMENT '档口名称',
+    restaurant_id BIGINT NOT NULL COMMENT '所属餐厅 ID',
+    floor VARCHAR(20) COMMENT '楼层',
+    category VARCHAR(50) COMMENT '品类/菜系',
+    location VARCHAR(200) COMMENT '位置描述',
+    score DECIMAL(3,2) DEFAULT 0 COMMENT '评分 (0-5)',
+    review_count INT DEFAULT 0 COMMENT '评价总数',
+    recommend_rate INT DEFAULT 0 COMMENT '推荐率 (%)',
+    avg_price DECIMAL(10,2) COMMENT '人均价格',
+    business_hours VARCHAR(100) COMMENT '营业时间',
+    image VARCHAR(255) COMMENT '档口图片 URL',
+    description TEXT COMMENT '档口描述',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-营业中 2-休息中 3-已关闭',
+    sort INT DEFAULT 0 COMMENT '排序值',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间',
+    FOREIGN KEY (restaurant_id) REFERENCES campus_facility(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='食堂档口表';
+
+-- =============================================
+-- 食堂档口数据
+-- =============================================
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE canteen_stall;
+SET FOREIGN_KEY_CHECKS = 1;
+
+INSERT INTO canteen_stall (id, stall_name, restaurant_id, floor, category, location, score, review_count, recommend_rate, avg_price, business_hours, image, description, status, sort, create_time, update_time) VALUES
+-- 第一学生餐厅 (restaurant_id=1) 的档口
+(1, '早餐包子铺', 1, '1F', '早餐', '食堂东侧', 4.39, 9, 89, 12.0, '06:30-09:30', 'https://picsum.photos/seed/stall001/400/300', '主营鲜肉包、菜包、豆浆、油条等早餐，现包现蒸，新鲜美味。', 1, 1, NOW(), NOW()),
+(2, '麻辣烫档口', 1, '3F', '面食', '食堂西侧', 4.13, 4, 75, 18.0, '10:30-20:30', 'https://picsum.photos/seed/stall002/400/300', '自选麻辣烫，多种食材可选，麻酱香浓，口味正宗。', 1, 2, NOW(), NOW()),
+(3, '石锅拌饭', 1, '2F', '米饭', '食堂中部', 4.50, 3, 100, 16.0, '10:30-20:00', 'https://picsum.photos/seed/stall003/400/300', '韩式石锅拌饭，锅巴香脆，牛肉嫩滑，酱料正宗。', 1, 3, NOW(), NOW()),
+(4, '黄焖鸡米饭', 1, '2F', '米饭', '食堂北侧', 4.00, 4, 75, 15.0, '10:30-20:00', 'https://picsum.photos/seed/stall004/400/300', '经典黄焖鸡，鸡肉嫩滑，汤汁浓郁，拌饭绝佳。', 1, 4, NOW(), NOW()),
+(5, '兰州拉面', 1, '1F', '面食', '食堂南门', 4.50, 3, 100, 14.0, '07:00-20:30', 'https://picsum.photos/seed/stall005/400/300', '手工拉面，汤鲜面劲道，牛肉片足，正宗西北风味。', 1, 5, NOW(), NOW()),
+(6, '沙县小吃', 1, '2F', '小吃', '食堂东侧', 4.2, 345, 76, 10.0, '08:00-20:00', 'https://picsum.photos/seed/stall006/400/300', '拌面、扁肉、蒸饺、炖罐等经典沙县美食。', 1, 6, NOW(), NOW()),
+
+-- 第二学生餐厅 (restaurant_id=2) 的档口
+(7, '自选快餐', 2, '1F', '米饭', '食堂大厅', 4.4, 478, 80, 13.0, '10:30-19:00', 'https://picsum.photos/seed/stall007/400/300', '多种菜品自选，两荤两素搭配，价格实惠。', 1, 1, NOW(), NOW()),
+(8, '奶茶饮品站', 2, '2F', '饮品', '食堂北侧', 4.50, 3, 100, 8.0, '09:00-21:00', 'https://picsum.photos/seed/stall008/400/300', '珍珠奶茶、柠檬茶、芒果冰沙等各式饮品。', 1, 2, NOW(), NOW()),
+(9, '煎饼果子', 2, '1F', '早餐', '食堂东门', 4.5, 390, 86, 9.0, '06:30-09:30', 'https://picsum.photos/seed/stall009/400/300', '正宗天津煎饼果子，薄脆加蛋加肠，料足味美。', 1, 3, NOW(), NOW()),
+(10, '重庆小面', 2, '3F', '面食', '食堂西侧', 4.25, 2, 100, 15.0, '10:30-20:30', 'https://picsum.photos/seed/stall010/400/300', '麻辣鲜香，正宗重庆风味，豌杂面、酸辣粉可选。', 1, 4, NOW(), NOW()),
+
+-- 清真餐厅 (restaurant_id=3) 的档口
+(11, '清真牛肉面', 3, '1F', '面食', '食堂大厅', 4.75, 2, 100, 16.0, '07:00-20:00', 'https://picsum.photos/seed/stall011/400/300', '清真认证，牛肉新鲜，汤底醇厚，面条筋道。', 1, 1, NOW(), NOW()),
+(12, '新疆大盘鸡', 3, '1F', '米饭', '食堂北侧', 4.25, 2, 100, 22.0, '10:30-20:00', 'https://picsum.photos/seed/stall012/400/300', '正宗新疆风味，鸡肉鲜嫩，土豆软糯，配皮带面。', 1, 2, NOW(), NOW()),
+(13, '烤羊肉串', 3, '1F', '小吃', '食堂东门', 4.83, 3, 100, 5.0, '11:00-21:00', 'https://picsum.photos/seed/stall013/400/300', '现烤羊肉串，外焦里嫩，孜然香气扑鼻。', 1, 3, NOW(), NOW());
+
+-- =============================================
 -- 第十阶段：优惠券模块数据
 -- =============================================
 
@@ -1146,61 +1201,6 @@ INSERT INTO forum_follow (id, user_id, follow_id, create_time) VALUES
 UPDATE forum_topic SET post_count = 1 WHERE id IN (1, 3, 4, 6, 7);
 UPDATE forum_topic SET post_count = 1 WHERE id = 2;
 UPDATE forum_topic SET post_count = 0 WHERE id IN (5, 8);
-
--- =============================================
--- 第十阶段：食堂档口模块数据
--- =============================================
-
--- =============================================
--- 食堂档口表
--- =============================================
-CREATE TABLE IF NOT EXISTS canteen_stall (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '档口 ID',
-    stall_name VARCHAR(100) NOT NULL COMMENT '档口名称',
-    restaurant_id BIGINT NOT NULL COMMENT '所属餐厅 ID',
-    floor VARCHAR(20) COMMENT '楼层',
-    category VARCHAR(50) COMMENT '品类/菜系',
-    location VARCHAR(200) COMMENT '位置描述',
-    score DECIMAL(3,2) DEFAULT 0 COMMENT '评分 (0-5)',
-    review_count INT DEFAULT 0 COMMENT '评价总数',
-    recommend_rate INT DEFAULT 0 COMMENT '推荐率 (%)',
-    avg_price DECIMAL(10,2) COMMENT '人均价格',
-    business_hours VARCHAR(100) COMMENT '营业时间',
-    image VARCHAR(255) COMMENT '档口图片 URL',
-    description TEXT COMMENT '档口描述',
-    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-营业中 2-休息中 3-已关闭',
-    sort INT DEFAULT 0 COMMENT '排序值',
-    create_time DATETIME COMMENT '创建时间',
-    update_time DATETIME COMMENT '更新时间',
-    FOREIGN KEY (restaurant_id) REFERENCES campus_facility(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='食堂档口表';
-
--- =============================================
--- 食堂档口数据
--- =============================================
-SET FOREIGN_KEY_CHECKS = 0;
-TRUNCATE TABLE canteen_stall;
-SET FOREIGN_KEY_CHECKS = 1;
-
-INSERT INTO canteen_stall (id, stall_name, restaurant_id, floor, category, location, score, review_count, recommend_rate, avg_price, business_hours, image, description, status, sort, create_time, update_time) VALUES
--- 第一学生餐厅 (restaurant_id=1) 的档口
-(1, '早餐包子铺', 1, '1F', '早餐', '食堂东侧', 4.39, 9, 89, 12.0, '06:30-09:30', 'https://picsum.photos/seed/stall001/400/300', '主营鲜肉包、菜包、豆浆、油条等早餐，现包现蒸，新鲜美味。', 1, 1, NOW(), NOW()),
-(2, '麻辣烫档口', 1, '3F', '面食', '食堂西侧', 4.13, 4, 75, 18.0, '10:30-20:30', 'https://picsum.photos/seed/stall002/400/300', '自选麻辣烫，多种食材可选，麻酱香浓，口味正宗。', 1, 2, NOW(), NOW()),
-(3, '石锅拌饭', 1, '2F', '米饭', '食堂中部', 4.50, 3, 100, 16.0, '10:30-20:00', 'https://picsum.photos/seed/stall003/400/300', '韩式石锅拌饭，锅巴香脆，牛肉嫩滑，酱料正宗。', 1, 3, NOW(), NOW()),
-(4, '黄焖鸡米饭', 1, '2F', '米饭', '食堂北侧', 4.00, 4, 75, 15.0, '10:30-20:00', 'https://picsum.photos/seed/stall004/400/300', '经典黄焖鸡，鸡肉嫩滑，汤汁浓郁，拌饭绝佳。', 1, 4, NOW(), NOW()),
-(5, '兰州拉面', 1, '1F', '面食', '食堂南门', 4.50, 3, 100, 14.0, '07:00-20:30', 'https://picsum.photos/seed/stall005/400/300', '手工拉面，汤鲜面劲道，牛肉片足，正宗西北风味。', 1, 5, NOW(), NOW()),
-(6, '沙县小吃', 1, '2F', '小吃', '食堂东侧', 4.2, 345, 76, 10.0, '08:00-20:00', 'https://picsum.photos/seed/stall006/400/300', '拌面、扁肉、蒸饺、炖罐等经典沙县美食。', 1, 6, NOW(), NOW()),
-
--- 第二学生餐厅 (restaurant_id=2) 的档口
-(7, '自选快餐', 2, '1F', '米饭', '食堂大厅', 4.4, 478, 80, 13.0, '10:30-19:00', 'https://picsum.photos/seed/stall007/400/300', '多种菜品自选，两荤两素搭配，价格实惠。', 1, 1, NOW(), NOW()),
-(8, '奶茶饮品站', 2, '2F', '饮品', '食堂北侧', 4.50, 3, 100, 8.0, '09:00-21:00', 'https://picsum.photos/seed/stall008/400/300', '珍珠奶茶、柠檬茶、芒果冰沙等各式饮品。', 1, 2, NOW(), NOW()),
-(9, '煎饼果子', 2, '1F', '早餐', '食堂东门', 4.5, 390, 86, 9.0, '06:30-09:30', 'https://picsum.photos/seed/stall009/400/300', '正宗天津煎饼果子，薄脆加蛋加肠，料足味美。', 1, 3, NOW(), NOW()),
-(10, '重庆小面', 2, '3F', '面食', '食堂西侧', 4.25, 2, 100, 15.0, '10:30-20:30', 'https://picsum.photos/seed/stall010/400/300', '麻辣鲜香，正宗重庆风味，豌杂面、酸辣粉可选。', 1, 4, NOW(), NOW()),
-
--- 清真餐厅 (restaurant_id=3) 的档口
-(11, '清真牛肉面', 3, '1F', '面食', '食堂大厅', 4.75, 2, 100, 16.0, '07:00-20:00', 'https://picsum.photos/seed/stall011/400/300', '清真认证，牛肉新鲜，汤底醇厚，面条筋道。', 1, 1, NOW(), NOW()),
-(12, '新疆大盘鸡', 3, '1F', '米饭', '食堂北侧', 4.25, 2, 100, 22.0, '10:30-20:00', 'https://picsum.photos/seed/stall012/400/300', '正宗新疆风味，鸡肉鲜嫩，土豆软糯，配皮带面。', 1, 2, NOW(), NOW()),
-(13, '烤羊肉串', 3, '1F', '小吃', '食堂东门', 4.83, 3, 100, 5.0, '11:00-21:00', 'https://picsum.photos/seed/stall013/400/300', '现烤羊肉串，外焦里嫩，孜然香气扑鼻。', 1, 3, NOW(), NOW());
 
 -- =============================================
 -- 菜品表
