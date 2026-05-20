@@ -59,6 +59,9 @@ public class MarkerResponse {
     @Schema(description = "设施图片列表")
     private List<String> images;
 
+    @Schema(description = "缩略图URL（取设施图片列表首图）")
+    private String thumbnailUrl;
+
     @Schema(description = "设施状态: 1-正常/开放 2-维护中 3-关闭/不可用")
     private Integer status;
 }

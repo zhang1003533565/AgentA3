@@ -1,5 +1,18 @@
 import request from '../utils/request'
 
+export const getFacilityTypes = () =>
+  request({
+    url: '/api/v1/facility/types',
+    method: 'get',
+  })
+
+export const updateFacilityTypes = (types) =>
+  request({
+    url: '/api/v1/facility/types',
+    method: 'put',
+    data: types,
+  })
+
 export const getFacilityList = (params = {}) =>
   request({
     url: '/api/v1/facility/list',

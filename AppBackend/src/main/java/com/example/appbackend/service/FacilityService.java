@@ -8,6 +8,8 @@ public interface FacilityService {
 
     PageResponse<CampusFacility> getFacilityList(Integer type, String name, Integer status, Integer pageNum, Integer pageSize);
 
+    CampusFacility getFacilityById(Long id);
+
     CampusFacility createFacility(FacilityRequest request);
 
     CampusFacility updateFacility(Long id, FacilityRequest request);

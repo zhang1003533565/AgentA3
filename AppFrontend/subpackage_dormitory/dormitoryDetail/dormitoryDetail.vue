@@ -3,13 +3,17 @@
     <nav-bar :title="dorm.name || '宿舍详情'" fixed placeholder />
 
     <scroll-view class="detail-scroll" scroll-y :style="{ height: `calc(100vh - ${navBarHeight}px)` }">
-      <view class="hero">
+      <view v-if="dorm.image" class="hero">
         <image class="hero-image" :src="dorm.image" mode="aspectFill" />
         <view class="hero-mask" />
         <view class="hero-content">
           <text class="hero-name">{{ dorm.name }}</text>
           <text class="hero-meta">{{ dorm.genderLabel }} · {{ dorm.floorCount }}层</text>
         </view>
+      </view>
+      <view v-else class="hero-plain">
+        <text class="hero-name">{{ dorm.name }}</text>
+        <text class="hero-meta">{{ dorm.genderLabel }} · {{ dorm.floorCount }}层</text>
       </view>
 
       <view class="card">
@@ -52,6 +56,7 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { getFacilityDetail, parseFacilityImages } from '@/api/facility.js'
 
 export default {
   components: { NavBar },
@@ -85,7 +90,21 @@ export default {
     this.loadDormitory(options.id)
   },
   methods: {
-    loadDormitory(id) {
+    async loadDormitory(id) {
+      let coverImage = ''
+      let facilityName = ''
+      try {
+        const res = await getFacilityDetail(id)
+        const facility = res?.data
+        if (facility) {
+          const images = parseFacilityImages(facility.images)
+          coverImage = images[0] || ''
+          facilityName = facility.facilityName || ''
+        }
+      } catch (error) {
+        console.error('加载设施图片失败', error)
+      }
+
       const mockData = {
         '6': {
           dorm: {
@@ -126,7 +145,11 @@ export default {
       }
 
       const data = mockData[id] || mockData['6']
-      this.dorm = data.dorm
+      this.dorm = {
+        ...data.dorm,
+        name: facilityName || data.dorm.name,
+        image: coverImage
+      }
       this.myRoom = data.myRoom
       this.roommates = data.roommates
     },
@@ -142,6 +165,21 @@ export default {
 <style lang="scss" scoped>
 .dorm-detail-page { min-height: 100vh; background: #f6f7fb; }
 .detail-scroll { min-height: 0; }
+.hero-plain {
+  margin: 24rpx 24rpx 0;
+  padding: 28rpx;
+  border-radius: 22rpx;
+  background: linear-gradient(135deg, #8bc1ff 0%, #5f97ef 100%);
+}
+.hero-plain .hero-name,
+.hero-plain .hero-meta {
+  color: #fff;
+}
+.hero-plain .hero-meta {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 24rpx;
+}
 .hero { margin: 24rpx 24rpx 0; position: relative; height: 280rpx; border-radius: 22rpx; overflow: hidden; }
 .hero-image { width: 100%; height: 100%; }
 .hero-mask { position: absolute; left: 0; right: 0; top: 0; bottom: 0; background: linear-gradient(180deg, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.45) 100%); }

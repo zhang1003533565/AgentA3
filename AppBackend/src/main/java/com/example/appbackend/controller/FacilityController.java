@@ -1,11 +1,13 @@
 package com.example.appbackend.controller;
 
 import com.example.appbackend.dto.FacilityRequest;
+import com.example.appbackend.dto.FacilityTypeItem;
 import com.example.appbackend.dto.PageResponse;
 import com.example.appbackend.entity.CampusFacility;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.service.FacilityService;
+import com.example.appbackend.service.FacilityTypeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -22,6 +24,9 @@ public class FacilityController {
     @Autowired
     private FacilityService facilityService;
 
+    @Autowired
+    private FacilityTypeService facilityTypeService;
+
     private static final String ROLE_ADMIN = "ADMIN";
 
     private void checkAdminRole(HttpServletRequest request) {
@@ -31,10 +36,26 @@ public class FacilityController {
         }
     }
 
+    @GetMapping("/types")
+    @Operation(summary = "获取设施类型字典", description = "返回可维护的设施类型列表，前后端统一使用")
+    public Result<java.util.List<FacilityTypeItem>> getFacilityTypes() {
+        return Result.success(facilityTypeService.listTypes());
+    }
+
+    @PutMapping("/types")
+    @Operation(summary = "更新设施类型字典", description = "管理员维护设施类型，保存后全端生效")
+    public Result<java.util.List<FacilityTypeItem>> updateFacilityTypes(
+            @RequestBody java.util.List<FacilityTypeItem> types,
+            HttpServletRequest httpRequest) {
+        checkAdminRole(httpRequest);
+        facilityTypeService.saveTypes(types);
+        return Result.success("设施类型已更新", facilityTypeService.listTypes());
+    }
+
     @GetMapping("/list")
     @Operation(summary = "获取设施列表", description = "分页查询设施列表，支持类型、名称、状态筛选")
     public Result<PageResponse<CampusFacility>> getFacilityList(
-            @Parameter(description = "设施类型：1-餐厅 2-运动场 3-教学楼 4-宿舍")
+            @Parameter(description = "设施类型编码，见 /facility/types")
             @RequestParam(required = false) Integer type,
             @Parameter(description = "设施名称（模糊查询）")
             @RequestParam(required = false) String name,
@@ -46,6 +67,13 @@ public class FacilityController {
             @RequestParam(defaultValue = "10") Integer pageSize) {
         PageResponse<CampusFacility> result = facilityService.getFacilityList(type, name, status, pageNum, pageSize);
         return Result.success(result);
+    }
+
+    @GetMapping("/{id}")
+    @Operation(summary = "获取设施详情", description = "根据ID获取设施信息（含图片列表）")
+    public Result<CampusFacility> getFacilityDetail(@PathVariable Long id) {
+        CampusFacility facility = facilityService.getFacilityById(id);
+        return Result.success(facility);
     }
 
     @PostMapping

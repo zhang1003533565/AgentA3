@@ -156,6 +156,7 @@ const columns = {
     { title: '值', dataIndex: 'value' },
   ],
   marker: [
+    { title: '缩略图', dataIndex: 'thumbnailUrl', type: 'image' },
     { title: '标记名称', dataIndex: 'markerName' },
     { title: '设施类型', dataIndex: 'facilityType', type: 'tag' },
     { title: '经纬度', dataIndex: 'position' },

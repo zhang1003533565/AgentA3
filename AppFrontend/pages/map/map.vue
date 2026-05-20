@@ -1,7 +1,14 @@
 <template>
-  <view class="map-page">
+  <view
+    class="map-page"
+    :class="{
+      'map-page--poi-open': !!selectedLocation,
+      'map-page--poi-image': poiHasCoverImage
+    }"
+  >
     <view class="map-fullscreen">
       <map
+        :key="mapFilterKey"
         id="campusAmap"
         class="amap-native"
         :latitude="mapCenter.latitude"
@@ -40,9 +47,20 @@
         </view>
       </view>
 
-      <view class="current-loc-map" @click.stop="focusUserLocation">
-        <text class="current-loc-icon">◎</text>
-      </view>
+      <poi-detail-card
+        :visible="!!selectedLocation"
+        :name="poiCardData.name"
+        :distance="poiCardData.distance"
+        :zone="poiCardData.zone"
+        :description="poiCardData.description"
+        :image-url="poiCardData.imageUrl"
+        :secondary-emoji="poiCardData.secondaryEmoji"
+        :secondary-label="poiCardData.secondaryLabel"
+        :service-hint="poiCardData.serviceHint"
+        :primary-label="poiCardData.primaryLabel"
+        @secondary-click="onPoiSecondaryAction"
+        @primary-click="onPoiPrimaryAction"
+      />
 
       <view class="filter-bar-map" @click.stop>
         <scroll-view class="filter-scroll" scroll-x :show-scrollbar="false">
@@ -59,32 +77,6 @@
           </view>
         </scroll-view>
       </view>
-
-      <view class="popup-map" :class="{ show: !!selectedLocation }" @click.stop>
-        <view class="popup-handle-map" />
-        <view v-if="selectedLocation">
-          <view class="popup-image-map" :class="selectedLocation.typeClass">
-            <view class="popup-image-mask" />
-            <text class="popup-image-emoji">{{ selectedLocation.icon }}</text>
-            <view class="popup-image-copy">
-              <text class="popup-image-title">{{ selectedLocation.name }}</text>
-              <text class="popup-image-subtitle">{{ selectedLocation.detail }}</text>
-            </view>
-          </view>
-
-          <text class="popup-title-map">{{ selectedLocation.name }}</text>
-          <view class="popup-detail-map">
-            <text class="popup-detail-icon">📍</text>
-            <text>{{ selectedLocation.distance }} · {{ selectedLocation.detail }}</text>
-          </view>
-          <view class="popup-desc-map">{{ selectedLocation.description }}</view>
-
-          <view class="popup-actions-map">
-            <button class="popup-btn secondary" @click="closePopup">关闭</button>
-            <button class="popup-btn primary" @click="startNavigation(selectedLocation)">开始导航</button>
-          </view>
-        </view>
-      </view>
     </view>
 
     <ai-float-assistant />
@@ -93,7 +85,17 @@
 
 <script>
 import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant.vue'
+import PoiDetailCard from '@/components/poi-detail-card/poi-detail-card.vue'
+import { getFacilityTypes } from '@/api/facility'
 import { getMarkerList, searchPlaces } from '@/api/map'
+import {
+  applyFacilityTypeLabels,
+  buildFacilityDetailRoute,
+  getFacilityTypeLabel,
+  resolveFacilityType
+} from '@/constants/facilityType'
+
+const NAV_ACTION_LABEL = '开始导航'
 
 const DEFAULT_MAP_CENTER = {
   longitude: 114.897014,
@@ -103,7 +105,8 @@ const DEFAULT_MAP_SCALE = 16
 
 export default {
   components: {
-    AiFloatAssistant
+    AiFloatAssistant,
+    PoiDetailCard
   },
   data() {
     return {
@@ -136,46 +139,15 @@ export default {
     }
   },
   computed: {
+    mapFilterKey() {
+      return `${this.currentCategory}_${(this.searchKeyword || '').trim()}`
+    },
     amapMarkers() {
       const markers = this.visibleLocations
         .filter((item) => item.longitude != null && item.latitude != null)
-        .map((item) => ({
-          id: Number(item.id),
-          longitude: Number(item.longitude),
-          latitude: Number(item.latitude),
-          iconPath: this.getMarkerIconPath(item),
-          width: 34,
-          height: 42,
-          alpha: this.selectedLocation && this.selectedLocation.id === item.id ? 1 : 0.92,
-          callout: {
-            content: item.shortName || item.name,
-            display: 'ALWAYS',
-            borderRadius: 14,
-            padding: 8,
-            fontSize: 12,
-            color: '#1f3f7c',
-            bgColor: '#ffffff'
-          }
-        }))
+        .map((item) => this.buildMapMarker(item))
       if (this.tempSearchLocation && this.tempSearchLocation.longitude != null && this.tempSearchLocation.latitude != null) {
-        markers.push({
-          id: -9999,
-          longitude: Number(this.tempSearchLocation.longitude),
-          latitude: Number(this.tempSearchLocation.latitude),
-          iconPath: this.getMarkerIconPath(this.tempSearchLocation, true),
-          width: 30,
-          height: 38,
-          alpha: 1,
-          callout: {
-            content: this.tempSearchLocation.shortName || this.tempSearchLocation.name || '搜索结果',
-            display: 'ALWAYS',
-            borderRadius: 14,
-            padding: 8,
-            fontSize: 12,
-            color: '#9a3412',
-            bgColor: '#fff7ed'
-          }
-        })
+        markers.push(this.buildMapMarker(this.tempSearchLocation, { isSearch: true }))
       }
       return markers
     },
@@ -200,6 +172,37 @@ export default {
         if (!keyword) return true
         return `${item.name} ${item.shortName} ${item.detail}`.toLowerCase().includes(keyword)
       })
+    },
+    poiCardData() {
+      const item = this.selectedLocation
+      if (!item) {
+        return {
+          name: '',
+          distance: '',
+          zone: '',
+          description: '',
+          imageUrl: '',
+          secondaryEmoji: '',
+          secondaryLabel: '',
+          serviceHint: '',
+          primaryLabel: ''
+        }
+      }
+      return {
+        name: item.name || '',
+        distance: item.distance || '',
+        zone: item.detail || '',
+        description: item.description || '',
+        imageUrl: item.coverImage || '',
+        secondaryEmoji: this.resolveSecondaryEmoji(item),
+        secondaryLabel: this.resolveSecondaryLabel(item),
+        serviceHint: this.resolveServiceHint(item),
+        primaryLabel: NAV_ACTION_LABEL
+      }
+    },
+    poiHasCoverImage() {
+      if (!this.selectedLocation) return false
+      return !!(this.selectedLocation.coverImage || '').trim()
     }
   },
   onLoad() {
@@ -207,9 +210,21 @@ export default {
       const sys = uni.getSystemInfoSync()
       this.statusBarHeight = sys.statusBarHeight || 20
     } catch (e) {}
+    this.loadFacilityTypes()
     this.loadMapData()
   },
   methods: {
+    async loadFacilityTypes() {
+      try {
+        const res = await getFacilityTypes()
+        const types = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : [])
+        if (types.length) {
+          applyFacilityTypeLabels(types)
+        }
+      } catch (error) {
+        console.warn('加载设施类型字典失败，使用本地兜底', error)
+      }
+    },
     async loadMapData() {
       try {
         const markerRes = await getMarkerList({ pageSize: 100 })
@@ -255,15 +270,19 @@ export default {
       const typeClass = this.getTypeClass(item.facilityType, item.markerName)
       const icon = this.getFacilityIcon(item.facilityType, item.markerName)
       const route = this.getMarkerRoute(item)
+      const coverImage = this.getMarkerCoverImage(item)
       return {
         id: item.id,
         name: item.markerName,
         shortName: this.getShortName(item.markerName),
         icon,
-        category: item.facilityType === 1 ? 3 : item.facilityType === 2 ? 5 : item.facilityType === 3 ? 1 : 4,
+        coverImage,
+        facilityType: item.facilityType,
+        facilityId: item.facilityId,
+        category: resolveFacilityType(item.facilityType).mapCategory,
         typeClass,
         distance: this.formatDistance(longitude, latitude),
-        detail: item.location || this.getTypeLabel(item.facilityType),
+        detail: item.location || getFacilityTypeLabel(item.facilityType, item.facilityTypeName),
         description: item.description || '暂无简介',
         route,
         longitude,
@@ -271,63 +290,57 @@ export default {
       }
     },
     getMarkerRoute(item) {
-      if (item.facilityType === 1) {
-        return `/subpackage_facility/restaurantDetail/restaurantDetail?id=${item.facilityId}`
-      }
-      if (item.facilityType === 2) {
-        return `/subpackage_sports/sportsDetail/sportsDetail?id=${item.facilityId}`
-      }
-      if (item.facilityType === 3) {
-        return `/subpackage_teaching/buildingDetail/buildingDetail?id=${item.facilityId}`
-      }
-      if (item.facilityType === 4) {
-        return `/subpackage_dormitory/dormitoryDetail/dormitoryDetail?id=${item.facilityId}`
-      }
-      return ''
+      return buildFacilityDetailRoute(item.facilityType, item.facilityId)
     },
     getTypeClass(type, name) {
       if (name && name.includes('图书馆')) return 'library'
-      if (type === 1) return 'canteen'
-      if (type === 2) return 'sport'
-      if (type === 3) return 'teaching'
-      if (type === 4) return 'dorm'
-      return 'admin'
+      return resolveFacilityType(type).typeClass
     },
     getFacilityIcon(type, name) {
       if (name && name.includes('图书馆')) return '📚'
-      if (type === 1) return '🍚'
-      if (type === 2) return '🏟'
-      if (type === 3) return '🏫'
-      if (type === 4) return '🏠'
-      return '📍'
+      return resolveFacilityType(type).icon
+    },
+    getMarkerCoverImage(item) {
+      if (!item) return ''
+      if (item.thumbnailUrl) return item.thumbnailUrl
+      const images = Array.isArray(item.images) ? item.images : []
+      return images.length ? images[0] : ''
     },
     getMarkerIconPath(item, isSearch = false) {
       if (isSearch) return '/static/icons/lcoal/dingwei.png'
       return '/static/icons/lcoal/dingwei.png'
+    },
+    buildMapMarker(item, options = {}) {
+      const isSearch = !!options.isSearch
+      const markerId = isSearch ? -9999 : Number(item.id)
+      const isSelected = !isSearch && this.selectedLocation && this.selectedLocation.id === item.id
+      const marker = {
+        id: markerId,
+        longitude: Number(item.longitude),
+        latitude: Number(item.latitude),
+        iconPath: this.getMarkerIconPath(item, isSearch),
+        width: isSearch ? 30 : 34,
+        height: isSearch ? 38 : 42,
+        alpha: isSearch ? 1 : (isSelected ? 1 : 0.92),
+        callout: {
+          content: item.shortName || item.name || (isSearch ? '搜索结果' : '地点'),
+          display: 'ALWAYS',
+          borderRadius: 14,
+          padding: 8,
+          fontSize: 12,
+          color: isSearch ? '#9a3412' : '#1f3f7c',
+          bgColor: isSearch ? '#fff7ed' : '#ffffff'
+        }
+      }
+      return marker
     },
     getShortName(name) {
       if (!name) return '地点'
       if (name.length <= 4) return name
       return name.slice(0, 4)
     },
-    getTypeLabel(type) {
-      const map = { 1: '食堂', 2: '运动场馆', 3: '教学楼', 4: '宿舍' }
-      return map[type] || '校园地点'
-    },
     getFacilityRoute(item) {
-      if (item.facilityType === 1) {
-        return `/subpackage_facility/restaurantDetail/restaurantDetail?id=${item.id}`
-      }
-      if (item.facilityType === 2) {
-        return `/subpackage_sports/sportsDetail/sportsDetail?id=${item.id}`
-      }
-      if (item.facilityType === 3) {
-        return `/subpackage_teaching/buildingDetail/buildingDetail?id=${item.id}`
-      }
-      if (item.facilityType === 4) {
-        return `/subpackage_dormitory/dormitoryDetail/dormitoryDetail?id=${item.id}`
-      }
-      return ''
+      return buildFacilityDetailRoute(item.facilityType, item.id)
     },
     toRadians(value) {
       return (value * Math.PI) / 180
@@ -489,28 +502,6 @@ export default {
       this.selectedLocation = null
       this.navigationPolyline = []
     },
-    focusUserLocation() {
-      const nearest = this.getNearestLocation() || this.locationList[0]
-      this.currentCategory = 0
-      this.searchKeyword = ''
-      this.selectedLocation = null
-      this.tempSearchLocation = null
-      if (this.currentLocation.longitude != null && this.currentLocation.latitude != null) {
-        this.mapCenter = {
-          longitude: Number(this.currentLocation.longitude),
-          latitude: Number(this.currentLocation.latitude)
-        }
-        this.mapScale = 17
-      }
-      uni.showToast({
-        title: this.currentLocation.longitude == null || this.currentLocation.latitude == null
-          ? '当前位置获取失败'
-          : nearest
-          ? `已定位当前位置，附近最近是 ${nearest.name}`
-          : `当前位置：${this.currentLocation.latitude}, ${this.currentLocation.longitude}`,
-        icon: 'none'
-      })
-    },
     onMarkerTap(event) {
       const markerId = Number(event?.detail?.markerId ?? event?.detail?.id)
       if (markerId === -9999 && this.tempSearchLocation) {
@@ -549,6 +540,31 @@ export default {
           }
         }
       })
+    },
+    resolveSecondaryLabel(item) {
+      if (!item || item.facilityType == null) return '区域服务'
+      return resolveFacilityType(item.facilityType).secondaryLabel || '区域服务'
+    },
+    resolveSecondaryEmoji(item) {
+      if (!item || item.facilityType == null) return '📍'
+      return resolveFacilityType(item.facilityType).poiEmoji || '📍'
+    },
+    resolveServiceHint(item) {
+      if (!item || item.facilityType == null) return ''
+      return resolveFacilityType(item.facilityType).serviceHint || ''
+    },
+    onPoiSecondaryAction() {
+      const item = this.selectedLocation
+      if (!item) return
+      if (item.route) {
+        uni.navigateTo({ url: item.route })
+        return
+      }
+      uni.showToast({ title: '该地点暂未开通区域服务', icon: 'none' })
+    },
+    onPoiPrimaryAction() {
+      if (!this.selectedLocation) return
+      this.startNavigation(this.selectedLocation)
     },
     async startNavigation(item) {
       if (item.longitude == null || item.latitude == null) {
@@ -662,19 +678,38 @@ export default {
   color: rgba(0, 0, 0, 0.32);
 }
 
-.user-loc-icon,
-.current-loc-icon {
-  font-size: 22rpx;
-  color: #fff;
-  line-height: 1;
-}
-
 .filter-bar-map {
   position: absolute;
   left: 28rpx;
   right: 28rpx;
   bottom: 36rpx;
   z-index: 24;
+  transition: bottom 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/*
+ * 分类栏 bottom = 卡片参考顶边距屏幕底 − 视觉间距
+ * 视觉间距 = 分类栏底边 与 卡片参考顶边 之间露出的地图高度（非分类栏自身高度）
+ * 无图参考顶：fallback-head 顶 ≈ fallback + body + sheet 底部 safe
+ * 有图参考顶：hero 顶 ≈ hero + body + sheet 底部 safe
+ * 数值与 poi-detail-card.vue 对齐；无图间距约为原先一半（~72→36rpx）
+ */
+$map-poi-body-h: 396rpx;
+$map-poi-fallback-head-h: 100rpx;
+$map-poi-hero-h: 320rpx;
+$map-poi-gap-visual: 36rpx;
+
+.map-page--poi-open .filter-bar-map {
+  z-index: 40;
+  bottom: calc(
+    #{$map-poi-fallback-head-h} + #{$map-poi-body-h} + env(safe-area-inset-bottom) - #{$map-poi-gap-visual}
+  );
+}
+
+.map-page--poi-open.map-page--poi-image .filter-bar-map {
+  bottom: calc(
+    #{$map-poi-hero-h} + #{$map-poi-body-h} + env(safe-area-inset-bottom) - #{$map-poi-gap-visual}
+  );
 }
 
 .filter-scroll {
@@ -735,167 +770,5 @@ export default {
   color: rgba(0, 0, 0, 0.52);
 }
 
-.current-loc-map {
-  position: absolute;
-  bottom: 122rpx;
-  width: 84rpx;
-  height: 84rpx;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 22;
-}
-
-.current-loc-map {
-  right: 28rpx;
-  background: rgba(255, 255, 255, 0.96);
-  border: 4rpx solid var(--map-blue-2);
-  box-shadow: 0 10rpx 24rpx rgba(77, 134, 248, 0.18);
-}
-
-.popup-map {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 30;
-  padding: 28rpx 28rpx 30rpx;
-  background: linear-gradient(180deg, rgba(250, 252, 255, 0.98), rgba(241, 247, 255, 0.98));
-  border-radius: 36rpx 36rpx 0 0;
-  box-shadow: 0 -12rpx 40rpx rgba(55, 94, 171, 0.18);
-  transform: translateY(110%);
-  opacity: 0;
-  pointer-events: none;
-  transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
-}
-
-.popup-map.show {
-  transform: translateY(0);
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.popup-handle-map {
-  width: 84rpx;
-  height: 10rpx;
-  margin: 0 auto 24rpx;
-  border-radius: 999rpx;
-  background: rgba(0, 0, 0, 0.12);
-}
-
-.popup-image-map {
-  position: relative;
-  height: 212rpx;
-  border-radius: 28rpx;
-  padding: 26rpx;
-  overflow: hidden;
-  display: flex;
-  align-items: flex-end;
-  margin-bottom: 22rpx;
-}
-
-.popup-image-map.teaching { background: linear-gradient(135deg, #7aa8ff 0%, #4b84f6 100%); }
-.popup-image-map.admin { background: linear-gradient(135deg, #8daeff 0%, #5b84ef 100%); }
-.popup-image-map.canteen { background: linear-gradient(135deg, #86b5ff 0%, #4d86f8 100%); }
-.popup-image-map.library { background: linear-gradient(135deg, #97b9ff 0%, #668ff6 100%); }
-.popup-image-map.sport { background: linear-gradient(135deg, #75bcff 0%, #3f92ef 100%); }
-.popup-image-map.dorm { background: linear-gradient(135deg, #8bc1ff 0%, #5f97ef 100%); }
-.popup-image-map.gate { background: linear-gradient(135deg, #8bb4ff 0%, #4d82ea 100%); }
-
-.popup-image-mask {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 18% 22%, rgba(255, 255, 255, 0.35), transparent 28%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, rgba(0, 0, 0, 0.22) 100%);
-}
-
-.popup-image-emoji {
-  position: absolute;
-  right: 28rpx;
-  top: 22rpx;
-  font-size: 88rpx;
-  opacity: 0.92;
-}
-
-.popup-image-copy {
-  position: relative;
-  z-index: 1;
-}
-
-.popup-image-title {
-  display: block;
-  font-size: 38rpx;
-  font-weight: 800;
-  color: #fff;
-}
-
-.popup-image-subtitle {
-  display: block;
-  margin-top: 12rpx;
-  font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.88);
-}
-
-.popup-title-map {
-  display: block;
-  font-size: 36rpx;
-  font-weight: 800;
-  color: #1f3f7c;
-}
-
-.popup-detail-map {
-  margin-top: 10rpx;
-  display: flex;
-  align-items: center;
-  font-size: 24rpx;
-  color: rgba(0, 0, 0, 0.48);
-}
-
-.popup-detail-icon {
-  margin-right: 8rpx;
-}
-
-.popup-desc-map {
-  margin-top: 18rpx;
-  padding: 22rpx;
-  border-radius: 22rpx;
-  background: var(--map-blue-4);
-  font-size: 25rpx;
-  line-height: 1.7;
-  color: rgba(34, 55, 96, 0.72);
-}
-
-.popup-actions-map {
-  display: flex;
-  gap: 18rpx;
-  margin-top: 22rpx;
-}
-
-.popup-btn {
-  flex: 1;
-  height: 84rpx;
-  line-height: 84rpx;
-  border-radius: 24rpx;
-  font-size: 28rpx;
-  font-weight: 700;
-  border: none;
-}
-
-.popup-btn::after {
-  border: none;
-}
-
-.popup-btn.secondary {
-  background: var(--map-blue-3);
-  color: var(--map-blue-1);
-}
-
-.popup-btn.primary {
-  background: linear-gradient(135deg, var(--map-blue-2) 0%, var(--map-blue-1) 100%);
-  color: #fff;
-  box-shadow: 0 10rpx 24rpx var(--map-blue-shadow);
-}
 
 </style>

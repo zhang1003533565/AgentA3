@@ -650,6 +650,17 @@
   background: linear-gradient(180deg, rgba(249, 115, 22, 0.85), rgba(249, 115, 22, 0));
 }
 
+.workspace-marker-thumbnail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.workspace-marker-thumbnail__empty {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
 .workspace-marker-editor {
   margin-bottom: 18px;
   padding: 20px;

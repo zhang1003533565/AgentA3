@@ -7,6 +7,7 @@ import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.FacilityRepository;
 import com.example.appbackend.repository.MapMarkerRepository;
 import com.example.appbackend.repository.NavigationLogRepository;
+import com.example.appbackend.service.FacilityTypeService;
 import com.example.appbackend.service.MapStatisticsService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,9 @@ public class MapStatisticsServiceImpl implements MapStatisticsService {
 
     @Autowired
     private NavigationLogRepository navigationLogRepository;
+
+    @Autowired
+    private FacilityTypeService facilityTypeService;
 
     @Autowired
     private MapMarkerRepository mapMarkerRepository;
@@ -174,14 +178,7 @@ public class MapStatisticsServiceImpl implements MapStatisticsService {
     }
 
     private String getFacilityTypeName(Integer type) {
-        if (type == null) return "";
-        switch (type) {
-            case 1: return "餐厅";
-            case 2: return "运动场";
-            case 3: return "教学楼";
-            case 4: return "宿舍";
-            default: return "";
-        }
+        return facilityTypeService.getLabel(type);
     }
 }
 

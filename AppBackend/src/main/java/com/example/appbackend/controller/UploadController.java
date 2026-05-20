@@ -20,12 +20,18 @@ import java.time.LocalDate;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.LinkedHashMap;
 
 @RestController
 @RequestMapping("/api/upload")
 public class UploadController {
 
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of(".jpg", ".jpeg", ".png", ".webp", ".gif");
+    private static final Map<String, String> UPLOAD_FOLDER_PREFIXES = new LinkedHashMap<>();
+
+    static {
+        UPLOAD_FOLDER_PREFIXES.put("map-buildings", "smart-campus/map-buildings");
+    }
 
     private final COSClient cosClient;
 
@@ -38,6 +44,9 @@ public class UploadController {
     @Value("${tencent.cos.upload-prefix}")
     private String uploadPrefix;
 
+    @Value("${tencent.cos.map-buildings-prefix:smart-campus/map-buildings}")
+    private String mapBuildingsPrefix;
+
     public UploadController(COSClient cosClient) {
         this.cosClient = cosClient;
     }
@@ -45,6 +54,7 @@ public class UploadController {
     @PostMapping(value = "/image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Result<Map<String, String>> uploadImage(
             @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "folder", required = false) String folder,
             HttpServletRequest request) throws IOException {
         if (file == null || file.isEmpty()) {
             return Result.badRequest("请选择图片文件");
@@ -60,7 +70,12 @@ public class UploadController {
             return Result.badRequest("仅支持 jpg、jpeg、png、webp、gif 图片");
         }
 
-        String objectKey = buildObjectKey(extension);
+        String objectKey;
+        try {
+            objectKey = buildObjectKey(extension, folder);
+        } catch (IllegalArgumentException error) {
+            return Result.badRequest(error.getMessage());
+        }
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(file.getSize());
         metadata.setContentType(file.getContentType());
@@ -77,14 +92,34 @@ public class UploadController {
         return Result.success(Map.of("url", fileUrl));
     }
 
-    private String buildObjectKey(String extension) {
-        String normalizedPrefix = uploadPrefix == null ? "" : uploadPrefix.trim();
-        normalizedPrefix = normalizedPrefix.replaceAll("^/+", "").replaceAll("/+$", "");
+    private String buildObjectKey(String extension, String folder) {
+        String normalizedPrefix = resolveUploadPrefix(folder);
         String datePath = LocalDate.now().toString();
         String filename = UUID.randomUUID() + extension;
         if (normalizedPrefix.isEmpty()) {
             return datePath + "/" + filename;
         }
         return normalizedPrefix + "/" + datePath + "/" + filename;
+    }
+
+    private String resolveUploadPrefix(String folder) {
+        if (StringUtils.hasText(folder)) {
+            String key = folder.trim().toLowerCase();
+            if ("map-buildings".equals(key)) {
+                return normalizePrefix(mapBuildingsPrefix);
+            }
+            if (!UPLOAD_FOLDER_PREFIXES.containsKey(key)) {
+                throw new IllegalArgumentException("不支持的上传目录: " + folder);
+            }
+            return normalizePrefix(UPLOAD_FOLDER_PREFIXES.get(key));
+        }
+        return normalizePrefix(uploadPrefix);
+    }
+
+    private String normalizePrefix(String prefix) {
+        if (prefix == null) {
+            return "";
+        }
+        return prefix.trim().replaceAll("^/+", "").replaceAll("/+$", "");
     }
 }

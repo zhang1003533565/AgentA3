@@ -53,6 +53,7 @@ tencent:
     bucket: luke-1332125786
     domain: https://luke-1332125786.cos.ap-beijing.myqcloud.com
     upload-prefix: smart-campus/media
+    map-buildings-prefix: smart-campus/map-buildings
 
 amap:
   app:

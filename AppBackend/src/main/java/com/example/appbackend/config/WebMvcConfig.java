@@ -21,6 +21,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/api/auth/register",
                         "/api/auth/applogin",
                         "/api/auth/weblogin",
+                        "/api/v1/facility/types",
                         "/uploads/**",
                         "/swagger-ui.html",
                         "/swagger-ui/**",

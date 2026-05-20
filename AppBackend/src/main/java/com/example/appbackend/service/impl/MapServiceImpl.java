@@ -5,6 +5,7 @@ import com.example.appbackend.entity.*;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.*;
 import com.example.appbackend.service.MapService;
+import com.example.appbackend.service.FacilityTypeService;
 import com.example.appbackend.util.GeoUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -42,9 +43,12 @@ public class MapServiceImpl implements MapService {
     @Autowired
     private NavigationLogRepository navigationLogRepository;
 
+    @Autowired
+    private FacilityTypeService facilityTypeService;
+
     @Override
     public PageResponse<MarkerResponse> getMarkerList(Integer facilityType, String keyword, Integer pageNum, Integer pageSize) {
-        PageRequest pageRequest = PageRequest.of(pageNum - 1, pageSize, Sort.by(Sort.Direction.ASC, "sort"));
+        PageRequest pageRequest = PageRequest.of(pageNum - 1, pageSize, Sort.by(Sort.Direction.DESC, "id"));
         Page<MapMarker> page = mapMarkerRepository.findByConditions(facilityType, keyword, pageRequest);
         Map<Long, CampusFacility> facilityMap = buildFacilityMap(page.getContent());
         List<MarkerResponse> items = page.getContent().stream()
@@ -128,12 +132,21 @@ public class MapServiceImpl implements MapService {
 
     @Override
     public List<MarkerIconInfo> getMarkerIcons() {
-        return Arrays.asList(
-                new MarkerIconInfo(1, "餐厅", "#FF9500", ""),
-                new MarkerIconInfo(2, "运动场", "#34C759", ""),
-                new MarkerIconInfo(3, "教学楼", "#007AFF", ""),
-                new MarkerIconInfo(4, "宿舍", "#AF52DE", "")
+        Map<Integer, String> colors = Map.of(
+                1, "#FF9500",
+                2, "#34C759",
+                3, "#007AFF",
+                4, "#AF52DE",
+                5, "#FF6B6B",
+                99, "#8E8E93"
         );
+        return facilityTypeService.listTypes().stream()
+                .map(item -> new MarkerIconInfo(
+                        item.getValue(),
+                        item.getLabel(),
+                        colors.getOrDefault(item.getValue(), "#8E8E93"),
+                        ""))
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -328,15 +341,16 @@ public class MapServiceImpl implements MapService {
         resp.setCreateTime(m.getCreateTime());
         resp.setUpdateTime(m.getUpdateTime());
         resp.setStatus(f != null ? f.getStatus() : 1);
+        List<String> images = Collections.emptyList();
         if (f != null && f.getImages() != null && !f.getImages().isBlank()) {
             try {
-                resp.setImages(OBJECT_MAPPER.readValue(f.getImages(), STRING_LIST_TYPE));
-            } catch (Exception e) {
-                resp.setImages(Collections.emptyList());
+                images = OBJECT_MAPPER.readValue(f.getImages(), STRING_LIST_TYPE);
+            } catch (Exception ignored) {
+                images = Collections.emptyList();
             }
-        } else {
-            resp.setImages(Collections.emptyList());
         }
+        resp.setImages(images);
+        resp.setThumbnailUrl(images.isEmpty() ? null : images.get(0));
         return resp;
     }
 
@@ -388,13 +402,6 @@ public class MapServiceImpl implements MapService {
     }
 
     private String getFacilityTypeName(Integer type) {
-        if (type == null) return "";
-        switch (type) {
-            case 1: return "餐厅";
-            case 2: return "运动场";
-            case 3: return "教学楼";
-            case 4: return "宿舍";
-            default: return "";
-        }
+        return facilityTypeService.getLabel(type);
     }
 }

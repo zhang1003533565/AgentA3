@@ -3,7 +3,6 @@ package com.example.appbackend.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.Data;
 
@@ -22,9 +21,8 @@ public class BuildingMarkerRequest {
     private String name;
 
     @NotNull(message = "建筑类型不能为空")
-    @Min(value = 1, message = "建筑类型最小值为1")
-    @Max(value = 4, message = "建筑类型最大值为4")
-    @Schema(description = "建筑类型：1-餐厅 2-运动场 3-教学楼 4-宿舍")
+    @Min(value = 1, message = "建筑类型编码必须大于 0")
+    @Schema(description = "建筑类型编码，见 GET /api/v1/facility/types")
     private Integer facilityType;
 
     @NotNull(message = "经度不能为空")

@@ -80,10 +80,12 @@ public class CampusFacility {
     }
 
     public enum FacilityType {
-        RESTAURANT(1, "餐厅"),
+        RESTAURANT(1, "食堂"),
         SPORTS_FIELD(2, "运动场"),
         TEACHING_BUILDING(3, "教学楼"),
-        DORMITORY(4, "宿舍");
+        COMPREHENSIVE(4, "综合服务"),
+        CAMPUS_SHOP(5, "校内商铺"),
+        OTHER(99, "其他");
 
         private final Integer value;
         private final String description;
@@ -102,12 +104,15 @@ public class CampusFacility {
         }
 
         public static FacilityType fromValue(Integer value) {
+            if (value == null) {
+                return OTHER;
+            }
             for (FacilityType type : values()) {
                 if (type.value.equals(value)) {
                     return type;
                 }
             }
-            return null;
+            return OTHER;
         }
     }
 

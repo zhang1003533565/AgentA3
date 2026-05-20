@@ -61,6 +61,12 @@ public class FacilityServiceImpl implements FacilityService {
     }
 
     @Override
+    public CampusFacility getFacilityById(Long id) {
+        return facilityRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(404, "设施不存在"));
+    }
+
+    @Override
     public CampusFacility createFacility(FacilityRequest request) {
         CampusFacility facility = new CampusFacility();
         facility.setFacilityName(request.getFacilityName());
@@ -76,7 +82,16 @@ public class FacilityServiceImpl implements FacilityService {
         applyMapImageCoordinates(facility);
         facility.setCreateTime(LocalDateTime.now());
         facility.setUpdateTime(LocalDateTime.now());
-        return facilityRepository.save(facility);
+        CampusFacility saved = facilityRepository.save(facility);
+
+        MapMarker marker = new MapMarker();
+        marker.setFacilityId(saved.getId());
+        marker.setSort(saved.getId() != null ? saved.getId().intValue() : 0);
+        marker.setCreateTime(LocalDateTime.now());
+        marker.setUpdateTime(LocalDateTime.now());
+        mapMarkerRepository.save(marker);
+
+        return saved;
     }
 
     @Override

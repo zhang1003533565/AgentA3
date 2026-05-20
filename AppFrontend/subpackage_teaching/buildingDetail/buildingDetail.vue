@@ -3,13 +3,17 @@
     <nav-bar :title="building.name || '教学楼详情'" fixed placeholder />
 
     <scroll-view class="detail-scroll" scroll-y :style="{ height: `calc(100vh - ${navBarHeight}px)` }">
-      <view class="hero">
+      <view v-if="building.image" class="hero">
         <image class="hero-image" :src="building.image" mode="aspectFill" />
         <view class="hero-mask" />
         <view class="hero-content">
           <text class="hero-name">{{ building.name }}</text>
           <text class="hero-meta">{{ building.zone }} · {{ building.floorCount }}层</text>
         </view>
+      </view>
+      <view v-else class="hero-plain">
+        <text class="hero-name">{{ building.name }}</text>
+        <text class="hero-meta">{{ building.zone }} · {{ building.floorCount }}层</text>
       </view>
 
       <view class="card">
@@ -57,6 +61,7 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { getFacilityDetail, parseFacilityImages } from '@/api/facility.js'
 
 export default {
   components: { NavBar },
@@ -90,7 +95,25 @@ export default {
     this.loadBuilding(options.id)
   },
   methods: {
-    loadBuilding(id) {
+    async loadBuilding(id) {
+      let coverImage = ''
+      let facilityName = ''
+      let facilityDescription = ''
+      let facilityLocation = ''
+      try {
+        const res = await getFacilityDetail(id)
+        const facility = res?.data
+        if (facility) {
+          const images = parseFacilityImages(facility.images)
+          coverImage = images[0] || ''
+          facilityName = facility.facilityName || ''
+          facilityDescription = facility.description || ''
+          facilityLocation = facility.location || ''
+        }
+      } catch (error) {
+        console.error('加载设施图片失败', error)
+      }
+
       const mockData = {
         '1': {
           id: '1',
@@ -137,10 +160,10 @@ export default {
         }
       }
 
-      this.building = mockData[id] || {
+      const fallback = mockData[id] || {
         id: id || '',
         name: '教学楼详情',
-        image: 'https://picsum.photos/seed/teachingDefault/1200/600',
+        image: '',
         buildingNo: '未知',
         zone: '未知',
         floorCount: 0,
@@ -155,6 +178,13 @@ export default {
         freeClassroomCount: 0,
         courseSchedule: []
       }
+      this.building = {
+        ...fallback,
+        name: facilityName || fallback.name,
+        image: coverImage,
+        zone: facilityLocation || fallback.zone,
+        description: facilityDescription || fallback.description || ''
+      }
     }
   }
 }
@@ -163,6 +193,21 @@ export default {
 <style lang="scss" scoped>
 .building-detail-page { min-height: 100vh; background: #f6f7fb; }
 .detail-scroll { min-height: 0; }
+.hero-plain {
+  margin: 24rpx 24rpx 0;
+  padding: 28rpx;
+  border-radius: 22rpx;
+  background: linear-gradient(135deg, #7aa8ff 0%, #4b84f6 100%);
+}
+.hero-plain .hero-name,
+.hero-plain .hero-meta {
+  color: #fff;
+}
+.hero-plain .hero-meta {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 24rpx;
+}
 .hero { margin: 24rpx 24rpx 0; position: relative; height: 280rpx; border-radius: 22rpx; overflow: hidden; }
 .hero-image { width: 100%; height: 100%; }
 .hero-mask { position: absolute; left: 0; right: 0; top: 0; bottom: 0; background: linear-gradient(180deg, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.45) 100%); }
