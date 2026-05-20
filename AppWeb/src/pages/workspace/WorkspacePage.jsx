@@ -47,6 +47,13 @@ const DEFAULT_MAP_CENTER = {
   latitude: 40.755502,
 }
 const DEFAULT_MAP_ZOOM = 16
+const FACILITY_TYPE_OPTIONS = [
+  { value: 1, label: '食堂' },
+  { value: 2, label: '运动场' },
+  { value: 3, label: '教学楼' },
+  { value: 4, label: '宿舍' },
+]
+const FACILITY_TYPE_MAP = Object.fromEntries(FACILITY_TYPE_OPTIONS.map((item) => [String(item.value), item.label]))
 let amapLoaderPromise = null
 
 const loadAmapScript = () => {
@@ -90,6 +97,8 @@ const ensureAmapPlugin = (pluginName) => new Promise((resolve, reject) => {
 })
 
 const toFiniteNumber = (value) => {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'string' && value.trim() === '') return null
   const numeric = Number(value)
   return Number.isFinite(numeric) ? numeric : null
 }
@@ -98,6 +107,17 @@ const roundCoordinate = (value) => {
   const numeric = toFiniteNumber(value)
   return numeric === null ? '' : String(Number(numeric.toFixed(7)))
 }
+
+const getFacilityTypeLabel = (value) => FACILITY_TYPE_MAP[String(value)] || (value ?? '-')
+
+const isLikelyChinaCoordinate = (longitude, latitude) => (
+  Number.isFinite(longitude)
+  && Number.isFinite(latitude)
+  && longitude >= 73
+  && longitude <= 136
+  && latitude >= 3
+  && latitude <= 54
+)
 
 const colorMap = {
   true: 'green',
@@ -469,6 +489,7 @@ function WorkspacePage({ pageKey }) {
     imageY: '',
   })
   const markerAmapContainerRef = useRef(null)
+  const markerAmapHostRef = useRef(null)
   const markerAmapRef = useRef(null)
   const markerAmapOverlaysRef = useRef([])
   const [pagination, setPagination] = useState({
@@ -1380,7 +1401,12 @@ function WorkspacePage({ pageKey }) {
       title: column.title,
       dataIndex: column.dataIndex,
       key: column.dataIndex,
-      render: (value, record) => renderCell(value, column.type, record),
+      render: (value, record) => {
+        if (pageKey === 'map-marker' && column.dataIndex === 'facilityType') {
+          return <Tag color="blue">{getFacilityTypeLabel(value)}</Tag>
+        }
+        return renderCell(value, column.type, record)
+      },
     }))
     const hasActions = [
       'user-manage',
@@ -1420,9 +1446,22 @@ function WorkspacePage({ pageKey }) {
     return <Empty description="页面配置不存在" />
   }
 
+  const destroyAmapMap = (mapRef) => {
+    clearAmapOverlays(markerAmapOverlaysRef)
+    if (!mapRef.current) return
+    try {
+      mapRef.current.destroy()
+    } catch (_) {}
+    mapRef.current = null
+    markerAmapHostRef.current = null
+  }
+
   const buildAmapMap = (container, mapRef) => {
     if (!container || !window.AMap) return null
-    if (mapRef.current) return mapRef.current
+    if (mapRef.current && markerAmapHostRef.current === container) return mapRef.current
+    if (mapRef.current) {
+      destroyAmapMap(mapRef)
+    }
     const lng = Number(mapConfigForm.centerLongitude) || DEFAULT_MAP_CENTER.longitude
     const lat = Number(mapConfigForm.centerLatitude) || DEFAULT_MAP_CENTER.latitude
     mapRef.current = new window.AMap.Map(container, {
@@ -1431,7 +1470,16 @@ function WorkspacePage({ pageKey }) {
       resizeEnable: true,
       mapStyle: 'amap://styles/normal'
     })
+    markerAmapHostRef.current = container
     return mapRef.current
+  }
+
+  const resizeAmapMap = (map) => {
+    if (!map?.resize) return
+    requestAnimationFrame(() => {
+      map.resize()
+      requestAnimationFrame(() => map.resize())
+    })
   }
 
   const clearAmapOverlays = (overlaysRef) => {
@@ -1531,6 +1579,7 @@ function WorkspacePage({ pageKey }) {
     if (pageKey !== 'map-marker' || !amapReady) return undefined
     const map = buildAmapMap(markerAmapContainerRef.current, markerAmapRef)
     if (!map) return undefined
+    resizeAmapMap(map)
 
     const zoom = Number(mapConfigForm.zoomLevel) || DEFAULT_MAP_ZOOM
     const defaultLng = Number(mapConfigForm.centerLongitude) || DEFAULT_MAP_CENTER.longitude
@@ -1552,8 +1601,22 @@ function WorkspacePage({ pageKey }) {
 
     const clickHandler = (event) => {
       if (!markerEditorOpen) return
-      const longitude = Number(event.lnglat?.getLng?.() ?? event.lnglat?.lng)
-      const latitude = Number(event.lnglat?.getLat?.() ?? event.lnglat?.lat)
+      const pixel = event?.pixel
+      const convertedLngLat = pixel && typeof map.containerToLngLat === 'function'
+        ? map.containerToLngLat(pixel)
+        : null
+      const rawLongitude = Number(event.lnglat?.getLng?.() ?? event.lnglat?.lng)
+      const rawLatitude = Number(event.lnglat?.getLat?.() ?? event.lnglat?.lat)
+      const convertedLongitude = Number(convertedLngLat?.getLng?.() ?? convertedLngLat?.lng)
+      const convertedLatitude = Number(convertedLngLat?.getLat?.() ?? convertedLngLat?.lat)
+      const useRawCoordinate = isLikelyChinaCoordinate(rawLongitude, rawLatitude)
+      const useConvertedCoordinate = isLikelyChinaCoordinate(convertedLongitude, convertedLatitude)
+      const longitude = useRawCoordinate ? rawLongitude : convertedLongitude
+      const latitude = useRawCoordinate ? rawLatitude : convertedLatitude
+      if (!useRawCoordinate && !useConvertedCoordinate) {
+        message.warning('这次取点坐标异常，请在底图加载完成后重试或先搜索地点再微调。')
+        return
+      }
       setActiveSearchPoi(null)
       setMarkerDraft((prev) => ({
         ...prev,
@@ -1616,6 +1679,32 @@ function WorkspacePage({ pageKey }) {
       clearAmapOverlays(markerAmapOverlaysRef)
     }
   }, [pageKey, mapConfigForm.provider, mapConfigForm.centerLongitude, mapConfigForm.centerLatitude, mapConfigForm.zoomLevel, amapReady, markerRows, selectedMarker, markerEditorOpen, markerDraft, activeSearchPoi])
+
+  useEffect(() => {
+    if (pageKey !== 'map-marker' || !markerAmapRef.current) return
+    resizeAmapMap(markerAmapRef.current)
+  }, [pageKey, markerEditorOpen, pagination.current, pagination.pageSize])
+
+  useEffect(() => {
+    if (pageKey !== 'map-marker' || typeof ResizeObserver === 'undefined' || !markerAmapContainerRef.current) return undefined
+    const observer = new ResizeObserver(() => {
+      if (markerAmapRef.current) {
+        resizeAmapMap(markerAmapRef.current)
+      }
+    })
+    observer.observe(markerAmapContainerRef.current)
+    return () => observer.disconnect()
+  }, [pageKey, markerEditorOpen])
+
+  useEffect(() => {
+    if (pageKey === 'map-marker') return undefined
+    destroyAmapMap(markerAmapRef)
+    return undefined
+  }, [pageKey])
+
+  useEffect(() => () => {
+    destroyAmapMap(markerAmapRef)
+  }, [])
 
   const renderFacilityAnalyticsPanel = () => {
     const metricMap = Object.fromEntries(rows.map((item) => [item.label, item.value]))
@@ -2069,7 +2158,11 @@ function WorkspacePage({ pageKey }) {
         </div>
         <div className="workspace-map-config__image-shell">
           <div className="workspace-map-config__amap-shell">
-            <div ref={markerAmapContainerRef} className="workspace-map-config__amap-canvas" />
+            <div
+              key={`marker-amap-${markerEditorOpen ? 'editing' : 'preview'}`}
+              ref={markerAmapContainerRef}
+              className="workspace-map-config__amap-canvas"
+            />
             {amapLoadError ? <div className="workspace-map-config__map-error">{amapLoadError}</div> : null}
           </div>
         </div>
@@ -2131,12 +2224,7 @@ function WorkspacePage({ pageKey }) {
               <Form.Item label="设施类型" required>
                 <Select
                   value={markerDraft.facilityType}
-                  options={[
-                    { value: 1, label: '餐厅' },
-                    { value: 2, label: '运动场' },
-                    { value: 3, label: '教学楼' },
-                    { value: 4, label: '宿舍' },
-                  ]}
+                  options={FACILITY_TYPE_OPTIONS}
                   onChange={(value) => setMarkerDraft((prev) => ({ ...prev, facilityType: value }))}
                 />
               </Form.Item>
