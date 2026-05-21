@@ -14,8 +14,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background:
-    url('../../assets/login-bg-xianxia-4k.jpg') center center / cover no-repeat;
+  background: url('../../assets/login-bg-xianxia-4k.jpg') center center / cover no-repeat;
   z-index: -2;
 }
 
@@ -84,31 +83,6 @@
   box-shadow: 0 1px 10px rgba(220, 232, 225, 0.16);
 }
 
-.login-header p {
-  color: rgba(230, 238, 234, 0.76);
-  font-size: 15px;
-}
-
-.login-header > p:first-of-type {
-  font-family: 'Georgia', 'Times New Roman', 'Noto Serif', serif;
-  font-size: 13px;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: rgba(228, 237, 232, 0.68);
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.26);
-}
-
-.admin-hint {
-  margin-top: 14px;
-  display: inline-flex;
-  padding: 7px 13px;
-  border-radius: 999px;
-  background: rgba(214, 226, 220, 0.08);
-  color: #e4efe8 !important;
-  font-size: 12px !important;
-  font-weight: 700;
-}
-
 .login-form {
   display: grid;
   gap: 18px;
@@ -162,27 +136,6 @@
 .login-btn:disabled {
   opacity: 0.7;
   cursor: not-allowed;
-}
-
-.login-tips {
-  margin-top: 18px;
-  padding: 14px 16px;
-  border-radius: 18px;
-  background: rgba(232, 241, 237, 0.08);
-}
-
-.login-tips span {
-  display: inline-flex;
-  margin-bottom: 6px;
-  color: #dcebe4;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
-
-.login-tips p {
-  color: rgba(224, 235, 230, 0.72);
-  line-height: 1.6;
 }
 
 .login-background {
