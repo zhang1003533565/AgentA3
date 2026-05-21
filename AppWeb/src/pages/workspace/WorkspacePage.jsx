@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { Button, Card, Empty, Form, Image, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, Upload, message } from 'antd'
+import { Button, Card, Drawer, Empty, Form, Image, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, Upload, message } from 'antd'
 import { SearchOutlined, UploadOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import { createActivity, deleteActivity, getActivityList, publishActivity, updateActivity } from '../../api/activity'
@@ -344,8 +344,12 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextI
       const res = await getTopicList({ page: current, size: pageSize })
       return { rows: res.data?.records || [], total: res.data?.total || 0 }
     }
+    case 'facility-canteen': {
+      const res = await getFacilityList({ type: 1, page: current, size: pageSize, name: keyword })
+      return { rows: res.data?.records || [], total: res.data?.total || 0 }
+    }
     case 'facility-restaurant': {
-      const res = await getCanteenStallList({ page: current, size: pageSize })
+      const res = await getCanteenStallList({ page: current, size: pageSize, restaurantId: contextId || undefined })
       const rows = Array.isArray(res.data) ? res.data : []
       return { rows, total: rows.length }
     }
@@ -419,6 +423,10 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextI
       ]
 
       return { rows, total: rows.length }
+    }
+    case 'facility-marker': {
+      const res = await getMarkerList({ page: 1, size: 500, keyword })
+      return { rows: res.data?.records || [], total: res.data?.total || 0 }
     }
     case 'map-marker': {
       const res = await getMarkerList({ page: 1, size: 500, keyword })
@@ -589,6 +597,17 @@ function WorkspacePage({ pageKey }) {
     thumbnailUrl: '',
   })
   const [markerThumbnailUploading, setMarkerThumbnailUploading] = useState(false)
+  // 设施地图选点 Drawer（运动场/教学楼/宿舍/食堂编辑时使用）
+  const [mapPickerOpen, setMapPickerOpen] = useState(false)
+  const [mapPickerRecord, setMapPickerRecord] = useState(null)
+  const [mapPickerAmapReady, setMapPickerAmapReady] = useState(false)
+  const [mapPickerAmapError, setMapPickerAmapError] = useState('')
+  const [mapPickerLng, setMapPickerLng] = useState('')
+  const [mapPickerLat, setMapPickerLat] = useState('')
+  const [mapPickerSaving, setMapPickerSaving] = useState(false)
+  const mapPickerContainerRef = useRef(null)
+  const mapPickerAmapRef = useRef(null)
+  const mapPickerOverlaysRef = useRef([])
   const markerAmapContainerRef = useRef(null)
   const markerAmapHostRef = useRef(null)
   const markerAmapRef = useRef(null)
@@ -752,8 +771,24 @@ function WorkspacePage({ pageKey }) {
     }
   }, [pageKey, searchParams])
 
+  // facility-restaurant 页面：从 URL 读取 restaurantId 作为 contextId 过滤
   useEffect(() => {
-    if (pageKey !== 'map-marker') return undefined
+    if (pageKey !== 'facility-restaurant') return
+
+    const restaurantId = searchParams.get('restaurantId')
+    const restaurantName = searchParams.get('restaurantName')
+    if (restaurantId) {
+      setContextId(restaurantId)
+      setUrlStallName(restaurantName || '')
+    } else {
+      setContextId('')
+      setUrlStallName('')
+    }
+    setPagination((prev) => ({ ...prev, current: 1 }))
+  }, [pageKey, searchParams])
+
+  useEffect(() => {
+    if (pageKey !== 'map-marker' && pageKey !== 'facility-marker') return undefined
 
     let cancelled = false
     loadAmapScript()
@@ -776,7 +811,7 @@ function WorkspacePage({ pageKey }) {
   }, [pageKey])
 
   useEffect(() => {
-    if (pageKey !== 'map-marker') return
+    if (pageKey !== 'map-marker' && pageKey !== 'facility-marker') return
     if (!rows.length) {
       setSelectedMarkerId(null)
       return
@@ -817,6 +852,7 @@ function WorkspacePage({ pageKey }) {
     'activity-center',
     'activity-category',
     'forum-topic',
+    'facility-canteen',
     'facility-restaurant',
     'facility-sports',
     'facility-teaching',
@@ -842,6 +878,9 @@ function WorkspacePage({ pageKey }) {
     }
     if (pageKey === 'facility-stall-dish') {
       form.setFieldsValue({ stallId: parseInt(urlStallId) })
+    }
+    if (pageKey === 'facility-restaurant' && contextId) {
+      form.setFieldsValue({ restaurantId: parseInt(contextId) })
     }
     setModalOpen(true)
   }
@@ -909,7 +948,7 @@ function WorkspacePage({ pageKey }) {
             sort: record.sort,
           }
         : {}),
-      ...(['facility-restaurant', 'facility-sports', 'facility-teaching', 'facility-dormitory'].includes(pageKey)
+      ...(['facility-restaurant', 'facility-sports', 'facility-teaching', 'facility-dormitory', 'facility-canteen'].includes(pageKey)
         ? {
             facilityName: record.facilityName,
             facilityType: record.facilityType,
@@ -1014,6 +1053,10 @@ function WorkspacePage({ pageKey }) {
         },
         'facility-dormitory': {
           create: () => createFacility(values),
+          edit: () => updateFacility(editingRecord.id, values),
+        },
+        'facility-canteen': {
+          create: () => createFacility({ ...values, facilityType: 1 }),
           edit: () => updateFacility(editingRecord.id, values),
         },
         'facility-restaurant': {
@@ -1174,6 +1217,27 @@ function WorkspacePage({ pageKey }) {
             </div>
           </>
         )
+      case 'facility-canteen':
+        return (
+          <>
+            <Form.Item name="facilityName" label="食堂名称" rules={[{ required: true }]}>
+              <Input placeholder="例如 字一食堂" />
+            </Form.Item>
+            <Form.Item name="description" label="描述">
+              <Input.TextArea rows={3} />
+            </Form.Item>
+            <Form.Item name="location" label="位置说明">
+              <Input placeholder="例如 校园东区" />
+            </Form.Item>
+            <Form.Item name="status" label="状态">
+              <Select options={[
+                { value: 1, label: '正常开放' },
+                { value: 2, label: '维护中' },
+                { value: 3, label: '关闭' },
+              ]} />
+            </Form.Item>
+          </>
+        )
       case 'facility-sports':
       case 'facility-teaching':
       case 'facility-dormitory':
@@ -1191,11 +1255,12 @@ function WorkspacePage({ pageKey }) {
             <Form.Item name="location" label="位置">
               <Input />
             </Form.Item>
-            <Form.Item name="longitude" label="经度" rules={[{ required: true }]}>
-              <Input />
-            </Form.Item>
-            <Form.Item name="latitude" label="纬度" rules={[{ required: true }]}>
-              <Input />
+            <Form.Item name="status" label="状态">
+              <Select options={[
+                { value: 1, label: '正常开放' },
+                { value: 2, label: '维护中' },
+                { value: 3, label: '关闭' },
+              ]} />
             </Form.Item>
             <Form.Item name="images" label="图片(JSON数组字符串)">
               <Input.TextArea rows={2} />
@@ -1388,6 +1453,54 @@ function WorkspacePage({ pageKey }) {
         )
       case 'activity-category':
         return <Button size="small" onClick={() => openEditModal(record)}>编辑</Button>
+      case 'facility-canteen':
+        return (
+          <Space size="small">
+            <Button size="small" onClick={() => openEditModal(record)}>
+              编辑
+            </Button>
+            <Button
+              size="small"
+              onClick={() => openMapPicker(record)}
+            >
+              地图标点
+            </Button>
+            <Button
+              size="small"
+              onClick={() => {
+                navigate(`/facility/restaurant?restaurantId=${record.id}&restaurantName=${encodeURIComponent(record.facilityName || '食堂')}`)
+              }}
+            >
+              查看档口
+            </Button>
+            <Popconfirm title="确定删除该食堂吗？" onConfirm={() => runAction(() => deleteFacility(record.id), '食堂已删除')}>
+              <Button size="small" danger loading={actionLoading}>
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
+        )
+      case 'facility-sports':
+      case 'facility-teaching':
+      case 'facility-dormitory':
+        return (
+          <Space size="small">
+            <Button size="small" onClick={() => openEditModal(record)}>
+              编辑
+            </Button>
+            <Button
+              size="small"
+              onClick={() => openMapPicker(record)}
+            >
+              地图标点
+            </Button>
+            <Popconfirm title="确定删除该设施吗？" onConfirm={() => runAction(() => deleteFacility(record.id), '设施已删除')}>
+              <Button size="small" danger loading={actionLoading}>
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
+        )
       case 'facility-restaurant':
         return (
           <Space size="small">
@@ -1409,6 +1522,7 @@ function WorkspacePage({ pageKey }) {
             </Popconfirm>
           </Space>
         )
+      case 'facility-marker':
       case 'map-marker':
         return (
           <Popconfirm title="确定删除该标记吗？" onConfirm={() => runAction(() => deleteMarker(record.id), '标记已删除')}>
@@ -1542,11 +1656,13 @@ function WorkspacePage({ pageKey }) {
       'forum-post',
       'forum-comment',
       'forum-topic',
+      'facility-canteen',
       'facility-restaurant',
       'facility-sports',
       'facility-teaching',
       'facility-dormitory',
       'facility-stall-dish',
+      'facility-marker',
       'map-marker',
       'market-item',
       'market-audit',
@@ -1702,7 +1818,7 @@ function WorkspacePage({ pageKey }) {
   }
 
   useEffect(() => {
-    if (pageKey !== 'map-marker' || !amapReady) return undefined
+    if (pageKey !== 'map-marker' && pageKey !== 'facility-marker' || !amapReady) return undefined
     const map = buildAmapMap(markerAmapContainerRef.current, markerAmapRef)
     if (!map) return undefined
     resizeAmapMap(map)
@@ -1807,12 +1923,12 @@ function WorkspacePage({ pageKey }) {
   }, [pageKey, mapConfigForm.provider, mapConfigForm.centerLongitude, mapConfigForm.centerLatitude, mapConfigForm.zoomLevel, amapReady, markerRows, selectedMarker, markerEditorOpen, markerDraft, activeSearchPoi])
 
   useEffect(() => {
-    if (pageKey !== 'map-marker' || !markerAmapRef.current) return
+    if (pageKey !== 'map-marker' && pageKey !== 'facility-marker' || !markerAmapRef.current) return
     resizeAmapMap(markerAmapRef.current)
   }, [pageKey, markerEditorOpen, pagination.current, pagination.pageSize])
 
   useEffect(() => {
-    if (pageKey !== 'map-marker' || typeof ResizeObserver === 'undefined' || !markerAmapContainerRef.current) return undefined
+    if ((pageKey !== 'map-marker' && pageKey !== 'facility-marker') || typeof ResizeObserver === 'undefined' || !markerAmapContainerRef.current) return undefined
     const observer = new ResizeObserver(() => {
       if (markerAmapRef.current) {
         resizeAmapMap(markerAmapRef.current)
@@ -1823,7 +1939,7 @@ function WorkspacePage({ pageKey }) {
   }, [pageKey, markerEditorOpen])
 
   useEffect(() => {
-    if (pageKey === 'map-marker') return undefined
+    if (pageKey === 'map-marker' || pageKey === 'facility-marker') return undefined
     destroyAmapMap(markerAmapRef)
     return undefined
   }, [pageKey])
@@ -1831,6 +1947,157 @@ function WorkspacePage({ pageKey }) {
   useEffect(() => () => {
     destroyAmapMap(markerAmapRef)
   }, [])
+
+  const openMapPicker = (record) => {
+    setMapPickerRecord(record)
+    setMapPickerLng(record.longitude ? String(record.longitude) : '')
+    setMapPickerLat(record.latitude ? String(record.latitude) : '')
+    setMapPickerOpen(true)
+    // 加载高德地图
+    loadAmapScript()
+      .then(() => {
+        setMapPickerAmapReady(true)
+        setMapPickerAmapError('')
+      })
+      .catch((err) => {
+        setMapPickerAmapReady(false)
+        setMapPickerAmapError(err?.message || '高德地图加载失败')
+      })
+  }
+
+  const saveMapPicker = async () => {
+    const lng = toFiniteNumber(mapPickerLng)
+    const lat = toFiniteNumber(mapPickerLat)
+    if (lng === null || lat === null) {
+      message.warning('请在地图上点击选取位置')
+      return
+    }
+    setMapPickerSaving(true)
+    try {
+      await updateFacility(mapPickerRecord.id, {
+        facilityName: mapPickerRecord.facilityName,
+        facilityType: mapPickerRecord.facilityType,
+        longitude: lng,
+        latitude: lat,
+      })
+      message.success('标点位置已更新')
+      setMapPickerOpen(false)
+      await refreshPageData()
+    } catch (err) {
+      message.error(err?.message || '保存失败')
+    } finally {
+      setMapPickerSaving(false)
+    }
+  }
+
+  // 地图选点 Drawer 内地图初始化
+  useEffect(() => {
+    if (!mapPickerOpen || !mapPickerAmapReady || !mapPickerContainerRef.current) return undefined
+    if (!window.AMap) return undefined
+
+    clearAmapOverlays(mapPickerOverlaysRef)
+    if (mapPickerAmapRef.current) {
+      try { mapPickerAmapRef.current.destroy() } catch (_) {}
+      mapPickerAmapRef.current = null
+    }
+
+    const lng = toFiniteNumber(mapPickerLng) ?? DEFAULT_MAP_CENTER.longitude
+    const lat = toFiniteNumber(mapPickerLat) ?? DEFAULT_MAP_CENTER.latitude
+
+    const map = new window.AMap.Map(mapPickerContainerRef.current, {
+      zoom: 17,
+      center: [lng, lat],
+      resizeEnable: true,
+      mapStyle: 'amap://styles/normal',
+    })
+    mapPickerAmapRef.current = map
+
+    // 已有位置显示标记
+    if (toFiniteNumber(mapPickerLng) !== null && toFiniteNumber(mapPickerLat) !== null) {
+      const marker = new window.AMap.Marker({
+        map,
+        position: [lng, lat],
+        label: { content: mapPickerRecord?.facilityName || '当前位置', direction: 'top' },
+      })
+      mapPickerOverlaysRef.current = [marker]
+    }
+
+    // 点击地图取点
+    const clickHandler = (event) => {
+      const rawLng = Number(event.lnglat?.getLng?.() ?? event.lnglat?.lng)
+      const rawLat = Number(event.lnglat?.getLat?.() ?? event.lnglat?.lat)
+      if (!isLikelyChinaCoordinate(rawLng, rawLat)) {
+        message.warning('坐标异常，请等底图加载完成后重试')
+        return
+      }
+      setMapPickerLng(roundCoordinate(rawLng))
+      setMapPickerLat(roundCoordinate(rawLat))
+      // 更新标记
+      clearAmapOverlays(mapPickerOverlaysRef)
+      const newMarker = new window.AMap.Marker({
+        map,
+        position: [rawLng, rawLat],
+        label: { content: mapPickerRecord?.facilityName || '新位置', direction: 'top' },
+      })
+      mapPickerOverlaysRef.current = [newMarker]
+    }
+    map.on('click', clickHandler)
+
+    return () => {
+      map.off('click', clickHandler)
+      clearAmapOverlays(mapPickerOverlaysRef)
+      try { map.destroy() } catch (_) {}
+      mapPickerAmapRef.current = null
+    }
+  }, [mapPickerOpen, mapPickerAmapReady])
+
+  const renderMapPickerDrawer = () => (
+    <Drawer
+      title={`地图标点 — ${mapPickerRecord?.facilityName || ''}`}
+      placement="right"
+      width={680}
+      open={mapPickerOpen}
+      onClose={() => setMapPickerOpen(false)}
+      footer={
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+          <Button onClick={() => setMapPickerOpen(false)}>取消</Button>
+          <Button type="primary" loading={mapPickerSaving} onClick={saveMapPicker}>
+            保存位置
+          </Button>
+        </div>
+      }
+    >
+      <div className="map-picker-drawer">
+        <p className="map-picker-drawer__tip">
+          点击地图选取位置，也可以先搜索地点再微调。当前坐标将保存到该设施记录。
+        </p>
+        <div className="map-picker-drawer__coords">
+          <div>
+            <label>经度</label>
+            <Input
+              value={mapPickerLng}
+              onChange={(e) => setMapPickerLng(e.target.value)}
+              placeholder="点击地图自动填入"
+            />
+          </div>
+          <div>
+            <label>纬度</label>
+            <Input
+              value={mapPickerLat}
+              onChange={(e) => setMapPickerLat(e.target.value)}
+              placeholder="点击地图自动填入"
+            />
+          </div>
+        </div>
+        <div className="map-picker-drawer__map-shell">
+          {mapPickerAmapError ? (
+            <div className="map-picker-drawer__error">{mapPickerAmapError}</div>
+          ) : null}
+          <div ref={mapPickerContainerRef} className="map-picker-drawer__canvas" />
+        </div>
+      </div>
+    </Drawer>
+  )
 
   const renderFacilityAnalyticsPanel = () => {
     const metricMap = Object.fromEntries(rows.map((item) => [item.label, item.value]))
@@ -2281,70 +2548,60 @@ function WorkspacePage({ pageKey }) {
   }
 
   const renderMarkerManagePanel = () => (
-    <div className="workspace-marker-layout">
-      <Card className="workspace-marker-preview-card">
-        <div className="workspace-map-config__preview-head">
-          <h3>标点预览</h3>
-          <p>左侧展示底图和已有标记点。新增或调整位置时，可以先搜地点，再点击地图微调。</p>
-        </div>
-        <div className="workspace-marker-search">
-          <div className="workspace-marker-search__bar">
-            <Input
-              allowClear
-              value={markerSearchKeyword}
-              onChange={(event) => setMarkerSearchKeyword(event.target.value)}
-              onPressEnter={() => handleMarkerSearch(markerSearchKeyword)}
-              placeholder="搜索教学楼、食堂、宿舍、道路等高德地点"
-              prefix={<SearchOutlined />}
-            />
-            <Button type="primary" loading={markerSearchLoading} onClick={() => handleMarkerSearch(markerSearchKeyword)}>
-              搜索地点
-            </Button>
-          </div>
-          {markerSearchResults.length ? (
-            <div className="workspace-marker-search__results">
-              {markerSearchResults.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={`workspace-marker-search__result${activeSearchPoi?.id === item.id ? ' active' : ''}`}
-                  onClick={() => pickMarkerSearchResult(item)}
-                >
-                  <strong>{item.name}</strong>
-                  <span>{item.address || '无详细地址'}</span>
-                  <em>{item.longitude}, {item.latitude}</em>
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
-        <div className="workspace-map-config__image-shell">
-          <div className="workspace-map-config__amap-shell">
-            <div
-              key={`marker-amap-${markerEditorOpen ? 'editing' : 'preview'}`}
-              ref={markerAmapContainerRef}
-              className="workspace-map-config__amap-canvas"
-            />
-            {amapLoadError ? <div className="workspace-map-config__map-error">{amapLoadError}</div> : null}
-          </div>
-        </div>
-        <div className="workspace-marker-preview-card__meta">
-          <div>已加载标点 {markerRows.length} 个</div>
-          <div>当前模式 高德地图</div>
-        </div>
-        <div className="workspace-map-config__actions">
-          <Button type="primary" onClick={openMarkerCreate}>
-            新增标点
-          </Button>
-          <Button onClick={openMarkerReposition} disabled={!selectedMarker}>
-            设置选中位置
-          </Button>
-          <Button onClick={openMarkerImageEditor} disabled={!selectedMarker}>
-            上传缩略图
+    <div className="workspace-marker-fullwidth">
+      {/* 顶部工具栏 */}
+      <div className="workspace-marker-toolbar">
+        <div className="workspace-marker-toolbar__search">
+          <Input
+            allowClear
+            value={markerSearchKeyword}
+            onChange={(event) => setMarkerSearchKeyword(event.target.value)}
+            onPressEnter={() => handleMarkerSearch(markerSearchKeyword)}
+            placeholder="搜索教学楼、食堂、宿舍、道路等高德地点"
+            prefix={<SearchOutlined />}
+            style={{ width: 320 }}
+          />
+          <Button loading={markerSearchLoading} onClick={() => handleMarkerSearch(markerSearchKeyword)}>
+            搜索地点
           </Button>
         </div>
-      </Card>
+        <div className="workspace-marker-toolbar__actions">
+          <span className="workspace-marker-toolbar__meta">已加载 {markerRows.length} 个标点</span>
+          <Button type="primary" onClick={openMarkerCreate}>新增标点</Button>
+          <Button onClick={openMarkerReposition} disabled={!selectedMarker}>设置位置</Button>
+          <Button onClick={openMarkerImageEditor} disabled={!selectedMarker}>上传缩略图</Button>
+        </div>
+      </div>
 
+      {/* 搜索结果 */}
+      {markerSearchResults.length ? (
+        <div className="workspace-marker-search-results">
+          {markerSearchResults.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`workspace-marker-search__result${activeSearchPoi?.id === item.id ? ' active' : ''}`}
+              onClick={() => pickMarkerSearchResult(item)}
+            >
+              <strong>{item.name}</strong>
+              <span>{item.address || '无详细地址'}</span>
+              <em>{item.longitude}, {item.latitude}</em>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {/* 全宽地图 */}
+      <div className="workspace-marker-map-shell">
+        <div
+          key={`marker-amap-${markerEditorOpen ? 'editing' : 'preview'}`}
+          ref={markerAmapContainerRef}
+          className="workspace-marker-map-canvas"
+        />
+        {amapLoadError ? <div className="workspace-map-config__map-error">{amapLoadError}</div> : null}
+      </div>
+
+      {/* 标点列表 */}
       <Card
         className="workspace-table-card"
         extra={
@@ -2367,141 +2624,6 @@ function WorkspacePage({ pageKey }) {
           </div>
         }
       >
-        {markerEditorOpen ? (
-          <div className="workspace-marker-editor">
-            <div className="workspace-marker-editor__head">
-              <div>
-                <h3>
-                  {markerEditorMode === 'create'
-                    ? '新增标点'
-                    : markerEditorMode === 'image'
-                      ? '上传建筑缩略图'
-                      : '设置标点位置'}
-                </h3>
-                <p>
-                  {markerEditorMode === 'image'
-                    ? '图片将上传到腾讯云 COS 的 map-buildings 目录，App 端仅展示已上传图片。'
-                    : '右侧填写信息，左侧地图点击取点，也可以先用高德搜索地点。'}
-                </p>
-              </div>
-              <Button onClick={() => setMarkerEditorOpen(false)}>
-                收起
-              </Button>
-            </div>
-            <Form layout="vertical">
-              <Form.Item label="标记名称" required>
-                <Input
-                  value={markerDraft.facilityName}
-                  onChange={(event) => setMarkerDraft((prev) => ({ ...prev, facilityName: event.target.value }))}
-                  placeholder="例如 图书馆"
-                />
-              </Form.Item>
-              <Form.Item label="设施类型" required>
-                <Select
-                  value={markerDraft.facilityType}
-                  options={facilityTypeOptions}
-                  onChange={(value) => setMarkerDraft((prev) => ({ ...prev, facilityType: value }))}
-                />
-              </Form.Item>
-              <Form.Item label="位置说明">
-                <Input
-                  value={markerDraft.location}
-                  onChange={(event) => setMarkerDraft((prev) => ({ ...prev, location: event.target.value }))}
-                  placeholder="例如 南门东侧"
-                />
-              </Form.Item>
-              <Form.Item label="描述">
-                <Input.TextArea
-                  rows={3}
-                  value={markerDraft.description}
-                  onChange={(event) => setMarkerDraft((prev) => ({ ...prev, description: event.target.value }))}
-                  placeholder="可选"
-                />
-              </Form.Item>
-              <Form.Item label="建筑缩略图">
-                <div className="workspace-marker-thumbnail">
-                  {markerDraft.thumbnailUrl ? (
-                    <Image
-                      src={markerDraft.thumbnailUrl}
-                      alt="建筑缩略图"
-                      width={120}
-                      height={80}
-                      style={{ objectFit: 'cover', borderRadius: 12 }}
-                    />
-                  ) : (
-                    <span className="workspace-marker-thumbnail__empty">暂未上传，App 端不显示图片</span>
-                  )}
-                  <Space wrap>
-                    <Upload
-                      accept="image/*"
-                      showUploadList={false}
-                      disabled={markerThumbnailUploading}
-                      customRequest={async ({ file, onSuccess, onError }) => {
-                        setMarkerThumbnailUploading(true)
-                        try {
-                          const url = await uploadMapBuildingImage(file)
-                          setMarkerDraft((prev) => ({ ...prev, thumbnailUrl: url }))
-                          onSuccess?.({ url })
-                          message.success('缩略图上传成功')
-                        } catch (error) {
-                          onError?.(error)
-                          message.error(error?.message || '缩略图上传失败')
-                        } finally {
-                          setMarkerThumbnailUploading(false)
-                        }
-                      }}
-                    >
-                      <Button icon={<UploadOutlined />} loading={markerThumbnailUploading}>
-                        上传到腾讯云
-                      </Button>
-                    </Upload>
-                    {markerDraft.thumbnailUrl ? (
-                      <Button
-                        danger
-                        onClick={() => setMarkerDraft((prev) => ({ ...prev, thumbnailUrl: '' }))}
-                      >
-                        移除图片
-                      </Button>
-                    ) : null}
-                  </Space>
-                </div>
-              </Form.Item>
-              {markerEditorMode !== 'image' ? (
-                <>
-                  <div className="workspace-map-config__grid">
-                    <div>
-                      <label>经度</label>
-                      <Input
-                        value={markerDraft.longitude}
-                        onChange={(event) => setMarkerDraft((prev) => ({ ...prev, longitude: event.target.value }))}
-                        placeholder="点击左侧高德地图取点，也可手填"
-                      />
-                    </div>
-                    <div>
-                      <label>纬度</label>
-                      <Input
-                        value={markerDraft.latitude}
-                        onChange={(event) => setMarkerDraft((prev) => ({ ...prev, latitude: event.target.value }))}
-                        placeholder="点击左侧高德地图取点，也可手填"
-                      />
-                    </div>
-                  </div>
-                  <div className="workspace-marker-editor__hint">
-                    先点击左侧高德地图取点，系统会直接回填经纬度；也可以先搜索地点，再微调落点。
-                  </div>
-                </>
-              ) : null}
-              <div className="workspace-map-config__actions">
-                <Button onClick={() => setMarkerEditorOpen(false)}>
-                  取消
-                </Button>
-                <Button type="primary" loading={markerEditorSaving} onClick={saveMarkerDraft}>
-                  确定
-                </Button>
-              </div>
-            </Form>
-          </div>
-        ) : null}
         <Table
           columns={columns}
           dataSource={markerRows}
@@ -2527,6 +2649,140 @@ function WorkspacePage({ pageKey }) {
           }}
         />
       </Card>
+
+      {/* 编辑 Drawer — mask 关闭，挂载在当前容器内，不遮挡地图点击 */}
+      <Drawer
+        title={
+          markerEditorMode === 'create'
+            ? '新增标点'
+            : markerEditorMode === 'image'
+              ? '上传建筑缩略图'
+              : '设置标点位置'
+        }
+        placement="right"
+        width={420}
+        open={markerEditorOpen}
+        onClose={() => setMarkerEditorOpen(false)}
+        mask={false}
+        getContainer={false}
+        style={{ position: 'absolute' }}
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+            <Button onClick={() => setMarkerEditorOpen(false)}>取消</Button>
+            <Button type="primary" loading={markerEditorSaving} onClick={saveMarkerDraft}>确定</Button>
+          </div>
+        }
+      >
+        <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
+          {markerEditorMode === 'image'
+            ? '图片将上传到腾讯云 COS 的 map-buildings 目录，App 端仅展示已上传图片。'
+            : '填写信息后，在左侧地图点击取点，也可以先用高德搜索地点。'}
+        </p>
+        <Form layout="vertical">
+          <Form.Item label="标记名称" required>
+            <Input
+              value={markerDraft.facilityName}
+              onChange={(event) => setMarkerDraft((prev) => ({ ...prev, facilityName: event.target.value }))}
+              placeholder="例如 图书馆"
+            />
+          </Form.Item>
+          <Form.Item label="设施类型" required>
+            <Select
+              value={markerDraft.facilityType}
+              options={facilityTypeOptions}
+              onChange={(value) => setMarkerDraft((prev) => ({ ...prev, facilityType: value }))}
+            />
+          </Form.Item>
+          <Form.Item label="位置说明">
+            <Input
+              value={markerDraft.location}
+              onChange={(event) => setMarkerDraft((prev) => ({ ...prev, location: event.target.value }))}
+              placeholder="例如 南门东侧"
+            />
+          </Form.Item>
+          <Form.Item label="描述">
+            <Input.TextArea
+              rows={3}
+              value={markerDraft.description}
+              onChange={(event) => setMarkerDraft((prev) => ({ ...prev, description: event.target.value }))}
+              placeholder="可选"
+            />
+          </Form.Item>
+          <Form.Item label="建筑缩略图">
+            <div className="workspace-marker-thumbnail">
+              {markerDraft.thumbnailUrl ? (
+                <Image
+                  src={markerDraft.thumbnailUrl}
+                  alt="建筑缩略图"
+                  width={120}
+                  height={80}
+                  style={{ objectFit: 'cover', borderRadius: 12 }}
+                />
+              ) : (
+                <span className="workspace-marker-thumbnail__empty">暂未上传，App 端不显示图片</span>
+              )}
+              <Space wrap>
+                <Upload
+                  accept="image/*"
+                  showUploadList={false}
+                  disabled={markerThumbnailUploading}
+                  customRequest={async ({ file, onSuccess, onError }) => {
+                    setMarkerThumbnailUploading(true)
+                    try {
+                      const url = await uploadMapBuildingImage(file)
+                      setMarkerDraft((prev) => ({ ...prev, thumbnailUrl: url }))
+                      onSuccess?.({ url })
+                      message.success('缩略图上传成功')
+                    } catch (error) {
+                      onError?.(error)
+                      message.error(error?.message || '缩略图上传失败')
+                    } finally {
+                      setMarkerThumbnailUploading(false)
+                    }
+                  }}
+                >
+                  <Button icon={<UploadOutlined />} loading={markerThumbnailUploading}>
+                    上传到腾讯云
+                  </Button>
+                </Upload>
+                {markerDraft.thumbnailUrl ? (
+                  <Button
+                    danger
+                    onClick={() => setMarkerDraft((prev) => ({ ...prev, thumbnailUrl: '' }))}
+                  >
+                    移除图片
+                  </Button>
+                ) : null}
+              </Space>
+            </div>
+          </Form.Item>
+          {markerEditorMode !== 'image' ? (
+            <>
+              <div className="workspace-map-config__grid">
+                <div>
+                  <label>经度</label>
+                  <Input
+                    value={markerDraft.longitude}
+                    onChange={(event) => setMarkerDraft((prev) => ({ ...prev, longitude: event.target.value }))}
+                    placeholder="点击左侧地图取点"
+                  />
+                </div>
+                <div>
+                  <label>纬度</label>
+                  <Input
+                    value={markerDraft.latitude}
+                    onChange={(event) => setMarkerDraft((prev) => ({ ...prev, latitude: event.target.value }))}
+                    placeholder="点击左侧地图取点"
+                  />
+                </div>
+              </div>
+              <div className="workspace-marker-editor__hint">
+                在左侧地图点击取点，系统会自动回填经纬度；也可以先搜索地点，再微调落点。
+              </div>
+            </>
+          ) : null}
+        </Form>
+      </Drawer>
     </div>
   )
 
@@ -2536,17 +2792,26 @@ function WorkspacePage({ pageKey }) {
         <section className="workspace-hero">
           <div>
             <span className="workspace-badge">{page.badge}</span>
-            <h1>{pageKey === 'facility-stall-dish' && urlStallName ? `${page.title} - ${urlStallName}` : page.title}</h1>
+            <h1>
+              {pageKey === 'facility-stall-dish' && urlStallName
+                ? `${page.title} - ${urlStallName}`
+                : pageKey === 'facility-restaurant' && urlStallName
+                  ? `${urlStallName} · 档口管理`
+                  : page.title}
+            </h1>
             <p>{page.description}</p>
             {pageKey === 'facility-stall-dish' ? (
               <p>当前档口 ID：{urlStallId || '未获取到'}</p>
+            ) : null}
+            {pageKey === 'facility-restaurant' && contextId ? (
+              <p>食堂 ID：{contextId}　·　<Button type="link" size="small" style={{ padding: 0 }} onClick={() => navigate('/facility/canteen')}>← 返回食堂列表</Button></p>
             ) : null}
           </div>
         </section>
       )}
 
       <section className="workspace-main workspace-main-single">
-        {pageKey === 'map-marker' ? renderMarkerManagePanel() : pageKey === 'facility-analytics' ? renderFacilityAnalyticsPanel() : pageKey === 'map-analytics' ? renderMapAnalyticsPanel() : pageKey === 'discount-analytics' ? renderDiscountAnalyticsPanel() : (
+        {pageKey === 'map-marker' || pageKey === 'facility-marker' ? renderMarkerManagePanel() : pageKey === 'facility-analytics' ? renderFacilityAnalyticsPanel() : pageKey === 'map-analytics' ? renderMapAnalyticsPanel() : pageKey === 'discount-analytics' ? renderDiscountAnalyticsPanel() : (
         <Card
           className="workspace-table-card"
           extra={
@@ -2641,6 +2906,8 @@ function WorkspacePage({ pageKey }) {
           {renderModalFields()}
         </Form>
       </Modal>
+
+      {renderMapPickerDrawer()}
     </div>
   )
 }
