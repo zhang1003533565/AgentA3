@@ -56,7 +56,7 @@ function Login() {
       <div className="login-box">
         <div className="login-header">
           <h1>智慧校园</h1>
-          <p>Unified Management Console</p>
+          <p>Campus Administration Console</p>
           <p className="admin-hint">聚合八阶段任务的 Web 工作台</p>
         </div>
 
