@@ -82,6 +82,16 @@ public class Activity {
     @Schema(description = "报名结束时间", example = "2026-03-19 18:00:00")
     private LocalDateTime signupEndTime;
 
+    @Column(name = "sign_in_start_time", columnDefinition = "DATETIME COMMENT '签到开始时间'")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @Schema(description = "签到开始时间", example = "2026-03-20 13:30:00")
+    private LocalDateTime signInStartTime;
+
+    @Column(name = "sign_in_end_time", columnDefinition = "DATETIME COMMENT '签到结束时间'")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @Schema(description = "签到结束时间", example = "2026-03-20 15:30:00")
+    private LocalDateTime signInEndTime;
+
     public enum Status {
         DRAFT("草稿"),
         PUBLISHED("进行中"),
@@ -112,9 +122,21 @@ public class Activity {
     @Schema(description = "签到是否开启", example = "false")
     private Boolean signInOpen = false;
 
+    @Column(name = "requires_audit", columnDefinition = "BOOLEAN DEFAULT FALSE COMMENT '报名是否需要审核'")
+    @Schema(description = "报名是否需要审核", example = "false")
+    private Boolean requiresAudit = false;
+
+    @Column(name = "cancel_requires_audit", columnDefinition = "BOOLEAN DEFAULT FALSE COMMENT '取消报名是否需要审核'")
+    @Schema(description = "取消报名是否需要审核", example = "false")
+    private Boolean cancelRequiresAudit = false;
+
     @Column(precision = 3, scale = 1, columnDefinition = "DECIMAL(3,1) DEFAULT 0 COMMENT '活动学分'")
     @Schema(description = "活动学分", example = "2.0")
     private BigDecimal score = BigDecimal.ZERO;
+
+    @Column(name = "credit_config", columnDefinition = "TEXT COMMENT '角色学分分配(JSON)'")
+    @Schema(description = "角色学分分配(JSON)", example = "[{\"role\":\"主持人\",\"score\":1.5},{\"role\":\"观众\",\"score\":0.2}]")
+    private String creditConfig;
 
     @Column(name = "contact_name", length = 50, columnDefinition = "VARCHAR(50) COMMENT '联系人姓名'")
     @Schema(description = "联系人姓名", example = "张老师")

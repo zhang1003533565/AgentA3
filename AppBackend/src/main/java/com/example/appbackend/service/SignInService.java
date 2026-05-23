@@ -44,4 +44,14 @@ public interface SignInService {
      * 获取我的签到状态
      */
     SignIn getSignInStatus(Long activityId, Long userId);
+
+    /**
+     * 签到后审核并发放学分
+     */
+    void reviewSignInAndGrantCredit(Long signInId, String reviewStatus, Long reviewerId, String remark);
+
+    /**
+     * 批量签到后审核并发放学分
+     */
+    void batchReviewSignInAndGrantCredit(Long[] signInIds, String reviewStatus, Long reviewerId, String remark);
 }

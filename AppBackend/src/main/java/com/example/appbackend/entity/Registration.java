@@ -33,6 +33,21 @@ public class Registration {
     @Column(name = "audit_by", columnDefinition = "BIGINT COMMENT '审核人ID'")
     private Long auditBy;
 
+    @Column(name = "credit_audit_status", length = 20, columnDefinition = "VARCHAR(20) DEFAULT 'PENDING' COMMENT '签到后审核状态: PENDING-待审核, APPROVED-通过, REJECTED-拒绝'")
+    private String creditAuditStatus = "PENDING";
+
+    @Column(name = "credit_audit_time", columnDefinition = "DATETIME COMMENT '签到后审核时间'")
+    private LocalDateTime creditAuditTime;
+
+    @Column(name = "credit_audit_by", columnDefinition = "BIGINT COMMENT '签到后审核人ID'")
+    private Long creditAuditBy;
+
+    @Column(name = "credit_granted", columnDefinition = "BOOLEAN DEFAULT FALSE COMMENT '是否已发放学分'")
+    private Boolean creditGranted = false;
+
+    @Column(name = "credit_granted_time", columnDefinition = "DATETIME COMMENT '学分发放时间'")
+    private LocalDateTime creditGrantedTime;
+
     @Column(length = 500, columnDefinition = "VARCHAR(500) COMMENT '备注'")
     private String remark;
 

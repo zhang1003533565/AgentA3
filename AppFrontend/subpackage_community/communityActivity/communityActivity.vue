@@ -93,18 +93,24 @@
                 <text class="signup-deadline" v-if="item.signupEndTime">截止 {{ formatDate(item.signupEndTime) }}</text>
               </view>
               
-              <view class="activity-meta">
-                <view class="meta-item">
-                  <image class="meta-icon" src="/static/icons/line/calendar.svg" mode="aspectFit" />
-                  <text class="meta-text">{{ formatDateRange(item.startTime, item.endTime) }}</text>
+              <view class="activity-main">
+                <view class="activity-meta">
+                  <view class="meta-item">
+                    <image class="meta-icon" src="/static/icons/line/calendar.svg" mode="aspectFit" />
+                    <text class="meta-text">{{ formatDateRange(item.startTime, item.endTime) }}</text>
+                  </view>
+                  <view class="meta-item">
+                    <image class="meta-icon" src="/static/icons/line/map.svg" mode="aspectFit" />
+                    <text class="meta-text">{{ item.location }}</text>
+                  </view>
+                  <view class="meta-item">
+                    <image class="meta-icon" src="/static/icons/line/user.svg" mode="aspectFit" />
+                    <text class="meta-text">{{ item.currentPeople }}/{{ item.maxPeople }}人</text>
+                  </view>
                 </view>
-                <view class="meta-item">
-                  <image class="meta-icon" src="/static/icons/line/map.svg" mode="aspectFit" />
-                  <text class="meta-text">{{ item.location }}</text>
-                </view>
-                <view class="meta-item">
-                  <image class="meta-icon" src="/static/icons/line/user.svg" mode="aspectFit" />
-                  <text class="meta-text">{{ item.currentPeople }}/{{ item.maxPeople }}人</text>
+                <view class="credit-badge" v-if="item.credit !== null && item.credit !== undefined && `${item.credit}` !== ''">
+                  <text class="credit-value">{{ formatCredit(item.credit) }}</text>
+                  <text class="credit-label">学分</text>
                 </view>
               </view>
               
@@ -122,6 +128,7 @@
                 <text class="organizer-name">{{ item.organizer }}</text>
               </view>
             </view>
+
           </view>
         </view>
       </view>
@@ -168,6 +175,7 @@ export default {
       currentStatus: 'all',
       headerHeight: 280,
       defaultCover: 'https://picsum.photos/seed/community/800/450',
+      defaultActivityCredit: 0.2,
       categories: [{ id: 0, name: '全部' }],
       statusOptions: [
         { label: '全部状态', value: 'all' },
@@ -265,7 +273,8 @@ export default {
           cover: item.coverImage || parseImageList(item.images)[0] || '',
           organizer: item.organizerName || '校园活动中心',
           categoryName: item.category?.categoryName || this.getCategoryName(item.categoryId),
-          status: this.getStatus(item)
+          status: this.getStatus(item),
+          credit: this.getActivityCredit(item)
         }))
 
         this.activityList = refresh ? records : [...this.activityList, ...records]
@@ -377,6 +386,21 @@ export default {
       const max = item.maxPeople || 1
       const pct = Math.min(100, Math.round((item.currentPeople / max) * 100))
       return pct + '%'
+    },
+
+
+    getActivityCredit(item) {
+      const candidates = [item.credit, item.credits, item.activityCredit, item.score]
+      const raw = candidates.find((value) => value !== undefined && value !== null && `${value}`.trim() !== '')
+      if (raw === undefined) return this.defaultActivityCredit
+      const value = Number(raw)
+      return Number.isFinite(value) ? value : this.defaultActivityCredit
+    },
+
+    formatCredit(value) {
+      const number = Number(value)
+      if (!Number.isFinite(number)) return String(this.defaultActivityCredit)
+      return Number.isInteger(number) ? String(number) : number.toFixed(1)
     }
   }
 }
@@ -657,9 +681,16 @@ export default {
 }
 
 .activity-meta {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 12rpx;
+}
+
+.activity-main {
+  display: flex;
+  align-items: flex-end;
+  gap: 20rpx;
   margin-bottom: 20rpx;
 }
 
@@ -677,6 +708,32 @@ export default {
 .meta-text {
   font-size: 26rpx;
   color: #666;
+}
+
+.credit-badge {
+  width: 128rpx;
+  height: 128rpx;
+  border-radius: 16rpx;
+  background: #FEF2DE;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.credit-value {
+  font-size: 52rpx;
+  line-height: 1;
+  color: #D9933A;
+  font-weight: 500;
+}
+
+.credit-label {
+  margin-top: 4rpx;
+  font-size: 24rpx;
+  line-height: 1;
+  color: #C28B4A;
 }
 
 .progress-wrap {
@@ -781,3 +838,4 @@ export default {
   text-shadow: 0 2rpx 4rpx rgba(0, 0, 0, 0.1);
 }
 </style>
+

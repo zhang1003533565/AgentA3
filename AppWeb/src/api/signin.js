@@ -37,6 +37,34 @@ export const getSignInList = (activityId, page = 1, size = 999) => {
   })
 }
 
+export const reviewSignIn = (id, reviewStatus, remark) => {
+  return request({
+    url: `/api/signins/${id}/review`,
+    method: 'put',
+    params: { reviewStatus, remark }
+  })
+}
+
+export const batchReviewSignIn = (signInIds, reviewStatus, remark) => {
+  return request({
+    url: '/api/signins/batch-review',
+    method: 'put',
+    params: { signInIds, reviewStatus, remark },
+    paramsSerializer: (params) => {
+      const sp = new URLSearchParams()
+      const ids = params.signInIds || []
+      ids.forEach((id) => sp.append('signInIds', id))
+      if (params.reviewStatus !== undefined && params.reviewStatus !== null) {
+        sp.append('reviewStatus', params.reviewStatus)
+      }
+      if (params.remark !== undefined && params.remark !== null && params.remark !== '') {
+        sp.append('remark', params.remark)
+      }
+      return sp.toString()
+    }
+  })
+}
+
 // 补签 - 管理端
 export const supplementSignIn = (activityId, studentId, data) => {
   return request({
@@ -58,9 +86,9 @@ export const exportSignInList = (activityId) => {
 // ========== 用户端接口 ==========
 
 // 学生签到
-export const studentSignIn = (signInId, data) => {
+export const studentSignIn = (activityId, data) => {
   return request({
-    url: `/api/signins/${signInId}`,
+    url: `/api/signins/${activityId}`,
     method: 'post',
     data
   })

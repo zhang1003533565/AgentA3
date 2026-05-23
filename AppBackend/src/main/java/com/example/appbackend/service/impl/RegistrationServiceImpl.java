@@ -39,71 +39,82 @@ public class RegistrationServiceImpl implements RegistrationService {
     @Override
     public Registration registerActivity(Long activityId, Long userId) {
         Activity activity = activityRepository.findById(activityId)
-                .orElseThrow(() -> new BusinessException(404, "活动不存在"));
+                .orElseThrow(() -> new BusinessException(404, "Activity not found"));
 
         if (activity.getStatus() != Activity.Status.PUBLISHED) {
-            throw new BusinessException(400, "活动未发布，无法报名");
+            throw new BusinessException(400, "Activity is not published");
         }
 
         LocalDateTime now = LocalDateTime.now();
         if (activity.getSignupEndTime() != null && now.isAfter(activity.getSignupEndTime())) {
-            throw new BusinessException(400, "报名已结束");
+            throw new BusinessException(400, "Signup is closed");
         }
         if (activity.getStartTime() != null && !now.isBefore(activity.getStartTime())) {
-            throw new BusinessException(400, "活动已开始，无法继续报名");
+            throw new BusinessException(400, "Activity already started");
         }
 
-        // 名额校验：currentPeople 已达到 maxPeople 才算真正满额
-        // 原逻辑使用 currentPeople + 1 >= maxPeople 会导致 maxPeople=1 时首次报名也被拦截
         if (activity.getMaxPeople() > 0 && activity.getCurrentPeople() >= activity.getMaxPeople()) {
-            throw new BusinessException(400, "报名名额已满");
+            throw new BusinessException(400, "No seats left");
         }
 
         if (registrationRepository.existsByActivityIdAndUserId(activityId, userId)) {
-            throw new BusinessException(400, "您已经报名过该活动");
+            throw new BusinessException(400, "You already registered for this activity");
         }
 
         Registration registration = new Registration();
         registration.setActivityId(activityId);
         registration.setUserId(userId);
-        registration.setStatus("APPROVED");
+        registration.setStatus(Boolean.TRUE.equals(activity.getRequiresAudit()) ? "PENDING" : "APPROVED");
         registration.setSignupTime(LocalDateTime.now());
+        registration.setCreditAuditStatus("PENDING");
+        registration.setCreditGranted(false);
 
         Registration saved = registrationRepository.save(registration);
-
         activity.setCurrentPeople(activity.getCurrentPeople() + 1);
         activityRepository.save(activity);
-
         return saved;
     }
 
     @Override
-    public void cancelRegistration(Long registrationId, Long userId) {
+    public Registration cancelRegistration(Long registrationId, Long userId) {
         Registration registration = registrationRepository.findById(registrationId)
-                .orElseThrow(() -> new BusinessException(404, "报名记录不存在"));
+                .orElseThrow(() -> new BusinessException(404, "Registration not found"));
 
         if (!registration.getUserId().equals(userId)) {
-            throw new BusinessException(Result.FORBIDDEN_CODE, "无权取消该报名");
+            throw new BusinessException(Result.FORBIDDEN_CODE, "No permission to cancel this registration");
         }
 
         Activity activity = activityRepository.findById(registration.getActivityId())
-                .orElseThrow(() -> new BusinessException(404, "活动不存在"));
+                .orElseThrow(() -> new BusinessException(404, "Activity not found"));
+        boolean needCancelAudit = Boolean.TRUE.equals(activity.getCancelRequiresAudit());
+
+        if ("PENDING".equals(registration.getStatus()) || "CANCEL_PENDING".equals(registration.getStatus())) {
+            throw new BusinessException(400, "Cancellation is not allowed in current status");
+        }
+
+        if (needCancelAudit) {
+            registration.setStatus("CANCEL_PENDING");
+            registration.setAuditTime(LocalDateTime.now());
+            registration.setAuditBy(userId);
+            registration.setRemark("Cancel request pending review");
+            return registrationRepository.save(registration);
+        }
+
         activity.setCurrentPeople(Math.max(0, activity.getCurrentPeople() - 1));
         activityRepository.save(activity);
-
         registrationRepository.delete(registration);
+        return registration;
     }
 
     @Override
     public void removeRegistrationByManager(Long registrationId) {
         Registration registration = registrationRepository.findById(registrationId)
-                .orElseThrow(() -> new BusinessException(404, "报名记录不存在"));
+                .orElseThrow(() -> new BusinessException(404, "Registration not found"));
 
         Activity activity = activityRepository.findById(registration.getActivityId())
-                .orElseThrow(() -> new BusinessException(404, "活动不存在"));
+                .orElseThrow(() -> new BusinessException(404, "Activity not found"));
         activity.setCurrentPeople(Math.max(0, activity.getCurrentPeople() - 1));
         activityRepository.save(activity);
-
         registrationRepository.delete(registration);
     }
 
@@ -123,7 +134,7 @@ public class RegistrationServiceImpl implements RegistrationService {
     public PageResponse<RegistrationListItem> getActivityRegistrations(Long activityId, Integer page, Integer size) {
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "signupTime"));
         Page<Registration> registrationPage = registrationRepository.findByActivityId(activityId, pageRequest);
-        
+
         List<RegistrationListItem> items = registrationPage.getContent().stream()
                 .map(reg -> {
                     User user = userRepository.findById(reg.getUserId()).orElse(null);
@@ -143,7 +154,7 @@ public class RegistrationServiceImpl implements RegistrationService {
                     );
                 })
                 .collect(Collectors.toList());
-        
+
         return new PageResponse<>(
                 items,
                 registrationPage.getTotalElements(),
@@ -155,18 +166,41 @@ public class RegistrationServiceImpl implements RegistrationService {
     @Override
     public void auditRegistration(Long registrationId, String auditStatus, Long auditorId, String remark) {
         Registration registration = registrationRepository.findById(registrationId)
-                .orElseThrow(() -> new BusinessException(404, "报名记录不存在"));
+                .orElseThrow(() -> new BusinessException(404, "Registration not found"));
+        String originalStatus = registration.getStatus();
 
         List<String> validStatuses = Arrays.asList("APPROVED", "REJECTED");
         if (!validStatuses.contains(auditStatus)) {
-            throw new BusinessException(400, "无效的审核状态");
+            throw new BusinessException(400, "Invalid audit status");
+        }
+
+        if ("CANCEL_PENDING".equals(originalStatus)) {
+            if ("APPROVED".equals(auditStatus)) {
+                Activity activity = activityRepository.findById(registration.getActivityId()).orElse(null);
+                if (activity != null) {
+                    activity.setCurrentPeople(Math.max(0, activity.getCurrentPeople() - 1));
+                    activityRepository.save(activity);
+                }
+                registrationRepository.delete(registration);
+                return;
+            }
+            registration.setStatus("APPROVED");
+            registration.setAuditTime(LocalDateTime.now());
+            registration.setAuditBy(auditorId);
+            registration.setRemark(remark == null || remark.isBlank() ? "Cancel request rejected, keep registered" : remark);
+            registrationRepository.save(registration);
+            return;
         }
 
         registration.setStatus(auditStatus);
         registration.setAuditTime(LocalDateTime.now());
         registration.setAuditBy(auditorId);
         registration.setRemark(remark);
-
+        if ("REJECTED".equals(auditStatus)) {
+            registration.setCreditAuditStatus("REJECTED");
+            registration.setCreditGranted(false);
+            registration.setCreditGrantedTime(null);
+        }
         registrationRepository.save(registration);
     }
 
@@ -174,17 +208,13 @@ public class RegistrationServiceImpl implements RegistrationService {
     public void batchAuditRegistration(Long[] registrationIds, String auditStatus, Long auditorId, String remark) {
         List<String> validStatuses = Arrays.asList("APPROVED", "REJECTED");
         if (!validStatuses.contains(auditStatus)) {
-            throw new BusinessException(400, "无效的审核状态");
+            throw new BusinessException(400, "Invalid audit status");
         }
 
         for (Long registrationId : registrationIds) {
-            registrationRepository.findById(registrationId).ifPresent(registration -> {
-                registration.setStatus(auditStatus);
-                registration.setAuditTime(LocalDateTime.now());
-                registration.setAuditBy(auditorId);
-                registration.setRemark(remark);
-                registrationRepository.save(registration);
-            });
+            registrationRepository.findById(registrationId).ifPresent(registration ->
+                    auditRegistration(registration.getId(), auditStatus, auditorId, remark)
+            );
         }
     }
 }

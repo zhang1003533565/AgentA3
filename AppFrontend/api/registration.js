@@ -21,3 +21,11 @@ export function getMyRegistrations(params = {}) {
     data: params
   })
 }
+
+export function getActivityRegistrations(activityId, params = {}) {
+  return request({
+    url: `/api/registrations/activities/${activityId}/registrations`,
+    method: 'GET',
+    data: params
+  })
+}

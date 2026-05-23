@@ -61,6 +61,9 @@ public class ActivityServiceImpl implements ActivityService {
         activity.setOrganizerName(organizerName);
         activity.setStatus(Status.PUBLISHED);
         activity.setCurrentPeople(0);
+        if (activity.getRequiresAudit() == null) {
+            activity.setRequiresAudit(false);
+        }
         return activityRepository.save(activity);
     }
 
@@ -74,6 +77,9 @@ public class ActivityServiceImpl implements ActivityService {
         activity.setOrganizerId(existing.getOrganizerId());
         activity.setOrganizerName(existing.getOrganizerName());
         activity.setCurrentPeople(existing.getCurrentPeople());
+        if (activity.getRequiresAudit() == null) {
+            activity.setRequiresAudit(Boolean.TRUE.equals(existing.getRequiresAudit()));
+        }
         activity.setStatus(existing.getStatus() == Status.COMPLETED ? Status.COMPLETED : Status.PUBLISHED);
         return activityRepository.save(activity);
     }

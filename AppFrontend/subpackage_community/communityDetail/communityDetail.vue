@@ -1,12 +1,10 @@
-<template>
+﻿<template>
   <view class="detail-container">
     <nav-bar title="活动详情" :showBack="true" fixed placeholder />
-    
+
     <scroll-view class="detail-content" scroll-y :style="{ height: `calc(100vh - ${navBarHeight}px)` }">
-      <!-- 活动封面 -->
       <image class="detail-cover" :src="activity.cover || defaultCover" mode="aspectFill" @click="previewCover" />
-      
-      <!-- 活动信息 -->
+
       <view class="info-section">
         <view class="detail-header">
           <text class="detail-title">{{ activity.title }}</text>
@@ -17,7 +15,7 @@
           <text class="category-chip">{{ activity.categoryName || '未分类' }}</text>
           <text class="signup-deadline" v-if="activity.signupEndTime">报名截止 {{ formatDate(activity.signupEndTime) }}</text>
         </view>
-        
+
         <view class="detail-meta">
           <view class="meta-row">
             <image class="meta-icon" src="/static/icons/line/calendar.svg" mode="aspectFit" />
@@ -35,6 +33,11 @@
             <text class="meta-value">{{ formatDateRange(activity.signupStartTime, activity.signupEndTime) }}</text>
           </view>
           <view class="meta-row">
+            <image class="meta-icon" src="/static/icons/line/calendar-alt.svg" mode="aspectFit" />
+            <text class="meta-label">签到时间</text>
+            <text class="meta-value">{{ formatDateRange(activity.signInStartTime, activity.signInEndTime) }}</text>
+          </view>
+          <view class="meta-row">
             <image class="meta-icon" src="/static/icons/line/user.svg" mode="aspectFit" />
             <text class="meta-label">报名人数</text>
             <text class="meta-value">{{ activity.currentPeople }}/{{ activity.maxPeople }}人</text>
@@ -50,8 +53,7 @@
             <text class="meta-value">{{ activity.contactPhone || '-' }}</text>
           </view>
         </view>
-        
-        <!-- 主办方 -->
+
         <view class="organizer-section">
           <image class="organizer-avatar" :src="activity.organizerAvatar || '/static/logo.png'" mode="aspectFill" />
           <view class="organizer-info">
@@ -59,49 +61,42 @@
             <text class="organizer-label">活动主办方</text>
           </view>
         </view>
+
+        <view class="signup-section">
+          <view class="signup-head">
+            <text class="signup-head-title">已报名</text>
+            <text class="signup-head-count">({{ activity.currentPeople || 0 }}/{{ activity.maxPeople || 0 }})</text>
+          </view>
+          <view class="signup-user-list" v-if="displayRegistrants.length">
+            <view
+              class="signup-user-item"
+              v-for="(user, index) in displayRegistrants"
+              :key="`${user.name || 'user'}-${index}`"
+            >
+              <image v-if="user.avatar" class="signup-user-avatar" :src="user.avatar" mode="aspectFill" />
+              <view v-else class="signup-user-avatar signup-user-avatar--fallback">
+                <text class="signup-user-avatar-text">{{ (user.name || '同').slice(0, 1) }}</text>
+              </view>
+              <text class="signup-user-name">{{ user.maskedName }}</text>
+            </view>
+          </view>
+          <text class="signup-empty" v-else>暂无报名</text>
+        </view>
       </view>
-      
-      <!-- 活动详情 -->
+
       <view class="desc-section">
         <text class="section-title">活动详情</text>
         <text class="desc-content">{{ activity.description || '暂无活动详情' }}</text>
       </view>
 
-      <view class="gallery-section" v-if="activity.gallery && activity.gallery.length">
-        <view class="gallery-header">
-          <text class="section-title">活动图片</text>
-          <text class="gallery-counter">{{ galleryCurrent + 1 }}/{{ activity.gallery.length }}</text>
-        </view>
-        <swiper
-          class="gallery-swiper"
-          circular
-          indicator-dots
-          indicator-color="rgba(255,255,255,0.45)"
-          indicator-active-color="#ffffff"
-          :current="galleryCurrent"
-          @change="handleGalleryChange"
-        >
-          <swiper-item v-for="(item, index) in activity.gallery" :key="`${item}-${index}`">
-            <image
-              class="gallery-slide-image"
-              :src="item"
-              mode="aspectFill"
-              @click="previewGallery(index)"
-            />
-          </swiper-item>
-        </swiper>
-      </view>
-      
-      <!-- 底部安全区域 -->
       <view class="safe-area"></view>
     </scroll-view>
-    
-    <!-- 底部操作栏 -->
+
     <view class="bottom-bar">
       <view class="bar-right bar-right--full">
-        <view 
-          class="join-btn" 
-          :class="{ disabled: !canJoin && !isJoined }"
+        <view
+          class="join-btn"
+          :class="{ disabled: !canJoin && !isJoined && !canCancelJoined && !canGoSign }"
           @click="handleJoin"
         >
           {{ joinBtnText }}
@@ -115,8 +110,9 @@
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getActivityDetail } from '@/api/activity.js'
 import { getMyRegistrations, registerActivity, cancelRegistration } from '@/api/registration.js'
+import { getStudentSignInStatus } from '@/api/signin.js'
 
-const parseTime = (value) => (value ? new Date(value.replace(' ', 'T')) : null)
+const parseTime = (value) => (value ? new Date(String(value).replace(' ', 'T')) : null)
 const parseImageList = (images) => {
   if (Array.isArray(images)) return images.filter(Boolean)
   if (!images) return []
@@ -140,7 +136,9 @@ export default {
       defaultCover: 'https://picsum.photos/seed/community/800/450',
       activity: {},
       registrationId: null,
+      registrationStatus: '',
       isJoined: false,
+      signInRecord: null,
       galleryCurrent: 0
     }
   },
@@ -158,12 +156,45 @@ export default {
   },
   computed: {
     canJoin() {
-      return this.activity.status === 'signup' && !this.isJoined && this.activity.currentPeople < this.activity.maxPeople
+      return this.activity.status === 'signup' && this.isInSignupWindow() && !this.isJoined && this.activity.currentPeople < this.activity.maxPeople
+    },
+    canCancelJoined() {
+      return this.isJoined && this.registrationStatus === 'APPROVED' && !this.hasSigned() && this.isBeforeActivityStart()
+    },
+    canGoSign() {
+      if (!this.isJoined || this.registrationStatus !== 'APPROVED' || this.hasSigned()) return false
+      if (!this.isAfterActivityStart()) return false
+      if (!this.isInSignInWindow()) return false
+      return true
+    },
+    displayRegistrants() {
+      return (this.activity.registrants || []).slice(0, 6)
     },
     joinBtnText() {
-      if (this.isJoined) return '取消报名'
+      if (this.isJoined) {
+        if (this.registrationStatus === 'PENDING') return '等待审核'
+        if (this.registrationStatus === 'CANCEL_PENDING') return '等待审核'
+        if (this.registrationStatus === 'APPROVED') {
+          if (this.hasSigned()) {
+            const reviewStatus = this.signInRecord?.reviewStatus
+            if (reviewStatus === 'APPROVED') return '学分已发放'
+            if (reviewStatus === 'REJECTED') return '复核未通过'
+            return '待复核'
+          }
+          if (this.canCancelJoined) return '取消报名'
+          if (this.isAfterActivityStart()) {
+            if (this.canGoSign) return '去签到'
+            if (this.isSignInWindowPassed()) return '签到已结束'
+            return '等待签到'
+          }
+          return '取消报名'
+        }
+        if (this.registrationStatus === 'REJECTED') return '审核未通过'
+        return '已报名'
+      }
       if (this.activity.status === 'ended') return '已结束'
       if (this.activity.currentPeople >= this.activity.maxPeople) return '已满员'
+      if (!this.isInSignupWindow()) return '报名中'
       return '立即报名'
     }
   },
@@ -180,7 +211,8 @@ export default {
           organizer: item.organizerName || '校园活动中心',
           categoryName: item.category?.categoryName || '',
           description: item.content || '',
-          status: this.getStatus(item)
+          status: this.getStatus(item),
+          registrants: this.normalizeRegistrants(item)
         }
         this.galleryCurrent = 0
       } catch (error) {
@@ -195,18 +227,49 @@ export default {
         const current = records.find((item) => String(item.activityId) === String(this.activityId))
         this.isJoined = Boolean(current)
         this.registrationId = current?.id || null
+        this.registrationStatus = current?.status || ''
+        if (this.isJoined) {
+          try {
+            const signRes = await getStudentSignInStatus(this.activityId)
+            this.signInRecord = signRes?.data || null
+          } catch (error) {
+            this.signInRecord = null
+          }
+        } else {
+          this.signInRecord = null
+        }
       } catch (error) {
         this.isJoined = false
         this.registrationId = null
+        this.registrationStatus = ''
+        this.signInRecord = null
       }
     },
 
     async handleJoin() {
-      if (this.isJoined && this.registrationId) {
+      if (this.canCancelJoined && this.registrationId) {
         await this.handleCancel()
         return
       }
+
+      if (this.isJoined && !this.canCancelJoined) {
+        if (this.registrationStatus === 'APPROVED' && this.isBeforeActivityStart() && !this.hasSigned()) {
+          await this.handleCancel()
+          return
+        }
+        if (this.canGoSign) {
+          uni.navigateTo({ url: `/subpackage_signin/signIn/signIn?activityId=${this.activityId}` })
+          return
+        }
+        uni.showToast({ title: this.joinBtnText, icon: 'none' })
+        return
+      }
+
       if (!this.canJoin) return
+      if (!this.isInSignupWindow()) {
+        uni.showToast({ title: '当前不在报名时间内', icon: 'none' })
+        return
+      }
 
       uni.showModal({
         title: '确认报名',
@@ -216,7 +279,9 @@ export default {
             try {
               const result = await registerActivity(this.activityId)
               this.registrationId = result?.data?.id || null
+              this.registrationStatus = result?.data?.status || 'PENDING'
               this.isJoined = true
+              this.signInRecord = null
               this.activity.currentPeople = (this.activity.currentPeople || 0) + 1
               uni.showToast({ title: '报名成功', icon: 'success' })
             } catch (error) {}
@@ -232,14 +297,65 @@ export default {
         success: async (res) => {
           if (!res.confirm || !this.registrationId) return
           try {
-            await cancelRegistration(this.registrationId)
-            this.isJoined = false
-            this.registrationId = null
-            this.activity.currentPeople = Math.max(0, (this.activity.currentPeople || 1) - 1)
-            uni.showToast({ title: '已取消报名', icon: 'none' })
+            const result = await cancelRegistration(this.registrationId)
+            const status = result?.data?.status
+            if (status === 'CANCEL_PENDING') {
+              this.registrationStatus = 'CANCEL_PENDING'
+              this.isJoined = true
+              uni.showToast({ title: '已提交取消审核', icon: 'none' })
+            } else {
+              this.isJoined = false
+              this.registrationId = null
+              this.registrationStatus = ''
+              this.signInRecord = null
+              this.activity.currentPeople = Math.max(0, (this.activity.currentPeople || 1) - 1)
+              uni.showToast({ title: '已取消报名', icon: 'none' })
+            }
           } catch (error) {}
         }
       })
+    },
+
+    isInSignupWindow() {
+      const now = new Date()
+      const signupStart = parseTime(this.activity.signupStartTime)
+      const signupEnd = parseTime(this.activity.signupEndTime)
+      const activityStart = parseTime(this.activity.startTime)
+      if (signupStart && now < signupStart) return false
+      if (signupEnd && now > signupEnd) return false
+      if (activityStart && now >= activityStart) return false
+      return true
+    },
+
+    isBeforeActivityStart() {
+      const start = parseTime(this.activity.startTime)
+      if (!start) return true
+      return new Date() < start
+    },
+
+    isAfterActivityStart() {
+      const start = parseTime(this.activity.startTime)
+      if (!start) return false
+      return new Date() >= start
+    },
+
+    isInSignInWindow() {
+      const now = new Date()
+      const signInStart = parseTime(this.activity.signInStartTime)
+      const signInEnd = parseTime(this.activity.signInEndTime)
+      if (signInStart && now < signInStart) return false
+      if (signInEnd && now > signInEnd) return false
+      return true
+    },
+
+    isSignInWindowPassed() {
+      const signInEnd = parseTime(this.activity.signInEndTime)
+      if (!signInEnd) return false
+      return new Date() > signInEnd
+    },
+
+    hasSigned() {
+      return Boolean(this.signInRecord && this.signInRecord.signInStatus === 1)
     },
 
     previewCover() {
@@ -248,18 +364,6 @@ export default {
         urls: this.activity.gallery && this.activity.gallery.length ? this.activity.gallery : [url],
         current: url
       })
-    },
-
-    previewGallery(index) {
-      const urls = this.activity.gallery && this.activity.gallery.length ? this.activity.gallery : [this.activity.cover || this.defaultCover]
-      uni.previewImage({
-        urls,
-        current: urls[index] || urls[0]
-      })
-    },
-
-    handleGalleryChange(event) {
-      this.galleryCurrent = event.detail.current || 0
     },
 
     formatDate(dateStr) {
@@ -284,12 +388,45 @@ export default {
       return 'signup'
     },
 
-    getStatusText(status) {
-      const map = {
-        signup: '报名中',
-        ongoing: '进行中',
-        ended: '已结束'
+    normalizeRegistrants(item) {
+      let source = item?.registrants || item?.participants || item?.registeredUsers || item?.signupUsers || item?.attendees || []
+      if (typeof source === 'string') {
+        try {
+          source = JSON.parse(source)
+        } catch (error) {
+          source = []
+        }
       }
+      if (!Array.isArray(source)) source = []
+
+      const mapped = source
+        .map((user, index) => {
+          const name = user?.nickName || user?.nickname || user?.name || user?.userName || user?.realName || user?.username || `同学${index + 1}`
+          const avatar = user?.avatar || user?.avatarUrl || user?.userAvatar || user?.profile || ''
+          return { name: String(name), maskedName: this.maskName(name), avatar }
+        })
+        .slice(0, 6)
+
+      if (mapped.length) return mapped
+      return this.buildFallbackRegistrants(item?.currentPeople || 0)
+    },
+
+    buildFallbackRegistrants(count) {
+      const total = Math.max(0, Math.min(6, Number(count) || 0))
+      return Array.from({ length: total }, (_, index) => {
+        const name = `同学${index + 1}`
+        return { name, maskedName: name, avatar: '' }
+      })
+    },
+
+    maskName(name) {
+      const text = String(name || '').trim()
+      if (!text) return '同学'
+      return `${text.slice(0, 1)}**`
+    },
+
+    getStatusText(status) {
+      const map = { signup: '报名中', ongoing: '进行中', ended: '已结束' }
       return map[status] || '未知'
     }
   }
@@ -441,22 +578,84 @@ export default {
   color: #999;
 }
 
+.signup-section {
+  margin-top: 28rpx;
+  padding-top: 24rpx;
+  border-top: 1rpx solid #F0F0F0;
+}
+
+.signup-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+  margin-bottom: 20rpx;
+}
+
+.signup-head-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #333;
+}
+
+.signup-head-count {
+  font-size: 28rpx;
+  color: #D88944;
+}
+
+.signup-user-list {
+  display: flex;
+  align-items: flex-start;
+  gap: 20rpx;
+  overflow: hidden;
+}
+
+.signup-user-item {
+  width: 92rpx;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.signup-user-avatar {
+  width: 86rpx;
+  height: 86rpx;
+  border-radius: 50%;
+  background: #EEF1F7;
+}
+
+.signup-user-avatar--fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #FFD9A6, #FDBA8C);
+}
+
+.signup-user-avatar-text {
+  font-size: 30rpx;
+  color: #fff;
+  font-weight: 600;
+}
+
+.signup-user-name {
+  width: 100%;
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  color: #4D5562;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.signup-empty {
+  font-size: 24rpx;
+  color: #8B96A8;
+}
+
 .desc-section {
   background-color: #FFFFFF;
   padding: 32rpx;
-  margin-bottom: 24rpx;
-}
-
-.gallery-section {
-  background-color: #FFFFFF;
-  padding: 32rpx;
-  margin-bottom: 24rpx;
-}
-
-.gallery-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   margin-bottom: 24rpx;
 }
 
@@ -467,28 +666,11 @@ export default {
   display: block;
 }
 
-.gallery-counter {
-  font-size: 24rpx;
-  color: #8b96a8;
-}
-
 .desc-content {
   font-size: 28rpx;
   color: #666;
   line-height: 1.8;
   white-space: pre-wrap;
-}
-
-.gallery-swiper {
-  width: 100%;
-  height: 420rpx;
-}
-
-.gallery-slide-image {
-  width: 100%;
-  height: 420rpx;
-  border-radius: 20rpx;
-  background: #f3f4f6;
 }
 
 .safe-area {

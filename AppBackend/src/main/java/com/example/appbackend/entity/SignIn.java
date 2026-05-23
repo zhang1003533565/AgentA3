@@ -30,6 +30,18 @@ public class SignIn {
     @Column(name = "sign_in_status", columnDefinition = "INT DEFAULT 0 COMMENT '签到状态: 0-未签到, 1-已签到'")
     private Integer signInStatus = 0;
 
+    @Column(name = "review_status", length = 20, columnDefinition = "VARCHAR(20) DEFAULT 'PENDING' COMMENT '签到复核状态: PENDING-待复核, APPROVED-通过, REJECTED-拒绝'")
+    private String reviewStatus = "PENDING";
+
+    @Column(name = "review_time", columnDefinition = "DATETIME COMMENT '签到复核时间'")
+    private LocalDateTime reviewTime;
+
+    @Column(name = "review_by", columnDefinition = "BIGINT COMMENT '签到复核人ID'")
+    private Long reviewBy;
+
+    @Column(name = "review_remark", length = 500, columnDefinition = "VARCHAR(500) COMMENT '签到复核备注'")
+    private String reviewRemark;
+
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     private LocalDateTime createTime;
 

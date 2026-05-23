@@ -14,7 +14,7 @@ public interface RegistrationService {
     /**
      * 取消报名
      */
-    void cancelRegistration(Long registrationId, Long userId);
+    Registration cancelRegistration(Long registrationId, Long userId);
 
     /**
      * 管理端移除报名

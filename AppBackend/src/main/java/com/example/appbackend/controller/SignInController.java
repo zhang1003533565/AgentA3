@@ -44,7 +44,7 @@ public class SignInController {
                 .orElseThrow(() -> new BusinessException(401, "用户不存在"));
     }
 
-    @Operation(summary = "发布签到", description = "老师发布签到（简单模式）")
+    @Operation(summary = "发布签到", description = "老师发布签到")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "发布成功"),
         @ApiResponse(responseCode = "401", description = "未登录"),
@@ -122,13 +122,6 @@ public class SignInController {
     }
 
     @Operation(summary = "补签", description = "补签（根据活动ID和学生ID，教师）")
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "补签成功"),
-        @ApiResponse(responseCode = "401", description = "未登录"),
-        @ApiResponse(responseCode = "403", description = "无权限"),
-        @ApiResponse(responseCode = "404", description = "活动或学生不存在"),
-        @ApiResponse(responseCode = "400", description = "学生已有签到记录")
-    })
     @PostMapping("/activity/{activityId}/student/{studentId}/supplement")
     public Result<SignIn> supplementSignInByActivityAndUser(
             @Parameter(description = "活动ID", required = true, example = "1")
@@ -143,10 +136,6 @@ public class SignInController {
     }
 
     @Operation(summary = "检查签到状态", description = "检查签到状态（学生）")
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "获取成功"),
-        @ApiResponse(responseCode = "401", description = "未登录")
-    })
     @GetMapping("/activities/{activityId}/signin-status")
     public Result<SignIn> getSignInStatus(
             @Parameter(description = "活动ID", required = true, example = "1")
@@ -155,5 +144,37 @@ public class SignInController {
         User user = getCurrentUser(request);
         SignIn signIn = signInService.getSignInStatus(activityId, user.getId());
         return Result.success(signIn);
+    }
+
+    @Operation(summary = "签到后复核并发放学分", description = "教师/管理员复核签到记录，复核通过即发放学分")
+    @PutMapping("/{id}/review")
+    public Result<Void> reviewSignIn(
+            @Parameter(description = "签到记录ID", required = true, example = "1")
+            @PathVariable Long id,
+            @Parameter(description = "复核状态 APPROVED/REJECTED", required = true, example = "APPROVED")
+            @RequestParam String reviewStatus,
+            @Parameter(description = "复核备注")
+            @RequestParam(required = false) String remark,
+            HttpServletRequest request) {
+        checkRole(request);
+        User user = getCurrentUser(request);
+        signInService.reviewSignInAndGrantCredit(id, reviewStatus, user.getId(), remark);
+        return Result.success();
+    }
+
+    @Operation(summary = "批量签到后复核并发放学分", description = "教师/管理员批量复核签到记录，复核通过即发放学分")
+    @PutMapping("/batch-review")
+    public Result<Void> batchReviewSignIn(
+            @Parameter(description = "签到记录ID数组", required = true)
+            @RequestParam Long[] signInIds,
+            @Parameter(description = "复核状态 APPROVED/REJECTED", required = true, example = "APPROVED")
+            @RequestParam String reviewStatus,
+            @Parameter(description = "复核备注")
+            @RequestParam(required = false) String remark,
+            HttpServletRequest request) {
+        checkRole(request);
+        User user = getCurrentUser(request);
+        signInService.batchReviewSignInAndGrantCredit(signInIds, reviewStatus, user.getId(), remark);
+        return Result.success();
     }
 }

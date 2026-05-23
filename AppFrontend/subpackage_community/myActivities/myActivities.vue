@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <view class="my-activities-page">
     <nav-bar title="我的活动" :showBack="true" fixed placeholder />
 
@@ -59,6 +59,13 @@
               >
                 取消报名
               </view>
+              <view
+                v-else-if="canGoSign(item)"
+                class="action-btn action-btn--primary"
+                @click.stop="goSignIn(item)"
+              >
+                去签到
+              </view>
             </view>
           </view>
         </view>
@@ -80,8 +87,9 @@
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getActivityDetail } from '@/api/activity.js'
 import { cancelRegistration, getMyRegistrations } from '@/api/registration.js'
+import { getStudentSignInStatus } from '@/api/signin.js'
 
-const parseTime = (value) => (value ? new Date(value.replace(' ', 'T')) : null)
+const parseTime = (value) => (value ? new Date(String(value).replace(' ', 'T')) : null)
 const parseImageList = (images) => {
   if (Array.isArray(images)) return images.filter(Boolean)
   if (!images) return []
@@ -104,7 +112,7 @@ export default {
       currentFilter: 'all',
       filterOptions: [
         { label: '全部', value: 'all' },
-        { label: '即将开始', value: 'signup' },
+        { label: '待开始', value: 'signup' },
         { label: '进行中', value: 'ongoing' },
         { label: '已结束', value: 'ended' }
       ],
@@ -146,14 +154,20 @@ export default {
         const detailResults = await Promise.all(
           registrations.map(async (registration) => {
             try {
-              const detailRes = await getActivityDetail(registration.activityId)
+              const [detailRes, signRes] = await Promise.all([
+                getActivityDetail(registration.activityId),
+                getStudentSignInStatus(registration.activityId).catch(() => ({ data: null }))
+              ])
               const activity = detailRes?.data || {}
+              const signIn = signRes?.data || null
               const images = parseImageList(activity.images)
               const phase = this.getPhase(activity, registration.status)
               return {
                 registrationId: registration.id,
                 activityId: registration.activityId,
                 registrationStatus: registration.status,
+                creditAuditStatus: registration.creditAuditStatus,
+                creditGranted: registration.creditGranted,
                 signupTime: registration.signupTime,
                 title: activity.title || '活动已失效',
                 cover: activity.coverImage || images[0] || '',
@@ -161,15 +175,19 @@ export default {
                 location: activity.location || '',
                 startTime: activity.startTime,
                 endTime: activity.endTime,
+                signInOpen: Boolean(activity.signInOpen),
+                hasSigned: Boolean(signIn && signIn.signInStatus === 1),
                 phase,
-                auditText: this.getAuditText(registration.status),
-                auditClass: this.getAuditClass(registration.status)
+                auditText: this.getAuditText(registration, signIn),
+                auditClass: this.getAuditClass(registration, signIn)
               }
             } catch (error) {
               return {
                 registrationId: registration.id,
                 activityId: registration.activityId,
                 registrationStatus: registration.status,
+                creditAuditStatus: registration.creditAuditStatus,
+                creditGranted: registration.creditGranted,
                 signupTime: registration.signupTime,
                 title: '活动已失效',
                 cover: '',
@@ -177,9 +195,11 @@ export default {
                 location: '',
                 startTime: '',
                 endTime: '',
+                signInOpen: false,
+                hasSigned: false,
                 phase: 'ended',
-                auditText: this.getAuditText(registration.status),
-                auditClass: this.getAuditClass(registration.status)
+                auditText: this.getAuditText(registration, null),
+                auditClass: this.getAuditClass(registration, null)
               }
             }
           })
@@ -201,7 +221,6 @@ export default {
 
     getPhase(activity, registrationStatus) {
       if (registrationStatus === 'REJECTED') return 'rejected'
-
       const now = new Date()
       const startTime = parseTime(activity.startTime)
       const endTime = parseTime(activity.endTime)
@@ -212,7 +231,7 @@ export default {
 
     getPhaseText(phase) {
       const map = {
-        signup: '即将开始',
+        signup: '待开始',
         ongoing: '进行中',
         ended: '已结束',
         rejected: '未通过'
@@ -220,24 +239,42 @@ export default {
       return map[phase] || '未知'
     },
 
-    getAuditText(status) {
-      const map = {
-        APPROVED: '报名已通过',
-        REJECTED: '报名未通过'
+    getAuditText(registration, signIn) {
+      const status = registration?.status
+      if (status === 'PENDING') return '等待审核'
+      if (status === 'CANCEL_PENDING') return '取消待审核'
+      if (status === 'REJECTED') return '报名未通过'
+      if (status === 'APPROVED') {
+        if (!signIn || signIn.signInStatus !== 1) return '等待签到'
+        const reviewStatus = signIn.reviewStatus || registration?.creditAuditStatus
+        if (reviewStatus === 'APPROVED' || registration?.creditGranted) return '学分已发放'
+        if (reviewStatus === 'REJECTED') return '复核未通过'
+        return '签到成功，待复核'
       }
-      return map[status] || '状态未知'
+      return '状态未知'
     },
 
-    getAuditClass(status) {
-      const map = {
-        APPROVED: 'approved',
-        REJECTED: 'rejected'
+    getAuditClass(registration, signIn) {
+      const status = registration?.status
+      if (status === 'PENDING') return 'pending'
+      if (status === 'CANCEL_PENDING') return 'pending'
+      if (status === 'REJECTED') return 'rejected'
+      if (status === 'APPROVED') {
+        if (!signIn || signIn.signInStatus !== 1) return 'approved'
+        const reviewStatus = signIn.reviewStatus || registration?.creditAuditStatus
+        if (reviewStatus === 'APPROVED' || registration?.creditGranted) return 'granted'
+        if (reviewStatus === 'REJECTED') return 'rejected'
+        return 'pending'
       }
-      return map[status] || ''
+      return ''
     },
 
     canCancel(item) {
-      return item.registrationStatus !== 'REJECTED' && item.phase === 'signup'
+      return item.registrationStatus === 'APPROVED' && item.phase === 'signup'
+    },
+
+    canGoSign(item) {
+      return item.registrationStatus === 'APPROVED' && item.phase === 'ongoing' && !item.hasSigned
     },
 
     async handleCancel(item) {
@@ -247,8 +284,13 @@ export default {
         success: async (res) => {
           if (!res.confirm) return
           try {
-            await cancelRegistration(item.registrationId)
-            uni.showToast({ title: '已取消报名', icon: 'none' })
+            const result = await cancelRegistration(item.registrationId)
+            const status = result?.data?.status
+            if (status === 'CANCEL_PENDING') {
+              uni.showToast({ title: '已提交取消审核', icon: 'none' })
+            } else {
+              uni.showToast({ title: '已取消报名', icon: 'none' })
+            }
             this.loadActivities()
           } catch (error) {}
         }
@@ -259,6 +301,12 @@ export default {
       if (!activityId) return
       uni.navigateTo({
         url: `/subpackage_community/communityDetail/communityDetail?id=${activityId}`
+      })
+    },
+
+    goSignIn(item) {
+      uni.navigateTo({
+        url: `/subpackage_signin/signIn/signIn?activityId=${item.activityId}`
       })
     },
 
@@ -282,6 +330,11 @@ export default {
     },
 
     getFooterText(item) {
+      if (item.registrationStatus === 'PENDING') return '报名已提交，等待申报人审核'
+      if (item.registrationStatus === 'CANCEL_PENDING') return '已申请取消报名，等待申报人审核'
+      if (item.registrationStatus === 'APPROVED' && !item.hasSigned) return '报名通过后需在活动当天签到'
+      if (item.hasSigned && !item.creditGranted) return '已签到，等待申报人复核后发放学分'
+      if (item.creditGranted) return '已完成全部流程，学分已发放'
       if (item.phase === 'signup') return '活动尚未开始，记得按时参加'
       if (item.phase === 'ongoing') return '活动正在进行中'
       return '这场活动已经结束'
@@ -422,6 +475,14 @@ export default {
   color: #667085;
 }
 
+.audit-text.pending {
+  color: #D97706;
+}
+
+.audit-text.granted {
+  color: #15803D;
+}
+
 .audit-text.rejected {
   color: #98A2B3;
 }
@@ -474,6 +535,11 @@ export default {
   justify-content: center;
   font-size: 24rpx;
   font-weight: 600;
+}
+
+.action-btn--primary {
+  background: #EAF2FF;
+  color: #2563EB;
 }
 
 .empty-state {

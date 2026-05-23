@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { message, Modal, Form, Select, Button, Table, Tag, Space, Popconfirm, Input, Checkbox } from 'antd'
 import { CheckOutlined, CloseOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons'
 import { getRegistrationList, auditRegistration, batchAuditRegistration } from '../../../api/registration'
@@ -8,13 +8,13 @@ import './AuditManage.css'
 const { Option } = Select
 const { TextArea } = Input
 
-// 报名状态映射
+// 鎶ュ悕鐘舵€佹槧灏?
 const statusMap = {
   PENDING: { text: '待审核', color: 'orange' },
+  CANCEL_PENDING: { text: '取消待审核', color: 'gold' },
   APPROVED: { text: '已通过', color: 'green' },
   REJECTED: { text: '已拒绝', color: 'red' }
 }
-
 function AuditManage() {
   const [registrations, setRegistrations] = useState([])
   const [activities, setActivities] = useState([])
@@ -27,19 +27,19 @@ function AuditManage() {
   const [searchForm] = Form.useForm()
   const [activeActivityId, setActiveActivityId] = useState(null)
 
-  // 获取报名列表
+  // 鑾峰彇鎶ュ悕鍒楄〃
   const fetchRegistrations = async (params = {}) => {
     setLoading(true)
     try {
-      // 必须先选择活动才能查看报名列表
+      // 蹇呴』鍏堥€夋嫨娲诲姩鎵嶈兘鏌ョ湅鎶ュ悕鍒楄〃
       if (params.activityId) {
         const res = await getRegistrationList(params.activityId)
         if (res.code === 200) {
-          // 后端返回 Result.data = PageResponse，需取 records
+          // 鍚庣杩斿洖 Result.data = PageResponse锛岄渶鍙?records
           setRegistrations(res.data?.records || [])
         }
       } else {
-        // 没有选择活动时，清空列表
+        // 娌℃湁閫夋嫨娲诲姩鏃讹紝娓呯┖鍒楄〃
         setRegistrations([])
       }
     } finally {
@@ -47,7 +47,7 @@ function AuditManage() {
     }
   }
 
-  // 获取活动列表
+  // 鑾峰彇娲诲姩鍒楄〃
   const fetchActivities = async () => {
     try {
       const res = await getActivityList()
@@ -57,13 +57,13 @@ function AuditManage() {
         return list
       }
     } catch (error) {
-      console.error('获取活动列表失败:', error)
+      console.error('鑾峰彇娲诲姩鍒楄〃澶辫触:', error)
     }
     return []
   }
 
   useEffect(() => {
-    // 初始化：先拉活动列表，再默认拉第一个活动的报名列表
+    // 鍒濆鍖栵細鍏堟媺娲诲姩鍒楄〃锛屽啀榛樿鎷夌涓€涓椿鍔ㄧ殑鎶ュ悕鍒楄〃
     ;(async () => {
       const acts = await fetchActivities()
       if (acts && acts.length > 0) {
@@ -78,20 +78,20 @@ function AuditManage() {
     })()
   }, [])
 
-  // 搜索
+  // 鎼滅储
   const handleSearch = (values) => {
     setActiveActivityId(values?.activityId || null)
     fetchRegistrations(values)
   }
 
-  // 重置搜索
+  // 閲嶇疆鎼滅储
   const handleReset = () => {
     searchForm.resetFields()
     setActiveActivityId(null)
     fetchRegistrations()
   }
 
-  // 打开审核弹窗
+  // 鎵撳紑瀹℃牳寮圭獥
   const handleAudit = (record, isBatch = false) => {
     setCurrentRecord(record)
     setIsBatchAudit(isBatch)
@@ -99,22 +99,22 @@ function AuditManage() {
     setAuditModalVisible(true)
   }
 
-  // 提交审核
+  // 鎻愪氦瀹℃牳
   const handleAuditSubmit = async () => {
     try {
       const values = await auditForm.validateFields()
       
       let res
       if (isBatchAudit) {
-        // 批量审核 - 后端参数名是 auditStatus
+        // 鎵归噺瀹℃牳 - 鍚庣鍙傛暟鍚嶆槸 auditStatus
         res = await batchAuditRegistration(selectedRowKeys, values.status, values.remark)
       } else {
-        // 单个审核 - 后端参数名是 auditStatus
+        // 鍗曚釜瀹℃牳 - 鍚庣鍙傛暟鍚嶆槸 auditStatus
         res = await auditRegistration(currentRecord.id, values.status, values.remark)
       }
 
       if (res.code === 200) {
-        message.success('审核成功')
+        message.success('瀹℃牳鎴愬姛')
         setAuditModalVisible(false)
         setSelectedRowKeys([])
         if (activeActivityId) {
@@ -124,71 +124,71 @@ function AuditManage() {
         }
       }
     } catch (error) {
-      console.error('审核失败:', error)
+      console.error('瀹℃牳澶辫触:', error)
     }
   }
 
-  // 查看详情
+  // 鏌ョ湅璇︽儏
   const handleView = (record) => {
     Modal.info({
-      title: '报名详情',
+      title: '鎶ュ悕璇︽儏',
       width: 500,
       content: (
         <div className="registration-detail">
-          <p><strong>报名ID：</strong>{record.id}</p>
-          <p><strong>活动ID：</strong>{record.activityId}</p>
-          <p><strong>报名人：</strong>{record.realName || record.username}</p>
-          <p><strong>报名时间：</strong>{record.signupTime}</p>
-          <p><strong>状态：</strong>{statusMap[record.status]?.text || record.status}</p>
-          {record.remark && <p><strong>备注：</strong>{record.remark}</p>}
+          <p><strong>鎶ュ悕ID锛?/strong>{record.id}</p>
+          <p><strong>娲诲姩ID锛?/strong>{record.activityId}</p>
+          <p><strong>鎶ュ悕浜猴細</strong>{record.realName || record.username}</p>
+          <p><strong>鎶ュ悕鏃堕棿锛?/strong>{record.signupTime}</p>
+          <p><strong>鐘舵€侊細</strong>{statusMap[record.status]?.text || record.status}</p>
+          {record.remark && <p><strong>澶囨敞锛?/strong>{record.remark}</p>}
         </div>
       )
     })
   }
 
-  // 表格选择配置
+  // 琛ㄦ牸閫夋嫨閰嶇疆
   const rowSelection = {
     selectedRowKeys,
     onChange: (keys) => setSelectedRowKeys(keys),
     getCheckboxProps: (record) => ({
-      disabled: record.status !== 'PENDING' // 只能选中待审核的
+      disabled: record.status !== 'PENDING' && record.status !== 'CANCEL_PENDING' // 仅待审核可批量处理
     })
   }
 
-  // 表格列定义
+  // 琛ㄦ牸鍒楀畾涔?
   const columns = [
     {
-      title: '报名ID',
+      title: '鎶ュ悕ID',
       dataIndex: 'id',
       width: 80
     },
     {
-      title: '活动名称',
+      title: '娲诲姩鍚嶇О',
       dataIndex: 'activityName',
       ellipsis: true
     },
     {
-      title: '报名人',
+      title: '鎶ュ悕浜?,
       dataIndex: 'realName',
       render: (text, record) => text || record.username
     },
     {
-      title: '学号',
+      title: '瀛﹀彿',
       dataIndex: 'studentNo',
       width: 120
     },
     {
-      title: '手机号',
+      title: '鎵嬫満鍙?,
       dataIndex: 'phone',
       width: 130
     },
     {
-      title: '报名时间',
+      title: '鎶ュ悕鏃堕棿',
       dataIndex: 'signupTime',
       width: 160
     },
     {
-      title: '状态',
+      title: '鐘舵€?,
       dataIndex: 'status',
       width: 100,
       render: (status) => (
@@ -198,7 +198,7 @@ function AuditManage() {
       )
     },
     {
-      title: '操作',
+      title: '鎿嶄綔',
       key: 'action',
       width: 200,
       fixed: 'right',
@@ -209,9 +209,9 @@ function AuditManage() {
             icon={<EyeOutlined />} 
             onClick={() => handleView(record)}
           >
-            查看
+            鏌ョ湅
           </Button>
-          {record.status === 'PENDING' && (
+          {(record.status === 'PENDING' || record.status === 'CANCEL_PENDING') && (
             <>
               <Button 
                 type="text" 
@@ -219,7 +219,7 @@ function AuditManage() {
                 icon={<CheckOutlined />} 
                 onClick={() => handleAudit({ ...record, auditStatus: 'APPROVED' })}
               >
-                通过
+                閫氳繃
               </Button>
               <Button 
                 type="text" 
@@ -227,7 +227,7 @@ function AuditManage() {
                 icon={<CloseOutlined />} 
                 onClick={() => handleAudit({ ...record, auditStatus: 'REJECTED' })}
               >
-                拒绝
+                鎷掔粷
               </Button>
             </>
           )}
@@ -238,33 +238,33 @@ function AuditManage() {
 
   return (
     <div className="audit-manage-container">
-      {/* 主内容 */}
+      {/* 涓诲唴瀹?*/}
       <main className="manage-main">
-        {/* 页面标题 */}
+        {/* 椤甸潰鏍囬 */}
         <div className="page-header">
-          <h2>报名审核</h2>
+          <h2>鎶ュ悕瀹℃牳</h2>
         </div>
 
-        {/* 搜索栏 */}
+        {/* 鎼滅储鏍?*/}
         <div className="search-bar">
           <Form form={searchForm} layout="inline" onFinish={handleSearch}>
             <Form.Item name="activityId">
-              <Select placeholder="选择活动" allowClear style={{ width: 200 }}>
+              <Select placeholder="閫夋嫨娲诲姩" allowClear style={{ width: 200 }}>
                 {activities.map(act => (
                   <Option key={act.id} value={act.id}>{act.title}</Option>
                 ))}
               </Select>
             </Form.Item>
             <Form.Item name="status">
-              <Select placeholder="选择状态" allowClear style={{ width: 120 }}>
+              <Select placeholder="閫夋嫨鐘舵€? allowClear style={{ width: 120 }}>
                 {Object.entries(statusMap).map(([key, value]) => (
                   <Option key={key} value={key}>{value.text}</Option>
                 ))}
               </Select>
             </Form.Item>
             <Form.Item>
-              <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>搜索</Button>
-              <Button onClick={handleReset} style={{ marginLeft: 8 }}>重置</Button>
+              <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>鎼滅储</Button>
+              <Button onClick={handleReset} style={{ marginLeft: 8 }}>閲嶇疆</Button>
             </Form.Item>
           </Form>
           {selectedRowKeys.length > 0 && (
@@ -272,12 +272,12 @@ function AuditManage() {
               type="primary" 
               onClick={() => handleAudit(null, true)}
             >
-              批量审核 ({selectedRowKeys.length})
+              鎵归噺瀹℃牳 ({selectedRowKeys.length})
             </Button>
           )}
         </div>
 
-        {/* 报名列表 */}
+        {/* 鎶ュ悕鍒楄〃 */}
         <Table
           rowSelection={rowSelection}
           columns={columns}
@@ -286,21 +286,21 @@ function AuditManage() {
           loading={loading}
           pagination={{
             pageSize: 10,
-            showTotal: (total) => `共 ${total} 条`
+            showTotal: (total) => `鍏?${total} 鏉
           }}
           scroll={{ x: 1200 }}
         />
       </main>
 
-      {/* 审核弹窗 */}
+      {/* 瀹℃牳寮圭獥 */}
       <Modal
-        title={isBatchAudit ? '批量审核' : '审核报名'}
+        title={isBatchAudit ? '鎵归噺瀹℃牳' : '瀹℃牳鎶ュ悕'}
         open={auditModalVisible}
         onOk={handleAuditSubmit}
         onCancel={() => setAuditModalVisible(false)}
         width={500}
-        okText="确定"
-        cancelText="取消"
+        okText="纭畾"
+        cancelText="鍙栨秷"
       >
         <Form
           form={auditForm}
@@ -310,25 +310,25 @@ function AuditManage() {
         >
           <Form.Item
             name="status"
-            label="审核结果"
-            rules={[{ required: true, message: '请选择审核结果' }]}
+            label="瀹℃牳缁撴灉"
+            rules={[{ required: true, message: '璇烽€夋嫨瀹℃牳缁撴灉' }]}
           >
-            <Select placeholder="请选择审核结果">
-              <Option value={'APPROVED'}>通过</Option>
-              <Option value={'REJECTED'}>拒绝</Option>
+            <Select placeholder="璇烽€夋嫨瀹℃牳缁撴灉">
+              <Option value={'APPROVED'}>閫氳繃</Option>
+              <Option value={'REJECTED'}>鎷掔粷</Option>
             </Select>
           </Form.Item>
 
           <Form.Item
             name="remark"
-            label="审核备注"
+            label="瀹℃牳澶囨敞"
           >
-            <TextArea rows={3} placeholder="请输入审核备注（可选）" maxLength={200} showCount />
+            <TextArea rows={3} placeholder="璇疯緭鍏ュ鏍稿娉紙鍙€夛級" maxLength={200} showCount />
           </Form.Item>
 
           {isBatchAudit && (
             <p style={{ color: '#666' }}>
-              即将审核 {selectedRowKeys.length} 条报名记录
+              鍗冲皢瀹℃牳 {selectedRowKeys.length} 鏉℃姤鍚嶈褰?
             </p>
           )}
         </Form>
@@ -338,3 +338,4 @@ function AuditManage() {
 }
 
 export default AuditManage
+

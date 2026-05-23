@@ -1045,9 +1045,13 @@ CREATE TABLE IF NOT EXISTS activity (
     end_time DATETIME COMMENT '活动结束时间',
     signup_start_time DATETIME COMMENT '报名开始时间',
     signup_end_time DATETIME COMMENT '报名结束时间',
+    sign_in_start_time DATETIME COMMENT '签到开始时间',
+    sign_in_end_time DATETIME COMMENT '签到结束时间',
     status VARCHAR(20) DEFAULT 'DRAFT' COMMENT '活动状态: DRAFT-草稿, PUBLISHED-已发布, REJECTED-已驳回, CANCELLED-已取消, COMPLETED-已完成',
     sign_in_type INT DEFAULT 1 COMMENT '签到类型: 1-现场签到, 2-二维码签到',
     sign_in_open BOOLEAN DEFAULT FALSE COMMENT '签到是否开启',
+    requires_audit BOOLEAN DEFAULT FALSE COMMENT '报名是否需要审核',
+    cancel_requires_audit BOOLEAN DEFAULT FALSE COMMENT '取消报名是否需要审核',
     score DECIMAL(3,1) DEFAULT 0 COMMENT '活动学分',
     contact_name VARCHAR(50) COMMENT '联系人姓名',
     contact_phone VARCHAR(20) COMMENT '联系电话',
@@ -1078,13 +1082,15 @@ INSERT INTO activity_category (id, category_name, sort, status, create_time) VAL
 -- =============================================
 -- 活动测试数据
 -- =============================================
-INSERT INTO activity (id, title, cover_image, category_id, organizer_id, organizer_name, content, location, max_people, current_people, start_time, end_time, signup_start_time, signup_end_time, status, sign_in_type, sign_in_open, score, contact_name, contact_phone, create_time) VALUES
-(1, 'AI 学习工作坊', 'https://picsum.photos/800/600?random=101', 1, 2, '张老师', '面向全校同学的 AI 学习工作坊，讲解常见工具和实践方法。', '图书馆报告厅', 120, 46, '2026-04-12 14:00:00', '2026-04-12 17:00:00', '2026-04-01 09:00:00', '2026-04-11 18:00:00', 'PUBLISHED', 1, false, 1.5, '张老师', '13800138000', NOW()),
-(2, '春季篮球联赛', 'https://picsum.photos/800/600?random=102', 2, 3, '李老师', '春季篮球联赛正在进行，欢迎同学们到场观赛与加油。', '篮球场', 240, 168, '2026-04-06 13:00:00', '2026-04-06 18:00:00', '2026-03-20 08:00:00', '2026-04-05 18:00:00', 'PUBLISHED', 1, false, 1.0, '李老师', '13800138001', NOW()),
-(3, '社团开放日', 'https://picsum.photos/800/600?random=103', 3, 2, '张老师', '各大社团集中展示招新内容，现场可体验互动项目并咨询报名。', '图书馆前广场', 300, 132, '2026-04-10 10:00:00', '2026-04-10 16:30:00', '2026-04-02 09:00:00', '2026-04-09 20:00:00', 'PUBLISHED', 1, false, 0.5, '张老师', '13800138000', NOW()),
-(4, '校园环保行动', 'https://picsum.photos/800/600?random=104', 4, 3, '李老师', '组织志愿者进行校园清洁与垃圾分类宣传，活动已经顺利结束。', '校园主干道', 80, 63, '2026-04-03 09:00:00', '2026-04-03 12:00:00', '2026-03-25 08:00:00', '2026-04-02 18:00:00', 'COMPLETED', 1, false, 1.0, '李老师', '13800138001', NOW()),
-(5, '新生融入分享会', 'https://picsum.photos/800/600?random=105', 5, 2, '张老师', '邀请优秀学长学姐分享学习与生活经验，帮助新生快速适应校园。', '博学楼报告厅', 180, 72, '2026-04-08 19:00:00', '2026-04-08 21:00:00', '2026-04-01 10:00:00', '2026-04-07 18:00:00', 'PUBLISHED', 1, false, 0.5, '张老师', '13800138000', NOW()),
-(6, '心理健康沙龙', 'https://picsum.photos/800/600?random=106', 1, 3, '李老师', '围绕压力管理与情绪疏导开展交流分享，适合同学们报名参加。', '大学生活动中心 201', 90, 21, '2026-04-15 15:00:00', '2026-04-15 17:00:00', '2026-04-04 08:00:00', '2026-04-14 18:00:00', 'PUBLISHED', 1, false, 0.5, '李老师', '13800138001', NOW());
+INSERT INTO activity (id, title, cover_image, category_id, organizer_id, organizer_name, content, location, max_people, current_people, start_time, end_time, signup_start_time, signup_end_time, sign_in_start_time, sign_in_end_time, status, sign_in_type, sign_in_open, requires_audit, cancel_requires_audit, score, contact_name, contact_phone, create_time) VALUES
+(1, 'AI 学习工作坊', 'https://picsum.photos/800/600?random=101', 1, 2, '张老师', '面向全校同学的 AI 学习工作坊，讲解常见工具和实践方法。', '图书馆报告厅', 120, 46, '2026-04-12 14:00:00', '2026-04-12 17:00:00', '2026-04-01 09:00:00', '2026-04-11 18:00:00', '2026-04-12 13:40:00', '2026-04-12 15:30:00', 'PUBLISHED', 1, false, true, true, 1.5, '张老师', '13800138000', NOW()),
+(2, '春季篮球联赛', 'https://picsum.photos/800/600?random=102', 2, 3, '李老师', '春季篮球联赛正在进行，欢迎同学们到场观赛与加油。', '篮球场', 240, 168, '2026-04-06 13:00:00', '2026-04-06 18:00:00', '2026-03-20 08:00:00', '2026-04-05 18:00:00', '2026-04-06 12:45:00', '2026-04-06 15:00:00', 'PUBLISHED', 1, false, false, false, 1.0, '李老师', '13800138001', NOW()),
+(3, '社团开放日', 'https://picsum.photos/800/600?random=103', 3, 2, '张老师', '各大社团集中展示招新内容，现场可体验互动项目并咨询报名。', '图书馆前广场', 300, 132, '2026-04-10 10:00:00', '2026-04-10 16:30:00', '2026-04-02 09:00:00', '2026-04-09 20:00:00', '2026-04-10 09:30:00', '2026-04-10 12:30:00', 'PUBLISHED', 1, false, false, false, 0.5, '张老师', '13800138000', NOW()),
+(4, '校园环保行动', 'https://picsum.photos/800/600?random=104', 4, 3, '李老师', '组织志愿者进行校园清洁与垃圾分类宣传，活动已经顺利结束。', '校园主干道', 80, 63, '2026-04-03 09:00:00', '2026-04-03 12:00:00', '2026-03-25 08:00:00', '2026-04-02 18:00:00', '2026-04-03 08:30:00', '2026-04-03 10:30:00', 'COMPLETED', 1, false, true, false, 1.0, '李老师', '13800138001', NOW()),
+(5, '新生融入分享会', 'https://picsum.photos/800/600?random=105', 5, 2, '张老师', '邀请优秀学长学姐分享学习与生活经验，帮助新生快速适应校园。', '博学楼报告厅', 180, 72, '2026-04-08 19:00:00', '2026-04-08 21:00:00', '2026-04-01 10:00:00', '2026-04-07 18:00:00', '2026-04-08 18:30:00', '2026-04-08 20:00:00', 'PUBLISHED', 1, false, false, true, 0.5, '张老师', '13800138000', NOW()),
+(6, '心理健康沙龙', 'https://picsum.photos/800/600?random=106', 1, 3, '李老师', '围绕压力管理与情绪疏导开展交流分享，适合同学们报名参加。', '大学生活动中心 201', 90, 21, '2026-04-15 15:00:00', '2026-04-15 17:00:00', '2026-04-04 08:00:00', '2026-04-14 18:00:00', '2026-04-15 14:40:00', '2026-04-15 16:20:00', 'PUBLISHED', 1, false, true, true, 0.5, '李老师', '13800138001', NOW()),
+(7, 'Today Start Campus Activity', 'https://picsum.photos/800/600?random=107', 1, 2, 'Teacher Zhang', 'Activity starts on 2026-05-22 and ends on 2026-05-24.', 'Library Lecture Hall', 120, 45, '2026-05-22 09:00:00', '2026-05-24 18:00:00', '2026-05-22 00:00:00', '2026-05-23 18:00:00', '2026-05-23 09:00:00', '2026-05-24 16:00:00', 'PUBLISHED', 1, false, false, false, 0.2, 'Teacher Zhang', '13800138000', NOW()),
+(8, 'Campus Registration Demo', 'https://picsum.photos/800/600?random=108', 1, 2, 'Teacher Zhang', 'This is a demo activity for signup testing.', 'Library Lecture Hall', 120, 0, '2026-05-23 19:00:00', '2026-05-24 21:00:00', '2026-05-22 00:00:00', '2026-05-24 18:00:00', '2026-05-23 19:00:00', '2026-05-24 20:00:00', 'PUBLISHED', 1, false, false, true, 0.2, 'Teacher Zhang', '13800138000', NOW());
 
 -- =============================================
 -- 活动通知测试数据
