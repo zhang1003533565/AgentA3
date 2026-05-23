@@ -56,8 +56,6 @@ function Login() {
       <div className="login-box">
         <div className="login-header">
           <h1>智慧校园</h1>
-          <p>Campus Administration Console</p>
-          <p className="admin-hint">聚合八阶段任务的 Web 工作台</p>
         </div>
 
         <form onSubmit={handleLogin} className="login-form">
@@ -86,14 +84,9 @@ function Login() {
           </div>
 
           <button type="submit" className="login-btn" disabled={loading}>
-            {loading ? '登录中...' : '登 录'}
+            {loading ? '登录中...' : '登录'}
           </button>
         </form>
-
-        <div className="login-tips">
-          <span>登录提示</span>
-          <p>当前页面只使用真实后端登录接口，不再自动进入演示模式。</p>
-        </div>
       </div>
 
       <div className="login-background">

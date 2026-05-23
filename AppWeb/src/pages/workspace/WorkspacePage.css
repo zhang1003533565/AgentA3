@@ -738,3 +738,170 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ===== 标点管理 — 全宽布局 ===== */
+
+.workspace-marker-fullwidth {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  position: relative;
+}
+
+.workspace-marker-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 0.98));
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+  flex-wrap: wrap;
+}
+
+.workspace-marker-toolbar__search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.workspace-marker-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.workspace-marker-toolbar__meta {
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.workspace-marker-search-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(240, 249, 255, 0.78);
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.workspace-marker-map-shell {
+  position: relative;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: #f0f4f8;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.07);
+}
+
+.workspace-marker-map-canvas {
+  width: 100%;
+  height: 60vh;
+  min-height: 480px;
+  display: block;
+}
+
+/* ===== 地图选点 Drawer ===== */
+
+.map-picker-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.map-picker-drawer__tip {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(219, 234, 254, 0.6);
+  color: #1d4ed8;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.map-picker-drawer__coords {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.map-picker-drawer__coords label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.map-picker-drawer__map-shell {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: #f0f4f8;
+}
+
+.map-picker-drawer__canvas {
+  width: 100%;
+  height: 420px;
+  display: block;
+}
+
+.map-picker-drawer__error {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(254, 242, 242, 0.96);
+  border: 1px solid rgba(248, 113, 113, 0.24);
+  color: #b91c1c;
+  font-size: 13px;
+  z-index: 10;
+}
+
+@media (max-width: 1100px) {
+  .workspace-marker-map-canvas {
+    height: 45vh;
+    min-height: 360px;
+  }
+
+  .workspace-marker-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .workspace-marker-toolbar__search {
+    width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace-marker-map-canvas {
+    height: 40vh;
+    min-height: 300px;
+  }
+
+  .workspace-marker-toolbar__search {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .map-picker-drawer__coords {
+    grid-template-columns: 1fr;
+  }
+
+  .map-picker-drawer__canvas {
+    height: 300px;
+  }
+}
