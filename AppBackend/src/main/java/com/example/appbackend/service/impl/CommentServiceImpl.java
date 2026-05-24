@@ -1,10 +1,15 @@
 package com.example.appbackend.service.impl;
 
-import com.example.appbackend.dto.*;
+import com.example.appbackend.dto.CommentRequest;
+import com.example.appbackend.dto.CommentResponse;
+import com.example.appbackend.dto.PageResponse;
 import com.example.appbackend.entity.ForumComment;
+import com.example.appbackend.entity.ForumPost;
 import com.example.appbackend.entity.User;
 import com.example.appbackend.exception.BusinessException;
-import com.example.appbackend.repository.*;
+import com.example.appbackend.repository.ForumCommentRepository;
+import com.example.appbackend.repository.ForumPostRepository;
+import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.CommentService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -22,6 +27,10 @@ import java.util.stream.Collectors;
 @Transactional
 public class CommentServiceImpl implements CommentService {
 
+    private static final String POST_STATUS_PUBLISHED = "PUBLISHED";
+    private static final String STATUS_NORMAL = "NORMAL";
+    private static final String STATUS_DELETED = "DELETED";
+
     @Autowired
     private ForumCommentRepository commentRepository;
 
@@ -33,15 +42,17 @@ public class CommentServiceImpl implements CommentService {
 
     @Override
     public CommentResponse createComment(CommentRequest request, Long userId) {
-        if (!postRepository.findById(request.getPostId()).isPresent()) {
-            throw new BusinessException(404, "帖子不存在");
+        ForumPost post = postRepository.findById(request.getPostId())
+                .orElseThrow(() -> new BusinessException(404, "帖子不存在"));
+        if (!POST_STATUS_PUBLISHED.equals(post.getStatus())) {
+            throw new BusinessException(404, "帖子不存在或已删除");
         }
 
         if (request.getParentId() != null) {
             ForumComment parent = commentRepository.findById(request.getParentId())
                     .orElseThrow(() -> new BusinessException(404, "父评论不存在"));
-            if (!parent.getPostId().equals(request.getPostId())) {
-                throw new BusinessException(400, "父评论不属于该帖子");
+            if (!parent.getPostId().equals(request.getPostId()) || !STATUS_NORMAL.equals(parent.getStatus())) {
+                throw new BusinessException(400, "父评论不可回复");
             }
         }
 
@@ -52,73 +63,114 @@ public class CommentServiceImpl implements CommentService {
         comment.setReplyToId(request.getReplyToId());
         comment.setContent(request.getContent());
         comment.setLikeCount(0);
+        comment.setStatus(STATUS_NORMAL);
 
         ForumComment saved = commentRepository.save(comment);
         postRepository.incrementCommentCount(request.getPostId());
-
-        return toCommentResponse(saved, userId, new ArrayList<>());
+        return toCommentResponse(saved, new ArrayList<>());
     }
 
     @Override
     public void deleteComment(Long id, Long userId) {
-        ForumComment comment = commentRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(404, "评论不存在"));
-
+        ForumComment comment = getVisibleComment(id);
         if (!comment.getUserId().equals(userId)) {
             throw new BusinessException(403, "无权删除此评论");
         }
-
-        deleteCommentAndDescendants(id);
+        softDeleteComment(comment);
     }
 
     @Override
-    public PageResponse<CommentResponse> getCommentList(Long postId, Integer pageNum, Integer pageSize, Long currentUserId) {
-        if (!postRepository.existsById(postId)) {
-            throw new BusinessException(404, "帖子不存在");
-        }
-
-        Sort sort = Sort.by(Sort.Direction.DESC, "createTime");
-        PageRequest pageRequest = PageRequest.of(pageNum - 1, pageSize, sort);
-        Page<ForumComment> page = commentRepository.findByPostIdAndParentIdIsNull(postId, pageRequest);
-
-        List<ForumComment> parentComments = page.getContent();
-        Map<Long, List<ForumComment>> childrenMap = getChildrenMap(parentComments);
-
-        List<CommentResponse> items = parentComments.stream()
-                .map(comment -> toCommentResponse(comment, currentUserId, childrenMap.getOrDefault(comment.getId(), new ArrayList<>())))
-                .collect(Collectors.toList());
-
-        return new PageResponse<>(items, page.getTotalElements(), pageNum, pageSize);
-    }
-
-    @Override
-    public CommentResponse getCommentDetail(Long id, Long currentUserId) {
+    public void deleteCommentByAdmin(Long id) {
         ForumComment comment = commentRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(404, "评论不存在"));
-
-        List<ForumComment> children = commentRepository.findByParentId(id);
-        return toCommentResponse(comment, currentUserId, children);
+        softDeleteComment(comment);
     }
 
-    private Map<Long, List<ForumComment>> getChildrenMap(List<ForumComment> parentComments) {
+    @Override
+    public void batchDeleteComments(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        ids.forEach(id -> commentRepository.findById(id).ifPresent(this::softDeleteComment));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<CommentResponse> getCommentList(Long postId, Integer pageNum, Integer pageSize, Long currentUserId) {
+        ForumPost post = postRepository.findById(postId)
+                .orElseThrow(() -> new BusinessException(404, "帖子不存在"));
+        if (!POST_STATUS_PUBLISHED.equals(post.getStatus())) {
+            throw new BusinessException(404, "帖子不存在或已删除");
+        }
+
+        int safePage = pageNum == null || pageNum < 1 ? 1 : pageNum;
+        int safeSize = pageSize == null || pageSize < 1 ? 20 : pageSize;
+        Page<ForumComment> page = commentRepository.findByPostIdAndParentIdIsNullAndStatus(
+                postId, STATUS_NORMAL, PageRequest.of(safePage - 1, safeSize, Sort.by(Sort.Direction.DESC, "createTime")));
+        List<ForumComment> parentComments = page.getContent();
+        Map<Long, List<ForumComment>> childrenMap = getChildrenMap(parentComments, STATUS_NORMAL);
+        List<CommentResponse> items = parentComments.stream()
+                .map(comment -> toCommentResponse(comment, childrenMap.getOrDefault(comment.getId(), new ArrayList<>())))
+                .collect(Collectors.toList());
+        return new PageResponse<>(items, page.getTotalElements(), safePage, safeSize);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<CommentResponse> getAdminCommentList(Long postId, String keyword, String status, Integer pageNum, Integer pageSize) {
+        int safePage = pageNum == null || pageNum < 1 ? 1 : pageNum;
+        int safeSize = pageSize == null || pageSize < 1 ? 10 : pageSize;
+        Page<ForumComment> page = commentRepository.findComments(
+                postId,
+                status != null && !status.isBlank() ? status : null,
+                keyword,
+                PageRequest.of(safePage - 1, safeSize, Sort.by(Sort.Direction.DESC, "createTime")));
+        List<CommentResponse> items = page.getContent().stream()
+                .map(comment -> toCommentResponse(comment, new ArrayList<>()))
+                .collect(Collectors.toList());
+        return new PageResponse<>(items, page.getTotalElements(), safePage, safeSize);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CommentResponse getCommentDetail(Long id, Long currentUserId) {
+        ForumComment comment = getVisibleComment(id);
+        List<ForumComment> children = commentRepository.findByParentIdAndStatus(id, STATUS_NORMAL);
+        return toCommentResponse(comment, children);
+    }
+
+    private ForumComment getVisibleComment(Long id) {
+        ForumComment comment = commentRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(404, "评论不存在"));
+        if (!STATUS_NORMAL.equals(comment.getStatus())) {
+            throw new BusinessException(404, "评论不存在或已删除");
+        }
+        return comment;
+    }
+
+    private void softDeleteComment(ForumComment comment) {
+        if (STATUS_DELETED.equals(comment.getStatus())) {
+            return;
+        }
+        comment.setStatus(STATUS_DELETED);
+        commentRepository.save(comment);
+        postRepository.decrementCommentCount(comment.getPostId());
+        List<ForumComment> children = commentRepository.findByParentIdAndStatus(comment.getId(), STATUS_NORMAL);
+        children.forEach(this::softDeleteComment);
+    }
+
+    private Map<Long, List<ForumComment>> getChildrenMap(List<ForumComment> parentComments, String status) {
         if (parentComments.isEmpty()) {
             return Map.of();
         }
-
-        List<Long> parentIds = parentComments.stream()
-                .map(ForumComment::getId)
-                .collect(Collectors.toList());
-
         List<ForumComment> allChildren = new ArrayList<>();
-        for (Long parentId : parentIds) {
-            allChildren.addAll(commentRepository.findByParentId(parentId));
+        for (ForumComment parent : parentComments) {
+            allChildren.addAll(commentRepository.findByParentIdAndStatus(parent.getId(), status));
         }
-
-        return allChildren.stream()
-                .collect(Collectors.groupingBy(ForumComment::getParentId));
+        return allChildren.stream().collect(Collectors.groupingBy(ForumComment::getParentId));
     }
 
-    private CommentResponse toCommentResponse(ForumComment comment, Long currentUserId, List<ForumComment> children) {
+    private CommentResponse toCommentResponse(ForumComment comment, List<ForumComment> children) {
         CommentResponse response = new CommentResponse();
         response.setId(comment.getId());
         response.setPostId(comment.getPostId());
@@ -127,65 +179,30 @@ public class CommentServiceImpl implements CommentService {
         response.setReplyToId(comment.getReplyToId());
         response.setContent(comment.getContent());
         response.setLikeCount(comment.getLikeCount());
+        response.setStatus(comment.getStatus());
         response.setCreateTime(comment.getCreateTime());
-
-        User user = userRepository.findById(comment.getUserId()).orElse(null);
-        response.setUsername(user != null
-                ? (user.getRealName() != null && !user.getRealName().isBlank() ? user.getRealName() : user.getUsername())
-                : "匿名用户");
-        response.setAvatar(user != null ? user.getAvatar() : null);
-
+        response.setUsername(resolveUserName(comment.getUserId()));
+        userRepository.findById(comment.getUserId()).ifPresent(user -> response.setAvatar(user.getAvatar()));
         if (comment.getReplyToId() != null) {
-            User replyToUser = userRepository.findById(comment.getReplyToId()).orElse(null);
-            response.setReplyToUsername(replyToUser != null
-                    ? (replyToUser.getRealName() != null && !replyToUser.getRealName().isBlank() ? replyToUser.getRealName() : replyToUser.getUsername())
-                    : null);
+            response.setReplyToUsername(resolveUserName(comment.getReplyToId()));
         }
-
         response.setIsLiked(false);
-
-        if (children != null && !children.isEmpty()) {
-            List<CommentResponse> childResponses = children.stream()
-                    .map(child -> toCommentResponse(child, currentUserId, new ArrayList<>()))
-                    .collect(Collectors.toList());
-            response.setChildren(childResponses);
-        } else {
-            response.setChildren(new ArrayList<>());
-        }
-
+        response.setChildren(children == null ? new ArrayList<>() : children.stream()
+                .map(child -> toCommentResponse(child, new ArrayList<>()))
+                .collect(Collectors.toList()));
         return response;
     }
 
-    @Override
-    public void deleteCommentByAdmin(Long id) {
-        commentRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(404, "评论不存在"));
-        deleteCommentAndDescendants(id);
+    private String resolveUserName(Long userId) {
+        return userRepository.findById(userId)
+                .map(this::displayName)
+                .orElse("匿名用户");
     }
 
-    @Override
-    public void batchDeleteComments(List<Long> ids) {
-        if (ids == null || ids.isEmpty()) {
-            return;
+    private String displayName(User user) {
+        if (user.getRealName() != null && !user.getRealName().isBlank()) {
+            return user.getRealName();
         }
-        for (Long id : ids) {
-            commentRepository.findById(id).ifPresent(c -> deleteCommentAndDescendants(id));
-        }
-    }
-
-    /**
-     * 递归删除评论及其所有子回复（先删子评论再删自身，满足 parent_id 外键约束）。
-     */
-    private void deleteCommentAndDescendants(Long commentId) {
-        ForumComment comment = commentRepository.findById(commentId).orElse(null);
-        if (comment == null) {
-            return;
-        }
-        List<ForumComment> children = commentRepository.findByParentId(commentId);
-        for (ForumComment child : children) {
-            deleteCommentAndDescendants(child.getId());
-        }
-        postRepository.decrementCommentCount(comment.getPostId());
-        commentRepository.deleteById(commentId);
+        return user.getUsername();
     }
 }

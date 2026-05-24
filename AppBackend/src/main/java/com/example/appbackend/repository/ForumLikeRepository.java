@@ -4,6 +4,9 @@ import com.example.appbackend.entity.ForumLike;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -21,4 +24,8 @@ public interface ForumLikeRepository extends JpaRepository<ForumLike, Long> {
     List<Long> findByUserIdAndTargetIdIn(Long userId, List<Long> targetIds);
 
     Page<ForumLike> findByUserId(Long userId, Pageable pageable);
+
+    @Modifying
+    @Query("DELETE FROM ForumLike l WHERE l.targetId = :targetId")
+    void deleteByTargetId(@Param("targetId") Long targetId);
 }

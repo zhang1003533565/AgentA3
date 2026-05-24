@@ -18,7 +18,7 @@ public interface PostService {
 
     PostResponse getPostDetail(Long id, Long currentUserId);
 
-    PageResponse<PostListItem> getPostList(Integer pageNum, Integer pageSize, Long topicId, String keyword, String sortBy, Long userId, Long currentUserId);
+    PageResponse<PostListItem> getPostList(Integer pageNum, Integer pageSize, Long topicId, String keyword, String sortBy, Long userId, String status, Long currentUserId);
 
     PageResponse<HotPostItem> getHotPosts(Integer pageNum, Integer pageSize);
 

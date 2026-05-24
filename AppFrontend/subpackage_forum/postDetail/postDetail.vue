@@ -79,6 +79,10 @@
                 <text class="action-icon">💬</text>
                 <text class="action-count">回复</text>
               </view>
+              <view class="action-item" @click="reportComment(item)">
+                <text class="action-icon">!</text>
+                <text class="action-count">举报</text>
+              </view>
             </view>
 
             <!-- 子评论 -->
@@ -119,6 +123,10 @@
           <text class="btn-icon">🔗</text>
           <text class="btn-text">分享</text>
         </view>
+        <view class="action-btn" @click="reportPost">
+          <text class="btn-icon">!</text>
+          <text class="btn-text">举报</text>
+        </view>
       </view>
     </view>
 
@@ -146,6 +154,7 @@
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import {
+  createReport,
   createComment,
   getCommentList,
   getFollowStatus,
@@ -307,6 +316,45 @@ export default {
           }
         }
       })
+    },
+    chooseReportReason() {
+      return new Promise((resolve) => {
+        uni.showActionSheet({
+          itemList: ['垃圾广告', '虚假信息', '人身攻击', '低俗违规', '其他'],
+          success: (res) => {
+            const reasons = [
+              { reasonType: 1, reasonText: '垃圾广告' },
+              { reasonType: 2, reasonText: '虚假信息' },
+              { reasonType: 3, reasonText: '人身攻击' },
+              { reasonType: 4, reasonText: '低俗违规' },
+              { reasonType: 5, reasonText: '其他' }
+            ]
+            resolve(reasons[res.tapIndex])
+          },
+          fail: () => resolve(null)
+        })
+      })
+    },
+    async submitReport(targetType, targetId) {
+      const reason = await this.chooseReportReason()
+      if (!reason) return
+      try {
+        await createReport({
+          targetType,
+          targetId,
+          reasonType: reason.reasonType,
+          reasonText: reason.reasonText
+        })
+        uni.showToast({ title: '举报已提交', icon: 'success' })
+      } catch (error) {
+        uni.showToast({ title: error?.message || '举报提交失败', icon: 'none' })
+      }
+    },
+    reportPost() {
+      this.submitReport(1, this.postId)
+    },
+    reportComment(item) {
+      this.submitReport(2, item.id)
     },
     showCommentInput() {
       this.showCommentPopup = true

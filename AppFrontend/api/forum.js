@@ -139,6 +139,14 @@ export function deleteComment(commentId) {
   })
 }
 
+export function createReport(data) {
+  return request({
+    url: '/api/forum/reports',
+    method: 'POST',
+    data
+  })
+}
+
 export function toggleFollowUser(followUserId) {
   return request({
     url: '/api/forum/follows',

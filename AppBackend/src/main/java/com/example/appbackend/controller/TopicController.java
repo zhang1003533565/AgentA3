@@ -107,7 +107,7 @@ public class TopicController {
             HttpServletRequest request) {
         Long currentUserId = getCurrentUserId(request);
         PageResponse<PostListItem> page = postService.getPostList(
-                pageNum, pageSize, topicId, keyword, sortBy, null, currentUserId);
+                pageNum, pageSize, topicId, keyword, sortBy, null, null, currentUserId);
         return Result.success(page);
     }
 

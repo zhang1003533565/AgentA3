@@ -6,7 +6,11 @@ import com.example.appbackend.entity.ForumPost;
 import com.example.appbackend.entity.ForumTopic;
 import com.example.appbackend.entity.User;
 import com.example.appbackend.exception.BusinessException;
-import com.example.appbackend.repository.*;
+import com.example.appbackend.repository.ForumCommentRepository;
+import com.example.appbackend.repository.ForumLikeRepository;
+import com.example.appbackend.repository.ForumPostRepository;
+import com.example.appbackend.repository.ForumTopicRepository;
+import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.PostService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,15 +21,15 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
 @Transactional
 public class PostServiceImpl implements PostService {
+
+    private static final String STATUS_PUBLISHED = "PUBLISHED";
+    private static final String STATUS_DELETED = "DELETED";
 
     @Autowired
     private ForumPostRepository postRepository;
@@ -44,6 +48,171 @@ public class PostServiceImpl implements PostService {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Override
+    public PostResponse createPost(PostRequest request, Long userId) {
+        ensureTopicExists(request.getTopicId());
+        ForumPost post = new ForumPost();
+        post.setUserId(userId);
+        post.setTitle(request.getTitle());
+        post.setContent(request.getContent());
+        post.setImages(serializeImages(request.getImages()));
+        post.setTopicId(request.getTopicId());
+        post.setViewCount(0);
+        post.setLikeCount(0);
+        post.setCommentCount(0);
+        post.setStatus(STATUS_PUBLISHED);
+
+        ForumPost savedPost = postRepository.save(post);
+        if (savedPost.getTopicId() != null) {
+            topicRepository.incrementPostCount(savedPost.getTopicId());
+        }
+        return toPostResponse(savedPost, userId);
+    }
+
+    @Override
+    public PostResponse updatePost(Long id, PostRequest request, Long userId) {
+        ForumPost post = getVisiblePost(id);
+        if (!post.getUserId().equals(userId)) {
+            throw new BusinessException(403, "无权编辑此帖子");
+        }
+
+        Long oldTopicId = post.getTopicId();
+        ensureTopicExists(request.getTopicId());
+
+        post.setTitle(request.getTitle());
+        post.setContent(request.getContent());
+        post.setImages(serializeImages(request.getImages()));
+        post.setTopicId(request.getTopicId());
+
+        ForumPost updatedPost = postRepository.save(post);
+        if (oldTopicId != null && !oldTopicId.equals(request.getTopicId())) {
+            topicRepository.decrementPostCount(oldTopicId);
+            if (request.getTopicId() != null) {
+                topicRepository.incrementPostCount(request.getTopicId());
+            }
+        }
+        return toPostResponse(updatedPost, userId);
+    }
+
+    @Override
+    public void deletePost(Long id, Long userId) {
+        ForumPost post = getVisiblePost(id);
+        if (!post.getUserId().equals(userId)) {
+            throw new BusinessException(403, "无权删除此帖子");
+        }
+        softDeletePost(post);
+    }
+
+    @Override
+    public void deletePostByAdmin(Long id) {
+        ForumPost post = postRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(404, "帖子不存在"));
+        softDeletePost(post);
+    }
+
+    @Override
+    public void batchDeletePosts(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        ids.forEach(id -> postRepository.findById(id).ifPresent(this::softDeletePost));
+    }
+
+    @Override
+    public PostResponse getPostDetail(Long id, Long currentUserId) {
+        ForumPost post = getVisiblePost(id);
+        postRepository.incrementViewCount(id);
+        post.setViewCount(post.getViewCount() + 1);
+        return toPostResponse(post, currentUserId);
+    }
+
+    @Override
+    public PageResponse<PostListItem> getPostList(Integer pageNum, Integer pageSize, Long topicId,
+                                                   String keyword, String sortBy, Long userId, String status, Long currentUserId) {
+        Sort sort = resolveSort(sortBy);
+        int safePage = pageNum == null || pageNum < 1 ? 1 : pageNum;
+        int safeSize = pageSize == null || pageSize < 1 ? 10 : pageSize;
+        PageRequest pageRequest = PageRequest.of(safePage - 1, safeSize, sort);
+        String queryStatus = status != null && !status.isBlank() ? status : STATUS_PUBLISHED;
+        Page<ForumPost> postPage = postRepository.findPosts(topicId, userId, queryStatus, keyword, pageRequest);
+        List<PostListItem> items = postPage.getContent().stream()
+                .map(post -> toPostListItem(post, currentUserId))
+                .collect(Collectors.toList());
+        return new PageResponse<>(items, postPage.getTotalElements(), safePage, safeSize);
+    }
+
+    @Override
+    public PageResponse<HotPostItem> getHotPosts(Integer pageNum, Integer pageSize) {
+        int safePage = pageNum == null || pageNum < 1 ? 1 : pageNum;
+        int safeSize = pageSize == null || pageSize < 1 ? 10 : pageSize;
+        Page<ForumPost> postPage = postRepository.findHotPosts(PageRequest.of(safePage - 1, safeSize));
+        List<HotPostItem> items = postPage.getContent().stream()
+                .map(this::toHotPostItem)
+                .collect(Collectors.toList());
+        return new PageResponse<>(items, postPage.getTotalElements(), safePage, safeSize);
+    }
+
+    @Override
+    public PageResponse<UserPostResponse> getUserPost(Long userId, Integer pageNum, Integer pageSize) {
+        int safePage = pageNum == null || pageNum < 1 ? 1 : pageNum;
+        int safeSize = pageSize == null || pageSize < 1 ? 10 : pageSize;
+        Page<ForumPost> postPage = postRepository.findByUserIdAndStatus(
+                userId, STATUS_PUBLISHED, PageRequest.of(safePage - 1, safeSize, Sort.by(Sort.Direction.DESC, "createTime")));
+        List<UserPostResponse> items = postPage.getContent().stream()
+                .map(post -> {
+                    UserPostResponse response = new UserPostResponse();
+                    response.setId(post.getId());
+                    response.setTitle(post.getTitle());
+                    response.setViewCount(post.getViewCount());
+                    response.setLikeCount(post.getLikeCount());
+                    response.setCommentCount(post.getCommentCount());
+                    response.setCreateTime(post.getCreateTime());
+                    return response;
+                })
+                .collect(Collectors.toList());
+        return new PageResponse<>(items, postPage.getTotalElements(), safePage, safeSize);
+    }
+
+    @Override
+    public PageResponse<UserLikeResponse> getUserLikes(Long userId, Integer pageNum, Integer pageSize) {
+        int safePage = pageNum == null || pageNum < 1 ? 1 : pageNum;
+        int safeSize = pageSize == null || pageSize < 1 ? 10 : pageSize;
+        Page<ForumLike> likePage = likeRepository.findByUserId(
+                userId, PageRequest.of(safePage - 1, safeSize, Sort.by(Sort.Direction.DESC, "createTime")));
+        List<UserLikeResponse> items = likePage.getContent().stream()
+                .map(like -> {
+                    UserLikeResponse response = new UserLikeResponse();
+                    response.setId(like.getId());
+                    response.setPostId(like.getTargetId());
+                    ForumPost post = postRepository.findById(like.getTargetId()).orElse(null);
+                    response.setPostTitle(post != null && STATUS_PUBLISHED.equals(post.getStatus()) ? post.getTitle() : null);
+                    response.setCreateTime(like.getCreateTime());
+                    return response;
+                })
+                .collect(Collectors.toList());
+        return new PageResponse<>(items, likePage.getTotalElements(), safePage, safeSize);
+    }
+
+    private ForumPost getVisiblePost(Long id) {
+        ForumPost post = postRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(404, "帖子不存在"));
+        if (!STATUS_PUBLISHED.equals(post.getStatus())) {
+            throw new BusinessException(404, "帖子不存在或已删除");
+        }
+        return post;
+    }
+
+    private void softDeletePost(ForumPost post) {
+        if (STATUS_DELETED.equals(post.getStatus())) {
+            return;
+        }
+        post.setStatus(STATUS_DELETED);
+        postRepository.save(post);
+        if (post.getTopicId() != null) {
+            topicRepository.decrementPostCount(post.getTopicId());
+        }
+    }
 
     private String serializeImages(List<String> images) {
         if (images == null || images.isEmpty()) {
@@ -67,218 +236,27 @@ public class PostServiceImpl implements PostService {
         }
     }
 
-    @Override
-    public PostResponse createPost(PostRequest request, Long userId) {
-        ensureTopicExists(request.getTopicId());
-        ForumPost post = new ForumPost();
-        post.setUserId(userId);
-        post.setTitle(request.getTitle());
-        post.setContent(request.getContent());
-        post.setImages(serializeImages(request.getImages()));
-        post.setTopicId(request.getTopicId());
-        post.setViewCount(0);
-        post.setLikeCount(0);
-        post.setCommentCount(0);
-
-        ForumPost savedPost = postRepository.save(post);
-
-        if (savedPost.getTopicId() != null) {
-            topicRepository.incrementPostCount(savedPost.getTopicId());
-        }
-
-        return toPostResponse(savedPost, userId);
-    }
-
-    @Override
-    public PostResponse updatePost(Long id, PostRequest request, Long userId) {
-        ForumPost post = postRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(404, "帖子不存在"));
-
-        if (!post.getUserId().equals(userId)) {
-            throw new BusinessException(403, "无权编辑此帖子");
-        }
-
-        Long oldTopicId = post.getTopicId();
-
-        ensureTopicExists(request.getTopicId());
-
-        post.setTitle(request.getTitle());
-        post.setContent(request.getContent());
-        post.setImages(serializeImages(request.getImages()));
-        post.setTopicId(request.getTopicId());
-
-        ForumPost updatedPost = postRepository.save(post);
-
-        if (oldTopicId != null && !oldTopicId.equals(request.getTopicId())) {
-            topicRepository.decrementPostCount(oldTopicId);
-            if (request.getTopicId() != null) {
-                topicRepository.incrementPostCount(request.getTopicId());
-            }
-        }
-
-        return toPostResponse(updatedPost, userId);
-    }
-
-    @Override
-    public void deletePost(Long id, Long userId) {
-        ForumPost post = postRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(404, "帖子不存在"));
-
-        if (!post.getUserId().equals(userId)) {
-            throw new BusinessException(403, "无权删除此帖子");
-        }
-
-        if (post.getTopicId() != null) {
-            topicRepository.decrementPostCount(post.getTopicId());
-        }
-
-        deleteCommentsLeafFirst(id);
-
-        postRepository.deleteById(id);
-    }
-
-    @Override
-    public void deletePostByAdmin(Long id) {
-        ForumPost post = postRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(404, "帖子不存在"));
-
-        if (post.getTopicId() != null) {
-            topicRepository.decrementPostCount(post.getTopicId());
-        }
-
-        deleteCommentsLeafFirst(id);
-
-        postRepository.deleteById(id);
-    }
-
-    @Override
-    public void batchDeletePosts(List<Long> ids) {
-        if (ids == null || ids.isEmpty()) {
-            return;
-        }
-
-        for (Long id : ids) {
-            postRepository.findById(id).ifPresent(post -> {
-                if (post.getTopicId() != null) {
-                    topicRepository.decrementPostCount(post.getTopicId());
-                }
-                deleteCommentsLeafFirst(id);
-            });
-        }
-
-        postRepository.deleteByIds(ids);
-    }
-
-    private void deleteCommentsLeafFirst(Long postId) {
-        Set<Long> deleted = new HashSet<>();
-        List<Long> leafIds = commentRepository.findLeafCommentIdsByPostId(postId);
-
-        while (!leafIds.isEmpty()) {
-            deleted.addAll(leafIds);
-            commentRepository.deleteByIds(new ArrayList<>(leafIds));
-
-            List<Long> nextBatch = commentRepository.findLeafCommentIdsByPostId(postId)
-                    .stream()
-                    .filter(id -> !deleted.contains(id))
-                    .collect(Collectors.toList());
-            leafIds = nextBatch;
-        }
-    }
-
-    @Override
-    public PostResponse getPostDetail(Long id, Long currentUserId) {
-        ForumPost post = postRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(404, "帖子不存在"));
-
-        postRepository.incrementViewCount(id);
-        post.setViewCount(post.getViewCount() + 1);
-
-        return toPostResponse(post, currentUserId);
-    }
-
-    @Override
-    public PageResponse<PostListItem> getPostList(Integer pageNum, Integer pageSize, Long topicId,
-                                                   String keyword, String sortBy, Long userId, Long currentUserId) {
-        Sort sort;
+    private Sort resolveSort(String sortBy) {
         if ("likeCount".equalsIgnoreCase(sortBy)) {
-            sort = Sort.by(Sort.Direction.DESC, "likeCount", "createTime");
-        } else if ("commentCount".equalsIgnoreCase(sortBy)) {
-            sort = Sort.by(Sort.Direction.DESC, "commentCount", "createTime");
-        } else {
-            sort = Sort.by(Sort.Direction.DESC, "createTime");
+            return Sort.by(Sort.Direction.DESC, "likeCount", "createTime");
         }
-
-        PageRequest pageRequest = PageRequest.of(pageNum - 1, pageSize, sort);
-        Page<ForumPost> postPage = postRepository.findPosts(topicId, userId, keyword, pageRequest);
-
-        List<PostListItem> items = postPage.getContent().stream()
-                .map(post -> toPostListItem(post, currentUserId))
-                .collect(Collectors.toList());
-
-        return new PageResponse<>(items, postPage.getTotalElements(), pageNum, pageSize);
+        if ("commentCount".equalsIgnoreCase(sortBy)) {
+            return Sort.by(Sort.Direction.DESC, "commentCount", "createTime");
+        }
+        return Sort.by(Sort.Direction.DESC, "createTime");
     }
 
-    @Override
-    public PageResponse<HotPostItem> getHotPosts(Integer pageNum, Integer pageSize) {
-        PageRequest pageRequest = PageRequest.of(pageNum - 1, pageSize);
-        Page<ForumPost> postPage = postRepository.findHotPosts(pageRequest);
-
-        List<HotPostItem> items = postPage.getContent().stream()
-                .map(post -> {
-                    HotPostItem item = new HotPostItem();
-                    item.setId(post.getId());
-                    item.setTitle(post.getTitle());
-                    item.setViewCount(post.getViewCount());
-                    item.setLikeCount(post.getLikeCount());
-                    item.setCommentCount(post.getCommentCount());
-                    item.setUserId(post.getUserId());
-                    item.setCreateTime(post.getCreateTime());
-
-                    User user = userRepository.findById(post.getUserId()).orElse(null);
-                    item.setUsername(user != null ? user.getRealName() : "匿名用户");
-                    return item;
-                })
-                .collect(Collectors.toList());
-
-        return new PageResponse<>(items, postPage.getTotalElements(), pageNum, pageSize);
-    }
-
-    @Override
-    public PageResponse<UserPostResponse> getUserPost(Long userId, Integer pageNum, Integer pageSize) {
-        PageRequest pageRequest=PageRequest.of(pageNum-1,pageSize);
-        Page<ForumPost> postPage=postRepository.findByUserId(userId,pageRequest);
-        List<UserPostResponse> items=postPage.getContent().stream()
-                .map(post->{
-                    UserPostResponse userPostResponse=new UserPostResponse();
-                    userPostResponse.setId(post.getId());
-                    userPostResponse.setTitle(post.getTitle());
-                    userPostResponse.setViewCount(post.getViewCount());
-                    userPostResponse.setLikeCount(post.getLikeCount());
-                    userPostResponse.setCommentCount(post.getCommentCount());
-                    userPostResponse.setCreateTime(post.getCreateTime());
-                    return userPostResponse;
-                }).collect(Collectors.toList());
-        return new PageResponse<>(items, postPage.getTotalElements(), pageNum, pageSize);
-    }
-
-    @Override
-    public PageResponse<UserLikeResponse> getUserLikes(Long userId, Integer pageNum, Integer pageSize) {
-        PageRequest pageRequest = PageRequest.of(pageNum - 1, pageSize, Sort.by(Sort.Direction.DESC, "createTime"));
-        Page<ForumLike> likePage = likeRepository.findByUserId(userId, pageRequest);
-
-        List<UserLikeResponse> items = likePage.getContent().stream()
-                .map(like -> {
-                    UserLikeResponse response = new UserLikeResponse();
-                    response.setId(like.getId());
-                    response.setPostId(like.getTargetId());
-                    ForumPost post = postRepository.findById(like.getTargetId()).orElse(null);
-                    response.setPostTitle(post != null ? post.getTitle() : null);
-                    response.setCreateTime(like.getCreateTime());
-                    return response;
-                })
-                .collect(Collectors.toList());
-
-        return new PageResponse<>(items, likePage.getTotalElements(), pageNum, pageSize);
+    private HotPostItem toHotPostItem(ForumPost post) {
+        HotPostItem item = new HotPostItem();
+        item.setId(post.getId());
+        item.setTitle(post.getTitle());
+        item.setViewCount(post.getViewCount());
+        item.setLikeCount(post.getLikeCount());
+        item.setCommentCount(post.getCommentCount());
+        item.setUserId(post.getUserId());
+        item.setCreateTime(post.getCreateTime());
+        item.setUsername(resolveUserName(post.getUserId()));
+        return item;
     }
 
     private PostResponse toPostResponse(ForumPost post, Long currentUserId) {
@@ -292,25 +270,14 @@ public class PostServiceImpl implements PostService {
         response.setViewCount(post.getViewCount());
         response.setLikeCount(post.getLikeCount());
         response.setCommentCount(post.getCommentCount());
+        response.setStatus(post.getStatus());
         response.setCreateTime(post.getCreateTime());
         response.setUpdateTime(post.getUpdateTime());
-
-        User user = userRepository.findById(post.getUserId()).orElse(null);
-        response.setUsername(user != null ? user.getRealName() : "匿名用户");
-        response.setAvatar(user != null ? user.getAvatar() : null);
-
-        if (post.getTopicId() != null) {
-            ForumTopic topic = topicRepository.findById(post.getTopicId()).orElse(null);
-            response.setTopicName(topic != null ? topic.getTopicName() : null);
-        }
-
-        if (currentUserId != null) {
-            response.setIsLiked(likeRepository.existsByUserIdAndTargetId(
-                    currentUserId, post.getId()));
-        } else {
-            response.setIsLiked(false);
-        }
-
+        response.setUsername(resolveUserName(post.getUserId()));
+        userRepository.findById(post.getUserId()).ifPresent(user -> response.setAvatar(user.getAvatar()));
+        fillTopic(post.getTopicId(), response);
+        response.setIsLiked(currentUserId != null && likeRepository.existsByUserIdAndTargetId(currentUserId, post.getId()));
+        response.setIsFavorited(false);
         return response;
     }
 
@@ -327,24 +294,31 @@ public class PostServiceImpl implements PostService {
         item.setViewCount(post.getViewCount());
         item.setLikeCount(post.getLikeCount());
         item.setCommentCount(post.getCommentCount());
+        item.setStatus(post.getStatus());
         item.setCreateTime(post.getCreateTime());
-
-        User user = userRepository.findById(post.getUserId()).orElse(null);
-        item.setUsername(user != null ? user.getRealName() : "匿名用户");
-        item.setAvatar(user != null ? user.getAvatar() : null);
-
-        if (post.getTopicId() != null) {
-            ForumTopic topic = topicRepository.findById(post.getTopicId()).orElse(null);
-            item.setTopicName(topic != null ? topic.getTopicName() : null);
-        }
-
-        if (currentUserId != null) {
-            item.setIsLiked(likeRepository.existsByUserIdAndTargetId(
-                    currentUserId, post.getId()));
-        } else {
-            item.setIsLiked(false);
-        }
-
+        item.setUsername(resolveUserName(post.getUserId()));
+        userRepository.findById(post.getUserId()).ifPresent(user -> item.setAvatar(user.getAvatar()));
+        fillTopic(post.getTopicId(), item);
+        item.setIsLiked(currentUserId != null && likeRepository.existsByUserIdAndTargetId(currentUserId, post.getId()));
+        item.setIsFavorited(false);
         return item;
+    }
+
+    private void fillTopic(Long topicId, PostResponse response) {
+        if (topicId != null) {
+            topicRepository.findById(topicId).ifPresent(topic -> response.setTopicName(topic.getTopicName()));
+        }
+    }
+
+    private void fillTopic(Long topicId, PostListItem item) {
+        if (topicId != null) {
+            topicRepository.findById(topicId).ifPresent(topic -> item.setTopicName(topic.getTopicName()));
+        }
+    }
+
+    private String resolveUserName(Long userId) {
+        return userRepository.findById(userId)
+                .map(user -> user.getRealName() != null && !user.getRealName().isBlank() ? user.getRealName() : user.getUsername())
+                .orElse("匿名用户");
     }
 }

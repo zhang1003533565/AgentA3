@@ -14,7 +14,18 @@ import java.util.List;
 @Repository
 public interface ForumCommentRepository extends JpaRepository<ForumComment, Long> {
 
-    Page<ForumComment> findByPostIdAndParentIdIsNull(Long postId, Pageable pageable);
+    Page<ForumComment> findByPostIdAndParentIdIsNullAndStatus(Long postId, String status, Pageable pageable);
+
+    @Query("SELECT c FROM ForumComment c WHERE (:postId IS NULL OR c.postId = :postId) " +
+           "AND (:status IS NULL OR c.status = :status) " +
+           "AND (:keyword IS NULL OR c.content LIKE %:keyword%)")
+    Page<ForumComment> findComments(
+            @Param("postId") Long postId,
+            @Param("status") String status,
+            @Param("keyword") String keyword,
+            Pageable pageable);
+
+    List<ForumComment> findByParentIdAndStatus(Long parentId, String status);
 
     List<ForumComment> findByParentId(Long parentId);
 
@@ -39,6 +50,14 @@ public interface ForumCommentRepository extends JpaRepository<ForumComment, Long
     @Modifying
     @Query("DELETE FROM ForumComment c WHERE c.id IN :ids")
     void deleteByIds(@Param("ids") List<Long> ids);
+
+    @Modifying
+    @Query("UPDATE ForumComment c SET c.status = :status WHERE c.id = :id")
+    void updateStatus(@Param("id") Long id, @Param("status") String status);
+
+    @Modifying
+    @Query("UPDATE ForumComment c SET c.status = :status WHERE c.parentId = :parentId")
+    void updateChildrenStatus(@Param("parentId") Long parentId, @Param("status") String status);
 
     @Query("SELECT c.id FROM ForumComment c WHERE c.postId = :postId AND c.id NOT IN " +
            "(SELECT cc.parentId FROM ForumComment cc WHERE cc.parentId IS NOT NULL AND cc.postId = :postId)")

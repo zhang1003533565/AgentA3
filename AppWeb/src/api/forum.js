@@ -13,6 +13,7 @@ export const getPostList = (params = {}) =>
       keyword: params.keyword,
       sortBy: params.sortBy,
       userId: params.userId,
+      status: params.status,
     },
   })
 
@@ -56,10 +57,12 @@ export const getHotPosts = (params = {}) =>
 
 export const getCommentList = (params = {}) =>
   request({
-    url: '/api/forum/comments',
+    url: params.admin ? '/api/forum/comments/admin/list' : '/api/forum/comments',
     method: 'get',
     params: {
       postId: params.postId,
+      keyword: params.keyword,
+      status: params.status,
       pageNum: params.pageNum ?? params.page ?? 1,
       pageSize: params.pageSize ?? params.size ?? 20,
     },
@@ -88,6 +91,45 @@ export const adminDeleteComment = (id) =>
   request({
     url: `/api/forum/comments/admin/${id}`,
     method: 'delete',
+  })
+
+// ========== 举报 ==========
+
+export const getReportList = (params = {}) =>
+  request({
+    url: '/api/forum/reports',
+    method: 'get',
+    params: {
+      page: params.pageNum ?? params.page ?? 1,
+      size: params.pageSize ?? params.size ?? 10,
+      status: params.status,
+      targetType: params.targetType,
+    },
+  })
+
+export const getReportDetail = (id) =>
+  request({
+    url: `/api/forum/reports/${id}`,
+    method: 'get',
+  })
+
+export const handleReport = (id, data) =>
+  request({
+    url: `/api/forum/reports/${id}/handle`,
+    method: 'put',
+    data,
+  })
+
+export const getReportStatistics = () =>
+  request({
+    url: '/api/forum/reports/statistics',
+    method: 'get',
+  })
+
+export const getReportLogs = (id) =>
+  request({
+    url: `/api/forum/reports/${id}/logs`,
+    method: 'get',
   })
 
 // ========== 话题 ==========

@@ -1440,3 +1440,41 @@ config_group = VALUES(config_group),
 description = VALUES(description),
 status = VALUES(status),
 update_time = NOW();
+
+CREATE TABLE IF NOT EXISTS forum_report (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '举报ID',
+    reporter_id BIGINT NOT NULL COMMENT '举报人ID',
+    target_type INT NOT NULL COMMENT '举报目标类型：1-帖子，2-评论',
+    target_id BIGINT NOT NULL COMMENT '举报目标ID',
+    reason_type INT COMMENT '举报原因类型',
+    reason_text VARCHAR(100) COMMENT '举报原因文本',
+    description TEXT COMMENT '举报描述',
+    status INT NOT NULL DEFAULT 0 COMMENT '状态：0-待处理，1-已处理，2-已驳回',
+    handle_action VARCHAR(32) COMMENT '处理动作：IGNORE/DELETE_CONTENT',
+    handle_result VARCHAR(500) COMMENT '处理结果',
+    handle_by BIGINT COMMENT '处理人ID',
+    handle_time DATETIME COMMENT '处理时间',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间',
+    INDEX idx_forum_report_status (status),
+    INDEX idx_forum_report_target (target_type, target_id),
+    FOREIGN KEY (reporter_id) REFERENCES sys_user(id),
+    FOREIGN KEY (handle_by) REFERENCES sys_user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='论坛举报表';
+CREATE TABLE IF NOT EXISTS forum_report_audit_log (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '审计日志ID',
+    report_id BIGINT NOT NULL COMMENT '举报ID',
+    action VARCHAR(50) NOT NULL COMMENT '操作动作',
+    operator_id BIGINT COMMENT '操作人ID',
+    target_type INT COMMENT '举报目标类型',
+    target_id BIGINT COMMENT '举报目标ID',
+    remark VARCHAR(500) COMMENT '备注',
+    create_time DATETIME COMMENT '创建时间',
+    INDEX idx_forum_report_audit_report (report_id),
+    INDEX idx_forum_report_audit_operator (operator_id),
+    FOREIGN KEY (report_id) REFERENCES forum_report(id),
+    FOREIGN KEY (operator_id) REFERENCES sys_user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='论坛举报审计日志表';
+
+UPDATE forum_post SET status = 'PUBLISHED' WHERE status IS NULL;
+UPDATE forum_comment SET status = 'NORMAL' WHERE status IS NULL;

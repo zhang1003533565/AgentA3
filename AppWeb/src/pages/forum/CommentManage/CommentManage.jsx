@@ -28,6 +28,7 @@ function CommentManage() {
     setLoading(true)
     try {
       const res = await getCommentList({
+        admin: true,
         page: pagination.current,
         size: pagination.pageSize,
         ...params
