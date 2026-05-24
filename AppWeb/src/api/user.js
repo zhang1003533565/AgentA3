@@ -16,7 +16,9 @@ export const login = (data) => {
   return request({
     url: '/api/auth/weblogin',
     method: 'post',
-    data
+    data,
+    skipGlobalErrorMessage: true,
+    skipAuthRedirect: true
   })
 }
 

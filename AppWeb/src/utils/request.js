@@ -1,93 +1,102 @@
 import axios from 'axios'
 import { message } from 'antd'
 
-// 创建 axios 实例
+const getErrorMessage = (data, fallback = '请求失败') => {
+  if (typeof data === 'string') return data
+  return data?.msg || data?.message || data?.error || fallback
+}
+
 const request = axios.create({
-  baseURL: 'http://localhost:8080', // 后端接口地址
+  baseURL: 'http://localhost:8080',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json'
   }
 })
 
-// 请求拦截器
 request.interceptors.request.use(
   (config) => {
-    // 在发送请求之前做些什么
     const token = localStorage.getItem('token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
     return config
   },
-  (error) => {
-    // 对请求错误做些什么
-    return Promise.reject(error)
-  }
+  (error) => Promise.reject(error)
 )
 
-// 响应拦截器
 request.interceptors.response.use(
   (response) => {
-    // 对响应数据做点什么
     const res = response.data
-    
-    // 如果返回的状态码不是 200，说明接口有问题，把错误信息抛出去
-    if (res.code !== 200) {
-      // 401: Token过期或无效
-      if (res.code === 401) {
-        // 清除token并跳转到登录页
+
+    if (res?.code !== 200) {
+      const errorMessage = getErrorMessage(res)
+
+      if (res?.code === 401 && !response.config?.skipAuthRedirect) {
         localStorage.removeItem('token')
         localStorage.removeItem('userInfo')
         window.location.href = '/'
       }
-      
-      // 返回一个带有错误信息的对象，让调用方处理显示
-      return Promise.reject({ 
-        message: res.msg || res.message || '请求失败',
-        code: res.code,
-        showMessage: true 
+
+      return Promise.reject({
+        message: errorMessage,
+        code: res?.code,
+        data: res,
+        showMessage: true
       })
     }
-    
+
     return res
   },
   (error) => {
-    // 对响应错误做点什么
     console.error('响应错误:', error)
-    
+
     if (error.response) {
       const { status, data } = error.response
-      
-      switch (status) {
-        case 400:
-          message.error(data.message || '请求参数错误')
-          break
-        case 401:
-          message.error('登录已过期，请重新登录')
+      let errorMessage = getErrorMessage(data, `请求失败: ${status}`)
+
+      if (status === 401) {
+        errorMessage = getErrorMessage(data, '登录已过期，请重新登录')
+        if (!error.config?.skipAuthRedirect) {
           localStorage.removeItem('token')
           localStorage.removeItem('userInfo')
           window.location.href = '/'
-          break
-        case 403:
-          message.error('没有权限访问')
-          break
-        case 404:
-          message.error('请求的资源不存在')
-          break
-        case 500:
-          message.error('服务器内部错误')
-          break
-        default:
-          message.error(data.message || `请求失败: ${status}`)
+        }
+      } else if (status === 400) {
+        errorMessage = getErrorMessage(data, '请求参数错误')
+      } else if (status === 403) {
+        errorMessage = getErrorMessage(data, '没有权限访问')
+      } else if (status === 404) {
+        errorMessage = getErrorMessage(data, '请求的资源不存在')
+      } else if (status === 500) {
+        errorMessage = getErrorMessage(data, '服务器内部错误')
       }
-    } else if (error.request) {
-      message.error('网络请求失败，请检查网络连接')
-    } else {
-      message.error('请求配置错误')
+
+      if (!error.config?.skipGlobalErrorMessage) {
+        message.error(errorMessage)
+      }
+
+      return Promise.reject({
+        message: errorMessage,
+        code: data?.code,
+        status,
+        data,
+        showMessage: true
+      })
     }
-    
-    return Promise.reject(error)
+
+    const errorMessage = error.request
+      ? '网络请求失败，请检查网络连接'
+      : error.message || '请求配置错误'
+
+    if (!error.config?.skipGlobalErrorMessage) {
+      message.error(errorMessage)
+    }
+
+    return Promise.reject({
+      message: errorMessage,
+      showMessage: true
+    })
   }
 )
 

@@ -120,6 +120,17 @@
   box-shadow: 0 0 0 4px rgba(187, 214, 202, 0.08);
 }
 
+.login-error {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 128, 128, 0.34);
+  background: rgba(127, 29, 29, 0.28);
+  color: #ffe4e6;
+  font-size: 14px;
+  line-height: 1.45;
+  box-shadow: 0 10px 24px rgba(80, 0, 0, 0.16);
+}
+
 .login-btn {
   height: 52px;
   margin-top: 2px;

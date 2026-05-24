@@ -12,9 +12,11 @@ function Login() {
     password: '',
   })
   const [loading, setLoading] = useState(false)
+  const [errorText, setErrorText] = useState('')
 
   const handleChange = (event) => {
     const { name, value } = event.target
+    if (errorText) setErrorText('')
     setFormData((prev) => ({
       ...prev,
       [name]: value,
@@ -23,9 +25,12 @@ function Login() {
 
   const handleLogin = async (event) => {
     event.preventDefault()
+    setErrorText('')
 
     if (!formData.username || !formData.password) {
-      message.warning('请输入用户名和密码')
+      const warning = '请输入用户名和密码'
+      setErrorText(warning)
+      message.warning(warning)
       return
     }
 
@@ -45,7 +50,9 @@ function Login() {
       }
     } catch (error) {
       console.error('登录失败:', error)
-      message.error(error?.message || '登录失败，请检查用户名和密码')
+      const loginError = error?.message || '登录失败，请检查用户名和密码'
+      setErrorText(loginError)
+      message.error(loginError)
     } finally {
       setLoading(false)
     }
@@ -82,6 +89,12 @@ function Login() {
               required
             />
           </div>
+
+          {errorText && (
+            <div className="login-error" role="alert">
+              {errorText}
+            </div>
+          )}
 
           <button type="submit" className="login-btn" disabled={loading}>
             {loading ? '登录中...' : '登录'}
