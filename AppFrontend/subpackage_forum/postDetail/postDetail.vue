@@ -161,6 +161,7 @@ import {
   getPostDetail,
   parseImageList,
   toggleFollowUser,
+  togglePostFavorite,
   togglePostLike
 } from '@/api/forum.js'
 
@@ -299,8 +300,17 @@ export default {
         this.postDetail.likeCount = Number(res?.data?.likeCount ?? this.postDetail.likeCount)
       } catch (error) {}
     },
-    collectPost() {
-      uni.showToast({ title: '帖子收藏接口暂未开放', icon: 'none' })
+    async collectPost() {
+      try {
+        const res = await togglePostFavorite(this.postId)
+        this.postDetail.isCollected = !!res?.data?.favorited
+        uni.showToast({
+          title: this.postDetail.isCollected ? '收藏成功' : '已取消收藏',
+          icon: 'none'
+        })
+      } catch (error) {
+        uni.showToast({ title: error?.message || '操作失败', icon: 'none' })
+      }
     },
     sharePost() {
       uni.showActionSheet({

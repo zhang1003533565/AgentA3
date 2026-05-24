@@ -116,6 +116,28 @@ export function getPostLikeStatus(targetId) {
   })
 }
 
+export function togglePostFavorite(postId) {
+  return request({
+    url: `/api/forum/favorites/${postId}`,
+    method: 'POST'
+  })
+}
+
+export function getPostFavoriteStatus(postId) {
+  return request({
+    url: `/api/forum/favorites/status/${postId}`,
+    method: 'GET'
+  })
+}
+
+export function getMyFavoritePosts(params = {}) {
+  return request({
+    url: '/api/forum/favorites/my',
+    method: 'GET',
+    params
+  })
+}
+
 export function getCommentList(params = {}) {
   return request({
     url: '/api/forum/comments',

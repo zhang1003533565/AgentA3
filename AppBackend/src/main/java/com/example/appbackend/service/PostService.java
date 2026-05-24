@@ -1,6 +1,7 @@
 package com.example.appbackend.service;
 
 import com.example.appbackend.dto.*;
+import com.example.appbackend.entity.ForumPost;
 
 import java.util.List;
 
@@ -25,4 +26,6 @@ public interface PostService {
     PageResponse<UserPostResponse> getUserPost(Long userId, Integer pageNum, Integer pageSize);
 
     PageResponse<UserLikeResponse> getUserLikes(Long userId, Integer pageNum, Integer pageSize);
+
+    PostListItem toPostListItem(ForumPost post, Long currentUserId);
 }

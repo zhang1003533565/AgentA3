@@ -1478,3 +1478,14 @@ CREATE TABLE IF NOT EXISTS forum_report_audit_log (
 
 UPDATE forum_post SET status = 'PUBLISHED' WHERE status IS NULL;
 UPDATE forum_comment SET status = 'NORMAL' WHERE status IS NULL;
+
+CREATE TABLE IF NOT EXISTS forum_favorite (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '收藏ID',
+    user_id BIGINT NOT NULL COMMENT '用户ID',
+    post_id BIGINT NOT NULL COMMENT '帖子ID',
+    create_time DATETIME COMMENT '收藏时间',
+    UNIQUE KEY uk_forum_favorite_user_post (user_id, post_id),
+    INDEX idx_forum_favorite_user_time (user_id, create_time),
+    FOREIGN KEY (user_id) REFERENCES sys_user(id),
+    FOREIGN KEY (post_id) REFERENCES forum_post(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='论坛帖子收藏表';

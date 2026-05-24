@@ -55,6 +55,28 @@ export const getHotPosts = (params = {}) =>
 
 // ========== 评论 ==========
 
+export const togglePostFavorite = (postId) =>
+  request({
+    url: `/api/forum/favorites/${postId}`,
+    method: 'post',
+  })
+
+export const getPostFavoriteStatus = (postId) =>
+  request({
+    url: `/api/forum/favorites/status/${postId}`,
+    method: 'get',
+  })
+
+export const getMyFavoritePosts = (params = {}) =>
+  request({
+    url: '/api/forum/favorites/my',
+    method: 'get',
+    params: {
+      pageNum: params.pageNum ?? params.page ?? 1,
+      pageSize: params.pageSize ?? params.size ?? 10,
+    },
+  })
+
 export const getCommentList = (params = {}) =>
   request({
     url: params.admin ? '/api/forum/comments/admin/list' : '/api/forum/comments',

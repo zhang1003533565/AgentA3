@@ -7,6 +7,7 @@ import com.example.appbackend.entity.ForumTopic;
 import com.example.appbackend.entity.User;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.ForumCommentRepository;
+import com.example.appbackend.repository.ForumFavoriteRepository;
 import com.example.appbackend.repository.ForumLikeRepository;
 import com.example.appbackend.repository.ForumPostRepository;
 import com.example.appbackend.repository.ForumTopicRepository;
@@ -42,6 +43,9 @@ public class PostServiceImpl implements PostService {
 
     @Autowired
     private ForumLikeRepository likeRepository;
+
+    @Autowired
+    private ForumFavoriteRepository favoriteRepository;
 
     @Autowired
     private ForumCommentRepository commentRepository;
@@ -208,6 +212,7 @@ public class PostServiceImpl implements PostService {
             return;
         }
         post.setStatus(STATUS_DELETED);
+        favoriteRepository.deleteByPostId(post.getId());
         postRepository.save(post);
         if (post.getTopicId() != null) {
             topicRepository.decrementPostCount(post.getTopicId());
@@ -277,11 +282,12 @@ public class PostServiceImpl implements PostService {
         userRepository.findById(post.getUserId()).ifPresent(user -> response.setAvatar(user.getAvatar()));
         fillTopic(post.getTopicId(), response);
         response.setIsLiked(currentUserId != null && likeRepository.existsByUserIdAndTargetId(currentUserId, post.getId()));
-        response.setIsFavorited(false);
+        response.setIsFavorited(currentUserId != null && favoriteRepository.existsByUserIdAndPostId(currentUserId, post.getId()));
         return response;
     }
 
-    private PostListItem toPostListItem(ForumPost post, Long currentUserId) {
+    @Override
+    public PostListItem toPostListItem(ForumPost post, Long currentUserId) {
         PostListItem item = new PostListItem();
         item.setId(post.getId());
         item.setUserId(post.getUserId());
@@ -300,7 +306,7 @@ public class PostServiceImpl implements PostService {
         userRepository.findById(post.getUserId()).ifPresent(user -> item.setAvatar(user.getAvatar()));
         fillTopic(post.getTopicId(), item);
         item.setIsLiked(currentUserId != null && likeRepository.existsByUserIdAndTargetId(currentUserId, post.getId()));
-        item.setIsFavorited(false);
+        item.setIsFavorited(currentUserId != null && favoriteRepository.existsByUserIdAndPostId(currentUserId, post.getId()));
         return item;
     }
 
