@@ -41,7 +41,15 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: in
     prompt = request.prompt if request.prompt else DEFAULT_SYSTEM_PROMPT
 
     requested_strategy = request.ragStrategy or "naive_rag"
-    implemented_strategies = {"naive_rag", "multi_query_rag", "hyde", "hybrid_search", "reranking"}
+    implemented_strategies = {
+        "naive_rag",
+        "multi_query_rag",
+        "hyde",
+        "parent_child",
+        "hybrid_search",
+        "reranking",
+        "crag",
+    }
     active_strategy = requested_strategy if requested_strategy in implemented_strategies else "naive_rag"
 
     state = ConversationState(

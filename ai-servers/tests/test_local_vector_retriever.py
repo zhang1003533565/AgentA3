@@ -5,8 +5,10 @@ from pathlib import Path
 from app.rag.retrievers.vector import VectorRetriever
 from app.rag.retrievers.keyword import KeywordRetriever
 from app.rag.retrievers.hybrid import HybridRetriever
+from app.rag.retrievers.parent_child import ParentChildRetriever
 from app.rag.rerankers import LexicalReranker
 from app.rag.core.types import RagDocument
+from app.rag.evaluators import RetrievalGrader
 from app.rag.query_transformers.hyde import HydeTransformer
 from app.rag.query_transformers.multi_query import MultiQueryTransformer
 from app.multi_agents.retriever_agent.agent import RetrieverAgent
@@ -58,6 +60,23 @@ class LocalVectorRetrieverTest(unittest.TestCase):
             self.assertEqual("library.md", Path(results[0].source).name)
             self.assertTrue(results[0].metadata.get("hybridScore"))
 
+    def test_parent_child_retriever_returns_parent_context(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "guide.md").write_text(
+                "校园卡服务指南。\n\n"
+                "补办地点在行政楼一楼服务大厅，需要携带学生证。\n\n"
+                "补办后可在食堂、图书馆和体育馆继续使用。",
+                encoding="utf-8",
+            )
+
+            retriever = ParentChildRetriever(root_dir=temp_dir)
+            results = retriever.search("补办地点 学生证", top_k=2)
+
+            self.assertTrue(results)
+            self.assertIn("校园卡服务指南", results[0].content)
+            self.assertIn("matchedChildContent", results[0].metadata)
+
     def test_lexical_reranker_prioritizes_term_coverage(self):
         documents = [
             RagDocument(id="a", content="校园卡可以在线查看余额。", score=0.5),
@@ -69,6 +88,20 @@ class LocalVectorRetrieverTest(unittest.TestCase):
 
         self.assertEqual("b", results[0].id)
         self.assertTrue(results[0].metadata.get("rerankScore"))
+
+    def test_retrieval_grader_scores_relevance(self):
+        grader = RetrievalGrader()
+        relevant = grader.grade(
+            "校园卡补办地点",
+            [RagDocument(id="doc", content="校园卡补办地点在行政楼一楼服务大厅。", score=0.2)],
+        )
+        irrelevant = grader.grade(
+            "校园卡补办地点",
+            [RagDocument(id="doc", content="体育馆羽毛球场地预约。", score=0.0)],
+        )
+
+        self.assertTrue(relevant.sufficient)
+        self.assertFalse(irrelevant.sufficient)
 
     def test_multi_query_transformer_expands_query(self):
         transformer = MultiQueryTransformer()
@@ -96,6 +129,7 @@ class LocalVectorRetrieverTest(unittest.TestCase):
                 agent = RetrieverAgent()
                 agent.vector_retriever = VectorRetriever(root_dir=temp_dir, chunk_size=80, overlap=10)
                 agent.hybrid_retriever = HybridRetriever(root_dir=temp_dir)
+                agent.parent_child_retriever = ParentChildRetriever(root_dir=temp_dir)
                 results, meta = agent.retrieve_with_meta(
                     authorization="Bearer test",
                     intent="campus_search",
@@ -112,6 +146,64 @@ class LocalVectorRetrieverTest(unittest.TestCase):
         finally:
             java_backend_retriever.enabled = old_enabled
 
+    def test_retriever_agent_supports_parent_child(self):
+        old_enabled = java_backend_retriever.enabled
+        try:
+            java_backend_retriever.enabled = False
+            with tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                (root / "guide.md").write_text(
+                    "校园卡服务指南。\n\n补办地点在行政楼一楼服务大厅，需要携带学生证。",
+                    encoding="utf-8",
+                )
+
+                agent = RetrieverAgent()
+                agent.parent_child_retriever = ParentChildRetriever(root_dir=temp_dir)
+                results, meta = agent.retrieve_with_meta(
+                    authorization="Bearer test",
+                    intent="campus_search",
+                    keyword="校园卡补办",
+                    input_text="补办地点在哪里",
+                    rag_strategy="parent_child",
+                )
+
+                self.assertTrue(results)
+                self.assertEqual("parent_child", meta["documentRetriever"])
+                self.assertTrue(meta["parentChildEnabled"])
+                self.assertIn("matchedChildContent", results[0]["metadata"])
+        finally:
+            java_backend_retriever.enabled = old_enabled
+
+    def test_retriever_agent_supports_crag_repair(self):
+        old_enabled = java_backend_retriever.enabled
+        try:
+            java_backend_retriever.enabled = False
+            with tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                (root / "repair.md").write_text(
+                    "校园服务指南：校园卡补办地点在行政楼一楼服务大厅。",
+                    encoding="utf-8",
+                )
+
+                agent = RetrieverAgent()
+                agent.vector_retriever = VectorRetriever(root_dir=temp_dir, chunk_size=80, overlap=10)
+                agent.hybrid_retriever = HybridRetriever(root_dir=temp_dir)
+                results, meta = agent.retrieve_with_meta(
+                    authorization="Bearer test",
+                    intent="campus_search",
+                    keyword="完全无关词",
+                    input_text="校园卡补办地点",
+                    rag_strategy="crag",
+                )
+
+                self.assertTrue(results)
+                self.assertEqual("hybrid_search+retrieval_grader+repair", meta["documentRetriever"])
+                self.assertTrue(meta["correctiveEnabled"])
+                self.assertIn(meta["correctiveAction"], {"none", "multi_query_repair+rerank"})
+                self.assertIn("retrievalGrade", meta)
+        finally:
+            java_backend_retriever.enabled = old_enabled
+
     def test_retriever_agent_supports_multi_query_and_hyde(self):
         old_enabled = java_backend_retriever.enabled
         try:
@@ -123,6 +215,7 @@ class LocalVectorRetrieverTest(unittest.TestCase):
                 agent = RetrieverAgent()
                 agent.vector_retriever = VectorRetriever(root_dir=temp_dir, chunk_size=80, overlap=10)
                 agent.hybrid_retriever = HybridRetriever(root_dir=temp_dir)
+                agent.parent_child_retriever = ParentChildRetriever(root_dir=temp_dir)
 
                 multi_results, multi_meta = agent.retrieve_with_meta(
                     authorization="Bearer test",

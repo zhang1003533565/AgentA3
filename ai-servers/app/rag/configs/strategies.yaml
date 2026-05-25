@@ -13,7 +13,7 @@ strategies:
     status: scaffolded
   parent_child:
     category: indexing
-    status: scaffolded
+    status: implemented
   hybrid_search:
     category: retrieval
     status: implemented
@@ -22,7 +22,7 @@ strategies:
     status: implemented
   crag:
     category: corrective
-    status: scaffolded
+    status: implemented
   self_rag:
     category: corrective
     status: scaffolded
