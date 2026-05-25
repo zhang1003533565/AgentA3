@@ -26,6 +26,15 @@ def build_search_facts_prompt(keyword: str, search_results: List[Dict[str, Any]]
     if not search_results:
         return f"系统搜索关键词为：{keyword}。当前没有找到完全匹配的食堂/档口/菜品，请明确告诉用户未匹配到，并给出更适合的关键词建议。"
 
+    document_count = sum(1 for item in search_results if item.get("type") == "knowledge_document")
+    if document_count:
+        return (
+            f"系统已经根据关键词 `{keyword}` 同时检索了业务接口和本地知识库。"
+            "下面这些是受控检索返回的候选，请优先依据这些结果回答，不要编造不存在的数据；"
+            "如果引用知识库内容，请说明信息来自对应 source："
+            + json.dumps(search_results, ensure_ascii=False)
+        )
+
     return (
         f"系统已经根据关键词 `{keyword}` 做了本地词语匹配。"
         "下面这些是受控搜索函数返回的精确候选，请优先依据这些结果回答，不要编造不存在的数据："

@@ -40,6 +40,10 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: in
     session_token = build_session_token(session_id, authorization)
     prompt = request.prompt if request.prompt else DEFAULT_SYSTEM_PROMPT
 
+    requested_strategy = request.ragStrategy or "naive_rag"
+    implemented_strategies = {"naive_rag", "multi_query_rag", "hyde", "hybrid_search", "reranking"}
+    active_strategy = requested_strategy if requested_strategy in implemented_strategies else "naive_rag"
+
     state = ConversationState(
         session_id=session_id,
         session_token=session_token,
@@ -48,8 +52,19 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: in
         input_text=request.input,
         model=deepseek_model,
         user_id=user_id,
-        rag_strategy=request.ragStrategy or "naive_rag",
+        rag_strategy=active_strategy,
     )
+    if requested_strategy != active_strategy:
+        state.retrieval_meta["strategyRequested"] = requested_strategy
+        state.retrieval_meta["strategyFallback"] = active_strategy
+        state.trace.append({
+            "stage": "strategy",
+            "detail": {
+                "requested": requested_strategy,
+                "active": active_strategy,
+                "reason": "requested strategy is scaffolded but not implemented yet",
+            },
+        })
 
     for node in NODE_CHAIN:
         node_name = getattr(node, "__name__", str(node))
@@ -81,7 +96,10 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: in
         sessionId=state.session_id,
         sessionToken=state.session_token,
         model=state.model,
+        ragStrategy=state.rag_strategy,
         searchKeyword=state.search_keyword,
         matchedResults=state.matched_results,
+        retrievalMeta=state.retrieval_meta,
+        trace=state.trace,
         answer=state.answer,
     )

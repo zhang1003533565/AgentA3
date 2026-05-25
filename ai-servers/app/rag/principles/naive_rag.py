@@ -1,7 +1,10 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
-from app.multi_agents import answer_agent, critic_agent, planner_agent, retriever_agent
+from app.multi_agents.answer_agent.agent import answer_agent
+from app.multi_agents.critic_agent.agent import critic_agent
+from app.multi_agents.planner_agent.agent import planner_agent
+from app.multi_agents.retriever_agent.agent import retriever_agent
 from app.services.langchain_chat_service import get_chat_service
 
 

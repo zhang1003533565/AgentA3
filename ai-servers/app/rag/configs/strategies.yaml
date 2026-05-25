@@ -1,13 +1,13 @@
 strategies:
   naive_rag:
     category: baseline
-    status: scaffolded
+    status: implemented
   multi_query_rag:
     category: query_transform
-    status: scaffolded
+    status: implemented
   hyde:
     category: query_transform
-    status: scaffolded
+    status: implemented
   semantic_chunking:
     category: indexing
     status: scaffolded
@@ -16,10 +16,10 @@ strategies:
     status: scaffolded
   hybrid_search:
     category: retrieval
-    status: scaffolded
+    status: implemented
   reranking:
     category: ranking
-    status: scaffolded
+    status: implemented
   crag:
     category: corrective
     status: scaffolded

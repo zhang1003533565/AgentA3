@@ -16,4 +16,6 @@ class ConversationState:
     history: List[Dict[str, str]] = field(default_factory=list)
     search_keyword: str = ""
     matched_results: List[Dict[str, Any]] = field(default_factory=list)
+    retrieval_meta: Dict[str, Any] = field(default_factory=dict)
+    trace: List[Dict[str, Any]] = field(default_factory=list)
     answer: str = ""

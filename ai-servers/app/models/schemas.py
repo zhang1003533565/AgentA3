@@ -14,6 +14,9 @@ class ChatResponse(BaseModel):
     sessionId: str
     sessionToken: str
     model: str
+    ragStrategy: str = "naive_rag"
     searchKeyword: str
     matchedResults: List[Dict[str, Any]]
+    retrievalMeta: Dict[str, Any] = Field(default_factory=dict)
+    trace: List[Dict[str, Any]] = Field(default_factory=list)
     answer: str

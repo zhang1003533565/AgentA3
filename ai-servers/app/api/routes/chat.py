@@ -69,6 +69,7 @@ async def internal_chat_stream(
             yield build_sse("search", {
                 "searchKeyword": response.searchKeyword,
                 "matchedResults": response.matchedResults,
+                "retrievalMeta": response.retrievalMeta,
             })
             for chunk in chunk_answer(response.answer):
                 yield build_sse("delta", {"content": chunk})
@@ -76,8 +77,11 @@ async def internal_chat_stream(
             logger.info("stream emit done session_id=%s", mask_id(response.sessionId))
             yield build_sse("done", {
                 "answer": response.answer,
+                "ragStrategy": response.ragStrategy,
                 "searchKeyword": response.searchKeyword,
                 "matchedResults": response.matchedResults,
+                "retrievalMeta": response.retrievalMeta,
+                "trace": response.trace,
             })
         except Exception as exc:
             logger.exception("stream failed session_id=%s", mask_id(request.sessionId))
