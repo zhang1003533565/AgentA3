@@ -1,0 +1,49 @@
+strategies:
+  naive_rag:
+    category: baseline
+    status: scaffolded
+  multi_query_rag:
+    category: query_transform
+    status: scaffolded
+  hyde:
+    category: query_transform
+    status: scaffolded
+  semantic_chunking:
+    category: indexing
+    status: scaffolded
+  parent_child:
+    category: indexing
+    status: scaffolded
+  hybrid_search:
+    category: retrieval
+    status: scaffolded
+  reranking:
+    category: ranking
+    status: scaffolded
+  crag:
+    category: corrective
+    status: scaffolded
+  self_rag:
+    category: corrective
+    status: scaffolded
+  adaptive_rag:
+    category: routing
+    status: scaffolded
+  graph_rag:
+    category: structured_knowledge
+    status: scaffolded
+  text_to_sql:
+    category: structured_knowledge
+    status: scaffolded
+  agentic_rag:
+    category: agentic
+    status: scaffolded
+  multi_agent_rag:
+    category: agentic
+    status: scaffolded
+  multimodal_rag:
+    category: multimodal
+    status: scaffolded
+  speculative_rag:
+    category: performance
+    status: scaffolded

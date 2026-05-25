@@ -12,7 +12,7 @@ Python FastAPI + LangChain internal service for AppBackend AI chat migration.
 - `app/services/*`: orchestration, memory, retrieval, langchain calls
 - `app/model_providers/*`: runtime model provider adapters
 - `app/rag/*`: runtime rag strategies and retrievers
-- `app/multi_agents/*`: runtime multi-agent roles (one folder per agent)
+- `app/multi_agents/*`: runtime multi-agent roles and skill files (one folder per agent)
 - `app/models/schemas.py`: request/response models
 - `app/__init__.py`: load `.env`
 - `app/utils/*`: text/sse helpers
