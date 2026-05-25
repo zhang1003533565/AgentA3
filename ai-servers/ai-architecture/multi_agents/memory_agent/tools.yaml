@@ -1,0 +1,3 @@
+allowed_tools:
+  - redis_memory_store
+  - fallback_memory_store

@@ -11,6 +11,8 @@ class ConversationState:
     input_text: str
     model: str
     user_id: Optional[int]
+    rag_strategy: str = "naive_rag"
+    intent: str = "campus_search"
     history: List[Dict[str, str]] = field(default_factory=list)
     search_keyword: str = ""
     matched_results: List[Dict[str, Any]] = field(default_factory=list)

@@ -1,0 +1,3 @@
+allowed_tools:
+  - graph_query
+  - entity_linker

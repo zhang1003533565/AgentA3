@@ -1,0 +1,4 @@
+allowed_tools:
+  - java_backend_retriever
+  - vector_retriever
+  - hybrid_retriever

@@ -1,0 +1,3 @@
+allowed_tools:
+  - api_router
+  - function_caller

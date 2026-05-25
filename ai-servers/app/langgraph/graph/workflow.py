@@ -48,6 +48,7 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: in
         input_text=request.input,
         model=deepseek_model,
         user_id=user_id,
+        rag_strategy=request.ragStrategy or "naive_rag",
     )
 
     for node in NODE_CHAIN:

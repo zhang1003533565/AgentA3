@@ -1,13 +1,14 @@
 from app.langgraph.state import ConversationState
-from app.services.data_store import data_store
-from app.utils.text_utils import is_schedule_intent
+from app.multi_agents import retriever_agent
 
 
 def search_results_node(state: ConversationState) -> None:
     if not state.search_keyword:
         state.matched_results = []
         return
-    if is_schedule_intent(state.input_text):
-        state.matched_results = data_store.search_schedule(state.authorization, state.input_text)
-        return
-    state.matched_results = data_store.search_keyword(state.authorization, state.search_keyword)
+    state.matched_results = retriever_agent.retrieve(
+        authorization=state.authorization,
+        intent=state.intent,
+        keyword=state.search_keyword,
+        input_text=state.input_text,
+    )

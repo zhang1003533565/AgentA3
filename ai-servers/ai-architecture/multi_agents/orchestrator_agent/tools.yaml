@@ -1,0 +1,9 @@
+allowed_tools:
+  - planner_agent
+  - retriever_agent
+  - answer_agent
+  - critic_agent
+  - memory_agent
+  - sql_agent
+  - graph_agent
+  - tool_agent
