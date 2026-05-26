@@ -1,0 +1,719 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Button, Card, Col, Collapse, Empty, Form, Input, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
+import { ApiOutlined, BranchesOutlined, DatabaseOutlined, ExperimentOutlined, FileTextOutlined, PlayCircleOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons'
+import {
+  evaluateRag,
+  getRagAgents,
+  executeTextToSql,
+  getRagCapabilities,
+  getRagDocuments,
+  getRagEmbeddingHealth,
+  getRagFramework,
+  getRagGraphStoreHealth,
+  getRagStrategies,
+  getRagVectorStoreHealth,
+  getTextToSqlSchema,
+  ingestRagDocuments,
+  runRagQuery,
+} from '../../../api/rag'
+import './RagManage.css'
+
+const { TextArea } = Input
+const { Text, Title } = Typography
+
+const strategyColumns = [
+  { title: '策略', dataIndex: 'name', render: (value) => <Tag color="blue">{value}</Tag> },
+  { title: '分类', dataIndex: 'category', render: (value) => <Tag>{value}</Tag> },
+  { title: '用途', dataIndex: 'purpose' },
+  { title: '状态', dataIndex: 'status', render: (value) => <Tag color={value === 'implemented' ? 'green' : 'orange'}>{value}</Tag> },
+]
+
+const documentColumns = [
+  { title: '来源', dataIndex: 'source', ellipsis: true },
+  { title: '大小', dataIndex: 'size', width: 120 },
+  {
+    title: '更新时间',
+    dataIndex: 'updatedAt',
+    width: 180,
+    render: (value) => (value ? new Date(Number(value) * 1000).toLocaleString() : '-'),
+  },
+]
+
+const evidenceColumns = [
+  { title: '来源', dataIndex: 'source', ellipsis: true },
+  { title: '分数', dataIndex: 'score', width: 120, render: (value) => (value === null || value === undefined ? '-' : Number(value).toFixed(4)) },
+  { title: '内容', dataIndex: 'content', ellipsis: true },
+]
+
+const metricColumns = [
+  { title: '指标', dataIndex: 'name' },
+  { title: '得分', dataIndex: 'value', render: (value) => Number(value).toFixed(4) },
+]
+
+const agentColumns = [
+  { title: '智能体', dataIndex: 'name', render: (value) => <Tag color="geekblue">{value}</Tag> },
+  { title: '角色', dataIndex: 'role' },
+  { title: '职责', dataIndex: 'purpose' },
+  {
+    title: '技能',
+    dataIndex: 'skills',
+    render: (value = []) => (
+      <Space wrap>
+        {value.map((item) => <Tag key={item}>{item}</Tag>)}
+      </Space>
+    ),
+  },
+]
+
+const coverageColumns = [
+  { title: '功能', dataIndex: 'name', render: (value) => <Tag color="blue">{value}</Tag> },
+  { title: '分类', dataIndex: 'category' },
+  { title: '用途', dataIndex: 'purpose' },
+  { title: '状态', dataIndex: 'status', render: (value) => <Tag color="green">{value}</Tag> },
+]
+
+const providerColumns = [
+  { title: '名称', dataIndex: 'name', render: (value) => <Tag>{value}</Tag> },
+  { title: '状态', dataIndex: 'status', render: (value) => <Tag color={value === 'implemented' ? 'green' : 'orange'}>{value}</Tag> },
+  { title: '依赖环境变量', dataIndex: 'requiredEnv', render: (value = []) => value.length ? value.join(', ') : '-' },
+]
+
+const envColumns = [
+  { title: '环境变量', dataIndex: 'name' },
+  { title: '默认值', dataIndex: 'default' },
+  { title: '已配置', dataIndex: 'configured', render: (value) => <Tag color={value ? 'green' : 'default'}>{String(value)}</Tag> },
+]
+
+const toList = (value) => String(value || '')
+  .split(/[,，\n]/)
+  .map((item) => item.trim())
+  .filter(Boolean)
+
+const safeJsonParse = (value, fallback) => {
+  if (!String(value || '').trim()) return fallback
+  try {
+    return JSON.parse(value)
+  } catch {
+    return fallback
+  }
+}
+
+const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => {
+    const result = String(reader.result || '')
+    resolve(result.includes(',') ? result.split(',').pop() : result)
+  }
+  reader.onerror = reject
+  reader.readAsDataURL(file)
+})
+
+function RagManage() {
+  const [bootLoading, setBootLoading] = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
+  const [strategies, setStrategies] = useState([])
+  const [capabilities, setCapabilities] = useState(null)
+  const [framework, setFramework] = useState(null)
+  const [agents, setAgents] = useState([])
+  const [agentWorkflow, setAgentWorkflow] = useState({})
+  const [documents, setDocuments] = useState([])
+  const [health, setHealth] = useState({})
+  const [queryResult, setQueryResult] = useState(null)
+  const [evaluationResult, setEvaluationResult] = useState(null)
+  const [sqlSchema, setSqlSchema] = useState(null)
+  const [sqlResult, setSqlResult] = useState(null)
+  const [uploadFileList, setUploadFileList] = useState([])
+  const [queryForm] = Form.useForm()
+  const [ingestForm] = Form.useForm()
+  const [evaluateForm] = Form.useForm()
+  const [sqlForm] = Form.useForm()
+
+  const strategyOptions = useMemo(
+    () => strategies.map((item) => ({ value: item.name, label: `${item.name} · ${item.category}` })),
+    [strategies]
+  )
+
+  const refresh = async () => {
+    setBootLoading(true)
+    try {
+      const [
+        strategyRes,
+        capabilityRes,
+        frameworkRes,
+        agentRes,
+        documentRes,
+        vectorHealthRes,
+        embeddingHealthRes,
+        graphHealthRes,
+        schemaRes,
+      ] = await Promise.all([
+        getRagStrategies(),
+        getRagCapabilities(),
+        getRagFramework(),
+        getRagAgents(),
+        getRagDocuments(),
+        getRagVectorStoreHealth(),
+        getRagEmbeddingHealth(),
+        getRagGraphStoreHealth(),
+        getTextToSqlSchema(),
+      ])
+      setStrategies(strategyRes.data?.strategies || [])
+      setCapabilities(capabilityRes.data || null)
+      setFramework(frameworkRes.data || null)
+      setAgents(agentRes.data?.agents || [])
+      setAgentWorkflow(agentRes.data?.workflow || {})
+      setDocuments(documentRes.data?.documents || [])
+      setHealth({
+        vector: vectorHealthRes.data,
+        embedding: embeddingHealthRes.data,
+        graph: graphHealthRes.data,
+      })
+      setSqlSchema(schemaRes.data?.schema || null)
+    } catch (error) {
+      message.error(error.message || '加载 RAG 管理数据失败')
+    } finally {
+      setBootLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    refresh()
+  }, [])
+
+  const handleQuery = async (values) => {
+    setActionLoading(true)
+    try {
+      const res = await runRagQuery({
+        input: values.input,
+        keyword: values.keyword || undefined,
+        intent: values.intent || 'campus_search',
+        ragStrategy: values.ragStrategy || 'naive_rag',
+        metadata: {},
+      })
+      setQueryResult(res.data)
+      message.success('RAG 查询完成')
+    } catch (error) {
+      message.error(error.message || 'RAG 查询失败')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleIngest = async (values) => {
+    setActionLoading(true)
+    try {
+      const selectedFile = uploadFileList[0]?.originFileObj || uploadFileList[0]
+      const textContent = values.content || ''
+      if (!selectedFile && !textContent.trim()) {
+        message.warning('请粘贴文档内容，或选择一个本地文件')
+        return
+      }
+      const contentBase64 = selectedFile ? await readFileAsBase64(selectedFile) : undefined
+      const res = await ingestRagDocuments({
+        documents: [{
+          source: values.source || selectedFile?.name || '后台录入.md',
+          content: textContent,
+          contentBase64,
+          metadata: {
+            origin: 'admin_console',
+            uploadMode: selectedFile ? 'file_base64' : 'text',
+          },
+        }],
+      })
+      message.success(`已入库 ${res.data?.storedCount || 0} 个文档`)
+      ingestForm.resetFields()
+      setUploadFileList([])
+      await refresh()
+    } catch (error) {
+      message.error(error.message || '知识入库失败')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleEvaluate = async (values) => {
+    setActionLoading(true)
+    try {
+      const documentsPayload = safeJsonParse(values.documentsJson, queryResult?.documents || [])
+      const res = await evaluateRag({
+        query: values.query,
+        answer: values.answer,
+        documents: Array.isArray(documentsPayload) ? documentsPayload : [],
+        expectedSources: toList(values.expectedSources),
+        expectedAnswerTerms: toList(values.expectedAnswerTerms),
+      })
+      setEvaluationResult(res.data)
+      message.success('评估完成')
+    } catch (error) {
+      message.error(error.message || '评估失败')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleUseLastQueryForEvaluation = () => {
+    if (!queryResult) {
+      message.warning('请先执行一次 RAG 查询')
+      return
+    }
+    evaluateForm.setFieldsValue({
+      query: queryForm.getFieldValue('input'),
+      answer: queryResult.answer,
+      documentsJson: JSON.stringify(queryResult.documents || [], null, 2),
+    })
+    message.success('已填入最近一次查询结果')
+  }
+
+  const handleTextToSql = async (values) => {
+    setActionLoading(true)
+    try {
+      const res = await executeTextToSql({
+        input: values.input,
+        ragStrategy: 'text_to_sql',
+      })
+      setSqlResult(res.data)
+      message.success('Text-to-SQL 执行完成')
+    } catch (error) {
+      message.error(error.message || 'Text-to-SQL 执行失败')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const renderHealthCard = (key, title, icon) => {
+    const data = health[key] || {}
+    const healthy = data.status === 'implemented' || data.configured
+    return (
+      <Card className="rag-health-card">
+        <div className="rag-health-card__top">
+          <span className="rag-health-card__icon">{icon}</span>
+          <Tag color={healthy ? 'green' : 'orange'}>{data.status || '-'}</Tag>
+        </div>
+        <Statistic title={title} value={data.backend || data.provider || '-'} />
+        <Text type="secondary">configured: {String(data.configured ?? true)}</Text>
+      </Card>
+    )
+  }
+
+  const tabs = [
+    {
+      key: 'playground',
+      label: '策略测试',
+      children: (
+        <Row gutter={[20, 20]}>
+          <Col xs={24} lg={9}>
+            <Card title="RAG 查询" className="rag-panel-card">
+              <Form
+                form={queryForm}
+                layout="vertical"
+                initialValues={{ ragStrategy: 'naive_rag', intent: 'campus_search' }}
+                onFinish={handleQuery}
+              >
+                <Form.Item name="ragStrategy" label="RAG 策略">
+                  <Select options={strategyOptions} showSearch optionFilterProp="label" />
+                </Form.Item>
+                <Form.Item name="intent" label="意图">
+                  <Input placeholder="campus_search" />
+                </Form.Item>
+                <Form.Item name="keyword" label="检索关键词">
+                  <Input allowClear placeholder="可空，默认由问题推断" />
+                </Form.Item>
+                <Form.Item name="input" label="用户问题" rules={[{ required: true, message: '请输入用户问题' }]}>
+                  <TextArea rows={5} placeholder="例如：统计食堂优惠券数量 / 校园卡补办在哪里？" />
+                </Form.Item>
+                <Button type="primary" htmlType="submit" icon={<PlayCircleOutlined />} loading={actionLoading} block>
+                  执行 RAG
+                </Button>
+              </Form>
+            </Card>
+          </Col>
+          <Col xs={24} lg={15}>
+            <Card title="查询结果" className="rag-panel-card">
+              {queryResult ? (
+                <Space direction="vertical" size="large" className="rag-full">
+                  <div className="rag-answer-box">{queryResult.answer || '暂无回答'}</div>
+                  <Table
+                    rowKey={(record) => record.id || record.source}
+                    columns={evidenceColumns}
+                    dataSource={queryResult.documents || []}
+                    pagination={{ pageSize: 5 }}
+                  />
+                  <Collapse
+                    items={[
+                      {
+                        key: 'trace',
+                        label: 'Trace / Metadata',
+                        children: <pre className="rag-code-block">{JSON.stringify({ trace: queryResult.trace, metadata: queryResult.metadata }, null, 2)}</pre>,
+                      },
+                    ]}
+                  />
+                </Space>
+              ) : (
+                <Empty description="执行一次查询后查看答案、证据和 trace" />
+              )}
+            </Card>
+          </Col>
+        </Row>
+      ),
+    },
+    {
+      key: 'knowledge',
+      label: '知识库',
+      children: (
+        <Row gutter={[20, 20]}>
+          <Col xs={24} lg={9}>
+            <Card title="新增知识文档" className="rag-panel-card">
+              <Form form={ingestForm} layout="vertical" onFinish={handleIngest}>
+                <Form.Item name="source" label="来源文件名">
+                  <Input placeholder="例如：校园卡服务.md" />
+                </Form.Item>
+                <Form.Item label="本地文件">
+                  <Upload
+                    beforeUpload={(file) => {
+                      setUploadFileList([file])
+                      ingestForm.setFieldsValue({ source: file.name })
+                      return false
+                    }}
+                    fileList={uploadFileList}
+                    maxCount={1}
+                    onRemove={() => {
+                      setUploadFileList([])
+                      return true
+                    }}
+                  >
+                    <Button icon={<UploadOutlined />}>选择文件</Button>
+                  </Upload>
+                  <Text type="secondary">支持 Markdown、TXT、CSV、TSV、JSON、HTML、PDF 和图片；文件会以 Base64 传给 Python 服务入库。</Text>
+                </Form.Item>
+                <Form.Item name="content" label="文档内容">
+                  <TextArea rows={10} placeholder="粘贴 Markdown、文本、表格摘要等知识内容" />
+                </Form.Item>
+                <Button type="primary" htmlType="submit" icon={<FileTextOutlined />} loading={actionLoading} block>
+                  入库并索引
+                </Button>
+              </Form>
+            </Card>
+          </Col>
+          <Col xs={24} lg={15}>
+            <Card title="已入库文档" extra={<Button icon={<ReloadOutlined />} onClick={refresh} loading={bootLoading}>刷新</Button>} className="rag-panel-card">
+              <Table
+                rowKey={(record) => record.source}
+                columns={documentColumns}
+                dataSource={documents}
+                pagination={{ pageSize: 8 }}
+              />
+            </Card>
+          </Col>
+        </Row>
+      ),
+    },
+    {
+      key: 'strategy',
+      label: '策略与健康',
+      children: (
+        <Space direction="vertical" size="large" className="rag-full">
+          <Row gutter={[20, 20]}>
+            <Col xs={24} md={8}>{renderHealthCard('vector', '向量库', <DatabaseOutlined />)}</Col>
+            <Col xs={24} md={8}>{renderHealthCard('embedding', 'Embedding', <ApiOutlined />)}</Col>
+            <Col xs={24} md={8}>{renderHealthCard('graph', '图谱存储', <BranchesOutlined />)}</Col>
+          </Row>
+          <Card title="16 种 RAG 策略" className="rag-panel-card">
+            <Table
+              rowKey="name"
+              columns={strategyColumns}
+              dataSource={strategies}
+              pagination={{ pageSize: 8 }}
+            />
+          </Card>
+          <Card title="能力目录" className="rag-panel-card">
+            <pre className="rag-code-block">{JSON.stringify(capabilities || {}, null, 2)}</pre>
+          </Card>
+        </Space>
+      ),
+    },
+    {
+      key: 'agents',
+      label: '多智能体',
+      children: (
+        <Space direction="vertical" size="large" className="rag-full">
+          <Row gutter={[20, 20]}>
+            <Col xs={24} lg={10}>
+              <Card title="协作流程" className="rag-panel-card">
+                <pre className="rag-code-block">{JSON.stringify(agentWorkflow, null, 2)}</pre>
+              </Card>
+            </Col>
+            <Col xs={24} lg={14}>
+              <Card title="Agent / Skill 目录" className="rag-panel-card">
+                <Table
+                  rowKey="name"
+                  columns={agentColumns}
+                  dataSource={agents}
+                  pagination={{ pageSize: 6 }}
+                />
+              </Card>
+            </Col>
+          </Row>
+          <Card title="每个智能体的职责、输入输出和技能文件" className="rag-panel-card">
+            <Collapse
+              items={agents.map((agent) => ({
+                key: agent.name,
+                label: `${agent.name} · ${agent.role}`,
+                children: (
+                  <Space direction="vertical" className="rag-full">
+                    <Text>{agent.purpose}</Text>
+                    <Row gutter={[16, 16]}>
+                      <Col xs={24} md={12}>
+                        <Card size="small" title="输入">
+                          {(agent.inputs || []).map((item) => <Tag key={item}>{item}</Tag>)}
+                        </Card>
+                      </Col>
+                      <Col xs={24} md={12}>
+                        <Card size="small" title="输出">
+                          {(agent.outputs || []).map((item) => <Tag key={item}>{item}</Tag>)}
+                        </Card>
+                      </Col>
+                    </Row>
+                    <Collapse
+                      items={[
+                        {
+                          key: 'skill',
+                          label: 'skill.md',
+                          children: <pre className="rag-code-block">{agent.documents?.skill || '暂无 skill 文档'}</pre>,
+                        },
+                        {
+                          key: 'prompt',
+                          label: 'prompt.md',
+                          children: <pre className="rag-code-block">{agent.documents?.prompt || '暂无 prompt 文档'}</pre>,
+                        },
+                        {
+                          key: 'contract',
+                          label: 'contract.md / tools.yaml',
+                          children: <pre className="rag-code-block">{`${agent.documents?.contract || ''}\n\n${agent.documents?.tools || ''}`}</pre>,
+                        },
+                        {
+                          key: 'files',
+                          label: '文件路径',
+                          children: <pre className="rag-code-block">{JSON.stringify(agent.files || {}, null, 2)}</pre>,
+                        },
+                      ]}
+                    />
+                  </Space>
+                ),
+              }))}
+            />
+          </Card>
+        </Space>
+      ),
+    },
+    {
+      key: 'framework',
+      label: '框架配置',
+      children: (
+        <Space direction="vertical" size="large" className="rag-full">
+          <Card title="文档功能覆盖" className="rag-panel-card">
+            <Table
+              rowKey="name"
+              columns={coverageColumns}
+              dataSource={framework?.coverage || []}
+              pagination={{ pageSize: 8 }}
+            />
+          </Card>
+          <Row gutter={[20, 20]}>
+            <Col xs={24} md={12} xl={6}>
+              <Card title="Model Provider" className="rag-panel-card">
+                <Table
+                  rowKey="name"
+                  columns={providerColumns}
+                  dataSource={framework?.modelProviders || []}
+                  pagination={false}
+                  size="small"
+                />
+              </Card>
+            </Col>
+            <Col xs={24} md={12} xl={6}>
+              <Card title="Embedding Provider" className="rag-panel-card">
+                <Table
+                  rowKey="name"
+                  columns={providerColumns}
+                  dataSource={framework?.embeddingProviders || []}
+                  pagination={false}
+                  size="small"
+                />
+              </Card>
+            </Col>
+            <Col xs={24} md={12} xl={6}>
+              <Card title="Vector Store" className="rag-panel-card">
+                <Table
+                  rowKey="name"
+                  columns={providerColumns}
+                  dataSource={framework?.vectorStores || []}
+                  pagination={false}
+                  size="small"
+                />
+              </Card>
+            </Col>
+            <Col xs={24} md={12} xl={6}>
+              <Card title="Graph Store" className="rag-panel-card">
+                <Table
+                  rowKey="name"
+                  columns={providerColumns}
+                  dataSource={framework?.graphStores || []}
+                  pagination={false}
+                  size="small"
+                />
+              </Card>
+            </Col>
+          </Row>
+          <Row gutter={[20, 20]}>
+            <Col xs={24} lg={10}>
+              <Card title="运行环境" className="rag-panel-card">
+                <Table
+                  rowKey="name"
+                  columns={envColumns}
+                  dataSource={framework?.runtimeEnv || []}
+                  pagination={false}
+                  size="small"
+                />
+              </Card>
+            </Col>
+            <Col xs={24} lg={14}>
+              <Card title="目录与 API" className="rag-panel-card">
+                <Collapse
+                  items={[
+                    {
+                      key: 'folders',
+                      label: '运行目录',
+                      children: <pre className="rag-code-block">{JSON.stringify(framework?.runtimeFolders || {}, null, 2)}</pre>,
+                    },
+                    {
+                      key: 'indexing',
+                      label: '索引配置',
+                      children: <pre className="rag-code-block">{JSON.stringify(framework?.indexing || {}, null, 2)}</pre>,
+                    },
+                    {
+                      key: 'apis',
+                      label: '接口清单',
+                      children: <pre className="rag-code-block">{JSON.stringify(framework?.apis || [], null, 2)}</pre>,
+                    },
+                  ]}
+                />
+              </Card>
+            </Col>
+          </Row>
+        </Space>
+      ),
+    },
+    {
+      key: 'evaluate',
+      label: '评估',
+      children: (
+        <Row gutter={[20, 20]}>
+          <Col xs={24} lg={10}>
+            <Card
+              title="RAG 评估"
+              extra={<Button size="small" onClick={handleUseLastQueryForEvaluation}>使用最近查询</Button>}
+              className="rag-panel-card"
+            >
+              <Form form={evaluateForm} layout="vertical" onFinish={handleEvaluate}>
+                <Form.Item name="query" label="问题" rules={[{ required: true, message: '请输入问题' }]}>
+                  <Input />
+                </Form.Item>
+                <Form.Item name="answer" label="答案">
+                  <TextArea rows={4} />
+                </Form.Item>
+                <Form.Item name="expectedSources" label="期望来源">
+                  <Input placeholder="逗号或换行分隔，例如 card.md" />
+                </Form.Item>
+                <Form.Item name="expectedAnswerTerms" label="期望答案词">
+                  <Input placeholder="逗号或换行分隔，例如 行政楼" />
+                </Form.Item>
+                <Form.Item name="documentsJson" label="证据 JSON">
+                  <TextArea rows={7} placeholder="为空时使用最近一次 RAG 查询的 documents" />
+                </Form.Item>
+                <Button type="primary" htmlType="submit" icon={<ExperimentOutlined />} loading={actionLoading} block>
+                  开始评估
+                </Button>
+              </Form>
+            </Card>
+          </Col>
+          <Col xs={24} lg={14}>
+            <Card title="评估结果" className="rag-panel-card">
+              {evaluationResult ? (
+                <Space direction="vertical" className="rag-full">
+                  <Tag color={evaluationResult.passed ? 'green' : 'red'}>{evaluationResult.passed ? '通过' : '未通过'}</Tag>
+                  <Table
+                    rowKey="name"
+                    columns={metricColumns}
+                    dataSource={Object.entries(evaluationResult.metrics || {}).map(([name, value]) => ({ name, value }))}
+                    pagination={false}
+                  />
+                  <pre className="rag-code-block">{JSON.stringify(evaluationResult.detail || {}, null, 2)}</pre>
+                </Space>
+              ) : (
+                <Empty description="提交评估后查看指标" />
+              )}
+            </Card>
+          </Col>
+        </Row>
+      ),
+    },
+    {
+      key: 'sql',
+      label: 'Text-to-SQL',
+      children: (
+        <Row gutter={[20, 20]}>
+          <Col xs={24} lg={9}>
+            <Card title="自然语言查结构化数据" className="rag-panel-card">
+              <Form form={sqlForm} layout="vertical" onFinish={handleTextToSql}>
+                <Form.Item name="input" label="查询问题" rules={[{ required: true, message: '请输入查询问题' }]}>
+                  <TextArea rows={5} placeholder="例如：查询黄焖鸡 / 统计优惠券列表" />
+                </Form.Item>
+                <Button type="primary" htmlType="submit" loading={actionLoading} block>
+                  生成并执行 SQL
+                </Button>
+              </Form>
+            </Card>
+          </Col>
+          <Col xs={24} lg={15}>
+            <Card title="Schema 与执行结果" className="rag-panel-card">
+              <Collapse
+                defaultActiveKey={['result']}
+                items={[
+                  {
+                    key: 'result',
+                    label: '执行结果',
+                    children: <pre className="rag-code-block">{JSON.stringify(sqlResult || {}, null, 2)}</pre>,
+                  },
+                  {
+                    key: 'schema',
+                    label: '当前 Schema',
+                    children: <pre className="rag-code-block">{JSON.stringify(sqlSchema || {}, null, 2)}</pre>,
+                  },
+                ]}
+              />
+            </Card>
+          </Col>
+        </Row>
+      ),
+    },
+  ]
+
+  return (
+    <div className="rag-manage">
+      <section className="rag-hero">
+        <div>
+          <span className="rag-kicker">AI RAG Console</span>
+          <Title level={1}>RAG 管理</Title>
+          <p>统一管理知识库、策略测试、Text-to-SQL、GraphRAG 健康状态和评估指标。</p>
+        </div>
+        <Button icon={<ReloadOutlined />} onClick={refresh} loading={bootLoading}>
+          刷新状态
+        </Button>
+      </section>
+
+      <Tabs className="rag-tabs" items={tabs} />
+    </div>
+  )
+}
+
+export default RagManage

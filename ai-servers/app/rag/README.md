@@ -48,6 +48,9 @@
 - `GET /internal/rag/strategies`：列出 16 种策略。
 - `GET /internal/rag/strategies/{strategy_name}`：查看单个策略说明。
 - `GET /internal/rag/capabilities`：查看检索、索引、评估、结构化知识和智能体能力目录。
+- `GET /internal/rag/framework`：查看模型服务商、Embedding、向量库、图谱库、索引和运行环境目录。
+- `GET /internal/rag/agents`：查看多智能体职责、skill、prompt、contract 和 tools 文件。
+- `GET /internal/rag/agents/{agent_name}`：查看单个智能体详情。
 - `POST /internal/rag/query`：按 `ragStrategy` 执行查询，并返回答案、文档、trace 和 metadata。
 - `POST /internal/rag/documents`：写入知识库、解析多模态内容、切分并落本地索引。
 - `POST /internal/rag/evaluate`：返回 hitRate、MRR、contextRelevance、faithfulness 等轻量评估指标。

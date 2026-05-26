@@ -5,6 +5,7 @@ import ActivityDetail from './pages/activity/ActivityDetail/ActivityDetail'
 import ActivityEditor from './pages/activity/ActivityEditor/ActivityEditor'
 import ActivityManage from './pages/activity/ActivityManage/ActivityManage'
 import Home from './pages/Home/Home'
+import RagManage from './pages/ai/RagManage/RagManage'
 import Login from './pages/Login/Login'
 import WorkspacePage from './pages/workspace/WorkspacePage'
 import './App.css'
@@ -30,6 +31,7 @@ function App() {
           <Route path="/activity/create" element={<ActivityEditor />} />
           <Route path="/activity/:id/edit" element={<ActivityEditor />} />
           <Route path="/activity/:id" element={<ActivityDetail />} />
+          <Route path="/ai/rag" element={<RagManage />} />
           {workspaceRoutes}
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

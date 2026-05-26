@@ -55,6 +55,7 @@ export const navigationSections = [
     label: 'AI 模块',
     items: [
       { path: '/ai/model', label: '模型配置', icon: 'robot', pageKey: 'system-config' },
+      { path: '/ai/rag', label: 'RAG 管理', icon: 'database' },
     ],
   },
 ]
@@ -65,7 +66,8 @@ export const moduleCards = [
   { title: '校园设施', description: '食堂、运动场、教学楼、宿舍管理与地图标点维护', route: '/facility/canteen' },
   { title: '旧物交易', description: '物品、分类与后台审核管理', route: '/market/item' },
   { title: '校园特惠', description: '商家、优惠活动与分类运营', route: '/discount/merchant' },
-  { title: 'AI 模块', description: '维护 AI 模型配置并测试接口连通性', route: '/ai/model' },
+  { title: 'AI 模块', description: '维护 AI 模型配置、RAG 知识库和检索策略', route: '/ai/model' },
+  { title: 'RAG 管理', description: '管理知识库、测试 RAG 策略并查看检索评估', route: '/ai/rag' },
 ]
 
 const columns = {

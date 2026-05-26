@@ -68,6 +68,66 @@ public class PythonAiProxyService {
         }
     }
 
+    public Object getRagStrategies(String authorization) {
+        return getRagObject("/internal/rag/strategies", authorization);
+    }
+
+    public Object getRagStrategy(String strategyName, String authorization) {
+        return getRagObject("/internal/rag/strategies/" + strategyName, authorization);
+    }
+
+    public Object getRagCapabilities(String authorization) {
+        return getRagObject("/internal/rag/capabilities", authorization);
+    }
+
+    public Object getRagFramework(String authorization) {
+        return getRagObject("/internal/rag/framework", authorization);
+    }
+
+    public Object getRagAgents(String authorization) {
+        return getRagObject("/internal/rag/agents", authorization);
+    }
+
+    public Object getRagAgent(String agentName, String authorization) {
+        return getRagObject("/internal/rag/agents/" + agentName, authorization);
+    }
+
+    public Object queryRag(Map<String, Object> request, String authorization) {
+        return postRagObject("/internal/rag/query", request, authorization);
+    }
+
+    public Object ingestRagDocuments(Map<String, Object> request, String authorization) {
+        return postRagObject("/internal/rag/documents", request, authorization);
+    }
+
+    public Object listRagDocuments(String authorization) {
+        return getRagObject("/internal/rag/documents", authorization);
+    }
+
+    public Object getRagVectorStoreHealth(String authorization) {
+        return getRagObject("/internal/rag/vector-store/health", authorization);
+    }
+
+    public Object getRagEmbeddingHealth(String authorization) {
+        return getRagObject("/internal/rag/embedding/health", authorization);
+    }
+
+    public Object getRagGraphStoreHealth(String authorization) {
+        return getRagObject("/internal/rag/graph-store/health", authorization);
+    }
+
+    public Object getTextToSqlSchema(String authorization) {
+        return getRagObject("/internal/rag/text-to-sql/schema", authorization);
+    }
+
+    public Object executeTextToSql(Map<String, Object> request, String authorization) {
+        return postRagObject("/internal/rag/text-to-sql/execute", request, authorization);
+    }
+
+    public Object evaluateRag(Map<String, Object> request, String authorization) {
+        return postRagObject("/internal/rag/evaluate", request, authorization);
+    }
+
     public SseEmitter streamChat(LlmChatRequest request, String authorization) {
         validateAuthorization(authorization);
         String token = normalizeBearerToken(authorization);
@@ -130,6 +190,50 @@ public class PythonAiProxyService {
     private void validateAuthorization(String authorization) {
         if (!StringUtils.hasText(authorization)) {
             throw new BusinessException(Result.UNAUTHORIZED_CODE, "未登录或Token无效");
+        }
+    }
+
+    private Object getRagObject(String path, String authorization) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            return webClientBuilder.build()
+                    .get()
+                    .uri(buildUri(path))
+                    .header(HttpHeaders.AUTHORIZATION, authorization)
+                    .header("X-User-Id", userId.toString())
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + e.getMessage());
+        }
+    }
+
+    private Object postRagObject(String path, Map<String, Object> request, String authorization) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            return webClientBuilder.build()
+                    .post()
+                    .uri(buildUri(path))
+                    .header(HttpHeaders.AUTHORIZATION, authorization)
+                    .header("X-User-Id", userId.toString())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(request == null ? Map.of() : request)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + e.getMessage());
         }
     }
 

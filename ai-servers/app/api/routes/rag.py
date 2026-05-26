@@ -14,6 +14,7 @@ from app.models.schemas import (
     RagQueryResponse,
     RagTraceResponse,
 )
+from app.multi_agents.catalog import get_agent_catalog, get_agent_detail
 from app.rag.core import RAG_STRATEGY_SPECS, RagQuery
 from app.rag.core.types import RagDocument
 from app.rag.embeddings import build_embedding_provider
@@ -84,6 +85,7 @@ def get_rag_capabilities(
             "supportedSuffixes": sorted(DocumentLoader.SUPPORTED_SUFFIXES),
             "defaultChunker": "semantic_boundary",
             "indexStore": "local_jsonl",
+            "uploadEncoding": "text_or_base64",
         },
         "retrieval": {
             "retrievers": ["keyword", "vector", "hybrid", "parent_child", "graph", "java_backend"],
@@ -108,6 +110,99 @@ def get_rag_capabilities(
             "tool_agent",
         ],
     }
+
+
+@router.get("/framework")
+def get_rag_framework(
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    return {
+        "sourceDocument": "https://www.cnblogs.com/yupi/p/19914426",
+        "coverage": [
+            {"name": name, **spec, "status": "implemented"}
+            for name, spec in RAG_STRATEGY_SPECS.items()
+        ],
+        "runtimeFolders": {
+            "modelProviders": "app/model_providers",
+            "ragCore": "app/rag/core",
+            "strategies": "app/rag/strategies",
+            "multiAgents": "app/multi_agents",
+            "langgraphWorkflow": "app/langgraph",
+            "indexing": "app/rag/indexing",
+            "retrievers": "app/rag/retrievers",
+            "vectorStores": "app/rag/vector_stores",
+            "graphStores": "app/rag/graph_stores",
+            "evaluators": "app/rag/evaluators",
+        },
+        "modelProviders": [
+            {"name": "deepseek", "runtime": "app.model_providers.deepseek.provider", "status": "implemented"},
+        ],
+        "embeddingProviders": [
+            {"name": "local_lexical", "status": "implemented", "requiredEnv": []},
+            {"name": "openai", "status": "implemented_optional", "requiredEnv": ["OPENAI_API_KEY"]},
+            {"name": "dashscope", "status": "implemented_optional", "requiredEnv": ["DASHSCOPE_API_KEY"]},
+            {"name": "bge", "status": "implemented_optional", "requiredEnv": ["RAG_BGE_MODEL_NAME"]},
+            {"name": "sentence_transformers", "status": "implemented_optional", "requiredEnv": ["RAG_SENTENCE_TRANSFORMERS_MODEL"]},
+        ],
+        "vectorStores": [
+            {"name": "local_jsonl", "status": "implemented", "requiredEnv": []},
+            {"name": "faiss", "status": "implemented_optional", "requiredEnv": ["RAG_FAISS_INDEX_DIR"]},
+            {"name": "milvus", "status": "implemented_optional", "requiredEnv": ["RAG_MILVUS_URI", "RAG_MILVUS_COLLECTION"]},
+            {"name": "elasticsearch", "status": "implemented_optional", "requiredEnv": ["RAG_ELASTICSEARCH_URL", "RAG_ELASTICSEARCH_INDEX"]},
+            {"name": "pgvector", "status": "implemented_optional", "requiredEnv": ["RAG_PGVECTOR_DSN", "RAG_PGVECTOR_TABLE"]},
+        ],
+        "graphStores": [
+            {"name": "local_graph", "status": "implemented", "requiredEnv": []},
+            {"name": "neo4j", "status": "implemented_optional", "requiredEnv": ["RAG_NEO4J_URI", "RAG_NEO4J_USERNAME", "RAG_NEO4J_PASSWORD"]},
+        ],
+        "indexing": {
+            "supportedSuffixes": sorted(DocumentLoader.SUPPORTED_SUFFIXES),
+            "defaultChunker": "semantic_boundary",
+            "parentChildChunker": "parent_child",
+            "uploadEncoding": "text_or_base64",
+            "localIndexFile": str(_knowledge_base_root() / ".index" / "local_chunks.jsonl"),
+        },
+        "runtimeEnv": [
+            {"name": "RAG_KNOWLEDGE_BASE_DIR", "configured": bool(os.getenv("RAG_KNOWLEDGE_BASE_DIR")), "default": "knowledge_base/raw"},
+            {"name": "RAG_EMBEDDING_PROVIDER", "configured": bool(os.getenv("RAG_EMBEDDING_PROVIDER")), "default": "local_lexical"},
+            {"name": "RAG_VECTOR_STORE_BACKEND", "configured": bool(os.getenv("RAG_VECTOR_STORE_BACKEND")), "default": "local_jsonl"},
+            {"name": "RAG_GRAPH_STORE_BACKEND", "configured": bool(os.getenv("RAG_GRAPH_STORE_BACKEND")), "default": "local_graph"},
+            {"name": "RAG_SQLITE_DB_PATH", "configured": bool(os.getenv("RAG_SQLITE_DB_PATH")), "default": ""},
+            {"name": "JAVA_BACKEND_BASE_URL", "configured": bool(os.getenv("JAVA_BACKEND_BASE_URL")), "default": "http://localhost:8080"},
+        ],
+        "apis": [
+            "GET /internal/rag/strategies",
+            "GET /internal/rag/capabilities",
+            "GET /internal/rag/framework",
+            "GET /internal/rag/agents",
+            "POST /internal/rag/query",
+            "POST /internal/rag/documents",
+            "POST /internal/rag/evaluate",
+            "GET /internal/rag/text-to-sql/schema",
+            "POST /internal/rag/text-to-sql/execute",
+        ],
+    }
+
+
+@router.get("/agents")
+def list_rag_agents(
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    return get_agent_catalog()
+
+
+@router.get("/agents/{agent_name}")
+def get_rag_agent(
+    agent_name: str,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    agent = get_agent_detail(agent_name)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="智能体不存在")
+    return agent
 
 
 @router.post("/query", response_model=RagQueryResponse)
@@ -155,7 +250,12 @@ def ingest_rag_documents(
     _require_authorization(authorization)
     pipeline = RagIngestionPipeline(root_dir=str(_knowledge_base_root()))
     result = pipeline.run([
-        IngestInputDocument(content=item.content, source=item.source, metadata=item.metadata)
+        IngestInputDocument(
+            content=item.content,
+            content_base64=item.contentBase64,
+            source=item.source,
+            metadata=item.metadata,
+        )
         for item in request.documents
     ])
 

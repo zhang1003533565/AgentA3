@@ -1,6 +1,8 @@
+import base64
+import binascii
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ChatRequest(BaseModel):
@@ -52,9 +54,21 @@ class RagQueryResponse(BaseModel):
 
 
 class RagDocumentIngestItem(BaseModel):
-    content: str = Field(min_length=1, max_length=200000)
+    content: str = Field(default="", max_length=200000)
+    contentBase64: Optional[str] = Field(default=None, max_length=8_000_000)
     source: Optional[str] = Field(default=None, max_length=256)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_payload(self):
+        if not self.content and not self.contentBase64:
+            raise ValueError("文档内容或文件内容不能为空")
+        if self.contentBase64:
+            try:
+                base64.b64decode(self.contentBase64, validate=True)
+            except (ValueError, binascii.Error) as exc:
+                raise ValueError("contentBase64 不是有效的 Base64 文件内容") from exc
+        return self
 
 
 class RagDocumentIngestRequest(BaseModel):

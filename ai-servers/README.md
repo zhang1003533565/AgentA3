@@ -26,6 +26,9 @@ AI 相关框架统一放在 `app/` 下维护，避免运行代码、skill、cont
 - `GET /internal/rag/strategies`
 - `GET /internal/rag/strategies/{strategy_name}`
 - `GET /internal/rag/capabilities`
+- `GET /internal/rag/framework`：完整框架目录、provider/store 配置及文档能力覆盖
+- `GET /internal/rag/agents`：多智能体与 skill/prompt/contract/tools 目录
+- `GET /internal/rag/agents/{agent_name}`：单个智能体详情
 - `POST /internal/rag/query`
 - `POST /internal/rag/documents`：保存文档、解析、切分并写入本地 `.index/local_chunks.jsonl`
 - `GET /internal/rag/documents`

@@ -17,6 +17,10 @@ public class LlmChatRequest {
     @Schema(description = "系统提示词，可为空", example = "你是智慧校园助手，请简洁回答。")
     private String prompt;
 
+    @Size(max = 64, message = "RAG 策略最多 64 字符")
+    @Schema(description = "RAG 策略，可为空；默认 naive_rag", example = "hybrid_search")
+    private String ragStrategy;
+
     @NotBlank(message = "输入内容不能为空")
     @Size(max = 4000, message = "输入内容最多 4000 字符")
     @Schema(description = "用户输入内容", requiredMode = Schema.RequiredMode.REQUIRED, example = "帮我推荐一个食堂")

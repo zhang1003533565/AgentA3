@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import os
 import re
@@ -13,7 +14,8 @@ from app.rag.indexing.embedding_writer import EmbeddingWriter
 
 @dataclass
 class IngestInputDocument:
-    content: str
+    content: str = ""
+    content_base64: Optional[str] = None
     source: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -62,8 +64,9 @@ class RagIngestionPipeline:
         chunk_documents: List[RagDocument] = []
 
         for item in inputs:
-            target = self.ingest_dir / self._build_filename(item.source, item.content)
-            target.write_text(item.content, encoding="utf-8")
+            payload = self._content_bytes(item)
+            target = self.ingest_dir / self._build_filename(item.source, payload)
+            target.write_bytes(payload)
             stored_files.append(str(target))
 
             loaded_items = list(self.loader.load(str(target)))
@@ -88,7 +91,7 @@ class RagIngestionPipeline:
                 stored_path=str(target),
                 modality=modality,
                 chunk_count=len(chunks),
-                size=len(item.content.encode("utf-8")),
+                size=len(payload),
                 metadata=item.metadata,
             ))
 
@@ -113,8 +116,8 @@ class RagIngestionPipeline:
         ai_server_root = Path(__file__).resolve().parents[3]
         return ai_server_root / path
 
-    def _build_filename(self, source: Optional[str], content: str) -> str:
-        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()[:12]
+    def _build_filename(self, source: Optional[str], content: bytes) -> str:
+        digest = hashlib.sha256(content).hexdigest()[:12]
         source_name = Path(source or "document.md").name
         suffix = Path(source_name).suffix.lower() or ".md"
         if suffix not in DocumentLoader.SUPPORTED_SUFFIXES:
@@ -123,9 +126,14 @@ class RagIngestionPipeline:
         safe_stem = re.sub(r"[^a-zA-Z0-9_\-\u4e00-\u9fff]+", "-", stem).strip("-") or "document"
         return f"{safe_stem}-{digest}{suffix}"
 
+    def _content_bytes(self, item: IngestInputDocument) -> bytes:
+        if item.content_base64:
+            return base64.b64decode(item.content_base64, validate=True)
+        return item.content.encode("utf-8")
+
     def _infer_modality(self, path: Path) -> str:
         suffix = path.suffix.lower()
-        if suffix == ".csv":
+        if suffix in {".csv", ".tsv"}:
             return "table"
         if suffix == ".json":
             return "structured_json"
@@ -133,4 +141,8 @@ class RagIngestionPipeline:
             return "html"
         if suffix in {".md", ".markdown"}:
             return "markdown"
+        if suffix == ".pdf":
+            return "pdf"
+        if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+            return "image"
         return "text"

@@ -53,8 +53,11 @@ class PythonAiProxyServiceTest {
                       "sessionId": "session-001",
                       "sessionToken": "session-001_hash",
                       "model": "deepseek-chat",
+                      "ragStrategy": "hybrid_search",
                       "searchKeyword": "黄焖鸡",
                       "matchedResults": [{"type":"dish","id":1,"name":"黄焖鸡"}],
+                      "retrievalMeta": {"documentCount": 1},
+                      "trace": [{"stage":"retrieve","detail":{"documentCount":1}}],
                       "answer": "推荐你去一食堂二楼。"
                     }
                     """;
@@ -68,6 +71,7 @@ class PythonAiProxyServiceTest {
         LlmChatRequest request = new LlmChatRequest();
         request.setSessionId("session-001");
         request.setPrompt("你是校园助手");
+        request.setRagStrategy("hybrid_search");
         request.setInput("哪个食堂有黄焖鸡");
 
         LlmChatResponse response = service.chat(request, "Bearer " + token);
@@ -76,8 +80,11 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("session-001", response.getSessionId());
         Assertions.assertEquals("session-001_hash", response.getSessionToken());
         Assertions.assertEquals("deepseek-chat", response.getModel());
+        Assertions.assertEquals("hybrid_search", response.getRagStrategy());
         Assertions.assertEquals("黄焖鸡", response.getSearchKeyword());
         Assertions.assertEquals("推荐你去一食堂二楼。", response.getAnswer());
+        Assertions.assertEquals(1, response.getRetrievalMeta().get("documentCount"));
+        Assertions.assertEquals(1, response.getTrace().size());
 
         Assertions.assertEquals("Bearer " + token, authRef.get());
         Assertions.assertEquals("1001", userIdRef.get());
@@ -86,7 +93,94 @@ class PythonAiProxyServiceTest {
         JsonNode reqJson = mapper.readTree(requestBodyRef.get());
         Assertions.assertEquals("session-001", reqJson.path("sessionId").asText());
         Assertions.assertEquals("你是校园助手", reqJson.path("prompt").asText());
+        Assertions.assertEquals("hybrid_search", reqJson.path("ragStrategy").asText());
         Assertions.assertEquals("哪个食堂有黄焖鸡", reqJson.path("input").asText());
+    }
+
+    @Test
+    void ragQuery_shouldProxyRequestToPythonRagEndpoint() throws Exception {
+        AtomicReference<String> authRef = new AtomicReference<>();
+        AtomicReference<String> userIdRef = new AtomicReference<>();
+        AtomicReference<String> requestBodyRef = new AtomicReference<>();
+
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/rag/query", exchange -> {
+            authRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            userIdRef.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
+            requestBodyRef.set(readBody(exchange));
+
+            String responseJson = """
+                    {
+                      "strategy": "text_to_sql",
+                      "answer": "已生成只读 SQL",
+                      "documents": [],
+                      "trace": [{"stage":"generate_sql","detail":{"readonly":true}}],
+                      "metadata": {"readonly": true, "sql": "SELECT id FROM dish LIMIT 20"}
+                    }
+                    """;
+            writeJson(exchange, 200, responseJson);
+        });
+        server.start();
+
+        PythonAiProxyService service = newService(server.getAddress().getPort());
+        String token = buildJwtToken(1003L);
+
+        Object response = service.queryRag(
+                Map.of("input", "统计菜品数量", "ragStrategy", "text_to_sql"),
+                "Bearer " + token
+        );
+
+        Assertions.assertInstanceOf(Map.class, response);
+        Map<?, ?> responseMap = (Map<?, ?>) response;
+        Assertions.assertEquals("text_to_sql", responseMap.get("strategy"));
+        Assertions.assertEquals("已生成只读 SQL", responseMap.get("answer"));
+        Assertions.assertEquals("Bearer " + token, authRef.get());
+        Assertions.assertEquals("1003", userIdRef.get());
+
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode reqJson = mapper.readTree(requestBodyRef.get());
+        Assertions.assertEquals("统计菜品数量", reqJson.path("input").asText());
+        Assertions.assertEquals("text_to_sql", reqJson.path("ragStrategy").asText());
+    }
+
+    @Test
+    void ragManagement_shouldProxyFrameworkAndAgentsEndpoints() throws Exception {
+        AtomicReference<String> frameworkAuthRef = new AtomicReference<>();
+        AtomicReference<String> agentsAuthRef = new AtomicReference<>();
+
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/rag/framework", exchange -> {
+            frameworkAuthRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            writeJson(exchange, 200, """
+                    {
+                      "runtimeFolders": {"strategies": "app/rag/strategies"},
+                      "coverage": [{"name":"naive_rag","status":"implemented"}]
+                    }
+                    """);
+        });
+        server.createContext("/internal/rag/agents", exchange -> {
+            agentsAuthRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            writeJson(exchange, 200, """
+                    {
+                      "total": 1,
+                      "agents": [{"name":"retriever_agent","role":"证据召回智能体"}]
+                    }
+                    """);
+        });
+        server.start();
+
+        PythonAiProxyService service = newService(server.getAddress().getPort());
+        String token = buildJwtToken(1004L);
+
+        Object framework = service.getRagFramework("Bearer " + token);
+        Object agents = service.getRagAgents("Bearer " + token);
+
+        Assertions.assertInstanceOf(Map.class, framework);
+        Assertions.assertInstanceOf(Map.class, agents);
+        Assertions.assertEquals("Bearer " + token, frameworkAuthRef.get());
+        Assertions.assertEquals("Bearer " + token, agentsAuthRef.get());
+        Assertions.assertTrue(((Map<?, ?>) framework).containsKey("runtimeFolders"));
+        Assertions.assertEquals(1, ((Number) ((Map<?, ?>) agents).get("total")).intValue());
     }
 
     @Test

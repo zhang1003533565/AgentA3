@@ -1,3 +1,4 @@
+import base64
 import os
 import tempfile
 import unittest
@@ -76,6 +77,38 @@ class RagApiRoutesTest(unittest.TestCase):
             else:
                 os.environ["RAG_KNOWLEDGE_BASE_DIR"] = old_root
 
+    def test_ingest_accepts_base64_multimodal_file(self):
+        old_root = os.environ.get("RAG_KNOWLEDGE_BASE_DIR")
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                os.environ["RAG_KNOWLEDGE_BASE_DIR"] = temp_dir
+                raw_bytes = b"\x89PNG\r\n\x1a\nfake-image"
+                response = self.client.post(
+                    "/internal/rag/documents",
+                    headers=self.headers,
+                    json={
+                        "documents": [
+                            {
+                                "source": "notice.png",
+                                "contentBase64": base64.b64encode(raw_bytes).decode("ascii"),
+                                "metadata": {"origin": "unit_test"},
+                            }
+                        ]
+                    },
+                )
+
+                self.assertEqual(200, response.status_code)
+                payload = response.json()
+                self.assertEqual("image", payload["documents"][0]["modality"])
+                stored_path = Path(payload["storedFiles"][0])
+                self.assertEqual(raw_bytes, stored_path.read_bytes())
+                self.assertGreaterEqual(payload["indexedChunkCount"], 1)
+        finally:
+            if old_root is None:
+                os.environ.pop("RAG_KNOWLEDGE_BASE_DIR", None)
+            else:
+                os.environ["RAG_KNOWLEDGE_BASE_DIR"] = old_root
+
     def test_rag_routes_require_authorization(self):
         response = self.client.get("/internal/rag/strategies")
 
@@ -115,6 +148,37 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertIn("hybrid", payload["retrieval"]["retrievers"])
         self.assertIn("faithfulness", payload["evaluation"]["metrics"])
         self.assertIn("retriever_agent", payload["agents"])
+
+    def test_framework_endpoint_describes_full_runtime_layout(self):
+        response = self.client.get("/internal/rag/framework", headers=self.headers)
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual(16, len(payload["coverage"]))
+        self.assertIn("app/rag/strategies", payload["runtimeFolders"]["strategies"])
+        self.assertIn("local_jsonl", {item["name"] for item in payload["vectorStores"]})
+        self.assertIn("neo4j", {item["name"] for item in payload["graphStores"]})
+        self.assertIn("RAG_KNOWLEDGE_BASE_DIR", {item["name"] for item in payload["runtimeEnv"]})
+
+    def test_agents_endpoint_exposes_skill_catalog(self):
+        response = self.client.get("/internal/rag/agents", headers=self.headers)
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        names = {item["name"] for item in payload["agents"]}
+        self.assertIn("retriever_agent", names)
+        retriever = next(item for item in payload["agents"] if item["name"] == "retriever_agent")
+        self.assertIn("skill.md", retriever["files"]["skill"])
+        self.assertIn("Retriever Agent Skill", retriever["documents"]["skill"])
+        self.assertIn("agentic", payload["workflow"])
+
+    def test_agent_detail_endpoint_returns_single_agent(self):
+        response = self.client.get("/internal/rag/agents/sql_agent", headers=self.headers)
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("sql_agent", payload["name"])
+        self.assertIn("Text-to-SQL", payload["purpose"])
 
     def test_query_endpoint_synthesizes_answer_when_strategy_has_no_llm_answer(self):
         response = self.client.post(
