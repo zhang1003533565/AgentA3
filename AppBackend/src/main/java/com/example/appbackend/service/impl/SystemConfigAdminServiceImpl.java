@@ -78,6 +78,14 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
     }
 
     @Override
+    public void delete(Long id) {
+        if (!systemConfigRepository.existsById(id)) {
+            throw new BusinessException(404, "配置不存在");
+        }
+        systemConfigRepository.deleteById(id);
+    }
+
+    @Override
     public SystemConfigDTO.ConfigVO upsert(SystemConfigDTO.UpsertRequest req) {
         SystemConfig config = systemConfigRepository.findByConfigKey(req.getConfigKey().trim())
                 .orElseGet(SystemConfig::new);
@@ -172,15 +180,15 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
     }
 
     private SystemConfigDTO.TestResultVO testAiConfig(SystemConfig currentConfig) {
-        String capability = extractAiCapability(currentConfig.getConfigKey());
-        String baseUrl = getAiCapabilityValue(capability, "base-url");
-        String apiKey = getAiCapabilityValue(capability, "api-key");
+        String configPrefix = extractAiConfigPrefix(currentConfig.getConfigKey());
+        String baseUrl = getAiConfigValue(configPrefix, "base-url");
+        String apiKey = getAiConfigValue(configPrefix, "api-key");
 
         boolean success;
         String detail;
         if (baseUrl.isBlank() || apiKey.isBlank()) {
             success = false;
-            detail = "AI 接口配置不完整，请维护 ai.service." + capability + ".base-url 和 ai.service." + capability + ".api-key";
+            detail = "AI 接口配置不完整，请维护 " + configPrefix + ".base-url 和 " + configPrefix + ".api-key";
         } else try {
             String body = WebClient.builder()
                     .baseUrl(trimTrailingSlash(baseUrl))
@@ -210,18 +218,20 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
         return vo;
     }
 
-    private String extractAiCapability(String configKey) {
+    private String extractAiConfigPrefix(String configKey) {
         if (configKey == null || !configKey.startsWith("ai.service.")) {
-            return "text";
+            return "ai.service.text";
         }
-        String suffix = configKey.substring("ai.service.".length());
-        int dot = suffix.indexOf('.');
-        return dot > 0 ? suffix.substring(0, dot) : "text";
+        for (String field : List.of(".provider", ".base-url", ".api-key", ".model")) {
+            if (configKey.endsWith(field)) {
+                return configKey.substring(0, configKey.length() - field.length());
+            }
+        }
+        return "ai.service.text";
     }
 
-    private String getAiCapabilityValue(String capability, String field) {
-        String scopedKey = "ai.service." + capability + "." + field;
-        return getConfigValue(scopedKey);
+    private String getAiConfigValue(String configPrefix, String field) {
+        return getConfigValue(configPrefix + "." + field);
     }
 
     private String getConfigValue(String key) {

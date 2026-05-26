@@ -35,7 +35,7 @@ import {
   updateSecondhandCategory,
 } from '../../api/secondhand'
 import { closeSignIn, getSignInList, openSignIn } from '../../api/signin'
-import { getSystemConfigList, testSystemConfig, upsertSystemConfig } from '../../api/systemConfig'
+import { deleteSystemConfig, getSystemConfigList, testSystemConfig, upsertSystemConfig } from '../../api/systemConfig'
 import { MAP_BUILDING_UPLOAD_FOLDER, getUploadUrl } from '../../api/upload'
 import { disableUser, enableUser, getUserList } from '../../api/user'
 import {
@@ -58,6 +58,8 @@ const AI_MODALITIES = [
   { key: 'video', label: '视频' },
   { key: 'audio', label: '语音' },
 ]
+const AI_CONFIG_FIELDS = ['provider', 'base-url', 'api-key', 'model']
+const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.(text|image|video|audio)(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
 let amapLoaderPromise = null
 
 const loadAmapScript = () => {
@@ -486,7 +488,7 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextI
     case 'system-config': {
       const res = await getSystemConfigList({
         page: current,
-        size: 100,
+        size: 500,
         keyword,
         prefixes: 'ai.service.',
       })
@@ -535,24 +537,38 @@ function maskSecret(value) {
   return `${text.slice(0, 6)}****${text.slice(-4)}`
 }
 
-function getConfigRecord(records, capability, field) {
-  return records.find((item) => item.configKey === `ai.service.${capability}.${field}`)
+function groupAiConfigRecords(records) {
+  const groups = new Map()
+  records.forEach((item) => {
+    const match = String(item.configKey || '').match(AI_MODEL_CONFIG_PATTERN)
+    if (!match) return
+    const [, modality, configName = 'default', field] = match
+    const configPrefix = configName === 'default' ? `ai.service.${modality}` : `ai.service.${modality}.${configName}`
+    const group = groups.get(configPrefix) || { modality, configName, configPrefix, configs: {} }
+    group.configs[field] = item
+    groups.set(configPrefix, group)
+  })
+  return groups
 }
 
 function buildAiCapabilityRows(records) {
-  return AI_MODALITIES.map((modality) => {
-    const providerConfig = getConfigRecord(records, modality.key, 'provider')
-    const baseUrlConfig = getConfigRecord(records, modality.key, 'base-url')
-    const apiKeyConfig = getConfigRecord(records, modality.key, 'api-key')
-    const modelConfig = getConfigRecord(records, modality.key, 'model')
+  const groups = groupAiConfigRecords(records)
+  return Array.from(groups.values()).map((group) => {
+    const modality = AI_MODALITIES.find((item) => item.key === group.modality) || { key: group.modality, label: group.modality }
+    const providerConfig = group.configs.provider
+    const baseUrlConfig = group.configs['base-url']
+    const apiKeyConfig = group.configs['api-key']
+    const modelConfig = group.configs.model
     const configs = [providerConfig, baseUrlConfig, apiKeyConfig, modelConfig].filter(Boolean)
-    const configured = configs.length === 4
+    const configured = AI_CONFIG_FIELDS.every((field) => group.configs[field])
     const disabled = configured && configs.some((item) => Number(item.status) === 0)
     const updateTime = configs.map((item) => item.updateTime).filter(Boolean).sort().slice(-1)[0] || null
     return {
-      id: `ai-${modality.key}`,
-      modality: modality.key,
+      id: group.configPrefix,
+      modality: group.modality,
       modalityLabel: modality.label,
+      configName: group.configName === 'default' ? '默认' : group.configName,
+      configPrefix: group.configPrefix,
       provider: providerConfig?.configValue || '',
       baseUrl: baseUrlConfig?.configValue || '',
       model: modelConfig?.configValue || '',
@@ -886,6 +902,7 @@ function WorkspacePage({ pageKey }) {
     'market-category',
     'discount-category',
     'discount-merchant',
+    'system-config',
   ]
 
   const openCreateModal = async () => {
@@ -906,6 +923,9 @@ function WorkspacePage({ pageKey }) {
     }
     if (pageKey === 'facility-restaurant' && contextId) {
       form.setFieldsValue({ restaurantId: parseInt(contextId) })
+    }
+    if (pageKey === 'system-config') {
+      form.setFieldsValue({ modality: 'text', status: 1 })
     }
     setModalOpen(true)
   }
@@ -1016,7 +1036,9 @@ function WorkspacePage({ pageKey }) {
         : {}),
       ...(pageKey === 'system-config'
         ? {
+            modality: record.modality,
             modalityLabel: record.modalityLabel,
+            configName: record.configName,
             provider: record.provider,
             baseUrl: record.baseUrl,
             model: record.model,
@@ -1107,8 +1129,28 @@ function WorkspacePage({ pageKey }) {
           edit: () => updateDish(editingRecord.id, values),
         },
         'system-config': {
+          create: async () => {
+            const modality = values.modality
+            const configName = String(values.configName || '').trim()
+            const configPrefix = configName ? `ai.service.${modality}.${configName}` : `ai.service.${modality}`
+            const modalityLabel = AI_MODALITIES.find((item) => item.key === modality)?.label || modality
+            const statusValue = values.status
+            const configs = [
+              { field: 'provider', value: values.provider, description: `${modalityLabel}模型服务商` },
+              { field: 'base-url', value: values.baseUrl, description: `${modalityLabel}模型服务地址` },
+              { field: 'api-key', value: values.apiKey, description: `${modalityLabel}模型服务密钥` },
+              { field: 'model', value: values.model, description: `${modalityLabel}模型 ID` },
+            ]
+            await Promise.all(configs.map((item) => upsertSystemConfig({
+              configKey: `${configPrefix}.${item.field}`,
+              configValue: item.value,
+              configGroup: 'ai',
+              description: item.description,
+              status: statusValue,
+            })))
+          },
           edit: async () => {
-            const capability = editingRecord.modality
+            const configPrefix = editingRecord.configPrefix
             const statusValue = values.status
             const configs = [
               { field: 'provider', value: values.provider, description: `${editingRecord.modalityLabel}模型服务商` },
@@ -1117,7 +1159,7 @@ function WorkspacePage({ pageKey }) {
               { field: 'model', value: values.model, description: `${editingRecord.modalityLabel}模型 ID` },
             ]
             await Promise.all(configs.map((item) => upsertSystemConfig({
-              configKey: `ai.service.${capability}.${item.field}`,
+              configKey: `${configPrefix}.${item.field}`,
               configValue: item.value,
               configGroup: 'ai',
               description: item.description,
@@ -1403,9 +1445,32 @@ function WorkspacePage({ pageKey }) {
       case 'system-config':
         return (
           <>
-            <Form.Item name="modalityLabel" label="能力类型">
-              <Input disabled />
-            </Form.Item>
+            {modalMode === 'create' ? (
+              <>
+                <Form.Item name="modality" label="能力类型" rules={[{ required: true, message: '请选择能力类型' }]}>
+                  <Select options={AI_MODALITIES.map((item) => ({ value: item.key, label: item.label }))} />
+                </Form.Item>
+                <Form.Item
+                  name="configName"
+                  label="配置标识"
+                  rules={[
+                    { required: true, message: '请输入配置标识' },
+                    { pattern: /^[A-Za-z0-9_-]+$/, message: '只能包含英文、数字、下划线或横线' },
+                  ]}
+                >
+                  <Input placeholder="例如 qwen-max / image-main" />
+                </Form.Item>
+              </>
+            ) : (
+              <>
+                <Form.Item name="modalityLabel" label="能力类型">
+                  <Input disabled />
+                </Form.Item>
+                <Form.Item name="configName" label="配置标识">
+                  <Input disabled />
+                </Form.Item>
+              </>
+            )}
             <Form.Item name="provider" label="服务商" rules={[{ required: true, message: '请输入服务商' }]}>
               <Input placeholder="请输入服务商标识" />
             </Form.Item>
@@ -1679,6 +1744,25 @@ function WorkspacePage({ pageKey }) {
             >
               测试
             </Button>
+            <Popconfirm
+              title="确定删除该模型配置吗？"
+              description="会删除该配置组下的 provider/base-url/api-key/model 四个配置项。"
+              onConfirm={() => {
+                const ids = Object.values(record.configIds || {}).filter(Boolean)
+                if (!ids.length) {
+                  message.warning('该配置没有可删除的数据库记录')
+                  return
+                }
+                runAction(
+                  () => Promise.all(ids.map((id) => deleteSystemConfig(id))),
+                  '模型配置已删除',
+                )
+              }}
+            >
+              <Button size="small" danger loading={actionLoading}>
+                删除
+              </Button>
+            </Popconfirm>
           </Space>
         )
       default:
@@ -2910,7 +2994,7 @@ function WorkspacePage({ pageKey }) {
                 ) : null}
                 {formEnabledPages.includes(pageKey) ? (
                   <Button type="primary" onClick={openCreateModal}>
-                    新增
+                    {pageKey === 'system-config' ? '新增模型配置' : '新增'}
                   </Button>
                 ) : null}
               </div>
@@ -2924,6 +3008,7 @@ function WorkspacePage({ pageKey }) {
               loading={loading}
               rowKey={(record) => record.id || record.key || JSON.stringify(record)}
               locale={{ emptyText: page.emptyText }}
+              scroll={{ x: 'max-content' }}
               pagination={{
                 current: pagination.current,
                 pageSize: pagination.pageSize,
@@ -2947,7 +3032,9 @@ function WorkspacePage({ pageKey }) {
 
       <Modal
         open={modalOpen}
-        title={modalMode === 'create' ? `新增${page.title}` : `编辑${page.title}`}
+        title={modalMode === 'create'
+          ? `新增${pageKey === 'system-config' ? '模型配置' : page.title}`
+          : `编辑${pageKey === 'system-config' ? '模型配置' : page.title}`}
         onCancel={() => setModalOpen(false)}
         onOk={submitModal}
         confirmLoading={actionLoading}

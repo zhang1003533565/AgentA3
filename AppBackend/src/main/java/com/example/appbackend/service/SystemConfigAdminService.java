@@ -9,6 +9,8 @@ public interface SystemConfigAdminService {
 
     void update(Long id, SystemConfigDTO.UpdateRequest req);
 
+    void delete(Long id);
+
     SystemConfigDTO.ConfigVO upsert(SystemConfigDTO.UpsertRequest req);
 
     SystemConfigDTO.TestResultVO test(Long id);

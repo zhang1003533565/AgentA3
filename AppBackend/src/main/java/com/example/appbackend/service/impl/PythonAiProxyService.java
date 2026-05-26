@@ -265,14 +265,15 @@ public class PythonAiProxyService {
     }
 
     private void applyPythonHeaders(HttpHeaders headers, String authorization, Long userId, String requestedModel) {
+        String configPrefix = resolveConfigPrefix(requestedModel);
         headers.set(HttpHeaders.AUTHORIZATION, authorization);
         headers.set("X-User-Id", userId.toString());
-        headers.set("X-AI-Provider", requireAiCapabilityConfig("text", "provider", "模型服务商"));
-        headers.set("X-AI-Base-Url", requireAiCapabilityConfig("text", "base-url", "模型服务地址"));
-        headers.set("X-AI-Api-Key", requireAiCapabilityConfig("text", "api-key", "模型服务密钥"));
-        headers.set("X-AI-Model", StringUtils.hasText(requestedModel)
+        headers.set("X-AI-Provider", requireAiConfig(configPrefix, "provider", "模型服务商"));
+        headers.set("X-AI-Base-Url", requireAiConfig(configPrefix, "base-url", "模型服务地址"));
+        headers.set("X-AI-Api-Key", requireAiConfig(configPrefix, "api-key", "模型服务密钥"));
+        headers.set("X-AI-Model", StringUtils.hasText(requestedModel) && !requestedModel.startsWith("ai.service.")
                 ? requestedModel.trim()
-                : requireAiCapabilityConfig("text", "model", "模型 ID"));
+                : requireAiConfig(configPrefix, "model", "模型 ID"));
     }
 
     private String resolveRequestedModel(Map<String, Object> request) {
@@ -300,8 +301,15 @@ public class PythonAiProxyService {
         return copy;
     }
 
-    private String requireAiCapabilityConfig(String capability, String field, String label) {
-        String key = "ai.service." + capability + "." + field;
+    private String resolveConfigPrefix(String requestedModel) {
+        if (StringUtils.hasText(requestedModel) && requestedModel.startsWith("ai.service.")) {
+            return requestedModel.trim();
+        }
+        return "ai.service.text";
+    }
+
+    private String requireAiConfig(String configPrefix, String field, String label) {
+        String key = configPrefix + "." + field;
         String value = systemConfigService.getValue(key, "");
         if (!StringUtils.hasText(value)) {
             throw new BusinessException(

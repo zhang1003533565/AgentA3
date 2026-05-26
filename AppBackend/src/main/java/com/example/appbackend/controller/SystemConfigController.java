@@ -54,6 +54,16 @@ public class SystemConfigController {
         return Result.success("更新成功", (Void) null);
     }
 
+    @DeleteMapping("/{id}")
+    @Operation(summary = "删除系统配置", description = "管理员权限")
+    public Result<Void> delete(
+            @PathVariable Long id,
+            HttpServletRequest request) {
+        if (!isAdmin(request)) throw new BusinessException(Result.FORBIDDEN_CODE, "无权限");
+        systemConfigAdminService.delete(id);
+        return Result.success("删除成功", (Void) null);
+    }
+
     @PostMapping("/upsert")
     @Operation(summary = "按配置键保存系统配置", description = "管理员权限；存在则更新，不存在则创建")
     public Result<SystemConfigDTO.ConfigVO> upsert(

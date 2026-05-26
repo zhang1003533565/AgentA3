@@ -191,6 +191,7 @@ const columns = {
   ],
   systemConfig: [
     { title: '能力类型', dataIndex: 'modalityLabel', type: 'tag' },
+    { title: '配置标识', dataIndex: 'configName' },
     { title: '服务商', dataIndex: 'provider', type: 'tag' },
     { title: '模型 ID', dataIndex: 'model' },
     { title: 'API Key', dataIndex: 'apiKeyMasked' },

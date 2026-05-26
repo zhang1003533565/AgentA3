@@ -21,6 +21,7 @@ import './RagManage.css'
 
 const { TextArea } = Input
 const { Text, Title } = Typography
+const TEXT_MODEL_CONFIG_PATTERN = /^ai\.service\.text(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
 
 const strategyColumns = [
   { title: '执行策略', dataIndex: 'name', render: (value, record) => <Tag color="blue">{record.label || value}</Tag> },
@@ -118,32 +119,27 @@ const safeJsonParse = (value, fallback) => {
   }
 }
 
-const toLlmModelOption = (item) => {
-  if (typeof item === 'string') {
-    const value = item.trim()
-    return value ? { value, label: value } : null
-  }
-  if (!item || typeof item !== 'object') return null
-  const value = String(item.model || item.id || item.value || item.name || '').trim()
-  if (!value) return null
-  const label = String(item.label || item.name || value).trim() || value
-  return { value, label }
-}
-
-const buildLlmModelOptions = (models = []) => {
-  const options = []
-  const pushOption = (item) => {
-    const option = toLlmModelOption(item)
-    if (option) options.push(option)
-  }
-
-  models.forEach(pushOption)
-
-  const dedup = new Map()
-  options.forEach((item) => {
-    if (!dedup.has(item.value)) dedup.set(item.value, item)
+const buildLlmModelOptions = (configRows = []) => {
+  const groups = new Map()
+  configRows.forEach((item) => {
+    const match = String(item.configKey || '').match(TEXT_MODEL_CONFIG_PATTERN)
+    if (!match) return
+    const [, configName = 'default', field] = match
+    const configPrefix = configName === 'default' ? 'ai.service.text' : `ai.service.text.${configName}`
+    const group = groups.get(configPrefix) || { configPrefix, configs: {} }
+    group.configs[field] = item
+    groups.set(configPrefix, group)
   })
-  return Array.from(dedup.values())
+
+  return Array.from(groups.values())
+    .filter((group) => ['provider', 'base-url', 'api-key', 'model'].every((field) => {
+      const config = group.configs[field]
+      return config && Number(config.status) === 1 && String(config.configValue || '').trim()
+    }))
+    .map((group) => ({
+      value: group.configPrefix,
+      label: group.configs.model.configValue,
+    }))
 }
 
 const executionModeLabels = {
@@ -343,7 +339,7 @@ function RagManage() {
         getRagEmbeddingHealth(),
         getRagGraphStoreHealth(),
         getTextToSqlSchema(),
-        getSystemConfigList({ current: 1, size: 100, prefixes: 'ai.service.' }),
+        getSystemConfigList({ current: 1, size: 500, prefixes: 'ai.service.' }),
       ])
       setStrategies(strategyRes.data?.strategies || [])
       setCapabilities(capabilityRes.data || null)
@@ -358,14 +354,7 @@ function RagManage() {
       })
       setSqlSchema(schemaRes.data?.schema || null)
 
-      const configRows = aiConfigRes.data?.records || []
-      const textConfigFields = ['provider', 'base-url', 'api-key', 'model']
-      const textConfigs = textConfigFields.map((field) =>
-        configRows.find((item) => item.configKey === `ai.service.text.${field}`),
-      )
-      const textModelConfig = textConfigs.find((item) => item?.configKey === 'ai.service.text.model')
-      const textModelReady = textConfigs.every((item) => item && Number(item.status) === 1 && String(item.configValue || '').trim())
-      setLlmModelOptions(buildLlmModelOptions(textModelReady ? [textModelConfig?.configValue] : []))
+      setLlmModelOptions(buildLlmModelOptions(aiConfigRes.data?.records || []))
     } catch (error) {
       message.error(error.message || '加载 RAG 管理数据失败')
     } finally {

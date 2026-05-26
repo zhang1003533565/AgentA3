@@ -20,6 +20,12 @@ export const updateSystemConfig = (id, data) =>
     data,
   })
 
+export const deleteSystemConfig = (id) =>
+  request({
+    url: `/api/system-config/${id}`,
+    method: 'delete',
+  })
+
 export const upsertSystemConfig = (data) =>
   request({
     url: '/api/system-config/upsert',
