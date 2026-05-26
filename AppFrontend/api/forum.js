@@ -200,6 +200,22 @@ export function getFollowing(userId, params = {}) {
   })
 }
 
+export function getMyFollowers(params = {}) {
+  return request({
+    url: '/api/forum/follows/my/followers',
+    method: 'GET',
+    params
+  })
+}
+
+export function getMyFollowing(params = {}) {
+  return request({
+    url: '/api/forum/follows/my/following',
+    method: 'GET',
+    params
+  })
+}
+
 export function getUserPosts(userId, params = {}) {
   return request({
     url: `/api/forum/users/${userId}/posts`,

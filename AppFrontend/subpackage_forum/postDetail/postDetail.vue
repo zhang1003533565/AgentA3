@@ -12,10 +12,10 @@
           <text class="user-name">{{ postDetail.userName }}</text>
           <text class="post-time">{{ postDetail.createTime }}</text>
         </view>
-        <view class="follow-btn" v-if="!postDetail.isFollow" @click.stop="toggleFollow">
+        <view class="follow-btn" v-if="!isAuthorSelf && !postDetail.isFollow" @click.stop="toggleFollow">
           <text>+ 关注</text>
         </view>
-        <view class="follow-btn followed" v-else @click.stop="toggleFollow">
+        <view class="follow-btn followed" v-else-if="!isAuthorSelf" @click.stop="toggleFollow">
           <text>已关注</text>
         </view>
       </view>
@@ -164,6 +164,7 @@ import {
   togglePostFavorite,
   togglePostLike
 } from '@/api/forum.js'
+import { getUserInfo } from '@/utils/storage.js'
 
 export default {
   components: { NavBar },
@@ -191,10 +192,18 @@ export default {
       commentList: [],
       showCommentPopup: false,
       commentContent: '',
-      replyTarget: null
+      replyTarget: null,
+      currentUserId: ''
+    }
+  },
+  computed: {
+    isAuthorSelf() {
+      return !!this.currentUserId && String(this.currentUserId) === String(this.postDetail.userId || '')
     }
   },
   onLoad(options) {
+    const localUser = getUserInfo() || {}
+    this.currentUserId = localUser.id || localUser.userId || ''
     this.postId = options.id
     this.loadPostDetail()
     this.loadComments()
@@ -285,10 +294,13 @@ export default {
     async toggleFollow() {
       if (!this.postDetail.userId) return
       try {
-        await toggleFollowUser(this.postDetail.userId)
-        this.postDetail.isFollow = !this.postDetail.isFollow
+        const res = await toggleFollowUser(this.postDetail.userId)
+        const nextFollowing = typeof res?.data?.following === 'boolean'
+          ? res.data.following
+          : !this.postDetail.isFollow
+        this.postDetail.isFollow = nextFollowing
         uni.showToast({
-          title: this.postDetail.isFollow ? '关注成功' : '已取消关注',
+          title: nextFollowing ? '关注成功' : '已取消关注',
           icon: 'none'
         })
       } catch (error) {}
