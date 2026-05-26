@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,8 +8,9 @@ from app.rag.retrievers.keyword import KeywordRetriever
 from app.rag.retrievers.hybrid import HybridRetriever
 from app.rag.retrievers.parent_child import ParentChildRetriever
 from app.rag.rerankers import LexicalReranker
-from app.rag.core.types import RagDocument
+from app.rag.core.types import RagDocument, RagQuery
 from app.rag.evaluators import RetrievalGrader
+from app.rag.engine import rag_engine
 from app.rag.query_transformers.hyde import HydeTransformer
 from app.rag.query_transformers.multi_query import MultiQueryTransformer
 from app.multi_agents.retriever_agent.agent import RetrieverAgent
@@ -16,6 +18,39 @@ from app.rag.retrievers import java_backend_retriever
 
 
 class LocalVectorRetrieverTest(unittest.TestCase):
+    def test_rag_engine_registers_all_document_strategies(self):
+        expected = {
+            "naive_rag",
+            "multi_query_rag",
+            "hyde",
+            "semantic_chunking",
+            "parent_child",
+            "hybrid_search",
+            "reranking",
+            "crag",
+            "self_rag",
+            "adaptive_rag",
+            "graph_rag",
+            "text_to_sql",
+            "agentic_rag",
+            "multi_agent_rag",
+            "multimodal_rag",
+            "speculative_rag",
+        }
+
+        self.assertEqual(expected, set(rag_engine.list_strategies()))
+
+    def test_all_rag_strategies_are_runtime_runnable(self):
+        query = RagQuery(text="校园卡补办地点和食堂优惠券统计", keyword="校园卡补办")
+
+        for strategy_name in rag_engine.list_strategies():
+            with self.subTest(strategy_name=strategy_name):
+                result = rag_engine.get_strategy(strategy_name).run(query)
+
+                self.assertEqual(strategy_name, result.strategy)
+                self.assertTrue(result.metadata.get("implemented"))
+                self.assertTrue(result.trace)
+
     def test_search_markdown_documents(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -59,6 +94,34 @@ class LocalVectorRetrieverTest(unittest.TestCase):
             self.assertTrue(results)
             self.assertEqual("library.md", Path(results[0].source).name)
             self.assertTrue(results[0].metadata.get("hybridScore"))
+
+    def test_retrievers_read_local_chunk_index_first(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            index_dir = root / ".index"
+            index_dir.mkdir()
+            indexed_source = str(root / "api_ingest" / "card.md")
+            (index_dir / "local_chunks.jsonl").write_text(
+                json.dumps({
+                    "id": "indexed-card#chunk-0",
+                    "content": "校园卡补办地点在行政楼一楼服务大厅，需要携带学生证。",
+                    "source": indexed_source,
+                    "metadata": {"chunkIndex": 0, "modality": "markdown"},
+                }, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+
+            vector_results = VectorRetriever(root_dir=temp_dir).search("校园卡补办地点", top_k=2)
+            keyword_results = KeywordRetriever(root_dir=temp_dir).search("校园卡补办地点", top_k=2)
+            hybrid_results = HybridRetriever(root_dir=temp_dir).search("校园卡补办地点", top_k=2)
+
+            self.assertTrue(vector_results)
+            self.assertTrue(keyword_results)
+            self.assertTrue(hybrid_results)
+            self.assertEqual("indexed-card#chunk-0", vector_results[0].id)
+            self.assertEqual("local_jsonl", vector_results[0].metadata.get("indexSource"))
+            self.assertEqual("local_jsonl", keyword_results[0].metadata.get("indexSource"))
+            self.assertEqual("local_jsonl", hybrid_results[0].metadata.get("indexSource"))
 
     def test_parent_child_retriever_returns_parent_context(self):
         with tempfile.TemporaryDirectory() as temp_dir:

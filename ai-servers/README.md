@@ -23,7 +23,17 @@ AI 相关框架统一放在 `app/` 下维护，避免运行代码、skill、cont
 
 - `POST /internal/chat`
 - `POST /internal/chat/stream` (SSE)
+- `GET /internal/rag/strategies`
+- `POST /internal/rag/query`
+- `POST /internal/rag/documents`：保存文档、解析、切分并写入本地 `.index/local_chunks.jsonl`
+- `GET /internal/rag/documents`
+- `GET /internal/rag/vector-store/health`
+- `GET /internal/rag/embedding/health`
 - `GET /healthz`
+
+`POST /internal/chat` 和 SSE 接口都支持传入 `ragStrategy`：
+
+`naive_rag`、`multi_query_rag`、`hyde`、`semantic_chunking`、`parent_child`、`hybrid_search`、`reranking`、`crag`、`self_rag`、`adaptive_rag`、`graph_rag`、`text_to_sql`、`agentic_rag`、`multi_agent_rag`、`multimodal_rag`、`speculative_rag`。
 
 ## Run
 
@@ -52,7 +62,32 @@ uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
 - `RAG_CHUNK_SIZE` default `800`
 - `RAG_CHUNK_OVERLAP` default `120`
 - `RAG_VECTOR_TOP_K` default `5`
+- `RAG_EMBEDDING_PROVIDER` default `local_lexical`
+- `RAG_VECTOR_STORE_BACKEND` default `local_jsonl`
+- `RAG_PARENT_CHUNK_SIZE` default `1600`
+- `RAG_PARENT_CHUNK_OVERLAP` default `160`
+- `RAG_CHILD_CHUNK_SIZE` default `420`
+- `RAG_CHILD_CHUNK_OVERLAP` default `80`
+
+预留向量库配置：
+
+- `RAG_FAISS_INDEX_DIR`
+- `RAG_MILVUS_URI`
+- `RAG_MILVUS_COLLECTION`
+- `RAG_ELASTICSEARCH_URL`
+- `RAG_ELASTICSEARCH_INDEX`
+- `RAG_PGVECTOR_DSN`
+- `RAG_PGVECTOR_TABLE`
+
+预留 embedding 配置：
+
+- `OPENAI_API_KEY`
+- `RAG_OPENAI_EMBEDDING_MODEL`
+- `DASHSCOPE_API_KEY`
+- `RAG_DASHSCOPE_EMBEDDING_MODEL`
+- `RAG_BGE_MODEL_NAME`
+- `RAG_SENTENCE_TRANSFORMERS_MODEL`
 
 `ai-servers` 的业务数据（食堂/档口/菜品/优惠券/课表）通过 `Authorization` 复用 Java 现有接口获取，不直接连数据库。
 
-本地文档 RAG 默认读取 `ai-servers/knowledge_base/raw` 下的 `.md`、`.markdown`、`.txt` 文件。
+本地文档 RAG 默认读取 `ai-servers/knowledge_base/raw` 下的 `.md`、`.markdown`、`.txt`、`.csv`、`.json`、`.html`、`.htm` 文件。

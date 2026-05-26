@@ -1,17 +1,16 @@
 import math
 import os
-import re
-from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from app.rag.chunking.parent_child import ParentChildChunker
 from app.rag.core.types import RagDocument
+from app.rag.embeddings import EmbeddingVector, build_embedding_provider
 from app.rag.indexing.document_loader import DocumentLoader
 
 
 class ParentChildRetriever:
-    def __init__(self, root_dir: str | None = None) -> None:
+    def __init__(self, root_dir: Optional[str] = None) -> None:
         self.root_dir = self._resolve_root_dir(root_dir or os.getenv("RAG_KNOWLEDGE_BASE_DIR", "knowledge_base/raw"))
         self.loader = DocumentLoader()
         self.chunker = ParentChildChunker(
@@ -20,8 +19,9 @@ class ParentChildRetriever:
             child_chunk_size=int(os.getenv("RAG_CHILD_CHUNK_SIZE", "420")),
             child_overlap=int(os.getenv("RAG_CHILD_CHUNK_OVERLAP", "80")),
         )
+        self.embedding_provider = build_embedding_provider()
         self._index_signature = ""
-        self._children: List[Tuple[RagDocument, Counter[str]]] = []
+        self._children: List[Tuple[RagDocument, EmbeddingVector]] = []
         self._parents: Dict[str, RagDocument] = {}
 
     def search(self, query: str, top_k: int = 5) -> List[RagDocument]:
@@ -117,17 +117,10 @@ class ParentChildRetriever:
             parts.append(f"{path}:{stat.st_mtime_ns}:{stat.st_size}")
         return "|".join(parts)
 
-    def _vectorize(self, text: str) -> Counter[str]:
-        return Counter(self._tokenize(text))
+    def _vectorize(self, text: str) -> EmbeddingVector:
+        return self.embedding_provider.embed_text(text)
 
-    def _tokenize(self, text: str) -> List[str]:
-        normalized = (text or "").lower()
-        words = re.findall(r"[a-z0-9_]+|[\u4e00-\u9fff]", normalized)
-        chinese_chars = [token for token in words if re.fullmatch(r"[\u4e00-\u9fff]", token)]
-        bigrams = [a + b for a, b in zip(chinese_chars, chinese_chars[1:])]
-        return words + bigrams
-
-    def _cosine(self, left: Dict[str, int], right: Dict[str, int]) -> float:
+    def _cosine(self, left: Dict[str, float], right: Dict[str, float]) -> float:
         common = set(left) & set(right)
         numerator = sum(left[token] * right[token] for token in common)
         if numerator == 0:

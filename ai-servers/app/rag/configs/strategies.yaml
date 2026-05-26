@@ -10,7 +10,7 @@ strategies:
     status: implemented
   semantic_chunking:
     category: indexing
-    status: scaffolded
+    status: implemented
   parent_child:
     category: indexing
     status: implemented
@@ -25,25 +25,25 @@ strategies:
     status: implemented
   self_rag:
     category: corrective
-    status: scaffolded
+    status: implemented
   adaptive_rag:
     category: routing
-    status: scaffolded
+    status: implemented
   graph_rag:
     category: structured_knowledge
-    status: scaffolded
+    status: implemented
   text_to_sql:
     category: structured_knowledge
-    status: scaffolded
+    status: implemented
   agentic_rag:
     category: agentic
-    status: scaffolded
+    status: implemented
   multi_agent_rag:
     category: agentic
-    status: scaffolded
+    status: implemented
   multimodal_rag:
     category: multimodal
-    status: scaffolded
+    status: implemented
   speculative_rag:
     category: performance
-    status: scaffolded
+    status: implemented

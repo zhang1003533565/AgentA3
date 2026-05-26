@@ -1,25 +1,27 @@
 import math
 import os
-import re
-from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from app.rag.chunking.semantic import SemanticChunker
 from app.rag.core.types import RagDocument
+from app.rag.embeddings import EmbeddingVector, build_embedding_provider
 from app.rag.indexing.document_loader import DocumentLoader
+from app.rag.indexing.local_chunk_index import LocalChunkIndex
 
 
 class VectorRetriever:
-    def __init__(self, root_dir: str | None = None, chunk_size: int | None = None, overlap: int | None = None) -> None:
+    def __init__(self, root_dir: Optional[str] = None, chunk_size: Optional[int] = None, overlap: Optional[int] = None) -> None:
         self.root_dir = self._resolve_root_dir(root_dir or os.getenv("RAG_KNOWLEDGE_BASE_DIR", "knowledge_base/raw"))
         self.chunker = SemanticChunker(
             chunk_size=chunk_size or int(os.getenv("RAG_CHUNK_SIZE", "800")),
             overlap=overlap or int(os.getenv("RAG_CHUNK_OVERLAP", "120")),
         )
         self.loader = DocumentLoader()
+        self.local_chunk_index = LocalChunkIndex(self.root_dir)
+        self.embedding_provider = build_embedding_provider()
         self._index_signature = ""
-        self._index: List[Tuple[RagDocument, Counter[str]]] = []
+        self._index: List[Tuple[RagDocument, EmbeddingVector]] = []
 
     def search(self, query: str, top_k: int = 5) -> List[RagDocument]:
         self._ensure_index()
@@ -48,19 +50,28 @@ class VectorRetriever:
             return
 
         self._index = []
+        for document in self._load_documents():
+            vector = self._vectorize(document.content)
+            if vector:
+                self._index.append((document, vector))
+        self._index_signature = signature
+
+    def _load_documents(self) -> List[RagDocument]:
+        indexed_documents = self.local_chunk_index.load()
+        if indexed_documents:
+            return indexed_documents
+
+        documents: List[RagDocument] = []
         for loaded in self.loader.load(str(self.root_dir)):
             chunks = self.chunker.split(loaded.content)
             for index, chunk in enumerate(chunks):
-                document = RagDocument(
+                documents.append(RagDocument(
                     id=f"{loaded.id}#{index}",
                     content=chunk,
                     source=loaded.source,
                     metadata={"chunkIndex": index},
-                )
-                vector = self._vectorize(chunk)
-                if vector:
-                    self._index.append((document, vector))
-        self._index_signature = signature
+                ))
+        return documents
 
     def _resolve_root_dir(self, root_dir: str) -> Path:
         path = Path(root_dir)
@@ -72,6 +83,8 @@ class VectorRetriever:
     def _signature(self) -> str:
         if not self.root_dir.exists():
             return "missing"
+        if self.local_chunk_index.load():
+            return self.local_chunk_index.signature()
         parts: List[str] = []
         for path in sorted(self.root_dir.rglob("*")):
             if not path.is_file() or path.suffix.lower() not in DocumentLoader.SUPPORTED_SUFFIXES:
@@ -80,18 +93,10 @@ class VectorRetriever:
             parts.append(f"{path}:{stat.st_mtime_ns}:{stat.st_size}")
         return "|".join(parts)
 
-    def _vectorize(self, text: str) -> Counter[str]:
-        tokens = self._tokenize(text)
-        return Counter(tokens)
+    def _vectorize(self, text: str) -> EmbeddingVector:
+        return self.embedding_provider.embed_text(text)
 
-    def _tokenize(self, text: str) -> List[str]:
-        normalized = (text or "").lower()
-        words = re.findall(r"[a-z0-9_]+|[\u4e00-\u9fff]", normalized)
-        chinese_chars = [token for token in words if re.fullmatch(r"[\u4e00-\u9fff]", token)]
-        bigrams = [a + b for a, b in zip(chinese_chars, chinese_chars[1:])]
-        return words + bigrams
-
-    def _cosine(self, left: Dict[str, int], right: Dict[str, int]) -> float:
+    def _cosine(self, left: Dict[str, float], right: Dict[str, float]) -> float:
         common = set(left) & set(right)
         numerator = sum(left[token] * right[token] for token in common)
         if numerator == 0:

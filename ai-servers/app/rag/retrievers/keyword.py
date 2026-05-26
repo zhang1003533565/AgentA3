@@ -2,21 +2,23 @@ import os
 import re
 from collections import Counter
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from app.rag.chunking.semantic import SemanticChunker
 from app.rag.core.types import RagDocument
 from app.rag.indexing.document_loader import DocumentLoader
+from app.rag.indexing.local_chunk_index import LocalChunkIndex
 
 
 class KeywordRetriever:
-    def __init__(self, root_dir: str | None = None, chunk_size: int | None = None, overlap: int | None = None) -> None:
+    def __init__(self, root_dir: Optional[str] = None, chunk_size: Optional[int] = None, overlap: Optional[int] = None) -> None:
         self.root_dir = self._resolve_root_dir(root_dir or os.getenv("RAG_KNOWLEDGE_BASE_DIR", "knowledge_base/raw"))
         self.chunker = SemanticChunker(
             chunk_size=chunk_size or int(os.getenv("RAG_CHUNK_SIZE", "800")),
             overlap=overlap or int(os.getenv("RAG_CHUNK_OVERLAP", "120")),
         )
         self.loader = DocumentLoader()
+        self.local_chunk_index = LocalChunkIndex(self.root_dir)
         self._index_signature = ""
         self._index: List[RagDocument] = []
 
@@ -46,17 +48,25 @@ class KeywordRetriever:
         if signature == self._index_signature:
             return
 
-        self._index = []
+        self._index = self._load_documents()
+        self._index_signature = signature
+
+    def _load_documents(self) -> List[RagDocument]:
+        indexed_documents = self.local_chunk_index.load()
+        if indexed_documents:
+            return indexed_documents
+
+        documents: List[RagDocument] = []
         for loaded in self.loader.load(str(self.root_dir)):
             chunks = self.chunker.split(loaded.content)
             for index, chunk in enumerate(chunks):
-                self._index.append(RagDocument(
+                documents.append(RagDocument(
                     id=f"{loaded.id}#{index}",
                     content=chunk,
                     source=loaded.source,
                     metadata={"chunkIndex": index},
                 ))
-        self._index_signature = signature
+        return documents
 
     def _score(self, text: str, terms: List[str]) -> float:
         normalized = self._normalize(text)
@@ -83,6 +93,8 @@ class KeywordRetriever:
     def _signature(self) -> str:
         if not self.root_dir.exists():
             return "missing"
+        if self.local_chunk_index.load():
+            return self.local_chunk_index.signature()
         parts: List[str] = []
         for path in sorted(self.root_dir.rglob("*")):
             if not path.is_file() or path.suffix.lower() not in DocumentLoader.SUPPORTED_SUFFIXES:

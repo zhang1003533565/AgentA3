@@ -138,7 +138,7 @@ class JavaReuseIntegrationTest(unittest.TestCase):
         self.assertIn("coupon", types)
 
     def test_search_schedule_via_java_apis(self):
-        results = data_store.search_schedule("Bearer t", "今天有什么课")
+        results = data_store.search_schedule("Bearer t", "本周有什么课")
         self.assertTrue(len(results) > 0)
         self.assertEqual("course_schedule", results[0].get("type"))
         self.assertIn("name", results[0])

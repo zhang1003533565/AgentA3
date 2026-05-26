@@ -1,4 +1,42 @@
-from app.rag.core import PlaceholderRagStrategy, RAG_STRATEGY_SPECS
+from importlib import import_module
+
+from app.rag.core import BaseRagStrategy, PlaceholderRagStrategy, RAG_STRATEGY_SPECS, RagQuery, RagResult, RagTraceStep
+from app.rag.routers.adaptive_router import AdaptiveRagRouter
 
 spec = RAG_STRATEGY_SPECS["adaptive_rag"]
-strategy = PlaceholderRagStrategy("adaptive_rag", spec["category"], spec["purpose"])
+
+
+class AdaptiveRagStrategy(BaseRagStrategy):
+    name = "adaptive_rag"
+    category = spec["category"]
+
+    def __init__(self) -> None:
+        self.router = AdaptiveRagRouter()
+
+    def run(self, query: RagQuery) -> RagResult:
+        routed_strategy = self.router.route(query.text)
+        delegate = self._load_delegate(routed_strategy)
+        result = delegate.run(query)
+        return RagResult(
+            strategy=self.name,
+            answer=result.answer,
+            documents=result.documents,
+            trace=[
+                RagTraceStep(stage="route", detail={"routedStrategy": routed_strategy}),
+                *result.trace,
+            ],
+            metadata={"implemented": True, "routedStrategy": routed_strategy, "delegateMetadata": result.metadata},
+        )
+
+    def _load_delegate(self, strategy_name: str) -> BaseRagStrategy:
+        if strategy_name == self.name:
+            strategy_name = "naive_rag"
+        try:
+            module = import_module(f"app.rag.strategies.{strategy_name}.strategy")
+            return getattr(module, "strategy")
+        except Exception:
+            fallback_spec = RAG_STRATEGY_SPECS.get(strategy_name, RAG_STRATEGY_SPECS["naive_rag"])
+            return PlaceholderRagStrategy(strategy_name, fallback_spec["category"], fallback_spec["purpose"])
+
+
+strategy = AdaptiveRagStrategy()

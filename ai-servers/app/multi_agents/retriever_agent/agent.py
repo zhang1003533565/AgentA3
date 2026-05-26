@@ -1,12 +1,17 @@
 import os
+from pathlib import Path
 from typing import Any, Dict, List
 
 from app.rag.core.types import RagDocument
 from app.rag.evaluators import RetrievalGrader
+from app.rag.generation.context_builder import ContextBuilder
+from app.rag.generation.speculative import SpeculativeGenerator
 from app.rag.query_transformers.hyde import HydeTransformer
 from app.rag.query_transformers.multi_query import MultiQueryTransformer
 from app.rag.rerankers import LexicalReranker
-from app.rag.retrievers import HybridRetriever, ParentChildRetriever, VectorRetriever, java_backend_retriever
+from app.rag.retrievers import GraphRetriever, HybridRetriever, ParentChildRetriever, VectorRetriever, java_backend_retriever
+from app.rag.routers.adaptive_router import AdaptiveRagRouter
+from app.rag.structured.text_to_sql import TextToSqlService
 
 
 class RetrieverAgent:
@@ -14,12 +19,21 @@ class RetrieverAgent:
         self.vector_retriever = VectorRetriever()
         self.hybrid_retriever = HybridRetriever()
         self.parent_child_retriever = ParentChildRetriever()
+        self.graph_retriever = GraphRetriever()
         self.multi_query_transformer = MultiQueryTransformer()
         self.hyde_transformer = HydeTransformer()
         self.retrieval_grader = RetrievalGrader()
         self.reranker = LexicalReranker()
+        self.adaptive_router = AdaptiveRagRouter()
+        self.text_to_sql = TextToSqlService()
+        self.speculative_generator = SpeculativeGenerator()
+        self.context_builder = ContextBuilder()
         self.vector_top_k = int(os.getenv("RAG_VECTOR_TOP_K", "5"))
         self._last_crag_meta: Dict[str, Any] = {}
+        self._last_self_rag_meta: Dict[str, Any] = {}
+        self._last_agentic_meta: Dict[str, Any] = {}
+        self._last_graph_meta: Dict[str, Any] = {}
+        self._last_speculative_meta: Dict[str, Any] = {}
 
     def retrieve(self, authorization: str, intent: str, keyword: str, input_text: str) -> List[Dict[str, Any]]:
         results, _ = self.retrieve_with_meta(authorization, intent, keyword, input_text)
@@ -39,31 +53,56 @@ class RetrieverAgent:
             results = java_backend_retriever.search_schedule(authorization, input_text)
             return results, {"javaBackendCount": len(results), "documentCount": 0}
 
-        java_results = java_backend_retriever.search_keyword(authorization, keyword)
-        document_results = self._search_documents(keyword=keyword, input_text=input_text, rag_strategy=rag_strategy)
+        query = f"{keyword} {input_text}".strip()
+        effective_strategy = self._effective_strategy(rag_strategy, query)
+        java_results = [] if effective_strategy == "text_to_sql" else java_backend_retriever.search_keyword(authorization, keyword)
+        document_results = self._search_documents(keyword=keyword, input_text=input_text, rag_strategy=effective_strategy)
         results = java_results + document_results
-        crag_meta = self._crag_meta(rag_strategy, query=f"{keyword} {input_text}".strip(), document_results=document_results)
-        return results, {
+
+        meta = {
             "javaBackendCount": len(java_results),
             "documentCount": len(document_results),
             "documentTopK": self.vector_top_k,
-            "documentRetriever": self._document_retriever_name(rag_strategy),
-            "parentChildEnabled": rag_strategy == "parent_child",
-            "rerankingEnabled": rag_strategy == "reranking",
-            **crag_meta,
-            **self._strategy_meta(rag_strategy, query=f"{keyword} {input_text}".strip()),
+            "documentRetriever": self._document_retriever_name(effective_strategy),
+            "parentChildEnabled": effective_strategy in {"parent_child", "multi_agent_rag"},
+            "rerankingEnabled": effective_strategy in {"reranking", "crag", "self_rag", "agentic_rag", "multi_agent_rag"},
+            **self._routing_meta(rag_strategy, effective_strategy),
+            **self._crag_meta(effective_strategy, query, document_results),
+            **self._strategy_meta(effective_strategy, query),
         }
+        return results, meta
+
+    def _effective_strategy(self, rag_strategy: str, query: str) -> str:
+        if rag_strategy == "adaptive_rag":
+            routed = self.adaptive_router.route(query)
+            return routed if routed != "adaptive_rag" else "naive_rag"
+        return rag_strategy or "naive_rag"
 
     def _search_documents(self, keyword: str, input_text: str, rag_strategy: str) -> List[Dict[str, Any]]:
         query = f"{keyword} {input_text}".strip()
+        if rag_strategy == "text_to_sql":
+            return self._text_to_sql_search(query)
+
         if rag_strategy == "parent_child":
             documents = self.parent_child_retriever.search(query, top_k=self.vector_top_k)
         elif rag_strategy == "crag":
             documents = self._crag_search(query)
+        elif rag_strategy == "self_rag":
+            documents = self._self_rag_search(query)
         elif rag_strategy == "multi_query_rag":
             documents = self._multi_query_search(query)
         elif rag_strategy == "hyde":
             documents = self._hyde_search(query)
+        elif rag_strategy == "graph_rag":
+            documents = self._graph_search(query)
+        elif rag_strategy == "agentic_rag":
+            documents = self._agentic_search(query)
+        elif rag_strategy == "multi_agent_rag":
+            documents = self._multi_agent_search(query)
+        elif rag_strategy == "multimodal_rag":
+            documents = self._multimodal_search(query)
+        elif rag_strategy == "speculative_rag":
+            documents = self._speculative_search(query)
         elif rag_strategy in {"hybrid_search", "reranking"}:
             documents = self.hybrid_retriever.search(query, top_k=self.vector_top_k)
         else:
@@ -72,18 +111,7 @@ class RetrieverAgent:
         if rag_strategy == "reranking":
             documents = self.reranker.rerank(query, documents)[:self.vector_top_k]
 
-        return [
-            {
-                "type": "knowledge_document",
-                "id": document.id,
-                "name": document.source,
-                "source": document.source,
-                "content": document.content,
-                "score": document.score,
-                "metadata": document.metadata,
-            }
-            for document in documents
-        ]
+        return self._format_documents(documents)
 
     def _crag_search(self, query: str) -> List[RagDocument]:
         initial_documents = self.hybrid_retriever.search(query, top_k=self.vector_top_k)
@@ -107,6 +135,104 @@ class RetrieverAgent:
         self._last_crag_meta["repairedDocumentCount"] = len(repaired_documents)
         self._last_crag_meta["finalDocumentCount"] = len(reranked)
         return reranked
+
+    def _self_rag_search(self, query: str) -> List[RagDocument]:
+        initial_documents = self.hybrid_retriever.search(query, top_k=self.vector_top_k)
+        initial_grade = self.retrieval_grader.grade(query, initial_documents)
+        documents = initial_documents
+        action = "accept"
+        if not initial_grade.sufficient:
+            repaired_documents = self._multi_query_search(query)
+            documents = self.reranker.rerank(query, self._deduplicate_documents(initial_documents + repaired_documents))[:self.vector_top_k]
+            action = "self_repair"
+        final_grade = self.retrieval_grader.grade(query, documents)
+        self._last_self_rag_meta = {
+            "selfReflection": {
+                "needRetrieval": bool(query),
+                "initialSufficient": initial_grade.sufficient,
+                "finalSufficient": final_grade.sufficient,
+                "action": action,
+                "score": final_grade.score,
+            }
+        }
+        return documents
+
+    def _graph_search(self, query: str) -> List[RagDocument]:
+        documents = self.graph_retriever.search_paths(query, top_k=self.vector_top_k)
+        fallback_used = False
+        if not documents:
+            fallback_used = True
+            documents = self.hybrid_retriever.search(query, top_k=self.vector_top_k)
+        self._last_graph_meta = {"graphEnabled": True, "graphFallbackUsed": fallback_used}
+        return documents
+
+    def _text_to_sql_search(self, query: str) -> List[Dict[str, Any]]:
+        plan = self.text_to_sql.plan(query)
+        if not plan.sql:
+            return []
+        return [{
+            "type": "sql_plan",
+            "id": "text_to_sql:plan",
+            "name": "只读 SQL 查询计划",
+            "source": "text_to_sql",
+            "content": f"SQL 查询计划：{plan.sql}",
+            "score": 1.0,
+            "metadata": {"sql": plan.sql, "readonly": True, "rows": plan.rows},
+        }]
+
+    def _agentic_search(self, query: str) -> List[RagDocument]:
+        steps = ["plan", "retrieve", "grade", "repair_if_needed", "rerank"]
+        documents = self.hybrid_retriever.search(query, top_k=self.vector_top_k)
+        grade = self.retrieval_grader.grade(query, documents)
+        if not grade.sufficient:
+            documents = self.reranker.rerank(query, self._deduplicate_documents(documents + self._multi_query_search(query)))[:self.vector_top_k]
+        self._last_agentic_meta = {"agentSteps": steps, "initialGrade": grade.score}
+        return documents
+
+    def _multi_agent_search(self, query: str) -> List[RagDocument]:
+        hybrid_documents = self.hybrid_retriever.search(query, top_k=self.vector_top_k)
+        parent_documents = self.parent_child_retriever.search(query, top_k=self.vector_top_k)
+        documents = self.reranker.rerank(query, self._deduplicate_documents(hybrid_documents + parent_documents))[:self.vector_top_k]
+        self._last_agentic_meta = {
+            "agents": ["planner_agent", "retriever_agent", "answer_agent", "critic_agent"],
+            "hybridCount": len(hybrid_documents),
+            "parentChildCount": len(parent_documents),
+        }
+        return documents
+
+    def _multimodal_search(self, query: str) -> List[RagDocument]:
+        documents = self.hybrid_retriever.search(query, top_k=self.vector_top_k)
+        enriched: List[RagDocument] = []
+        for document in documents:
+            suffix = Path(document.source).suffix.lower()
+            modality = {
+                ".csv": "table",
+                ".json": "structured_json",
+                ".html": "html",
+                ".htm": "html",
+                ".md": "markdown",
+                ".markdown": "markdown",
+            }.get(suffix, "text")
+            enriched.append(RagDocument(
+                id=document.id,
+                content=document.content,
+                source=document.source,
+                score=document.score,
+                metadata={**document.metadata, "modality": modality},
+            ))
+        return enriched
+
+    def _speculative_search(self, query: str) -> List[RagDocument]:
+        draft = self.speculative_generator.draft(query)
+        documents = self.hybrid_retriever.search(query, top_k=self.vector_top_k)
+        evidence = self.context_builder.build(documents)
+        revised = self.speculative_generator.revise(draft, evidence)
+        self._last_speculative_meta = {
+            "speculativeEnabled": True,
+            "draftLength": len(draft),
+            "revisedLength": len(revised),
+        }
+        return documents
 
     def _multi_query_search(self, query: str) -> List[RagDocument]:
         queries = self.multi_query_transformer.transform(query)
@@ -152,6 +278,28 @@ class RetrieverAgent:
                 by_id[document.id] = document
         return list(by_id.values())
 
+    def _format_documents(self, documents: List[RagDocument]) -> List[Dict[str, Any]]:
+        return [
+            {
+                "type": "knowledge_document",
+                "id": document.id,
+                "name": document.source,
+                "source": document.source,
+                "content": document.content,
+                "score": document.score,
+                "metadata": document.metadata,
+            }
+            for document in documents
+        ]
+
+    def _routing_meta(self, requested_strategy: str, effective_strategy: str) -> Dict[str, Any]:
+        if requested_strategy == effective_strategy:
+            return {}
+        meta = {"requestedRagStrategy": requested_strategy, "effectiveRagStrategy": effective_strategy}
+        if requested_strategy == "adaptive_rag":
+            meta["adaptiveRoutedStrategy"] = effective_strategy
+        return meta
+
     def _strategy_meta(self, rag_strategy: str, query: str) -> Dict[str, Any]:
         if rag_strategy == "multi_query_rag":
             queries = self.multi_query_transformer.transform(query)
@@ -162,6 +310,21 @@ class RetrieverAgent:
                 "queryTransform": "hyde",
                 "hypotheticalDocumentLength": len(hypothetical_document),
             }
+        if rag_strategy == "semantic_chunking":
+            return {"semanticChunkingEnabled": True}
+        if rag_strategy == "self_rag":
+            return self._last_self_rag_meta
+        if rag_strategy == "graph_rag":
+            return self._last_graph_meta
+        if rag_strategy == "text_to_sql":
+            plan = self.text_to_sql.plan(query)
+            return {"textToSqlEnabled": True, "sql": plan.sql, "readonly": bool(plan.sql)}
+        if rag_strategy in {"agentic_rag", "multi_agent_rag"}:
+            return self._last_agentic_meta
+        if rag_strategy == "multimodal_rag":
+            return {"multimodalEnabled": True, "supportedModalities": ["markdown", "table", "structured_json", "html", "text"]}
+        if rag_strategy == "speculative_rag":
+            return self._last_speculative_meta
         return {}
 
     def _crag_meta(self, rag_strategy: str, query: str, document_results: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -192,16 +355,32 @@ class RetrieverAgent:
     def _document_retriever_name(self, rag_strategy: str) -> str:
         if rag_strategy == "crag":
             return "hybrid_search+retrieval_grader+repair"
+        if rag_strategy == "self_rag":
+            return "hybrid_search+self_reflection+repair"
         if rag_strategy == "parent_child":
             return "parent_child"
         if rag_strategy == "multi_query_rag":
             return "vector+multi_query"
         if rag_strategy == "hyde":
             return "vector+hyde"
+        if rag_strategy == "graph_rag":
+            return "graph_paths+hybrid_fallback"
+        if rag_strategy == "text_to_sql":
+            return "text_to_sql_plan"
+        if rag_strategy == "agentic_rag":
+            return "agentic_planner+hybrid+repair"
+        if rag_strategy == "multi_agent_rag":
+            return "planner+retriever+critic_agents"
+        if rag_strategy == "multimodal_rag":
+            return "multimodal_parser+hybrid_search"
+        if rag_strategy == "speculative_rag":
+            return "speculative_draft+hybrid_verify"
         if rag_strategy == "reranking":
             return "hybrid_search+lexical_reranker"
         if rag_strategy == "hybrid_search":
             return "hybrid_search"
+        if rag_strategy == "semantic_chunking":
+            return "semantic_chunking+vector"
         return "vector"
 
 

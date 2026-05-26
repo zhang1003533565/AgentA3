@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from app.rag.core.types import RagDocument
 from app.rag.retrievers.keyword import KeywordRetriever
@@ -6,7 +6,7 @@ from app.rag.retrievers.vector import VectorRetriever
 
 
 class HybridRetriever:
-    def __init__(self, root_dir: str | None = None) -> None:
+    def __init__(self, root_dir: Optional[str] = None) -> None:
         self.keyword_retriever = KeywordRetriever(root_dir=root_dir)
         self.vector_retriever = VectorRetriever(root_dir=root_dir)
 

@@ -1,6 +1,7 @@
 import os
 import time
 import uuid
+from typing import Optional
 
 from fastapi import HTTPException
 
@@ -13,6 +14,7 @@ from app.langgraph.nodes import (
 )
 from app.langgraph.state import ConversationState
 from app.models.schemas import ChatRequest, ChatResponse
+from app.rag.engine import rag_engine
 from app.utils.logger import get_logger, mask_id
 from app.utils.prompts import DEFAULT_SYSTEM_PROMPT
 from app.utils.text_utils import build_session_token
@@ -30,7 +32,7 @@ NODE_CHAIN = [
 ]
 
 
-def run_conversation_graph(request: ChatRequest, authorization: str, user_id: int | None) -> ChatResponse:
+def run_conversation_graph(request: ChatRequest, authorization: str, user_id: Optional[int]) -> ChatResponse:
     deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "")
     deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
     if not deepseek_api_key:
@@ -41,16 +43,8 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: in
     prompt = request.prompt if request.prompt else DEFAULT_SYSTEM_PROMPT
 
     requested_strategy = request.ragStrategy or "naive_rag"
-    implemented_strategies = {
-        "naive_rag",
-        "multi_query_rag",
-        "hyde",
-        "parent_child",
-        "hybrid_search",
-        "reranking",
-        "crag",
-    }
-    active_strategy = requested_strategy if requested_strategy in implemented_strategies else "naive_rag"
+    supported_strategies = set(rag_engine.list_strategies())
+    active_strategy = requested_strategy if requested_strategy in supported_strategies else "naive_rag"
 
     state = ConversationState(
         session_id=session_id,
@@ -70,7 +64,7 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: in
             "detail": {
                 "requested": requested_strategy,
                 "active": active_strategy,
-                "reason": "requested strategy is scaffolded but not implemented yet",
+                "reason": "requested strategy is unknown",
             },
         })
 

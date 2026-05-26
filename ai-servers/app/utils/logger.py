@@ -1,5 +1,6 @@
 import logging
 import os
+from typing import Optional
 
 
 def init_logging() -> None:
@@ -21,7 +22,7 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-def mask_id(value: str | None, keep_prefix: int = 6, keep_suffix: int = 4) -> str:
+def mask_id(value: Optional[str], keep_prefix: int = 6, keep_suffix: int = 4) -> str:
     if not value:
         return "-"
     if len(value) <= keep_prefix + keep_suffix + 3:

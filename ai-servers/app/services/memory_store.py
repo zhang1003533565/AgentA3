@@ -2,7 +2,10 @@ import json
 import os
 from typing import Dict, List
 
-import redis
+try:
+    import redis
+except Exception:  # redis is optional because MemoryStore has an in-memory fallback.
+    redis = None
 
 from app.utils.logger import get_logger, mask_id
 
@@ -16,6 +19,8 @@ class MemoryStore:
         self.ttl_seconds = int(os.getenv("LLM_MEMORY_TTL_MINUTES", "120")) * 60
         self.max_messages = int(os.getenv("LLM_MEMORY_MAX_MESSAGES", "20"))
         try:
+            if redis is None:
+                raise RuntimeError("redis package is not installed")
             redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
             self._redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
             self._redis_client.ping()
