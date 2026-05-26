@@ -159,6 +159,38 @@ class JavaReuseIntegrationTest(unittest.TestCase):
             extract_keyword_node_module.get_chat_service = old_extractor
             call_llm_node_module.get_chat_service = old_caller
 
+    def test_run_chat_core_can_force_md_knowledge_agent(self):
+        req = ChatRequest(
+            sessionId="agent-md",
+            agentName="md_knowledge_agent",
+            input="# 数据结构\n- 栈遵循后进先出\n- 队列遵循先进先出",
+        )
+
+        resp = chat_orchestrator.run_chat_core(req, "Bearer token-x", user_id=1001)
+
+        self.assertEqual("md_knowledge_agent", resp.agentName)
+        self.assertEqual("semantic_chunking", resp.ragStrategy)
+        self.assertIn("Markdown 知识点提取", resp.answer)
+        self.assertIn("栈遵循后进先出", resp.answer)
+
+    def test_forced_specialist_can_run_without_deepseek_key(self):
+        old_key = os.environ.pop("DEEPSEEK_API_KEY", None)
+        try:
+            req = ChatRequest(
+                sessionId="agent-offline",
+                agentName="mind_map_agent",
+                input="操作系统进程调度思维导图",
+            )
+
+            resp = chat_orchestrator.run_chat_core(req, "Bearer token-x", user_id=1001)
+
+            self.assertEqual("mind_map_agent", resp.agentName)
+            self.assertEqual("deterministic-specialist", resp.model)
+            self.assertIn("mindmap", resp.answer)
+        finally:
+            if old_key is not None:
+                os.environ["DEEPSEEK_API_KEY"] = old_key
+
 
 if __name__ == "__main__":
     unittest.main()

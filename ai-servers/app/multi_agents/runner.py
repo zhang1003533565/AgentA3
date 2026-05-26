@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from app.multi_agents.catalog import normalize_agent_name
 from app.multi_agents.image_agent.agent import image_agent
@@ -10,7 +10,7 @@ from app.multi_agents.textbook_question_bank_agent.agent import textbook_questio
 
 
 def run_specialist_agent(
-    agent_name: str | None,
+    agent_name: Optional[str],
     input_text: str,
     evidence: List[Dict[str, Any]],
     fallback_answer: str = "",

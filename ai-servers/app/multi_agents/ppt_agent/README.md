@@ -1,3 +1,3 @@
 # ppt_agent
 
-��代码、skill、prompt、contract、tools 都放在同一个文件夹，后续改 skill 时只需要调整这里。
+PPT 智能体将课程主题和教材证据编排为课件页大纲，包含每页标题、讲解目标和页面内容建议。

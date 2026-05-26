@@ -13,3 +13,29 @@
 | `image_agent` | 图片智能体 | 基于知识点生成教学配图/封面图提示词 |
 
 每个智能体文件夹都包含：`agent.py`、`skill.md`、`prompt.md`、`contract.md`、`tools.yaml`，方便后续单独调整 skill。
+
+## 调用参数
+
+对话接口 `POST /internal/chat`、流式接口 `POST /internal/chat/stream` 和测试接口 `POST /internal/rag/query` 统一使用 `agentName` 指定智能体。
+
+| 功能 | `agentName` | 默认 `ragStrategy` | 主要输入 |
+| --- | --- | --- | --- |
+| Leader 自动分发 | 留空或 `leader_agent` | `naive_rag` | `input` |
+| 思维导图 | `mind_map_agent` | `multi_agent_rag` | `input` 为主题/要求 |
+| MD 知识点提取 | `md_knowledge_agent` | `semantic_chunking` | `input` 为 Markdown 文本 |
+| 教材知识点 | `textbook_knowledge_agent` | `hybrid_search` | `input` 为章节或知识点问题 |
+| 教材题库 | `textbook_question_bank_agent` | `multi_agent_rag` | `input` 为出题范围 |
+| PPT | `ppt_agent` | `multi_agent_rag` | `input` 为课件主题 |
+| 图片 | `image_agent` | `multimodal_rag` | `input` 为配图主题 |
+
+请求示例：
+
+```json
+{
+  "sessionId": "course-001",
+  "agentName": "ppt_agent",
+  "input": "根据数据结构中栈与队列的知识点生成 6 页课件大纲"
+}
+```
+
+`ragStrategy` 可覆盖默认策略，例如教材知识点智能体可指定 `graph_rag` 或 `parent_child`。显式调用专业智能体时，输出由该智能体生成；不传时由 Leader 根据问题文字分配。

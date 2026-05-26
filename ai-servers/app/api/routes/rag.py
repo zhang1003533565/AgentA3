@@ -14,8 +14,9 @@ from app.models.schemas import (
     RagQueryResponse,
     RagTraceResponse,
 )
-from app.multi_agents.catalog import get_agent_catalog, get_agent_detail
-from app.rag.core import RAG_STRATEGY_SPECS, RagQuery
+from app.multi_agents.catalog import AGENT_ORDER, get_agent_catalog, get_agent_detail, get_agent_profile, normalize_agent_name
+from app.multi_agents.runner import run_specialist_agent
+from app.rag.core import RAG_STRATEGY_SPECS, RagQuery, RagTraceStep
 from app.rag.core.types import RagDocument
 from app.rag.embeddings import build_embedding_provider
 from app.rag.engine import rag_engine
@@ -98,15 +99,12 @@ def get_rag_capabilities(
             "textToSql": True,
             "graphRag": True,
         },
-        "agents": [
-            "leader_agent",
-            "mind_map_agent",
-            "md_knowledge_agent",
-            "textbook_knowledge_agent",
-            "textbook_question_bank_agent",
-            "ppt_agent",
-            "image_agent",
-        ],
+        "agents": AGENT_ORDER,
+        "agentInvocation": {
+            "chatParameter": "agentName",
+            "ragQueryParameter": "agentName",
+            "automaticRouting": "不传 agentName 或传 leader_agent",
+        },
     }
 
 
@@ -209,19 +207,46 @@ def run_rag_query(
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ) -> RagQueryResponse:
     _require_authorization(authorization)
-    strategy = rag_engine.get_strategy(request.ragStrategy)
-    if request.ragStrategy and strategy.name != request.ragStrategy:
-        logger.info("rag strategy fallback requested=%s active=%s", request.ragStrategy, strategy.name)
+    active_agent = normalize_agent_name(request.agentName)
+    if request.agentName and not active_agent:
+        raise HTTPException(status_code=400, detail="智能体不存在")
+
+    agent_profile = get_agent_profile(active_agent)
+    requested_strategy = request.ragStrategy or (
+        agent_profile["defaultRagStrategy"] if agent_profile else "naive_rag"
+    )
+    strategy = rag_engine.get_strategy(requested_strategy)
+    if requested_strategy and strategy.name != requested_strategy:
+        logger.info("rag strategy fallback requested=%s active=%s", requested_strategy, strategy.name)
 
     result = rag_engine.run(RagQuery(
         text=request.input,
         keyword=request.keyword or "",
         intent=request.intent,
         metadata=request.metadata,
-    ), strategy_name=request.ragStrategy)
+    ), strategy_name=requested_strategy)
+    documents = [
+        {
+            "id": document.id,
+            "content": document.content,
+            "source": document.source,
+            "score": document.score,
+            "metadata": document.metadata,
+        }
+        for document in result.documents
+    ]
+    answer = run_specialist_agent(active_agent, request.input, documents, fallback_answer=result.answer)
+    trace = list(result.trace)
+    metadata = dict(result.metadata)
+    if active_agent:
+        trace.append(RagTraceStep(
+            stage="agent_answer",
+            detail={"agentName": active_agent, "answerLength": len(answer or "")},
+        ))
+        metadata["agentName"] = active_agent
     return RagQueryResponse(
         strategy=result.strategy,
-        answer=result.answer,
+        answer=answer,
         documents=[
             RagDocumentResponse(
                 id=document.id,
@@ -234,9 +259,9 @@ def run_rag_query(
         ],
         trace=[
             RagTraceResponse(stage=step.stage, detail=step.detail)
-            for step in result.trace
+            for step in trace
         ],
-        metadata=result.metadata,
+        metadata=metadata,
     )
 
 

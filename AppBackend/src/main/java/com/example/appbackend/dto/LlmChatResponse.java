@@ -26,6 +26,9 @@ public class LlmChatResponse {
     @Schema(description = "实际使用的 RAG 策略")
     private String ragStrategy;
 
+    @Schema(description = "实际执行回答的智能体")
+    private String agentName;
+
     @Schema(description = "AI 整理出的搜索关键词")
     private String searchKeyword;
 

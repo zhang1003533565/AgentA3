@@ -36,16 +36,15 @@ NODE_CHAIN = [
 def run_conversation_graph(request: ChatRequest, authorization: str, user_id: Optional[int]) -> ChatResponse:
     deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "")
     deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
-    if not deepseek_api_key:
+    requested_agent = normalize_agent_name(request.agentName)
+    if request.agentName and not requested_agent:
+        raise HTTPException(status_code=400, detail="智能体不存在")
+    if not deepseek_api_key and requested_agent in {None, "leader_agent"}:
         raise HTTPException(status_code=500, detail="未配置 DEEPSEEK_API_KEY")
 
     session_id = request.sessionId or str(uuid.uuid4())
     session_token = build_session_token(session_id, authorization)
     prompt = request.prompt if request.prompt else DEFAULT_SYSTEM_PROMPT
-
-    requested_agent = normalize_agent_name(request.agentName)
-    if request.agentName and not requested_agent:
-        raise HTTPException(status_code=400, detail="智能体不存在")
 
     agent_profile = get_agent_profile(requested_agent) if requested_agent else None
     default_strategy = agent_profile["defaultRagStrategy"] if agent_profile else "naive_rag"
@@ -59,7 +58,7 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: Op
         authorization=authorization,
         prompt=prompt,
         input_text=request.input,
-        model=deepseek_model,
+        model=deepseek_model if deepseek_api_key else "deterministic-specialist",
         user_id=user_id,
         rag_strategy=active_strategy,
         rag_strategy_explicit=bool(request.ragStrategy),

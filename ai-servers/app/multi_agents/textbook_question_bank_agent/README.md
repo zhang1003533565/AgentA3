@@ -1,3 +1,3 @@
 # textbook_question_bank_agent
 
-��代码、skill、prompt、contract、tools 都放在同一个文件夹，后续改 skill 时只需要调整这里。
+教材题库智能体根据教材证据和出题范围生成练习题及参考答案要点，便于教师继续编辑题型和难度。

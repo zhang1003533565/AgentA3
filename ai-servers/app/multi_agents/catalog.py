@@ -103,6 +103,12 @@ def get_agent_catalog() -> Dict[str, Any]:
     agents = [_build_agent(agent_name, include_documents=True) for agent_name in AGENT_ORDER]
     return {
         "total": len(agents),
+        "invocation": {
+            "chatEndpoint": "POST /internal/chat",
+            "ragQueryEndpoint": "POST /internal/rag/query",
+            "parameter": "agentName",
+            "automaticRouting": "agentName 留空或填写 leader_agent",
+        },
         "workflow": {
             "default": ["leader_agent", "textbook_knowledge_agent", "md_knowledge_agent"],
             "mindMap": ["leader_agent", "textbook_knowledge_agent", "mind_map_agent"],
@@ -151,6 +157,11 @@ def _build_agent(agent_name: str, include_documents: bool) -> Dict[str, Any]:
         "needRetrieval": profile["needRetrieval"],
         "defaultRagStrategy": profile["defaultRagStrategy"],
         "aliases": profile["aliases"],
+        "invokeExample": {
+            "input": f"请使用{profile['role']}处理这段课程内容",
+            "agentName": agent_name,
+            "ragStrategy": profile["defaultRagStrategy"],
+        },
         "runtime": f"app.multi_agents.{agent_name}.agent",
         "directory": str(agent_dir),
         "files": {

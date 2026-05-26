@@ -1,3 +1,3 @@
 # mind_map_agent
 
-��代码、skill、prompt、contract、tools 都放在同一个文件夹，后续改 skill 时只需要调整这里。
+思维导图智能体负责将主题或检索到的教材知识整理为 Mermaid mindmap，适合前端直接展示和后续人工修改。

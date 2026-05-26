@@ -166,11 +166,15 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         payload = response.json()
         names = {item["name"] for item in payload["agents"]}
+        self.assertEqual(7, payload["total"])
         self.assertIn("textbook_knowledge_agent", names)
+        self.assertNotIn("answer_agent", names)
+        self.assertNotIn("retriever_agent", names)
         textbook_agent = next(item for item in payload["agents"] if item["name"] == "textbook_knowledge_agent")
         self.assertIn("skill.md", textbook_agent["files"]["skill"])
         self.assertIn("教材知识点智能体 Skill", textbook_agent["documents"]["skill"])
         self.assertIn("questionBank", payload["workflow"])
+        self.assertEqual("agentName", payload["invocation"]["parameter"])
 
     def test_agent_detail_endpoint_returns_single_agent(self):
         response = self.client.get("/internal/rag/agents/leader_agent", headers=self.headers)
@@ -179,6 +183,32 @@ class RagApiRoutesTest(unittest.TestCase):
         payload = response.json()
         self.assertEqual("leader_agent", payload["name"])
         self.assertIn("Leader", payload["role"])
+
+    def test_query_endpoint_can_execute_selected_specialist_agent(self):
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "数据结构中的栈与队列",
+                "agentName": "ppt_agent",
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("multi_agent_rag", payload["strategy"])
+        self.assertEqual("ppt_agent", payload["metadata"]["agentName"])
+        self.assertIn("PPT 大纲", payload["answer"])
+        self.assertEqual("agent_answer", payload["trace"][-1]["stage"])
+
+    def test_query_endpoint_rejects_unknown_agent(self):
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={"input": "测试", "agentName": "deleted_agent"},
+        )
+
+        self.assertEqual(400, response.status_code)
 
     def test_query_endpoint_synthesizes_answer_when_strategy_has_no_llm_answer(self):
         response = self.client.post(

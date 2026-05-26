@@ -1,3 +1,3 @@
 # leader_agent
 
-��代码、skill、prompt、contract、tools 都放在同一个文件夹，后续改 skill 时只需要调整这里。
+Leader 智能体是统一入口：识别用户目标、选择专业智能体、协调检索策略并保存对话记忆。本目录同时维护运行代码、skill、prompt、contract 和工具声明。

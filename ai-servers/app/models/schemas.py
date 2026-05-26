@@ -30,7 +30,7 @@ class RagQueryRequest(BaseModel):
     input: str = Field(min_length=1, max_length=4000)
     keyword: Optional[str] = Field(default=None, max_length=128)
     intent: str = Field(default="campus_search", max_length=64)
-    ragStrategy: Optional[str] = Field(default="naive_rag", max_length=64)
+    ragStrategy: Optional[str] = Field(default=None, max_length=64)
     agentName: Optional[str] = Field(default=None, max_length=64)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 

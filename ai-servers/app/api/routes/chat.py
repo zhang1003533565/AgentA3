@@ -65,6 +65,7 @@ async def internal_chat_stream(
                 "sessionId": response.sessionId,
                 "sessionToken": response.sessionToken,
                 "model": response.model,
+                "agentName": response.agentName,
             })
             yield build_sse("search", {
                 "searchKeyword": response.searchKeyword,
@@ -78,6 +79,7 @@ async def internal_chat_stream(
             yield build_sse("done", {
                 "answer": response.answer,
                 "ragStrategy": response.ragStrategy,
+                "agentName": response.agentName,
                 "searchKeyword": response.searchKeyword,
                 "matchedResults": response.matchedResults,
                 "retrievalMeta": response.retrievalMeta,

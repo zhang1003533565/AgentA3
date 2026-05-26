@@ -54,6 +54,7 @@ class PythonAiProxyServiceTest {
                       "sessionToken": "session-001_hash",
                       "model": "deepseek-chat",
                       "ragStrategy": "hybrid_search",
+                      "agentName": "ppt_agent",
                       "searchKeyword": "黄焖鸡",
                       "matchedResults": [{"type":"dish","id":1,"name":"黄焖鸡"}],
                       "retrievalMeta": {"documentCount": 1},
@@ -72,6 +73,7 @@ class PythonAiProxyServiceTest {
         request.setSessionId("session-001");
         request.setPrompt("你是校园助手");
         request.setRagStrategy("hybrid_search");
+        request.setAgentName("ppt_agent");
         request.setInput("哪个食堂有黄焖鸡");
 
         LlmChatResponse response = service.chat(request, "Bearer " + token);
@@ -81,6 +83,7 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("session-001_hash", response.getSessionToken());
         Assertions.assertEquals("deepseek-chat", response.getModel());
         Assertions.assertEquals("hybrid_search", response.getRagStrategy());
+        Assertions.assertEquals("ppt_agent", response.getAgentName());
         Assertions.assertEquals("黄焖鸡", response.getSearchKeyword());
         Assertions.assertEquals("推荐你去一食堂二楼。", response.getAnswer());
         Assertions.assertEquals(1, response.getRetrievalMeta().get("documentCount"));
@@ -94,6 +97,7 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("session-001", reqJson.path("sessionId").asText());
         Assertions.assertEquals("你是校园助手", reqJson.path("prompt").asText());
         Assertions.assertEquals("hybrid_search", reqJson.path("ragStrategy").asText());
+        Assertions.assertEquals("ppt_agent", reqJson.path("agentName").asText());
         Assertions.assertEquals("哪个食堂有黄焖鸡", reqJson.path("input").asText());
     }
 

@@ -40,7 +40,20 @@ AI 相关框架统一放在 `app/` 下维护，避免运行代码、skill、cont
 - `POST /internal/rag/evaluate`
 - `GET /healthz`
 
-`POST /internal/chat` 和 SSE 接口都支持传入 `ragStrategy`：
+`POST /internal/chat`、SSE 接口和 `POST /internal/rag/query` 都支持传入 `agentName` 指定当前 7 个智能体之一：
+
+`leader_agent`、`mind_map_agent`、`md_knowledge_agent`、`textbook_knowledge_agent`、`textbook_question_bank_agent`、`ppt_agent`、`image_agent`。
+
+`agentName` 留空或传 `leader_agent` 时由 Leader 自动选择专业智能体。传专业智能体时可省略 `ragStrategy`，服务会选用该智能体的默认检索策略；也可以显式覆盖。
+
+```json
+{
+  "agentName": "mind_map_agent",
+  "input": "把操作系统进程调度整理成思维导图"
+}
+```
+
+支持的 `ragStrategy`：
 
 `naive_rag`、`multi_query_rag`、`hyde`、`semantic_chunking`、`parent_child`、`hybrid_search`、`reranking`、`crag`、`self_rag`、`adaptive_rag`、`graph_rag`、`text_to_sql`、`agentic_rag`、`multi_agent_rag`、`multimodal_rag`、`speculative_rag`。
 

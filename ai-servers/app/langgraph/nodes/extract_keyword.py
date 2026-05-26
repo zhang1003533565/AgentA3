@@ -40,7 +40,11 @@ def extract_keyword_node(state: ConversationState) -> None:
             "detail": {"intent": state.intent, "targetAgent": plan.target_agent, "needRetrieval": True, "keyword": state.search_keyword},
         })
         return
-    state.search_keyword = md_knowledge_agent.extract_keyword(state.input_text, chat_service=get_chat_service())
+    try:
+        chat_service = get_chat_service()
+    except Exception:
+        chat_service = None
+    state.search_keyword = md_knowledge_agent.extract_keyword(state.input_text, chat_service=chat_service)
     state.trace.append({
         "stage": "leader_plan",
         "detail": {"intent": state.intent, "targetAgent": plan.target_agent, "needRetrieval": plan.need_retrieval, "keyword": state.search_keyword},

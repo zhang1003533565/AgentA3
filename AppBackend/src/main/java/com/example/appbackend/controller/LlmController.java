@@ -27,7 +27,7 @@ public class LlmController {
     }
 
     @PostMapping({"/api/ai/chat", "/api/llm/chat"})
-    @Operation(summary = "AI 对话", description = "传入 sessionId、prompt、input，返回模型回答和会话标识")
+    @Operation(summary = "AI 对话", description = "传入 input，可使用 agentName 指定智能体；为空或 leader_agent 时由 Leader 自动路由")
     public Result<LlmChatResponse> chat(@Valid @RequestBody LlmChatRequest request, HttpServletRequest httpRequest) {
         String authorization = httpRequest.getHeader("Authorization");
         return Result.success(llmService.chat(request, authorization));
@@ -37,7 +37,7 @@ public class LlmController {
             value = {"/api/ai/chat/stream", "/api/llm/chat/stream"},
             produces = MediaType.TEXT_EVENT_STREAM_VALUE
     )
-    @Operation(summary = "AI 对话流式输出", description = "SSE 输出 AI 回答增量内容")
+    @Operation(summary = "AI 对话流式输出", description = "SSE 输出 AI 回答增量内容，支持 agentName 指定智能体")
     public SseEmitter streamChat(@Valid @RequestBody LlmChatRequest request, HttpServletRequest httpRequest) {
         String authorization = httpRequest.getHeader("Authorization");
         return llmService.streamChat(request, authorization);

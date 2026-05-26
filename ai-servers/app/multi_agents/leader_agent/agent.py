@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from app.multi_agents.catalog import get_agent_profile, normalize_agent_name
 from app.services.langchain_chat_service import get_chat_service
@@ -18,7 +18,7 @@ class LeaderPlan:
 class LeaderAgent:
     name = "leader_agent"
 
-    def plan(self, input_text: str, rag_strategy: str = "", requested_agent: str | None = None) -> LeaderPlan:
+    def plan(self, input_text: str, rag_strategy: str = "", requested_agent: Optional[str] = None) -> LeaderPlan:
         forced_plan = self._plan_for_requested_agent(requested_agent, rag_strategy)
         if forced_plan:
             return forced_plan
@@ -42,7 +42,7 @@ class LeaderAgent:
             return LeaderPlan("textbook_knowledge", "textbook_knowledge_agent", True, rag_strategy or "hybrid_search")
         return LeaderPlan("campus_search", "textbook_knowledge_agent", True, rag_strategy or "naive_rag")
 
-    def _plan_for_requested_agent(self, requested_agent: str | None, rag_strategy: str) -> LeaderPlan | None:
+    def _plan_for_requested_agent(self, requested_agent: Optional[str], rag_strategy: str) -> Optional[LeaderPlan]:
         agent_name = normalize_agent_name(requested_agent)
         if not agent_name:
             return None

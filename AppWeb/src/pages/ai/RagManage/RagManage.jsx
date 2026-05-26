@@ -54,6 +54,7 @@ const agentColumns = [
   { title: '智能体', dataIndex: 'name', render: (value) => <Tag color="geekblue">{value}</Tag> },
   { title: '角色', dataIndex: 'role' },
   { title: '职责', dataIndex: 'purpose' },
+  { title: '默认策略', dataIndex: 'defaultRagStrategy', render: (value) => <Tag color="cyan">{value}</Tag> },
   {
     title: '技能',
     dataIndex: 'skills',
@@ -129,8 +130,22 @@ function RagManage() {
   const [sqlForm] = Form.useForm()
 
   const strategyOptions = useMemo(
-    () => strategies.map((item) => ({ value: item.name, label: `${item.name} · ${item.category}` })),
+    () => [
+      { value: '', label: '按智能体默认策略' },
+      ...strategies.map((item) => ({ value: item.name, label: `${item.name} · ${item.category}` })),
+    ],
     [strategies]
+  )
+
+  const agentOptions = useMemo(
+    () => [
+      { value: '', label: 'Leader 自动路由' },
+      ...agents.filter((item) => item.name !== 'leader_agent').map((item) => ({
+        value: item.name,
+        label: `${item.role} · ${item.name}`,
+      })),
+    ],
+    [agents]
   )
 
   const refresh = async () => {
@@ -187,7 +202,8 @@ function RagManage() {
         input: values.input,
         keyword: values.keyword || undefined,
         intent: values.intent || 'campus_search',
-        ragStrategy: values.ragStrategy || 'naive_rag',
+        ragStrategy: values.ragStrategy || undefined,
+        agentName: values.agentName || undefined,
         metadata: {},
       })
       setQueryResult(res.data)
@@ -306,9 +322,12 @@ function RagManage() {
               <Form
                 form={queryForm}
                 layout="vertical"
-                initialValues={{ ragStrategy: 'naive_rag', intent: 'campus_search' }}
+                initialValues={{ ragStrategy: '', intent: 'campus_search', agentName: '' }}
                 onFinish={handleQuery}
               >
+                <Form.Item name="agentName" label="执行智能体">
+                  <Select options={agentOptions} placeholder="Leader 自动路由" />
+                </Form.Item>
                 <Form.Item name="ragStrategy" label="RAG 策略">
                   <Select options={strategyOptions} showSearch optionFilterProp="label" />
                 </Form.Item>

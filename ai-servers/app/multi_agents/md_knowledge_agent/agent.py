@@ -8,8 +8,8 @@ class MdKnowledgeAgent:
     name = "md_knowledge_agent"
 
     def extract_keyword(self, input_text: str, chat_service=None) -> str:
-        service = chat_service or get_chat_service()
         try:
+            service = chat_service or get_chat_service()
             keyword = service.extract_search_keyword(input_text)
         except Exception:
             keyword = ""
