@@ -210,6 +210,33 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(400, response.status_code)
 
+    def test_agent_catalog_examples_are_runnable_for_specialists(self):
+        catalog_response = self.client.get("/internal/rag/agents", headers=self.headers)
+        self.assertEqual(200, catalog_response.status_code)
+
+        specialists = [
+            agent for agent in catalog_response.json()["agents"]
+            if agent["name"] != "leader_agent"
+        ]
+
+        for agent in specialists:
+            with self.subTest(agent=agent["name"]):
+                example = agent["invokeExample"]
+                response = self.client.post(
+                    "/internal/rag/query",
+                    headers=self.headers,
+                    json={
+                        "input": example["input"],
+                        "agentName": example["agentName"],
+                        "ragStrategy": example["ragStrategy"],
+                    },
+                )
+
+                self.assertEqual(200, response.status_code)
+                payload = response.json()
+                self.assertEqual(agent["name"], payload["metadata"]["agentName"])
+                self.assertTrue(payload["answer"])
+
     def test_query_endpoint_synthesizes_answer_when_strategy_has_no_llm_answer(self):
         response = self.client.post(
             "/internal/rag/query",

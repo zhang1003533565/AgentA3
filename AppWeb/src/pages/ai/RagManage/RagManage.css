@@ -97,6 +97,18 @@
   width: 100%;
 }
 
+.rag-agent-test-tip {
+  display: block;
+  margin-top: 12px;
+  line-height: 1.6;
+}
+
+.rag-agent-test-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 @media (max-width: 768px) {
   .rag-hero {
     flex-direction: column;

@@ -109,6 +109,16 @@ const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file)
 })
 
+const agentFallbackInputs = {
+  leader_agent: '请自动判断：帮我把数据结构的栈与队列整理成复习资料',
+  mind_map_agent: '把操作系统进程调度整理成思维导图',
+  md_knowledge_agent: '# 数据结构\n- 栈遵循后进先出\n- 队列遵循先进先出\n- 图可以用邻接矩阵或邻接表表示',
+  textbook_knowledge_agent: '查询并整理数据结构中栈与队列的教材知识点',
+  textbook_question_bank_agent: '根据数据结构中栈与队列的知识点生成 5 道练习题',
+  ppt_agent: '根据数据结构中栈与队列的知识点生成 6 页课件大纲',
+  image_agent: '为操作系统进程调度知识点生成一张课堂教学配图提示词',
+}
+
 function RagManage() {
   const [bootLoading, setBootLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
@@ -123,11 +133,14 @@ function RagManage() {
   const [evaluationResult, setEvaluationResult] = useState(null)
   const [sqlSchema, setSqlSchema] = useState(null)
   const [sqlResult, setSqlResult] = useState(null)
+  const [agentTestResult, setAgentTestResult] = useState(null)
+  const [agentTestLoading, setAgentTestLoading] = useState(false)
   const [uploadFileList, setUploadFileList] = useState([])
   const [queryForm] = Form.useForm()
   const [ingestForm] = Form.useForm()
   const [evaluateForm] = Form.useForm()
   const [sqlForm] = Form.useForm()
+  const [agentTestForm] = Form.useForm()
 
   const strategyOptions = useMemo(
     () => [
@@ -147,6 +160,29 @@ function RagManage() {
     ],
     [agents]
   )
+
+  const agentTestOptions = useMemo(
+    () => agents.map((item) => ({
+      value: item.name,
+      label: `${item.role} · ${item.name}`,
+    })),
+    [agents]
+  )
+
+  const getAgentExampleInput = (agent) => (
+    agent?.invokeExample?.input ||
+    agentFallbackInputs[agent?.name] ||
+    `请使用${agent?.role || '智能体'}处理这段课程内容`
+  )
+
+  const fillAgentTestForm = (agent) => {
+    if (!agent) return
+    agentTestForm.setFieldsValue({
+      agentName: agent.name,
+      ragStrategy: agent.invokeExample?.ragStrategy || agent.defaultRagStrategy || '',
+      input: getAgentExampleInput(agent),
+    })
+  }
 
   const refresh = async () => {
     setBootLoading(true)
@@ -194,6 +230,12 @@ function RagManage() {
   useEffect(() => {
     refresh()
   }, [])
+
+  useEffect(() => {
+    if (!agents.length || agentTestForm.getFieldValue('agentName')) return
+    const firstSpecialist = agents.find((item) => item.name !== 'leader_agent') || agents[0]
+    fillAgentTestForm(firstSpecialist)
+  }, [agents])
 
   const handleQuery = async (values) => {
     setActionLoading(true)
@@ -293,6 +335,44 @@ function RagManage() {
       message.error(error.message || 'Text-to-SQL 执行失败')
     } finally {
       setActionLoading(false)
+    }
+  }
+
+  const handleAgentTest = async (values) => {
+    const agent = agents.find((item) => item.name === values.agentName)
+    if (!agent) {
+      message.warning('请先选择一个智能体')
+      return
+    }
+    const payload = {
+      input: values.input,
+      intent: agent.intent === 'auto' ? 'campus_search' : agent.intent,
+      ragStrategy: values.ragStrategy || agent.defaultRagStrategy || undefined,
+      agentName: agent.name,
+      metadata: {
+        testFrom: 'admin_agent_console',
+        agentRole: agent.role,
+      },
+    }
+
+    setAgentTestLoading(true)
+    try {
+      const res = await runRagQuery(payload)
+      setAgentTestResult({
+        agent,
+        request: payload,
+        response: res.data,
+      })
+      message.success(`${agent.role} 调用成功`)
+    } catch (error) {
+      setAgentTestResult({
+        agent,
+        request: payload,
+        error: error.message || '智能体调用失败',
+      })
+      message.error(error.message || '智能体调用失败')
+    } finally {
+      setAgentTestLoading(false)
     }
   }
 
@@ -455,6 +535,89 @@ function RagManage() {
       label: '多智能体',
       children: (
         <Space direction="vertical" size="large" className="rag-full">
+          <Card
+            title="智能体调用测试"
+            extra={<Tag color="geekblue">参数：agentName</Tag>}
+            className="rag-panel-card"
+          >
+            <Row gutter={[20, 20]}>
+              <Col xs={24} lg={9}>
+                <Form
+                  form={agentTestForm}
+                  layout="vertical"
+                  onFinish={handleAgentTest}
+                >
+                  <Form.Item name="agentName" label="选择要测试的智能体" rules={[{ required: true, message: '请选择智能体' }]}>
+                    <Select
+                      options={agentTestOptions}
+                      showSearch
+                      optionFilterProp="label"
+                      placeholder="选择智能体"
+                      onChange={(value) => fillAgentTestForm(agents.find((item) => item.name === value))}
+                    />
+                  </Form.Item>
+                  <Form.Item name="ragStrategy" label="RAG 策略">
+                    <Select options={strategyOptions} showSearch optionFilterProp="label" />
+                  </Form.Item>
+                  <Form.Item name="input" label="测试输入" rules={[{ required: true, message: '请输入测试内容' }]}>
+                    <TextArea rows={6} placeholder="输入一段课程内容或任务要求" />
+                  </Form.Item>
+                  <Button type="primary" htmlType="submit" icon={<PlayCircleOutlined />} loading={agentTestLoading} block>
+                    调用当前智能体
+                  </Button>
+                  <Text type="secondary" className="rag-agent-test-tip">
+                    Leader 自动路由需要配置 DeepSeek；专业智能体会优先返回结构化结果，便于本地确认链路。
+                  </Text>
+                </Form>
+              </Col>
+              <Col xs={24} lg={15}>
+                {agentTestResult ? (
+                  <Space direction="vertical" size="large" className="rag-full">
+                    <div className="rag-agent-test-status">
+                      <Tag color={agentTestResult.error ? 'red' : 'green'}>
+                        {agentTestResult.error ? '调用失败' : '调用成功'}
+                      </Tag>
+                      <Tag color="blue">{agentTestResult.agent?.name}</Tag>
+                      <Tag>{agentTestResult.response?.metadata?.agentName || agentTestResult.request?.agentName}</Tag>
+                    </div>
+                    {agentTestResult.error ? (
+                      <div className="rag-answer-box">{agentTestResult.error}</div>
+                    ) : (
+                      <>
+                        <div className="rag-answer-box">{agentTestResult.response?.answer || '暂无回答'}</div>
+                        <Table
+                          rowKey={(record) => record.id || record.source}
+                          columns={evidenceColumns}
+                          dataSource={agentTestResult.response?.documents || []}
+                          pagination={{ pageSize: 4 }}
+                          size="small"
+                        />
+                      </>
+                    )}
+                    <Collapse
+                      items={[
+                        {
+                          key: 'request',
+                          label: '请求参数',
+                          children: <pre className="rag-code-block">{JSON.stringify(agentTestResult.request || {}, null, 2)}</pre>,
+                        },
+                        {
+                          key: 'trace',
+                          label: 'Trace / Metadata',
+                          children: <pre className="rag-code-block">{JSON.stringify({
+                            trace: agentTestResult.response?.trace || [],
+                            metadata: agentTestResult.response?.metadata || {},
+                          }, null, 2)}</pre>,
+                        },
+                      ]}
+                    />
+                  </Space>
+                ) : (
+                  <Empty description="选择一个智能体并点击调用，就能在这里查看回答、证据和 trace" />
+                )}
+              </Col>
+            </Row>
+          </Card>
           <Row gutter={[20, 20]}>
             <Col xs={24} lg={10}>
               <Card title="协作流程" className="rag-panel-card">
@@ -480,6 +643,21 @@ function RagManage() {
                 children: (
                   <Space direction="vertical" className="rag-full">
                     <Text>{agent.purpose}</Text>
+                    <Card size="small" title="后台调用方式">
+                      <Space direction="vertical" className="rag-full">
+                        <pre className="rag-code-block">{JSON.stringify({
+                          agentName: agent.name,
+                          ragStrategy: agent.defaultRagStrategy,
+                          input: getAgentExampleInput(agent),
+                        }, null, 2)}</pre>
+                        <Button
+                          icon={<PlayCircleOutlined />}
+                          onClick={() => fillAgentTestForm(agent)}
+                        >
+                          填入上方测试台
+                        </Button>
+                      </Space>
+                    </Card>
                     <Row gutter={[16, 16]}>
                       <Col xs={24} md={12}>
                         <Card size="small" title="输入">
