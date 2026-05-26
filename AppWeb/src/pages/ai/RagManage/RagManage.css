@@ -83,6 +83,30 @@
   border: 1px solid rgba(89, 108, 72, 0.16);
 }
 
+.rag-answer-box--mindmap {
+  white-space: normal;
+}
+
+.rag-md-fence {
+  color: #4a5f52;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 13px;
+}
+
+.rag-mermaid-code {
+  margin: 8px 0;
+  padding: 12px 14px;
+  overflow: auto;
+  line-height: 1.7;
+  color: #1f2c25;
+  border-radius: 12px;
+  border: 1px solid rgba(89, 108, 72, 0.2);
+  background: rgba(255, 255, 255, 0.55);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 13px;
+  white-space: pre;
+}
+
 .rag-code-block {
   max-height: 420px;
   padding: 16px;

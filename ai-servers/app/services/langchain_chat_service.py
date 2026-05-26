@@ -47,6 +47,8 @@ class LangChainChatService:
         answer = (text or "").strip()
         if not answer:
             raise HTTPException(status_code=502, detail=f"{agent_name} LLM 返回内容为空，已禁止本地模板兜底")
+        if agent_name == "mind_map_agent":
+            answer = _sanitize_mind_map_answer(answer)
         return answer
 
     def answer(
@@ -121,11 +123,11 @@ def build_leader_router_user_prompt(input_text: str, rag_strategy: str) -> str:
 
 SPECIALIST_AGENT_PROMPTS: Dict[str, str] = {
     "mind_map_agent": """
-你是思维导图智能体。根据用户输入和证据输出中文 Markdown，主体必须是 Mermaid mindmap 代码块。
+你是思维导图智能体。根据用户输入和证据输出 Mermaid mindmap Markdown。
 要求：
 1. 输出一个可渲染的 ```mermaid mindmap。
 2. 节点层级清楚，适合课堂复习。
-3. 如证据为空，可以基于用户输入整理结构，但必须在代码块后提示“本次未检索到外部证据”。
+3. 无论证据是否为空，都只能输出 Mermaid 代码块本身，禁止输出任何额外说明、前后缀、标题、注释。
 4. 不要编造具体教材出处。
 """.strip(),
     "md_knowledge_agent": """
@@ -193,6 +195,18 @@ def normalize_evidence(evidence: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if len(normalized) >= 8:
             break
     return normalized
+
+
+def _sanitize_mind_map_answer(text: str) -> str:
+    match = re.search(r"```mermaid\s*([\s\S]*?)```", text or "", flags=re.IGNORECASE)
+    if not match:
+        raise HTTPException(status_code=502, detail="mind_map_agent 必须返回 Mermaid 代码块，当前返回不符合约束")
+    code = (match.group(1) or "").strip()
+    if not code:
+        raise HTTPException(status_code=502, detail="mind_map_agent 返回了空 Mermaid 代码块")
+    if not re.search(r"(^|\n)\s*mindmap\b", code, flags=re.IGNORECASE):
+        raise HTTPException(status_code=502, detail="mind_map_agent 返回的 Mermaid 代码块缺少 mindmap 声明")
+    return f"```mermaid\n{code}\n```"
 
 
 def parse_json_object(text: str) -> Dict[str, Any]:

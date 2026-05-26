@@ -190,6 +190,11 @@ const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file)
 })
 
+const extractMermaidCodeBlock = (text) => {
+  const match = String(text || '').match(/```mermaid\s*([\s\S]*?)```/i)
+  return match ? String(match[1] || '').trim() : ''
+}
+
 const agentExampleInputs = {
   leader_agent: '请自动判断：帮我把数据结构的栈与队列整理成复习资料',
   mind_map_agent: '把操作系统进程调度整理成思维导图',
@@ -521,6 +526,26 @@ function RagManage() {
     )
   }
 
+  const renderAgentAnswer = (answer, metadata = {}) => {
+    const text = String(answer || '').trim()
+    if (!text) {
+      return <div className="rag-answer-box">暂无回答</div>
+    }
+    const executedAgent = metadata?.executedAgent || metadata?.targetAgent || metadata?.agentName
+    const isMindMap = executedAgent === 'mind_map_agent' || /```mermaid/i.test(text)
+    if (!isMindMap) {
+      return <div className="rag-answer-box">{text}</div>
+    }
+    const mermaidBody = extractMermaidCodeBlock(text) || text
+    return (
+      <div className="rag-answer-box rag-answer-box--mindmap">
+        <div className="rag-md-fence">```mermaid</div>
+        <pre className="rag-mermaid-code">{mermaidBody}</pre>
+        <div className="rag-md-fence">```</div>
+      </div>
+    )
+  }
+
   const tabs = [
     {
       key: 'playground',
@@ -613,7 +638,7 @@ function RagManage() {
                     {queryResult.metadata?.executedAgent && <Tag color="geekblue">执行：{queryResult.metadata.executedAgent}</Tag>}
                     <Tag color={queryResult.metadata?.needRetrieval ? 'cyan' : 'gold'}>{queryResult.metadata?.strategyLabel || queryResult.strategy}</Tag>
                   </div>
-                  <div className="rag-answer-box">{queryResult.answer || '暂无回答'}</div>
+                  {renderAgentAnswer(queryResult.answer, queryResult.metadata)}
                   <Table
                     rowKey={(record) => record.id || record.source}
                     columns={evidenceColumns}
@@ -801,7 +826,7 @@ function RagManage() {
                       <div className="rag-answer-box">{agentTestResult.error}</div>
                     ) : (
                       <>
-                        <div className="rag-answer-box">{agentTestResult.response?.answer || '暂无回答'}</div>
+                        {renderAgentAnswer(agentTestResult.response?.answer, agentTestResult.response?.metadata)}
                         <Table
                           rowKey={(record) => record.id || record.source}
                           columns={evidenceColumns}
