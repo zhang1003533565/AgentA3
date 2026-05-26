@@ -208,6 +208,14 @@ export function getUserPosts(userId, params = {}) {
   })
 }
 
+export function getMyForumPosts(params = {}) {
+  return request({
+    url: '/api/forum/users/posts/me',
+    method: 'GET',
+    params
+  })
+}
+
 export function getUserLikes(userId, params = {}) {
   return request({
     url: `/api/forum/users/${userId}/likes`,

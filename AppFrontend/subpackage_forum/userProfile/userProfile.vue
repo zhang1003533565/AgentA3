@@ -21,10 +21,10 @@
             <text class="stat-label">粉丝</text>
           </view>
         </view>
-        <view class="follow-btn" v-if="!userInfo.isFollow" @click="toggleFollow">
+        <view class="follow-btn" v-if="!isSelf && !userInfo.isFollow" @click="toggleFollow">
           <text>+ 关注</text>
         </view>
-        <view class="follow-btn followed" v-else @click="toggleFollow">
+        <view class="follow-btn followed" v-else-if="!isSelf" @click="toggleFollow">
           <text>已关注</text>
         </view>
       </view>
@@ -61,7 +61,7 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getFollowStatus, getUserPosts, toggleFollowUser } from '@/api/forum.js'
+import { getFollowStatus, getMyForumPosts, getPostList, getUserPosts, toggleFollowUser } from '@/api/forum.js'
 import { getUserInfo } from '@/utils/storage.js'
 
 export default {
@@ -70,6 +70,7 @@ export default {
     return {
       userId: '',
       userAvatar: '',
+      isSelf: false,
       postList: [],
       userInfo: {
         userId: '',
@@ -98,7 +99,10 @@ export default {
       this.userId = targetId
       
       // 判断是否是查看其他用户的主页
-      const isOtherUser = this.userId && this.userId !== localUser.id && this.userId !== localUser.userId
+      const localUserId = String(localUser.id || localUser.userId || '')
+      const currentTargetId = String(this.userId || '')
+      const isOtherUser = !!currentTargetId && !!localUserId && currentTargetId !== localUserId
+      this.isSelf = !isOtherUser
       
       if (isOtherUser) {
         // 查看其他用户：使用传入的ID和用户名
@@ -124,9 +128,20 @@ export default {
       await Promise.all([this.loadPosts(), this.loadFollowMeta()])
     },
     async loadPosts() {
-      if (!this.userId) return
+      if (!this.isSelf && !this.userId) return
       try {
-        const res = await getUserPosts(this.userId, { pageNum: 1, pageSize: 20 })
+        let res
+        if (this.isSelf) {
+          try {
+            res = await getMyForumPosts({ pageNum: 1, pageSize: 20 })
+          } catch (error) {
+            res = this.userId
+              ? await getUserPosts(this.userId, { pageNum: 1, pageSize: 20 })
+              : await getPostList({ pageNum: 1, pageSize: 20 })
+          }
+        } else {
+          res = await getUserPosts(this.userId, { pageNum: 1, pageSize: 20 })
+        }
         const records = res?.data?.records || []
         this.postList = records.map((item) => ({
           id: item.id,
