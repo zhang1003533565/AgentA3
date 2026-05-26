@@ -1,24 +1,15 @@
 from typing import Any, Dict, List
 
+from app.services.langchain_chat_service import get_chat_service
+
 
 class TextbookQuestionBankAgent:
     name = "textbook_question_bank_agent"
 
-    def generate_questions(self, topic: str, evidence: List[Dict[str, Any]], count: int = 5) -> str:
-        points = self._points(topic, evidence)
-        lines = ["## 教材题库"]
-        for index, point in enumerate(points[:count], start=1):
-            lines.append(f"{index}. 【简答题】请说明：{point}")
-            lines.append(f"   参考答案要点：围绕“{point}”给出定义、关键特征和应用场景。")
-        return "\n".join(lines)
-
-    def _points(self, topic: str, evidence: List[Dict[str, Any]]) -> List[str]:
-        points = []
-        for item in evidence or []:
-            content = str(item.get("content") or item.get("name") or "").strip()
-            if content:
-                points.append(content.replace("\n", " ")[:60])
-        return points or [topic or "本章节核心知识点"]
+    def generate_questions(self, topic: str, evidence: List[Dict[str, Any]], count: int = 5, chat_service=None) -> str:
+        service = chat_service or get_chat_service()
+        prompt = topic if count == 5 else f"{topic}\n\n题目数量要求：{count}"
+        return service.generate_specialist_answer(self.name, prompt, evidence)
 
 
 textbook_question_bank_agent = TextbookQuestionBankAgent()

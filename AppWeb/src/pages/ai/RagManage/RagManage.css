@@ -103,6 +103,11 @@
   line-height: 1.6;
 }
 
+.rag-inline-alert {
+  margin-bottom: 24px;
+  border-radius: 14px;
+}
+
 .rag-agent-test-status {
   display: flex;
   flex-wrap: wrap;

@@ -3,7 +3,7 @@ import { message } from 'antd'
 
 const getErrorMessage = (data, fallback = '请求失败') => {
   if (typeof data === 'string') return data
-  return data?.msg || data?.message || data?.error || fallback
+  return data?.msg || data?.message || data?.detail || data?.error || fallback
 }
 
 const request = axios.create({

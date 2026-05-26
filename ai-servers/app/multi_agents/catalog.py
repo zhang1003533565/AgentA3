@@ -1,6 +1,10 @@
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from app.rag.core import RAG_STRATEGY_SPECS
+
+
+ALL_RAG_STRATEGIES = sorted(RAG_STRATEGY_SPECS.keys())
 
 AGENT_ORDER = [
     "leader_agent",
@@ -15,14 +19,18 @@ AGENT_ORDER = [
 AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
     "leader_agent": {
         "role": "Leader 智能体",
-        "purpose": "统一理解用户任务，路由到思维导图、MD 知识点、教材知识点、教材题库、PPT、图片等专业智能体，并管理会话记忆与最终回答兜底。",
+        "purpose": "统一理解用户任务，路由到思维导图、MD 知识点、教材知识点、教材题库、PPT、图片等专业智能体，并基于 Java 数据库中的 LLM 配置完成必要的直接回答。",
         "inputs": ["user_query", "rag_strategy", "session_token", "history"],
         "outputs": ["intent", "target_agent", "need_retrieval", "answer"],
-        "skills": ["task routing", "agent orchestration", "memory", "fallback answering"],
+        "skills": ["task routing", "agent orchestration", "memory", "llm direct answering"],
         "intent": "auto",
         "needRetrieval": False,
+        "executionMode": "leader_orchestration",
+        "executionModeLabel": "Leader 意图识别与自动分发",
         "defaultRagStrategy": "naive_rag",
+        "supportedRagStrategies": [],
         "aliases": ["leader", "leader_agent", "总控智能体", "leader智能体"],
+        "exampleInput": "帮我把数据结构中的栈与队列整理成 PPT 大纲",
     },
     "mind_map_agent": {
         "role": "思维导图智能体",
@@ -32,8 +40,12 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "skills": ["mind map", "hierarchy extraction", "mermaid"],
         "intent": "mind_map",
         "needRetrieval": True,
+        "executionMode": "rag_then_agent",
+        "executionModeLabel": "RAG 检索后生成思维导图",
         "defaultRagStrategy": "multi_agent_rag",
+        "supportedRagStrategies": ALL_RAG_STRATEGIES,
         "aliases": ["mind_map", "mindmap", "思维导图", "思维导图智能体", "脑图智能体"],
+        "exampleInput": "把操作系统进程调度整理成思维导图",
     },
     "md_knowledge_agent": {
         "role": "MD 知识点提取智能体",
@@ -43,8 +55,12 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "skills": ["markdown parsing", "keyword extraction", "knowledge point extraction"],
         "intent": "md_knowledge",
         "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": "直接解析输入文本",
         "defaultRagStrategy": "semantic_chunking",
+        "supportedRagStrategies": [],
         "aliases": ["md_knowledge", "markdown_knowledge", "md知识点提取", "md知识点提取智能体"],
+        "exampleInput": "# 数据结构\n- 栈遵循后进先出\n- 队列遵循先进先出\n- 图可以用邻接矩阵或邻接表表示",
     },
     "textbook_knowledge_agent": {
         "role": "教材知识点智能体",
@@ -54,8 +70,12 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "skills": ["textbook retrieval", "hybrid search", "reranking", "graph/text-to-sql retrieval"],
         "intent": "textbook_knowledge",
         "needRetrieval": True,
+        "executionMode": "rag_then_agent",
+        "executionModeLabel": "RAG/接口召回后整理教材知识点",
         "defaultRagStrategy": "hybrid_search",
+        "supportedRagStrategies": ALL_RAG_STRATEGIES,
         "aliases": ["textbook_knowledge", "教材知识点", "教材知识点智能体", "课本知识点智能体"],
+        "exampleInput": "查询并整理数据结构中栈与队列的教材知识点",
     },
     "textbook_question_bank_agent": {
         "role": "教材题库智能体",
@@ -65,8 +85,12 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "skills": ["question generation", "answer key", "assessment design"],
         "intent": "question_bank",
         "needRetrieval": True,
+        "executionMode": "rag_then_agent",
+        "executionModeLabel": "RAG 检索后生成教材题库",
         "defaultRagStrategy": "multi_agent_rag",
+        "supportedRagStrategies": ALL_RAG_STRATEGIES,
         "aliases": ["question_bank", "textbook_question_bank", "教材题库", "教材题库智能体", "题库智能体"],
+        "exampleInput": "根据数据结构中栈与队列的知识点生成 5 道练习题",
     },
     "ppt_agent": {
         "role": "PPT 智能体",
@@ -76,8 +100,12 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "skills": ["slide outline", "teaching flow", "presentation planning"],
         "intent": "ppt",
         "needRetrieval": True,
+        "executionMode": "rag_then_agent",
+        "executionModeLabel": "RAG 检索后生成 PPT 大纲",
         "defaultRagStrategy": "multi_agent_rag",
+        "supportedRagStrategies": ALL_RAG_STRATEGIES,
         "aliases": ["ppt", "ppt_agent", "课件智能体", "PPT智能体"],
+        "exampleInput": "根据数据结构中栈与队列的知识点生成 6 页课件大纲",
     },
     "image_agent": {
         "role": "图片智能体",
@@ -87,8 +115,12 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "skills": ["image prompt", "visual planning", "multimodal context"],
         "intent": "image",
         "needRetrieval": True,
+        "executionMode": "rag_then_agent",
+        "executionModeLabel": "多模态 RAG 后生成图片提示词",
         "defaultRagStrategy": "multimodal_rag",
+        "supportedRagStrategies": ALL_RAG_STRATEGIES,
         "aliases": ["image", "image_agent", "图片智能体", "配图智能体"],
+        "exampleInput": "为操作系统进程调度知识点生成一张课堂教学配图提示词",
     },
 }
 
@@ -108,6 +140,16 @@ def get_agent_catalog() -> Dict[str, Any]:
             "ragQueryEndpoint": "POST /internal/rag/query",
             "parameter": "agentName",
             "automaticRouting": "agentName 留空或填写 leader_agent",
+            "strategyRule": "只有 needRetrieval=true 的专业智能体才需要 ragStrategy；Leader 和直接处理型智能体不传 ragStrategy。",
+            "llmConfigRule": "Leader 意图识别和所有专业智能体生成都必须由 Java 后端转发 ai.service.* 模型配置；配置缺失或模型失败会直接报错。",
+        },
+        "executionModes": {
+            "leader_direct_answer": "Leader 直接回答",
+            "leader_call_tool": "Leader 调用接口/工具",
+            "leader_routed_direct_agent": "Leader 分发给非检索智能体",
+            "leader_routed_rag": "Leader 分发给 RAG 智能体",
+            "direct_agent": "专业智能体直接处理",
+            "rag_then_agent": "RAG 检索后交给专业智能体",
         },
         "workflow": {
             "default": ["leader_agent", "textbook_knowledge_agent", "md_knowledge_agent"],
@@ -155,12 +197,23 @@ def _build_agent(agent_name: str, include_documents: bool) -> Dict[str, Any]:
         "skills": profile["skills"],
         "intent": profile["intent"],
         "needRetrieval": profile["needRetrieval"],
+        "executionMode": profile["executionMode"],
+        "executionModeLabel": profile["executionModeLabel"],
         "defaultRagStrategy": profile["defaultRagStrategy"],
+        "supportedRagStrategies": profile["supportedRagStrategies"],
         "aliases": profile["aliases"],
         "invokeExample": {
-            "input": f"请使用{profile['role']}处理这段课程内容",
+            "input": profile.get("exampleInput", f"请使用{profile['role']}处理这段课程内容"),
             "agentName": agent_name,
-            "ragStrategy": profile["defaultRagStrategy"],
+            **(
+                {"executionMode": "leader_orchestration"}
+                if agent_name == "leader_agent"
+                else (
+                    {"ragStrategy": profile["defaultRagStrategy"]}
+                    if profile["needRetrieval"]
+                    else {"executionMode": "direct_agent"}
+                )
+            ),
         },
         "runtime": f"app.multi_agents.{agent_name}.agent",
         "directory": str(agent_dir),

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Button, Card, Col, Collapse, Empty, Form, Input, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Alert, Button, Card, Col, Collapse, Empty, Form, Input, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
 import { ApiOutlined, BranchesOutlined, DatabaseOutlined, ExperimentOutlined, FileTextOutlined, PlayCircleOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons'
 import {
   evaluateRag,
@@ -22,8 +22,9 @@ const { TextArea } = Input
 const { Text, Title } = Typography
 
 const strategyColumns = [
-  { title: '策略', dataIndex: 'name', render: (value) => <Tag color="blue">{value}</Tag> },
-  { title: '分类', dataIndex: 'category', render: (value) => <Tag>{value}</Tag> },
+  { title: '执行策略', dataIndex: 'name', render: (value, record) => <Tag color="blue">{record.label || value}</Tag> },
+  { title: '策略标识', dataIndex: 'name', render: (value) => <Text code>{value}</Text> },
+  { title: '分类', dataIndex: 'categoryLabel', render: (value, record) => <Tag>{value || record.category}</Tag> },
   { title: '用途', dataIndex: 'purpose' },
   { title: '状态', dataIndex: 'status', render: (value) => <Tag color={value === 'implemented' ? 'green' : 'orange'}>{value}</Tag> },
 ]
@@ -54,7 +55,16 @@ const agentColumns = [
   { title: '智能体', dataIndex: 'name', render: (value) => <Tag color="geekblue">{value}</Tag> },
   { title: '角色', dataIndex: 'role' },
   { title: '职责', dataIndex: 'purpose' },
-  { title: '默认策略', dataIndex: 'defaultRagStrategy', render: (value) => <Tag color="cyan">{value}</Tag> },
+  {
+    title: '执行方式',
+    dataIndex: 'executionModeLabel',
+    render: (value, record) => <Tag color={record.needRetrieval ? 'cyan' : 'gold'}>{value || (record.needRetrieval ? 'RAG + 智能体' : '不使用 RAG')}</Tag>,
+  },
+  {
+    title: '默认策略',
+    dataIndex: 'defaultRagStrategy',
+    render: (value, record) => record.needRetrieval ? <Tag color="cyan">{value}</Tag> : <Tag>不使用 RAG</Tag>,
+  },
   {
     title: '技能',
     dataIndex: 'skills',
@@ -99,6 +109,29 @@ const safeJsonParse = (value, fallback) => {
   }
 }
 
+const executionModeLabels = {
+  leader_direct_answer: 'Leader 直接回答',
+  leader_call_tool: 'Leader 调用接口',
+  leader_routed_direct_agent: 'Leader 调用非检索智能体',
+  leader_routed_rag: 'Leader 调用 RAG 智能体',
+  direct_agent: '直接处理',
+  rag_then_agent: 'RAG + 智能体',
+}
+
+const getStrategyOptionLabel = (strategy) => {
+  if (!strategy) return ''
+  return `${strategy.label || strategy.name} · ${strategy.categoryLabel || strategy.category}`
+}
+
+const getAgentNeedsRetrieval = (agent) => Boolean(agent && agent.needRetrieval !== false && agent.name !== 'leader_agent')
+
+const getExecutionLabel = (metadata = {}) => (
+  metadata.executionModeLabel ||
+  executionModeLabels[metadata.executionMode] ||
+  metadata.executionMode ||
+  '未知执行方式'
+)
+
 const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader()
   reader.onload = () => {
@@ -109,7 +142,7 @@ const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file)
 })
 
-const agentFallbackInputs = {
+const agentExampleInputs = {
   leader_agent: '请自动判断：帮我把数据结构的栈与队列整理成复习资料',
   mind_map_agent: '把操作系统进程调度整理成思维导图',
   md_knowledge_agent: '# 数据结构\n- 栈遵循后进先出\n- 队列遵循先进先出\n- 图可以用邻接矩阵或邻接表表示',
@@ -130,6 +163,7 @@ function RagManage() {
   const [documents, setDocuments] = useState([])
   const [health, setHealth] = useState({})
   const [queryResult, setQueryResult] = useState(null)
+  const [queryError, setQueryError] = useState('')
   const [evaluationResult, setEvaluationResult] = useState(null)
   const [sqlSchema, setSqlSchema] = useState(null)
   const [sqlResult, setSqlResult] = useState(null)
@@ -145,14 +179,26 @@ function RagManage() {
   const strategyOptions = useMemo(
     () => [
       { value: '', label: '按智能体默认策略' },
-      ...strategies.map((item) => ({ value: item.name, label: `${item.name} · ${item.category}` })),
+      ...strategies.map((item) => ({ value: item.name, label: getStrategyOptionLabel(item) })),
     ],
     [strategies]
   )
 
+  const getStrategyOptionsForAgent = (agent) => {
+    if (!getAgentNeedsRetrieval(agent)) return []
+    const supported = agent?.supportedRagStrategies || []
+    if (!supported.length) return strategyOptions
+    return [
+      strategyOptions[0],
+      ...strategies
+        .filter((item) => supported.includes(item.name))
+        .map((item) => ({ value: item.name, label: getStrategyOptionLabel(item) })),
+    ]
+  }
+
   const agentOptions = useMemo(
     () => [
-      { value: '', label: 'Leader 自动路由' },
+      { value: 'leader_agent', label: 'Leader 自动路由 · 意图识别/分发' },
       ...agents.filter((item) => item.name !== 'leader_agent').map((item) => ({
         value: item.name,
         label: `${item.role} · ${item.name}`,
@@ -169,20 +215,22 @@ function RagManage() {
     [agents]
   )
 
-  const getAgentExampleInput = (agent) => (
+  const getAgentExampleInput = useCallback((agent) => (
     agent?.invokeExample?.input ||
-    agentFallbackInputs[agent?.name] ||
+    agentExampleInputs[agent?.name] ||
     `请使用${agent?.role || '智能体'}处理这段课程内容`
-  )
+  ), [])
 
-  const fillAgentTestForm = (agent) => {
+  const fillAgentTestForm = useCallback((agent) => {
     if (!agent) return
     agentTestForm.setFieldsValue({
       agentName: agent.name,
-      ragStrategy: agent.invokeExample?.ragStrategy || agent.defaultRagStrategy || '',
+      ragStrategy: getAgentNeedsRetrieval(agent)
+        ? agent.invokeExample?.ragStrategy || agent.defaultRagStrategy || ''
+        : '',
       input: getAgentExampleInput(agent),
     })
-  }
+  }, [agentTestForm, getAgentExampleInput])
 
   const refresh = async () => {
     setBootLoading(true)
@@ -233,25 +281,32 @@ function RagManage() {
 
   useEffect(() => {
     if (!agents.length || agentTestForm.getFieldValue('agentName')) return
-    const firstSpecialist = agents.find((item) => item.name !== 'leader_agent') || agents[0]
-    fillAgentTestForm(firstSpecialist)
-  }, [agents])
+    const leader = agents.find((item) => item.name === 'leader_agent') || agents[0]
+    fillAgentTestForm(leader)
+  }, [agents, agentTestForm, fillAgentTestForm])
 
   const handleQuery = async (values) => {
     setActionLoading(true)
+    setQueryError('')
     try {
+      const selectedAgentName = values.agentName || 'leader_agent'
+      const selectedAgent = agents.find((item) => item.name === selectedAgentName)
+      const canUseRagStrategy = getAgentNeedsRetrieval(selectedAgent)
       const res = await runRagQuery({
         input: values.input,
         keyword: values.keyword || undefined,
         intent: values.intent || 'campus_search',
-        ragStrategy: values.ragStrategy || undefined,
-        agentName: values.agentName || undefined,
+        ragStrategy: canUseRagStrategy ? values.ragStrategy || undefined : undefined,
+        agentName: selectedAgentName,
         metadata: {},
       })
       setQueryResult(res.data)
-      message.success('RAG 查询完成')
+      message.success('智能体执行完成')
     } catch (error) {
-      message.error(error.message || 'RAG 查询失败')
+      const errorMessage = error.message || '智能体执行失败'
+      setQueryResult(null)
+      setQueryError(errorMessage)
+      message.error(errorMessage)
     } finally {
       setActionLoading(false)
     }
@@ -347,11 +402,14 @@ function RagManage() {
     const payload = {
       input: values.input,
       intent: agent.intent === 'auto' ? 'campus_search' : agent.intent,
-      ragStrategy: values.ragStrategy || agent.defaultRagStrategy || undefined,
+      ragStrategy: getAgentNeedsRetrieval(agent)
+        ? values.ragStrategy || agent.defaultRagStrategy || undefined
+        : undefined,
       agentName: agent.name,
       metadata: {
         testFrom: 'admin_agent_console',
         agentRole: agent.role,
+        needRetrieval: agent.needRetrieval,
       },
     }
 
@@ -394,22 +452,52 @@ function RagManage() {
   const tabs = [
     {
       key: 'playground',
-      label: '策略测试',
+      label: '智能体执行',
       children: (
         <Row gutter={[20, 20]}>
           <Col xs={24} lg={9}>
-            <Card title="RAG 查询" className="rag-panel-card">
+            <Card title="Leader / RAG 查询" className="rag-panel-card">
               <Form
                 form={queryForm}
                 layout="vertical"
-                initialValues={{ ragStrategy: '', intent: 'campus_search', agentName: '' }}
+                initialValues={{ ragStrategy: '', intent: 'campus_search', agentName: 'leader_agent' }}
                 onFinish={handleQuery}
               >
+                <Alert
+                  className="rag-inline-alert"
+                  type="warning"
+                  showIcon
+                  message="所有智能体生成与 Leader 意图识别都走 Java 数据库中的 ai.service.* 模型配置；配置缺失或模型调用失败会直接报错，不再本地兜底。"
+                />
                 <Form.Item name="agentName" label="执行智能体">
-                  <Select options={agentOptions} placeholder="Leader 自动路由" />
+                  <Select
+                    options={agentOptions}
+                    placeholder="Leader 自动路由"
+                    onChange={() => queryForm.setFieldsValue({ ragStrategy: '' })}
+                  />
                 </Form.Item>
-                <Form.Item name="ragStrategy" label="RAG 策略">
-                  <Select options={strategyOptions} showSearch optionFilterProp="label" />
+                <Form.Item
+                  noStyle
+                  shouldUpdate={(prev, next) => prev.agentName !== next.agentName}
+                >
+                  {({ getFieldValue }) => {
+                    const selectedAgent = agents.find((item) => item.name === getFieldValue('agentName'))
+                    if (!getAgentNeedsRetrieval(selectedAgent)) {
+                      return (
+                        <Alert
+                          className="rag-inline-alert"
+                          type="info"
+                          showIcon
+                          message={selectedAgent?.name === 'leader_agent' ? 'Leader 会先做意图识别，再决定直接回答、调用智能体或接口。' : '当前智能体不需要 RAG 策略，会直接处理输入。'}
+                        />
+                      )
+                    }
+                    return (
+                      <Form.Item name="ragStrategy" label="RAG 执行策略" extra="只有需要检索的专业智能体才会使用该参数。">
+                        <Select options={getStrategyOptionsForAgent(selectedAgent)} showSearch optionFilterProp="label" />
+                      </Form.Item>
+                    )
+                  }}
                 </Form.Item>
                 <Form.Item name="intent" label="意图">
                   <Input placeholder="campus_search" />
@@ -421,15 +509,29 @@ function RagManage() {
                   <TextArea rows={5} placeholder="例如：统计食堂优惠券数量 / 校园卡补办在哪里？" />
                 </Form.Item>
                 <Button type="primary" htmlType="submit" icon={<PlayCircleOutlined />} loading={actionLoading} block>
-                  执行 RAG
+                  执行智能体
                 </Button>
               </Form>
             </Card>
           </Col>
           <Col xs={24} lg={15}>
             <Card title="查询结果" className="rag-panel-card">
-              {queryResult ? (
+              {queryError ? (
+                <Alert
+                  type="error"
+                  showIcon
+                  message="智能体执行失败"
+                  description={queryError}
+                />
+              ) : queryResult ? (
                 <Space direction="vertical" size="large" className="rag-full">
+                  <div className="rag-agent-test-status">
+                    <Tag color="green">{getExecutionLabel(queryResult.metadata)}</Tag>
+                    <Tag color="blue">入口：{queryResult.metadata?.agentName || 'leader_agent'}</Tag>
+                    {queryResult.metadata?.targetAgent && <Tag>目标：{queryResult.metadata.targetAgent}</Tag>}
+                    {queryResult.metadata?.executedAgent && <Tag color="geekblue">执行：{queryResult.metadata.executedAgent}</Tag>}
+                    <Tag color={queryResult.metadata?.needRetrieval ? 'cyan' : 'gold'}>{queryResult.metadata?.strategyLabel || queryResult.strategy}</Tag>
+                  </div>
                   <div className="rag-answer-box">{queryResult.answer || '暂无回答'}</div>
                   <Table
                     rowKey={(record) => record.id || record.source}
@@ -448,7 +550,7 @@ function RagManage() {
                   />
                 </Space>
               ) : (
-                <Empty description="执行一次查询后查看答案、证据和 trace" />
+                <Empty description="执行一次后查看答案、证据和 trace" />
               )}
             </Card>
           </Col>
@@ -516,7 +618,7 @@ function RagManage() {
             <Col xs={24} md={8}>{renderHealthCard('embedding', 'Embedding', <ApiOutlined />)}</Col>
             <Col xs={24} md={8}>{renderHealthCard('graph', '图谱存储', <BranchesOutlined />)}</Col>
           </Row>
-          <Card title="16 种 RAG 策略" className="rag-panel-card">
+          <Card title="16 种 RAG 执行策略" className="rag-panel-card">
             <Table
               rowKey="name"
               columns={strategyColumns}
@@ -556,8 +658,31 @@ function RagManage() {
                       onChange={(value) => fillAgentTestForm(agents.find((item) => item.name === value))}
                     />
                   </Form.Item>
-                  <Form.Item name="ragStrategy" label="RAG 策略">
-                    <Select options={strategyOptions} showSearch optionFilterProp="label" />
+                  <Form.Item
+                    noStyle
+                    shouldUpdate={(prev, next) => prev.agentName !== next.agentName}
+                  >
+                    {({ getFieldValue }) => {
+                      const selectedAgent = agents.find((item) => item.name === getFieldValue('agentName'))
+                      const canUseRagStrategy = getAgentNeedsRetrieval(selectedAgent)
+                      if (!canUseRagStrategy) {
+                        return (
+                          <Alert
+                            className="rag-inline-alert"
+                            type="info"
+                            showIcon
+                            message={selectedAgent?.name === 'leader_agent'
+                              ? 'Leader 不手动选择 RAG 策略；它会自动判断直接回答、调用专业智能体或调用接口。'
+                              : '该智能体不跑 RAG，会直接处理输入内容。'}
+                          />
+                        )
+                      }
+                      return (
+                        <Form.Item name="ragStrategy" label="RAG 执行策略" extra="该智能体会先检索证据，再生成结构化结果。">
+                          <Select options={getStrategyOptionsForAgent(selectedAgent)} showSearch optionFilterProp="label" />
+                        </Form.Item>
+                      )
+                    }}
                   </Form.Item>
                   <Form.Item name="input" label="测试输入" rules={[{ required: true, message: '请输入测试内容' }]}>
                     <TextArea rows={6} placeholder="输入一段课程内容或任务要求" />
@@ -566,7 +691,7 @@ function RagManage() {
                     调用当前智能体
                   </Button>
                   <Text type="secondary" className="rag-agent-test-tip">
-                    Leader 自动路由需要配置 DeepSeek；专业智能体会优先返回结构化结果，便于本地确认链路。
+                    Leader 用于意图识别、自动分发和工具调用；MD 知识点提取等非检索智能体会直接处理输入；教材、PPT、题库、图片等需要证据的智能体才会显示 RAG 执行策略。
                   </Text>
                 </Form>
               </Col>
@@ -579,6 +704,8 @@ function RagManage() {
                       </Tag>
                       <Tag color="blue">{agentTestResult.agent?.name}</Tag>
                       <Tag>{agentTestResult.response?.metadata?.agentName || agentTestResult.request?.agentName}</Tag>
+                      <Tag color="purple">{getExecutionLabel(agentTestResult.response?.metadata)}</Tag>
+                      {agentTestResult.response?.metadata?.executedAgent && <Tag color="geekblue">执行：{agentTestResult.response.metadata.executedAgent}</Tag>}
                     </div>
                     {agentTestResult.error ? (
                       <div className="rag-answer-box">{agentTestResult.error}</div>
@@ -647,7 +774,11 @@ function RagManage() {
                       <Space direction="vertical" className="rag-full">
                         <pre className="rag-code-block">{JSON.stringify({
                           agentName: agent.name,
-                          ragStrategy: agent.defaultRagStrategy,
+                          ...(agent.name === 'leader_agent'
+                            ? { executionMode: 'leader_orchestration' }
+                            : getAgentNeedsRetrieval(agent)
+                              ? { ragStrategy: agent.defaultRagStrategy }
+                              : { executionMode: 'direct_agent' }),
                           input: getAgentExampleInput(agent),
                         }, null, 2)}</pre>
                         <Button
@@ -901,7 +1032,7 @@ function RagManage() {
         <div>
           <span className="rag-kicker">AI RAG Console</span>
           <Title level={1}>RAG 管理</Title>
-          <p>统一管理知识库、策略测试、Text-to-SQL、GraphRAG 健康状态和评估指标。</p>
+          <p>统一管理知识库、Leader 自动路由、多智能体测试、Text-to-SQL、GraphRAG 健康状态和评估指标。</p>
         </div>
         <Button icon={<ReloadOutlined />} onClick={refresh} loading={bootLoading}>
           刷新状态

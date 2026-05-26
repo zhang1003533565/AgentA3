@@ -1,10 +1,15 @@
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
+
+from fastapi import HTTPException
 
 from app.multi_agents.catalog import get_agent_profile, normalize_agent_name
 from app.services.langchain_chat_service import get_chat_service
 from app.services.memory_store import memory_store
+from app.utils.logger import get_logger
 from app.utils.text_utils import is_schedule_intent, is_smalltalk_intent
+
+logger = get_logger("multi_agents.leader")
 
 
 @dataclass
@@ -13,34 +18,126 @@ class LeaderPlan:
     target_agent: str
     need_retrieval: bool
     rag_strategy: str
+    action: str = "delegate_agent"
+    tool_name: str = ""
+    route_reason: str = ""
+    answer: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
 
 
 class LeaderAgent:
     name = "leader_agent"
 
-    def plan(self, input_text: str, rag_strategy: str = "", requested_agent: Optional[str] = None) -> LeaderPlan:
+    def plan(self, input_text: str, rag_strategy: str = "", requested_agent: Optional[str] = None, chat_service=None) -> LeaderPlan:
         forced_plan = self._plan_for_requested_agent(requested_agent, rag_strategy)
         if forced_plan:
             return forced_plan
 
+        return self._plan_with_llm(input_text, rag_strategy, chat_service)
+
+    def _plan_with_rules(self, input_text: str, rag_strategy: str = "") -> LeaderPlan:
         normalized = (input_text or "").strip().lower()
         if is_smalltalk_intent(input_text):
-            return LeaderPlan("smalltalk", "leader_agent", False, rag_strategy or "naive_rag")
+            return LeaderPlan(
+                intent="smalltalk",
+                target_agent="leader_agent",
+                need_retrieval=False,
+                rag_strategy="",
+                action="direct_answer",
+                route_reason="命中问候/闲聊意图，Leader 直接回复，不需要检索。",
+                answer=self._smalltalk_answer(input_text),
+            )
         if is_schedule_intent(input_text):
-            return LeaderPlan("schedule", "textbook_knowledge_agent", True, rag_strategy or "naive_rag")
+            return LeaderPlan(
+                intent="schedule",
+                target_agent="textbook_knowledge_agent",
+                need_retrieval=False,
+                rag_strategy="",
+                action="call_tool",
+                tool_name="java_schedule_api",
+                route_reason="命中课表意图，优先调用 Java 后端课表接口。",
+            )
+        if self._is_structured_query(normalized):
+            return LeaderPlan(
+                intent="structured_query",
+                target_agent="leader_agent",
+                need_retrieval=False,
+                rag_strategy="text_to_sql",
+                action="call_tool",
+                tool_name="text_to_sql",
+                route_reason="命中统计/查询结构化数据意图，使用 Text-to-SQL 查询接口。",
+            )
         if any(token in normalized for token in ("思维导图", "mindmap", "mind map", "脑图")):
-            return LeaderPlan("mind_map", "mind_map_agent", True, rag_strategy or "multi_agent_rag")
+            return LeaderPlan("mind_map", "mind_map_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中思维导图生成意图，分发给思维导图智能体。")
         if any(token in normalized for token in ("题库", "练习题", "选择题", "判断题", "简答题", "试卷", "出题")):
-            return LeaderPlan("question_bank", "textbook_question_bank_agent", True, rag_strategy or "multi_agent_rag")
+            return LeaderPlan("question_bank", "textbook_question_bank_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中题库/练习题生成意图，分发给教材题库智能体。")
         if any(token in normalized for token in ("ppt", "幻灯片", "课件", "演示文稿")):
-            return LeaderPlan("ppt", "ppt_agent", True, rag_strategy or "multi_agent_rag")
+            return LeaderPlan("ppt", "ppt_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中 PPT/课件生成意图，分发给 PPT 智能体。")
         if any(token in normalized for token in ("图片", "配图", "插图", "海报", "封面图", "image")):
-            return LeaderPlan("image", "image_agent", True, rag_strategy or "multimodal_rag")
+            return LeaderPlan("image", "image_agent", True, rag_strategy or "multimodal_rag", route_reason="命中图片/配图生成意图，分发给图片智能体。")
         if any(token in normalized for token in ("md", "markdown", "知识点提取", "提取知识点", "知识点整理")):
-            return LeaderPlan("md_knowledge", "md_knowledge_agent", False, rag_strategy or "semantic_chunking")
+            return LeaderPlan("md_knowledge", "md_knowledge_agent", False, "", route_reason="命中 Markdown/文本知识点提取意图，直接交给 MD 知识点智能体。")
         if any(token in normalized for token in ("教材", "课本", "章节", "考点", "知识点", "课程内容")):
-            return LeaderPlan("textbook_knowledge", "textbook_knowledge_agent", True, rag_strategy or "hybrid_search")
-        return LeaderPlan("campus_search", "textbook_knowledge_agent", True, rag_strategy or "naive_rag")
+            return LeaderPlan("textbook_knowledge", "textbook_knowledge_agent", True, rag_strategy or "hybrid_search", route_reason="命中教材/课程知识意图，使用教材知识点智能体检索增强。")
+        return LeaderPlan("campus_search", "textbook_knowledge_agent", True, rag_strategy or "naive_rag", route_reason="未命中特定生成类意图，按校园知识查询处理。")
+
+    def _plan_with_llm(self, input_text: str, rag_strategy: str, chat_service=None) -> LeaderPlan:
+        service = chat_service or get_chat_service()
+        plan = service.plan_leader_intent(input_text, rag_strategy)
+        parsed = self._parse_llm_plan(plan, rag_strategy)
+        if not parsed:
+            raise HTTPException(status_code=502, detail=f"Leader LLM 路由结果字段不合法：{plan}")
+        logger.info(
+            "leader llm plan intent=%s action=%s target=%s retrieval=%s",
+            parsed.intent,
+            parsed.action,
+            parsed.target_agent,
+            parsed.need_retrieval,
+        )
+        return parsed
+
+    def _parse_llm_plan(self, plan: Dict[str, Any], requested_rag_strategy: str) -> Optional[LeaderPlan]:
+        if not isinstance(plan, dict):
+            return None
+        action = str(plan.get("action") or "delegate_agent").strip()
+        tool_name = str(plan.get("tool_name") or plan.get("toolName") or "").strip()
+        default_target = "leader_agent" if action in {"direct_answer", "call_tool"} else "textbook_knowledge_agent"
+        target_agent = normalize_agent_name(str(plan.get("target_agent") or plan.get("targetAgent") or "")) or default_target
+        if target_agent not in {
+            "leader_agent",
+            "mind_map_agent",
+            "md_knowledge_agent",
+            "textbook_knowledge_agent",
+            "textbook_question_bank_agent",
+            "ppt_agent",
+            "image_agent",
+        }:
+            return None
+        need_retrieval = bool(plan.get("need_retrieval", plan.get("needRetrieval", False)))
+        profile = get_agent_profile(target_agent)
+        if profile and action == "delegate_agent":
+            need_retrieval = bool(profile["needRetrieval"])
+        rag_strategy = str(plan.get("rag_strategy") or plan.get("ragStrategy") or "").strip()
+        if requested_rag_strategy and need_retrieval:
+            rag_strategy = requested_rag_strategy
+        elif profile and need_retrieval and not rag_strategy:
+            rag_strategy = profile["defaultRagStrategy"]
+        elif action == "call_tool" and tool_name == "text_to_sql" and not rag_strategy:
+            rag_strategy = "text_to_sql"
+        elif not need_retrieval and action != "call_tool":
+            rag_strategy = ""
+        return LeaderPlan(
+            intent=str(plan.get("intent") or "campus_search").strip() or "campus_search",
+            target_agent=target_agent,
+            need_retrieval=need_retrieval,
+            rag_strategy=rag_strategy,
+            action=action if action in {"direct_answer", "delegate_agent", "call_tool"} else "delegate_agent",
+            tool_name=tool_name,
+            route_reason=str(plan.get("route_reason") or plan.get("routeReason") or "Leader LLM 完成意图识别。").strip(),
+            answer=str(plan.get("answer") or "").strip(),
+        )
 
     def _plan_for_requested_agent(self, requested_agent: Optional[str], rag_strategy: str) -> Optional[LeaderPlan]:
         agent_name = normalize_agent_name(requested_agent)
@@ -53,8 +150,22 @@ class LeaderAgent:
             intent=profile["intent"],
             target_agent=agent_name,
             need_retrieval=bool(profile["needRetrieval"]),
-            rag_strategy=rag_strategy or profile["defaultRagStrategy"],
+            rag_strategy=(rag_strategy or profile["defaultRagStrategy"]) if profile["needRetrieval"] else "",
+            route_reason=f"用户显式选择 {profile['role']}，Leader 按指定智能体执行。",
         )
+
+    def _is_structured_query(self, normalized_text: str) -> bool:
+        query_tokens = ("统计", "数量", "多少", "有多少", "列表", "查询", "查一下", "排名")
+        domain_tokens = ("优惠券", "优惠", "满减", "食堂", "餐厅", "档口", "菜品", "课程", "课表")
+        return any(token in normalized_text for token in query_tokens) and any(token in normalized_text for token in domain_tokens)
+
+    def _smalltalk_answer(self, input_text: str) -> str:
+        normalized = (input_text or "").strip()
+        if "谢谢" in normalized:
+            return "不客气，我可以继续帮你判断任务该交给哪个智能体，或者直接处理课程资料。"
+        if "再见" in normalized:
+            return "再见，需要继续做思维导图、知识点、题库、PPT 或配图时再叫我就行。"
+        return "你好，我是 Leader 智能体。我会先判断你的意图，再决定直接回答、调用专业智能体，或走 RAG / Text-to-SQL / Java 后端接口。"
 
     def load_memory(self, session_token: str) -> List[Dict[str, str]]:
         return memory_store.get_history(session_token)

@@ -1,18 +1,16 @@
 import json
-import os
+import importlib
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
-
-# Ensure env is present before importing app modules
-os.environ.setdefault("DEEPSEEK_API_KEY", "dummy-key")
 
 from app.services.data_store import data_store  # noqa: E402
 from app.models.schemas import ChatRequest  # noqa: E402
 from app.services import chat_orchestrator  # noqa: E402
 from app.langgraph.nodes import extract_keyword as extract_keyword_node_module  # noqa: E402
 from app.langgraph.nodes import call_llm as call_llm_node_module  # noqa: E402
+from app.model_providers.runtime_config import LlmRuntimeConfig, reset_active_llm_config, set_active_llm_config  # noqa: E402
 
 
 class FakeJavaHandler(BaseHTTPRequestHandler):
@@ -102,11 +100,30 @@ class FakeJavaHandler(BaseHTTPRequestHandler):
 
 
 class FakeLLM:
+    def plan_leader_intent(self, input_text, rag_strategy=""):
+        return {
+            "intent": "campus_search",
+            "target_agent": "textbook_knowledge_agent",
+            "need_retrieval": True,
+            "rag_strategy": rag_strategy or "naive_rag",
+            "action": "delegate_agent",
+            "tool_name": "",
+            "route_reason": "测试 LLM 路由到教材知识点智能体。",
+            "answer": "",
+        }
+
     def extract_search_keyword(self, input_text):
         return "黄焖鸡"
 
     def answer(self, prompt, input_text, history, search_keyword, search_results):
         return f"已检索到{len(search_results)}条候选，关键词={search_keyword}"
+
+    def generate_specialist_answer(self, agent_name, input_text, evidence):
+        if agent_name == "md_knowledge_agent":
+            return "## Markdown 知识点提取\n- 栈遵循后进先出\n- 队列遵循先进先出"
+        if agent_name == "mind_map_agent":
+            return "```mermaid\nmindmap\n  root((操作系统进程调度))\n```"
+        return f"{agent_name}: 已生成，证据数={len(evidence or [])}"
 
 
 class JavaReuseIntegrationTest(unittest.TestCase):
@@ -127,6 +144,34 @@ class JavaReuseIntegrationTest(unittest.TestCase):
         data_store.enabled = True
         data_store.java_base_url = f"http://127.0.0.1:{self.port}"
         data_store.timeout_seconds = 3
+        self._llm_token = set_active_llm_config(LlmRuntimeConfig(
+            provider="deepseek",
+            base_url="https://llm.test/v1",
+            api_key="test-key",
+            model="test-model",
+        ))
+        self._patched_modules = []
+        self._patch_chat_services()
+
+    def tearDown(self):
+        for module, old_get_chat_service in reversed(self._patched_modules):
+            module.get_chat_service = old_get_chat_service
+        reset_active_llm_config(self._llm_token)
+
+    def _patch_chat_services(self):
+        leader_agent_module = importlib.import_module("app.multi_agents.leader_agent.agent")
+        md_agent_module = importlib.import_module("app.multi_agents.md_knowledge_agent.agent")
+        mind_map_agent_module = importlib.import_module("app.multi_agents.mind_map_agent.agent")
+
+        for module in (
+            extract_keyword_node_module,
+            call_llm_node_module,
+            leader_agent_module,
+            md_agent_module,
+            mind_map_agent_module,
+        ):
+            self._patched_modules.append((module, module.get_chat_service))
+            module.get_chat_service = lambda service=FakeLLM(): service
 
     def test_search_keyword_via_java_apis(self):
         results = data_store.search_keyword("Bearer t", "黄焖鸡")
@@ -144,20 +189,12 @@ class JavaReuseIntegrationTest(unittest.TestCase):
         self.assertIn("name", results[0])
 
     def test_run_chat_core_uses_graph_and_java_data(self):
-        old_extractor = extract_keyword_node_module.get_chat_service
-        old_caller = call_llm_node_module.get_chat_service
-        try:
-            extract_keyword_node_module.get_chat_service = lambda: FakeLLM()
-            call_llm_node_module.get_chat_service = lambda: FakeLLM()
-            req = ChatRequest(sessionId="s1", prompt="你是助手", input="推荐黄焖鸡")
-            resp = chat_orchestrator.run_chat_core(req, "Bearer token-x", user_id=1001)
-            self.assertEqual("s1", resp.sessionId)
-            self.assertEqual("黄焖鸡", resp.searchKeyword)
-            self.assertTrue(len(resp.matchedResults) > 0)
-            self.assertIn("已检索到", resp.answer)
-        finally:
-            extract_keyword_node_module.get_chat_service = old_extractor
-            call_llm_node_module.get_chat_service = old_caller
+        req = ChatRequest(sessionId="s1", prompt="你是助手", input="推荐黄焖鸡")
+        resp = chat_orchestrator.run_chat_core(req, "Bearer token-x", user_id=1001)
+        self.assertEqual("s1", resp.sessionId)
+        self.assertEqual("黄焖鸡", resp.searchKeyword)
+        self.assertTrue(len(resp.matchedResults) > 0)
+        self.assertIn("已检索到", resp.answer)
 
     def test_run_chat_core_can_force_md_knowledge_agent(self):
         req = ChatRequest(
@@ -173,23 +210,18 @@ class JavaReuseIntegrationTest(unittest.TestCase):
         self.assertIn("Markdown 知识点提取", resp.answer)
         self.assertIn("栈遵循后进先出", resp.answer)
 
-    def test_forced_specialist_can_run_without_deepseek_key(self):
-        old_key = os.environ.pop("DEEPSEEK_API_KEY", None)
-        try:
-            req = ChatRequest(
-                sessionId="agent-offline",
-                agentName="mind_map_agent",
-                input="操作系统进程调度思维导图",
-            )
+    def test_forced_specialist_uses_java_forwarded_llm_config(self):
+        req = ChatRequest(
+            sessionId="agent-llm",
+            agentName="mind_map_agent",
+            input="操作系统进程调度思维导图",
+        )
 
-            resp = chat_orchestrator.run_chat_core(req, "Bearer token-x", user_id=1001)
+        resp = chat_orchestrator.run_chat_core(req, "Bearer token-x", user_id=1001)
 
-            self.assertEqual("mind_map_agent", resp.agentName)
-            self.assertEqual("deterministic-specialist", resp.model)
-            self.assertIn("mindmap", resp.answer)
-        finally:
-            if old_key is not None:
-                os.environ["DEEPSEEK_API_KEY"] = old_key
+        self.assertEqual("mind_map_agent", resp.agentName)
+        self.assertEqual("test-model", resp.model)
+        self.assertIn("mindmap", resp.answer)
 
 
 if __name__ == "__main__":

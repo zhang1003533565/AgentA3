@@ -2,6 +2,7 @@ package com.example.appbackend.service.impl;
 
 import com.example.appbackend.dto.LlmChatRequest;
 import com.example.appbackend.dto.LlmChatResponse;
+import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.service.SystemConfigService;
 import com.example.appbackend.util.JwtUtil;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -40,12 +41,18 @@ class PythonAiProxyServiceTest {
     void chat_shouldForwardAuthorizationAndUserIdAndParseResponse() throws Exception {
         AtomicReference<String> authRef = new AtomicReference<>();
         AtomicReference<String> userIdRef = new AtomicReference<>();
+        AtomicReference<String> aiBaseUrlRef = new AtomicReference<>();
+        AtomicReference<String> aiApiKeyRef = new AtomicReference<>();
+        AtomicReference<String> aiModelRef = new AtomicReference<>();
         AtomicReference<String> requestBodyRef = new AtomicReference<>();
 
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/internal/chat", exchange -> {
             authRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
             userIdRef.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
+            aiBaseUrlRef.set(exchange.getRequestHeaders().getFirst("X-AI-Base-Url"));
+            aiApiKeyRef.set(exchange.getRequestHeaders().getFirst("X-AI-Api-Key"));
+            aiModelRef.set(exchange.getRequestHeaders().getFirst("X-AI-Model"));
             requestBodyRef.set(readBody(exchange));
 
             String responseJson = """
@@ -91,6 +98,9 @@ class PythonAiProxyServiceTest {
 
         Assertions.assertEquals("Bearer " + token, authRef.get());
         Assertions.assertEquals("1001", userIdRef.get());
+        Assertions.assertEquals("https://llm.test/v1", aiBaseUrlRef.get());
+        Assertions.assertEquals("test-ai-key", aiApiKeyRef.get());
+        Assertions.assertEquals("test-model", aiModelRef.get());
 
         ObjectMapper mapper = new ObjectMapper();
         JsonNode reqJson = mapper.readTree(requestBodyRef.get());
@@ -105,12 +115,14 @@ class PythonAiProxyServiceTest {
     void ragQuery_shouldProxyRequestToPythonRagEndpoint() throws Exception {
         AtomicReference<String> authRef = new AtomicReference<>();
         AtomicReference<String> userIdRef = new AtomicReference<>();
+        AtomicReference<String> aiModelRef = new AtomicReference<>();
         AtomicReference<String> requestBodyRef = new AtomicReference<>();
 
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/internal/rag/query", exchange -> {
             authRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
             userIdRef.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
+            aiModelRef.set(exchange.getRequestHeaders().getFirst("X-AI-Model"));
             requestBodyRef.set(readBody(exchange));
 
             String responseJson = """
@@ -140,6 +152,7 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("已生成只读 SQL", responseMap.get("answer"));
         Assertions.assertEquals("Bearer " + token, authRef.get());
         Assertions.assertEquals("1003", userIdRef.get());
+        Assertions.assertEquals("test-model", aiModelRef.get());
 
         ObjectMapper mapper = new ObjectMapper();
         JsonNode reqJson = mapper.readTree(requestBodyRef.get());
@@ -216,13 +229,35 @@ class PythonAiProxyServiceTest {
         Assertions.assertNull(errorRef.get(), "streamChat 不应触发 onError");
     }
 
+    @Test
+    void chat_shouldFailFastWhenAiConfigMissing() {
+        PythonAiProxyService service = newService(65535, new MissingApiKeySystemConfigService());
+        String token = buildJwtToken(1005L);
+
+        LlmChatRequest request = new LlmChatRequest();
+        request.setSessionId("missing-config");
+        request.setInput("你好");
+
+        BusinessException error = Assertions.assertThrows(
+                BusinessException.class,
+                () -> service.chat(request, "Bearer " + token)
+        );
+
+        Assertions.assertTrue(error.getMessage().contains("ai.service.api-key"));
+    }
+
     private PythonAiProxyService newService(int port) {
+        return newService(port, new TestSystemConfigService());
+    }
+
+    private PythonAiProxyService newService(int port, SystemConfigService systemConfigService) {
         ObjectMapper objectMapper = new ObjectMapper();
-        JwtUtil jwtUtil = new JwtUtil(new TestSystemConfigService());
+        JwtUtil jwtUtil = new JwtUtil(systemConfigService);
         return new PythonAiProxyService(
                 WebClient.builder(),
                 objectMapper,
                 jwtUtil,
+                systemConfigService,
                 "http://localhost:" + port,
                 5
         );
@@ -269,13 +304,25 @@ class PythonAiProxyServiceTest {
         }
     }
 
-    private static final class TestSystemConfigService implements SystemConfigService {
+    private static class TestSystemConfigService implements SystemConfigService {
         private static final String TEST_SECRET = "test-jwt-secret-key-please-change-this-seed-value-123456";
 
         @Override
         public String getValue(String key, String defaultValue) {
             if ("jwt.secret".equals(key)) {
                 return TEST_SECRET;
+            }
+            if ("ai.provider".equals(key)) {
+                return "deepseek";
+            }
+            if ("ai.service.base-url".equals(key)) {
+                return "https://llm.test/v1";
+            }
+            if ("ai.service.api-key".equals(key)) {
+                return "test-ai-key";
+            }
+            if ("ai.service.model".equals(key)) {
+                return "test-model";
             }
             return defaultValue;
         }
@@ -288,6 +335,16 @@ class PythonAiProxyServiceTest {
         @Override
         public Boolean getBooleanValue(String key, Boolean defaultValue) {
             return defaultValue;
+        }
+    }
+
+    private static final class MissingApiKeySystemConfigService extends TestSystemConfigService {
+        @Override
+        public String getValue(String key, String defaultValue) {
+            if ("ai.service.api-key".equals(key)) {
+                return "";
+            }
+            return super.getValue(key, defaultValue);
         }
     }
 }

@@ -7,6 +7,9 @@ class ChatModelProvider(ABC):
     def extract_search_keyword(self, input_text: str) -> str:
         raise NotImplementedError
 
+    def complete(self, system_prompt: str, user_prompt: str) -> str:
+        raise NotImplementedError
+
     @abstractmethod
     def answer(
         self,

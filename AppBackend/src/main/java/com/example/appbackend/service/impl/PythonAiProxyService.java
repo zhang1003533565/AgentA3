@@ -4,6 +4,7 @@ import com.example.appbackend.dto.LlmChatRequest;
 import com.example.appbackend.dto.LlmChatResponse;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
+import com.example.appbackend.service.SystemConfigService;
 import com.example.appbackend.util.JwtUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -30,17 +31,20 @@ public class PythonAiProxyService {
     private final WebClient.Builder webClientBuilder;
     private final ObjectMapper objectMapper;
     private final JwtUtil jwtUtil;
+    private final SystemConfigService systemConfigService;
     private final String pythonBaseUrl;
     private final long timeoutSeconds;
 
     public PythonAiProxyService(WebClient.Builder webClientBuilder,
                                 ObjectMapper objectMapper,
                                 JwtUtil jwtUtil,
+                                SystemConfigService systemConfigService,
                                 @Value("${ai.python.base-url:http://localhost:8081}") String pythonBaseUrl,
                                 @Value("${ai.python.timeout-seconds:65}") long timeoutSeconds) {
         this.webClientBuilder = webClientBuilder;
         this.objectMapper = objectMapper;
         this.jwtUtil = jwtUtil;
+        this.systemConfigService = systemConfigService;
         this.pythonBaseUrl = pythonBaseUrl;
         this.timeoutSeconds = timeoutSeconds;
     }
@@ -53,8 +57,7 @@ public class PythonAiProxyService {
             return webClientBuilder.build()
                     .post()
                     .uri(buildUri("/internal/chat"))
-                    .header(HttpHeaders.AUTHORIZATION, authorization)
-                    .header("X-User-Id", userId.toString())
+                    .headers(headers -> applyPythonHeaders(headers, authorization, userId))
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(request)
                     .retrieve()
@@ -140,8 +143,7 @@ public class PythonAiProxyService {
                 webClientBuilder.build()
                         .post()
                         .uri(buildUri("/internal/chat/stream"))
-                        .header(HttpHeaders.AUTHORIZATION, authorization)
-                        .header("X-User-Id", userId.toString())
+                        .headers(headers -> applyPythonHeaders(headers, authorization, userId))
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .contentType(MediaType.APPLICATION_JSON)
                         .bodyValue(request)
@@ -201,8 +203,7 @@ public class PythonAiProxyService {
             return webClientBuilder.build()
                     .get()
                     .uri(buildUri(path))
-                    .header(HttpHeaders.AUTHORIZATION, authorization)
-                    .header("X-User-Id", userId.toString())
+                    .headers(headers -> applyPythonHeaders(headers, authorization, userId))
                     .retrieve()
                     .bodyToMono(Object.class)
                     .timeout(Duration.ofSeconds(timeoutSeconds))
@@ -222,8 +223,7 @@ public class PythonAiProxyService {
             return webClientBuilder.build()
                     .post()
                     .uri(buildUri(path))
-                    .header(HttpHeaders.AUTHORIZATION, authorization)
-                    .header("X-User-Id", userId.toString())
+                    .headers(headers -> applyPythonHeaders(headers, authorization, userId))
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(request == null ? Map.of() : request)
                     .retrieve()
@@ -255,6 +255,23 @@ public class PythonAiProxyService {
     private String buildUri(String path) {
         String base = pythonBaseUrl.endsWith("/") ? pythonBaseUrl.substring(0, pythonBaseUrl.length() - 1) : pythonBaseUrl;
         return base + path;
+    }
+
+    private void applyPythonHeaders(HttpHeaders headers, String authorization, Long userId) {
+        headers.set(HttpHeaders.AUTHORIZATION, authorization);
+        headers.set("X-User-Id", userId.toString());
+        headers.set("X-AI-Provider", systemConfigService.getValue("ai.provider", "deepseek"));
+        headers.set("X-AI-Base-Url", requireAiConfig("ai.service.base-url", "模型服务地址"));
+        headers.set("X-AI-Api-Key", requireAiConfig("ai.service.api-key", "模型服务密钥"));
+        headers.set("X-AI-Model", requireAiConfig("ai.service.model", "模型 ID"));
+    }
+
+    private String requireAiConfig(String key, String label) {
+        String value = systemConfigService.getValue(key, "");
+        if (!StringUtils.hasText(value)) {
+            throw new BusinessException(Result.ERROR_CODE, label + "未配置，请在系统配置中维护 " + key);
+        }
+        return value;
     }
 
     private String extractRemoteMessage(WebClientResponseException e) {

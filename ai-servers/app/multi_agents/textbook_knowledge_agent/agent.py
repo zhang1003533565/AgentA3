@@ -12,6 +12,7 @@ from app.rag.rerankers import LexicalReranker
 from app.rag.retrievers import GraphRetriever, HybridRetriever, ParentChildRetriever, VectorRetriever, java_backend_retriever
 from app.rag.routers.adaptive_router import AdaptiveRagRouter
 from app.rag.structured.text_to_sql import TextToSqlService
+from app.services.langchain_chat_service import get_chat_service
 
 
 class TextbookKnowledgeAgent:
@@ -39,23 +40,9 @@ class TextbookKnowledgeAgent:
         results, _ = self.retrieve_with_meta(authorization, intent, keyword, input_text)
         return results
 
-    def summarize_knowledge_points(self, topic: str, evidence: List[Dict[str, Any]]) -> str:
-        points = []
-        for item in evidence or []:
-            content = str(item.get("content") or item.get("name") or "").strip()
-            if content:
-                points.append(content.replace("\n", " ")[:140])
-        if not points:
-            return f"## 教材知识点\n- 暂未检索到与“{topic or '当前主题'}”直接相关的教材证据。"
-
-        lines = ["## 教材知识点", f"主题：{topic or '当前主题'}", ""]
-        for index, point in enumerate(points[:8], start=1):
-            source = str((evidence[index - 1] or {}).get("source") or (evidence[index - 1] or {}).get("name") or "").strip()
-            suffix = f" 来源：{source}" if source else ""
-            lines.append(f"{index}. {point}{suffix}")
-        lines.append("")
-        lines.append("> 以上内容来自当前检索证据，可继续交给题库、PPT、思维导图或图片智能体加工。")
-        return "\n".join(lines)
+    def summarize_knowledge_points(self, topic: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
+        service = chat_service or get_chat_service()
+        return service.generate_specialist_answer("textbook_knowledge_agent", topic, evidence)
 
     def retrieve_with_meta(
         self,

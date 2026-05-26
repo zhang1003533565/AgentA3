@@ -1,4 +1,3 @@
-import os
 import time
 import uuid
 from typing import Optional
@@ -14,6 +13,7 @@ from app.langgraph.nodes import (
 )
 from app.langgraph.state import ConversationState
 from app.models.schemas import ChatRequest, ChatResponse
+from app.model_providers.runtime_config import require_active_llm_config
 from app.multi_agents.catalog import get_agent_profile, normalize_agent_name
 from app.rag.engine import rag_engine
 from app.utils.logger import get_logger, mask_id
@@ -34,13 +34,13 @@ NODE_CHAIN = [
 
 
 def run_conversation_graph(request: ChatRequest, authorization: str, user_id: Optional[int]) -> ChatResponse:
-    deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "")
-    deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+    try:
+        active_llm_config = require_active_llm_config()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     requested_agent = normalize_agent_name(request.agentName)
     if request.agentName and not requested_agent:
         raise HTTPException(status_code=400, detail="智能体不存在")
-    if not deepseek_api_key and requested_agent in {None, "leader_agent"}:
-        raise HTTPException(status_code=500, detail="未配置 DEEPSEEK_API_KEY")
 
     session_id = request.sessionId or str(uuid.uuid4())
     session_token = build_session_token(session_id, authorization)
@@ -50,7 +50,8 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: Op
     default_strategy = agent_profile["defaultRagStrategy"] if agent_profile else "naive_rag"
     requested_strategy = request.ragStrategy or default_strategy
     supported_strategies = set(rag_engine.list_strategies())
-    active_strategy = requested_strategy if requested_strategy in supported_strategies else "naive_rag"
+    if requested_strategy not in supported_strategies:
+        raise HTTPException(status_code=400, detail=f"未知 RAG 策略：{requested_strategy}")
 
     state = ConversationState(
         session_id=session_id,
@@ -58,24 +59,13 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: Op
         authorization=authorization,
         prompt=prompt,
         input_text=request.input,
-        model=deepseek_model if deepseek_api_key else "deterministic-specialist",
+        model=active_llm_config.model,
         user_id=user_id,
-        rag_strategy=active_strategy,
+        rag_strategy=requested_strategy,
         rag_strategy_explicit=bool(request.ragStrategy),
         requested_agent=requested_agent or "",
         active_agent=requested_agent or "leader_agent",
     )
-    if requested_strategy != active_strategy:
-        state.retrieval_meta["strategyRequested"] = requested_strategy
-        state.retrieval_meta["strategyFallback"] = active_strategy
-        state.trace.append({
-            "stage": "strategy",
-            "detail": {
-                "requested": requested_strategy,
-                "active": active_strategy,
-                "reason": "requested strategy is unknown",
-            },
-        })
 
     for node in NODE_CHAIN:
         node_name = getattr(node, "__name__", str(node))

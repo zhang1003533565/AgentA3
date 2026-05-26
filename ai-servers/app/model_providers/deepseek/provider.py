@@ -1,10 +1,10 @@
-import os
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
 from app.model_providers.base import ChatModelProvider
+from app.model_providers.runtime_config import LlmRuntimeConfig, resolve_llm_config
 from app.utils.logger import get_logger
 from app.utils.prompts import KEYWORD_EXTRACTION_PROMPT, build_search_facts_prompt
 from app.utils.text_utils import normalize_base_url, sanitize_keyword
@@ -13,18 +13,26 @@ logger = get_logger("providers.deepseek")
 
 
 class DeepSeekProvider(ChatModelProvider):
-    def __init__(self) -> None:
+    def __init__(self, config: Optional[LlmRuntimeConfig] = None) -> None:
         try:
             from langchain_openai import ChatOpenAI
         except Exception as exc:
             raise RuntimeError(f"缺少 langchain_openai 依赖: {exc}") from exc
 
-        deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "")
-        deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-        deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+        runtime_config = resolve_llm_config(config)
+        if runtime_config.normalized_provider() not in {"deepseek", "openai_compatible", "openai-compatible"}:
+            raise RuntimeError(f"暂不支持的 LLM_PROVIDER: {runtime_config.provider}")
+
+        deepseek_api_key = runtime_config.api_key
+        deepseek_base_url = runtime_config.base_url
+        deepseek_model = runtime_config.model
 
         if not deepseek_api_key:
-            raise RuntimeError("DEEPSEEK_API_KEY 未配置")
+            raise RuntimeError("LLM API Key 未配置：缺少 X-AI-Api-Key(ai.service.api-key)")
+        if not deepseek_base_url:
+            raise RuntimeError("LLM Base URL 未配置：缺少 X-AI-Base-Url(ai.service.base-url)")
+        if not deepseek_model:
+            raise RuntimeError("LLM 模型未配置：缺少 X-AI-Model(ai.service.model)")
 
         self.model = deepseek_model
         self.llm = ChatOpenAI(
@@ -35,6 +43,15 @@ class DeepSeekProvider(ChatModelProvider):
             timeout=60,
             max_retries=1,
         )
+
+    def complete(self, system_prompt: str, user_prompt: str) -> str:
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        response = self.llm.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt),
+        ])
+        return str(response.content or "").strip()
 
     def extract_search_keyword(self, input_text: str) -> str:
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -47,7 +64,7 @@ class DeepSeekProvider(ChatModelProvider):
         ])
         text = sanitize_keyword(str(response.content))
         if not text:
-            text = sanitize_keyword(input_text)
+            raise HTTPException(status_code=502, detail="LLM 未返回可用检索关键词，已禁止本地关键词兜底")
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         logger.info("extract keyword done elapsed_ms=%s keyword=%s", elapsed_ms, text)
         return text

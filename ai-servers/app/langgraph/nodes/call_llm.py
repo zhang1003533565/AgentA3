@@ -1,3 +1,5 @@
+from fastapi import HTTPException
+
 from app.langgraph.state import ConversationState
 from app.multi_agents.image_agent.agent import image_agent
 from app.multi_agents.leader_agent.agent import leader_agent
@@ -10,7 +12,11 @@ from app.services.langchain_chat_service import get_chat_service
 
 
 def call_llm_node(state: ConversationState) -> None:
-    if state.intent == "mind_map":
+    if state.retrieval_meta.get("leaderAction") == "direct_answer":
+        state.answer = state.retrieval_meta.get("leaderDirectAnswer") or ""
+        if not state.answer:
+            raise HTTPException(status_code=502, detail="Leader LLM 选择直接回答，但 answer 为空，已禁止本地兜底回答")
+    elif state.intent == "mind_map":
         state.answer = mind_map_agent.build_mind_map(state.input_text, state.matched_results)
     elif state.intent == "md_knowledge":
         state.answer = md_knowledge_agent.extract_knowledge_points(state.input_text, state.matched_results)

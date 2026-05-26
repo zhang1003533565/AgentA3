@@ -1,6 +1,6 @@
 from importlib import import_module
 
-from app.rag.core import BaseRagStrategy, PlaceholderRagStrategy, RAG_STRATEGY_SPECS, RagQuery, RagResult, RagTraceStep
+from app.rag.core import BaseRagStrategy, RAG_STRATEGY_SPECS, RagQuery, RagResult, RagTraceStep
 from app.rag.routers.adaptive_router import AdaptiveRagRouter
 
 spec = RAG_STRATEGY_SPECS["adaptive_rag"]
@@ -34,9 +34,8 @@ class AdaptiveRagStrategy(BaseRagStrategy):
         try:
             module = import_module(f"app.rag.strategies.{strategy_name}.strategy")
             return getattr(module, "strategy")
-        except Exception:
-            fallback_spec = RAG_STRATEGY_SPECS.get(strategy_name, RAG_STRATEGY_SPECS["naive_rag"])
-            return PlaceholderRagStrategy(strategy_name, fallback_spec["category"], fallback_spec["purpose"])
+        except Exception as exc:
+            raise RuntimeError(f"adaptive_rag 路由到 {strategy_name}，但策略加载失败：{exc}") from exc
 
 
 strategy = AdaptiveRagStrategy()

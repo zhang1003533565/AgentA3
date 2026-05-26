@@ -44,7 +44,7 @@ AI 相关框架统一放在 `app/` 下维护，避免运行代码、skill、cont
 
 `leader_agent`、`mind_map_agent`、`md_knowledge_agent`、`textbook_knowledge_agent`、`textbook_question_bank_agent`、`ppt_agent`、`image_agent`。
 
-`agentName` 留空或传 `leader_agent` 时由 Leader 自动选择专业智能体。传专业智能体时可省略 `ragStrategy`，服务会选用该智能体的默认检索策略；也可以显式覆盖。
+`agentName` 留空或传 `leader_agent` 时由 Leader 先做意图识别，再决定直接回答、调用专业智能体，或调用 Text-to-SQL / Java 后端接口。Java 后端会从 `system_config` 读取 `ai.service.base-url`、`ai.service.api-key`、`ai.service.model`，再通过内部请求头传给 Python，因此 Leader 会优先使用后台配置的 LLM；只有 Java 未传配置或 LLM 调用失败时才回退到本地规则。只有 `needRetrieval=true` 的专业智能体才需要 `ragStrategy`；`leader_agent` 和 `md_knowledge_agent` 这类直接处理型智能体不传 RAG 策略。
 
 ```json
 {
@@ -73,7 +73,7 @@ uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
 
 - `PYTHON_SERVER_PORT` default `8081`
 - `DEEPSEEK_BASE_URL` default `https://api.deepseek.com`
-- `DEEPSEEK_API_KEY` required
+- `DEEPSEEK_API_KEY` optional fallback；正常经 Java 代理调用时优先使用数据库 `system_config.ai.service.api-key`
 - `DEEPSEEK_MODEL` default `deepseek-chat`
 - `REDIS_URL` default `redis://localhost:6379/0`
 - `LLM_MEMORY_TTL_MINUTES` default `120`
@@ -124,7 +124,7 @@ uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
 
 ## RAG Runtime Notes
 
-- `/internal/rag/query` 统一走 `app.rag.engine.rag_engine`，未知策略会回退到 `naive_rag`。
+- `/internal/rag/query` 默认走 Leader 编排；只有路由到检索型智能体时才进入 `app.rag.engine.rag_engine`，未知 RAG 策略会回退到 `naive_rag`。
 - 策略只返回证据时，会由 `local_context_synthesizer` 生成一段带来源的本地答案，方便无 LLM 环境也能调通链路。
 - 本地文档 RAG 默认读取 `ai-servers/knowledge_base/raw` 下的 `.md`、`.markdown`、`.txt`、`.csv`、`.json`、`.html`、`.htm`、`.pdf` 和图片文件。
 - PDF 正文抽取会优先使用可选依赖 `pypdf`；未安装时仍会保留文件元数据，不会阻塞入库。

@@ -12,11 +12,14 @@ def extract_keyword_node(state: ConversationState) -> None:
     )
     state.intent = plan.intent
     state.active_agent = plan.target_agent
-    if not state.rag_strategy_explicit:
+    if not state.rag_strategy_explicit and plan.rag_strategy:
         state.rag_strategy = plan.rag_strategy
     state.retrieval_meta.update({
         "targetAgent": plan.target_agent,
+        "leaderAction": plan.action,
+        "routeReason": plan.route_reason,
         "leaderRagStrategy": plan.rag_strategy,
+        "leaderDirectAnswer": plan.answer,
         "agentForced": bool(state.requested_agent),
     })
     if plan.intent == "smalltalk":
@@ -40,10 +43,7 @@ def extract_keyword_node(state: ConversationState) -> None:
             "detail": {"intent": state.intent, "targetAgent": plan.target_agent, "needRetrieval": True, "keyword": state.search_keyword},
         })
         return
-    try:
-        chat_service = get_chat_service()
-    except Exception:
-        chat_service = None
+    chat_service = get_chat_service()
     state.search_keyword = md_knowledge_agent.extract_keyword(state.input_text, chat_service=chat_service)
     state.trace.append({
         "stage": "leader_plan",
