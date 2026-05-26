@@ -1,3 +1,4 @@
+import hashlib
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -33,6 +34,23 @@ from app.utils.logger import get_logger
 
 router = APIRouter(prefix="/internal/rag", tags=["internal-rag"])
 logger = get_logger("api.rag")
+
+
+def _llm_header_audit_fields(
+    provider: Optional[str],
+    base_url: Optional[str],
+    api_key: Optional[str],
+    model: Optional[str],
+) -> Dict[str, Any]:
+    key = (api_key or "").strip()
+    return {
+        "provider": (provider or "").strip() or "-",
+        "base_url": (base_url or "").strip() or "-",
+        "model": (model or "").strip() or "-",
+        "api_key_len": len(key),
+        "api_key_suffix": key[-4:] if len(key) >= 4 else (key or "-"),
+        "api_key_sha256_8": hashlib.sha256(key.encode("utf-8")).hexdigest()[:8] if key else "-",
+    }
 
 
 @router.get("/strategies")
@@ -228,6 +246,24 @@ def run_rag_query(
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
 ) -> RagQueryResponse:
     _require_authorization(authorization)
+    audit = _llm_header_audit_fields(
+        provider=x_ai_provider,
+        base_url=x_ai_base_url,
+        api_key=x_ai_api_key,
+        model=x_ai_model,
+    )
+    logger.info(
+        "rag query request received agent=%s rag_strategy=%s input_len=%s provider=%s base_url=%s model=%s api_key_len=%s api_key_suffix=%s api_key_sha256_8=%s",
+        request.agentName or "-",
+        request.ragStrategy or "-",
+        len(request.input or ""),
+        audit["provider"],
+        audit["base_url"],
+        audit["model"],
+        audit["api_key_len"],
+        audit["api_key_suffix"],
+        audit["api_key_sha256_8"],
+    )
     token = set_active_llm_config(build_llm_runtime_config(
         provider=x_ai_provider,
         base_url=x_ai_base_url,

@@ -16,6 +16,7 @@ import {
   ingestRagDocuments,
   runRagQuery,
 } from '../../../api/rag'
+import { getSystemConfigList } from '../../../api/systemConfig'
 import './RagManage.css'
 
 const { TextArea } = Input
@@ -109,6 +110,53 @@ const safeJsonParse = (value, fallback) => {
   }
 }
 
+const toLlmModelOption = (item) => {
+  if (typeof item === 'string') {
+    const value = item.trim()
+    return value ? { value, label: value } : null
+  }
+  if (!item || typeof item !== 'object') return null
+  const value = String(item.model || item.id || item.value || item.name || '').trim()
+  if (!value) return null
+  const label = String(item.label || item.name || value).trim() || value
+  return { value, label }
+}
+
+const buildLlmModelOptions = (defaultModel, configuredModels, extraModels = []) => {
+  const options = []
+  const pushOption = (item) => {
+    const option = toLlmModelOption(item)
+    if (option) options.push(option)
+  }
+
+  const configuredText = String(configuredModels || '').trim()
+  if (configuredText) {
+    const parsed = safeJsonParse(configuredText, null)
+    if (Array.isArray(parsed)) {
+      parsed.forEach(pushOption)
+    } else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.models)) {
+      parsed.models.forEach(pushOption)
+    } else if (typeof parsed === 'string') {
+      pushOption(parsed)
+    } else {
+      configuredText
+        .split(/[,，\n]/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .forEach(pushOption)
+    }
+  }
+
+  pushOption(defaultModel)
+  extraModels.forEach(pushOption)
+
+  const dedup = new Map()
+  options.forEach((item) => {
+    if (!dedup.has(item.value)) dedup.set(item.value, item)
+  })
+  return Array.from(dedup.values())
+}
+
 const executionModeLabels = {
   leader_direct_answer: 'Leader 直接回答',
   leader_call_tool: 'Leader 调用接口',
@@ -170,6 +218,7 @@ function RagManage() {
   const [agentTestResult, setAgentTestResult] = useState(null)
   const [agentTestLoading, setAgentTestLoading] = useState(false)
   const [uploadFileList, setUploadFileList] = useState([])
+  const [llmModelOptions, setLlmModelOptions] = useState([])
   const [queryForm] = Form.useForm()
   const [ingestForm] = Form.useForm()
   const [evaluateForm] = Form.useForm()
@@ -245,6 +294,7 @@ function RagManage() {
         embeddingHealthRes,
         graphHealthRes,
         schemaRes,
+        aiConfigRes,
       ] = await Promise.all([
         getRagStrategies(),
         getRagCapabilities(),
@@ -255,6 +305,7 @@ function RagManage() {
         getRagEmbeddingHealth(),
         getRagGraphStoreHealth(),
         getTextToSqlSchema(),
+        getSystemConfigList({ current: 1, size: 100, prefixes: 'ai.service.' }),
       ])
       setStrategies(strategyRes.data?.strategies || [])
       setCapabilities(capabilityRes.data || null)
@@ -268,6 +319,14 @@ function RagManage() {
         graph: graphHealthRes.data,
       })
       setSqlSchema(schemaRes.data?.schema || null)
+
+      const configRows = aiConfigRes.data?.records || []
+      const defaultModel = configRows.find((item) => item.configKey === 'ai.service.model')?.configValue || ''
+      const configuredModels = configRows.find((item) => item.configKey === 'ai.service.models')?.configValue || ''
+      const extraModels = configRows
+        .filter((item) => String(item.configKey || '').startsWith('ai.service.model.'))
+        .map((item) => item.configValue)
+      setLlmModelOptions(buildLlmModelOptions(defaultModel, configuredModels, extraModels))
     } catch (error) {
       message.error(error.message || '加载 RAG 管理数据失败')
     } finally {
@@ -285,6 +344,17 @@ function RagManage() {
     fillAgentTestForm(leader)
   }, [agents, agentTestForm, fillAgentTestForm])
 
+  useEffect(() => {
+    if (!llmModelOptions.length) return
+    const defaultModel = llmModelOptions[0].value
+    if (!queryForm.getFieldValue('llmModel')) {
+      queryForm.setFieldsValue({ llmModel: defaultModel })
+    }
+    if (!agentTestForm.getFieldValue('llmModel')) {
+      agentTestForm.setFieldsValue({ llmModel: defaultModel })
+    }
+  }, [llmModelOptions, queryForm, agentTestForm])
+
   const handleQuery = async (values) => {
     setActionLoading(true)
     setQueryError('')
@@ -298,6 +368,7 @@ function RagManage() {
         intent: values.intent || 'campus_search',
         ragStrategy: canUseRagStrategy ? values.ragStrategy || undefined : undefined,
         agentName: selectedAgentName,
+        llmModel: values.llmModel || undefined,
         metadata: {},
       })
       setQueryResult(res.data)
@@ -406,6 +477,7 @@ function RagManage() {
         ? values.ragStrategy || agent.defaultRagStrategy || undefined
         : undefined,
       agentName: agent.name,
+      llmModel: values.llmModel || undefined,
       metadata: {
         testFrom: 'admin_agent_console',
         agentRole: agent.role,
@@ -467,13 +539,22 @@ function RagManage() {
                   className="rag-inline-alert"
                   type="warning"
                   showIcon
-                  message="所有智能体生成与 Leader 意图识别都走 Java 数据库中的 ai.service.* 模型配置；配置缺失或模型调用失败会直接报错，不再本地兜底。"
+                  message="默认走 Java 的 ai.service.* 模型配置；你也可以在下方选择模型作为本次请求覆盖值。配置缺失或模型调用失败会直接报错。"
                 />
                 <Form.Item name="agentName" label="执行智能体">
                   <Select
                     options={agentOptions}
                     placeholder="Leader 自动路由"
                     onChange={() => queryForm.setFieldsValue({ ragStrategy: '' })}
+                  />
+                </Form.Item>
+                <Form.Item name="llmModel" label="LLM 模型">
+                  <Select
+                    options={llmModelOptions}
+                    placeholder="默认使用系统配置模型"
+                    showSearch
+                    optionFilterProp="label"
+                    allowClear
                   />
                 </Form.Item>
                 <Form.Item
@@ -656,6 +737,15 @@ function RagManage() {
                       optionFilterProp="label"
                       placeholder="选择智能体"
                       onChange={(value) => fillAgentTestForm(agents.find((item) => item.name === value))}
+                    />
+                  </Form.Item>
+                  <Form.Item name="llmModel" label="LLM 模型">
+                    <Select
+                      options={llmModelOptions}
+                      placeholder="默认使用系统配置模型"
+                      showSearch
+                      optionFilterProp="label"
+                      allowClear
                     />
                   </Form.Item>
                   <Form.Item

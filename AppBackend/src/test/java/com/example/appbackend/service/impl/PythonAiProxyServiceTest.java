@@ -81,6 +81,7 @@ class PythonAiProxyServiceTest {
         request.setPrompt("你是校园助手");
         request.setRagStrategy("hybrid_search");
         request.setAgentName("ppt_agent");
+        request.setLlmModel("deepseek-reasoner");
         request.setInput("哪个食堂有黄焖鸡");
 
         LlmChatResponse response = service.chat(request, "Bearer " + token);
@@ -100,7 +101,7 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("1001", userIdRef.get());
         Assertions.assertEquals("https://llm.test/v1", aiBaseUrlRef.get());
         Assertions.assertEquals("test-ai-key", aiApiKeyRef.get());
-        Assertions.assertEquals("test-model", aiModelRef.get());
+        Assertions.assertEquals("deepseek-reasoner", aiModelRef.get());
 
         ObjectMapper mapper = new ObjectMapper();
         JsonNode reqJson = mapper.readTree(requestBodyRef.get());
@@ -142,7 +143,7 @@ class PythonAiProxyServiceTest {
         String token = buildJwtToken(1003L);
 
         Object response = service.queryRag(
-                Map.of("input", "统计菜品数量", "ragStrategy", "text_to_sql"),
+                Map.of("input", "统计菜品数量", "ragStrategy", "text_to_sql", "llmModel", "deepseek-r1"),
                 "Bearer " + token
         );
 
@@ -152,12 +153,13 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("已生成只读 SQL", responseMap.get("answer"));
         Assertions.assertEquals("Bearer " + token, authRef.get());
         Assertions.assertEquals("1003", userIdRef.get());
-        Assertions.assertEquals("test-model", aiModelRef.get());
+        Assertions.assertEquals("deepseek-r1", aiModelRef.get());
 
         ObjectMapper mapper = new ObjectMapper();
         JsonNode reqJson = mapper.readTree(requestBodyRef.get());
         Assertions.assertEquals("统计菜品数量", reqJson.path("input").asText());
         Assertions.assertEquals("text_to_sql", reqJson.path("ragStrategy").asText());
+        Assertions.assertTrue(reqJson.path("llmModel").isMissingNode());
     }
 
     @Test

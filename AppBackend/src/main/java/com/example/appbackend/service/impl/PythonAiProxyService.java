@@ -21,6 +21,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -57,7 +58,7 @@ public class PythonAiProxyService {
             return webClientBuilder.build()
                     .post()
                     .uri(buildUri("/internal/chat"))
-                    .headers(headers -> applyPythonHeaders(headers, authorization, userId))
+                    .headers(headers -> applyPythonHeaders(headers, authorization, userId, request.getLlmModel()))
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(request)
                     .retrieve()
@@ -96,7 +97,9 @@ public class PythonAiProxyService {
     }
 
     public Object queryRag(Map<String, Object> request, String authorization) {
-        return postRagObject("/internal/rag/query", request, authorization);
+        String requestedModel = resolveRequestedModel(request);
+        Map<String, Object> sanitized = sanitizeRagRequest(request);
+        return postRagObject("/internal/rag/query", sanitized, authorization, requestedModel);
     }
 
     public Object ingestRagDocuments(Map<String, Object> request, String authorization) {
@@ -143,7 +146,7 @@ public class PythonAiProxyService {
                 webClientBuilder.build()
                         .post()
                         .uri(buildUri("/internal/chat/stream"))
-                        .headers(headers -> applyPythonHeaders(headers, authorization, userId))
+                        .headers(headers -> applyPythonHeaders(headers, authorization, userId, request.getLlmModel()))
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .contentType(MediaType.APPLICATION_JSON)
                         .bodyValue(request)
@@ -203,7 +206,7 @@ public class PythonAiProxyService {
             return webClientBuilder.build()
                     .get()
                     .uri(buildUri(path))
-                    .headers(headers -> applyPythonHeaders(headers, authorization, userId))
+                    .headers(headers -> applyPythonHeaders(headers, authorization, userId, null))
                     .retrieve()
                     .bodyToMono(Object.class)
                     .timeout(Duration.ofSeconds(timeoutSeconds))
@@ -216,6 +219,10 @@ public class PythonAiProxyService {
     }
 
     private Object postRagObject(String path, Map<String, Object> request, String authorization) {
+        return postRagObject(path, request, authorization, null);
+    }
+
+    private Object postRagObject(String path, Map<String, Object> request, String authorization, String requestedModel) {
         validateAuthorization(authorization);
         String token = normalizeBearerToken(authorization);
         Long userId = extractUserId(token);
@@ -223,7 +230,7 @@ public class PythonAiProxyService {
             return webClientBuilder.build()
                     .post()
                     .uri(buildUri(path))
-                    .headers(headers -> applyPythonHeaders(headers, authorization, userId))
+                    .headers(headers -> applyPythonHeaders(headers, authorization, userId, requestedModel))
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(request == null ? Map.of() : request)
                     .retrieve()
@@ -257,13 +264,40 @@ public class PythonAiProxyService {
         return base + path;
     }
 
-    private void applyPythonHeaders(HttpHeaders headers, String authorization, Long userId) {
+    private void applyPythonHeaders(HttpHeaders headers, String authorization, Long userId, String requestedModel) {
         headers.set(HttpHeaders.AUTHORIZATION, authorization);
         headers.set("X-User-Id", userId.toString());
         headers.set("X-AI-Provider", systemConfigService.getValue("ai.provider", "deepseek"));
         headers.set("X-AI-Base-Url", requireAiConfig("ai.service.base-url", "模型服务地址"));
         headers.set("X-AI-Api-Key", requireAiConfig("ai.service.api-key", "模型服务密钥"));
-        headers.set("X-AI-Model", requireAiConfig("ai.service.model", "模型 ID"));
+        headers.set("X-AI-Model", StringUtils.hasText(requestedModel)
+                ? requestedModel.trim()
+                : requireAiConfig("ai.service.model", "模型 ID"));
+    }
+
+    private String resolveRequestedModel(Map<String, Object> request) {
+        if (request == null || request.isEmpty()) {
+            return null;
+        }
+        Object llmModel = request.get("llmModel");
+        if (llmModel != null && StringUtils.hasText(String.valueOf(llmModel))) {
+            return String.valueOf(llmModel).trim();
+        }
+        Object xAiModel = request.get("xAiModel");
+        if (xAiModel != null && StringUtils.hasText(String.valueOf(xAiModel))) {
+            return String.valueOf(xAiModel).trim();
+        }
+        return null;
+    }
+
+    private Map<String, Object> sanitizeRagRequest(Map<String, Object> request) {
+        if (request == null || request.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> copy = new HashMap<>(request);
+        copy.remove("llmModel");
+        copy.remove("xAiModel");
+        return copy;
     }
 
     private String requireAiConfig(String key, String label) {
