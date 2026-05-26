@@ -95,6 +95,7 @@ async def internal_chat_stream(
                 "sessionToken": response.sessionToken,
                 "model": response.model,
                 "agentName": response.agentName,
+                "answerType": response.answerType,
             })
             yield build_sse("search", {
                 "searchKeyword": response.searchKeyword,
@@ -107,6 +108,7 @@ async def internal_chat_stream(
             logger.info("stream emit done session_id=%s", mask_id(response.sessionId))
             yield build_sse("done", {
                 "answer": response.answer,
+                "answerType": response.answerType,
                 "ragStrategy": response.ragStrategy,
                 "agentName": response.agentName,
                 "searchKeyword": response.searchKeyword,

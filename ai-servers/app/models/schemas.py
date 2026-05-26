@@ -24,6 +24,7 @@ class ChatResponse(BaseModel):
     retrievalMeta: Dict[str, Any] = Field(default_factory=dict)
     trace: List[Dict[str, Any]] = Field(default_factory=list)
     answer: str
+    answerType: str = "text"
 
 
 class RagQueryRequest(BaseModel):
@@ -51,6 +52,7 @@ class RagTraceResponse(BaseModel):
 class RagQueryResponse(BaseModel):
     strategy: str
     answer: str = ""
+    answerType: str = "text"
     documents: List[RagDocumentResponse] = Field(default_factory=list)
     trace: List[RagTraceResponse] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)

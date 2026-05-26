@@ -43,4 +43,7 @@ public class LlmChatResponse {
 
     @Schema(description = "模型回答")
     private String answer;
+
+    @Schema(description = "回答内容类型：text/markdown/mermaid_mindmap/image_prompt/ppt_outline/question_bank/tool_result 等")
+    private String answerType;
 }

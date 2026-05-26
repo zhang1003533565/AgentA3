@@ -87,14 +87,71 @@
   white-space: normal;
 }
 
-.rag-md-fence {
-  color: #4a5f52;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 13px;
+.rag-mindmap-canvas {
+  overflow: auto;
+  padding: 22px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(89, 108, 72, 0.16);
+}
+
+.rag-mindmap-node {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  min-width: max-content;
+}
+
+.rag-mindmap-node + .rag-mindmap-node {
+  margin-top: 12px;
+}
+
+.rag-mindmap-label {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 86px;
+  max-width: 220px;
+  padding: 8px 12px;
+  color: #183228;
+  border-radius: 999px;
+  background: #eaf5ec;
+  border: 1px solid rgba(47, 88, 67, 0.18);
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+  word-break: break-word;
+}
+
+.rag-mindmap-children {
+  position: relative;
+  padding-left: 22px;
+}
+
+.rag-mindmap-children::before {
+  content: '';
+  position: absolute;
+  top: 18px;
+  bottom: 18px;
+  left: 0;
+  width: 1px;
+  background: rgba(47, 88, 67, 0.18);
+}
+
+.rag-mindmap-children > .rag-mindmap-node::before {
+  content: '';
+  flex: 0 0 22px;
+  height: 1px;
+  margin-top: 18px;
+  margin-left: -22px;
+  background: rgba(47, 88, 67, 0.18);
+}
+
+.rag-mindmap-source {
+  margin-top: 14px;
 }
 
 .rag-mermaid-code {
-  margin: 8px 0;
+  margin: 0;
   padding: 12px 14px;
   overflow: auto;
   line-height: 1.7;
@@ -138,9 +195,39 @@
   gap: 8px;
 }
 
+.rag-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.rag-provider-card {
+  min-width: 0;
+}
+
+.rag-provider-card .ant-table-wrapper,
+.rag-provider-card .ant-table {
+  min-width: 0;
+}
+
+.rag-provider-card .ant-table-cell {
+  vertical-align: top;
+}
+
+.rag-provider-card .ant-typography code {
+  display: inline-block;
+  max-width: 100%;
+  white-space: normal;
+  word-break: break-word;
+}
+
 @media (max-width: 768px) {
   .rag-hero {
     flex-direction: column;
     padding: 22px;
+  }
+
+  .rag-provider-grid {
+    grid-template-columns: 1fr;
   }
 }

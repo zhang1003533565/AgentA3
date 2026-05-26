@@ -104,4 +104,18 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: Op
         trace=state.trace,
         agentName=state.active_agent,
         answer=state.answer,
+        answerType=_answer_type_for_agent(state.active_agent),
     )
+
+
+def _answer_type_for_agent(agent_name: str) -> str:
+    mapping = {
+        "leader_agent": "text",
+        "mind_map_agent": "mermaid_mindmap",
+        "md_knowledge_agent": "markdown",
+        "textbook_knowledge_agent": "markdown",
+        "textbook_question_bank_agent": "question_bank",
+        "ppt_agent": "ppt_outline",
+        "image_agent": "image_prompt",
+    }
+    return mapping.get(agent_name or "", "text")

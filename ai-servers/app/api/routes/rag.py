@@ -342,6 +342,7 @@ def _run_rag_then_agent(
         for document in result.documents
     ]
     answer = run_specialist_agent(active_agent, request.input, documents)
+    answer_type = _answer_type_for_agent(active_agent)
     trace = []
     if leader_plan:
         trace.append(RagTraceStep(stage="leader_route", detail=_leader_plan_detail(leader_plan)))
@@ -359,6 +360,7 @@ def _run_rag_then_agent(
         "needRetrieval": True,
         "retrievalSkipped": False,
         "strategyLabel": _strategy_label(result.strategy),
+        "answerType": answer_type,
     })
     if leader_plan:
         metadata.update({
@@ -379,6 +381,7 @@ def _run_rag_then_agent(
     return RagQueryResponse(
         strategy=result.strategy,
         answer=answer,
+        answerType=answer_type,
         documents=[
             RagDocumentResponse(
                 id=document.id,
@@ -414,10 +417,12 @@ def _run_leader_direct_answer(plan) -> RagQueryResponse:
         "executionModeLabel": "Leader 直接回答",
         "retrievalSkipped": True,
         "strategyLabel": "直接回答（不使用 RAG）",
+        "answerType": "text",
     }
     return RagQueryResponse(
         strategy="leader_direct_answer",
         answer=answer,
+        answerType="text",
         documents=[],
         trace=[
             RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(plan)),
@@ -434,6 +439,7 @@ def _run_direct_agent(
 ) -> RagQueryResponse:
     agent_name = agent_profile["name"]
     answer = run_specialist_agent(agent_name, request.input, [])
+    answer_type = _answer_type_for_agent(agent_name)
     metadata = {
         "agentName": "leader_agent" if leader_plan else agent_name,
         "targetAgent": agent_name,
@@ -444,6 +450,7 @@ def _run_direct_agent(
         "strategyLabel": "直接处理（不使用 RAG）",
         "executionMode": "leader_routed_direct_agent" if leader_plan else "direct_agent",
         "executionModeLabel": "Leader 分发给非检索智能体" if leader_plan else "专业智能体直接处理",
+        "answerType": answer_type,
     }
     if leader_plan:
         metadata.update({
@@ -461,6 +468,7 @@ def _run_direct_agent(
     return RagQueryResponse(
         strategy="direct_agent",
         answer=answer,
+        answerType=answer_type,
         documents=[],
         trace=trace,
         metadata=metadata,
@@ -495,6 +503,7 @@ def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResp
         "strategyLabel": _strategy_label(result.strategy),
         "executionMode": "leader_call_tool",
         "executionModeLabel": "Leader 调用 Text-to-SQL 接口",
+        "answerType": "tool_result",
     })
     trace = [
         RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
@@ -504,6 +513,7 @@ def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResp
     return RagQueryResponse(
         strategy=result.strategy,
         answer=answer,
+        answerType="tool_result",
         documents=[
             RagDocumentResponse(
                 id=document.id,
@@ -573,11 +583,13 @@ def _run_schedule_tool(request: RagQueryRequest, authorization: str, leader_plan
         "strategyLabel": "Java 课表接口",
         "executionMode": "leader_call_tool",
         "executionModeLabel": "Leader 调用 Java 后端接口",
+        "answerType": "tool_result",
         **retrieval_meta,
     }
     return RagQueryResponse(
         strategy="java_schedule_api",
         answer=answer,
+        answerType="tool_result",
         documents=documents,
         trace=[
             RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
@@ -633,6 +645,19 @@ def _strategy_label(strategy_name: str) -> str:
     if not spec:
         return strategy_name or "不使用 RAG"
     return spec.get("label", strategy_name)
+
+
+def _answer_type_for_agent(agent_name: str) -> str:
+    mapping = {
+        "leader_agent": "text",
+        "mind_map_agent": "mermaid_mindmap",
+        "md_knowledge_agent": "markdown",
+        "textbook_knowledge_agent": "markdown",
+        "textbook_question_bank_agent": "question_bank",
+        "ppt_agent": "ppt_outline",
+        "image_agent": "image_prompt",
+    }
+    return mapping.get(agent_name or "", "text")
 
 
 @router.post("/documents", response_model=RagDocumentIngestResponse)

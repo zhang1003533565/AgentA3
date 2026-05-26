@@ -85,9 +85,17 @@ const coverageColumns = [
 ]
 
 const providerColumns = [
-  { title: '名称', dataIndex: 'name', render: (value) => <Tag>{value}</Tag> },
-  { title: '状态', dataIndex: 'status', render: (value) => <Tag color={value === 'implemented' ? 'green' : 'orange'}>{value}</Tag> },
-  { title: '依赖环境变量', dataIndex: 'requiredEnv', render: (value = []) => value.length ? value.join(', ') : '-' },
+  { title: '名称', dataIndex: 'name', width: 150, render: (value) => <Tag>{value}</Tag> },
+  { title: '状态', dataIndex: 'status', width: 150, render: (value) => <Tag color={value === 'implemented' ? 'green' : 'orange'}>{value}</Tag> },
+  {
+    title: '依赖环境变量',
+    dataIndex: 'requiredEnv',
+    render: (value = []) => value.length ? (
+      <Space size={[4, 4]} wrap>
+        {value.map((item) => <Text code key={item}>{item}</Text>)}
+      </Space>
+    ) : '-',
+  },
 ]
 
 const envColumns = [
@@ -194,6 +202,50 @@ const extractMermaidCodeBlock = (text) => {
   const match = String(text || '').match(/```mermaid\s*([\s\S]*?)```/i)
   return match ? String(match[1] || '').trim() : ''
 }
+
+const normalizeMindMapLabel = (line) => {
+  let text = String(line || '').trim().replace(/^[-*]\s+/, '')
+  const rootMatch = text.match(/^root\s*\(\((.*)\)\)$/i)
+  if (rootMatch) return rootMatch[1].trim()
+  text = text.replace(/^\(\((.*)\)\)$/, '$1')
+    .replace(/^\((.*)\)$/, '$1')
+    .replace(/^\[(.*)\]$/, '$1')
+    .replace(/^\{\{(.*)\}\}$/, '$1')
+  return text.trim()
+}
+
+const parseMermaidMindMap = (source) => {
+  const lines = String(source || '')
+    .split('\n')
+    .filter((line) => line.trim() && !/^\s*mindmap\s*$/i.test(line))
+  const root = { label: '思维导图', children: [] }
+  const stack = [{ indent: -1, node: root }]
+
+  lines.forEach((line) => {
+    const indent = line.match(/^\s*/)?.[0].length || 0
+    const label = normalizeMindMapLabel(line)
+    if (!label) return
+    while (stack.length > 1 && indent <= stack[stack.length - 1].indent) {
+      stack.pop()
+    }
+    const node = { label, children: [] }
+    stack[stack.length - 1].node.children.push(node)
+    stack.push({ indent, node })
+  })
+
+  return root.children[0] || root
+}
+
+const renderMindMapNode = (node, path = '0') => (
+  <div className="rag-mindmap-node" key={path}>
+    <div className="rag-mindmap-label">{node.label}</div>
+    {node.children?.length ? (
+      <div className="rag-mindmap-children">
+        {node.children.map((child, index) => renderMindMapNode(child, `${path}-${index}`))}
+      </div>
+    ) : null}
+  </div>
+)
 
 const agentExampleInputs = {
   leader_agent: '请自动判断：帮我把数据结构的栈与队列整理成复习资料',
@@ -526,22 +578,49 @@ function RagManage() {
     )
   }
 
-  const renderAgentAnswer = (answer, metadata = {}) => {
+  const renderProviderCard = (title, dataSource) => (
+    <Card title={title} className="rag-panel-card rag-provider-card">
+      <Table
+        rowKey="name"
+        columns={providerColumns}
+        dataSource={dataSource || []}
+        pagination={false}
+        size="small"
+        scroll={{ x: 560 }}
+      />
+    </Card>
+  )
+
+  const renderAgentAnswer = (answer, response = {}) => {
     const text = String(answer || '').trim()
+    const metadata = response?.metadata || response || {}
+    const answerType = response?.answerType || metadata?.answerType || 'text'
     if (!text) {
       return <div className="rag-answer-box">暂无回答</div>
     }
-    const executedAgent = metadata?.executedAgent || metadata?.targetAgent || metadata?.agentName
-    const isMindMap = executedAgent === 'mind_map_agent' || /```mermaid/i.test(text)
-    if (!isMindMap) {
-      return <div className="rag-answer-box">{text}</div>
+    if (answerType !== 'mermaid_mindmap') {
+      return <div className={`rag-answer-box rag-answer-box--${answerType}`}>{text}</div>
     }
     const mermaidBody = extractMermaidCodeBlock(text) || text
+    const markdownSource = text.startsWith('```mermaid') ? text : `\`\`\`mermaid\n${mermaidBody}\n\`\`\``
+    const mindMapTree = parseMermaidMindMap(mermaidBody)
     return (
       <div className="rag-answer-box rag-answer-box--mindmap">
-        <div className="rag-md-fence">```mermaid</div>
-        <pre className="rag-mermaid-code">{mermaidBody}</pre>
-        <div className="rag-md-fence">```</div>
+        <div className="rag-mindmap-canvas">
+          {renderMindMapNode(mindMapTree)}
+        </div>
+        <Collapse
+          className="rag-mindmap-source"
+          size="small"
+          ghost
+          items={[
+            {
+              key: 'source',
+              label: 'Markdown 源码',
+              children: <pre className="rag-mermaid-code">{markdownSource}</pre>,
+            },
+          ]}
+        />
       </div>
     )
   }
@@ -636,9 +715,10 @@ function RagManage() {
                     <Tag color="blue">入口：{queryResult.metadata?.agentName || 'leader_agent'}</Tag>
                     {queryResult.metadata?.targetAgent && <Tag>目标：{queryResult.metadata.targetAgent}</Tag>}
                     {queryResult.metadata?.executedAgent && <Tag color="geekblue">执行：{queryResult.metadata.executedAgent}</Tag>}
+                    <Tag color="volcano">类型：{queryResult.answerType || queryResult.metadata?.answerType || 'text'}</Tag>
                     <Tag color={queryResult.metadata?.needRetrieval ? 'cyan' : 'gold'}>{queryResult.metadata?.strategyLabel || queryResult.strategy}</Tag>
                   </div>
-                  {renderAgentAnswer(queryResult.answer, queryResult.metadata)}
+                  {renderAgentAnswer(queryResult.answer, queryResult)}
                   <Table
                     rowKey={(record) => record.id || record.source}
                     columns={evidenceColumns}
@@ -821,12 +901,13 @@ function RagManage() {
                       <Tag>{agentTestResult.response?.metadata?.agentName || agentTestResult.request?.agentName}</Tag>
                       <Tag color="purple">{getExecutionLabel(agentTestResult.response?.metadata)}</Tag>
                       {agentTestResult.response?.metadata?.executedAgent && <Tag color="geekblue">执行：{agentTestResult.response.metadata.executedAgent}</Tag>}
+                      <Tag color="volcano">类型：{agentTestResult.response?.answerType || agentTestResult.response?.metadata?.answerType || 'text'}</Tag>
                     </div>
                     {agentTestResult.error ? (
                       <div className="rag-answer-box">{agentTestResult.error}</div>
                     ) : (
                       <>
-                        {renderAgentAnswer(agentTestResult.response?.answer, agentTestResult.response?.metadata)}
+                        {renderAgentAnswer(agentTestResult.response?.answer, agentTestResult.response)}
                         <Table
                           rowKey={(record) => record.id || record.source}
                           columns={evidenceColumns}
@@ -961,52 +1042,12 @@ function RagManage() {
               pagination={{ pageSize: 8 }}
             />
           </Card>
-          <Row gutter={[20, 20]}>
-            <Col xs={24} md={12} xl={6}>
-              <Card title="Model Provider" className="rag-panel-card">
-                <Table
-                  rowKey="name"
-                  columns={providerColumns}
-                  dataSource={framework?.modelProviders || []}
-                  pagination={false}
-                  size="small"
-                />
-              </Card>
-            </Col>
-            <Col xs={24} md={12} xl={6}>
-              <Card title="Embedding Provider" className="rag-panel-card">
-                <Table
-                  rowKey="name"
-                  columns={providerColumns}
-                  dataSource={framework?.embeddingProviders || []}
-                  pagination={false}
-                  size="small"
-                />
-              </Card>
-            </Col>
-            <Col xs={24} md={12} xl={6}>
-              <Card title="Vector Store" className="rag-panel-card">
-                <Table
-                  rowKey="name"
-                  columns={providerColumns}
-                  dataSource={framework?.vectorStores || []}
-                  pagination={false}
-                  size="small"
-                />
-              </Card>
-            </Col>
-            <Col xs={24} md={12} xl={6}>
-              <Card title="Graph Store" className="rag-panel-card">
-                <Table
-                  rowKey="name"
-                  columns={providerColumns}
-                  dataSource={framework?.graphStores || []}
-                  pagination={false}
-                  size="small"
-                />
-              </Card>
-            </Col>
-          </Row>
+          <div className="rag-provider-grid">
+            {renderProviderCard('Model Provider', framework?.modelProviders)}
+            {renderProviderCard('Embedding Provider', framework?.embeddingProviders)}
+            {renderProviderCard('Vector Store', framework?.vectorStores)}
+            {renderProviderCard('Graph Store', framework?.graphStores)}
+          </div>
           <Row gutter={[20, 20]}>
             <Col xs={24} lg={10}>
               <Card title="运行环境" className="rag-panel-card">
