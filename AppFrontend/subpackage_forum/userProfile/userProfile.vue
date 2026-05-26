@@ -2,7 +2,6 @@
   <view class="profile-container">
     <nav-bar title="个人主页" :showBack="true" :glass="true" />
     <view class="profile-content">
-      <!-- 用户信息卡片 -->
       <view class="profile-card">
         <image class="profile-avatar" :src="userInfo.avatar || '/static/logo.png'" mode="aspectFill" />
         <text class="profile-name">{{ userInfo.userName }}</text>
@@ -21,16 +20,48 @@
             <text class="stat-label">粉丝</text>
           </view>
         </view>
-        <view class="follow-btn" v-if="!userInfo.isFollow" @click="toggleFollow">
+        <view class="follow-btn" v-if="!isSelf && !userInfo.isFollow" @click="toggleFollow">
           <text>+ 关注</text>
         </view>
-        <view class="follow-btn followed" v-else @click="toggleFollow">
+        <view class="follow-btn followed" v-else-if="!isSelf" @click="toggleFollow">
           <text>已关注</text>
         </view>
       </view>
 
       <view class="placeholder-section">
-        <text class="placeholder-title">TA 的帖子</text>
+        <view class="section-header">
+          <text class="placeholder-title">{{ isSelf ? '我的关注' : 'TA 的关注' }}</text>
+          <text class="section-count">{{ followingTotal }} 人</text>
+        </view>
+        <view v-if="followingList.length" class="following-list">
+          <view
+            v-for="item in followingList"
+            :key="item.userId"
+            class="following-item"
+            @click="goToUser(item)"
+          >
+            <image class="following-avatar" :src="item.avatar || '/static/logo.png'" mode="aspectFill" />
+            <view class="following-info">
+              <text class="following-name">{{ item.userName }}</text>
+              <text class="following-desc">{{ item.isFollowing ? '已关注' : '未关注' }}</text>
+            </view>
+            <view class="following-action" @click.stop="toggleFollowFromList(item)">
+              <text>{{ item.isFollowing ? '取消关注' : '关注' }}</text>
+            </view>
+          </view>
+        </view>
+        <view v-else class="placeholder-empty compact">
+          <image
+            class="empty-icon"
+            mode="aspectFit"
+            src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23e5e7eb' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M19 8v6'/%3E%3Cpath d='M22 11h-6'/%3E%3C/svg%3E"
+          />
+          <text class="placeholder-desc">{{ isSelf ? '还没有关注任何人' : 'TA 还没有关注任何人' }}</text>
+        </view>
+      </view>
+
+      <view class="placeholder-section">
+        <text class="placeholder-title">{{ isSelf ? '我的帖子' : 'TA 的帖子' }}</text>
         <view v-if="postList.length" class="post-list">
           <view
             v-for="item in postList"
@@ -61,7 +92,15 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getFollowStatus, getUserPosts, toggleFollowUser } from '@/api/forum.js'
+import {
+  getFollowStatus,
+  getFollowing,
+  getMyFollowing,
+  getMyForumPosts,
+  getPostList,
+  getUserPosts,
+  toggleFollowUser
+} from '@/api/forum.js'
 import { getUserInfo } from '@/utils/storage.js'
 
 export default {
@@ -69,8 +108,12 @@ export default {
   data() {
     return {
       userId: '',
+      routeUserId: '',
       userAvatar: '',
+      isSelf: false,
       postList: [],
+      followingList: [],
+      followingTotal: 0,
       userInfo: {
         userId: '',
         userName: '用户',
@@ -85,7 +128,8 @@ export default {
     }
   },
   onLoad(options) {
-    this.userId = options.id || options.userId || ''
+    this.routeUserId = options.id || options.userId || ''
+    this.userId = this.routeUserId
     this.userName = options.name || ''
     this.userAvatar = decodeURIComponent(options.avatar || '')
     this.loadUserProfile()
@@ -93,15 +137,16 @@ export default {
   methods: {
     async loadUserProfile() {
       const localUser = getUserInfo() || {}
-      // 如果有传入userId，显示该用户的主页；否则显示当前登录用户的主页
-      const targetId = this.userId || localUser.id || localUser.userId || ''
+      const explicitTargetId = this.routeUserId || this.userId || ''
+      const targetId = explicitTargetId || localUser.id || localUser.userId || ''
       this.userId = targetId
-      
-      // 判断是否是查看其他用户的主页
-      const isOtherUser = this.userId && this.userId !== localUser.id && this.userId !== localUser.userId
-      
+
+      const localUserId = String(localUser.id || localUser.userId || '')
+      const currentTargetId = String(this.userId || '')
+      const isOtherUser = !!explicitTargetId && (!localUserId || currentTargetId !== localUserId)
+      this.isSelf = !isOtherUser
+
       if (isOtherUser) {
-        // 查看其他用户：使用传入的ID和用户名
         this.userInfo = {
           ...this.userInfo,
           userId: targetId,
@@ -110,7 +155,6 @@ export default {
           bio: '这个人很懒，什么都没写~'
         }
       } else {
-        // 查看自己的主页：使用本地用户信息
         const seed = localUser.username || targetId || 'user'
         this.userInfo = {
           ...this.userInfo,
@@ -121,12 +165,23 @@ export default {
         }
       }
 
-      await Promise.all([this.loadPosts(), this.loadFollowMeta()])
+      await Promise.all([this.loadPosts(), this.loadFollowMeta(), this.loadFollowingList()])
     },
     async loadPosts() {
-      if (!this.userId) return
+      if (!this.isSelf && !this.userId) return
       try {
-        const res = await getUserPosts(this.userId, { pageNum: 1, pageSize: 20 })
+        let res
+        if (this.isSelf) {
+          try {
+            res = await getMyForumPosts({ pageNum: 1, pageSize: 20 })
+          } catch (error) {
+            res = this.userId
+              ? await getUserPosts(this.userId, { pageNum: 1, pageSize: 20 })
+              : await getPostList({ pageNum: 1, pageSize: 20 })
+          }
+        } else {
+          res = await getUserPosts(this.userId, { pageNum: 1, pageSize: 20 })
+        }
         const records = res?.data?.records || []
         this.postList = records.map((item) => ({
           id: item.id,
@@ -136,9 +191,6 @@ export default {
           createTime: this.formatDateTime(item.createTime)
         }))
         this.userInfo.postCount = Number(res?.data?.total || this.postList.length)
-        if (records.length && !this.userInfo.userName.startsWith('用户')) {
-          return
-        }
       } catch (error) {
         this.postList = []
         this.userInfo.postCount = 0
@@ -151,8 +203,32 @@ export default {
         this.userInfo.isFollow = !!res?.data?.following
         this.userInfo.fansCount = Number(res?.data?.followerCount || 0)
         this.userInfo.followCount = Number(res?.data?.followingCount || 0)
+        this.followingTotal = this.userInfo.followCount
       } catch (error) {
         this.userInfo.isFollow = false
+      }
+    },
+    async loadFollowingList() {
+      try {
+        const params = { pageNum: 1, pageSize: 20 }
+        const res = this.userId ? await getFollowing(this.userId, params) : await getMyFollowing(params)
+        const records = res?.data?.records || []
+        this.followingList = records
+          .map((item) => {
+            const id = item.userId || item.followId
+            return {
+              userId: id,
+              userName: item.username || `用户${id || ''}`,
+              avatar: item.avatar || '/static/logo.png',
+              isFollowing: !!item.isFollowing
+            }
+          })
+          .filter((item) => item.userId)
+        this.followingTotal = Number(res?.data?.total || this.followingList.length)
+        this.userInfo.followCount = this.followingTotal
+      } catch (error) {
+        this.followingList = []
+        this.followingTotal = 0
       }
     },
     async toggleFollow() {
@@ -161,14 +237,50 @@ export default {
         return
       }
       try {
-        await toggleFollowUser(this.userId)
-        this.userInfo.isFollow = !this.userInfo.isFollow
-        this.userInfo.fansCount += this.userInfo.isFollow ? 1 : -1
+        const res = await toggleFollowUser(this.userId)
+        const status = res?.data || {}
+        const nextFollowing = typeof status.following === 'boolean' ? status.following : !this.userInfo.isFollow
+        this.userInfo.isFollow = nextFollowing
+        if (status.followerCount !== undefined) {
+          this.userInfo.fansCount = Number(status.followerCount || 0)
+        } else {
+          this.userInfo.fansCount = Math.max(0, this.userInfo.fansCount + (nextFollowing ? 1 : -1))
+        }
         uni.showToast({
-          title: this.userInfo.isFollow ? '关注成功' : '已取消关注',
+          title: nextFollowing ? '关注成功' : '已取消关注',
           icon: 'none'
         })
-      } catch (error) {}
+      } catch (error) {
+        uni.showToast({ title: error?.message || '操作失败', icon: 'none' })
+      }
+    },
+    async toggleFollowFromList(item) {
+      const targetId = item.userId || item.followId
+      if (!targetId) return
+      try {
+        const res = await toggleFollowUser(targetId)
+        const status = res?.data || {}
+        const stillFollowing = typeof status.following === 'boolean' ? status.following : !item.isFollowing
+        item.isFollowing = stillFollowing
+        if (this.isSelf && !stillFollowing) {
+          this.followingList = this.followingList.filter((follow) => String(follow.userId) !== String(targetId))
+          this.followingTotal = Math.max(0, this.followingTotal - 1)
+          this.userInfo.followCount = this.followingTotal
+        }
+        uni.showToast({
+          title: stillFollowing ? '关注成功' : '已取消关注',
+          icon: 'none'
+        })
+      } catch (error) {
+        uni.showToast({ title: error?.message || '操作失败', icon: 'none' })
+      }
+    },
+    goToUser(item) {
+      const id = item.userId || item.followId
+      if (!id) return
+      uni.navigateTo({
+        url: `/subpackage_forum/userProfile/userProfile?id=${encodeURIComponent(id)}&name=${encodeURIComponent(item.userName || '')}&avatar=${encodeURIComponent(item.avatar || '')}`
+      })
     },
     goToPost(id) {
       uni.navigateTo({
@@ -191,7 +303,7 @@ export default {
 
 .profile-content {
   padding: 24rpx;
-  padding-top: 140rpx; /* 避免卡片负 margin 与导航栏重叠，保留顶部渐变可见 */
+  padding-top: 140rpx;
 }
 
 .profile-card {
@@ -320,14 +432,27 @@ export default {
   margin: 0 8rpx 24rpx;
   border-top: 1rpx solid #e5e7eb;
 
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20rpx;
+    margin-bottom: 24rpx;
+  }
+
+  .section-count {
+    font-size: 24rpx;
+    color: #9ca3af;
+    flex-shrink: 0;
+  }
+
   .placeholder-title {
     position: relative;
     font-size: 30rpx;
     font-weight: 700;
     color: #111827;
-    letter-spacing: -0.025em;
+    letter-spacing: 0;
     display: block;
-    margin-bottom: 24rpx;
     padding-left: 28rpx;
 
     &::before {
@@ -343,10 +468,72 @@ export default {
     }
   }
 
+  > .placeholder-title {
+    margin-bottom: 24rpx;
+  }
+
+  .following-list,
   .post-list {
     display: flex;
     flex-direction: column;
     gap: 20rpx;
+  }
+
+  .following-item {
+    min-height: 112rpx;
+    padding: 20rpx 24rpx;
+    border-radius: 24rpx;
+    background: #f8fafc;
+    display: flex;
+    align-items: center;
+    gap: 20rpx;
+  }
+
+  .following-avatar {
+    width: 72rpx;
+    height: 72rpx;
+    border-radius: 50%;
+    background: #e5e7eb;
+    flex-shrink: 0;
+  }
+
+  .following-info {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8rpx;
+  }
+
+  .following-name {
+    font-size: 28rpx;
+    font-weight: 600;
+    color: #111827;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .following-desc {
+    font-size: 22rpx;
+    color: #9ca3af;
+  }
+
+  .following-action {
+    min-height: 56rpx;
+    padding: 0 22rpx;
+    border-radius: 999rpx;
+    background: #f3f4f6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+
+    text {
+      font-size: 22rpx;
+      color: #6b7280;
+      font-weight: 600;
+    }
   }
 
   .post-item {
@@ -378,6 +565,10 @@ export default {
     flex-direction: column;
     align-items: center;
     justify-content: center;
+
+    &.compact {
+      padding: 48rpx 0;
+    }
 
     .empty-icon {
       width: 96rpx;
