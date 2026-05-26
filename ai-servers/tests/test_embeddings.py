@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,14 +34,21 @@ class EmbeddingProviderTest(unittest.TestCase):
         self.assertIsInstance(build_embedding_provider("sentence_transformers"), SentenceTransformersEmbeddingProvider)
 
     def test_scaffolded_embedding_provider_health_and_guard(self):
-        provider = build_embedding_provider("openai")
-        health = provider.health()
+        old_key = os.environ.get("OPENAI_API_KEY")
+        try:
+            os.environ.pop("OPENAI_API_KEY", None)
+            provider = build_embedding_provider("openai")
+            health = provider.health()
 
-        self.assertEqual("openai", health["provider"])
-        self.assertEqual("scaffolded", health["status"])
-        self.assertIn("OPENAI_API_KEY", health["requiredEnv"])
-        with self.assertRaisesRegex(RuntimeError, "scaffolded only"):
-            provider.embed_text("test")
+            self.assertEqual("openai", health["provider"])
+            self.assertEqual("implemented_optional", health["status"])
+            self.assertIn("OPENAI_API_KEY", health["requiredEnv"])
+            self.assertIn("OPENAI_API_KEY", health["missingEnv"])
+            with self.assertRaisesRegex(RuntimeError, "not configured"):
+                provider.embed_text("test")
+        finally:
+            if old_key is not None:
+                os.environ["OPENAI_API_KEY"] = old_key
 
     def test_vector_retriever_uses_configured_embedding_provider(self):
         with tempfile.TemporaryDirectory() as temp_dir:

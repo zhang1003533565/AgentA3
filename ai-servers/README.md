@@ -24,11 +24,17 @@ AI 相关框架统一放在 `app/` 下维护，避免运行代码、skill、cont
 - `POST /internal/chat`
 - `POST /internal/chat/stream` (SSE)
 - `GET /internal/rag/strategies`
+- `GET /internal/rag/strategies/{strategy_name}`
+- `GET /internal/rag/capabilities`
 - `POST /internal/rag/query`
 - `POST /internal/rag/documents`：保存文档、解析、切分并写入本地 `.index/local_chunks.jsonl`
 - `GET /internal/rag/documents`
 - `GET /internal/rag/vector-store/health`
 - `GET /internal/rag/embedding/health`
+- `GET /internal/rag/graph-store/health`
+- `GET /internal/rag/text-to-sql/schema`
+- `POST /internal/rag/text-to-sql/execute`
+- `POST /internal/rag/evaluate`
 - `GET /healthz`
 
 `POST /internal/chat` 和 SSE 接口都支持传入 `ragStrategy`：
@@ -64,6 +70,8 @@ uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
 - `RAG_VECTOR_TOP_K` default `5`
 - `RAG_EMBEDDING_PROVIDER` default `local_lexical`
 - `RAG_VECTOR_STORE_BACKEND` default `local_jsonl`
+- `RAG_GRAPH_STORE_BACKEND` default `local_graph`
+- `RAG_SQLITE_DB_PATH` optional, enables read-only SQLite execution for Text-to-SQL
 - `RAG_PARENT_CHUNK_SIZE` default `1600`
 - `RAG_PARENT_CHUNK_OVERLAP` default `160`
 - `RAG_CHILD_CHUNK_SIZE` default `420`
@@ -88,6 +96,20 @@ uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
 - `RAG_BGE_MODEL_NAME`
 - `RAG_SENTENCE_TRANSFORMERS_MODEL`
 
+预留图谱配置：
+
+- `RAG_NEO4J_URI`
+- `RAG_NEO4J_USERNAME`
+- `RAG_NEO4J_PASSWORD`
+- `RAG_NEO4J_DATABASE`
+- `RAG_NEO4J_SEARCH_CYPHER`
+
 `ai-servers` 的业务数据（食堂/档口/菜品/优惠券/课表）通过 `Authorization` 复用 Java 现有接口获取，不直接连数据库。
 
-本地文档 RAG 默认读取 `ai-servers/knowledge_base/raw` 下的 `.md`、`.markdown`、`.txt`、`.csv`、`.json`、`.html`、`.htm` 文件。
+## RAG Runtime Notes
+
+- `/internal/rag/query` 统一走 `app.rag.engine.rag_engine`，未知策略会回退到 `naive_rag`。
+- 策略只返回证据时，会由 `local_context_synthesizer` 生成一段带来源的本地答案，方便无 LLM 环境也能调通链路。
+- 本地文档 RAG 默认读取 `ai-servers/knowledge_base/raw` 下的 `.md`、`.markdown`、`.txt`、`.csv`、`.json`、`.html`、`.htm`、`.pdf` 和图片文件。
+- PDF 正文抽取会优先使用可选依赖 `pypdf`；未安装时仍会保留文件元数据，不会阻塞入库。
+- 可选向量库、embedding、Neo4j 都已搭好 adapter 和 health 检查，未配置时不会冒充可用。

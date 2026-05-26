@@ -1,3 +1,4 @@
+import importlib.util
 import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -10,6 +11,7 @@ class ScaffoldedVectorStore(BaseVectorStore):
     name = "scaffolded"
     status = "scaffolded"
     dependency = ""
+    dependency_import = ""
     required_env: List[str] = []
     optional_env: List[str] = []
     description = "Vector store adapter scaffold. Runtime integration is not implemented yet."
@@ -32,12 +34,14 @@ class ScaffoldedVectorStore(BaseVectorStore):
 
     def health(self) -> Dict[str, Any]:
         missing_env = [key for key in self.required_env if not os.getenv(key)]
+        dependency_available = self._dependency_available()
         return {
             "backend": self.name,
             "status": self.status,
             "description": self.description,
             "dependency": self.dependency,
-            "configured": not missing_env,
+            "dependencyAvailable": dependency_available,
+            "configured": not missing_env and dependency_available,
             "requiredEnv": self.required_env,
             "optionalEnv": self.optional_env,
             "missingEnv": missing_env,
@@ -45,3 +49,8 @@ class ScaffoldedVectorStore(BaseVectorStore):
             "indexPath": str(self.index_path) if self.index_path else "",
             "documentCount": 0,
         }
+
+    def _dependency_available(self) -> bool:
+        if not self.dependency_import:
+            return True
+        return importlib.util.find_spec(self.dependency_import) is not None

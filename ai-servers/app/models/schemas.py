@@ -68,3 +68,17 @@ class RagDocumentIngestResponse(BaseModel):
     indexPath: str = ""
     documents: List[Dict[str, Any]] = Field(default_factory=list)
     trace: List[RagTraceResponse] = Field(default_factory=list)
+
+
+class RagEvaluateRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=4000)
+    answer: str = Field(default="", max_length=12000)
+    documents: List[RagDocumentResponse] = Field(default_factory=list)
+    expectedSources: List[str] = Field(default_factory=list)
+    expectedAnswerTerms: List[str] = Field(default_factory=list)
+
+
+class RagEvaluateResponse(BaseModel):
+    metrics: Dict[str, float]
+    passed: bool
+    detail: Dict[str, Any] = Field(default_factory=dict)

@@ -13,7 +13,22 @@ class LoadedDocument:
 
 
 class DocumentLoader:
-    SUPPORTED_SUFFIXES = {".md", ".markdown", ".txt", ".csv", ".json", ".html", ".htm"}
+    SUPPORTED_SUFFIXES = {
+        ".md",
+        ".markdown",
+        ".txt",
+        ".csv",
+        ".tsv",
+        ".json",
+        ".html",
+        ".htm",
+        ".pdf",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".gif",
+    }
 
     def __init__(self) -> None:
         self.multimodal_parser = MultimodalParser()
@@ -37,7 +52,21 @@ class DocumentLoader:
         return documents
 
     def _load_file(self, path: Path) -> LoadedDocument:
-        if path.suffix.lower() in {".csv", ".json", ".html", ".htm", ".md", ".markdown"}:
+        if path.suffix.lower() in {
+            ".csv",
+            ".tsv",
+            ".json",
+            ".html",
+            ".htm",
+            ".md",
+            ".markdown",
+            ".pdf",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".webp",
+            ".gif",
+        }:
             content = self.multimodal_parser.parse(str(path)).get("text", "")
         else:
             content = path.read_text(encoding="utf-8", errors="ignore")

@@ -10,6 +10,7 @@
 - `rerankers/`：重排器。
 - `evaluators/`：检索质量、答案质量评估。
 - `embeddings/`：embedding provider 抽象，默认本地词法 embedding，预留 OpenAI、DashScope、BGE、sentence-transformers。
+- `graph_stores/`：GraphRAG 图谱存储抽象，默认本地图谱抽取，可选 Neo4j。
 - `routers/`：自适应策略路由。
 - `generation/`：上下文构建和答案生成辅助。
 - `indexing/`：知识入库辅助。
@@ -40,4 +41,13 @@
 | `multimodal_rag` | multimodal | `strategies/multimodal_rag/strategy.py` |
 | `speculative_rag` | performance | `strategies/speculative_rag/strategy.py` |
 
-当前实现是轻量本地版：默认使用 Markdown/TXT/CSV/JSON/HTML 文件、Java 后端接口、词法向量检索和规则化路由。后续可以在对应目录替换为 Milvus、ES、Neo4j、真实 SQL 执行器或多模态模型。
+当前实现是轻量本地版：默认使用 Markdown/TXT/CSV/JSON/HTML/PDF/图片文件、Java 后端接口、词法向量检索和规则化路由。`RagEngine.run()` 会统一补齐本地答案合成、trace 和未知策略回退。后续可以在对应目录替换为 Milvus、ES、Neo4j、真实 SQL 执行器或多模态模型。
+
+## Runtime API
+
+- `GET /internal/rag/strategies`：列出 16 种策略。
+- `GET /internal/rag/strategies/{strategy_name}`：查看单个策略说明。
+- `GET /internal/rag/capabilities`：查看检索、索引、评估、结构化知识和智能体能力目录。
+- `POST /internal/rag/query`：按 `ragStrategy` 执行查询，并返回答案、文档、trace 和 metadata。
+- `POST /internal/rag/documents`：写入知识库、解析多模态内容、切分并落本地索引。
+- `POST /internal/rag/evaluate`：返回 hitRate、MRR、contextRelevance、faithfulness 等轻量评估指标。

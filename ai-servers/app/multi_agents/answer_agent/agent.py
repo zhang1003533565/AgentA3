@@ -11,8 +11,10 @@ class AnswerAgent:
         history: List[Dict[str, str]],
         search_keyword: str,
         search_results: List[Dict[str, Any]],
+        chat_service=None,
     ) -> str:
-        return get_chat_service().answer(
+        service = chat_service or get_chat_service()
+        return service.answer(
             prompt=prompt,
             input_text=input_text,
             history=history,

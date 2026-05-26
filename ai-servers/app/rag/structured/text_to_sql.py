@@ -1,12 +1,16 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 import re
+import os
+import sqlite3
+from pathlib import Path
 
 
 @dataclass
 class SqlQueryResult:
     sql: str
     rows: List[Dict[str, Any]]
+    error: str = ""
 
 
 class TextToSqlService:
@@ -16,15 +20,15 @@ class TextToSqlService:
         schema = schema or self.default_schema()
         table = self._route_table(compact, schema)
         keyword = self._extract_keyword(query)
-        columns = ", ".join(schema.get(table, {}).get("columns", ["*"]))
+        columns = ", ".join(self._safe_identifier(column) for column in schema.get(table, {}).get("columns", ["*"]))
         where = ""
         if keyword:
             searchable = schema.get(table, {}).get("searchable", [])
             escaped = keyword.replace("'", "''")
-            predicates = [f"{column} LIKE '%{escaped}%'" for column in searchable]
+            predicates = [f"{self._safe_identifier(column)} LIKE '%{escaped}%'" for column in searchable]
             if predicates:
                 where = " WHERE " + " OR ".join(predicates)
-        return f"SELECT {columns} FROM {table}{where} LIMIT 20"
+        return f"SELECT {columns} FROM {self._safe_identifier(table)}{where} LIMIT 20"
 
     def validate_readonly(self, sql: str) -> bool:
         blocked = ("insert", "update", "delete", "drop", "alter", "truncate")
@@ -33,10 +37,50 @@ class TextToSqlService:
 
     def plan(self, user_query: str, schema: Optional[Dict[str, Any]] = None) -> SqlQueryResult:
         active_schema = schema or self.default_schema()
-        sql = self.generate_sql(user_query, active_schema)
+        try:
+            sql = self.generate_sql(user_query, active_schema)
+        except Exception as exc:
+            return SqlQueryResult(sql="", rows=[], error=str(exc))
         if not self.validate_readonly(sql):
-            return SqlQueryResult(sql="", rows=[])
-        return SqlQueryResult(sql=sql, rows=[])
+            return SqlQueryResult(sql="", rows=[], error="unsafe_sql")
+        try:
+            return SqlQueryResult(sql=sql, rows=self.execute_sql(sql))
+        except Exception as exc:
+            return SqlQueryResult(sql=sql, rows=[], error=str(exc))
+
+    def execute_sql(self, sql: str) -> List[Dict[str, Any]]:
+        if not self.validate_readonly(sql):
+            raise ValueError("Only readonly SELECT SQL is allowed")
+        sqlite_path = os.getenv("RAG_SQLITE_DB_PATH", "")
+        if not sqlite_path:
+            return []
+        path = Path(sqlite_path)
+        if not path.exists():
+            raise FileNotFoundError(f"RAG_SQLITE_DB_PATH does not exist: {sqlite_path}")
+        uri = f"file:{path.resolve()}?mode=ro"
+        with sqlite3.connect(uri, uri=True) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(sql)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    def introspect_sqlite_schema(self, sqlite_path: Optional[str] = None) -> Dict[str, Any]:
+        active_path = sqlite_path or os.getenv("RAG_SQLITE_DB_PATH", "")
+        if not active_path:
+            return self.default_schema()
+        path = Path(active_path)
+        if not path.exists():
+            return self.default_schema()
+        schema: Dict[str, Any] = {}
+        uri = f"file:{path.resolve()}?mode=ro"
+        with sqlite3.connect(uri, uri=True) as conn:
+            table_rows = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            ).fetchall()
+            for (table_name,) in table_rows:
+                columns = [row[1] for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()]
+                schema[table_name] = {"columns": columns, "searchable": columns}
+        return schema or self.default_schema()
 
     def default_schema(self) -> Dict[str, Any]:
         return {
@@ -73,3 +117,10 @@ class TextToSqlService:
         cleaned = re.sub(r"(查询|统计|列表|有哪些|有多少|多少个|排名|请问|帮我|一下|的)", "", query)
         cleaned = re.sub(r"[^\w\u4e00-\u9fff]+", "", cleaned)
         return cleaned[:24]
+
+    def _safe_identifier(self, value: str) -> str:
+        if value == "*":
+            return value
+        if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", value or ""):
+            raise ValueError(f"Unsafe SQL identifier: {value}")
+        return value

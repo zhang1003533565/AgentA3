@@ -98,13 +98,39 @@ class RagApiRoutesTest(unittest.TestCase):
             self.assertEqual(200, response.status_code)
             payload = response.json()
             self.assertEqual("milvus", payload["backend"])
-            self.assertEqual("scaffolded", payload["status"])
+            self.assertEqual("implemented_optional", payload["status"])
             self.assertIn("RAG_MILVUS_URI", payload["missingEnv"])
         finally:
             if old_backend is None:
                 os.environ.pop("RAG_VECTOR_STORE_BACKEND", None)
             else:
                 os.environ["RAG_VECTOR_STORE_BACKEND"] = old_backend
+
+    def test_capabilities_endpoint_describes_runtime_framework(self):
+        response = self.client.get("/internal/rag/capabilities", headers=self.headers)
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertIn("naive_rag", payload["query"]["strategies"])
+        self.assertIn("hybrid", payload["retrieval"]["retrievers"])
+        self.assertIn("faithfulness", payload["evaluation"]["metrics"])
+        self.assertIn("retriever_agent", payload["agents"])
+
+    def test_query_endpoint_synthesizes_answer_when_strategy_has_no_llm_answer(self):
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "统计食堂优惠券数量",
+                "keyword": "优惠券",
+                "ragStrategy": "text_to_sql",
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertTrue(payload["answer"])
+        self.assertEqual("local_context_synthesizer", payload["metadata"]["answerSynthesizer"])
 
     def test_embedding_health_returns_provider_metadata(self):
         response = self.client.get("/internal/rag/embedding/health", headers=self.headers)
@@ -116,20 +142,57 @@ class RagApiRoutesTest(unittest.TestCase):
 
     def test_embedding_health_supports_scaffolded_provider(self):
         old_provider = os.environ.get("RAG_EMBEDDING_PROVIDER")
+        old_key = os.environ.get("OPENAI_API_KEY")
         try:
             os.environ["RAG_EMBEDDING_PROVIDER"] = "openai"
+            os.environ.pop("OPENAI_API_KEY", None)
             response = self.client.get("/internal/rag/embedding/health", headers=self.headers)
 
             self.assertEqual(200, response.status_code)
             payload = response.json()
             self.assertEqual("openai", payload["provider"])
-            self.assertEqual("scaffolded", payload["status"])
+            self.assertEqual("implemented_optional", payload["status"])
             self.assertIn("OPENAI_API_KEY", payload["requiredEnv"])
         finally:
             if old_provider is None:
                 os.environ.pop("RAG_EMBEDDING_PROVIDER", None)
             else:
                 os.environ["RAG_EMBEDDING_PROVIDER"] = old_provider
+            if old_key is not None:
+                os.environ["OPENAI_API_KEY"] = old_key
+
+    def test_evaluate_endpoint_returns_rag_metrics(self):
+        response = self.client.post(
+            "/internal/rag/evaluate",
+            headers=self.headers,
+            json={
+                "query": "校园卡补办地点",
+                "answer": "校园卡补办地点在行政楼一楼服务大厅。",
+                "documents": [
+                    {
+                        "id": "doc-1",
+                        "content": "校园卡补办地点在行政楼一楼服务大厅。",
+                        "source": "card.md",
+                        "score": 1.0,
+                        "metadata": {},
+                    }
+                ],
+                "expectedSources": ["card.md"],
+                "expectedAnswerTerms": ["行政楼"],
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertTrue(payload["passed"])
+        self.assertGreater(payload["metrics"]["hitRate"], 0)
+        self.assertGreater(payload["metrics"]["faithfulness"], 0)
+
+    def test_graph_store_health_returns_backend(self):
+        response = self.client.get("/internal/rag/graph-store/health", headers=self.headers)
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("local_graph", response.json()["backend"])
 
 
 if __name__ == "__main__":

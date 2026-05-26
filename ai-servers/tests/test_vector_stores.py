@@ -79,10 +79,10 @@ class VectorStoreTest(unittest.TestCase):
 
             health = store.health()
             self.assertEqual("milvus", health["backend"])
-            self.assertEqual("scaffolded", health["status"])
+            self.assertEqual("implemented_optional", health["status"])
             self.assertFalse(health["configured"])
             self.assertIn("RAG_MILVUS_URI", health["missingEnv"])
-            with self.assertRaisesRegex(RuntimeError, "scaffolded only"):
+            with self.assertRaisesRegex(RuntimeError, "not configured"):
                 store.upsert_documents([RagDocument(id="a", content="测试", source="a.md")])
 
 

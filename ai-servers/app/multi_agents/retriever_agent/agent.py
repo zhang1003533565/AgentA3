@@ -177,7 +177,7 @@ class RetrieverAgent:
             "source": "text_to_sql",
             "content": f"SQL 查询计划：{plan.sql}",
             "score": 1.0,
-            "metadata": {"sql": plan.sql, "readonly": True, "rows": plan.rows},
+            "metadata": {"sql": plan.sql, "readonly": True, "rows": plan.rows, "error": plan.error},
         }]
 
     def _agentic_search(self, query: str) -> List[RagDocument]:
@@ -318,7 +318,7 @@ class RetrieverAgent:
             return self._last_graph_meta
         if rag_strategy == "text_to_sql":
             plan = self.text_to_sql.plan(query)
-            return {"textToSqlEnabled": True, "sql": plan.sql, "readonly": bool(plan.sql)}
+            return {"textToSqlEnabled": True, "sql": plan.sql, "readonly": bool(plan.sql), "error": plan.error}
         if rag_strategy in {"agentic_rag", "multi_agent_rag"}:
             return self._last_agentic_meta
         if rag_strategy == "multimodal_rag":

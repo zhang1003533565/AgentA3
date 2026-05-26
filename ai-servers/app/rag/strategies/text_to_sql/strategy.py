@@ -15,10 +15,10 @@ class TextToSqlStrategy(BaseRagStrategy):
         plan = self.service.plan(query.text)
         document = RagDocument(
             id="text_to_sql:plan",
-            content=f"SQL 查询计划：{plan.sql or '未生成安全 SQL'}",
+            content=f"SQL 查询计划：{plan.sql or '未生成安全 SQL'}\n结果行数：{len(plan.rows)}",
             source="text_to_sql",
             score=1.0 if plan.sql else 0.0,
-            metadata={"sql": plan.sql, "readonly": bool(plan.sql), "rows": plan.rows},
+            metadata={"sql": plan.sql, "readonly": bool(plan.sql), "rows": plan.rows, "error": plan.error},
         )
         return RagResult(
             strategy=self.name,
@@ -26,7 +26,7 @@ class TextToSqlStrategy(BaseRagStrategy):
             trace=[
                 RagTraceStep(stage="generate_sql", detail={"readonly": bool(plan.sql), "sql": plan.sql}),
             ],
-            metadata={"implemented": True, "sql": plan.sql, "readonly": bool(plan.sql)},
+            metadata={"implemented": True, "sql": plan.sql, "readonly": bool(plan.sql), "error": plan.error},
         )
 
 
