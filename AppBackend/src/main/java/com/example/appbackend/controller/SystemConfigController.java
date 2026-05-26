@@ -54,6 +54,15 @@ public class SystemConfigController {
         return Result.success("更新成功", (Void) null);
     }
 
+    @PostMapping("/upsert")
+    @Operation(summary = "按配置键保存系统配置", description = "管理员权限；存在则更新，不存在则创建")
+    public Result<SystemConfigDTO.ConfigVO> upsert(
+            @Valid @RequestBody SystemConfigDTO.UpsertRequest req,
+            HttpServletRequest request) {
+        if (!isAdmin(request)) throw new BusinessException(Result.FORBIDDEN_CODE, "无权限");
+        return Result.success(systemConfigAdminService.upsert(req));
+    }
+
     @PostMapping("/{id}/test")
     @Operation(summary = "测试配置连通性", description = "管理员权限")
     public Result<SystemConfigDTO.TestResultVO> test(

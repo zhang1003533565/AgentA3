@@ -130,33 +130,14 @@ const toLlmModelOption = (item) => {
   return { value, label }
 }
 
-const buildLlmModelOptions = (defaultModel, configuredModels, extraModels = []) => {
+const buildLlmModelOptions = (models = []) => {
   const options = []
   const pushOption = (item) => {
     const option = toLlmModelOption(item)
     if (option) options.push(option)
   }
 
-  const configuredText = String(configuredModels || '').trim()
-  if (configuredText) {
-    const parsed = safeJsonParse(configuredText, null)
-    if (Array.isArray(parsed)) {
-      parsed.forEach(pushOption)
-    } else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.models)) {
-      parsed.models.forEach(pushOption)
-    } else if (typeof parsed === 'string') {
-      pushOption(parsed)
-    } else {
-      configuredText
-        .split(/[,，\n]/)
-        .map((item) => item.trim())
-        .filter(Boolean)
-        .forEach(pushOption)
-    }
-  }
-
-  pushOption(defaultModel)
-  extraModels.forEach(pushOption)
+  models.forEach(pushOption)
 
   const dedup = new Map()
   options.forEach((item) => {
@@ -378,12 +359,13 @@ function RagManage() {
       setSqlSchema(schemaRes.data?.schema || null)
 
       const configRows = aiConfigRes.data?.records || []
-      const defaultModel = configRows.find((item) => item.configKey === 'ai.service.model')?.configValue || ''
-      const configuredModels = configRows.find((item) => item.configKey === 'ai.service.models')?.configValue || ''
-      const extraModels = configRows
-        .filter((item) => String(item.configKey || '').startsWith('ai.service.model.'))
-        .map((item) => item.configValue)
-      setLlmModelOptions(buildLlmModelOptions(defaultModel, configuredModels, extraModels))
+      const textConfigFields = ['provider', 'base-url', 'api-key', 'model']
+      const textConfigs = textConfigFields.map((field) =>
+        configRows.find((item) => item.configKey === `ai.service.text.${field}`),
+      )
+      const textModelConfig = textConfigs.find((item) => item?.configKey === 'ai.service.text.model')
+      const textModelReady = textConfigs.every((item) => item && Number(item.status) === 1 && String(item.configValue || '').trim())
+      setLlmModelOptions(buildLlmModelOptions(textModelReady ? [textModelConfig?.configValue] : []))
     } catch (error) {
       message.error(error.message || '加载 RAG 管理数据失败')
     } finally {
@@ -643,7 +625,7 @@ function RagManage() {
                   className="rag-inline-alert"
                   type="warning"
                   showIcon
-                  message="默认走 Java 的 ai.service.* 模型配置；你也可以在下方选择模型作为本次请求覆盖值。配置缺失或模型调用失败会直接报错。"
+                  message="默认走 Java 的 ai.service.text.* 模型配置；你也可以在下方选择已配置的文本模型作为本次请求覆盖值。配置缺失或模型调用失败会直接报错。"
                 />
                 <Form.Item name="agentName" label="执行智能体">
                   <Select

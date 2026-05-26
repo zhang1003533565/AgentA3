@@ -34,6 +34,23 @@ public class SystemConfigDTO {
     }
 
     @Data
+    @Schema(description = "系统配置按键保存请求")
+    public static class UpsertRequest {
+        @NotBlank(message = "配置键不能为空")
+        private String configKey;
+
+        @NotBlank(message = "配置值不能为空")
+        private String configValue;
+
+        private String configGroup = "ai";
+
+        private String description;
+
+        @NotNull(message = "状态不能为空")
+        private Integer status;
+    }
+
+    @Data
     @Schema(description = "配置连通测试响应")
     public static class TestResultVO {
         private Long id;

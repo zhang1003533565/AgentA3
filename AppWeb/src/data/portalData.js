@@ -190,7 +190,9 @@ const columns = {
     { title: '有效期', dataIndex: 'timeRange' },
   ],
   systemConfig: [
+    { title: '能力类型', dataIndex: 'modalityLabel', type: 'tag' },
     { title: '服务商', dataIndex: 'provider', type: 'tag' },
+    { title: '模型 ID', dataIndex: 'model' },
     { title: 'API Key', dataIndex: 'apiKeyMasked' },
     { title: '状态', dataIndex: 'statusText', type: 'status' },
     { title: '更新时间', dataIndex: 'updateTime' },
@@ -417,7 +419,7 @@ export const workspacePages = {
     badge: '',
     description: '',
     columns: columns.systemConfig,
-    emptyText: '暂无 DeepSeek 配置数据',
+    emptyText: '暂无 AI 模型配置数据',
   }),
 }
 

@@ -27,12 +27,12 @@ class DeepSeekProvider(ChatModelProvider):
         deepseek_base_url = runtime_config.base_url
         deepseek_model = runtime_config.model
 
-        if not deepseek_api_key:
-            raise RuntimeError("LLM API Key 未配置：缺少 X-AI-Api-Key(ai.service.api-key)")
         if not deepseek_base_url:
-            raise RuntimeError("LLM Base URL 未配置：缺少 X-AI-Base-Url(ai.service.base-url)")
+            raise RuntimeError("LLM Base URL 未配置：缺少 X-AI-Base-Url(ai.service.text.base-url)")
+        if not deepseek_api_key:
+            raise RuntimeError("LLM API Key 未配置：缺少 X-AI-Api-Key(ai.service.text.api-key)")
         if not deepseek_model:
-            raise RuntimeError("LLM 模型未配置：缺少 X-AI-Model(ai.service.model)")
+            raise RuntimeError("LLM 模型未配置：缺少 X-AI-Model(ai.service.text.model)")
 
         self.model = deepseek_model
         self.llm = ChatOpenAI(

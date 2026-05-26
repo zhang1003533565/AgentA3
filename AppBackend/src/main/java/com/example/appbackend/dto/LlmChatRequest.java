@@ -26,7 +26,7 @@ public class LlmChatRequest {
     private String agentName;
 
     @Size(max = 128, message = "LLM 模型标识最多 128 字符")
-    @Schema(description = "可选：本次请求临时指定 LLM 模型；为空时使用系统配置 ai.service.model", example = "deepseek-chat")
+    @Schema(description = "可选：本次请求临时指定 LLM 模型；为空时使用系统配置 ai.service.text.model", example = "deepseek-chat")
     private String llmModel;
 
     @NotBlank(message = "输入内容不能为空")

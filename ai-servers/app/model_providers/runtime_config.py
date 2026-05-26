@@ -6,13 +6,13 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class LlmRuntimeConfig:
-    provider: str = "deepseek"
+    provider: str = ""
     base_url: str = ""
     api_key: str = ""
     model: str = ""
 
     def normalized_provider(self) -> str:
-        return (self.provider or "deepseek").strip().lower()
+        return (self.provider or "").strip().lower()
 
     def cache_key(self) -> tuple[str, str, str, str]:
         api_key_hash = hashlib.sha256((self.api_key or "").encode("utf-8")).hexdigest() if self.api_key else ""
@@ -37,7 +37,7 @@ def build_llm_runtime_config(
     if not any((value or "").strip() for value in values):
         return None
     return LlmRuntimeConfig(
-        provider=(provider or "deepseek").strip(),
+        provider=(provider or "").strip(),
         base_url=(base_url or "").strip(),
         api_key=(api_key or "").strip(),
         model=(model or "").strip(),
@@ -62,17 +62,19 @@ def require_active_llm_config() -> LlmRuntimeConfig:
     if active is None:
         raise RuntimeError(
             "未收到 Java 后端传入的 LLM 配置。请检查 system_config 中 "
-            "ai.service.base-url、ai.service.api-key、ai.service.model 是否已配置，"
+            "ai.service.text.provider、ai.service.text.base-url、ai.service.text.api-key、ai.service.text.model 是否已配置，"
             "并确认 Java 已转发 X-AI-* 请求头；AI Server 已禁止本地兜底。"
         )
 
     missing_headers = []
+    if not active.provider:
+        missing_headers.append("X-AI-Provider(ai.service.text.provider)")
     if not active.base_url:
-        missing_headers.append("X-AI-Base-Url(ai.service.base-url)")
+        missing_headers.append("X-AI-Base-Url(ai.service.text.base-url)")
     if not active.api_key:
-        missing_headers.append("X-AI-Api-Key(ai.service.api-key)")
+        missing_headers.append("X-AI-Api-Key(ai.service.text.api-key)")
     if not active.model:
-        missing_headers.append("X-AI-Model(ai.service.model)")
+        missing_headers.append("X-AI-Model(ai.service.text.model)")
     if missing_headers:
         raise RuntimeError(
             "Java 后端传入的 LLM 配置不完整，缺少："
@@ -86,7 +88,7 @@ def resolve_llm_config(config: Optional[LlmRuntimeConfig] = None) -> LlmRuntimeC
     active = config or get_active_llm_config()
     if active is not None:
         return LlmRuntimeConfig(
-            provider=active.provider or "deepseek",
+            provider=active.provider,
             base_url=active.base_url,
             api_key=active.api_key,
             model=active.model,

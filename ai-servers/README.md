@@ -44,7 +44,7 @@ AI 相关框架统一放在 `app/` 下维护，避免运行代码、skill、cont
 
 `leader_agent`、`mind_map_agent`、`md_knowledge_agent`、`textbook_knowledge_agent`、`textbook_question_bank_agent`、`ppt_agent`、`image_agent`。
 
-`agentName` 留空或传 `leader_agent` 时由 Leader 先做意图识别，再决定直接回答、调用专业智能体，或调用 Text-to-SQL / Java 后端接口。Java 后端会从 `system_config` 读取 `ai.service.base-url`、`ai.service.api-key`、`ai.service.model`，再通过内部请求头传给 Python，因此 Leader 会优先使用后台配置的 LLM；只有 Java 未传配置或 LLM 调用失败时才回退到本地规则。只有 `needRetrieval=true` 的专业智能体才需要 `ragStrategy`；`leader_agent` 和 `md_knowledge_agent` 这类直接处理型智能体不传 RAG 策略。
+`agentName` 留空或传 `leader_agent` 时由 Leader 先做意图识别，再决定直接回答、调用专业智能体，或调用 Text-to-SQL / Java 后端接口。Java 后端会从 `system_config` 读取 `ai.service.text.provider`、`ai.service.text.base-url`、`ai.service.text.api-key`、`ai.service.text.model`，再通过内部请求头传给 Python；配置缺失或 LLM 调用失败会直接报错，不做本地规则兜底。只有 `needRetrieval=true` 的专业智能体才需要 `ragStrategy`；`leader_agent` 和 `md_knowledge_agent` 这类直接处理型智能体不传 RAG 策略。
 
 ```json
 {
@@ -72,9 +72,7 @@ uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
 ## Environment Variables
 
 - `PYTHON_SERVER_PORT` default `8081`
-- `DEEPSEEK_BASE_URL` default `https://api.deepseek.com`
-- `DEEPSEEK_API_KEY` optional fallback；正常经 Java 代理调用时优先使用数据库 `system_config.ai.service.api-key`
-- `DEEPSEEK_MODEL` default `deepseek-chat`
+- LLM provider/base-url/api-key/model 只接受 Java 请求头转发的 `ai.service.text.*` 配置；Python 服务不再读取本地模型环境变量兜底。
 - `REDIS_URL` default `redis://localhost:6379/0`
 - `LLM_MEMORY_TTL_MINUTES` default `120`
 - `LLM_MEMORY_MAX_MESSAGES` default `20`

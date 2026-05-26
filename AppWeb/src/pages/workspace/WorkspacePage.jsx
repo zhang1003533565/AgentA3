@@ -35,7 +35,7 @@ import {
   updateSecondhandCategory,
 } from '../../api/secondhand'
 import { closeSignIn, getSignInList, openSignIn } from '../../api/signin'
-import { getSystemConfigList, testSystemConfig, updateSystemConfig } from '../../api/systemConfig'
+import { getSystemConfigList, testSystemConfig, upsertSystemConfig } from '../../api/systemConfig'
 import { MAP_BUILDING_UPLOAD_FOLDER, getUploadUrl } from '../../api/upload'
 import { disableUser, enableUser, getUserList } from '../../api/user'
 import {
@@ -52,6 +52,12 @@ const DEFAULT_MAP_CENTER = {
   latitude: 40.755502,
 }
 const DEFAULT_MAP_ZOOM = 16
+const AI_MODALITIES = [
+  { key: 'text', label: '文本' },
+  { key: 'image', label: '图片' },
+  { key: 'video', label: '视频' },
+  { key: 'audio', label: '语音' },
+]
 let amapLoaderPromise = null
 
 const loadAmapScript = () => {
@@ -480,37 +486,12 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextI
     case 'system-config': {
       const res = await getSystemConfigList({
         page: current,
-        size: pageSize,
+        size: 100,
         keyword,
         prefixes: 'ai.service.',
       })
       const records = Array.isArray(res.data?.records) ? res.data.records : []
-      const baseUrlConfig = records.find((item) => item.configKey === 'ai.service.base-url')
-      const apiKeyConfig = records.find((item) => item.configKey === 'ai.service.api-key')
-      const modelConfig = records.find((item) => item.configKey === 'ai.service.model')
-      const status = [baseUrlConfig?.status, apiKeyConfig?.status, modelConfig?.status].some((item) => Number(item) === 0) ? 0 : 1
-      const updateTime = [baseUrlConfig?.updateTime, apiKeyConfig?.updateTime, modelConfig?.updateTime]
-        .filter(Boolean)
-        .sort()
-        .slice(-1)[0] || null
-      const rows = (baseUrlConfig || apiKeyConfig || modelConfig)
-        ? [{
-            id: 'deepseek-config',
-            provider: 'DeepSeek',
-            apiKeyMasked: (() => {
-              const text = String(apiKeyConfig?.configValue || '')
-              if (!text) return '-'
-              if (text.length <= 10) return text
-              return `${text.slice(0, 6)}****${text.slice(-4)}`
-            })(),
-            status,
-            statusText: status === 1 ? '启用' : '禁用',
-            updateTime,
-            apiKeyConfigId: apiKeyConfig?.id,
-            rawApiKey: apiKeyConfig?.configValue || '',
-            description: 'DeepSeek API Key 配置',
-          }]
-        : []
+      const rows = buildAiCapabilityRows(records)
       return { rows, total: rows.length }
     }
     default:
@@ -545,6 +526,50 @@ function renderCell(value, type, row) {
   }
 
   return value ?? '-'
+}
+
+function maskSecret(value) {
+  const text = String(value || '')
+  if (!text) return '-'
+  if (text.length <= 10) return text
+  return `${text.slice(0, 6)}****${text.slice(-4)}`
+}
+
+function getConfigRecord(records, capability, field) {
+  return records.find((item) => item.configKey === `ai.service.${capability}.${field}`)
+}
+
+function buildAiCapabilityRows(records) {
+  return AI_MODALITIES.map((modality) => {
+    const providerConfig = getConfigRecord(records, modality.key, 'provider')
+    const baseUrlConfig = getConfigRecord(records, modality.key, 'base-url')
+    const apiKeyConfig = getConfigRecord(records, modality.key, 'api-key')
+    const modelConfig = getConfigRecord(records, modality.key, 'model')
+    const configs = [providerConfig, baseUrlConfig, apiKeyConfig, modelConfig].filter(Boolean)
+    const configured = configs.length === 4
+    const disabled = configured && configs.some((item) => Number(item.status) === 0)
+    const updateTime = configs.map((item) => item.updateTime).filter(Boolean).sort().slice(-1)[0] || null
+    return {
+      id: `ai-${modality.key}`,
+      modality: modality.key,
+      modalityLabel: modality.label,
+      provider: providerConfig?.configValue || '',
+      baseUrl: baseUrlConfig?.configValue || '',
+      model: modelConfig?.configValue || '',
+      apiKeyMasked: maskSecret(apiKeyConfig?.configValue),
+      rawApiKey: apiKeyConfig?.configValue || '',
+      status: disabled ? 0 : 1,
+      statusText: configured ? (disabled ? '禁用' : '启用') : '未配置',
+      updateTime,
+      configIds: {
+        provider: providerConfig?.id,
+        baseUrl: baseUrlConfig?.id,
+        apiKey: apiKeyConfig?.id,
+        model: modelConfig?.id,
+      },
+      testConfigId: baseUrlConfig?.id || apiKeyConfig?.id || modelConfig?.id || providerConfig?.id,
+    }
+  })
 }
 
 function WorkspacePage({ pageKey }) {
@@ -991,9 +1016,11 @@ function WorkspacePage({ pageKey }) {
         : {}),
       ...(pageKey === 'system-config'
         ? {
+            modalityLabel: record.modalityLabel,
             provider: record.provider,
+            baseUrl: record.baseUrl,
+            model: record.model,
             apiKey: record.rawApiKey,
-            description: record.description,
             status: record.status,
           }
         : {}),
@@ -1081,11 +1108,21 @@ function WorkspacePage({ pageKey }) {
         },
         'system-config': {
           edit: async () => {
-            await updateSystemConfig(editingRecord.apiKeyConfigId, {
-              configValue: values.apiKey,
-              description: 'AI 服务密钥',
-              status: values.status,
-            })
+            const capability = editingRecord.modality
+            const statusValue = values.status
+            const configs = [
+              { field: 'provider', value: values.provider, description: `${editingRecord.modalityLabel}模型服务商` },
+              { field: 'base-url', value: values.baseUrl, description: `${editingRecord.modalityLabel}模型服务地址` },
+              { field: 'api-key', value: values.apiKey, description: `${editingRecord.modalityLabel}模型服务密钥` },
+              { field: 'model', value: values.model, description: `${editingRecord.modalityLabel}模型 ID` },
+            ]
+            await Promise.all(configs.map((item) => upsertSystemConfig({
+              configKey: `ai.service.${capability}.${item.field}`,
+              configValue: item.value,
+              configGroup: 'ai',
+              description: item.description,
+              status: statusValue,
+            })))
           },
         },
       }
@@ -1366,11 +1403,20 @@ function WorkspacePage({ pageKey }) {
       case 'system-config':
         return (
           <>
-            <Form.Item name="provider" label="服务商">
+            <Form.Item name="modalityLabel" label="能力类型">
               <Input disabled />
+            </Form.Item>
+            <Form.Item name="provider" label="服务商" rules={[{ required: true, message: '请输入服务商' }]}>
+              <Input placeholder="请输入服务商标识" />
+            </Form.Item>
+            <Form.Item name="baseUrl" label="Base URL" rules={[{ required: true, message: '请输入服务地址' }]}>
+              <Input placeholder="请输入模型服务地址" />
             </Form.Item>
             <Form.Item name="apiKey" label="API Key" rules={[{ required: true }]}>
               <Input.Password />
+            </Form.Item>
+            <Form.Item name="model" label="模型 ID" rules={[{ required: true, message: '请输入模型 ID' }]}>
+              <Input placeholder="请输入模型 ID" />
             </Form.Item>
             <Form.Item name="status" label="状态" rules={[{ required: true }]}>
               <Select options={[{ value: 1, label: '启用' }, { value: 0, label: '禁用' }]} />
@@ -1613,12 +1659,17 @@ function WorkspacePage({ pageKey }) {
               size="small"
               loading={actionLoading}
               onClick={() => runAction(async () => {
-                const res = await testSystemConfig(record.apiKeyConfigId)
+                if (!record.testConfigId) {
+                  message.warning('请先保存该能力的模型配置后再测试')
+                  return
+                }
+                const res = await testSystemConfig(record.testConfigId)
                 Modal.info({
                   title: res.data?.success ? '连通测试成功' : '连通测试失败',
                   content: (
                     <div>
-                      <p>服务商：DeepSeek</p>
+                      <p>能力类型：{record.modalityLabel}</p>
+                      <p>服务商：{record.provider || '-'}</p>
                       <p>目标地址：{res.data?.target || '-'}</p>
                       <p>结果：{res.data?.detail || '-'}</p>
                     </div>

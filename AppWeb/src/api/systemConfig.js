@@ -20,6 +20,13 @@ export const updateSystemConfig = (id, data) =>
     data,
   })
 
+export const upsertSystemConfig = (data) =>
+  request({
+    url: '/api/system-config/upsert',
+    method: 'post',
+    data,
+  })
+
 export const testSystemConfig = (id) =>
   request({
     url: `/api/system-config/${id}/test`,

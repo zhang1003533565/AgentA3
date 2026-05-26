@@ -17,9 +17,6 @@ import java.util.Map;
 @Service
 public class AiServiceImpl implements AiService {
 
-    private static final String DEFAULT_BASE_URL = "https://api.deepseek.com/v1";
-    private static final String DEFAULT_MODEL = "deepseek-chat";
-
     private final SystemConfigService systemConfigService;
     private final ObjectMapper objectMapper;
 
@@ -30,13 +27,9 @@ public class AiServiceImpl implements AiService {
 
     @Override
     public AiWriteDTO.WriteResponse write(AiWriteDTO.WriteRequest request) {
-        String apiKey = systemConfigService.getValue("ai.service.api-key", "");
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new BusinessException(400, "AI Key 未配置");
-        }
-
-        String baseUrl = trimTrailingSlash(systemConfigService.getValue("ai.service.base-url", DEFAULT_BASE_URL));
-        String model = systemConfigService.getValue("ai.service.model", DEFAULT_MODEL);
+        String apiKey = requireAiTextConfig("api-key", "AI Key");
+        String baseUrl = trimTrailingSlash(requireAiTextConfig("base-url", "AI 服务地址"));
+        String model = requireAiTextConfig("model", "AI 模型 ID");
         String prompt = buildPrompt(request);
 
         Map<String, Object> message = new HashMap<>();
@@ -99,7 +92,15 @@ public class AiServiceImpl implements AiService {
     }
 
     private String trimTrailingSlash(String value) {
-        if (value == null || value.isBlank()) return DEFAULT_BASE_URL;
         return value.replaceAll("/+$", "");
+    }
+
+    private String requireAiTextConfig(String field, String label) {
+        String key = "ai.service.text." + field;
+        String value = systemConfigService.getValue("ai.service.text." + field, "");
+        if (value == null || value.isBlank()) {
+            throw new BusinessException(400, label + " 未配置，请在系统配置中维护 " + key);
+        }
+        return value;
     }
 }

@@ -163,7 +163,7 @@ def get_rag_framework(
                 "name": "deepseek",
                 "runtime": "app.model_providers.deepseek.provider",
                 "status": "implemented",
-                "configSource": "Java system_config: ai.service.base-url / ai.service.api-key / ai.service.model",
+                "configSource": "Java system_config: ai.service.text.provider / ai.service.text.base-url / ai.service.text.api-key / ai.service.text.model",
             },
         ],
         "embeddingProviders": [
@@ -198,9 +198,10 @@ def get_rag_framework(
             {"name": "RAG_GRAPH_STORE_BACKEND", "configured": bool(os.getenv("RAG_GRAPH_STORE_BACKEND")), "default": "local_graph"},
             {"name": "RAG_SQLITE_DB_PATH", "configured": bool(os.getenv("RAG_SQLITE_DB_PATH")), "default": ""},
             {"name": "JAVA_BACKEND_BASE_URL", "configured": bool(os.getenv("JAVA_BACKEND_BASE_URL")), "default": "http://localhost:8080"},
-            {"name": "X-AI-Base-Url", "configured": "由 Java 请求头传入", "default": "ai.service.base-url"},
-            {"name": "X-AI-Api-Key", "configured": "由 Java 请求头传入", "default": "ai.service.api-key"},
-            {"name": "X-AI-Model", "configured": "由 Java 请求头传入", "default": "ai.service.model"},
+            {"name": "X-AI-Provider", "configured": "由 Java 请求头传入", "source": "ai.service.text.provider"},
+            {"name": "X-AI-Base-Url", "configured": "由 Java 请求头传入", "source": "ai.service.text.base-url"},
+            {"name": "X-AI-Api-Key", "configured": "由 Java 请求头传入", "source": "ai.service.text.api-key"},
+            {"name": "X-AI-Model", "configured": "由 Java 请求头传入", "source": "ai.service.text.model"},
         ],
         "apis": [
             "GET /internal/rag/strategies",

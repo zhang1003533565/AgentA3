@@ -245,7 +245,7 @@ class PythonAiProxyServiceTest {
                 () -> service.chat(request, "Bearer " + token)
         );
 
-        Assertions.assertTrue(error.getMessage().contains("ai.service.api-key"));
+        Assertions.assertTrue(error.getMessage().contains("ai.service.text.api-key"));
     }
 
     private PythonAiProxyService newService(int port) {
@@ -314,16 +314,16 @@ class PythonAiProxyServiceTest {
             if ("jwt.secret".equals(key)) {
                 return TEST_SECRET;
             }
-            if ("ai.provider".equals(key)) {
+            if ("ai.service.text.provider".equals(key)) {
                 return "deepseek";
             }
-            if ("ai.service.base-url".equals(key)) {
+            if ("ai.service.text.base-url".equals(key)) {
                 return "https://llm.test/v1";
             }
-            if ("ai.service.api-key".equals(key)) {
+            if ("ai.service.text.api-key".equals(key)) {
                 return "test-ai-key";
             }
-            if ("ai.service.model".equals(key)) {
+            if ("ai.service.text.model".equals(key)) {
                 return "test-model";
             }
             return defaultValue;
@@ -343,7 +343,7 @@ class PythonAiProxyServiceTest {
     private static final class MissingApiKeySystemConfigService extends TestSystemConfigService {
         @Override
         public String getValue(String key, String defaultValue) {
-            if ("ai.service.api-key".equals(key)) {
+            if ("ai.service.text.api-key".equals(key)) {
                 return "";
             }
             return super.getValue(key, defaultValue);

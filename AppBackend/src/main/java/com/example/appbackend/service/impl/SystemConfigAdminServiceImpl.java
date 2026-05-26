@@ -78,6 +78,18 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
     }
 
     @Override
+    public SystemConfigDTO.ConfigVO upsert(SystemConfigDTO.UpsertRequest req) {
+        SystemConfig config = systemConfigRepository.findByConfigKey(req.getConfigKey().trim())
+                .orElseGet(SystemConfig::new);
+        config.setConfigKey(req.getConfigKey().trim());
+        config.setConfigValue(req.getConfigValue());
+        config.setConfigGroup(req.getConfigGroup() == null || req.getConfigGroup().isBlank() ? "ai" : req.getConfigGroup().trim());
+        config.setDescription(req.getDescription());
+        config.setStatus(req.getStatus());
+        return toVO(systemConfigRepository.save(config));
+    }
+
+    @Override
     public SystemConfigDTO.TestResultVO test(Long id) {
         SystemConfig config = systemConfigRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(404, "配置不存在"));
@@ -160,12 +172,16 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
     }
 
     private SystemConfigDTO.TestResultVO testAiConfig(SystemConfig currentConfig) {
-        String baseUrl = getConfigValue("ai.service.base-url");
-        String apiKey = getConfigValue("ai.service.api-key");
+        String capability = extractAiCapability(currentConfig.getConfigKey());
+        String baseUrl = getAiCapabilityValue(capability, "base-url");
+        String apiKey = getAiCapabilityValue(capability, "api-key");
 
         boolean success;
         String detail;
-        try {
+        if (baseUrl.isBlank() || apiKey.isBlank()) {
+            success = false;
+            detail = "AI 接口配置不完整，请维护 ai.service." + capability + ".base-url 和 ai.service." + capability + ".api-key";
+        } else try {
             String body = WebClient.builder()
                     .baseUrl(trimTrailingSlash(baseUrl))
                     .defaultHeader("Authorization", "Bearer " + apiKey)
@@ -192,6 +208,20 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
         vo.setSuccess(success);
         vo.setDetail(detail);
         return vo;
+    }
+
+    private String extractAiCapability(String configKey) {
+        if (configKey == null || !configKey.startsWith("ai.service.")) {
+            return "text";
+        }
+        String suffix = configKey.substring("ai.service.".length());
+        int dot = suffix.indexOf('.');
+        return dot > 0 ? suffix.substring(0, dot) : "text";
+    }
+
+    private String getAiCapabilityValue(String capability, String field) {
+        String scopedKey = "ai.service." + capability + "." + field;
+        return getConfigValue(scopedKey);
     }
 
     private String getConfigValue(String key) {

@@ -40,4 +40,4 @@
 
 `ragStrategy` 可覆盖默认策略，例如教材知识点智能体可指定 `graph_rag` 或 `parent_child`。显式调用专业智能体时，输出由该智能体调用 LLM 生成；不传时由 Leader 调用 LLM 判断问题文字并分配。
 
-Leader 意图识别和所有智能体生成都依赖 Java 后端从数据库 `system_config` 转发的 `ai.service.base-url`、`ai.service.api-key`、`ai.service.model`。这些配置缺失、模型不可用或返回格式错误时，AI Server 会直接报错，不会本地兜底生成假成功结果。
+Leader 意图识别和所有智能体生成都依赖 Java 后端从数据库 `system_config` 转发的 `ai.service.text.provider`、`ai.service.text.base-url`、`ai.service.text.api-key`、`ai.service.text.model`。这些配置缺失、模型不可用或返回格式错误时，AI Server 会直接报错，不会本地兜底生成假成功结果。

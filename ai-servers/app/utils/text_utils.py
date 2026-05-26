@@ -16,7 +16,7 @@ except ImportError:  # allows running lightweight tests without fastapi installe
 def normalize_base_url(url: str) -> str:
     normalized = (url or "").rstrip("/")
     if not normalized:
-        raise ValueError("LLM Base URL 未配置：缺少 ai.service.base-url")
+        raise ValueError("LLM Base URL 未配置：缺少 ai.service.text.base-url")
     if not normalized.endswith("/v1"):
         normalized += "/v1"
     return normalized
