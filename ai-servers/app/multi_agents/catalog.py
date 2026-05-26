@@ -1,83 +1,101 @@
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 
 AGENT_ORDER = [
-    "orchestrator_agent",
-    "planner_agent",
-    "retriever_agent",
-    "answer_agent",
-    "critic_agent",
-    "memory_agent",
-    "sql_agent",
-    "graph_agent",
-    "tool_agent",
+    "leader_agent",
+    "mind_map_agent",
+    "md_knowledge_agent",
+    "textbook_knowledge_agent",
+    "textbook_question_bank_agent",
+    "ppt_agent",
+    "image_agent",
 ]
 
 AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
-    "orchestrator_agent": {
-        "role": "流程编排智能体",
-        "purpose": "根据 RAG 策略调度 Planner、Retriever、Answer、Critic 等子智能体，统一记录 trace 和回退。",
-        "inputs": ["user_query", "rag_strategy", "global_state"],
-        "outputs": ["execution_trace", "final_result"],
-        "skills": ["agent orchestration", "fallback routing", "trace management"],
+    "leader_agent": {
+        "role": "Leader 智能体",
+        "purpose": "统一理解用户任务，路由到思维导图、MD 知识点、教材知识点、教材题库、PPT、图片等专业智能体，并管理会话记忆与最终回答兜底。",
+        "inputs": ["user_query", "rag_strategy", "session_token", "history"],
+        "outputs": ["intent", "target_agent", "need_retrieval", "answer"],
+        "skills": ["task routing", "agent orchestration", "memory", "fallback answering"],
+        "intent": "auto",
+        "needRetrieval": False,
+        "defaultRagStrategy": "naive_rag",
+        "aliases": ["leader", "leader_agent", "总控智能体", "leader智能体"],
     },
-    "planner_agent": {
-        "role": "意图规划智能体",
-        "purpose": "识别闲聊、课表、SQL、图谱、多模态等意图，并决定是否需要检索。",
-        "inputs": ["user_query", "context"],
-        "outputs": ["intent", "need_retrieval", "plan_steps"],
-        "skills": ["intent routing", "task planning", "strategy selection"],
+    "mind_map_agent": {
+        "role": "思维导图智能体",
+        "purpose": "把教材知识点或用户主题整理成层级化 Markdown/Mermaid 思维导图。",
+        "inputs": ["topic", "evidence"],
+        "outputs": ["mind_map_markdown"],
+        "skills": ["mind map", "hierarchy extraction", "mermaid"],
+        "intent": "mind_map",
+        "needRetrieval": True,
+        "defaultRagStrategy": "multi_agent_rag",
+        "aliases": ["mind_map", "mindmap", "思维导图", "思维导图智能体", "脑图智能体"],
     },
-    "retriever_agent": {
-        "role": "证据召回智能体",
-        "purpose": "按策略执行 Java 后端检索、向量检索、混合检索、父子块、CRAG、Self-RAG 等证据召回。",
+    "md_knowledge_agent": {
+        "role": "MD 知识点提取智能体",
+        "purpose": "从 Markdown、课堂笔记或普通文本中提取标题、列表、编号项和核心知识点。",
+        "inputs": ["markdown_text", "evidence"],
+        "outputs": ["knowledge_points"],
+        "skills": ["markdown parsing", "keyword extraction", "knowledge point extraction"],
+        "intent": "md_knowledge",
+        "needRetrieval": False,
+        "defaultRagStrategy": "semantic_chunking",
+        "aliases": ["md_knowledge", "markdown_knowledge", "md知识点提取", "md知识点提取智能体"],
+    },
+    "textbook_knowledge_agent": {
+        "role": "教材知识点智能体",
+        "purpose": "围绕教材章节、课程内容、知识点和考点做检索增强，复用 Java 后端和本地 RAG 能力召回证据。",
         "inputs": ["authorization", "intent", "keyword", "input_text", "rag_strategy"],
         "outputs": ["matched_results", "retrieval_meta"],
-        "skills": ["vector retrieval", "hybrid search", "reranking", "corrective retrieval"],
+        "skills": ["textbook retrieval", "hybrid search", "reranking", "graph/text-to-sql retrieval"],
+        "intent": "textbook_knowledge",
+        "needRetrieval": True,
+        "defaultRagStrategy": "hybrid_search",
+        "aliases": ["textbook_knowledge", "教材知识点", "教材知识点智能体", "课本知识点智能体"],
     },
-    "answer_agent": {
-        "role": "答案生成智能体",
-        "purpose": "基于提示词、历史、关键词和证据生成最终自然语言回答。",
-        "inputs": ["prompt", "input_text", "history", "search_keyword", "search_results"],
-        "outputs": ["answer"],
-        "skills": ["grounded answering", "context synthesis", "response formatting"],
+    "textbook_question_bank_agent": {
+        "role": "教材题库智能体",
+        "purpose": "基于教材知识点生成练习题、简答题、参考答案和复习检测题。",
+        "inputs": ["topic", "evidence", "count"],
+        "outputs": ["question_bank_markdown"],
+        "skills": ["question generation", "answer key", "assessment design"],
+        "intent": "question_bank",
+        "needRetrieval": True,
+        "defaultRagStrategy": "multi_agent_rag",
+        "aliases": ["question_bank", "textbook_question_bank", "教材题库", "教材题库智能体", "题库智能体"],
     },
-    "critic_agent": {
-        "role": "答案审核智能体",
-        "purpose": "对生成答案做轻量修订，减少冗余和明显不一致。",
-        "inputs": ["draft_answer", "evidence"],
-        "outputs": ["refined_answer", "issues"],
-        "skills": ["quality check", "faithfulness review", "copy refinement"],
+    "ppt_agent": {
+        "role": "PPT 智能体",
+        "purpose": "把主题和知识点证据整理成 PPT 页结构、讲解目标和页面内容建议。",
+        "inputs": ["topic", "evidence", "slide_count"],
+        "outputs": ["ppt_outline_markdown"],
+        "skills": ["slide outline", "teaching flow", "presentation planning"],
+        "intent": "ppt",
+        "needRetrieval": True,
+        "defaultRagStrategy": "multi_agent_rag",
+        "aliases": ["ppt", "ppt_agent", "课件智能体", "PPT智能体"],
     },
-    "memory_agent": {
-        "role": "会话记忆智能体",
-        "purpose": "读取和写入多轮对话记忆，保证会话上下文连续。",
-        "inputs": ["session_token", "write_turn"],
-        "outputs": ["history"],
-        "skills": ["short-term memory", "history windowing", "session persistence"],
+    "image_agent": {
+        "role": "图片智能体",
+        "purpose": "根据课程主题和知识点证据生成教学配图、封面图、插图提示词。",
+        "inputs": ["topic", "evidence"],
+        "outputs": ["image_prompt"],
+        "skills": ["image prompt", "visual planning", "multimodal context"],
+        "intent": "image",
+        "needRetrieval": True,
+        "defaultRagStrategy": "multimodal_rag",
+        "aliases": ["image", "image_agent", "图片智能体", "配图智能体"],
     },
-    "sql_agent": {
-        "role": "Text-to-SQL 智能体",
-        "purpose": "负责 Text-to-SQL，把自然语言问题转换为安全只读 SQL，并返回结构化结果。",
-        "inputs": ["user_query", "schema"],
-        "outputs": ["sql", "rows"],
-        "skills": ["readonly SQL generation", "schema routing", "safe query validation"],
-    },
-    "graph_agent": {
-        "role": "GraphRAG 智能体",
-        "purpose": "从本地图谱或 Neo4j 中检索实体关系路径，为 GraphRAG 提供可解释证据。",
-        "inputs": ["user_query"],
-        "outputs": ["entities", "relations", "evidence_paths"],
-        "skills": ["entity extraction", "graph path retrieval", "structured evidence"],
-    },
-    "tool_agent": {
-        "role": "工具选择智能体",
-        "purpose": "根据任务选择 Text-to-SQL、图谱、混合检索等工具，并标准化调用参数。",
-        "inputs": ["task", "available_tools"],
-        "outputs": ["tool_name", "tool_args", "tool_result"],
-        "skills": ["tool routing", "argument shaping", "tool fallback"],
-    },
+}
+
+AGENT_ALIASES = {
+    alias.lower(): agent_name
+    for agent_name, profile in AGENT_PROFILES.items()
+    for alias in [agent_name, *profile.get("aliases", [])]
 }
 
 
@@ -86,19 +104,37 @@ def get_agent_catalog() -> Dict[str, Any]:
     return {
         "total": len(agents),
         "workflow": {
-            "default": ["planner_agent", "retriever_agent", "answer_agent", "critic_agent", "memory_agent"],
-            "textToSql": ["planner_agent", "sql_agent", "answer_agent", "critic_agent", "memory_agent"],
-            "graphRag": ["planner_agent", "graph_agent", "retriever_agent", "answer_agent", "critic_agent", "memory_agent"],
-            "agentic": ["orchestrator_agent", "planner_agent", "tool_agent", "retriever_agent", "answer_agent", "critic_agent", "memory_agent"],
+            "default": ["leader_agent", "textbook_knowledge_agent", "md_knowledge_agent"],
+            "mindMap": ["leader_agent", "textbook_knowledge_agent", "mind_map_agent"],
+            "markdownKnowledge": ["leader_agent", "md_knowledge_agent"],
+            "textbookKnowledge": ["leader_agent", "textbook_knowledge_agent", "md_knowledge_agent"],
+            "questionBank": ["leader_agent", "textbook_knowledge_agent", "textbook_question_bank_agent"],
+            "ppt": ["leader_agent", "textbook_knowledge_agent", "ppt_agent"],
+            "image": ["leader_agent", "textbook_knowledge_agent", "image_agent"],
         },
         "agents": agents,
     }
 
 
 def get_agent_detail(agent_name: str) -> Optional[Dict[str, Any]]:
+    agent_name = normalize_agent_name(agent_name) or ""
     if agent_name not in AGENT_PROFILES:
         return None
     return _build_agent(agent_name, include_documents=True)
+
+
+def normalize_agent_name(agent_name: Optional[str]) -> Optional[str]:
+    value = (agent_name or "").strip()
+    if not value:
+        return None
+    return AGENT_ALIASES.get(value.lower())
+
+
+def get_agent_profile(agent_name: Optional[str]) -> Optional[Dict[str, Any]]:
+    normalized = normalize_agent_name(agent_name)
+    if not normalized:
+        return None
+    return {"name": normalized, **AGENT_PROFILES[normalized]}
 
 
 def _build_agent(agent_name: str, include_documents: bool) -> Dict[str, Any]:
@@ -111,6 +147,10 @@ def _build_agent(agent_name: str, include_documents: bool) -> Dict[str, Any]:
         "inputs": profile["inputs"],
         "outputs": profile["outputs"],
         "skills": profile["skills"],
+        "intent": profile["intent"],
+        "needRetrieval": profile["needRetrieval"],
+        "defaultRagStrategy": profile["defaultRagStrategy"],
+        "aliases": profile["aliases"],
         "runtime": f"app.multi_agents.{agent_name}.agent",
         "directory": str(agent_dir),
         "files": {

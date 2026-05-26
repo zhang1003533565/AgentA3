@@ -1,5 +1,5 @@
 from app.langgraph.state import ConversationState
-from app.multi_agents.retriever_agent.agent import retriever_agent
+from app.multi_agents.textbook_knowledge_agent.agent import textbook_knowledge_agent
 
 
 def search_results_node(state: ConversationState) -> None:
@@ -11,7 +11,7 @@ def search_results_node(state: ConversationState) -> None:
             "detail": {"skipped": True, "reason": "empty keyword"},
         })
         return
-    state.matched_results, retrieval_meta = retriever_agent.retrieve_with_meta(
+    state.matched_results, retrieval_meta = textbook_knowledge_agent.retrieve_with_meta(
         authorization=state.authorization,
         intent=state.intent,
         keyword=state.search_keyword,

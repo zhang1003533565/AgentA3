@@ -12,6 +12,9 @@ class ConversationState:
     model: str
     user_id: Optional[int]
     rag_strategy: str = "naive_rag"
+    rag_strategy_explicit: bool = False
+    requested_agent: str = ""
+    active_agent: str = "leader_agent"
     intent: str = "campus_search"
     history: List[Dict[str, str]] = field(default_factory=list)
     search_keyword: str = ""

@@ -99,15 +99,13 @@ def get_rag_capabilities(
             "graphRag": True,
         },
         "agents": [
-            "orchestrator_agent",
-            "planner_agent",
-            "retriever_agent",
-            "answer_agent",
-            "critic_agent",
-            "memory_agent",
-            "sql_agent",
-            "graph_agent",
-            "tool_agent",
+            "leader_agent",
+            "mind_map_agent",
+            "md_knowledge_agent",
+            "textbook_knowledge_agent",
+            "textbook_question_bank_agent",
+            "ppt_agent",
+            "image_agent",
         ],
     }
 

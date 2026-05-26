@@ -6,7 +6,7 @@
 ## 需要的框架组件
 - PlannerAgent：规划任务。
 - ToolAgent：选择工具。
-- RetrieverAgent：执行检索。
+- TextbookKnowledgeAgent：执行检索。
 - CriticAgent：审核答案。
 
 ## 后续实现入口

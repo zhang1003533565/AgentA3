@@ -1,3 +1,0 @@
-allowed_tools:
-  - text_to_sql
-  - sql_executor_readonly

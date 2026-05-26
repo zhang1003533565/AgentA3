@@ -147,7 +147,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertIn("naive_rag", payload["query"]["strategies"])
         self.assertIn("hybrid", payload["retrieval"]["retrievers"])
         self.assertIn("faithfulness", payload["evaluation"]["metrics"])
-        self.assertIn("retriever_agent", payload["agents"])
+        self.assertIn("textbook_knowledge_agent", payload["agents"])
 
     def test_framework_endpoint_describes_full_runtime_layout(self):
         response = self.client.get("/internal/rag/framework", headers=self.headers)
@@ -166,19 +166,19 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         payload = response.json()
         names = {item["name"] for item in payload["agents"]}
-        self.assertIn("retriever_agent", names)
-        retriever = next(item for item in payload["agents"] if item["name"] == "retriever_agent")
-        self.assertIn("skill.md", retriever["files"]["skill"])
-        self.assertIn("Retriever Agent Skill", retriever["documents"]["skill"])
-        self.assertIn("agentic", payload["workflow"])
+        self.assertIn("textbook_knowledge_agent", names)
+        textbook_agent = next(item for item in payload["agents"] if item["name"] == "textbook_knowledge_agent")
+        self.assertIn("skill.md", textbook_agent["files"]["skill"])
+        self.assertIn("教材知识点智能体 Skill", textbook_agent["documents"]["skill"])
+        self.assertIn("questionBank", payload["workflow"])
 
     def test_agent_detail_endpoint_returns_single_agent(self):
-        response = self.client.get("/internal/rag/agents/sql_agent", headers=self.headers)
+        response = self.client.get("/internal/rag/agents/leader_agent", headers=self.headers)
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
-        self.assertEqual("sql_agent", payload["name"])
-        self.assertIn("Text-to-SQL", payload["purpose"])
+        self.assertEqual("leader_agent", payload["name"])
+        self.assertIn("Leader", payload["role"])
 
     def test_query_endpoint_synthesizes_answer_when_strategy_has_no_llm_answer(self):
         response = self.client.post(

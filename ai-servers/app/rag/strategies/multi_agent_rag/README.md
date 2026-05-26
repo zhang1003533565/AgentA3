@@ -6,10 +6,10 @@
 ## 需要的框架组件
 - OrchestratorAgent：流程编排。
 - PlannerAgent：任务规划。
-- RetrieverAgent：证据召回。
+- TextbookKnowledgeAgent：证据召回。
 - AnswerAgent：答案生成。
 - CriticAgent：质量审核。
 
 ## 后续实现入口
 - Runtime：`app/rag/strategies/multi_agent_rag/`
-- Orchestrator：`app/multi_agents/orchestrator_agent/`
+- Orchestrator：`app/multi_agents/leader_agent/`

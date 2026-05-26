@@ -11,4 +11,4 @@
 
 ## 后续实现入口
 - Runtime：`app/rag/strategies/text_to_sql/`
-- Agent：`app/multi_agents/sql_agent/`
+- Agent：`app/multi_agents/textbook_knowledge_agent/`

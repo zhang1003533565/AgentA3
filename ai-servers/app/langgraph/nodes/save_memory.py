@@ -1,6 +1,6 @@
 from app.langgraph.state import ConversationState
-from app.multi_agents.memory_agent.agent import memory_agent
+from app.multi_agents.leader_agent.agent import leader_agent
 
 
 def save_memory_node(state: ConversationState) -> None:
-    memory_agent.save(state.session_token, state.input_text, state.answer)
+    leader_agent.save_memory(state.session_token, state.input_text, state.answer)

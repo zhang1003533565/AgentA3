@@ -10,4 +10,4 @@
 
 ## 后续实现入口
 - Runtime：`app/rag/strategies/graph_rag/`
-- Agent：`app/multi_agents/graph_agent/`
+- Agent：`app/multi_agents/textbook_knowledge_agent/`

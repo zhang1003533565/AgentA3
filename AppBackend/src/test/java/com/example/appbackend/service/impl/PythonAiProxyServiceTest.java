@@ -163,7 +163,7 @@ class PythonAiProxyServiceTest {
             writeJson(exchange, 200, """
                     {
                       "total": 1,
-                      "agents": [{"name":"retriever_agent","role":"证据召回智能体"}]
+                      "agents": [{"name":"textbook_knowledge_agent","role":"教材知识点智能体"}]
                     }
                     """);
         });

@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field, model_validator
 class ChatRequest(BaseModel):
     sessionId: Optional[str] = Field(default=None, max_length=64)
     prompt: Optional[str] = Field(default=None, max_length=2000)
-    ragStrategy: Optional[str] = Field(default="naive_rag", max_length=64)
+    ragStrategy: Optional[str] = Field(default=None, max_length=64)
+    agentName: Optional[str] = Field(default=None, max_length=64)
     input: str = Field(min_length=1, max_length=4000)
 
 
@@ -17,6 +18,7 @@ class ChatResponse(BaseModel):
     sessionToken: str
     model: str
     ragStrategy: str = "naive_rag"
+    agentName: str = "leader_agent"
     searchKeyword: str
     matchedResults: List[Dict[str, Any]]
     retrievalMeta: Dict[str, Any] = Field(default_factory=dict)
@@ -29,6 +31,7 @@ class RagQueryRequest(BaseModel):
     keyword: Optional[str] = Field(default=None, max_length=128)
     intent: str = Field(default="campus_search", max_length=64)
     ragStrategy: Optional[str] = Field(default="naive_rag", max_length=64)
+    agentName: Optional[str] = Field(default=None, max_length=64)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 

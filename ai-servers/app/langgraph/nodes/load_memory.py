@@ -1,6 +1,6 @@
 from app.langgraph.state import ConversationState
-from app.multi_agents.memory_agent.agent import memory_agent
+from app.multi_agents.leader_agent.agent import leader_agent
 
 
 def load_memory_node(state: ConversationState) -> None:
-    state.history = memory_agent.load(state.session_token)
+    state.history = leader_agent.load_memory(state.session_token)

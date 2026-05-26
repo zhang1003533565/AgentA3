@@ -14,6 +14,7 @@ from app.langgraph.nodes import (
 )
 from app.langgraph.state import ConversationState
 from app.models.schemas import ChatRequest, ChatResponse
+from app.multi_agents.catalog import get_agent_profile, normalize_agent_name
 from app.rag.engine import rag_engine
 from app.utils.logger import get_logger, mask_id
 from app.utils.prompts import DEFAULT_SYSTEM_PROMPT
@@ -22,7 +23,7 @@ from app.utils.text_utils import build_session_token
 logger = get_logger("langgraph.workflow")
 
 
-# Graph order: START -> load_memory -> extract_keyword -> search_results -> call_llm -> save_memory -> END
+# Graph order: START -> leader memory -> leader route -> textbook retrieval -> specialist answer -> leader memory save -> END
 NODE_CHAIN = [
     load_memory_node,
     extract_keyword_node,
@@ -42,7 +43,13 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: Op
     session_token = build_session_token(session_id, authorization)
     prompt = request.prompt if request.prompt else DEFAULT_SYSTEM_PROMPT
 
-    requested_strategy = request.ragStrategy or "naive_rag"
+    requested_agent = normalize_agent_name(request.agentName)
+    if request.agentName and not requested_agent:
+        raise HTTPException(status_code=400, detail="智能体不存在")
+
+    agent_profile = get_agent_profile(requested_agent) if requested_agent else None
+    default_strategy = agent_profile["defaultRagStrategy"] if agent_profile else "naive_rag"
+    requested_strategy = request.ragStrategy or default_strategy
     supported_strategies = set(rag_engine.list_strategies())
     active_strategy = requested_strategy if requested_strategy in supported_strategies else "naive_rag"
 
@@ -55,6 +62,9 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: Op
         model=deepseek_model,
         user_id=user_id,
         rag_strategy=active_strategy,
+        rag_strategy_explicit=bool(request.ragStrategy),
+        requested_agent=requested_agent or "",
+        active_agent=requested_agent or "leader_agent",
     )
     if requested_strategy != active_strategy:
         state.retrieval_meta["strategyRequested"] = requested_strategy
@@ -103,5 +113,6 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: Op
         matchedResults=state.matched_results,
         retrievalMeta=state.retrieval_meta,
         trace=state.trace,
+        agentName=state.active_agent,
         answer=state.answer,
     )

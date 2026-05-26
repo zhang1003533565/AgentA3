@@ -1,15 +1,15 @@
 # Multi Agents
 
-该目录是运行时多智能体框架，每个智能体独立一个文件夹，代码、skill、prompt、工具声明和输入输出约定放在一起，方便后续单独调整。
+该目录是当前 AI Server 唯一维护的多智能体目录。旧的 planner/retriever/answer/critic/memory/sql/graph/tool/orchestrator 目录已移除，当前仅保留学习资源生产相关的 7 个智能体。
 
-| Agent | 作用 | Runtime |
+| Agent | 中文名称 | 职责 |
 | --- | --- | --- |
-| `orchestrator_agent` | 编排多智能体流程和回退链路 | `orchestrator_agent/agent.py` |
-| `planner_agent` | 判断意图、决定是否检索和推荐链路 | `planner_agent/agent.py` |
-| `retriever_agent` | 调用 Java 后端、本地知识库、向量/图谱/SQL 检索 | `retriever_agent/agent.py` |
-| `answer_agent` | 调用模型生成答案 | `answer_agent/agent.py` |
-| `critic_agent` | 审核与精简答案 | `critic_agent/agent.py` |
-| `memory_agent` | 管理会话记忆 | `memory_agent/agent.py` |
-| `sql_agent` | 生成只读 SQL 和结构化查询计划 | `sql_agent/agent.py` |
-| `graph_agent` | 检索实体关系和图谱证据路径 | `graph_agent/agent.py` |
-| `tool_agent` | 根据任务选择可用工具 | `tool_agent/agent.py` |
+| `leader_agent` | Leader 智能体 | 统一路由、任务拆解、会话记忆、最终回答兜底 |
+| `mind_map_agent` | 思维导图智能体 | 根据主题和证据生成 Markdown/Mermaid 思维导图 |
+| `md_knowledge_agent` | MD 知识点提取智能体 | 从 Markdown/文本中提取标题、列表和知识点 |
+| `textbook_knowledge_agent` | 教材知识点智能体 | 调用 Java 后端、本地知识库、向量/图谱/SQL 检索教材相关证据 |
+| `textbook_question_bank_agent` | 教材题库智能体 | 基于知识点生成练习题、简答题和参考答案要点 |
+| `ppt_agent` | PPT 智能体 | 基于主题和证据生成 PPT 页结构、大纲和页面建议 |
+| `image_agent` | 图片智能体 | 基于知识点生成教学配图/封面图提示词 |
+
+每个智能体文件夹都包含：`agent.py`、`skill.md`、`prompt.md`、`contract.md`、`tools.yaml`，方便后续单独调整 skill。

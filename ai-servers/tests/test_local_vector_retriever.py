@@ -13,7 +13,7 @@ from app.rag.evaluators import RetrievalGrader
 from app.rag.engine import rag_engine
 from app.rag.query_transformers.hyde import HydeTransformer
 from app.rag.query_transformers.multi_query import MultiQueryTransformer
-from app.multi_agents.retriever_agent.agent import RetrieverAgent
+from app.multi_agents.textbook_knowledge_agent.agent import TextbookKnowledgeAgent
 from app.rag.retrievers import java_backend_retriever
 
 
@@ -181,7 +181,7 @@ class LocalVectorRetrieverTest(unittest.TestCase):
         self.assertIn("校园卡在哪里补办", document)
         self.assertIn("办理地点", document)
 
-    def test_retriever_agent_returns_document_meta(self):
+    def test_textbook_knowledge_agent_returns_document_meta(self):
         old_enabled = java_backend_retriever.enabled
         try:
             java_backend_retriever.enabled = False
@@ -189,7 +189,7 @@ class LocalVectorRetrieverTest(unittest.TestCase):
                 root = Path(temp_dir)
                 (root / "notice.md").write_text("校园卡补办地点在行政楼一楼服务大厅。", encoding="utf-8")
 
-                agent = RetrieverAgent()
+                agent = TextbookKnowledgeAgent()
                 agent.vector_retriever = VectorRetriever(root_dir=temp_dir, chunk_size=80, overlap=10)
                 agent.hybrid_retriever = HybridRetriever(root_dir=temp_dir)
                 agent.parent_child_retriever = ParentChildRetriever(root_dir=temp_dir)
@@ -209,7 +209,7 @@ class LocalVectorRetrieverTest(unittest.TestCase):
         finally:
             java_backend_retriever.enabled = old_enabled
 
-    def test_retriever_agent_supports_parent_child(self):
+    def test_textbook_knowledge_agent_supports_parent_child(self):
         old_enabled = java_backend_retriever.enabled
         try:
             java_backend_retriever.enabled = False
@@ -220,7 +220,7 @@ class LocalVectorRetrieverTest(unittest.TestCase):
                     encoding="utf-8",
                 )
 
-                agent = RetrieverAgent()
+                agent = TextbookKnowledgeAgent()
                 agent.parent_child_retriever = ParentChildRetriever(root_dir=temp_dir)
                 results, meta = agent.retrieve_with_meta(
                     authorization="Bearer test",
@@ -237,7 +237,7 @@ class LocalVectorRetrieverTest(unittest.TestCase):
         finally:
             java_backend_retriever.enabled = old_enabled
 
-    def test_retriever_agent_supports_crag_repair(self):
+    def test_textbook_knowledge_agent_supports_crag_repair(self):
         old_enabled = java_backend_retriever.enabled
         try:
             java_backend_retriever.enabled = False
@@ -248,7 +248,7 @@ class LocalVectorRetrieverTest(unittest.TestCase):
                     encoding="utf-8",
                 )
 
-                agent = RetrieverAgent()
+                agent = TextbookKnowledgeAgent()
                 agent.vector_retriever = VectorRetriever(root_dir=temp_dir, chunk_size=80, overlap=10)
                 agent.hybrid_retriever = HybridRetriever(root_dir=temp_dir)
                 results, meta = agent.retrieve_with_meta(
@@ -267,7 +267,7 @@ class LocalVectorRetrieverTest(unittest.TestCase):
         finally:
             java_backend_retriever.enabled = old_enabled
 
-    def test_retriever_agent_supports_multi_query_and_hyde(self):
+    def test_textbook_knowledge_agent_supports_multi_query_and_hyde(self):
         old_enabled = java_backend_retriever.enabled
         try:
             java_backend_retriever.enabled = False
@@ -275,7 +275,7 @@ class LocalVectorRetrieverTest(unittest.TestCase):
                 root = Path(temp_dir)
                 (root / "card.md").write_text("校园卡补办地点在行政楼一楼服务大厅。", encoding="utf-8")
 
-                agent = RetrieverAgent()
+                agent = TextbookKnowledgeAgent()
                 agent.vector_retriever = VectorRetriever(root_dir=temp_dir, chunk_size=80, overlap=10)
                 agent.hybrid_retriever = HybridRetriever(root_dir=temp_dir)
                 agent.parent_child_retriever = ParentChildRetriever(root_dir=temp_dir)

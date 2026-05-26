@@ -1,10 +1,9 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
-from app.multi_agents.answer_agent.agent import answer_agent
-from app.multi_agents.critic_agent.agent import critic_agent
-from app.multi_agents.planner_agent.agent import planner_agent
-from app.multi_agents.retriever_agent.agent import retriever_agent
+from app.multi_agents.leader_agent.agent import leader_agent
+from app.multi_agents.md_knowledge_agent.agent import md_knowledge_agent
+from app.multi_agents.textbook_knowledge_agent.agent import textbook_knowledge_agent
 from app.services.langchain_chat_service import get_chat_service
 
 
@@ -20,17 +19,17 @@ class NaiveRagStrategy:
     name = "naive_rag"
 
     def extract_keyword(self, input_text: str) -> tuple[str, str]:
-        decision = planner_agent.decide(input_text)
-        if decision.intent == "smalltalk":
-            return decision.intent, ""
-        if decision.intent == "schedule":
-            return decision.intent, "课表查询"
-        return decision.intent, get_chat_service().extract_search_keyword(input_text)
+        plan = leader_agent.plan(input_text, self.name)
+        if plan.intent == "smalltalk":
+            return plan.intent, ""
+        if plan.intent == "schedule":
+            return plan.intent, "课表查询"
+        return plan.intent, md_knowledge_agent.extract_keyword(input_text, chat_service=get_chat_service())
 
     def retrieve(self, authorization: str, intent: str, keyword: str, input_text: str) -> List[Dict[str, Any]]:
         if not keyword:
             return []
-        return retriever_agent.retrieve(authorization, intent, keyword, input_text)
+        return textbook_knowledge_agent.retrieve(authorization, intent, keyword, input_text)
 
     def answer(
         self,
@@ -40,14 +39,13 @@ class NaiveRagStrategy:
         search_keyword: str,
         search_results: List[Dict[str, Any]],
     ) -> str:
-        draft = answer_agent.answer(
+        return leader_agent.answer(
             prompt=prompt,
             input_text=input_text,
             history=history,
             search_keyword=search_keyword,
             search_results=search_results,
         )
-        return critic_agent.refine(draft)
 
 
 naive_rag_strategy = NaiveRagStrategy()

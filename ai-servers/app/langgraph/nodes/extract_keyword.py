@@ -1,27 +1,47 @@
 from app.langgraph.state import ConversationState
-from app.multi_agents.planner_agent.agent import planner_agent
+from app.multi_agents.leader_agent.agent import leader_agent
+from app.multi_agents.md_knowledge_agent.agent import md_knowledge_agent
 from app.services.langchain_chat_service import get_chat_service
 
 
 def extract_keyword_node(state: ConversationState) -> None:
-    decision = planner_agent.decide(state.input_text)
-    state.intent = decision.intent
-    if decision.intent == "smalltalk":
+    plan = leader_agent.plan(
+        state.input_text,
+        state.rag_strategy if state.rag_strategy_explicit else "",
+        requested_agent=state.requested_agent or None,
+    )
+    state.intent = plan.intent
+    state.active_agent = plan.target_agent
+    if not state.rag_strategy_explicit:
+        state.rag_strategy = plan.rag_strategy
+    state.retrieval_meta.update({
+        "targetAgent": plan.target_agent,
+        "leaderRagStrategy": plan.rag_strategy,
+        "agentForced": bool(state.requested_agent),
+    })
+    if plan.intent == "smalltalk":
         state.search_keyword = ""
         state.trace.append({
-            "stage": "plan",
-            "detail": {"intent": state.intent, "needRetrieval": False},
+            "stage": "leader_plan",
+            "detail": {"intent": state.intent, "targetAgent": plan.target_agent, "needRetrieval": False},
         })
         return
-    if decision.intent == "schedule":
+    if not plan.need_retrieval:
+        state.search_keyword = ""
+        state.trace.append({
+            "stage": "leader_plan",
+            "detail": {"intent": state.intent, "targetAgent": plan.target_agent, "needRetrieval": False},
+        })
+        return
+    if plan.intent == "schedule":
         state.search_keyword = "课表查询"
         state.trace.append({
-            "stage": "plan",
-            "detail": {"intent": state.intent, "needRetrieval": True, "keyword": state.search_keyword},
+            "stage": "leader_plan",
+            "detail": {"intent": state.intent, "targetAgent": plan.target_agent, "needRetrieval": True, "keyword": state.search_keyword},
         })
         return
-    state.search_keyword = get_chat_service().extract_search_keyword(state.input_text)
+    state.search_keyword = md_knowledge_agent.extract_keyword(state.input_text, chat_service=get_chat_service())
     state.trace.append({
-        "stage": "plan",
-        "detail": {"intent": state.intent, "needRetrieval": True, "keyword": state.search_keyword},
+        "stage": "leader_plan",
+        "detail": {"intent": state.intent, "targetAgent": plan.target_agent, "needRetrieval": plan.need_retrieval, "keyword": state.search_keyword},
     })

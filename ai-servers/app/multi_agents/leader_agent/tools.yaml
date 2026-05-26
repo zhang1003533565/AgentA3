@@ -1,0 +1,4 @@
+tools:
+  - memory_store
+  - langchain_chat_service
+  - specialist_agents
