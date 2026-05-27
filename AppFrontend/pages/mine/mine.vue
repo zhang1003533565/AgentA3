@@ -31,6 +31,14 @@
           </view>
           <text class="cell-arrow">›</text>
         </view>
+        <view class="cell-divider"></view>
+        <view class="cell" @click="goToAiHistory">
+          <view class="cell-left">
+            <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/brain.svg" mode="aspectFit" /></view>
+            <text class="cell-label">AI 会话历史</text>
+          </view>
+          <text class="cell-arrow">›</text>
+        </view>
       </view>
       <!-- 12px 灰色隔离条 -->
       <view class="gap-bar"></view>
@@ -124,6 +132,9 @@ export default {
     },
     goToMyActivity() {
       uni.navigateTo({ url: '/subpackage_community/myActivities/myActivities' })
+    },
+    goToAiHistory() {
+      uni.navigateTo({ url: '/subpackage_ai/aiHistory/aiHistory' })
     },
     goToChangePassword() {
       uni.navigateTo({ url: '/pages/changePassword/changePassword' })
