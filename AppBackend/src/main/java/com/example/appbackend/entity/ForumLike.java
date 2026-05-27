@@ -8,12 +8,13 @@ import java.time.LocalDateTime;
 @Data
 @Entity
 @Table(name = "forum_like", uniqueConstraints = {
-    @UniqueConstraint(columnNames = {"user_id", "target_id"})
+    @UniqueConstraint(columnNames = {"user_id", "target_id", "target_type"})
 })
 @Schema(description = "论坛点赞实体")
 public class ForumLike {
 
     public static final String TARGET_TYPE_POST = "POST";
+    public static final String TARGET_TYPE_COMMENT = "COMMENT";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -24,8 +25,8 @@ public class ForumLike {
     @Schema(description = "用户ID", example = "1")
     private Long userId;
 
-    @Column(name = "target_id", nullable = false, columnDefinition = "BIGINT NOT NULL COMMENT '帖子ID'")
-    @Schema(description = "帖子ID", example = "1")
+    @Column(name = "target_id", nullable = false, columnDefinition = "BIGINT NOT NULL COMMENT '目标ID'")
+    @Schema(description = "目标ID", example = "1")
     private Long targetId;
 
     @Column(name = "target_type", nullable = false, length = 20,
@@ -43,9 +44,6 @@ public class ForumLike {
 
     @PrePersist
     protected void onCreate() {
-        if (targetType == null || targetType.isBlank()) {
-            targetType = TARGET_TYPE_POST;
-        }
         createTime = LocalDateTime.now();
     }
 }

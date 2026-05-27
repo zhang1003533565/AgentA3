@@ -62,6 +62,15 @@ public class ForumPost {
     protected void onCreate() {
         createTime = LocalDateTime.now();
         updateTime = LocalDateTime.now();
+        if (viewCount == null) {
+            viewCount = 0;
+        }
+        if (likeCount == null) {
+            likeCount = 0;
+        }
+        if (commentCount == null) {
+            commentCount = 0;
+        }
         if (status == null) {
             status = "PUBLISHED";
         }

@@ -15,17 +15,17 @@ import java.util.Optional;
 @Repository
 public interface ForumLikeRepository extends JpaRepository<ForumLike, Long> {
 
-    Optional<ForumLike> findByUserIdAndTargetId(Long userId, Long targetId);
+    Optional<ForumLike> findByUserIdAndTargetIdAndTargetType(Long userId, Long targetId, String targetType);
 
-    boolean existsByUserIdAndTargetId(Long userId, Long targetId);
+    boolean existsByUserIdAndTargetIdAndTargetType(Long userId, Long targetId, String targetType);
 
-    long countByTargetId(Long targetId);
+    long countByTargetIdAndTargetType(Long targetId, String targetType);
 
-    List<Long> findByUserIdAndTargetIdIn(Long userId, List<Long> targetIds);
+    List<Long> findByUserIdAndTargetIdInAndTargetType(Long userId, List<Long> targetIds, String targetType);
 
-    Page<ForumLike> findByUserId(Long userId, Pageable pageable);
+    Page<ForumLike> findByUserIdAndTargetType(Long userId, String targetType, Pageable pageable);
 
     @Modifying
-    @Query("DELETE FROM ForumLike l WHERE l.targetId = :targetId")
-    void deleteByTargetId(@Param("targetId") Long targetId);
+    @Query("DELETE FROM ForumLike l WHERE l.targetId = :targetId AND l.targetType = :targetType")
+    void deleteByTargetIdAndTargetType(@Param("targetId") Long targetId, @Param("targetType") String targetType);
 }

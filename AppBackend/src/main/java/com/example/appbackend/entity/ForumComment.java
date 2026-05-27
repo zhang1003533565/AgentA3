@@ -64,6 +64,9 @@ public class ForumComment {
     protected void onCreate() {
         createTime = LocalDateTime.now();
         updateTime = LocalDateTime.now();
+        if (likeCount == null) {
+            likeCount = 0;
+        }
         if (status == null) {
             status = "NORMAL";
         }

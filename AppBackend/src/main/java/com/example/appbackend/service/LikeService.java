@@ -7,5 +7,5 @@ public interface LikeService {
 
     LikeStatusResponse toggleLike(LikeRequest request, Long userId);
 
-    LikeStatusResponse getLikeStatus(Long targetId, Long currentUserId);
+    LikeStatusResponse getLikeStatus(Long targetId, String targetType, Long currentUserId);
 }
