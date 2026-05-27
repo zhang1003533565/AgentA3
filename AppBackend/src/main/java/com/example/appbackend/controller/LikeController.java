@@ -55,11 +55,13 @@ public class LikeController {
     })
     @GetMapping("/status")
     public Result<LikeStatusResponse> getLikeStatus(
-            @Parameter(description = "帖子ID", required = true, example = "1")
+            @Parameter(description = "点赞目标ID", required = true, example = "1")
             @RequestParam Long targetId,
+            @Parameter(description = "点赞目标类型：POST-帖子，COMMENT-评论", required = true, example = "POST")
+            @RequestParam String targetType,
             HttpServletRequest request) {
         Long currentUserId = getCurrentUserId(request);
-        LikeStatusResponse response = likeService.getLikeStatus(targetId, currentUserId);
+        LikeStatusResponse response = likeService.getLikeStatus(targetId, targetType, currentUserId);
         return Result.success("操作成功", response);
     }
 }

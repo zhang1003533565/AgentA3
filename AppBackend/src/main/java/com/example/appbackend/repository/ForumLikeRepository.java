@@ -21,7 +21,11 @@ public interface ForumLikeRepository extends JpaRepository<ForumLike, Long> {
 
     long countByTargetIdAndTargetType(Long targetId, String targetType);
 
-    List<Long> findByUserIdAndTargetIdInAndTargetType(Long userId, List<Long> targetIds, String targetType);
+    @Query("SELECT l.targetId FROM ForumLike l WHERE l.userId = :userId AND l.targetId IN :targetIds AND l.targetType = :targetType")
+    List<Long> findLikedTargetIds(
+            @Param("userId") Long userId,
+            @Param("targetIds") List<Long> targetIds,
+            @Param("targetType") String targetType);
 
     Page<ForumLike> findByUserIdAndTargetType(Long userId, String targetType, Pageable pageable);
 

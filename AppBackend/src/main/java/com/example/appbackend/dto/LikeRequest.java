@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
 @Schema(description = "点赞请求")
 public class LikeRequest {
 
-    @NotNull(message = "帖子ID不能为空")
+    @NotNull(message = "点赞目标ID不能为空")
     @Schema(description = "点赞目标ID", example = "1")
     private Long targetId;
 

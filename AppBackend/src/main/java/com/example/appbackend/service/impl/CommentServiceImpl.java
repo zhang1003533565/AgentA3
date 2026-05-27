@@ -4,10 +4,12 @@ import com.example.appbackend.dto.CommentRequest;
 import com.example.appbackend.dto.CommentResponse;
 import com.example.appbackend.dto.PageResponse;
 import com.example.appbackend.entity.ForumComment;
+import com.example.appbackend.entity.ForumLike;
 import com.example.appbackend.entity.ForumPost;
 import com.example.appbackend.entity.User;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.ForumCommentRepository;
+import com.example.appbackend.repository.ForumLikeRepository;
 import com.example.appbackend.repository.ForumPostRepository;
 import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.CommentService;
@@ -40,6 +42,9 @@ public class CommentServiceImpl implements CommentService {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private ForumLikeRepository likeRepository;
+
     @Override
     public CommentResponse createComment(CommentRequest request, Long userId) {
         ForumPost post = postRepository.findById(request.getPostId())
@@ -67,7 +72,7 @@ public class CommentServiceImpl implements CommentService {
 
         ForumComment saved = commentRepository.save(comment);
         postRepository.incrementCommentCount(request.getPostId());
-        return toCommentResponse(saved, new ArrayList<>());
+        return toCommentResponse(saved, new ArrayList<>(), userId);
     }
 
     @Override
@@ -110,7 +115,8 @@ public class CommentServiceImpl implements CommentService {
         List<ForumComment> parentComments = page.getContent();
         Map<Long, List<ForumComment>> childrenMap = getChildrenMap(parentComments, STATUS_NORMAL);
         List<CommentResponse> items = parentComments.stream()
-                .map(comment -> toCommentResponse(comment, childrenMap.getOrDefault(comment.getId(), new ArrayList<>())))
+                .map(comment -> toCommentResponse(
+                        comment, childrenMap.getOrDefault(comment.getId(), new ArrayList<>()), currentUserId))
                 .collect(Collectors.toList());
         return new PageResponse<>(items, page.getTotalElements(), safePage, safeSize);
     }
@@ -126,7 +132,7 @@ public class CommentServiceImpl implements CommentService {
                 keyword,
                 PageRequest.of(safePage - 1, safeSize, Sort.by(Sort.Direction.DESC, "createTime")));
         List<CommentResponse> items = page.getContent().stream()
-                .map(comment -> toCommentResponse(comment, new ArrayList<>()))
+                .map(comment -> toCommentResponse(comment, new ArrayList<>(), null))
                 .collect(Collectors.toList());
         return new PageResponse<>(items, page.getTotalElements(), safePage, safeSize);
     }
@@ -136,7 +142,7 @@ public class CommentServiceImpl implements CommentService {
     public CommentResponse getCommentDetail(Long id, Long currentUserId) {
         ForumComment comment = getVisibleComment(id);
         List<ForumComment> children = commentRepository.findByParentIdAndStatus(id, STATUS_NORMAL);
-        return toCommentResponse(comment, children);
+        return toCommentResponse(comment, children, currentUserId);
     }
 
     private ForumComment getVisibleComment(Long id) {
@@ -154,6 +160,7 @@ public class CommentServiceImpl implements CommentService {
         }
         comment.setStatus(STATUS_DELETED);
         commentRepository.save(comment);
+        likeRepository.deleteByTargetIdAndTargetType(comment.getId(), ForumLike.TARGET_TYPE_COMMENT);
         postRepository.decrementCommentCount(comment.getPostId());
         List<ForumComment> children = commentRepository.findByParentIdAndStatus(comment.getId(), STATUS_NORMAL);
         children.forEach(this::softDeleteComment);
@@ -170,7 +177,7 @@ public class CommentServiceImpl implements CommentService {
         return allChildren.stream().collect(Collectors.groupingBy(ForumComment::getParentId));
     }
 
-    private CommentResponse toCommentResponse(ForumComment comment, List<ForumComment> children) {
+    private CommentResponse toCommentResponse(ForumComment comment, List<ForumComment> children, Long currentUserId) {
         CommentResponse response = new CommentResponse();
         response.setId(comment.getId());
         response.setPostId(comment.getPostId());
@@ -186,9 +193,11 @@ public class CommentServiceImpl implements CommentService {
         if (comment.getReplyToId() != null) {
             response.setReplyToUsername(resolveUserName(comment.getReplyToId()));
         }
-        response.setIsLiked(false);
+        response.setIsLiked(currentUserId != null
+                && likeRepository.existsByUserIdAndTargetIdAndTargetType(
+                currentUserId, comment.getId(), ForumLike.TARGET_TYPE_COMMENT));
         response.setChildren(children == null ? new ArrayList<>() : children.stream()
-                .map(child -> toCommentResponse(child, new ArrayList<>()))
+                .map(child -> toCommentResponse(child, new ArrayList<>(), currentUserId))
                 .collect(Collectors.toList()));
         return response;
     }

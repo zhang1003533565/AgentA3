@@ -100,20 +100,36 @@ export function getHotTopics(params = {}) {
   })
 }
 
-export function togglePostLike(targetId) {
+export function toggleForumLike(targetId, targetType) {
   return request({
     url: '/api/forum/likes',
     method: 'POST',
-    data: { targetId }
+    data: { targetId, targetType }
   })
 }
 
-export function getPostLikeStatus(targetId) {
+export function getForumLikeStatus(targetId, targetType) {
   return request({
     url: '/api/forum/likes/status',
     method: 'GET',
-    params: { targetId }
+    params: { targetId, targetType }
   })
+}
+
+export function togglePostLike(targetId) {
+  return toggleForumLike(targetId, 'POST')
+}
+
+export function toggleCommentLike(targetId) {
+  return toggleForumLike(targetId, 'COMMENT')
+}
+
+export function getPostLikeStatus(targetId) {
+  return getForumLikeStatus(targetId, 'POST')
+}
+
+export function getCommentLikeStatus(targetId) {
+  return getForumLikeStatus(targetId, 'COMMENT')
 }
 
 export function togglePostFavorite(postId) {

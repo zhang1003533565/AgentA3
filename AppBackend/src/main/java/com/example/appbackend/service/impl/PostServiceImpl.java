@@ -182,8 +182,9 @@ public class PostServiceImpl implements PostService {
     public PageResponse<UserLikeResponse> getUserLikes(Long userId, Integer pageNum, Integer pageSize) {
         int safePage = pageNum == null || pageNum < 1 ? 1 : pageNum;
         int safeSize = pageSize == null || pageSize < 1 ? 10 : pageSize;
-        Page<ForumLike> likePage = likeRepository.findByUserId(
-                userId, PageRequest.of(safePage - 1, safeSize, Sort.by(Sort.Direction.DESC, "createTime")));
+        Page<ForumLike> likePage = likeRepository.findByUserIdAndTargetType(
+                userId, ForumLike.TARGET_TYPE_POST,
+                PageRequest.of(safePage - 1, safeSize, Sort.by(Sort.Direction.DESC, "createTime")));
         List<UserLikeResponse> items = likePage.getContent().stream()
                 .map(like -> {
                     UserLikeResponse response = new UserLikeResponse();
@@ -213,6 +214,7 @@ public class PostServiceImpl implements PostService {
         }
         post.setStatus(STATUS_DELETED);
         favoriteRepository.deleteByPostId(post.getId());
+        likeRepository.deleteByTargetIdAndTargetType(post.getId(), ForumLike.TARGET_TYPE_POST);
         postRepository.save(post);
         if (post.getTopicId() != null) {
             topicRepository.decrementPostCount(post.getTopicId());
@@ -281,7 +283,9 @@ public class PostServiceImpl implements PostService {
         response.setUsername(resolveUserName(post.getUserId()));
         userRepository.findById(post.getUserId()).ifPresent(user -> response.setAvatar(user.getAvatar()));
         fillTopic(post.getTopicId(), response);
-        response.setIsLiked(currentUserId != null && likeRepository.existsByUserIdAndTargetId(currentUserId, post.getId()));
+        response.setIsLiked(currentUserId != null
+                && likeRepository.existsByUserIdAndTargetIdAndTargetType(
+                currentUserId, post.getId(), ForumLike.TARGET_TYPE_POST));
         response.setIsFavorited(currentUserId != null && favoriteRepository.existsByUserIdAndPostId(currentUserId, post.getId()));
         return response;
     }
@@ -305,7 +309,9 @@ public class PostServiceImpl implements PostService {
         item.setUsername(resolveUserName(post.getUserId()));
         userRepository.findById(post.getUserId()).ifPresent(user -> item.setAvatar(user.getAvatar()));
         fillTopic(post.getTopicId(), item);
-        item.setIsLiked(currentUserId != null && likeRepository.existsByUserIdAndTargetId(currentUserId, post.getId()));
+        item.setIsLiked(currentUserId != null
+                && likeRepository.existsByUserIdAndTargetIdAndTargetType(
+                currentUserId, post.getId(), ForumLike.TARGET_TYPE_POST));
         item.setIsFavorited(currentUserId != null && favoriteRepository.existsByUserIdAndPostId(currentUserId, post.getId()));
         return item;
     }

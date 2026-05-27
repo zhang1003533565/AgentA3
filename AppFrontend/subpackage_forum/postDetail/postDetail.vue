@@ -160,6 +160,7 @@ import {
   getFollowStatus,
   getPostDetail,
   parseImageList,
+  toggleCommentLike as toggleForumCommentLike,
   toggleFollowUser,
   togglePostFavorite,
   togglePostLike
@@ -391,8 +392,14 @@ export default {
       this.replyTarget = item
       this.showCommentPopup = true
     },
-    toggleCommentLike(item) {
-      uni.showToast({ title: '评论点赞暂未开放', icon: 'none' })
+    async toggleCommentLike(item) {
+      try {
+        const res = await toggleForumCommentLike(item.id)
+        item.isLiked = !!res?.data?.liked
+        item.likeCount = Number(res?.data?.likeCount ?? item.likeCount)
+      } catch (error) {
+        uni.showToast({ title: error?.message || '操作失败', icon: 'none' })
+      }
     },
     async submitComment() {
       if (!this.commentContent.trim()) {

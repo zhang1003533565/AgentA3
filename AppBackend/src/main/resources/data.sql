@@ -1130,12 +1130,11 @@ CREATE TABLE IF NOT EXISTS forum_follow (
 CREATE TABLE IF NOT EXISTS forum_like (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '点赞ID',
     user_id BIGINT NOT NULL COMMENT '点赞用户ID',
-    target_id BIGINT NOT NULL COMMENT '帖子ID',
+    target_id BIGINT NOT NULL COMMENT '目标ID',
     target_type VARCHAR(20) NOT NULL DEFAULT 'POST' COMMENT '点赞目标类型',
     create_time DATETIME COMMENT '创建时间',
-    UNIQUE KEY uk_forum_like_user_target (user_id, target_id),
-    FOREIGN KEY (user_id) REFERENCES sys_user(id),
-    FOREIGN KEY (target_id) REFERENCES forum_post(id)
+    UNIQUE KEY uk_forum_like_user_target (user_id, target_id, target_type),
+    FOREIGN KEY (user_id) REFERENCES sys_user(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='论坛帖子点赞表';
 
 -- 论坛帖子与评论测试数据
