@@ -7,11 +7,14 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Map;
 
@@ -73,6 +76,15 @@ public class AiRagController {
     @Operation(summary = "写入 RAG 知识库")
     public Result<Object> ingestDocuments(@RequestBody Map<String, Object> body, HttpServletRequest request) {
         return Result.success(pythonAiProxyService.ingestRagDocuments(body, adminAuthorization(request)));
+    }
+
+    @PostMapping(value = "/pdf/convert", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "PDF 转换为 Markdown 或 DOCX")
+    public Result<Object> convertPdf(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("targetFormat") String targetFormat,
+            HttpServletRequest request) {
+        return Result.success(pythonAiProxyService.convertPdf(file, targetFormat, adminAuthorization(request)));
     }
 
     @GetMapping("/documents")

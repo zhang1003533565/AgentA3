@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Col, Collapse, Empty, Form, Input, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
-import { ApiOutlined, BranchesOutlined, DatabaseOutlined, ExperimentOutlined, FileTextOutlined, PlayCircleOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons'
+import { ApiOutlined, BranchesOutlined, DatabaseOutlined, DownloadOutlined, ExperimentOutlined, FileTextOutlined, PlayCircleOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons'
 import {
+  convertPdf,
   evaluateRag,
   getRagAgents,
   executeTextToSql,
@@ -252,9 +253,13 @@ function RagManage() {
   const [agentTestResult, setAgentTestResult] = useState(null)
   const [agentTestLoading, setAgentTestLoading] = useState(false)
   const [uploadFileList, setUploadFileList] = useState([])
+  const [convertFileList, setConvertFileList] = useState([])
+  const [convertResult, setConvertResult] = useState(null)
+  const [convertLoading, setConvertLoading] = useState(false)
   const [llmModelOptions, setLlmModelOptions] = useState([])
   const [queryForm] = Form.useForm()
   const [ingestForm] = Form.useForm()
+  const [convertForm] = Form.useForm()
   const [evaluateForm] = Form.useForm()
   const [sqlForm] = Form.useForm()
   const [agentTestForm] = Form.useForm()
@@ -441,6 +446,49 @@ function RagManage() {
     } finally {
       setActionLoading(false)
     }
+  }
+
+  const handlePdfConvert = async (values) => {
+    const selectedFile = convertFileList[0]?.originFileObj || convertFileList[0]
+    if (!selectedFile) {
+      message.warning('请先选择一个 PDF 文件')
+      return
+    }
+    setConvertLoading(true)
+    setConvertResult(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', selectedFile)
+      formData.append('targetFormat', values.targetFormat)
+      const res = await convertPdf(formData)
+      setConvertResult(res.data)
+      message.success('PDF 转换完成')
+    } catch (error) {
+      message.error(error.message || 'PDF 转换失败')
+    } finally {
+      setConvertLoading(false)
+    }
+  }
+
+  const downloadConvertedFile = (result) => {
+    if (!result?.contentBase64) {
+      message.warning('转换结果没有可下载内容')
+      return
+    }
+    const binary = window.atob(result.contentBase64)
+    const bytes = new Uint8Array(binary.length)
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index)
+    }
+    const blob = new Blob([bytes], { type: result.mimeType || 'application/octet-stream' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = result.fileName || 'pdf-convert-result'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
   }
 
   const handleEvaluate = async (values) => {
@@ -760,6 +808,120 @@ function RagManage() {
                 dataSource={documents}
                 pagination={{ pageSize: 8 }}
               />
+            </Card>
+          </Col>
+        </Row>
+      ),
+    },
+    {
+      key: 'convert',
+      label: '文档转换',
+      children: (
+        <Row gutter={[20, 20]}>
+          <Col xs={24} lg={9}>
+            <Card title="PDF 转换" className="rag-panel-card">
+              <Form
+                form={convertForm}
+                layout="vertical"
+                initialValues={{ targetFormat: 'md' }}
+                onFinish={handlePdfConvert}
+              >
+                <Alert
+                  className="rag-inline-alert"
+                  type="info"
+                  showIcon
+                  message="支持 PDF 转 Markdown 或 DOCX；当前不做 OCR，扫描件无法提取文字时会直接报错。"
+                />
+                <Form.Item label="PDF 文件" required>
+                  <Upload
+                    accept="application/pdf,.pdf"
+                    beforeUpload={(file) => {
+                      if (!file.name.toLowerCase().endsWith('.pdf')) {
+                        message.warning('请选择 PDF 文件')
+                        return Upload.LIST_IGNORE
+                      }
+                      setConvertFileList([file])
+                      setConvertResult(null)
+                      return false
+                    }}
+                    fileList={convertFileList}
+                    maxCount={1}
+                    onRemove={() => {
+                      setConvertFileList([])
+                      setConvertResult(null)
+                      return true
+                    }}
+                  >
+                    <Button icon={<UploadOutlined />}>选择 PDF</Button>
+                  </Upload>
+                </Form.Item>
+                <Form.Item name="targetFormat" label="输出格式" rules={[{ required: true, message: '请选择输出格式' }]}>
+                  <Select
+                    options={[
+                      { value: 'md', label: 'Markdown（zip，含图片 assets）' },
+                      { value: 'docx', label: 'DOCX（尽量保留图片与基础排版）' },
+                    ]}
+                  />
+                </Form.Item>
+                <Button type="primary" htmlType="submit" icon={<FileTextOutlined />} loading={convertLoading} block>
+                  开始转换
+                </Button>
+              </Form>
+            </Card>
+          </Col>
+          <Col xs={24} lg={15}>
+            <Card title="转换结果" className="rag-panel-card">
+              {convertResult ? (
+                <Space direction="vertical" size="large" className="rag-full">
+                  <div className="rag-agent-test-status">
+                    <Tag color="green">转换完成</Tag>
+                    <Tag color="blue">{convertResult.format}</Tag>
+                    <Tag color="cyan">{convertResult.downloadType}</Tag>
+                    {Number.isFinite(convertResult.imageCount) ? <Tag color="geekblue">图片：{convertResult.imageCount}</Tag> : null}
+                  </div>
+                  <Space wrap>
+                    <Text strong>{convertResult.fileName}</Text>
+                    <Text type="secondary">{convertResult.contentLength ? `${Math.ceil(convertResult.contentLength / 1024)} KB` : ''}</Text>
+                    <Button type="primary" icon={<DownloadOutlined />} onClick={() => downloadConvertedFile(convertResult)}>
+                      下载结果
+                    </Button>
+                  </Space>
+                  {convertResult.outputType === 'markdown' ? (
+                    <Collapse
+                      defaultActiveKey={['preview']}
+                      items={[
+                        {
+                          key: 'preview',
+                          label: 'Markdown 预览',
+                          children: <pre className="rag-code-block">{convertResult.preview || '暂无预览'}</pre>,
+                        },
+                        {
+                          key: 'assets',
+                          label: '图片资源',
+                          children: (
+                            <Table
+                              rowKey="path"
+                              columns={[
+                                { title: '文件', dataIndex: 'name' },
+                                { title: '页码', dataIndex: 'page', width: 100 },
+                                { title: '路径', dataIndex: 'path' },
+                                { title: '大小', dataIndex: 'size', width: 120, render: (value) => `${Math.ceil(Number(value || 0) / 1024)} KB` },
+                              ]}
+                              dataSource={convertResult.assets || []}
+                              pagination={{ pageSize: 5 }}
+                              size="small"
+                            />
+                          ),
+                        },
+                      ]}
+                    />
+                  ) : (
+                    <Alert type="success" showIcon message="DOCX 已生成，点击上方按钮下载。" />
+                  )}
+                </Space>
+              ) : (
+                <Empty description="上传 PDF 并选择格式后，转换结果会显示在这里" />
+              )}
             </Card>
           </Col>
         </Row>

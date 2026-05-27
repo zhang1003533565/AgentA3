@@ -18,6 +18,11 @@ export const runRagQuery = (data) => request.post(`${base}/query`, data)
 
 export const ingestRagDocuments = (data) => request.post(`${base}/documents`, data)
 
+export const convertPdf = (data) => request.post(`${base}/pdf/convert`, data, {
+  headers: { 'Content-Type': 'multipart/form-data' },
+  timeout: 120000,
+})
+
 export const getRagDocuments = () => request.get(`${base}/documents`)
 
 export const getRagVectorStoreHealth = () => request.get(`${base}/vector-store/health`)

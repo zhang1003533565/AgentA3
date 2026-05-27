@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Header, HTTPException
+from pydantic import BaseModel, Field
 
 from app.models.schemas import (
     RagDocumentIngestRequest,
@@ -25,6 +26,7 @@ from app.rag.core.types import RagDocument
 from app.rag.embeddings import build_embedding_provider
 from app.rag.engine import rag_engine
 from app.rag.evaluators import RagEvaluationInput, RagEvaluator
+from app.rag.document_conversion import PdfConversionError, convert_pdf
 from app.rag.graph_stores import build_graph_store
 from app.rag.indexing.document_loader import DocumentLoader
 from app.rag.pipelines import IngestInputDocument, RagIngestionPipeline
@@ -34,6 +36,12 @@ from app.utils.logger import get_logger
 
 router = APIRouter(prefix="/internal/rag", tags=["internal-rag"])
 logger = get_logger("api.rag")
+
+
+class PdfConvertRequest(BaseModel):
+    fileName: str = Field(min_length=1, max_length=255)
+    contentBase64: str = Field(min_length=1)
+    targetFormat: str = Field(min_length=1, max_length=16)
 
 
 def _llm_header_audit_fields(
@@ -114,6 +122,16 @@ def get_rag_capabilities(
             "defaultChunker": "semantic_boundary",
             "indexStore": "local_jsonl",
             "uploadEncoding": "text_or_base64",
+        },
+        "documentConversion": {
+            "supportedInputs": ["pdf"],
+            "supportedOutputs": ["md", "docx"],
+            "ocr": False,
+            "imageHandling": {
+                "docx": "由 pdf2docx 尽量保留图片和基础排版",
+                "md": "输出 zip，Markdown 使用 assets 相对路径引用图片",
+            },
+            "noLocalFallback": True,
         },
         "retrieval": {
             "retrievers": ["keyword", "vector", "hybrid", "parent_child", "graph", "java_backend"],
@@ -210,6 +228,7 @@ def get_rag_framework(
             "GET /internal/rag/agents",
             "POST /internal/rag/query",
             "POST /internal/rag/documents",
+            "POST /internal/rag/pdf/convert",
             "POST /internal/rag/evaluate",
             "GET /internal/rag/text-to-sql/schema",
             "POST /internal/rag/text-to-sql/execute",
@@ -766,6 +785,41 @@ def evaluate_rag(
         expected_answer_terms=request.expectedAnswerTerms,
     ))
     return RagEvaluateResponse(metrics=result.metrics, passed=result.passed, detail=result.detail)
+
+
+@router.post("/pdf/convert")
+def convert_pdf_document(
+    request: PdfConvertRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    filename = request.fileName or "document.pdf"
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="仅支持上传 PDF 文件")
+    try:
+        import base64
+        pdf_bytes = base64.b64decode(request.contentBase64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="PDF Base64 内容无效") from exc
+    logger.info(
+        "pdf convert request filename=%s target_format=%s size=%s",
+        filename,
+        request.targetFormat,
+        len(pdf_bytes),
+    )
+    try:
+        result = convert_pdf(pdf_bytes, filename, request.targetFormat)
+        logger.info(
+            "pdf convert success filename=%s output=%s content_length=%s images=%s",
+            filename,
+            result.get("fileName"),
+            result.get("contentLength"),
+            result.get("imageCount"),
+        )
+        return result
+    except PdfConversionError as exc:
+        logger.warning("pdf convert failed filename=%s reason=%s", filename, exc)
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @router.get("/graph-store/health")

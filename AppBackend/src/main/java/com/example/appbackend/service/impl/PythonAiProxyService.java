@@ -18,9 +18,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.Duration;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -104,6 +106,40 @@ public class PythonAiProxyService {
 
     public Object ingestRagDocuments(Map<String, Object> request, String authorization) {
         return postRagObject("/internal/rag/documents", request, authorization);
+    }
+
+    public Object convertPdf(MultipartFile file, String targetFormat, String authorization) {
+        validateAuthorization(authorization);
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(Result.ERROR_CODE, "PDF 文件不能为空");
+        }
+        String filename = StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : "document.pdf";
+        if (!filename.toLowerCase().endsWith(".pdf")) {
+            throw new BusinessException(Result.ERROR_CODE, "仅支持上传 PDF 文件");
+        }
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            Map<String, Object> payload = Map.of(
+                    "fileName", filename,
+                    "targetFormat", targetFormat == null ? "" : targetFormat,
+                    "contentBase64", Base64.getEncoder().encodeToString(file.getBytes())
+            );
+            return webClientBuilder.build()
+                    .post()
+                    .uri(buildUri("/internal/rag/pdf/convert"))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + e.getMessage());
+        }
     }
 
     public Object listRagDocuments(String authorization) {
@@ -266,14 +302,18 @@ public class PythonAiProxyService {
 
     private void applyPythonHeaders(HttpHeaders headers, String authorization, Long userId, String requestedModel) {
         String configPrefix = resolveConfigPrefix(requestedModel);
-        headers.set(HttpHeaders.AUTHORIZATION, authorization);
-        headers.set("X-User-Id", userId.toString());
+        applyPythonAuthHeaders(headers, authorization, userId);
         headers.set("X-AI-Provider", requireAiConfig(configPrefix, "provider", "模型服务商"));
         headers.set("X-AI-Base-Url", requireAiConfig(configPrefix, "base-url", "模型服务地址"));
         headers.set("X-AI-Api-Key", requireAiConfig(configPrefix, "api-key", "模型服务密钥"));
         headers.set("X-AI-Model", StringUtils.hasText(requestedModel) && !requestedModel.startsWith("ai.service.")
                 ? requestedModel.trim()
                 : requireAiConfig(configPrefix, "model", "模型 ID"));
+    }
+
+    private void applyPythonAuthHeaders(HttpHeaders headers, String authorization, Long userId) {
+        headers.set(HttpHeaders.AUTHORIZATION, authorization);
+        headers.set("X-User-Id", userId.toString());
     }
 
     private String resolveRequestedModel(Map<String, Object> request) {
