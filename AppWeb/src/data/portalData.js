@@ -194,7 +194,7 @@ const columns = {
     { title: '配置标识', dataIndex: 'configName' },
     { title: '服务商', dataIndex: 'provider', type: 'tag' },
     { title: '模型 ID', dataIndex: 'model' },
-    { title: 'API Key', dataIndex: 'apiKeyMasked' },
+    { title: '密钥', dataIndex: 'apiKeyMasked' },
     { title: '状态', dataIndex: 'statusText', type: 'status' },
     { title: '更新时间', dataIndex: 'updateTime' },
   ],

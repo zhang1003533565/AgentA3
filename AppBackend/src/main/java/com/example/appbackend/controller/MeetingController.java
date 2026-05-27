@@ -53,6 +53,13 @@ public class MeetingController {
         return Result.success(meetingService.listMeetings(currentUserId(httpRequest), pageNum, pageSize, keyword));
     }
 
+    @PostMapping("/join")
+    @Operation(summary = "通过会议号加入会议")
+    public Result<MeetingDTO.SessionDetail> join(@Valid @RequestBody MeetingDTO.JoinRoomRequest request,
+                                                 HttpServletRequest httpRequest) {
+        return Result.success(meetingService.joinMeeting(currentUserId(httpRequest), request));
+    }
+
     @GetMapping("/{sessionId}")
     @Operation(summary = "会议详情")
     public Result<MeetingDTO.SessionDetail> detail(@PathVariable String sessionId,

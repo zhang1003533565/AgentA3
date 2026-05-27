@@ -469,7 +469,79 @@
 				{
 					"path": "meetingRoom/meetingRoom",
 					"style": {
-						"navigationBarTitleText": "会议空间",
+						"navigationBarTitleText": "会议大厅",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "startMeeting/startMeeting",
+					"style": {
+						"navigationBarTitleText": "发起会议",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "joinMeeting/joinMeeting",
+					"style": {
+						"navigationBarTitleText": "加入会议",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "meetingLive/meetingLive",
+					"style": {
+						"navigationBarTitleText": "会议现场",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "meetingSchedule/meetingSchedule",
+					"style": {
+						"navigationBarTitleText": "日程",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "meetingDetail/meetingDetail",
+					"style": {
+						"navigationBarTitleText": "会议详情",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "meetingContacts/meetingContacts",
+					"style": {
+						"navigationBarTitleText": "通讯录",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "meetingMine/meetingMine",
+					"style": {
+						"navigationBarTitleText": "我的",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "meetingSettings/meetingSettings",
+					"style": {
+						"navigationBarTitleText": "设置",
 						"navigationStyle": "custom",
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"

@@ -17,9 +17,26 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.WebSocket;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
@@ -180,6 +197,9 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
     }
 
     private SystemConfigDTO.TestResultVO testAiConfig(SystemConfig currentConfig) {
+        if (currentConfig.getConfigKey().startsWith("ai.asr.xfyun.")) {
+            return testXfyunAsrConfig(currentConfig);
+        }
         String configPrefix = extractAiConfigPrefix(currentConfig.getConfigKey());
         String baseUrl = getAiConfigValue(configPrefix, "base-url");
         String apiKey = getAiConfigValue(configPrefix, "api-key");
@@ -216,6 +236,151 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
         vo.setSuccess(success);
         vo.setDetail(detail);
         return vo;
+    }
+
+    private SystemConfigDTO.TestResultVO testXfyunAsrConfig(SystemConfig currentConfig) {
+        String websocketUrl = getConfigValue("ai.asr.xfyun.websocket-url");
+        String appId = getConfigValue("ai.asr.xfyun.app-id");
+        String accessKeyId = getConfigValue("ai.asr.xfyun.access-key-id");
+        String accessKeySecret = getConfigValue("ai.asr.xfyun.access-key-secret");
+        String lang = getConfigValue("ai.asr.xfyun.lang");
+        String audioEncode = getConfigValue("ai.asr.xfyun.audio-encode");
+        String sampleRate = getConfigValue("ai.asr.xfyun.samplerate");
+
+        boolean success = !websocketUrl.isBlank()
+                && !appId.isBlank()
+                && !accessKeyId.isBlank()
+                && !accessKeySecret.isBlank()
+                && !lang.isBlank()
+                && !audioEncode.isBlank()
+                && !sampleRate.isBlank();
+        String detail = success
+                ? testXfyunAsrHandshake(websocketUrl, appId, accessKeyId, accessKeySecret, lang, audioEncode, sampleRate)
+                : "讯飞实时转写大模型配置不完整，请维护 ai.asr.xfyun.websocket-url、app-id、access-key-id、access-key-secret、lang、audio-encode 和 samplerate";
+        success = success && detail.startsWith("讯飞实时转写大模型握手成功");
+
+        SystemConfigDTO.TestResultVO vo = new SystemConfigDTO.TestResultVO();
+        vo.setId(currentConfig.getId());
+        vo.setConfigKey(currentConfig.getConfigKey());
+        vo.setTarget(websocketUrl);
+        vo.setSuccess(success);
+        vo.setDetail(detail);
+        return vo;
+    }
+
+    private String testXfyunAsrHandshake(String websocketUrl,
+                                         String appId,
+                                         String accessKeyId,
+                                         String accessKeySecret,
+                                         String lang,
+                                         String audioEncode,
+                                         String sampleRate) {
+        String sessionId = UUID.randomUUID().toString().replace("-", "");
+        try {
+            String uri = buildXfyunAsrUri(websocketUrl, appId, accessKeyId, accessKeySecret, lang, audioEncode, sampleRate, sessionId);
+            CompletableFuture<String> firstMessage = new CompletableFuture<>();
+            WebSocket socket = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(5))
+                    .build()
+                    .newWebSocketBuilder()
+                    .connectTimeout(Duration.ofSeconds(5))
+                    .buildAsync(URI.create(uri), new WebSocket.Listener() {
+                        private final StringBuilder textBuffer = new StringBuilder();
+
+                        @Override
+                        public void onOpen(WebSocket webSocket) {
+                            webSocket.request(1);
+                        }
+
+                        @Override
+                        public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+                            textBuffer.append(data);
+                            if (last && !firstMessage.isDone()) {
+                                firstMessage.complete(textBuffer.toString());
+                                textBuffer.setLength(0);
+                            }
+                            webSocket.request(1);
+                            return null;
+                        }
+
+                        @Override
+                        public void onError(WebSocket webSocket, Throwable error) {
+                            firstMessage.completeExceptionally(error);
+                        }
+                    })
+                    .orTimeout(8, TimeUnit.SECONDS)
+                    .join();
+            socket.sendText("{\"end\":true,\"sessionId\":\"" + sessionId + "\"}", true);
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "config_test");
+
+            String message;
+            try {
+                message = firstMessage.get(2, TimeUnit.SECONDS);
+            } catch (Exception ignored) {
+                message = "";
+            }
+            return message.isBlank()
+                    ? "讯飞实时转写大模型握手成功"
+                    : "讯飞实时转写大模型握手成功，首条响应：" + abbreviate(message, 240);
+        } catch (Exception error) {
+            Throwable root = unwrap(error);
+            return "讯飞实时转写大模型握手失败：" + root.getClass().getSimpleName() + ": " + root.getMessage();
+        }
+    }
+
+    private String buildXfyunAsrUri(String websocketUrl,
+                                    String appId,
+                                    String accessKeyId,
+                                    String accessKeySecret,
+                                    String lang,
+                                    String audioEncode,
+                                    String sampleRate,
+                                    String sessionId) {
+        TreeMap<String, String> params = new TreeMap<>();
+        params.put("accessKeyId", accessKeyId);
+        params.put("appId", appId);
+        params.put("audio_encode", audioEncode);
+        params.put("lang", lang);
+        params.put("samplerate", sampleRate);
+        params.put("utc", OffsetDateTime.now(ZoneOffset.ofHours(8)).format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssZ")));
+        params.put("uuid", sessionId);
+        String baseString = buildQuery(params);
+        return trimTrailingSlash(websocketUrl) + "?" + baseString + "&signature=" + encode(buildSignature(baseString, accessKeySecret));
+    }
+
+    private String buildQuery(TreeMap<String, String> params) {
+        List<String> parts = new ArrayList<>();
+        params.forEach((key, value) -> parts.add(encode(key) + "=" + encode(value)));
+        return String.join("&", parts);
+    }
+
+    private String buildSignature(String baseString, String accessKeySecret) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA1");
+            mac.init(new SecretKeySpec(accessKeySecret.getBytes(StandardCharsets.UTF_8), "HmacSHA1"));
+            return Base64.getEncoder().encodeToString(mac.doFinal(baseString.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            throw new IllegalStateException("签名生成失败: " + e.getMessage(), e);
+        }
+    }
+
+    private String encode(String value) {
+        return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8);
+    }
+
+    private Throwable unwrap(Throwable error) {
+        Throwable current = error;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private String abbreviate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength) + "...";
     }
 
     private String extractAiConfigPrefix(String configKey) {

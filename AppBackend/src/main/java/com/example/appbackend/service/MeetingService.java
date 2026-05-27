@@ -11,6 +11,8 @@ public interface MeetingService {
 
     PageResponse<MeetingDTO.SessionItem> listMeetings(Long userId, Integer pageNum, Integer pageSize, String keyword);
 
+    MeetingDTO.SessionDetail joinMeeting(Long userId, MeetingDTO.JoinRoomRequest request);
+
     MeetingDTO.SessionDetail getMeeting(Long userId, String sessionId);
 
     MeetingDTO.RecordItem addRecord(Long userId, String sessionId, MeetingDTO.RecordRequest request);

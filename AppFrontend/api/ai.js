@@ -56,6 +56,14 @@ export function getMeetings(params = {}) {
   })
 }
 
+export function joinMeeting(data) {
+  return request({
+    url: '/api/meetings/join',
+    method: 'POST',
+    data
+  })
+}
+
 export function saveMeetingRecord(sessionId, data) {
   return request({
     url: `/api/meetings/${encodeURIComponent(sessionId)}/records`,

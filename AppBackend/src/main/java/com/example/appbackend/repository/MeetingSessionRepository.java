@@ -13,6 +13,12 @@ public interface MeetingSessionRepository extends JpaRepository<MeetingSession, 
 
     Optional<MeetingSession> findByUserIdAndSessionId(Long userId, String sessionId);
 
+    Optional<MeetingSession> findBySessionId(String sessionId);
+
+    Optional<MeetingSession> findByRoomCode(String roomCode);
+
+    boolean existsByRoomCode(String roomCode);
+
     @Query("""
             SELECT session FROM MeetingSession session
             WHERE session.userId = :userId

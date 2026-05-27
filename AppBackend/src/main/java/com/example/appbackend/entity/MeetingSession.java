@@ -8,7 +8,8 @@ import java.time.LocalDateTime;
 @Data
 @Entity
 @Table(name = "meeting_session", uniqueConstraints = {
-        @UniqueConstraint(columnNames = {"user_id", "session_id"})
+        @UniqueConstraint(columnNames = {"user_id", "session_id"}),
+        @UniqueConstraint(columnNames = {"room_code"})
 })
 public class MeetingSession {
 
@@ -23,6 +24,9 @@ public class MeetingSession {
 
     @Column(name = "session_id", nullable = false, length = 80, columnDefinition = "VARCHAR(80) NOT NULL COMMENT '会议会话ID'")
     private String sessionId;
+
+    @Column(name = "room_code", length = 12, columnDefinition = "VARCHAR(12) COMMENT '可分享会议号'")
+    private String roomCode;
 
     @Column(name = "user_id", nullable = false, columnDefinition = "BIGINT NOT NULL COMMENT '创建用户ID'")
     private Long userId;

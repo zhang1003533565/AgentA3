@@ -22,8 +22,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -41,6 +43,9 @@ public class MeetingServiceImpl implements MeetingService {
     );
 
     private static final int LLM_INPUT_LIMIT = 3900;
+    private static final char[] ROOM_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".toCharArray();
+    private static final int ROOM_CODE_LENGTH = 6;
+    private static final SecureRandom ROOM_CODE_RANDOM = new SecureRandom();
 
     private final MeetingSessionRepository sessionRepository;
     private final MeetingParticipantRepository participantRepository;
@@ -66,6 +71,7 @@ public class MeetingServiceImpl implements MeetingService {
         MeetingSession session = new MeetingSession();
         session.setUserId(userId);
         session.setSessionId("meeting-" + UUID.randomUUID());
+        session.setRoomCode(generateRoomCode());
         session.setTitle(normalizeTitle(request == null ? null : request.getTitle()));
         session.setStatus(normalizeStatus(request == null ? null : request.getStatus()));
         session = sessionRepository.save(session);
@@ -80,7 +86,7 @@ public class MeetingServiceImpl implements MeetingService {
     @Override
     @Transactional
     public MeetingDTO.SessionDetail updateMeeting(Long userId, String sessionId, MeetingDTO.SessionRequest request) {
-        MeetingSession session = findOwnedSession(userId, sessionId);
+        MeetingSession session = findAccessibleSession(sessionId);
         if (request != null) {
             if (StringUtils.hasText(request.getTitle())) {
                 session.setTitle(truncate(request.getTitle().trim(), 120));
@@ -118,14 +124,23 @@ public class MeetingServiceImpl implements MeetingService {
 
     @Override
     @Transactional(readOnly = true)
+    public MeetingDTO.SessionDetail joinMeeting(Long userId, MeetingDTO.JoinRoomRequest request) {
+        String roomCode = normalizeRoomCode(request == null ? null : request.getRoomCode());
+        MeetingSession session = sessionRepository.findByRoomCode(roomCode)
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "会议号不存在"));
+        return buildDetail(session);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public MeetingDTO.SessionDetail getMeeting(Long userId, String sessionId) {
-        return buildDetail(findOwnedSession(userId, sessionId));
+        return buildDetail(findAccessibleSession(sessionId));
     }
 
     @Override
     @Transactional
     public MeetingDTO.RecordItem addRecord(Long userId, String sessionId, MeetingDTO.RecordRequest request) {
-        MeetingSession session = findOwnedSession(userId, sessionId);
+        MeetingSession session = findAccessibleSession(sessionId);
         MeetingRecord record = saveRecord(session, request.getContent(), request.getSource());
         refreshCounters(session);
         return toRecordItem(record);
@@ -134,7 +149,7 @@ public class MeetingServiceImpl implements MeetingService {
     @Override
     @Transactional
     public MeetingDTO.RunAgentResponse runAgent(Long userId, String sessionId, MeetingDTO.RunAgentRequest request, String authorization) {
-        MeetingSession session = findOwnedSession(userId, sessionId);
+        MeetingSession session = findAccessibleSession(sessionId);
         String agentName = normalizeAgentName(request.getAgentName());
         String content = resolveMeetingContent(session, request.getContent());
         if (StringUtils.hasText(request.getContent())) {
@@ -170,11 +185,11 @@ public class MeetingServiceImpl implements MeetingService {
         return response;
     }
 
-    private MeetingSession findOwnedSession(Long userId, String sessionId) {
+    private MeetingSession findAccessibleSession(String sessionId) {
         if (!StringUtils.hasText(sessionId)) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "会议ID不能为空");
         }
-        return sessionRepository.findByUserIdAndSessionId(userId, sessionId.trim())
+        return sessionRepository.findBySessionId(sessionId.trim())
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "会议不存在"));
     }
 
@@ -210,6 +225,9 @@ public class MeetingServiceImpl implements MeetingService {
     }
 
     private void refreshCounters(MeetingSession session) {
+        if (!StringUtils.hasText(session.getRoomCode())) {
+            session.setRoomCode(generateRoomCode());
+        }
         session.setRecordCount((int) recordRepository.countByMeetingSessionId(session.getId()));
         session.setResultCount((int) resultRepository.countByMeetingSessionId(session.getId()));
         sessionRepository.save(session);
@@ -265,6 +283,7 @@ public class MeetingServiceImpl implements MeetingService {
     private MeetingDTO.SessionItem toSessionItem(MeetingSession session) {
         MeetingDTO.SessionItem item = new MeetingDTO.SessionItem();
         item.setSessionId(session.getSessionId());
+        item.setRoomCode(session.getRoomCode());
         item.setTitle(session.getTitle());
         item.setStatus(session.getStatus());
         item.setLastNote(session.getLastNote());
@@ -308,6 +327,35 @@ public class MeetingServiceImpl implements MeetingService {
             return normalized;
         }
         throw new BusinessException(Result.BAD_REQUEST_CODE, "会议状态不正确");
+    }
+
+    private String normalizeRoomCode(String roomCode) {
+        if (!StringUtils.hasText(roomCode)) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "会议号不能为空");
+        }
+        String normalized = roomCode.trim().replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
+        if (!normalized.matches("[A-Z0-9]{4,12}")) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "会议号格式不正确");
+        }
+        return normalized;
+    }
+
+    private String generateRoomCode() {
+        for (int attempt = 0; attempt < 32; attempt++) {
+            String code = randomRoomCode();
+            if (!sessionRepository.existsByRoomCode(code)) {
+                return code;
+            }
+        }
+        return UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase(Locale.ROOT);
+    }
+
+    private String randomRoomCode() {
+        StringBuilder code = new StringBuilder(ROOM_CODE_LENGTH);
+        for (int i = 0; i < ROOM_CODE_LENGTH; i++) {
+            code.append(ROOM_CODE_CHARS[ROOM_CODE_RANDOM.nextInt(ROOM_CODE_CHARS.length)]);
+        }
+        return code.toString();
     }
 
     private String normalizeAgentName(String agentName) {

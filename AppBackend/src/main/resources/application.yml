@@ -59,13 +59,6 @@ ai:
   python:
     base-url: ${AI_PYTHON_BASE_URL:http://localhost:8081}
     timeout-seconds: ${AI_PYTHON_TIMEOUT_SECONDS:65}
-  asr:
-    funasr:
-      websocket-url: ${FUNASR_WEBSOCKET_URL:ws://localhost:10095}
-      mode: ${FUNASR_MODE:2pass}
-      chunk-size: ${FUNASR_CHUNK_SIZE:5,10,5}
-      chunk-interval: ${FUNASR_CHUNK_INTERVAL:10}
-      sample-rate: ${FUNASR_SAMPLE_RATE:16000}
 
 aliyun:
   oss:

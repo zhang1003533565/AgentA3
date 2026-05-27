@@ -60,6 +60,9 @@ const AI_MODALITIES = [
 ]
 const AI_CONFIG_FIELDS = ['provider', 'base-url', 'api-key', 'model']
 const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.(text|image|video|audio)(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
+const XFYUN_ASR_PREFIX = 'ai.asr.xfyun'
+const XFYUN_ASR_FIELDS = ['websocket-url', 'app-id', 'access-key-id', 'access-key-secret', 'lang', 'audio-encode', 'samplerate']
+const XFYUN_ASR_REQUIRED_FIELDS = XFYUN_ASR_FIELDS
 let amapLoaderPromise = null
 
 const loadAmapScript = () => {
@@ -490,10 +493,10 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextI
         page: current,
         size: 500,
         keyword,
-        prefixes: 'ai.service.',
+        prefixes: 'ai.service.,ai.asr.xfyun.',
       })
       const records = Array.isArray(res.data?.records) ? res.data.records : []
-      const rows = buildAiCapabilityRows(records)
+      const rows = [...buildAiCapabilityRows(records), buildXfyunAsrRow(records)]
       return { rows, total: rows.length }
     }
     default:
@@ -586,6 +589,47 @@ function buildAiCapabilityRows(records) {
       testConfigId: baseUrlConfig?.id || apiKeyConfig?.id || modelConfig?.id || providerConfig?.id,
     }
   })
+}
+
+function buildXfyunAsrRow(records) {
+  const configs = {}
+  records.forEach((item) => {
+    const key = String(item.configKey || '')
+    if (!key.startsWith(`${XFYUN_ASR_PREFIX}.`)) return
+    const field = key.slice(XFYUN_ASR_PREFIX.length + 1)
+    if (XFYUN_ASR_FIELDS.includes(field)) {
+      configs[field] = item
+    }
+  })
+  const getValue = (field) => configs[field]?.configValue || ''
+  const configured = XFYUN_ASR_REQUIRED_FIELDS.every((field) => String(getValue(field) || '').trim())
+  const savedConfigs = Object.values(configs)
+  const disabled = savedConfigs.length > 0 && savedConfigs.some((item) => Number(item.status) === 0)
+  const updateTime = savedConfigs.map((item) => item.updateTime).filter(Boolean).sort().slice(-1)[0] || null
+  return {
+    id: XFYUN_ASR_PREFIX,
+    configKind: 'asr',
+    modality: 'asr',
+    modalityLabel: '语音转写',
+    configName: '讯飞实时转写',
+    configPrefix: XFYUN_ASR_PREFIX,
+    provider: '讯飞 RTASR 大模型',
+    baseUrl: getValue('websocket-url'),
+    model: 'rtasr-llm',
+    appId: getValue('app-id'),
+    accessKeyId: getValue('access-key-id'),
+    rawAccessKeySecret: getValue('access-key-secret'),
+    rawApiKey: getValue('access-key-secret'),
+    apiKeyMasked: maskSecret(getValue('access-key-secret')),
+    lang: getValue('lang'),
+    audioEncode: getValue('audio-encode'),
+    sampleRate: getValue('samplerate'),
+    status: disabled ? 0 : 1,
+    statusText: configured ? (disabled ? '禁用' : '启用') : '未配置',
+    updateTime,
+    configIds: Object.fromEntries(XFYUN_ASR_FIELDS.map((field) => [field, configs[field]?.id])),
+    testConfigId: configs['websocket-url']?.id || configs['app-id']?.id || configs['access-key-id']?.id || configs['access-key-secret']?.id,
+  }
 }
 
 function WorkspacePage({ pageKey }) {
@@ -1035,16 +1079,29 @@ function WorkspacePage({ pageKey }) {
           }
         : {}),
       ...(pageKey === 'system-config'
-        ? {
-            modality: record.modality,
-            modalityLabel: record.modalityLabel,
-            configName: record.configName,
-            provider: record.provider,
-            baseUrl: record.baseUrl,
-            model: record.model,
-            apiKey: record.rawApiKey,
-            status: record.status,
-          }
+        ? record.configKind === 'asr'
+          ? {
+              modalityLabel: record.modalityLabel,
+              configName: record.configName,
+              websocketUrl: record.baseUrl,
+              appId: record.appId,
+              accessKeyId: record.accessKeyId,
+              accessKeySecret: record.rawAccessKeySecret,
+              lang: record.lang,
+              audioEncode: record.audioEncode,
+              sampleRate: record.sampleRate,
+              status: record.status,
+            }
+          : {
+              modality: record.modality,
+              modalityLabel: record.modalityLabel,
+              configName: record.configName,
+              provider: record.provider,
+              baseUrl: record.baseUrl,
+              model: record.model,
+              apiKey: record.rawApiKey,
+              status: record.status,
+            }
         : {}),
     })
     setModalOpen(true)
@@ -1150,6 +1207,26 @@ function WorkspacePage({ pageKey }) {
             })))
           },
           edit: async () => {
+            if (editingRecord.configKind === 'asr') {
+              const statusValue = values.status
+              const configs = [
+                { field: 'websocket-url', value: values.websocketUrl, description: '讯飞实时转写大模型 WebSocket 地址' },
+                { field: 'app-id', value: values.appId, description: '讯飞实时转写大模型 App ID' },
+                { field: 'access-key-id', value: values.accessKeyId, description: '讯飞实时转写大模型 AccessKeyId' },
+                { field: 'access-key-secret', value: values.accessKeySecret, description: '讯飞实时转写大模型 AccessKeySecret' },
+                { field: 'lang', value: values.lang, description: '讯飞实时转写大模型语种' },
+                { field: 'audio-encode', value: values.audioEncode, description: '讯飞实时转写大模型音频编码' },
+                { field: 'samplerate', value: values.sampleRate, description: '讯飞实时转写大模型采样率' },
+              ]
+              await Promise.all(configs.map((item) => upsertSystemConfig({
+                configKey: `${XFYUN_ASR_PREFIX}.${item.field}`,
+                configValue: item.value,
+                configGroup: 'ai',
+                description: item.description,
+                status: statusValue,
+              })))
+              return
+            }
             const configPrefix = editingRecord.configPrefix
             const statusValue = values.status
             const configs = [
@@ -1443,6 +1520,42 @@ function WorkspacePage({ pageKey }) {
           </>
         )
       case 'system-config':
+        if (modalMode === 'edit' && editingRecord?.configKind === 'asr') {
+          return (
+            <>
+              <Form.Item name="modalityLabel" label="能力类型">
+                <Input disabled />
+              </Form.Item>
+              <Form.Item name="configName" label="配置名称">
+                <Input disabled />
+              </Form.Item>
+              <Form.Item name="websocketUrl" label="WebSocket URL" rules={[{ required: true, message: '请输入讯飞实时转写大模型 WebSocket 地址' }]}>
+                <Input placeholder="wss://office-api-ast-dx.iflyaisol.com/ast/communicate/v1" />
+              </Form.Item>
+              <Form.Item name="appId" label="App ID" rules={[{ required: true, message: '请输入讯飞 App ID' }]}>
+                <Input placeholder="请输入讯飞控制台 App ID" />
+              </Form.Item>
+              <Form.Item name="accessKeyId" label="AccessKeyId" rules={[{ required: true, message: '请输入讯飞 AccessKeyId' }]}>
+                <Input placeholder="请输入讯飞控制台 AccessKeyId" />
+              </Form.Item>
+              <Form.Item name="accessKeySecret" label="AccessKeySecret" rules={[{ required: true, message: '请输入讯飞 AccessKeySecret' }]}>
+                <Input.Password placeholder="请输入讯飞控制台 AccessKeySecret" />
+              </Form.Item>
+              <Form.Item name="lang" label="语种" rules={[{ required: true, message: '请输入语种参数' }]}>
+                <Input placeholder="autodialect" />
+              </Form.Item>
+              <Form.Item name="audioEncode" label="音频编码" rules={[{ required: true, message: '请输入音频编码' }]}>
+                <Input placeholder="pcm_s16le" />
+              </Form.Item>
+              <Form.Item name="sampleRate" label="采样率" rules={[{ required: true, message: '请输入采样率' }]}>
+                <Input placeholder="16000" />
+              </Form.Item>
+              <Form.Item name="status" label="状态" rules={[{ required: true }]}>
+                <Select options={[{ value: 1, label: '启用' }, { value: 0, label: '禁用' }]} />
+              </Form.Item>
+            </>
+          )
+        }
         return (
           <>
             {modalMode === 'create' ? (
@@ -1725,7 +1838,7 @@ function WorkspacePage({ pageKey }) {
               loading={actionLoading}
               onClick={() => runAction(async () => {
                 if (!record.testConfigId) {
-                  message.warning('请先保存该能力的模型配置后再测试')
+                  message.warning(record.configKind === 'asr' ? '请先保存讯飞实时转写配置后再测试' : '请先保存该能力的模型配置后再测试')
                   return
                 }
                 const res = await testSystemConfig(record.testConfigId)
@@ -1744,25 +1857,27 @@ function WorkspacePage({ pageKey }) {
             >
               测试
             </Button>
-            <Popconfirm
-              title="确定删除该模型配置吗？"
-              description="会删除该配置组下的 provider/base-url/api-key/model 四个配置项。"
-              onConfirm={() => {
-                const ids = Object.values(record.configIds || {}).filter(Boolean)
-                if (!ids.length) {
-                  message.warning('该配置没有可删除的数据库记录')
-                  return
-                }
-                runAction(
-                  () => Promise.all(ids.map((id) => deleteSystemConfig(id))),
-                  '模型配置已删除',
-                )
-              }}
-            >
-              <Button size="small" danger loading={actionLoading}>
-                删除
-              </Button>
-            </Popconfirm>
+            {record.configKind !== 'asr' ? (
+              <Popconfirm
+                title="确定删除该模型配置吗？"
+                description="会删除该配置组下的 provider/base-url/api-key/model 四个配置项。"
+                onConfirm={() => {
+                  const ids = Object.values(record.configIds || {}).filter(Boolean)
+                  if (!ids.length) {
+                    message.warning('该配置没有可删除的数据库记录')
+                    return
+                  }
+                  runAction(
+                    () => Promise.all(ids.map((id) => deleteSystemConfig(id))),
+                    '模型配置已删除',
+                  )
+                }}
+              >
+                <Button size="small" danger loading={actionLoading}>
+                  删除
+                </Button>
+              </Popconfirm>
+            ) : null}
           </Space>
         )
       default:
@@ -3034,7 +3149,7 @@ function WorkspacePage({ pageKey }) {
         open={modalOpen}
         title={modalMode === 'create'
           ? `新增${pageKey === 'system-config' ? '模型配置' : page.title}`
-          : `编辑${pageKey === 'system-config' ? '模型配置' : page.title}`}
+          : `编辑${pageKey === 'system-config' ? (editingRecord?.configKind === 'asr' ? '讯飞实时转写配置' : '模型配置') : page.title}`}
         onCancel={() => setModalOpen(false)}
         onOk={submitModal}
         confirmLoading={actionLoading}

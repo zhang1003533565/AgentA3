@@ -42,6 +42,14 @@ public class MeetingDTO {
     }
 
     @Data
+    @Schema(description = "通过会议号加入会议请求")
+    public static class JoinRoomRequest {
+        @NotBlank(message = "会议号不能为空")
+        @Size(max = 12, message = "会议号最多12字符")
+        private String roomCode;
+    }
+
+    @Data
     @Schema(description = "运行会议智能体请求")
     public static class RunAgentRequest {
         @NotBlank(message = "智能体名称不能为空")
@@ -59,6 +67,7 @@ public class MeetingDTO {
     @Schema(description = "会议列表项")
     public static class SessionItem {
         private String sessionId;
+        private String roomCode;
         private String title;
         private String status;
         private String lastNote;
