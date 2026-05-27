@@ -127,6 +127,33 @@
 				</view>
 			</view>
 
+			<view class="meeting-card asr-card">
+				<view class="section-heading">
+					<view>
+						<text class="section-heading__title">实时语音转写</text>
+						<text class="section-heading__desc">录音流会经 Java 后端转发给 FunASR，确认文本会自动保存为会议记录。</text>
+					</view>
+					<view class="asr-status" :class="{ 'asr-status--active': asrStreaming }">{{ asrStatus }}</view>
+				</view>
+
+				<view class="asr-live-box">
+					<text v-if="asrTranscript || asrPartial" class="asr-live-text">{{ asrTranscript }}{{ asrPartial }}</text>
+					<text v-else-if="asrError" class="asr-live-error">{{ asrError }}</text>
+					<text v-else class="asr-live-placeholder">点击开始实时转写后，这里会显示边说边出的字幕。</text>
+				</view>
+
+				<view class="asr-actions">
+					<view
+						class="asr-primary"
+						:class="{ 'asr-primary--recording': asrStreaming, 'asr-primary--disabled': asrConnecting }"
+						@click="toggleAsrStream"
+					>
+						{{ asrButtonText }}
+					</view>
+					<view class="asr-merge" :class="{ 'asr-merge--disabled': !asrTranscript }" @click="mergeAsrToNotes">合并到记录</view>
+				</view>
+			</view>
+
 			<view class="meeting-card output-card">
 				<view class="section-heading">
 					<view>
@@ -170,6 +197,8 @@
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { createMeeting, getMeetingDetail, runMeetingAgent, updateMeeting } from '@/api/ai.js'
+import { BASE_URL } from '@/utils/config.js'
+import { getToken } from '@/utils/storage.js'
 
 const MEETING_AGENTS = [
 	{
@@ -228,6 +257,15 @@ export default {
 			meetingNotes: '王老师：今天重点确认项目选题、分工和下周交付。\n李同学：数据整理已经完成一半，但对评价指标还不确定。\n陈同学：页面原型可以本周完成，需要后端接口字段说明。\n周同学：我负责答辩材料，但希望先拿到项目结构和核心亮点。\n会议决定：周三前完成第一版原型和数据样例，周五做一次内部演示。',
 			answer: '',
 			running: false,
+			asrSocket: null,
+			asrUseGlobalSocket: false,
+			recorderManager: null,
+			asrConnecting: false,
+			asrStreaming: false,
+			asrStatus: '未开始',
+			asrTranscript: '',
+			asrPartial: '',
+			asrError: '',
 			timeline: [
 				{ id: 1, title: '准备会议', desc: '录入主题、成员和议程，会议总控智能体进入待命。' },
 				{ id: 2, title: '沉淀记录', desc: '粘贴发言内容或实时补充关键事实，供后续智能体复用。' },
@@ -241,6 +279,9 @@ export default {
 			this.sessionId = decodeURIComponent(options.sessionId)
 			this.loadMeetingDetail()
 		}
+	},
+	onUnload() {
+		this.stopAsrStream()
 	},
 	computed: {
 		currentAgent() {
@@ -263,6 +304,11 @@ export default {
 		},
 		canRun() {
 			return !this.running && this.meetingNotes.trim().length > 0
+		},
+		asrButtonText() {
+			if (this.asrConnecting) return '连接转写服务...'
+			if (this.asrStreaming) return '结束实时转写'
+			return '开始实时转写'
 		}
 	},
 	methods: {
@@ -392,6 +438,207 @@ export default {
 					uni.showToast({ title: '已复制会议结果', icon: 'none' })
 				}
 			})
+		},
+		async toggleAsrStream() {
+			if (this.asrStreaming || this.asrConnecting) {
+				this.stopAsrStream()
+				return
+			}
+			await this.startAsrStream()
+		},
+		async startAsrStream() {
+			const token = getToken()
+			if (!token) {
+				uni.showToast({ title: '请先登录', icon: 'none' })
+				return
+			}
+			try {
+				this.asrConnecting = true
+				this.asrStatus = '连接中'
+				await this.ensureMeetingSession()
+				this.asrTranscript = ''
+				this.asrPartial = ''
+				this.asrError = ''
+				const socketTask = uni.connectSocket({
+					url: this.buildAsrSocketUrl(token),
+					header: {
+						Authorization: `Bearer ${token}`
+					}
+				})
+				this.asrSocket = socketTask
+				this.bindAsrSocketEvents(socketTask)
+			} catch (error) {
+				this.asrConnecting = false
+				this.asrStreaming = false
+				this.asrStatus = '启动失败'
+				this.asrError = error?.message || error?.errMsg || '实时转写启动失败'
+				uni.showToast({ title: error?.message || '实时转写启动失败', icon: 'none' })
+			}
+		},
+		bindAsrSocketEvents(socketTask) {
+			const handleOpen = () => {
+				this.asrConnecting = false
+				this.asrStreaming = true
+				this.asrStatus = '转写中'
+				this.startRecorder()
+				this.addTimeline('实时转写开始', '录音流已接入 FunASR，确认文本会自动保存。')
+			}
+			const handleMessage = (event) => {
+				this.handleAsrMessage(event.data)
+			}
+			const handleError = (error) => {
+				this.asrConnecting = false
+				this.asrStreaming = false
+				this.asrStatus = '连接失败'
+				this.asrError = `WebSocket 连接失败：${error?.errMsg || '请确认 Java 后端和 FunASR 服务已启动'}`
+				uni.showToast({ title: '实时转写连接失败', icon: 'none' })
+			}
+			const handleClose = () => {
+				this.asrConnecting = false
+				this.asrStreaming = false
+				if (this.asrStatus !== '连接失败') {
+					this.asrStatus = '已结束'
+				}
+			}
+			if (socketTask && typeof socketTask.onOpen === 'function') {
+				this.asrUseGlobalSocket = false
+				socketTask.onOpen(handleOpen)
+				socketTask.onMessage(handleMessage)
+				socketTask.onError(handleError)
+				socketTask.onClose(handleClose)
+				return
+			}
+			if (typeof uni.onSocketOpen === 'function') {
+				this.asrUseGlobalSocket = true
+				uni.onSocketOpen(handleOpen)
+				uni.onSocketMessage(handleMessage)
+				uni.onSocketError(handleError)
+				uni.onSocketClose(handleClose)
+				return
+			}
+			throw new Error('当前端不支持 WebSocket 事件监听')
+		},
+		startRecorder() {
+			if (!uni.getRecorderManager) {
+				this.asrStatus = '端不支持'
+				this.asrError = '当前运行端不支持 uni.getRecorderManager 的录音帧能力。请用 App 或微信小程序真机测试，H5/浏览器通常不能使用这个实时录音流接口。'
+				uni.showToast({ title: '当前端不支持录音', icon: 'none' })
+				this.stopAsrStream(false)
+				return
+			}
+			const recorder = uni.getRecorderManager()
+			this.recorderManager = recorder
+			recorder.onFrameRecorded((res) => {
+				if (!this.asrStreaming || !res.frameBuffer) return
+				this.sendAsrSocket(res.frameBuffer)
+			})
+			recorder.onError((error) => {
+				this.asrStatus = '录音失败'
+				this.asrError = `录音失败：${error?.errMsg || '请检查麦克风权限'}`
+				uni.showToast({ title: error?.errMsg || '录音失败', icon: 'none' })
+				this.stopAsrStream(false)
+			})
+			recorder.onStop(() => {
+				if (this.asrSocket || this.asrUseGlobalSocket) {
+					this.sendAsrSocket(JSON.stringify({ type: 'stop', is_speaking: false }))
+				}
+			})
+			try {
+				recorder.start({
+					duration: 60 * 60 * 1000,
+					sampleRate: 16000,
+					numberOfChannels: 1,
+					encodeBitRate: 48000,
+					format: 'PCM',
+					frameSize: 8
+				})
+			} catch (error) {
+				this.asrStatus = '录音失败'
+				this.asrError = `录音启动失败：${error?.message || error?.errMsg || '请检查当前端是否支持实时录音帧'}`
+				this.stopAsrStream(false)
+			}
+		},
+		stopAsrStream(updateStatus = true) {
+			if (this.recorderManager && this.asrStreaming) {
+				try {
+					this.recorderManager.stop()
+				} catch (error) {}
+			}
+			if (this.asrSocket || this.asrUseGlobalSocket) {
+				try {
+					this.sendAsrSocket(JSON.stringify({ type: 'stop', is_speaking: false }))
+					this.closeAsrSocket()
+				} catch (error) {}
+			}
+			this.asrConnecting = false
+			this.asrStreaming = false
+			this.asrUseGlobalSocket = false
+			if (updateStatus) {
+				this.asrStatus = this.asrTranscript ? '已保存' : '已结束'
+			}
+			this.asrSocket = null
+		},
+		sendAsrSocket(data) {
+			if (this.asrSocket && typeof this.asrSocket.send === 'function') {
+				this.asrSocket.send({ data })
+				return
+			}
+			if (typeof uni.sendSocketMessage === 'function') {
+				uni.sendSocketMessage({ data })
+			}
+		},
+		closeAsrSocket() {
+			if (this.asrSocket && typeof this.asrSocket.close === 'function') {
+				this.asrSocket.close()
+				return
+			}
+			if (typeof uni.closeSocket === 'function') {
+				uni.closeSocket()
+			}
+		},
+		handleAsrMessage(rawMessage) {
+			let payload = rawMessage
+			try {
+				payload = typeof rawMessage === 'string' ? JSON.parse(rawMessage) : rawMessage
+			} catch (error) {
+				return
+			}
+			if (payload.type === 'asr_ready') {
+				this.asrStatus = '转写中'
+				return
+			}
+			if (payload.type === 'asr_error') {
+				this.asrStatus = '服务异常'
+				this.asrError = payload.message || '转写服务异常'
+				uni.showToast({ title: payload.message || '转写服务异常', icon: 'none' })
+				return
+			}
+			if (payload.type === 'asr_result') {
+				if (payload.isFinal) {
+					this.asrTranscript = payload.transcript || `${this.asrTranscript}${payload.text || ''}`
+					this.asrPartial = ''
+				} else {
+					this.asrPartial = payload.text || ''
+				}
+				return
+			}
+			if (payload.type === 'asr_saved') {
+				this.asrTranscript = payload.transcript || this.asrTranscript
+				this.asrPartial = ''
+				this.asrStatus = '已保存'
+				this.mergeAsrToNotes()
+				this.addTimeline('转写已保存', '实时语音转写结果已写入会议记录。')
+			}
+		},
+		buildAsrSocketUrl(token) {
+			const wsBase = BASE_URL.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:')
+			return `${wsBase}/api/meetings/${encodeURIComponent(this.sessionId)}/asr/stream?token=${encodeURIComponent(token)}`
+		},
+		mergeAsrToNotes() {
+			const transcript = (this.asrTranscript || '').trim()
+			if (!transcript) return
+			if (this.meetingNotes.includes(transcript)) return
+			this.meetingNotes = `${this.meetingNotes.trim()}\n\n实时转写：\n${transcript}`.trim()
 		}
 	}
 }
@@ -800,6 +1047,107 @@ export default {
 
 .run-agent-btn--disabled {
 	opacity: 0.55;
+}
+
+.asr-card {
+	background:
+		radial-gradient(circle at 12% 0%, rgba(223, 246, 237, 0.88), transparent 34%),
+		rgba(255, 255, 255, 0.94);
+}
+
+.asr-status {
+	flex-shrink: 0;
+	padding: 10rpx 18rpx;
+	border-radius: 999rpx;
+	background: #f1f4ef;
+	color: #6b7973;
+	font-size: 22rpx;
+	font-weight: 800;
+}
+
+.asr-status--active {
+	background: #e0f7e8;
+	color: #127746;
+}
+
+.asr-live-box {
+	margin-top: 24rpx;
+	min-height: 170rpx;
+	padding: 24rpx;
+	border-radius: 28rpx;
+	background:
+		linear-gradient(135deg, rgba(24, 63, 67, 0.04), rgba(211, 157, 81, 0.08)),
+		#f7faf6;
+	border: 1rpx solid rgba(30, 102, 95, 0.08);
+	box-sizing: border-box;
+}
+
+.asr-live-text {
+	display: block;
+	color: #213a37;
+	font-size: 27rpx;
+	line-height: 1.72;
+	white-space: pre-wrap;
+	word-break: break-all;
+}
+
+.asr-live-placeholder {
+	display: block;
+	color: #8a9690;
+	font-size: 25rpx;
+	line-height: 1.6;
+}
+
+.asr-live-error {
+	display: block;
+	color: #a44b36;
+	font-size: 24rpx;
+	line-height: 1.62;
+	white-space: pre-wrap;
+	word-break: break-all;
+}
+
+.asr-actions {
+	display: flex;
+	align-items: center;
+	gap: 16rpx;
+	margin-top: 20rpx;
+}
+
+.asr-primary,
+.asr-merge {
+	height: 76rpx;
+	border-radius: 999rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 25rpx;
+	font-weight: 900;
+}
+
+.asr-primary {
+	flex: 1;
+	background: linear-gradient(135deg, #d39d51, #1e665f);
+	color: #FFFFFF;
+	box-shadow: 0 12rpx 26rpx rgba(30, 102, 95, 0.16);
+}
+
+.asr-primary--recording {
+	background: linear-gradient(135deg, #b84835, #d39d51);
+}
+
+.asr-primary--disabled {
+	opacity: 0.62;
+}
+
+.asr-merge {
+	width: 190rpx;
+	background: #eef5f2;
+	color: #1e665f;
+}
+
+.asr-merge--disabled {
+	opacity: 0.45;
 }
 
 .output-card {
