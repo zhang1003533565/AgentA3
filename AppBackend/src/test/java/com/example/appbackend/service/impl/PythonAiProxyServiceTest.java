@@ -261,7 +261,8 @@ class PythonAiProxyServiceTest {
                 jwtUtil,
                 systemConfigService,
                 "http://localhost:" + port,
-                5
+                5,
+                1024 * 1024
         );
     }
 

@@ -464,6 +464,20 @@
 			]
 		},
 		{
+			"root": "subpackage_meeting",
+			"pages": [
+				{
+					"path": "meetingRoom/meetingRoom",
+					"style": {
+						"navigationBarTitleText": "会议空间",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
+			]
+		},
+		{
 			"root": "subpackage_notice",
 			"pages": [
 				{
@@ -494,6 +508,7 @@
 				"subpackage_dormitory",
 				"subpackage_community",
 				"subpackage_ai",
+				"subpackage_meeting",
 				"subpackage_notice"
 			]
 		}

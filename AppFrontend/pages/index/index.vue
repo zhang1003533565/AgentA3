@@ -82,6 +82,36 @@
 				</view>
 			</view>
 
+			<view class="meeting-entry-card" @click="navigate('/subpackage_meeting/meetingRoom/meetingRoom')">
+				<view class="meeting-entry-card__glow"></view>
+				<view class="meeting-entry-card__content">
+					<view class="meeting-entry-card__copy">
+						<text class="meeting-entry-card__eyebrow">AI MEETING</text>
+						<text class="meeting-entry-card__title">会议空间</text>
+						<text class="meeting-entry-card__desc">开会记录、纪要总结、成员分析和资源推荐，一页完成</text>
+						<view class="meeting-entry-card__agents">
+							<text class="meeting-entry-card__tag">总控</text>
+							<text class="meeting-entry-card__tag">转写</text>
+							<text class="meeting-entry-card__tag">总结</text>
+						</view>
+					</view>
+					<view class="meeting-entry-card__visual">
+						<view class="meeting-board">
+							<view class="meeting-board__line meeting-board__line--wide"></view>
+							<view class="meeting-board__line"></view>
+							<view class="meeting-board__spark"></view>
+						</view>
+						<view class="meeting-avatar meeting-avatar--one">会</view>
+						<view class="meeting-avatar meeting-avatar--two">析</view>
+						<view class="meeting-avatar meeting-avatar--three">荐</view>
+					</view>
+				</view>
+				<view class="meeting-entry-card__action">
+					<text>进入会议</text>
+					<view class="meeting-entry-card__arrow">→</view>
+				</view>
+			</view>
+
 			<view class="supplement-grid">
 				<view class="supplement-card supplement-card--ai">
 					<view class="ai-card-content">
@@ -456,6 +486,208 @@ export default {
 	100% {
 		transform: translateX(-100%);
 	}
+}
+
+.meeting-entry-card {
+	position: relative;
+	margin-top: 28rpx;
+	padding: 28rpx;
+	border-radius: 32rpx;
+	overflow: hidden;
+	background:
+		radial-gradient(circle at 78% 18%, rgba(255, 214, 125, 0.42), transparent 28%),
+		linear-gradient(135deg, #153f49 0%, #1e665f 48%, #d39d51 100%);
+	box-shadow: 0 18rpx 38rpx rgba(31, 93, 91, 0.18);
+}
+
+.meeting-entry-card__glow {
+	position: absolute;
+	right: -70rpx;
+	top: -86rpx;
+	width: 260rpx;
+	height: 260rpx;
+	border-radius: 50%;
+	border: 2rpx solid rgba(255, 255, 255, 0.22);
+	box-shadow: inset 0 0 36rpx rgba(255, 255, 255, 0.18);
+}
+
+.meeting-entry-card__content {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 18rpx;
+}
+
+.meeting-entry-card__copy {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.meeting-entry-card__eyebrow {
+	align-self: flex-start;
+	padding: 6rpx 14rpx;
+	border-radius: 999rpx;
+	background: rgba(255, 255, 255, 0.16);
+	color: rgba(255, 255, 255, 0.82);
+	font-size: 19rpx;
+	font-weight: 800;
+	letter-spacing: 2rpx;
+}
+
+.meeting-entry-card__title {
+	margin-top: 14rpx;
+	font-size: 46rpx;
+	line-height: 1.1;
+	color: #FFFFFF;
+	font-weight: 900;
+	letter-spacing: 3rpx;
+}
+
+.meeting-entry-card__desc {
+	margin-top: 12rpx;
+	max-width: 390rpx;
+	font-size: 24rpx;
+	line-height: 1.58;
+	color: rgba(255, 255, 255, 0.86);
+}
+
+.meeting-entry-card__agents {
+	display: flex;
+	gap: 10rpx;
+	margin-top: 18rpx;
+}
+
+.meeting-entry-card__tag {
+	padding: 7rpx 16rpx;
+	border-radius: 999rpx;
+	background: rgba(255, 255, 255, 0.14);
+	border: 1rpx solid rgba(255, 255, 255, 0.22);
+	color: rgba(255, 255, 255, 0.92);
+	font-size: 20rpx;
+	font-weight: 700;
+}
+
+.meeting-entry-card__visual {
+	position: relative;
+	width: 220rpx;
+	height: 190rpx;
+	flex-shrink: 0;
+}
+
+.meeting-board {
+	position: absolute;
+	right: 12rpx;
+	top: 36rpx;
+	width: 154rpx;
+	height: 112rpx;
+	border-radius: 28rpx;
+	background: rgba(255, 255, 255, 0.92);
+	box-shadow: 0 18rpx 28rpx rgba(12, 48, 49, 0.22);
+	transform: rotate(-5deg);
+}
+
+.meeting-board::before {
+	content: '';
+	position: absolute;
+	left: 24rpx;
+	top: -16rpx;
+	width: 58rpx;
+	height: 28rpx;
+	border-radius: 18rpx;
+	background: #ffd67d;
+}
+
+.meeting-board__line {
+	position: absolute;
+	left: 24rpx;
+	right: 30rpx;
+	height: 8rpx;
+	border-radius: 999rpx;
+	background: rgba(30, 102, 95, 0.18);
+}
+
+.meeting-board__line--wide {
+	top: 42rpx;
+	right: 18rpx;
+	background: rgba(30, 102, 95, 0.42);
+}
+
+.meeting-board__line:not(.meeting-board__line--wide) {
+	top: 66rpx;
+}
+
+.meeting-board__spark {
+	position: absolute;
+	right: 22rpx;
+	bottom: 18rpx;
+	width: 22rpx;
+	height: 22rpx;
+	border-radius: 50%;
+	background: #d39d51;
+	box-shadow: 0 0 18rpx rgba(211, 157, 81, 0.78);
+}
+
+.meeting-avatar {
+	position: absolute;
+	width: 58rpx;
+	height: 58rpx;
+	border-radius: 22rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: #153f49;
+	font-size: 22rpx;
+	font-weight: 900;
+	background: #fff7df;
+	box-shadow: 0 12rpx 24rpx rgba(11, 49, 52, 0.2);
+}
+
+.meeting-avatar--one {
+	left: 10rpx;
+	top: 20rpx;
+	transform: rotate(8deg);
+}
+
+.meeting-avatar--two {
+	left: 28rpx;
+	bottom: 20rpx;
+	background: #dff6ed;
+	transform: rotate(-8deg);
+}
+
+.meeting-avatar--three {
+	right: 0;
+	bottom: 8rpx;
+	background: #ffe6b8;
+	transform: rotate(10deg);
+}
+
+.meeting-entry-card__action {
+	position: relative;
+	margin-top: 22rpx;
+	display: inline-flex;
+	align-items: center;
+	gap: 12rpx;
+	padding: 14rpx 20rpx;
+	border-radius: 999rpx;
+	background: rgba(255, 255, 255, 0.16);
+	color: #FFFFFF;
+	font-size: 24rpx;
+	font-weight: 800;
+}
+
+.meeting-entry-card__arrow {
+	width: 32rpx;
+	height: 32rpx;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(255, 255, 255, 0.24);
+	font-size: 20rpx;
 }
 
 .supplement-grid {

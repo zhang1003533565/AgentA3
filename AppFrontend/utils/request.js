@@ -26,6 +26,7 @@ export function request(options) {
       method: (options.method || 'GET').toUpperCase(),
       data: payload,
       header,
+      ...(options.timeout ? { timeout: options.timeout } : {}),
       success: (res) => {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           const data = res.data
