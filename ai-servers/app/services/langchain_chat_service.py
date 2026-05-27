@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from app.model_providers.base import ChatModelProvider
 from app.model_providers.deepseek import DeepSeekProvider
 from app.model_providers.runtime_config import require_active_llm_config
+from app.model_providers.xiaomi import XiaomiProvider
 
 
 class LangChainChatService:
@@ -71,6 +72,13 @@ class LangChainChatService:
 chat_services: Dict[tuple[str, str, str, str], LangChainChatService] = {}
 
 
+def build_chat_model_provider(config) -> ChatModelProvider:
+    provider = config.normalized_provider()
+    if provider in {"xiaomi", "mimo", "xiaomi_mimo", "xiaomi-mimo"}:
+        return XiaomiProvider(config=config)
+    return DeepSeekProvider(config=config)
+
+
 def get_chat_service() -> LangChainChatService:
     try:
         config = require_active_llm_config()
@@ -80,7 +88,7 @@ def get_chat_service() -> LangChainChatService:
     if cache_key in chat_services:
         return chat_services[cache_key]
     try:
-        service = LangChainChatService(provider=DeepSeekProvider(config=config))
+        service = LangChainChatService(provider=build_chat_model_provider(config))
         chat_services[cache_key] = service
         return service
     except RuntimeError as exc:

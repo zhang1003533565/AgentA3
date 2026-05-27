@@ -85,9 +85,11 @@ request.interceptors.response.use(
       })
     }
 
-    const errorMessage = error.request
-      ? '网络请求失败，请检查网络连接'
-      : error.message || '请求配置错误'
+    const errorMessage = error.code === 'ECONNABORTED'
+      ? '请求处理时间较长，已超时，请稍后重试或减少检索/生成内容'
+      : error.request
+        ? '网络请求失败，请检查网络连接'
+        : error.message || '请求配置错误'
 
     if (!error.config?.skipGlobalErrorMessage) {
       message.error(errorMessage)

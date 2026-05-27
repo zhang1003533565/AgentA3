@@ -8,6 +8,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.model_providers.runtime_config import LlmRuntimeConfig
+from app.services import langchain_chat_service
 
 
 class RagApiRoutesTest(unittest.TestCase):
@@ -186,6 +188,27 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertIn("local_jsonl", {item["name"] for item in payload["vectorStores"]})
         self.assertIn("neo4j", {item["name"] for item in payload["graphStores"]})
         self.assertIn("RAG_KNOWLEDGE_BASE_DIR", {item["name"] for item in payload["runtimeEnv"]})
+        self.assertIn("xiaomi", {item["name"] for item in payload["modelProviders"]})
+
+    def test_chat_service_selects_xiaomi_provider(self):
+        class FakeXiaomiProvider:
+            def __init__(self, config):
+                self.config = config
+
+        old_xiaomi_provider = langchain_chat_service.XiaomiProvider
+        try:
+            langchain_chat_service.XiaomiProvider = FakeXiaomiProvider
+            provider = langchain_chat_service.build_chat_model_provider(LlmRuntimeConfig(
+                provider="xiaomi",
+                base_url="https://api.xiaomimimo.com/v1",
+                api_key="test-key",
+                model="mimo-v2.5-pro",
+            ))
+        finally:
+            langchain_chat_service.XiaomiProvider = old_xiaomi_provider
+
+        self.assertIsInstance(provider, FakeXiaomiProvider)
+        self.assertEqual("mimo-v2.5-pro", provider.config.model)
 
     def test_agents_endpoint_exposes_skill_catalog(self):
         response = self.client.get("/internal/rag/agents", headers=self.headers)

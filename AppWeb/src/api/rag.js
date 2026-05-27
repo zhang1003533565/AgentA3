@@ -14,7 +14,9 @@ export const getRagAgents = () => request.get(`${base}/agents`)
 
 export const getRagAgent = (agentName) => request.get(`${base}/agents/${agentName}`)
 
-export const runRagQuery = (data) => request.post(`${base}/query`, data)
+export const runRagQuery = (data) => request.post(`${base}/query`, data, {
+  timeout: 120000,
+})
 
 export const ingestRagDocuments = (data) => request.post(`${base}/documents`, data)
 
@@ -35,4 +37,6 @@ export const getTextToSqlSchema = () => request.get(`${base}/text-to-sql/schema`
 
 export const executeTextToSql = (data) => request.post(`${base}/text-to-sql/execute`, data)
 
-export const evaluateRag = (data) => request.post(`${base}/evaluate`, data)
+export const evaluateRag = (data) => request.post(`${base}/evaluate`, data, {
+  timeout: 120000,
+})

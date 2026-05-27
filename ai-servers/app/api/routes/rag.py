@@ -183,6 +183,14 @@ def get_rag_framework(
                 "status": "implemented",
                 "configSource": "Java system_config: ai.service.text.provider / ai.service.text.base-url / ai.service.text.api-key / ai.service.text.model",
             },
+            {
+                "name": "xiaomi",
+                "runtime": "app.model_providers.xiaomi.provider",
+                "status": "implemented",
+                "defaultBaseUrl": "https://api.xiaomimimo.com/v1",
+                "exampleModel": "mimo-v2.5-pro",
+                "configSource": "Java system_config: ai.service.text.provider / ai.service.text.base-url / ai.service.text.api-key / ai.service.text.model",
+            },
         ],
         "embeddingProviders": [
             {"name": "local_lexical", "status": "implemented", "requiredEnv": []},
