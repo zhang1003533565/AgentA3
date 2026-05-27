@@ -1,0 +1,3 @@
+# meeting_resource_recommendation_agent
+
+资源推荐智能体负责为不同成员选择学习资源和推送策略。

@@ -35,6 +35,7 @@ class RagApiRoutesTest(unittest.TestCase):
             "app.multi_agents.mind_map_agent.agent",
             "app.multi_agents.textbook_knowledge_agent.agent",
             "app.multi_agents.question_type_agents",
+            "app.multi_agents.meeting_agents",
             "app.multi_agents.ppt_agent.agent",
             "app.multi_agents.image_agent.agent",
         ]
@@ -216,10 +217,12 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         payload = response.json()
         names = {item["name"] for item in payload["agents"]}
-        self.assertEqual(12, payload["total"])
+        self.assertEqual(18, payload["total"])
         self.assertIn("textbook_knowledge_agent", names)
         self.assertIn("textbook_question_single_choice_agent", names)
         self.assertIn("textbook_question_programming_agent", names)
+        self.assertIn("meeting_controller_agent", names)
+        self.assertIn("meeting_voice_broadcast_agent", names)
         self.assertNotIn("textbook_question_bank_agent", names)
         self.assertNotIn("md_knowledge_agent", names)
         self.assertNotIn("answer_agent", names)
@@ -505,6 +508,12 @@ class FakeRagChatService:
             "textbook_question_short_answer_agent": "## 简答题\n1. 简述核心知识点。",
             "textbook_question_calculation_agent": "## 计算题\n1. 计算核心指标。",
             "textbook_question_programming_agent": "## 编程题\n1. 实现核心算法。",
+            "meeting_controller_agent": "## 会议总控\n- 当前状态：进行中",
+            "meeting_transcription_agent": "## 会议转写\n- 发言人A：测试发言",
+            "meeting_summary_agent": "## 会议总结\n- 主要结论：测试结论",
+            "meeting_member_analysis_agent": "## 成员分析\n- 成员A：参与积极",
+            "meeting_resource_recommendation_agent": "## 资源推荐\n- 成员A：推荐复习资料",
+            "meeting_voice_broadcast_agent": "## 语音播报稿\n请大家关注会议结论。",
             "ppt_agent": "## PPT 大纲\n### 第 1 页：课程导入",
             "image_agent": "## 图片智能体提示词\n主题：教学配图",
         }

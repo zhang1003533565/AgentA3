@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.multi_agents.catalog import QUESTION_AGENT_SPECS, get_agent_profile, normalize_agent_name
+from app.multi_agents.catalog import MEETING_AGENT_SPECS, QUESTION_AGENT_SPECS, get_agent_profile, normalize_agent_name
 from app.services.langchain_chat_service import get_chat_service
 from app.services.memory_store import memory_store
 from app.utils.logger import get_logger
@@ -87,6 +87,20 @@ class LeaderAgent:
             return LeaderPlan("programming", "textbook_question_programming_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中编程题生成意图，分发给编程题智能体。")
         if any(token in normalized for token in ("题库", "练习题", "试卷", "出题")):
             return LeaderPlan("single_choice", "textbook_question_single_choice_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中出题意图但未指定题型，默认分发给选择题智能体。")
+        if any(token in normalized for token in ("会议总控", "会议状态", "会议调度", "流程调度")):
+            return LeaderPlan("meeting_control", "meeting_controller_agent", False, "", route_reason="命中会议总控/调度意图，分发给会议总控智能体。")
+        if any(token in normalized for token in ("语音转写", "会议转写", "说话人", "发言文本")):
+            return LeaderPlan("meeting_transcription", "meeting_transcription_agent", False, "", route_reason="命中会议转写意图，分发给语音转写智能体。")
+        if any(token in normalized for token in ("会议总结", "会议纪要", "会议摘要", "主要结论")):
+            return LeaderPlan("meeting_summary", "meeting_summary_agent", False, "", route_reason="命中会议总结意图，分发给会议总结智能体。")
+        if any(token in normalized for token in ("成员分析", "参与特征", "理解偏差", "薄弱点")):
+            return LeaderPlan("meeting_member_analysis", "meeting_member_analysis_agent", False, "", route_reason="命中成员分析意图，分发给成员分析智能体。")
+        if any(token in normalized for token in ("资源推荐", "学习资源", "推送策略")):
+            return LeaderPlan("meeting_resource_recommendation", "meeting_resource_recommendation_agent", False, "", route_reason="命中会议资源推荐意图，分发给资源推荐智能体。")
+        if any(token in normalized for token in ("语音播报", "播报脚本", "tts")):
+            return LeaderPlan("meeting_voice_broadcast", "meeting_voice_broadcast_agent", False, "", route_reason="命中语音播报意图，分发给语音播报智能体。")
+        if "会议" in normalized:
+            return LeaderPlan("meeting_summary", "meeting_summary_agent", False, "", route_reason="命中会议处理意图但未指定子任务，默认分发给会议总结智能体。")
         if any(token in normalized for token in ("ppt", "幻灯片", "课件", "演示文稿")):
             return LeaderPlan("ppt", "ppt_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中 PPT/课件生成意图，分发给 PPT 智能体。")
         if any(token in normalized for token in ("图片", "配图", "插图", "海报", "封面图", "image")):
@@ -124,6 +138,7 @@ class LeaderAgent:
             "mind_map_agent",
             "textbook_knowledge_agent",
             *QUESTION_AGENT_SPECS.keys(),
+            *MEETING_AGENT_SPECS.keys(),
             "ppt_agent",
             "image_agent",
         }:

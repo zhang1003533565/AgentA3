@@ -3,6 +3,7 @@ from fastapi import HTTPException
 from app.langgraph.state import ConversationState
 from app.multi_agents.image_agent.agent import image_agent
 from app.multi_agents.leader_agent.agent import leader_agent
+from app.multi_agents.meeting_agents import MEETING_AGENTS
 from app.multi_agents.mind_map_agent.agent import mind_map_agent
 from app.multi_agents.ppt_agent.agent import ppt_agent
 from app.multi_agents.question_type_agents import QUESTION_TYPE_AGENTS
@@ -19,6 +20,8 @@ def call_llm_node(state: ConversationState) -> None:
         state.answer = mind_map_agent.build_mind_map(state.input_text, state.matched_results)
     elif state.intent == "textbook_knowledge":
         state.answer = textbook_knowledge_agent.summarize_knowledge_points(state.input_text, state.matched_results)
+    elif state.active_agent in MEETING_AGENTS:
+        state.answer = MEETING_AGENTS[state.active_agent].process(state.input_text, state.matched_results)
     elif state.active_agent in QUESTION_TYPE_AGENTS:
         state.answer = QUESTION_TYPE_AGENTS[state.active_agent].generate_questions(state.input_text, state.matched_results)
     elif state.intent == "ppt":

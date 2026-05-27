@@ -16,11 +16,21 @@ QUESTION_AGENT_SPECS = {
     "textbook_question_programming_agent": ("编程题智能体", "programming", "生成编程题、输入输出要求、参考思路和测试用例。", "生成 3 道数据结构栈与队列的编程题"),
 }
 
+MEETING_AGENT_SPECS = {
+    "meeting_controller_agent": ("会议总控智能体", "meeting_control", "负责会议状态管理、任务分发和流程调度。", "根据这段会议记录梳理会议状态、议程进度、任务分发和下一步流程"),
+    "meeting_transcription_agent": ("语音转写智能体", "meeting_transcription", "负责语音识别结果整理、说话人区分和发言文本规范化。", "整理这段会议转写文本，区分说话人并修正发言格式"),
+    "meeting_summary_agent": ("会议总结智能体", "meeting_summary", "负责提炼核心观点、主要结论、任务分工和后续计划。", "总结这段会议的核心观点、结论、任务分工和后续计划"),
+    "meeting_member_analysis_agent": ("成员分析智能体", "meeting_member_analysis", "负责识别成员知识薄弱点、理解偏差和参与特征。", "分析这段会议中各成员的理解偏差、薄弱点和参与特征"),
+    "meeting_resource_recommendation_agent": ("资源推荐智能体", "meeting_resource_recommendation", "负责为不同成员选择学习资源和推送策略。", "根据这段会议为每位成员推荐学习资源和推送策略"),
+    "meeting_voice_broadcast_agent": ("语音播报智能体", "meeting_voice_broadcast", "负责将总结报告、学习建议和推荐内容转换为适合播报的文本。", "把这段会议总结改写成适合语音播报的脚本"),
+}
+
 AGENT_ORDER = [
     "leader_agent",
     "mind_map_agent",
     "textbook_knowledge_agent",
     *QUESTION_AGENT_SPECS.keys(),
+    *MEETING_AGENT_SPECS.keys(),
     "ppt_agent",
     "image_agent",
 ]
@@ -43,10 +53,29 @@ def _question_agent_profile(agent_name: str, role: str, intent: str, purpose: st
         "exampleInput": example_input,
     }
 
+
+def _meeting_agent_profile(agent_name: str, role: str, intent: str, purpose: str, example_input: str) -> Dict[str, Any]:
+    return {
+        "role": role,
+        "purpose": purpose,
+        "inputs": ["meeting_content", "participants", "context"],
+        "outputs": ["meeting_markdown"],
+        "skills": ["meeting analysis", "workflow orchestration", intent],
+        "intent": intent,
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": f"直接处理会议内容生成{role.replace('智能体', '')}结果",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": [intent, role, role.replace("智能体", ""), agent_name],
+        "exampleInput": example_input,
+    }
+
+
 AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
     "leader_agent": {
         "role": "Leader 智能体",
-        "purpose": "统一理解用户任务，路由到思维导图、教材知识点、各题型出题、PPT、图片等专业智能体，并基于 Java 数据库中的 LLM 配置完成必要的直接回答。",
+        "purpose": "统一理解用户任务，路由到思维导图、教材知识点、各题型出题、会议处理、PPT、图片等专业智能体，并基于 Java 数据库中的 LLM 配置完成必要的直接回答。",
         "inputs": ["user_query", "rag_strategy", "session_token", "history"],
         "outputs": ["intent", "target_agent", "need_retrieval", "answer"],
         "skills": ["task routing", "agent orchestration", "memory", "llm direct answering"],
@@ -97,6 +126,10 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
     **{
         agent_name: _question_agent_profile(agent_name, *spec)
         for agent_name, spec in QUESTION_AGENT_SPECS.items()
+    },
+    **{
+        agent_name: _meeting_agent_profile(agent_name, *spec)
+        for agent_name, spec in MEETING_AGENT_SPECS.items()
     },
     "ppt_agent": {
         "role": "PPT 智能体",
@@ -163,6 +196,7 @@ def get_agent_catalog() -> Dict[str, Any]:
             "markdownKnowledge": ["leader_agent", "textbook_knowledge_agent"],
             "textbookKnowledge": ["leader_agent", "textbook_knowledge_agent"],
             "questionBank": ["leader_agent", "textbook_knowledge_agent", *QUESTION_AGENT_SPECS.keys()],
+            "meeting": ["leader_agent", *MEETING_AGENT_SPECS.keys()],
             "ppt": ["leader_agent", "textbook_knowledge_agent", "ppt_agent"],
             "image": ["leader_agent", "textbook_knowledge_agent", "image_agent"],
         },

@@ -267,6 +267,12 @@ const agentExampleInputs = {
   textbook_question_short_answer_agent: '根据数据结构中栈与队列的知识点生成 5 道简答题',
   textbook_question_calculation_agent: '根据数据结构中栈与队列的知识点生成 5 道计算题',
   textbook_question_programming_agent: '根据数据结构中栈与队列的知识点生成 3 道编程题',
+  meeting_controller_agent: '根据会议记录梳理会议状态、任务分发和下一步流程',
+  meeting_transcription_agent: '整理这段会议转写文本，区分说话人并修正发言格式',
+  meeting_summary_agent: '总结这段会议的核心观点、结论、任务分工和后续计划',
+  meeting_member_analysis_agent: '分析会议中各成员的理解偏差、薄弱点和参与特征',
+  meeting_resource_recommendation_agent: '根据会议内容为每位成员推荐学习资源和推送策略',
+  meeting_voice_broadcast_agent: '把这段会议总结改写成适合语音播报的脚本',
   ppt_agent: '根据数据结构中栈与队列的知识点生成 6 页课件大纲',
   image_agent: '为操作系统进程调度知识点生成一张课堂教学配图提示词',
 }

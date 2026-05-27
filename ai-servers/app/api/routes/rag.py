@@ -685,6 +685,8 @@ def _answer_type_for_agent(agent_name: str) -> str:
     }
     if (agent_name or "").startswith("textbook_question_"):
         return "question_bank"
+    if (agent_name or "").startswith("meeting_"):
+        return "markdown"
     return mapping.get(agent_name or "", "text")
 
 
