@@ -34,6 +34,7 @@ class PdfConversionTest(unittest.TestCase):
         self.assertEqual("zip", result["downloadType"])
         self.assertEqual(1, result["imageCount"])
         self.assertIn("Smart Campus PDF Convert Test", result["preview"])
+        self.assertTrue(result["assets"][0]["previewDataUrl"].startswith("data:image/png;base64,"))
 
         with TemporaryDirectory() as temp_dir:
             zip_path = Path(temp_dir) / "sample.zip"

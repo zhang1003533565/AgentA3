@@ -100,11 +100,14 @@ def _convert_to_markdown_zip(pdf_bytes: bytes, base_name: str) -> Dict[str, Any]
                 ext = _safe_extension(image_info.get("ext") or "png")
                 image_name = f"page-{page_number}-image-{image_index}.{ext}"
                 relative_path = f"assets/{image_name}"
+                mime_type = _image_mime_type(ext)
                 page_images.append(relative_path)
                 assets.append({
                     "name": image_name,
                     "path": relative_path,
                     "type": "image",
+                    "mimeType": mime_type,
+                    "previewDataUrl": f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}",
                     "page": page_number,
                     "size": len(image_bytes),
                     "_bytes": image_bytes,
@@ -141,7 +144,7 @@ def _convert_to_markdown_zip(pdf_bytes: bytes, base_name: str) -> Dict[str, Any]
         "mimeType": "application/zip",
         "contentBase64": base64.b64encode(output_bytes).decode("ascii"),
         "contentLength": len(output_bytes),
-        "preview": markdown[:12000],
+        "preview": markdown,
         "assets": public_assets,
         "imageCount": len(public_assets),
     }
@@ -149,10 +152,23 @@ def _convert_to_markdown_zip(pdf_bytes: bytes, base_name: str) -> Dict[str, Any]
 
 def _safe_stem(filename: str) -> str:
     stem = Path(filename or "converted").stem or "converted"
-    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", stem).strip(".-")
+    safe = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "-", stem).strip(".- ")
     return safe or "converted"
 
 
 def _safe_extension(ext: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9]+", "", ext.lower())
     return safe or "png"
+
+
+def _image_mime_type(ext: str) -> str:
+    return {
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "png": "image/png",
+        "gif": "image/gif",
+        "webp": "image/webp",
+        "bmp": "image/bmp",
+        "tif": "image/tiff",
+        "tiff": "image/tiff",
+    }.get(ext, f"image/{ext}")

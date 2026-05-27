@@ -174,6 +174,72 @@
   border: 1px solid rgba(47, 88, 67, 0.12);
 }
 
+.rag-markdown-preview {
+  padding: clamp(18px, 3vw, 34px);
+  border: 1px solid rgba(179, 171, 146, 0.34);
+  border-radius: 22px;
+  background: #fffdf8;
+  color: #263832;
+  font-size: 16px;
+  line-height: 1.85;
+}
+
+.rag-markdown-preview h1,
+.rag-markdown-preview h2,
+.rag-markdown-preview h3 {
+  color: #182c27;
+  font-family: "Noto Serif SC", "Songti SC", serif;
+  line-height: 1.35;
+}
+
+.rag-markdown-preview h1 {
+  margin: 0 0 22px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(179, 171, 146, 0.3);
+  font-size: clamp(27px, 4vw, 34px);
+}
+
+.rag-markdown-preview h2 {
+  margin: 34px 0 14px;
+  font-size: 23px;
+}
+
+.rag-markdown-preview p {
+  margin: 0 0 16px;
+}
+
+.rag-markdown-image {
+  display: block;
+  margin: 22px auto 30px;
+  text-align: center;
+}
+
+.rag-markdown-image img {
+  display: block;
+  max-width: min(100%, 760px);
+  max-height: 560px;
+  margin: 0 auto;
+  border-radius: 12px;
+  box-shadow: 0 12px 34px rgba(18, 31, 29, 0.12);
+}
+
+.rag-markdown-image__caption {
+  display: block;
+  margin-top: 9px;
+  color: #77847e;
+  font-size: 13px;
+}
+
+.rag-markdown-missing-image {
+  display: inline-flex;
+  margin: 8px 0 18px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #f3f0e8;
+  color: #65716b;
+  font-size: 14px;
+}
+
 .rag-full {
   width: 100%;
 }

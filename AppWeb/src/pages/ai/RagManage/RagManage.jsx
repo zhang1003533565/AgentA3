@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Col, Collapse, Empty, Form, Input, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
 import { ApiOutlined, BranchesOutlined, DatabaseOutlined, DownloadOutlined, ExperimentOutlined, FileTextOutlined, PlayCircleOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons'
+import ReactMarkdown from 'react-markdown'
 import {
   convertPdf,
   evaluateRag,
@@ -224,6 +225,36 @@ const renderMindMapNode = (node, path = '0') => (
     ) : null}
   </div>
 )
+
+const MarkdownPreview = ({ source, assets = [] }) => {
+  const assetPreviewUrls = new Map(
+    assets
+      .filter((asset) => asset.path && asset.previewDataUrl)
+      .map((asset) => [asset.path, asset.previewDataUrl]),
+  )
+
+  return (
+    <article className="rag-markdown-preview">
+      <ReactMarkdown
+        components={{
+          img: ({ src = '', alt = '' }) => {
+            const previewSrc = assetPreviewUrls.get(src)
+            return previewSrc ? (
+              <span className="rag-markdown-image">
+                <img src={previewSrc} alt={alt || 'PDF 提取图片'} />
+                <span className="rag-markdown-image__caption">{alt || src}</span>
+              </span>
+            ) : (
+              <span className="rag-markdown-missing-image">图片资源：{alt || src}</span>
+            )
+          },
+        }}
+      >
+        {source || '暂无预览'}
+      </ReactMarkdown>
+    </article>
+  )
+}
 
 const agentExampleInputs = {
   leader_agent: '请自动判断：帮我把数据结构的栈与队列整理成复习资料',
@@ -893,7 +924,7 @@ function RagManage() {
                         {
                           key: 'preview',
                           label: 'Markdown 预览',
-                          children: <pre className="rag-code-block">{convertResult.preview || '暂无预览'}</pre>,
+                          children: <MarkdownPreview source={convertResult.preview} assets={convertResult.assets} />,
                         },
                         {
                           key: 'assets',

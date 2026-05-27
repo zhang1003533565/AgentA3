@@ -16,6 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.multipart.MultipartFile;
@@ -37,19 +38,22 @@ public class PythonAiProxyService {
     private final SystemConfigService systemConfigService;
     private final String pythonBaseUrl;
     private final long timeoutSeconds;
+    private final int fileResponseMaxInMemoryBytes;
 
     public PythonAiProxyService(WebClient.Builder webClientBuilder,
                                 ObjectMapper objectMapper,
                                 JwtUtil jwtUtil,
                                 SystemConfigService systemConfigService,
                                 @Value("${ai.python.base-url:http://localhost:8081}") String pythonBaseUrl,
-                                @Value("${ai.python.timeout-seconds:65}") long timeoutSeconds) {
+                                @Value("${ai.python.timeout-seconds:65}") long timeoutSeconds,
+                                @Value("${ai.python.file-response-max-in-memory-bytes:52428800}") int fileResponseMaxInMemoryBytes) {
         this.webClientBuilder = webClientBuilder;
         this.objectMapper = objectMapper;
         this.jwtUtil = jwtUtil;
         this.systemConfigService = systemConfigService;
         this.pythonBaseUrl = pythonBaseUrl;
         this.timeoutSeconds = timeoutSeconds;
+        this.fileResponseMaxInMemoryBytes = fileResponseMaxInMemoryBytes;
     }
 
     public LlmChatResponse chat(LlmChatRequest request, String authorization) {
@@ -125,7 +129,7 @@ public class PythonAiProxyService {
                     "targetFormat", targetFormat == null ? "" : targetFormat,
                     "contentBase64", Base64.getEncoder().encodeToString(file.getBytes())
             );
-            return webClientBuilder.build()
+            return buildFileResponseWebClient()
                     .post()
                     .uri(buildUri("/internal/rag/pdf/convert"))
                     .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
@@ -298,6 +302,15 @@ public class PythonAiProxyService {
     private String buildUri(String path) {
         String base = pythonBaseUrl.endsWith("/") ? pythonBaseUrl.substring(0, pythonBaseUrl.length() - 1) : pythonBaseUrl;
         return base + path;
+    }
+
+    private WebClient buildFileResponseWebClient() {
+        ExchangeStrategies strategies = ExchangeStrategies.builder()
+                .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(fileResponseMaxInMemoryBytes))
+                .build();
+        return webClientBuilder.clone()
+                .exchangeStrategies(strategies)
+                .build();
     }
 
     private void applyPythonHeaders(HttpHeaders headers, String authorization, Long userId, String requestedModel) {
