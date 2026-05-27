@@ -119,8 +119,6 @@ class FakeLLM:
         return f"已检索到{len(search_results)}条候选，关键词={search_keyword}"
 
     def generate_specialist_answer(self, agent_name, input_text, evidence):
-        if agent_name == "md_knowledge_agent":
-            return "## Markdown 知识点提取\n- 栈遵循后进先出\n- 队列遵循先进先出"
         if agent_name == "mind_map_agent":
             return "```mermaid\nmindmap\n  root((操作系统进程调度))\n```"
         return f"{agent_name}: 已生成，证据数={len(evidence or [])}"
@@ -160,15 +158,15 @@ class JavaReuseIntegrationTest(unittest.TestCase):
 
     def _patch_chat_services(self):
         leader_agent_module = importlib.import_module("app.multi_agents.leader_agent.agent")
-        md_agent_module = importlib.import_module("app.multi_agents.md_knowledge_agent.agent")
         mind_map_agent_module = importlib.import_module("app.multi_agents.mind_map_agent.agent")
+        textbook_agent_module = importlib.import_module("app.multi_agents.textbook_knowledge_agent.agent")
 
         for module in (
             extract_keyword_node_module,
             call_llm_node_module,
             leader_agent_module,
-            md_agent_module,
             mind_map_agent_module,
+            textbook_agent_module,
         ):
             self._patched_modules.append((module, module.get_chat_service))
             module.get_chat_service = lambda service=FakeLLM(): service
@@ -196,19 +194,15 @@ class JavaReuseIntegrationTest(unittest.TestCase):
         self.assertTrue(len(resp.matchedResults) > 0)
         self.assertIn("已检索到", resp.answer)
 
-    def test_run_chat_core_can_force_md_knowledge_agent(self):
+    def test_run_chat_core_rejects_removed_md_agent(self):
         req = ChatRequest(
             sessionId="agent-md",
             agentName="md_knowledge_agent",
             input="# 数据结构\n- 栈遵循后进先出\n- 队列遵循先进先出",
         )
 
-        resp = chat_orchestrator.run_chat_core(req, "Bearer token-x", user_id=1001)
-
-        self.assertEqual("md_knowledge_agent", resp.agentName)
-        self.assertEqual("semantic_chunking", resp.ragStrategy)
-        self.assertIn("Markdown 知识点提取", resp.answer)
-        self.assertIn("栈遵循后进先出", resp.answer)
+        with self.assertRaisesRegex(Exception, "智能体不存在"):
+            chat_orchestrator.run_chat_core(req, "Bearer token-x", user_id=1001)
 
     def test_forced_specialist_uses_java_forwarded_llm_config(self):
         req = ChatRequest(

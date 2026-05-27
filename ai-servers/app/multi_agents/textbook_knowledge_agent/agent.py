@@ -199,7 +199,7 @@ class TextbookKnowledgeAgent:
         parent_documents = self.parent_child_retriever.search(query, top_k=self.vector_top_k)
         documents = self.reranker.rerank(query, self._deduplicate_documents(hybrid_documents + parent_documents))[:self.vector_top_k]
         self._last_agentic_meta = {
-            "agents": ["leader_agent", "textbook_knowledge_agent", "md_knowledge_agent"],
+            "agents": ["leader_agent", "textbook_knowledge_agent"],
             "hybridCount": len(hybrid_documents),
             "parentChildCount": len(parent_documents),
         }
@@ -375,7 +375,7 @@ class TextbookKnowledgeAgent:
         if rag_strategy == "agentic_rag":
             return "agentic_planner+hybrid+repair"
         if rag_strategy == "multi_agent_rag":
-            return "leader+textbook_knowledge+md_knowledge_agents"
+            return "leader+textbook_knowledge_agents"
         if rag_strategy == "multimodal_rag":
             return "multimodal_parser+hybrid_search"
         if rag_strategy == "speculative_rag":

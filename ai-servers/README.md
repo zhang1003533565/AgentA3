@@ -40,11 +40,11 @@ AI 相关框架统一放在 `app/` 下维护，避免运行代码、skill、cont
 - `POST /internal/rag/evaluate`
 - `GET /healthz`
 
-`POST /internal/chat`、SSE 接口和 `POST /internal/rag/query` 都支持传入 `agentName` 指定当前 7 个智能体之一：
+`POST /internal/chat`、SSE 接口和 `POST /internal/rag/query` 都支持传入 `agentName` 指定当前 12 个智能体之一：
 
-`leader_agent`、`mind_map_agent`、`md_knowledge_agent`、`textbook_knowledge_agent`、`textbook_question_bank_agent`、`ppt_agent`、`image_agent`。
+`leader_agent`、`mind_map_agent`、`textbook_knowledge_agent`、`textbook_question_single_choice_agent`、`textbook_question_fill_blank_agent`、`textbook_question_true_false_agent`、`textbook_question_multiple_choice_agent`、`textbook_question_short_answer_agent`、`textbook_question_calculation_agent`、`textbook_question_programming_agent`、`ppt_agent`、`image_agent`。
 
-`agentName` 留空或传 `leader_agent` 时由 Leader 先做意图识别，再决定直接回答、调用专业智能体，或调用 Text-to-SQL / Java 后端接口。Java 后端会从 `system_config` 读取 `ai.service.text.provider`、`ai.service.text.base-url`、`ai.service.text.api-key`、`ai.service.text.model`，再通过内部请求头传给 Python；配置缺失或 LLM 调用失败会直接报错，不做本地规则兜底。只有 `needRetrieval=true` 的专业智能体才需要 `ragStrategy`；`leader_agent` 和 `md_knowledge_agent` 这类直接处理型智能体不传 RAG 策略。
+`agentName` 留空或传 `leader_agent` 时由 Leader 先做意图识别，再决定直接回答、调用专业智能体，或调用 Text-to-SQL / Java 后端接口。Java 后端会从 `system_config` 读取 `ai.service.text.provider`、`ai.service.text.base-url`、`ai.service.text.api-key`、`ai.service.text.model`，再通过内部请求头传给 Python；配置缺失或 LLM 调用失败会直接报错，不做本地规则兜底。只有 `needRetrieval=true` 的专业智能体才需要 `ragStrategy`；`leader_agent` 不传 RAG 策略。
 
 ```json
 {

@@ -31,9 +31,8 @@ class RagApiRoutesTest(unittest.TestCase):
         module_names = [
             "app.multi_agents.leader_agent.agent",
             "app.multi_agents.mind_map_agent.agent",
-            "app.multi_agents.md_knowledge_agent.agent",
             "app.multi_agents.textbook_knowledge_agent.agent",
-            "app.multi_agents.textbook_question_bank_agent.agent",
+            "app.multi_agents.question_type_agents",
             "app.multi_agents.ppt_agent.agent",
             "app.multi_agents.image_agent.agent",
         ]
@@ -194,8 +193,12 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         payload = response.json()
         names = {item["name"] for item in payload["agents"]}
-        self.assertEqual(7, payload["total"])
+        self.assertEqual(12, payload["total"])
         self.assertIn("textbook_knowledge_agent", names)
+        self.assertIn("textbook_question_single_choice_agent", names)
+        self.assertIn("textbook_question_programming_agent", names)
+        self.assertNotIn("textbook_question_bank_agent", names)
+        self.assertNotIn("md_knowledge_agent", names)
         self.assertNotIn("answer_agent", names)
         self.assertNotIn("retriever_agent", names)
         textbook_agent = next(item for item in payload["agents"] if item["name"] == "textbook_knowledge_agent")
@@ -304,7 +307,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("leader_direct_answer", payload["metadata"]["executionMode"])
         self.assertEqual("leader_direct_answer", payload["strategy"])
 
-    def test_non_retrieval_agent_skips_rag(self):
+    def test_removed_md_agent_is_rejected(self):
         response = self.client.post(
             "/internal/rag/query",
             headers=self.headers,
@@ -314,14 +317,9 @@ class RagApiRoutesTest(unittest.TestCase):
             },
         )
 
-        self.assertEqual(200, response.status_code)
+        self.assertEqual(400, response.status_code)
         payload = response.json()
-        self.assertEqual("md_knowledge_agent", payload["metadata"]["agentName"])
-        self.assertEqual("direct_agent", payload["metadata"]["executionMode"])
-        self.assertTrue(payload["metadata"]["retrievalSkipped"])
-        self.assertEqual([], payload["documents"])
-        self.assertEqual("direct_agent", payload["trace"][0]["stage"])
-        self.assertIn("Markdown 知识点提取", payload["answer"])
+        self.assertEqual("智能体不存在", payload["detail"])
 
     def test_query_endpoint_rejects_unknown_agent(self):
         response = self.client.post(
@@ -476,9 +474,14 @@ class FakeRagChatService:
     def generate_specialist_answer(self, agent_name, input_text, evidence):
         labels = {
             "mind_map_agent": "```mermaid\nmindmap\n  root((测试思维导图))\n```",
-            "md_knowledge_agent": "## Markdown 知识点提取\n- 栈遵循后进先出\n- 队列遵循先进先出",
             "textbook_knowledge_agent": "## 教材知识点\n- 基于 LLM 整理教材知识点",
-            "textbook_question_bank_agent": "## 教材题库\n1. 【简答题】说明核心知识点。",
+            "textbook_question_single_choice_agent": "## 选择题\n1. 【单选题】说明核心知识点。",
+            "textbook_question_fill_blank_agent": "## 填空题\n1. 核心概念是____。",
+            "textbook_question_true_false_agent": "## 判断题\n1. 核心概念判断。",
+            "textbook_question_multiple_choice_agent": "## 多选题\n1. 【多选题】说明核心知识点。",
+            "textbook_question_short_answer_agent": "## 简答题\n1. 简述核心知识点。",
+            "textbook_question_calculation_agent": "## 计算题\n1. 计算核心指标。",
+            "textbook_question_programming_agent": "## 编程题\n1. 实现核心算法。",
             "ppt_agent": "## PPT 大纲\n### 第 1 页：课程导入",
             "image_agent": "## 图片智能体提示词\n主题：教学配图",
         }

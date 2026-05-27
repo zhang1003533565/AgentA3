@@ -28,11 +28,11 @@ class MultiAgentRagStrategy(BaseRagStrategy):
             trace=[
                 RagTraceStep(stage="leader_agent", detail={"intent": query.intent}),
                 RagTraceStep(stage="textbook_knowledge_agent", detail={"hybridCount": len(hybrid_documents), "parentChildCount": len(parent_documents)}),
-                RagTraceStep(stage="md_knowledge_agent", detail={"evidenceSufficient": grade.sufficient, "score": grade.score}),
+                RagTraceStep(stage="textbook_knowledge_agent", detail={"evidenceSufficient": grade.sufficient, "score": grade.score}),
             ],
             metadata={
                 "implemented": True,
-                "agents": ["leader_agent", "textbook_knowledge_agent", "md_knowledge_agent"],
+                "agents": ["leader_agent", "textbook_knowledge_agent"],
                 "evidenceSufficient": grade.sufficient,
             },
         )

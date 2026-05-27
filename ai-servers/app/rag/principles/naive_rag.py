@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
+from fastapi import HTTPException
+
 from app.multi_agents.leader_agent.agent import leader_agent
-from app.multi_agents.md_knowledge_agent.agent import md_knowledge_agent
 from app.multi_agents.textbook_knowledge_agent.agent import textbook_knowledge_agent
 from app.services.langchain_chat_service import get_chat_service
 
@@ -24,7 +25,10 @@ class NaiveRagStrategy:
             return plan.intent, ""
         if plan.intent == "schedule":
             return plan.intent, "课表查询"
-        return plan.intent, md_knowledge_agent.extract_keyword(input_text, chat_service=get_chat_service())
+        keyword = (get_chat_service().extract_search_keyword(input_text) or "").strip()
+        if not keyword:
+            raise HTTPException(status_code=502, detail="LLM 未返回检索关键词，已禁止本地关键词兜底")
+        return plan.intent, keyword
 
     def retrieve(self, authorization: str, intent: str, keyword: str, input_text: str) -> List[Dict[str, Any]]:
         if not keyword:

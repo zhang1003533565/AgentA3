@@ -671,12 +671,12 @@ def _answer_type_for_agent(agent_name: str) -> str:
     mapping = {
         "leader_agent": "text",
         "mind_map_agent": "mermaid_mindmap",
-        "md_knowledge_agent": "markdown",
         "textbook_knowledge_agent": "markdown",
-        "textbook_question_bank_agent": "question_bank",
         "ppt_agent": "ppt_outline",
         "image_agent": "image_prompt",
     }
+    if (agent_name or "").startswith("textbook_question_"):
+        return "question_bank"
     return mapping.get(agent_name or "", "text")
 
 

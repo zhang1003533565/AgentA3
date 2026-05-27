@@ -259,9 +259,14 @@ const MarkdownPreview = ({ source, assets = [] }) => {
 const agentExampleInputs = {
   leader_agent: '请自动判断：帮我把数据结构的栈与队列整理成复习资料',
   mind_map_agent: '把操作系统进程调度整理成思维导图',
-  md_knowledge_agent: '# 数据结构\n- 栈遵循后进先出\n- 队列遵循先进先出\n- 图可以用邻接矩阵或邻接表表示',
-  textbook_knowledge_agent: '查询并整理数据结构中栈与队列的教材知识点',
-  textbook_question_bank_agent: '根据数据结构中栈与队列的知识点生成 5 道练习题',
+  textbook_knowledge_agent: '查询并整理数据结构中栈与队列的教材知识点，输出 Markdown',
+  textbook_question_single_choice_agent: '根据数据结构中栈与队列的知识点生成 5 道选择题',
+  textbook_question_fill_blank_agent: '根据数据结构中栈与队列的知识点生成 5 道填空题',
+  textbook_question_true_false_agent: '根据数据结构中栈与队列的知识点生成 5 道判断题',
+  textbook_question_multiple_choice_agent: '根据数据结构中栈与队列的知识点生成 5 道多选题',
+  textbook_question_short_answer_agent: '根据数据结构中栈与队列的知识点生成 5 道简答题',
+  textbook_question_calculation_agent: '根据数据结构中栈与队列的知识点生成 5 道计算题',
+  textbook_question_programming_agent: '根据数据结构中栈与队列的知识点生成 3 道编程题',
   ppt_agent: '根据数据结构中栈与队列的知识点生成 6 页课件大纲',
   image_agent: '为操作系统进程调度知识点生成一张课堂教学配图提示词',
 }
@@ -1050,7 +1055,7 @@ function RagManage() {
                     调用当前智能体
                   </Button>
                   <Text type="secondary" className="rag-agent-test-tip">
-                    Leader 用于意图识别、自动分发和工具调用；MD 知识点提取等非检索智能体会直接处理输入；教材、PPT、题库、图片等需要证据的智能体才会显示 RAG 执行策略。
+                    Leader 用于意图识别、自动分发和工具调用；教材知识点智能体统一处理教材、Markdown 教材文本和知识点整理；题型、教材、PPT、图片等需要证据的智能体才会显示 RAG 执行策略。
                   </Text>
                 </Form>
               </Col>

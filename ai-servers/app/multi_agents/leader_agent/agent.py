@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.multi_agents.catalog import get_agent_profile, normalize_agent_name
+from app.multi_agents.catalog import QUESTION_AGENT_SPECS, get_agent_profile, normalize_agent_name
 from app.services.langchain_chat_service import get_chat_service
 from app.services.memory_store import memory_store
 from app.utils.logger import get_logger
@@ -71,14 +71,28 @@ class LeaderAgent:
             )
         if any(token in normalized for token in ("思维导图", "mindmap", "mind map", "脑图")):
             return LeaderPlan("mind_map", "mind_map_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中思维导图生成意图，分发给思维导图智能体。")
-        if any(token in normalized for token in ("题库", "练习题", "选择题", "判断题", "简答题", "试卷", "出题")):
-            return LeaderPlan("question_bank", "textbook_question_bank_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中题库/练习题生成意图，分发给教材题库智能体。")
+        if any(token in normalized for token in ("多选题", "多项选择")):
+            return LeaderPlan("multiple_choice", "textbook_question_multiple_choice_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中多选题生成意图，分发给多选题智能体。")
+        if any(token in normalized for token in ("选择题", "单选题", "单项选择")):
+            return LeaderPlan("single_choice", "textbook_question_single_choice_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中选择题生成意图，分发给选择题智能体。")
+        if any(token in normalized for token in ("填空题", "填空")):
+            return LeaderPlan("fill_blank", "textbook_question_fill_blank_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中填空题生成意图，分发给填空题智能体。")
+        if any(token in normalized for token in ("判断题", "判断")):
+            return LeaderPlan("true_false", "textbook_question_true_false_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中判断题生成意图，分发给判断题智能体。")
+        if any(token in normalized for token in ("简答题", "问答题")):
+            return LeaderPlan("short_answer", "textbook_question_short_answer_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中简答题生成意图，分发给简答题智能体。")
+        if any(token in normalized for token in ("计算题", "计算")):
+            return LeaderPlan("calculation", "textbook_question_calculation_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中计算题生成意图，分发给计算题智能体。")
+        if any(token in normalized for token in ("编程题", "程序题", "代码题")):
+            return LeaderPlan("programming", "textbook_question_programming_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中编程题生成意图，分发给编程题智能体。")
+        if any(token in normalized for token in ("题库", "练习题", "试卷", "出题")):
+            return LeaderPlan("single_choice", "textbook_question_single_choice_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中出题意图但未指定题型，默认分发给选择题智能体。")
         if any(token in normalized for token in ("ppt", "幻灯片", "课件", "演示文稿")):
             return LeaderPlan("ppt", "ppt_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中 PPT/课件生成意图，分发给 PPT 智能体。")
         if any(token in normalized for token in ("图片", "配图", "插图", "海报", "封面图", "image")):
             return LeaderPlan("image", "image_agent", True, rag_strategy or "multimodal_rag", route_reason="命中图片/配图生成意图，分发给图片智能体。")
         if any(token in normalized for token in ("md", "markdown", "知识点提取", "提取知识点", "知识点整理")):
-            return LeaderPlan("md_knowledge", "md_knowledge_agent", False, "", route_reason="命中 Markdown/文本知识点提取意图，直接交给 MD 知识点智能体。")
+            return LeaderPlan("textbook_knowledge", "textbook_knowledge_agent", True, rag_strategy or "hybrid_search", route_reason="命中 Markdown/文本教材知识点整理意图，统一交给教材知识点智能体。")
         if any(token in normalized for token in ("教材", "课本", "章节", "考点", "知识点", "课程内容")):
             return LeaderPlan("textbook_knowledge", "textbook_knowledge_agent", True, rag_strategy or "hybrid_search", route_reason="命中教材/课程知识意图，使用教材知识点智能体检索增强。")
         return LeaderPlan("campus_search", "textbook_knowledge_agent", True, rag_strategy or "naive_rag", route_reason="未命中特定生成类意图，按校园知识查询处理。")
@@ -108,9 +122,8 @@ class LeaderAgent:
         if target_agent not in {
             "leader_agent",
             "mind_map_agent",
-            "md_knowledge_agent",
             "textbook_knowledge_agent",
-            "textbook_question_bank_agent",
+            *QUESTION_AGENT_SPECS.keys(),
             "ppt_agent",
             "image_agent",
         }:

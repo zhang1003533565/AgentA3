@@ -6,20 +6,47 @@ from app.rag.core import RAG_STRATEGY_SPECS
 
 ALL_RAG_STRATEGIES = sorted(RAG_STRATEGY_SPECS.keys())
 
+QUESTION_AGENT_SPECS = {
+    "textbook_question_single_choice_agent": ("选择题智能体", "single_choice", "生成单选题、选项、正确答案和解析。", "生成 5 道数据结构栈与队列的选择题"),
+    "textbook_question_fill_blank_agent": ("填空题智能体", "fill_blank", "生成填空题、标准答案和解析。", "生成 5 道数据结构栈与队列的填空题"),
+    "textbook_question_true_false_agent": ("判断题智能体", "true_false", "生成判断题、正确判断和解析。", "生成 5 道数据结构栈与队列的判断题"),
+    "textbook_question_multiple_choice_agent": ("多选题智能体", "multiple_choice", "生成多选题、多个正确选项和解析。", "生成 5 道数据结构栈与队列的多选题"),
+    "textbook_question_short_answer_agent": ("简答题智能体", "short_answer", "生成简答题、答案要点和评分参考。", "生成 5 道数据结构栈与队列的简答题"),
+    "textbook_question_calculation_agent": ("计算题智能体", "calculation", "生成计算题、解题步骤和最终答案。", "生成 5 道数据结构栈与队列的计算题"),
+    "textbook_question_programming_agent": ("编程题智能体", "programming", "生成编程题、输入输出要求、参考思路和测试用例。", "生成 3 道数据结构栈与队列的编程题"),
+}
+
 AGENT_ORDER = [
     "leader_agent",
     "mind_map_agent",
-    "md_knowledge_agent",
     "textbook_knowledge_agent",
-    "textbook_question_bank_agent",
+    *QUESTION_AGENT_SPECS.keys(),
     "ppt_agent",
     "image_agent",
 ]
 
+
+def _question_agent_profile(agent_name: str, role: str, intent: str, purpose: str, example_input: str) -> Dict[str, Any]:
+    return {
+        "role": role,
+        "purpose": f"基于教材知识点和检索证据{purpose}",
+        "inputs": ["topic", "evidence", "count"],
+        "outputs": ["question_markdown"],
+        "skills": ["question generation", "answer key", "assessment design", intent],
+        "intent": intent,
+        "needRetrieval": True,
+        "executionMode": "rag_then_agent",
+        "executionModeLabel": f"RAG 检索后生成{role.replace('智能体', '')}",
+        "defaultRagStrategy": "multi_agent_rag",
+        "supportedRagStrategies": ALL_RAG_STRATEGIES,
+        "aliases": [intent, role, role.replace("智能体", ""), agent_name],
+        "exampleInput": example_input,
+    }
+
 AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
     "leader_agent": {
         "role": "Leader 智能体",
-        "purpose": "统一理解用户任务，路由到思维导图、MD 知识点、教材知识点、教材题库、PPT、图片等专业智能体，并基于 Java 数据库中的 LLM 配置完成必要的直接回答。",
+        "purpose": "统一理解用户任务，路由到思维导图、教材知识点、各题型出题、PPT、图片等专业智能体，并基于 Java 数据库中的 LLM 配置完成必要的直接回答。",
         "inputs": ["user_query", "rag_strategy", "session_token", "history"],
         "outputs": ["intent", "target_agent", "need_retrieval", "answer"],
         "skills": ["task routing", "agent orchestration", "memory", "llm direct answering"],
@@ -47,50 +74,29 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "aliases": ["mind_map", "mindmap", "思维导图", "思维导图智能体", "脑图智能体"],
         "exampleInput": "把操作系统进程调度整理成思维导图",
     },
-    "md_knowledge_agent": {
-        "role": "MD 知识点提取智能体",
-        "purpose": "从 Markdown、课堂笔记或普通文本中提取标题、列表、编号项和核心知识点。",
-        "inputs": ["markdown_text", "evidence"],
-        "outputs": ["knowledge_points"],
-        "skills": ["markdown parsing", "keyword extraction", "knowledge point extraction"],
-        "intent": "md_knowledge",
-        "needRetrieval": False,
-        "executionMode": "direct_agent",
-        "executionModeLabel": "直接解析输入文本",
-        "defaultRagStrategy": "semantic_chunking",
-        "supportedRagStrategies": [],
-        "aliases": ["md_knowledge", "markdown_knowledge", "md知识点提取", "md知识点提取智能体"],
-        "exampleInput": "# 数据结构\n- 栈遵循后进先出\n- 队列遵循先进先出\n- 图可以用邻接矩阵或邻接表表示",
-    },
     "textbook_knowledge_agent": {
         "role": "教材知识点智能体",
-        "purpose": "围绕教材章节、课程内容、知识点和考点做检索增强，复用 Java 后端和本地 RAG 能力召回证据。",
+        "purpose": "围绕教材章节、课程内容、Markdown 教材文本、知识点和考点做检索增强，并统一整理为 Markdown 教材知识点。",
         "inputs": ["authorization", "intent", "keyword", "input_text", "rag_strategy"],
         "outputs": ["matched_results", "retrieval_meta"],
-        "skills": ["textbook retrieval", "hybrid search", "reranking", "graph/text-to-sql retrieval"],
+        "skills": ["textbook retrieval", "markdown knowledge extraction", "hybrid search", "reranking", "graph/text-to-sql retrieval"],
         "intent": "textbook_knowledge",
         "needRetrieval": True,
         "executionMode": "rag_then_agent",
         "executionModeLabel": "RAG/接口召回后整理教材知识点",
         "defaultRagStrategy": "hybrid_search",
         "supportedRagStrategies": ALL_RAG_STRATEGIES,
-        "aliases": ["textbook_knowledge", "教材知识点", "教材知识点智能体", "课本知识点智能体"],
-        "exampleInput": "查询并整理数据结构中栈与队列的教材知识点",
+        "aliases": [
+            "textbook_knowledge",
+            "教材知识点",
+            "教材知识点智能体",
+            "课本知识点智能体",
+        ],
+        "exampleInput": "查询并整理数据结构中栈与队列的教材知识点，输出 Markdown",
     },
-    "textbook_question_bank_agent": {
-        "role": "教材题库智能体",
-        "purpose": "基于教材知识点生成练习题、简答题、参考答案和复习检测题。",
-        "inputs": ["topic", "evidence", "count"],
-        "outputs": ["question_bank_markdown"],
-        "skills": ["question generation", "answer key", "assessment design"],
-        "intent": "question_bank",
-        "needRetrieval": True,
-        "executionMode": "rag_then_agent",
-        "executionModeLabel": "RAG 检索后生成教材题库",
-        "defaultRagStrategy": "multi_agent_rag",
-        "supportedRagStrategies": ALL_RAG_STRATEGIES,
-        "aliases": ["question_bank", "textbook_question_bank", "教材题库", "教材题库智能体", "题库智能体"],
-        "exampleInput": "根据数据结构中栈与队列的知识点生成 5 道练习题",
+    **{
+        agent_name: _question_agent_profile(agent_name, *spec)
+        for agent_name, spec in QUESTION_AGENT_SPECS.items()
     },
     "ppt_agent": {
         "role": "PPT 智能体",
@@ -140,7 +146,7 @@ def get_agent_catalog() -> Dict[str, Any]:
             "ragQueryEndpoint": "POST /internal/rag/query",
             "parameter": "agentName",
             "automaticRouting": "agentName 留空或填写 leader_agent",
-            "strategyRule": "只有 needRetrieval=true 的专业智能体才需要 ragStrategy；Leader 和直接处理型智能体不传 ragStrategy。",
+            "strategyRule": "只有 needRetrieval=true 的专业智能体才需要 ragStrategy；Leader 不传 ragStrategy。",
             "llmConfigRule": "Leader 意图识别和所有专业智能体生成都必须由 Java 后端转发 ai.service.* 模型配置；配置缺失或模型失败会直接报错。",
         },
         "executionModes": {
@@ -152,11 +158,11 @@ def get_agent_catalog() -> Dict[str, Any]:
             "rag_then_agent": "RAG 检索后交给专业智能体",
         },
         "workflow": {
-            "default": ["leader_agent", "textbook_knowledge_agent", "md_knowledge_agent"],
+            "default": ["leader_agent", "textbook_knowledge_agent"],
             "mindMap": ["leader_agent", "textbook_knowledge_agent", "mind_map_agent"],
-            "markdownKnowledge": ["leader_agent", "md_knowledge_agent"],
-            "textbookKnowledge": ["leader_agent", "textbook_knowledge_agent", "md_knowledge_agent"],
-            "questionBank": ["leader_agent", "textbook_knowledge_agent", "textbook_question_bank_agent"],
+            "markdownKnowledge": ["leader_agent", "textbook_knowledge_agent"],
+            "textbookKnowledge": ["leader_agent", "textbook_knowledge_agent"],
+            "questionBank": ["leader_agent", "textbook_knowledge_agent", *QUESTION_AGENT_SPECS.keys()],
             "ppt": ["leader_agent", "textbook_knowledge_agent", "ppt_agent"],
             "image": ["leader_agent", "textbook_knowledge_agent", "image_agent"],
         },
