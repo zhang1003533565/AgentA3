@@ -2,6 +2,8 @@ package com.example.appbackend.websocket;
 
 import com.example.appbackend.service.MeetingAsrRecordService;
 import com.example.appbackend.service.SystemConfigService;
+import com.example.appbackend.entity.User;
+import com.example.appbackend.repository.UserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
@@ -44,17 +46,21 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper;
     private final MeetingAsrRecordService recordService;
     private final SystemConfigService systemConfigService;
+    private final UserRepository userRepository;
     private final HttpClient httpClient;
     private final Map<String, AsrBridge> bridges = new ConcurrentHashMap<>();
+    private final Map<String, java.util.Set<WebSocketSession>> meetingSessions = new ConcurrentHashMap<>();
     private static final int AUDIO_FRAME_SIZE = 1280;
     private static final int AUDIO_FRAME_INTERVAL_MS = 40;
 
     public MeetingAsrWebSocketHandler(ObjectMapper objectMapper,
                                       MeetingAsrRecordService recordService,
-                                      SystemConfigService systemConfigService) {
+                                      SystemConfigService systemConfigService,
+                                      UserRepository userRepository) {
         this.objectMapper = objectMapper;
         this.recordService = recordService;
         this.systemConfigService = systemConfigService;
+        this.userRepository = userRepository;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
@@ -64,6 +70,10 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession session) {
         AsrBridge bridge = new AsrBridge(session);
         bridges.put(session.getId(), bridge);
+        String meetingSessionId = meetingSessionId(session);
+        if (StringUtils.hasText(meetingSessionId)) {
+            meetingSessions.computeIfAbsent(meetingSessionId, key -> ConcurrentHashMap.newKeySet()).add(session);
+        }
         bridge.connect();
     }
 
@@ -102,8 +112,77 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
 
     private void closeBridge(WebSocketSession session, String reason) {
         AsrBridge bridge = bridges.remove(session.getId());
+        String meetingSessionId = meetingSessionId(session);
+        if (StringUtils.hasText(meetingSessionId)) {
+            java.util.Set<WebSocketSession> sessions = meetingSessions.get(meetingSessionId);
+            if (sessions != null) {
+                sessions.remove(session);
+                if (sessions.isEmpty()) {
+                    meetingSessions.remove(meetingSessionId);
+                }
+            }
+        }
         if (bridge != null) {
             bridge.close(reason);
+        }
+    }
+
+    private String meetingSessionId(WebSocketSession session) {
+        Object sessionId = session.getAttributes().get("sessionId");
+        return sessionId instanceof String value ? value : "";
+    }
+
+    private String speakerName(WebSocketSession session) {
+        Object userId = session.getAttributes().get("userId");
+        if (userId instanceof Long id) {
+            return userRepository.findById(id)
+                    .map(this::speakerName)
+                    .orElseGet(() -> fallbackSpeakerName(session));
+        }
+        return fallbackSpeakerName(session);
+    }
+
+    private String speakerName(User user) {
+        if (StringUtils.hasText(user.getRealName())) {
+            return user.getRealName().trim();
+        }
+        if (StringUtils.hasText(user.getUsername())) {
+            return user.getUsername().trim();
+        }
+        if (StringUtils.hasText(user.getPersonalNumber())) {
+            return user.getPersonalNumber().trim();
+        }
+        return "参会成员";
+    }
+
+    private String fallbackSpeakerName(WebSocketSession session) {
+        Object username = session.getAttributes().get("username");
+        return username instanceof String value && StringUtils.hasText(value) ? value : "参会成员";
+    }
+
+    private void broadcastToMeeting(WebSocketSession sourceSession, Map<String, Object> payload) {
+        String meetingSessionId = meetingSessionId(sourceSession);
+        if (!StringUtils.hasText(meetingSessionId)) {
+            sendToSession(sourceSession, payload);
+            return;
+        }
+        java.util.Set<WebSocketSession> sessions = meetingSessions.get(meetingSessionId);
+        if (sessions == null || sessions.isEmpty()) {
+            sendToSession(sourceSession, payload);
+            return;
+        }
+        sessions.forEach(session -> sendToSession(session, payload));
+    }
+
+    private void sendToSession(WebSocketSession session, Map<String, Object> payload) {
+        if (session == null || !session.isOpen()) {
+            return;
+        }
+        try {
+            synchronized (session) {
+                session.sendMessage(new TextMessage(objectMapper.writeValueAsString(payload)));
+            }
+        } catch (Exception ignored) {
         }
     }
 
@@ -266,6 +345,7 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
                     }
                     sendClient(Map.of(
                             "type", "asr_result",
+                            "speaker", speakerName(clientSession),
                             "text", text,
                             "mode", "xfyun_rtasr_llm",
                             "isFinal", isFinal,
@@ -402,19 +482,20 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
             Long userId = (Long) clientSession.getAttributes().get("userId");
             String sessionId = (String) clientSession.getAttributes().get("sessionId");
             recordService.saveFinalTranscript(userId, sessionId, transcript);
-            sendClient(Map.of("type", "asr_saved", "transcript", transcript));
+            sendClient(Map.of(
+                    "type", "asr_saved",
+                    "speaker", speakerName(clientSession),
+                    "transcript", transcript
+            ));
         }
 
         private void sendClient(Map<String, Object> payload) {
-            if (!clientSession.isOpen()) {
+            Object type = payload.get("type");
+            if ("asr_result".equals(type) || "asr_saved".equals(type)) {
+                broadcastToMeeting(clientSession, payload);
                 return;
             }
-            try {
-                synchronized (clientSession) {
-                    clientSession.sendMessage(new TextMessage(objectMapper.writeValueAsString(payload)));
-                }
-            } catch (Exception ignored) {
-            }
+            sendToSession(clientSession, payload);
         }
 
         private void closeClient(CloseStatus status) {

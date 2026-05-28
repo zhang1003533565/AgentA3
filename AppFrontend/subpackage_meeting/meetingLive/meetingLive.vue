@@ -21,6 +21,25 @@
 			</view>
 		</view>
 
+		<view class="asr-barrage-area">
+			<view class="asr-head">
+				<text class="asr-title">语音识别弹幕</text>
+				<text class="asr-status" :class="{ 'asr-status--live': asrRecording }">{{ asrStatusText }}</text>
+			</view>
+			<view v-if="asrItems.length === 0" class="asr-empty">识别到发言后，会在这里显示每位成员说的话</view>
+			<view v-else class="asr-stream">
+				<view
+					v-for="item in asrItems"
+					:key="item.id"
+					class="asr-bubble"
+					:class="{ 'asr-bubble--partial': !item.isFinal }"
+				>
+					<text class="asr-speaker">{{ item.speaker }}</text>
+					<text class="asr-text">{{ item.text }}</text>
+				</view>
+			</view>
+		</view>
+
 		<view class="live-bottom">
 			<view class="handle"></view>
 			<view class="control-row">
@@ -66,6 +85,8 @@
 <script>
 import { endMeeting as finishMeetingApi, getMeetingDetail } from '@/api/ai.js'
 import { getCurrentDisplayName, toMeetingMembers } from '@/utils/meetingUser.js'
+import { BASE_URL } from '@/utils/config.js'
+import { getToken } from '@/utils/storage.js'
 
 export default {
 	data() {
@@ -76,6 +97,13 @@ export default {
 			muted: false,
 			elapsedSeconds: 0,
 			timer: null,
+			asrSocket: null,
+			asrRecorder: null,
+			asrRecording: false,
+			asrSocketReady: false,
+			asrStatusText: '等待连接',
+			asrItems: [],
+			asrSeq: 0,
 			memberPanelVisible: false,
 			morePanelVisible: false,
 			members: []
@@ -88,9 +116,11 @@ export default {
 		this.initCurrentMember()
 		this.startTimer()
 		this.loadMeeting()
+		this.initAsr()
 	},
 	onUnload() {
 		this.stopTimer()
+		this.closeAsr()
 	},
 	computed: {
 		elapsedText() {
@@ -141,7 +171,160 @@ export default {
 		},
 		toggleMute() {
 			this.muted = !this.muted
+			if (this.muted) {
+				this.stopAsrRecording()
+			} else {
+				this.startAsr()
+			}
 			uni.showToast({ title: this.muted ? '已静音' : '已解除静音', icon: 'none' })
+		},
+		initAsr() {
+			if (!this.sessionId) {
+				this.asrStatusText = '会议创建后开始识别'
+				return
+			}
+			this.asrStatusText = '正在连接识别'
+			this.openAsrSocket()
+		},
+		openAsrSocket() {
+			if (this.asrSocket) return
+			const token = getToken()
+			if (!token) {
+				this.asrStatusText = '请先登录后使用识别'
+				return
+			}
+			const url = this.buildAsrSocketUrl(token)
+			this.asrSocket = uni.connectSocket({ url, complete: () => {} })
+			this.asrSocket.onOpen(() => {
+				this.asrSocketReady = true
+				this.asrStatusText = this.muted ? '已静音' : '识别已连接'
+				if (!this.muted) this.startAsrRecording()
+			})
+			this.asrSocket.onMessage((event) => this.handleAsrMessage(event.data))
+			this.asrSocket.onError(() => {
+				this.asrStatusText = '识别连接异常'
+				this.asrSocketReady = false
+			})
+			this.asrSocket.onClose(() => {
+				this.asrStatusText = this.asrRecording ? '识别已断开' : '识别已停止'
+				this.asrSocketReady = false
+				this.asrSocket = null
+			})
+		},
+		buildAsrSocketUrl(token) {
+			const base = BASE_URL.replace(/^http/i, match => match.toLowerCase() === 'https' ? 'wss' : 'ws').replace(/\/$/, '')
+			return `${base}/api/meetings/${encodeURIComponent(this.sessionId)}/asr/stream?token=${encodeURIComponent(token)}`
+		},
+		startAsr() {
+			if (!this.sessionId) return
+			if (!this.asrSocket) {
+				this.openAsrSocket()
+				return
+			}
+			if (this.asrSocketReady) this.startAsrRecording()
+		},
+		startAsrRecording() {
+			if (this.asrRecording || !this.asrSocketReady || !this.asrSocket) return
+			if (!this.asrRecorder) {
+				this.asrRecorder = uni.getRecorderManager()
+				this.asrRecorder.onFrameRecorded((res) => {
+					if (this.asrSocketReady && this.asrSocket && res.frameBuffer) {
+						this.asrSocket.send({ data: res.frameBuffer })
+					}
+				})
+				this.asrRecorder.onError(() => {
+					this.asrRecording = false
+					this.asrStatusText = '录音权限或设备异常'
+				})
+				this.asrRecorder.onStop(() => {
+					this.asrRecording = false
+				})
+			}
+			try {
+				this.asrRecorder.start({
+					duration: 60 * 60 * 1000,
+					sampleRate: 16000,
+					numberOfChannels: 1,
+					encodeBitRate: 256000,
+					format: 'PCM',
+					frameSize: 4
+				})
+				this.asrRecording = true
+				this.asrStatusText = '正在识别'
+			} catch (error) {
+				this.asrStatusText = '录音启动失败'
+			}
+		},
+		stopAsrRecording() {
+			if (this.asrRecorder && this.asrRecording) {
+				try {
+					this.asrRecorder.stop()
+				} catch (error) {}
+			}
+			if (this.asrSocketReady && this.asrSocket) {
+				this.asrSocket.send({ data: JSON.stringify({ stop: true }) })
+			}
+			this.asrRecording = false
+			this.asrStatusText = '已静音'
+		},
+		closeAsr() {
+			if (this.asrRecorder && this.asrRecording) {
+				try {
+					this.asrRecorder.stop()
+				} catch (error) {}
+			}
+			if (this.asrSocket) {
+				try {
+					this.asrSocket.send({ data: JSON.stringify({ stop: true }) })
+					this.asrSocket.close()
+				} catch (error) {}
+			}
+			this.asrRecording = false
+			this.asrSocketReady = false
+			this.asrSocket = null
+		},
+		handleAsrMessage(raw) {
+			let payload = null
+			try {
+				payload = typeof raw === 'string' ? JSON.parse(raw) : raw
+			} catch (error) {
+				return
+			}
+			if (!payload) return
+			if (payload.type === 'asr_ready') {
+				this.asrStatusText = this.asrRecording ? '正在识别' : '识别已连接'
+				return
+			}
+			if (payload.type === 'asr_error') {
+				this.asrStatusText = payload.message || '识别异常'
+				return
+			}
+			if (payload.type === 'asr_result') {
+				this.upsertAsrItem({
+					speaker: payload.speaker || '参会成员',
+					text: payload.text || '',
+					isFinal: !!payload.isFinal
+				})
+			}
+		},
+		upsertAsrItem(item) {
+			const text = (item.text || '').trim()
+			if (!text) return
+			const partialId = `partial-${item.speaker}`
+			if (!item.isFinal) {
+				const existing = this.asrItems.find(asrItem => asrItem.id === partialId)
+				if (existing) {
+					existing.text = text
+				} else {
+					this.asrItems.push({ ...item, id: partialId })
+				}
+			} else {
+				this.asrItems = this.asrItems.filter(asrItem => asrItem.id !== partialId)
+				this.asrItems.push({ ...item, id: `asr-${Date.now()}-${this.asrSeq++}` })
+			}
+			if (this.asrItems.length > 8) {
+				this.asrItems = this.asrItems.slice(this.asrItems.length - 8)
+			}
 		},
 		showMembers() {
 			this.morePanelVisible = false
@@ -218,6 +401,19 @@ export default {
 .avatar-b { background: linear-gradient(180deg, #e2ecee, #a7c0c8); }
 .avatar-c { background: linear-gradient(180deg, #e9ecec, #ccd2d3); }
 .avatar-d { background: linear-gradient(180deg, #f0eeea, #d9c8bd); }
+.asr-barrage-area { margin-top: 22rpx; min-height: 420rpx; padding: 22rpx 18rpx; border-radius: 24rpx; background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.025)); border: 1rpx solid rgba(255,255,255,.08); box-sizing: border-box; overflow: hidden; }
+.asr-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18rpx; }
+.asr-title { color: rgba(255,255,255,.88); font-size: 24rpx; font-weight: 850; }
+.asr-status { height: 34rpx; padding: 0 16rpx; border-radius: 999rpx; background: rgba(255,255,255,.08); color: rgba(255,255,255,.62); font-size: 19rpx; display: flex; align-items: center; }
+.asr-status--live { background: rgba(92, 223, 179, .16); color: #79e6c2; }
+.asr-empty { margin-top: 128rpx; text-align: center; color: rgba(255,255,255,.35); font-size: 23rpx; }
+.asr-stream { display: flex; flex-direction: column; gap: 14rpx; }
+.asr-bubble { max-width: 92%; align-self: flex-start; padding: 13rpx 17rpx; border-radius: 20rpx 20rpx 20rpx 8rpx; background: rgba(255,255,255,.12); box-shadow: 0 10rpx 24rpx rgba(0,0,0,.16); animation: asr-pop .24s ease-out both; }
+.asr-bubble:nth-child(2n) { align-self: flex-end; border-radius: 20rpx 20rpx 8rpx 20rpx; background: rgba(97, 185, 153, .18); }
+.asr-bubble--partial { opacity: .72; }
+.asr-speaker { margin-right: 12rpx; color: #7ee2c0; font-size: 20rpx; font-weight: 900; }
+.asr-text { color: rgba(255,255,255,.9); font-size: 23rpx; line-height: 1.45; }
+@keyframes asr-pop { from { opacity: 0; transform: translateY(14rpx) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .name-chip { position: absolute; left: 12rpx; bottom: 12rpx; min-width: 48rpx; height: 28rpx; padding: 0 10rpx; border-radius: 14rpx; background: rgba(22, 29, 36, .48); color: #fff; font-size: 18rpx; display: flex; align-items: center; justify-content: center; }
 .face { position: relative; width: 138rpx; height: 190rpx; margin-bottom: 0; }
 .head { position: absolute; left: 38rpx; top: 28rpx; width: 64rpx; height: 76rpx; border-radius: 34rpx 34rpx 28rpx 28rpx; background: #f4c9a6; z-index: 2; }

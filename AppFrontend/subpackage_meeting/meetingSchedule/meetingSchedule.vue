@@ -9,7 +9,13 @@
 		<view class="schedule-body">
 			<text class="month-title">{{ monthTitle }}</text>
 			<view class="week-row">
-				<view v-for="day in days" :key="day.num" class="day-cell" :class="{ active: day.num === currentDay }">
+				<view
+					v-for="day in days"
+					:key="day.dateKey"
+					class="day-cell"
+					:class="{ active: day.dateKey === selectedDateKey }"
+					@click="selectDay(day)"
+				>
 					<text class="weekday">{{ day.week }}</text>
 					<text class="daynum">{{ day.num }}</text>
 				</view>
@@ -17,10 +23,10 @@
 
 			<view class="schedule-list">
 				<view v-if="loading" class="empty-state">正在加载会议...</view>
-				<view v-else-if="meetings.length === 0" class="empty-state">暂无真实会议日程</view>
+				<view v-else-if="filteredMeetings.length === 0" class="empty-state">{{ selectedDayLabel }}暂无真实会议日程</view>
 				<block v-else>
 					<view
-						v-for="meeting in meetings"
+						v-for="meeting in filteredMeetings"
 						:key="meeting.sessionId"
 						class="schedule-item"
 						:class="{ active: meeting.status === 'active' }"
@@ -47,8 +53,12 @@ function buildWeekDays(date) {
 	return Array.from({ length: 7 }, (_, index) => {
 		const day = new Date(start)
 		day.setDate(start.getDate() + index)
-		return { week: weekdays[day.getDay()], num: String(day.getDate()) }
+		return { week: weekdays[day.getDay()], num: String(day.getDate()), dateKey: toDateKey(day) }
 	})
+}
+
+function toDateKey(date) {
+	return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
 export default {
@@ -58,7 +68,7 @@ export default {
 		return {
 			loading: false,
 			meetings: [],
-			currentDay: String(now.getDate()),
+			selectedDateKey: toDateKey(now),
 			days: buildWeekDays(now)
 		}
 	},
@@ -67,16 +77,28 @@ export default {
 	},
 	computed: {
 		monthTitle() {
-			const now = new Date()
-			return `${now.getFullYear()}年 ${now.getMonth() + 1}月`
+			const date = this.parseDateKey(this.selectedDateKey) || new Date()
+			return `${date.getFullYear()}年 ${date.getMonth() + 1}月`
+		},
+		selectedDayLabel() {
+			const selected = this.days.find(day => day.dateKey === this.selectedDateKey)
+			return selected ? `${selected.num}日` : '当天'
+		},
+		filteredMeetings() {
+			return this.meetings
+				.filter(meeting => this.meetingDateKey(meeting) === this.selectedDateKey)
+				.sort((a, b) => this.meetingTimestamp(a) - this.meetingTimestamp(b))
 		}
 	},
 	methods: {
 		go(url) { uni.navigateTo({ url }) },
+		selectDay(day) {
+			this.selectedDateKey = day.dateKey
+		},
 		async loadMeetings() {
 			this.loading = true
 			try {
-				const res = await getMeetings({ pageNum: 1, pageSize: 20 })
+				const res = await getMeetings({ pageNum: 1, pageSize: 100 })
 				this.meetings = res?.data?.records || []
 			} catch (error) {
 				this.meetings = []
@@ -101,6 +123,22 @@ export default {
 		meetingStatus(meeting) {
 			const map = { active: '会议中', idle: '待开始', paused: '已暂停', ended: '已结束' }
 			return map[meeting.status] || '会议'
+		},
+		meetingDateKey(meeting) {
+			const timestamp = this.meetingTimestamp(meeting)
+			if (!timestamp) return ''
+			return toDateKey(new Date(timestamp))
+		},
+		meetingTimestamp(meeting) {
+			const source = meeting.scheduledStartTime || meeting.startTime || meeting.createTime
+			if (!source) return 0
+			const date = new Date(source)
+			return Number.isNaN(date.getTime()) ? 0 : date.getTime()
+		},
+		parseDateKey(dateKey) {
+			if (!dateKey) return null
+			const date = new Date(`${dateKey}T00:00:00`)
+			return Number.isNaN(date.getTime()) ? null : date
 		}
 	}
 }
