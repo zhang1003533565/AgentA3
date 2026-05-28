@@ -22,7 +22,7 @@ public class LlmChatRequest {
     private String ragStrategy;
 
     @Size(max = 64, message = "智能体名称最多 64 字符")
-    @Schema(description = "指定智能体，可为空；为空或 leader_agent 时由 Leader 自动路由", example = "ppt_agent")
+    @Schema(description = "指定智能体，可为空；为空或 leader_agent 时由 Leader 自动路由", example = "ppt_outline_agent")
     private String agentName;
 
     @Size(max = 128, message = "LLM 模型标识最多 128 字符")

@@ -6,7 +6,7 @@ from app.multi_agents.catalog import normalize_agent_name
 from app.multi_agents.image_agent.agent import image_agent
 from app.multi_agents.meeting_agents import MEETING_AGENTS
 from app.multi_agents.mind_map_agent.agent import mind_map_agent
-from app.multi_agents.ppt_agent.agent import ppt_agent
+from app.multi_agents.ppt_agents import PPT_AGENTS
 from app.multi_agents.question_type_agents import QUESTION_TYPE_AGENTS
 from app.multi_agents.textbook_knowledge_agent.agent import textbook_knowledge_agent
 
@@ -28,8 +28,8 @@ def run_specialist_agent(
         return MEETING_AGENTS[normalized].process(input_text, evidence, chat_service=chat_service)
     if normalized in QUESTION_TYPE_AGENTS:
         return QUESTION_TYPE_AGENTS[normalized].generate_questions(input_text, evidence, chat_service=chat_service)
-    if normalized == "ppt_agent":
-        return ppt_agent.build_outline(input_text, evidence, chat_service=chat_service)
+    if normalized in PPT_AGENTS:
+        return PPT_AGENTS[normalized].process(input_text, evidence, chat_service=chat_service)
     if normalized == "image_agent":
         return image_agent.build_image_prompt(input_text, evidence, chat_service=chat_service)
     raise HTTPException(status_code=400, detail=f"不支持的智能体：{normalized}")

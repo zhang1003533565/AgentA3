@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.multi_agents.catalog import MEETING_AGENT_SPECS, QUESTION_AGENT_SPECS, get_agent_profile, normalize_agent_name
+from app.multi_agents.catalog import MEETING_AGENT_SPECS, PPT_AGENT_SPECS, QUESTION_AGENT_SPECS, get_agent_profile, normalize_agent_name
 from app.services.langchain_chat_service import get_chat_service
 from app.services.memory_store import memory_store
 from app.utils.logger import get_logger
@@ -101,8 +101,14 @@ class LeaderAgent:
             return LeaderPlan("meeting_voice_broadcast", "meeting_voice_broadcast_agent", False, "", route_reason="命中语音播报意图，分发给语音播报智能体。")
         if "会议" in normalized:
             return LeaderPlan("meeting_summary", "meeting_summary_agent", False, "", route_reason="命中会议处理意图但未指定子任务，默认分发给会议总结智能体。")
+        if any(token in normalized for token in ("ppt审查", "ppt评分", "置信度", "审查ppt", "检查ppt")):
+            return LeaderPlan("ppt_review", "ppt_review_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中 PPT 审查/评分意图，分发给 PPT 审查智能体。")
+        if any(token in normalized for token in ("ppt布局", "ppt排版", "ppt版式", "排布局", "排版")):
+            return LeaderPlan("ppt_layout", "ppt_layout_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中 PPT 布局/排版意图，分发给 PPT 布局智能体。")
+        if any(token in normalized for token in ("ppt图片", "ppt配图", "ppt插图", "ppt封面", "课件配图")):
+            return LeaderPlan("ppt_image", "ppt_image_agent", True, rag_strategy or "multimodal_rag", route_reason="命中 PPT 图片/配图意图，分发给 PPT 图片智能体。")
         if any(token in normalized for token in ("ppt", "幻灯片", "课件", "演示文稿")):
-            return LeaderPlan("ppt", "ppt_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中 PPT/课件生成意图，分发给 PPT 智能体。")
+            return LeaderPlan("ppt_outline", "ppt_outline_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中 PPT/课件生成意图，默认分发给 PPT 大纲智能体。")
         if any(token in normalized for token in ("图片", "配图", "插图", "海报", "封面图", "image")):
             return LeaderPlan("image", "image_agent", True, rag_strategy or "multimodal_rag", route_reason="命中图片/配图生成意图，分发给图片智能体。")
         if any(token in normalized for token in ("md", "markdown", "知识点提取", "提取知识点", "知识点整理")):
@@ -139,7 +145,7 @@ class LeaderAgent:
             "textbook_knowledge_agent",
             *QUESTION_AGENT_SPECS.keys(),
             *MEETING_AGENT_SPECS.keys(),
-            "ppt_agent",
+            *PPT_AGENT_SPECS.keys(),
             "image_agent",
         }:
             return None

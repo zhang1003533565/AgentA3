@@ -5,7 +5,7 @@ from app.multi_agents.image_agent.agent import image_agent
 from app.multi_agents.leader_agent.agent import leader_agent
 from app.multi_agents.meeting_agents import MEETING_AGENTS
 from app.multi_agents.mind_map_agent.agent import mind_map_agent
-from app.multi_agents.ppt_agent.agent import ppt_agent
+from app.multi_agents.ppt_agents import PPT_AGENTS
 from app.multi_agents.question_type_agents import QUESTION_TYPE_AGENTS
 from app.multi_agents.textbook_knowledge_agent.agent import textbook_knowledge_agent
 from app.services.langchain_chat_service import get_chat_service
@@ -24,8 +24,8 @@ def call_llm_node(state: ConversationState) -> None:
         state.answer = MEETING_AGENTS[state.active_agent].process(state.input_text, state.matched_results)
     elif state.active_agent in QUESTION_TYPE_AGENTS:
         state.answer = QUESTION_TYPE_AGENTS[state.active_agent].generate_questions(state.input_text, state.matched_results)
-    elif state.intent == "ppt":
-        state.answer = ppt_agent.build_outline(state.input_text, state.matched_results)
+    elif state.active_agent in PPT_AGENTS:
+        state.answer = PPT_AGENTS[state.active_agent].process(state.input_text, state.matched_results)
     elif state.intent == "image":
         state.answer = image_agent.build_image_prompt(state.input_text, state.matched_results)
     else:

@@ -25,13 +25,20 @@ MEETING_AGENT_SPECS = {
     "meeting_voice_broadcast_agent": ("语音播报智能体", "meeting_voice_broadcast", "负责将总结报告、学习建议和推荐内容转换为适合播报的文本。", "把这段会议总结改写成适合语音播报的脚本"),
 }
 
+PPT_AGENT_SPECS = {
+    "ppt_outline_agent": ("PPT 大纲智能体", "ppt_outline", "负责生成 PPT 整体大纲、页序、每页标题、讲解目标和内容要点。", "根据数据结构中栈与队列的知识点生成 6 页 PPT 大纲"),
+    "ppt_layout_agent": ("PPT 布局智能体", "ppt_layout", "负责根据大纲规划逐页版式、视觉层级、组件摆放和页面动线。", "根据这份 PPT 大纲设计每页布局、版式和视觉层级"),
+    "ppt_review_agent": ("PPT 审查智能体", "ppt_review", "负责审查 PPT 内容、布局和教学适配度，并输出问题清单与置信度评分。", "审查这份 PPT 大纲和布局，给出问题清单、修改建议和置信度"),
+    "ppt_image_agent": ("PPT 图片智能体", "ppt_image", "负责为 PPT 封面、插图、示意图生成图片提示词和视觉素材建议。", "根据这份 PPT 大纲生成封面图和关键页面插图提示词"),
+}
+
 AGENT_ORDER = [
     "leader_agent",
     "mind_map_agent",
     "textbook_knowledge_agent",
     *QUESTION_AGENT_SPECS.keys(),
     *MEETING_AGENT_SPECS.keys(),
-    "ppt_agent",
+    *PPT_AGENT_SPECS.keys(),
     "image_agent",
 ]
 
@@ -68,6 +75,39 @@ def _meeting_agent_profile(agent_name: str, role: str, intent: str, purpose: str
         "defaultRagStrategy": "",
         "supportedRagStrategies": [],
         "aliases": [intent, role, role.replace("智能体", ""), agent_name],
+        "exampleInput": example_input,
+    }
+
+def _ppt_profile(agent_name: str, role: str, intent: str, purpose: str, example_input: str) -> Dict[str, Any]:
+    default_strategy = "multimodal_rag" if agent_name == "ppt_image_agent" else "multi_agent_rag"
+    output_type = {
+        "ppt_outline_agent": "ppt_outline_markdown",
+        "ppt_layout_agent": "ppt_layout_markdown",
+        "ppt_review_agent": "ppt_review_markdown",
+        "ppt_image_agent": "ppt_image_prompt_markdown",
+    }[agent_name]
+    alias_core = intent.replace("ppt_", "")
+    extra_aliases = ["ppt", "课件大纲智能体", "PPT大纲智能体"] if agent_name == "ppt_outline_agent" else []
+    return {
+        "role": role,
+        "purpose": purpose,
+        "inputs": ["topic_or_upstream_ppt_result", "evidence", "constraints"],
+        "outputs": [output_type],
+        "skills": ["ppt generation", "presentation design", intent],
+        "intent": intent,
+        "needRetrieval": True,
+        "executionMode": "rag_then_agent",
+        "executionModeLabel": f"RAG 检索后生成{role.replace('智能体', '')}结果",
+        "defaultRagStrategy": default_strategy,
+        "supportedRagStrategies": ALL_RAG_STRATEGIES,
+        "aliases": [
+            intent,
+            alias_core,
+            *extra_aliases,
+            role,
+            role.replace("智能体", ""),
+            agent_name,
+        ],
         "exampleInput": example_input,
     }
 
@@ -131,20 +171,9 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         agent_name: _meeting_agent_profile(agent_name, *spec)
         for agent_name, spec in MEETING_AGENT_SPECS.items()
     },
-    "ppt_agent": {
-        "role": "PPT 智能体",
-        "purpose": "把主题和知识点证据整理成 PPT 页结构、讲解目标和页面内容建议。",
-        "inputs": ["topic", "evidence", "slide_count"],
-        "outputs": ["ppt_outline_markdown"],
-        "skills": ["slide outline", "teaching flow", "presentation planning"],
-        "intent": "ppt",
-        "needRetrieval": True,
-        "executionMode": "rag_then_agent",
-        "executionModeLabel": "RAG 检索后生成 PPT 大纲",
-        "defaultRagStrategy": "multi_agent_rag",
-        "supportedRagStrategies": ALL_RAG_STRATEGIES,
-        "aliases": ["ppt", "ppt_agent", "课件智能体", "PPT智能体"],
-        "exampleInput": "根据数据结构中栈与队列的知识点生成 6 页课件大纲",
+    **{
+        agent_name: _ppt_profile(agent_name, *spec)
+        for agent_name, spec in PPT_AGENT_SPECS.items()
     },
     "image_agent": {
         "role": "图片智能体",
@@ -197,7 +226,7 @@ def get_agent_catalog() -> Dict[str, Any]:
             "textbookKnowledge": ["leader_agent", "textbook_knowledge_agent"],
             "questionBank": ["leader_agent", "textbook_knowledge_agent", *QUESTION_AGENT_SPECS.keys()],
             "meeting": ["leader_agent", *MEETING_AGENT_SPECS.keys()],
-            "ppt": ["leader_agent", "textbook_knowledge_agent", "ppt_agent"],
+            "ppt": ["leader_agent", "textbook_knowledge_agent", *PPT_AGENT_SPECS.keys()],
             "image": ["leader_agent", "textbook_knowledge_agent", "image_agent"],
         },
         "agents": agents,

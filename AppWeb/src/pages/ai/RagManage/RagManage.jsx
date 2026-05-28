@@ -273,7 +273,10 @@ const agentExampleInputs = {
   meeting_member_analysis_agent: '分析会议中各成员的理解偏差、薄弱点和参与特征',
   meeting_resource_recommendation_agent: '根据会议内容为每位成员推荐学习资源和推送策略',
   meeting_voice_broadcast_agent: '把这段会议总结改写成适合语音播报的脚本',
-  ppt_agent: '根据数据结构中栈与队列的知识点生成 6 页课件大纲',
+  ppt_outline_agent: '根据数据结构中栈与队列的知识点生成 6 页课件大纲',
+  ppt_layout_agent: '根据这份 6 页课件大纲生成逐页布局、版式和视觉层级',
+  ppt_review_agent: '审查这份 PPT 大纲和布局，输出问题清单、修改建议和置信度评分',
+  ppt_image_agent: '根据这份 PPT 大纲生成封面图和关键页面插图提示词',
   image_agent: '为操作系统进程调度知识点生成一张课堂教学配图提示词',
 }
 

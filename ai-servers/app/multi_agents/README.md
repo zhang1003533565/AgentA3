@@ -1,6 +1,6 @@
 # Multi Agents
 
-该目录是当前 AI Server 唯一维护的多智能体目录。旧的 planner/retriever/answer/critic/memory/sql/graph/tool/orchestrator 目录已移除，当前仅保留学习资源生产相关的 12 个智能体。
+该目录是当前 AI Server 唯一维护的多智能体目录。旧的 planner/retriever/answer/critic/memory/sql/graph/tool/orchestrator 目录已移除，当前保留学习资源生产、会议处理和 PPT 工作流相关智能体。
 
 | Agent | 中文名称 | 职责 |
 | --- | --- | --- |
@@ -14,7 +14,10 @@
 | `textbook_question_short_answer_agent` | 简答题智能体 | 基于知识点生成简答题、答案要点和评分参考 |
 | `textbook_question_calculation_agent` | 计算题智能体 | 基于知识点生成计算题、解题步骤和答案 |
 | `textbook_question_programming_agent` | 编程题智能体 | 基于知识点生成编程题、参考思路和测试用例 |
-| `ppt_agent` | PPT 智能体 | 基于主题和证据生成 PPT 页结构、大纲和页面建议 |
+| `ppt_outline_agent` | PPT 大纲智能体 | 基于主题和证据生成 PPT 页结构、大纲和页面建议 |
+| `ppt_layout_agent` | PPT 布局智能体 | 根据 PPT 大纲规划逐页版式、视觉层级和组件摆放 |
+| `ppt_review_agent` | PPT 审查智能体 | 审查 PPT 内容和布局，输出问题清单、修改建议和置信度 |
+| `ppt_image_agent` | PPT 图片智能体 | 为 PPT 封面、插图和示意图生成图片提示词 |
 | `image_agent` | 图片智能体 | 基于知识点生成教学配图/封面图提示词 |
 
 每个智能体文件夹都包含：`agent.py`、`skill.md`、`prompt.md`、`contract.md`、`tools.yaml`，方便后续单独调整 skill。
@@ -35,7 +38,10 @@
 | 简答题 | `textbook_question_short_answer_agent` | `multi_agent_rag` | `input` 为出题范围 |
 | 计算题 | `textbook_question_calculation_agent` | `multi_agent_rag` | `input` 为出题范围 |
 | 编程题 | `textbook_question_programming_agent` | `multi_agent_rag` | `input` 为出题范围 |
-| PPT | `ppt_agent` | `multi_agent_rag` | `input` 为课件主题 |
+| PPT 大纲 | `ppt_outline_agent` | `multi_agent_rag` | `input` 为课件主题 |
+| PPT 布局 | `ppt_layout_agent` | `multi_agent_rag` | `input` 为 PPT 大纲或布局要求 |
+| PPT 审查 | `ppt_review_agent` | `multi_agent_rag` | `input` 为 PPT 大纲、布局或页面内容 |
+| PPT 图片 | `ppt_image_agent` | `multimodal_rag` | `input` 为 PPT 大纲、布局或配图要求 |
 | 图片 | `image_agent` | `multimodal_rag` | `input` 为配图主题 |
 
 请求示例：
@@ -43,7 +49,7 @@
 ```json
 {
   "sessionId": "course-001",
-  "agentName": "ppt_agent",
+  "agentName": "ppt_outline_agent",
   "input": "根据数据结构中栈与队列的知识点生成 6 页课件大纲"
 }
 ```

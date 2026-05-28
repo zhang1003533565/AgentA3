@@ -680,7 +680,10 @@ def _answer_type_for_agent(agent_name: str) -> str:
         "leader_agent": "text",
         "mind_map_agent": "mermaid_mindmap",
         "textbook_knowledge_agent": "markdown",
-        "ppt_agent": "ppt_outline",
+        "ppt_outline_agent": "ppt_outline",
+        "ppt_layout_agent": "ppt_layout",
+        "ppt_review_agent": "ppt_review",
+        "ppt_image_agent": "ppt_image_prompt",
         "image_agent": "image_prompt",
     }
     if (agent_name or "").startswith("textbook_question_"):

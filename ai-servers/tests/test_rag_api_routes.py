@@ -36,7 +36,7 @@ class RagApiRoutesTest(unittest.TestCase):
             "app.multi_agents.textbook_knowledge_agent.agent",
             "app.multi_agents.question_type_agents",
             "app.multi_agents.meeting_agents",
-            "app.multi_agents.ppt_agent.agent",
+            "app.multi_agents.ppt_agents",
             "app.multi_agents.image_agent.agent",
         ]
         for module_name in module_names:
@@ -217,12 +217,16 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         payload = response.json()
         names = {item["name"] for item in payload["agents"]}
-        self.assertEqual(18, payload["total"])
+        self.assertEqual(21, payload["total"])
         self.assertIn("textbook_knowledge_agent", names)
         self.assertIn("textbook_question_single_choice_agent", names)
         self.assertIn("textbook_question_programming_agent", names)
         self.assertIn("meeting_controller_agent", names)
         self.assertIn("meeting_voice_broadcast_agent", names)
+        self.assertIn("ppt_outline_agent", names)
+        self.assertIn("ppt_layout_agent", names)
+        self.assertIn("ppt_review_agent", names)
+        self.assertIn("ppt_image_agent", names)
         self.assertNotIn("textbook_question_bank_agent", names)
         self.assertNotIn("md_knowledge_agent", names)
         self.assertNotIn("answer_agent", names)
@@ -252,14 +256,14 @@ class RagApiRoutesTest(unittest.TestCase):
             headers=self.headers,
             json={
                 "input": "数据结构中的栈与队列",
-                "agentName": "ppt_agent",
+                "agentName": "ppt_outline_agent",
             },
         )
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
         self.assertEqual("multi_agent_rag", payload["strategy"])
-        self.assertEqual("ppt_agent", payload["metadata"]["agentName"])
+        self.assertEqual("ppt_outline_agent", payload["metadata"]["agentName"])
         self.assertIn("PPT 大纲", payload["answer"])
         self.assertEqual("agent_answer", payload["trace"][-1]["stage"])
         self.assertEqual("rag_then_agent", payload["metadata"]["executionMode"])
@@ -277,8 +281,8 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         payload = response.json()
         self.assertEqual("leader_agent", payload["metadata"]["agentName"])
-        self.assertEqual("ppt_agent", payload["metadata"]["targetAgent"])
-        self.assertEqual("ppt_agent", payload["metadata"]["executedAgent"])
+        self.assertEqual("ppt_outline_agent", payload["metadata"]["targetAgent"])
+        self.assertEqual("ppt_outline_agent", payload["metadata"]["executedAgent"])
         self.assertEqual("multi_agent_rag", payload["metadata"]["plannedRagStrategy"])
         self.assertEqual("multi_agent_rag", payload["strategy"])
         self.assertEqual("leader_routed_rag", payload["metadata"]["executionMode"])
@@ -477,13 +481,13 @@ class FakeRagChatService:
             }
         if "PPT" in text or "课件" in text:
             return {
-                "intent": "ppt",
-                "target_agent": "ppt_agent",
+                "intent": "ppt_outline",
+                "target_agent": "ppt_outline_agent",
                 "need_retrieval": True,
                 "rag_strategy": rag_strategy or "multi_agent_rag",
                 "action": "delegate_agent",
                 "tool_name": "",
-                "route_reason": "LLM 根据 Java 后台模型配置路由到 PPT 智能体。",
+                "route_reason": "LLM 根据 Java 后台模型配置路由到 PPT 大纲智能体。",
                 "answer": "",
             }
         return {
@@ -514,7 +518,10 @@ class FakeRagChatService:
             "meeting_member_analysis_agent": "## 成员分析\n- 成员A：参与积极",
             "meeting_resource_recommendation_agent": "## 资源推荐\n- 成员A：推荐复习资料",
             "meeting_voice_broadcast_agent": "## 语音播报稿\n请大家关注会议结论。",
-            "ppt_agent": "## PPT 大纲\n### 第 1 页：课程导入",
+            "ppt_outline_agent": "## PPT 大纲\n### 第 1 页：课程导入",
+            "ppt_layout_agent": "## PPT 布局方案\n### 第 1 页：封面布局",
+            "ppt_review_agent": "## PPT 审查报告\n置信度评分：86/100",
+            "ppt_image_agent": "## PPT 图片提示词\n### 封面图",
             "image_agent": "## 图片智能体提示词\n主题：教学配图",
         }
         return labels.get(agent_name, f"{agent_name}: {input_text}")
