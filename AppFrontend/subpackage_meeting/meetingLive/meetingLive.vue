@@ -10,6 +10,16 @@
 			<text class="end-text" @click="confirmEndMeeting">结束</text>
 		</view>
 
+		<view class="agent-top-toggle" :class="{ 'agent-top-toggle--active': agentEnabled }" @click="setAgentSummary(!agentEnabled)">
+			<view class="agent-top-copy">
+				<text class="agent-top-title">智能体会议总结</text>
+				<text class="agent-top-desc">{{ agentEnabled ? '已开启：下方显示 AI 实时总结流' : '未开启：点击切换为 AI 实时总结' }}</text>
+			</view>
+			<view class="agent-top-switch" :class="{ 'agent-top-switch--active': agentEnabled }">
+				<view class="agent-top-knob"></view>
+			</view>
+		</view>
+
 		<view class="member-grid">
 			<view v-for="member in visibleMembers" :key="member.name" class="member-card" :class="member.className">
 				<view class="face">
@@ -23,10 +33,25 @@
 
 		<view class="asr-barrage-area">
 			<view class="asr-head">
-				<text class="asr-title">语音识别弹幕</text>
-				<text class="asr-status" :class="{ 'asr-status--live': asrRecording }">{{ asrStatusText }}</text>
+				<text class="asr-title">{{ livePanelTitle }}</text>
+				<text class="asr-status" :class="{ 'asr-status--live': asrRecording || agentEnabled }">{{ livePanelStatus }}</text>
 			</view>
-			<view v-if="asrItems.length === 0" class="asr-empty">识别到发言后，会在这里显示每位成员说的话</view>
+			<view class="asr-mode-row">
+				<view class="asr-mode-pill" :class="{ 'asr-mode-pill--active': !agentEnabled }" @click="setAgentSummary(false)">语音弹幕</view>
+				<view class="asr-mode-pill" :class="{ 'asr-mode-pill--active': agentEnabled }" @click="setAgentSummary(true)">AI总结</view>
+			</view>
+			<view v-if="asrReconnectVisible" class="asr-reconnect" @click="reconnectAsr">重新连接识别</view>
+			<view v-if="agentEnabled && aiSummaryItems.length === 0" class="asr-empty">{{ livePanelEmptyText }}</view>
+			<view v-else-if="agentEnabled" class="ai-summary-stream">
+				<view v-for="item in aiSummaryItems" :key="item.id" class="ai-summary-card">
+					<view class="ai-summary-meta">
+						<text>AI 总结</text>
+						<text>{{ item.time }}</text>
+					</view>
+					<text class="ai-summary-text">{{ item.text }}</text>
+				</view>
+			</view>
+			<view v-else-if="asrItems.length === 0" class="asr-empty">{{ livePanelEmptyText }}</view>
 			<view v-else class="asr-stream">
 				<view
 					v-for="item in asrItems"
@@ -74,6 +99,7 @@
 				<text class="sheet-close" @click="closePanel">×</text>
 			</view>
 			<view class="more-list">
+				<view class="more-row more-row--switch"><text>智能体总结</text><switch :checked="agentEnabled" color="#23866d" @change="toggleAgentSummary" /></view>
 				<view class="more-row" @click="copyRoomCode"><text>复制会议号</text><text>{{ roomCode || '未生成' }}</text></view>
 				<view class="more-row" @click="shareMeeting"><text>分享会议</text><text>复制邀请文案</text></view>
 				<view class="more-row" @click="openMeetingDetail"><text>会议详情</text><text>查看会议号与参会人</text></view>
@@ -83,7 +109,7 @@
 </template>
 
 <script>
-import { endMeeting as finishMeetingApi, getMeetingDetail } from '@/api/ai.js'
+import { endMeeting as finishMeetingApi, getMeetingDetail, previewMeetingAgent } from '@/api/ai.js'
 import { getCurrentDisplayName, toMeetingMembers } from '@/utils/meetingUser.js'
 import { BASE_URL } from '@/utils/config.js'
 import { getToken, getUserInfo } from '@/utils/storage.js'
@@ -103,11 +129,27 @@ export default {
 			asrAudioContext: null,
 			asrAudioSource: null,
 			asrAudioProcessor: null,
+			asrAudioSilence: null,
+			asrAudioWorkletUrl: '',
+			asrPcmBuffer: null,
 			asrRecording: false,
 			asrSocketReady: false,
 			asrStatusText: '等待连接',
+			asrLastError: '',
+			asrManualClosing: false,
+			asrReconnectTimer: null,
+			asrReconnectAttempts: 0,
 			asrItems: [],
 			asrSeq: 0,
+			agentEnabled: false,
+			aiSummaryItems: [],
+			aiSummarySeq: 0,
+			aiSummaryStatusText: '等待发言',
+			aiSummaryTimer: null,
+			aiSummaryRunning: false,
+			aiSummaryPending: false,
+			lastSummaryInput: '',
+			meetingTranscriptLines: [],
 			memberPanelVisible: false,
 			morePanelVisible: false,
 			members: []
@@ -141,6 +183,18 @@ export default {
 		},
 		visibleMembers() {
 			return this.members.slice(0, 4)
+		},
+		livePanelTitle() {
+			return this.agentEnabled ? 'AI 实时总结流' : '语音识别弹幕'
+		},
+		livePanelStatus() {
+			return this.agentEnabled ? this.aiSummaryStatusText : this.asrStatusText
+		},
+		livePanelEmptyText() {
+			return this.agentEnabled ? '开启后会根据实时识别内容生成滚动会议总结' : '识别到发言后，会在这里显示每位成员说的话'
+		},
+		asrReconnectVisible() {
+			return !this.asrSocketReady && !this.muted && !!this.sessionId
 		}
 	},
 	methods: {
@@ -192,27 +246,40 @@ export default {
 		},
 		openAsrSocket() {
 			if (this.asrSocket) return
+			this.clearAsrReconnectTimer()
 			const token = getToken()
 			if (!token) {
 				this.asrStatusText = '请先登录后使用识别'
 				return
 			}
+			this.asrManualClosing = false
+			this.asrLastError = ''
 			const url = this.buildAsrSocketUrl(token)
 			this.asrSocket = uni.connectSocket({ url, complete: () => {} })
 			this.asrSocket.onOpen(() => {
 				this.asrSocketReady = true
+				this.asrReconnectAttempts = 0
 				this.asrStatusText = this.muted ? '已静音' : '识别已连接'
 				if (!this.muted) this.startAsrRecording()
 			})
 			this.asrSocket.onMessage((event) => this.handleAsrMessage(event.data))
-			this.asrSocket.onError(() => {
-				this.asrStatusText = '识别连接异常'
+			this.asrSocket.onError((error) => {
+				this.asrLastError = error?.errMsg || '识别连接异常'
+				this.asrStatusText = this.asrLastError
 				this.asrSocketReady = false
 			})
 			this.asrSocket.onClose(() => {
-				this.asrStatusText = this.asrRecording ? '识别已断开' : '识别已停止'
+				const shouldReconnect = !this.asrManualClosing && !this.muted && !!this.sessionId
 				this.asrSocketReady = false
 				this.asrSocket = null
+				this.asrRecording = false
+				this.stopBrowserAsrRecording()
+				if (shouldReconnect) {
+					this.asrStatusText = this.asrLastError || '识别已断开，正在重连'
+					this.scheduleAsrReconnect()
+				} else {
+					this.asrStatusText = this.asrLastError || '识别已停止'
+				}
 			})
 		},
 		buildAsrSocketUrl(token) {
@@ -234,8 +301,15 @@ export default {
 				return
 			}
 			if (!this.asrRecorder) {
-				this.asrRecorder = uni.getRecorderManager()
+				try {
+					this.asrRecorder = uni.getRecorderManager()
+				} catch (error) {
+					this.asrRecorder = null
+					this.startBrowserAsrRecording()
+					return
+				}
 				if (!this.asrRecorder || typeof this.asrRecorder.onFrameRecorded !== 'function') {
+					this.asrRecorder = null
 					this.startBrowserAsrRecording()
 					return
 				}
@@ -247,6 +321,7 @@ export default {
 				this.asrRecorder.onError(() => {
 					this.asrRecording = false
 					this.asrStatusText = '录音权限或设备异常'
+					this.startBrowserAsrRecording()
 				})
 				this.asrRecorder.onStop(() => {
 					this.asrRecording = false
@@ -265,6 +340,7 @@ export default {
 				this.asrStatusText = '正在识别'
 			} catch (error) {
 				this.asrStatusText = '录音启动失败'
+				this.startBrowserAsrRecording()
 			}
 		},
 		async startBrowserAsrRecording() {
@@ -282,22 +358,94 @@ export default {
 				this.asrBrowserStream = await navigator.mediaDevices.getUserMedia({ audio: true })
 				this.asrAudioContext = new AudioContextClass()
 				this.asrAudioSource = this.asrAudioContext.createMediaStreamSource(this.asrBrowserStream)
-				this.asrAudioProcessor = this.asrAudioContext.createScriptProcessor(2048, 1, 1)
-				this.asrAudioProcessor.onaudioprocess = (event) => {
-					const input = event.inputBuffer.getChannelData(0)
-					const pcm = this.floatTo16kPcm(input, this.asrAudioContext.sampleRate)
-					if (pcm && this.asrSocketReady && this.asrSocket) {
-						this.asrSocket.send({ data: pcm })
-					}
-				}
-				this.asrAudioSource.connect(this.asrAudioProcessor)
-				this.asrAudioProcessor.connect(this.asrAudioContext.destination)
+				await this.connectBrowserAudioProcessor()
 				this.asrRecording = true
 				this.asrStatusText = '正在识别'
 			} catch (error) {
 				this.asrRecording = false
 				this.asrStatusText = '浏览器录音权限未开启'
+				this.stopBrowserAsrRecording()
 			}
+		},
+		async connectBrowserAudioProcessor() {
+			if (await this.connectAudioWorkletProcessor()) return
+			this.asrAudioProcessor = this.asrAudioContext.createScriptProcessor(2048, 1, 1)
+			this.asrAudioProcessor.onaudioprocess = (event) => {
+				this.sendBrowserPcmFrame(event.inputBuffer.getChannelData(0))
+			}
+			this.asrAudioSource.connect(this.asrAudioProcessor)
+			this.asrAudioProcessor.connect(this.asrAudioContext.destination)
+		},
+		async connectAudioWorkletProcessor() {
+			if (
+				!this.asrAudioContext?.audioWorklet ||
+				typeof AudioWorkletNode === 'undefined' ||
+				typeof Blob === 'undefined' ||
+				typeof URL === 'undefined'
+			) {
+				return false
+			}
+			try {
+				const workletCode = `
+					class AsrPcmProcessor extends AudioWorkletProcessor {
+						process(inputs) {
+							const input = inputs[0]
+							if (input && input[0]) {
+								this.port.postMessage(input[0].slice(0))
+							}
+							return true
+						}
+					}
+					registerProcessor('asr-pcm-processor', AsrPcmProcessor)
+				`
+				this.asrAudioWorkletUrl = URL.createObjectURL(new Blob([workletCode], { type: 'application/javascript' }))
+				await this.asrAudioContext.audioWorklet.addModule(this.asrAudioWorkletUrl)
+				this.asrAudioProcessor = new AudioWorkletNode(this.asrAudioContext, 'asr-pcm-processor')
+				this.asrAudioProcessor.port.onmessage = (event) => {
+					this.sendBrowserPcmFrame(event.data)
+				}
+				this.asrAudioSilence = this.asrAudioContext.createGain()
+				this.asrAudioSilence.gain.value = 0
+				this.asrAudioSource.connect(this.asrAudioProcessor)
+				this.asrAudioProcessor.connect(this.asrAudioSilence)
+				this.asrAudioSilence.connect(this.asrAudioContext.destination)
+				return true
+			} catch (error) {
+				this.cleanupAudioWorkletUrl()
+				this.asrAudioProcessor = null
+				this.asrAudioSilence = null
+				return false
+			}
+		},
+		sendBrowserPcmFrame(input) {
+			const sampleRate = this.asrAudioContext?.sampleRate
+			if (!input || !sampleRate) return
+			const pcm = this.floatTo16kPcm(input, sampleRate)
+			this.sendAlignedPcmFrames(pcm)
+		},
+		sendAlignedPcmFrames(pcm) {
+			if (!pcm || !this.asrSocketReady || !this.asrSocket) return
+			const frameSize = 1280
+			const incoming = new Uint8Array(pcm)
+			const pending = this.asrPcmBuffer || new Uint8Array(0)
+			const merged = new Uint8Array(pending.length + incoming.length)
+			merged.set(pending)
+			merged.set(incoming, pending.length)
+			let offset = 0
+			while (offset + frameSize <= merged.length) {
+				const frame = merged.slice(offset, offset + frameSize)
+				this.asrSocket.send({ data: frame.buffer })
+				offset += frameSize
+			}
+			this.asrPcmBuffer = merged.slice(offset)
+		},
+		flushPendingPcmFrame() {
+			if (!this.asrPcmBuffer || !this.asrPcmBuffer.length || !this.asrSocketReady || !this.asrSocket) return
+			const frameSize = 1280
+			const frame = new Uint8Array(frameSize)
+			frame.set(this.asrPcmBuffer)
+			this.asrSocket.send({ data: frame.buffer })
+			this.asrPcmBuffer = null
 		},
 		floatTo16kPcm(input, inputSampleRate) {
 			const outputSampleRate = 16000
@@ -314,40 +462,87 @@ export default {
 			return buffer
 		},
 		stopAsrRecording() {
+			this.asrManualClosing = true
+			this.clearAsrReconnectTimer()
 			if (this.asrRecorder && this.asrRecording) {
 				try {
 					this.asrRecorder.stop()
 				} catch (error) {}
 			}
-			this.stopBrowserAsrRecording()
 			if (this.asrSocketReady && this.asrSocket) {
+				this.flushPendingPcmFrame()
 				this.asrSocket.send({ data: JSON.stringify({ stop: true }) })
 			}
+			this.stopBrowserAsrRecording()
 			this.asrRecording = false
 			this.asrStatusText = '已静音'
 		},
 		closeAsr() {
+			this.clearAiSummaryTimer()
+			this.asrManualClosing = true
+			this.clearAsrReconnectTimer()
 			if (this.asrRecorder && this.asrRecording) {
 				try {
 					this.asrRecorder.stop()
 				} catch (error) {}
 			}
-			this.stopBrowserAsrRecording()
 			if (this.asrSocket) {
 				try {
+					this.flushPendingPcmFrame()
 					this.asrSocket.send({ data: JSON.stringify({ stop: true }) })
 					this.asrSocket.close()
 				} catch (error) {}
 			}
+			this.stopBrowserAsrRecording()
 			this.asrRecording = false
 			this.asrSocketReady = false
 			this.asrSocket = null
 		},
+		reconnectAsr() {
+			this.asrLastError = ''
+			this.asrStatusText = '正在重新连接'
+			this.asrManualClosing = false
+			this.clearAsrReconnectTimer()
+			if (this.asrSocket) {
+				try {
+					this.asrSocket.close()
+				} catch (error) {}
+				this.asrSocket = null
+			}
+			this.openAsrSocket()
+		},
+		scheduleAsrReconnect() {
+			if (this.asrReconnectAttempts >= 3) {
+				this.asrStatusText = this.asrLastError || '识别已断开，请手动重连'
+				return
+			}
+			this.clearAsrReconnectTimer()
+			this.asrReconnectAttempts += 1
+			const delay = Math.min(1000 * this.asrReconnectAttempts, 3000)
+			this.asrReconnectTimer = setTimeout(() => {
+				this.asrStatusText = `正在重连识别(${this.asrReconnectAttempts}/3)`
+				this.openAsrSocket()
+			}, delay)
+		},
+		clearAsrReconnectTimer() {
+			if (this.asrReconnectTimer) {
+				clearTimeout(this.asrReconnectTimer)
+				this.asrReconnectTimer = null
+			}
+		},
 		stopBrowserAsrRecording() {
 			if (this.asrAudioProcessor) {
 				try {
+					if (this.asrAudioProcessor.port) {
+						this.asrAudioProcessor.port.onmessage = null
+					}
 					this.asrAudioProcessor.disconnect()
 					this.asrAudioProcessor.onaudioprocess = null
+				} catch (error) {}
+			}
+			if (this.asrAudioSilence) {
+				try {
+					this.asrAudioSilence.disconnect()
 				} catch (error) {}
 			}
 			if (this.asrAudioSource) {
@@ -363,10 +558,21 @@ export default {
 			if (this.asrBrowserStream) {
 				this.asrBrowserStream.getTracks().forEach(track => track.stop())
 			}
+			this.cleanupAudioWorkletUrl()
+			this.asrPcmBuffer = null
 			this.asrAudioProcessor = null
+			this.asrAudioSilence = null
 			this.asrAudioSource = null
 			this.asrAudioContext = null
 			this.asrBrowserStream = null
+		},
+		cleanupAudioWorkletUrl() {
+			if (this.asrAudioWorkletUrl && typeof URL !== 'undefined') {
+				try {
+					URL.revokeObjectURL(this.asrAudioWorkletUrl)
+				} catch (error) {}
+			}
+			this.asrAudioWorkletUrl = ''
 		},
 		handleAsrMessage(raw) {
 			let payload = null
@@ -381,17 +587,24 @@ export default {
 				return
 			}
 			if (payload.type === 'asr_error') {
-				this.asrStatusText = payload.message || '识别异常'
+				this.asrLastError = payload.message || '识别异常'
+				this.asrStatusText = this.asrLastError
 				return
 			}
 			if (payload.type === 'asr_result') {
-				this.upsertAsrItem({
+				const item = {
 					speakerUserId: payload.speakerUserId || '',
 					speaker: payload.speaker || '参会成员',
 					text: payload.text || '',
 					isFinal: !!payload.isFinal,
 					isSelf: this.isSelfSpeaker(payload)
-				})
+				}
+				this.upsertAsrItem(item)
+				if (item.isFinal) {
+					this.appendTranscriptLine(item)
+				} else if (this.agentEnabled) {
+					this.scheduleAiSummary()
+				}
 			}
 		},
 		isSelfSpeaker(payload) {
@@ -420,6 +633,116 @@ export default {
 			}
 			if (this.asrItems.length > 8) {
 				this.asrItems = this.asrItems.slice(this.asrItems.length - 8)
+			}
+		},
+		appendTranscriptLine(item) {
+			const text = (item.text || '').trim()
+			if (!text) return
+			this.meetingTranscriptLines.push(`${item.speaker}：${text}`)
+			if (this.meetingTranscriptLines.length > 80) {
+				this.meetingTranscriptLines = this.meetingTranscriptLines.slice(this.meetingTranscriptLines.length - 80)
+			}
+			if (this.agentEnabled) {
+				this.scheduleAiSummary()
+			}
+		},
+		toggleAgentSummary(event) {
+			this.setAgentSummary(!!event.detail.value, true)
+		},
+		setAgentSummary(enabled, shouldClosePanel = false) {
+			this.agentEnabled = !!enabled
+			if (shouldClosePanel) this.closePanel()
+			if (this.agentEnabled) {
+				this.aiSummaryStatusText = this.hasSummarySourceText() ? '准备总结' : '等待发言'
+				this.scheduleAiSummary(300)
+			} else {
+				this.clearAiSummaryTimer()
+				this.aiSummaryStatusText = '等待发言'
+			}
+		},
+		scheduleAiSummary(delay = 2800) {
+			if (!this.agentEnabled) return
+			this.clearAiSummaryTimer()
+			this.aiSummaryTimer = setTimeout(() => {
+				this.runAiSummary()
+			}, delay)
+		},
+		clearAiSummaryTimer() {
+			if (this.aiSummaryTimer) {
+				clearTimeout(this.aiSummaryTimer)
+				this.aiSummaryTimer = null
+			}
+		},
+		async runAiSummary() {
+			if (!this.agentEnabled || !this.hasSummarySourceText()) {
+				this.aiSummaryStatusText = this.agentEnabled ? '等待发言' : '等待发言'
+				return
+			}
+			if (!this.sessionId) {
+				this.aiSummaryStatusText = '会议未就绪'
+				return
+			}
+			const content = this.buildSummaryInput()
+			if (!content || content === this.lastSummaryInput) {
+				this.aiSummaryStatusText = '已是最新'
+				return
+			}
+			if (this.aiSummaryRunning) {
+				this.aiSummaryPending = true
+				return
+			}
+			this.aiSummaryRunning = true
+			this.aiSummaryPending = false
+			this.aiSummaryStatusText = '智能体总结中'
+			try {
+				const res = await previewMeetingAgent(this.sessionId, {
+					agentName: 'meeting_summary_agent',
+					content
+				})
+				const answer = (res?.data?.answer || '').trim()
+				if (answer) {
+					this.lastSummaryInput = content
+					this.pushAiSummary(answer)
+					this.aiSummaryStatusText = '总结已更新'
+				} else {
+					this.aiSummaryStatusText = '暂无总结'
+				}
+			} catch (error) {
+				this.aiSummaryStatusText = '智能体暂不可用'
+			} finally {
+				this.aiSummaryRunning = false
+				if (this.aiSummaryPending && this.agentEnabled) {
+					this.scheduleAiSummary(1200)
+				}
+			}
+		},
+		buildSummaryInput() {
+			const liveLines = this.asrItems
+				.filter(item => item.text && item.text.trim())
+				.map(item => `${item.speaker}：${item.text.trim()}`)
+			const transcript = [...this.meetingTranscriptLines, ...liveLines].slice(-40).join('\n')
+			if (!transcript.trim()) return ''
+			const input = [
+				`会议主题：${this.title}`,
+				'请根据以下实时转写生成一段不超过120字的阶段性会议总结，包含已讨论内容、最新进展和待跟进事项；不要输出未在转写中出现的事实。',
+				'实时转写：',
+				transcript
+			].join('\n')
+			return input.length > 3900 ? input.slice(input.length - 3900) : input
+		},
+		hasSummarySourceText() {
+			return this.meetingTranscriptLines.length > 0 || this.asrItems.some(item => item.text && item.text.trim())
+		},
+		pushAiSummary(text) {
+			const now = new Date()
+			const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+			this.aiSummaryItems.push({
+				id: `ai-summary-${Date.now()}-${this.aiSummarySeq++}`,
+				text,
+				time
+			})
+			if (this.aiSummaryItems.length > 5) {
+				this.aiSummaryItems = this.aiSummaryItems.slice(this.aiSummaryItems.length - 5)
 			}
 		},
 		showMembers() {
@@ -492,6 +815,14 @@ export default {
 .live-title { font-size: 27rpx; font-weight: 850; color: #fff; }
 .live-time { font-size: 20rpx; color: rgba(255,255,255,.72); }
 .end-text { color: #ff5f55; font-size: 25rpx; text-align: right; }
+.agent-top-toggle { margin-top: 14rpx; min-height: 86rpx; padding: 16rpx 18rpx; border-radius: 22rpx; background: linear-gradient(135deg, rgba(255,255,255,.1), rgba(255,255,255,.04)); border: 2rpx solid rgba(255,255,255,.1); display: flex; align-items: center; justify-content: space-between; box-shadow: 0 14rpx 30rpx rgba(0,0,0,.18); }
+.agent-top-toggle--active { background: linear-gradient(135deg, rgba(45, 188, 142, .34), rgba(75, 224, 176, .14)); border-color: rgba(126, 226, 192, .5); }
+.agent-top-copy { display: flex; flex-direction: column; gap: 8rpx; }
+.agent-top-title { color: #fff; font-size: 27rpx; font-weight: 950; }
+.agent-top-desc { color: rgba(255,255,255,.62); font-size: 21rpx; }
+.agent-top-switch { width: 88rpx; height: 48rpx; padding: 5rpx; border-radius: 999rpx; background: rgba(255,255,255,.16); box-sizing: border-box; display: flex; justify-content: flex-start; }
+.agent-top-switch--active { justify-content: flex-end; background: #42d39f; }
+.agent-top-knob { width: 38rpx; height: 38rpx; border-radius: 50%; background: #fff; box-shadow: 0 5rpx 12rpx rgba(0,0,0,.22); }
 .member-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10rpx; margin-top: 18rpx; }
 .member-card { position: relative; height: 230rpx; border-radius: 10rpx; overflow: hidden; background: linear-gradient(180deg, #e9eeef, #bec8ca); display: flex; align-items: flex-end; justify-content: center; }
 .avatar-b { background: linear-gradient(180deg, #e2ecee, #a7c0c8); }
@@ -502,8 +833,16 @@ export default {
 .asr-title { color: rgba(255,255,255,.88); font-size: 24rpx; font-weight: 850; }
 .asr-status { height: 34rpx; padding: 0 16rpx; border-radius: 999rpx; background: rgba(255,255,255,.08); color: rgba(255,255,255,.62); font-size: 19rpx; display: flex; align-items: center; }
 .asr-status--live { background: rgba(92, 223, 179, .16); color: #79e6c2; }
+.asr-mode-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10rpx; margin-bottom: 18rpx; padding: 6rpx; border-radius: 18rpx; background: rgba(255,255,255,.06); }
+.asr-mode-pill { height: 50rpx; border-radius: 14rpx; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.58); font-size: 22rpx; font-weight: 850; }
+.asr-mode-pill--active { background: rgba(126, 226, 192, .2); color: #7ee2c0; box-shadow: 0 8rpx 18rpx rgba(0,0,0,.14); }
+.asr-reconnect { height: 54rpx; margin-bottom: 18rpx; border-radius: 16rpx; background: rgba(255, 95, 85, .16); color: #ffb3ad; border: 1rpx solid rgba(255, 95, 85, .28); display: flex; align-items: center; justify-content: center; font-size: 22rpx; font-weight: 900; }
 .asr-empty { margin-top: 128rpx; text-align: center; color: rgba(255,255,255,.35); font-size: 23rpx; }
 .asr-stream { display: flex; flex-direction: column; gap: 14rpx; }
+.ai-summary-stream { display: flex; flex-direction: column; gap: 16rpx; }
+.ai-summary-card { padding: 18rpx 20rpx; border-radius: 22rpx; background: linear-gradient(135deg, rgba(103, 222, 181, .16), rgba(255,255,255,.08)); border: 1rpx solid rgba(126, 226, 192, .18); box-shadow: 0 12rpx 28rpx rgba(0,0,0,.16); animation: asr-pop .26s ease-out both; }
+.ai-summary-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10rpx; color: #7ee2c0; font-size: 20rpx; font-weight: 900; }
+.ai-summary-text { color: rgba(255,255,255,.92); font-size: 24rpx; line-height: 1.55; white-space: pre-wrap; }
 .asr-bubble { max-width: 92%; align-self: flex-start; padding: 13rpx 17rpx; border-radius: 20rpx 20rpx 20rpx 8rpx; background: rgba(255,255,255,.12); box-shadow: 0 10rpx 24rpx rgba(0,0,0,.16); animation: asr-pop .24s ease-out both; }
 .asr-bubble--self { align-self: flex-end; border-radius: 20rpx 20rpx 8rpx 20rpx; background: rgba(97, 185, 153, .18); }
 .asr-bubble--partial { opacity: .72; }
@@ -540,5 +879,6 @@ export default {
 .member-name { color: #fff; font-size: 25rpx; font-weight: 800; }
 .member-role, .member-mic { color: rgba(255,255,255,.58); font-size: 21rpx; }
 .more-row { justify-content: space-between; color: #fff; font-size: 25rpx; }
+.more-row--switch { min-height: 88rpx; }
 .more-row text:last-child { color: rgba(255,255,255,.58); font-size: 22rpx; }
 </style>

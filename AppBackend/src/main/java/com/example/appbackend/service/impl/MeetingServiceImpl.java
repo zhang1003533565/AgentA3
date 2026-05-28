@@ -18,6 +18,8 @@ import com.example.appbackend.repository.MeetingSessionRepository;
 import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.LlmService;
 import com.example.appbackend.service.MeetingService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -35,6 +37,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class MeetingServiceImpl implements MeetingService {
+
+    private static final Logger log = LoggerFactory.getLogger(MeetingServiceImpl.class);
 
     private static final Set<String> MEETING_AGENTS = Set.of(
             "meeting_controller_agent",
@@ -268,6 +272,37 @@ public class MeetingServiceImpl implements MeetingService {
         response.setAnswerType(result.getAnswerType());
         response.setAnswer(result.getAnswer());
         response.setDetail(buildDetail(session));
+        return response;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public MeetingDTO.RunAgentResponse previewAgent(Long userId, String sessionId, MeetingDTO.RunAgentRequest request, String authorization) {
+        MeetingSession session = findAccessibleSession(sessionId);
+        String agentName = normalizeAgentName(request.getAgentName());
+        String content = resolveMeetingContent(session, request.getContent());
+
+        LlmChatRequest chatRequest = new LlmChatRequest();
+        chatRequest.setSessionId(session.getSessionId());
+        chatRequest.setAgentName(agentName);
+        chatRequest.setLlmModel(request.getLlmModel());
+        chatRequest.setInput(truncate(buildAgentInput(session, content), LLM_INPUT_LIMIT));
+
+        MeetingDTO.RunAgentResponse response = new MeetingDTO.RunAgentResponse();
+        response.setSessionId(session.getSessionId());
+        response.setAgentName(agentName);
+        response.setAnswerType("markdown");
+        try {
+            LlmChatResponse chatResponse = llmService.chat(chatRequest, authorization);
+            response.setAnswerType(StringUtils.hasText(chatResponse.getAnswerType()) ? chatResponse.getAnswerType() : "markdown");
+            response.setAnswer(StringUtils.hasText(chatResponse.getAnswer()) ? chatResponse.getAnswer() : "");
+        } catch (BusinessException error) {
+            if (error.getCode() < Result.ERROR_CODE) {
+                throw error;
+            }
+            log.warn("preview meeting agent failed sessionId={} agentName={}: {}", session.getSessionId(), agentName, error.getMessage());
+            response.setAnswer("");
+        }
         return response;
     }
 

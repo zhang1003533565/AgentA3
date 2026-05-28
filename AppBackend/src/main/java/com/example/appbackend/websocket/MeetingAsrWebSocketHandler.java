@@ -27,6 +27,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -257,6 +258,7 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
         private final StringBuilder partialText = new StringBuilder();
         private final TreeMap<Integer, String> finalSegments = new TreeMap<>();
         private final ScheduledExecutorService audioSender = Executors.newSingleThreadScheduledExecutor();
+        private byte[] pendingAudio = new byte[0];
         private int fallbackSegmentId = 0;
         private volatile WebSocket xfyunSocket;
         private volatile boolean xfyunOpen = false;
@@ -291,13 +293,22 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
             }
         }
 
-        void sendAudio(ByteBuffer payload) {
-            while (payload.hasRemaining()) {
-                int length = Math.min(AUDIO_FRAME_SIZE, payload.remaining());
-                byte[] frame = new byte[length];
-                payload.get(frame);
-                audioFrames.offer(ByteBuffer.wrap(frame));
+        synchronized void sendAudio(ByteBuffer payload) {
+            if (payload == null || !payload.hasRemaining()) {
+                return;
             }
+            byte[] incoming = new byte[payload.remaining()];
+            payload.get(incoming);
+            byte[] merged = new byte[pendingAudio.length + incoming.length];
+            System.arraycopy(pendingAudio, 0, merged, 0, pendingAudio.length);
+            System.arraycopy(incoming, 0, merged, pendingAudio.length, incoming.length);
+
+            int offset = 0;
+            while (offset + AUDIO_FRAME_SIZE <= merged.length) {
+                audioFrames.offer(ByteBuffer.wrap(Arrays.copyOfRange(merged, offset, offset + AUDIO_FRAME_SIZE)));
+                offset += AUDIO_FRAME_SIZE;
+            }
+            pendingAudio = Arrays.copyOfRange(merged, offset, merged.length);
         }
 
         void finish() {
@@ -453,6 +464,7 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
             if (!xfyunOpen || socket == null) {
                 return;
             }
+            flushPendingAudioFrame();
             ByteBuffer frame;
             while ((frame = audioFrames.poll()) != null) {
                 socket.sendBinary(frame, true);
@@ -463,6 +475,16 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
                     return;
                 }
             }
+        }
+
+        private synchronized void flushPendingAudioFrame() {
+            if (pendingAudio.length == 0) {
+                return;
+            }
+            byte[] padded = new byte[AUDIO_FRAME_SIZE];
+            System.arraycopy(pendingAudio, 0, padded, 0, pendingAudio.length);
+            audioFrames.offer(ByteBuffer.wrap(padded));
+            pendingAudio = new byte[0];
         }
 
         private String buildTranscript() {

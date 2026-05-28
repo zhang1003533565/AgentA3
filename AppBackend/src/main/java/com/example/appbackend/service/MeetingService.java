@@ -26,4 +26,6 @@ public interface MeetingService {
     MeetingDTO.RecordItem addRecord(Long userId, String sessionId, MeetingDTO.RecordRequest request);
 
     MeetingDTO.RunAgentResponse runAgent(Long userId, String sessionId, MeetingDTO.RunAgentRequest request, String authorization);
+
+    MeetingDTO.RunAgentResponse previewAgent(Long userId, String sessionId, MeetingDTO.RunAgentRequest request, String authorization);
 }

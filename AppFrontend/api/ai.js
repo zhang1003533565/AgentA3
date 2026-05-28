@@ -16,12 +16,20 @@ export function queryLeaderAgent(data) {
   })
 }
 
-export function queryMeetingAgent(data) {
-  return request({
-    url: '/api/llm/chat',
-    method: 'POST',
-    data,
-    timeout: 120000
+export function queryMeetingAgent(data = {}) {
+  const payload = { ...data }
+  const targetSessionId = payload.sessionId || payload.meetingSessionId
+  const nextContent = payload.content !== undefined ? payload.content : payload.input
+  if (!targetSessionId) {
+    return Promise.reject(new Error('会议ID不能为空'))
+  }
+  delete payload.sessionId
+  delete payload.meetingSessionId
+  delete payload.input
+  delete payload.prompt
+  return runMeetingAgent(targetSessionId, {
+    ...payload,
+    content: nextContent
   })
 }
 
@@ -105,6 +113,15 @@ export function saveMeetingRecord(sessionId, data) {
 export function runMeetingAgent(sessionId, data) {
   return request({
     url: `/api/meetings/${encodeURIComponent(sessionId)}/agents/run`,
+    method: 'POST',
+    data,
+    timeout: 120000
+  })
+}
+
+export function previewMeetingAgent(sessionId, data) {
+  return request({
+    url: `/api/meetings/${encodeURIComponent(sessionId)}/agents/preview`,
     method: 'POST',
     data,
     timeout: 120000

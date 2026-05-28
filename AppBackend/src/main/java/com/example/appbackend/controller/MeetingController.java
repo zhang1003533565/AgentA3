@@ -116,6 +116,19 @@ public class MeetingController {
         ));
     }
 
+    @PostMapping("/{sessionId}/agents/preview")
+    @Operation(summary = "预览会议智能体输出", description = "用于实时总结等轻量场景，不保存会议记录和智能体结果")
+    public Result<MeetingDTO.RunAgentResponse> previewAgent(@PathVariable String sessionId,
+                                                            @Valid @RequestBody MeetingDTO.RunAgentRequest request,
+                                                            HttpServletRequest httpRequest) {
+        return Result.success(meetingService.previewAgent(
+                currentUserId(httpRequest),
+                sessionId,
+                request,
+                httpRequest.getHeader("Authorization")
+        ));
+    }
+
     private Long currentUserId(HttpServletRequest request) {
         Object userId = request.getAttribute("userId");
         if (userId == null) {
