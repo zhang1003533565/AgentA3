@@ -46,10 +46,6 @@
 				</picker>
 			</view>
 			<view class="setting-row">
-				<text>开启视频</text>
-				<switch :checked="videoOn" color="#23866d" @change="videoOn = $event.detail.value" />
-			</view>
-			<view class="setting-row">
 				<text>开启麦克风</text>
 				<switch :checked="micOn" color="#23866d" @change="micOn = $event.detail.value" />
 			</view>
@@ -66,7 +62,7 @@
 </template>
 
 <script>
-import { createMeeting } from '@/api/ai.js'
+import { reserveMeeting } from '@/api/ai.js'
 
 export default {
 	data() {
@@ -74,7 +70,6 @@ export default {
 			meetingTitle: '项目进度同步会',
 			scheduledDate: '2024-03-20',
 			scheduledTime: '14:00',
-			videoOn: true,
 			micOn: true,
 			personalId: false,
 			creating: false
@@ -87,11 +82,10 @@ export default {
 			if (this.creating) return
 			this.creating = true
 			try {
-				await createMeeting({
+				await reserveMeeting({
 					title: this.meetingTitle || '预约会议',
-					status: 'idle',
-					participants: [],
-					notes: `预约时间：${this.scheduledDate} ${this.scheduledTime}`
+					scheduledStartTime: `${this.scheduledDate}T${this.scheduledTime}:00`,
+					participants: []
 				})
 				uni.showToast({ title: '会议已预约', icon: 'none' })
 				setTimeout(() => {

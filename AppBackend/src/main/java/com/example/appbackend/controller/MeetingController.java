@@ -36,6 +36,20 @@ public class MeetingController {
         return Result.success(meetingService.createMeeting(currentUserId(httpRequest), request));
     }
 
+    @PostMapping("/quick")
+    @Operation(summary = "快速发起会议")
+    public Result<MeetingDTO.SessionDetail> createQuick(@Valid @RequestBody MeetingDTO.QuickMeetingRequest request,
+                                                        HttpServletRequest httpRequest) {
+        return Result.success(meetingService.createQuickMeeting(currentUserId(httpRequest), request));
+    }
+
+    @PostMapping("/reservations")
+    @Operation(summary = "预约会议")
+    public Result<MeetingDTO.SessionDetail> reserve(@Valid @RequestBody MeetingDTO.ReserveMeetingRequest request,
+                                                    HttpServletRequest httpRequest) {
+        return Result.success(meetingService.reserveMeeting(currentUserId(httpRequest), request));
+    }
+
     @PutMapping("/{sessionId}")
     @Operation(summary = "更新会议")
     public Result<MeetingDTO.SessionDetail> update(@PathVariable String sessionId,
@@ -65,6 +79,20 @@ public class MeetingController {
     public Result<MeetingDTO.SessionDetail> detail(@PathVariable String sessionId,
                                                    HttpServletRequest httpRequest) {
         return Result.success(meetingService.getMeeting(currentUserId(httpRequest), sessionId));
+    }
+
+    @PostMapping("/{sessionId}/start")
+    @Operation(summary = "开始会议")
+    public Result<MeetingDTO.SessionDetail> start(@PathVariable String sessionId,
+                                                  HttpServletRequest httpRequest) {
+        return Result.success(meetingService.startMeeting(currentUserId(httpRequest), sessionId));
+    }
+
+    @PostMapping("/{sessionId}/end")
+    @Operation(summary = "结束会议")
+    public Result<MeetingDTO.SessionDetail> end(@PathVariable String sessionId,
+                                                HttpServletRequest httpRequest) {
+        return Result.success(meetingService.endMeeting(currentUserId(httpRequest), sessionId));
     }
 
     @PostMapping("/{sessionId}/records")

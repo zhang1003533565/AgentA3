@@ -24,10 +24,6 @@
 
 			<view class="option-title">入会选项</view>
 			<view class="option-row">
-				<text>开启视频</text>
-				<switch :checked="videoOn" color="#23866d" @change="videoOn = $event.detail.value" />
-			</view>
-			<view class="option-row">
 				<text>开启麦克风</text>
 				<switch :checked="micOn" color="#23866d" @change="micOn = $event.detail.value" />
 			</view>
@@ -43,7 +39,7 @@ import { joinMeeting } from '@/api/ai.js'
 
 export default {
 	data() {
-		return { roomCode: '', displayName: '张三', videoOn: true, micOn: true }
+		return { roomCode: '', displayName: '张三', micOn: true }
 	},
 	onLoad(options) {
 		if (options?.roomCode) this.roomCode = decodeURIComponent(options.roomCode)
@@ -57,7 +53,7 @@ export default {
 				return
 			}
 			try {
-				const res = await joinMeeting({ roomCode: compactCode })
+				const res = await joinMeeting({ roomCode: compactCode, displayName: this.displayName })
 				const session = res?.data?.session || {}
 				uni.redirectTo({
 					url: `/subpackage_meeting/meetingLive/meetingLive?title=${encodeURIComponent(session.title || '产品需求评审会')}&roomCode=${encodeURIComponent(session.roomCode || compactCode)}&sessionId=${encodeURIComponent(session.sessionId || '')}`

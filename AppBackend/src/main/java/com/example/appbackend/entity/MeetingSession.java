@@ -17,6 +17,8 @@ public class MeetingSession {
     public static final String STATUS_ACTIVE = "active";
     public static final String STATUS_PAUSED = "paused";
     public static final String STATUS_ENDED = "ended";
+    public static final String TYPE_QUICK = "quick";
+    public static final String TYPE_RESERVED = "reserved";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -34,8 +36,20 @@ public class MeetingSession {
     @Column(nullable = false, length = 120, columnDefinition = "VARCHAR(120) NOT NULL COMMENT '会议标题'")
     private String title;
 
+    @Column(name = "meeting_type", nullable = false, length = 20, columnDefinition = "VARCHAR(20) NOT NULL DEFAULT 'quick' COMMENT '会议类型：quick/reserved'")
+    private String meetingType = TYPE_QUICK;
+
     @Column(nullable = false, length = 20, columnDefinition = "VARCHAR(20) NOT NULL DEFAULT 'idle' COMMENT '会议状态：idle/active/paused/ended'")
     private String status = STATUS_IDLE;
+
+    @Column(name = "scheduled_start_time", columnDefinition = "DATETIME COMMENT '预约开始时间'")
+    private LocalDateTime scheduledStartTime;
+
+    @Column(name = "start_time", columnDefinition = "DATETIME COMMENT '实际开始时间'")
+    private LocalDateTime startTime;
+
+    @Column(name = "end_time", columnDefinition = "DATETIME COMMENT '结束时间'")
+    private LocalDateTime endTime;
 
     @Column(name = "last_note", length = 500, columnDefinition = "VARCHAR(500) COMMENT '最后一段会议记录摘要'")
     private String lastNote;
@@ -58,6 +72,9 @@ public class MeetingSession {
         updateTime = LocalDateTime.now();
         if (status == null || status.isBlank()) {
             status = STATUS_IDLE;
+        }
+        if (meetingType == null || meetingType.isBlank()) {
+            meetingType = TYPE_QUICK;
         }
         if (recordCount == null) {
             recordCount = 0;

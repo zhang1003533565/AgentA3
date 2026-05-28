@@ -33,6 +33,22 @@ export function createMeeting(data) {
   })
 }
 
+export function createQuickMeeting(data) {
+  return request({
+    url: '/api/meetings/quick',
+    method: 'POST',
+    data
+  })
+}
+
+export function reserveMeeting(data) {
+  return request({
+    url: '/api/meetings/reservations',
+    method: 'POST',
+    data
+  })
+}
+
 export function updateMeeting(sessionId, data) {
   return request({
     url: `/api/meetings/${encodeURIComponent(sessionId)}`,
@@ -61,6 +77,20 @@ export function joinMeeting(data) {
     url: '/api/meetings/join',
     method: 'POST',
     data
+  })
+}
+
+export function startMeeting(sessionId) {
+  return request({
+    url: `/api/meetings/${encodeURIComponent(sessionId)}/start`,
+    method: 'POST'
+  })
+}
+
+export function endMeeting(sessionId) {
+  return request({
+    url: `/api/meetings/${encodeURIComponent(sessionId)}/end`,
+    method: 'POST'
   })
 }
 

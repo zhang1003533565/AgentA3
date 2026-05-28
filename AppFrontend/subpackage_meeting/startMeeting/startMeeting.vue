@@ -34,10 +34,6 @@
 				<input v-model="meetingTitle" class="plain-input" placeholder="项目进度同步会" />
 			</view>
 			<view class="setting-row">
-				<text>开启视频</text>
-				<switch :checked="videoOn" color="#23866d" @change="videoOn = $event.detail.value" />
-			</view>
-			<view class="setting-row">
 				<text>开启麦克风</text>
 				<switch :checked="micOn" color="#23866d" @change="micOn = $event.detail.value" />
 			</view>
@@ -54,13 +50,12 @@
 </template>
 
 <script>
-import { createMeeting } from '@/api/ai.js'
+import { createQuickMeeting } from '@/api/ai.js'
 
 export default {
 	data() {
 		return {
 			meetingTitle: '项目进度同步会',
-			videoOn: true,
 			micOn: true,
 			personalId: false,
 			creating: false
@@ -75,11 +70,9 @@ export default {
 			if (this.creating) return
 			this.creating = true
 			try {
-				const res = await createMeeting({
+				const res = await createQuickMeeting({
 					title: this.meetingTitle || '快速会议',
-					status: 'active',
-					participants: [],
-					notes: ''
+					participants: []
 				})
 				const session = res?.data?.session || {}
 				const roomCode = session.roomCode || '876543210'

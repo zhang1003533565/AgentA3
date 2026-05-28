@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.security.SecureRandom;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -72,13 +73,54 @@ public class MeetingServiceImpl implements MeetingService {
         session.setUserId(userId);
         session.setSessionId("meeting-" + UUID.randomUUID());
         session.setRoomCode(generateRoomCode());
+        session.setMeetingType(normalizeMeetingType(request == null ? null : request.getMeetingType()));
         session.setTitle(normalizeTitle(request == null ? null : request.getTitle()));
         session.setStatus(normalizeStatus(request == null ? null : request.getStatus()));
+        if (request != null && request.getScheduledStartTime() != null) {
+            session.setScheduledStartTime(request.getScheduledStartTime());
+        }
+        if (MeetingSession.STATUS_ACTIVE.equals(session.getStatus())) {
+            session.setStartTime(LocalDateTime.now());
+        }
         session = sessionRepository.save(session);
         syncParticipants(session.getId(), request == null ? List.of() : request.getParticipants());
         if (request != null && StringUtils.hasText(request.getNotes())) {
             saveRecord(session, request.getNotes(), MeetingRecord.SOURCE_MANUAL);
         }
+        refreshCounters(session);
+        return buildDetail(session);
+    }
+
+    @Override
+    @Transactional
+    public MeetingDTO.SessionDetail createQuickMeeting(Long userId, MeetingDTO.QuickMeetingRequest request) {
+        MeetingSession session = new MeetingSession();
+        session.setUserId(userId);
+        session.setSessionId("meeting-" + UUID.randomUUID());
+        session.setRoomCode(generateRoomCode());
+        session.setMeetingType(MeetingSession.TYPE_QUICK);
+        session.setTitle(normalizeTitle(request == null ? null : request.getTitle()));
+        session.setStatus(MeetingSession.STATUS_ACTIVE);
+        session.setStartTime(LocalDateTime.now());
+        session = sessionRepository.save(session);
+        syncParticipants(session.getId(), request == null ? List.of() : request.getParticipants());
+        refreshCounters(session);
+        return buildDetail(session);
+    }
+
+    @Override
+    @Transactional
+    public MeetingDTO.SessionDetail reserveMeeting(Long userId, MeetingDTO.ReserveMeetingRequest request) {
+        MeetingSession session = new MeetingSession();
+        session.setUserId(userId);
+        session.setSessionId("meeting-" + UUID.randomUUID());
+        session.setRoomCode(generateRoomCode());
+        session.setMeetingType(MeetingSession.TYPE_RESERVED);
+        session.setTitle(normalizeTitle(request == null ? null : request.getTitle()));
+        session.setStatus(MeetingSession.STATUS_IDLE);
+        session.setScheduledStartTime(resolveScheduledStartTime(request == null ? null : request.getScheduledStartTime()));
+        session = sessionRepository.save(session);
+        syncParticipants(session.getId(), request == null ? List.of() : request.getParticipants());
         refreshCounters(session);
         return buildDetail(session);
     }
@@ -93,6 +135,12 @@ public class MeetingServiceImpl implements MeetingService {
             }
             if (StringUtils.hasText(request.getStatus())) {
                 session.setStatus(normalizeStatus(request.getStatus()));
+            }
+            if (StringUtils.hasText(request.getMeetingType())) {
+                session.setMeetingType(normalizeMeetingType(request.getMeetingType()));
+            }
+            if (request.getScheduledStartTime() != null) {
+                session.setScheduledStartTime(request.getScheduledStartTime());
             }
             if (request.getParticipants() != null) {
                 syncParticipants(session.getId(), request.getParticipants());
@@ -128,6 +176,9 @@ public class MeetingServiceImpl implements MeetingService {
         String roomCode = normalizeRoomCode(request == null ? null : request.getRoomCode());
         MeetingSession session = sessionRepository.findByRoomCode(roomCode)
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "会议号不存在"));
+        if (request != null && StringUtils.hasText(request.getDisplayName())) {
+            addParticipantIfMissing(session.getId(), request.getDisplayName());
+        }
         return buildDetail(session);
     }
 
@@ -135,6 +186,31 @@ public class MeetingServiceImpl implements MeetingService {
     @Transactional(readOnly = true)
     public MeetingDTO.SessionDetail getMeeting(Long userId, String sessionId) {
         return buildDetail(findAccessibleSession(sessionId));
+    }
+
+    @Override
+    @Transactional
+    public MeetingDTO.SessionDetail startMeeting(Long userId, String sessionId) {
+        MeetingSession session = findAccessibleSession(sessionId);
+        if (MeetingSession.STATUS_ENDED.equals(session.getStatus())) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "已结束的会议不能重新开始");
+        }
+        session.setStatus(MeetingSession.STATUS_ACTIVE);
+        if (session.getStartTime() == null) {
+            session.setStartTime(LocalDateTime.now());
+        }
+        refreshCounters(session);
+        return buildDetail(session);
+    }
+
+    @Override
+    @Transactional
+    public MeetingDTO.SessionDetail endMeeting(Long userId, String sessionId) {
+        MeetingSession session = findAccessibleSession(sessionId);
+        session.setStatus(MeetingSession.STATUS_ENDED);
+        session.setEndTime(LocalDateTime.now());
+        refreshCounters(session);
+        return buildDetail(session);
     }
 
     @Override
@@ -212,6 +288,23 @@ public class MeetingServiceImpl implements MeetingService {
         participantRepository.saveAll(entities);
     }
 
+    private void addParticipantIfMissing(Long meetingSessionId, String displayName) {
+        String name = truncate(displayName.trim(), 80);
+        if (!StringUtils.hasText(name)) {
+            return;
+        }
+        List<MeetingParticipant> participants = participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(meetingSessionId);
+        boolean exists = participants.stream().anyMatch(participant -> name.equals(participant.getName()));
+        if (exists || participants.size() >= 20) {
+            return;
+        }
+        MeetingParticipant participant = new MeetingParticipant();
+        participant.setMeetingSessionId(meetingSessionId);
+        participant.setName(name);
+        participant.setSortOrder(participants.size());
+        participantRepository.save(participant);
+    }
+
     private MeetingRecord saveRecord(MeetingSession session, String content, String source) {
         if (!StringUtils.hasText(content)) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "会议记录不能为空");
@@ -285,7 +378,11 @@ public class MeetingServiceImpl implements MeetingService {
         item.setSessionId(session.getSessionId());
         item.setRoomCode(session.getRoomCode());
         item.setTitle(session.getTitle());
+        item.setMeetingType(session.getMeetingType());
         item.setStatus(session.getStatus());
+        item.setScheduledStartTime(session.getScheduledStartTime());
+        item.setStartTime(session.getStartTime());
+        item.setEndTime(session.getEndTime());
         item.setLastNote(session.getLastNote());
         item.setParticipantCount(participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(session.getId()).size());
         item.setRecordCount(session.getRecordCount() == null ? 0 : session.getRecordCount());
@@ -327,6 +424,21 @@ public class MeetingServiceImpl implements MeetingService {
             return normalized;
         }
         throw new BusinessException(Result.BAD_REQUEST_CODE, "会议状态不正确");
+    }
+
+    private String normalizeMeetingType(String meetingType) {
+        if (!StringUtils.hasText(meetingType)) {
+            return MeetingSession.TYPE_QUICK;
+        }
+        String normalized = meetingType.trim();
+        if (Set.of(MeetingSession.TYPE_QUICK, MeetingSession.TYPE_RESERVED).contains(normalized)) {
+            return normalized;
+        }
+        throw new BusinessException(Result.BAD_REQUEST_CODE, "会议类型不正确");
+    }
+
+    private LocalDateTime resolveScheduledStartTime(LocalDateTime scheduledStartTime) {
+        return scheduledStartTime == null ? LocalDateTime.now().plusHours(1) : scheduledStartTime;
     }
 
     private String normalizeRoomCode(String roomCode) {

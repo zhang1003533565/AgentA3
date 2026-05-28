@@ -41,33 +41,30 @@
 		</view>
 
 		<view class="date-line">
-			<text>今天 · 3月20日 星期三</text>
+			<text>{{ todayLabel }}</text>
 		</view>
 
 		<view class="meeting-list">
-			<view class="meeting-item meeting-item--active" @click="openDetail('产品需求评审会', '876 543 210')">
+			<view v-if="loading" class="empty-state">正在加载会议...</view>
+			<view v-else-if="meetings.length === 0" class="empty-state">暂无会议，先发起或预约一场会议吧。</view>
+			<view
+				v-for="meeting in meetings"
+				v-else
+				:key="meeting.sessionId"
+				class="meeting-item"
+				:class="{ 'meeting-item--active': meeting.status === 'active' }"
+				@click="openDetail(meeting)"
+			>
 				<view>
-					<text class="meeting-name">产品需求评审会</text>
-					<text class="meeting-time">09:30 - 11:00</text>
-					<text class="meeting-code">会议号：876 543 210</text>
+					<text class="meeting-name">{{ meeting.title || '未命名会议' }}</text>
+					<text class="meeting-time">{{ meetingTime(meeting) }}</text>
+					<text class="meeting-code">会议号：{{ formatRoomCode(meeting.roomCode) }}</text>
 				</view>
-				<view class="pill pill--live">进行中</view>
-			</view>
-			<view class="meeting-item" @click="openDetail('设计方案讨论会', '123 456 789')">
-				<view>
-					<text class="meeting-name">设计方案讨论会</text>
-					<text class="meeting-time">14:00 - 15:30</text>
-					<text class="meeting-code">会议号：123 456 789</text>
-				</view>
-				<view class="pill" @click.stop="go('/subpackage_meeting/joinMeeting/joinMeeting?roomCode=123456789')">加入</view>
-			</view>
-			<view class="meeting-item" @click="openDetail('团队周会', '987 654 321')">
-				<view>
-					<text class="meeting-name">团队周会</text>
-					<text class="meeting-time">16:00 - 17:00</text>
-					<text class="meeting-code">会议号：987 654 321</text>
-				</view>
-				<view class="pill" @click.stop="go('/subpackage_meeting/joinMeeting/joinMeeting?roomCode=987654321')">加入</view>
+				<view
+					class="pill"
+					:class="{ 'pill--live': meeting.status === 'active' }"
+					@click.stop="enterMeeting(meeting)"
+				>{{ meeting.status === 'active' ? '进行中' : '加入' }}</view>
 			</view>
 		</view>
 		</view>
@@ -76,17 +73,69 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { getMeetings, startMeeting } from '@/api/ai.js'
 
 export default {
 	components: { NavBar },
+	data() {
+		return {
+			loading: false,
+			meetings: []
+		}
+	},
+	onShow() {
+		this.loadMeetings()
+	},
+	computed: {
+		todayLabel() {
+			const now = new Date()
+			const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
+			return `今天 · ${now.getMonth() + 1}月${now.getDate()}日 ${weekdays[now.getDay()]}`
+		}
+	},
 	methods: {
 		go(url) {
 			uni.navigateTo({ url })
 		},
-		openDetail(title, roomCode) {
+		async loadMeetings() {
+			this.loading = true
+			try {
+				const res = await getMeetings({ pageNum: 1, pageSize: 20 })
+				this.meetings = res?.data?.records || []
+			} catch (error) {
+				this.meetings = []
+			} finally {
+				this.loading = false
+			}
+		},
+		openDetail(meeting) {
 			uni.navigateTo({
-				url: `/subpackage_meeting/meetingDetail/meetingDetail?title=${encodeURIComponent(title)}&roomCode=${encodeURIComponent(roomCode)}`
+				url: `/subpackage_meeting/meetingDetail/meetingDetail?sessionId=${encodeURIComponent(meeting.sessionId)}`
 			})
+		},
+		async enterMeeting(meeting) {
+			if (!meeting?.sessionId) return
+			if (meeting.status !== 'active') {
+				try {
+					await startMeeting(meeting.sessionId)
+				} catch (error) {}
+			}
+			uni.navigateTo({
+				url: `/subpackage_meeting/meetingLive/meetingLive?sessionId=${encodeURIComponent(meeting.sessionId)}&title=${encodeURIComponent(meeting.title || '未命名会议')}&roomCode=${encodeURIComponent(meeting.roomCode || '')}`
+			})
+		},
+		formatRoomCode(roomCode) {
+			const code = roomCode || '未生成'
+			return code.replace(/(.{3})/g, '$1 ').trim()
+		},
+		meetingTime(meeting) {
+			const source = meeting.scheduledStartTime || meeting.startTime || meeting.createTime
+			if (!source) return meeting.meetingType === 'reserved' ? '待开始' : '会议中'
+			const date = new Date(source)
+			if (Number.isNaN(date.getTime())) return meeting.meetingType === 'reserved' ? '待开始' : '会议中'
+			const hh = String(date.getHours()).padStart(2, '0')
+			const mm = String(date.getMinutes()).padStart(2, '0')
+			return meeting.meetingType === 'reserved' && meeting.status !== 'active' ? `${hh}:${mm} 预约` : `${hh}:${mm} 开始`
 		}
 	}
 }
@@ -116,6 +165,7 @@ export default {
 .quick-icon { width: 72rpx; height: 72rpx; border-radius: 20rpx; background: linear-gradient(135deg,#198468,#49aa88); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 34rpx; box-shadow: 0 12rpx 24rpx rgba(31,127,104,.16); }
 .date-line { margin-bottom: 18rpx; font-size: 26rpx; color: #1e2930; }
 .meeting-list { border-radius: 26rpx; overflow: hidden; box-shadow: 0 22rpx 54rpx rgba(22,35,42,.08); }
+.empty-state { padding: 38rpx 24rpx; background: #fff; color: #68747a; font-size: 25rpx; text-align: center; }
 .meeting-item { min-height: 126rpx; padding: 24rpx 28rpx; background: #fff; display: flex; align-items: flex-start; justify-content: space-between; border-bottom: 1rpx solid #f0f2f2; box-sizing: border-box; }
 .meeting-item--active { background: linear-gradient(90deg, rgba(229,246,236,.95), rgba(255,255,255,.98)); }
 .meeting-name { display: block; font-size: 27rpx; color: #121b22; font-weight: 800; }

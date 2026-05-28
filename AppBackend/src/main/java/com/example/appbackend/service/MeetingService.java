@@ -7,6 +7,10 @@ public interface MeetingService {
 
     MeetingDTO.SessionDetail createMeeting(Long userId, MeetingDTO.SessionRequest request);
 
+    MeetingDTO.SessionDetail createQuickMeeting(Long userId, MeetingDTO.QuickMeetingRequest request);
+
+    MeetingDTO.SessionDetail reserveMeeting(Long userId, MeetingDTO.ReserveMeetingRequest request);
+
     MeetingDTO.SessionDetail updateMeeting(Long userId, String sessionId, MeetingDTO.SessionRequest request);
 
     PageResponse<MeetingDTO.SessionItem> listMeetings(Long userId, Integer pageNum, Integer pageSize, String keyword);
@@ -14,6 +18,10 @@ public interface MeetingService {
     MeetingDTO.SessionDetail joinMeeting(Long userId, MeetingDTO.JoinRoomRequest request);
 
     MeetingDTO.SessionDetail getMeeting(Long userId, String sessionId);
+
+    MeetingDTO.SessionDetail startMeeting(Long userId, String sessionId);
+
+    MeetingDTO.SessionDetail endMeeting(Long userId, String sessionId);
 
     MeetingDTO.RecordItem addRecord(Long userId, String sessionId, MeetingDTO.RecordRequest request);
 

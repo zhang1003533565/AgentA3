@@ -20,14 +20,41 @@ public class MeetingDTO {
         @Size(max = 120, message = "会议主题最多120字符")
         private String title;
 
+        @Size(max = 20, message = "会议类型最多20字符")
+        private String meetingType;
+
         @Size(max = 20, message = "会议状态最多20字符")
         private String status;
+
+        private LocalDateTime scheduledStartTime;
 
         @Size(max = 20, message = "参会成员最多20人")
         private List<@Size(max = 80, message = "成员名称最多80字符") String> participants = new ArrayList<>();
 
         @Size(max = 6000, message = "会议记录最多6000字符")
         private String notes;
+    }
+
+    @Data
+    @Schema(description = "快速发起会议请求")
+    public static class QuickMeetingRequest {
+        @Size(max = 120, message = "会议主题最多120字符")
+        private String title;
+
+        @Size(max = 20, message = "参会成员最多20人")
+        private List<@Size(max = 80, message = "成员名称最多80字符") String> participants = new ArrayList<>();
+    }
+
+    @Data
+    @Schema(description = "预约会议请求")
+    public static class ReserveMeetingRequest {
+        @Size(max = 120, message = "会议主题最多120字符")
+        private String title;
+
+        private LocalDateTime scheduledStartTime;
+
+        @Size(max = 20, message = "参会成员最多20人")
+        private List<@Size(max = 80, message = "成员名称最多80字符") String> participants = new ArrayList<>();
     }
 
     @Data
@@ -47,6 +74,9 @@ public class MeetingDTO {
         @NotBlank(message = "会议号不能为空")
         @Size(max = 12, message = "会议号最多12字符")
         private String roomCode;
+
+        @Size(max = 80, message = "入会名称最多80字符")
+        private String displayName;
     }
 
     @Data
@@ -69,7 +99,11 @@ public class MeetingDTO {
         private String sessionId;
         private String roomCode;
         private String title;
+        private String meetingType;
         private String status;
+        private LocalDateTime scheduledStartTime;
+        private LocalDateTime startTime;
+        private LocalDateTime endTime;
         private String lastNote;
         private Integer participantCount;
         private Integer recordCount;
