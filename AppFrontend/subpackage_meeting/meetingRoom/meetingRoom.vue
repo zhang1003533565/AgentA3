@@ -1,15 +1,16 @@
 <template>
 	<view class="meeting-app-page">
-		<view class="status-bar"></view>
-		<view class="top-bar top-bar--home">
-			<text class="page-title">会议</text>
-			<view class="top-actions">
-				<view class="scan-icon"></view>
-				<view class="round-plus" @click="go('/subpackage_meeting/startMeeting/startMeeting')">+</view>
-			</view>
-		</view>
+		<nav-bar title="会议" :showBack="true" fixed placeholder :border="false" background="#FFFFFF">
+			<template #right>
+				<view class="top-actions">
+					<view class="scan-icon"></view>
+					<view class="round-plus" @click="go('/subpackage_meeting/startMeeting/startMeeting')">+</view>
+				</view>
+			</template>
+		</nav-bar>
 
-		<view class="home-hero">
+		<view class="meeting-body">
+			<view class="home-hero">
 			<view class="hero-close">×</view>
 			<view class="hero-copy">
 				<text class="hero-title">高效会议\n从这里开始</text>
@@ -29,13 +30,13 @@
 				<view class="quick-icon">▶</view>
 				<text>发起会议</text>
 			</view>
+			<view class="quick-item" @click="go('/subpackage_meeting/reserveMeeting/reserveMeeting')">
+				<view class="quick-icon">▣</view>
+				<text>预约会议</text>
+			</view>
 			<view class="quick-item" @click="go('/subpackage_meeting/joinMeeting/joinMeeting')">
 				<view class="quick-icon">+</view>
 				<text>加入会议</text>
-			</view>
-			<view class="quick-item" @click="go('/subpackage_meeting/meetingSchedule/meetingSchedule')">
-				<view class="quick-icon">▣</view>
-				<text>预约会议</text>
 			</view>
 		</view>
 
@@ -69,18 +70,15 @@
 				<view class="pill" @click.stop="go('/subpackage_meeting/joinMeeting/joinMeeting?roomCode=987654321')">加入</view>
 			</view>
 		</view>
-
-		<view class="bottom-tabs">
-			<view class="tab-item tab-item--active"><text class="tab-ico">▰</text><text>会议</text></view>
-			<view class="tab-item" @click="go('/subpackage_meeting/meetingSchedule/meetingSchedule')"><text class="tab-ico">▣</text><text>日程</text></view>
-			<view class="tab-item" @click="go('/subpackage_meeting/meetingContacts/meetingContacts')"><text class="tab-ico">♟</text><text>通讯录</text></view>
-			<view class="tab-item" @click="go('/subpackage_meeting/meetingMine/meetingMine')"><text class="tab-ico">♙</text><text>我的</text></view>
 		</view>
 	</view>
 </template>
 
 <script>
+import NavBar from '@/components/nav-bar/nav-bar.vue'
+
 export default {
+	components: { NavBar },
 	methods: {
 		go(url) {
 			uni.navigateTo({ url })
@@ -95,11 +93,8 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-.meeting-app-page { min-height: 100vh; background: #ffffff; padding: 0 28rpx 150rpx; box-sizing: border-box; color: #101820; }
-.status-bar { height: var(--status-bar-height); min-height: 42rpx; }
-.top-bar { height: 88rpx; display: flex; align-items: center; justify-content: space-between; }
-.top-bar--home { margin-bottom: 8rpx; }
-.page-title { font-size: 34rpx; font-weight: 800; }
+.meeting-app-page { min-height: 100vh; background: #ffffff; color: #101820; }
+.meeting-body { padding: 8rpx 28rpx 72rpx; box-sizing: border-box; }
 .top-actions { display: flex; align-items: center; gap: 30rpx; }
 .round-plus { width: 38rpx; height: 38rpx; border-radius: 50%; background: #1f7f68; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 32rpx; line-height: 1; }
 .scan-icon { width: 30rpx; height: 30rpx; border: 3rpx solid #101820; border-radius: 6rpx; position: relative; box-sizing: border-box; }
@@ -127,8 +122,4 @@ export default {
 .meeting-time, .meeting-code { display: block; margin-top: 9rpx; color: #68747a; font-size: 22rpx; }
 .pill { min-width: 76rpx; height: 44rpx; border-radius: 999rpx; background: #eef8f3; color: #1f7f68; display: flex; align-items: center; justify-content: center; font-size: 22rpx; font-weight: 700; }
 .pill--live { background: #c8efd9; }
-.bottom-tabs { position: fixed; left: 0; right: 0; bottom: 0; height: 112rpx; padding: 10rpx 28rpx calc(env(safe-area-inset-bottom) + 8rpx); background: rgba(255,255,255,.96); box-shadow: 0 -10rpx 35rpx rgba(20,33,40,.08); display: grid; grid-template-columns: repeat(4,1fr); box-sizing: content-box; z-index: 20; }
-.tab-item { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5rpx; color: #7c868b; font-size: 21rpx; }
-.tab-item--active { color: #147a64; font-weight: 800; }
-.tab-ico { font-size: 32rpx; line-height: 1; }
 </style>

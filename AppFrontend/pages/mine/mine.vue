@@ -24,6 +24,14 @@
           <text class="cell-arrow">›</text>
         </view>
         <view class="cell-divider"></view>
+        <view class="cell" @click="goToMeetingSchedule">
+          <view class="cell-left">
+            <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/calendar.svg" mode="aspectFit" /></view>
+            <text class="cell-label">会议日程</text>
+          </view>
+          <text class="cell-arrow">›</text>
+        </view>
+        <view class="cell-divider"></view>
         <view class="cell" @click="goToMyActivity">
           <view class="cell-left">
             <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/compass.svg" mode="aspectFit" /></view>
@@ -129,6 +137,9 @@ export default {
     },
     goToSchedule() {
       uni.navigateTo({ url: '/subpackage_schedule/schedule/schedule' })
+    },
+    goToMeetingSchedule() {
+      uni.navigateTo({ url: '/subpackage_meeting/meetingSchedule/meetingSchedule' })
     },
     goToMyActivity() {
       uni.navigateTo({ url: '/subpackage_community/myActivities/myActivities' })

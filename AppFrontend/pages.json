@@ -485,6 +485,15 @@
 					}
 				},
 				{
+					"path": "reserveMeeting/reserveMeeting",
+					"style": {
+						"navigationBarTitleText": "预约会议",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "joinMeeting/joinMeeting",
 					"style": {
 						"navigationBarTitleText": "加入会议",
@@ -515,24 +524,6 @@
 					"path": "meetingDetail/meetingDetail",
 					"style": {
 						"navigationBarTitleText": "会议详情",
-						"navigationStyle": "custom",
-						"navigationBarBackgroundColor": "#FFFFFF",
-						"navigationBarTextStyle": "black"
-					}
-				},
-				{
-					"path": "meetingContacts/meetingContacts",
-					"style": {
-						"navigationBarTitleText": "通讯录",
-						"navigationStyle": "custom",
-						"navigationBarBackgroundColor": "#FFFFFF",
-						"navigationBarTextStyle": "black"
-					}
-				},
-				{
-					"path": "meetingMine/meetingMine",
-					"style": {
-						"navigationBarTitleText": "我的",
 						"navigationStyle": "custom",
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
