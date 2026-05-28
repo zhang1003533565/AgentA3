@@ -149,6 +149,7 @@ export default {
 			aiSummaryRunning: false,
 			aiSummaryPending: false,
 			lastSummaryInput: '',
+			lastSummaryErrorInput: '',
 			meetingTranscriptLines: [],
 			memberPanelVisible: false,
 			morePanelVisible: false,
@@ -700,15 +701,34 @@ export default {
 					content
 				})
 				const answer = (res?.data?.answer || '').trim()
+				const errorMessage = (res?.data?.errorMessage || '').trim()
 				if (answer) {
 					this.lastSummaryInput = content
+					this.lastSummaryErrorInput = ''
 					this.pushAiSummary(answer)
 					this.aiSummaryStatusText = '总结已更新'
+				} else if (errorMessage) {
+					this.lastSummaryInput = content
+					this.aiSummaryStatusText = '调用失败'
+					if (this.lastSummaryErrorInput !== content) {
+						this.lastSummaryErrorInput = content
+						this.pushAiSummary(`已尝试调用会议总结智能体，但服务暂不可用：${errorMessage}`)
+					}
 				} else {
-					this.aiSummaryStatusText = '暂无总结'
+					this.lastSummaryInput = content
+					this.aiSummaryStatusText = '智能体未返回内容'
+					if (this.lastSummaryErrorInput !== content) {
+						this.lastSummaryErrorInput = content
+						this.pushAiSummary('已尝试调用会议总结智能体，但本次没有返回可用总结。请继续发言后我会再次尝试。')
+					}
 				}
 			} catch (error) {
 				this.aiSummaryStatusText = '智能体暂不可用'
+				if (this.lastSummaryErrorInput !== content) {
+					this.lastSummaryErrorInput = content
+					const message = error?.msg || error?.message || '请求失败'
+					this.pushAiSummary(`已尝试调用会议总结智能体，但请求失败：${message}`)
+				}
 			} finally {
 				this.aiSummaryRunning = false
 				if (this.aiSummaryPending && this.agentEnabled) {

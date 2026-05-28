@@ -147,6 +147,7 @@ public class MeetingDTO {
         private String agentName;
         private String answerType;
         private String answer;
+        private String errorMessage;
         private SessionDetail detail;
     }
 }

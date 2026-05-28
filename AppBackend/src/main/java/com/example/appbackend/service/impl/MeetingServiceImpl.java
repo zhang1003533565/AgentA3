@@ -302,6 +302,7 @@ public class MeetingServiceImpl implements MeetingService {
             }
             log.warn("preview meeting agent failed sessionId={} agentName={}: {}", session.getSessionId(), agentName, error.getMessage());
             response.setAnswer("");
+            response.setErrorMessage(error.getMessage());
         }
         return response;
     }
