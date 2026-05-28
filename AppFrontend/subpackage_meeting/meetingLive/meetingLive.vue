@@ -32,7 +32,7 @@
 					v-for="item in asrItems"
 					:key="item.id"
 					class="asr-bubble"
-					:class="{ 'asr-bubble--partial': !item.isFinal }"
+					:class="{ 'asr-bubble--partial': !item.isFinal, 'asr-bubble--self': item.isSelf }"
 				>
 					<text class="asr-speaker">{{ item.speaker }}</text>
 					<text class="asr-text">{{ item.text }}</text>
@@ -86,7 +86,7 @@
 import { endMeeting as finishMeetingApi, getMeetingDetail } from '@/api/ai.js'
 import { getCurrentDisplayName, toMeetingMembers } from '@/utils/meetingUser.js'
 import { BASE_URL } from '@/utils/config.js'
-import { getToken } from '@/utils/storage.js'
+import { getToken, getUserInfo } from '@/utils/storage.js'
 
 export default {
 	data() {
@@ -99,6 +99,10 @@ export default {
 			timer: null,
 			asrSocket: null,
 			asrRecorder: null,
+			asrBrowserStream: null,
+			asrAudioContext: null,
+			asrAudioSource: null,
+			asrAudioProcessor: null,
 			asrRecording: false,
 			asrSocketReady: false,
 			asrStatusText: '等待连接',
@@ -225,8 +229,16 @@ export default {
 		},
 		startAsrRecording() {
 			if (this.asrRecording || !this.asrSocketReady || !this.asrSocket) return
+			if (typeof uni.getRecorderManager !== 'function') {
+				this.startBrowserAsrRecording()
+				return
+			}
 			if (!this.asrRecorder) {
 				this.asrRecorder = uni.getRecorderManager()
+				if (!this.asrRecorder || typeof this.asrRecorder.onFrameRecorded !== 'function') {
+					this.startBrowserAsrRecording()
+					return
+				}
 				this.asrRecorder.onFrameRecorded((res) => {
 					if (this.asrSocketReady && this.asrSocket && res.frameBuffer) {
 						this.asrSocket.send({ data: res.frameBuffer })
@@ -255,12 +267,59 @@ export default {
 				this.asrStatusText = '录音启动失败'
 			}
 		},
+		async startBrowserAsrRecording() {
+			if (this.asrRecording || !this.asrSocketReady || !this.asrSocket) return
+			if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+				this.asrStatusText = '当前端不支持录音，仅接收弹幕'
+				return
+			}
+			const AudioContextClass = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)
+			if (!AudioContextClass) {
+				this.asrStatusText = '当前浏览器不支持音频采集'
+				return
+			}
+			try {
+				this.asrBrowserStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+				this.asrAudioContext = new AudioContextClass()
+				this.asrAudioSource = this.asrAudioContext.createMediaStreamSource(this.asrBrowserStream)
+				this.asrAudioProcessor = this.asrAudioContext.createScriptProcessor(2048, 1, 1)
+				this.asrAudioProcessor.onaudioprocess = (event) => {
+					const input = event.inputBuffer.getChannelData(0)
+					const pcm = this.floatTo16kPcm(input, this.asrAudioContext.sampleRate)
+					if (pcm && this.asrSocketReady && this.asrSocket) {
+						this.asrSocket.send({ data: pcm })
+					}
+				}
+				this.asrAudioSource.connect(this.asrAudioProcessor)
+				this.asrAudioProcessor.connect(this.asrAudioContext.destination)
+				this.asrRecording = true
+				this.asrStatusText = '正在识别'
+			} catch (error) {
+				this.asrRecording = false
+				this.asrStatusText = '浏览器录音权限未开启'
+			}
+		},
+		floatTo16kPcm(input, inputSampleRate) {
+			const outputSampleRate = 16000
+			const ratio = inputSampleRate / outputSampleRate
+			const outputLength = Math.floor(input.length / ratio)
+			if (outputLength <= 0) return null
+			const buffer = new ArrayBuffer(outputLength * 2)
+			const view = new DataView(buffer)
+			for (let i = 0; i < outputLength; i++) {
+				const sampleIndex = Math.floor(i * ratio)
+				const sample = Math.max(-1, Math.min(1, input[sampleIndex]))
+				view.setInt16(i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true)
+			}
+			return buffer
+		},
 		stopAsrRecording() {
 			if (this.asrRecorder && this.asrRecording) {
 				try {
 					this.asrRecorder.stop()
 				} catch (error) {}
 			}
+			this.stopBrowserAsrRecording()
 			if (this.asrSocketReady && this.asrSocket) {
 				this.asrSocket.send({ data: JSON.stringify({ stop: true }) })
 			}
@@ -273,6 +332,7 @@ export default {
 					this.asrRecorder.stop()
 				} catch (error) {}
 			}
+			this.stopBrowserAsrRecording()
 			if (this.asrSocket) {
 				try {
 					this.asrSocket.send({ data: JSON.stringify({ stop: true }) })
@@ -282,6 +342,31 @@ export default {
 			this.asrRecording = false
 			this.asrSocketReady = false
 			this.asrSocket = null
+		},
+		stopBrowserAsrRecording() {
+			if (this.asrAudioProcessor) {
+				try {
+					this.asrAudioProcessor.disconnect()
+					this.asrAudioProcessor.onaudioprocess = null
+				} catch (error) {}
+			}
+			if (this.asrAudioSource) {
+				try {
+					this.asrAudioSource.disconnect()
+				} catch (error) {}
+			}
+			if (this.asrAudioContext) {
+				try {
+					this.asrAudioContext.close()
+				} catch (error) {}
+			}
+			if (this.asrBrowserStream) {
+				this.asrBrowserStream.getTracks().forEach(track => track.stop())
+			}
+			this.asrAudioProcessor = null
+			this.asrAudioSource = null
+			this.asrAudioContext = null
+			this.asrBrowserStream = null
 		},
 		handleAsrMessage(raw) {
 			let payload = null
@@ -301,11 +386,22 @@ export default {
 			}
 			if (payload.type === 'asr_result') {
 				this.upsertAsrItem({
+					speakerUserId: payload.speakerUserId || '',
 					speaker: payload.speaker || '参会成员',
 					text: payload.text || '',
-					isFinal: !!payload.isFinal
+					isFinal: !!payload.isFinal,
+					isSelf: this.isSelfSpeaker(payload)
 				})
 			}
+		},
+		isSelfSpeaker(payload) {
+			const user = getUserInfo()
+			const currentId = user?.id || user?.userId || ''
+			if (currentId && payload.speakerUserId && String(currentId) === String(payload.speakerUserId)) {
+				return true
+			}
+			const currentName = getCurrentDisplayName()
+			return !!currentName && payload.speaker === currentName
 		},
 		upsertAsrItem(item) {
 			const text = (item.text || '').trim()
@@ -409,7 +505,7 @@ export default {
 .asr-empty { margin-top: 128rpx; text-align: center; color: rgba(255,255,255,.35); font-size: 23rpx; }
 .asr-stream { display: flex; flex-direction: column; gap: 14rpx; }
 .asr-bubble { max-width: 92%; align-self: flex-start; padding: 13rpx 17rpx; border-radius: 20rpx 20rpx 20rpx 8rpx; background: rgba(255,255,255,.12); box-shadow: 0 10rpx 24rpx rgba(0,0,0,.16); animation: asr-pop .24s ease-out both; }
-.asr-bubble:nth-child(2n) { align-self: flex-end; border-radius: 20rpx 20rpx 8rpx 20rpx; background: rgba(97, 185, 153, .18); }
+.asr-bubble--self { align-self: flex-end; border-radius: 20rpx 20rpx 8rpx 20rpx; background: rgba(97, 185, 153, .18); }
 .asr-bubble--partial { opacity: .72; }
 .asr-speaker { margin-right: 12rpx; color: #7ee2c0; font-size: 20rpx; font-weight: 900; }
 .asr-text { color: rgba(255,255,255,.9); font-size: 23rpx; line-height: 1.45; }

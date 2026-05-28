@@ -142,6 +142,11 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
         return fallbackSpeakerName(session);
     }
 
+    private Object speakerUserId(WebSocketSession session) {
+        Object userId = session.getAttributes().get("userId");
+        return userId == null ? "" : userId;
+    }
+
     private String speakerName(User user) {
         if (StringUtils.hasText(user.getRealName())) {
             return user.getRealName().trim();
@@ -345,6 +350,7 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
                     }
                     sendClient(Map.of(
                             "type", "asr_result",
+                            "speakerUserId", speakerUserId(clientSession),
                             "speaker", speakerName(clientSession),
                             "text", text,
                             "mode", "xfyun_rtasr_llm",
@@ -484,6 +490,7 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
             recordService.saveFinalTranscript(userId, sessionId, transcript);
             sendClient(Map.of(
                     "type", "asr_saved",
+                    "speakerUserId", speakerUserId(clientSession),
                     "speaker", speakerName(clientSession),
                     "transcript", transcript
             ));
