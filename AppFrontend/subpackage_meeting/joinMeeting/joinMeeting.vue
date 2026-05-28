@@ -18,8 +18,8 @@
 			</view>
 
 			<view class="field-block field-block--name">
-				<text class="field-title">请输入您的名称</text>
-				<input v-model="displayName" class="name-input" placeholder="请输入名称" />
+				<text class="field-title">入会名称（使用登录身份）</text>
+				<input v-model="displayName" class="name-input" disabled placeholder="登录后自动读取" />
 			</view>
 
 			<view class="option-title">入会选项</view>
@@ -36,13 +36,15 @@
 
 <script>
 import { joinMeeting } from '@/api/ai.js'
+import { getCurrentDisplayName } from '@/utils/meetingUser.js'
 
 export default {
 	data() {
-		return { roomCode: '', displayName: '张三', micOn: true }
+		return { roomCode: '', displayName: '', micOn: true }
 	},
 	onLoad(options) {
 		if (options?.roomCode) this.roomCode = decodeURIComponent(options.roomCode)
+		this.displayName = getCurrentDisplayName()
 	},
 	methods: {
 		back() { uni.navigateBack() },
@@ -53,13 +55,13 @@ export default {
 				return
 			}
 			try {
-				const res = await joinMeeting({ roomCode: compactCode, displayName: this.displayName })
+				const res = await joinMeeting({ roomCode: compactCode, displayName: this.displayName || getCurrentDisplayName() })
 				const session = res?.data?.session || {}
 				uni.redirectTo({
-					url: `/subpackage_meeting/meetingLive/meetingLive?title=${encodeURIComponent(session.title || '产品需求评审会')}&roomCode=${encodeURIComponent(session.roomCode || compactCode)}&sessionId=${encodeURIComponent(session.sessionId || '')}`
+					url: `/subpackage_meeting/meetingLive/meetingLive?title=${encodeURIComponent(session.title || '会议')}&roomCode=${encodeURIComponent(session.roomCode || compactCode)}&sessionId=${encodeURIComponent(session.sessionId || '')}`
 				})
 			} catch (error) {
-				uni.redirectTo({ url: `/subpackage_meeting/meetingLive/meetingLive?title=${encodeURIComponent('产品需求评审会')}&roomCode=${encodeURIComponent(compactCode)}` })
+				uni.showToast({ title: '加入会议失败，请检查会议号', icon: 'none' })
 			}
 		}
 	}

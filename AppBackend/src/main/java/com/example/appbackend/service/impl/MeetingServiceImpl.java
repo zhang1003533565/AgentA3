@@ -9,11 +9,13 @@ import com.example.appbackend.entity.MeetingParticipant;
 import com.example.appbackend.entity.MeetingRecord;
 import com.example.appbackend.entity.MeetingSession;
 import com.example.appbackend.entity.Result;
+import com.example.appbackend.entity.User;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.MeetingAgentResultRepository;
 import com.example.appbackend.repository.MeetingParticipantRepository;
 import com.example.appbackend.repository.MeetingRecordRepository;
 import com.example.appbackend.repository.MeetingSessionRepository;
+import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.LlmService;
 import com.example.appbackend.service.MeetingService;
 import org.springframework.data.domain.Page;
@@ -52,17 +54,20 @@ public class MeetingServiceImpl implements MeetingService {
     private final MeetingParticipantRepository participantRepository;
     private final MeetingRecordRepository recordRepository;
     private final MeetingAgentResultRepository resultRepository;
+    private final UserRepository userRepository;
     private final LlmService llmService;
 
     public MeetingServiceImpl(MeetingSessionRepository sessionRepository,
                               MeetingParticipantRepository participantRepository,
                               MeetingRecordRepository recordRepository,
                               MeetingAgentResultRepository resultRepository,
+                              UserRepository userRepository,
                               LlmService llmService) {
         this.sessionRepository = sessionRepository;
         this.participantRepository = participantRepository;
         this.recordRepository = recordRepository;
         this.resultRepository = resultRepository;
+        this.userRepository = userRepository;
         this.llmService = llmService;
     }
 
@@ -83,7 +88,7 @@ public class MeetingServiceImpl implements MeetingService {
             session.setStartTime(LocalDateTime.now());
         }
         session = sessionRepository.save(session);
-        syncParticipants(session.getId(), request == null ? List.of() : request.getParticipants());
+        syncParticipants(session.getId(), withCurrentUser(userId, request == null ? List.of() : request.getParticipants()));
         if (request != null && StringUtils.hasText(request.getNotes())) {
             saveRecord(session, request.getNotes(), MeetingRecord.SOURCE_MANUAL);
         }
@@ -103,7 +108,7 @@ public class MeetingServiceImpl implements MeetingService {
         session.setStatus(MeetingSession.STATUS_ACTIVE);
         session.setStartTime(LocalDateTime.now());
         session = sessionRepository.save(session);
-        syncParticipants(session.getId(), request == null ? List.of() : request.getParticipants());
+        syncParticipants(session.getId(), withCurrentUser(userId, request == null ? List.of() : request.getParticipants()));
         refreshCounters(session);
         return buildDetail(session);
     }
@@ -120,7 +125,7 @@ public class MeetingServiceImpl implements MeetingService {
         session.setStatus(MeetingSession.STATUS_IDLE);
         session.setScheduledStartTime(resolveScheduledStartTime(request == null ? null : request.getScheduledStartTime()));
         session = sessionRepository.save(session);
-        syncParticipants(session.getId(), request == null ? List.of() : request.getParticipants());
+        syncParticipants(session.getId(), withCurrentUser(userId, request == null ? List.of() : request.getParticipants()));
         refreshCounters(session);
         return buildDetail(session);
     }
@@ -171,14 +176,19 @@ public class MeetingServiceImpl implements MeetingService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public MeetingDTO.SessionDetail joinMeeting(Long userId, MeetingDTO.JoinRoomRequest request) {
         String roomCode = normalizeRoomCode(request == null ? null : request.getRoomCode());
         MeetingSession session = sessionRepository.findByRoomCode(roomCode)
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "会议号不存在"));
-        if (request != null && StringUtils.hasText(request.getDisplayName())) {
-            addParticipantIfMissing(session.getId(), request.getDisplayName());
+        String displayName = resolveUserDisplayName(userId);
+        if (!StringUtils.hasText(displayName) && request != null && StringUtils.hasText(request.getDisplayName())) {
+            displayName = request.getDisplayName();
         }
+        if (StringUtils.hasText(displayName)) {
+            addParticipantIfMissing(session.getId(), displayName);
+        }
+        refreshCounters(session);
         return buildDetail(session);
     }
 
@@ -286,6 +296,40 @@ public class MeetingServiceImpl implements MeetingService {
             entities.add(participant);
         }
         participantRepository.saveAll(entities);
+    }
+
+    private List<String> withCurrentUser(Long userId, List<String> participants) {
+        List<String> merged = new ArrayList<>();
+        String currentUserName = resolveUserDisplayName(userId);
+        if (StringUtils.hasText(currentUserName)) {
+            merged.add(currentUserName);
+        }
+        if (participants != null) {
+            merged.addAll(participants);
+        }
+        return merged;
+    }
+
+    private String resolveUserDisplayName(Long userId) {
+        if (userId == null) {
+            return "";
+        }
+        return userRepository.findById(userId)
+                .map(this::resolveUserDisplayName)
+                .orElse("");
+    }
+
+    private String resolveUserDisplayName(User user) {
+        if (StringUtils.hasText(user.getRealName())) {
+            return user.getRealName().trim();
+        }
+        if (StringUtils.hasText(user.getUsername())) {
+            return user.getUsername().trim();
+        }
+        if (StringUtils.hasText(user.getPersonalNumber())) {
+            return user.getPersonalNumber().trim();
+        }
+        return "";
     }
 
     private void addParticipantIfMissing(Long meetingSessionId, String displayName) {

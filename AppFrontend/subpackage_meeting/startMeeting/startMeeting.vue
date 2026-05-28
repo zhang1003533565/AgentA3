@@ -51,6 +51,7 @@
 
 <script>
 import { createQuickMeeting } from '@/api/ai.js'
+import { buildMeetingParticipants } from '@/utils/meetingUser.js'
 
 export default {
 	data() {
@@ -72,15 +73,14 @@ export default {
 			try {
 				const res = await createQuickMeeting({
 					title: this.meetingTitle || '快速会议',
-					participants: []
+					participants: buildMeetingParticipants()
 				})
 				const session = res?.data?.session || {}
-				const roomCode = session.roomCode || '876543210'
 				uni.redirectTo({
-					url: `/subpackage_meeting/meetingLive/meetingLive?title=${encodeURIComponent(this.meetingTitle)}&roomCode=${encodeURIComponent(roomCode)}&sessionId=${encodeURIComponent(session.sessionId || '')}`
+					url: `/subpackage_meeting/meetingLive/meetingLive?title=${encodeURIComponent(session.title || this.meetingTitle || '快速会议')}&roomCode=${encodeURIComponent(session.roomCode || '')}&sessionId=${encodeURIComponent(session.sessionId || '')}`
 				})
 			} catch (error) {
-				uni.redirectTo({ url: `/subpackage_meeting/meetingLive/meetingLive?title=${encodeURIComponent(this.meetingTitle)}&roomCode=876543210` })
+				uni.showToast({ title: '会议创建失败，请稍后重试', icon: 'none' })
 			} finally {
 				this.creating = false
 			}

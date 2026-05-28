@@ -42,9 +42,9 @@
 					<view class="member-avatar">{{ member.name.slice(0, 1) }}</view>
 					<view class="member-info">
 						<text class="member-name">{{ member.name }}</text>
-						<text class="member-role">{{ member.name === '我' ? '我' : '参会成员' }}</text>
+						<text class="member-role">{{ member.isSelf ? '我' : '参会成员' }}</text>
 					</view>
-					<text class="member-mic">{{ muted && member.name === '我' ? '已静音' : '麦克风开启' }}</text>
+					<text class="member-mic">{{ muted && member.isSelf ? '已静音' : '麦克风开启' }}</text>
 				</view>
 			</view>
 		</view>
@@ -65,6 +65,7 @@
 
 <script>
 import { endMeeting as finishMeetingApi, getMeetingDetail } from '@/api/ai.js'
+import { getCurrentDisplayName, toMeetingMembers } from '@/utils/meetingUser.js'
 
 export default {
 	data() {
@@ -77,20 +78,14 @@ export default {
 			timer: null,
 			memberPanelVisible: false,
 			morePanelVisible: false,
-			members: [
-				{ name: '我', className: 'avatar-a' },
-				{ name: '李明', className: 'avatar-b' },
-				{ name: '王磊', className: 'avatar-c' },
-				{ name: '陈晨', className: 'avatar-d' },
-				{ name: '赵六', className: 'avatar-b' },
-				{ name: '周宁', className: 'avatar-c' }
-			]
+			members: []
 		}
 	},
 	onLoad(options) {
 		if (options?.sessionId) this.sessionId = decodeURIComponent(options.sessionId)
 		if (options?.title) this.title = decodeURIComponent(options.title)
 		if (options?.roomCode) this.roomCode = decodeURIComponent(options.roomCode)
+		this.initCurrentMember()
 		this.startTimer()
 		this.loadMeeting()
 	},
@@ -136,12 +131,13 @@ export default {
 				if (session.title) this.title = session.title
 				if (session.roomCode) this.roomCode = session.roomCode
 				if (Array.isArray(detail.participants) && detail.participants.length > 0) {
-					this.members = detail.participants.slice(0, 6).map((name, index) => ({
-						name,
-						className: `avatar-${['a', 'b', 'c', 'd'][index % 4]}`
-					}))
+					this.members = toMeetingMembers(detail.participants.slice(0, 6))
 				}
 			} catch (error) {}
+		},
+		initCurrentMember() {
+			const currentName = getCurrentDisplayName()
+			this.members = currentName ? toMeetingMembers([currentName], currentName) : []
 		},
 		toggleMute() {
 			this.muted = !this.muted
@@ -179,7 +175,7 @@ export default {
 		openMeetingDetail() {
 			this.closePanel()
 			uni.navigateTo({
-				url: `/subpackage_meeting/meetingDetail/meetingDetail?title=${encodeURIComponent(this.title)}&roomCode=${encodeURIComponent(this.roomCode || '')}`
+				url: `/subpackage_meeting/meetingDetail/meetingDetail?sessionId=${encodeURIComponent(this.sessionId || '')}&title=${encodeURIComponent(this.title)}&roomCode=${encodeURIComponent(this.roomCode || '')}`
 			})
 		},
 		confirmEndMeeting() {

@@ -63,13 +63,18 @@
 
 <script>
 import { reserveMeeting } from '@/api/ai.js'
+import { buildMeetingParticipants } from '@/utils/meetingUser.js'
 
 export default {
 	data() {
+		const now = new Date()
+		const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+		const nextHour = new Date(now.getTime() + 60 * 60 * 1000)
+		const time = `${String(nextHour.getHours()).padStart(2, '0')}:00`
 		return {
 			meetingTitle: '项目进度同步会',
-			scheduledDate: '2024-03-20',
-			scheduledTime: '14:00',
+			scheduledDate: date,
+			scheduledTime: time,
 			micOn: true,
 			personalId: false,
 			creating: false
@@ -85,17 +90,14 @@ export default {
 				await reserveMeeting({
 					title: this.meetingTitle || '预约会议',
 					scheduledStartTime: `${this.scheduledDate}T${this.scheduledTime}:00`,
-					participants: []
+					participants: buildMeetingParticipants()
 				})
 				uni.showToast({ title: '会议已预约', icon: 'none' })
 				setTimeout(() => {
 					uni.redirectTo({ url: '/subpackage_meeting/meetingSchedule/meetingSchedule' })
 				}, 450)
 			} catch (error) {
-				uni.showToast({ title: '会议已预约', icon: 'none' })
-				setTimeout(() => {
-					uni.redirectTo({ url: '/subpackage_meeting/meetingSchedule/meetingSchedule' })
-				}, 450)
+				uni.showToast({ title: '会议预约失败，请稍后重试', icon: 'none' })
 			} finally {
 				this.creating = false
 			}

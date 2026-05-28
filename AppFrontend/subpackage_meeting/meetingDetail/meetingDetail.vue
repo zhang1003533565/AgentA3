@@ -10,10 +10,10 @@
 		<view class="detail-card">
 			<view class="detail-head">
 				<text class="detail-title">{{ title }}</text>
-				<view class="pill">进行中</view>
+				<view class="pill">{{ statusText }}</view>
 			</view>
-			<view class="info-row"><text class="info-icon">◷</text><text>今天</text><text>09:30 – 11:00</text></view>
-			<view class="info-row"><text class="info-icon">♙</text><text>张三</text><text>（主持人）</text></view>
+			<view class="info-row"><text class="info-icon">◷</text><text>时间</text><text>{{ timeText }}</text></view>
+			<view class="info-row"><text class="info-icon">♙</text><text>{{ hostName }}</text><text>（主持人）</text></view>
 			<view class="info-row"><text class="info-icon">♟</text><text>会议号</text><text>{{ roomCode }}</text><text class="copy" @click="copy(roomCode)">□</text></view>
 			<view class="link-row">
 				<text class="info-icon">↗</text>
@@ -22,11 +22,11 @@
 				<text class="copy">⇱</text>
 			</view>
 			<view class="member-head">
-				<text>参会人 (6)</text>
+				<text>参会人 ({{ participants.length }})</text>
 				<text class="all-link">查看全部</text>
 			</view>
 			<view class="avatar-row">
-				<view v-for="item in avatars" :key="item" class="mini-avatar">{{ item }}</view>
+				<view v-for="(item, index) in avatars" :key="`${item}-${index}`" class="mini-avatar">{{ item }}</view>
 			</view>
 		</view>
 
@@ -39,20 +39,71 @@
 </template>
 
 <script>
+import { getMeetingDetail } from '@/api/ai.js'
+
 export default {
-	data() { return { title: '产品需求评审会', roomCode: '876 543 210', avatars: ['张', '李', '王', '陈', '赵'] } },
-	computed: { compactRoomCode() { return this.roomCode.replace(/\s+/g, '') } },
+	data() {
+		return {
+			sessionId: '',
+			title: '会议',
+			roomCode: '',
+			status: '',
+			startTime: '',
+			scheduledStartTime: '',
+			participants: []
+		}
+	},
+	computed: {
+		compactRoomCode() { return this.roomCode.replace(/\s+/g, '') },
+		avatars() {
+			return this.participants.slice(0, 5).map(name => name.slice(0, 1))
+		},
+		hostName() {
+			return this.participants[0] || '未填写'
+		},
+		statusText() {
+			const map = { active: '进行中', idle: '待开始', paused: '已暂停', ended: '已结束' }
+			return map[this.status] || '会议'
+		},
+		timeText() {
+			const source = this.scheduledStartTime || this.startTime
+			if (!source) return '未设置'
+			const date = new Date(source)
+			if (Number.isNaN(date.getTime())) return '未设置'
+			const month = String(date.getMonth() + 1).padStart(2, '0')
+			const day = String(date.getDate()).padStart(2, '0')
+			const hour = String(date.getHours()).padStart(2, '0')
+			const minute = String(date.getMinutes()).padStart(2, '0')
+			return `${month}-${day} ${hour}:${minute}`
+		}
+	},
 	onLoad(options) {
+		if (options?.sessionId) this.sessionId = decodeURIComponent(options.sessionId)
 		if (options?.title) this.title = decodeURIComponent(options.title)
 		if (options?.roomCode) this.roomCode = decodeURIComponent(options.roomCode)
+		this.loadMeeting()
 	},
 	methods: {
+		async loadMeeting() {
+			if (!this.sessionId) return
+			try {
+				const res = await getMeetingDetail(this.sessionId)
+				const detail = res?.data || {}
+				const session = detail.session || {}
+				this.title = session.title || this.title
+				this.roomCode = session.roomCode || this.roomCode
+				this.status = session.status || this.status
+				this.startTime = session.startTime || ''
+				this.scheduledStartTime = session.scheduledStartTime || ''
+				this.participants = Array.isArray(detail.participants) ? detail.participants : []
+			} catch (error) {}
+		},
 		back() { uni.navigateBack() },
 		copy(data) { uni.setClipboardData({ data, success: () => uni.showToast({ title: '已复制', icon: 'none' }) }) },
 		copyMeetingLink() { this.copy('https://meeting.app/join/' + this.compactRoomCode) },
 		shareMeeting() { this.copy(`会议：${this.title}\n会议号：${this.roomCode}\nhttps://meeting.app/join/${this.compactRoomCode}`) },
-		addSchedule() { uni.showToast({ title: '已添加到日程', icon: 'none' }) },
-		deleteMeeting() { uni.showToast({ title: '已删除会议', icon: 'none' }) }
+		addSchedule() { uni.showToast({ title: '日程接口待接入', icon: 'none' }) },
+		deleteMeeting() { uni.showToast({ title: '删除接口待接入', icon: 'none' }) }
 	}
 }
 </script>
