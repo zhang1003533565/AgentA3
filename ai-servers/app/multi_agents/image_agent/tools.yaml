@@ -1,3 +1,32 @@
 tools:
   - image_prompt_builder
+  - prompt_enhancer
   - multimodal_context
+  - qwen_text_to_image
+  - image_batch_generator
+  - image_task_status
+  - image_result_storage
+
+parameters:
+  supported_modes:
+    - single
+    - batch
+  supported_result_types:
+    - url
+    - base64
+  default_size: 1024x1024
+  supported_sizes:
+    - 1024x1024
+    - 1280x720
+    - 720x1280
+  default_count: 1
+  max_batch_count: 8
+  preserve_fields:
+    - prompt
+    - style
+    - size
+    - count
+    - seed
+    - negativePrompt
+    - taskId
+    - status

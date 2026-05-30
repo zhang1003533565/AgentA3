@@ -178,9 +178,9 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
     "image_agent": {
         "role": "图片智能体",
         "purpose": "根据课程主题和知识点证据生成教学配图、封面图、插图提示词。",
-        "inputs": ["topic", "evidence"],
-        "outputs": ["image_prompt"],
-        "skills": ["image prompt", "visual planning", "multimodal context"],
+        "inputs": ["topic", "evidence", "prompt", "style", "size", "count", "seed", "negativePrompt"],
+        "outputs": ["image_generation_result"],
+        "skills": ["text-to-image", "batch image generation", "image prompt", "visual planning", "multimodal context"],
         "intent": "image",
         "needRetrieval": True,
         "executionMode": "rag_then_agent",
@@ -190,6 +190,22 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "aliases": ["image", "image_agent", "图片智能体", "配图智能体"],
         "exampleInput": "为操作系统进程调度知识点生成一张课堂教学配图提示词",
     },
+}
+
+AGENT_PROFILES["image_agent"] = {
+    "role": "图片智能体",
+    "purpose": "根据用户需求、课程主题、知识点证据和用户画像生成单张或批量图片，并返回图片 URL/Base64、任务状态和完整生成参数。",
+    "inputs": ["topic", "evidence", "prompt", "style", "size", "count", "seed", "negativePrompt"],
+    "outputs": ["image_generation_result"],
+    "skills": ["text-to-image", "batch image generation", "image prompt", "visual planning", "multimodal context"],
+    "intent": "image",
+    "needRetrieval": True,
+    "executionMode": "rag_then_agent",
+    "executionModeLabel": "多模态 RAG 后生成图片或批量图片",
+    "defaultRagStrategy": "multimodal_rag",
+    "supportedRagStrategies": ALL_RAG_STRATEGIES,
+    "aliases": ["image", "image_agent", "图片智能体", "配图智能体", "文生图", "批量文生图"],
+    "exampleInput": "为操作系统进程调度知识点生成 4 张课堂教学配图，风格为扁平教学插画，尺寸 1024x1024",
 }
 
 AGENT_ALIASES = {
