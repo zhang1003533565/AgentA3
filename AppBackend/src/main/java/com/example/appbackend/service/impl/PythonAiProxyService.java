@@ -174,6 +174,18 @@ public class PythonAiProxyService {
         return postRagObject("/internal/rag/evaluate", request, authorization);
     }
 
+    public Object generateImage(Map<String, Object> request, String authorization) {
+        return postImageObject("/internal/images/generate", request, authorization);
+    }
+
+    public Object generateImagesBatch(Map<String, Object> request, String authorization) {
+        return postImageObject("/internal/images/batch", request, authorization);
+    }
+
+    public Object getImageTask(String taskId, String authorization) {
+        return getImageObject("/internal/images/tasks/" + taskId, authorization);
+    }
+
     public SseEmitter streamChat(LlmChatRequest request, String authorization) {
         validateAuthorization(authorization);
         String token = normalizeBearerToken(authorization);
@@ -281,6 +293,48 @@ public class PythonAiProxyService {
             throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + extractRemoteMessage(e));
         } catch (Exception e) {
             throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + e.getMessage());
+        }
+    }
+
+    private Object getImageObject(String path, String authorization) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            return webClientBuilder.build()
+                    .get()
+                    .uri(buildUri(path))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 图片生成服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 图片生成服务调用失败: " + e.getMessage());
+        }
+    }
+
+    private Object postImageObject(String path, Map<String, Object> request, String authorization) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            return webClientBuilder.build()
+                    .post()
+                    .uri(buildUri(path))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(request == null ? Map.of() : request)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 图片生成服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 图片生成服务调用失败: " + e.getMessage());
         }
     }
 
