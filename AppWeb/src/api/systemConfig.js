@@ -38,3 +38,11 @@ export const testSystemConfig = (id) =>
     url: `/api/system-config/${id}/test`,
     method: 'post',
   })
+
+export const testAiModel = (data) =>
+  request({
+    url: '/api/system-config/ai-model/test',
+    method: 'post',
+    data,
+    timeout: 180000,
+  })

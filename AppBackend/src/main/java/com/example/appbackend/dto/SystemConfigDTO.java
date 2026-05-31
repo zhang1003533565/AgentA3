@@ -54,6 +54,27 @@ public class SystemConfigDTO {
     }
 
     @Data
+    @Schema(description = "AI 模型临时测试请求")
+    public static class AiModelTestRequest {
+        @NotBlank(message = "能力类型不能为空")
+        private String modality;
+
+        @NotBlank(message = "服务商不能为空")
+        private String provider;
+
+        @NotBlank(message = "Base URL 不能为空")
+        private String baseUrl;
+
+        @NotBlank(message = "API Key 不能为空")
+        private String apiKey;
+
+        @NotBlank(message = "模型 ID 不能为空")
+        private String model;
+
+        private String prompt;
+    }
+
+    @Data
     @Schema(description = "配置连通测试响应")
     public static class TestResultVO {
         private Long id;
@@ -61,5 +82,9 @@ public class SystemConfigDTO {
         private Boolean success;
         private String target;
         private String detail;
+        private String provider;
+        private String model;
+        private String modality;
+        private Object raw;
     }
 }

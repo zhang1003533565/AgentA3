@@ -8,11 +8,15 @@ import com.example.appbackend.entity.SystemConfig;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.SystemConfigRepository;
 import com.example.appbackend.service.SystemConfigAdminService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -30,6 +34,8 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -45,10 +51,20 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
 
     private final SystemConfigRepository systemConfigRepository;
     private final WebClient tencentMapWebClient;
+    private final WebClient.Builder webClientBuilder;
+    private final ObjectMapper objectMapper;
+    private final PythonAiProxyService pythonAiProxyService;
 
-    public SystemConfigAdminServiceImpl(SystemConfigRepository systemConfigRepository, WebClient tencentMapWebClient) {
+    public SystemConfigAdminServiceImpl(SystemConfigRepository systemConfigRepository,
+                                        WebClient tencentMapWebClient,
+                                        WebClient.Builder webClientBuilder,
+                                        ObjectMapper objectMapper,
+                                        PythonAiProxyService pythonAiProxyService) {
         this.systemConfigRepository = systemConfigRepository;
         this.tencentMapWebClient = tencentMapWebClient;
+        this.webClientBuilder = webClientBuilder;
+        this.objectMapper = objectMapper;
+        this.pythonAiProxyService = pythonAiProxyService;
     }
 
     @Override
@@ -129,6 +145,27 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
             return testAiConfig(config);
         }
         throw new BusinessException(400, "该配置项不支持连通测试");
+    }
+
+    @Override
+    public SystemConfigDTO.TestResultVO testAiModel(SystemConfigDTO.AiModelTestRequest req, String authorization) {
+        String modality = trim(req.getModality());
+        String provider = trim(req.getProvider());
+        String baseUrl = trimTrailingSlash(trim(req.getBaseUrl()));
+        String apiKey = trim(req.getApiKey());
+        String model = trim(req.getModel());
+        String prompt = trim(req.getPrompt());
+        if (prompt.isBlank()) {
+            prompt = defaultAiModelTestPrompt(modality);
+        }
+
+        if (List.of("image", "video").contains(modality)) {
+            return testGeneratedMediaModel(req, authorization, modality, provider, baseUrl, apiKey, model, prompt);
+        }
+        if ("audio".equals(modality)) {
+            return testAudioModel(req, modality, provider, baseUrl, apiKey, model, prompt);
+        }
+        return testChatCompletionModel(modality, provider, baseUrl, apiKey, model, prompt);
     }
 
     private SystemConfigDTO.ConfigVO toVO(SystemConfig item) {
@@ -238,6 +275,124 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
         vo.setSuccess(success);
         vo.setDetail(detail);
         return vo;
+    }
+
+    private SystemConfigDTO.TestResultVO testChatCompletionModel(String modality,
+                                                                  String provider,
+                                                                  String baseUrl,
+                                                                  String apiKey,
+                                                                  String model,
+                                                                  String prompt) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("model", model);
+        payload.put("messages", List.of(Map.of("role", "user", "content", prompt)));
+        payload.put("temperature", 0.1);
+        payload.put("max_tokens", 256);
+
+        String target = trimTrailingSlash(baseUrl) + "/chat/completions";
+        try {
+            String body = webClientBuilder.build()
+                    .post()
+                    .uri(target)
+                    .headers(headers -> {
+                        headers.setBearerAuth(apiKey);
+                        headers.set("api-key", apiKey);
+                        headers.setContentType(MediaType.APPLICATION_JSON);
+                    })
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+            JsonNode root = objectMapper.readTree(body == null ? "{}" : body);
+            String content = root.path("choices").path(0).path("message").path("content").asText("");
+            if (content.isBlank()) {
+                content = root.path("output").path("text").asText("");
+            }
+            if (content.isBlank()) {
+                content = abbreviate(body, 800);
+            }
+            return aiModelTestResult(true, target, "模型返回：" + content, provider, model, modality, jsonOrText(body));
+        } catch (WebClientResponseException error) {
+            return aiModelTestResult(false, target, "模型调用失败：" + error.getStatusCode().value() + " " + abbreviate(error.getResponseBodyAsString(), 800), provider, model, modality, jsonOrText(error.getResponseBodyAsString()));
+        } catch (Exception error) {
+            return aiModelTestResult(false, target, "模型调用失败：" + error.getMessage(), provider, model, modality, null);
+        }
+    }
+
+    private SystemConfigDTO.TestResultVO testGeneratedMediaModel(SystemConfigDTO.AiModelTestRequest req,
+                                                                  String authorization,
+                                                                  String modality,
+                                                                  String provider,
+                                                                  String baseUrl,
+                                                                  String apiKey,
+                                                                  String model,
+                                                                  String prompt) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("provider", provider);
+        payload.put("model", model);
+        payload.put("baseUrl", normalizeDashScopeRoot(baseUrl));
+        payload.put("apiKey", apiKey);
+        payload.put("prompt", prompt);
+        payload.put("metadata", Map.of("test", true, "source", "system-config"));
+        if ("image".equals(modality)) {
+            payload.put("size", "1328x1328");
+            payload.put("count", 1);
+            payload.put("returnType", "url");
+        } else {
+            payload.put("size", "1280x720");
+            payload.put("duration", 5);
+        }
+        String target = "image".equals(modality) ? "/api/ai/images/generate" : "/api/ai/videos/generate";
+        try {
+            Object raw = "image".equals(modality)
+                    ? pythonAiProxyService.generateImage(payload, authorization)
+                    : pythonAiProxyService.generateVideo(payload, authorization);
+            String detail = summarizeMediaResult(modality, raw);
+            return aiModelTestResult(true, target, detail, provider, model, modality, raw);
+        } catch (Exception error) {
+            return aiModelTestResult(false, target, "模型调用失败：" + error.getMessage(), provider, model, modality, null);
+        }
+    }
+
+    private SystemConfigDTO.TestResultVO testAudioModel(SystemConfigDTO.AiModelTestRequest req,
+                                                        String modality,
+                                                        String provider,
+                                                        String baseUrl,
+                                                        String apiKey,
+                                                        String model,
+                                                        String prompt) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("model", model);
+        payload.put("input", prompt);
+        payload.put("voice", "default");
+        payload.put("response_format", "mp3");
+
+        String target = trimTrailingSlash(baseUrl) + "/audio/speech";
+        try {
+            ResponseEntity<byte[]> response = webClientBuilder.build()
+                    .post()
+                    .uri(target)
+                    .headers(headers -> {
+                        headers.setBearerAuth(apiKey);
+                        headers.set("api-key", apiKey);
+                        headers.setContentType(MediaType.APPLICATION_JSON);
+                    })
+                    .bodyValue(payload)
+                    .retrieve()
+                    .toEntity(byte[].class)
+                    .block();
+            int bytes = response != null && response.getBody() != null ? response.getBody().length : 0;
+            String contentType = response != null && response.getHeaders().getContentType() != null
+                    ? response.getHeaders().getContentType().toString()
+                    : "";
+            boolean success = bytes > 0;
+            Map<String, Object> raw = Map.of("bytes", bytes, "contentType", contentType);
+            return aiModelTestResult(success, target, success ? "模型返回音频：" + bytes + " bytes，类型：" + contentType : "模型未返回音频内容", provider, model, modality, raw);
+        } catch (WebClientResponseException error) {
+            return aiModelTestResult(false, target, "模型调用失败：" + error.getStatusCode().value() + " " + abbreviate(error.getResponseBodyAsString(), 800), provider, model, modality, jsonOrText(error.getResponseBodyAsString()));
+        } catch (Exception error) {
+            return aiModelTestResult(false, target, "模型调用失败：" + error.getMessage(), provider, model, modality, null);
+        }
     }
 
     private SystemConfigDTO.TestResultVO testXfyunAsrConfig(SystemConfig currentConfig) {
@@ -368,6 +523,77 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
 
     private String encode(String value) {
         return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8);
+    }
+
+    private SystemConfigDTO.TestResultVO aiModelTestResult(boolean success,
+                                                           String target,
+                                                           String detail,
+                                                           String provider,
+                                                           String model,
+                                                           String modality,
+                                                           Object raw) {
+        SystemConfigDTO.TestResultVO vo = new SystemConfigDTO.TestResultVO();
+        vo.setConfigKey("ai.model.test." + modality + "." + provider + "." + model);
+        vo.setTarget(target);
+        vo.setSuccess(success);
+        vo.setDetail(detail);
+        vo.setProvider(provider);
+        vo.setModel(model);
+        vo.setModality(modality);
+        vo.setRaw(raw);
+        return vo;
+    }
+
+    private String defaultAiModelTestPrompt(String modality) {
+        return switch (modality) {
+            case "image" -> "生成一张简洁的智慧校园图标，蓝绿色科技风，干净背景。";
+            case "video" -> "生成一个 5 秒的智慧校园欢迎动画，镜头缓慢推进，现代科技感。";
+            case "audio" -> "欢迎使用智慧校园模型测试。";
+            case "vision" -> "请用一句中文回复：视觉模型连接测试成功。";
+            default -> "请用一句中文回复：模型连接测试成功。";
+        };
+    }
+
+    private String normalizeDashScopeRoot(String baseUrl) {
+        String value = trimTrailingSlash(baseUrl);
+        String marker = "/compatible-mode";
+        int index = value.indexOf(marker);
+        return index >= 0 ? value.substring(0, index) : value;
+    }
+
+    private String summarizeMediaResult(String modality, Object raw) {
+        JsonNode root = objectMapper.valueToTree(raw);
+        String status = root.path("status").asText("");
+        String message = root.path("message").asText("");
+        JsonNode items = "image".equals(modality) ? root.path("images") : root.path("videos");
+        String url = "";
+        if (items.isArray() && !items.isEmpty()) {
+            url = items.get(0).path("url").asText("");
+        }
+        if (!url.isBlank()) {
+            return ("image".equals(modality) ? "模型返回图片：" : "模型返回视频：") + url;
+        }
+        String taskId = root.path("taskId").asText("");
+        String providerTaskId = root.path("providerTaskId").asText("");
+        return "模型已返回任务，状态：" + (status.isBlank() ? "-" : status)
+                + (taskId.isBlank() ? "" : "，任务：" + taskId)
+                + (providerTaskId.isBlank() ? "" : "，服务商任务：" + providerTaskId)
+                + (message.isBlank() ? "" : "，消息：" + message);
+    }
+
+    private Object jsonOrText(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        try {
+            return objectMapper.readValue(value, Object.class);
+        } catch (Exception ignored) {
+            return value;
+        }
+    }
+
+    private String trim(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private Throwable unwrap(Throwable error) {

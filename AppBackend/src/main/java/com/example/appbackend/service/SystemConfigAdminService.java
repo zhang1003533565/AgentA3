@@ -14,4 +14,6 @@ public interface SystemConfigAdminService {
     SystemConfigDTO.ConfigVO upsert(SystemConfigDTO.UpsertRequest req);
 
     SystemConfigDTO.TestResultVO test(Long id);
+
+    SystemConfigDTO.TestResultVO testAiModel(SystemConfigDTO.AiModelTestRequest req, String authorization);
 }

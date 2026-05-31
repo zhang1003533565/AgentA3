@@ -139,6 +139,30 @@
   gap: 14px;
 }
 
+.workspace-ai-model-tabs .ant-tabs-nav {
+  margin-bottom: 18px;
+}
+
+.workspace-ai-model-tabs .ant-tabs-tab {
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.86);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.workspace-ai-model-tabs .ant-tabs-tab + .ant-tabs-tab {
+  margin-left: 10px;
+}
+
+.workspace-ai-model-tabs .ant-tabs-tab-active {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.28);
+}
+
+.workspace-ai-model-tabs .ant-tabs-ink-bar {
+  display: none;
+}
+
 .workspace-ai-section__head {
   display: flex;
   align-items: center;
@@ -182,6 +206,10 @@
   display: grid;
   gap: 10px;
   margin-top: 14px;
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
 .workspace-ai-model-row {
@@ -218,6 +246,30 @@
   text-align: center;
   background: rgba(248, 250, 252, 0.8);
   border: 1px dashed rgba(148, 163, 184, 0.35);
+}
+
+.workspace-ai-test-result {
+  display: grid;
+  gap: 8px;
+}
+
+.workspace-ai-test-result p {
+  margin: 0;
+}
+
+.workspace-ai-test-result pre {
+  max-height: 260px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.workspace-ai-test-result details {
+  margin-top: 4px;
 }
 
 .workspace-timeline {
