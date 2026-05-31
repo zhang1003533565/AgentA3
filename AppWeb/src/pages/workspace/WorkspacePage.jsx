@@ -36,6 +36,7 @@ import {
 } from '../../api/secondhand'
 import { closeSignIn, getSignInList, openSignIn } from '../../api/signin'
 import { deleteSystemConfig, getSystemConfigList, testSystemConfig, upsertSystemConfig } from '../../api/systemConfig'
+import { getAiModelProviders } from '../../api/rag'
 import { MAP_BUILDING_UPLOAD_FOLDER, getUploadUrl } from '../../api/upload'
 import { disableUser, enableUser, getUserList } from '../../api/user'
 import {
@@ -60,6 +61,12 @@ const AI_MODALITIES = [
 ]
 const AI_CONFIG_FIELDS = ['provider', 'base-url', 'api-key', 'model']
 const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.(text|image|video|audio)(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
+const AI_PROVIDER_CONFIG_PATTERN = /^ai\.provider\.([A-Za-z0-9_-]+)\.(base-url|api-key)$/
+const AI_MODEL_STATUS_LABELS = {
+  implemented: '已接入',
+  openai_compatible: '兼容接入',
+  planned: '待接入',
+}
 const XFYUN_ASR_PREFIX = 'ai.asr.xfyun'
 const XFYUN_ASR_FIELDS = ['websocket-url', 'app-id', 'access-key-id', 'access-key-secret', 'lang', 'audio-encode', 'samplerate']
 const XFYUN_ASR_REQUIRED_FIELDS = XFYUN_ASR_FIELDS
@@ -489,14 +496,17 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextI
       return { rows, total: rows.length }
     }
     case 'system-config': {
-      const res = await getSystemConfigList({
-        page: current,
-        size: 500,
-        keyword,
-        prefixes: 'ai.service.,ai.asr.xfyun.',
-      })
+      const [res, providerRes] = await Promise.all([
+        getSystemConfigList({
+          page: current,
+          size: 500,
+          keyword,
+          prefixes: 'ai.service.,ai.provider.,ai.asr.xfyun.',
+        }),
+        getAiModelProviders(),
+      ])
       const records = Array.isArray(res.data?.records) ? res.data.records : []
-      const rows = [...buildAiCapabilityRows(records), buildXfyunAsrRow(records)]
+      const rows = [...buildAiCapabilityRows(records, providerRes.data), buildXfyunAsrRow(records)]
       return { rows, total: rows.length }
     }
     default:
@@ -554,18 +564,131 @@ function groupAiConfigRecords(records) {
   return groups
 }
 
-function buildAiCapabilityRows(records) {
+function groupAiProviderRecords(records) {
+  const groups = new Map()
+  records.forEach((item) => {
+    const match = String(item.configKey || '').match(AI_PROVIDER_CONFIG_PATTERN)
+    if (!match) return
+    const [, providerId, field] = match
+    const group = groups.get(providerId) || { providerId, configs: {} }
+    group.configs[field] = item
+    groups.set(providerId, group)
+  })
+  return groups
+}
+
+function normalizeProviderId(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, '-')
+}
+
+function buildProviderLookup(providerCatalog) {
+  const providers = Array.isArray(providerCatalog?.providers) ? providerCatalog.providers : []
+  const lookup = new Map()
+  providers.forEach((provider) => {
+    const aliases = [provider.id, provider.name, ...(provider.aliases || [])]
+    aliases.forEach((alias) => {
+      const key = normalizeProviderId(alias)
+      if (key) lookup.set(key, provider)
+    })
+  })
+  return lookup
+}
+
+function getCapabilityStatusText(status) {
+  return AI_MODEL_STATUS_LABELS[status] || status || '可配置'
+}
+
+function getModelOptions(record) {
+  const models = Array.isArray(record?.capabilityCatalog?.models) ? record.capabilityCatalog.models : []
+  return models.map((model) => ({
+    value: model.id,
+    label: model.name && model.name !== model.id ? `${model.name}（${model.id}）` : model.id,
+  }))
+}
+
+function pickProviderSharedConfig(providerMeta, providerRecords, capabilityGroups) {
+  const providerId = providerMeta?.id
+  const shared = providerId ? providerRecords.get(providerId)?.configs || {} : {}
+  const relatedGroups = capabilityGroups.filter((group) => {
+    const configuredProvider = group.configs.provider?.configValue
+    return providerMeta && (
+      normalizeProviderId(configuredProvider) === normalizeProviderId(providerMeta.id)
+      || normalizeProviderId(group.configName) === normalizeProviderId(providerMeta.id)
+    )
+  })
+  const firstWith = (field) => relatedGroups.find((group) => String(group.configs[field]?.configValue || '').trim())?.configs[field]
+  return {
+    baseUrl: shared['base-url']?.configValue || firstWith('base-url')?.configValue || providerMeta?.baseUrl || '',
+    apiKey: shared['api-key']?.configValue || firstWith('api-key')?.configValue || '',
+    baseUrlConfigId: shared['base-url']?.id,
+    apiKeyConfigId: shared['api-key']?.id,
+    apiKeyMasked: maskSecret(shared['api-key']?.configValue || firstWith('api-key')?.configValue),
+  }
+}
+
+function buildCatalogCapabilityRows(providerCatalog, configuredCapabilityKeys, providerRecords, capabilityGroups) {
+  const providers = Array.isArray(providerCatalog?.providers) ? providerCatalog.providers : []
+  const rows = []
+  providers.forEach((provider) => {
+    const sharedConfig = pickProviderSharedConfig(provider, providerRecords, capabilityGroups)
+    Object.entries(provider.capabilities || {}).forEach(([modality, capability]) => {
+      const configPrefix = `ai.service.${modality}.${provider.id}`
+      if (configuredCapabilityKeys.has(`${modality}:${provider.id}`)) return
+      const modalityMeta = AI_MODALITIES.find((item) => item.key === modality) || { key: modality, label: modality }
+      const defaultModel = capability.defaultModel || capability.models?.[0]?.id || ''
+      rows.push({
+        id: configPrefix,
+        modality,
+        modalityLabel: modalityMeta.label,
+        configName: provider.id,
+        configPrefix,
+        provider: provider.id,
+        providerName: provider.name || provider.id,
+        providerDisplay: `${provider.name || provider.id}（${provider.id}）`,
+        baseUrl: sharedConfig.baseUrl,
+        model: defaultModel,
+        apiKeyMasked: sharedConfig.apiKeyMasked,
+        rawApiKey: sharedConfig.apiKey,
+        providerBaseUrl: sharedConfig.baseUrl,
+        providerApiKey: sharedConfig.apiKey,
+        status: 1,
+        statusText: '未配置',
+        runtimeStatus: getCapabilityStatusText(capability.status),
+        isDefault: 0,
+        updateTime: null,
+        configured: false,
+        providerCatalog: provider,
+        capabilityCatalog: capability,
+        configIds: {},
+        testConfigId: null,
+      })
+    })
+  })
+  return rows
+}
+
+function buildAiCapabilityRows(records, providerCatalog) {
   const groups = groupAiConfigRecords(records)
-  return Array.from(groups.values()).map((group) => {
+  const providerRecords = groupAiProviderRecords(records)
+  const providerLookup = buildProviderLookup(providerCatalog)
+  const configuredCapabilityKeys = new Set()
+  const capabilityGroups = Array.from(groups.values())
+  const configuredRows = capabilityGroups.map((group) => {
     const modality = AI_MODALITIES.find((item) => item.key === group.modality) || { key: group.modality, label: group.modality }
     const providerConfig = group.configs.provider
     const baseUrlConfig = group.configs['base-url']
     const apiKeyConfig = group.configs['api-key']
     const modelConfig = group.configs.model
     const configs = [providerConfig, baseUrlConfig, apiKeyConfig, modelConfig].filter(Boolean)
-    const configured = AI_CONFIG_FIELDS.every((field) => group.configs[field])
+    const configured = AI_CONFIG_FIELDS.every((field) => String(group.configs[field]?.configValue || '').trim())
     const disabled = configured && configs.some((item) => Number(item.status) === 0)
     const updateTime = configs.map((item) => item.updateTime).filter(Boolean).sort().slice(-1)[0] || null
+    const providerMeta = providerLookup.get(normalizeProviderId(providerConfig?.configValue)) || providerLookup.get(normalizeProviderId(group.configName))
+    const capabilityMeta = providerMeta?.capabilities?.[group.modality]
+    const sharedConfig = pickProviderSharedConfig(providerMeta, providerRecords, capabilityGroups)
+    if (providerMeta?.id) {
+      configuredCapabilityKeys.add(`${group.modality}:${providerMeta.id}`)
+    }
     
     // 检查是否有任意一个配置项标记为默认
     const isDefault = Object.values(group.configs).some(config => config.isDefault === 1) ? 1 : 0
@@ -577,14 +700,24 @@ function buildAiCapabilityRows(records) {
       configName: group.configName === 'default' ? '默认' : group.configName,
       configPrefix: group.configPrefix,
       provider: providerConfig?.configValue || '',
-      baseUrl: baseUrlConfig?.configValue || '',
+      providerName: providerMeta?.name || providerConfig?.configValue || '',
+      providerDisplay: providerMeta?.name
+        ? `${providerMeta.name}（${providerConfig?.configValue || providerMeta.id}）`
+        : providerConfig?.configValue || '',
+      baseUrl: sharedConfig.baseUrl || baseUrlConfig?.configValue || '',
       model: modelConfig?.configValue || '',
-      apiKeyMasked: maskSecret(apiKeyConfig?.configValue),
-      rawApiKey: apiKeyConfig?.configValue || '',
+      apiKeyMasked: maskSecret(sharedConfig.apiKey || apiKeyConfig?.configValue),
+      rawApiKey: sharedConfig.apiKey || apiKeyConfig?.configValue || '',
+      providerBaseUrl: sharedConfig.baseUrl,
+      providerApiKey: sharedConfig.apiKey,
       status: disabled ? 0 : 1,
       statusText: configured ? (disabled ? '禁用' : '启用') : '未配置',
+      runtimeStatus: getCapabilityStatusText(capabilityMeta?.status),
       isDefault,  // 添加 isDefault 字段
       updateTime,
+      configured,
+      providerCatalog: providerMeta,
+      capabilityCatalog: capabilityMeta,
       configIds: {
         provider: providerConfig?.id,
         baseUrl: baseUrlConfig?.id,
@@ -594,6 +727,42 @@ function buildAiCapabilityRows(records) {
       testConfigId: baseUrlConfig?.id || apiKeyConfig?.id || modelConfig?.id || providerConfig?.id,
     }
   })
+  return [...configuredRows, ...buildCatalogCapabilityRows(providerCatalog, configuredCapabilityKeys, providerRecords, capabilityGroups)]
+    .sort((a, b) => {
+      const modalityOrder = AI_MODALITIES.findIndex((item) => item.key === a.modality) - AI_MODALITIES.findIndex((item) => item.key === b.modality)
+      if (modalityOrder !== 0) return modalityOrder
+      return String(a.providerName || a.provider).localeCompare(String(b.providerName || b.provider), 'zh-Hans-CN')
+    })
+}
+
+function groupRowsByProvider(rows) {
+  const providers = new Map()
+  rows.filter((row) => row.configKind !== 'asr').forEach((row) => {
+    const providerId = row.providerCatalog?.id || row.provider || row.configName
+    const key = normalizeProviderId(providerId)
+    if (!key) return
+    const existing = providers.get(key) || {
+      id: key,
+      provider: row.provider || providerId,
+      providerName: row.providerName || row.providerCatalog?.name || providerId,
+      providerDisplay: row.providerDisplay || row.providerName || providerId,
+      baseUrl: row.providerBaseUrl || row.baseUrl || row.providerCatalog?.baseUrl || '',
+      rawApiKey: row.providerApiKey || row.rawApiKey || '',
+      apiKeyMasked: maskSecret(row.providerApiKey || row.rawApiKey),
+      providerCatalog: row.providerCatalog,
+      models: [],
+    }
+    if (!existing.rawApiKey && row.rawApiKey) {
+      existing.rawApiKey = row.rawApiKey
+      existing.apiKeyMasked = maskSecret(row.rawApiKey)
+    }
+    if (!existing.baseUrl && row.baseUrl) {
+      existing.baseUrl = row.baseUrl
+    }
+    existing.models.push(row)
+    providers.set(key, existing)
+  })
+  return Array.from(providers.values()).sort((a, b) => a.providerName.localeCompare(b.providerName, 'zh-Hans-CN'))
 }
 
 function buildXfyunAsrRow(records) {
@@ -1025,6 +1194,61 @@ function WorkspacePage({ pageKey }) {
     }
   }
 
+  const saveProviderCredential = async (providerGroup, values) => {
+    const providerId = providerGroup.providerCatalog?.id || providerGroup.provider
+    const baseUrl = String(values.baseUrl || '').trim()
+    const apiKey = String(values.apiKey || '').trim()
+    if (!providerId || !baseUrl || !apiKey) {
+      message.warning('请填写服务地址和 API Key')
+      return
+    }
+    setActionLoading(true)
+    try {
+      await Promise.all([
+        upsertSystemConfig({
+          configKey: `ai.provider.${providerId}.base-url`,
+          configValue: baseUrl,
+          configGroup: 'ai',
+          description: `${providerGroup.providerName} 统一模型服务地址`,
+          status: 1,
+        }),
+        upsertSystemConfig({
+          configKey: `ai.provider.${providerId}.api-key`,
+          configValue: apiKey,
+          configGroup: 'ai',
+          description: `${providerGroup.providerName} 统一模型服务密钥`,
+          status: 1,
+        }),
+        ...providerGroup.models
+          .filter((model) => model.configured)
+          .flatMap((model) => ([
+            upsertSystemConfig({
+              configKey: `${model.configPrefix}.base-url`,
+              configValue: baseUrl,
+              configGroup: 'ai',
+              description: `${model.modalityLabel}模型服务地址`,
+              status: model.status,
+              isDefault: model.isDefault,
+            }),
+            upsertSystemConfig({
+              configKey: `${model.configPrefix}.api-key`,
+              configValue: apiKey,
+              configGroup: 'ai',
+              description: `${model.modalityLabel}模型服务密钥`,
+              status: model.status,
+              isDefault: model.isDefault,
+            }),
+          ])),
+      ])
+      message.success('服务商 Key 已保存')
+      await refreshPageData()
+    } catch (error) {
+      message.error(error?.message || '保存失败')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   const formEnabledPages = [
     'activity-center',
     'activity-category',
@@ -1061,7 +1285,7 @@ function WorkspacePage({ pageKey }) {
       form.setFieldsValue({ restaurantId: parseInt(contextId) })
     }
     if (pageKey === 'system-config') {
-      form.setFieldsValue({ modality: 'text', status: 1 })
+      form.setFieldsValue({ modality: 'text', status: 1, isDefault: false })
     }
     setModalOpen(true)
   }
@@ -1193,6 +1417,7 @@ function WorkspacePage({ pageKey }) {
               model: record.model,
               apiKey: record.rawApiKey,
               status: record.status,
+              isDefault: record.isDefault === 1,
             }
         : {}),
     })
@@ -1284,6 +1509,7 @@ function WorkspacePage({ pageKey }) {
             const configPrefix = configName ? `ai.service.${modality}.${configName}` : `ai.service.${modality}`
             const modalityLabel = AI_MODALITIES.find((item) => item.key === modality)?.label || modality
             const statusValue = values.status
+            const isDefaultValue = values.isDefault ? 1 : 0
             const configs = [
               { field: 'provider', value: values.provider, description: `${modalityLabel}模型服务商` },
               { field: 'base-url', value: values.baseUrl, description: `${modalityLabel}模型服务地址` },
@@ -1296,6 +1522,7 @@ function WorkspacePage({ pageKey }) {
               configGroup: 'ai',
               description: item.description,
               status: statusValue,
+              isDefault: isDefaultValue,
             })))
           },
           edit: async () => {
@@ -1321,6 +1548,7 @@ function WorkspacePage({ pageKey }) {
             }
             const configPrefix = editingRecord.configPrefix
             const statusValue = values.status
+            const isDefaultValue = values.isDefault ? 1 : 0
             const configs = [
               { field: 'provider', value: values.provider, description: `${editingRecord.modalityLabel}模型服务商` },
               { field: 'base-url', value: values.baseUrl, description: `${editingRecord.modalityLabel}模型服务地址` },
@@ -1333,6 +1561,7 @@ function WorkspacePage({ pageKey }) {
               configGroup: 'ai',
               description: item.description,
               status: statusValue,
+              isDefault: isDefaultValue,
             })))
           },
         },
@@ -1650,10 +1879,34 @@ function WorkspacePage({ pageKey }) {
         }
         return (
           <>
-            {modalMode === 'create' ? (
+            {modalMode === 'create' || !editingRecord?.configured ? (
               <>
                 <Form.Item name="modality" label="能力类型" rules={[{ required: true, message: '请选择能力类型' }]}>
-                  <Select options={AI_MODALITIES.map((item) => ({ value: item.key, label: item.label }))} />
+                  <Select
+                    disabled={modalMode === 'edit'}
+                    options={(editingRecord?.providerCatalog
+                      ? AI_MODALITIES.filter((item) => editingRecord.providerCatalog.capabilities?.[item.key])
+                      : AI_MODALITIES.filter((item) => item.key !== 'audio')
+                    ).map((item) => ({ value: item.key, label: item.label }))}
+                    onChange={(value) => {
+                      const capability = editingRecord?.providerCatalog?.capabilities?.[value]
+                      const modalityLabel = AI_MODALITIES.find((item) => item.key === value)?.label || value
+                      form.setFieldsValue({
+                        model: capability?.defaultModel || capability?.models?.[0]?.id || '',
+                        configName: editingRecord?.providerCatalog?.id || form.getFieldValue('configName'),
+                        modalityLabel,
+                      })
+                      if (editingRecord?.providerCatalog) {
+                        setEditingRecord((prev) => ({
+                          ...prev,
+                          modality: value,
+                          modalityLabel,
+                          capabilityCatalog: capability,
+                          configPrefix: `ai.service.${value}.${prev.providerCatalog.id}`,
+                        }))
+                      }
+                    }}
+                  />
                 </Form.Item>
                 <Form.Item
                   name="configName"
@@ -1663,7 +1916,7 @@ function WorkspacePage({ pageKey }) {
                     { pattern: /^[A-Za-z0-9_-]+$/, message: '只能包含英文、数字、下划线或横线' },
                   ]}
                 >
-                  <Input placeholder="例如 qwen-max / image-main" />
+                  <Input disabled={modalMode === 'edit'} placeholder="例如 qwen / image-main" />
                 </Form.Item>
               </>
             ) : (
@@ -1677,19 +1930,31 @@ function WorkspacePage({ pageKey }) {
               </>
             )}
             <Form.Item name="provider" label="服务商" rules={[{ required: true, message: '请输入服务商' }]}>
-              <Input placeholder="请输入服务商标识" />
+              <Input placeholder="请输入服务商标识，例如 qwen / deepseek" />
             </Form.Item>
             <Form.Item name="baseUrl" label="Base URL" rules={[{ required: true, message: '请输入服务地址' }]}>
-              <Input placeholder="请输入模型服务地址" />
+              <Input disabled={Boolean(editingRecord?.providerCatalog)} placeholder="服务商统一 Base URL" />
             </Form.Item>
             <Form.Item name="apiKey" label="API Key" rules={[{ required: true }]}>
-              <Input.Password />
+              <Input.Password disabled={Boolean(editingRecord?.providerCatalog)} placeholder="服务商统一 Key，回到服务商卡片修改" />
             </Form.Item>
             <Form.Item name="model" label="模型 ID" rules={[{ required: true, message: '请输入模型 ID' }]}>
-              <Input placeholder="请输入模型 ID" />
+              {getModelOptions(editingRecord).length ? (
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  options={getModelOptions(editingRecord)}
+                  placeholder="请选择或搜索模型 ID"
+                />
+              ) : (
+                <Input placeholder="请输入模型 ID" />
+              )}
             </Form.Item>
             <Form.Item name="status" label="状态" rules={[{ required: true }]}>
               <Select options={[{ value: 1, label: '启用' }, { value: 0, label: '禁用' }]} />
+            </Form.Item>
+            <Form.Item name="isDefault" label="默认模型" rules={[{ required: true }]}>
+              <Select options={[{ value: false, label: '否' }, { value: true, label: '是' }]} />
             </Form.Item>
           </>
         )
@@ -1922,41 +2187,45 @@ function WorkspacePage({ pageKey }) {
       case 'system-config':
         return (
           <Space size="small">
-            <Button 
-              size="small" 
-              type={record.isDefault === 1 ? 'primary' : 'default'}
-              onClick={() => setAsDefaultModel(record)}
-            >
-              {record.isDefault === 1 ? '✓ 默认' : '设为默认'}
-            </Button>
+            {record.configKind !== 'asr' && record.configured ? (
+              <Button
+                size="small"
+                type={record.isDefault === 1 ? 'primary' : 'default'}
+                onClick={() => setAsDefaultModel(record)}
+              >
+                {record.isDefault === 1 ? '默认' : '设为默认'}
+              </Button>
+            ) : null}
             <Button size="small" onClick={() => openEditModal(record)}>
-              编辑
+              {record.configKind !== 'asr' && !record.configured ? '配置' : '编辑'}
             </Button>
-            <Button
-              size="small"
-              loading={actionLoading}
-              onClick={() => runAction(async () => {
-                if (!record.testConfigId) {
-                  message.warning(record.configKind === 'asr' ? '请先保存讯飞实时转写配置后再测试' : '请先保存该能力的模型配置后再测试')
-                  return
-                }
-                const res = await testSystemConfig(record.testConfigId)
-                Modal.info({
-                  title: res.data?.success ? '连通测试成功' : '连通测试失败',
-                  content: (
-                    <div>
-                      <p>能力类型：{record.modalityLabel}</p>
-                      <p>服务商：{record.provider || '-'}</p>
-                      <p>目标地址：{res.data?.target || '-'}</p>
-                      <p>结果：{res.data?.detail || '-'}</p>
-                    </div>
-                  ),
-                })
-              }, '测试完成')}
-            >
-              测试
-            </Button>
-            {record.configKind !== 'asr' ? (
+            {record.configured || record.configKind === 'asr' ? (
+              <Button
+                size="small"
+                loading={actionLoading}
+                onClick={() => runAction(async () => {
+                  if (!record.testConfigId) {
+                    message.warning(record.configKind === 'asr' ? '请先保存讯飞实时转写配置后再测试' : '请先保存该能力的模型配置后再测试')
+                    return
+                  }
+                  const res = await testSystemConfig(record.testConfigId)
+                  Modal.info({
+                    title: res.data?.success ? '连通测试成功' : '连通测试失败',
+                    content: (
+                      <div>
+                        <p>能力类型：{record.modalityLabel}</p>
+                        <p>服务商：{record.providerDisplay || record.provider || '-'}</p>
+                        <p>目标地址：{res.data?.target || '-'}</p>
+                        <p>结果：{res.data?.detail || '-'}</p>
+                      </div>
+                    ),
+                  })
+                }, '测试完成')}
+              >
+                测试
+              </Button>
+            ) : null}
+            {record.configKind !== 'asr' && record.configured ? (
               <Popconfirm
                 title="确定删除该模型配置吗？"
                 description="会删除该配置组下的 provider/base-url/api-key/model 四个配置项。"
@@ -1982,6 +2251,184 @@ function WorkspacePage({ pageKey }) {
       default:
         return null
     }
+  }
+
+  const openProviderModelModal = (providerGroup, modelRecord = null) => {
+    const fallbackCapability = providerGroup.models.find((item) => item.modality === 'text') || providerGroup.models.find((item) => item.capabilityCatalog)
+    const record = modelRecord || {
+      id: `ai.service.text.${providerGroup.provider}`,
+      modality: 'text',
+      modalityLabel: '文本',
+      configName: providerGroup.provider,
+      configPrefix: `ai.service.text.${providerGroup.provider}`,
+      provider: providerGroup.provider,
+      providerName: providerGroup.providerName,
+      providerDisplay: providerGroup.providerDisplay,
+      baseUrl: providerGroup.baseUrl,
+      model: fallbackCapability?.capabilityCatalog?.defaultModel || '',
+      rawApiKey: providerGroup.rawApiKey,
+      apiKeyMasked: providerGroup.apiKeyMasked,
+      status: 1,
+      statusText: '未配置',
+      runtimeStatus: getCapabilityStatusText(fallbackCapability?.capabilityCatalog?.status),
+      isDefault: 0,
+      configured: false,
+      providerCatalog: providerGroup.providerCatalog,
+      capabilityCatalog: fallbackCapability?.capabilityCatalog,
+      configIds: {},
+      testConfigId: null,
+    }
+    const capabilityCatalog = record.capabilityCatalog || record.providerCatalog?.capabilities?.[record.modality]
+    const modelValue = record.model || capabilityCatalog?.defaultModel || ''
+    setModalMode(modelRecord?.configured ? 'edit' : 'create')
+    setEditingRecord({ ...record, capabilityCatalog })
+    form.resetFields()
+    form.setFieldsValue({
+      modality: record.modality,
+      modalityLabel: record.modalityLabel,
+      configName: record.configName === '默认' ? record.provider : record.configName,
+      provider: record.provider,
+      baseUrl: providerGroup.baseUrl || record.baseUrl,
+      model: modelValue,
+      apiKey: providerGroup.rawApiKey || record.rawApiKey,
+      status: record.status,
+      isDefault: record.isDefault === 1,
+    })
+    setModalOpen(true)
+  }
+
+  const renderAiModelProviderCards = () => {
+    const providerGroups = groupRowsByProvider(rows)
+    const asrRows = rows.filter((row) => row.configKind === 'asr')
+    if (!providerGroups.length && !asrRows.length) {
+      return <Empty description={page.emptyText} />
+    }
+    return (
+      <div className="workspace-ai-provider-grid">
+        {providerGroups.map((providerGroup) => (
+          <Card
+            key={providerGroup.id}
+            className="workspace-ai-provider-card"
+            title={providerGroup.providerDisplay}
+            extra={
+              <Button type="primary" size="small" onClick={() => openProviderModelModal(providerGroup)}>
+                新增模型
+              </Button>
+            }
+          >
+            <Form
+              layout="vertical"
+              className="workspace-ai-provider-form"
+              initialValues={{
+                baseUrl: providerGroup.baseUrl,
+                apiKey: providerGroup.rawApiKey,
+              }}
+              onFinish={(values) => saveProviderCredential(providerGroup, values)}
+            >
+              <Form.Item name="baseUrl" label="Base URL" rules={[{ required: true, message: '请输入服务地址' }]}>
+                <Input placeholder="请输入服务商统一 Base URL" />
+              </Form.Item>
+              <Form.Item name="apiKey" label="API Key" rules={[{ required: true, message: '请输入 API Key' }]}>
+                <Input.Password placeholder="这个服务商只需要填写一次" />
+              </Form.Item>
+              <Button htmlType="submit" loading={actionLoading}>
+                保存 Key
+              </Button>
+            </Form>
+
+            <div className="workspace-ai-model-list">
+              {providerGroup.models.map((model) => (
+                <div key={model.id} className="workspace-ai-model-row">
+                  <div>
+                    <Space size="small" wrap>
+                      <Tag color={colorMap[model.modalityLabel] || 'blue'}>{model.modalityLabel}</Tag>
+                      <Tag color={colorMap[model.runtimeStatus] || 'default'}>{model.runtimeStatus}</Tag>
+                      <Tag color={colorMap[model.statusText] || 'default'}>{model.statusText}</Tag>
+                      {model.isDefault === 1 ? <Tag color="green">默认</Tag> : null}
+                    </Space>
+                    <strong>{model.model || model.capabilityCatalog?.defaultModel || '-'}</strong>
+                    <span>{model.configName} · {model.configPrefix}</span>
+                  </div>
+                  <Space size="small" wrap>
+                    {model.configured ? (
+                      <Button size="small" onClick={() => setAsDefaultModel(model)}>
+                        {model.isDefault === 1 ? '默认' : '设为默认'}
+                      </Button>
+                    ) : null}
+                    <Button size="small" onClick={() => openProviderModelModal(providerGroup, model)}>
+                      {model.configured ? '编辑' : '配置'}
+                    </Button>
+                    {model.configured ? (
+                      <Button
+                        size="small"
+                        loading={actionLoading}
+                        onClick={() => runAction(async () => {
+                          if (!model.testConfigId) {
+                            message.warning('请先保存该模型配置后再测试')
+                            return
+                          }
+                          const res = await testSystemConfig(model.testConfigId)
+                          Modal.info({
+                            title: res.data?.success ? '连通测试成功' : '连通测试失败',
+                            content: (
+                              <div>
+                                <p>能力类型：{model.modalityLabel}</p>
+                                <p>服务商：{model.providerDisplay || model.provider || '-'}</p>
+                                <p>模型：{model.model || '-'}</p>
+                                <p>目标地址：{res.data?.target || '-'}</p>
+                                <p>结果：{res.data?.detail || '-'}</p>
+                              </div>
+                            ),
+                          })
+                        }, '测试完成')}
+                      >
+                        测试
+                      </Button>
+                    ) : null}
+                    {model.configured ? (
+                      <Popconfirm
+                        title="确定删除该模型配置吗？"
+                        description="会删除该配置组下的 provider/base-url/api-key/model 四个配置项。"
+                        onConfirm={() => {
+                          const ids = Object.values(model.configIds || {}).filter(Boolean)
+                          if (!ids.length) {
+                            message.warning('该配置没有可删除的数据库记录')
+                            return
+                          }
+                          runAction(
+                            () => Promise.all(ids.map((id) => deleteSystemConfig(id))),
+                            '模型配置已删除',
+                          )
+                        }}
+                      >
+                        <Button size="small" danger loading={actionLoading}>
+                          删除
+                        </Button>
+                      </Popconfirm>
+                    ) : null}
+                  </Space>
+                </div>
+              ))}
+            </div>
+          </Card>
+        ))}
+        {asrRows.map((record) => (
+          <Card key={record.id} className="workspace-ai-provider-card" title={record.provider}>
+            <div className="workspace-ai-model-row">
+              <div>
+                <Space size="small" wrap>
+                  <Tag color="blue">{record.modalityLabel}</Tag>
+                  <Tag color={colorMap[record.statusText] || 'default'}>{record.statusText}</Tag>
+                </Space>
+                <strong>{record.model}</strong>
+                <span>{record.configName}</span>
+              </div>
+              <Space size="small" wrap>{renderRowActions(record)}</Space>
+            </div>
+          </Card>
+        ))}
+      </div>
+    )
   }
 
   const columns = useMemo(() => {
@@ -3206,16 +3653,18 @@ function WorkspacePage({ pageKey }) {
                     </Button>
                   </>
                 ) : null}
-                {formEnabledPages.includes(pageKey) ? (
+                {formEnabledPages.includes(pageKey) && pageKey !== 'system-config' ? (
                   <Button type="primary" onClick={openCreateModal}>
-                    {pageKey === 'system-config' ? '新增模型配置' : '新增'}
+                    新增
                   </Button>
                 ) : null}
               </div>
             ) : null
           }
         >
-          {columns.length ? (
+          {pageKey === 'system-config' ? (
+            renderAiModelProviderCards()
+          ) : columns.length ? (
             <Table
               columns={columns}
               dataSource={rows}

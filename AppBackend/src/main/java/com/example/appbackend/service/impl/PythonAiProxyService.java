@@ -108,6 +108,10 @@ public class PythonAiProxyService {
         return getRagObject("/internal/rag/agents/" + agentName, authorization);
     }
 
+    public Object getModelProviders(String authorization) {
+        return getPythonAuthObject("/internal/models/providers", authorization, "Python 模型目录服务调用失败");
+    }
+
     public Object queryRag(Map<String, Object> request, String authorization) {
         String requestedModel = resolveRequestedModel(request);
         Map<String, Object> sanitized = sanitizeRagRequest(request);
@@ -257,6 +261,10 @@ public class PythonAiProxyService {
     }
 
     private Object getRagObject(String path, String authorization) {
+        return getPythonObject(path, authorization, "Python RAG 服务调用失败");
+    }
+
+    private Object getPythonObject(String path, String authorization, String errorPrefix) {
         validateAuthorization(authorization);
         String token = normalizeBearerToken(authorization);
         Long userId = extractUserId(token);
@@ -270,9 +278,29 @@ public class PythonAiProxyService {
                     .timeout(Duration.ofSeconds(timeoutSeconds))
                     .block();
         } catch (WebClientResponseException e) {
-            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + extractRemoteMessage(e));
+            throw new BusinessException(Result.ERROR_CODE, errorPrefix + ": " + extractRemoteMessage(e));
         } catch (Exception e) {
-            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + e.getMessage());
+            throw new BusinessException(Result.ERROR_CODE, errorPrefix + ": " + e.getMessage());
+        }
+    }
+
+    private Object getPythonAuthObject(String path, String authorization, String errorPrefix) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            return webClientBuilder.build()
+                    .get()
+                    .uri(buildUri(path))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, errorPrefix + ": " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, errorPrefix + ": " + e.getMessage());
         }
     }
 

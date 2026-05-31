@@ -60,6 +60,12 @@ public class AiRagController {
         return Result.success(pythonAiProxyService.getRagAgents(adminAuthorization(request)));
     }
 
+    @GetMapping("/model-providers")
+    @Operation(summary = "AI 模型服务商目录")
+    public Result<Object> modelProviders(HttpServletRequest request) {
+        return Result.success(pythonAiProxyService.getModelProviders(adminAuthorization(request)));
+    }
+
     @GetMapping("/agents/{agentName}")
     @Operation(summary = "RAG 多智能体详情")
     public Result<Object> agent(@PathVariable String agentName, HttpServletRequest request) {

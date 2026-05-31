@@ -192,7 +192,8 @@ const columns = {
   systemConfig: [
     { title: '能力类型', dataIndex: 'modalityLabel', type: 'tag' },
     { title: '配置标识', dataIndex: 'configName' },
-    { title: '服务商', dataIndex: 'provider', type: 'tag' },
+    { title: '服务商', dataIndex: 'providerDisplay', type: 'tag' },
+    { title: '接入状态', dataIndex: 'runtimeStatus', type: 'tag' },
     { title: '模型 ID', dataIndex: 'model' },
     { title: '密钥', dataIndex: 'apiKeyMasked' },
     { title: '状态', dataIndex: 'statusText', type: 'status' },
