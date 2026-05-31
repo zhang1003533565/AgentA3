@@ -13,6 +13,7 @@ from app.langgraph.nodes import (
 )
 from app.langgraph.state import ConversationState
 from app.models.schemas import ChatRequest, ChatResponse
+from app.model_providers.multimodal import append_image_references_to_text, collect_request_image_references
 from app.model_providers.runtime_config import require_active_llm_config
 from app.multi_agents.catalog import get_agent_profile, normalize_agent_name
 from app.rag.engine import rag_engine
@@ -58,7 +59,7 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: Op
         session_token=session_token,
         authorization=authorization,
         prompt=prompt,
-        input_text=request.input,
+        input_text=append_image_references_to_text(request.input, collect_request_image_references(request)),
         model=active_llm_config.model,
         user_id=user_id,
         rag_strategy=requested_strategy,

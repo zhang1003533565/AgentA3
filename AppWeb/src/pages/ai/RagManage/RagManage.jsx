@@ -23,7 +23,8 @@ import './RagManage.css'
 
 const { TextArea } = Input
 const { Text, Title } = Typography
-const TEXT_MODEL_CONFIG_PATTERN = /^ai\.service\.text(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
+// 匹配所有 AI 服务配置（文本、图片、视频、语音）
+const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.(text|image|video|audio)(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
 
 const strategyColumns = [
   { title: '执行策略', dataIndex: 'name', render: (value, record) => <Tag color="blue">{record.label || value}</Tag> },
@@ -124,11 +125,11 @@ const safeJsonParse = (value, fallback) => {
 const buildLlmModelOptions = (configRows = []) => {
   const groups = new Map()
   configRows.forEach((item) => {
-    const match = String(item.configKey || '').match(TEXT_MODEL_CONFIG_PATTERN)
+    const match = String(item.configKey || '').match(AI_MODEL_CONFIG_PATTERN)
     if (!match) return
-    const [, configName = 'default', field] = match
-    const configPrefix = configName === 'default' ? 'ai.service.text' : `ai.service.text.${configName}`
-    const group = groups.get(configPrefix) || { configPrefix, configs: {} }
+    const [, modality, configName = 'default', field] = match
+    const configPrefix = configName === 'default' ? `ai.service.${modality}` : `ai.service.${modality}.${configName}`
+    const group = groups.get(configPrefix) || { configPrefix, modality, configs: {} }
     group.configs[field] = item
     groups.set(configPrefix, group)
   })
@@ -138,10 +139,20 @@ const buildLlmModelOptions = (configRows = []) => {
       const config = group.configs[field]
       return config && Number(config.status) === 1 && String(config.configValue || '').trim()
     }))
-    .map((group) => ({
-      value: group.configPrefix,
-      label: group.configs.model.configValue,
-    }))
+    .map((group) => {
+      // 添加类型标签，例如：[文本] deepseek-v4-pro
+      const modalityLabels = {
+        text: '文本',
+        image: '图片',
+        video: '视频',
+        audio: '语音',
+      }
+      const modalityLabel = modalityLabels[group.modality] || group.modality
+      return {
+        value: group.configPrefix,
+        label: `[${modalityLabel}] ${group.configs.model.configValue}`,
+      }
+    })
 }
 
 const executionModeLabels = {

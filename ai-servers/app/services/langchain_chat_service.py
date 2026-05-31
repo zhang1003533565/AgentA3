@@ -6,6 +6,8 @@ from fastapi import HTTPException
 
 from app.model_providers.base import ChatModelProvider
 from app.model_providers.deepseek import DeepSeekProvider
+from app.model_providers.qwen import QwenProvider
+from app.model_providers.qwen.provider import QWEN_PROVIDER_ALIASES
 from app.model_providers.runtime_config import require_active_llm_config
 from app.model_providers.xiaomi import XiaomiProvider
 
@@ -74,6 +76,8 @@ chat_services: Dict[tuple[str, str, str, str], LangChainChatService] = {}
 
 def build_chat_model_provider(config) -> ChatModelProvider:
     provider = config.normalized_provider()
+    if provider in QWEN_PROVIDER_ALIASES:
+        return QwenProvider(config=config)
     if provider in {"xiaomi", "mimo", "xiaomi_mimo", "xiaomi-mimo"}:
         return XiaomiProvider(config=config)
     return DeepSeekProvider(config=config)

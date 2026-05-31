@@ -16,6 +16,7 @@ from app.models.schemas import (
     RagQueryResponse,
     RagTraceResponse,
 )
+from app.model_providers.multimodal import append_image_references_to_text, collect_request_image_references
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
 from app.multi_agents.catalog import AGENT_ORDER, get_agent_catalog, get_agent_detail, get_agent_profile, normalize_agent_name
 from app.multi_agents.leader_agent.agent import leader_agent
@@ -191,6 +192,15 @@ def get_rag_framework(
                 "exampleModel": "mimo-v2.5-pro",
                 "configSource": "Java system_config: ai.service.text.provider / ai.service.text.base-url / ai.service.text.api-key / ai.service.text.model",
             },
+            {
+                "name": "qwen",
+                "runtime": "app.model_providers.qwen.provider",
+                "status": "implemented",
+                "defaultBaseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "exampleModel": "qwen-vl-plus",
+                "supportedModalities": ["text", "image_url"],
+                "configSource": "Java system_config: ai.service.text.provider / ai.service.text.base-url / ai.service.text.api-key / ai.service.text.model",
+            },
         ],
         "embeddingProviders": [
             {"name": "local_lexical", "status": "implemented", "requiredEnv": []},
@@ -305,6 +315,7 @@ def run_rag_query(
 
 
 def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
+    request.input = append_image_references_to_text(request.input, collect_request_image_references(request))
     requested_agent = normalize_agent_name(request.agentName)
     if request.agentName and not requested_agent:
         raise HTTPException(status_code=400, detail="智能体不存在")

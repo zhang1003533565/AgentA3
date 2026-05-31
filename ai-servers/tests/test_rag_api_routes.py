@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.model_providers.multimodal import build_multimodal_human_content, extract_image_references
 from app.model_providers.runtime_config import LlmRuntimeConfig
 from app.services import langchain_chat_service
 
@@ -190,6 +191,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertIn("neo4j", {item["name"] for item in payload["graphStores"]})
         self.assertIn("RAG_KNOWLEDGE_BASE_DIR", {item["name"] for item in payload["runtimeEnv"]})
         self.assertIn("xiaomi", {item["name"] for item in payload["modelProviders"]})
+        self.assertIn("qwen", {item["name"] for item in payload["modelProviders"]})
 
     def test_chat_service_selects_xiaomi_provider(self):
         class FakeXiaomiProvider:
@@ -210,6 +212,44 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertIsInstance(provider, FakeXiaomiProvider)
         self.assertEqual("mimo-v2.5-pro", provider.config.model)
+
+
+    def test_chat_service_selects_qwen_provider(self):
+        class FakeQwenProvider:
+            def __init__(self, config):
+                self.config = config
+
+        old_qwen_provider = langchain_chat_service.QwenProvider
+        try:
+            langchain_chat_service.QwenProvider = FakeQwenProvider
+            provider = langchain_chat_service.build_chat_model_provider(LlmRuntimeConfig(
+                provider="qwen",
+                base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+                api_key="test-key",
+                model="qwen-vl-plus",
+            ))
+        finally:
+            langchain_chat_service.QwenProvider = old_qwen_provider
+
+        self.assertIsInstance(provider, FakeQwenProvider)
+        self.assertEqual("qwen-vl-plus", provider.config.model)
+
+    def test_qwen_multimodal_content_extracts_image_urls(self):
+        text, image_urls = extract_image_references(
+            "请分析这张图 ![图](https://example.com/campus.png) 以及 data:image/png;base64,AAAA"
+        )
+
+        self.assertIn("请分析这张图", text)
+        self.assertEqual([
+            "https://example.com/campus.png",
+            "data:image/png;base64,AAAA",
+        ], image_urls)
+
+        content = build_multimodal_human_content("看图回答 ![图](https://example.com/a.jpg)")
+        self.assertIsInstance(content, list)
+        self.assertEqual("text", content[0]["type"])
+        self.assertEqual("image_url", content[1]["type"])
+        self.assertEqual("https://example.com/a.jpg", content[1]["image_url"]["url"])
 
     def test_agents_endpoint_exposes_skill_catalog(self):
         response = self.client.get("/internal/rag/agents", headers=self.headers)
