@@ -111,6 +111,7 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
         config.setConfigGroup(req.getConfigGroup() == null || req.getConfigGroup().isBlank() ? "ai" : req.getConfigGroup().trim());
         config.setDescription(req.getDescription());
         config.setStatus(req.getStatus());
+        config.setIsDefault(req.getIsDefault() != null ? req.getIsDefault() : 0);
         return toVO(systemConfigRepository.save(config));
     }
 
@@ -140,6 +141,7 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
         vo.setStatus(item.getStatus());
         vo.setStatusText(Integer.valueOf(1).equals(item.getStatus()) ? "启用" : "禁用");
         vo.setTestable(item.getConfigKey().startsWith("tencent.map.") || item.getConfigKey().startsWith("aliyun.oss.") || item.getConfigKey().startsWith("ai."));
+        vo.setIsDefault(item.getIsDefault() != null ? item.getIsDefault() : 0);
         vo.setUpdateTime(item.getUpdateTime() != null ? item.getUpdateTime().format(FMT) : null);
         return vo;
     }

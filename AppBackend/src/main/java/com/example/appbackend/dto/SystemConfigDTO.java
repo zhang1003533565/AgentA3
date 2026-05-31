@@ -18,6 +18,7 @@ public class SystemConfigDTO {
         private Integer status;
         private String statusText;
         private Boolean testable;
+        private Integer isDefault;
         private String updateTime;
     }
 
@@ -48,6 +49,8 @@ public class SystemConfigDTO {
 
         @NotNull(message = "状态不能为空")
         private Integer status;
+
+        private Integer isDefault = 0;
     }
 
     @Data

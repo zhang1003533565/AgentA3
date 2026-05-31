@@ -260,6 +260,7 @@ class PythonAiProxyServiceTest {
                 objectMapper,
                 jwtUtil,
                 systemConfigService,
+                null,  // SystemConfigRepository - 测试中不需要
                 "http://localhost:" + port,
                 5,
                 1024 * 1024

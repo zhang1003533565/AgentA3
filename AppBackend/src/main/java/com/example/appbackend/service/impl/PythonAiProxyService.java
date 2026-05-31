@@ -3,7 +3,9 @@ package com.example.appbackend.service.impl;
 import com.example.appbackend.dto.LlmChatRequest;
 import com.example.appbackend.dto.LlmChatResponse;
 import com.example.appbackend.entity.Result;
+import com.example.appbackend.entity.SystemConfig;
 import com.example.appbackend.exception.BusinessException;
+import com.example.appbackend.repository.SystemConfigRepository;
 import com.example.appbackend.service.SystemConfigService;
 import com.example.appbackend.util.JwtUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,6 +27,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -36,6 +39,7 @@ public class PythonAiProxyService {
     private final ObjectMapper objectMapper;
     private final JwtUtil jwtUtil;
     private final SystemConfigService systemConfigService;
+    private final SystemConfigRepository systemConfigRepository;
     private final String pythonBaseUrl;
     private final long timeoutSeconds;
     private final int fileResponseMaxInMemoryBytes;
@@ -44,6 +48,7 @@ public class PythonAiProxyService {
                                 ObjectMapper objectMapper,
                                 JwtUtil jwtUtil,
                                 SystemConfigService systemConfigService,
+                                SystemConfigRepository systemConfigRepository,
                                 @Value("${ai.python.base-url:http://localhost:8081}") String pythonBaseUrl,
                                 @Value("${ai.python.timeout-seconds:65}") long timeoutSeconds,
                                 @Value("${ai.python.file-response-max-in-memory-bytes:52428800}") int fileResponseMaxInMemoryBytes) {
@@ -51,6 +56,7 @@ public class PythonAiProxyService {
         this.objectMapper = objectMapper;
         this.jwtUtil = jwtUtil;
         this.systemConfigService = systemConfigService;
+        this.systemConfigRepository = systemConfigRepository;
         this.pythonBaseUrl = pythonBaseUrl;
         this.timeoutSeconds = timeoutSeconds;
         this.fileResponseMaxInMemoryBytes = fileResponseMaxInMemoryBytes;
@@ -412,7 +418,36 @@ public class PythonAiProxyService {
         if (StringUtils.hasText(requestedModel) && requestedModel.startsWith("ai.service.")) {
             return requestedModel.trim();
         }
+        
+        // 从数据库中查询标记为 is_default=1 的配置
+        String defaultConfig = getDefaultModelConfig();
+        if (StringUtils.hasText(defaultConfig)) {
+            return defaultConfig;
+        }
+        
+        // 如果没有设置默认，回退到 ai.service.text
         return "ai.service.text";
+    }
+
+    /**
+     * 从数据库查询标记为默认的模型配置前缀
+     */
+    private String getDefaultModelConfig() {
+        try {
+            List<SystemConfig> configs = systemConfigRepository.findAll();
+            for (SystemConfig config : configs) {
+                if (config.getIsDefault() != null && config.getIsDefault() == 1 
+                    && config.getConfigKey() != null 
+                    && config.getConfigKey().matches("^ai\\.service\\.text(?:\\.[A-Za-z0-9_-]+)?\\.provider$")) {
+                    // 提取配置前缀，例如从 "ai.service.text.deepseek.provider" 提取 "ai.service.text.deepseek"
+                    String key = config.getConfigKey();
+                    return key.substring(0, key.lastIndexOf(".provider"));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("查询默认模型配置失败: {}", e.getMessage());
+        }
+        return null;
     }
 
     private String requireAiConfig(String configPrefix, String field, String label) {

@@ -30,6 +30,9 @@ public class SystemConfig {
     @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 1 COMMENT '状态：1-启用 0-禁用'")
     private Integer status = 1;
 
+    @Column(name = "is_default", columnDefinition = "TINYINT DEFAULT 0 COMMENT '是否为默认配置: 0-否, 1-是'")
+    private Integer isDefault = 0;
+
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     private LocalDateTime createTime;
 

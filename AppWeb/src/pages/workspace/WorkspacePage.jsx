@@ -566,6 +566,10 @@ function buildAiCapabilityRows(records) {
     const configured = AI_CONFIG_FIELDS.every((field) => group.configs[field])
     const disabled = configured && configs.some((item) => Number(item.status) === 0)
     const updateTime = configs.map((item) => item.updateTime).filter(Boolean).sort().slice(-1)[0] || null
+    
+    // 检查是否有任意一个配置项标记为默认
+    const isDefault = Object.values(group.configs).some(config => config.isDefault === 1) ? 1 : 0
+    
     return {
       id: group.configPrefix,
       modality: group.modality,
@@ -579,6 +583,7 @@ function buildAiCapabilityRows(records) {
       rawApiKey: apiKeyConfig?.configValue || '',
       status: disabled ? 0 : 1,
       statusText: configured ? (disabled ? '禁用' : '启用') : '未配置',
+      isDefault,  // 添加 isDefault 字段
       updateTime,
       configIds: {
         provider: providerConfig?.id,
@@ -928,6 +933,93 @@ function WorkspacePage({ pageKey }) {
       await refreshPageData()
     } catch (error) {
       message.error(error?.message || '操作失败')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const setAsDefaultModel = async (record) => {
+    try {
+      setActionLoading(true)
+      
+      // 1. 先将所有同类型配置的 is_default 设为 0
+      const modality = record.modality
+      const allConfigs = rows.filter(row => row.modality === modality && row.configKind !== 'asr')
+      
+      // 收集所有需要更新的 configKey
+      const keysToUpdate = new Set()
+      allConfigs.forEach(config => {
+        if (config.configPrefix !== record.configPrefix) {
+          // 非当前选中的配置，需要取消默认
+          keysToUpdate.add(`${config.configPrefix}.provider`)
+          keysToUpdate.add(`${config.configPrefix}.base-url`)
+          keysToUpdate.add(`${config.configPrefix}.api-key`)
+          keysToUpdate.add(`${config.configPrefix}.model`)
+        }
+      })
+      
+      // 批量更新这些配置，将 isDefault 设为 0
+      await Promise.all(
+        Array.from(keysToUpdate).map(configKey => {
+          // 找到原始配置的值
+          const originalConfig = allConfigs.find(c => configKey.startsWith(c.configPrefix + '.'))
+          if (!originalConfig) return Promise.resolve()
+          
+          const field = configKey.split('.').pop()
+          let configValue = ''
+          let description = ''
+          
+          if (field === 'provider') {
+            configValue = originalConfig.provider
+            description = `${originalConfig.modalityLabel}模型服务商`
+          } else if (field === 'base-url') {
+            configValue = originalConfig.baseUrl
+            description = `${originalConfig.modalityLabel}模型服务地址`
+          } else if (field === 'api-key') {
+            configValue = originalConfig.rawApiKey
+            description = `${originalConfig.modalityLabel}模型服务密钥`
+          } else if (field === 'model') {
+            configValue = originalConfig.model
+            description = `${originalConfig.modalityLabel}模型 ID`
+          }
+          
+          return upsertSystemConfig({
+            configKey,
+            configValue,
+            configGroup: 'ai',
+            description,
+            status: originalConfig.status,
+            isDefault: 0,
+          })
+        }).filter(Boolean)
+      )
+      
+      // 2. 将当前配置的所有字段设为默认
+      const configPrefix = record.configPrefix
+      const fields = ['provider', 'base-url', 'api-key', 'model']
+      await Promise.all(
+        fields.map(field => 
+          upsertSystemConfig({
+            configKey: `${configPrefix}.${field}`,
+            configValue: field === 'provider' ? record.provider : 
+                        field === 'base-url' ? record.baseUrl :
+                        field === 'api-key' ? record.rawApiKey :
+                        record.model,
+            configGroup: 'ai',
+            description: field === 'provider' ? `${record.modalityLabel}模型服务商` :
+                        field === 'base-url' ? `${record.modalityLabel}模型服务地址` :
+                        field === 'api-key' ? `${record.modalityLabel}模型服务密钥` :
+                        `${record.modalityLabel}模型 ID`,
+            status: record.status,
+            isDefault: 1,
+          })
+        )
+      )
+      
+      message.success('已设置为默认模型')
+      await refreshPageData()
+    } catch (error) {
+      message.error(error.message || '设置失败')
     } finally {
       setActionLoading(false)
     }
@@ -1830,6 +1922,13 @@ function WorkspacePage({ pageKey }) {
       case 'system-config':
         return (
           <Space size="small">
+            <Button 
+              size="small" 
+              type={record.isDefault === 1 ? 'primary' : 'default'}
+              onClick={() => setAsDefaultModel(record)}
+            >
+              {record.isDefault === 1 ? '✓ 默认' : '设为默认'}
+            </Button>
             <Button size="small" onClick={() => openEditModal(record)}>
               编辑
             </Button>
