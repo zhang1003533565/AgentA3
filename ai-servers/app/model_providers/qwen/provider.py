@@ -24,27 +24,6 @@ QWEN_PROVIDER_ALIASES = {
     "qwen-openai",
 }
 DEFAULT_QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-QWEN_PROVIDER_CATALOG = {
-    "id": "qwen",
-    "name": "通义千问 / DashScope",
-    "aliases": sorted(QWEN_PROVIDER_ALIASES),
-    "baseUrl": DEFAULT_QWEN_BASE_URL,
-    "website": "https://dashscope.aliyun.com",
-    "capabilities": {
-        "text": {
-            "status": "implemented",
-            "models": [],
-        },
-        "image": {
-            "status": "implemented",
-            "models": [],
-        },
-        "video": {
-            "status": "implemented",
-            "models": [],
-        },
-    },
-}
 
 
 class QwenProvider(ChatModelProvider):

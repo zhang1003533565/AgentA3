@@ -54,24 +54,20 @@ const DEFAULT_MAP_CENTER = {
 }
 const DEFAULT_MAP_ZOOM = 16
 const AI_MODALITIES = [
-  { key: 'text', label: '文本' },
-  { key: 'image', label: '图片' },
-  { key: 'video', label: '视频' },
-  { key: 'audio', label: '语音' },
+  { key: 'text', label: '语言模型' },
+  { key: 'vision', label: '视觉/视频理解' },
+  { key: 'image', label: '图片生成/编辑' },
+  { key: 'video', label: '视频生成/编辑' },
+  { key: 'audio', label: '语音/音频' },
 ]
 const AI_CONFIG_FIELDS = ['provider', 'base-url', 'api-key', 'model']
-const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.(text|image|video|audio)(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
+const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.([A-Za-z0-9_-]+)(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
 const AI_PROVIDER_CONFIG_PATTERN = /^ai\.provider\.([A-Za-z0-9_-]+)\.(base-url|api-key)$/
 const AI_MODEL_STATUS_LABELS = {
   implemented: '已接入',
   openai_compatible: '兼容接入',
   planned: '待接入',
 }
-const AI_MODEL_SECTIONS = [
-  { key: 'text', label: '语言模型' },
-  { key: 'image', label: '图片模型' },
-  { key: 'video', label: '视频模型' },
-]
 const XFYUN_ASR_PREFIX = 'ai.asr.xfyun'
 const XFYUN_ASR_FIELDS = ['websocket-url', 'app-id', 'access-key-id', 'access-key-secret', 'lang', 'audio-encode', 'samplerate']
 const XFYUN_ASR_REQUIRED_FIELDS = XFYUN_ASR_FIELDS
@@ -603,6 +599,38 @@ function getCapabilityStatusText(status) {
   return AI_MODEL_STATUS_LABELS[status] || status || '可配置'
 }
 
+function getProviderCatalogModalities(providerCatalog) {
+  const catalogModalities = Array.isArray(providerCatalog?.modalities) ? providerCatalog.modalities : []
+  const providerCapabilities = Array.isArray(providerCatalog?.providers)
+    ? providerCatalog.providers.flatMap((provider) => Object.keys(provider?.capabilities || {}))
+    : []
+  const seen = new Set()
+  const options = []
+
+  catalogModalities.forEach((item) => {
+    if (!item?.key || seen.has(item.key)) return
+    seen.add(item.key)
+    options.push({ key: item.key, label: item.label || item.key })
+  })
+  providerCapabilities.forEach((key) => {
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    const fallback = AI_MODALITIES.find((item) => item.key === key)
+    options.push({ key, label: fallback?.label || key })
+  })
+  AI_MODALITIES.forEach((item) => {
+    if (seen.has(item.key)) return
+    seen.add(item.key)
+    options.push(item)
+  })
+  return options
+}
+
+function getModalityLabel(key, providerCatalog = null) {
+  const catalogMatch = getProviderCatalogModalities(providerCatalog).find((item) => item.key === key)
+  return catalogMatch?.label || key
+}
+
 function getModelOptions(record) {
   const models = Array.isArray(record?.capabilityCatalog?.models) ? record.capabilityCatalog.models : []
   return models.map((model) => ({
@@ -668,7 +696,6 @@ function buildAiCapabilityRows(records, providerCatalog) {
   const providerLookup = buildProviderLookup(providerCatalog)
   const capabilityGroups = Array.from(groups.values())
   const configuredRows = capabilityGroups.map((group) => {
-    const modality = AI_MODALITIES.find((item) => item.key === group.modality) || { key: group.modality, label: group.modality }
     const providerConfig = group.configs.provider
     const baseUrlConfig = group.configs['base-url']
     const apiKeyConfig = group.configs['api-key']
@@ -687,7 +714,7 @@ function buildAiCapabilityRows(records, providerCatalog) {
     return {
       id: group.configPrefix,
       modality: group.modality,
-      modalityLabel: modality.label,
+      modalityLabel: getModalityLabel(group.modality, providerCatalog),
       configName: group.configName === 'default' ? '默认' : group.configName,
       configPrefix: group.configPrefix,
       provider: providerConfig?.configValue || '',
@@ -720,7 +747,12 @@ function buildAiCapabilityRows(records, providerCatalog) {
   })
   return [...configuredRows, ...buildCatalogProviderRows(providerCatalog, providerRecords, capabilityGroups)]
     .sort((a, b) => {
-      const modalityOrder = AI_MODALITIES.findIndex((item) => item.key === a.modality) - AI_MODALITIES.findIndex((item) => item.key === b.modality)
+      const modalities = getProviderCatalogModalities(providerCatalog)
+      const getOrder = (modality) => {
+        const index = modalities.findIndex((item) => item.key === modality)
+        return index === -1 ? modalities.length : index
+      }
+      const modalityOrder = getOrder(a.modality) - getOrder(b.modality)
       if (modalityOrder !== 0) return modalityOrder
       return String(a.providerName || a.provider).localeCompare(String(b.providerName || b.provider), 'zh-Hans-CN')
     })
@@ -1500,7 +1532,7 @@ function WorkspacePage({ pageKey }) {
             const modality = values.modality
             const configName = String(values.configName || '').trim()
             const configPrefix = configName ? `ai.service.${modality}.${configName}` : `ai.service.${modality}`
-            const modalityLabel = AI_MODALITIES.find((item) => item.key === modality)?.label || modality
+            const modalityLabel = getModalityLabel(modality)
             const statusValue = values.status
             const isDefaultValue = values.isDefault ? 1 : 0
             const configs = [
@@ -1878,12 +1910,13 @@ function WorkspacePage({ pageKey }) {
                   <Select
                     disabled={modalMode === 'edit'}
                     options={(editingRecord?.providerCatalog
-                      ? AI_MODALITIES.filter((item) => editingRecord.providerCatalog.capabilities?.[item.key])
-                      : AI_MODALITIES.filter((item) => item.key !== 'audio')
+                      ? getProviderCatalogModalities({ providers: [editingRecord.providerCatalog], modalities: [] })
+                        .filter((item) => editingRecord.providerCatalog.capabilities?.[item.key])
+                      : AI_MODALITIES
                     ).map((item) => ({ value: item.key, label: item.label }))}
                     onChange={(value) => {
                       const capability = editingRecord?.providerCatalog?.capabilities?.[value]
-                      const modalityLabel = AI_MODALITIES.find((item) => item.key === value)?.label || value
+                      const modalityLabel = getModalityLabel(value)
                       form.setFieldsValue({
                         model: capability?.defaultModel || capability?.models?.[0]?.id || '',
                         configName: editingRecord?.providerCatalog?.id || form.getFieldValue('configName'),
@@ -2252,13 +2285,13 @@ function WorkspacePage({ pageKey }) {
       || providerGroup.models.find((item) => item.capabilityCatalog)
       || {
         modality: fallbackModality,
-        modalityLabel: AI_MODEL_SECTIONS.find((item) => item.key === fallbackModality)?.label || fallbackModality,
+        modalityLabel: getModalityLabel(fallbackModality),
         capabilityCatalog: providerGroup.providerCatalog?.capabilities?.[fallbackModality],
       }
     const record = modelRecord || {
       id: `ai.service.${fallbackModality}.${providerGroup.provider}`,
       modality: fallbackModality,
-      modalityLabel: AI_MODALITIES.find((item) => item.key === fallbackModality)?.label || fallbackModality,
+      modalityLabel: getModalityLabel(fallbackModality),
       configName: providerGroup.provider,
       configPrefix: `ai.service.${fallbackModality}.${providerGroup.provider}`,
       provider: providerGroup.provider,
@@ -2300,18 +2333,23 @@ function WorkspacePage({ pageKey }) {
   const renderAiModelProviderCards = () => {
     const providerGroups = groupRowsByProvider(rows)
     const asrRows = rows.filter((row) => row.configKind === 'asr')
+    const providerCatalog = providerGroups.find((providerGroup) => providerGroup.providerCatalog)?.providerCatalog
+    const sections = getProviderCatalogModalities({
+      providers: providerGroups.map((providerGroup) => providerGroup.providerCatalog).filter(Boolean),
+      modalities: providerCatalog?.modalities || [],
+    }).filter((section) => providerGroups.some((providerGroup) => providerGroup.providerCatalog?.capabilities?.[section.key]))
     if (!providerGroups.length && !asrRows.length) {
       return <Empty description={page.emptyText} />
     }
     return (
       <div className="workspace-ai-section-list">
-        {AI_MODEL_SECTIONS.map((section) => (
+        {sections.map((section) => (
           <section key={section.key} className="workspace-ai-section">
             <div className="workspace-ai-section__head">
               <h3>{section.label}</h3>
             </div>
             <div className="workspace-ai-provider-grid">
-              {providerGroups.map((providerGroup) => {
+              {providerGroups.filter((providerGroup) => providerGroup.providerCatalog?.capabilities?.[section.key]).map((providerGroup) => {
                 const providerCapability = providerGroup.providerCatalog?.capabilities?.[section.key]
                 const sectionModels = providerGroup.models.filter((model) => model.modality === section.key)
                 const scopedProvider = { ...providerGroup, activeModality: section.key }
@@ -2325,9 +2363,7 @@ function WorkspacePage({ pageKey }) {
                         <Button type="primary" size="small" onClick={() => openProviderModelModal(scopedProvider)}>
                           新增模型
                         </Button>
-                      ) : (
-                        <Tag>未支持</Tag>
-                      )
+                      ) : null
                     }
                   >
                     <Form
