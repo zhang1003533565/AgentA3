@@ -11,6 +11,20 @@ from app.utils.text_utils import normalize_base_url, sanitize_keyword
 
 logger = get_logger("providers.deepseek")
 
+DEEPSEEK_PROVIDER_CATALOG = {
+    "id": "deepseek",
+    "name": "DeepSeek",
+    "aliases": ["deepseek"],
+    "baseUrl": "https://api.deepseek.com/v1",
+    "website": "https://platform.deepseek.com",
+    "capabilities": {
+        "text": {
+            "status": "implemented",
+            "models": [],
+        },
+    },
+}
+
 
 class DeepSeekProvider(ChatModelProvider):
     def __init__(self, config: Optional[LlmRuntimeConfig] = None) -> None:

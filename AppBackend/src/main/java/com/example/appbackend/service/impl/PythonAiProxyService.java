@@ -196,6 +196,18 @@ public class PythonAiProxyService {
         return getImageObject("/internal/images/tasks/" + taskId, authorization);
     }
 
+    public Object generateVideo(Map<String, Object> request, String authorization) {
+        return postVideoObject("/internal/videos/generate", request, authorization);
+    }
+
+    public Object generateVideosBatch(Map<String, Object> request, String authorization) {
+        return postVideoObject("/internal/videos/batch", request, authorization);
+    }
+
+    public Object getVideoTask(String taskId, String authorization) {
+        return getVideoObject("/internal/videos/tasks/" + taskId, authorization);
+    }
+
     public SseEmitter streamChat(LlmChatRequest request, String authorization) {
         validateAuthorization(authorization);
         String token = normalizeBearerToken(authorization);
@@ -369,6 +381,48 @@ public class PythonAiProxyService {
             throw new BusinessException(Result.ERROR_CODE, "Python 图片生成服务调用失败: " + extractRemoteMessage(e));
         } catch (Exception e) {
             throw new BusinessException(Result.ERROR_CODE, "Python 图片生成服务调用失败: " + e.getMessage());
+        }
+    }
+
+    private Object getVideoObject(String path, String authorization) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            return webClientBuilder.build()
+                    .get()
+                    .uri(buildUri(path))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 视频生成服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 视频生成服务调用失败: " + e.getMessage());
+        }
+    }
+
+    private Object postVideoObject(String path, Map<String, Object> request, String authorization) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            return webClientBuilder.build()
+                    .post()
+                    .uri(buildUri(path))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(request == null ? Map.of() : request)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 视频生成服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 视频生成服务调用失败: " + e.getMessage());
         }
     }
 

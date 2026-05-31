@@ -12,6 +12,20 @@ from app.utils.text_utils import normalize_base_url, sanitize_keyword
 
 logger = get_logger("providers.xiaomi")
 
+XIAOMI_PROVIDER_CATALOG = {
+    "id": "xiaomi",
+    "name": "小米 MiMo",
+    "aliases": ["xiaomi", "mimo", "xiaomi_mimo", "xiaomi-mimo"],
+    "baseUrl": "https://api.xiaomimimo.com/v1",
+    "website": "https://platform.mimodel.ai",
+    "capabilities": {
+        "text": {
+            "status": "implemented",
+            "models": [],
+        },
+    },
+}
+
 
 class XiaomiProvider(ChatModelProvider):
     def __init__(self, config: Optional[LlmRuntimeConfig] = None) -> None:

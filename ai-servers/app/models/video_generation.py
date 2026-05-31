@@ -3,21 +3,16 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 
-ImageMode = Literal["single", "batch"]
-ImageStatus = Literal["pending", "running", "success", "partial_success", "failed"]
-ImageResultType = Literal["url", "base64", "url_and_base64"]
+VideoMode = Literal["single", "batch"]
+VideoStatus = Literal["pending", "running", "success", "partial_success", "failed"]
 
 
-class ImageGenerationRequest(BaseModel):
+class VideoGenerationRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
-    style: str = Field(default="", max_length=64)
-    size: str = Field(default="1664x928", max_length=32)
-    count: int = Field(default=1, ge=1, le=8)
+    imageUrl: str = Field(default="", max_length=1000)
+    size: str = Field(default="1280x720", max_length=32)
+    duration: int = Field(default=5, ge=1, le=30)
     seed: Optional[int] = None
-    negativePrompt: str = Field(default="", max_length=1000)
-    returnType: ImageResultType = "url"
-    promptExtend: bool = True
-    watermark: bool = False
     model: Optional[str] = Field(default=None, max_length=64)
     provider: str = Field(default="qwen", max_length=64)
     baseUrl: str = Field(default="", max_length=256)
@@ -28,13 +23,13 @@ class ImageGenerationRequest(BaseModel):
     @classmethod
     def validate_size(cls, value: str) -> str:
         normalized = value.strip().lower().replace("*", "x")
-        allowed_sizes = {"1664x928", "1472x1104", "1328x1328", "1104x1472", "928x1664"}
+        allowed_sizes = {"1280x720", "720x1280", "960x960"}
         if normalized not in allowed_sizes:
-            raise ValueError(f"不支持的图片尺寸：{value}，可选：{', '.join(sorted(allowed_sizes))}")
+            raise ValueError(f"不支持的视频尺寸：{value}，可选：{', '.join(sorted(allowed_sizes))}")
         return normalized
 
 
-class ImageBatchRequest(ImageGenerationRequest):
+class VideoBatchRequest(VideoGenerationRequest):
     prompts: List[str] = Field(default_factory=list, max_length=8)
 
     @field_validator("prompts")
@@ -46,26 +41,24 @@ class ImageBatchRequest(ImageGenerationRequest):
         return cleaned
 
 
-class ImageItem(BaseModel):
+class VideoItem(BaseModel):
     index: int
     url: str = ""
-    base64: str = ""
-    status: ImageStatus = "pending"
+    status: VideoStatus = "pending"
     seed: Optional[int] = None
     errorMessage: str = ""
 
 
-class ImageGenerationResponse(BaseModel):
+class VideoGenerationResponse(BaseModel):
     taskId: str
     providerTaskId: str = ""
-    mode: ImageMode
-    status: ImageStatus
+    mode: VideoMode
+    status: VideoStatus
     prompt: str
-    style: str = ""
-    size: str = "1024x1024"
-    count: int = 1
+    imageUrl: str = ""
+    size: str = "1280x720"
+    duration: int = 5
     seed: Optional[int] = None
-    negativePrompt: str = ""
-    images: List[ImageItem] = Field(default_factory=list)
+    videos: List[VideoItem] = Field(default_factory=list)
     message: str = ""
     metadata: Dict[str, Any] = Field(default_factory=dict)

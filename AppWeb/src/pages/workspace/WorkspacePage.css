@@ -129,6 +129,30 @@
   gap: 10px;
 }
 
+.workspace-ai-section-list {
+  display: grid;
+  gap: 24px;
+}
+
+.workspace-ai-section {
+  display: grid;
+  gap: 14px;
+}
+
+.workspace-ai-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.workspace-ai-section__head h3 {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 18px;
+}
+
 .workspace-ai-provider-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
@@ -185,6 +209,15 @@
   color: var(--text-soft);
   font-size: 12px;
   word-break: break-all;
+}
+
+.workspace-ai-model-empty {
+  padding: 18px 12px;
+  border-radius: 12px;
+  color: var(--text-soft);
+  text-align: center;
+  background: rgba(248, 250, 252, 0.8);
+  border: 1px dashed rgba(148, 163, 184, 0.35);
 }
 
 .workspace-timeline {

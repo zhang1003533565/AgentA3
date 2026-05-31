@@ -109,10 +109,15 @@ class QwenImageProvider:
             if request is None:
                 request = ImageGenerationRequest(**task_record["request"])
 
-        self._ensure_configured()
+        self._ensure_configured(request.apiKey if request else "")
         last_payload: Dict[str, Any] = {}
         for _ in range(self.max_poll_attempts):
-            payload = self._request("GET", f"/api/v1/tasks/{provider_task_id}")
+            payload = self._request(
+                "GET",
+                f"/api/v1/tasks/{provider_task_id}",
+                api_key=request.apiKey if request else "",
+                base_url=request.baseUrl if request else "",
+            )
             last_payload = payload
             task_status = str(payload.get("output", {}).get("task_status", "")).upper()
             if task_status in {"SUCCEEDED", "FAILED", "CANCELED", "UNKNOWN"}:
@@ -121,7 +126,7 @@ class QwenImageProvider:
         return self._build_response(provider_task_id, last_payload, request=request, task_id=task_id, mode=mode, timeout=True)
 
     def _submit_task(self, request: ImageGenerationRequest) -> str:
-        self._ensure_configured()
+        self._ensure_configured(request.apiKey)
         final_prompt = self._compose_prompt(request)
         payload = {
             "model": request.model or self.model,
@@ -140,19 +145,32 @@ class QwenImageProvider:
         if request.negativePrompt:
             payload["parameters"]["negative_prompt"] = request.negativePrompt
 
-        response = self._request("POST", "/api/v1/services/aigc/text2image/image-synthesis", body=payload)
+        response = self._request(
+            "POST",
+            "/api/v1/services/aigc/text2image/image-synthesis",
+            body=payload,
+            api_key=request.apiKey,
+            base_url=request.baseUrl,
+        )
         provider_task_id = response.get("output", {}).get("task_id")
         if not provider_task_id:
             raise HTTPException(status_code=502, detail=f"Qwen 图片任务创建失败：{response}")
         return provider_task_id
 
-    def _request(self, method: str, path: str, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        body: Optional[Dict[str, Any]] = None,
+        api_key: str = "",
+        base_url: str = "",
+    ) -> Dict[str, Any]:
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {self._active_api_key(api_key)}",
             "Content-Type": "application/json",
             "X-DashScope-Async": "enable",
         }
-        url = f"{self.base_url}{path}"
+        url = f"{self._active_base_url(base_url)}{path}"
         data = json.dumps(body).encode("utf-8") if body is not None else None
         request = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
@@ -241,9 +259,16 @@ class QwenImageProvider:
         except (urllib.error.HTTPError, urllib.error.URLError):
             return ""
 
-    def _ensure_configured(self) -> None:
-        if not self.api_key or self.api_key.startswith("your-"):
+    def _ensure_configured(self, api_key: str = "") -> None:
+        active_api_key = self._active_api_key(api_key)
+        if not active_api_key or active_api_key.startswith("your-"):
             raise HTTPException(status_code=500, detail="未配置 DASHSCOPE_API_KEY 或 QWEN_IMAGE_API_KEY，无法调用 Qwen 图片生成服务")
+
+    def _active_api_key(self, api_key: str = "") -> str:
+        return str(api_key or self.api_key)
+
+    def _active_base_url(self, base_url: str = "") -> str:
+        return str(base_url or self.base_url).rstrip("/")
 
     def _remember_task(self, task_id: str, provider_task_id: str, request: ImageGenerationRequest, mode: str) -> None:
         self.tasks[task_id] = {
