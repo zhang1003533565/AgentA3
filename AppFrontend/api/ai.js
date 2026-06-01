@@ -8,6 +8,32 @@ export function writeWithAi(data) {
   })
 }
 
+export function generateImage(data) {
+  return request({
+    url: '/api/ai/images/generate',
+    method: 'POST',
+    data,
+    timeout: 180000
+  })
+}
+
+export function generateImagesBatch(data) {
+  return request({
+    url: '/api/ai/images/batch',
+    method: 'POST',
+    data,
+    timeout: 240000
+  })
+}
+
+export function getImageTask(taskId) {
+  return request({
+    url: `/api/ai/images/tasks/${encodeURIComponent(taskId)}`,
+    method: 'GET',
+    timeout: 60000
+  })
+}
+
 export function queryLeaderAgent(data) {
   return request({
     url: '/api/ai/leader/query',
