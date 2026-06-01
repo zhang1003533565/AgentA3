@@ -3,9 +3,7 @@ package com.example.appbackend.service.impl;
 import com.example.appbackend.dto.LlmChatRequest;
 import com.example.appbackend.dto.LlmChatResponse;
 import com.example.appbackend.entity.Result;
-import com.example.appbackend.entity.SystemConfig;
 import com.example.appbackend.exception.BusinessException;
-import com.example.appbackend.repository.SystemConfigRepository;
 import com.example.appbackend.service.SystemConfigService;
 import com.example.appbackend.util.JwtUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,7 +37,6 @@ public class PythonAiProxyService {
     private final ObjectMapper objectMapper;
     private final JwtUtil jwtUtil;
     private final SystemConfigService systemConfigService;
-    private final SystemConfigRepository systemConfigRepository;
     private final String pythonBaseUrl;
     private final long timeoutSeconds;
     private final int fileResponseMaxInMemoryBytes;
@@ -48,7 +45,6 @@ public class PythonAiProxyService {
                                 ObjectMapper objectMapper,
                                 JwtUtil jwtUtil,
                                 SystemConfigService systemConfigService,
-                                SystemConfigRepository systemConfigRepository,
                                 @Value("${ai.python.base-url:http://localhost:8081}") String pythonBaseUrl,
                                 @Value("${ai.python.timeout-seconds:65}") long timeoutSeconds,
                                 @Value("${ai.python.file-response-max-in-memory-bytes:52428800}") int fileResponseMaxInMemoryBytes) {
@@ -56,7 +52,6 @@ public class PythonAiProxyService {
         this.objectMapper = objectMapper;
         this.jwtUtil = jwtUtil;
         this.systemConfigService = systemConfigService;
-        this.systemConfigRepository = systemConfigRepository;
         this.pythonBaseUrl = pythonBaseUrl;
         this.timeoutSeconds = timeoutSeconds;
         this.fileResponseMaxInMemoryBytes = fileResponseMaxInMemoryBytes;
@@ -295,7 +290,7 @@ public class PythonAiProxyService {
     }
 
     private Object getRagObject(String path, String authorization) {
-        return getPythonObject(path, authorization, "Python RAG 服务调用失败");
+        return getPythonAuthObject(path, authorization, "Python RAG 服务调用失败");
     }
 
     private Object getPythonObject(String path, String authorization, String errorPrefix) {
@@ -350,7 +345,7 @@ public class PythonAiProxyService {
             return webClientBuilder.build()
                     .post()
                     .uri(buildUri(path))
-                    .headers(headers -> applyPythonHeaders(headers, authorization, userId, requestedModel))
+                    .headers(headers -> applyPythonHeadersForRag(headers, authorization, userId, requestedModel))
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(request == null ? Map.of() : request)
                     .retrieve()
@@ -481,9 +476,20 @@ public class PythonAiProxyService {
         headers.set("X-AI-Provider", requireAiConfig(configPrefix, "provider", "模型服务商"));
         headers.set("X-AI-Base-Url", requireAiConfig(configPrefix, "base-url", "模型服务地址"));
         headers.set("X-AI-Api-Key", requireAiConfig(configPrefix, "api-key", "模型服务密钥"));
-        headers.set("X-AI-Model", StringUtils.hasText(requestedModel) && !requestedModel.startsWith("ai.service.")
-                ? requestedModel.trim()
-                : requireAiConfig(configPrefix, "model", "模型 ID"));
+        headers.set("X-AI-Model", requireAiConfig(configPrefix, "model", "模型 ID"));
+    }
+
+    private void applyPythonHeadersForRag(HttpHeaders headers, String authorization, Long userId, String requestedModel) {
+        applyPythonAuthHeaders(headers, authorization, userId);
+        // RAG 页面允许不传 llmModel：此时由 ai-server 按自身环境配置选择可用模型。
+        if (!StringUtils.hasText(requestedModel)) {
+            return;
+        }
+        String configPrefix = resolveConfigPrefix(requestedModel);
+        headers.set("X-AI-Provider", requireAiConfig(configPrefix, "provider", "模型服务商"));
+        headers.set("X-AI-Base-Url", requireAiConfig(configPrefix, "base-url", "模型服务地址"));
+        headers.set("X-AI-Api-Key", requireAiConfig(configPrefix, "api-key", "模型服务密钥"));
+        headers.set("X-AI-Model", requireAiConfig(configPrefix, "model", "模型 ID"));
     }
 
     private void applyPythonAuthHeaders(HttpHeaders headers, String authorization, Long userId) {
@@ -517,39 +523,14 @@ public class PythonAiProxyService {
     }
 
     private String resolveConfigPrefix(String requestedModel) {
-        if (StringUtils.hasText(requestedModel) && requestedModel.startsWith("ai.service.")) {
-            return requestedModel.trim();
+        if (!StringUtils.hasText(requestedModel)) {
+            throw new BusinessException(Result.ERROR_CODE, "未指定模型配置，请从已配置模型中明确选择");
         }
-        
-        // 从数据库中查询标记为 is_default=1 的配置
-        String defaultConfig = getDefaultModelConfig();
-        if (StringUtils.hasText(defaultConfig)) {
-            return defaultConfig;
+        String trimmed = requestedModel.trim();
+        if (!trimmed.startsWith("ai.service.")) {
+            throw new BusinessException(Result.ERROR_CODE, "模型参数必须是 ai.service.* 配置前缀");
         }
-        
-        // 如果没有设置默认，回退到 ai.service.text
-        return "ai.service.text";
-    }
-
-    /**
-     * 从数据库查询标记为默认的模型配置前缀
-     */
-    private String getDefaultModelConfig() {
-        try {
-            List<SystemConfig> configs = systemConfigRepository.findAll();
-            for (SystemConfig config : configs) {
-                if (config.getIsDefault() != null && config.getIsDefault() == 1 
-                    && config.getConfigKey() != null 
-                    && config.getConfigKey().matches("^ai\\.service\\.text(?:\\.[A-Za-z0-9_-]+)?\\.provider$")) {
-                    // 提取配置前缀，例如从 "ai.service.text.deepseek.provider" 提取 "ai.service.text.deepseek"
-                    String key = config.getConfigKey();
-                    return key.substring(0, key.lastIndexOf(".provider"));
-                }
-            }
-        } catch (Exception e) {
-            log.warn("查询默认模型配置失败: {}", e.getMessage());
-        }
-        return null;
+        return trimmed;
     }
 
     private String requireAiConfig(String configPrefix, String field, String label) {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button, Card, Col, Collapse, Empty, Form, Input, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
 import { ApiOutlined, BranchesOutlined, DatabaseOutlined, DownloadOutlined, ExperimentOutlined, FileTextOutlined, PlayCircleOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
@@ -25,6 +25,8 @@ const { TextArea } = Input
 const { Text, Title } = Typography
 // 匹配所有 AI 服务配置（文本、图片、视频、语音）
 const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.(text|image|video|audio)(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
+const AI_TESTED_MODEL_PREFIXES_KEY = 'ai_tested_model_prefixes_v1'
+const AI_TESTED_MODEL_IDS_KEY = 'ai_tested_model_ids_v1'
 
 const strategyColumns = [
   { title: '执行策略', dataIndex: 'name', render: (value, record) => <Tag color="blue">{record.label || value}</Tag> },
@@ -122,6 +124,26 @@ const safeJsonParse = (value, fallback) => {
   }
 }
 
+const getTestedModelPrefixes = () => {
+  try {
+    const raw = localStorage.getItem(AI_TESTED_MODEL_PREFIXES_KEY)
+    const parsed = raw ? JSON.parse(raw) : {}
+    return new Set(Object.keys(parsed || {}))
+  } catch {
+    return new Set()
+  }
+}
+
+const getTestedModelIds = () => {
+  try {
+    const raw = localStorage.getItem(AI_TESTED_MODEL_IDS_KEY)
+    const parsed = raw ? JSON.parse(raw) : {}
+    return new Set(Object.keys(parsed || {}))
+  } catch {
+    return new Set()
+  }
+}
+
 const buildLlmModelOptions = (configRows = []) => {
   const groups = new Map()
   configRows.forEach((item) => {
@@ -134,11 +156,15 @@ const buildLlmModelOptions = (configRows = []) => {
     groups.set(configPrefix, group)
   })
 
+  const testedPrefixes = getTestedModelPrefixes()
+  const testedModelIds = getTestedModelIds()
   return Array.from(groups.values())
+    .filter((group) => group.modality === 'text')
     .filter((group) => ['provider', 'base-url', 'api-key', 'model'].every((field) => {
       const config = group.configs[field]
-      return config && Number(config.status) === 1 && String(config.configValue || '').trim()
+      return config && String(config.configValue || '').trim()
     }))
+    .filter((group) => testedPrefixes.has(group.configPrefix) || testedModelIds.has(String(group.configs.model?.configValue || '').trim()))
     .map((group) => {
       // 添加类型标签，例如：[文本] deepseek-v4-pro
       const modalityLabels = {
@@ -148,9 +174,12 @@ const buildLlmModelOptions = (configRows = []) => {
         audio: '语音',
       }
       const modalityLabel = modalityLabels[group.modality] || group.modality
+      const isDefault = Object.values(group.configs).some((config) => Number(config?.isDefault) === 1)
       return {
         value: group.configPrefix,
-        label: `[${modalityLabel}] ${group.configs.model.configValue}`,
+        label: `[${modalityLabel}] ${group.configs.model.configValue}${isDefault ? '（默认）' : ''}`,
+        modality: group.modality,
+        isDefault,
       }
     })
 }
@@ -319,6 +348,7 @@ function RagManage() {
   const [evaluateForm] = Form.useForm()
   const [sqlForm] = Form.useForm()
   const [agentTestForm] = Form.useForm()
+  const refreshPromiseRef = useRef(null)
 
   const strategyOptions = useMemo(
     () => [
@@ -377,50 +407,57 @@ function RagManage() {
   }, [agentTestForm, getAgentExampleInput])
 
   const refresh = async () => {
-    setBootLoading(true)
-    try {
-      const [
-        strategyRes,
-        capabilityRes,
-        frameworkRes,
-        agentRes,
-        documentRes,
-        vectorHealthRes,
-        embeddingHealthRes,
-        graphHealthRes,
-        schemaRes,
-        aiConfigRes,
-      ] = await Promise.all([
-        getRagStrategies(),
-        getRagCapabilities(),
-        getRagFramework(),
-        getRagAgents(),
-        getRagDocuments(),
-        getRagVectorStoreHealth(),
-        getRagEmbeddingHealth(),
-        getRagGraphStoreHealth(),
-        getTextToSqlSchema(),
-        getSystemConfigList({ current: 1, size: 500, prefixes: 'ai.service.' }),
-      ])
-      setStrategies(strategyRes.data?.strategies || [])
-      setCapabilities(capabilityRes.data || null)
-      setFramework(frameworkRes.data || null)
-      setAgents(agentRes.data?.agents || [])
-      setAgentWorkflow(agentRes.data?.workflow || {})
-      setDocuments(documentRes.data?.documents || [])
-      setHealth({
-        vector: vectorHealthRes.data,
-        embedding: embeddingHealthRes.data,
-        graph: graphHealthRes.data,
-      })
-      setSqlSchema(schemaRes.data?.schema || null)
-
-      setLlmModelOptions(buildLlmModelOptions(aiConfigRes.data?.records || []))
-    } catch (error) {
-      message.error(error.message || '加载 RAG 管理数据失败')
-    } finally {
-      setBootLoading(false)
+    if (refreshPromiseRef.current) {
+      return refreshPromiseRef.current
     }
+    const task = (async () => {
+      setBootLoading(true)
+      try {
+        const [
+          strategyRes,
+          capabilityRes,
+          frameworkRes,
+          agentRes,
+          documentRes,
+          vectorHealthRes,
+          embeddingHealthRes,
+          graphHealthRes,
+          schemaRes,
+          aiConfigRes,
+        ] = await Promise.all([
+          getRagStrategies(),
+          getRagCapabilities(),
+          getRagFramework(),
+          getRagAgents(),
+          getRagDocuments(),
+          getRagVectorStoreHealth(),
+          getRagEmbeddingHealth(),
+          getRagGraphStoreHealth(),
+          getTextToSqlSchema(),
+          getSystemConfigList({ current: 1, size: 500, prefixes: 'ai.service.' }),
+        ])
+        setStrategies(strategyRes.data?.strategies || [])
+        setCapabilities(capabilityRes.data || null)
+        setFramework(frameworkRes.data || null)
+        setAgents(agentRes.data?.agents || [])
+        setAgentWorkflow(agentRes.data?.workflow || {})
+        setDocuments(documentRes.data?.documents || [])
+        setHealth({
+          vector: vectorHealthRes.data,
+          embedding: embeddingHealthRes.data,
+          graph: graphHealthRes.data,
+        })
+        setSqlSchema(schemaRes.data?.schema || null)
+        setLlmModelOptions(buildLlmModelOptions(aiConfigRes.data?.records || []))
+      } catch (error) {
+        message.error(error.message || '加载 RAG 管理数据失败')
+      } finally {
+        setBootLoading(false)
+        refreshPromiseRef.current = null
+      }
+    })()
+    refreshPromiseRef.current = task
+    return task
   }
 
   useEffect(() => {
@@ -435,7 +472,8 @@ function RagManage() {
 
   useEffect(() => {
     if (!llmModelOptions.length) return
-    const defaultModel = llmModelOptions[0].value
+    const defaultModel = llmModelOptions.find((item) => item.modality === 'text' && item.isDefault)?.value
+    if (!defaultModel) return
     if (!queryForm.getFieldValue('llmModel')) {
       queryForm.setFieldsValue({ llmModel: defaultModel })
     }
@@ -718,8 +756,16 @@ function RagManage() {
                   className="rag-inline-alert"
                   type="warning"
                   showIcon
-                  message="默认走 Java 的 ai.service.text.* 模型配置；你也可以在下方选择已配置的文本模型作为本次请求覆盖值。配置缺失或模型调用失败会直接报错。"
+                  message="不选模型时走 ai-server 环境配置；下拉仅展示在“模型配置”页面测试成功过的模型。"
                 />
+                {!llmModelOptions.length ? (
+                  <Alert
+                    className="rag-inline-alert"
+                    type="info"
+                    showIcon
+                    message="当前没有可选模型：请到 /ai/model 先测试成功至少一个文本模型。"
+                  />
+                ) : null}
                 <Form.Item name="agentName" label="执行智能体">
                   <Select
                     options={agentOptions}

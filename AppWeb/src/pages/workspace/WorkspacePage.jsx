@@ -62,6 +62,8 @@ const AI_MODALITIES = [
 ]
 const AI_CONFIG_FIELDS = ['provider', 'base-url', 'api-key', 'model']
 const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.([A-Za-z0-9_-]+)(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
+const AI_TESTED_MODEL_PREFIXES_KEY = 'ai_tested_model_prefixes_v1'
+const AI_TESTED_MODEL_IDS_KEY = 'ai_tested_model_ids_v1'
 const AI_PROVIDER_CONFIG_PATTERN = /^ai\.provider\.([A-Za-z0-9_-]+)\.(base-url|api-key)$/
 const AI_MODEL_STATUS_LABELS = {
   implemented: '已接入',
@@ -656,6 +658,60 @@ function getModelOptions(record) {
   }))
 }
 
+function markModelTestSuccess(configPrefix, modelId = '') {
+  try {
+    if (configPrefix) {
+      const rawPrefixes = localStorage.getItem(AI_TESTED_MODEL_PREFIXES_KEY)
+      const parsedPrefixes = rawPrefixes ? JSON.parse(rawPrefixes) : {}
+      parsedPrefixes[configPrefix] = Date.now()
+      localStorage.setItem(AI_TESTED_MODEL_PREFIXES_KEY, JSON.stringify(parsedPrefixes))
+    }
+    if (modelId) {
+      const rawModelIds = localStorage.getItem(AI_TESTED_MODEL_IDS_KEY)
+      const parsedModelIds = rawModelIds ? JSON.parse(rawModelIds) : {}
+      parsedModelIds[modelId] = Date.now()
+      localStorage.setItem(AI_TESTED_MODEL_IDS_KEY, JSON.stringify(parsedModelIds))
+    }
+  } catch (error) {
+    // ignore storage errors
+  }
+}
+
+function getTestedModelPrefixSet() {
+  try {
+    const raw = localStorage.getItem(AI_TESTED_MODEL_PREFIXES_KEY)
+    const parsed = raw ? JSON.parse(raw) : {}
+    return new Set(Object.keys(parsed || {}))
+  } catch (error) {
+    return new Set()
+  }
+}
+
+async function persistTestedModelConfig(model) {
+  const configPrefix = String(model?.configPrefix || '').trim()
+  const modality = String(model?.modality || '').trim()
+  const provider = String(model?.provider || model?.providerCatalog?.id || '').trim()
+  const baseUrl = String(model?.providerBaseUrl || model?.baseUrl || '').trim()
+  const apiKey = String(model?.providerApiKey || model?.rawApiKey || '').trim()
+  const modelId = String(model?.model || '').trim()
+  const modalityLabel = String(model?.modalityLabel || modality).trim()
+  if (!configPrefix || !modality || !provider || !baseUrl || !apiKey || !modelId) return
+  const configs = [
+    { field: 'provider', value: provider, description: `${modalityLabel}模型服务商` },
+    { field: 'base-url', value: baseUrl, description: `${modalityLabel}模型服务地址` },
+    { field: 'api-key', value: apiKey, description: `${modalityLabel}模型服务密钥` },
+    { field: 'model', value: modelId, description: `${modalityLabel}模型 ID` },
+  ]
+  await Promise.all(configs.map((item) => upsertSystemConfig({
+    configKey: `${configPrefix}.${item.field}`,
+    configValue: item.value,
+    configGroup: 'ai',
+    description: item.description,
+    status: 1,
+    isDefault: 0,
+  })))
+}
+
 function pickProviderSharedConfig(providerMeta, providerRecords, capabilityGroups) {
   const providerId = providerMeta?.id
   const shared = providerId ? providerRecords.get(providerId)?.configs || {} : {}
@@ -725,9 +781,6 @@ function buildAiCapabilityRows(records, providerCatalog) {
     const capabilityMeta = providerMeta?.capabilities?.[group.modality]
     const sharedConfig = pickProviderSharedConfig(providerMeta, providerRecords, capabilityGroups)
     
-    // 检查是否有任意一个配置项标记为默认
-    const isDefault = Object.values(group.configs).some(config => config.isDefault === 1) ? 1 : 0
-    
     return {
       id: group.configPrefix,
       modality: group.modality,
@@ -748,7 +801,7 @@ function buildAiCapabilityRows(records, providerCatalog) {
       status: disabled ? 0 : 1,
       statusText: configured ? (disabled ? '禁用' : '启用') : '未配置',
       runtimeStatus: getCapabilityStatusText(capabilityMeta?.status),
-      isDefault,  // 添加 isDefault 字段
+      isDefault: 0,
       updateTime,
       configured,
       providerCatalog: providerMeta,
@@ -1160,93 +1213,6 @@ function WorkspacePage({ pageKey }) {
     }
   }
 
-  const setAsDefaultModel = async (record) => {
-    try {
-      setActionLoading(true)
-      
-      // 1. 先将所有同类型配置的 is_default 设为 0
-      const modality = record.modality
-      const allConfigs = rows.filter(row => row.modality === modality && row.configKind !== 'asr')
-      
-      // 收集所有需要更新的 configKey
-      const keysToUpdate = new Set()
-      allConfigs.forEach(config => {
-        if (config.configPrefix !== record.configPrefix) {
-          // 非当前选中的配置，需要取消默认
-          keysToUpdate.add(`${config.configPrefix}.provider`)
-          keysToUpdate.add(`${config.configPrefix}.base-url`)
-          keysToUpdate.add(`${config.configPrefix}.api-key`)
-          keysToUpdate.add(`${config.configPrefix}.model`)
-        }
-      })
-      
-      // 批量更新这些配置，将 isDefault 设为 0
-      await Promise.all(
-        Array.from(keysToUpdate).map(configKey => {
-          // 找到原始配置的值
-          const originalConfig = allConfigs.find(c => configKey.startsWith(c.configPrefix + '.'))
-          if (!originalConfig) return Promise.resolve()
-          
-          const field = configKey.split('.').pop()
-          let configValue = ''
-          let description = ''
-          
-          if (field === 'provider') {
-            configValue = originalConfig.provider
-            description = `${originalConfig.modalityLabel}模型服务商`
-          } else if (field === 'base-url') {
-            configValue = originalConfig.baseUrl
-            description = `${originalConfig.modalityLabel}模型服务地址`
-          } else if (field === 'api-key') {
-            configValue = originalConfig.rawApiKey
-            description = `${originalConfig.modalityLabel}模型服务密钥`
-          } else if (field === 'model') {
-            configValue = originalConfig.model
-            description = `${originalConfig.modalityLabel}模型 ID`
-          }
-          
-          return upsertSystemConfig({
-            configKey,
-            configValue,
-            configGroup: 'ai',
-            description,
-            status: originalConfig.status,
-            isDefault: 0,
-          })
-        }).filter(Boolean)
-      )
-      
-      // 2. 将当前配置的所有字段设为默认
-      const configPrefix = record.configPrefix
-      const fields = ['provider', 'base-url', 'api-key', 'model']
-      await Promise.all(
-        fields.map(field => 
-          upsertSystemConfig({
-            configKey: `${configPrefix}.${field}`,
-            configValue: field === 'provider' ? record.provider : 
-                        field === 'base-url' ? record.baseUrl :
-                        field === 'api-key' ? record.rawApiKey :
-                        record.model,
-            configGroup: 'ai',
-            description: field === 'provider' ? `${record.modalityLabel}模型服务商` :
-                        field === 'base-url' ? `${record.modalityLabel}模型服务地址` :
-                        field === 'api-key' ? `${record.modalityLabel}模型服务密钥` :
-                        `${record.modalityLabel}模型 ID`,
-            status: record.status,
-            isDefault: 1,
-          })
-        )
-      )
-      
-      message.success('已设置为默认模型')
-      await refreshPageData()
-    } catch (error) {
-      message.error(error.message || '设置失败')
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
   const saveProviderCredential = async (providerGroup, values) => {
     const providerId = providerGroup.providerCatalog?.id || providerGroup.provider
     const baseUrl = String(values.baseUrl || '').trim()
@@ -1281,7 +1247,7 @@ function WorkspacePage({ pageKey }) {
               configGroup: 'ai',
               description: `${model.modalityLabel}模型服务地址`,
               status: model.status,
-              isDefault: model.isDefault,
+              isDefault: 0,
             }),
             upsertSystemConfig({
               configKey: `${model.configPrefix}.api-key`,
@@ -1289,7 +1255,7 @@ function WorkspacePage({ pageKey }) {
               configGroup: 'ai',
               description: `${model.modalityLabel}模型服务密钥`,
               status: model.status,
-              isDefault: model.isDefault,
+              isDefault: 0,
             }),
           ])),
       ])
@@ -1338,7 +1304,7 @@ function WorkspacePage({ pageKey }) {
       form.setFieldsValue({ restaurantId: parseInt(contextId) })
     }
     if (pageKey === 'system-config') {
-      form.setFieldsValue({ modality: 'text', status: 1, isDefault: false })
+      form.setFieldsValue({ modality: 'text', status: 1 })
     }
     setModalOpen(true)
   }
@@ -1470,7 +1436,7 @@ function WorkspacePage({ pageKey }) {
               model: record.model,
               apiKey: record.rawApiKey,
               status: record.status,
-              isDefault: record.isDefault === 1,
+              
             }
         : {}),
     })
@@ -1562,7 +1528,6 @@ function WorkspacePage({ pageKey }) {
             const configPrefix = configName ? `ai.service.${modality}.${configName}` : `ai.service.${modality}`
             const modalityLabel = getModalityLabel(modality)
             const statusValue = values.status
-            const isDefaultValue = values.isDefault ? 1 : 0
             const configs = [
               { field: 'provider', value: values.provider, description: `${modalityLabel}模型服务商` },
               { field: 'base-url', value: values.baseUrl, description: `${modalityLabel}模型服务地址` },
@@ -1575,7 +1540,7 @@ function WorkspacePage({ pageKey }) {
               configGroup: 'ai',
               description: item.description,
               status: statusValue,
-              isDefault: isDefaultValue,
+              isDefault: 0,
             })))
           },
           edit: async () => {
@@ -1601,7 +1566,6 @@ function WorkspacePage({ pageKey }) {
             }
             const configPrefix = editingRecord.configPrefix
             const statusValue = values.status
-            const isDefaultValue = values.isDefault ? 1 : 0
             const configs = [
               { field: 'provider', value: values.provider, description: `${editingRecord.modalityLabel}模型服务商` },
               { field: 'base-url', value: values.baseUrl, description: `${editingRecord.modalityLabel}模型服务地址` },
@@ -1614,7 +1578,7 @@ function WorkspacePage({ pageKey }) {
               configGroup: 'ai',
               description: item.description,
               status: statusValue,
-              isDefault: isDefaultValue,
+              isDefault: 0,
             })))
           },
         },
@@ -2007,9 +1971,6 @@ function WorkspacePage({ pageKey }) {
             <Form.Item name="status" label="状态" rules={[{ required: true }]}>
               <Select options={[{ value: 1, label: '启用' }, { value: 0, label: '禁用' }]} />
             </Form.Item>
-            <Form.Item name="isDefault" label="默认模型" rules={[{ required: true }]}>
-              <Select options={[{ value: false, label: '否' }, { value: true, label: '是' }]} />
-            </Form.Item>
           </>
         )
       default:
@@ -2241,15 +2202,6 @@ function WorkspacePage({ pageKey }) {
       case 'system-config':
         return (
           <Space size="small">
-            {record.configKind !== 'asr' && record.configured ? (
-              <Button
-                size="small"
-                type={record.isDefault === 1 ? 'primary' : 'default'}
-                onClick={() => setAsDefaultModel(record)}
-              >
-                {record.isDefault === 1 ? '默认' : '设为默认'}
-              </Button>
-            ) : null}
             <Button size="small" onClick={() => openEditModal(record)}>
               {record.configKind !== 'asr' && !record.configured ? '配置' : '编辑'}
             </Button>
@@ -2353,7 +2305,7 @@ function WorkspacePage({ pageKey }) {
       model: modelValue,
       apiKey: providerGroup.rawApiKey || record.rawApiKey,
       status: record.status,
-      isDefault: record.isDefault === 1,
+      
     })
     setModalOpen(true)
   }
@@ -2489,6 +2441,10 @@ function WorkspacePage({ pageKey }) {
       }
       const result = await testAiModel(payload)
       setAiModelTestResult(result?.data || {})
+      if (result?.data?.success) {
+        markModelTestSuccess(model?.configPrefix, modelId)
+        await persistTestedModelConfig(model)
+      }
     } catch (error) {
       setAiModelTestResult({
         success: false,
@@ -2572,6 +2528,7 @@ function WorkspacePage({ pageKey }) {
   const renderAiModelProviderGrid = (section, providerGroups) => (
     <div className="workspace-ai-provider-grid">
       {providerGroups.filter((providerGroup) => providerGroup.providerCatalog?.capabilities?.[section.key]).map((providerGroup) => {
+        const testedModelPrefixes = getTestedModelPrefixSet()
         const providerCapability = providerGroup.providerCatalog?.capabilities?.[section.key]
         const sectionModels = buildSectionModelRows(providerGroup, section, providerCapability)
         const scopedProvider = { ...providerGroup, activeModality: section.key }
@@ -2626,8 +2583,10 @@ function WorkspacePage({ pageKey }) {
                           {getCatalogModelStatusText(model.catalogModel.status)}
                         </Tag>
                       ) : null}
+                      <Tag color={testedModelPrefixes.has(model.configPrefix) ? 'green' : 'default'}>
+                        {testedModelPrefixes.has(model.configPrefix) ? '已测试' : '未测试'}
+                      </Tag>
                       <Tag color={colorMap[model.statusText] || 'default'}>{model.statusText}</Tag>
-                      {model.isDefault === 1 ? <Tag color="green">默认</Tag> : null}
                     </Space>
                     <strong>{model.model || '-'}</strong>
                     <span>
@@ -2638,11 +2597,6 @@ function WorkspacePage({ pageKey }) {
                     </span>
                   </div>
                   <Space size="small" wrap>
-                    {model.configured ? (
-                      <Button size="small" onClick={() => setAsDefaultModel(model)}>
-                        {model.isDefault === 1 ? '默认' : '设为默认'}
-                      </Button>
-                    ) : null}
                     <Button size="small" onClick={() => openProviderModelModal(scopedProvider, model)}>
                       {model.configured ? '编辑' : '配置'}
                     </Button>
