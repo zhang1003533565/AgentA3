@@ -71,6 +71,9 @@ public class SystemConfigDTO {
         @NotBlank(message = "模型 ID 不能为空")
         private String model;
 
+        @Schema(description = "模型配置前缀，测试成功后落库使用", example = "ai.service.text.deepseek-v4-pro")
+        private String configPrefix;
+
         private String prompt;
 
         @Schema(description = "视觉测试媒体类型：image/video", example = "image")

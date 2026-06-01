@@ -109,6 +109,9 @@ public class PythonAiProxyService {
 
     public Object queryRag(Map<String, Object> request, String authorization) {
         String requestedModel = resolveRequestedModel(request);
+        if (!StringUtils.hasText(requestedModel)) {
+            throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
+        }
         Map<String, Object> sanitized = sanitizeRagRequest(request);
         return postRagObject("/internal/rag/query", sanitized, authorization, requestedModel);
     }

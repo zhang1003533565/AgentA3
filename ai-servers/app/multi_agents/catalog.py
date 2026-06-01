@@ -5,6 +5,9 @@ from app.rag.core import RAG_STRATEGY_SPECS
 
 
 ALL_RAG_STRATEGIES = sorted(RAG_STRATEGY_SPECS.keys())
+TEXT_MODEL_MODALITY = ["text"]
+IMAGE_MODEL_MODALITY = ["image"]
+VIDEO_MODEL_MODALITY = ["video"]
 
 QUESTION_AGENT_SPECS = {
     "textbook_question_single_choice_agent": ("选择题智能体", "single_choice", "生成单选题、选项、正确答案和解析。", "生成 5 道数据结构栈与队列的选择题"),
@@ -58,6 +61,7 @@ def _question_agent_profile(agent_name: str, role: str, intent: str, purpose: st
         "supportedRagStrategies": ALL_RAG_STRATEGIES,
         "aliases": [intent, role, role.replace("智能体", ""), agent_name],
         "exampleInput": example_input,
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
     }
 
 
@@ -76,6 +80,7 @@ def _meeting_agent_profile(agent_name: str, role: str, intent: str, purpose: str
         "supportedRagStrategies": [],
         "aliases": [intent, role, role.replace("智能体", ""), agent_name],
         "exampleInput": example_input,
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
     }
 
 def _ppt_profile(agent_name: str, role: str, intent: str, purpose: str, example_input: str) -> Dict[str, Any]:
@@ -109,6 +114,7 @@ def _ppt_profile(agent_name: str, role: str, intent: str, purpose: str, example_
             agent_name,
         ],
         "exampleInput": example_input,
+        "requiredModelModalities": IMAGE_MODEL_MODALITY if agent_name == "ppt_image_agent" else TEXT_MODEL_MODALITY,
     }
 
 
@@ -127,6 +133,7 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "supportedRagStrategies": [],
         "aliases": ["leader", "leader_agent", "总控智能体", "leader智能体"],
         "exampleInput": "帮我把数据结构中的栈与队列整理成 PPT 大纲",
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
     },
     "mind_map_agent": {
         "role": "思维导图智能体",
@@ -142,6 +149,7 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "supportedRagStrategies": ALL_RAG_STRATEGIES,
         "aliases": ["mind_map", "mindmap", "思维导图", "思维导图智能体", "脑图智能体"],
         "exampleInput": "把操作系统进程调度整理成思维导图",
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
     },
     "textbook_knowledge_agent": {
         "role": "教材知识点智能体",
@@ -162,6 +170,7 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
             "课本知识点智能体",
         ],
         "exampleInput": "查询并整理数据结构中栈与队列的教材知识点，输出 Markdown",
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
     },
     **{
         agent_name: _question_agent_profile(agent_name, *spec)
@@ -205,7 +214,8 @@ AGENT_PROFILES["image_agent"] = {
     "defaultRagStrategy": "multimodal_rag",
     "supportedRagStrategies": ALL_RAG_STRATEGIES,
     "aliases": ["image", "image_agent", "图片智能体", "配图智能体", "文生图", "批量文生图"],
-    "exampleInput": "为操作系统进程调度知识点生成 4 张课堂教学配图，风格为扁平教学插画，尺寸 1024x1024",
+        "exampleInput": "为操作系统进程调度知识点生成 4 张课堂教学配图，风格为扁平教学插画，尺寸 1024x1024",
+        "requiredModelModalities": IMAGE_MODEL_MODALITY,
 }
 
 AGENT_ALIASES = {
@@ -286,6 +296,7 @@ def _build_agent(agent_name: str, include_documents: bool) -> Dict[str, Any]:
         "executionModeLabel": profile["executionModeLabel"],
         "defaultRagStrategy": profile["defaultRagStrategy"],
         "supportedRagStrategies": profile["supportedRagStrategies"],
+        "requiredModelModalities": profile.get("requiredModelModalities", TEXT_MODEL_MODALITY),
         "aliases": profile["aliases"],
         "invokeExample": {
             "input": profile.get("exampleInput", f"请使用{profile['role']}处理这段课程内容"),

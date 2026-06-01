@@ -27,6 +27,13 @@ const { Text, Title } = Typography
 const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.(text|image|video|audio)(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
 const AI_TESTED_MODEL_PREFIXES_KEY = 'ai_tested_model_prefixes_v1'
 const AI_TESTED_MODEL_IDS_KEY = 'ai_tested_model_ids_v1'
+const MODEL_MODALITY_LABELS = {
+  text: '文本',
+  image: '图片',
+  video: '视频',
+  audio: '语音',
+  vision: '视觉理解',
+}
 
 const strategyColumns = [
   { title: '执行策略', dataIndex: 'name', render: (value, record) => <Tag color="blue">{record.label || value}</Tag> },
@@ -159,25 +166,17 @@ const buildLlmModelOptions = (configRows = []) => {
   const testedPrefixes = getTestedModelPrefixes()
   const testedModelIds = getTestedModelIds()
   return Array.from(groups.values())
-    .filter((group) => group.modality === 'text')
     .filter((group) => ['provider', 'base-url', 'api-key', 'model'].every((field) => {
       const config = group.configs[field]
       return config && String(config.configValue || '').trim()
     }))
     .filter((group) => testedPrefixes.has(group.configPrefix) || testedModelIds.has(String(group.configs.model?.configValue || '').trim()))
     .map((group) => {
-      // 添加类型标签，例如：[文本] deepseek-v4-pro
-      const modalityLabels = {
-        text: '文本',
-        image: '图片',
-        video: '视频',
-        audio: '语音',
-      }
-      const modalityLabel = modalityLabels[group.modality] || group.modality
+      const modalityLabel = MODEL_MODALITY_LABELS[group.modality] || group.modality
       const isDefault = Object.values(group.configs).some((config) => Number(config?.isDefault) === 1)
       return {
         value: group.configPrefix,
-        label: `[${modalityLabel}] ${group.configs.model.configValue}${isDefault ? '（默认）' : ''}`,
+        label: `[${modalityLabel}] ${group.configs.model.configValue}`,
         modality: group.modality,
         isDefault,
       }
@@ -199,6 +198,17 @@ const getStrategyOptionLabel = (strategy) => {
 }
 
 const getAgentNeedsRetrieval = (agent) => Boolean(agent && agent.needRetrieval !== false && agent.name !== 'leader_agent')
+
+const getAgentRequiredModelModalities = (agent) => {
+  const modalities = Array.isArray(agent?.requiredModelModalities) ? agent.requiredModelModalities : []
+  return modalities.length ? modalities : ['text']
+}
+
+const getAgentModelRequirementText = (agent) => (
+  getAgentRequiredModelModalities(agent)
+    .map((item) => MODEL_MODALITY_LABELS[item] || item)
+    .join(' / ')
+)
 
 const getExecutionLabel = (metadata = {}) => (
   metadata.executionModeLabel ||
@@ -370,6 +380,11 @@ function RagManage() {
     ]
   }
 
+  const getModelOptionsForAgent = (agent) => {
+    const required = getAgentRequiredModelModalities(agent)
+    return llmModelOptions.filter((option) => required.includes(option.modality))
+  }
+
   const agentOptions = useMemo(
     () => [
       { value: 'leader_agent', label: 'Leader 自动路由 · 意图识别/分发' },
@@ -399,6 +414,7 @@ function RagManage() {
     if (!agent) return
     agentTestForm.setFieldsValue({
       agentName: agent.name,
+      llmModel: undefined,
       ragStrategy: getAgentNeedsRetrieval(agent)
         ? agent.invokeExample?.ragStrategy || agent.defaultRagStrategy || ''
         : '',
@@ -469,18 +485,6 @@ function RagManage() {
     const leader = agents.find((item) => item.name === 'leader_agent') || agents[0]
     fillAgentTestForm(leader)
   }, [agents, agentTestForm, fillAgentTestForm])
-
-  useEffect(() => {
-    if (!llmModelOptions.length) return
-    const defaultModel = llmModelOptions.find((item) => item.modality === 'text' && item.isDefault)?.value
-    if (!defaultModel) return
-    if (!queryForm.getFieldValue('llmModel')) {
-      queryForm.setFieldsValue({ llmModel: defaultModel })
-    }
-    if (!agentTestForm.getFieldValue('llmModel')) {
-      agentTestForm.setFieldsValue({ llmModel: defaultModel })
-    }
-  }, [llmModelOptions, queryForm, agentTestForm])
 
   const handleQuery = async (values) => {
     setActionLoading(true)
@@ -752,35 +756,54 @@ function RagManage() {
                 initialValues={{ ragStrategy: '', intent: 'campus_search', agentName: 'leader_agent' }}
                 onFinish={handleQuery}
               >
-                <Alert
-                  className="rag-inline-alert"
-                  type="warning"
-                  showIcon
-                  message="不选模型时走 ai-server 环境配置；下拉仅展示在“模型配置”页面测试成功过的模型。"
-                />
-                {!llmModelOptions.length ? (
-                  <Alert
-                    className="rag-inline-alert"
-                    type="info"
-                    showIcon
-                    message="当前没有可选模型：请到 /ai/model 先测试成功至少一个文本模型。"
-                  />
-                ) : null}
                 <Form.Item name="agentName" label="执行智能体">
                   <Select
                     options={agentOptions}
                     placeholder="Leader 自动路由"
-                    onChange={() => queryForm.setFieldsValue({ ragStrategy: '' })}
+                    onChange={() => queryForm.setFieldsValue({ ragStrategy: '', llmModel: undefined })}
                   />
                 </Form.Item>
-                <Form.Item name="llmModel" label="LLM 模型">
-                  <Select
-                    options={llmModelOptions}
-                    placeholder="默认使用系统配置模型"
-                    showSearch
-                    optionFilterProp="label"
-                    allowClear
-                  />
+                <Form.Item
+                  noStyle
+                  shouldUpdate={(prev, next) => prev.agentName !== next.agentName}
+                >
+                  {({ getFieldValue }) => {
+                    const selectedAgent = agents.find((item) => item.name === getFieldValue('agentName'))
+                    const modelOptions = getModelOptionsForAgent(selectedAgent)
+                    return (
+                      <>
+                        <Alert
+                          className="rag-inline-alert"
+                          type="info"
+                          showIcon
+                          message={`当前智能体需要模型：${getAgentModelRequirementText(selectedAgent)}`}
+                        />
+                        {!modelOptions.length ? (
+                          <Alert
+                            className="rag-inline-alert"
+                            type="warning"
+                            showIcon
+                            message={`没有可选模型：请到模型配置页测试成功至少一个${getAgentModelRequirementText(selectedAgent)}模型。`}
+                            action={<Button size="small" type="primary" onClick={() => { window.location.href = '/ai/model' }}>去配置模型</Button>}
+                          />
+                        ) : null}
+                        <Form.Item
+                          name="llmModel"
+                          label="模型"
+                          extra={`只显示已测试成功的${getAgentModelRequirementText(selectedAgent)}模型。`}
+                          rules={[{ required: true, message: '请选择模型' }]}
+                        >
+                          <Select
+                            options={modelOptions}
+                            placeholder={modelOptions.length ? '请选择模型' : '没有匹配的已测试模型'}
+                            showSearch
+                            optionFilterProp="label"
+                            disabled={!modelOptions.length}
+                          />
+                        </Form.Item>
+                      </>
+                    )
+                  }}
                 </Form.Item>
                 <Form.Item
                   noStyle
@@ -1079,14 +1102,47 @@ function RagManage() {
                       onChange={(value) => fillAgentTestForm(agents.find((item) => item.name === value))}
                     />
                   </Form.Item>
-                  <Form.Item name="llmModel" label="LLM 模型">
-                    <Select
-                      options={llmModelOptions}
-                      placeholder="默认使用系统配置模型"
-                      showSearch
-                      optionFilterProp="label"
-                      allowClear
-                    />
+                  <Form.Item
+                    noStyle
+                    shouldUpdate={(prev, next) => prev.agentName !== next.agentName}
+                  >
+                    {({ getFieldValue }) => {
+                      const selectedAgent = agents.find((item) => item.name === getFieldValue('agentName'))
+                      const modelOptions = getModelOptionsForAgent(selectedAgent)
+                      return (
+                        <>
+                          <Alert
+                            className="rag-inline-alert"
+                            type="info"
+                            showIcon
+                            message={`当前智能体需要模型：${getAgentModelRequirementText(selectedAgent)}`}
+                          />
+                          {!modelOptions.length ? (
+                            <Alert
+                              className="rag-inline-alert"
+                              type="warning"
+                              showIcon
+                              message={`没有可选模型：请到模型配置页测试成功至少一个${getAgentModelRequirementText(selectedAgent)}模型。`}
+                              action={<Button size="small" type="primary" onClick={() => { window.location.href = '/ai/model' }}>去配置模型</Button>}
+                            />
+                          ) : null}
+                          <Form.Item
+                            name="llmModel"
+                            label="模型"
+                            extra={`只显示已测试成功的${getAgentModelRequirementText(selectedAgent)}模型。`}
+                            rules={[{ required: true, message: '请选择模型' }]}
+                          >
+                          <Select
+                            options={modelOptions}
+                            placeholder={modelOptions.length ? `请选择${getAgentModelRequirementText(selectedAgent)}模型` : '没有匹配的已测试模型'}
+                            showSearch
+                            optionFilterProp="label"
+                            disabled={!modelOptions.length}
+                          />
+                          </Form.Item>
+                        </>
+                      )
+                    }}
                   </Form.Item>
                   <Form.Item
                     noStyle

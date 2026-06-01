@@ -169,16 +169,49 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
             prompt = defaultAiModelTestPrompt(modality);
         }
 
+        SystemConfigDTO.TestResultVO result;
         if ("vision".equals(modality)) {
-            return testVisionUnderstandingModel(req, authorization, provider, baseUrl, apiKey, model, prompt);
+            result = testVisionUnderstandingModel(req, authorization, provider, baseUrl, apiKey, model, prompt);
+        } else if (List.of("image", "video").contains(modality)) {
+            result = testGeneratedMediaModel(req, authorization, modality, provider, baseUrl, apiKey, model, prompt);
+        } else if ("audio".equals(modality)) {
+            result = testAudioModel(req, modality, provider, baseUrl, apiKey, model, prompt);
+        } else {
+            result = testChatCompletionModel(modality, provider, baseUrl, apiKey, model, prompt);
         }
-        if (List.of("image", "video").contains(modality)) {
-            return testGeneratedMediaModel(req, authorization, modality, provider, baseUrl, apiKey, model, prompt);
+
+        if (Boolean.TRUE.equals(result.getSuccess())) {
+            persistAiModelConfigAfterSuccessfulTest(req, modality, provider, baseUrl, apiKey, model);
         }
-        if ("audio".equals(modality)) {
-            return testAudioModel(req, modality, provider, baseUrl, apiKey, model, prompt);
+        return result;
+    }
+
+    private void persistAiModelConfigAfterSuccessfulTest(SystemConfigDTO.AiModelTestRequest req,
+                                                         String modality,
+                                                         String provider,
+                                                         String baseUrl,
+                                                         String apiKey,
+                                                         String model) {
+        String configPrefix = trim(req.getConfigPrefix());
+        if (!configPrefix.startsWith("ai.service.")) {
+            configPrefix = "ai.service." + modality + "." + toAiConfigName(model, provider);
         }
-        return testChatCompletionModel(modality, provider, baseUrl, apiKey, model, prompt);
+        String modalityLabel = getModalityLabel(modality);
+        upsertAiModelConfig(configPrefix + ".provider", provider, modalityLabel + "模型服务商");
+        upsertAiModelConfig(configPrefix + ".base-url", baseUrl, modalityLabel + "模型服务地址");
+        upsertAiModelConfig(configPrefix + ".api-key", apiKey, modalityLabel + "模型服务密钥");
+        upsertAiModelConfig(configPrefix + ".model", model, modalityLabel + "模型 ID");
+    }
+
+    private void upsertAiModelConfig(String key, String value, String description) {
+        SystemConfig config = systemConfigRepository.findByConfigKey(key).orElseGet(SystemConfig::new);
+        config.setConfigKey(key);
+        config.setConfigValue(value);
+        config.setConfigGroup("ai");
+        config.setDescription(description);
+        config.setStatus(1);
+        config.setIsDefault(0);
+        systemConfigRepository.save(config);
     }
 
     private SystemConfigDTO.TestResultVO testVisionUnderstandingModel(SystemConfigDTO.AiModelTestRequest req,
@@ -610,6 +643,25 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
             case "vision" -> "请用一句中文回复：视觉模型连接测试成功。";
             default -> "请用一句中文回复：模型连接测试成功。";
         };
+    }
+
+    private String getModalityLabel(String modality) {
+        return switch (modality) {
+            case "image" -> "图片";
+            case "video" -> "视频";
+            case "audio" -> "语音";
+            case "vision" -> "视觉";
+            default -> "文本";
+        };
+    }
+
+    private String toAiConfigName(String model, String provider) {
+        String value = trim(model).replaceAll("[^A-Za-z0-9_-]+", "-").replaceAll("^-+|-+$", "");
+        if (!value.isBlank()) {
+            return value;
+        }
+        value = trim(provider).replaceAll("[^A-Za-z0-9_-]+", "-").replaceAll("^-+|-+$", "");
+        return value.isBlank() ? "model" : value;
     }
 
     private String normalizeDashScopeRoot(String baseUrl) {

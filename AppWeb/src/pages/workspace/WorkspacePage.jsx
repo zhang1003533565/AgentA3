@@ -687,31 +687,6 @@ function getTestedModelPrefixSet() {
   }
 }
 
-async function persistTestedModelConfig(model) {
-  const configPrefix = String(model?.configPrefix || '').trim()
-  const modality = String(model?.modality || '').trim()
-  const provider = String(model?.provider || model?.providerCatalog?.id || '').trim()
-  const baseUrl = String(model?.providerBaseUrl || model?.baseUrl || '').trim()
-  const apiKey = String(model?.providerApiKey || model?.rawApiKey || '').trim()
-  const modelId = String(model?.model || '').trim()
-  const modalityLabel = String(model?.modalityLabel || modality).trim()
-  if (!configPrefix || !modality || !provider || !baseUrl || !apiKey || !modelId) return
-  const configs = [
-    { field: 'provider', value: provider, description: `${modalityLabel}模型服务商` },
-    { field: 'base-url', value: baseUrl, description: `${modalityLabel}模型服务地址` },
-    { field: 'api-key', value: apiKey, description: `${modalityLabel}模型服务密钥` },
-    { field: 'model', value: modelId, description: `${modalityLabel}模型 ID` },
-  ]
-  await Promise.all(configs.map((item) => upsertSystemConfig({
-    configKey: `${configPrefix}.${item.field}`,
-    configValue: item.value,
-    configGroup: 'ai',
-    description: item.description,
-    status: 1,
-    isDefault: 0,
-  })))
-}
-
 function pickProviderSharedConfig(providerMeta, providerRecords, capabilityGroups) {
   const providerId = providerMeta?.id
   const shared = providerId ? providerRecords.get(providerId)?.configs || {} : {}
@@ -2430,6 +2405,7 @@ function WorkspacePage({ pageKey }) {
         baseUrl,
         apiKey,
         model: modelId,
+        configPrefix: model.configPrefix,
         prompt,
       }
       if (model.modality === 'vision') {
@@ -2443,7 +2419,6 @@ function WorkspacePage({ pageKey }) {
       setAiModelTestResult(result?.data || {})
       if (result?.data?.success) {
         markModelTestSuccess(model?.configPrefix, modelId)
-        await persistTestedModelConfig(model)
       }
     } catch (error) {
       setAiModelTestResult({
