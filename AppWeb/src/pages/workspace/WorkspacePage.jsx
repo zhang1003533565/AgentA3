@@ -862,6 +862,11 @@ function WorkspacePage({ pageKey }) {
   const [modalOpen, setModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState('create')
   const [editingRecord, setEditingRecord] = useState(null)
+  const [aiModelTestOpen, setAiModelTestOpen] = useState(false)
+  const [aiModelTestRecord, setAiModelTestRecord] = useState(null)
+  const [aiModelTestPrompt, setAiModelTestPrompt] = useState('')
+  const [aiModelTestResult, setAiModelTestResult] = useState(null)
+  const [aiModelTestLoading, setAiModelTestLoading] = useState(false)
   const [merchantCategoryOptions, setMerchantCategoryOptions] = useState([])
   const [activityCategoryOptions, setActivityCategoryOptions] = useState([])
   const [forumPostOptions, setForumPostOptions] = useState([])
@@ -2398,39 +2403,68 @@ function WorkspacePage({ pageKey }) {
     return [...catalogRows, ...extraRows]
   }
 
-  const showAiModelTestResult = (result, model) => {
-    const data = result?.data || {}
-    Modal.info({
-      title: data.success ? '模型测试成功' : '模型测试失败',
-      width: 760,
-      content: (
-        <div className="workspace-ai-test-result">
-          <p>能力类型：{model.modalityLabel || data.modality || '-'}</p>
-          <p>服务商：{model.providerDisplay || data.provider || model.provider || '-'}</p>
-          <p>模型：{data.model || model.model || '-'}</p>
-          <p>目标地址：{data.target || '-'}</p>
-          <pre>{data.detail || '-'}</pre>
-          {data.raw ? (
-            <details>
-              <summary>查看原始返回</summary>
-              <pre>{typeof data.raw === 'string' ? data.raw : JSON.stringify(data.raw, null, 2)}</pre>
-            </details>
-          ) : null}
-        </div>
-      ),
-    })
+  const getAiModelTestDefaultPrompt = (modality) => {
+    switch (modality) {
+      case 'image':
+        return '生成一张简洁的智慧校园图标，蓝绿色科技风，干净背景。'
+      case 'video':
+        return '生成一个 5 秒的智慧校园欢迎动画，镜头缓慢推进，现代科技感。'
+      case 'audio':
+        return '欢迎使用智慧校园模型测试。'
+      case 'vision':
+        return '请用一句中文回复：视觉模型连接测试成功。'
+      default:
+        return '请用一句中文回复：模型连接测试成功。'
+    }
   }
 
-  const runAiModelTest = async (model) => {
+  const extractAiTestUrls = (data) => {
+    const raw = data?.raw || {}
+    const imageUrl = Array.isArray(raw.images) ? raw.images.find((item) => item?.url)?.url : ''
+    const videoUrl = Array.isArray(raw.videos) ? raw.videos.find((item) => item?.url)?.url : ''
+    return { imageUrl, videoUrl }
+  }
+
+  const renderAiModelTestOutput = (data) => {
+    const { imageUrl, videoUrl } = extractAiTestUrls(data)
+    if (data.modality === 'image' && imageUrl) {
+      return (
+        <div className="workspace-ai-test-media">
+          <Image src={imageUrl} alt="模型测试返回图片" />
+          <a href={imageUrl} target="_blank" rel="noreferrer">打开图片原图</a>
+        </div>
+      )
+    }
+    if (data.modality === 'video' && videoUrl) {
+      return (
+        <div className="workspace-ai-test-media">
+          <video src={videoUrl} controls playsInline />
+          <a href={videoUrl} target="_blank" rel="noreferrer">打开视频地址</a>
+        </div>
+      )
+    }
+    const answer = String(data.detail || '').replace(/^模型返回：/, '')
+    return <pre>{answer || '-'}</pre>
+  }
+
+  const executeAiModelTest = async (model, prompt) => {
     const baseUrl = String(model.providerBaseUrl || model.baseUrl || '').trim()
     const apiKey = String(model.providerApiKey || model.rawApiKey || '').trim()
     const provider = String(model.providerCatalog?.id || model.provider || '').trim()
     const modelId = String(model.model || '').trim()
     if (!provider || !baseUrl || !apiKey || !modelId) {
-      message.warning('请先在服务商卡片里保存 Base URL 和 API Key')
+      setAiModelTestResult({
+        success: false,
+        detail: '请先在服务商卡片里保存 Base URL 和 API Key',
+        provider,
+        model: modelId,
+        modality: model.modality,
+        prompt,
+      })
       return
     }
-    setActionLoading(true)
+    setAiModelTestLoading(true)
+    setAiModelTestResult(null)
     try {
       const result = await testAiModel({
         modality: model.modality,
@@ -2438,13 +2472,29 @@ function WorkspacePage({ pageKey }) {
         baseUrl,
         apiKey,
         model: modelId,
+        prompt,
       })
-      showAiModelTestResult(result, model)
+      setAiModelTestResult(result?.data || {})
     } catch (error) {
-      message.error(error?.message || '模型测试失败')
+      setAiModelTestResult({
+        success: false,
+        detail: error?.message || '模型测试失败',
+        provider,
+        model: modelId,
+        modality: model.modality,
+        prompt,
+      })
     } finally {
-      setActionLoading(false)
+      setAiModelTestLoading(false)
     }
+  }
+
+  const runAiModelTest = async (model) => {
+    const defaultPrompt = getAiModelTestDefaultPrompt(model.modality)
+    setAiModelTestRecord(model)
+    setAiModelTestPrompt(defaultPrompt)
+    setAiModelTestResult(null)
+    setAiModelTestOpen(true)
   }
 
   const renderAiModelProviderGrid = (section, providerGroups) => (
@@ -2518,7 +2568,11 @@ function WorkspacePage({ pageKey }) {
                     <Button size="small" onClick={() => openProviderModelModal(scopedProvider, model)}>
                       {model.configured ? '编辑' : '配置'}
                     </Button>
-                    <Button size="small" loading={actionLoading} onClick={() => runAiModelTest(model)}>
+                    <Button
+                      size="small"
+                      loading={aiModelTestLoading && aiModelTestRecord?.id === model.id}
+                      onClick={() => runAiModelTest(model)}
+                    >
                       测试
                     </Button>
                     {model.configured ? (
@@ -3869,6 +3923,51 @@ function WorkspacePage({ pageKey }) {
         <Form form={form} layout="vertical">
           {renderModalFields()}
         </Form>
+      </Modal>
+
+      <Modal
+        open={aiModelTestOpen}
+        title={`测试模型：${aiModelTestRecord?.model || '-'}`}
+        okText="开始测试"
+        cancelText="取消"
+        confirmLoading={aiModelTestLoading}
+        destroyOnHidden
+        onCancel={() => {
+          if (!aiModelTestLoading) {
+            setAiModelTestOpen(false)
+          }
+        }}
+        onOk={() => executeAiModelTest(aiModelTestRecord, aiModelTestPrompt)}
+      >
+        <div className="workspace-ai-test-prompt">
+          <p>{aiModelTestRecord?.modality === 'image' || aiModelTestRecord?.modality === 'video' ? '请输入生成提示词' : '请输入测试文本'}</p>
+          <Input.TextArea
+            value={aiModelTestPrompt}
+            rows={4}
+            disabled={aiModelTestLoading}
+            onChange={(event) => setAiModelTestPrompt(event.target.value)}
+          />
+          {aiModelTestLoading ? (
+            <div className="workspace-ai-test-status">测试中，正在等待模型返回结果...</div>
+          ) : null}
+          {aiModelTestResult ? (
+            <div className={`workspace-ai-test-result ${aiModelTestResult.success ? 'is-success' : 'is-error'}`}>
+              <p>状态：{aiModelTestResult.success ? '成功' : '失败'}</p>
+              <p>能力类型：{aiModelTestRecord?.modalityLabel || aiModelTestResult.modality || '-'}</p>
+              <p>服务商：{aiModelTestRecord?.providerDisplay || aiModelTestResult.provider || '-'}</p>
+              <p>模型：{aiModelTestResult.model || aiModelTestRecord?.model || '-'}</p>
+              <p>目标地址：{aiModelTestResult.target || '-'}</p>
+              <p>测试输入：{aiModelTestResult.prompt || aiModelTestPrompt || '-'}</p>
+              {renderAiModelTestOutput(aiModelTestResult)}
+              {aiModelTestResult.raw ? (
+                <details>
+                  <summary>查看原始返回</summary>
+                  <pre>{typeof aiModelTestResult.raw === 'string' ? aiModelTestResult.raw : JSON.stringify(aiModelTestResult.raw, null, 2)}</pre>
+                </details>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </Modal>
 
       {renderMapPickerDrawer()}

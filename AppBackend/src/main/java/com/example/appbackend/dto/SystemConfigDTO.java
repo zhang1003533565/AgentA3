@@ -85,6 +85,7 @@ public class SystemConfigDTO {
         private String provider;
         private String model;
         private String modality;
+        private String prompt;
         private Object raw;
     }
 }

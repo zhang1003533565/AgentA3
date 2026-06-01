@@ -311,11 +311,11 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
             if (content.isBlank()) {
                 content = abbreviate(body, 800);
             }
-            return aiModelTestResult(true, target, "模型返回：" + content, provider, model, modality, jsonOrText(body));
+            return aiModelTestResult(true, target, "模型返回：" + content, provider, model, modality, prompt, jsonOrText(body));
         } catch (WebClientResponseException error) {
-            return aiModelTestResult(false, target, "模型调用失败：" + error.getStatusCode().value() + " " + abbreviate(error.getResponseBodyAsString(), 800), provider, model, modality, jsonOrText(error.getResponseBodyAsString()));
+            return aiModelTestResult(false, target, "模型调用失败：" + error.getStatusCode().value() + " " + abbreviate(error.getResponseBodyAsString(), 800), provider, model, modality, prompt, jsonOrText(error.getResponseBodyAsString()));
         } catch (Exception error) {
-            return aiModelTestResult(false, target, "模型调用失败：" + error.getMessage(), provider, model, modality, null);
+            return aiModelTestResult(false, target, "模型调用失败：" + error.getMessage(), provider, model, modality, prompt, null);
         }
     }
 
@@ -348,9 +348,9 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
                     ? pythonAiProxyService.generateImage(payload, authorization)
                     : pythonAiProxyService.generateVideo(payload, authorization);
             String detail = summarizeMediaResult(modality, raw);
-            return aiModelTestResult(true, target, detail, provider, model, modality, raw);
+            return aiModelTestResult(true, target, detail, provider, model, modality, prompt, raw);
         } catch (Exception error) {
-            return aiModelTestResult(false, target, "模型调用失败：" + error.getMessage(), provider, model, modality, null);
+            return aiModelTestResult(false, target, "模型调用失败：" + error.getMessage(), provider, model, modality, prompt, null);
         }
     }
 
@@ -387,11 +387,11 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
                     : "";
             boolean success = bytes > 0;
             Map<String, Object> raw = Map.of("bytes", bytes, "contentType", contentType);
-            return aiModelTestResult(success, target, success ? "模型返回音频：" + bytes + " bytes，类型：" + contentType : "模型未返回音频内容", provider, model, modality, raw);
+            return aiModelTestResult(success, target, success ? "模型返回音频：" + bytes + " bytes，类型：" + contentType : "模型未返回音频内容", provider, model, modality, prompt, raw);
         } catch (WebClientResponseException error) {
-            return aiModelTestResult(false, target, "模型调用失败：" + error.getStatusCode().value() + " " + abbreviate(error.getResponseBodyAsString(), 800), provider, model, modality, jsonOrText(error.getResponseBodyAsString()));
+            return aiModelTestResult(false, target, "模型调用失败：" + error.getStatusCode().value() + " " + abbreviate(error.getResponseBodyAsString(), 800), provider, model, modality, prompt, jsonOrText(error.getResponseBodyAsString()));
         } catch (Exception error) {
-            return aiModelTestResult(false, target, "模型调用失败：" + error.getMessage(), provider, model, modality, null);
+            return aiModelTestResult(false, target, "模型调用失败：" + error.getMessage(), provider, model, modality, prompt, null);
         }
     }
 
@@ -531,6 +531,7 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
                                                            String provider,
                                                            String model,
                                                            String modality,
+                                                           String prompt,
                                                            Object raw) {
         SystemConfigDTO.TestResultVO vo = new SystemConfigDTO.TestResultVO();
         vo.setConfigKey("ai.model.test." + modality + "." + provider + "." + model);
@@ -540,6 +541,7 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
         vo.setProvider(provider);
         vo.setModel(model);
         vo.setModality(modality);
+        vo.setPrompt(prompt);
         vo.setRaw(raw);
         return vo;
     }
