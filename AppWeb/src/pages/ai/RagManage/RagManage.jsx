@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, Card, Col, Collapse, Empty, Form, Input, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
+import { Alert, Button, Card, Col, Collapse, Empty, Form, Image, Input, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
 import { ApiOutlined, BranchesOutlined, DatabaseOutlined, DownloadOutlined, ExperimentOutlined, FileTextOutlined, PlayCircleOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import {
@@ -129,6 +129,15 @@ const safeJsonParse = (value, fallback) => {
   } catch {
     return fallback
   }
+}
+
+const parseMediaAnswer = (answer) => {
+  const value = typeof answer === 'string' ? safeJsonParse(answer, null) : answer
+  if (!value || typeof value !== 'object') return null
+  const images = Array.isArray(value.images) ? value.images : []
+  const videos = Array.isArray(value.videos) ? value.videos : []
+  if (!images.length && !videos.length) return null
+  return { ...value, images, videos }
 }
 
 const getTestedModelPrefixes = () => {
@@ -708,12 +717,86 @@ function RagManage() {
     </Card>
   )
 
+  const renderMediaAnswer = (media, rawText) => {
+    const imageItems = media.images || []
+    const videoItems = media.videos || []
+    const items = imageItems.length
+      ? imageItems.map((item) => ({ ...item, mediaType: 'image' }))
+      : videoItems.map((item) => ({ ...item, mediaType: 'video' }))
+    const successItems = items.filter((item) => item.url || item.base64)
+    const failedItems = items.filter((item) => !item.url && !item.base64)
+    return (
+      <div className="rag-answer-box rag-answer-box--media">
+        <div className="rag-media-summary">
+          <Space size={[8, 8]} wrap>
+            <Tag color={media.status === 'success' ? 'green' : media.status === 'running' ? 'blue' : 'orange'}>
+              状态：{media.status || '-'}
+            </Tag>
+            {media.taskId && <Tag>任务：{media.taskId}</Tag>}
+            {media.providerTaskId && <Tag>服务商任务：{media.providerTaskId}</Tag>}
+          </Space>
+          {media.message && <Text type="secondary">{media.message}</Text>}
+        </div>
+        {successItems.length ? (
+          <div className="rag-media-grid">
+            {successItems.map((item, index) => {
+              const source = item.base64 ? `data:image/png;base64,${item.base64}` : item.url
+              return (
+                <div className="rag-media-card" key={`${item.mediaType}-${item.index ?? index}`}>
+                  {item.mediaType === 'video' ? (
+                    <video className="rag-media-video" src={source} controls playsInline />
+                  ) : (
+                    <Image className="rag-media-image" src={source} alt={`生成图片 ${index + 1}`} />
+                  )}
+                  <Space className="rag-media-actions" size={[8, 8]} wrap>
+                    <Tag color="green">成功</Tag>
+                    {item.seed !== null && item.seed !== undefined && <Tag>seed：{item.seed}</Tag>}
+                    {item.url && <a href={item.url} target="_blank" rel="noreferrer">打开原始地址</a>}
+                  </Space>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有返回可展示的媒体地址" />
+        )}
+        {failedItems.length ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="部分媒体生成失败"
+            description={failedItems.map((item, index) => (
+              <div key={index}>{item.errorMessage || media.message || '未返回媒体地址'}</div>
+            ))}
+          />
+        ) : null}
+        <Collapse
+          size="small"
+          ghost
+          items={[
+            {
+              key: 'raw',
+              label: '查看原始返回',
+              children: <pre className="rag-media-raw">{rawText}</pre>,
+            },
+          ]}
+        />
+      </div>
+    )
+  }
+
   const renderAgentAnswer = (answer, response = {}) => {
     const text = String(answer || '').trim()
     const metadata = response?.metadata || response || {}
     const answerType = response?.answerType || metadata?.answerType || 'text'
     if (!text) {
       return <div className="rag-answer-box">暂无回答</div>
+    }
+    const media = parseMediaAnswer(text)
+    if (media || ['image_generation', 'video_generation'].includes(answerType)) {
+      return media
+        ? renderMediaAnswer(media, text)
+        : <div className={`rag-answer-box rag-answer-box--${answerType}`}>{text}</div>
     }
     if (answerType !== 'mermaid_mindmap') {
       return <div className={`rag-answer-box rag-answer-box--${answerType}`}>{text}</div>

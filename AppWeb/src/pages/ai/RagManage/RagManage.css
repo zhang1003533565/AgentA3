@@ -87,6 +87,58 @@
   white-space: normal;
 }
 
+.rag-answer-box--media {
+  white-space: normal;
+}
+
+.rag-media-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.rag-media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.rag-media-card {
+  overflow: hidden;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(89, 108, 72, 0.16);
+}
+
+.rag-media-image {
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  background: #fff;
+}
+
+.rag-media-video {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  background: #111;
+}
+
+.rag-media-actions {
+  width: 100%;
+  padding: 10px 12px 12px;
+}
+
+.rag-media-raw {
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .rag-mindmap-canvas {
   overflow: auto;
   padding: 22px;

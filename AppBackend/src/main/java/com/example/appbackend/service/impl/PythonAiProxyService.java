@@ -482,7 +482,6 @@ public class PythonAiProxyService {
 
     private void applyPythonHeadersForRag(HttpHeaders headers, String authorization, Long userId, String requestedModel) {
         applyPythonAuthHeaders(headers, authorization, userId);
-        // RAG 页面允许不传 llmModel：此时由 ai-server 按自身环境配置选择可用模型。
         if (!StringUtils.hasText(requestedModel)) {
             return;
         }

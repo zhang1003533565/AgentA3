@@ -201,7 +201,8 @@ class QwenImageProvider:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             error_body = exc.read().decode("utf-8", errors="ignore")
-            raise HTTPException(status_code=exc.code, detail=f"Qwen 图片服务返回错误：{error_body}") from exc
+            message = error_body.strip() or f"HTTP {exc.code} {exc.reason}，URL={url}"
+            raise HTTPException(status_code=exc.code, detail=f"Qwen 图片服务返回错误：{message}") from exc
         except urllib.error.URLError as exc:
             raise HTTPException(status_code=502, detail=f"Qwen 图片服务请求失败：{exc}") from exc
 
@@ -295,6 +296,16 @@ class QwenImageProvider:
         value = str(base_url or "").rstrip("/")
         if not value:
             raise HTTPException(status_code=400, detail="未传入图片 Base URL，请通过请求体 baseUrl 传入")
+        value = self._normalize_dashscope_root(value)
+        return value
+
+    @staticmethod
+    def _normalize_dashscope_root(base_url: str) -> str:
+        value = base_url.rstrip("/")
+        for marker in ("/compatible-mode", "/api/v1"):
+            index = value.find(marker)
+            if index >= 0:
+                return value[:index]
         return value
 
     def _remember_task(self, task_id: str, provider_task_id: str, request: ImageGenerationRequest, mode: str) -> None:
