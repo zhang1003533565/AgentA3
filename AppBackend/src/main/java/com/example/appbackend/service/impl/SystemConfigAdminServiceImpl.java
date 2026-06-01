@@ -23,6 +23,14 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import javax.imageio.IIOImage;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageOutputStream;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -43,11 +51,13 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
+import java.util.Iterator;
 
 @Service
 public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final int VISION_IMAGE_MAX_BYTES = 4 * 1024 * 1024;
 
     private final SystemConfigRepository systemConfigRepository;
     private final WebClient tencentMapWebClient;
@@ -159,6 +169,9 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
             prompt = defaultAiModelTestPrompt(modality);
         }
 
+        if ("vision".equals(modality)) {
+            return testVisionUnderstandingModel(req, authorization, provider, baseUrl, apiKey, model, prompt);
+        }
         if (List.of("image", "video").contains(modality)) {
             return testGeneratedMediaModel(req, authorization, modality, provider, baseUrl, apiKey, model, prompt);
         }
@@ -166,6 +179,49 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
             return testAudioModel(req, modality, provider, baseUrl, apiKey, model, prompt);
         }
         return testChatCompletionModel(modality, provider, baseUrl, apiKey, model, prompt);
+    }
+
+    private SystemConfigDTO.TestResultVO testVisionUnderstandingModel(SystemConfigDTO.AiModelTestRequest req,
+                                                                      String authorization,
+                                                                      String provider,
+                                                                      String baseUrl,
+                                                                      String apiKey,
+                                                                      String model,
+                                                                      String prompt) {
+        String mediaType = trim(req.getMediaType()).isBlank() ? "image" : trim(req.getMediaType()).toLowerCase();
+        String mediaUrl = trim(req.getMediaUrl());
+        String mediaBase64 = trim(req.getMediaBase64());
+        String mediaMimeType = trim(req.getMediaMimeType());
+
+        if ("image".equals(mediaType) && !mediaBase64.isBlank()) {
+            mediaBase64 = compressImageBase64(mediaBase64, mediaMimeType);
+            if (mediaMimeType.isBlank()) {
+                mediaMimeType = "image/jpeg";
+            }
+        }
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("provider", provider);
+        payload.put("baseUrl", baseUrl);
+        payload.put("apiKey", apiKey);
+        payload.put("model", model);
+        payload.put("prompt", prompt);
+        payload.put("mediaType", mediaType);
+        payload.put("mediaUrl", mediaUrl);
+        payload.put("mediaBase64", mediaBase64);
+        payload.put("mediaMimeType", mediaMimeType);
+
+        String target = "/internal/models/vision/test";
+        try {
+            Object raw = pythonAiProxyService.testVisionModel(payload, authorization);
+            String detail = "视觉模型返回成功";
+            if (raw instanceof Map<?, ?> map && map.get("detail") != null) {
+                detail = String.valueOf(map.get("detail"));
+            }
+            return aiModelTestResult(true, target, detail, provider, model, "vision", prompt, raw);
+        } catch (Exception error) {
+            return aiModelTestResult(false, target, "模型调用失败：" + error.getMessage(), provider, model, "vision", prompt, null);
+        }
     }
 
     private SystemConfigDTO.ConfigVO toVO(SystemConfig item) {
@@ -596,6 +652,47 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
 
     private String trim(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private String compressImageBase64(String inputBase64, String mimeType) {
+        try {
+            byte[] decoded = Base64.getDecoder().decode(inputBase64);
+            if (decoded.length <= VISION_IMAGE_MAX_BYTES) {
+                return inputBase64;
+            }
+            BufferedImage image = ImageIO.read(new ByteArrayInputStream(decoded));
+            if (image == null) {
+                return inputBase64;
+            }
+            String format = (mimeType != null && mimeType.toLowerCase().contains("png")) ? "png" : "jpg";
+            Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName(format);
+            if (!writers.hasNext()) {
+                return inputBase64;
+            }
+            ImageWriter writer = writers.next();
+            float[] qualities = new float[]{0.9f, 0.8f, 0.72f, 0.64f, 0.56f, 0.5f};
+            byte[] output = decoded;
+            for (float quality : qualities) {
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                try (ImageOutputStream ios = ImageIO.createImageOutputStream(baos)) {
+                    writer.setOutput(ios);
+                    ImageWriteParam param = writer.getDefaultWriteParam();
+                    if (param.canWriteCompressed()) {
+                        param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+                        param.setCompressionQuality(quality);
+                    }
+                    writer.write(null, new IIOImage(image, null, null), param);
+                }
+                output = baos.toByteArray();
+                if (output.length <= VISION_IMAGE_MAX_BYTES) {
+                    break;
+                }
+            }
+            writer.dispose();
+            return Base64.getEncoder().encodeToString(output);
+        } catch (Exception ignored) {
+            return inputBase64;
+        }
     }
 
     private Throwable unwrap(Throwable error) {

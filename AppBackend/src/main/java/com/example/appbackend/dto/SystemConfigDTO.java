@@ -72,6 +72,21 @@ public class SystemConfigDTO {
         private String model;
 
         private String prompt;
+
+        @Schema(description = "视觉测试媒体类型：image/video", example = "image")
+        private String mediaType;
+
+        @Schema(description = "视觉测试媒体 URL（可选）", example = "https://example.com/demo.jpg")
+        private String mediaUrl;
+
+        @Schema(description = "视觉测试媒体 Base64（不含 data: 前缀）")
+        private String mediaBase64;
+
+        @Schema(description = "视觉测试媒体 MIME 类型", example = "image/jpeg")
+        private String mediaMimeType;
+
+        @Schema(description = "视觉测试媒体文件名", example = "demo.jpg")
+        private String mediaFilename;
     }
 
     @Data

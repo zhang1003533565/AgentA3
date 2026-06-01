@@ -264,64 +264,84 @@
           "status": "implemented",
           "models": [
             {
-              "id": "qwen3.6-plus"
+              "id": "qwen3.6-plus",
+              "features": ["image_understanding", "video_understanding"]
             },
             {
-              "id": "qwen3.6-plus-2026-04-02"
+              "id": "qwen3.6-plus-2026-04-02",
+              "features": ["image_understanding", "video_understanding"]
             },
             {
-              "id": "qwen3.6-flash"
+              "id": "qwen3.6-flash",
+              "features": ["image_understanding", "video_understanding"]
             },
             {
-              "id": "qwen3.6-flash-2026-04-16"
+              "id": "qwen3.6-flash-2026-04-16",
+              "features": ["image_understanding", "video_understanding"]
             },
             {
-              "id": "qwen3.6-35b-a3b"
+              "id": "qwen3.6-35b-a3b",
+              "features": ["image_understanding", "video_understanding"]
             },
             {
-              "id": "qwen3.5-plus"
+              "id": "qwen3.5-plus",
+              "features": ["image_understanding", "video_understanding"]
             },
             {
-              "id": "qwen3.5-flash"
+              "id": "qwen3.5-flash",
+              "features": ["image_understanding", "video_understanding"]
             },
             {
-              "id": "qwen3.5-omni-plus"
+              "id": "qwen3.5-omni-plus",
+              "features": ["image_understanding", "video_understanding", "audio_understanding"]
             },
             {
-              "id": "qwen3.5-omni-flash"
+              "id": "qwen3.5-omni-flash",
+              "features": ["image_understanding", "video_understanding", "audio_understanding"]
             },
             {
-              "id": "qwen3-vl-plus"
+              "id": "qwen3-vl-plus",
+              "features": ["image_understanding", "video_understanding"]
             },
             {
-              "id": "qwen3-vl-flash"
+              "id": "qwen3-vl-flash",
+              "features": ["image_understanding", "video_understanding"]
             },
             {
-              "id": "qwen2.5-omni-7b"
+              "id": "qwen2.5-omni-7b",
+              "features": ["image_understanding", "video_understanding", "audio_understanding"]
             },
             {
-              "id": "qwen2.5-vl-72b-instruct"
+              "id": "qwen2.5-vl-72b-instruct",
+              "features": ["image_understanding", "video_understanding"]
             },
             {
-              "id": "qwen2.5-vl-32b-instruct"
+              "id": "qwen2.5-vl-32b-instruct",
+              "features": ["image_understanding", "video_understanding"]
             },
             {
-              "id": "qwen2.5-vl-7b-instruct"
+              "id": "qwen2.5-vl-7b-instruct",
+              "features": ["image_understanding", "video_understanding"]
             },
             {
-              "id": "qwen2.5-vl-3b-instruct"
+              "id": "qwen2.5-vl-3b-instruct",
+              "features": ["image_understanding", "video_understanding"]
             },
             {
-              "id": "qwen-vl-max"
+              "id": "qwen-vl-max",
+              "features": ["image_understanding", "video_understanding"]
             },
             {
-              "id": "qwen-vl-plus"
+              "id": "qwen-vl-plus",
+              "features": ["image_understanding", "video_understanding"]
             },
             {
-              "id": "qvq-max"
+              "id": "qvq-max",
+              "features": ["image_understanding", "video_understanding"]
             },
             {
-              "id": "qwen-omni-turbo"
+              "id": "qwen-omni-turbo",
+              "features": ["image_understanding", "video_understanding", "audio_understanding"]
             }
           ]
         },

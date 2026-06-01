@@ -200,6 +200,28 @@ public class PythonAiProxyService {
         return postVideoObject("/internal/videos/generate", request, authorization);
     }
 
+    public Object testVisionModel(Map<String, Object> request, String authorization) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            return webClientBuilder.build()
+                    .post()
+                    .uri(buildUri("/internal/models/vision/test"))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(request == null ? Map.of() : request)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 视觉理解服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 视觉理解服务调用失败: " + e.getMessage());
+        }
+    }
+
     public Object generateVideosBatch(Map<String, Object> request, String authorization) {
         return postVideoObject("/internal/videos/batch", request, authorization);
     }

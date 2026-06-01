@@ -865,6 +865,12 @@ function WorkspacePage({ pageKey }) {
   const [aiModelTestOpen, setAiModelTestOpen] = useState(false)
   const [aiModelTestRecord, setAiModelTestRecord] = useState(null)
   const [aiModelTestPrompt, setAiModelTestPrompt] = useState('')
+  const [aiVisionMediaType, setAiVisionMediaType] = useState('image')
+  const [aiVisionMediaUrl, setAiVisionMediaUrl] = useState('')
+  const [aiVisionMediaBase64, setAiVisionMediaBase64] = useState('')
+  const [aiVisionMediaMimeType, setAiVisionMediaMimeType] = useState('')
+  const [aiVisionMediaFilename, setAiVisionMediaFilename] = useState('')
+  const [aiVisionUploadLoading, setAiVisionUploadLoading] = useState(false)
   const [aiModelTestResult, setAiModelTestResult] = useState(null)
   const [aiModelTestLoading, setAiModelTestLoading] = useState(false)
   const [merchantCategoryOptions, setMerchantCategoryOptions] = useState([])
@@ -2466,14 +2472,22 @@ function WorkspacePage({ pageKey }) {
     setAiModelTestLoading(true)
     setAiModelTestResult(null)
     try {
-      const result = await testAiModel({
+      const payload = {
         modality: model.modality,
         provider,
         baseUrl,
         apiKey,
         model: modelId,
         prompt,
-      })
+      }
+      if (model.modality === 'vision') {
+        payload.mediaType = aiVisionMediaType
+        payload.mediaUrl = aiVisionMediaUrl
+        payload.mediaBase64 = aiVisionMediaBase64
+        payload.mediaMimeType = aiVisionMediaMimeType
+        payload.mediaFilename = aiVisionMediaFilename
+      }
+      const result = await testAiModel(payload)
       setAiModelTestResult(result?.data || {})
     } catch (error) {
       setAiModelTestResult({
@@ -2491,10 +2505,68 @@ function WorkspacePage({ pageKey }) {
 
   const runAiModelTest = async (model) => {
     const defaultPrompt = getAiModelTestDefaultPrompt(model.modality)
+    const features = Array.isArray(model?.catalogModel?.features) ? model.catalogModel.features : []
+    const supportsImage = features.length === 0 || features.includes('image_understanding')
+    const supportsVideo = features.length === 0 || features.includes('video_understanding')
+    const defaultMediaType = supportsImage ? 'image' : (supportsVideo ? 'video' : 'image')
     setAiModelTestRecord(model)
     setAiModelTestPrompt(defaultPrompt)
+    setAiVisionMediaType(defaultMediaType)
+    setAiVisionMediaUrl('')
+    setAiVisionMediaBase64('')
+    setAiVisionMediaMimeType('')
+    setAiVisionMediaFilename('')
     setAiModelTestResult(null)
     setAiModelTestOpen(true)
+  }
+
+  const compressAiTestImage = async (file) => {
+    if (!(file instanceof File)) return file
+    if (!file.type.startsWith('image/')) return file
+    const maxBytes = 5 * 1024 * 1024
+    if (file.size <= maxBytes) return file
+    const dataUrl = await readFileAsDataUrl(file)
+    const image = await loadImageElement(dataUrl)
+    const ratio = Math.min(1, 1800 / Math.max(image.width, image.height))
+    const width = Math.max(1, Math.round(image.width * ratio))
+    const height = Math.max(1, Math.round(image.height * ratio))
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d')
+    context.drawImage(image, 0, 0, width, height)
+    const outputType = file.type === 'image/png' ? 'image/png' : 'image/jpeg'
+    const qualitySteps = outputType === 'image/png' ? [0.92] : [0.9, 0.82, 0.74, 0.66, 0.58]
+    let compressedBlob = null
+    for (const quality of qualitySteps) {
+      const blob = await canvasToBlob(canvas, outputType, quality)
+      compressedBlob = blob
+      if (blob.size <= maxBytes) break
+    }
+    const extension = outputType === 'image/png' ? '.png' : '.jpg'
+    const filename = (file.name || 'vision-image').replace(/\.[^.]+$/, '')
+    return new File([compressedBlob], `${filename}${extension}`, { type: outputType })
+  }
+
+  const beforeVisionUpload = async (file) => {
+    setAiVisionUploadLoading(true)
+    try {
+      const normalized = aiVisionMediaType === 'image' ? await compressAiTestImage(file) : file
+      const dataUrl = await readFileAsDataUrl(normalized)
+      const [prefix, base64 = ''] = String(dataUrl).split(',')
+      const mimeMatch = /data:(.*?);base64/.exec(prefix || '')
+      const mimeType = mimeMatch?.[1] || normalized.type || (aiVisionMediaType === 'image' ? 'image/jpeg' : 'video/mp4')
+      setAiVisionMediaBase64(base64)
+      setAiVisionMediaMimeType(mimeType)
+      setAiVisionMediaFilename(normalized.name || '')
+      setAiVisionMediaUrl('')
+      message.success('上传成功，已写入本次测试请求')
+    } catch (error) {
+      message.error(error?.message || '上传失败')
+    } finally {
+      setAiVisionUploadLoading(false)
+    }
+    return false
   }
 
   const renderAiModelProviderGrid = (section, providerGroups) => (
@@ -3947,6 +4019,49 @@ function WorkspacePage({ pageKey }) {
             disabled={aiModelTestLoading}
             onChange={(event) => setAiModelTestPrompt(event.target.value)}
           />
+          {aiModelTestRecord?.modality === 'vision' ? (
+            <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
+              {(() => {
+                const features = Array.isArray(aiModelTestRecord?.catalogModel?.features) ? aiModelTestRecord.catalogModel.features : []
+                const supportsImage = features.length === 0 || features.includes('image_understanding')
+                const supportsVideo = features.length === 0 || features.includes('video_understanding')
+                const options = []
+                if (supportsImage) options.push({ value: 'image', label: '图片理解' })
+                if (supportsVideo) options.push({ value: 'video', label: '视频理解' })
+                return (
+              <Select
+                value={aiVisionMediaType}
+                options={options}
+                onChange={(value) => {
+                  setAiVisionMediaType(value)
+                  setAiVisionMediaBase64('')
+                  setAiVisionMediaMimeType('')
+                  setAiVisionMediaFilename('')
+                }}
+              />
+                )
+              })()}
+              <Input
+                value={aiVisionMediaUrl}
+                placeholder={aiVisionMediaType === 'image' ? '可选：图片 URL' : '可选：视频 URL'}
+                onChange={(event) => setAiVisionMediaUrl(event.target.value)}
+              />
+              <Upload
+                showUploadList={false}
+                accept={aiVisionMediaType === 'image' ? 'image/*' : 'video/*'}
+                beforeUpload={beforeVisionUpload}
+              >
+                <Button icon={<UploadOutlined />} loading={aiVisionUploadLoading}>
+                  上传{aiVisionMediaType === 'image' ? '图片' : '视频'}（前端先压缩，后端二次处理）
+                </Button>
+              </Upload>
+              {aiVisionMediaFilename ? (
+                <div style={{ color: '#475569', fontSize: 12 }}>
+                  已选择文件：{aiVisionMediaFilename}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {aiModelTestLoading ? (
             <div className="workspace-ai-test-status">测试中，正在等待模型返回结果...</div>
           ) : null}
