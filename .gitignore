@@ -7,6 +7,10 @@
 *.ipr
 .venv/
 .env
+venv/
+.python-version
+__pycache__/
+*.py[cod]
 
 # Maven
 AppBackend/target/
