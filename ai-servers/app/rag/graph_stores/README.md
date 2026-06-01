@@ -8,13 +8,8 @@
 
 可选后端：
 
-- `neo4j`：当安装 `neo4j` Python 包并配置连接信息后，可执行 Cypher 查询。
+- `neo4j`：当前禁用。ai-server 不再读取环境变量，后续需要由 Java/调用方显式传入连接配置后再启用。
 
 ## Config
 
-- `RAG_GRAPH_STORE_BACKEND=local_graph|neo4j`
-- `RAG_NEO4J_URI`
-- `RAG_NEO4J_USERNAME`
-- `RAG_NEO4J_PASSWORD`
-- `RAG_NEO4J_DATABASE`
-- `RAG_NEO4J_SEARCH_CYPHER`
+ai-server 不再从环境变量选择 graph store 或读取连接信息。默认只启用 `local_graph`。

@@ -1,6 +1,5 @@
 import base64
 import json
-import os
 import time
 import urllib.error
 import urllib.request
@@ -21,12 +20,9 @@ class QwenImageProvider:
     """DashScope/Qwen text-to-image provider based on async image synthesis tasks."""
 
     def __init__(self) -> None:
-        self.api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_IMAGE_API_KEY") or ""
-        self.base_url = os.getenv("QWEN_IMAGE_BASE_URL", "https://dashscope.aliyuncs.com").rstrip("/")
-        self.model = os.getenv("QWEN_IMAGE_MODEL", "qwen-image-plus")
-        self.timeout_seconds = float(os.getenv("QWEN_IMAGE_TIMEOUT_SECONDS", "30"))
-        self.poll_interval_seconds = float(os.getenv("QWEN_IMAGE_POLL_INTERVAL_SECONDS", "2"))
-        self.max_poll_attempts = int(os.getenv("QWEN_IMAGE_MAX_POLL_ATTEMPTS", "60"))
+        self.timeout_seconds = 30.0
+        self.poll_interval_seconds = 2.0
+        self.max_poll_attempts = 60
         self.tasks: Dict[str, Dict[str, Any]] = {}
         self.completed_tasks: Dict[str, ImageGenerationResponse] = {}
 
@@ -128,7 +124,9 @@ class QwenImageProvider:
     def _submit_task(self, request: ImageGenerationRequest) -> str:
         self._ensure_configured(request.apiKey)
         final_prompt = self._compose_prompt(request)
-        model_id = request.model or self.model
+        model_id = request.model
+        if not model_id:
+            raise HTTPException(status_code=400, detail="未传入图片模型 ID，请通过请求体 model 传入")
         if self._is_wan_image_model(model_id):
             wan_size = self._normalize_wan_size(request.size, model_id)
             payload = {
@@ -287,15 +285,17 @@ class QwenImageProvider:
             return ""
 
     def _ensure_configured(self, api_key: str = "") -> None:
-        active_api_key = self._active_api_key(api_key)
-        if not active_api_key or active_api_key.startswith("your-"):
-            raise HTTPException(status_code=500, detail="未配置 DASHSCOPE_API_KEY 或 QWEN_IMAGE_API_KEY，无法调用 Qwen 图片生成服务")
+        if not api_key or api_key.startswith("your-"):
+            raise HTTPException(status_code=400, detail="未传入图片 API Key，请通过请求体 apiKey 传入")
 
     def _active_api_key(self, api_key: str = "") -> str:
-        return str(api_key or self.api_key)
+        return str(api_key)
 
     def _active_base_url(self, base_url: str = "") -> str:
-        return str(base_url or self.base_url).rstrip("/")
+        value = str(base_url or "").rstrip("/")
+        if not value:
+            raise HTTPException(status_code=400, detail="未传入图片 Base URL，请通过请求体 baseUrl 传入")
+        return value
 
     def _remember_task(self, task_id: str, provider_task_id: str, request: ImageGenerationRequest, mode: str) -> None:
         self.tasks[task_id] = {
@@ -332,23 +332,19 @@ class QwenImageProvider:
     @staticmethod
     def _normalize_wan_size(size: str, model_id: str) -> str:
         value = (size or "").strip().upper().replace("X", "*")
-        if value in {"1K", "2K", "4K"}:
-            if value == "4K" and not model_id.lower().startswith("wan2.7-image-pro"):
-                return "2K"
-            return value
         if "*" in value:
             try:
                 width, height = value.split("*", 1)
                 w = int(width)
                 h = int(height)
-                if w >= 3000 or h >= 3000:
-                    return "4K" if model_id.lower().startswith("wan2.7-image-pro") else "2K"
-                if w >= 1700 or h >= 1700:
-                    return "2K"
-                return "1K"
+                if w * h > 1_638_400:
+                    return "1024*1024"
+                return f"{h}*{w}"
             except Exception:
                 pass
-        return "2K"
+        if value in {"1K", "2K", "4K"}:
+            return "-1*-1"
+        return "1328*1328"
 
 
 _qwen_image_provider: Optional[QwenImageProvider] = None

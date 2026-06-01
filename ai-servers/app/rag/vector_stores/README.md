@@ -17,7 +17,6 @@
 
 ## Backend Config
 
-- `RAG_VECTOR_STORE_BACKEND=local_jsonl|faiss|milvus|elasticsearch|pgvector`
-- `RAG_VECTOR_STORE`：兼容别名，优先级低于 `RAG_VECTOR_STORE_BACKEND`
+ai-server 不再从环境变量选择 vector store 或读取连接信息。默认只启用 `local_jsonl`。
 
-除 `local_jsonl` 外，其他后端当前是 scaffold：`health()` 可查看缺失配置，`upsert_documents()` 会明确拒绝写入，避免误以为已经完成真实入库。
+除 `local_jsonl` 外，其他后端当前禁用：`health()` 可查看状态，`upsert_documents()` 会明确拒绝写入，避免误以为已经完成真实入库。

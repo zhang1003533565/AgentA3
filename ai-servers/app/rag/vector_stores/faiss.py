@@ -1,6 +1,5 @@
 import json
 import math
-import os
 from pathlib import Path
 from typing import Iterable, List, Optional
 
@@ -11,20 +10,19 @@ from app.rag.vector_stores.scaffolded import ScaffoldedVectorStore
 
 class FaissVectorStore(ScaffoldedVectorStore):
     name = "faiss"
-    status = "implemented_optional"
+    status = "disabled"
     dependency = "faiss-cpu"
     dependency_import = "faiss"
-    required_env = ["RAG_FAISS_INDEX_DIR"]
-    optional_env = ["RAG_FAISS_NORMALIZE_L2", "RAG_FAISS_DIMENSION"]
-    description = "Local FAISS adapter scaffold for future dense vector retrieval."
+    required_env = []
+    optional_env = []
+    description = "Local FAISS adapter is disabled until callers pass explicit provider config."
 
     def __init__(self, root_dir: Path, index_path: Optional[Path] = None) -> None:
         super().__init__(root_dir=root_dir, index_path=index_path)
-        index_dir = Path(os.getenv("RAG_FAISS_INDEX_DIR", str(root_dir / ".index" / "faiss")))
-        self.index_dir = index_dir
-        self.docstore_path = index_dir / "documents.jsonl"
-        self.faiss_path = index_dir / "index.faiss"
-        self.dimension = int(os.getenv("RAG_FAISS_DIMENSION", "384"))
+        self.index_dir = root_dir / ".index" / "faiss"
+        self.docstore_path = self.index_dir / "documents.jsonl"
+        self.faiss_path = self.index_dir / "index.faiss"
+        self.dimension = 384
 
     def load_documents(self) -> List[RagDocument]:
         if not self.docstore_path.exists():
@@ -47,6 +45,7 @@ class FaissVectorStore(ScaffoldedVectorStore):
         return documents
 
     def upsert_documents(self, documents: Iterable[RagDocument]) -> int:
+        raise RuntimeError("FAISS vector store 已禁用：ai-server 不读取环境变量，请由 Java/调用方显式传入配置后再启用。")
         self._ensure_ready()
         import faiss
         import numpy as np

@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 import re
-import os
 import sqlite3
 from pathlib import Path
 
@@ -51,21 +50,10 @@ class TextToSqlService:
     def execute_sql(self, sql: str) -> List[Dict[str, Any]]:
         if not self.validate_readonly(sql):
             raise ValueError("Only readonly SELECT SQL is allowed")
-        sqlite_path = os.getenv("RAG_SQLITE_DB_PATH", "")
-        if not sqlite_path:
-            return []
-        path = Path(sqlite_path)
-        if not path.exists():
-            raise FileNotFoundError(f"RAG_SQLITE_DB_PATH does not exist: {sqlite_path}")
-        uri = f"file:{path.resolve()}?mode=ro"
-        with sqlite3.connect(uri, uri=True) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute(sql)
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
+        return []
 
     def introspect_sqlite_schema(self, sqlite_path: Optional[str] = None) -> Dict[str, Any]:
-        active_path = sqlite_path or os.getenv("RAG_SQLITE_DB_PATH", "")
+        active_path = sqlite_path or ""
         if not active_path:
             return self.default_schema()
         path = Path(active_path)

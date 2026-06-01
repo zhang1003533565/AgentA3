@@ -1,4 +1,3 @@
-import os
 from typing import Optional
 
 from app.rag.embeddings.base import BaseEmbeddingProvider
@@ -10,7 +9,7 @@ from app.rag.embeddings.sentence_transformers import SentenceTransformersEmbeddi
 
 
 def build_embedding_provider(provider: Optional[str] = None) -> BaseEmbeddingProvider:
-    selected = (provider or os.getenv("RAG_EMBEDDING_PROVIDER") or "local_lexical").lower()
+    selected = (provider or "local_lexical").lower()
     if selected in {"local", "lexical", "local_lexical"}:
         return LocalLexicalEmbeddingProvider()
     if selected == "openai":

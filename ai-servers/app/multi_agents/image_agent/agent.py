@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from app.image_generation import get_qwen_image_provider
 from app.models.image_generation import ImageBatchRequest, ImageGenerationRequest
+from app.model_providers.runtime_config import get_active_llm_config
 from app.services.langchain_chat_service import get_chat_service
 
 
@@ -30,7 +31,7 @@ class ImageAgent:
         payload = {
             "prompt": enhanced_prompt,
             "style": style or self._infer_style(topic),
-            "size": size or "1664x928",
+            "size": size or "1024x1024",
             "count": normalized_count,
             "seed": seed,
             "negativePrompt": negative_prompt or "低清晰度、文字乱码、人物畸形、过度拥挤、与知识点无关的元素",
@@ -41,6 +42,14 @@ class ImageAgent:
                 "evidenceCount": len(evidence or []),
             },
         }
+        active_config = get_active_llm_config()
+        if active_config:
+            payload.update({
+                "provider": active_config.provider,
+                "baseUrl": active_config.base_url,
+                "apiKey": active_config.api_key,
+                "model": active_config.model,
+            })
         provider = get_qwen_image_provider()
         if normalized_count == 1:
             response = provider.generate(ImageGenerationRequest(**payload))

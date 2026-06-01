@@ -1,6 +1,5 @@
 import base64
 import hashlib
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,13 +41,13 @@ class IngestionResult:
 
 class RagIngestionPipeline:
     def __init__(self, root_dir: Optional[str] = None) -> None:
-        self.root_dir = self._resolve_root_dir(root_dir or os.getenv("RAG_KNOWLEDGE_BASE_DIR", "knowledge_base/raw"))
+        self.root_dir = self._resolve_root_dir(root_dir or "knowledge_base/raw")
         self.ingest_dir = self.root_dir / "api_ingest"
         self.index_path = self.root_dir / ".index" / "local_chunks.jsonl"
         self.loader = DocumentLoader()
         self.chunker = SemanticChunker(
-            chunk_size=int(os.getenv("RAG_CHUNK_SIZE", "800")),
-            overlap=int(os.getenv("RAG_CHUNK_OVERLAP", "120")),
+            chunk_size=800,
+            overlap=120,
         )
         self.writer = EmbeddingWriter(index_path=str(self.index_path))
 

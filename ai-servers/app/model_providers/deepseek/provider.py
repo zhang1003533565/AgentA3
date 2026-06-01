@@ -21,7 +21,7 @@ class DeepSeekProvider(ChatModelProvider):
 
         runtime_config = resolve_llm_config(config)
         if runtime_config.normalized_provider() not in {"deepseek", "openai_compatible", "openai-compatible"}:
-            raise RuntimeError(f"暂不支持的 LLM_PROVIDER: {runtime_config.provider}")
+            raise RuntimeError(f"暂不支持的模型服务商: {runtime_config.provider}")
 
         deepseek_api_key = runtime_config.api_key
         deepseek_base_url = runtime_config.base_url

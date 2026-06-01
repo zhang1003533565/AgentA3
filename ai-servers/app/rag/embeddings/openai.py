@@ -1,29 +1,18 @@
-import os
-
 from app.rag.embeddings.scaffolded import ScaffoldedEmbeddingProvider
 
 
 class OpenAIEmbeddingProvider(ScaffoldedEmbeddingProvider):
     name = "openai"
-    status = "implemented_optional"
+    status = "disabled"
     dependency = "langchain-openai"
     dependency_import = "langchain_openai"
-    required_env = ["OPENAI_API_KEY"]
-    optional_env = ["RAG_OPENAI_EMBEDDING_MODEL", "OPENAI_BASE_URL"]
+    required_env = []
+    optional_env = []
     dimension = "dense"
-    description = "OpenAI embedding provider scaffold for future dense vector indexing."
+    description = "OpenAI embedding provider is disabled until callers pass explicit provider config."
 
     def embed_text(self, text: str):
-        self._ensure_ready()
-        from langchain_openai import OpenAIEmbeddings
-
-        model = os.getenv("RAG_OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
-        embeddings = OpenAIEmbeddings(
-            model=model,
-            api_key=os.getenv("OPENAI_API_KEY"),
-            base_url=os.getenv("OPENAI_BASE_URL") or None,
-        )
-        return self._dense_to_embedding_vector(embeddings.embed_query(text or ""))
+        raise RuntimeError("OpenAI embedding 已禁用：ai-server 不读取环境变量，请由 Java/调用方显式传入配置后再启用。")
 
     def _ensure_ready(self) -> None:
         health = self.health()

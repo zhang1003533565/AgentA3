@@ -1,5 +1,4 @@
 import importlib.util
-import os
 from typing import Any, Dict, List
 
 from app.rag.embeddings.base import BaseEmbeddingProvider, EmbeddingVector
@@ -17,22 +16,22 @@ class ScaffoldedEmbeddingProvider(BaseEmbeddingProvider):
     def embed_text(self, text: str) -> EmbeddingVector:
         raise RuntimeError(
             f"{self.name} embedding provider is not available. "
-            "Check provider dependency and required environment variables."
+            "Pass explicit provider config from the caller before enabling it."
         )
 
     def health(self) -> Dict[str, Any]:
-        missing_env = [key for key in self.required_env if not os.getenv(key)]
         dependency_available = self._dependency_available()
+        disabled = self.status == "disabled"
         return {
             "provider": self.name,
             "status": self.status,
             "description": self.description,
             "dependency": self.dependency,
             "dependencyAvailable": dependency_available,
-            "configured": not missing_env and dependency_available,
+            "configured": not disabled and not self.required_env and dependency_available,
             "requiredEnv": self.required_env,
             "optionalEnv": self.optional_env,
-            "missingEnv": missing_env,
+            "missingEnv": list(self.required_env),
             "dimension": self.dimension,
         }
 

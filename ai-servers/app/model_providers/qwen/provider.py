@@ -23,9 +23,6 @@ QWEN_PROVIDER_ALIASES = {
     "qwen_openai",
     "qwen-openai",
 }
-DEFAULT_QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-
-
 class QwenProvider(ChatModelProvider):
     """Qwen/DashScope provider using the OpenAI-compatible Chat Completions API.
 
@@ -42,16 +39,18 @@ class QwenProvider(ChatModelProvider):
 
         runtime_config = resolve_llm_config(config)
         if runtime_config.normalized_provider() not in QWEN_PROVIDER_ALIASES:
-            raise RuntimeError(f"暂不支持的 LLM_PROVIDER: {runtime_config.provider}")
+            raise RuntimeError(f"暂不支持的模型服务商: {runtime_config.provider}")
 
         api_key = runtime_config.api_key
-        base_url = runtime_config.base_url or DEFAULT_QWEN_BASE_URL
+        base_url = runtime_config.base_url
         model = runtime_config.model
 
+        if not base_url:
+            raise RuntimeError("Qwen Base URL 未配置：缺少 X-AI-Base-Url")
         if not api_key:
-            raise RuntimeError("Qwen API Key 未配置：缺少 X-AI-Api-Key(ai.service.text.api-key)")
+            raise RuntimeError("Qwen API Key 未配置：缺少 X-AI-Api-Key")
         if not model:
-            raise RuntimeError("Qwen 模型未配置：建议配置为 qwen-plus / qwen-max / qwen-vl-plus / qwen3-vl-plus")
+            raise RuntimeError("Qwen 模型未配置：缺少 X-AI-Model")
 
         self.model = model
         self.llm = ChatOpenAI(

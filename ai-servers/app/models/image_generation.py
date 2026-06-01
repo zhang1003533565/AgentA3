@@ -28,7 +28,7 @@ class ImageGenerationRequest(BaseModel):
     @classmethod
     def validate_size(cls, value: str) -> str:
         normalized = value.strip().lower().replace("*", "x")
-        allowed_sizes = {"1664x928", "1472x1104", "1328x1328", "1104x1472", "928x1664"}
+        allowed_sizes = {"1664x928", "1472x1104", "1328x1328", "1104x1472", "928x1664", "1024x1024"}
         if normalized not in allowed_sizes:
             raise ValueError(f"不支持的图片尺寸：{value}，可选：{', '.join(sorted(allowed_sizes))}")
         return normalized

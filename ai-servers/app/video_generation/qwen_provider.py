@@ -1,5 +1,4 @@
 import json
-import os
 import time
 import urllib.error
 import urllib.request
@@ -20,12 +19,9 @@ class QwenVideoProvider:
     """DashScope/Qwen video provider based on async Wan video synthesis tasks."""
 
     def __init__(self) -> None:
-        self.api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_VIDEO_API_KEY") or ""
-        self.base_url = os.getenv("QWEN_VIDEO_BASE_URL", "https://dashscope.aliyuncs.com").rstrip("/")
-        self.model = os.getenv("QWEN_VIDEO_MODEL", "")
-        self.timeout_seconds = float(os.getenv("QWEN_VIDEO_TIMEOUT_SECONDS", "30"))
-        self.poll_interval_seconds = float(os.getenv("QWEN_VIDEO_POLL_INTERVAL_SECONDS", "2"))
-        self.max_poll_attempts = int(os.getenv("QWEN_VIDEO_MAX_POLL_ATTEMPTS", "60"))
+        self.timeout_seconds = 30.0
+        self.poll_interval_seconds = 2.0
+        self.max_poll_attempts = 60
         self.tasks: Dict[str, Dict[str, Any]] = {}
         self.completed_tasks: Dict[str, VideoGenerationResponse] = {}
 
@@ -118,9 +114,9 @@ class QwenVideoProvider:
 
     def _submit_task(self, request: VideoGenerationRequest) -> str:
         self._ensure_configured(request.apiKey)
-        active_model = request.model or self.model
+        active_model = request.model
         if not active_model:
-            raise HTTPException(status_code=400, detail="Qwen 视频模型未配置，请在模型配置中填写视频模型 ID")
+            raise HTTPException(status_code=400, detail="未传入视频模型 ID，请通过请求体 model 传入")
         # wan2.6-r2v / r2v-flash 需要参考素材；若当前请求无参考图，自动降级到文生视频模型，避免纯文案测试直接失败。
         if self._requires_reference_inputs(active_model) and not request.imageUrl:
             active_model = "wan2.7-t2v"
@@ -264,15 +260,17 @@ class QwenVideoProvider:
         return "-r2v" in value or "reference" in value
 
     def _ensure_configured(self, api_key: str = "") -> None:
-        active_api_key = self._active_api_key(api_key)
-        if not active_api_key or active_api_key.startswith("your-"):
-            raise HTTPException(status_code=500, detail="未配置 DASHSCOPE_API_KEY 或 QWEN_VIDEO_API_KEY，无法调用 Qwen 视频生成服务")
+        if not api_key or api_key.startswith("your-"):
+            raise HTTPException(status_code=400, detail="未传入视频 API Key，请通过请求体 apiKey 传入")
 
     def _active_api_key(self, api_key: str = "") -> str:
-        return str(api_key or self.api_key)
+        return str(api_key)
 
     def _active_base_url(self, base_url: str = "") -> str:
-        return str(base_url or self.base_url).rstrip("/")
+        value = str(base_url or "").rstrip("/")
+        if not value:
+            raise HTTPException(status_code=400, detail="未传入视频 Base URL，请通过请求体 baseUrl 传入")
+        return value
 
     def _remember_task(self, task_id: str, provider_task_id: str, request: VideoGenerationRequest, mode: str) -> None:
         self.tasks[task_id] = {

@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -29,7 +28,7 @@ class TextbookKnowledgeAgent:
         self.text_to_sql = TextToSqlService()
         self.speculative_generator = SpeculativeGenerator()
         self.context_builder = ContextBuilder()
-        self.vector_top_k = int(os.getenv("RAG_VECTOR_TOP_K", "5"))
+        self.vector_top_k = 5
         self._last_crag_meta: Dict[str, Any] = {}
         self._last_self_rag_meta: Dict[str, Any] = {}
         self._last_agentic_meta: Dict[str, Any] = {}

@@ -1,5 +1,4 @@
 import math
-import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -11,13 +10,13 @@ from app.rag.indexing.document_loader import DocumentLoader
 
 class ParentChildRetriever:
     def __init__(self, root_dir: Optional[str] = None) -> None:
-        self.root_dir = self._resolve_root_dir(root_dir or os.getenv("RAG_KNOWLEDGE_BASE_DIR", "knowledge_base/raw"))
+        self.root_dir = self._resolve_root_dir(root_dir or "knowledge_base/raw")
         self.loader = DocumentLoader()
         self.chunker = ParentChildChunker(
-            parent_chunk_size=int(os.getenv("RAG_PARENT_CHUNK_SIZE", "1600")),
-            parent_overlap=int(os.getenv("RAG_PARENT_CHUNK_OVERLAP", "160")),
-            child_chunk_size=int(os.getenv("RAG_CHILD_CHUNK_SIZE", "420")),
-            child_overlap=int(os.getenv("RAG_CHILD_CHUNK_OVERLAP", "80")),
+            parent_chunk_size=1600,
+            parent_overlap=160,
+            child_chunk_size=420,
+            child_overlap=80,
         )
         self.embedding_provider = build_embedding_provider()
         self._index_signature = ""

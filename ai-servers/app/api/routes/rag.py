@@ -1,5 +1,4 @@
 import hashlib
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -204,21 +203,21 @@ def get_rag_framework(
         ],
         "embeddingProviders": [
             {"name": "local_lexical", "status": "implemented", "requiredEnv": []},
-            {"name": "openai", "status": "implemented_optional", "requiredEnv": ["OPENAI_API_KEY"]},
-            {"name": "dashscope", "status": "implemented_optional", "requiredEnv": ["DASHSCOPE_API_KEY"]},
-            {"name": "bge", "status": "implemented_optional", "requiredEnv": ["RAG_BGE_MODEL_NAME"]},
-            {"name": "sentence_transformers", "status": "implemented_optional", "requiredEnv": ["RAG_SENTENCE_TRANSFORMERS_MODEL"]},
+            {"name": "openai", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
+            {"name": "dashscope", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
+            {"name": "bge", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
+            {"name": "sentence_transformers", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
         ],
         "vectorStores": [
             {"name": "local_jsonl", "status": "implemented", "requiredEnv": []},
-            {"name": "faiss", "status": "implemented_optional", "requiredEnv": ["RAG_FAISS_INDEX_DIR"]},
-            {"name": "milvus", "status": "implemented_optional", "requiredEnv": ["RAG_MILVUS_URI", "RAG_MILVUS_COLLECTION"]},
-            {"name": "elasticsearch", "status": "implemented_optional", "requiredEnv": ["RAG_ELASTICSEARCH_URL", "RAG_ELASTICSEARCH_INDEX"]},
-            {"name": "pgvector", "status": "implemented_optional", "requiredEnv": ["RAG_PGVECTOR_DSN", "RAG_PGVECTOR_TABLE"]},
+            {"name": "faiss", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
+            {"name": "milvus", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
+            {"name": "elasticsearch", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
+            {"name": "pgvector", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
         ],
         "graphStores": [
             {"name": "local_graph", "status": "implemented", "requiredEnv": []},
-            {"name": "neo4j", "status": "implemented_optional", "requiredEnv": ["RAG_NEO4J_URI", "RAG_NEO4J_USERNAME", "RAG_NEO4J_PASSWORD"]},
+            {"name": "neo4j", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
         ],
         "indexing": {
             "supportedSuffixes": sorted(DocumentLoader.SUPPORTED_SUFFIXES),
@@ -228,12 +227,6 @@ def get_rag_framework(
             "localIndexFile": str(_knowledge_base_root() / ".index" / "local_chunks.jsonl"),
         },
         "runtimeEnv": [
-            {"name": "RAG_KNOWLEDGE_BASE_DIR", "configured": bool(os.getenv("RAG_KNOWLEDGE_BASE_DIR")), "default": "knowledge_base/raw"},
-            {"name": "RAG_EMBEDDING_PROVIDER", "configured": bool(os.getenv("RAG_EMBEDDING_PROVIDER")), "default": "local_lexical"},
-            {"name": "RAG_VECTOR_STORE_BACKEND", "configured": bool(os.getenv("RAG_VECTOR_STORE_BACKEND")), "default": "local_jsonl"},
-            {"name": "RAG_GRAPH_STORE_BACKEND", "configured": bool(os.getenv("RAG_GRAPH_STORE_BACKEND")), "default": "local_graph"},
-            {"name": "RAG_SQLITE_DB_PATH", "configured": bool(os.getenv("RAG_SQLITE_DB_PATH")), "default": ""},
-            {"name": "JAVA_BACKEND_BASE_URL", "configured": bool(os.getenv("JAVA_BACKEND_BASE_URL")), "default": "http://localhost:8080"},
             {"name": "X-AI-Provider", "configured": "由 Java 请求头传入", "source": "ai.service.text.provider"},
             {"name": "X-AI-Base-Url", "configured": "由 Java 请求头传入", "source": "ai.service.text.base-url"},
             {"name": "X-AI-Api-Key", "configured": "由 Java 请求头传入", "source": "ai.service.text.api-key"},
@@ -886,7 +879,7 @@ def _require_authorization(authorization: Optional[str]) -> None:
 
 
 def _knowledge_base_root() -> Path:
-    root_dir = os.getenv("RAG_KNOWLEDGE_BASE_DIR", "knowledge_base/raw")
+    root_dir = "knowledge_base/raw"
     path = Path(root_dir)
     if path.is_absolute():
         return path

@@ -1,5 +1,4 @@
 import json
-import os
 import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
@@ -19,8 +18,8 @@ logger = get_logger("rag.retrievers.java_backend")
 class JavaBackendRetriever:
     def __init__(self) -> None:
         self.enabled = True
-        self.java_base_url = os.getenv("JAVA_BACKEND_BASE_URL", "http://localhost:8080").rstrip("/")
-        self.timeout_seconds = int(os.getenv("JAVA_BACKEND_TIMEOUT_SECONDS", "8"))
+        self.java_base_url = "http://localhost:8080"
+        self.timeout_seconds = 8
 
     def _get_json(self, path: str, authorization: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if not self.enabled:

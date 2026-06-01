@@ -424,7 +424,7 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
         payload.put("prompt", prompt);
         payload.put("metadata", Map.of("test", true, "source", "system-config"));
         if ("image".equals(modality)) {
-            payload.put("size", "1328x1328");
+            payload.put("size", "1024x1024");
             payload.put("count", 1);
             payload.put("returnType", "url");
         } else {
@@ -437,7 +437,8 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
                     ? pythonAiProxyService.generateImage(payload, authorization)
                     : pythonAiProxyService.generateVideo(payload, authorization);
             String detail = summarizeMediaResult(modality, raw);
-            return aiModelTestResult(true, target, detail, provider, model, modality, prompt, raw);
+            boolean success = isGeneratedMediaSuccess(raw);
+            return aiModelTestResult(success, target, detail, provider, model, modality, prompt, raw);
         } catch (Exception error) {
             return aiModelTestResult(false, target, "模型调用失败：" + error.getMessage(), provider, model, modality, prompt, null);
         }
@@ -689,6 +690,24 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
                 + (taskId.isBlank() ? "" : "，任务：" + taskId)
                 + (providerTaskId.isBlank() ? "" : "，服务商任务：" + providerTaskId)
                 + (message.isBlank() ? "" : "，消息：" + message);
+    }
+
+    private boolean isGeneratedMediaSuccess(Object raw) {
+        JsonNode root = objectMapper.valueToTree(raw);
+        String status = root.path("status").asText("");
+        if (!List.of("success", "partial_success").contains(status)) {
+            return false;
+        }
+        JsonNode items = root.has("images") ? root.path("images") : root.path("videos");
+        if (!items.isArray() || items.isEmpty()) {
+            return false;
+        }
+        for (JsonNode item : items) {
+            if (!item.path("url").asText("").isBlank()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Object jsonOrText(String value) {

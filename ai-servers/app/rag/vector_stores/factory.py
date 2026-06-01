@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from typing import Optional
 
@@ -15,7 +14,7 @@ def build_vector_store(
     backend: Optional[str] = None,
     index_path: Optional[Path] = None,
 ) -> BaseVectorStore:
-    selected = (backend or os.getenv("RAG_VECTOR_STORE_BACKEND") or os.getenv("RAG_VECTOR_STORE") or "local_jsonl").lower()
+    selected = (backend or "local_jsonl").lower()
     if selected in {"local", "jsonl", "local_jsonl"}:
         return LocalJsonlVectorStore(root_dir=root_dir, index_path=index_path)
     if selected == "faiss":

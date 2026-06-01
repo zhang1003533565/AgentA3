@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from typing import List, Optional
 
@@ -11,7 +10,7 @@ from app.rag.indexing.local_chunk_index import LocalChunkIndex
 
 class GraphRetriever:
     def __init__(self, root_dir: Optional[str] = None) -> None:
-        self.root_dir = self._resolve_root_dir(root_dir or os.getenv("RAG_KNOWLEDGE_BASE_DIR", "knowledge_base/raw"))
+        self.root_dir = self._resolve_root_dir(root_dir or "knowledge_base/raw")
         self.loader = DocumentLoader()
         self.chunker = SemanticChunker(chunk_size=900, overlap=120)
         self.local_chunk_index = LocalChunkIndex(self.root_dir)

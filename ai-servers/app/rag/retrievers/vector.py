@@ -1,5 +1,4 @@
 import math
-import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -12,10 +11,10 @@ from app.rag.indexing.local_chunk_index import LocalChunkIndex
 
 class VectorRetriever:
     def __init__(self, root_dir: Optional[str] = None, chunk_size: Optional[int] = None, overlap: Optional[int] = None) -> None:
-        self.root_dir = self._resolve_root_dir(root_dir or os.getenv("RAG_KNOWLEDGE_BASE_DIR", "knowledge_base/raw"))
+        self.root_dir = self._resolve_root_dir(root_dir or "knowledge_base/raw")
         self.chunker = SemanticChunker(
-            chunk_size=chunk_size or int(os.getenv("RAG_CHUNK_SIZE", "800")),
-            overlap=overlap or int(os.getenv("RAG_CHUNK_OVERLAP", "120")),
+            chunk_size=chunk_size or 800,
+            overlap=overlap or 120,
         )
         self.loader = DocumentLoader()
         self.local_chunk_index = LocalChunkIndex(self.root_dir)

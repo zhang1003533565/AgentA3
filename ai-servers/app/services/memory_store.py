@@ -1,5 +1,4 @@
 import json
-import os
 from typing import Dict, List
 
 try:
@@ -16,13 +15,12 @@ class MemoryStore:
     def __init__(self) -> None:
         self._fallback: Dict[str, List[Dict[str, str]]] = {}
         self._redis_client = None
-        self.ttl_seconds = int(os.getenv("LLM_MEMORY_TTL_MINUTES", "120")) * 60
-        self.max_messages = int(os.getenv("LLM_MEMORY_MAX_MESSAGES", "20"))
+        self.ttl_seconds = 120 * 60
+        self.max_messages = 20
         try:
             if redis is None:
                 raise RuntimeError("redis package is not installed")
-            redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-            self._redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
+            self._redis_client = redis.Redis.from_url("redis://localhost:6379/0", decode_responses=True)
             self._redis_client.ping()
             logger.debug("redis connected")
         except Exception as exc:
