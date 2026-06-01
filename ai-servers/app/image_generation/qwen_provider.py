@@ -146,6 +146,7 @@ class QwenImageProvider:
                 "parameters": {
                     "size": wan_size,
                     "n": 1,
+                    "enable_interleave": True,
                     "watermark": request.watermark,
                 },
             }
@@ -232,6 +233,8 @@ class QwenImageProvider:
             message = message or "图片任务处理中"
 
         results = output.get("results") or []
+        if not results:
+            results = self._extract_results_from_choices(output)
         images = [
             ImageItem(
                 index=index,
@@ -310,6 +313,21 @@ class QwenImageProvider:
     def _is_wan_image_model(model_id: str) -> bool:
         value = (model_id or "").strip().lower()
         return value.startswith("wan2.6-image") or value.startswith("wan2.7-image")
+
+    @staticmethod
+    def _extract_results_from_choices(output: Dict[str, Any]) -> List[Dict[str, str]]:
+        extracted: List[Dict[str, str]] = []
+        choices = output.get("choices") or []
+        for choice in choices:
+            message = (choice or {}).get("message") or {}
+            content_list = message.get("content") or []
+            for content in content_list:
+                if not isinstance(content, dict):
+                    continue
+                image_url = str(content.get("image") or "").strip()
+                if image_url:
+                    extracted.append({"url": image_url})
+        return extracted
 
     @staticmethod
     def _normalize_wan_size(size: str, model_id: str) -> str:
