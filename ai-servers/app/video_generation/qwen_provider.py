@@ -118,8 +118,20 @@ class QwenVideoProvider:
 
     def _submit_task(self, request: VideoGenerationRequest) -> str:
         self._ensure_configured(request.apiKey)
-        if not (request.model or self.model):
+        active_model = request.model or self.model
+        if not active_model:
             raise HTTPException(status_code=400, detail="Qwen 视频模型未配置，请在模型配置中填写视频模型 ID")
+        # wan2.6-r2v / r2v-flash 需要参考素材；若当前请求无参考图，自动降级到文生视频模型，避免纯文案测试直接失败。
+        if self._requires_reference_inputs(active_model) and not request.imageUrl:
+            active_model = "wan2.7-t2v"
+        if self._is_unavailable_model(active_model):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"当前模型 {active_model} 已不可用或当前地域不支持，请改用 wan2.6-t2v、wan2.7-t2v、"
+                    "wan2.7-i2v 或 wan2.7-videoedit 等仍可用模型"
+                ),
+            )
 
         input_payload: Dict[str, Any] = {"prompt": request.prompt}
         if request.imageUrl:
@@ -133,7 +145,7 @@ class QwenVideoProvider:
             parameters["seed"] = request.seed
 
         payload = {
-            "model": request.model or self.model,
+            "model": active_model,
             "input": input_payload,
             "parameters": parameters,
         }
@@ -224,16 +236,32 @@ class QwenVideoProvider:
 
     def _extract_video_urls(self, output: Dict[str, Any]) -> List[str]:
         urls: List[str] = []
-        for key in ("video_url", "url"):
+        for key in ("video_url", "url", "videoUrl", "result_url"):
             value = output.get(key)
             if isinstance(value, str) and value:
                 urls.append(value)
-        for item in output.get("results") or []:
-            if isinstance(item, dict):
-                value = item.get("url") or item.get("video_url")
-                if value:
-                    urls.append(str(value))
-        return urls
+        for list_key in ("results", "video_urls", "videoUrls", "result_urls"):
+            values = output.get(list_key)
+            if isinstance(values, list):
+                for item in values:
+                    if isinstance(item, str) and item:
+                        urls.append(item)
+                    elif isinstance(item, dict):
+                        value = item.get("url") or item.get("video_url") or item.get("videoUrl") or item.get("result_url")
+                        if isinstance(value, str) and value:
+                            urls.append(value)
+        # 去重并保持顺序
+        deduped: List[str] = []
+        seen: set[str] = set()
+        for url in urls:
+            if url and url not in seen:
+                seen.add(url)
+                deduped.append(url)
+        return deduped
+
+    def _requires_reference_inputs(self, model: str) -> bool:
+        value = (model or "").lower()
+        return "-r2v" in value or "reference" in value
 
     def _ensure_configured(self, api_key: str = "") -> None:
         active_api_key = self._active_api_key(api_key)
@@ -257,6 +285,11 @@ class QwenVideoProvider:
     @staticmethod
     def _local_task_id() -> str:
         return f"vid_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+
+    @staticmethod
+    def _is_unavailable_model(model_id: str) -> bool:
+        value = (model_id or "").strip().lower()
+        return value in {"wan2.1-vace-plus"}
 
 
 _qwen_video_provider: Optional[QwenVideoProvider] = None

@@ -748,12 +748,6 @@
               "features": [
                 "keyframe_to_video"
               ]
-            },
-            {
-              "id": "wan2.1-vace-plus",
-              "features": [
-                "video_editing"
-              ]
             }
           ]
         }
@@ -785,18 +779,6 @@
                 "chat",
                 "reasoning"
               ]
-            },
-            {
-              "id": "deepseek-chat",
-              "deprecated": true,
-              "deprecationDate": "2026-07-24",
-              "mapsTo": "deepseek-v4-flash non-thinking mode"
-            },
-            {
-              "id": "deepseek-reasoner",
-              "deprecated": true,
-              "deprecationDate": "2026-07-24",
-              "mapsTo": "deepseek-v4-flash thinking mode"
             }
           ]
         }
@@ -842,18 +824,6 @@
               ]
             },
             {
-              "id": "mimo-v2-pro",
-              "deprecated": true,
-              "deprecationDate": "2026-06-30",
-              "mapsTo": "mimo-v2.5-pro"
-            },
-            {
-              "id": "mimo-v2-omni",
-              "deprecated": true,
-              "deprecationDate": "2026-06-30",
-              "mapsTo": "mimo-v2.5"
-            },
-            {
               "id": "mimo-v2-flash",
               "features": [
                 "text_generation",
@@ -877,17 +847,6 @@
                 "audio_understanding",
                 "video_understanding"
               ]
-            },
-            {
-              "id": "mimo-v2-omni",
-              "features": [
-                "image_understanding",
-                "audio_understanding",
-                "video_understanding"
-              ],
-              "deprecated": true,
-              "deprecationDate": "2026-06-30",
-              "mapsTo": "mimo-v2.5"
             }
           ]
         },

@@ -417,7 +417,6 @@ public class PythonAiProxyService {
                     .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
                     .retrieve()
                     .bodyToMono(Object.class)
-                    .timeout(Duration.ofSeconds(timeoutSeconds))
                     .block();
         } catch (WebClientResponseException e) {
             throw new BusinessException(Result.ERROR_CODE, "Python 视频生成服务调用失败: " + extractRemoteMessage(e));
@@ -439,7 +438,6 @@ public class PythonAiProxyService {
                     .bodyValue(request == null ? Map.of() : request)
                     .retrieve()
                     .bodyToMono(Object.class)
-                    .timeout(Duration.ofSeconds(timeoutSeconds))
                     .block();
         } catch (WebClientResponseException e) {
             throw new BusinessException(Result.ERROR_CODE, "Python 视频生成服务调用失败: " + extractRemoteMessage(e));
