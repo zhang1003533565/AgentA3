@@ -128,18 +128,42 @@ class QwenImageProvider:
     def _submit_task(self, request: ImageGenerationRequest) -> str:
         self._ensure_configured(request.apiKey)
         final_prompt = self._compose_prompt(request)
-        payload = {
-            "model": request.model or self.model,
-            "input": {
-                "prompt": final_prompt,
-            },
-            "parameters": {
-                "size": request.size.replace("x", "*"),
-                "n": 1,
-                "prompt_extend": request.promptExtend,
-                "watermark": request.watermark,
-            },
-        }
+        model_id = request.model or self.model
+        if self._is_wan_image_model(model_id):
+            wan_size = self._normalize_wan_size(request.size, model_id)
+            payload = {
+                "model": model_id,
+                "input": {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"text": final_prompt},
+                            ],
+                        }
+                    ],
+                },
+                "parameters": {
+                    "size": wan_size,
+                    "n": 1,
+                    "watermark": request.watermark,
+                },
+            }
+            endpoint = "/api/v1/services/aigc/image-generation/generation"
+        else:
+            payload = {
+                "model": model_id,
+                "input": {
+                    "prompt": final_prompt,
+                },
+                "parameters": {
+                    "size": request.size.replace("x", "*"),
+                    "n": 1,
+                    "prompt_extend": request.promptExtend,
+                    "watermark": request.watermark,
+                },
+            }
+            endpoint = "/api/v1/services/aigc/text2image/image-synthesis"
         if request.seed is not None:
             payload["parameters"]["seed"] = request.seed
         if request.negativePrompt:
@@ -147,7 +171,7 @@ class QwenImageProvider:
 
         response = self._request(
             "POST",
-            "/api/v1/services/aigc/text2image/image-synthesis",
+            endpoint,
             body=payload,
             api_key=request.apiKey,
             base_url=request.baseUrl,
@@ -281,6 +305,32 @@ class QwenImageProvider:
     @staticmethod
     def _local_task_id() -> str:
         return f"img_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+
+    @staticmethod
+    def _is_wan_image_model(model_id: str) -> bool:
+        value = (model_id or "").strip().lower()
+        return value.startswith("wan2.6-image") or value.startswith("wan2.7-image")
+
+    @staticmethod
+    def _normalize_wan_size(size: str, model_id: str) -> str:
+        value = (size or "").strip().upper().replace("X", "*")
+        if value in {"1K", "2K", "4K"}:
+            if value == "4K" and not model_id.lower().startswith("wan2.7-image-pro"):
+                return "2K"
+            return value
+        if "*" in value:
+            try:
+                width, height = value.split("*", 1)
+                w = int(width)
+                h = int(height)
+                if w >= 3000 or h >= 3000:
+                    return "4K" if model_id.lower().startswith("wan2.7-image-pro") else "2K"
+                if w >= 1700 or h >= 1700:
+                    return "2K"
+                return "1K"
+            except Exception:
+                pass
+        return "2K"
 
 
 _qwen_image_provider: Optional[QwenImageProvider] = None
