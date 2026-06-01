@@ -27,7 +27,7 @@ def call_llm_node(state: ConversationState) -> None:
     elif state.active_agent in PPT_AGENTS:
         state.answer = PPT_AGENTS[state.active_agent].process(state.input_text, state.matched_results)
     elif state.intent == "image":
-        state.answer = image_agent.build_image_prompt(state.input_text, state.matched_results)
+        state.answer = image_agent.generate_images_json(state.input_text, state.matched_results)
     else:
         state.answer = leader_agent.answer(
             prompt=state.prompt,

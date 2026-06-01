@@ -443,6 +443,15 @@
 					}
 				},
 				{
+					"path": "imageGenerate/imageGenerate",
+					"style": {
+						"navigationBarTitleText": "AI 文生图",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "aiHistory/aiHistory",
 					"style": {
 						"navigationBarTitleText": "AI 会话历史",

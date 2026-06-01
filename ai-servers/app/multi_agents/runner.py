@@ -31,5 +31,5 @@ def run_specialist_agent(
     if normalized in PPT_AGENTS:
         return PPT_AGENTS[normalized].process(input_text, evidence, chat_service=chat_service)
     if normalized == "image_agent":
-        return image_agent.build_image_prompt(input_text, evidence, chat_service=chat_service)
+        return image_agent.generate_images_json(input_text, evidence, chat_service=chat_service)
     raise HTTPException(status_code=400, detail=f"不支持的智能体：{normalized}")

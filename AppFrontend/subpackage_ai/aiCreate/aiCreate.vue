@@ -46,7 +46,7 @@
         <!-- 快捷工具区 -->
         <view class="quick-section">
           <view class="quick-actions">
-            <view class="quick-item" v-for="item in quickActions" :key="item.name">
+            <view class="quick-item" v-for="item in quickActions" :key="item.name" @tap="handleToolTap(item)">
               <view class="quick-icon-wrap" :style="{ background: item.lightColor }">
                 <image class="quick-icon" :src="item.icon" mode="aspectFit"></image>
               </view>
@@ -76,7 +76,7 @@
         <!-- 网格工具列表区 -->
         <view class="tools-section">
           <view class="tools-grid">
-            <view class="tool-item" v-for="tool in currentTools" :key="tool.name">
+            <view class="tool-item" v-for="tool in currentTools" :key="tool.name" @tap="handleToolTap(tool)">
               <view class="icon-wrapper" :style="{ '--light-color': tool.lightColor, '--theme-color': tool.themeColor }">
                 <view class="icon-inner">
                   <image class="tool-icon" :src="tool.icon" mode="aspectFit"></image>
@@ -192,6 +192,19 @@ const goToSmartWriting = () => {
   uni.navigateTo({
     url: '/subpackage_ai/smartWriting/smartWriting'
   })
+}
+
+const goToImageGenerate = () => {
+  uni.navigateTo({
+    url: '/subpackage_ai/imageGenerate/imageGenerate'
+  })
+}
+
+const handleToolTap = (tool) => {
+  const name = tool?.name || ''
+  if (name.includes('AI玩图') || name.includes('文生图')) {
+    goToImageGenerate()
+  }
 }
 </script>
 
