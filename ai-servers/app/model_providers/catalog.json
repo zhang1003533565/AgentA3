@@ -337,7 +337,7 @@
             },
             {
               "id": "qvq-max",
-              "features": ["image_understanding", "video_understanding"]
+              "features": ["image_understanding"]
             },
             {
               "id": "qwen-omni-turbo",

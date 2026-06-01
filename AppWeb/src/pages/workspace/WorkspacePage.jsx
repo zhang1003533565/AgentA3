@@ -2615,6 +2615,12 @@ function WorkspacePage({ pageKey }) {
                     <Space size="small" wrap>
                       <Tag color={colorMap[model.modalityLabel] || 'blue'}>{model.modalityLabel}</Tag>
                       <Tag color={colorMap[model.runtimeStatus] || 'default'}>{model.runtimeStatus}</Tag>
+                      {Array.isArray(model.catalogModel?.features) && model.catalogModel.features.includes('image_understanding') ? (
+                        <Tag color="geekblue">图片理解</Tag>
+                      ) : null}
+                      {Array.isArray(model.catalogModel?.features) && model.catalogModel.features.includes('video_understanding') ? (
+                        <Tag color="purple">视频理解</Tag>
+                      ) : null}
                       {model.catalogModel ? (
                         <Tag color={model.catalogModel.status === 'deprecated' ? 'orange' : 'cyan'}>
                           {getCatalogModelStatusText(model.catalogModel.status)}
