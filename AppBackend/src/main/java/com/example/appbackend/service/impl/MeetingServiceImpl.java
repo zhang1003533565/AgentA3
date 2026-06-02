@@ -9,12 +9,16 @@ import com.example.appbackend.entity.MeetingParticipant;
 import com.example.appbackend.entity.MeetingRecord;
 import com.example.appbackend.entity.MeetingSession;
 import com.example.appbackend.entity.Result;
+import com.example.appbackend.entity.SystemConfig;
+import com.example.appbackend.entity.SystemConfigTestLog;
 import com.example.appbackend.entity.User;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.MeetingAgentResultRepository;
 import com.example.appbackend.repository.MeetingParticipantRepository;
 import com.example.appbackend.repository.MeetingRecordRepository;
 import com.example.appbackend.repository.MeetingSessionRepository;
+import com.example.appbackend.repository.SystemConfigRepository;
+import com.example.appbackend.repository.SystemConfigTestLogRepository;
 import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.LlmService;
 import com.example.appbackend.service.MeetingService;
@@ -22,6 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -31,6 +36,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -50,6 +57,7 @@ public class MeetingServiceImpl implements MeetingService {
     );
 
     private static final int LLM_INPUT_LIMIT = 3900;
+    private static final List<String> AI_MODEL_CONFIG_FIELDS = List.of("provider", "base-url", "api-key", "model");
     private static final char[] ROOM_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".toCharArray();
     private static final int ROOM_CODE_LENGTH = 6;
     private static final SecureRandom ROOM_CODE_RANDOM = new SecureRandom();
@@ -59,6 +67,8 @@ public class MeetingServiceImpl implements MeetingService {
     private final MeetingRecordRepository recordRepository;
     private final MeetingAgentResultRepository resultRepository;
     private final UserRepository userRepository;
+    private final SystemConfigRepository systemConfigRepository;
+    private final SystemConfigTestLogRepository systemConfigTestLogRepository;
     private final LlmService llmService;
 
     public MeetingServiceImpl(MeetingSessionRepository sessionRepository,
@@ -66,12 +76,16 @@ public class MeetingServiceImpl implements MeetingService {
                               MeetingRecordRepository recordRepository,
                               MeetingAgentResultRepository resultRepository,
                               UserRepository userRepository,
+                              SystemConfigRepository systemConfigRepository,
+                              SystemConfigTestLogRepository systemConfigTestLogRepository,
                               LlmService llmService) {
         this.sessionRepository = sessionRepository;
         this.participantRepository = participantRepository;
         this.recordRepository = recordRepository;
         this.resultRepository = resultRepository;
         this.userRepository = userRepository;
+        this.systemConfigRepository = systemConfigRepository;
+        this.systemConfigTestLogRepository = systemConfigTestLogRepository;
         this.llmService = llmService;
     }
 
@@ -253,7 +267,7 @@ public class MeetingServiceImpl implements MeetingService {
         LlmChatRequest chatRequest = new LlmChatRequest();
         chatRequest.setSessionId(session.getSessionId());
         chatRequest.setAgentName(agentName);
-        chatRequest.setLlmModel(request.getLlmModel());
+        chatRequest.setLlmModel(resolveMeetingLlmModel(request.getLlmModel()));
         chatRequest.setInput(truncate(buildAgentInput(session, content), LLM_INPUT_LIMIT));
 
         LlmChatResponse chatResponse = llmService.chat(chatRequest, authorization);
@@ -285,7 +299,7 @@ public class MeetingServiceImpl implements MeetingService {
         LlmChatRequest chatRequest = new LlmChatRequest();
         chatRequest.setSessionId(session.getSessionId());
         chatRequest.setAgentName(agentName);
-        chatRequest.setLlmModel(request.getLlmModel());
+        chatRequest.setLlmModel(resolveMeetingLlmModel(request.getLlmModel()));
         chatRequest.setInput(truncate(buildAgentInput(session, content), LLM_INPUT_LIMIT));
 
         MeetingDTO.RunAgentResponse response = new MeetingDTO.RunAgentResponse();
@@ -559,6 +573,85 @@ public class MeetingServiceImpl implements MeetingService {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "仅支持会议智能体");
         }
         return normalized;
+    }
+
+    private String resolveMeetingLlmModel(String requestedModel) {
+        if (StringUtils.hasText(requestedModel)) {
+            return requestedModel.trim();
+        }
+        String testedPrefix = latestTestedTextModelPrefix();
+        if (StringUtils.hasText(testedPrefix)) {
+            return testedPrefix;
+        }
+        String configuredPrefix = firstCompleteTextModelPrefix();
+        if (StringUtils.hasText(configuredPrefix)) {
+            return configuredPrefix;
+        }
+        throw new BusinessException(
+                Result.ERROR_CODE,
+                "会议总结需要先配置并测试成功一个语言模型，请到后台 AI 模块 > 模型配置中完成语言模型测试"
+        );
+    }
+
+    private String latestTestedTextModelPrefix() {
+        List<SystemConfigTestLog> logs = systemConfigTestLogRepository
+                .findByConfigKeyStartingWithAndSuccessOrderByCreateTimeDescIdDesc("ai.service.text.", true, Pageable.ofSize(50));
+        return logs.stream()
+                .map(log -> extractAiModelConfigPrefix(log.getConfigKey()))
+                .filter(StringUtils::hasText)
+                .filter(this::isCompleteAiModelConfig)
+                .findFirst()
+                .orElse("");
+    }
+
+    private String firstCompleteTextModelPrefix() {
+        Map<String, Set<String>> fieldsByPrefix = new HashMap<>();
+        systemConfigRepository.findByConfigKeyStartingWithAndStatus("ai.service.text.", 1).forEach(config -> {
+            String prefix = extractAiModelConfigPrefix(config.getConfigKey());
+            String field = extractAiModelConfigField(config.getConfigKey());
+            if (StringUtils.hasText(prefix) && StringUtils.hasText(field) && StringUtils.hasText(config.getConfigValue())) {
+                fieldsByPrefix.computeIfAbsent(prefix, ignored -> new java.util.HashSet<>()).add(field);
+            }
+        });
+        return fieldsByPrefix.entrySet().stream()
+                .filter(entry -> entry.getValue().containsAll(AI_MODEL_CONFIG_FIELDS))
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElse("");
+    }
+
+    private boolean isCompleteAiModelConfig(String configPrefix) {
+        return AI_MODEL_CONFIG_FIELDS.stream().allMatch(field ->
+                systemConfigRepository.findByConfigKeyAndStatus(configPrefix + "." + field, 1)
+                        .map(SystemConfig::getConfigValue)
+                        .filter(StringUtils::hasText)
+                        .isPresent()
+        );
+    }
+
+    private String extractAiModelConfigPrefix(String configKey) {
+        if (!StringUtils.hasText(configKey)) {
+            return "";
+        }
+        for (String field : AI_MODEL_CONFIG_FIELDS) {
+            String suffix = "." + field;
+            if (configKey.endsWith(suffix)) {
+                return configKey.substring(0, configKey.length() - suffix.length());
+            }
+        }
+        return "";
+    }
+
+    private String extractAiModelConfigField(String configKey) {
+        if (!StringUtils.hasText(configKey)) {
+            return "";
+        }
+        for (String field : AI_MODEL_CONFIG_FIELDS) {
+            if (configKey.endsWith("." + field)) {
+                return field;
+            }
+        }
+        return "";
     }
 
     private String statusLabel(String status) {

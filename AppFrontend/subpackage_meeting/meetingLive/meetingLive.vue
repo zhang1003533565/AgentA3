@@ -717,7 +717,10 @@ export default {
 					this.aiSummaryStatusText = '调用失败'
 					if (this.lastSummaryErrorInput !== content) {
 						this.lastSummaryErrorInput = content
-						this.pushAiSummary(`已尝试调用会议总结智能体，但服务暂不可用：${errorMessage}`)
+						const tip = errorMessage.includes('模型') || errorMessage.includes('配置')
+							? '请先在后台 AI 模块完成语言模型配置并测试成功'
+							: errorMessage
+						this.pushAiSummary(`已尝试调用会议总结智能体，但暂时无法生成总结：${tip}`)
 					}
 				} else {
 					this.lastSummaryInput = content
