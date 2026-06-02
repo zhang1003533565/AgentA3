@@ -15,6 +15,24 @@ from app.models.image_generation import (
     ImageItem,
 )
 
+CHART_PROMPT_PREFIXES = {
+    "mindmap": "A colorful hand-drawn mind map about: ",
+    "flowchart": "A clean flowchart diagram illustrating: ",
+    "activity": "A UML activity diagram showing the workflow of: ",
+    "architecture": "An AWS-style cloud architecture diagram showing: ",
+    "sequence": "A UML sequence diagram visualizing the interactions for: ",
+    "usecase": "A UML use case diagram describing actors and use cases for: ",
+    "class": "A UML class diagram with classes, attributes, methods, and relationships for: ",
+    "er": "A clear entity relationship diagram with entities, attributes, and cardinalities for: ",
+    "gantt": "A professional Gantt chart timeline planning: ",
+    "chart": "A polished data visualization chart summarizing: ",
+    "network": "A network topology diagram showing nodes, links, and layers for: ",
+    "org": "A clean organizational chart showing hierarchy and roles for: ",
+    "state": "A UML state machine diagram describing states and transitions for: ",
+    "journey": "A user journey map showing stages, touchpoints, and emotions for: ",
+    "concept": "A concept map connecting key ideas and relationships about: ",
+}
+
 
 class QwenImageProvider:
     """DashScope/Qwen text-to-image provider based on async image synthesis tasks."""
@@ -267,7 +285,11 @@ class QwenImageProvider:
     def _compose_prompt(self, request: Optional[ImageGenerationRequest]) -> str:
         if not request:
             return ""
-        parts = [request.prompt.strip()]
+        prompt = request.prompt.strip()
+        chart_prefix = CHART_PROMPT_PREFIXES.get((request.chartType or "").strip().lower())
+        if chart_prefix:
+            prompt = f"{chart_prefix}{prompt}"
+        parts = [prompt]
         if request.style:
             parts.append(f"风格：{request.style.strip()}")
         if request.metadata.get("topic"):

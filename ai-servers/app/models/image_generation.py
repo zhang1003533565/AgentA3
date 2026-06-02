@@ -6,6 +6,23 @@ from pydantic import BaseModel, Field, field_validator
 ImageMode = Literal["single", "batch"]
 ImageStatus = Literal["pending", "running", "success", "partial_success", "failed"]
 ImageResultType = Literal["url", "base64", "url_and_base64"]
+ChartType = Literal[
+    "mindmap",
+    "flowchart",
+    "activity",
+    "architecture",
+    "sequence",
+    "usecase",
+    "class",
+    "er",
+    "gantt",
+    "chart",
+    "network",
+    "org",
+    "state",
+    "journey",
+    "concept",
+]
 
 
 class ImageGenerationRequest(BaseModel):
@@ -22,6 +39,7 @@ class ImageGenerationRequest(BaseModel):
     provider: str = Field(default="qwen", max_length=64)
     baseUrl: str = Field(default="", max_length=256)
     apiKey: str = Field(default="", max_length=256)
+    chartType: Optional[ChartType] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("size")

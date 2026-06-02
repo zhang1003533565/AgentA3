@@ -1,5 +1,6 @@
 package com.example.appbackend.controller;
 
+import com.example.appbackend.dto.ImageGenerationDTO;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.service.impl.PythonAiProxyService;
@@ -12,8 +13,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/ai/images")
@@ -28,14 +27,14 @@ public class ImageAgentController {
 
     @PostMapping("/generate")
     @Operation(summary = "单张生成图片", description = "调用图片智能体生成单张文生图，返回任务状态、图片 URL/Base64 和生成参数")
-    public Result<Object> generateImage(@RequestBody Map<String, Object> body, HttpServletRequest request) {
-        return Result.success(pythonAiProxyService.generateImage(body, authorization(request)));
+    public Result<Object> generateImage(@RequestBody ImageGenerationDTO.GenerateRequest body, HttpServletRequest request) {
+        return Result.success(pythonAiProxyService.generateImage(body.toMap(), authorization(request)));
     }
 
     @PostMapping("/batch")
     @Operation(summary = "批量生成图片", description = "调用图片智能体批量生成文生图，返回每张图片的状态和结果")
-    public Result<Object> generateImagesBatch(@RequestBody Map<String, Object> body, HttpServletRequest request) {
-        return Result.success(pythonAiProxyService.generateImagesBatch(body, authorization(request)));
+    public Result<Object> generateImagesBatch(@RequestBody ImageGenerationDTO.GenerateRequest body, HttpServletRequest request) {
+        return Result.success(pythonAiProxyService.generateImagesBatch(body.toMap(), authorization(request)));
     }
 
     @GetMapping("/tasks/{taskId}")
