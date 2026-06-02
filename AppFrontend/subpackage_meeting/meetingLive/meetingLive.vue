@@ -134,6 +134,7 @@ export default {
 			asrPcmBuffer: null,
 			asrRecording: false,
 			asrSocketReady: false,
+			asrServiceReady: false,
 			asrStatusText: '等待连接',
 			asrLastError: '',
 			asrManualClosing: false,
@@ -260,8 +261,7 @@ export default {
 			this.asrSocket.onOpen(() => {
 				this.asrSocketReady = true
 				this.asrReconnectAttempts = 0
-				this.asrStatusText = this.muted ? '已静音' : '识别已连接'
-				if (!this.muted) this.startAsrRecording()
+				this.asrStatusText = this.muted ? '已静音' : '识别服务连接中'
 			})
 			this.asrSocket.onMessage((event) => this.handleAsrMessage(event.data))
 			this.asrSocket.onError((error) => {
@@ -272,6 +272,7 @@ export default {
 			this.asrSocket.onClose(() => {
 				const shouldReconnect = !this.asrManualClosing && !this.muted && !!this.sessionId
 				this.asrSocketReady = false
+				this.asrServiceReady = false
 				this.asrSocket = null
 				this.asrRecording = false
 				this.stopBrowserAsrRecording()
@@ -293,10 +294,10 @@ export default {
 				this.openAsrSocket()
 				return
 			}
-			if (this.asrSocketReady) this.startAsrRecording()
+			if (this.asrSocketReady && this.asrServiceReady) this.startAsrRecording()
 		},
 		startAsrRecording() {
-			if (this.asrRecording || !this.asrSocketReady || !this.asrSocket) return
+			if (this.asrRecording || !this.asrSocketReady || !this.asrServiceReady || !this.asrSocket) return
 			if (typeof uni.getRecorderManager !== 'function') {
 				this.startBrowserAsrRecording()
 				return
@@ -315,7 +316,7 @@ export default {
 					return
 				}
 				this.asrRecorder.onFrameRecorded((res) => {
-					if (this.asrSocketReady && this.asrSocket && res.frameBuffer) {
+					if (this.asrSocketReady && this.asrServiceReady && this.asrSocket && res.frameBuffer) {
 						this.asrSocket.send({ data: res.frameBuffer })
 					}
 				})
@@ -345,7 +346,7 @@ export default {
 			}
 		},
 		async startBrowserAsrRecording() {
-			if (this.asrRecording || !this.asrSocketReady || !this.asrSocket) return
+			if (this.asrRecording || !this.asrSocketReady || !this.asrServiceReady || !this.asrSocket) return
 			if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
 				this.asrStatusText = '当前端不支持录音，仅接收弹幕'
 				return
@@ -425,7 +426,7 @@ export default {
 			this.sendAlignedPcmFrames(pcm)
 		},
 		sendAlignedPcmFrames(pcm) {
-			if (!pcm || !this.asrSocketReady || !this.asrSocket) return
+			if (!pcm || !this.asrSocketReady || !this.asrServiceReady || !this.asrSocket) return
 			const frameSize = 1280
 			const incoming = new Uint8Array(pcm)
 			const pending = this.asrPcmBuffer || new Uint8Array(0)
@@ -441,7 +442,7 @@ export default {
 			this.asrPcmBuffer = merged.slice(offset)
 		},
 		flushPendingPcmFrame() {
-			if (!this.asrPcmBuffer || !this.asrPcmBuffer.length || !this.asrSocketReady || !this.asrSocket) return
+			if (!this.asrPcmBuffer || !this.asrPcmBuffer.length || !this.asrSocketReady || !this.asrServiceReady || !this.asrSocket) return
 			const frameSize = 1280
 			const frame = new Uint8Array(frameSize)
 			frame.set(this.asrPcmBuffer)
@@ -497,6 +498,7 @@ export default {
 			this.stopBrowserAsrRecording()
 			this.asrRecording = false
 			this.asrSocketReady = false
+			this.asrServiceReady = false
 			this.asrSocket = null
 		},
 		reconnectAsr() {
@@ -584,12 +586,15 @@ export default {
 			}
 			if (!payload) return
 			if (payload.type === 'asr_ready') {
-				this.asrStatusText = this.asrRecording ? '正在识别' : '识别已连接'
+				this.asrServiceReady = true
+				this.asrStatusText = this.muted ? '已静音' : (this.asrRecording ? '正在识别' : '识别已连接')
+				if (!this.muted) this.startAsrRecording()
 				return
 			}
 			if (payload.type === 'asr_error') {
 				this.asrLastError = payload.message || '识别异常'
 				this.asrStatusText = this.asrLastError
+				this.asrServiceReady = false
 				return
 			}
 			if (payload.type === 'asr_result') {

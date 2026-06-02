@@ -52,6 +52,13 @@ export const navigationSections = [
     ],
   },
   {
+    label: '会议模块',
+    items: [
+      { path: '/meeting/history', label: '会议历史', icon: 'video-camera', pageKey: 'meeting-history' },
+      { path: '/meeting/voice-model', label: '语音模型配置', icon: 'audio', pageKey: 'voice-model-config' },
+    ],
+  },
+  {
     label: 'AI 模块',
     items: [
       { path: '/ai/model', label: '模型配置', icon: 'robot', pageKey: 'system-config' },
@@ -66,6 +73,7 @@ export const moduleCards = [
   { title: '校园设施', description: '食堂、运动场、教学楼、宿舍管理与地图标点维护', route: '/facility/canteen' },
   { title: '旧物交易', description: '物品、分类与后台审核管理', route: '/market/item' },
   { title: '校园特惠', description: '商家、优惠活动与分类运营', route: '/discount/merchant' },
+  { title: '会议模块', description: '查看会议历史、转写记录和会议智能体结果', route: '/meeting/history' },
   { title: 'AI 模块', description: '维护 AI 模型配置、RAG 知识库和检索策略', route: '/ai/model' },
   { title: 'RAG 管理', description: '管理知识库、测试 RAG 策略并查看检索评估', route: '/ai/rag' },
 ]
@@ -197,6 +205,16 @@ const columns = {
     { title: '模型 ID', dataIndex: 'model' },
     { title: '密钥', dataIndex: 'apiKeyMasked' },
     { title: '状态', dataIndex: 'statusText', type: 'status' },
+    { title: '更新时间', dataIndex: 'updateTime' },
+  ],
+  meetingSession: [
+    { title: '会议主题', dataIndex: 'title' },
+    { title: '会议号', dataIndex: 'roomCode', type: 'tag' },
+    { title: '会议类型', dataIndex: 'meetingTypeText', type: 'tag' },
+    { title: '状态', dataIndex: 'statusText', type: 'status' },
+    { title: '参会人数', dataIndex: 'participantCount' },
+    { title: '记录数', dataIndex: 'recordCount' },
+    { title: '智能体结果', dataIndex: 'resultCount' },
     { title: '更新时间', dataIndex: 'updateTime' },
   ],
   summary: [
@@ -422,6 +440,20 @@ export const workspacePages = {
     description: '',
     columns: columns.systemConfig,
     emptyText: '暂无 AI 模型配置数据',
+  }),
+  'meeting-history': createPage({
+    title: '会议历史',
+    badge: '会议模块',
+    description: '查看会议历史、语音转写记录和会议智能体结果。',
+    columns: columns.meetingSession,
+    emptyText: '暂无会议历史数据',
+  }),
+  'voice-model-config': createPage({
+    title: '语音模型配置',
+    badge: '会议模块',
+    description: '单独维护会议语音转写模型，当前使用 Java 后端直连讯飞实时转写。',
+    columns: columns.systemConfig,
+    emptyText: '暂无语音模型配置数据',
   }),
 }
 

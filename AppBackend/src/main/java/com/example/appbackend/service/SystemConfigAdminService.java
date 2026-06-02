@@ -15,5 +15,7 @@ public interface SystemConfigAdminService {
 
     SystemConfigDTO.TestResultVO test(Long id);
 
+    PageResponse<SystemConfigDTO.TestLogVO> listTestLogs(Long configId, String configKeyPrefix, Integer current, Integer size);
+
     SystemConfigDTO.TestResultVO testAiModel(SystemConfigDTO.AiModelTestRequest req, String authorization);
 }

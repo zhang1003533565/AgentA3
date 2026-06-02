@@ -44,6 +44,10 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
 
+    private static final String XFYUN_DEFAULT_WEBSOCKET_URL = "wss://office-api-ast-dx.iflyaisol.com/ast/communicate/v1";
+    private static final String XFYUN_DEFAULT_LANG = "autodialect";
+    private static final String XFYUN_DEFAULT_AUDIO_ENCODE = "pcm_s16le";
+    private static final String XFYUN_DEFAULT_SAMPLE_RATE = "16000";
     private final ObjectMapper objectMapper;
     private final MeetingAsrRecordService recordService;
     private final SystemConfigService systemConfigService;
@@ -200,14 +204,16 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
         String lang = getAsrConfig("lang");
         String audioEncode = getAsrConfig("audio-encode");
         String sampleRate = getAsrConfig("samplerate");
-        if (!StringUtils.hasText(xfyunWebSocketUrl)
-                || !StringUtils.hasText(xfyunAppId)
-                || !StringUtils.hasText(accessKeyId)
-                || !StringUtils.hasText(accessKeySecret)
-                || !StringUtils.hasText(lang)
-                || !StringUtils.hasText(audioEncode)
-                || !StringUtils.hasText(sampleRate)) {
-            throw new IllegalStateException("请在后台系统配置中完整维护 ai.asr.xfyun.*");
+        List<String> missingFields = new ArrayList<>();
+        if (!StringUtils.hasText(xfyunWebSocketUrl)) missingFields.add("websocket-url");
+        if (!StringUtils.hasText(xfyunAppId)) missingFields.add("app-id");
+        if (!StringUtils.hasText(accessKeyId)) missingFields.add("access-key-id");
+        if (!StringUtils.hasText(accessKeySecret)) missingFields.add("access-key-secret");
+        if (!StringUtils.hasText(lang)) missingFields.add("lang");
+        if (!StringUtils.hasText(audioEncode)) missingFields.add("audio-encode");
+        if (!StringUtils.hasText(sampleRate)) missingFields.add("samplerate");
+        if (!missingFields.isEmpty()) {
+            throw new IllegalStateException("请在 Java 后台语音转写配置中维护 ai.asr.xfyun." + String.join("、ai.asr.xfyun.", missingFields));
         }
         TreeMap<String, String> params = new TreeMap<>();
         params.put("accessKeyId", accessKeyId);
@@ -224,7 +230,17 @@ public class MeetingAsrWebSocketHandler extends TextWebSocketHandler {
     }
 
     private String getAsrConfig(String field) {
-        return systemConfigService.getValue("ai.asr.xfyun." + field, "");
+        return systemConfigService.getValue("ai.asr.xfyun." + field, defaultAsrConfig(field)).trim();
+    }
+
+    private String defaultAsrConfig(String field) {
+        return switch (field) {
+            case "websocket-url" -> XFYUN_DEFAULT_WEBSOCKET_URL;
+            case "lang" -> XFYUN_DEFAULT_LANG;
+            case "audio-encode" -> XFYUN_DEFAULT_AUDIO_ENCODE;
+            case "samplerate" -> XFYUN_DEFAULT_SAMPLE_RATE;
+            default -> "";
+        };
     }
 
     private String buildQuery(TreeMap<String, String> params) {

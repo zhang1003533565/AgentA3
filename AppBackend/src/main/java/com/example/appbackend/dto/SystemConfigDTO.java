@@ -5,6 +5,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
+import java.time.LocalDateTime;
+
 public class SystemConfigDTO {
 
     @Data
@@ -105,5 +107,20 @@ public class SystemConfigDTO {
         private String modality;
         private String prompt;
         private Object raw;
+    }
+
+    @Data
+    @Schema(description = "配置连通测试历史")
+    public static class TestLogVO {
+        private Long id;
+        private Long configId;
+        private String configKey;
+        private Boolean success;
+        private String target;
+        private String detail;
+        private String provider;
+        private String model;
+        private String modality;
+        private LocalDateTime createTime;
     }
 }

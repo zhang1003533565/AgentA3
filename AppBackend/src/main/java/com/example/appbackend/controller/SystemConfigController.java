@@ -82,6 +82,18 @@ public class SystemConfigController {
         return Result.success(systemConfigAdminService.test(id));
     }
 
+    @GetMapping("/test-logs")
+    @Operation(summary = "配置连通测试历史", description = "管理员权限")
+    public Result<PageResponse<SystemConfigDTO.TestLogVO>> listTestLogs(
+            @RequestParam(required = false) Long configId,
+            @RequestParam(required = false) String configKeyPrefix,
+            @RequestParam(defaultValue = "1") Integer current,
+            @RequestParam(defaultValue = "10") Integer size,
+            HttpServletRequest request) {
+        if (!isAdmin(request)) throw new BusinessException(Result.FORBIDDEN_CODE, "无权限");
+        return Result.success(systemConfigAdminService.listTestLogs(configId, configKeyPrefix, current, size));
+    }
+
     @PostMapping("/ai-model/test")
     @Operation(summary = "临时测试 AI 模型", description = "管理员权限；不落库，直接调用指定服务商、模型并返回模型结果")
     public Result<SystemConfigDTO.TestResultVO> testAiModel(

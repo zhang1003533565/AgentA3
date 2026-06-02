@@ -5,8 +5,10 @@ import com.aliyun.oss.OSSClientBuilder;
 import com.example.appbackend.dto.PageResponse;
 import com.example.appbackend.dto.SystemConfigDTO;
 import com.example.appbackend.entity.SystemConfig;
+import com.example.appbackend.entity.SystemConfigTestLog;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.SystemConfigRepository;
+import com.example.appbackend.repository.SystemConfigTestLogRepository;
 import com.example.appbackend.service.SystemConfigAdminService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -58,19 +60,26 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final int VISION_IMAGE_MAX_BYTES = 4 * 1024 * 1024;
+    private static final String XFYUN_DEFAULT_WEBSOCKET_URL = "wss://office-api-ast-dx.iflyaisol.com/ast/communicate/v1";
+    private static final String XFYUN_DEFAULT_LANG = "autodialect";
+    private static final String XFYUN_DEFAULT_AUDIO_ENCODE = "pcm_s16le";
+    private static final String XFYUN_DEFAULT_SAMPLE_RATE = "16000";
 
     private final SystemConfigRepository systemConfigRepository;
+    private final SystemConfigTestLogRepository systemConfigTestLogRepository;
     private final WebClient tencentMapWebClient;
     private final WebClient.Builder webClientBuilder;
     private final ObjectMapper objectMapper;
     private final PythonAiProxyService pythonAiProxyService;
 
     public SystemConfigAdminServiceImpl(SystemConfigRepository systemConfigRepository,
+                                        SystemConfigTestLogRepository systemConfigTestLogRepository,
                                         WebClient tencentMapWebClient,
                                         WebClient.Builder webClientBuilder,
                                         ObjectMapper objectMapper,
                                         PythonAiProxyService pythonAiProxyService) {
         this.systemConfigRepository = systemConfigRepository;
+        this.systemConfigTestLogRepository = systemConfigTestLogRepository;
         this.tencentMapWebClient = tencentMapWebClient;
         this.webClientBuilder = webClientBuilder;
         this.objectMapper = objectMapper;
@@ -145,16 +154,33 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
     public SystemConfigDTO.TestResultVO test(Long id) {
         SystemConfig config = systemConfigRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(404, "配置不存在"));
+        SystemConfigDTO.TestResultVO result;
         if (config.getConfigKey().startsWith("tencent.map.")) {
-            return testTencentMap(config);
+            result = testTencentMap(config);
+        } else if (config.getConfigKey().startsWith("aliyun.oss.")) {
+            result = testAliyunOss(config);
+        } else if (config.getConfigKey().startsWith("ai.")) {
+            result = testAiConfig(config);
+        } else {
+            throw new BusinessException(400, "该配置项不支持连通测试");
         }
-        if (config.getConfigKey().startsWith("aliyun.oss.")) {
-            return testAliyunOss(config);
+        saveTestLog(config, result);
+        return result;
+    }
+
+    @Override
+    public PageResponse<SystemConfigDTO.TestLogVO> listTestLogs(Long configId, String configKeyPrefix, Integer current, Integer size) {
+        int page = current == null || current < 1 ? 1 : current;
+        int pageSize = size == null || size < 1 ? 10 : size;
+        Page<SystemConfigTestLog> result;
+        if (configId != null) {
+            result = systemConfigTestLogRepository.findByConfigIdOrderByCreateTimeDescIdDesc(configId, PageRequest.of(page - 1, pageSize));
+        } else if (configKeyPrefix != null && !configKeyPrefix.isBlank()) {
+            result = systemConfigTestLogRepository.findByConfigKeyStartingWithOrderByCreateTimeDescIdDesc(configKeyPrefix.trim(), PageRequest.of(page - 1, pageSize));
+        } else {
+            result = systemConfigTestLogRepository.findAll(PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.DESC, "createTime", "id")));
         }
-        if (config.getConfigKey().startsWith("ai.")) {
-            return testAiConfig(config);
-        }
-        throw new BusinessException(400, "该配置项不支持连通测试");
+        return new PageResponse<>(result.getContent().stream().map(this::toTestLogVO).toList(), result.getTotalElements(), page, pageSize);
     }
 
     @Override
@@ -269,6 +295,34 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
         vo.setTestable(item.getConfigKey().startsWith("tencent.map.") || item.getConfigKey().startsWith("aliyun.oss.") || item.getConfigKey().startsWith("ai."));
         vo.setIsDefault(item.getIsDefault() != null ? item.getIsDefault() : 0);
         vo.setUpdateTime(item.getUpdateTime() != null ? item.getUpdateTime().format(FMT) : null);
+        return vo;
+    }
+
+    private void saveTestLog(SystemConfig config, SystemConfigDTO.TestResultVO result) {
+        SystemConfigTestLog log = new SystemConfigTestLog();
+        log.setConfigId(config.getId());
+        log.setConfigKey(config.getConfigKey());
+        log.setSuccess(Boolean.TRUE.equals(result.getSuccess()));
+        log.setTarget(abbreviate(result.getTarget(), 500));
+        log.setDetail(result.getDetail());
+        log.setProvider(result.getProvider());
+        log.setModel(result.getModel());
+        log.setModality(result.getModality());
+        systemConfigTestLogRepository.save(log);
+    }
+
+    private SystemConfigDTO.TestLogVO toTestLogVO(SystemConfigTestLog item) {
+        SystemConfigDTO.TestLogVO vo = new SystemConfigDTO.TestLogVO();
+        vo.setId(item.getId());
+        vo.setConfigId(item.getConfigId());
+        vo.setConfigKey(item.getConfigKey());
+        vo.setSuccess(item.getSuccess());
+        vo.setTarget(item.getTarget());
+        vo.setDetail(item.getDetail());
+        vo.setProvider(item.getProvider());
+        vo.setModel(item.getModel());
+        vo.setModality(item.getModality());
+        vo.setCreateTime(item.getCreateTime());
         return vo;
     }
 
@@ -486,13 +540,13 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
     }
 
     private SystemConfigDTO.TestResultVO testXfyunAsrConfig(SystemConfig currentConfig) {
-        String websocketUrl = getConfigValue("ai.asr.xfyun.websocket-url");
-        String appId = getConfigValue("ai.asr.xfyun.app-id");
-        String accessKeyId = getConfigValue("ai.asr.xfyun.access-key-id");
-        String accessKeySecret = getConfigValue("ai.asr.xfyun.access-key-secret");
-        String lang = getConfigValue("ai.asr.xfyun.lang");
-        String audioEncode = getConfigValue("ai.asr.xfyun.audio-encode");
-        String sampleRate = getConfigValue("ai.asr.xfyun.samplerate");
+        String websocketUrl = getXfyunAsrConfigValue("websocket-url");
+        String appId = getXfyunAsrConfigValue("app-id");
+        String accessKeyId = getXfyunAsrConfigValue("access-key-id");
+        String accessKeySecret = getXfyunAsrConfigValue("access-key-secret");
+        String lang = getXfyunAsrConfigValue("lang");
+        String audioEncode = getXfyunAsrConfigValue("audio-encode");
+        String sampleRate = getXfyunAsrConfigValue("samplerate");
 
         boolean success = !websocketUrl.isBlank()
                 && !appId.isBlank()
@@ -503,7 +557,7 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
                 && !sampleRate.isBlank();
         String detail = success
                 ? testXfyunAsrHandshake(websocketUrl, appId, accessKeyId, accessKeySecret, lang, audioEncode, sampleRate)
-                : "讯飞实时转写大模型配置不完整，请维护 ai.asr.xfyun.websocket-url、app-id、access-key-id、access-key-secret、lang、audio-encode 和 samplerate";
+                : "讯飞实时转写大模型配置不完整，请在 Java 后台语音转写模块维护 ai.asr.xfyun.app-id、access-key-id 和 access-key-secret";
         success = success && detail.startsWith("讯飞实时转写大模型握手成功");
 
         SystemConfigDTO.TestResultVO vo = new SystemConfigDTO.TestResultVO();
@@ -795,6 +849,21 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
 
     private String getAiConfigValue(String configPrefix, String field) {
         return getConfigValue(configPrefix + "." + field);
+    }
+
+    private String getXfyunAsrConfigValue(String field) {
+        String value = getConfigValue("ai.asr.xfyun." + field);
+        return value.isBlank() ? defaultXfyunAsrConfigValue(field) : value.trim();
+    }
+
+    private String defaultXfyunAsrConfigValue(String field) {
+        return switch (field) {
+            case "websocket-url" -> XFYUN_DEFAULT_WEBSOCKET_URL;
+            case "lang" -> XFYUN_DEFAULT_LANG;
+            case "audio-encode" -> XFYUN_DEFAULT_AUDIO_ENCODE;
+            case "samplerate" -> XFYUN_DEFAULT_SAMPLE_RATE;
+            default -> "";
+        };
     }
 
     private String getConfigValue(String key) {

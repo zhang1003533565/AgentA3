@@ -39,6 +39,18 @@ export const testSystemConfig = (id) =>
     method: 'post',
   })
 
+export const getSystemConfigTestLogs = (params = {}) =>
+  request({
+    url: '/api/system-config/test-logs',
+    method: 'get',
+    params: {
+      configId: params.configId,
+      configKeyPrefix: params.configKeyPrefix,
+      current: params.current ?? params.page ?? 1,
+      size: params.size ?? 10,
+    },
+  })
+
 export const testAiModel = (data) =>
   request({
     url: '/api/system-config/ai-model/test',

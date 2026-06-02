@@ -10,6 +10,7 @@ import { createFacility, deleteFacility, getFacilityList, getFacilityTypes, upda
 import { createDish, createStall, deleteDish, deleteStall, getCanteenStallList, getDishList, updateDish, updateStall } from '../../api/dish'
 import { adminDeleteComment, createTopic, deleteTopic, getCommentList, getPostList, getTopicList, updateTopic } from '../../api/forum'
 import { deleteMarker, getFacilityHeat, getMarkerList, getNavigationStatistics } from '../../api/map'
+import { getMeetingDetail, getMeetingList } from '../../api/meeting'
 import {
   createMerchant,
   createMerchantCategory,
@@ -35,7 +36,7 @@ import {
   updateSecondhandCategory,
 } from '../../api/secondhand'
 import { closeSignIn, getSignInList, openSignIn } from '../../api/signin'
-import { deleteSystemConfig, getSystemConfigList, testAiModel, testSystemConfig, upsertSystemConfig } from '../../api/systemConfig'
+import { deleteSystemConfig, getSystemConfigList, getSystemConfigTestLogs, testAiModel, testSystemConfig, upsertSystemConfig } from '../../api/systemConfig'
 import { getAiModelProviders } from '../../api/rag'
 import { MAP_BUILDING_UPLOAD_FOLDER, getUploadUrl } from '../../api/upload'
 import { disableUser, enableUser, getUserList } from '../../api/user'
@@ -78,6 +79,22 @@ const AI_CATALOG_MODEL_STATUS_LABELS = {
 const XFYUN_ASR_PREFIX = 'ai.asr.xfyun'
 const XFYUN_ASR_FIELDS = ['websocket-url', 'app-id', 'access-key-id', 'access-key-secret', 'lang', 'audio-encode', 'samplerate']
 const XFYUN_ASR_REQUIRED_FIELDS = XFYUN_ASR_FIELDS
+const XFYUN_ASR_DEFAULTS = {
+  'websocket-url': 'wss://office-api-ast-dx.iflyaisol.com/ast/communicate/v1',
+  lang: 'autodialect',
+  'audio-encode': 'pcm_s16le',
+  samplerate: '16000',
+}
+const MEETING_STATUS_LABELS = {
+  idle: '未开始',
+  active: '会议中',
+  paused: '已暂停',
+  ended: '已结束',
+}
+const MEETING_TYPE_LABELS = {
+  quick: '快速会议',
+  reserved: '预约会议',
+}
 let amapLoaderPromise = null
 
 const loadAmapScript = () => {
@@ -125,6 +142,11 @@ const toFiniteNumber = (value) => {
   if (typeof value === 'string' && value.trim() === '') return null
   const numeric = Number(value)
   return Number.isFinite(numeric) ? numeric : null
+}
+
+const formatDateTimeText = (value) => {
+  if (!value) return '-'
+  return String(value).replace('T', ' ')
 }
 
 const roundCoordinate = (value) => {
@@ -509,13 +531,33 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, contextI
           page: current,
           size: 500,
           keyword,
-          prefixes: 'ai.service.,ai.provider.,ai.asr.xfyun.',
+          prefixes: 'ai.service.,ai.provider.',
         }),
         getAiModelProviders(),
       ])
       const records = Array.isArray(res.data?.records) ? res.data.records : []
-      const rows = [...buildAiCapabilityRows(records, providerRes.data), buildXfyunAsrRow(records)]
+      const rows = buildAiCapabilityRows(records, providerRes.data)
       return { rows, total: rows.length }
+    }
+    case 'voice-model-config': {
+      const [res, logRes] = await Promise.all([
+        getSystemConfigList({
+          page: current,
+          size: 100,
+          keyword,
+          prefixes: 'ai.asr.xfyun.',
+        }),
+        getSystemConfigTestLogs({ configKeyPrefix: XFYUN_ASR_PREFIX, size: 5 }),
+      ])
+      const records = Array.isArray(res.data?.records) ? res.data.records : []
+      const logs = Array.isArray(logRes.data?.records) ? logRes.data.records : []
+      const rows = [{ ...buildXfyunAsrRow(records), testLogs: logs, lastTestLog: logs[0] }]
+      return { rows, total: rows.length }
+    }
+    case 'meeting-history': {
+      const res = await getMeetingList({ pageNum: current, pageSize, keyword })
+      const rows = (res.data?.records || []).map(normalizeMeetingSessionRow)
+      return { rows, total: res.data?.total || rows.length }
     }
     default:
       return { rows: [], total: 0 }
@@ -845,7 +887,7 @@ function buildXfyunAsrRow(records) {
       configs[field] = item
     }
   })
-  const getValue = (field) => configs[field]?.configValue || ''
+  const getValue = (field) => configs[field]?.configValue || XFYUN_ASR_DEFAULTS[field] || ''
   const configured = XFYUN_ASR_REQUIRED_FIELDS.every((field) => String(getValue(field) || '').trim())
   const savedConfigs = Object.values(configs)
   const disabled = savedConfigs.length > 0 && savedConfigs.some((item) => Number(item.status) === 0)
@@ -870,9 +912,26 @@ function buildXfyunAsrRow(records) {
     sampleRate: getValue('samplerate'),
     status: disabled ? 0 : 1,
     statusText: configured ? (disabled ? '禁用' : '启用') : '未配置',
+    configured,
     updateTime,
     configIds: Object.fromEntries(XFYUN_ASR_FIELDS.map((field) => [field, configs[field]?.id])),
     testConfigId: configs['websocket-url']?.id || configs['app-id']?.id || configs['access-key-id']?.id || configs['access-key-secret']?.id,
+  }
+}
+
+function normalizeMeetingSessionRow(item) {
+  const status = String(item.status || '').toLowerCase()
+  const meetingType = String(item.meetingType || '').toLowerCase()
+  return {
+    ...item,
+    id: item.sessionId,
+    status,
+    statusText: MEETING_STATUS_LABELS[status] || item.status || '-',
+    meetingTypeText: MEETING_TYPE_LABELS[meetingType] || item.meetingType || '-',
+    updateTime: formatDateTimeText(item.updateTime),
+    startTime: formatDateTimeText(item.startTime),
+    endTime: formatDateTimeText(item.endTime),
+    scheduledStartTime: formatDateTimeText(item.scheduledStartTime),
   }
 }
 
@@ -901,6 +960,9 @@ function WorkspacePage({ pageKey }) {
   const [aiVisionUploadLoading, setAiVisionUploadLoading] = useState(false)
   const [aiModelTestResult, setAiModelTestResult] = useState(null)
   const [aiModelTestLoading, setAiModelTestLoading] = useState(false)
+  const [meetingDetailOpen, setMeetingDetailOpen] = useState(false)
+  const [meetingDetailLoading, setMeetingDetailLoading] = useState(false)
+  const [meetingDetail, setMeetingDetail] = useState(null)
   const [merchantCategoryOptions, setMerchantCategoryOptions] = useState([])
   const [activityCategoryOptions, setActivityCategoryOptions] = useState([])
   const [forumPostOptions, setForumPostOptions] = useState([])
@@ -1188,6 +1250,56 @@ function WorkspacePage({ pageKey }) {
     }
   }
 
+  const openMeetingDetail = async (record) => {
+    if (!record?.sessionId) return
+    setMeetingDetailOpen(true)
+    setMeetingDetailLoading(true)
+    setMeetingDetail(null)
+    try {
+      const res = await getMeetingDetail(record.sessionId)
+      setMeetingDetail(res.data || null)
+    } catch (error) {
+      message.error(error?.message || '会议详情加载失败')
+    } finally {
+      setMeetingDetailLoading(false)
+    }
+  }
+
+  const runSystemConfigTest = async (record) => {
+    if (!record.testConfigId) {
+      message.warning(record.configKind === 'asr' ? '请先保存讯飞实时转写配置后再测试' : '请先保存该能力的模型配置后再测试')
+      return
+    }
+    setActionLoading(true)
+    try {
+      const res = await testSystemConfig(record.testConfigId)
+      const result = res.data || {}
+      const success = !!result.success
+      if (success) {
+        message.success('测试成功，记录已保存')
+      } else {
+        message.error('测试失败，记录已保存')
+      }
+      Modal.info({
+        title: success ? '连通测试成功' : '连通测试失败',
+        content: (
+          <div>
+            <p>能力类型：{record.modalityLabel}</p>
+            <p>服务商：{record.providerDisplay || record.provider || '-'}</p>
+            <p>目标地址：{result.target || '-'}</p>
+            <p>结果：{result.detail || '-'}</p>
+            <p>测试记录：已保存到历史记录</p>
+          </div>
+        ),
+      })
+      await refreshPageData()
+    } catch (error) {
+      message.error(error?.message || '测试失败')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   const saveProviderCredential = async (providerGroup, values) => {
     const providerId = providerGroup.providerCatalog?.id || providerGroup.provider
     const baseUrl = String(values.baseUrl || '').trim()
@@ -1257,6 +1369,7 @@ function WorkspacePage({ pageKey }) {
     'discount-category',
     'discount-merchant',
     'system-config',
+    'voice-model-config',
   ]
 
   const openCreateModal = async () => {
@@ -1388,7 +1501,7 @@ function WorkspacePage({ pageKey }) {
             isAvailable: record.isAvailable,
           }
         : {}),
-      ...(pageKey === 'system-config'
+      ...(['system-config', 'voice-model-config'].includes(pageKey)
         ? record.configKind === 'asr'
           ? {
               modalityLabel: record.modalityLabel,
@@ -1533,7 +1646,7 @@ function WorkspacePage({ pageKey }) {
               await Promise.all(configs.map((item) => upsertSystemConfig({
                 configKey: `${XFYUN_ASR_PREFIX}.${item.field}`,
                 configValue: item.value,
-                configGroup: 'ai',
+                configGroup: 'asr',
                 description: item.description,
                 status: statusValue,
               })))
@@ -1557,6 +1670,27 @@ function WorkspacePage({ pageKey }) {
             })))
           },
         },
+        'voice-model-config': {
+          edit: async () => {
+            const statusValue = values.status
+            const configs = [
+              { field: 'websocket-url', value: values.websocketUrl, description: '讯飞实时转写大模型 WebSocket 地址' },
+              { field: 'app-id', value: values.appId, description: '讯飞实时转写大模型 App ID' },
+              { field: 'access-key-id', value: values.accessKeyId, description: '讯飞实时转写大模型 AccessKeyId/APIKey' },
+              { field: 'access-key-secret', value: values.accessKeySecret, description: '讯飞实时转写大模型 AccessKeySecret/APISecret' },
+              { field: 'lang', value: values.lang, description: '讯飞实时转写大模型语种' },
+              { field: 'audio-encode', value: values.audioEncode, description: '讯飞实时转写大模型音频编码' },
+              { field: 'samplerate', value: values.sampleRate, description: '讯飞实时转写大模型采样率' },
+            ]
+            await Promise.all(configs.map((item) => upsertSystemConfig({
+              configKey: `${XFYUN_ASR_PREFIX}.${item.field}`,
+              configValue: item.value,
+              configGroup: 'asr',
+              description: item.description,
+              status: statusValue,
+            })))
+          },
+        },
       }
       const entry = actionMap[pageKey]
       if (!entry) return
@@ -1569,6 +1703,41 @@ function WorkspacePage({ pageKey }) {
       }
     }
   }
+
+  const renderVoiceModelConfigFields = () => (
+    <>
+      <Form.Item name="modalityLabel" label="能力类型">
+        <Input disabled />
+      </Form.Item>
+      <Form.Item name="configName" label="配置名称">
+        <Input disabled />
+      </Form.Item>
+      <Form.Item name="websocketUrl" label="WebSocket URL" rules={[{ required: true, message: '请输入讯飞实时转写大模型 WebSocket 地址' }]}>
+        <Input placeholder="wss://office-api-ast-dx.iflyaisol.com/ast/communicate/v1" />
+      </Form.Item>
+      <Form.Item name="appId" label="App ID" rules={[{ required: true, message: '请输入讯飞 App ID' }]}>
+        <Input placeholder="请输入讯飞控制台 App ID" />
+      </Form.Item>
+      <Form.Item name="accessKeyId" label="APIKey / AccessKeyId" rules={[{ required: true, message: '请输入讯飞 APIKey' }]}>
+        <Input placeholder="请输入讯飞控制台 APIKey" />
+      </Form.Item>
+      <Form.Item name="accessKeySecret" label="APISecret / AccessKeySecret" rules={[{ required: true, message: '请输入讯飞 APISecret' }]}>
+        <Input.Password placeholder="请输入讯飞控制台 APISecret" />
+      </Form.Item>
+      <Form.Item name="lang" label="语种" rules={[{ required: true, message: '请输入语种参数' }]}>
+        <Input placeholder="autodialect" />
+      </Form.Item>
+      <Form.Item name="audioEncode" label="音频编码" rules={[{ required: true, message: '请输入音频编码' }]}>
+        <Input placeholder="pcm_s16le" />
+      </Form.Item>
+      <Form.Item name="sampleRate" label="采样率" rules={[{ required: true, message: '请输入采样率' }]}>
+        <Input placeholder="16000" />
+      </Form.Item>
+      <Form.Item name="status" label="状态" rules={[{ required: true }]}>
+        <Select options={[{ value: 1, label: '启用' }, { value: 0, label: '禁用' }]} />
+      </Form.Item>
+    </>
+  )
 
   const renderModalFields = () => {
     switch (pageKey) {
@@ -1834,40 +2003,7 @@ function WorkspacePage({ pageKey }) {
         )
       case 'system-config':
         if (modalMode === 'edit' && editingRecord?.configKind === 'asr') {
-          return (
-            <>
-              <Form.Item name="modalityLabel" label="能力类型">
-                <Input disabled />
-              </Form.Item>
-              <Form.Item name="configName" label="配置名称">
-                <Input disabled />
-              </Form.Item>
-              <Form.Item name="websocketUrl" label="WebSocket URL" rules={[{ required: true, message: '请输入讯飞实时转写大模型 WebSocket 地址' }]}>
-                <Input placeholder="wss://office-api-ast-dx.iflyaisol.com/ast/communicate/v1" />
-              </Form.Item>
-              <Form.Item name="appId" label="App ID" rules={[{ required: true, message: '请输入讯飞 App ID' }]}>
-                <Input placeholder="请输入讯飞控制台 App ID" />
-              </Form.Item>
-              <Form.Item name="accessKeyId" label="AccessKeyId" rules={[{ required: true, message: '请输入讯飞 AccessKeyId' }]}>
-                <Input placeholder="请输入讯飞控制台 AccessKeyId" />
-              </Form.Item>
-              <Form.Item name="accessKeySecret" label="AccessKeySecret" rules={[{ required: true, message: '请输入讯飞 AccessKeySecret' }]}>
-                <Input.Password placeholder="请输入讯飞控制台 AccessKeySecret" />
-              </Form.Item>
-              <Form.Item name="lang" label="语种" rules={[{ required: true, message: '请输入语种参数' }]}>
-                <Input placeholder="autodialect" />
-              </Form.Item>
-              <Form.Item name="audioEncode" label="音频编码" rules={[{ required: true, message: '请输入音频编码' }]}>
-                <Input placeholder="pcm_s16le" />
-              </Form.Item>
-              <Form.Item name="sampleRate" label="采样率" rules={[{ required: true, message: '请输入采样率' }]}>
-                <Input placeholder="16000" />
-              </Form.Item>
-              <Form.Item name="status" label="状态" rules={[{ required: true }]}>
-                <Select options={[{ value: 1, label: '启用' }, { value: 0, label: '禁用' }]} />
-              </Form.Item>
-            </>
-          )
+          return renderVoiceModelConfigFields()
         }
         return (
           <>
@@ -1948,6 +2084,8 @@ function WorkspacePage({ pageKey }) {
             </Form.Item>
           </>
         )
+      case 'voice-model-config':
+        return renderVoiceModelConfigFields()
       default:
         return null
     }
@@ -2175,6 +2313,7 @@ function WorkspacePage({ pageKey }) {
           </Space>
         )
       case 'system-config':
+      case 'voice-model-config':
         return (
           <Space size="small">
             <Button size="small" onClick={() => openEditModal(record)}>
@@ -2184,24 +2323,7 @@ function WorkspacePage({ pageKey }) {
               <Button
                 size="small"
                 loading={actionLoading}
-                onClick={() => runAction(async () => {
-                  if (!record.testConfigId) {
-                    message.warning(record.configKind === 'asr' ? '请先保存讯飞实时转写配置后再测试' : '请先保存该能力的模型配置后再测试')
-                    return
-                  }
-                  const res = await testSystemConfig(record.testConfigId)
-                  Modal.info({
-                    title: res.data?.success ? '连通测试成功' : '连通测试失败',
-                    content: (
-                      <div>
-                        <p>能力类型：{record.modalityLabel}</p>
-                        <p>服务商：{record.providerDisplay || record.provider || '-'}</p>
-                        <p>目标地址：{res.data?.target || '-'}</p>
-                        <p>结果：{res.data?.detail || '-'}</p>
-                      </div>
-                    ),
-                  })
-                }, '测试完成')}
+                onClick={() => runSystemConfigTest(record)}
               >
                 测试
               </Button>
@@ -2228,6 +2350,12 @@ function WorkspacePage({ pageKey }) {
               </Popconfirm>
             ) : null}
           </Space>
+        )
+      case 'meeting-history':
+        return (
+          <Button size="small" onClick={() => openMeetingDetail(record)}>
+            查看详情
+          </Button>
         )
       default:
         return null
@@ -2617,13 +2745,12 @@ function WorkspacePage({ pageKey }) {
 
   const renderAiModelProviderCards = () => {
     const providerGroups = groupRowsByProvider(rows)
-    const asrRows = rows.filter((row) => row.configKind === 'asr')
     const providerCatalog = providerGroups.find((providerGroup) => providerGroup.providerCatalog)?.providerCatalog
     const sections = getProviderCatalogModalities({
       providers: providerGroups.map((providerGroup) => providerGroup.providerCatalog).filter(Boolean),
       modalities: providerCatalog?.modalities || [],
     }).filter((section) => providerGroups.some((providerGroup) => providerGroup.providerCatalog?.capabilities?.[section.key]))
-    if (!providerGroups.length && !asrRows.length) {
+    if (!providerGroups.length) {
       return <Empty description={page.emptyText} />
     }
     const tabItems = sections.map((section) => {
@@ -2637,24 +2764,65 @@ function WorkspacePage({ pageKey }) {
     return (
       <div className="workspace-ai-section-list">
         <Tabs className="workspace-ai-model-tabs" items={tabItems} />
-        {asrRows.map((record) => (
-          <Card key={record.id} className="workspace-ai-provider-card" title={record.provider}>
+      </div>
+    )
+  }
+
+  const renderVoiceModelConfigCards = () => {
+    const voiceRows = rows.filter((row) => row.configKind === 'asr')
+    if (!voiceRows.length) {
+      return <Empty description={page.emptyText} />
+    }
+    return (
+      <div className="workspace-ai-section-list">
+        {voiceRows.map((record) => (
+          <Card
+            key={record.id}
+            className="workspace-ai-provider-card"
+            title={record.provider}
+            extra={<Tag color={record.configured ? 'green' : 'orange'}>{record.statusText}</Tag>}
+          >
             <div className="workspace-ai-model-row">
               <div>
                 <Space size="small" wrap>
                   <Tag color="blue">{record.modalityLabel}</Tag>
-                  <Tag color={colorMap[record.statusText] || 'default'}>{record.statusText}</Tag>
+                  <Tag color="cyan">Java 后端独立配置</Tag>
+                  <Tag color={record.configured ? 'green' : 'default'}>{record.configured ? '可测试' : '待填写凭据'}</Tag>
+                  {record.lastTestLog ? (
+                    <Tag color={record.lastTestLog.success ? 'green' : 'red'}>
+                      最近测试{record.lastTestLog.success ? '成功' : '失败'}
+                    </Tag>
+                  ) : null}
                 </Space>
                 <strong>{record.model}</strong>
-                <span>{record.configName}</span>
+                <span>{record.configName} · {record.baseUrl || '默认讯飞实时转写地址'}</span>
+                {record.lastTestLog ? (
+                  <span>
+                    最近测试：{formatDateTimeText(record.lastTestLog.createTime)} · {record.lastTestLog.detail || '-'}
+                  </span>
+                ) : (
+                  <span>尚无测试记录，保存配置后点击“测试”即可生成记录。</span>
+                )}
               </div>
               <Space size="small" wrap>{renderRowActions(record)}</Space>
             </div>
+            {record.testLogs?.length ? (
+              <div className="workspace-test-log-list">
+                {record.testLogs.map((item) => (
+                  <div key={item.id} className="workspace-test-log-list__item">
+                    <Tag color={item.success ? 'green' : 'red'}>{item.success ? '成功' : '失败'}</Tag>
+                    <span>{formatDateTimeText(item.createTime)}</span>
+                    <span>{item.detail || '-'}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </Card>
         ))}
       </div>
     )
   }
+
   const columns = useMemo(() => {
     if (!page?.columns?.length) return []
     const baseColumns = page.columns.map((column) => ({
@@ -3877,7 +4045,7 @@ function WorkspacePage({ pageKey }) {
                     </Button>
                   </>
                 ) : null}
-                {formEnabledPages.includes(pageKey) && pageKey !== 'system-config' ? (
+                {formEnabledPages.includes(pageKey) && !['system-config', 'voice-model-config'].includes(pageKey) ? (
                   <Button type="primary" onClick={openCreateModal}>
                     新增
                   </Button>
@@ -3888,6 +4056,8 @@ function WorkspacePage({ pageKey }) {
         >
           {pageKey === 'system-config' ? (
             renderAiModelProviderCards()
+          ) : pageKey === 'voice-model-config' ? (
+            renderVoiceModelConfigCards()
           ) : columns.length ? (
             <Table
               columns={columns}
@@ -3921,7 +4091,7 @@ function WorkspacePage({ pageKey }) {
         open={modalOpen}
         title={modalMode === 'create'
           ? `新增${pageKey === 'system-config' ? '模型配置' : page.title}`
-          : `编辑${pageKey === 'system-config' ? (editingRecord?.configKind === 'asr' ? '讯飞实时转写配置' : '模型配置') : page.title}`}
+          : `编辑${pageKey === 'system-config' ? (editingRecord?.configKind === 'asr' ? '讯飞实时转写配置' : '模型配置') : pageKey === 'voice-model-config' ? '语音模型配置' : page.title}`}
         onCancel={() => setModalOpen(false)}
         onOk={submitModal}
         confirmLoading={actionLoading}
@@ -3931,6 +4101,53 @@ function WorkspacePage({ pageKey }) {
           {renderModalFields()}
         </Form>
       </Modal>
+
+      <Drawer
+        open={meetingDetailOpen}
+        title={meetingDetail?.session?.title || '会议详情'}
+        width={720}
+        onClose={() => setMeetingDetailOpen(false)}
+        destroyOnHidden
+      >
+        {meetingDetailLoading ? (
+          <Empty description="会议详情加载中..." />
+        ) : meetingDetail ? (
+          <div className="workspace-meeting-detail">
+            <Card size="small" title="会议信息">
+              <p>会议号：{meetingDetail.session?.roomCode || '-'}</p>
+              <p>状态：{MEETING_STATUS_LABELS[String(meetingDetail.session?.status || '').toLowerCase()] || meetingDetail.session?.status || '-'}</p>
+              <p>类型：{MEETING_TYPE_LABELS[String(meetingDetail.session?.meetingType || '').toLowerCase()] || meetingDetail.session?.meetingType || '-'}</p>
+              <p>开始时间：{formatDateTimeText(meetingDetail.session?.startTime)}</p>
+              <p>结束时间：{formatDateTimeText(meetingDetail.session?.endTime)}</p>
+              <p>参会成员：{Array.isArray(meetingDetail.participants) && meetingDetail.participants.length ? meetingDetail.participants.join('、') : '-'}</p>
+            </Card>
+            <Card size="small" title={`会议记录（${meetingDetail.records?.length || 0}）`}>
+              {meetingDetail.records?.length ? meetingDetail.records.map((item) => (
+                <div key={item.id} className="workspace-meeting-detail__block">
+                  <Space size="small" wrap>
+                    <Tag color={item.source === 'transcription' ? 'blue' : 'default'}>{item.source || 'manual'}</Tag>
+                    <span>{formatDateTimeText(item.createTime)}</span>
+                  </Space>
+                  <p>{item.content}</p>
+                </div>
+              )) : <Empty description="暂无会议记录" />}
+            </Card>
+            <Card size="small" title={`智能体结果（${meetingDetail.results?.length || 0}）`}>
+              {meetingDetail.results?.length ? meetingDetail.results.map((item) => (
+                <div key={item.id} className="workspace-meeting-detail__block">
+                  <Space size="small" wrap>
+                    <Tag color="green">{item.agentName}</Tag>
+                    <span>{formatDateTimeText(item.createTime)}</span>
+                  </Space>
+                  <p>{item.answer}</p>
+                </div>
+              )) : <Empty description="暂无智能体结果" />}
+            </Card>
+          </div>
+        ) : (
+          <Empty description="暂无会议详情" />
+        )}
+      </Drawer>
 
       <Modal
         open={aiModelTestOpen}
