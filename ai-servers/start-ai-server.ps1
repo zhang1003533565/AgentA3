@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $ProjectName = "smart-campus-ai"
+$AiServerHost = if ($env:AI_SERVER_HOST) { $env:AI_SERVER_HOST } else { "127.0.0.1" }
 $PythonServerPort = if ($env:PYTHON_SERVER_PORT) { [int]$env:PYTHON_SERVER_PORT } else { 8081 }
 $RagVectorStoreBackend = if ($env:RAG_VECTOR_STORE_BACKEND) { $env:RAG_VECTOR_STORE_BACKEND } else { "local_jsonl" }
 $RagDockerWaitSeconds = if ($env:RAG_DOCKER_WAIT_SECONDS) { [int]$env:RAG_DOCKER_WAIT_SECONDS } else { 90 }
@@ -17,6 +18,11 @@ for ($i = 0; $i -lt $args.Count; $i++) {
         "--build-kb" {
             $BuildKnowledgeBase = $true
         }
+        "--host" {
+            $i++
+            if ($i -ge $args.Count) { throw "--host requires a value" }
+            $AiServerHost = $args[$i]
+        }
         "--no-docker" {
             $StartDocker = $false
         }
@@ -26,11 +32,11 @@ for ($i = 0; $i -lt $args.Count; $i++) {
             $PythonServerPort = [int]$args[$i]
         }
         "-h" {
-            Write-Host "Usage: .\start-ai-server.ps1 [--backend local_jsonl|milvus] [--build-kb] [--no-docker] [--port 8081]"
+            Write-Host "Usage: .\start-ai-server.ps1 [--backend local_jsonl|milvus] [--build-kb] [--host 127.0.0.1] [--no-docker] [--port 8081]"
             exit 0
         }
         "--help" {
-            Write-Host "Usage: .\start-ai-server.ps1 [--backend local_jsonl|milvus] [--build-kb] [--no-docker] [--port 8081]"
+            Write-Host "Usage: .\start-ai-server.ps1 [--backend local_jsonl|milvus] [--build-kb] [--host 127.0.0.1] [--no-docker] [--port 8081]"
             exit 0
         }
         default {
@@ -201,10 +207,11 @@ function Build-KnowledgeBase {
 }
 
 function Start-AiServer {
+    $env:AI_SERVER_HOST = $AiServerHost
     $env:PYTHON_SERVER_PORT = [string]$PythonServerPort
     $env:RAG_VECTOR_STORE_BACKEND = $RagVectorStoreBackend
-    Write-Log "Starting AI Server at http://localhost:$PythonServerPort ..."
-    & python -m uvicorn app.main:app --host 0.0.0.0 --port $PythonServerPort
+    Write-Log "Starting AI Server at http://${AiServerHost}:$PythonServerPort ..."
+    & python -m uvicorn app.main:app --host $AiServerHost --port $PythonServerPort
     exit $LASTEXITCODE
 }
 

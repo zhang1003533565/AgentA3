@@ -2,6 +2,7 @@
 set -euo pipefail
 
 PROJECT_NAME="smart-campus-ai"
+AI_SERVER_HOST="${AI_SERVER_HOST:-127.0.0.1}"
 PYTHON_SERVER_PORT="${PYTHON_SERVER_PORT:-8081}"
 RAG_VECTOR_STORE_BACKEND="${RAG_VECTOR_STORE_BACKEND:-local_jsonl}"
 RAG_DOCKER_WAIT_SECONDS="${RAG_DOCKER_WAIT_SECONDS:-90}"
@@ -29,6 +30,7 @@ Usage: ./start-ai-server.sh [options]
 Options:
   --backend <local_jsonl|milvus>  Select RAG vector store backend.
   --build-kb                     Build knowledge base before starting API.
+  --host <host>                  API bind host, default 127.0.0.1.
   --no-docker                    Do not start Docker services.
   --port <port>                  Python API port, default 8081.
   -h, --help                     Show help.
@@ -45,6 +47,11 @@ while [[ $# -gt 0 ]]; do
     --build-kb)
       BUILD_KB=1
       shift
+      ;;
+    --host)
+      AI_SERVER_HOST="${2:-}"
+      [[ -n "$AI_SERVER_HOST" ]] || fail "--host requires a value"
+      shift 2
       ;;
     --no-docker)
       START_DOCKER=0
@@ -134,8 +141,8 @@ install_requirements() {
 }
 
 start_docker_services() {
-  [[ "$START_DOCKER" -eq 1 ]] || return
-  [[ "$RAG_VECTOR_STORE_BACKEND" == "milvus" ]] || return
+  [[ "$START_DOCKER" -eq 1 ]] || return 0
+  [[ "$RAG_VECTOR_STORE_BACKEND" == "milvus" ]] || return 0
   [[ -f "$RAG_COMPOSE_FILE" ]] || fail "Missing compose file: $RAG_COMPOSE_FILE"
   command -v docker >/dev/null 2>&1 || fail "Docker is not installed."
   find_compose
@@ -146,16 +153,17 @@ start_docker_services() {
 }
 
 build_knowledge_base() {
-  [[ "$BUILD_KB" -eq 1 ]] || return
+  [[ "$BUILD_KB" -eq 1 ]] || return 0
   log "Building knowledge base with backend=${RAG_VECTOR_STORE_BACKEND} ..."
   python scripts/build_knowledge_base.py --backend "$RAG_VECTOR_STORE_BACKEND"
 }
 
 start_ai_server() {
+  export AI_SERVER_HOST
   export PYTHON_SERVER_PORT
   export RAG_VECTOR_STORE_BACKEND
-  log "Starting AI Server at http://localhost:${PYTHON_SERVER_PORT} ..."
-  exec python -m uvicorn app.main:app --host 0.0.0.0 --port "$PYTHON_SERVER_PORT"
+  log "Starting AI Server at http://${AI_SERVER_HOST}:${PYTHON_SERVER_PORT} ..."
+  exec python -m uvicorn app.main:app --host "$AI_SERVER_HOST" --port "$PYTHON_SERVER_PORT"
 }
 
 main() {
