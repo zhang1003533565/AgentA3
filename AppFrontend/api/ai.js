@@ -1,4 +1,6 @@
 import { request } from '@/utils/request.js'
+import { BASE_URL } from '@/utils/config.js'
+import { getToken } from '@/utils/storage.js'
 
 export function writeWithAi(data) {
   return request({
@@ -152,6 +154,76 @@ export function previewMeetingAgent(sessionId, data) {
     data,
     timeout: 120000
   })
+}
+
+export async function streamLlmChat(data, handlers = {}) {
+  if (typeof fetch !== 'function') {
+    throw new Error('当前运行环境暂不支持流式总结')
+  }
+  const token = getToken()
+  const controller = new AbortController()
+  const response = await fetch(`${BASE_URL}/api/llm/chat/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    body: JSON.stringify(data || {}),
+    signal: controller.signal
+  })
+  if (!response.ok) {
+    throw new Error(`流式请求失败: ${response.status}`)
+  }
+  if (!response.body?.getReader) {
+    throw new Error('当前运行环境无法读取流式响应')
+  }
+
+  const decoder = new TextDecoder('utf-8')
+  const reader = response.body.getReader()
+  let buffer = ''
+  const flushEvent = (block) => {
+    const lines = block.split(/\r?\n/)
+    let eventName = 'message'
+    const dataLines = []
+    lines.forEach(line => {
+      if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim() || 'message'
+      } else if (line.startsWith('data:')) {
+        dataLines.push(line.slice(5).trim())
+      }
+    })
+    if (!dataLines.length) return
+    let payload = dataLines.join('\n')
+    try {
+      payload = JSON.parse(payload)
+    } catch (error) {}
+    if (eventName === 'delta') {
+      handlers.onDelta?.(payload?.content || '')
+    } else if (eventName === 'done') {
+      handlers.onDone?.(payload)
+    } else if (eventName === 'error') {
+      handlers.onError?.(payload)
+    } else {
+      handlers.onEvent?.(eventName, payload)
+    }
+  }
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const blocks = buffer.split(/\n\s*\n/)
+      buffer = blocks.pop() || ''
+      blocks.forEach(flushEvent)
+    }
+    buffer += decoder.decode()
+    if (buffer.trim()) flushEvent(buffer)
+  } finally {
+    reader.releaseLock()
+  }
+
+  return controller
 }
 
 export function getLeaderSessions(params = {}) {

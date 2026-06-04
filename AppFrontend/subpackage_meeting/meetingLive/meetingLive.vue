@@ -109,7 +109,7 @@
 </template>
 
 <script>
-import { endMeeting as finishMeetingApi, getMeetingDetail, previewMeetingAgent } from '@/api/ai.js'
+import { endMeeting as finishMeetingApi, getMeetingDetail, streamLlmChat } from '@/api/ai.js'
 import { getCurrentDisplayName, toMeetingMembers } from '@/utils/meetingUser.js'
 import { BASE_URL } from '@/utils/config.js'
 import { getToken, getUserInfo } from '@/utils/storage.js'
@@ -149,6 +149,7 @@ export default {
 			aiSummaryTimer: null,
 			aiSummaryRunning: false,
 			aiSummaryPending: false,
+			aiSummaryActiveId: '',
 			lastSummaryInput: '',
 			lastSummaryErrorInput: '',
 			meetingTranscriptLines: [],
@@ -608,8 +609,6 @@ export default {
 				this.upsertAsrItem(item)
 				if (item.isFinal) {
 					this.appendTranscriptLine(item)
-				} else if (this.agentEnabled) {
-					this.scheduleAiSummary()
 				}
 			}
 		},
@@ -660,13 +659,13 @@ export default {
 			if (shouldClosePanel) this.closePanel()
 			if (this.agentEnabled) {
 				this.aiSummaryStatusText = this.hasSummarySourceText() ? '准备总结' : '等待发言'
-				this.scheduleAiSummary(300)
+				this.scheduleAiSummary(0)
 			} else {
 				this.clearAiSummaryTimer()
 				this.aiSummaryStatusText = '等待发言'
 			}
 		},
-		scheduleAiSummary(delay = 2800) {
+		scheduleAiSummary(delay = 0) {
 			if (!this.agentEnabled) return
 			this.clearAiSummaryTimer()
 			this.aiSummaryTimer = setTimeout(() => {
@@ -700,52 +699,62 @@ export default {
 			this.aiSummaryRunning = true
 			this.aiSummaryPending = false
 			this.aiSummaryStatusText = '智能体总结中'
+			this.lastSummaryInput = content
+			this.lastSummaryErrorInput = ''
+			const streamItem = this.createAiSummaryItem('正在生成总结...')
+			let streamText = ''
+			let streamError = ''
 			try {
-				const res = await previewMeetingAgent(this.sessionId, {
+				await streamLlmChat({
+					sessionId: `meeting-${this.sessionId}-summary`,
 					agentName: 'meeting_summary_agent',
-					content
+					input: content
+				}, {
+					onDelta: (delta) => {
+						if (!delta) return
+						streamText += delta
+						this.updateAiSummaryItem(streamItem.id, streamText)
+					},
+					onDone: (payload) => {
+						const answer = (payload?.answer || '').trim()
+						if (answer && !streamText.trim()) {
+							streamText = answer
+							this.updateAiSummaryItem(streamItem.id, streamText)
+						}
+					},
+					onError: (payload) => {
+						streamError = payload?.message || '流式总结失败'
+					}
 				})
-				const answer = (res?.data?.answer || '').trim()
-				const errorMessage = (res?.data?.errorMessage || '').trim()
-				if (answer) {
-					this.lastSummaryInput = content
-					this.lastSummaryErrorInput = ''
-					this.pushAiSummary(answer)
+				if (streamError) {
+					throw new Error(streamError)
+				}
+				if (streamText.trim()) {
 					this.aiSummaryStatusText = '总结已更新'
-				} else if (errorMessage) {
-					this.lastSummaryInput = content
-					this.aiSummaryStatusText = '调用失败'
-					if (this.lastSummaryErrorInput !== content) {
-						this.lastSummaryErrorInput = content
-						const tip = errorMessage.includes('模型') || errorMessage.includes('配置')
-							? '请先在后台 AI 模块完成语言模型配置并测试成功'
-							: errorMessage
-						this.pushAiSummary(`已尝试调用会议总结智能体，但暂时无法生成总结：${tip}`)
-					}
 				} else {
-					this.lastSummaryInput = content
 					this.aiSummaryStatusText = '智能体未返回内容'
-					if (this.lastSummaryErrorInput !== content) {
-						this.lastSummaryErrorInput = content
-						this.pushAiSummary('已尝试调用会议总结智能体，但本次没有返回可用总结。请继续发言后我会再次尝试。')
-					}
+					this.updateAiSummaryItem(streamItem.id, '已尝试调用会议总结智能体，但本次没有返回可用总结。请继续发言后我会再次尝试。')
 				}
 			} catch (error) {
 				this.aiSummaryStatusText = '智能体暂不可用'
 				if (this.lastSummaryErrorInput !== content) {
 					this.lastSummaryErrorInput = content
 					const message = error?.msg || error?.message || '请求失败'
-					this.pushAiSummary(`已尝试调用会议总结智能体，但请求失败：${message}`)
+					const tip = message.includes('模型') || message.includes('配置')
+						? '请先在后台 AI 模块完成语言模型配置并测试成功'
+						: message
+					this.updateAiSummaryItem(streamItem.id, `已尝试调用会议总结智能体，但请求失败：${tip}`)
 				}
 			} finally {
 				this.aiSummaryRunning = false
 				if (this.aiSummaryPending && this.agentEnabled) {
-					this.scheduleAiSummary(1200)
+					this.scheduleAiSummary(0)
 				}
 			}
 		},
 		buildSummaryInput() {
 			const liveLines = this.asrItems
+				.filter(item => !item.isFinal)
 				.filter(item => item.text && item.text.trim())
 				.map(item => `${item.speaker}：${item.text.trim()}`)
 			const transcript = [...this.meetingTranscriptLines, ...liveLines].slice(-40).join('\n')
@@ -761,16 +770,27 @@ export default {
 		hasSummarySourceText() {
 			return this.meetingTranscriptLines.length > 0 || this.asrItems.some(item => item.text && item.text.trim())
 		},
-		pushAiSummary(text) {
+		createAiSummaryItem(text) {
 			const now = new Date()
 			const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
-			this.aiSummaryItems.push({
+			const item = {
 				id: `ai-summary-${Date.now()}-${this.aiSummarySeq++}`,
 				text,
 				time
+			}
+			this.aiSummaryItems.push({
+				...item
 			})
 			if (this.aiSummaryItems.length > 5) {
 				this.aiSummaryItems = this.aiSummaryItems.slice(this.aiSummaryItems.length - 5)
+			}
+			this.aiSummaryActiveId = item.id
+			return item
+		},
+		updateAiSummaryItem(id, text) {
+			const item = this.aiSummaryItems.find(summary => summary.id === id)
+			if (item) {
+				item.text = text
 			}
 		},
 		showMembers() {

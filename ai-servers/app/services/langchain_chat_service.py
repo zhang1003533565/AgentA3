@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from fastapi import HTTPException
 
@@ -57,6 +57,20 @@ class LangChainChatService:
         if agent_name == "ppt_layout_agent":
             answer = _normalize_ppt_layout_answer(answer, input_text)
         return answer
+
+    def stream_specialist_answer(
+        self,
+        agent_name: str,
+        input_text: str,
+        evidence: List[Dict[str, Any]],
+    ) -> Iterator[str]:
+        system_prompt = SPECIALIST_AGENT_PROMPTS.get(agent_name)
+        if not system_prompt:
+            raise HTTPException(status_code=400, detail=f"不支持的智能体：{agent_name}")
+        user_prompt = build_specialist_user_prompt(agent_name, input_text, evidence)
+        for chunk in self.provider.stream_complete(system_prompt=system_prompt, user_prompt=user_prompt):
+            if chunk:
+                yield chunk
 
     def answer(
         self,

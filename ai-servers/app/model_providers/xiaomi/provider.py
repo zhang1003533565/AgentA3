@@ -1,5 +1,5 @@
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from fastapi import HTTPException
 
@@ -54,6 +54,18 @@ class XiaomiProvider(ChatModelProvider):
             HumanMessage(content=user_prompt),
         ])
         return str(response.content or "").strip()
+
+    def stream_complete(self, system_prompt: str, user_prompt: str) -> Iterator[str]:
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt),
+        ]
+        for chunk in self.llm.stream(messages):
+            content = getattr(chunk, "content", "")
+            if content:
+                yield str(content)
 
     def extract_search_keyword(self, input_text: str) -> str:
         from langchain_core.messages import HumanMessage, SystemMessage

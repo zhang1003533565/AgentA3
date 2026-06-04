@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterator, List
 
 
 class ChatModelProvider(ABC):
@@ -9,6 +9,9 @@ class ChatModelProvider(ABC):
 
     def complete(self, system_prompt: str, user_prompt: str) -> str:
         raise NotImplementedError
+
+    def stream_complete(self, system_prompt: str, user_prompt: str) -> Iterator[str]:
+        yield self.complete(system_prompt, user_prompt)
 
     @abstractmethod
     def answer(

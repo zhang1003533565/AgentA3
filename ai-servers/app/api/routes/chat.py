@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 from app.models.schemas import ChatRequest, ChatResponse
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
 from app.services.chat_orchestrator import resolve_user_id, run_chat_core
+from app.services.langchain_chat_service import get_chat_service
 from app.utils.logger import get_logger, mask_id
 from app.utils.sse import build_sse, chunk_answer
 
@@ -80,6 +81,38 @@ async def internal_chat_stream(
         try:
             token = set_active_llm_config(llm_config)
             try:
+                if request.agentName == "meeting_summary_agent":
+                    session_id = request.sessionId or ""
+                    answer_parts = []
+                    yield build_sse("session", {
+                        "sessionId": session_id,
+                        "sessionToken": "",
+                        "model": llm_config.model,
+                        "agentName": request.agentName,
+                        "answerType": "markdown",
+                    })
+                    yield build_sse("search", {
+                        "searchKeyword": "",
+                        "matchedResults": [],
+                        "retrievalMeta": {"streamingDirect": True},
+                    })
+                    service = get_chat_service()
+                    for chunk in service.stream_specialist_answer(request.agentName, request.input, []):
+                        answer_parts.append(chunk)
+                        yield build_sse("delta", {"content": chunk})
+                        await asyncio.sleep(0)
+                    answer = "".join(answer_parts).strip()
+                    yield build_sse("done", {
+                        "answer": answer,
+                        "answerType": "markdown",
+                        "ragStrategy": request.ragStrategy or "naive_rag",
+                        "agentName": request.agentName,
+                        "searchKeyword": "",
+                        "matchedResults": [],
+                        "retrievalMeta": {"streamingDirect": True},
+                        "trace": [{"stage": "answer", "detail": {"agent": request.agentName, "answerLength": len(answer)}}],
+                    })
+                    return
                 response = await asyncio.to_thread(run_chat_core, request, authorization, user_id)
             finally:
                 reset_active_llm_config(token)
