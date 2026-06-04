@@ -1,14 +1,9 @@
+from importlib import import_module
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
 from app.multi_agents.catalog import normalize_agent_name
-from app.multi_agents.image_agent.agent import image_agent
-from app.multi_agents.meeting_agents import MEETING_AGENTS
-from app.multi_agents.mind_map_agent.agent import mind_map_agent
-from app.multi_agents.ppt_agents import PPT_AGENTS
-from app.multi_agents.question_type_agents import QUESTION_TYPE_AGENTS
-from app.multi_agents.textbook_knowledge_agent.agent import textbook_knowledge_agent
 
 
 def run_specialist_agent(
@@ -20,16 +15,29 @@ def run_specialist_agent(
     normalized = normalize_agent_name(agent_name)
     if not normalized or normalized == "leader_agent":
         raise HTTPException(status_code=400, detail=f"无法执行专业智能体：{agent_name or '未指定'}")
-    if normalized == "mind_map_agent":
-        return mind_map_agent.build_mind_map(input_text, evidence, chat_service=chat_service)
-    if normalized == "textbook_knowledge_agent":
-        return textbook_knowledge_agent.summarize_knowledge_points(input_text, evidence, chat_service=chat_service)
-    if normalized in MEETING_AGENTS:
-        return MEETING_AGENTS[normalized].process(input_text, evidence, chat_service=chat_service)
-    if normalized in QUESTION_TYPE_AGENTS:
-        return QUESTION_TYPE_AGENTS[normalized].generate_questions(input_text, evidence, chat_service=chat_service)
-    if normalized in PPT_AGENTS:
-        return PPT_AGENTS[normalized].process(input_text, evidence, chat_service=chat_service)
-    if normalized == "image_agent":
-        return image_agent.generate_images_json(input_text, evidence, chat_service=chat_service)
+    agent = _load_agent(normalized)
+    if hasattr(agent, "build_mind_map"):
+        return agent.build_mind_map(input_text, evidence, chat_service=chat_service)
+    if hasattr(agent, "summarize_knowledge_points"):
+        return agent.summarize_knowledge_points(input_text, evidence, chat_service=chat_service)
+    if hasattr(agent, "generate_questions"):
+        return agent.generate_questions(input_text, evidence, chat_service=chat_service)
+    if hasattr(agent, "generate_images_json"):
+        return agent.generate_images_json(input_text, evidence, chat_service=chat_service)
+    if hasattr(agent, "process"):
+        return agent.process(input_text, evidence, chat_service=chat_service)
     raise HTTPException(status_code=400, detail=f"不支持的智能体：{normalized}")
+
+
+def _load_agent(agent_name: str) -> Any:
+    module_name = f"app.multi_agents.{agent_name}.agent"
+    try:
+        module = import_module(module_name)
+    except ModuleNotFoundError as exc:
+        if exc.name != module_name and not module_name.startswith(f"{exc.name}."):
+            raise
+        raise HTTPException(status_code=400, detail=f"不支持的智能体：{agent_name}") from exc
+    agent = getattr(module, agent_name, None)
+    if agent is None:
+        raise HTTPException(status_code=500, detail=f"{agent_name} 智能体目录缺少运行实例")
+    return agent

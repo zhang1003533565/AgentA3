@@ -13,7 +13,8 @@ from app.main import app
 from app.model_providers import factory as model_provider_factory
 from app.model_providers.multimodal import build_multimodal_human_content, extract_image_references
 from app.model_providers.runtime_config import LlmRuntimeConfig
-from app.multi_agents import ppt_agents
+from app.multi_agents.ppt_layout_agent.agent import normalize_ppt_layout_answer
+from app.multi_agents.ppt_outline_agent.agent import normalize_ppt_outline_answer
 
 
 class RagApiRoutesTest(unittest.TestCase):
@@ -354,7 +355,7 @@ class RagApiRoutesTest(unittest.TestCase):
 - 展示建议：封面大标题布局
 - 素材建议：主视觉插图
 """
-        normalized = ppt_agents.normalize_ppt_layout_answer(
+        normalized = normalize_ppt_layout_answer(
             raw,
             outline,
         )
@@ -585,7 +586,7 @@ class RagApiRoutesTest(unittest.TestCase):
   - 副标题：基础概念与应用
 - **课堂互动建议：** 提问。
 """
-        normalized = ppt_agents.normalize_ppt_outline_answer(
+        normalized = normalize_ppt_outline_answer(
             raw,
             "topic: 数据结构中的栈与队列; scene_type: academic; audience: 学生; slide_count: 6",
         )
