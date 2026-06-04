@@ -1,4 +1,4 @@
 tools:
   - memory_store
-  - langchain_chat_service
+  - agent_model_provider
   - specialist_agents

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
-from app.services.langchain_chat_service import get_chat_service
+from app.multi_agents.runtime import complete_agent_or_raise
 
 
 @dataclass(frozen=True)
@@ -9,8 +9,7 @@ class MeetingAgent:
     name: str
 
     def process(self, meeting_content: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
-        service = chat_service or get_chat_service()
-        return service.generate_specialist_answer(self.name, meeting_content, evidence or [])
+        return complete_agent_or_raise(self.name, meeting_content, evidence or [], model_provider=chat_service)
 
 
 meeting_controller_agent = MeetingAgent("meeting_controller_agent")

@@ -1,10 +1,13 @@
+import json
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
 from app.multi_agents.catalog import MEETING_AGENT_SPECS, PPT_AGENT_SPECS, QUESTION_AGENT_SPECS, get_agent_profile, normalize_agent_name
-from app.services.langchain_chat_service import get_chat_service
+from app.model_providers.factory import get_chat_model_provider
+from app.multi_agents.json_utils import parse_json_object
+from app.multi_agents.runtime import load_agent_prompt
 from app.services.memory_store import memory_store
 from app.utils.logger import get_logger
 from app.utils.text_utils import is_schedule_intent, is_smalltalk_intent
@@ -118,8 +121,14 @@ class LeaderAgent:
         return LeaderPlan("campus_search", "textbook_knowledge_agent", True, rag_strategy or "naive_rag", route_reason="未命中特定生成类意图，按校园知识查询处理。")
 
     def _plan_with_llm(self, input_text: str, rag_strategy: str, chat_service=None) -> LeaderPlan:
-        service = chat_service or get_chat_service()
-        plan = service.plan_leader_intent(input_text, rag_strategy)
+        provider = chat_service or get_chat_model_provider()
+        text = provider.complete(
+            system_prompt=load_agent_prompt(self.name),
+            user_prompt=build_leader_router_user_prompt(input_text, rag_strategy),
+        )
+        plan = parse_json_object(text)
+        if not plan:
+            raise HTTPException(status_code=502, detail=f"Leader LLM 路由结果不是合法 JSON：{text[:300]}")
         parsed = self._parse_llm_plan(plan, rag_strategy)
         if not parsed:
             raise HTTPException(status_code=502, detail=f"Leader LLM 路由结果字段不合法：{plan}")
@@ -216,8 +225,8 @@ class LeaderAgent:
         search_results: List[Dict[str, Any]],
         chat_service=None,
     ) -> str:
-        service = chat_service or get_chat_service()
-        return service.answer(
+        provider = chat_service or get_chat_model_provider()
+        return provider.answer(
             prompt=prompt,
             input_text=input_text,
             history=history,
@@ -227,3 +236,11 @@ class LeaderAgent:
 
 
 leader_agent = LeaderAgent()
+
+
+def build_leader_router_user_prompt(input_text: str, rag_strategy: str) -> str:
+    return json.dumps({
+        "user_input": input_text or "",
+        "requested_rag_strategy": rag_strategy or "",
+        "allowed_rag_strategy_when_needed": rag_strategy or "按目标智能体默认策略",
+    }, ensure_ascii=False)

@@ -11,7 +11,7 @@ from app.rag.rerankers import LexicalReranker
 from app.rag.retrievers import GraphRetriever, HybridRetriever, ParentChildRetriever, VectorRetriever, java_backend_retriever
 from app.rag.routers.adaptive_router import AdaptiveRagRouter
 from app.rag.structured.text_to_sql import TextToSqlService
-from app.services.langchain_chat_service import get_chat_service
+from app.multi_agents.runtime import complete_agent_or_raise
 
 
 class TextbookKnowledgeAgent:
@@ -40,8 +40,7 @@ class TextbookKnowledgeAgent:
         return results
 
     def summarize_knowledge_points(self, topic: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
-        service = chat_service or get_chat_service()
-        return service.generate_specialist_answer("textbook_knowledge_agent", topic, evidence)
+        return complete_agent_or_raise("textbook_knowledge_agent", topic, evidence, model_provider=chat_service)
 
     def retrieve_with_meta(
         self,

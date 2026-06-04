@@ -8,7 +8,6 @@ from app.multi_agents.mind_map_agent.agent import mind_map_agent
 from app.multi_agents.ppt_agents import PPT_AGENTS
 from app.multi_agents.question_type_agents import QUESTION_TYPE_AGENTS
 from app.multi_agents.textbook_knowledge_agent.agent import textbook_knowledge_agent
-from app.services.langchain_chat_service import get_chat_service
 
 
 def call_llm_node(state: ConversationState) -> None:
@@ -35,7 +34,6 @@ def call_llm_node(state: ConversationState) -> None:
             history=state.history,
             search_keyword=state.search_keyword,
             search_results=state.matched_results,
-            chat_service=get_chat_service(),
         )
     state.trace.append({
         "stage": "answer",

@@ -1,16 +1,19 @@
 import base64
 import importlib
+import json
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.model_providers import factory as model_provider_factory
 from app.model_providers.multimodal import build_multimodal_human_content, extract_image_references
 from app.model_providers.runtime_config import LlmRuntimeConfig
-from app.services import langchain_chat_service
+from app.multi_agents import ppt_agents
 
 
 class RagApiRoutesTest(unittest.TestCase):
@@ -24,26 +27,33 @@ class RagApiRoutesTest(unittest.TestCase):
             "X-AI-Model": "test-model",
         }
         self._patched_modules = []
-        self._patch_chat_services()
+        self._old_get_qwen_image_provider = None
+        self._patch_model_providers()
+        self._patch_image_provider()
 
     def tearDown(self):
-        for module, old_get_chat_service in reversed(self._patched_modules):
-            module.get_chat_service = old_get_chat_service
+        if self._old_get_qwen_image_provider is not None:
+            image_agent_module = importlib.import_module("app.multi_agents.image_agent.agent")
+            image_agent_module.get_qwen_image_provider = self._old_get_qwen_image_provider
+        for module, old_get_chat_model_provider in reversed(self._patched_modules):
+            module.get_chat_model_provider = old_get_chat_model_provider
 
-    def _patch_chat_services(self):
+    def _patch_model_providers(self):
         module_names = [
             "app.multi_agents.leader_agent.agent",
-            "app.multi_agents.mind_map_agent.agent",
-            "app.multi_agents.textbook_knowledge_agent.agent",
-            "app.multi_agents.question_type_agents",
-            "app.multi_agents.meeting_agents",
-            "app.multi_agents.ppt_agents",
-            "app.multi_agents.image_agent.agent",
+            "app.multi_agents.runtime",
+            "app.langgraph.nodes.extract_keyword",
+            "app.rag.principles.naive_rag",
         ]
         for module_name in module_names:
             module = importlib.import_module(module_name)
-            self._patched_modules.append((module, module.get_chat_service))
-            module.get_chat_service = lambda service=FakeRagChatService(): service
+            self._patched_modules.append((module, module.get_chat_model_provider))
+            module.get_chat_model_provider = lambda provider=FakeRagModelProvider(): provider
+
+    def _patch_image_provider(self):
+        image_agent_module = importlib.import_module("app.multi_agents.image_agent.agent")
+        self._old_get_qwen_image_provider = image_agent_module.get_qwen_image_provider
+        image_agent_module.get_qwen_image_provider = lambda: FakeImageProvider()
 
     def test_list_strategies_returns_all_rag_modes(self):
         response = self.client.get("/internal/rag/strategies", headers=self.headers)
@@ -193,43 +203,43 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertIn("xiaomi", {item["name"] for item in payload["modelProviders"]})
         self.assertIn("qwen", {item["name"] for item in payload["modelProviders"]})
 
-    def test_chat_service_selects_xiaomi_provider(self):
+    def test_model_factory_selects_xiaomi_provider(self):
         class FakeXiaomiProvider:
             def __init__(self, config):
                 self.config = config
 
-        old_xiaomi_provider = langchain_chat_service.XiaomiProvider
+        old_xiaomi_provider = model_provider_factory.XiaomiProvider
         try:
-            langchain_chat_service.XiaomiProvider = FakeXiaomiProvider
-            provider = langchain_chat_service.build_chat_model_provider(LlmRuntimeConfig(
+            model_provider_factory.XiaomiProvider = FakeXiaomiProvider
+            provider = model_provider_factory.build_chat_model_provider(LlmRuntimeConfig(
                 provider="xiaomi",
                 base_url="https://api.xiaomimimo.com/v1",
                 api_key="test-key",
                 model="mimo-v2.5-pro",
             ))
         finally:
-            langchain_chat_service.XiaomiProvider = old_xiaomi_provider
+            model_provider_factory.XiaomiProvider = old_xiaomi_provider
 
         self.assertIsInstance(provider, FakeXiaomiProvider)
         self.assertEqual("mimo-v2.5-pro", provider.config.model)
 
 
-    def test_chat_service_selects_qwen_provider(self):
+    def test_model_factory_selects_qwen_provider(self):
         class FakeQwenProvider:
             def __init__(self, config):
                 self.config = config
 
-        old_qwen_provider = langchain_chat_service.QwenProvider
+        old_qwen_provider = model_provider_factory.QwenProvider
         try:
-            langchain_chat_service.QwenProvider = FakeQwenProvider
-            provider = langchain_chat_service.build_chat_model_provider(LlmRuntimeConfig(
+            model_provider_factory.QwenProvider = FakeQwenProvider
+            provider = model_provider_factory.build_chat_model_provider(LlmRuntimeConfig(
                 provider="qwen",
                 base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
                 api_key="test-key",
                 model="qwen-vl-plus",
             ))
         finally:
-            langchain_chat_service.QwenProvider = old_qwen_provider
+            model_provider_factory.QwenProvider = old_qwen_provider
 
         self.assertIsInstance(provider, FakeQwenProvider)
         self.assertEqual("qwen-vl-plus", provider.config.model)
@@ -344,7 +354,7 @@ class RagApiRoutesTest(unittest.TestCase):
 - 展示建议：封面大标题布局
 - 素材建议：主视觉插图
 """
-        normalized = langchain_chat_service._normalize_ppt_layout_answer(
+        normalized = ppt_agents.normalize_ppt_layout_answer(
             raw,
             outline,
         )
@@ -575,7 +585,7 @@ class RagApiRoutesTest(unittest.TestCase):
   - 副标题：基础概念与应用
 - **课堂互动建议：** 提问。
 """
-        normalized = langchain_chat_service._normalize_ppt_outline_answer(
+        normalized = ppt_agents.normalize_ppt_outline_answer(
             raw,
             "topic: 数据结构中的栈与队列; scene_type: academic; audience: 学生; slide_count: 6",
         )
@@ -590,8 +600,16 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertNotIn("页面内容建议", normalized)
         self.assertNotIn("课堂互动建议", normalized)
 
-class FakeRagChatService:
-    def plan_leader_intent(self, input_text, rag_strategy=""):
+class FakeRagModelProvider:
+    def complete(self, system_prompt, user_prompt):
+        if "Leader 智能体" in system_prompt:
+            payload = json.loads(user_prompt)
+            text = payload.get("user_input") or ""
+            rag_strategy = payload.get("requested_rag_strategy") or ""
+            return json.dumps(self._build_leader_plan(text, rag_strategy), ensure_ascii=False)
+        return self._specialist_answer(system_prompt)
+
+    def _build_leader_plan(self, input_text, rag_strategy=""):
         text = input_text or ""
         if "统计" in text:
             return {
@@ -626,32 +644,36 @@ class FakeRagChatService:
             "answer": f"LLM 已接入：{input_text}",
         }
 
-    def generate_specialist_answer(self, agent_name, input_text, evidence):
-        labels = {
-            "mind_map_agent": "```mermaid\nmindmap\n  root((测试思维导图))\n```",
-            "textbook_knowledge_agent": "## 教材知识点\n- 基于 LLM 整理教材知识点",
-            "textbook_question_single_choice_agent": "## 选择题\n1. 【单选题】说明核心知识点。",
-            "textbook_question_fill_blank_agent": "## 填空题\n1. 核心概念是____。",
-            "textbook_question_true_false_agent": "## 判断题\n1. 核心概念判断。",
-            "textbook_question_multiple_choice_agent": "## 多选题\n1. 【多选题】说明核心知识点。",
-            "textbook_question_short_answer_agent": "## 简答题\n1. 简述核心知识点。",
-            "textbook_question_calculation_agent": "## 计算题\n1. 计算核心指标。",
-            "textbook_question_programming_agent": "## 编程题\n1. 实现核心算法。",
-            "meeting_controller_agent": "## 会议总控\n- 当前状态：进行中",
-            "meeting_transcription_agent": "## 会议转写\n- 发言人A：测试发言",
-            "meeting_summary_agent": "## 会议总结\n- 主要结论：测试结论",
-            "meeting_member_analysis_agent": "## 成员分析\n- 成员A：参与积极",
-            "meeting_resource_recommendation_agent": "## 资源推荐\n- 成员A：推荐复习资料",
-            "meeting_voice_broadcast_agent": "## 语音播报稿\n请大家关注会议结论。",
-            "ppt_outline_agent": """## PPT 大纲
+    def _specialist_answer(self, system_prompt):
+        if "思维导图智能体" in system_prompt:
+            return "```mermaid\nmindmap\n  root((测试思维导图))\n```"
+        if "教材知识点智能体" in system_prompt:
+            return "## 教材知识点\n- 基于 LLM 整理教材知识点"
+        if "选择题智能体" in system_prompt or "填空题智能体" in system_prompt or "判断题智能体" in system_prompt or "多选题智能体" in system_prompt or "简答题智能体" in system_prompt or "计算题智能体" in system_prompt or "编程题智能体" in system_prompt:
+            return json.dumps({"questions": [{"question": "测试题", "answer": "A", "explanation": "测试解析"}]}, ensure_ascii=False)
+        if "会议总控智能体" in system_prompt:
+            return "## 会议总控\n- 当前状态：进行中"
+        if "语音转写智能体" in system_prompt:
+            return "## 会议转写\n- 发言人A：测试发言"
+        if "会议总结智能体" in system_prompt:
+            return "## 会议总结\n- 主要结论：测试结论"
+        if "成员分析智能体" in system_prompt:
+            return "## 成员分析\n- 成员A：参与积极"
+        if "资源推荐智能体" in system_prompt:
+            return "## 资源推荐\n- 成员A：推荐复习资料"
+        if "语音播报智能体" in system_prompt:
+            return "## 语音播报稿\n请大家关注会议结论。"
+        if "PPT 大纲智能体" in system_prompt:
+            return """## PPT 大纲
 ### 第 1 页：课程导入
 - **页标题：** 数据结构中的栈与队列
 - **讲解目标：** 说明主题。
 - **页面内容建议：**
   - 主标题：数据结构中的栈与队列
   - 副标题：课程导入
-- **课堂互动建议：** 提问。""",
-            "ppt_layout_agent": """## PPT 布局方案
+- **课堂互动建议：** 提问。"""
+        if "PPT 布局智能体" in system_prompt:
+            return """## PPT 布局方案
 ### 第 1 页：封面布局
 - 版式类型：封面布局
 - 标题区：页面上方居中标题
@@ -659,20 +681,62 @@ class FakeRagChatService:
 - 图表/图片区：背景示意图
 - 视觉层级：标题最强
 - 留白：四周留白充足
-- 讲解动线：从标题到副标题到背景图""",
-            "ppt_review_agent": "## PPT 审查报告\n置信度评分：86/100",
-            "ppt_image_agent": "## PPT 图片提示词\n### 封面图",
-            "image_agent": "## 图片智能体提示词\n主题：教学配图",
-        }
-        answer = labels.get(agent_name, f"{agent_name}: {input_text}")
-        if agent_name == "ppt_outline_agent":
-            return langchain_chat_service._normalize_ppt_outline_answer(answer, input_text)
-        if agent_name == "ppt_layout_agent":
-            return langchain_chat_service._normalize_ppt_layout_answer(answer, input_text)
-        return answer
+- 讲解动线：从标题到副标题到背景图"""
+        if "PPT 审查智能体" in system_prompt:
+            return "## PPT 审查报告\n置信度评分：86/100"
+        if "PPT 图片智能体" in system_prompt:
+            return "## PPT 图片提示词\n### 封面图"
+        if "`image_agent`" in system_prompt or "图片智能体" in system_prompt:
+            return "中文提示词：测试教学配图\nEnglish prompt: test educational image"
+        return "测试回答"
 
     def extract_search_keyword(self, input_text):
         return "测试关键词"
+
+    def answer(self, prompt, input_text, history, search_keyword, search_results):
+        return f"已检索到{len(search_results or [])}条候选，关键词={search_keyword}"
+
+    def stream_complete(self, system_prompt, user_prompt):
+        yield self.complete(system_prompt, user_prompt)
+
+
+class FakeImageProvider:
+    def generate(self, request):
+        return SimpleNamespace(model_dump=lambda: {
+            "taskId": "fake-image-task",
+            "providerTaskId": "fake-provider-task",
+            "mode": "single",
+            "status": "success",
+            "prompt": request.prompt,
+            "style": request.style,
+            "size": request.size,
+            "count": 1,
+            "seed": request.seed,
+            "negativePrompt": request.negativePrompt,
+            "images": [{"index": 0, "url": "https://example.com/fake.png", "status": "success"}],
+            "message": "测试图片生成成功",
+            "metadata": request.metadata,
+        })
+
+    def batch(self, request):
+        return SimpleNamespace(model_dump=lambda: {
+            "taskId": "fake-image-batch-task",
+            "providerTaskId": "fake-provider-batch-task",
+            "mode": "batch",
+            "status": "success",
+            "prompt": request.prompt,
+            "style": request.style,
+            "size": request.size,
+            "count": len(request.prompts or []),
+            "seed": request.seed,
+            "negativePrompt": request.negativePrompt,
+            "images": [
+                {"index": index, "url": f"https://example.com/fake-{index}.png", "status": "success"}
+                for index, _ in enumerate(request.prompts or [])
+            ],
+            "message": "测试批量图片生成成功",
+            "metadata": request.metadata,
+        })
 
 
 if __name__ == "__main__":

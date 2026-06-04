@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 from app.image_generation import get_qwen_image_provider
 from app.models.image_generation import ImageBatchRequest, ImageGenerationRequest
 from app.model_providers.runtime_config import get_active_llm_config
-from app.services.langchain_chat_service import get_chat_service
+from app.multi_agents.runtime import complete_agent_or_raise
 
 
 class ImageAgent:
@@ -63,7 +63,6 @@ class ImageAgent:
 
     def _enhance_prompt(self, topic: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
         normalized_topic = (topic or "").strip()
-        service = chat_service or get_chat_service()
         instruction = (
             "请根据用户输入和检索证据，生成一个可直接用于 Qwen 文生图模型的高质量图片提示词。"
             "要求先给中文提示词，再给英文提示词；包含主体、场景、构图、风格、色彩、用途和需要避免的元素。"
@@ -71,7 +70,7 @@ class ImageAgent:
             f"{normalized_topic}\n\n证据摘要：{self._evidence_summary(evidence)}"
         )
         try:
-            prompt = service.generate_specialist_answer(self.name, instruction, evidence)
+            prompt = complete_agent_or_raise(self.name, instruction, evidence, model_provider=chat_service)
         except Exception:
             prompt = ""
         prompt = self._strip_markdown_fence(prompt)

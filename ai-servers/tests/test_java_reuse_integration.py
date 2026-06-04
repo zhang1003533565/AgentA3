@@ -9,7 +9,6 @@ from app.services.data_store import data_store  # noqa: E402
 from app.models.schemas import ChatRequest  # noqa: E402
 from app.services import chat_orchestrator  # noqa: E402
 from app.langgraph.nodes import extract_keyword as extract_keyword_node_module  # noqa: E402
-from app.langgraph.nodes import call_llm as call_llm_node_module  # noqa: E402
 from app.model_providers.runtime_config import LlmRuntimeConfig, reset_active_llm_config, set_active_llm_config  # noqa: E402
 
 
@@ -100,17 +99,24 @@ class FakeJavaHandler(BaseHTTPRequestHandler):
 
 
 class FakeLLM:
-    def plan_leader_intent(self, input_text, rag_strategy=""):
-        return {
-            "intent": "campus_search",
-            "target_agent": "textbook_knowledge_agent",
-            "need_retrieval": True,
-            "rag_strategy": rag_strategy or "naive_rag",
-            "action": "delegate_agent",
-            "tool_name": "",
-            "route_reason": "测试 LLM 路由到教材知识点智能体。",
-            "answer": "",
-        }
+    def complete(self, system_prompt, user_prompt):
+        if "Leader 智能体" in system_prompt:
+            payload = json.loads(user_prompt)
+            input_text = payload.get("user_input") or ""
+            rag_strategy = payload.get("requested_rag_strategy") or ""
+            return json.dumps({
+                "intent": "campus_search",
+                "target_agent": "textbook_knowledge_agent",
+                "need_retrieval": True,
+                "rag_strategy": rag_strategy or "naive_rag",
+                "action": "delegate_agent",
+                "tool_name": "",
+                "route_reason": "测试 LLM 路由到教材知识点智能体。",
+                "answer": "",
+            }, ensure_ascii=False)
+        if "思维导图智能体" in system_prompt:
+            return "```mermaid\nmindmap\n  root((操作系统进程调度))\n```"
+        return "textbook_knowledge_agent: 已生成，证据数=1"
 
     def extract_search_keyword(self, input_text):
         return "黄焖鸡"
@@ -118,11 +124,8 @@ class FakeLLM:
     def answer(self, prompt, input_text, history, search_keyword, search_results):
         return f"已检索到{len(search_results)}条候选，关键词={search_keyword}"
 
-    def generate_specialist_answer(self, agent_name, input_text, evidence):
-        if agent_name == "mind_map_agent":
-            return "```mermaid\nmindmap\n  root((操作系统进程调度))\n```"
-        return f"{agent_name}: 已生成，证据数={len(evidence or [])}"
-
+    def stream_complete(self, system_prompt, user_prompt):
+        yield self.complete(system_prompt, user_prompt)
 
 class JavaReuseIntegrationTest(unittest.TestCase):
     @classmethod
@@ -149,27 +152,26 @@ class JavaReuseIntegrationTest(unittest.TestCase):
             model="test-model",
         ))
         self._patched_modules = []
-        self._patch_chat_services()
+        self._patch_model_providers()
 
     def tearDown(self):
-        for module, old_get_chat_service in reversed(self._patched_modules):
-            module.get_chat_service = old_get_chat_service
+        for module, old_get_chat_model_provider in reversed(self._patched_modules):
+            module.get_chat_model_provider = old_get_chat_model_provider
         reset_active_llm_config(self._llm_token)
 
-    def _patch_chat_services(self):
+    def _patch_model_providers(self):
         leader_agent_module = importlib.import_module("app.multi_agents.leader_agent.agent")
-        mind_map_agent_module = importlib.import_module("app.multi_agents.mind_map_agent.agent")
-        textbook_agent_module = importlib.import_module("app.multi_agents.textbook_knowledge_agent.agent")
+        runtime_module = importlib.import_module("app.multi_agents.runtime")
+        naive_rag_module = importlib.import_module("app.rag.principles.naive_rag")
 
         for module in (
             extract_keyword_node_module,
-            call_llm_node_module,
             leader_agent_module,
-            mind_map_agent_module,
-            textbook_agent_module,
+            runtime_module,
+            naive_rag_module,
         ):
-            self._patched_modules.append((module, module.get_chat_service))
-            module.get_chat_service = lambda service=FakeLLM(): service
+            self._patched_modules.append((module, module.get_chat_model_provider))
+            module.get_chat_model_provider = lambda provider=FakeLLM(): provider
 
     def test_search_keyword_via_java_apis(self):
         results = data_store.search_keyword("Bearer t", "黄焖鸡")

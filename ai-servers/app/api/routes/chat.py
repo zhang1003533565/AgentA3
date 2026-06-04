@@ -6,8 +6,8 @@ from fastapi.responses import StreamingResponse
 
 from app.models.schemas import ChatRequest, ChatResponse
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
+from app.multi_agents.runtime import stream_agent
 from app.services.chat_orchestrator import resolve_user_id, run_chat_core
-from app.services.langchain_chat_service import get_chat_service
 from app.utils.logger import get_logger, mask_id
 from app.utils.sse import build_sse, chunk_answer
 
@@ -96,8 +96,7 @@ async def internal_chat_stream(
                         "matchedResults": [],
                         "retrievalMeta": {"streamingDirect": True},
                     })
-                    service = get_chat_service()
-                    for chunk in service.stream_specialist_answer(request.agentName, request.input, []):
+                    for chunk in stream_agent(request.agentName, request.input, []):
                         answer_parts.append(chunk)
                         yield build_sse("delta", {"content": chunk})
                         await asyncio.sleep(0)
