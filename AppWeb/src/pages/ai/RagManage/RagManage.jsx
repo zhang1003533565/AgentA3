@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button, Card, Col, Collapse, Empty, Form, Image, Input, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
-import { ApiOutlined, BranchesOutlined, DatabaseOutlined, DownloadOutlined, ExperimentOutlined, FileTextOutlined, PlayCircleOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons'
+import { ApiOutlined, BranchesOutlined, DatabaseOutlined, DownloadOutlined, ExperimentOutlined, FileTextOutlined, PlayCircleOutlined, ReloadOutlined, SaveOutlined, UploadOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import {
   convertPdf,
@@ -18,13 +18,14 @@ import {
   ingestRagDocuments,
   runRagQuery,
 } from '../../../api/rag'
-import { getSystemConfigList } from '../../../api/systemConfig'
+import { getSystemConfigList, upsertSystemConfig } from '../../../api/systemConfig'
 import './RagManage.css'
 
 const { TextArea } = Input
 const { Text, Title } = Typography
 // 匹配所有 AI 服务配置（文本、图片、视频、语音）
 const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.(text|image|video|audio)(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
+const AGENT_MODEL_BINDING_PATTERN = /^ai\.agent-bindings\.([A-Za-z0-9_-]+)\.model$/
 const AI_TESTED_MODEL_PREFIXES_KEY = 'ai_tested_model_prefixes_v1'
 const AI_TESTED_MODEL_IDS_KEY = 'ai_tested_model_ids_v1'
 const MODEL_MODALITY_LABELS = {
@@ -190,6 +191,19 @@ const buildLlmModelOptions = (configRows = []) => {
         isDefault,
       }
     })
+}
+
+const buildAgentModelBindings = (configRows = []) => {
+  const bindings = {}
+  configRows.forEach((item) => {
+    const match = String(item.configKey || '').match(AGENT_MODEL_BINDING_PATTERN)
+    if (!match) return
+    const model = String(item.configValue || '').trim()
+    if (model) {
+      bindings[match[1]] = model
+    }
+  })
+  return bindings
 }
 
 const executionModeLabels = {
@@ -361,6 +375,7 @@ function RagManage() {
   const [convertResult, setConvertResult] = useState(null)
   const [convertLoading, setConvertLoading] = useState(false)
   const [llmModelOptions, setLlmModelOptions] = useState([])
+  const [agentModelBindings, setAgentModelBindings] = useState({})
   const [queryForm] = Form.useForm()
   const [ingestForm] = Form.useForm()
   const [convertForm] = Form.useForm()
@@ -389,10 +404,32 @@ function RagManage() {
     ]
   }
 
-  const getModelOptionsForAgent = (agent) => {
+  const getModelOptionsForAgent = useCallback((agent) => {
     const required = getAgentRequiredModelModalities(agent)
     return llmModelOptions.filter((option) => required.includes(option.modality))
-  }
+  }, [llmModelOptions])
+
+  const getAgentBoundModel = useCallback((agentName) => {
+    const name = agentName || 'leader_agent'
+    return agentModelBindings[name] || ''
+  }, [agentModelBindings])
+
+  const getDefaultModelForAgent = useCallback((agent) => {
+    const modelOptions = getModelOptionsForAgent(agent)
+    const boundModel = getAgentBoundModel(agent?.name)
+    if (boundModel && modelOptions.some((option) => option.value === boundModel)) {
+      return boundModel
+    }
+    return ''
+  }, [getAgentBoundModel, getModelOptionsForAgent])
+
+  const applyAgentDefaultModel = useCallback((form, agentName) => {
+    const selectedAgent = agents.find((item) => item.name === agentName) || (agentName === 'leader_agent' ? { name: 'leader_agent' } : null)
+    form.setFieldsValue({
+      ragStrategy: '',
+      llmModel: getDefaultModelForAgent(selectedAgent) || undefined,
+    })
+  }, [agents, getDefaultModelForAgent])
 
   const agentOptions = useMemo(
     () => [
@@ -423,13 +460,36 @@ function RagManage() {
     if (!agent) return
     agentTestForm.setFieldsValue({
       agentName: agent.name,
-      llmModel: undefined,
+      llmModel: getDefaultModelForAgent(agent) || undefined,
       ragStrategy: getAgentNeedsRetrieval(agent)
         ? agent.invokeExample?.ragStrategy || agent.defaultRagStrategy || ''
         : '',
       input: getAgentExampleInput(agent),
     })
-  }, [agentTestForm, getAgentExampleInput])
+  }, [agentTestForm, getAgentExampleInput, getDefaultModelForAgent])
+
+  const saveAgentModelBinding = async (agentName, modelValue) => {
+    const selectedAgentName = agentName || 'leader_agent'
+    const selectedModel = String(modelValue || '').trim()
+    if (!selectedModel) {
+      message.warning('请先选择要绑定的模型')
+      return
+    }
+    try {
+      await upsertSystemConfig({
+        configKey: `ai.agent-bindings.${selectedAgentName}.model`,
+        configValue: selectedModel,
+        configGroup: 'ai',
+        description: `智能体 ${selectedAgentName} 默认模型绑定`,
+        status: 1,
+        isDefault: 0,
+      })
+      setAgentModelBindings((prev) => ({ ...prev, [selectedAgentName]: selectedModel }))
+      message.success('已保存为该智能体默认模型')
+    } catch (error) {
+      message.error(error.message || '默认模型保存失败')
+    }
+  }
 
   const refresh = async () => {
     if (refreshPromiseRef.current) {
@@ -459,7 +519,7 @@ function RagManage() {
           getRagEmbeddingHealth(),
           getRagGraphStoreHealth(),
           getTextToSqlSchema(),
-          getSystemConfigList({ current: 1, size: 500, prefixes: 'ai.service.' }),
+          getSystemConfigList({ current: 1, size: 500, prefixes: 'ai.service.,ai.agent-bindings.' }),
         ])
         setStrategies(strategyRes.data?.strategies || [])
         setCapabilities(capabilityRes.data || null)
@@ -473,7 +533,9 @@ function RagManage() {
           graph: graphHealthRes.data,
         })
         setSqlSchema(schemaRes.data?.schema || null)
-        setLlmModelOptions(buildLlmModelOptions(aiConfigRes.data?.records || []))
+        const configRows = aiConfigRes.data?.records || []
+        setLlmModelOptions(buildLlmModelOptions(configRows))
+        setAgentModelBindings(buildAgentModelBindings(configRows))
       } catch (error) {
         message.error(error.message || '加载 RAG 管理数据失败')
       } finally {
@@ -495,6 +557,16 @@ function RagManage() {
     fillAgentTestForm(leader)
   }, [agents, agentTestForm, fillAgentTestForm])
 
+  useEffect(() => {
+    const agentName = queryForm.getFieldValue('agentName') || 'leader_agent'
+    if (queryForm.getFieldValue('llmModel')) return
+    const selectedAgent = agents.find((item) => item.name === agentName) || (agentName === 'leader_agent' ? { name: 'leader_agent' } : null)
+    const defaultModel = getDefaultModelForAgent(selectedAgent)
+    if (defaultModel) {
+      queryForm.setFieldsValue({ llmModel: defaultModel })
+    }
+  }, [agents, agentModelBindings, llmModelOptions, getDefaultModelForAgent, queryForm])
+
   const handleQuery = async (values) => {
     setActionLoading(true)
     setQueryError('')
@@ -508,7 +580,7 @@ function RagManage() {
         intent: values.intent || 'campus_search',
         ragStrategy: canUseRagStrategy ? values.ragStrategy || undefined : undefined,
         agentName: selectedAgentName,
-        llmModel: values.llmModel || undefined,
+        llmModel: values.llmModel || getAgentBoundModel(selectedAgentName) || undefined,
         metadata: {},
       })
       setQueryResult(res.data)
@@ -660,7 +732,7 @@ function RagManage() {
         ? values.ragStrategy || agent.defaultRagStrategy || undefined
         : undefined,
       agentName: agent.name,
-      llmModel: values.llmModel || undefined,
+      llmModel: values.llmModel || getAgentBoundModel(agent.name) || undefined,
       metadata: {
         testFrom: 'admin_agent_console',
         agentRole: agent.role,
@@ -843,7 +915,7 @@ function RagManage() {
                   <Select
                     options={agentOptions}
                     placeholder="Leader 自动路由"
-                    onChange={() => queryForm.setFieldsValue({ ragStrategy: '', llmModel: undefined })}
+                    onChange={(value) => applyAgentDefaultModel(queryForm, value)}
                   />
                 </Form.Item>
                 <Form.Item
@@ -871,18 +943,32 @@ function RagManage() {
                           />
                         ) : null}
                         <Form.Item
-                          name="llmModel"
                           label="模型"
-                          extra={`只显示已测试成功的${getAgentModelRequirementText(selectedAgent)}模型。`}
-                          rules={[{ required: true, message: '请选择模型' }]}
+                          extra={getAgentBoundModel(getFieldValue('agentName'))
+                            ? '已绑定默认模型；更换后点击保存会更新该智能体下次默认使用的模型。'
+                            : `只显示已测试成功的${getAgentModelRequirementText(selectedAgent)}模型。`}
                         >
-                          <Select
-                            options={modelOptions}
-                            placeholder={modelOptions.length ? '请选择模型' : '没有匹配的已测试模型'}
-                            showSearch
-                            optionFilterProp="label"
-                            disabled={!modelOptions.length}
-                          />
+                          <Space.Compact className="rag-full">
+                            <Form.Item name="llmModel" noStyle rules={[{ required: true, message: '请选择模型' }]}>
+                              <Select
+                                options={modelOptions}
+                                placeholder={modelOptions.length ? '请选择模型' : '没有匹配的已测试模型'}
+                                showSearch
+                                optionFilterProp="label"
+                                disabled={!modelOptions.length}
+                              />
+                            </Form.Item>
+                            <Button
+                              icon={<SaveOutlined />}
+                              disabled={!modelOptions.length}
+                              onClick={() => saveAgentModelBinding(
+                                getFieldValue('agentName') || 'leader_agent',
+                                queryForm.getFieldValue('llmModel'),
+                              )}
+                            >
+                              保存默认
+                            </Button>
+                          </Space.Compact>
                         </Form.Item>
                       </>
                     )
@@ -1210,18 +1296,32 @@ function RagManage() {
                             />
                           ) : null}
                           <Form.Item
-                            name="llmModel"
                             label="模型"
-                            extra={`只显示已测试成功的${getAgentModelRequirementText(selectedAgent)}模型。`}
-                            rules={[{ required: true, message: '请选择模型' }]}
+                            extra={getAgentBoundModel(getFieldValue('agentName'))
+                              ? '已绑定默认模型；更换后点击保存会更新该智能体下次默认使用的模型。'
+                              : `只显示已测试成功的${getAgentModelRequirementText(selectedAgent)}模型。`}
                           >
-                          <Select
-                            options={modelOptions}
-                            placeholder={modelOptions.length ? `请选择${getAgentModelRequirementText(selectedAgent)}模型` : '没有匹配的已测试模型'}
-                            showSearch
-                            optionFilterProp="label"
-                            disabled={!modelOptions.length}
-                          />
+                          <Space.Compact className="rag-full">
+                            <Form.Item name="llmModel" noStyle rules={[{ required: true, message: '请选择模型' }]}>
+                              <Select
+                                options={modelOptions}
+                                placeholder={modelOptions.length ? `请选择${getAgentModelRequirementText(selectedAgent)}模型` : '没有匹配的已测试模型'}
+                                showSearch
+                                optionFilterProp="label"
+                                disabled={!modelOptions.length}
+                              />
+                            </Form.Item>
+                            <Button
+                              icon={<SaveOutlined />}
+                              disabled={!modelOptions.length}
+                              onClick={() => saveAgentModelBinding(
+                                getFieldValue('agentName'),
+                                agentTestForm.getFieldValue('llmModel'),
+                              )}
+                            >
+                              保存默认
+                            </Button>
+                          </Space.Compact>
                           </Form.Item>
                         </>
                       )

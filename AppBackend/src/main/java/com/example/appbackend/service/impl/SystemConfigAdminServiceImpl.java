@@ -59,6 +59,7 @@ import java.util.Iterator;
 public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
     private static final int VISION_IMAGE_MAX_BYTES = 4 * 1024 * 1024;
     private static final String XFYUN_DEFAULT_WEBSOCKET_URL = "wss://office-api-ast-dx.iflyaisol.com/ast/communicate/v1";
     private static final String XFYUN_DEFAULT_LANG = "autodialect";
@@ -131,10 +132,13 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
 
     @Override
     public void delete(Long id) {
-        if (!systemConfigRepository.existsById(id)) {
-            throw new BusinessException(404, "配置不存在");
-        }
+        SystemConfig config = systemConfigRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(404, "配置不存在"));
+        String aiServicePrefix = resolveAiServiceConfigPrefix(config.getConfigKey());
         systemConfigRepository.deleteById(id);
+        if (aiServicePrefix != null) {
+            clearAgentModelBindings(aiServicePrefix);
+        }
     }
 
     @Override
@@ -238,6 +242,28 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
         config.setStatus(1);
         config.setIsDefault(0);
         systemConfigRepository.save(config);
+    }
+
+    private String resolveAiServiceConfigPrefix(String configKey) {
+        if (configKey == null || !configKey.startsWith("ai.service.")) {
+            return null;
+        }
+        for (String suffix : List.of(".provider", ".base-url", ".api-key", ".model")) {
+            if (configKey.endsWith(suffix)) {
+                return configKey.substring(0, configKey.length() - suffix.length());
+            }
+        }
+        return null;
+    }
+
+    private void clearAgentModelBindings(String aiServicePrefix) {
+        List<SystemConfig> bindings = systemConfigRepository.findByConfigKeyStartingWith(AGENT_MODEL_BINDING_PREFIX)
+                .stream()
+                .filter(item -> aiServicePrefix.equals(trim(item.getConfigValue())))
+                .toList();
+        if (!bindings.isEmpty()) {
+            systemConfigRepository.deleteAll(bindings);
+        }
     }
 
     private SystemConfigDTO.TestResultVO testVisionUnderstandingModel(SystemConfigDTO.AiModelTestRequest req,

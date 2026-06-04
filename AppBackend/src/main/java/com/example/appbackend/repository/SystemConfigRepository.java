@@ -14,4 +14,6 @@ public interface SystemConfigRepository extends JpaRepository<SystemConfig, Long
     Optional<SystemConfig> findByConfigKey(String configKey);
 
     List<SystemConfig> findByConfigKeyStartingWithAndStatus(String configKeyPrefix, Integer status);
+
+    List<SystemConfig> findByConfigKeyStartingWith(String configKeyPrefix);
 }

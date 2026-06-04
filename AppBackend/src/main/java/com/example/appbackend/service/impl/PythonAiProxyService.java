@@ -32,6 +32,8 @@ import java.util.concurrent.CompletableFuture;
 @Service
 public class PythonAiProxyService {
     private static final Logger log = LoggerFactory.getLogger(PythonAiProxyService.class);
+    private static final String DEFAULT_AGENT_NAME = "leader_agent";
+    private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
 
     private final WebClient.Builder webClientBuilder;
     private final ObjectMapper objectMapper;
@@ -61,11 +63,12 @@ public class PythonAiProxyService {
         validateAuthorization(authorization);
         String token = normalizeBearerToken(authorization);
         Long userId = extractUserId(token);
+        String requestedModel = resolveRequestedModel(request.getLlmModel(), request.getAgentName());
         try {
             return webClientBuilder.build()
                     .post()
                     .uri(buildUri("/internal/chat"))
-                    .headers(headers -> applyPythonHeaders(headers, authorization, userId, request.getLlmModel()))
+                    .headers(headers -> applyPythonHeaders(headers, authorization, userId, requestedModel))
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(request)
                     .retrieve()
@@ -232,6 +235,7 @@ public class PythonAiProxyService {
         validateAuthorization(authorization);
         String token = normalizeBearerToken(authorization);
         Long userId = extractUserId(token);
+        String requestedModel = resolveRequestedModel(request.getLlmModel(), request.getAgentName());
 
         SseEmitter emitter = new SseEmitter(0L);
         CompletableFuture.runAsync(() -> {
@@ -240,7 +244,7 @@ public class PythonAiProxyService {
                 webClientBuilder.build()
                         .post()
                         .uri(buildUri("/internal/chat/stream"))
-                        .headers(headers -> applyPythonHeaders(headers, authorization, userId, request.getLlmModel()))
+                        .headers(headers -> applyPythonHeaders(headers, authorization, userId, requestedModel))
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .contentType(MediaType.APPLICATION_JSON)
                         .bodyValue(request)
@@ -499,7 +503,7 @@ public class PythonAiProxyService {
 
     private String resolveRequestedModel(Map<String, Object> request) {
         if (request == null || request.isEmpty()) {
-            return null;
+            return resolveAgentBoundModel(null);
         }
         Object llmModel = request.get("llmModel");
         if (llmModel != null && StringUtils.hasText(String.valueOf(llmModel))) {
@@ -509,7 +513,22 @@ public class PythonAiProxyService {
         if (xAiModel != null && StringUtils.hasText(String.valueOf(xAiModel))) {
             return String.valueOf(xAiModel).trim();
         }
-        return null;
+        Object agentName = request.get("agentName");
+        return resolveAgentBoundModel(agentName == null ? null : String.valueOf(agentName));
+    }
+
+    private String resolveRequestedModel(String requestedModel, String agentName) {
+        if (StringUtils.hasText(requestedModel)) {
+            return requestedModel.trim();
+        }
+        return resolveAgentBoundModel(agentName);
+    }
+
+    private String resolveAgentBoundModel(String agentName) {
+        String normalizedAgent = StringUtils.hasText(agentName) ? agentName.trim() : DEFAULT_AGENT_NAME;
+        String key = AGENT_MODEL_BINDING_PREFIX + normalizedAgent + ".model";
+        String value = systemConfigService.getValue(key, "");
+        return StringUtils.hasText(value) ? value.trim() : null;
     }
 
     private Map<String, Object> sanitizeRagRequest(Map<String, Object> request) {
