@@ -430,13 +430,20 @@ function RagManage() {
     return ''
   }, [getAgentBoundModel, getModelOptionsForAgent])
 
+  const getAgentExampleInput = useCallback((agent) => (
+    agent?.invokeExample?.input ||
+    agentExampleInputs[agent?.name] ||
+    `请使用${agent?.role || '智能体'}处理这段课程内容`
+  ), [])
+
   const applyAgentDefaultModel = useCallback((form, agentName) => {
     const selectedAgent = agents.find((item) => item.name === agentName) || (agentName === 'leader_agent' ? { name: 'leader_agent' } : null)
     form.setFieldsValue({
       ragStrategy: '',
       llmModel: getDefaultModelForAgent(selectedAgent) || undefined,
+      input: selectedAgent ? getAgentExampleInput(selectedAgent) : undefined,
     })
-  }, [agents, getDefaultModelForAgent])
+  }, [agents, getAgentExampleInput, getDefaultModelForAgent])
 
   const agentOptions = useMemo(
     () => [
@@ -456,12 +463,6 @@ function RagManage() {
     })),
     [agents]
   )
-
-  const getAgentExampleInput = useCallback((agent) => (
-    agent?.invokeExample?.input ||
-    agentExampleInputs[agent?.name] ||
-    `请使用${agent?.role || '智能体'}处理这段课程内容`
-  ), [])
 
   const fillAgentTestForm = useCallback((agent) => {
     if (!agent) return
@@ -586,13 +587,21 @@ function RagManage() {
 
   useEffect(() => {
     const agentName = queryForm.getFieldValue('agentName') || 'leader_agent'
-    if (queryForm.getFieldValue('llmModel')) return
     const selectedAgent = agents.find((item) => item.name === agentName) || (agentName === 'leader_agent' ? { name: 'leader_agent' } : null)
-    const defaultModel = getDefaultModelForAgent(selectedAgent)
-    if (defaultModel) {
-      queryForm.setFieldsValue({ llmModel: defaultModel })
+    const nextValues = {}
+    if (!queryForm.getFieldValue('llmModel')) {
+      const defaultModel = getDefaultModelForAgent(selectedAgent)
+      if (defaultModel) {
+        nextValues.llmModel = defaultModel
+      }
     }
-  }, [agents, agentModelBindings, llmModelOptions, getDefaultModelForAgent, queryForm])
+    if (!queryForm.getFieldValue('input') && selectedAgent) {
+      nextValues.input = getAgentExampleInput(selectedAgent)
+    }
+    if (Object.keys(nextValues).length) {
+      queryForm.setFieldsValue(nextValues)
+    }
+  }, [agents, agentModelBindings, llmModelOptions, getAgentExampleInput, getDefaultModelForAgent, queryForm])
 
   const handleQuery = async (values) => {
     setActionLoading(true)
@@ -1030,8 +1039,32 @@ function RagManage() {
                 <Form.Item name="keyword" label="检索关键词">
                   <Input allowClear placeholder="可空，默认由问题推断" />
                 </Form.Item>
-                <Form.Item name="input" label="用户问题" rules={[{ required: true, message: '请输入用户问题' }]}>
+                <Form.Item
+                  name="input"
+                  label="用户问题"
+                  extra="这里会自动读取当前智能体的 example_input.md，编辑后可保存为下次默认示例。"
+                  rules={[{ required: true, message: '请输入用户问题' }]}
+                >
                   <TextArea rows={5} placeholder="例如：统计食堂优惠券数量 / 校园卡补办在哪里？" />
+                </Form.Item>
+                <Form.Item
+                  noStyle
+                  shouldUpdate={(prev, next) => prev.agentName !== next.agentName || prev.input !== next.input}
+                >
+                  {({ getFieldValue }) => (
+                    <Button
+                      className="rag-agent-example-save"
+                      icon={<SaveOutlined />}
+                      onClick={() => saveAgentExampleInput(
+                        getFieldValue('agentName') || 'leader_agent',
+                        getFieldValue('input'),
+                        { updateTestForm: false },
+                      )}
+                      block
+                    >
+                      保存为当前智能体示例输入
+                    </Button>
+                  )}
                 </Form.Item>
                 <Button type="primary" htmlType="submit" icon={<PlayCircleOutlined />} loading={actionLoading} block>
                   执行智能体
