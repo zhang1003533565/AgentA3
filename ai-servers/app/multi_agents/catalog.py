@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from fastapi import HTTPException
+
 from app.rag.core import RAG_STRATEGY_SPECS
 
 
@@ -8,6 +10,7 @@ ALL_RAG_STRATEGIES = sorted(RAG_STRATEGY_SPECS.keys())
 TEXT_MODEL_MODALITY = ["text"]
 IMAGE_MODEL_MODALITY = ["image"]
 VIDEO_MODEL_MODALITY = ["video"]
+EXAMPLE_INPUT_FILENAME = "example_input.md"
 
 QUESTION_AGENT_SPECS = {
     "textbook_question_single_choice_agent": ("选择题智能体", "single_choice", "生成单选题、选项、正确答案和解析。", "生成 5 道数据结构栈与队列的选择题"),
@@ -266,6 +269,20 @@ def get_agent_detail(agent_name: str) -> Optional[Dict[str, Any]]:
     return _build_agent(agent_name, include_documents=True)
 
 
+def update_agent_example_input(agent_name: str, content: str) -> Dict[str, Any]:
+    normalized = normalize_agent_name(agent_name)
+    if not normalized or normalized not in AGENT_PROFILES:
+        raise HTTPException(status_code=404, detail="智能体不存在")
+    value = (content or "").strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="示例输入不能为空")
+    if len(value) > 12000:
+        raise HTTPException(status_code=400, detail="示例输入最多 12000 字符")
+    path = _agent_dir(normalized) / EXAMPLE_INPUT_FILENAME
+    path.write_text(value + "\n", encoding="utf-8")
+    return _build_agent(normalized, include_documents=True)
+
+
 def normalize_agent_name(agent_name: Optional[str]) -> Optional[str]:
     value = (agent_name or "").strip()
     if not value:
@@ -283,6 +300,8 @@ def get_agent_profile(agent_name: Optional[str]) -> Optional[Dict[str, Any]]:
 def _build_agent(agent_name: str, include_documents: bool) -> Dict[str, Any]:
     agent_dir = _agent_dir(agent_name)
     profile = dict(AGENT_PROFILES[agent_name])
+    fallback_example_input = profile.get("exampleInput", f"请使用{profile['role']}处理这段课程内容")
+    example_input = _read_example_input(agent_dir, fallback_example_input)
     payload: Dict[str, Any] = {
         "name": agent_name,
         "role": profile["role"],
@@ -299,7 +318,7 @@ def _build_agent(agent_name: str, include_documents: bool) -> Dict[str, Any]:
         "requiredModelModalities": profile.get("requiredModelModalities", TEXT_MODEL_MODALITY),
         "aliases": profile["aliases"],
         "invokeExample": {
-            "input": profile.get("exampleInput", f"请使用{profile['role']}处理这段课程内容"),
+            "input": example_input,
             "agentName": agent_name,
             **(
                 {"executionMode": "leader_orchestration"}
@@ -319,6 +338,7 @@ def _build_agent(agent_name: str, include_documents: bool) -> Dict[str, Any]:
             "prompt": str(agent_dir / "prompt.md"),
             "contract": str(agent_dir / "contract.md"),
             "tools": str(agent_dir / "tools.yaml"),
+            "exampleInput": str(agent_dir / EXAMPLE_INPUT_FILENAME),
         },
     }
     if include_documents:
@@ -328,6 +348,7 @@ def _build_agent(agent_name: str, include_documents: bool) -> Dict[str, Any]:
             "contract": _read_text(agent_dir / "contract.md"),
             "tools": _read_text(agent_dir / "tools.yaml"),
             "readme": _read_text(agent_dir / "README.md"),
+            "exampleInput": example_input,
         }
     return payload
 
@@ -340,3 +361,8 @@ def _read_text(path: Path) -> str:
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8", errors="ignore")
+
+
+def _read_example_input(agent_dir: Path, fallback: str) -> str:
+    value = _read_text(agent_dir / EXAMPLE_INPUT_FILENAME).strip()
+    return value or fallback

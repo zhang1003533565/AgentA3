@@ -17,7 +17,7 @@ from app.models.schemas import (
 )
 from app.model_providers.multimodal import append_image_references_to_text, collect_request_image_references
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
-from app.multi_agents.catalog import AGENT_ORDER, get_agent_catalog, get_agent_detail, get_agent_profile, normalize_agent_name
+from app.multi_agents.catalog import AGENT_ORDER, get_agent_catalog, get_agent_detail, get_agent_profile, normalize_agent_name, update_agent_example_input
 from app.multi_agents.leader_agent.agent import leader_agent
 from app.multi_agents.runner import run_specialist_agent
 from app.multi_agents.textbook_knowledge_agent.agent import textbook_knowledge_agent
@@ -42,6 +42,10 @@ class PdfConvertRequest(BaseModel):
     fileName: str = Field(min_length=1, max_length=255)
     contentBase64: str = Field(min_length=1)
     targetFormat: str = Field(min_length=1, max_length=16)
+
+
+class AgentExampleInputUpdateRequest(BaseModel):
+    input: str = Field(min_length=1, max_length=12000)
 
 
 def _llm_header_audit_fields(
@@ -265,6 +269,16 @@ def get_rag_agent(
     if agent is None:
         raise HTTPException(status_code=404, detail="智能体不存在")
     return agent
+
+
+@router.put("/agents/{agent_name}/example-input")
+def save_rag_agent_example_input(
+    agent_name: str,
+    request: AgentExampleInputUpdateRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    return update_agent_example_input(agent_name, request.input)
 
 
 @router.post("/query", response_model=RagQueryResponse)

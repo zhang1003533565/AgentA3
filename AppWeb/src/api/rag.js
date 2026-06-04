@@ -14,6 +14,8 @@ export const getRagAgents = () => request.get(`${base}/agents`)
 
 export const getRagAgent = (agentName) => request.get(`${base}/agents/${agentName}`)
 
+export const saveRagAgentExampleInput = (agentName, input) => request.post(`${base}/agents/${agentName}/example-input`, { input })
+
 export const getAiModelProviders = () => request.get(`${base}/model-providers`)
 
 export const runRagQuery = (data) => request.post(`${base}/query`, data, {

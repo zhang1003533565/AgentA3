@@ -72,6 +72,15 @@ public class AiRagController {
         return Result.success(pythonAiProxyService.getRagAgent(agentName, adminAuthorization(request)));
     }
 
+    @PostMapping("/agents/{agentName}/example-input")
+    @Operation(summary = "保存智能体示例输入")
+    public Result<Object> saveAgentExampleInput(
+            @PathVariable String agentName,
+            @RequestBody Map<String, Object> body,
+            HttpServletRequest request) {
+        return Result.success(pythonAiProxyService.updateRagAgentExampleInput(agentName, body, adminAuthorization(request)));
+    }
+
     @PostMapping("/query")
     @Operation(summary = "执行 RAG 查询")
     public Result<Object> query(@RequestBody Map<String, Object> body, HttpServletRequest request) {

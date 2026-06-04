@@ -302,6 +302,10 @@
   line-height: 1.6;
 }
 
+.rag-agent-example-save {
+  margin-bottom: 12px;
+}
+
 .rag-inline-alert {
   margin-bottom: 24px;
   border-radius: 14px;

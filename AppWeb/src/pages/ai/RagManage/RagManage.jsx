@@ -17,6 +17,7 @@ import {
   getTextToSqlSchema,
   ingestRagDocuments,
   runRagQuery,
+  saveRagAgentExampleInput,
 } from '../../../api/rag'
 import { getSystemConfigList, upsertSystemConfig } from '../../../api/systemConfig'
 import './RagManage.css'
@@ -231,6 +232,12 @@ const getAgentModelRequirementText = (agent) => (
   getAgentRequiredModelModalities(agent)
     .map((item) => MODEL_MODALITY_LABELS[item] || item)
     .join(' / ')
+)
+
+const updateAgentInList = (agents, updatedAgent) => (
+  updatedAgent?.name
+    ? agents.map((item) => (item.name === updatedAgent.name ? { ...item, ...updatedAgent } : item))
+    : agents
 )
 
 const getExecutionLabel = (metadata = {}) => (
@@ -488,6 +495,26 @@ function RagManage() {
       message.success('已保存为该智能体默认模型')
     } catch (error) {
       message.error(error.message || '默认模型保存失败')
+    }
+  }
+
+  const saveAgentExampleInput = async (agentName, inputValue, options = {}) => {
+    const selectedAgentName = agentName || 'leader_agent'
+    const selectedInput = String(inputValue || '').trim()
+    if (!selectedInput) {
+      message.warning('示例输入不能为空')
+      return
+    }
+    try {
+      const res = await saveRagAgentExampleInput(selectedAgentName, selectedInput)
+      const updatedAgent = res.data
+      setAgents((prev) => updateAgentInList(prev, updatedAgent))
+      if (options.updateTestForm !== false) {
+        agentTestForm.setFieldsValue({ agentName: selectedAgentName, input: selectedInput })
+      }
+      message.success('示例输入已保存')
+    } catch (error) {
+      message.error(error.message || '示例输入保存失败')
     }
   }
 
@@ -1353,8 +1380,38 @@ function RagManage() {
                       )
                     }}
                   </Form.Item>
-                  <Form.Item name="input" label="测试输入" rules={[{ required: true, message: '请输入测试内容' }]}>
-                    <TextArea rows={6} placeholder="输入一段课程内容或任务要求" />
+                  <Form.Item
+                    noStyle
+                    shouldUpdate={(prev, next) => prev.agentName !== next.agentName || prev.input !== next.input}
+                  >
+                    {({ getFieldValue }) => (
+                      <Form.Item
+                        name="input"
+                        label="测试输入"
+                        extra="这里会自动读取智能体目录下的 example_input.md，编辑后可保存为下次默认示例。"
+                        rules={[{ required: true, message: '请输入测试内容' }]}
+                      >
+                        <TextArea rows={6} placeholder="输入一段课程内容或任务要求" />
+                      </Form.Item>
+                    )}
+                  </Form.Item>
+                  <Form.Item
+                    noStyle
+                    shouldUpdate={(prev, next) => prev.agentName !== next.agentName || prev.input !== next.input}
+                  >
+                    {({ getFieldValue }) => (
+                      <Button
+                        className="rag-agent-example-save"
+                        icon={<SaveOutlined />}
+                        onClick={() => saveAgentExampleInput(
+                          getFieldValue('agentName'),
+                          getFieldValue('input'),
+                        )}
+                        block
+                      >
+                        保存为该智能体示例输入
+                      </Button>
+                    )}
                   </Form.Item>
                   <Button type="primary" htmlType="submit" icon={<PlayCircleOutlined />} loading={agentTestLoading} block>
                     调用当前智能体
@@ -1451,6 +1508,32 @@ function RagManage() {
                               : { executionMode: 'direct_agent' }),
                           input: getAgentExampleInput(agent),
                         }, null, 2)}</pre>
+                        <TextArea
+                          rows={5}
+                          value={agent.documents?.exampleInput || getAgentExampleInput(agent)}
+                          onChange={(event) => {
+                            const value = event.target.value
+                            setAgents((prev) => prev.map((item) => (
+                              item.name === agent.name
+                                ? {
+                                    ...item,
+                                    documents: { ...(item.documents || {}), exampleInput: value },
+                                    invokeExample: { ...(item.invokeExample || {}), input: value },
+                                  }
+                                : item
+                            )))
+                          }}
+                        />
+                        <Button
+                          icon={<SaveOutlined />}
+                          onClick={() => saveAgentExampleInput(
+                            agent.name,
+                            agent.documents?.exampleInput || getAgentExampleInput(agent),
+                            { updateTestForm: false },
+                          )}
+                        >
+                          保存 example_input.md
+                        </Button>
                         <Button
                           icon={<PlayCircleOutlined />}
                           onClick={() => fillAgentTestForm(agent)}
