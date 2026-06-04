@@ -38,14 +38,20 @@ PPT_AGENT_SPECS = {
     "ppt_image_agent": ("PPT 图片智能体", "ppt_image", "负责为 PPT 封面、插图、示意图生成图片提示词和视觉素材建议。", "根据这份 PPT 大纲生成封面图和关键页面插图提示词"),
 }
 
+DIAGRAM_AGENT_SPECS = {
+    "diagram_mind_map_agent": ("图表思维导图智能体", "diagram_mind_map", "把知识点材料整理成 Mermaid 思维导图。", "操作系统进程调度知识点材料"),
+    "diagram_flowchart_agent": ("图表流程图智能体", "diagram_flowchart", "把算法步骤、业务过程和知识点流程整理成 Mermaid 流程图。", "括号匹配算法流程材料"),
+    "diagram_activity_agent": ("图表活动图智能体", "diagram_activity", "把角色协作、任务执行和活动顺序整理成 Mermaid 活动图。", "会议任务活动流程材料"),
+    "diagram_architecture_agent": ("图表架构图智能体", "diagram_architecture", "把系统模块、服务依赖和数据流整理成 Mermaid 架构图。", "智慧校园 AI RAG 架构材料"),
+}
+
 AGENT_ORDER = [
     "leader_agent",
-    "mind_map_agent",
+    *DIAGRAM_AGENT_SPECS.keys(),
     "textbook_knowledge_agent",
     *QUESTION_AGENT_SPECS.keys(),
     *MEETING_AGENT_SPECS.keys(),
     *PPT_AGENT_SPECS.keys(),
-    "image_agent",
 ]
 
 
@@ -121,6 +127,37 @@ def _ppt_profile(agent_name: str, role: str, intent: str, purpose: str, example_
     }
 
 
+def _diagram_profile(agent_name: str, role: str, intent: str, purpose: str, example_input: str) -> Dict[str, Any]:
+    output_type = {
+        "diagram_mind_map_agent": "mermaid_mindmap",
+        "diagram_flowchart_agent": "mermaid_flowchart",
+        "diagram_activity_agent": "mermaid_activity_flowchart",
+        "diagram_architecture_agent": "mermaid_architecture",
+    }[agent_name]
+    alias_map = {
+        "diagram_mind_map_agent": ["mind_map", "mindmap", "思维导图", "脑图", "思维导图智能体", "mind_map_agent"],
+        "diagram_flowchart_agent": ["flowchart", "流程图", "流程图智能体", "流程"],
+        "diagram_activity_agent": ["activity_diagram", "活动图", "活动图智能体", "泳道图", "任务活动图"],
+        "diagram_architecture_agent": ["architecture_diagram", "架构图", "系统架构图", "架构图智能体", "系统架构"],
+    }
+    return {
+        "role": role,
+        "purpose": purpose,
+        "inputs": ["diagram_material", "evidence"],
+        "outputs": [output_type],
+        "skills": ["diagram generation", "mermaid", intent],
+        "intent": intent,
+        "needRetrieval": True,
+        "executionMode": "rag_then_agent",
+        "executionModeLabel": f"RAG 检索后生成{role.replace('智能体', '')}",
+        "defaultRagStrategy": "multi_agent_rag",
+        "supportedRagStrategies": ALL_RAG_STRATEGIES,
+        "aliases": [intent, role, role.replace("智能体", ""), agent_name, *alias_map[agent_name]],
+        "exampleInput": example_input,
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+    }
+
+
 AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
     "leader_agent": {
         "role": "Leader 智能体",
@@ -137,6 +174,10 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "aliases": ["leader", "leader_agent", "总控智能体", "leader智能体"],
         "exampleInput": "帮我把数据结构中的栈与队列整理成 PPT 大纲",
         "requiredModelModalities": TEXT_MODEL_MODALITY,
+    },
+    **{
+        agent_name: _diagram_profile(agent_name, *spec)
+        for agent_name, spec in DIAGRAM_AGENT_SPECS.items()
     },
     "mind_map_agent": {
         "role": "思维导图智能体",
@@ -226,6 +267,20 @@ AGENT_ALIASES = {
     for agent_name, profile in AGENT_PROFILES.items()
     for alias in [agent_name, *profile.get("aliases", [])]
 }
+AGENT_ALIASES.update({
+    "mind_map": "diagram_mind_map_agent",
+    "mindmap": "diagram_mind_map_agent",
+    "mind map": "diagram_mind_map_agent",
+    "思维导图": "diagram_mind_map_agent",
+    "思维导图智能体": "diagram_mind_map_agent",
+    "脑图": "diagram_mind_map_agent",
+    "脑图智能体": "diagram_mind_map_agent",
+    "mind_map_agent": "mind_map_agent",
+    "图片智能体": "",
+    "配图智能体": "",
+    "image": "",
+    "image_agent": "image_agent",
+})
 
 
 def get_agent_catalog() -> Dict[str, Any]:
@@ -250,13 +305,17 @@ def get_agent_catalog() -> Dict[str, Any]:
         },
         "workflow": {
             "default": ["leader_agent", "textbook_knowledge_agent"],
-            "mindMap": ["leader_agent", "textbook_knowledge_agent", "mind_map_agent"],
+            "mindMap": ["leader_agent", "textbook_knowledge_agent", "diagram_mind_map_agent"],
+            "diagram": ["leader_agent", "textbook_knowledge_agent", *DIAGRAM_AGENT_SPECS.keys()],
+            "flowchart": ["leader_agent", "textbook_knowledge_agent", "diagram_flowchart_agent"],
+            "activityDiagram": ["leader_agent", "textbook_knowledge_agent", "diagram_activity_agent"],
+            "architectureDiagram": ["leader_agent", "textbook_knowledge_agent", "diagram_architecture_agent"],
             "markdownKnowledge": ["leader_agent", "textbook_knowledge_agent"],
             "textbookKnowledge": ["leader_agent", "textbook_knowledge_agent"],
             "questionBank": ["leader_agent", "textbook_knowledge_agent", *QUESTION_AGENT_SPECS.keys()],
             "meeting": ["leader_agent", *MEETING_AGENT_SPECS.keys()],
             "ppt": ["leader_agent", "textbook_knowledge_agent", *PPT_AGENT_SPECS.keys()],
-            "image": ["leader_agent", "textbook_knowledge_agent", "image_agent"],
+            "image": ["leader_agent", "textbook_knowledge_agent", *DIAGRAM_AGENT_SPECS.keys()],
         },
         "agents": agents,
     }

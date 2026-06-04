@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.multi_agents.catalog import MEETING_AGENT_SPECS, PPT_AGENT_SPECS, QUESTION_AGENT_SPECS, get_agent_profile, normalize_agent_name
+from app.multi_agents.catalog import DIAGRAM_AGENT_SPECS, MEETING_AGENT_SPECS, PPT_AGENT_SPECS, QUESTION_AGENT_SPECS, get_agent_profile, normalize_agent_name
 from app.model_providers.factory import get_chat_model_provider
 from app.multi_agents.runtime import load_agent_prompt
 from app.services.memory_store import memory_store
@@ -72,8 +72,14 @@ class LeaderAgent:
                 tool_name="text_to_sql",
                 route_reason="命中统计/查询结构化数据意图，使用 Text-to-SQL 查询接口。",
             )
+        if any(token in normalized for token in ("架构图", "系统架构图", "architecture diagram", "architecture")):
+            return LeaderPlan("diagram_architecture", "diagram_architecture_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中架构图生成意图，分发给图表架构图智能体。")
+        if any(token in normalized for token in ("活动图", "泳道图", "activity diagram", "任务活动图")):
+            return LeaderPlan("diagram_activity", "diagram_activity_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中活动图生成意图，分发给图表活动图智能体。")
+        if any(token in normalized for token in ("流程图", "flowchart", "流程")):
+            return LeaderPlan("diagram_flowchart", "diagram_flowchart_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中流程图生成意图，分发给图表流程图智能体。")
         if any(token in normalized for token in ("思维导图", "mindmap", "mind map", "脑图")):
-            return LeaderPlan("mind_map", "mind_map_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中思维导图生成意图，分发给思维导图智能体。")
+            return LeaderPlan("diagram_mind_map", "diagram_mind_map_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中思维导图生成意图，分发给图表思维导图智能体。")
         if any(token in normalized for token in ("多选题", "多项选择")):
             return LeaderPlan("multiple_choice", "textbook_question_multiple_choice_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中多选题生成意图，分发给多选题智能体。")
         if any(token in normalized for token in ("选择题", "单选题", "单项选择")):
@@ -112,8 +118,6 @@ class LeaderAgent:
             return LeaderPlan("ppt_image", "ppt_image_agent", True, rag_strategy or "multimodal_rag", route_reason="命中 PPT 图片/配图意图，分发给 PPT 图片智能体。")
         if any(token in normalized for token in ("ppt", "幻灯片", "课件", "演示文稿")):
             return LeaderPlan("ppt_outline", "ppt_outline_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中 PPT/课件生成意图，默认分发给 PPT 大纲智能体。")
-        if any(token in normalized for token in ("图片", "配图", "插图", "海报", "封面图", "image")):
-            return LeaderPlan("image", "image_agent", True, rag_strategy or "multimodal_rag", route_reason="命中图片/配图生成意图，分发给图片智能体。")
         if any(token in normalized for token in ("md", "markdown", "知识点提取", "提取知识点", "知识点整理")):
             return LeaderPlan("textbook_knowledge", "textbook_knowledge_agent", True, rag_strategy or "hybrid_search", route_reason="命中 Markdown/文本教材知识点整理意图，统一交给教材知识点智能体。")
         if any(token in normalized for token in ("教材", "课本", "章节", "考点", "知识点", "课程内容")):
@@ -150,6 +154,7 @@ class LeaderAgent:
         target_agent = normalize_agent_name(str(plan.get("target_agent") or plan.get("targetAgent") or "")) or default_target
         if target_agent not in {
             "leader_agent",
+            *DIAGRAM_AGENT_SPECS.keys(),
             "mind_map_agent",
             "textbook_knowledge_agent",
             *QUESTION_AGENT_SPECS.keys(),

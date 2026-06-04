@@ -16,6 +16,8 @@ def run_specialist_agent(
     if not normalized or normalized == "leader_agent":
         raise HTTPException(status_code=400, detail=f"无法执行专业智能体：{agent_name or '未指定'}")
     agent = _load_agent(normalized)
+    if hasattr(agent, "build_diagram"):
+        return agent.build_diagram(input_text, evidence, chat_service=chat_service)
     if hasattr(agent, "build_mind_map"):
         return agent.build_mind_map(input_text, evidence, chat_service=chat_service)
     if hasattr(agent, "summarize_knowledge_points"):

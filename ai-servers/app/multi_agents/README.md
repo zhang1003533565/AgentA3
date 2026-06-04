@@ -5,7 +5,10 @@
 | Agent | 中文名称 | 职责 |
 | --- | --- | --- |
 | `leader_agent` | Leader 智能体 | 统一路由、任务拆解、会话记忆、基于 LLM 的直接回答 |
-| `mind_map_agent` | 思维导图智能体 | 根据主题和证据生成 Markdown/Mermaid 思维导图 |
+| `diagram_mind_map_agent` | 图表思维导图智能体 | 根据知识点材料和证据生成 Mermaid 思维导图 |
+| `diagram_flowchart_agent` | 图表流程图智能体 | 根据步骤、算法或业务过程生成 Mermaid 流程图 |
+| `diagram_activity_agent` | 图表活动图智能体 | 根据角色协作、任务执行和活动顺序生成 Mermaid 活动图 |
+| `diagram_architecture_agent` | 图表架构图智能体 | 根据系统模块、服务依赖和数据流生成 Mermaid 架构图 |
 | `textbook_knowledge_agent` | 教材知识点智能体 | 统一处理教材、Markdown 教材文本和知识点整理，并调用 Java 后端、本地知识库、向量/图谱/SQL 检索相关证据 |
 | `textbook_question_single_choice_agent` | 选择题智能体 | 基于知识点生成单选题、选项、答案和解析 |
 | `textbook_question_fill_blank_agent` | 填空题智能体 | 基于知识点生成填空题、答案和解析 |
@@ -18,7 +21,6 @@
 | `ppt_layout_agent` | PPT 布局智能体 | 根据 PPT 大纲规划逐页版式、视觉层级和组件摆放 |
 | `ppt_review_agent` | PPT 审查智能体 | 审查 PPT 内容和布局，输出问题清单、修改建议和置信度 |
 | `ppt_image_agent` | PPT 图片智能体 | 为 PPT 封面、插图和示意图生成图片提示词 |
-| `image_agent` | 图片智能体 | 基于知识点生成教学配图/封面图提示词 |
 
 每个智能体文件夹都包含：`agent.py`、`skill.md`、`prompt.md`、`contract.md`、`tools.yaml`，方便后续单独调整 skill。
 
@@ -29,7 +31,10 @@
 | 功能 | `agentName` | 默认 `ragStrategy` | 主要输入 |
 | --- | --- | --- | --- |
 | Leader 自动分发 | 留空或 `leader_agent` | 不手动传，由 Leader 判断 | `input` |
-| 思维导图 | `mind_map_agent` | `multi_agent_rag` | `input` 为主题/要求 |
+| 思维导图 | `diagram_mind_map_agent` | `multi_agent_rag` | `input` 为知识点材料 |
+| 流程图 | `diagram_flowchart_agent` | `multi_agent_rag` | `input` 为步骤、算法或流程材料 |
+| 活动图 | `diagram_activity_agent` | `multi_agent_rag` | `input` 为角色协作、任务执行或活动流程材料 |
+| 架构图 | `diagram_architecture_agent` | `multi_agent_rag` | `input` 为模块、服务、依赖或数据流材料 |
 | 教材知识点 | `textbook_knowledge_agent` | `hybrid_search` | `input` 为章节、知识点问题或 Markdown 教材文本 |
 | 选择题 | `textbook_question_single_choice_agent` | `multi_agent_rag` | `input` 为出题范围 |
 | 填空题 | `textbook_question_fill_blank_agent` | `multi_agent_rag` | `input` 为出题范围 |
@@ -42,7 +47,6 @@
 | PPT 布局 | `ppt_layout_agent` | `multi_agent_rag` | `input` 为 PPT 大纲或布局要求 |
 | PPT 审查 | `ppt_review_agent` | `multi_agent_rag` | `input` 为 PPT 大纲、布局或页面内容 |
 | PPT 图片 | `ppt_image_agent` | `multimodal_rag` | `input` 为 PPT 大纲、布局或配图要求 |
-| 图片 | `image_agent` | `multimodal_rag` | `input` 为配图主题 |
 
 请求示例：
 
