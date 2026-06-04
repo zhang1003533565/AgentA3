@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
 
@@ -6,7 +7,6 @@ from fastapi import HTTPException
 
 from app.multi_agents.catalog import MEETING_AGENT_SPECS, PPT_AGENT_SPECS, QUESTION_AGENT_SPECS, get_agent_profile, normalize_agent_name
 from app.model_providers.factory import get_chat_model_provider
-from app.multi_agents.json_utils import parse_json_object
 from app.multi_agents.runtime import load_agent_prompt
 from app.services.memory_store import memory_store
 from app.utils.logger import get_logger
@@ -244,3 +244,22 @@ def build_leader_router_user_prompt(input_text: str, rag_strategy: str) -> str:
         "requested_rag_strategy": rag_strategy or "",
         "allowed_rag_strategy_when_needed": rag_strategy or "按目标智能体默认策略",
     }, ensure_ascii=False)
+
+
+def parse_json_object(text: str) -> Dict[str, Any]:
+    raw = (text or "").strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?", "", raw, flags=re.IGNORECASE).strip()
+        raw = re.sub(r"```$", "", raw).strip()
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
+        if not match:
+            return {}
+        try:
+            parsed = json.loads(match.group(0))
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
