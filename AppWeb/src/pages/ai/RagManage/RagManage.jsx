@@ -337,28 +337,52 @@ const MarkdownPreview = ({ source, assets = [] }) => {
 }
 
 const agentExampleInputs = {
-  leader_agent: '请自动判断：帮我把数据结构的栈与队列整理成复习资料',
-  mind_map_agent: '把操作系统进程调度整理成思维导图',
-  textbook_knowledge_agent: '查询并整理数据结构中栈与队列的教材知识点，输出 Markdown',
-  textbook_question_single_choice_agent: '根据数据结构中栈与队列的知识点生成 5 道选择题',
-  textbook_question_fill_blank_agent: '根据数据结构中栈与队列的知识点生成 5 道填空题',
-  textbook_question_true_false_agent: '根据数据结构中栈与队列的知识点生成 5 道判断题',
-  textbook_question_multiple_choice_agent: '根据数据结构中栈与队列的知识点生成 5 道多选题',
-  textbook_question_short_answer_agent: '根据数据结构中栈与队列的知识点生成 5 道简答题',
-  textbook_question_calculation_agent: '根据数据结构中栈与队列的知识点生成 5 道计算题',
-  textbook_question_programming_agent: '根据数据结构中栈与队列的知识点生成 3 道编程题',
-  meeting_controller_agent: '根据会议记录梳理会议状态、任务分发和下一步流程',
-  meeting_transcription_agent: '整理这段会议转写文本，区分说话人并修正发言格式',
-  meeting_summary_agent: '总结这段会议的核心观点、结论、任务分工和后续计划',
-  meeting_member_analysis_agent: '分析会议中各成员的理解偏差、薄弱点和参与特征',
-  meeting_resource_recommendation_agent: '根据会议内容为每位成员推荐学习资源和推送策略',
-  meeting_voice_broadcast_agent: '把这段会议总结改写成适合语音播报的脚本',
-  ppt_outline_agent: '根据数据结构中栈与队列的知识点生成 6 页课件大纲',
-  ppt_layout_agent: '根据这份 6 页课件大纲生成逐页布局、版式和视觉层级',
-  ppt_review_agent: '审查这份 PPT 大纲和布局，输出问题清单、修改建议和置信度评分',
-  ppt_image_agent: '根据这份 PPT 大纲生成封面图和关键页面插图提示词',
-  image_agent: '为操作系统进程调度知识点生成一张课堂教学配图提示词',
+  leader_agent: '数据结构：栈与队列\n\n栈遵循后进先出原则，只能在栈顶进行插入和删除。队列遵循先进先出原则，只能在队尾插入、队头删除。循环队列通过取模运算复用数组空间。',
+  mind_map_agent: '操作系统：进程调度\n\n进程调度是操作系统按照一定策略从就绪队列中选择进程分配 CPU 的过程。常见算法包括先来先服务、短作业优先、优先级调度、时间片轮转和多级反馈队列。',
+  textbook_knowledge_agent: '数据结构：栈与队列\n\n栈是后进先出的受限线性表。队列是先进先出的受限线性表。循环队列用于解决顺序队列假溢出问题。',
+  textbook_question_single_choice_agent: '数据结构：栈与队列\n\n栈只允许在栈顶进行插入和删除。队列只允许在队尾插入、队头删除。栈常用于括号匹配，队列常用于任务排队。',
+  textbook_question_fill_blank_agent: '数据结构：栈与队列\n\n栈顶、栈底、入栈、出栈、队头、队尾、入队、出队、LIFO、FIFO、循环队列、front、rear。',
+  textbook_question_true_false_agent: '数据结构：栈与队列\n\n栈是后进先出，队列是先进先出。读取栈顶或队头元素不会删除元素。循环队列可复用数组空间。',
+  textbook_question_multiple_choice_agent: '数据结构：栈与队列\n\n栈和队列都是操作受限的线性表。顺序栈需要关注容量限制，循环队列需要关注队空和队满条件。',
+  textbook_question_short_answer_agent: '数据结构：栈与队列\n\n栈的基本操作包括入栈、出栈、取栈顶元素。队列的基本操作包括入队、出队、取队头元素。两者应用场景不同。',
+  textbook_question_calculation_agent: '数据结构：栈与队列计算材料\n\n顺序栈空栈 top = -1，入栈 top 加 1，出栈 top 减 1。循环队列容量为 6 时，队满条件可为 (rear + 1) % 6 == front。',
+  textbook_question_programming_agent: '数据结构：栈\n\n栈遵循后进先出。括号匹配算法从左到右扫描字符串，左括号入栈，右括号与栈顶左括号匹配，最终栈空表示匹配成功。',
+  meeting_controller_agent: '张老师：本周要完成数据结构复习资料初稿。\n\n李明：我负责整理栈与队列知识点，周三前提交。\n\n王芳：我负责生成练习题，周四前提交。',
+  meeting_transcription_agent: '张老师：我们今天主要讨论数据结构复习资料。\n\n李明：我负责栈的定义和操作。\n\n王芳：我负责练习题，括号匹配还需要再确认。',
+  meeting_summary_agent: '张老师：本周要完成数据结构复习资料初稿。\n\n李明：我周三前提交知识点。\n\n王芳：我周四前提交题目。\n\n陈强：我周五前提交代码案例。',
+  meeting_member_analysis_agent: '张老师：循环队列的队满条件是什么？\n\n李明：应该是 rear 追上 front，但具体公式我有点不确定。\n\n王芳：括号匹配步骤我还需要再复习。',
+  meeting_resource_recommendation_agent: '李明：循环队列的 front、rear 变化和判满条件还不够熟。\n\n王芳：括号匹配算法步骤我需要再复习。\n\n陈强：我想找一个循环队列图文示例。',
+  meeting_voice_broadcast_agent: '张老师：本次会议确定，本周完成数据结构复习资料初稿。\n\n李明：我负责栈与队列知识点。\n\n王芳：我负责练习题。\n\n陈强：我负责代码案例。',
+  ppt_outline_agent: '数据结构：栈与队列\n\n课程重点包括栈的后进先出、队列的先进先出、循环队列的队空队满条件，以及括号匹配和任务调度等应用。',
+  ppt_layout_agent: '数据结构栈与队列 PPT 内容材料\n\n第 1 页课程导入，第 2 页概念对比，第 3 页栈操作流程，第 4 页队列操作流程，第 5 页应用案例，第 6 页课堂练习。',
+  ppt_review_agent: 'PPT 大纲：数据结构栈与队列\n\n第 1 页课程导入；第 2 页栈；第 3 页队列；第 4 页循环队列；第 5 页应用案例；第 6 页课堂练习。',
+  ppt_image_agent: 'PPT 插图素材：数据结构栈与队列\n\n封面包含栈容器和队列队伍。栈图体现入栈出栈，队列图体现入队出队，循环队列图体现 front 和 rear。',
+  image_agent: '操作系统：进程调度配图素材\n\n画面元素包括就绪队列、CPU、调度器、进程卡片、时间片和优先级标记。',
 }
+
+const legacyQuestionExampleInputs = new Set([
+  '请自动判断：帮我把数据结构的栈与队列整理成复习资料',
+  '把操作系统进程调度整理成思维导图',
+  '查询并整理数据结构中栈与队列的教材知识点，输出 Markdown',
+  '根据数据结构中栈与队列的知识点生成 5 道选择题',
+  '根据数据结构中栈与队列的知识点生成 5 道填空题',
+  '根据数据结构中栈与队列的知识点生成 5 道判断题',
+  '根据数据结构中栈与队列的知识点生成 5 道多选题',
+  '根据数据结构中栈与队列的知识点生成 5 道简答题',
+  '根据数据结构中栈与队列的知识点生成 5 道计算题',
+  '根据数据结构中栈与队列的知识点生成 3 道编程题',
+  '根据会议记录梳理会议状态、任务分发和下一步流程',
+  '整理这段会议转写文本，区分说话人并修正发言格式',
+  '总结这段会议的核心观点、结论、任务分工和后续计划',
+  '分析会议中各成员的理解偏差、薄弱点和参与特征',
+  '根据会议内容为每位成员推荐学习资源和推送策略',
+  '把这段会议总结改写成适合语音播报的脚本',
+  '根据数据结构中栈与队列的知识点生成 6 页课件大纲',
+  '根据这份 6 页课件大纲生成逐页布局、版式和视觉层级',
+  '审查这份 PPT 大纲和布局，输出问题清单、修改建议和置信度评分',
+  '根据这份 PPT 大纲生成封面图和关键页面插图提示词',
+  '为操作系统进程调度知识点生成一张课堂教学配图提示词',
+])
 
 function RagManage() {
   const [bootLoading, setBootLoading] = useState(false)
@@ -390,6 +414,7 @@ function RagManage() {
   const [sqlForm] = Form.useForm()
   const [agentTestForm] = Form.useForm()
   const refreshPromiseRef = useRef(null)
+  const autoFilledQueryInputRef = useRef('')
 
   const strategyOptions = useMemo(
     () => [
@@ -438,12 +463,16 @@ function RagManage() {
 
   const applyAgentDefaultModel = useCallback((form, agentName) => {
     const selectedAgent = agents.find((item) => item.name === agentName) || (agentName === 'leader_agent' ? { name: 'leader_agent' } : null)
+    const exampleInput = selectedAgent ? getAgentExampleInput(selectedAgent) : undefined
     form.setFieldsValue({
       ragStrategy: '',
       llmModel: getDefaultModelForAgent(selectedAgent) || undefined,
-      input: selectedAgent ? getAgentExampleInput(selectedAgent) : undefined,
+      input: exampleInput,
     })
-  }, [agents, getAgentExampleInput, getDefaultModelForAgent])
+    if (form === queryForm && exampleInput) {
+      autoFilledQueryInputRef.current = exampleInput
+    }
+  }, [agents, getAgentExampleInput, getDefaultModelForAgent, queryForm])
 
   const agentOptions = useMemo(
     () => [
@@ -595,8 +624,16 @@ function RagManage() {
         nextValues.llmModel = defaultModel
       }
     }
-    if (!queryForm.getFieldValue('input') && selectedAgent) {
-      nextValues.input = getAgentExampleInput(selectedAgent)
+    const currentInput = queryForm.getFieldValue('input')
+    const shouldRefreshInput = (
+      !currentInput ||
+      currentInput === autoFilledQueryInputRef.current ||
+      legacyQuestionExampleInputs.has(currentInput)
+    )
+    if (shouldRefreshInput && selectedAgent) {
+      const exampleInput = getAgentExampleInput(selectedAgent)
+      nextValues.input = exampleInput
+      autoFilledQueryInputRef.current = exampleInput
     }
     if (Object.keys(nextValues).length) {
       queryForm.setFieldsValue(nextValues)
@@ -1041,11 +1078,11 @@ function RagManage() {
                 </Form.Item>
                 <Form.Item
                   name="input"
-                  label="用户问题"
+                  label="输入材料"
                   extra="这里会自动读取当前智能体的 example_input.md，编辑后可保存为下次默认示例。"
-                  rules={[{ required: true, message: '请输入用户问题' }]}
+                  rules={[{ required: true, message: '请输入输入材料' }]}
                 >
-                  <TextArea rows={5} placeholder="例如：统计食堂优惠券数量 / 校园卡补办在哪里？" />
+                  <TextArea rows={5} placeholder="例如：粘贴知识点、会议对话、PPT 大纲或其他原始材料" />
                 </Form.Item>
                 <Form.Item
                   noStyle
