@@ -161,6 +161,39 @@ public class PythonAiProxyService {
         }
     }
 
+    public Object convertPpt(MultipartFile file, String authorization) {
+        validateAuthorization(authorization);
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(Result.ERROR_CODE, "PPTX 文件不能为空");
+        }
+        String filename = StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : "presentation.pptx";
+        if (!filename.toLowerCase().endsWith(".pptx")) {
+            throw new BusinessException(Result.ERROR_CODE, "当前仅支持上传 PPTX 文件；PPT 请先另存为 PPTX");
+        }
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            Map<String, Object> payload = Map.of(
+                    "fileName", filename,
+                    "contentBase64", Base64.getEncoder().encodeToString(file.getBytes())
+            );
+            return buildFileResponseWebClient()
+                    .post()
+                    .uri(buildUri("/internal/rag/ppt/convert"))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + e.getMessage());
+        }
+    }
+
     public Object listRagDocuments(String authorization) {
         return getRagObject("/internal/rag/documents", authorization);
     }

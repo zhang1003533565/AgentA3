@@ -110,6 +110,8 @@ class LeaderAgent:
             return LeaderPlan("meeting_voice_broadcast", "meeting_voice_broadcast_agent", False, "", route_reason="命中语音播报意图，分发给语音播报智能体。")
         if "会议" in normalized:
             return LeaderPlan("meeting_summary", "meeting_summary_agent", False, "", route_reason="命中会议处理意图但未指定子任务，默认分发给会议总结智能体。")
+        if any(token in normalized for token in ("ppt转docx", "pptx转docx", "ppt转word", "pptx转word", "ppt 转 docx", "pptx 转 docx", "ppt 转 word", "pptx 转 word", "演示文稿转word", "幻灯片转word")):
+            return LeaderPlan("ppt_to_docx", "ppt_to_docx_agent", False, "", route_reason="命中 PPTX 转 DOCX/Word 意图，分发给 PPT 转 DOCX 智能体。")
         if any(token in normalized for token in ("ppt审查", "ppt评分", "置信度", "审查ppt", "检查ppt")):
             return LeaderPlan("ppt_review", "ppt_review_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中 PPT 审查/评分意图，分发给 PPT 审查智能体。")
         if any(token in normalized for token in ("ppt布局", "ppt排版", "ppt版式", "排布局", "排版")):

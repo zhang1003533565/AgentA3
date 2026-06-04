@@ -118,6 +118,7 @@ def _answer_type_for_agent(agent_name: str) -> str:
         "ppt_layout_agent": "ppt_layout",
         "ppt_review_agent": "ppt_review",
         "ppt_image_agent": "ppt_image_prompt",
+        "ppt_to_docx_agent": "document_conversion",
         "image_agent": "image_prompt",
     }
     if (agent_name or "").startswith("textbook_question_"):

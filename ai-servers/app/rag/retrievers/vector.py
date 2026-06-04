@@ -1,4 +1,5 @@
 import math
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -7,6 +8,7 @@ from app.rag.core.types import RagDocument
 from app.rag.embeddings import EmbeddingVector, build_embedding_provider
 from app.rag.indexing.document_loader import DocumentLoader
 from app.rag.indexing.local_chunk_index import LocalChunkIndex
+from app.rag.vector_stores import build_vector_store
 
 
 class VectorRetriever:
@@ -19,10 +21,14 @@ class VectorRetriever:
         self.loader = DocumentLoader()
         self.local_chunk_index = LocalChunkIndex(self.root_dir)
         self.embedding_provider = build_embedding_provider()
+        self.vector_store_backend = os.getenv("RAG_VECTOR_STORE_BACKEND", "local_jsonl").strip().lower()
+        self.vector_store = build_vector_store(root_dir=self.root_dir, backend=self.vector_store_backend)
         self._index_signature = ""
         self._index: List[Tuple[RagDocument, EmbeddingVector]] = []
 
     def search(self, query: str, top_k: int = 5) -> List[RagDocument]:
+        if self.vector_store_backend not in {"", "local", "jsonl", "local_jsonl"}:
+            return self.vector_store.search(query, top_k=top_k)
         self._ensure_index()
         query_vector = self._vectorize(query)
         if not query_vector:

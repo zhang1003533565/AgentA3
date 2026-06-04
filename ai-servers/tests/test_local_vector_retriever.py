@@ -140,6 +140,39 @@ class LocalVectorRetrieverTest(unittest.TestCase):
             self.assertIn("校园卡服务指南", results[0].content)
             self.assertIn("matchedChildContent", results[0].metadata)
 
+    def test_parent_child_retriever_reads_index_first(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            index_dir = root / ".index"
+            index_dir.mkdir()
+            source = str(root / "api_ingest" / "guide.md")
+            parent_id = "guide#parent-0"
+            rows = [
+                {
+                    "id": parent_id,
+                    "content": "校园卡服务指南。补办地点在行政楼一楼服务大厅，需要携带学生证。",
+                    "source": source,
+                    "metadata": {"chunkRole": "parent", "parentId": parent_id},
+                },
+                {
+                    "id": f"{parent_id}#child-0",
+                    "content": "补办地点在行政楼一楼服务大厅，需要携带学生证。",
+                    "source": source,
+                    "metadata": {"chunkRole": "child", "parentId": parent_id, "childIndex": 0},
+                },
+            ]
+            (index_dir / "parent_child_chunks.jsonl").write_text(
+                "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+
+            results = ParentChildRetriever(root_dir=temp_dir).search("补办地点 学生证", top_k=2)
+
+            self.assertTrue(results)
+            self.assertEqual(parent_id, results[0].id)
+            self.assertEqual("local_jsonl", results[0].metadata.get("indexSource"))
+            self.assertIn("matchedChildContent", results[0].metadata)
+
     def test_lexical_reranker_prioritizes_term_coverage(self):
         documents = [
             RagDocument(id="a", content="校园卡可以在线查看余额。", score=0.5),

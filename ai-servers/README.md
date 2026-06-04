@@ -31,6 +31,8 @@ AI 相关框架统一放在 `app/` 下维护，避免运行代码、skill、cont
 - `GET /internal/rag/agents/{agent_name}`：单个智能体详情
 - `POST /internal/rag/query`
 - `POST /internal/rag/documents`：保存文档、解析、切分并写入本地 `.index/local_chunks.jsonl`
+- `POST /internal/rag/pdf/convert`：PDF 转 Markdown zip 或 DOCX
+- `POST /internal/rag/ppt/convert`：PPTX 转 DOCX，按幻灯片顺序重排并保留图片
 - `GET /internal/rag/documents`
 - `GET /internal/rag/vector-store/health`
 - `GET /internal/rag/embedding/health`
@@ -40,9 +42,9 @@ AI 相关框架统一放在 `app/` 下维护，避免运行代码、skill、cont
 - `POST /internal/rag/evaluate`
 - `GET /healthz`
 
-`POST /internal/chat`、SSE 接口和 `POST /internal/rag/query` 都支持传入 `agentName` 指定当前 12 个智能体之一：
+`POST /internal/chat`、SSE 接口和 `POST /internal/rag/query` 都支持传入 `agentName` 指定当前多智能体之一：
 
-`leader_agent`、`mind_map_agent`、`textbook_knowledge_agent`、`textbook_question_single_choice_agent`、`textbook_question_fill_blank_agent`、`textbook_question_true_false_agent`、`textbook_question_multiple_choice_agent`、`textbook_question_short_answer_agent`、`textbook_question_calculation_agent`、`textbook_question_programming_agent`、`ppt_outline_agent`、`ppt_layout_agent`、`ppt_review_agent`、`ppt_image_agent`、`image_agent`。
+`leader_agent`、`diagram_mind_map_agent`、`diagram_flowchart_agent`、`diagram_activity_agent`、`diagram_architecture_agent`、`mind_map_agent`、`textbook_knowledge_agent`、`textbook_question_single_choice_agent`、`textbook_question_fill_blank_agent`、`textbook_question_true_false_agent`、`textbook_question_multiple_choice_agent`、`textbook_question_short_answer_agent`、`textbook_question_calculation_agent`、`textbook_question_programming_agent`、`meeting_controller_agent`、`meeting_transcription_agent`、`meeting_summary_agent`、`meeting_member_analysis_agent`、`meeting_resource_recommendation_agent`、`meeting_voice_broadcast_agent`、`ppt_outline_agent`、`ppt_layout_agent`、`ppt_review_agent`、`ppt_image_agent`、`ppt_to_docx_agent`、`image_agent`。
 
 `agentName` 留空或传 `leader_agent` 时由 Leader 先做意图识别，再决定直接回答、调用专业智能体，或调用 Text-to-SQL / Java 后端接口。Java 后端会从 `system_config` 读取 `ai.service.text.provider`、`ai.service.text.base-url`、`ai.service.text.api-key`、`ai.service.text.model`，再通过内部请求头传给 Python；配置缺失或 LLM 调用失败会直接报错，不做本地规则兜底。只有 `needRetrieval=true` 的专业智能体才需要 `ragStrategy`；`leader_agent` 不传 RAG 策略。
 
@@ -61,10 +63,31 @@ AI 相关框架统一放在 `app/` 下维护，避免运行代码、skill、cont
 
 ```bash
 cd ai-servers
+./start-ai-server.sh
+```
+
+Milvus + 构建知识库 + 启动服务：
+
+```bash
+cd ai-servers
+./start-ai-server.sh --backend milvus --build-kb
+```
+
+Windows PowerShell：
+
+```powershell
+cd ai-servers
+.\start-ai-server.ps1 --backend milvus --build-kb
+```
+
+手动启动仍然可用：
+
+```bash
+cd ai-servers
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
+python -m uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
 ```
 
 服务会自动读取 `ai-servers/.env`。
@@ -96,6 +119,8 @@ uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
 - `RAG_FAISS_INDEX_DIR`
 - `RAG_MILVUS_URI`
 - `RAG_MILVUS_COLLECTION`
+- `RAG_MILVUS_DIMENSION` default `384`
+- `RAG_MILVUS_METRIC_TYPE` default `COSINE`
 - `RAG_ELASTICSEARCH_URL`
 - `RAG_ELASTICSEARCH_INDEX`
 - `RAG_PGVECTOR_DSN`
@@ -127,3 +152,33 @@ uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
 - 本地文档 RAG 默认读取 `ai-servers/knowledge_base/raw` 下的 `.md`、`.markdown`、`.txt`、`.csv`、`.json`、`.html`、`.htm`、`.pdf` 和图片文件。
 - PDF 正文抽取会优先使用可选依赖 `pypdf`；未安装时仍会保留文件元数据，不会阻塞入库。
 - 可选向量库、embedding、Neo4j 都已搭好 adapter 和 health 检查，未配置时不会冒充可用。
+
+## Build Knowledge Base With Docker Milvus
+
+启动 Docker 向量库：
+
+```bash
+docker compose -f ../docker-compose.rag.yml up -d
+```
+
+在 `ai-servers/.env` 中启用 Milvus：
+
+```env
+RAG_VECTOR_STORE_BACKEND=milvus
+RAG_MILVUS_URI=http://localhost:19530
+RAG_MILVUS_COLLECTION=smart_campus_knowledge
+RAG_MILVUS_DIMENSION=384
+RAG_MILVUS_METRIC_TYPE=COSINE
+```
+
+把 Markdown、TXT、CSV、JSON、HTML、PDF 或图片文件放入 `ai-servers/knowledge_base/raw`，然后执行：
+
+```bash
+python3 scripts/build_knowledge_base.py --backend milvus
+```
+
+默认仍支持 `local_jsonl`，适合没有 Docker 或 Milvus 依赖时快速调通：
+
+```bash
+python3 scripts/build_knowledge_base.py --backend local_jsonl
+```

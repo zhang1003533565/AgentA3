@@ -38,6 +38,7 @@ class DiagramAgentsTest(unittest.TestCase):
         self.assertEqual("diagram_flowchart_agent", leader_agent._plan_with_rules("生成括号匹配流程图").target_agent)
         self.assertEqual("diagram_activity_agent", leader_agent._plan_with_rules("生成会议任务活动图").target_agent)
         self.assertEqual("diagram_architecture_agent", leader_agent._plan_with_rules("生成系统架构图").target_agent)
+        self.assertEqual("ppt_to_docx_agent", leader_agent._plan_with_rules("把 PPTX 转 DOCX，图片保留").target_agent)
 
     def test_mermaid_declarations_are_validated(self):
         mind_map = diagram_mind_map_agent.build_diagram(

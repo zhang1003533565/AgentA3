@@ -9,6 +9,7 @@ from app.multi_agents.ppt_image_agent.agent import ppt_image_agent
 from app.multi_agents.ppt_layout_agent.agent import ppt_layout_agent
 from app.multi_agents.ppt_outline_agent.agent import ppt_outline_agent
 from app.multi_agents.ppt_review_agent.agent import ppt_review_agent
+from app.multi_agents.ppt_to_docx_agent.agent import ppt_to_docx_agent
 from app.multi_agents.runner import run_specialist_agent
 from app.multi_agents.textbook_knowledge_agent.agent import textbook_knowledge_agent
 
@@ -24,6 +25,7 @@ __all__ = [
     "ppt_layout_agent",
     "ppt_outline_agent",
     "ppt_review_agent",
+    "ppt_to_docx_agent",
     "run_specialist_agent",
     "textbook_knowledge_agent",
 ]

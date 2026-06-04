@@ -6,6 +6,7 @@ from app.rag.chunking.parent_child import ParentChildChunker
 from app.rag.core.types import RagDocument
 from app.rag.embeddings import EmbeddingVector, build_embedding_provider
 from app.rag.indexing.document_loader import DocumentLoader
+from app.rag.indexing.local_chunk_index import LocalChunkIndex
 
 
 class ParentChildRetriever:
@@ -13,11 +14,12 @@ class ParentChildRetriever:
         self.root_dir = self._resolve_root_dir(root_dir or "knowledge_base/raw")
         self.loader = DocumentLoader()
         self.chunker = ParentChildChunker(
-            parent_chunk_size=1600,
-            parent_overlap=160,
-            child_chunk_size=420,
-            child_overlap=80,
+            parent_chunk_size=int(__import__("os").getenv("RAG_PARENT_CHUNK_SIZE", "1600")),
+            parent_overlap=int(__import__("os").getenv("RAG_PARENT_CHUNK_OVERLAP", "160")),
+            child_chunk_size=int(__import__("os").getenv("RAG_CHILD_CHUNK_SIZE", "420")),
+            child_overlap=int(__import__("os").getenv("RAG_CHILD_CHUNK_OVERLAP", "80")),
         )
+        self.local_parent_child_index = LocalChunkIndex(self.root_dir, self.root_dir / ".index" / "parent_child_chunks.jsonl")
         self.embedding_provider = build_embedding_provider()
         self._index_signature = ""
         self._children: List[Tuple[RagDocument, EmbeddingVector]] = []
@@ -71,6 +73,19 @@ class ParentChildRetriever:
 
         self._children = []
         self._parents = {}
+        indexed_documents = self.local_parent_child_index.load()
+        if indexed_documents:
+            for document in indexed_documents:
+                role = document.metadata.get("chunkRole")
+                parent_id = str(document.metadata.get("parentId") or document.id)
+                if role == "parent":
+                    self._parents[parent_id] = document
+                elif role == "child":
+                    vector = self._vectorize(document.content)
+                    if vector:
+                        self._children.append((document, vector))
+            self._index_signature = signature
+            return
         for loaded in self.loader.load(str(self.root_dir)):
             parent_chunks = self.chunker.split(loaded.content)
             for parent_index, parent_chunk in enumerate(parent_chunks):
@@ -108,6 +123,8 @@ class ParentChildRetriever:
     def _signature(self) -> str:
         if not self.root_dir.exists():
             return "missing"
+        if self.local_parent_child_index.load():
+            return self.local_parent_child_index.signature()
         parts: List[str] = []
         for path in sorted(self.root_dir.rglob("*")):
             if not path.is_file() or path.suffix.lower() not in DocumentLoader.SUPPORTED_SUFFIXES:

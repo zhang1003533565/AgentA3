@@ -4,6 +4,7 @@ import { ApiOutlined, BranchesOutlined, DatabaseOutlined, DownloadOutlined, Expe
 import ReactMarkdown from 'react-markdown'
 import {
   convertPdf,
+  convertPpt,
   evaluateRag,
   getRagAgents,
   executeTextToSql,
@@ -132,6 +133,8 @@ const safeJsonParse = (value, fallback) => {
     return fallback
   }
 }
+
+const isPptxFile = (file) => /\.pptx$/i.test(file?.name || file?.originFileObj?.name || '')
 
 const parseMediaAnswer = (answer) => {
   const value = typeof answer === 'string' ? safeJsonParse(answer, null) : answer
@@ -361,6 +364,7 @@ const agentExampleInputs = {
   ppt_layout_agent: '数据结构栈与队列 PPT 内容材料\n\n第 1 页课程导入，第 2 页概念对比，第 3 页栈操作流程，第 4 页队列操作流程，第 5 页应用案例，第 6 页课堂练习。',
   ppt_review_agent: 'PPT 大纲：数据结构栈与队列\n\n第 1 页课程导入；第 2 页栈；第 3 页队列；第 4 页循环队列；第 5 页应用案例；第 6 页课堂练习。',
   ppt_image_agent: 'PPT 插图素材：数据结构栈与队列\n\n封面包含栈容器和队列队伍。栈图体现入栈出栈，队列图体现入队出队，循环队列图体现 front 和 rear。',
+  ppt_to_docx_agent: 'PPTX 转 DOCX 转换需求\n\n请上传一个 .pptx 文件，将每页幻灯片按顺序整理成 Word 文档。要求保留可提取的文字、表格和图片；内容可以根据 Word 文档重新排版。',
   image_agent: '操作系统：进程调度配图素材\n\n画面元素包括就绪队列、CPU、调度器、进程卡片、时间片和优先级标记。',
 }
 
@@ -704,10 +708,15 @@ function RagManage() {
     }
   }
 
-  const handlePdfConvert = async (values) => {
+  const handleDocumentConvert = async (values) => {
     const selectedFile = convertFileList[0]?.originFileObj || convertFileList[0]
     if (!selectedFile) {
-      message.warning('请先选择一个 PDF 文件')
+      message.warning('请先选择一个 PDF 或 PPTX 文件')
+      return
+    }
+    const isPptx = isPptxFile(selectedFile)
+    if (isPptx && values.targetFormat !== 'docx') {
+      message.warning('PPTX 当前仅支持转换为 DOCX')
       return
     }
     setConvertLoading(true)
@@ -715,12 +724,14 @@ function RagManage() {
     try {
       const formData = new FormData()
       formData.append('file', selectedFile)
-      formData.append('targetFormat', values.targetFormat)
-      const res = await convertPdf(formData)
+      if (!isPptx) {
+        formData.append('targetFormat', values.targetFormat)
+      }
+      const res = isPptx ? await convertPpt(formData) : await convertPdf(formData)
       setConvertResult(res.data)
-      message.success('PDF 转换完成')
+      message.success(isPptx ? 'PPTX 转 DOCX 完成' : 'PDF 转换完成')
     } catch (error) {
-      message.error(error.message || 'PDF 转换失败')
+      message.error(error.message || '文档转换失败')
     } finally {
       setConvertLoading(false)
     }
@@ -1214,29 +1225,33 @@ function RagManage() {
       children: (
         <Row gutter={[20, 20]}>
           <Col xs={24} lg={9}>
-            <Card title="PDF 转换" className="rag-panel-card">
+            <Card title="文档转换" className="rag-panel-card">
               <Form
                 form={convertForm}
                 layout="vertical"
                 initialValues={{ targetFormat: 'md' }}
-                onFinish={handlePdfConvert}
+                onFinish={handleDocumentConvert}
               >
                 <Alert
                   className="rag-inline-alert"
                   type="info"
                   showIcon
-                  message="支持 PDF 转 Markdown 或 DOCX；当前不做 OCR，扫描件无法提取文字时会直接报错。"
+                  message="支持 PDF 转 Markdown/DOCX，PPTX 转 DOCX；PPTX 会按幻灯片顺序重排内容并保留图片。"
                 />
-                <Form.Item label="PDF 文件" required>
+                <Form.Item label="文件" required>
                   <Upload
-                    accept="application/pdf,.pdf"
+                    accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,.pptx"
                     beforeUpload={(file) => {
-                      if (!file.name.toLowerCase().endsWith('.pdf')) {
-                        message.warning('请选择 PDF 文件')
+                      const lowerName = file.name.toLowerCase()
+                      if (!lowerName.endsWith('.pdf') && !lowerName.endsWith('.pptx')) {
+                        message.warning('请选择 PDF 或 PPTX 文件')
                         return Upload.LIST_IGNORE
                       }
                       setConvertFileList([file])
                       setConvertResult(null)
+                      if (lowerName.endsWith('.pptx')) {
+                        convertForm.setFieldsValue({ targetFormat: 'docx' })
+                      }
                       return false
                     }}
                     fileList={convertFileList}
@@ -1247,7 +1262,7 @@ function RagManage() {
                       return true
                     }}
                   >
-                    <Button icon={<UploadOutlined />}>选择 PDF</Button>
+                    <Button icon={<UploadOutlined />}>选择文件</Button>
                   </Upload>
                 </Form.Item>
                 <Form.Item name="targetFormat" label="输出格式" rules={[{ required: true, message: '请选择输出格式' }]}>
@@ -1272,6 +1287,7 @@ function RagManage() {
                     <Tag color="green">转换完成</Tag>
                     <Tag color="blue">{convertResult.format}</Tag>
                     <Tag color="cyan">{convertResult.downloadType}</Tag>
+                    {Number.isFinite(convertResult.slideCount) ? <Tag color="purple">页数：{convertResult.slideCount}</Tag> : null}
                     {Number.isFinite(convertResult.imageCount) ? <Tag color="geekblue">图片：{convertResult.imageCount}</Tag> : null}
                   </div>
                   <Space wrap>
@@ -1315,7 +1331,7 @@ function RagManage() {
                   )}
                 </Space>
               ) : (
-                <Empty description="上传 PDF 并选择格式后，转换结果会显示在这里" />
+                <Empty description="上传 PDF 或 PPTX 后，转换结果会显示在这里" />
               )}
             </Card>
           </Col>

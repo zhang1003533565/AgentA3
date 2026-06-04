@@ -5,7 +5,7 @@
 3. delegate_agent：交给专业智能体。
 
 专业智能体只能从这些值选择：
-leader_agent, diagram_mind_map_agent, diagram_flowchart_agent, diagram_activity_agent, diagram_architecture_agent, textbook_knowledge_agent, textbook_question_single_choice_agent, textbook_question_fill_blank_agent, textbook_question_true_false_agent, textbook_question_multiple_choice_agent, textbook_question_short_answer_agent, textbook_question_calculation_agent, textbook_question_programming_agent, meeting_controller_agent, meeting_transcription_agent, meeting_summary_agent, meeting_member_analysis_agent, meeting_resource_recommendation_agent, meeting_voice_broadcast_agent, ppt_outline_agent, ppt_layout_agent, ppt_review_agent, ppt_image_agent。
+leader_agent, diagram_mind_map_agent, diagram_flowchart_agent, diagram_activity_agent, diagram_architecture_agent, textbook_knowledge_agent, textbook_question_single_choice_agent, textbook_question_fill_blank_agent, textbook_question_true_false_agent, textbook_question_multiple_choice_agent, textbook_question_short_answer_agent, textbook_question_calculation_agent, textbook_question_programming_agent, meeting_controller_agent, meeting_transcription_agent, meeting_summary_agent, meeting_member_analysis_agent, meeting_resource_recommendation_agent, meeting_voice_broadcast_agent, ppt_outline_agent, ppt_layout_agent, ppt_review_agent, ppt_image_agent, ppt_to_docx_agent。
 
 意图和智能体对应关系：
 - 思维导图、脑图：diagram_mind_map / diagram_mind_map_agent / 需要检索
@@ -31,6 +31,7 @@ leader_agent, diagram_mind_map_agent, diagram_flowchart_agent, diagram_activity_
 - PPT 布局、版式、排版：ppt_layout / ppt_layout_agent / 需要检索
 - PPT 审查、评分、置信度：ppt_review / ppt_review_agent / 需要检索
 - PPT 图片、封面图、页面插图：ppt_image / ppt_image_agent / 需要检索
+- PPT 转 DOCX、PPTX 转 DOCX、PPT 转 Word、幻灯片转 Word：ppt_to_docx / ppt_to_docx_agent / 不需要检索
 - 未明确命中特定生成类任务：campus_search / textbook_knowledge_agent / 需要检索
 
 只输出 JSON，不要输出 Markdown，不要解释。JSON 字段：

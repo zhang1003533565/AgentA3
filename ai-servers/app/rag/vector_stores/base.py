@@ -24,6 +24,9 @@ class BaseVectorStore(ABC):
     def signature(self) -> str:
         raise NotImplementedError
 
+    def search(self, query: str, top_k: int = 5) -> List[RagDocument]:
+        return []
+
     def health(self) -> Dict[str, Any]:
         return {
             "backend": self.name,

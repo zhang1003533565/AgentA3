@@ -1,4 +1,5 @@
 import hashlib
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -26,7 +27,7 @@ from app.rag.core.types import RagDocument
 from app.rag.embeddings import build_embedding_provider
 from app.rag.engine import rag_engine
 from app.rag.evaluators import RagEvaluationInput, RagEvaluator
-from app.rag.document_conversion import PdfConversionError, convert_pdf
+from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx
 from app.rag.graph_stores import build_graph_store
 from app.rag.indexing.document_loader import DocumentLoader
 from app.rag.pipelines import IngestInputDocument, RagIngestionPipeline
@@ -42,6 +43,11 @@ class PdfConvertRequest(BaseModel):
     fileName: str = Field(min_length=1, max_length=255)
     contentBase64: str = Field(min_length=1)
     targetFormat: str = Field(min_length=1, max_length=16)
+
+
+class PptConvertRequest(BaseModel):
+    fileName: str = Field(min_length=1, max_length=255)
+    contentBase64: str = Field(min_length=1)
 
 
 class AgentExampleInputUpdateRequest(BaseModel):
@@ -124,15 +130,17 @@ def get_rag_capabilities(
         "indexing": {
             "supportedSuffixes": sorted(DocumentLoader.SUPPORTED_SUFFIXES),
             "defaultChunker": "semantic_boundary",
-            "indexStore": "local_jsonl",
+            "indexStore": os.getenv("RAG_VECTOR_STORE_BACKEND", "local_jsonl"),
+            "parentChildIndex": str(_knowledge_base_root() / ".index" / "parent_child_chunks.jsonl"),
             "uploadEncoding": "text_or_base64",
         },
         "documentConversion": {
-            "supportedInputs": ["pdf"],
+            "supportedInputs": ["pdf", "pptx"],
             "supportedOutputs": ["md", "docx"],
             "ocr": False,
             "imageHandling": {
                 "docx": "由 pdf2docx 尽量保留图片和基础排版",
+                "pptxDocx": "PPTX 转 DOCX 会按幻灯片顺序重排内容，保留文本、表格和图片",
                 "md": "输出 zip，Markdown 使用 assets 相对路径引用图片",
             },
             "noLocalFallback": True,
@@ -215,7 +223,7 @@ def get_rag_framework(
         "vectorStores": [
             {"name": "local_jsonl", "status": "implemented", "requiredEnv": []},
             {"name": "faiss", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
-            {"name": "milvus", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
+            {"name": "milvus", "status": "implemented", "requiredEnv": ["RAG_MILVUS_URI", "RAG_MILVUS_COLLECTION"], "configSource": "env"},
             {"name": "elasticsearch", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
             {"name": "pgvector", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
         ],
@@ -244,6 +252,7 @@ def get_rag_framework(
             "POST /internal/rag/query",
             "POST /internal/rag/documents",
             "POST /internal/rag/pdf/convert",
+            "POST /internal/rag/ppt/convert",
             "POST /internal/rag/evaluate",
             "GET /internal/rag/text-to-sql/schema",
             "POST /internal/rag/text-to-sql/execute",
@@ -702,6 +711,7 @@ def _answer_type_for_agent(agent_name: str) -> str:
         "ppt_layout_agent": "ppt_layout",
         "ppt_review_agent": "ppt_review",
         "ppt_image_agent": "ppt_image_prompt",
+        "ppt_to_docx_agent": "document_conversion",
         "image_agent": "image_generation",
     }
     if (agent_name or "").startswith("textbook_question_"):
@@ -772,7 +782,19 @@ def list_rag_documents(
                     "size": stat.st_size,
                     "updatedAt": int(stat.st_mtime),
                 })
-    return {"documents": documents}
+    vector_store = build_vector_store(root, backend=os.getenv("RAG_VECTOR_STORE_BACKEND", "local_jsonl"))
+    parent_child_index = root / ".index" / "parent_child_chunks.jsonl"
+    return {
+        "documents": documents,
+        "knowledgeBase": {
+            "rootDir": str(root),
+            "vectorStoreBackend": os.getenv("RAG_VECTOR_STORE_BACKEND", "local_jsonl"),
+            "chunkIndexPath": str(root / ".index" / "local_chunks.jsonl"),
+            "parentChildIndexPath": str(parent_child_index),
+            "parentChildIndexed": parent_child_index.exists(),
+            "vectorStoreHealth": vector_store.health(),
+        },
+    }
 
 
 @router.get("/vector-store/health")
@@ -780,7 +802,7 @@ def vector_store_health(
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ) -> Dict[str, Any]:
     _require_authorization(authorization)
-    vector_store = build_vector_store(_knowledge_base_root())
+    vector_store = build_vector_store(_knowledge_base_root(), backend=os.getenv("RAG_VECTOR_STORE_BACKEND", "local_jsonl"))
     return vector_store.health()
 
 
@@ -850,6 +872,37 @@ def convert_pdf_document(
         return result
     except PdfConversionError as exc:
         logger.warning("pdf convert failed filename=%s reason=%s", filename, exc)
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/ppt/convert")
+def convert_ppt_document(
+    request: PptConvertRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    filename = request.fileName or "presentation.pptx"
+    if not filename.lower().endswith(".pptx"):
+        raise HTTPException(status_code=400, detail="当前仅支持上传 PPTX 文件；PPT 请先另存为 PPTX")
+    try:
+        import base64
+        ppt_bytes = base64.b64decode(request.contentBase64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="PPTX Base64 内容无效") from exc
+    logger.info("ppt convert request filename=%s size=%s", filename, len(ppt_bytes))
+    try:
+        result = convert_ppt_to_docx(ppt_bytes, filename)
+        logger.info(
+            "ppt convert success filename=%s output=%s content_length=%s images=%s slides=%s",
+            filename,
+            result.get("fileName"),
+            result.get("contentLength"),
+            result.get("imageCount"),
+            result.get("slideCount"),
+        )
+        return result
+    except PptConversionError as exc:
+        logger.warning("ppt convert failed filename=%s reason=%s", filename, exc)
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 

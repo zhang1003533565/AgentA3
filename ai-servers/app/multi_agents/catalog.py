@@ -36,6 +36,7 @@ PPT_AGENT_SPECS = {
     "ppt_layout_agent": ("PPT 布局智能体", "ppt_layout", "负责根据大纲规划逐页版式、视觉层级、组件摆放和页面动线。", "根据这份 PPT 大纲设计每页布局、版式和视觉层级"),
     "ppt_review_agent": ("PPT 审查智能体", "ppt_review", "负责审查 PPT 内容、布局和教学适配度，并输出问题清单与置信度评分。", "审查这份 PPT 大纲和布局，给出问题清单、修改建议和置信度"),
     "ppt_image_agent": ("PPT 图片智能体", "ppt_image", "负责为 PPT 封面、插图、示意图生成图片提示词和视觉素材建议。", "根据这份 PPT 大纲生成封面图和关键页面插图提示词"),
+    "ppt_to_docx_agent": ("PPT 转 DOCX 智能体", "ppt_to_docx", "负责将 PPTX 文件转换为 DOCX，按幻灯片顺序重排内容并保留图片。", "上传 PPTX 文件后转换为 DOCX，保留图片并允许 Word 重新排版"),
 }
 
 DIAGRAM_AGENT_SPECS = {
@@ -99,21 +100,27 @@ def _ppt_profile(agent_name: str, role: str, intent: str, purpose: str, example_
         "ppt_layout_agent": "ppt_layout_markdown",
         "ppt_review_agent": "ppt_review_markdown",
         "ppt_image_agent": "ppt_image_prompt_markdown",
+        "ppt_to_docx_agent": "docx_file",
     }[agent_name]
     alias_core = intent.replace("ppt_", "")
-    extra_aliases = ["ppt", "课件大纲智能体", "PPT大纲智能体"] if agent_name == "ppt_outline_agent" else []
+    extra_aliases = []
+    if agent_name == "ppt_outline_agent":
+        extra_aliases = ["ppt", "课件大纲智能体", "PPT大纲智能体"]
+    elif agent_name == "ppt_to_docx_agent":
+        extra_aliases = ["ppt转docx", "pptx转docx", "ppt转word", "pptx转word", "PPT转DOCX智能体", "PPT转Word智能体"]
+    need_retrieval = agent_name != "ppt_to_docx_agent"
     return {
         "role": role,
         "purpose": purpose,
-        "inputs": ["topic_or_upstream_ppt_result", "evidence", "constraints"],
+        "inputs": ["pptx_file", "conversion_request"] if agent_name == "ppt_to_docx_agent" else ["topic_or_upstream_ppt_result", "evidence", "constraints"],
         "outputs": [output_type],
-        "skills": ["ppt generation", "presentation design", intent],
+        "skills": ["pptx conversion", "docx generation", intent] if agent_name == "ppt_to_docx_agent" else ["ppt generation", "presentation design", intent],
         "intent": intent,
-        "needRetrieval": True,
-        "executionMode": "rag_then_agent",
-        "executionModeLabel": f"RAG 检索后生成{role.replace('智能体', '')}结果",
-        "defaultRagStrategy": default_strategy,
-        "supportedRagStrategies": ALL_RAG_STRATEGIES,
+        "needRetrieval": need_retrieval,
+        "executionMode": "direct_agent" if not need_retrieval else "rag_then_agent",
+        "executionModeLabel": "直接转换 PPTX 文件为 DOCX" if not need_retrieval else f"RAG 检索后生成{role.replace('智能体', '')}结果",
+        "defaultRagStrategy": default_strategy if need_retrieval else "",
+        "supportedRagStrategies": ALL_RAG_STRATEGIES if need_retrieval else [],
         "aliases": [
             intent,
             alias_core,

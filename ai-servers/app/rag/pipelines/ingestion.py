@@ -1,11 +1,13 @@
 import base64
 import hashlib
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from app.rag.chunking.semantic import SemanticChunker
+from app.rag.chunking.parent_child import ParentChildChunker
 from app.rag.core import RagDocument, RagTraceStep
 from app.rag.indexing.document_loader import DocumentLoader
 from app.rag.indexing.embedding_writer import EmbeddingWriter
@@ -44,12 +46,21 @@ class RagIngestionPipeline:
         self.root_dir = self._resolve_root_dir(root_dir or "knowledge_base/raw")
         self.ingest_dir = self.root_dir / "api_ingest"
         self.index_path = self.root_dir / ".index" / "local_chunks.jsonl"
+        self.parent_index_path = self.root_dir / ".index" / "parent_child_chunks.jsonl"
         self.loader = DocumentLoader()
         self.chunker = SemanticChunker(
-            chunk_size=800,
-            overlap=120,
+            chunk_size=int(os.getenv("RAG_CHUNK_SIZE", "800")),
+            overlap=int(os.getenv("RAG_CHUNK_OVERLAP", "120")),
         )
-        self.writer = EmbeddingWriter(index_path=str(self.index_path))
+        self.parent_child_chunker = ParentChildChunker(
+            parent_chunk_size=int(os.getenv("RAG_PARENT_CHUNK_SIZE", "1600")),
+            parent_overlap=int(os.getenv("RAG_PARENT_CHUNK_OVERLAP", "160")),
+            child_chunk_size=int(os.getenv("RAG_CHILD_CHUNK_SIZE", "420")),
+            child_overlap=int(os.getenv("RAG_CHILD_CHUNK_OVERLAP", "80")),
+        )
+        self.vector_store_backend = os.getenv("RAG_VECTOR_STORE_BACKEND", "local_jsonl")
+        self.writer = EmbeddingWriter(index_path=str(self.index_path), backend=self.vector_store_backend)
+        self.parent_child_writer = EmbeddingWriter(index_path=str(self.parent_index_path), backend="local_jsonl")
 
     def run(self, documents: Iterable[IngestInputDocument]) -> IngestionResult:
         self.ingest_dir.mkdir(parents=True, exist_ok=True)
@@ -61,6 +72,7 @@ class RagIngestionPipeline:
         stored_files: List[str] = []
         ingested_documents: List[IngestedDocument] = []
         chunk_documents: List[RagDocument] = []
+        parent_child_documents: List[RagDocument] = []
 
         for item in inputs:
             payload = self._content_bytes(item)
@@ -84,6 +96,12 @@ class RagIngestionPipeline:
                         "modality": modality,
                     },
                 ))
+            parent_child_documents.extend(self._build_parent_child_documents(
+                target=target,
+                parsed_text=parsed_text,
+                source_name=item.source or target.name,
+                metadata=item.metadata,
+            ))
 
             ingested_documents.append(IngestedDocument(
                 source=item.source or target.name,
@@ -97,7 +115,17 @@ class RagIngestionPipeline:
         trace.append(RagTraceStep(stage="store", detail={"storedCount": len(stored_files)}))
         trace.append(RagTraceStep(stage="chunk", detail={"chunkCount": len(chunk_documents)}))
         indexed_count = self.writer.write(chunk_documents)
-        trace.append(RagTraceStep(stage="index", detail={"indexedChunkCount": indexed_count, "indexPath": str(self.index_path)}))
+        parent_child_count = self.parent_child_writer.write(parent_child_documents)
+        trace.append(RagTraceStep(
+            stage="index",
+            detail={
+                "indexedChunkCount": indexed_count,
+                "indexPath": str(self.index_path),
+                "vectorStoreBackend": self.vector_store_backend,
+                "parentChildIndexedChunkCount": parent_child_count,
+                "parentChildIndexPath": str(self.parent_index_path),
+            },
+        ))
 
         return IngestionResult(
             stored_count=len(stored_files),
@@ -145,3 +173,42 @@ class RagIngestionPipeline:
         if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
             return "image"
         return "text"
+
+    def _build_parent_child_documents(
+        self,
+        target: Path,
+        parsed_text: str,
+        source_name: str,
+        metadata: Dict[str, Any],
+    ) -> List[RagDocument]:
+        documents: List[RagDocument] = []
+        for parent_index, parent_chunk in enumerate(self.parent_child_chunker.split(parsed_text)):
+            parent_id = f"{target.resolve()}#parent-{parent_index}"
+            parent_document = RagDocument(
+                id=parent_id,
+                content=parent_chunk.parent,
+                source=str(target),
+                metadata={
+                    **metadata,
+                    "chunkRole": "parent",
+                    "parentId": parent_id,
+                    "parentIndex": parent_index,
+                    "sourceName": source_name,
+                },
+            )
+            documents.append(parent_document)
+            for child_index, child in enumerate(parent_chunk.children):
+                documents.append(RagDocument(
+                    id=f"{parent_id}#child-{child_index}",
+                    content=child,
+                    source=str(target),
+                    metadata={
+                        **metadata,
+                        "chunkRole": "child",
+                        "parentId": parent_id,
+                        "parentIndex": parent_index,
+                        "childIndex": child_index,
+                        "sourceName": source_name,
+                    },
+                ))
+        return documents

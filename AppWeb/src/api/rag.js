@@ -29,6 +29,11 @@ export const convertPdf = (data) => request.post(`${base}/pdf/convert`, data, {
   timeout: 120000,
 })
 
+export const convertPpt = (data) => request.post(`${base}/ppt/convert`, data, {
+  headers: { 'Content-Type': 'multipart/form-data' },
+  timeout: 120000,
+})
+
 export const getRagDocuments = () => request.get(`${base}/documents`)
 
 export const getRagVectorStoreHealth = () => request.get(`${base}/vector-store/health`)

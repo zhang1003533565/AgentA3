@@ -14,7 +14,7 @@
 - `routers/`：自适应策略路由。
 - `generation/`：上下文构建和答案生成辅助。
 - `indexing/`：知识入库辅助。
-- `vector_stores/`：向量/索引存储抽象，默认本地 JSONL，后续可替换 Milvus、FAISS、ES、pgvector。
+- `vector_stores/`：向量/索引存储抽象，默认本地 JSONL，可切换 Docker Milvus，后续可扩展 FAISS、ES、pgvector。
 - `structured/`：Text-to-SQL 等结构化知识能力。
 - `observability/`：trace、指标、日志辅助。
 
@@ -52,5 +52,9 @@
 - `GET /internal/rag/agents`：查看多智能体职责、skill、prompt、contract 和 tools 文件。
 - `GET /internal/rag/agents/{agent_name}`：查看单个智能体详情。
 - `POST /internal/rag/query`：按 `ragStrategy` 执行查询，并返回答案、文档、trace 和 metadata。
-- `POST /internal/rag/documents`：写入知识库、解析多模态内容、切分并落本地索引。
+- `POST /internal/rag/documents`：写入知识库、解析多模态内容、切分并写入当前 `RAG_VECTOR_STORE_BACKEND`。
 - `POST /internal/rag/evaluate`：返回 hitRate、MRR、contextRelevance、faithfulness 等轻量评估指标。
+
+## Knowledge Base
+
+知识库搭建说明见 `app/rag/KNOWLEDGE_BASE_GUIDE.md`。
