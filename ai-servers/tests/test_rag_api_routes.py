@@ -305,8 +305,65 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("multi_agent_rag", payload["strategy"])
         self.assertEqual("ppt_outline_agent", payload["metadata"]["agentName"])
         self.assertIn("PPT 大纲", payload["answer"])
+        self.assertIn("### 大纲信息", payload["answer"])
+        self.assertIn("- 使用场景：", payload["answer"])
+        self.assertIn("- 受众：", payload["answer"])
+        self.assertNotIn("讲解目标", payload["answer"])
+        self.assertNotIn("页面内容建议", payload["answer"])
+        self.assertNotIn("课堂互动建议", payload["answer"])
         self.assertEqual("agent_answer", payload["trace"][-1]["stage"])
         self.assertEqual("rag_then_agent", payload["metadata"]["executionMode"])
+
+    def test_ppt_layout_normalizer_rewrites_legacy_fields(self):
+        raw = """## PPT 布局方案
+### 第 1 页：封面布局
+- 版式类型：封面布局
+- 标题区：页面上方居中标题
+- 正文区：副标题和课程信息
+- 图表/图片区：背景示意图
+- 视觉层级：标题最强
+- 留白：四周留白充足
+- 讲解动线：从标题到副标题到背景图
+"""
+        outline = """## PPT 大纲
+### 大纲信息
+- 主题：数据结构中的栈与队列
+- 使用场景：学术
+- 受众：学生
+- 建议页数：6 页
+- 整体目标：帮助学生理解栈与队列
+- 风格建议：结构清晰
+
+### 第1页
+- 页标题：数据结构中的栈与队列
+- 页面类型：封面页
+- 本页目标：引入主题
+- 核心内容：
+  - 主标题
+  - 副标题
+- 展示建议：封面大标题布局
+- 素材建议：主视觉插图
+"""
+        normalized = langchain_chat_service._normalize_ppt_layout_answer(
+            raw,
+            outline,
+        )
+        self.assertIn("### 布局信息", normalized)
+        self.assertIn("- 使用场景：学术", normalized)
+        self.assertIn("- 受众：学生", normalized)
+        self.assertIn("- 页面类型：封面页", normalized)
+        self.assertIn("- 布局结构：", normalized)
+        self.assertIn("- 信息层级：", normalized)
+        self.assertIn("- 区域安排：", normalized)
+        self.assertIn("- 视觉建议：", normalized)
+        self.assertIn("- 素材处理：", normalized)
+        self.assertNotIn("版式类型", normalized)
+        self.assertNotIn("标题区", normalized)
+        self.assertNotIn("正文区", normalized)
+        self.assertNotIn("图表/图片区", normalized)
+        self.assertNotIn("视觉层级", normalized)
+        self.assertNotIn("留白", normalized)
+        self.assertNotIn("讲解动线", normalized)
 
     def test_leader_agent_routes_and_executes_specialist(self):
         response = self.client.post(
@@ -505,6 +562,34 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual("local_graph", response.json()["backend"])
 
+    def test_ppt_outline_normalizer_rewrites_legacy_fields(self):
+        raw = """## PPT 大纲
+
+**提示：** 未检索到外部证据，以下大纲基于通用教学知识生成。
+
+### 第 1 页：封面
+- **页标题：** 数据结构中的栈与队列
+- **讲解目标：** 明确主题。
+- **页面内容建议：**
+  - 主标题：数据结构中的栈与队列
+  - 副标题：基础概念与应用
+- **课堂互动建议：** 提问。
+"""
+        normalized = langchain_chat_service._normalize_ppt_outline_answer(
+            raw,
+            "topic: 数据结构中的栈与队列; scene_type: academic; audience: 学生; slide_count: 6",
+        )
+        self.assertIn("### 大纲信息", normalized)
+        self.assertIn("- 使用场景：学术", normalized)
+        self.assertIn("- 受众：学生", normalized)
+        self.assertIn("- 页面类型：封面页", normalized)
+        self.assertIn("- 本页目标：明确主题。", normalized)
+        self.assertIn("- 展示建议：", normalized)
+        self.assertIn("- 素材建议：", normalized)
+        self.assertNotIn("讲解目标", normalized)
+        self.assertNotIn("页面内容建议", normalized)
+        self.assertNotIn("课堂互动建议", normalized)
+
 class FakeRagChatService:
     def plan_leader_intent(self, input_text, rag_strategy=""):
         text = input_text or ""
@@ -558,13 +643,33 @@ class FakeRagChatService:
             "meeting_member_analysis_agent": "## 成员分析\n- 成员A：参与积极",
             "meeting_resource_recommendation_agent": "## 资源推荐\n- 成员A：推荐复习资料",
             "meeting_voice_broadcast_agent": "## 语音播报稿\n请大家关注会议结论。",
-            "ppt_outline_agent": "## PPT 大纲\n### 第 1 页：课程导入",
-            "ppt_layout_agent": "## PPT 布局方案\n### 第 1 页：封面布局",
+            "ppt_outline_agent": """## PPT 大纲
+### 第 1 页：课程导入
+- **页标题：** 数据结构中的栈与队列
+- **讲解目标：** 说明主题。
+- **页面内容建议：**
+  - 主标题：数据结构中的栈与队列
+  - 副标题：课程导入
+- **课堂互动建议：** 提问。""",
+            "ppt_layout_agent": """## PPT 布局方案
+### 第 1 页：封面布局
+- 版式类型：封面布局
+- 标题区：页面上方居中标题
+- 正文区：副标题和课程信息
+- 图表/图片区：背景示意图
+- 视觉层级：标题最强
+- 留白：四周留白充足
+- 讲解动线：从标题到副标题到背景图""",
             "ppt_review_agent": "## PPT 审查报告\n置信度评分：86/100",
             "ppt_image_agent": "## PPT 图片提示词\n### 封面图",
             "image_agent": "## 图片智能体提示词\n主题：教学配图",
         }
-        return labels.get(agent_name, f"{agent_name}: {input_text}")
+        answer = labels.get(agent_name, f"{agent_name}: {input_text}")
+        if agent_name == "ppt_outline_agent":
+            return langchain_chat_service._normalize_ppt_outline_answer(answer, input_text)
+        if agent_name == "ppt_layout_agent":
+            return langchain_chat_service._normalize_ppt_layout_answer(answer, input_text)
+        return answer
 
     def extract_search_keyword(self, input_text):
         return "测试关键词"
