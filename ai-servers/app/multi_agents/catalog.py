@@ -40,7 +40,6 @@ PPT_AGENT_SPECS = {
 }
 
 DIAGRAM_AGENT_SPECS = {
-    "diagram_mind_map_agent": ("图表思维导图智能体", "diagram_mind_map", "把知识点材料整理成 Mermaid 思维导图。", "操作系统进程调度知识点材料"),
     "diagram_flowchart_agent": ("图表流程图智能体", "diagram_flowchart", "把算法步骤、业务过程和知识点流程整理成 Mermaid 流程图。", "括号匹配算法流程材料"),
     "diagram_activity_agent": ("图表活动图智能体", "diagram_activity", "把角色协作、任务执行和活动顺序整理成 Mermaid 活动图。", "会议任务活动流程材料"),
     "diagram_architecture_agent": ("图表架构图智能体", "diagram_architecture", "把系统模块、服务依赖和数据流整理成 Mermaid 架构图。", "智慧校园 AI RAG 架构材料"),
@@ -49,6 +48,7 @@ DIAGRAM_AGENT_SPECS = {
 AGENT_ORDER = [
     "leader_agent",
     *DIAGRAM_AGENT_SPECS.keys(),
+    "diagram_mind_map_agent",
     "mind_map_agent",
     "textbook_knowledge_agent",
     *QUESTION_AGENT_SPECS.keys(),
@@ -187,6 +187,22 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         agent_name: _diagram_profile(agent_name, *spec)
         for agent_name, spec in DIAGRAM_AGENT_SPECS.items()
     },
+    "diagram_mind_map_agent": {
+        "role": "思维导图图片生成智能体",
+        "purpose": "接收由 mind_map_agent 生成的提示词，调用图片模型生成实际的思维导图图片。",
+        "inputs": ["prompt", "style", "size", "seed", "negative_prompt"],
+        "outputs": ["image_generation_result"],
+        "skills": ["text-to-image", "mind map visualization", "image generation"],
+        "intent": "diagram_mind_map_image",
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": "直接调用图片模型生成思维导图图片",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": ["diagram_mind_map_image", "思维导图图片生成", "思维导图图片生成智能体"],
+        "exampleInput": "一张教学用思维导图图片，中心主题是'进程调度'，位于画面中央，使用深蓝色粗体字...",
+        "requiredModelModalities": IMAGE_MODEL_MODALITY,
+    },
     "mind_map_agent": {
         "role": "思维导图图片提示词智能体",
         "purpose": "把教材知识点或用户主题转化为用于生成思维导图图片的文生图提示词（纯文本）。",
@@ -286,6 +302,9 @@ AGENT_ALIASES.update({
     "mind_map_image_prompt": "mind_map_agent",
     "思维导图图片提示词": "mind_map_agent",
     "思维导图图片提示词智能体": "mind_map_agent",
+    "diagram_mind_map_image": "diagram_mind_map_agent",
+    "思维导图图片生成": "diagram_mind_map_agent",
+    "思维导图图片生成智能体": "diagram_mind_map_agent",
     "mind_map_agent": "mind_map_agent",
     "图片智能体": "",
     "配图智能体": "",

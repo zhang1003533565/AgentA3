@@ -20,6 +20,9 @@ def run_specialist_agent(
         return agent.build_diagram(input_text, evidence, chat_service=chat_service)
     if hasattr(agent, "build_mind_map"):
         return agent.build_mind_map(input_text, evidence, chat_service=chat_service)
+    if hasattr(agent, "generate_mind_map_image_json"):
+        # diagram_mind_map_agent: 接收提示词生成图片
+        return agent.generate_mind_map_image_json(prompt=input_text)
     if hasattr(agent, "summarize_knowledge_points"):
         return agent.summarize_knowledge_points(input_text, evidence, chat_service=chat_service)
     if hasattr(agent, "generate_questions"):

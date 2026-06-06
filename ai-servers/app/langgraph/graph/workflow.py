@@ -113,7 +113,7 @@ def _answer_type_for_agent(agent_name: str) -> str:
     mapping = {
         "leader_agent": "text",
         "mind_map_agent": "text",
-        "diagram_mind_map_agent": "mermaid_mindmap",
+        "diagram_mind_map_agent": "image",
         "textbook_knowledge_agent": "markdown",
         "ppt_outline_agent": "ppt_outline",
         "ppt_layout_agent": "ppt_layout",
