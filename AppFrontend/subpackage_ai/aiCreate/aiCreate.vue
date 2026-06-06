@@ -116,18 +116,13 @@ const quickActions = ref([
 // 工具分类 Mock 数据
 const toolCategories = {
   hot: [
-    { name: '去水印', desc: '快速去水印超便捷', icon: '/static/icons/ai create/watermark.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
-    { name: '照片跳舞', desc: '唤醒静图灵动起舞', icon: '/static/icons/ai create/dance.png', themeColor: '#FF9F43', lightColor: 'rgba(255, 159, 67, 0.35)' },
-    { name: '图生视频', desc: '图片一键生成视频', icon: '/static/icons/ai create/img-video.png', themeColor: '#A55EEA', lightColor: 'rgba(165, 94, 234, 0.35)' },
-    { name: '提词器', desc: '视频录制提词', icon: '/static/icons/ai create/teleprompter.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
-    { name: '文章续写', desc: '智能续写妙笔生花', icon: '/static/icons/ai create/writing.png', themeColor: '#FECA57', lightColor: 'rgba(254, 202, 87, 0.35)' },
-    { name: '视频转字幕', desc: '视频转字幕快又准', icon: '/static/icons/ai create/subtitle.png', themeColor: '#48DBFB', lightColor: 'rgba(72, 219, 251, 0.35)' },
-    { name: 'AI证件照', desc: 'AI证件照超省心', icon: '/static/icons/ai create/id-photo.png', themeColor: '#1DD1A1', lightColor: 'rgba(29, 209, 161, 0.35)' },
-    { name: '视频加字幕', desc: '一键视频添加字幕', icon: '/static/icons/ai create/add-sub.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
-    { name: '视频二创', desc: '一键二创视频焕新', icon: '/static/icons/ai create/video-edit.png', themeColor: '#8B5CF6', lightColor: 'rgba(139, 92, 246, 0.35)' },
-    { name: '人声分离', desc: '轻松分离纯净人声', icon: '/static/icons/ai create/vocal.png', themeColor: '#FF9F43', lightColor: 'rgba(255, 159, 67, 0.35)' },
-    { name: '文生图', desc: '一键生成精美图片', icon: '/static/icons/ai create/text-img.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
-    { name: '更多工具', desc: '总有一款适合你', icon: '/static/icons/ai create/more.png', themeColor: '#C8D6E5', lightColor: 'rgba(200, 214, 229, 0.35)' }
+    { name: '试卷生成', desc: '智能生成标准化试卷', icon: '/static/icons/ai create/exam.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
+    { name: 'PPT生成', desc: '一键生成演示文稿', icon: '/static/icons/ai create/ppt-pdf.png', themeColor: '#FF9F43', lightColor: 'rgba(255, 159, 67, 0.35)' },
+    { name: '思维导图', desc: '知识梳理思维导图', icon: '/static/icons/ai create/outline.png', themeColor: '#A55EEA', lightColor: 'rgba(165, 94, 234, 0.35)' },
+    { name: '活动图', desc: '业务流程活动图', icon: '/static/icons/ai create/summary.png', themeColor: '#48DBFB', lightColor: 'rgba(72, 219, 251, 0.35)' },
+    { name: '架构图', desc: '系统架构可视化', icon: '/static/icons/ai create/plan.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
+    { name: '流程图', desc: '逻辑流程一键绘制', icon: '/static/icons/ai create/video-convert.png', themeColor: '#1DD1A1', lightColor: 'rgba(29, 209, 161, 0.35)' },
+    { name: '复习资料', desc: '智能整理复习重点', icon: '/static/icons/ai create/review.png', themeColor: '#FECA57', lightColor: 'rgba(254, 202, 87, 0.35)' }
   ],
   format: [
     { name: 'PPT转PDF', desc: '一键PPT转PDF', icon: '/static/icons/ai create/ppt-pdf.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
