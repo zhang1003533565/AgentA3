@@ -49,6 +49,7 @@ DIAGRAM_AGENT_SPECS = {
 AGENT_ORDER = [
     "leader_agent",
     *DIAGRAM_AGENT_SPECS.keys(),
+    "mind_map_agent",
     "textbook_knowledge_agent",
     *QUESTION_AGENT_SPECS.keys(),
     *MEETING_AGENT_SPECS.keys(),
@@ -312,7 +313,7 @@ def get_agent_catalog() -> Dict[str, Any]:
         },
         "workflow": {
             "default": ["leader_agent", "textbook_knowledge_agent"],
-            "mindMap": ["leader_agent", "textbook_knowledge_agent", "diagram_mind_map_agent"],
+            "mindMap": ["leader_agent", "textbook_knowledge_agent", "mind_map_agent"],
             "diagram": ["leader_agent", "textbook_knowledge_agent", *DIAGRAM_AGENT_SPECS.keys()],
             "flowchart": ["leader_agent", "textbook_knowledge_agent", "diagram_flowchart_agent"],
             "activityDiagram": ["leader_agent", "textbook_knowledge_agent", "diagram_activity_agent"],
