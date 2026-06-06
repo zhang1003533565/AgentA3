@@ -6,6 +6,7 @@ AI_SERVER_HOST="${AI_SERVER_HOST:-127.0.0.1}"
 PYTHON_SERVER_PORT="${PYTHON_SERVER_PORT:-8081}"
 RAG_VECTOR_STORE_BACKEND="${RAG_VECTOR_STORE_BACKEND:-milvus}"
 RAG_DOCKER_WAIT_SECONDS="${RAG_DOCKER_WAIT_SECONDS:-90}"
+RAG_DOCKER_PULL_RETRIES="${RAG_DOCKER_PULL_RETRIES:-3}"
 START_DOCKER=1
 BUILD_KB=0
 
@@ -114,6 +115,20 @@ wait_for_milvus() {
   fail "Milvus did not become ready within ${RAG_DOCKER_WAIT_SECONDS}s."
 }
 
+pull_docker_images() {
+  local attempt
+  for attempt in $(seq 1 "$RAG_DOCKER_PULL_RETRIES"); do
+    log "Pulling RAG Docker images (${attempt}/${RAG_DOCKER_PULL_RETRIES})..."
+    if "${COMPOSE[@]}" -f "$RAG_COMPOSE_FILE" pull; then
+      return
+    fi
+    log "Docker image pull failed; retrying in 5 seconds..."
+    sleep 5
+  done
+
+  fail "Failed to pull RAG Docker images. Check Docker network access and rerun this script."
+}
+
 ensure_python() {
   command -v python3 >/dev/null 2>&1 || fail "python3 is not available."
 }
@@ -125,13 +140,6 @@ ensure_venv() {
   fi
   # shellcheck disable=SC1091
   source .venv/bin/activate
-}
-
-ensure_env_file() {
-  if [[ ! -f ".env" && -f "example.env" ]]; then
-    log "Creating .env from example.env ..."
-    cp example.env .env
-  fi
 }
 
 install_requirements() {
@@ -146,6 +154,7 @@ start_docker_services() {
   command -v docker >/dev/null 2>&1 || fail "Docker is not installed."
   find_compose
   wait_for_docker
+  pull_docker_images
   log "Starting RAG Docker services..."
   "${COMPOSE[@]}" -f "$RAG_COMPOSE_FILE" up -d
   wait_for_milvus
@@ -167,7 +176,6 @@ start_ai_server() {
 
 main() {
   ensure_python
-  ensure_env_file
   ensure_venv
   install_requirements
   start_docker_services

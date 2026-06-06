@@ -14,7 +14,7 @@ Python FastAPI + LangChain internal service for AppBackend AI chat migration.
 - `app/rag/*`: runtime rag strategies and retrievers
 - `app/multi_agents/*`: runtime multi-agent roles and skill files (one folder per agent)
 - `app/models/schemas.py`: request/response models
-- `app/__init__.py`: load `.env`
+- `app/__init__.py`: package bootstrap
 - `app/utils/*`: text/sse helpers
 
 AI 相关框架统一放在 `app/` 下维护，避免运行代码、skill、contract 出现两套目录。
@@ -100,8 +100,6 @@ pip install -r requirements.txt
 python -m uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
 ```
 
-服务会自动读取 `ai-servers/.env`。
-
 ## Environment Variables
 
 - `PYTHON_SERVER_PORT` default `8081`
@@ -169,17 +167,6 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
 
 ```bash
 docker compose up -d
-```
-
-在 `ai-servers/.env` 中启用 Milvus：
-
-```env
-RAG_VECTOR_STORE_BACKEND=milvus
-RAG_MILVUS_URI=http://localhost:19530
-RAG_MILVUS_COLLECTION=smart_campus_knowledge
-RAG_MILVUS_PARENT_CHILD_COLLECTION=smart_campus_knowledge_parent_child
-RAG_MILVUS_DIMENSION=384
-RAG_MILVUS_METRIC_TYPE=COSINE
 ```
 
 把 Markdown、TXT、CSV、JSON、HTML、PDF 或图片文件放入 `ai-servers/knowledge_base/raw`，然后执行：

@@ -5,6 +5,7 @@ $AiServerHost = if ($env:AI_SERVER_HOST) { $env:AI_SERVER_HOST } else { "127.0.0
 $PythonServerPort = if ($env:PYTHON_SERVER_PORT) { [int]$env:PYTHON_SERVER_PORT } else { 8081 }
 $RagVectorStoreBackend = if ($env:RAG_VECTOR_STORE_BACKEND) { $env:RAG_VECTOR_STORE_BACKEND } else { "milvus" }
 $RagDockerWaitSeconds = if ($env:RAG_DOCKER_WAIT_SECONDS) { [int]$env:RAG_DOCKER_WAIT_SECONDS } else { 90 }
+$RagDockerPullRetries = if ($env:RAG_DOCKER_PULL_RETRIES) { [int]$env:RAG_DOCKER_PULL_RETRIES } else { 3 }
 $StartDocker = $true
 $BuildKnowledgeBase = $false
 
@@ -141,6 +142,20 @@ function Wait-ForMilvus {
     Stop-WithError "Milvus did not become ready within ${RagDockerWaitSeconds}s."
 }
 
+function Pull-DockerImages {
+    for ($i = 1; $i -le $RagDockerPullRetries; $i++) {
+        Write-Log "Pulling RAG Docker images (${i}/${RagDockerPullRetries})..."
+        Invoke-Compose -f $RagComposeFile pull
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+        Write-Log "Docker image pull failed; retrying in 5 seconds..."
+        Start-Sleep -Seconds 5
+    }
+
+    Stop-WithError "Failed to pull RAG Docker images. Check Docker network access and rerun this script."
+}
+
 function Ensure-Python {
     if (-not (Test-Command "python")) {
         Stop-WithError "Python is not available. Install Python 3.11+ first."
@@ -157,13 +172,6 @@ function Ensure-Venv {
         Stop-WithError "Virtual environment activation script is missing: $activate"
     }
     . $activate
-}
-
-function Ensure-EnvFile {
-    if ((-not (Test-Path ".env")) -and (Test-Path "example.env")) {
-        Write-Log "Creating .env from example.env ..."
-        Copy-Item "example.env" ".env"
-    }
 }
 
 function Install-Requirements {
@@ -186,6 +194,7 @@ function Start-DockerServices {
     }
     Initialize-Compose
     Start-DockerDesktop
+    Pull-DockerImages
     Write-Log "Starting RAG Docker services..."
     Invoke-Compose -f $RagComposeFile up -d
     if ($LASTEXITCODE -ne 0) {
@@ -215,7 +224,6 @@ function Start-AiServer {
 }
 
 Ensure-Python
-Ensure-EnvFile
 Ensure-Venv
 Install-Requirements
 Start-DockerServices

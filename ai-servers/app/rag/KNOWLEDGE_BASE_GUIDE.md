@@ -14,21 +14,10 @@
 
 ## 2. Docker Milvus
 
-从项目根目录启动：
+在 `ai-servers` 目录启动：
 
 ```bash
 docker compose up -d
-```
-
-`ai-servers/.env` 推荐配置：
-
-```env
-RAG_VECTOR_STORE_BACKEND=milvus
-RAG_MILVUS_URI=http://localhost:19530
-RAG_MILVUS_COLLECTION=smart_campus_knowledge
-RAG_MILVUS_PARENT_CHILD_COLLECTION=smart_campus_knowledge_parent_child
-RAG_MILVUS_DIMENSION=384
-RAG_MILVUS_METRIC_TYPE=COSINE
 ```
 
 安装 Python 依赖：

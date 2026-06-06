@@ -7,8 +7,6 @@ import os
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -18,7 +16,6 @@ from app.rag.vector_stores import DEFAULT_VECTOR_STORE_BACKEND, build_vector_sto
 
 
 def main() -> int:
-    load_dotenv(ROOT / ".env")
     parser = argparse.ArgumentParser(description="Build Smart Campus RAG knowledge base.")
     parser.add_argument("--source-dir", default=os.getenv("RAG_KNOWLEDGE_BASE_DIR", "knowledge_base/raw"))
     parser.add_argument("--backend", default=os.getenv("RAG_VECTOR_STORE_BACKEND", DEFAULT_VECTOR_STORE_BACKEND))
