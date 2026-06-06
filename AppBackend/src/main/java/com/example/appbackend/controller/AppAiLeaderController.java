@@ -19,14 +19,17 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.MediaType;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.HashMap;
 import java.util.List;
@@ -61,25 +64,34 @@ public class AppAiLeaderController {
         saveMessage(session, AiLeaderMessage.ROLE_USER, request.getInput(), "text");
         refreshSession(session, request.getInput());
 
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("input", request.getInput());
-        payload.put("agentName", LEADER_AGENT);
-        if (StringUtils.hasText(request.getRagStrategy())) {
-            payload.put("ragStrategy", request.getRagStrategy().trim());
-        }
-        if (StringUtils.hasText(request.getLlmModel())) {
-            payload.put("llmModel", request.getLlmModel().trim());
-        }
-        payload.put("metadata", Map.of(
-                "source", "app_ai_assistant",
-                "sessionId", request.getSessionId() == null ? "" : request.getSessionId()
-        ));
+        Map<String, Object> payload = buildLeaderPayload(request, session.getSessionId());
 
         Object ragResult = pythonAiProxyService.queryRag(payload, httpRequest.getHeader("Authorization"));
         LlmChatResponse response = toChatResponse(session, ragResult);
         saveMessage(session, AiLeaderMessage.ROLE_ASSISTANT, response.getAnswer(), response.getAnswerType());
         refreshSession(session, response.getAnswer());
         return Result.success(response);
+    }
+
+    @PostMapping(value = "/query/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "App 智能助手流式查询", description = "固定调用 Leader 智能体，并以 SSE 增量返回回答")
+    public SseEmitter queryStream(@Valid @RequestBody LlmChatRequest request,
+                                  @RequestHeader(value = "Authorization", required = false) String authorization,
+                                  HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        AiLeaderSession session = getOrCreateSession(userId, request.getSessionId(), request.getInput());
+        saveMessage(session, AiLeaderMessage.ROLE_USER, request.getInput(), "text");
+        refreshSession(session, request.getInput());
+
+        Map<String, Object> payload = buildLeaderPayload(request, session.getSessionId());
+        return pythonAiProxyService.streamRag(payload, authorization, (eventName, eventPayload) -> {
+            if (!"done".equals(eventName)) {
+                return;
+            }
+            LlmChatResponse response = toChatResponse(session, eventPayload);
+            saveMessage(session, AiLeaderMessage.ROLE_ASSISTANT, response.getAnswer(), response.getAnswerType());
+            refreshSession(session, response.getAnswer());
+        });
     }
 
     @GetMapping("/sessions")
@@ -118,25 +130,32 @@ public class AppAiLeaderController {
     @SuppressWarnings("unchecked")
     private LlmChatResponse toChatResponse(AiLeaderSession session, Object ragResult) {
         Map<String, Object> result = ragResult instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
-        Map<String, Object> metadata = result.get("metadata") instanceof Map<?, ?> map
+        Object metadataValue = result.containsKey("metadata") ? result.get("metadata") : result.get("retrievalMeta");
+        Map<String, Object> metadata = metadataValue instanceof Map<?, ?> map
                 ? (Map<String, Object>) map
                 : Map.of();
 
         LlmChatResponse response = new LlmChatResponse();
         response.setSessionId(session.getSessionId());
         response.setModel("");
-        response.setRagStrategy(stringValue(result.get("strategy")));
+        response.setRagStrategy(firstNonBlank(
+                stringValue(result.get("strategy")),
+                stringValue(result.get("ragStrategy"))
+        ));
         response.setAgentName(firstNonBlank(
                 stringValue(metadata.get("executedAgent")),
                 stringValue(metadata.get("targetAgent")),
+                stringValue(result.get("agentName")),
                 LEADER_AGENT
         ));
-        response.setSearchKeyword("");
-        response.setMatchedResults(traceAsMaps(result.get("documents")));
+        response.setSearchKeyword(stringValue(result.get("searchKeyword")));
+        response.setMatchedResults(traceAsMaps(result.containsKey("documents")
+                ? result.get("documents")
+                : result.get("matchedResults")));
         response.setRetrievalMeta(metadata);
         response.setTrace(traceAsMaps(result.get("trace")));
         response.setAnswer(stringValue(result.get("answer")));
-        response.setAnswerType(stringValue(result.get("answerType")));
+        response.setAnswerType(firstNonBlank(stringValue(result.get("answerType")), "text"));
         return response;
     }
 
@@ -146,6 +165,23 @@ public class AppAiLeaderController {
             throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
         }
         return (Long) userId;
+    }
+
+    private Map<String, Object> buildLeaderPayload(LlmChatRequest request, String sessionId) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("input", request.getInput());
+        payload.put("agentName", LEADER_AGENT);
+        if (StringUtils.hasText(request.getRagStrategy())) {
+            payload.put("ragStrategy", request.getRagStrategy().trim());
+        }
+        if (StringUtils.hasText(request.getLlmModel())) {
+            payload.put("llmModel", request.getLlmModel().trim());
+        }
+        payload.put("metadata", Map.of(
+                "source", "app_ai_assistant",
+                "sessionId", sessionId == null ? "" : sessionId
+        ));
+        return payload;
     }
 
     private AiLeaderSession getOrCreateSession(Long userId, String requestedSessionId, String firstInput) {

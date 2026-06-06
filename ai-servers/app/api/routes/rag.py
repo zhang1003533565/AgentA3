@@ -1,9 +1,11 @@
+import asyncio
 import hashlib
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.models.schemas import (
@@ -34,6 +36,7 @@ from app.rag.pipelines import IngestInputDocument, RagIngestionPipeline
 from app.rag.structured.text_to_sql import TextToSqlService
 from app.rag.vector_stores import build_vector_store
 from app.utils.logger import get_logger
+from app.utils.sse import build_sse, chunk_answer
 
 router = APIRouter(prefix="/internal/rag", tags=["internal-rag"])
 logger = get_logger("api.rag")
@@ -328,6 +331,64 @@ def run_rag_query(
         return _run_rag_query_core(request, authorization or "")
     finally:
         reset_active_llm_config(token)
+
+
+@router.post("/query/stream")
+async def run_rag_query_stream(
+    request: RagQueryRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+    x_ai_provider: Optional[str] = Header(default=None, alias="X-AI-Provider"),
+    x_ai_base_url: Optional[str] = Header(default=None, alias="X-AI-Base-Url"),
+    x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
+    x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
+):
+    _require_authorization(authorization)
+    llm_config = build_llm_runtime_config(
+        provider=x_ai_provider,
+        base_url=x_ai_base_url,
+        api_key=x_ai_api_key,
+        model=x_ai_model,
+    )
+
+    async def event_stream():
+        yield build_sse("status", {"stage": "processing"})
+        token = set_active_llm_config(llm_config)
+        try:
+            response = await asyncio.to_thread(_run_rag_query_core, request, authorization or "")
+            metadata = response.metadata or {}
+            session_id = str((request.metadata or {}).get("sessionId") or "")
+            yield build_sse("session", {
+                "sessionId": session_id,
+                "model": llm_config.model,
+                "agentName": metadata.get("executedAgent") or metadata.get("targetAgent") or metadata.get("agentName") or "leader_agent",
+                "answerType": response.answerType,
+            })
+            yield build_sse("search", {
+                "searchKeyword": request.keyword or "",
+                "matchedResults": [document.model_dump() for document in response.documents],
+                "retrievalMeta": metadata,
+            })
+            for chunk in chunk_answer(response.answer):
+                yield build_sse("delta", {"content": chunk})
+                await asyncio.sleep(0.035)
+            yield build_sse("done", {
+                "sessionId": session_id,
+                "answer": response.answer,
+                "answerType": response.answerType,
+                "ragStrategy": response.strategy,
+                "agentName": metadata.get("executedAgent") or metadata.get("targetAgent") or metadata.get("agentName") or "leader_agent",
+                "searchKeyword": request.keyword or "",
+                "matchedResults": [document.model_dump() for document in response.documents],
+                "retrievalMeta": metadata,
+                "trace": [step.model_dump() for step in response.trace],
+            })
+        except Exception as exc:
+            logger.exception("rag stream failed agent=%s", request.agentName or "-")
+            yield build_sse("error", {"message": str(exc)})
+        finally:
+            reset_active_llm_config(token)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQueryResponse:

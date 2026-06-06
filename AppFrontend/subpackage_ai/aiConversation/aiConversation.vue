@@ -20,10 +20,15 @@
         :class="message.role === 'user' ? 'message-row--user' : 'message-row--assistant'"
       >
         <view class="message-bubble" :class="message.role === 'user' ? 'message-bubble--user' : 'message-bubble--assistant'">
-          <text class="message-text">{{ message.content }}</text>
-          <view v-if="message.role === 'assistant' && message.routeLabel" class="message-meta">
-            <text>{{ message.routeLabel }}</text>
+          <view v-if="message.type === 'thinking'" class="thinking-indicator">
+            <text class="thinking-text">思考中</text>
+            <view class="thinking-dots">
+              <text></text>
+              <text></text>
+              <text></text>
+            </view>
           </view>
+          <text v-else class="message-text">{{ message.content }}</text>
         </view>
       </view>
       <view id="message-anchor"></view>
@@ -36,7 +41,11 @@
         placeholder="继续问 Leader 智能助手"
         maxlength="4000"
         auto-height
+        confirm-type="send"
+        :confirm-hold="true"
         :disabled="sending"
+        @confirm="handleInputConfirm"
+        @keydown.enter="handleEnterKey"
       />
       <view class="send-btn" :class="{ disabled: !canSend }" @click="sendMessage">发送</view>
     </view>
@@ -45,7 +54,7 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getLeaderSessionDetail, queryLeaderAgent } from '@/api/ai.js'
+import { getLeaderSessionDetail, queryLeaderAgent, streamLeaderAgent } from '@/api/ai.js'
 
 const STORAGE_KEY = 'aiAssistantSessionId'
 
@@ -80,8 +89,7 @@ export default {
         const data = res?.data || {}
         this.messages = (data.messages || []).map((item) => ({
           ...item,
-          localId: `${item.role}-${item.id}`,
-          routeLabel: this.buildRouteLabel(item)
+          localId: `${item.role}-${item.id}`
         }))
         this.scrollToBottom()
       } catch (error) {
@@ -89,11 +97,13 @@ export default {
       }
     },
     appendMessage(message) {
-      this.messages.push({
+      const item = {
         localId: `${message.role}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         ...message
-      })
+      }
+      this.messages.push(item)
       this.scrollToBottom()
+      return item
     },
     async sendMessage() {
       const text = this.inputValue.trim()
@@ -101,6 +111,71 @@ export default {
       this.inputValue = ''
       this.sending = true
       this.appendMessage({ role: 'user', content: text })
+      const thinkingMessage = this.appendMessage({ role: 'assistant', type: 'thinking', content: '思考中' })
+      let streamStarted = false
+      let streamTouched = false
+      try {
+        await streamLeaderAgent({
+          sessionId: this.sessionId,
+          agentName: 'leader_agent',
+          input: text
+        }, {
+          onEvent: () => {
+            streamTouched = true
+          },
+          onSession: (payload) => {
+            streamTouched = true
+            this.syncSessionId(payload?.sessionId)
+          },
+          onDelta: (content) => {
+            if (!content) return
+            streamTouched = true
+            streamStarted = true
+            this.appendMessageContent(thinkingMessage.localId, content)
+          },
+          onDone: (payload) => {
+            streamTouched = true
+            this.syncSessionId(payload?.sessionId)
+            const finalAnswer = payload?.answer || ''
+            const current = this.messages.find((item) => item.localId === thinkingMessage.localId)
+            if (finalAnswer && current && current.content !== finalAnswer) {
+              this.replaceMessage(thinkingMessage.localId, {
+                role: 'assistant',
+                content: finalAnswer,
+                answerType: payload.answerType || 'text'
+              })
+            } else if (!current || current.type === 'thinking') {
+              this.replaceMessage(thinkingMessage.localId, {
+                role: 'assistant',
+                content: finalAnswer || 'Leader 这次没有返回可用答案，请换一种问法再试。',
+                answerType: payload?.answerType || 'text'
+              })
+            }
+          },
+          onError: (payload) => {
+            streamTouched = true
+            throw new Error(payload?.message || '流式请求失败')
+          }
+        })
+      } catch (error) {
+        if (streamStarted || streamTouched) {
+          this.replaceMessage(thinkingMessage.localId, {
+            role: 'assistant',
+            content: `这次流式回复中断了：${error?.message || error?.msg || '请稍后再试'}`
+          })
+        } else if (error?.fallbackToNormalRequest) {
+          await this.sendMessageFallback(text, thinkingMessage.localId, error)
+        } else {
+          this.replaceMessage(thinkingMessage.localId, {
+            role: 'assistant',
+            content: `这次没有顺利完成请求：${error?.message || error?.msg || '请稍后再试'}`
+          })
+        }
+      } finally {
+        this.sending = false
+      }
+    },
+    async sendMessageFallback(text, localId, streamError) {
       try {
         const res = await queryLeaderAgent({
           sessionId: this.sessionId,
@@ -108,24 +183,63 @@ export default {
           input: text
         })
         const payload = res?.data || {}
-        if (payload.sessionId) {
-          this.sessionId = payload.sessionId
-          uni.setStorageSync(STORAGE_KEY, payload.sessionId)
-        }
-        this.appendMessage({
+        this.syncSessionId(payload.sessionId)
+        this.replaceMessage(localId, {
           role: 'assistant',
           content: payload.answer || 'Leader 这次没有返回可用答案，请换一种问法再试。',
-          answerType: payload.answerType || 'text',
-          routeLabel: this.buildRouteLabel(payload)
+          answerType: payload.answerType || 'text'
         })
       } catch (error) {
-        this.appendMessage({
+        this.replaceMessage(localId, {
           role: 'assistant',
-          content: `这次没有顺利完成请求：${error?.message || error?.msg || '请稍后再试'}`
+          content: `这次没有顺利完成请求：${error?.message || error?.msg || streamError?.message || '请稍后再试'}`
         })
-      } finally {
-        this.sending = false
       }
+    },
+    replaceMessage(localId, message) {
+      const index = this.messages.findIndex((item) => item.localId === localId)
+      if (index === -1) {
+        this.removeThinkingMessages()
+        this.appendMessage(message)
+        return
+      }
+      this.messages.splice(index, 1, {
+        localId,
+        ...message
+      })
+      this.scrollToBottom()
+    },
+    appendMessageContent(localId, content) {
+      const index = this.messages.findIndex((item) => item.localId === localId)
+      if (index === -1) return
+      const current = this.messages[index]
+      this.messages.splice(index, 1, {
+        ...current,
+        type: '',
+        content: `${current.type === 'thinking' ? '' : current.content || ''}${content}`
+      })
+      this.scrollToBottom()
+    },
+    removeThinkingMessages() {
+      const nextMessages = this.messages.filter((item) => item.type !== 'thinking')
+      if (nextMessages.length === this.messages.length) return
+      this.messages = nextMessages
+      this.scrollToBottom()
+    },
+    syncSessionId(sessionId) {
+      if (!sessionId) return
+      this.sessionId = sessionId
+      uni.setStorageSync(STORAGE_KEY, sessionId)
+    },
+    handleInputConfirm() {
+      this.sendMessage()
+    },
+    handleEnterKey(event) {
+      if (event?.shiftKey) {
+        return
+      }
+      event?.preventDefault?.()
+      this.sendMessage()
     },
     scrollToBottom() {
       this.$nextTick(() => {
@@ -134,25 +248,6 @@ export default {
           this.scrollAnchor = 'message-anchor'
         })
       })
-    },
-    buildRouteLabel(payload = {}) {
-      const meta = payload.retrievalMeta || payload.metadata || {}
-      const executedAgent = meta.executedAgent || meta.targetAgent || payload.agentName
-      const strategy = payload.ragStrategy || meta.plannedRagStrategy || meta.strategyLabel || ''
-      const mode = meta.executionModeLabel || ''
-      const parts = []
-      if (executedAgent && executedAgent !== 'leader_agent') {
-        parts.push(`执行：${executedAgent}`)
-      } else {
-        parts.push('执行：leader_agent')
-      }
-      if (strategy && !['leader_direct_answer', 'direct_agent'].includes(strategy)) {
-        parts.push(`策略：${strategy}`)
-      }
-      if (mode) {
-        parts.push(mode)
-      }
-      return parts.join(' · ')
     }
   }
 }
@@ -237,13 +332,48 @@ export default {
   word-break: break-all;
 }
 
-.message-meta {
-  margin-top: 14rpx;
-  padding-top: 12rpx;
-  border-top: 1rpx solid rgba(148, 163, 184, 0.18);
-  font-size: 22rpx;
-  line-height: 1.5;
-  color: #7B8794;
+.thinking-indicator {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+
+.thinking-text {
+  font-size: 26rpx;
+  color: #6B7280;
+}
+
+.thinking-dots {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.thinking-dots text {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: #8CB6FF;
+  animation: thinking-bounce 1s ease-in-out infinite;
+}
+
+.thinking-dots text:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.thinking-dots text:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes thinking-bounce {
+  0%, 80%, 100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-6rpx);
+  }
 }
 
 .composer {

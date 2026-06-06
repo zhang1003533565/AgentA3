@@ -53,6 +53,17 @@ export function queryLeaderAgent(data) {
   })
 }
 
+export async function streamLeaderAgent(data, handlers = {}) {
+  return streamSse('/api/ai/leader/query/stream', {
+    ...(data || {}),
+    agentName: 'leader_agent',
+    metadata: {
+      source: 'app_ai_conversation',
+      ...((data && data.metadata) || {})
+    }
+  }, handlers, '当前运行环境暂不支持流式对话')
+}
+
 export function queryMeetingAgent(data = {}) {
   const payload = { ...data }
   const targetSessionId = payload.sessionId || payload.meetingSessionId
@@ -166,12 +177,18 @@ export function previewMeetingAgent(sessionId, data) {
 }
 
 export async function streamLlmChat(data, handlers = {}) {
+  return streamSse('/api/llm/chat/stream', data, handlers, '当前运行环境暂不支持流式总结')
+}
+
+async function streamSse(url, data, handlers = {}, unsupportedMessage = '当前运行环境暂不支持流式响应') {
   if (typeof fetch !== 'function') {
-    throw new Error('当前运行环境暂不支持流式总结')
+    const error = new Error(unsupportedMessage)
+    error.fallbackToNormalRequest = true
+    throw error
   }
   const token = getToken()
   const controller = new AbortController()
-  const response = await fetch(`${BASE_URL}/api/llm/chat/stream`, {
+  const response = await fetch(`${BASE_URL}${url}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -184,7 +201,9 @@ export async function streamLlmChat(data, handlers = {}) {
     throw new Error(`流式请求失败: ${response.status}`)
   }
   if (!response.body?.getReader) {
-    throw new Error('当前运行环境无法读取流式响应')
+    const error = new Error('当前运行环境无法读取流式响应')
+    error.fallbackToNormalRequest = true
+    throw error
   }
 
   const decoder = new TextDecoder('utf-8')
@@ -208,6 +227,10 @@ export async function streamLlmChat(data, handlers = {}) {
     } catch (error) {}
     if (eventName === 'delta') {
       handlers.onDelta?.(payload?.content || '')
+    } else if (eventName === 'session') {
+      handlers.onSession?.(payload)
+    } else if (eventName === 'search') {
+      handlers.onSearch?.(payload)
     } else if (eventName === 'done') {
       handlers.onDone?.(payload)
     } else if (eventName === 'error') {

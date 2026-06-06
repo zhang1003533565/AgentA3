@@ -28,6 +28,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BiConsumer;
 
 @Service
 public class PythonAiProxyService {
@@ -121,6 +122,28 @@ public class PythonAiProxyService {
         }
         Map<String, Object> sanitized = sanitizeRagRequest(request);
         return postRagObject("/internal/rag/query", sanitized, authorization, requestedModel);
+    }
+
+    public SseEmitter streamRag(Map<String, Object> request, String authorization) {
+        return streamRag(request, authorization, null);
+    }
+
+    public SseEmitter streamRag(Map<String, Object> request,
+                                String authorization,
+                                BiConsumer<String, Object> eventConsumer) {
+        String requestedModel = resolveRequestedModel(request);
+        if (!StringUtils.hasText(requestedModel)) {
+            throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
+        }
+        Map<String, Object> sanitized = sanitizeRagRequest(request);
+        return streamPythonObject(
+                "/internal/rag/query/stream",
+                sanitized,
+                authorization,
+                requestedModel,
+                eventConsumer,
+                true
+        );
     }
 
     public Object ingestRagDocuments(Map<String, Object> request, String authorization) {
@@ -274,26 +297,75 @@ public class PythonAiProxyService {
         Long userId = extractUserId(token);
         String requestedModel = resolveRequestedModel(request.getLlmModel(), request.getAgentName());
 
+        return streamPythonObject("/internal/chat/stream", request, authorization, userId, requestedModel, null);
+    }
+
+    private SseEmitter streamPythonObject(String path, Object request, String authorization, String requestedModel) {
+        return streamPythonObject(path, request, authorization, requestedModel, null);
+    }
+
+    private SseEmitter streamPythonObject(String path,
+                                         Object request,
+                                         String authorization,
+                                         String requestedModel,
+                                         BiConsumer<String, Object> eventConsumer) {
+        return streamPythonObject(path, request, authorization, requestedModel, eventConsumer, false);
+    }
+
+    private SseEmitter streamPythonObject(String path,
+                                         Object request,
+                                         String authorization,
+                                         String requestedModel,
+                                         BiConsumer<String, Object> eventConsumer,
+                                         boolean ragHeaders) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        return streamPythonObject(path, request, authorization, userId, requestedModel, eventConsumer, ragHeaders);
+    }
+
+    private SseEmitter streamPythonObject(String path,
+                                         Object request,
+                                         String authorization,
+                                         Long userId,
+                                         String requestedModel,
+                                         BiConsumer<String, Object> eventConsumer) {
+        return streamPythonObject(path, request, authorization, userId, requestedModel, eventConsumer, false);
+    }
+
+    private SseEmitter streamPythonObject(String path,
+                                         Object request,
+                                         String authorization,
+                                         Long userId,
+                                         String requestedModel,
+                                         BiConsumer<String, Object> eventConsumer,
+                                         boolean ragHeaders) {
         SseEmitter emitter = new SseEmitter(0L);
         CompletableFuture.runAsync(() -> {
             try {
-                log.info("start python stream relay sessionId={}", request.getSessionId());
+                log.info("start python stream relay path={}", path);
                 webClientBuilder.build()
                         .post()
-                        .uri(buildUri("/internal/chat/stream"))
-                        .headers(headers -> applyPythonHeaders(headers, authorization, userId, requestedModel))
+                        .uri(buildUri(path))
+                        .headers(headers -> {
+                            if (ragHeaders) {
+                                applyPythonHeadersForRag(headers, authorization, userId, requestedModel);
+                            } else {
+                                applyPythonHeaders(headers, authorization, userId, requestedModel);
+                            }
+                        })
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .contentType(MediaType.APPLICATION_JSON)
                         .bodyValue(request)
                         .retrieve()
                         .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
                         .timeout(Duration.ofSeconds(timeoutSeconds))
-                        .doOnNext(event -> relaySseEvent(event, emitter))
+                        .doOnNext(event -> relaySseEvent(event, emitter, eventConsumer))
                         .blockLast();
-                log.info("python stream relay completed sessionId={}", request.getSessionId());
+                log.info("python stream relay completed path={}", path);
                 emitter.complete();
             } catch (Exception e) {
-                log.error("python stream relay failed sessionId={}", request.getSessionId(), e);
+                log.error("python stream relay failed path={}", path, e);
                 try {
                     emitter.send(SseEmitter.event()
                             .name("error")
@@ -306,13 +378,18 @@ public class PythonAiProxyService {
         return emitter;
     }
 
-    private void relaySseEvent(ServerSentEvent<String> sourceEvent, SseEmitter emitter) {
+    private void relaySseEvent(ServerSentEvent<String> sourceEvent,
+                               SseEmitter emitter,
+                               BiConsumer<String, Object> eventConsumer) {
         String eventName = sourceEvent.event();
         if (!StringUtils.hasText(eventName)) {
             eventName = "message";
         }
         String rawData = sourceEvent.data();
         Object payload = parsePayload(rawData);
+        if (eventConsumer != null) {
+            eventConsumer.accept(eventName, payload);
+        }
 
         if (log.isDebugEnabled()) {
             log.debug("relay sse event event={} data={}", eventName, rawData);

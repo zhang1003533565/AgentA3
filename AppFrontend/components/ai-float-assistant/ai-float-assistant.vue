@@ -39,7 +39,15 @@
 					:class="message.role === 'user' ? 'ai-message-row--user' : 'ai-message-row--assistant'"
 				>
 					<view class="ai-message-bubble" :class="message.role === 'user' ? 'ai-message-bubble--user' : 'ai-message-bubble--assistant'">
-						<view v-if="message.role === 'assistant'" class="ai-message-content">
+						<view v-if="message.type === 'thinking'" class="ai-thinking-indicator">
+							<text class="ai-thinking-text">思考中</text>
+							<view class="ai-thinking-dots">
+								<text></text>
+								<text></text>
+								<text></text>
+							</view>
+						</view>
+						<view v-else-if="message.role === 'assistant'" class="ai-message-content">
 							<view
 								v-for="(line, lineIndex) in formatAnswerLines(message.content)"
 								:key="`${message.id}-line-${lineIndex}`"
@@ -79,10 +87,14 @@
 					placeholder="直接问 Leader 智能助手"
 					maxlength="300"
 					auto-height
+					confirm-type="send"
+					:confirm-hold="true"
 					:disabled="sending"
+					@confirm="handleInputConfirm"
+					@keydown.enter="handleEnterKey"
 				/>
 				<view class="ai-assistant-panel__composer-bottom">
-					<text class="ai-assistant-panel__tip">{{ sending ? 'Leader 正在思考...' : '当前固定接入 Leader 智能体' }}</text>
+					<text class="ai-assistant-panel__tip">{{ sending ? '正在思考...' : '输入问题后按回车发送' }}</text>
 					<view
 						class="ai-assistant-panel__send"
 						:class="{ 'ai-assistant-panel__send--disabled': !canSend }"
@@ -117,7 +129,7 @@
 </template>
 
 <script>
-import { getLeaderSessionDetail, queryLeaderAgent } from '@/api/ai.js'
+import { getLeaderSessionDetail, queryLeaderAgent, streamLeaderAgent } from '@/api/ai.js'
 
 const STORAGE_KEY = 'aiAssistantSessionId'
 
@@ -327,6 +339,19 @@ export default {
 			})
 			this.scrollToBottom()
 		},
+		appendMessageContent(messageId, content) {
+			const index = this.messages.findIndex(item => item.id === messageId)
+			if (index === -1) {
+				return
+			}
+			const current = this.messages[index]
+			this.messages.splice(index, 1, {
+				...current,
+				type: '',
+				content: `${current.type === 'thinking' ? '' : current.content || ''}${content}`
+			})
+			this.scrollToBottom()
+		},
 		scrollToBottom() {
 			this.$nextTick(() => {
 				this.scrollAnchor = ''
@@ -478,6 +503,16 @@ export default {
 		clamp(value, min, max) {
 			return Math.min(Math.max(value, min), max)
 		},
+		handleInputConfirm() {
+			this.sendMessage()
+		},
+		handleEnterKey(event) {
+			if (event?.shiftKey) {
+				return
+			}
+			event?.preventDefault?.()
+			this.sendMessage()
+		},
 		async sendMessage() {
 			const text = this.inputValue.trim()
 			if (!text || this.sending || !this.canSend) {
@@ -492,8 +527,11 @@ export default {
 			this.sending = true
 			const assistantMessage = this.appendMessage({
 				role: 'assistant',
-				content: '正在整理你的问题...'
+				type: 'thinking',
+				content: '思考中'
 			})
+			let streamStarted = false
+			let streamTouched = false
 
 			try {
 				const requestPayload = {
@@ -503,39 +541,91 @@ export default {
 					input: text
 				}
 
-				const res = await queryLeaderAgent(requestPayload)
-				const payload = res.data || {}
-				if (payload.sessionId && payload.sessionId !== this.sessionId) {
-					this.sessionId = payload.sessionId
-					uni.setStorageSync(STORAGE_KEY, payload.sessionId)
-				}
-				this.updateMessage(assistantMessage.id, {
-					content: this.formatAssistantAnswer(payload)
+				await streamLeaderAgent(requestPayload, {
+					onEvent: () => {
+						streamTouched = true
+					},
+					onSession: (payload) => {
+						streamTouched = true
+						this.syncSessionId(payload?.sessionId)
+					},
+					onDelta: (content) => {
+						if (!content) return
+						streamTouched = true
+						streamStarted = true
+						this.appendMessageContent(assistantMessage.id, content)
+					},
+					onDone: (payload) => {
+						streamTouched = true
+						this.syncSessionId(payload?.sessionId)
+						const finalAnswer = payload?.answer || ''
+						const current = this.messages.find(item => item.id === assistantMessage.id)
+						if (finalAnswer && current && current.content !== finalAnswer) {
+							this.updateMessage(assistantMessage.id, {
+								type: '',
+								content: finalAnswer
+							})
+						} else if (!current || current.type === 'thinking') {
+							this.updateMessage(assistantMessage.id, {
+								type: '',
+								content: finalAnswer || 'Leader 这次没有返回可用答案，请换一种问法再试。'
+							})
+						}
+					},
+					onError: (payload) => {
+						streamTouched = true
+						throw new Error(payload?.message || '流式请求失败')
+					}
 				})
 			} catch (error) {
-				const message = (error && (error.msg || error.message)) || '对话失败，请稍后再试'
-				this.updateMessage(assistantMessage.id, {
-					content: `这次没有顺利完成请求：${message}`
-				})
+				if (streamStarted || streamTouched) {
+					const message = (error && (error.msg || error.message)) || '流式回复中断，请稍后再试'
+					this.updateMessage(assistantMessage.id, {
+						type: '',
+						content: `这次流式回复中断了：${message}`
+					})
+				} else if (error?.fallbackToNormalRequest) {
+					await this.sendMessageFallback(text, assistantMessage.id, error)
+				} else {
+					const message = (error && (error.msg || error.message)) || '对话失败，请稍后再试'
+					this.updateMessage(assistantMessage.id, {
+						type: '',
+						content: `这次没有顺利完成请求：${message}`
+					})
+				}
 			} finally {
 				this.sending = false
 			}
 		},
-		formatAssistantAnswer(payload = {}) {
-			const answer = payload.answer || 'Leader 这次没有返回可用答案，请换一种问法再试。'
-			const meta = payload.retrievalMeta || payload.metadata || {}
-			const executedAgent = meta.executedAgent || meta.targetAgent || payload.agentName || 'leader_agent'
-			const mode = meta.executionModeLabel || ''
-			const strategy = payload.ragStrategy || meta.plannedRagStrategy || meta.strategyLabel || ''
-			const routeParts = [`执行：${executedAgent}`]
-			if (strategy && !['leader_direct_answer', 'direct_agent'].includes(strategy)) {
-				routeParts.push(`策略：${strategy}`)
+		async sendMessageFallback(text, assistantMessageId, streamError) {
+			try {
+				const res = await queryLeaderAgent({
+					sessionId: this.sessionId,
+					prompt: '你是智慧校园 App 的 Leader 智能助手，只负责意图识别、路由和汇总回答。',
+					agentName: 'leader_agent',
+					input: text
+				})
+				const payload = res.data || {}
+				this.syncSessionId(payload.sessionId)
+				this.updateMessage(assistantMessageId, {
+					type: '',
+					content: payload.answer || 'Leader 这次没有返回可用答案，请换一种问法再试。'
+				})
+			} catch (error) {
+				const message = (error && (error.msg || error.message)) || streamError?.message || '对话失败，请稍后再试'
+				this.updateMessage(assistantMessageId, {
+					type: '',
+					content: `这次没有顺利完成请求：${message}`
+				})
 			}
-			if (mode) {
-				routeParts.push(mode)
+		},
+		syncSessionId(sessionId) {
+			if (!sessionId || sessionId === this.sessionId) {
+				return
 			}
-			return `${answer}\n\n- ${routeParts.join(' · ')}`
-		}
+			this.sessionId = sessionId
+			uni.setStorageSync(STORAGE_KEY, sessionId)
+		},
 	}
 }
 </script>
@@ -766,6 +856,40 @@ export default {
 	word-break: break-all;
 }
 
+.ai-thinking-indicator {
+	display: flex;
+	align-items: center;
+	gap: 14rpx;
+	min-height: 38rpx;
+}
+
+.ai-thinking-text {
+	font-size: 25rpx;
+	color: #6f82a0;
+}
+
+.ai-thinking-dots {
+	display: flex;
+	align-items: center;
+	gap: 8rpx;
+}
+
+.ai-thinking-dots text {
+	width: 10rpx;
+	height: 10rpx;
+	border-radius: 50%;
+	background: #7faeff;
+	animation: ai-thinking-bounce 1s ease-in-out infinite;
+}
+
+.ai-thinking-dots text:nth-child(2) {
+	animation-delay: 0.16s;
+}
+
+.ai-thinking-dots text:nth-child(3) {
+	animation-delay: 0.32s;
+}
+
 .ai-assistant-panel__quick {
 	padding: 0 22rpx 10rpx;
 	display: flex;
@@ -849,6 +973,17 @@ export default {
 	}
 	50% {
 		transform: scale(1.05);
+	}
+}
+
+@keyframes ai-thinking-bounce {
+	0%, 80%, 100% {
+		opacity: 0.35;
+		transform: translateY(0);
+	}
+	40% {
+		opacity: 1;
+		transform: translateY(-6rpx);
 	}
 }
 </style>
