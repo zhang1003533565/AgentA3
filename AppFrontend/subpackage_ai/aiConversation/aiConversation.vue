@@ -35,6 +35,10 @@
     </scroll-view>
 
     <view class="composer">
+      <view class="composer-actions">
+        <view class="composer-action" @click="openHistory">历史对话</view>
+        <view class="composer-action composer-action--primary" @click="startNewConversation">新对话</view>
+      </view>
       <textarea
         v-model="inputValue"
         class="composer-input"
@@ -231,6 +235,17 @@ export default {
       this.sessionId = sessionId
       uni.setStorageSync(STORAGE_KEY, sessionId)
     },
+    openHistory() {
+      uni.navigateTo({ url: '/subpackage_ai/aiHistory/aiHistory' })
+    },
+    startNewConversation() {
+      if (this.sending) return
+      this.sessionId = ''
+      this.messages = []
+      this.inputValue = ''
+      uni.removeStorageSync(STORAGE_KEY)
+      this.scrollToBottom()
+    },
     handleInputConfirm() {
       this.sendMessage()
     },
@@ -259,12 +274,14 @@ export default {
   background: #F7F7F9;
   display: flex;
   flex-direction: column;
+  padding-bottom: 190rpx;
+  box-sizing: border-box;
 }
 
 .message-list {
   flex: 1;
   height: 0;
-  padding: 24rpx;
+  padding: 24rpx 24rpx 32rpx;
   box-sizing: border-box;
 }
 
@@ -377,13 +394,45 @@ export default {
 }
 
 .composer {
-  flex-shrink: 0;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
   display: flex;
   align-items: flex-end;
   gap: 16rpx;
+  flex-wrap: wrap;
   padding: 18rpx 22rpx calc(18rpx + env(safe-area-inset-bottom));
   background: #FFFFFF;
   border-top: 1rpx solid #ECEFF5;
+  box-sizing: border-box;
+  box-shadow: 0 -12rpx 28rpx rgba(31, 41, 55, 0.05);
+}
+
+.composer-actions {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.composer-action {
+  flex: 1;
+  height: 58rpx;
+  border-radius: 999rpx;
+  background: #F3F6FB;
+  color: #5B6472;
+  font-size: 24rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.composer-action--primary {
+  background: #E8F1FF;
+  color: #2F6FE4;
 }
 
 .composer-input {

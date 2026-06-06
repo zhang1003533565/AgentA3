@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from app.multi_agents.catalog import DIAGRAM_AGENT_SPECS, MEETING_AGENT_SPECS, PPT_AGENT_SPECS, QUESTION_AGENT_SPECS, get_agent_profile, normalize_agent_name
 from app.model_providers.factory import get_chat_model_provider
 from app.multi_agents.runtime import load_agent_prompt
+from app.rag.core import RAG_STRATEGY_SPECS
 from app.services.memory_store import memory_store
 from app.utils.logger import get_logger
 from app.utils.text_utils import is_schedule_intent, is_smalltalk_intent
@@ -169,7 +170,7 @@ class LeaderAgent:
         profile = get_agent_profile(target_agent)
         if profile and action == "delegate_agent":
             need_retrieval = bool(profile["needRetrieval"])
-        rag_strategy = str(plan.get("rag_strategy") or plan.get("ragStrategy") or "").strip()
+        rag_strategy = self._normalize_rag_strategy(plan.get("rag_strategy") or plan.get("ragStrategy"))
         if requested_rag_strategy and need_retrieval:
             rag_strategy = requested_rag_strategy
         elif profile and need_retrieval and not rag_strategy:
@@ -241,6 +242,12 @@ class LeaderAgent:
             search_results=search_results,
         ).strip()
 
+    def _normalize_rag_strategy(self, value: Any) -> str:
+        rag_strategy = str(value or "").strip()
+        if not rag_strategy or rag_strategy in {"按目标智能体默认策略", "默认策略", "目标智能体默认策略"}:
+            return ""
+        return rag_strategy if rag_strategy in RAG_STRATEGY_SPECS else ""
+
 
 leader_agent = LeaderAgent()
 
@@ -249,7 +256,7 @@ def build_leader_router_user_prompt(input_text: str, rag_strategy: str) -> str:
     return json.dumps({
         "user_input": input_text or "",
         "requested_rag_strategy": rag_strategy or "",
-        "allowed_rag_strategy_when_needed": rag_strategy or "按目标智能体默认策略",
+        "allowed_rag_strategy_when_needed": rag_strategy or "",
     }, ensure_ascii=False)
 
 
