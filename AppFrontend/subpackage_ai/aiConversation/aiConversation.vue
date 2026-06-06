@@ -2,6 +2,11 @@
   <view class="conversation-page">
     <nav-bar title="AI 会话" :showBack="true" fixed placeholder />
 
+    <view class="conversation-actions">
+      <view class="conversation-action" @click="openHistory">历史对话</view>
+      <view class="conversation-action conversation-action--primary" @click="startNewConversation">新对话</view>
+    </view>
+
     <scroll-view
       class="message-list"
       scroll-y
@@ -35,10 +40,6 @@
     </scroll-view>
 
     <view class="composer">
-      <view class="composer-actions">
-        <view class="composer-action" @click="openHistory">历史对话</view>
-        <view class="composer-action composer-action--primary" @click="startNewConversation">新对话</view>
-      </view>
       <textarea
         v-model="inputValue"
         class="composer-input"
@@ -236,7 +237,7 @@ export default {
       uni.setStorageSync(STORAGE_KEY, sessionId)
     },
     openHistory() {
-      uni.navigateTo({ url: '/subpackage_ai/aiHistory/aiHistory' })
+      uni.redirectTo({ url: '/subpackage_ai/aiHistory/aiHistory' })
     },
     startNewConversation() {
       if (this.sending) return
@@ -270,17 +271,55 @@ export default {
 
 <style lang="scss" scoped>
 .conversation-page {
-  min-height: 100vh;
+  height: 100vh;
   background: #F7F7F9;
   display: flex;
   flex-direction: column;
-  padding-bottom: 190rpx;
+  padding-bottom: 116rpx;
   box-sizing: border-box;
+  overflow: hidden;
+}
+
+.conversation-actions {
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 14rpx 24rpx 12rpx;
+  background: #F7F7F9;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.composer > .composer-actions {
+  display: none !important;
+}
+
+.conversation-action {
+  flex: 1;
+  height: 58rpx;
+  border-radius: 999rpx;
+  background: #FFFFFF;
+  color: #5B6472;
+  font-size: 24rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8rpx 18rpx rgba(31, 41, 55, 0.04);
+}
+
+.conversation-action--primary {
+  background: #E8F1FF;
+  color: #2F6FE4;
 }
 
 .message-list {
   flex: 1;
   height: 0;
+  min-height: 0;
   padding: 24rpx 24rpx 32rpx;
   box-sizing: border-box;
 }
@@ -402,37 +441,12 @@ export default {
   display: flex;
   align-items: flex-end;
   gap: 16rpx;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   padding: 18rpx 22rpx calc(18rpx + env(safe-area-inset-bottom));
   background: #FFFFFF;
   border-top: 1rpx solid #ECEFF5;
   box-sizing: border-box;
   box-shadow: 0 -12rpx 28rpx rgba(31, 41, 55, 0.05);
-}
-
-.composer-actions {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-}
-
-.composer-action {
-  flex: 1;
-  height: 58rpx;
-  border-radius: 999rpx;
-  background: #F3F6FB;
-  color: #5B6472;
-  font-size: 24rpx;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.composer-action--primary {
-  background: #E8F1FF;
-  color: #2F6FE4;
 }
 
 .composer-input {

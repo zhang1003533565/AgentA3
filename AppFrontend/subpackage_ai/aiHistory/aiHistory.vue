@@ -126,12 +126,12 @@ export default {
       this.loadSessions(false)
     },
     openSession(sessionId) {
-      uni.navigateTo({
+      uni.redirectTo({
         url: `/subpackage_ai/aiConversation/aiConversation?sessionId=${encodeURIComponent(sessionId)}`
       })
     },
     createSession() {
-      uni.navigateTo({ url: '/subpackage_ai/aiConversation/aiConversation' })
+      uni.redirectTo({ url: '/subpackage_ai/aiConversation/aiConversation' })
     },
     handleKeywordInput() {
       if (this.searchTimer) {
