@@ -1,22 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, Card, Col, Collapse, Empty, Form, Image, Input, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
-import { ApiOutlined, BranchesOutlined, DatabaseOutlined, DownloadOutlined, ExperimentOutlined, FileTextOutlined, PlayCircleOutlined, ReloadOutlined, SaveOutlined, UploadOutlined } from '@ant-design/icons'
-import ReactMarkdown from 'react-markdown'
+import { Alert, Button, Card, Col, Collapse, Empty, Form, Image, Input, Row, Select, Space, Table, Tag, Typography, message } from 'antd'
+import { ExperimentOutlined, PlayCircleOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons'
 import {
-  convertPdf,
-  convertPpt,
   evaluateRag,
   getRagAgents,
   executeTextToSql,
   getRagCapabilities,
-  getRagDocuments,
-  getRagEmbeddingHealth,
   getRagFramework,
-  getRagGraphStoreHealth,
   getRagStrategies,
-  getRagVectorStoreHealth,
   getTextToSqlSchema,
-  ingestRagDocuments,
   runRagQuery,
   saveRagAgentExampleInput,
 } from '../../../api/rag'
@@ -44,17 +36,6 @@ const strategyColumns = [
   { title: '分类', dataIndex: 'categoryLabel', render: (value, record) => <Tag>{value || record.category}</Tag> },
   { title: '用途', dataIndex: 'purpose' },
   { title: '状态', dataIndex: 'status', render: (value) => <Tag color={value === 'implemented' ? 'green' : 'orange'}>{value}</Tag> },
-]
-
-const documentColumns = [
-  { title: '来源', dataIndex: 'source', ellipsis: true },
-  { title: '大小', dataIndex: 'size', width: 120 },
-  {
-    title: '更新时间',
-    dataIndex: 'updatedAt',
-    width: 180,
-    render: (value) => (value ? new Date(Number(value) * 1000).toLocaleString() : '-'),
-  },
 ]
 
 const evidenceColumns = [
@@ -133,8 +114,6 @@ const safeJsonParse = (value, fallback) => {
     return fallback
   }
 }
-
-const isPptxFile = (file) => /\.pptx$/i.test(file?.name || file?.originFileObj?.name || '')
 
 const parseMediaAnswer = (answer) => {
   const value = typeof answer === 'string' ? safeJsonParse(answer, null) : answer
@@ -250,16 +229,6 @@ const getExecutionLabel = (metadata = {}) => (
   '未知执行方式'
 )
 
-const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
-  const reader = new FileReader()
-  reader.onload = () => {
-    const result = String(reader.result || '')
-    resolve(result.includes(',') ? result.split(',').pop() : result)
-  }
-  reader.onerror = reject
-  reader.readAsDataURL(file)
-})
-
 const extractMermaidCodeBlock = (text) => {
   const match = String(text || '').match(/```mermaid\s*([\s\S]*?)```/i)
   return match ? String(match[1] || '').trim() : ''
@@ -308,36 +277,6 @@ const renderMindMapNode = (node, path = '0') => (
     ) : null}
   </div>
 )
-
-const MarkdownPreview = ({ source, assets = [] }) => {
-  const assetPreviewUrls = new Map(
-    assets
-      .filter((asset) => asset.path && asset.previewDataUrl)
-      .map((asset) => [asset.path, asset.previewDataUrl]),
-  )
-
-  return (
-    <article className="rag-markdown-preview">
-      <ReactMarkdown
-        components={{
-          img: ({ src = '', alt = '' }) => {
-            const previewSrc = assetPreviewUrls.get(src)
-            return previewSrc ? (
-              <span className="rag-markdown-image">
-                <img src={previewSrc} alt={alt || 'PDF 提取图片'} />
-                <span className="rag-markdown-image__caption">{alt || src}</span>
-              </span>
-            ) : (
-              <span className="rag-markdown-missing-image">图片资源：{alt || src}</span>
-            )
-          },
-        }}
-      >
-        {source || '暂无预览'}
-      </ReactMarkdown>
-    </article>
-  )
-}
 
 const agentExampleInputs = {
   leader_agent: '数据结构：栈与队列\n\n栈遵循后进先出原则，只能在栈顶进行插入和删除。队列遵循先进先出原则，只能在队尾插入、队头删除。循环队列通过取模运算复用数组空间。',
@@ -392,7 +331,46 @@ const legacyQuestionExampleInputs = new Set([
   '为操作系统进程调度知识点生成一张课堂教学配图提示词',
 ])
 
-function RagManage() {
+const ragPageConfig = {
+  playground: {
+    sectionKey: 'playground',
+    kicker: 'AI RAG Console',
+    title: 'RAG 管理',
+    description: '测试 RAG 策略、Leader 自动路由和智能体执行结果。',
+  },
+  strategy: {
+    sectionKey: 'strategy',
+    kicker: 'RAG Strategy',
+    title: '策略能力',
+    description: '查看 RAG 执行策略、分类、用途和能力目录。',
+  },
+  agents: {
+    sectionKey: 'agents',
+    kicker: 'Agent Console',
+    title: '多智能体',
+    description: '测试专业智能体调用、默认模型绑定、示例输入和技能文件。',
+  },
+  framework: {
+    sectionKey: 'framework',
+    kicker: 'RAG Framework',
+    title: '框架配置',
+    description: '查看模型、Embedding、向量库、图谱存储、运行环境和 API 配置。',
+  },
+  evaluate: {
+    sectionKey: 'evaluate',
+    kicker: 'RAG Evaluation',
+    title: '评估',
+    description: '基于问题、答案、证据和期望来源评估检索回答质量。',
+  },
+  sql: {
+    sectionKey: 'sql',
+    kicker: 'Text-to-SQL',
+    title: 'Text-to-SQL',
+    description: '把自然语言查询转换为结构化数据查询，并查看 Schema 与执行结果。',
+  },
+}
+
+function RagManage({ page = 'playground' }) {
   const [bootLoading, setBootLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
   const [strategies, setStrategies] = useState([])
@@ -400,8 +378,6 @@ function RagManage() {
   const [framework, setFramework] = useState(null)
   const [agents, setAgents] = useState([])
   const [agentWorkflow, setAgentWorkflow] = useState({})
-  const [documents, setDocuments] = useState([])
-  const [health, setHealth] = useState({})
   const [queryResult, setQueryResult] = useState(null)
   const [queryError, setQueryError] = useState('')
   const [evaluationResult, setEvaluationResult] = useState(null)
@@ -409,15 +385,9 @@ function RagManage() {
   const [sqlResult, setSqlResult] = useState(null)
   const [agentTestResult, setAgentTestResult] = useState(null)
   const [agentTestLoading, setAgentTestLoading] = useState(false)
-  const [uploadFileList, setUploadFileList] = useState([])
-  const [convertFileList, setConvertFileList] = useState([])
-  const [convertResult, setConvertResult] = useState(null)
-  const [convertLoading, setConvertLoading] = useState(false)
   const [llmModelOptions, setLlmModelOptions] = useState([])
   const [agentModelBindings, setAgentModelBindings] = useState({})
   const [queryForm] = Form.useForm()
-  const [ingestForm] = Form.useForm()
-  const [convertForm] = Form.useForm()
   const [evaluateForm] = Form.useForm()
   const [sqlForm] = Form.useForm()
   const [agentTestForm] = Form.useForm()
@@ -568,10 +538,6 @@ function RagManage() {
           capabilityRes,
           frameworkRes,
           agentRes,
-          documentRes,
-          vectorHealthRes,
-          embeddingHealthRes,
-          graphHealthRes,
           schemaRes,
           aiConfigRes,
         ] = await Promise.all([
@@ -579,10 +545,6 @@ function RagManage() {
           getRagCapabilities(),
           getRagFramework(),
           getRagAgents(),
-          getRagDocuments(),
-          getRagVectorStoreHealth(),
-          getRagEmbeddingHealth(),
-          getRagGraphStoreHealth(),
           getTextToSqlSchema(),
           getSystemConfigList({ current: 1, size: 500, prefixes: 'ai.service.,ai.agent-bindings.' }),
         ])
@@ -591,12 +553,6 @@ function RagManage() {
         setFramework(frameworkRes.data || null)
         setAgents(agentRes.data?.agents || [])
         setAgentWorkflow(agentRes.data?.workflow || {})
-        setDocuments(documentRes.data?.documents || [])
-        setHealth({
-          vector: vectorHealthRes.data,
-          embedding: embeddingHealthRes.data,
-          graph: graphHealthRes.data,
-        })
         setSqlSchema(schemaRes.data?.schema || null)
         const configRows = aiConfigRes.data?.records || []
         setLlmModelOptions(buildLlmModelOptions(configRows))
@@ -674,88 +630,6 @@ function RagManage() {
     } finally {
       setActionLoading(false)
     }
-  }
-
-  const handleIngest = async (values) => {
-    setActionLoading(true)
-    try {
-      const selectedFile = uploadFileList[0]?.originFileObj || uploadFileList[0]
-      const textContent = values.content || ''
-      if (!selectedFile && !textContent.trim()) {
-        message.warning('请粘贴文档内容，或选择一个本地文件')
-        return
-      }
-      const contentBase64 = selectedFile ? await readFileAsBase64(selectedFile) : undefined
-      const res = await ingestRagDocuments({
-        documents: [{
-          source: values.source || selectedFile?.name || '后台录入.md',
-          content: textContent,
-          contentBase64,
-          metadata: {
-            origin: 'admin_console',
-            uploadMode: selectedFile ? 'file_base64' : 'text',
-          },
-        }],
-      })
-      message.success(`已入库 ${res.data?.storedCount || 0} 个文档`)
-      ingestForm.resetFields()
-      setUploadFileList([])
-      await refresh()
-    } catch (error) {
-      message.error(error.message || '知识入库失败')
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  const handleDocumentConvert = async (values) => {
-    const selectedFile = convertFileList[0]?.originFileObj || convertFileList[0]
-    if (!selectedFile) {
-      message.warning('请先选择一个 PDF 或 PPTX 文件')
-      return
-    }
-    const isPptx = isPptxFile(selectedFile)
-    if (isPptx && values.targetFormat !== 'docx') {
-      message.warning('PPTX 当前仅支持转换为 DOCX')
-      return
-    }
-    setConvertLoading(true)
-    setConvertResult(null)
-    try {
-      const formData = new FormData()
-      formData.append('file', selectedFile)
-      if (!isPptx) {
-        formData.append('targetFormat', values.targetFormat)
-      }
-      const res = isPptx ? await convertPpt(formData) : await convertPdf(formData)
-      setConvertResult(res.data)
-      message.success(isPptx ? 'PPTX 转 DOCX 完成' : 'PDF 转换完成')
-    } catch (error) {
-      message.error(error.message || '文档转换失败')
-    } finally {
-      setConvertLoading(false)
-    }
-  }
-
-  const downloadConvertedFile = (result) => {
-    if (!result?.contentBase64) {
-      message.warning('转换结果没有可下载内容')
-      return
-    }
-    const binary = window.atob(result.contentBase64)
-    const bytes = new Uint8Array(binary.length)
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index)
-    }
-    const blob = new Blob([bytes], { type: result.mimeType || 'application/octet-stream' })
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = result.fileName || 'pdf-convert-result'
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.URL.revokeObjectURL(url)
   }
 
   const handleEvaluate = async (values) => {
@@ -847,21 +721,6 @@ function RagManage() {
     } finally {
       setAgentTestLoading(false)
     }
-  }
-
-  const renderHealthCard = (key, title, icon) => {
-    const data = health[key] || {}
-    const healthy = data.status === 'implemented' || data.configured
-    return (
-      <Card className="rag-health-card">
-        <div className="rag-health-card__top">
-          <span className="rag-health-card__icon">{icon}</span>
-          <Tag color={healthy ? 'green' : 'orange'}>{data.status || '-'}</Tag>
-        </div>
-        <Statistic title={title} value={data.backend || data.provider || '-'} />
-        <Text type="secondary">configured: {String(data.configured ?? true)}</Text>
-      </Card>
-    )
   }
 
   const renderProviderCard = (title, dataSource) => (
@@ -985,7 +844,7 @@ function RagManage() {
     )
   }
 
-  const tabs = [
+  const sections = [
     {
       key: 'playground',
       label: '智能体执行',
@@ -1169,185 +1028,10 @@ function RagManage() {
       ),
     },
     {
-      key: 'knowledge',
-      label: '知识库',
-      children: (
-        <Row gutter={[20, 20]}>
-          <Col xs={24} lg={9}>
-            <Card title="新增知识文档" className="rag-panel-card">
-              <Form form={ingestForm} layout="vertical" onFinish={handleIngest}>
-                <Form.Item name="source" label="来源文件名">
-                  <Input placeholder="例如：校园卡服务.md" />
-                </Form.Item>
-                <Form.Item label="本地文件">
-                  <Upload
-                    beforeUpload={(file) => {
-                      setUploadFileList([file])
-                      ingestForm.setFieldsValue({ source: file.name })
-                      return false
-                    }}
-                    fileList={uploadFileList}
-                    maxCount={1}
-                    onRemove={() => {
-                      setUploadFileList([])
-                      return true
-                    }}
-                  >
-                    <Button icon={<UploadOutlined />}>选择文件</Button>
-                  </Upload>
-                  <Text type="secondary">支持 Markdown、TXT、CSV、TSV、JSON、HTML、PDF 和图片；文件会以 Base64 传给 Python 服务入库。</Text>
-                </Form.Item>
-                <Form.Item name="content" label="文档内容">
-                  <TextArea rows={10} placeholder="粘贴 Markdown、文本、表格摘要等知识内容" />
-                </Form.Item>
-                <Button type="primary" htmlType="submit" icon={<FileTextOutlined />} loading={actionLoading} block>
-                  入库并索引
-                </Button>
-              </Form>
-            </Card>
-          </Col>
-          <Col xs={24} lg={15}>
-            <Card title="已入库文档" extra={<Button icon={<ReloadOutlined />} onClick={refresh} loading={bootLoading}>刷新</Button>} className="rag-panel-card">
-              <Table
-                rowKey={(record) => record.source}
-                columns={documentColumns}
-                dataSource={documents}
-                pagination={{ pageSize: 8 }}
-              />
-            </Card>
-          </Col>
-        </Row>
-      ),
-    },
-    {
-      key: 'convert',
-      label: '文档转换',
-      children: (
-        <Row gutter={[20, 20]}>
-          <Col xs={24} lg={9}>
-            <Card title="文档转换" className="rag-panel-card">
-              <Form
-                form={convertForm}
-                layout="vertical"
-                initialValues={{ targetFormat: 'md' }}
-                onFinish={handleDocumentConvert}
-              >
-                <Alert
-                  className="rag-inline-alert"
-                  type="info"
-                  showIcon
-                  message="支持 PDF 转 Markdown/DOCX，PPTX 转 DOCX；PPTX 会按幻灯片顺序重排内容并保留图片。"
-                />
-                <Form.Item label="文件" required>
-                  <Upload
-                    accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,.pptx"
-                    beforeUpload={(file) => {
-                      const lowerName = file.name.toLowerCase()
-                      if (!lowerName.endsWith('.pdf') && !lowerName.endsWith('.pptx')) {
-                        message.warning('请选择 PDF 或 PPTX 文件')
-                        return Upload.LIST_IGNORE
-                      }
-                      setConvertFileList([file])
-                      setConvertResult(null)
-                      if (lowerName.endsWith('.pptx')) {
-                        convertForm.setFieldsValue({ targetFormat: 'docx' })
-                      }
-                      return false
-                    }}
-                    fileList={convertFileList}
-                    maxCount={1}
-                    onRemove={() => {
-                      setConvertFileList([])
-                      setConvertResult(null)
-                      return true
-                    }}
-                  >
-                    <Button icon={<UploadOutlined />}>选择文件</Button>
-                  </Upload>
-                </Form.Item>
-                <Form.Item name="targetFormat" label="输出格式" rules={[{ required: true, message: '请选择输出格式' }]}>
-                  <Select
-                    options={[
-                      { value: 'md', label: 'Markdown（zip，含图片 assets）' },
-                      { value: 'docx', label: 'DOCX（尽量保留图片与基础排版）' },
-                    ]}
-                  />
-                </Form.Item>
-                <Button type="primary" htmlType="submit" icon={<FileTextOutlined />} loading={convertLoading} block>
-                  开始转换
-                </Button>
-              </Form>
-            </Card>
-          </Col>
-          <Col xs={24} lg={15}>
-            <Card title="转换结果" className="rag-panel-card">
-              {convertResult ? (
-                <Space direction="vertical" size="large" className="rag-full">
-                  <div className="rag-agent-test-status">
-                    <Tag color="green">转换完成</Tag>
-                    <Tag color="blue">{convertResult.format}</Tag>
-                    <Tag color="cyan">{convertResult.downloadType}</Tag>
-                    {Number.isFinite(convertResult.slideCount) ? <Tag color="purple">页数：{convertResult.slideCount}</Tag> : null}
-                    {Number.isFinite(convertResult.imageCount) ? <Tag color="geekblue">图片：{convertResult.imageCount}</Tag> : null}
-                  </div>
-                  <Space wrap>
-                    <Text strong>{convertResult.fileName}</Text>
-                    <Text type="secondary">{convertResult.contentLength ? `${Math.ceil(convertResult.contentLength / 1024)} KB` : ''}</Text>
-                    <Button type="primary" icon={<DownloadOutlined />} onClick={() => downloadConvertedFile(convertResult)}>
-                      下载结果
-                    </Button>
-                  </Space>
-                  {convertResult.outputType === 'markdown' ? (
-                    <Collapse
-                      defaultActiveKey={['preview']}
-                      items={[
-                        {
-                          key: 'preview',
-                          label: 'Markdown 预览',
-                          children: <MarkdownPreview source={convertResult.preview} assets={convertResult.assets} />,
-                        },
-                        {
-                          key: 'assets',
-                          label: '图片资源',
-                          children: (
-                            <Table
-                              rowKey="path"
-                              columns={[
-                                { title: '文件', dataIndex: 'name' },
-                                { title: '页码', dataIndex: 'page', width: 100 },
-                                { title: '路径', dataIndex: 'path' },
-                                { title: '大小', dataIndex: 'size', width: 120, render: (value) => `${Math.ceil(Number(value || 0) / 1024)} KB` },
-                              ]}
-                              dataSource={convertResult.assets || []}
-                              pagination={{ pageSize: 5 }}
-                              size="small"
-                            />
-                          ),
-                        },
-                      ]}
-                    />
-                  ) : (
-                    <Alert type="success" showIcon message="DOCX 已生成，点击上方按钮下载。" />
-                  )}
-                </Space>
-              ) : (
-                <Empty description="上传 PDF 或 PPTX 后，转换结果会显示在这里" />
-              )}
-            </Card>
-          </Col>
-        </Row>
-      ),
-    },
-    {
       key: 'strategy',
-      label: '策略与健康',
+      label: '策略能力',
       children: (
         <Space direction="vertical" size="large" className="rag-full">
-          <Row gutter={[20, 20]}>
-            <Col xs={24} md={8}>{renderHealthCard('vector', '向量库', <DatabaseOutlined />)}</Col>
-            <Col xs={24} md={8}>{renderHealthCard('embedding', 'Embedding', <ApiOutlined />)}</Col>
-            <Col xs={24} md={8}>{renderHealthCard('graph', '图谱存储', <BranchesOutlined />)}</Col>
-          </Row>
           <Card title="16 种 RAG 执行策略" className="rag-panel-card">
             <Table
               rowKey="name"
@@ -1829,20 +1513,25 @@ function RagManage() {
     },
   ]
 
+  const pageConfig = ragPageConfig[page] || ragPageConfig.playground
+  const activeSection = sections.find((item) => item.key === pageConfig.sectionKey) || sections[0]
+
   return (
     <div className="rag-manage">
       <section className="rag-hero">
         <div>
-          <span className="rag-kicker">AI RAG Console</span>
-          <Title level={1}>RAG 管理</Title>
-          <p>统一管理知识库、Leader 自动路由、多智能体测试、Text-to-SQL、GraphRAG 健康状态和评估指标。</p>
+          <span className="rag-kicker">{pageConfig.kicker}</span>
+          <Title level={1}>{pageConfig.title}</Title>
+          <p>{pageConfig.description}</p>
         </div>
         <Button icon={<ReloadOutlined />} onClick={refresh} loading={bootLoading}>
           刷新状态
         </Button>
       </section>
 
-      <Tabs className="rag-tabs" items={tabs} />
+      <div className="rag-tabs">
+        {activeSection.children}
+      </div>
     </div>
   )
 }

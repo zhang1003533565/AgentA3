@@ -33,7 +33,39 @@
               <text></text>
             </view>
           </view>
-          <text v-else class="message-text">{{ message.content }}</text>
+          <view v-else class="message-content">
+            <text v-if="getDisplayText(message)" class="message-text">{{ getDisplayText(message) }}</text>
+            <view v-if="getMessageAttachments(message).length" class="attachment-list">
+              <view
+                v-for="(file, fileIndex) in getMessageAttachments(message)"
+                :key="`${message.localId || message.id}-file-${fileIndex}`"
+                class="attachment-item"
+                :class="`attachment-item--${file.type}`"
+              >
+                <image
+                  v-if="file.type === 'image'"
+                  class="attachment-image"
+                  :src="file.url"
+                  mode="aspectFill"
+                  @click="previewAttachmentImage(file, message)"
+                />
+                <video
+                  v-else-if="file.type === 'video'"
+                  class="attachment-video"
+                  :src="file.url"
+                  controls
+                  object-fit="contain"
+                ></video>
+                <view v-else class="attachment-file" @click="openAttachment(file)">
+                  <view class="attachment-file__icon" :class="`attachment-file__icon--${file.type}`">{{ file.extLabel }}</view>
+                  <view class="attachment-file__body">
+                    <text class="attachment-file__name">{{ file.name }}</text>
+                    <text class="attachment-file__meta">{{ file.typeLabel }} · 点击打开</text>
+                  </view>
+                </view>
+              </view>
+            </view>
+          </view>
         </view>
       </view>
       <view id="message-anchor"></view>
@@ -264,6 +296,121 @@ export default {
           this.scrollAnchor = 'message-anchor'
         })
       })
+    },
+    getDisplayText(message) {
+      return String(message?.content || '')
+        .replace(this.markdownAttachmentPattern(), '')
+        .replace(this.attachmentUrlPattern(), '')
+        .trim()
+    },
+    getMessageAttachments(message) {
+      const structured = this.normalizeAttachments(message?.attachments || message?.files || message?.fileList || [])
+      const parsed = this.extractAttachmentsFromText(message?.content || '')
+      const seen = new Set()
+      return [...structured, ...parsed].filter((file) => {
+        if (!file.url || seen.has(file.url)) return false
+        seen.add(file.url)
+        return true
+      })
+    },
+    normalizeAttachments(value) {
+      const list = Array.isArray(value) ? value : []
+      return list.map((item) => this.normalizeAttachment(item)).filter(Boolean)
+    },
+    normalizeAttachment(item) {
+      if (!item) return null
+      const url = String(item.url || item.fileUrl || item.path || item.href || '').trim()
+      if (!url) return null
+      const name = String(item.name || item.fileName || this.fileNameFromUrl(url)).trim()
+      return this.buildAttachment(url, name, item.type || item.fileType || item.mimeType)
+    },
+    extractAttachmentsFromText(text) {
+      const content = String(text || '')
+      const files = []
+      const markdownPattern = this.markdownAttachmentPattern()
+      let match
+      while ((match = markdownPattern.exec(content)) !== null) {
+        files.push(this.buildAttachment(match[2], match[1] || this.fileNameFromUrl(match[2]), ''))
+      }
+      const plainText = content.replace(this.markdownAttachmentPattern(), '')
+      const matches = plainText.match(this.attachmentUrlPattern()) || []
+      files.push(...matches.map((url) => this.buildAttachment(url, this.fileNameFromUrl(url), '')))
+      return files.filter(Boolean)
+    },
+    markdownAttachmentPattern() {
+      return /\[([^\]]+)\]\((https?:\/\/[^\s"'<>，。！？；、)]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?)(?:\?[^\s"'<>，。！？；、)]*)?)\)/gi
+    },
+    attachmentUrlPattern() {
+      return /https?:\/\/[^\s"'<>，。！？；、]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?)(?:\?[^\s"'<>，。！？；、]*)?/gi
+    },
+    buildAttachment(url, name, typeHint) {
+      const ext = this.fileExt(name || url)
+      const hinted = String(typeHint || '').toLowerCase()
+      let type = 'file'
+      if (hinted.includes('image') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(ext)) type = 'image'
+      else if (hinted.includes('video') || ['mp4', 'mov', 'm4v', 'webm', 'ogg'].includes(ext)) type = 'video'
+      else if (['pdf'].includes(ext)) type = 'pdf'
+      else if (['doc', 'docx'].includes(ext)) type = 'docx'
+      else if (['ppt', 'pptx'].includes(ext)) type = 'ppt'
+      if (!['image', 'video', 'pdf', 'docx', 'ppt'].includes(type)) return null
+      return {
+        url,
+        name: name || this.fileNameFromUrl(url),
+        type,
+        extLabel: (ext || type).toUpperCase(),
+        typeLabel: this.attachmentTypeLabel(type)
+      }
+    },
+    fileNameFromUrl(url) {
+      const clean = String(url || '').split('?')[0]
+      const name = decodeURIComponent(clean.substring(clean.lastIndexOf('/') + 1) || '文件')
+      return name || '文件'
+    },
+    fileExt(value) {
+      const clean = String(value || '').split('?')[0].toLowerCase()
+      const index = clean.lastIndexOf('.')
+      return index >= 0 ? clean.slice(index + 1) : ''
+    },
+    attachmentTypeLabel(type) {
+      const labels = {
+        image: '图片',
+        video: '视频',
+        pdf: 'PDF',
+        docx: 'Word 文档',
+        ppt: 'PPT 演示文稿'
+      }
+      return labels[type] || '文件'
+    },
+    previewAttachmentImage(file, message) {
+      const urls = this.getMessageAttachments(message).filter((item) => item.type === 'image').map((item) => item.url)
+      uni.previewImage({ urls, current: file.url })
+    },
+    openAttachment(file) {
+      if (!file?.url) return
+      const openWithUrl = () => {
+        uni.setClipboardData({
+          data: file.url,
+          success: () => uni.showToast({ title: '文件链接已复制', icon: 'none' })
+        })
+      }
+      if (typeof uni.downloadFile !== 'function' || typeof uni.openDocument !== 'function') {
+        openWithUrl()
+        return
+      }
+      uni.showLoading({ title: '打开中...' })
+      uni.downloadFile({
+        url: file.url,
+        success: (res) => {
+          const filePath = res.tempFilePath
+          uni.openDocument({
+            filePath,
+            showMenu: true,
+            fail: openWithUrl
+          })
+        },
+        fail: openWithUrl,
+        complete: () => uni.hideLoading()
+      })
     }
   }
 }
@@ -386,6 +533,105 @@ export default {
   line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.message-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+}
+
+.attachment-item {
+  width: 100%;
+}
+
+.attachment-image {
+  width: 420rpx;
+  max-width: 100%;
+  height: 260rpx;
+  border-radius: 18rpx;
+  background: #EEF2F7;
+  display: block;
+}
+
+.attachment-video {
+  width: 460rpx;
+  max-width: 100%;
+  height: 280rpx;
+  border-radius: 18rpx;
+  background: #111827;
+  overflow: hidden;
+}
+
+.attachment-file {
+  width: 460rpx;
+  max-width: 100%;
+  min-height: 104rpx;
+  border-radius: 18rpx;
+  background: #F6F8FC;
+  border: 1rpx solid rgba(100, 116, 139, 0.12);
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  padding: 18rpx;
+  box-sizing: border-box;
+}
+
+.attachment-file__icon {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 16rpx;
+  background: #E8F1FF;
+  color: #2F6FE4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20rpx;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.attachment-file__icon--pdf {
+  background: #FFF1F1;
+  color: #E5484D;
+}
+
+.attachment-file__icon--docx {
+  background: #EAF2FF;
+  color: #2563EB;
+}
+
+.attachment-file__icon--ppt {
+  background: #FFF3E8;
+  color: #EA580C;
+}
+
+.attachment-file__body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.attachment-file__name {
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #1F2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-file__meta {
+  font-size: 22rpx;
+  color: #7B8794;
 }
 
 .thinking-indicator {

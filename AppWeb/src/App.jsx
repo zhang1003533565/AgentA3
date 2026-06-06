@@ -5,6 +5,7 @@ import ActivityDetail from './pages/activity/ActivityDetail/ActivityDetail'
 import ActivityEditor from './pages/activity/ActivityEditor/ActivityEditor'
 import ActivityManage from './pages/activity/ActivityManage/ActivityManage'
 import Home from './pages/Home/Home'
+import KnowledgeBaseManage from './pages/ai/KnowledgeBaseManage/KnowledgeBaseManage'
 import RagManage from './pages/ai/RagManage/RagManage'
 import Login from './pages/Login/Login'
 import WorkspacePage from './pages/workspace/WorkspacePage'
@@ -32,6 +33,12 @@ function App() {
           <Route path="/activity/:id/edit" element={<ActivityEditor />} />
           <Route path="/activity/:id" element={<ActivityDetail />} />
           <Route path="/ai/rag" element={<RagManage />} />
+          <Route path="/ai/rag/strategy" element={<RagManage page="strategy" />} />
+          <Route path="/ai/rag/agents" element={<RagManage page="agents" />} />
+          <Route path="/ai/rag/framework" element={<RagManage page="framework" />} />
+          <Route path="/ai/rag/evaluate" element={<RagManage page="evaluate" />} />
+          <Route path="/ai/rag/text-to-sql" element={<RagManage page="sql" />} />
+          <Route path="/ai/knowledge-base" element={<KnowledgeBaseManage />} />
           {workspaceRoutes}
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
