@@ -21,6 +21,9 @@ AppFrontend/node_modules/
 AppFrontend/dist/
 AppFrontend/unpackage/
 
+# Docker runtime data
+ai-servers/.rag-data/
+
 # OS
 .DS_Store
 Thumbs.db
