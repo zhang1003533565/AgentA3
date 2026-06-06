@@ -4,12 +4,13 @@
 
 当前默认后端：
 
-- `local_jsonl`：读取和写入 `knowledge_base/raw/.index/local_chunks.jsonl`。
+- `milvus`：通过 `pymilvus` 连接 Docker Milvus，默认 collection 为 `smart_campus_knowledge`。
+- Parent-Child 索引使用独立 collection，默认 `smart_campus_knowledge_parent_child`。
 
-已预留骨架：
+兼容/预留后端：
 
+- `local_jsonl`：仅保留显式指定时的兼容能力，不再作为知识库默认方案。
 - `faiss`：本地向量索引骨架，待接 `faiss-cpu`。
-- `milvus`：远程向量库骨架，待接 `pymilvus`。
 - `elasticsearch`：混合检索骨架，待接 `elasticsearch`。
 - `pgvector`：PostgreSQL 向量检索骨架，待接 `psycopg`。
 
@@ -17,6 +18,10 @@
 
 ## Backend Config
 
-ai-server 不再从环境变量选择 vector store 或读取连接信息。默认只启用 `local_jsonl`。
+默认从 `RAG_VECTOR_STORE_BACKEND` 读取后端，未配置时使用 `milvus`。`start-ai-server.sh` 会在 Milvus 后端下自动启动 `ai-servers/docker-compose.yml`。
 
-除 `local_jsonl` 外，其他后端当前禁用：`health()` 可查看状态，`upsert_documents()` 会明确拒绝写入，避免误以为已经完成真实入库。
+常用配置：
+
+- `RAG_MILVUS_URI=http://localhost:19530`
+- `RAG_MILVUS_COLLECTION=smart_campus_knowledge`
+- `RAG_MILVUS_PARENT_CHILD_COLLECTION=smart_campus_knowledge_parent_child`

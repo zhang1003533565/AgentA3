@@ -1,3 +1,4 @@
+import os
 import re
 from collections import Counter
 from pathlib import Path
@@ -7,6 +8,7 @@ from app.rag.chunking.semantic import SemanticChunker
 from app.rag.core.types import RagDocument
 from app.rag.indexing.document_loader import DocumentLoader
 from app.rag.indexing.local_chunk_index import LocalChunkIndex
+from app.rag.vector_stores import DEFAULT_VECTOR_STORE_BACKEND, is_local_vector_store_backend
 
 
 class KeywordRetriever:
@@ -18,6 +20,7 @@ class KeywordRetriever:
         )
         self.loader = DocumentLoader()
         self.local_chunk_index = LocalChunkIndex(self.root_dir)
+        self.vector_store_backend = os.getenv("RAG_VECTOR_STORE_BACKEND", DEFAULT_VECTOR_STORE_BACKEND).strip().lower()
         self._index_signature = ""
         self._index: List[RagDocument] = []
 
@@ -54,6 +57,8 @@ class KeywordRetriever:
         indexed_documents = self.local_chunk_index.load()
         if indexed_documents:
             return indexed_documents
+        if not is_local_vector_store_backend(self.vector_store_backend):
+            return []
 
         documents: List[RagDocument] = []
         for loaded in self.loader.load(str(self.root_dir)):
@@ -90,6 +95,8 @@ class KeywordRetriever:
         return re.sub(r"\s+", "", (text or "").lower())
 
     def _signature(self) -> str:
+        if not is_local_vector_store_backend(self.vector_store_backend):
+            return self.local_chunk_index.signature()
         if not self.root_dir.exists():
             return "missing"
         if self.local_chunk_index.load():

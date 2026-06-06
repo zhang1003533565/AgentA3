@@ -19,6 +19,8 @@ from app.multi_agents.ppt_outline_agent.agent import normalize_ppt_outline_answe
 
 class RagApiRoutesTest(unittest.TestCase):
     def setUp(self):
+        self._old_rag_vector_store_backend = os.environ.get("RAG_VECTOR_STORE_BACKEND")
+        os.environ["RAG_VECTOR_STORE_BACKEND"] = "local_jsonl"
         self.client = TestClient(app)
         self.headers = {
             "Authorization": "Bearer test-token",
@@ -33,6 +35,10 @@ class RagApiRoutesTest(unittest.TestCase):
         self._patch_image_provider()
 
     def tearDown(self):
+        if self._old_rag_vector_store_backend is None:
+            os.environ.pop("RAG_VECTOR_STORE_BACKEND", None)
+        else:
+            os.environ["RAG_VECTOR_STORE_BACKEND"] = self._old_rag_vector_store_backend
         if self._old_get_qwen_image_provider is not None:
             image_agent_module = importlib.import_module("app.multi_agents.image_agent.agent")
             image_agent_module.get_qwen_image_provider = self._old_get_qwen_image_provider
@@ -173,8 +179,9 @@ class RagApiRoutesTest(unittest.TestCase):
             self.assertEqual(200, response.status_code)
             payload = response.json()
             self.assertEqual("milvus", payload["backend"])
-            self.assertEqual("implemented_optional", payload["status"])
-            self.assertIn("RAG_MILVUS_URI", payload["missingEnv"])
+            self.assertEqual("implemented", payload["status"])
+            self.assertIn("dependencyAvailable", payload)
+            self.assertIn("collection", payload)
         finally:
             if old_backend is None:
                 os.environ.pop("RAG_VECTOR_STORE_BACKEND", None)

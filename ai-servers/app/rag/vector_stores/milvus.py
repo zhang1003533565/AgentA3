@@ -15,7 +15,10 @@ class MilvusVectorStore(BaseVectorStore):
     def __init__(self, root_dir: Path, index_path: Optional[Path] = None) -> None:
         super().__init__(root_dir=root_dir, index_path=index_path)
         self.uri = os.getenv("RAG_MILVUS_URI", "http://localhost:19530").strip()
-        self.collection_name = os.getenv("RAG_MILVUS_COLLECTION", "smart_campus_chunks").strip()
+        base_collection = os.getenv("RAG_MILVUS_COLLECTION", "smart_campus_knowledge").strip()
+        parent_collection = os.getenv("RAG_MILVUS_PARENT_CHILD_COLLECTION", f"{base_collection}_parent_child").strip()
+        self.collection_role = "parent_child" if self._is_parent_child_index(index_path) else "chunks"
+        self.collection_name = parent_collection if self.collection_role == "parent_child" else base_collection
         self.dimension = int(os.getenv("RAG_MILVUS_DIMENSION", "384"))
         self.metric_type = os.getenv("RAG_MILVUS_METRIC_TYPE", "COSINE").strip().upper()
         self.embedding_provider = build_embedding_provider(os.getenv("RAG_EMBEDDING_PROVIDER"))
@@ -133,6 +136,7 @@ class MilvusVectorStore(BaseVectorStore):
             "dependencyAvailable": dependency_available,
             "uri": self.uri,
             "collection": self.collection_name,
+            "collectionRole": self.collection_role,
             "collectionExists": collection_exists,
             "dimension": self.dimension,
             "metricType": self.metric_type,
@@ -200,3 +204,6 @@ class MilvusVectorStore(BaseVectorStore):
 
     def _escape_filter_string(self, value: str) -> str:
         return value.replace("\\", "\\\\").replace('"', '\\"')
+
+    def _is_parent_child_index(self, index_path: Optional[Path]) -> bool:
+        return bool(index_path and index_path.name == "parent_child_chunks.jsonl")

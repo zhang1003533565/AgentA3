@@ -19,6 +19,16 @@ Python FastAPI + LangChain internal service for AppBackend AI chat migration.
 
 AI 相关框架统一放在 `app/` 下维护，避免运行代码、skill、contract 出现两套目录。
 
+## Start
+
+在 `ai-servers` 目录执行：
+
+```bash
+./start-ai-server.sh
+```
+
+默认 `RAG_VECTOR_STORE_BACKEND=milvus`，脚本会先通过当前目录的 `docker-compose.yml` 自动启动 Milvus/Etcd/MinIO 向量库，再启动 FastAPI 服务。
+
 ## Endpoints
 
 - `POST /internal/chat`
@@ -30,7 +40,7 @@ AI 相关框架统一放在 `app/` 下维护，避免运行代码、skill、cont
 - `GET /internal/rag/agents`：多智能体与 skill/prompt/contract/tools 目录
 - `GET /internal/rag/agents/{agent_name}`：单个智能体详情
 - `POST /internal/rag/query`
-- `POST /internal/rag/documents`：保存文档、解析、切分并写入本地 `.index/local_chunks.jsonl`
+- `POST /internal/rag/documents`：保存文档、解析、切分并写入 Docker Milvus 向量库
 - `POST /internal/rag/pdf/convert`：PDF 转 Markdown zip 或 DOCX
 - `POST /internal/rag/ppt/convert`：PPTX 转 DOCX，按幻灯片顺序重排并保留图片
 - `GET /internal/rag/documents`
@@ -66,18 +76,18 @@ cd ai-servers
 ./start-ai-server.sh
 ```
 
-Milvus + 构建知识库 + 启动服务：
+默认会启动 Docker Milvus 并使用向量库作为知识库后端。构建知识库 + 启动服务：
 
 ```bash
 cd ai-servers
-./start-ai-server.sh --backend milvus --build-kb
+./start-ai-server.sh --build-kb
 ```
 
 Windows PowerShell：
 
 ```powershell
 cd ai-servers
-.\start-ai-server.ps1 --backend milvus --build-kb
+.\start-ai-server.ps1 --build-kb
 ```
 
 手动启动仍然可用：
@@ -106,7 +116,7 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
 - `RAG_CHUNK_OVERLAP` default `120`
 - `RAG_VECTOR_TOP_K` default `5`
 - `RAG_EMBEDDING_PROVIDER` default `local_lexical`
-- `RAG_VECTOR_STORE_BACKEND` default `local_jsonl`
+- `RAG_VECTOR_STORE_BACKEND` default `milvus`
 - `RAG_GRAPH_STORE_BACKEND` default `local_graph`
 - `RAG_SQLITE_DB_PATH` optional, enables read-only SQLite execution for Text-to-SQL
 - `RAG_PARENT_CHUNK_SIZE` default `1600`
@@ -151,14 +161,14 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
 - 策略只返回证据时，会由 `local_context_synthesizer` 生成一段带来源的本地答案，方便无 LLM 环境也能调通链路。
 - 本地文档 RAG 默认读取 `ai-servers/knowledge_base/raw` 下的 `.md`、`.markdown`、`.txt`、`.csv`、`.json`、`.html`、`.htm`、`.pdf` 和图片文件。
 - PDF 正文抽取会优先使用可选依赖 `pypdf`；未安装时仍会保留文件元数据，不会阻塞入库。
-- 可选向量库、embedding、Neo4j 都已搭好 adapter 和 health 检查，未配置时不会冒充可用。
+- 默认向量库为 Docker Milvus；`local_jsonl` 仅保留显式指定时的兼容能力，不再作为知识库默认方案。
 
 ## Build Knowledge Base With Docker Milvus
 
-启动 Docker 向量库：
+在 `ai-servers` 目录启动 Docker 向量库：
 
 ```bash
-docker compose -f ../docker-compose.rag.yml up -d
+docker compose up -d
 ```
 
 在 `ai-servers/.env` 中启用 Milvus：
@@ -167,6 +177,7 @@ docker compose -f ../docker-compose.rag.yml up -d
 RAG_VECTOR_STORE_BACKEND=milvus
 RAG_MILVUS_URI=http://localhost:19530
 RAG_MILVUS_COLLECTION=smart_campus_knowledge
+RAG_MILVUS_PARENT_CHILD_COLLECTION=smart_campus_knowledge_parent_child
 RAG_MILVUS_DIMENSION=384
 RAG_MILVUS_METRIC_TYPE=COSINE
 ```
@@ -177,8 +188,4 @@ RAG_MILVUS_METRIC_TYPE=COSINE
 python3 scripts/build_knowledge_base.py --backend milvus
 ```
 
-默认仍支持 `local_jsonl`，适合没有 Docker 或 Milvus 依赖时快速调通：
-
-```bash
-python3 scripts/build_knowledge_base.py --backend local_jsonl
-```
+默认不再扫描本地 raw 目录作为检索兜底；上传和离线构建都会写入 Milvus collection。

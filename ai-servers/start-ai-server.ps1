@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $ProjectName = "smart-campus-ai"
 $AiServerHost = if ($env:AI_SERVER_HOST) { $env:AI_SERVER_HOST } else { "127.0.0.1" }
 $PythonServerPort = if ($env:PYTHON_SERVER_PORT) { [int]$env:PYTHON_SERVER_PORT } else { 8081 }
-$RagVectorStoreBackend = if ($env:RAG_VECTOR_STORE_BACKEND) { $env:RAG_VECTOR_STORE_BACKEND } else { "local_jsonl" }
+$RagVectorStoreBackend = if ($env:RAG_VECTOR_STORE_BACKEND) { $env:RAG_VECTOR_STORE_BACKEND } else { "milvus" }
 $RagDockerWaitSeconds = if ($env:RAG_DOCKER_WAIT_SECONDS) { [int]$env:RAG_DOCKER_WAIT_SECONDS } else { 90 }
 $StartDocker = $true
 $BuildKnowledgeBase = $false
@@ -32,11 +32,11 @@ for ($i = 0; $i -lt $args.Count; $i++) {
             $PythonServerPort = [int]$args[$i]
         }
         "-h" {
-            Write-Host "Usage: .\start-ai-server.ps1 [--backend local_jsonl|milvus] [--build-kb] [--host 127.0.0.1] [--no-docker] [--port 8081]"
+            Write-Host "Usage: .\start-ai-server.ps1 [--backend milvus|local_jsonl] [--build-kb] [--host 127.0.0.1] [--no-docker] [--port 8081]"
             exit 0
         }
         "--help" {
-            Write-Host "Usage: .\start-ai-server.ps1 [--backend local_jsonl|milvus] [--build-kb] [--host 127.0.0.1] [--no-docker] [--port 8081]"
+            Write-Host "Usage: .\start-ai-server.ps1 [--backend milvus|local_jsonl] [--build-kb] [--host 127.0.0.1] [--no-docker] [--port 8081]"
             exit 0
         }
         default {
@@ -46,8 +46,7 @@ for ($i = 0; $i -lt $args.Count; $i++) {
 }
 
 Set-Location $PSScriptRoot
-$RootDir = Split-Path -Parent $PSScriptRoot
-$RagComposeFile = Join-Path $RootDir "docker-compose.rag.yml"
+$RagComposeFile = Join-Path $PSScriptRoot "docker-compose.yml"
 
 function Write-Log {
     param([string]$Message)

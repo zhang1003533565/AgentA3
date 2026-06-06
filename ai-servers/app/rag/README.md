@@ -14,7 +14,7 @@
 - `routers/`：自适应策略路由。
 - `generation/`：上下文构建和答案生成辅助。
 - `indexing/`：知识入库辅助。
-- `vector_stores/`：向量/索引存储抽象，默认本地 JSONL，可切换 Docker Milvus，后续可扩展 FAISS、ES、pgvector。
+- `vector_stores/`：向量/索引存储抽象，默认 Docker Milvus；`local_jsonl` 仅保留显式兼容模式，后续可扩展 FAISS、ES、pgvector。
 - `structured/`：Text-to-SQL 等结构化知识能力。
 - `observability/`：trace、指标、日志辅助。
 

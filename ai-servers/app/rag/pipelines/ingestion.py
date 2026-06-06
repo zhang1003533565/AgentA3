@@ -11,6 +11,7 @@ from app.rag.chunking.parent_child import ParentChildChunker
 from app.rag.core import RagDocument, RagTraceStep
 from app.rag.indexing.document_loader import DocumentLoader
 from app.rag.indexing.embedding_writer import EmbeddingWriter
+from app.rag.vector_stores import DEFAULT_VECTOR_STORE_BACKEND
 
 
 @dataclass
@@ -58,9 +59,9 @@ class RagIngestionPipeline:
             child_chunk_size=int(os.getenv("RAG_CHILD_CHUNK_SIZE", "420")),
             child_overlap=int(os.getenv("RAG_CHILD_CHUNK_OVERLAP", "80")),
         )
-        self.vector_store_backend = os.getenv("RAG_VECTOR_STORE_BACKEND", "local_jsonl")
+        self.vector_store_backend = os.getenv("RAG_VECTOR_STORE_BACKEND", DEFAULT_VECTOR_STORE_BACKEND)
         self.writer = EmbeddingWriter(index_path=str(self.index_path), backend=self.vector_store_backend)
-        self.parent_child_writer = EmbeddingWriter(index_path=str(self.parent_index_path), backend="local_jsonl")
+        self.parent_child_writer = EmbeddingWriter(index_path=str(self.parent_index_path), backend=self.vector_store_backend)
 
     def run(self, documents: Iterable[IngestInputDocument]) -> IngestionResult:
         self.ingest_dir.mkdir(parents=True, exist_ok=True)

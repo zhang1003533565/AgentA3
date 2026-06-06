@@ -8,7 +8,7 @@ from app.rag.core.types import RagDocument
 from app.rag.embeddings import EmbeddingVector, build_embedding_provider
 from app.rag.indexing.document_loader import DocumentLoader
 from app.rag.indexing.local_chunk_index import LocalChunkIndex
-from app.rag.vector_stores import build_vector_store
+from app.rag.vector_stores import DEFAULT_VECTOR_STORE_BACKEND, build_vector_store, is_local_vector_store_backend
 
 
 class VectorRetriever:
@@ -21,13 +21,13 @@ class VectorRetriever:
         self.loader = DocumentLoader()
         self.local_chunk_index = LocalChunkIndex(self.root_dir)
         self.embedding_provider = build_embedding_provider()
-        self.vector_store_backend = os.getenv("RAG_VECTOR_STORE_BACKEND", "local_jsonl").strip().lower()
+        self.vector_store_backend = os.getenv("RAG_VECTOR_STORE_BACKEND", DEFAULT_VECTOR_STORE_BACKEND).strip().lower()
         self.vector_store = build_vector_store(root_dir=self.root_dir, backend=self.vector_store_backend)
         self._index_signature = ""
         self._index: List[Tuple[RagDocument, EmbeddingVector]] = []
 
     def search(self, query: str, top_k: int = 5) -> List[RagDocument]:
-        if self.vector_store_backend not in {"", "local", "jsonl", "local_jsonl"}:
+        if not is_local_vector_store_backend(self.vector_store_backend):
             return self.vector_store.search(query, top_k=top_k)
         self._ensure_index()
         query_vector = self._vectorize(query)
@@ -65,6 +65,8 @@ class VectorRetriever:
         indexed_documents = self.local_chunk_index.load()
         if indexed_documents:
             return indexed_documents
+        if not is_local_vector_store_backend(self.vector_store_backend):
+            return []
 
         documents: List[RagDocument] = []
         for loaded in self.loader.load(str(self.root_dir)):
@@ -86,6 +88,8 @@ class VectorRetriever:
         return ai_server_root / path
 
     def _signature(self) -> str:
+        if not is_local_vector_store_backend(self.vector_store_backend):
+            return self.vector_store.signature()
         if not self.root_dir.exists():
             return "missing"
         if self.local_chunk_index.load():

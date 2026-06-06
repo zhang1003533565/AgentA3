@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import List, Optional
 
@@ -6,6 +7,7 @@ from app.rag.core.types import RagDocument
 from app.rag.graph_stores import build_graph_store
 from app.rag.indexing.document_loader import DocumentLoader
 from app.rag.indexing.local_chunk_index import LocalChunkIndex
+from app.rag.vector_stores import DEFAULT_VECTOR_STORE_BACKEND, is_local_vector_store_backend
 
 
 class GraphRetriever:
@@ -14,6 +16,7 @@ class GraphRetriever:
         self.loader = DocumentLoader()
         self.chunker = SemanticChunker(chunk_size=900, overlap=120)
         self.local_chunk_index = LocalChunkIndex(self.root_dir)
+        self.vector_store_backend = os.getenv("RAG_VECTOR_STORE_BACKEND", DEFAULT_VECTOR_STORE_BACKEND).strip().lower()
         self.graph_store = build_graph_store()
         self._index_signature = ""
         self._documents: List[RagDocument] = []
@@ -42,6 +45,8 @@ class GraphRetriever:
         indexed_documents = self.local_chunk_index.load()
         if indexed_documents:
             return indexed_documents
+        if not is_local_vector_store_backend(self.vector_store_backend):
+            return []
 
         documents: List[RagDocument] = []
         for loaded in self.loader.load(str(self.root_dir)):
@@ -66,6 +71,8 @@ class GraphRetriever:
         return ai_server_root / path
 
     def _signature(self) -> str:
+        if not is_local_vector_store_backend(self.vector_store_backend):
+            return self.local_chunk_index.signature()
         if not self.root_dir.exists():
             return "missing"
         if self.local_chunk_index.load():

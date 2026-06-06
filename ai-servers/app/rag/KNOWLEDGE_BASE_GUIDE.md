@@ -7,18 +7,17 @@
 1. 准备资料：把 Markdown、TXT、CSV、TSV、JSON、HTML、PDF、图片放入 `ai-servers/knowledge_base/raw`。
 2. 文档解析：`DocumentLoader` 和 `MultimodalParser` 读取文本、表格、PDF 和图片元数据。
 3. 文本切分：普通索引用 `SemanticChunker`，Parent-Child 索引用 `ParentChildChunker`。
-4. 向量写入：`RAG_VECTOR_STORE_BACKEND=local_jsonl` 写本地 JSONL；`milvus` 写 Docker Milvus。
+4. 向量写入：默认 `RAG_VECTOR_STORE_BACKEND=milvus`，写入 Docker Milvus。
 5. 索引产物：
-   - 普通 chunk：`.index/local_chunks.jsonl`
-   - Parent-Child chunk：`.index/parent_child_chunks.jsonl`
-   - Milvus collection：`RAG_MILVUS_COLLECTION`
+   - 普通 chunk：`RAG_MILVUS_COLLECTION`
+   - Parent-Child chunk：`RAG_MILVUS_PARENT_CHILD_COLLECTION`
 
 ## 2. Docker Milvus
 
 从项目根目录启动：
 
 ```bash
-docker compose -f docker-compose.rag.yml up -d
+docker compose up -d
 ```
 
 `ai-servers/.env` 推荐配置：
@@ -27,6 +26,7 @@ docker compose -f docker-compose.rag.yml up -d
 RAG_VECTOR_STORE_BACKEND=milvus
 RAG_MILVUS_URI=http://localhost:19530
 RAG_MILVUS_COLLECTION=smart_campus_knowledge
+RAG_MILVUS_PARENT_CHILD_COLLECTION=smart_campus_knowledge_parent_child
 RAG_MILVUS_DIMENSION=384
 RAG_MILVUS_METRIC_TYPE=COSINE
 ```
@@ -45,11 +45,7 @@ cd ai-servers
 python3 scripts/build_knowledge_base.py --backend milvus
 ```
 
-没有 Docker 时可先使用本地索引：
-
-```bash
-python3 scripts/build_knowledge_base.py --backend local_jsonl
-```
+`local_jsonl` 只保留显式指定时的兼容能力，不再作为知识库默认方案。
 
 ## 4. 在线检索策略
 
@@ -70,8 +66,8 @@ python3 scripts/build_knowledge_base.py --backend local_jsonl
 
 ## 5. 管理端入口
 
-`http://localhost:5174/ai/rag`
+`http://localhost:5174/ai/knowledge-base`
 
-- “知识库”页签：上传或编辑文档并入库。
-- “策略与健康”页签：查看向量库、Embedding、图谱库状态。
-- “智能体执行/多智能体”页签：选择策略和智能体验证检索效果。
+- 上传或编辑文档并写入 Milvus。
+- 查看向量库、Embedding、图谱库状态。
+- 已入库文档列表来自 Milvus collection 聚合，不扫描本地 raw 目录。

@@ -34,7 +34,7 @@ from app.rag.graph_stores import build_graph_store
 from app.rag.indexing.document_loader import DocumentLoader
 from app.rag.pipelines import IngestInputDocument, RagIngestionPipeline
 from app.rag.structured.text_to_sql import TextToSqlService
-from app.rag.vector_stores import build_vector_store
+from app.rag.vector_stores import DEFAULT_VECTOR_STORE_BACKEND, build_vector_store, get_vector_store_backend
 from app.utils.logger import get_logger
 from app.utils.sse import build_sse, chunk_answer
 
@@ -133,8 +133,10 @@ def get_rag_capabilities(
         "indexing": {
             "supportedSuffixes": sorted(DocumentLoader.SUPPORTED_SUFFIXES),
             "defaultChunker": "semantic_boundary",
-            "indexStore": os.getenv("RAG_VECTOR_STORE_BACKEND", "local_jsonl"),
-            "parentChildIndex": str(_knowledge_base_root() / ".index" / "parent_child_chunks.jsonl"),
+            "indexStore": get_vector_store_backend(os.getenv("RAG_VECTOR_STORE_BACKEND")),
+            "primaryStore": "docker_milvus",
+            "localRawFallback": False,
+            "parentChildIndex": "milvus_collection",
             "uploadEncoding": "text_or_base64",
         },
         "documentConversion": {
@@ -224,9 +226,9 @@ def get_rag_framework(
             {"name": "sentence_transformers", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
         ],
         "vectorStores": [
-            {"name": "local_jsonl", "status": "implemented", "requiredEnv": []},
+            {"name": "milvus", "status": "implemented", "requiredEnv": ["RAG_MILVUS_URI", "RAG_MILVUS_COLLECTION"], "configSource": "docker"},
+            {"name": "local_jsonl", "status": "disabled", "requiredEnv": [], "note": "仅保留兼容单元测试，不再作为知识库默认方案"},
             {"name": "faiss", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
-            {"name": "milvus", "status": "implemented", "requiredEnv": ["RAG_MILVUS_URI", "RAG_MILVUS_COLLECTION"], "configSource": "env"},
             {"name": "elasticsearch", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
             {"name": "pgvector", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
         ],
@@ -239,13 +241,20 @@ def get_rag_framework(
             "defaultChunker": "semantic_boundary",
             "parentChildChunker": "parent_child",
             "uploadEncoding": "text_or_base64",
-            "localIndexFile": str(_knowledge_base_root() / ".index" / "local_chunks.jsonl"),
+            "vectorStoreBackend": get_vector_store_backend(os.getenv("RAG_VECTOR_STORE_BACKEND")),
+            "vectorStore": "docker_milvus",
+            "localRawFallback": False,
         },
         "runtimeEnv": [
             {"name": "X-AI-Provider", "configured": "由 Java 请求头传入", "source": "ai.service.text.provider"},
             {"name": "X-AI-Base-Url", "configured": "由 Java 请求头传入", "source": "ai.service.text.base-url"},
             {"name": "X-AI-Api-Key", "configured": "由 Java 请求头传入", "source": "ai.service.text.api-key"},
             {"name": "X-AI-Model", "configured": "由 Java 请求头传入", "source": "ai.service.text.model"},
+            {"name": "RAG_VECTOR_STORE_BACKEND", "default": DEFAULT_VECTOR_STORE_BACKEND, "configured": get_vector_store_backend(os.getenv("RAG_VECTOR_STORE_BACKEND"))},
+            {"name": "RAG_MILVUS_URI", "default": "http://localhost:19530", "configured": os.getenv("RAG_MILVUS_URI", "http://localhost:19530")},
+            {"name": "RAG_MILVUS_COLLECTION", "default": "smart_campus_knowledge", "configured": os.getenv("RAG_MILVUS_COLLECTION", "smart_campus_knowledge")},
+            {"name": "RAG_MILVUS_PARENT_CHILD_COLLECTION", "default": "smart_campus_knowledge_parent_child", "configured": os.getenv("RAG_MILVUS_PARENT_CHILD_COLLECTION", "smart_campus_knowledge_parent_child")},
+            {"name": "RAG_KNOWLEDGE_BASE_DIR", "default": "knowledge_base/raw", "configured": str(_knowledge_base_root())},
         ],
         "apis": [
             "GET /internal/rag/strategies",
@@ -833,26 +842,39 @@ def list_rag_documents(
 ) -> Dict[str, Any]:
     _require_authorization(authorization)
     root = _knowledge_base_root()
-    documents = []
-    if root.exists():
-        for path in sorted(root.rglob("*")):
-            if path.is_file() and path.suffix.lower() in DocumentLoader.SUPPORTED_SUFFIXES:
-                stat = path.stat()
-                documents.append({
-                    "source": str(path),
-                    "size": stat.st_size,
-                    "updatedAt": int(stat.st_mtime),
-                })
-    vector_store = build_vector_store(root, backend=os.getenv("RAG_VECTOR_STORE_BACKEND", "local_jsonl"))
-    parent_child_index = root / ".index" / "parent_child_chunks.jsonl"
+    backend = get_vector_store_backend(os.getenv("RAG_VECTOR_STORE_BACKEND"))
+    vector_store = build_vector_store(root, backend=backend)
+    load_error = ""
+    try:
+        indexed_documents = vector_store.load_documents()
+    except Exception as exc:
+        logger.warning("rag document list failed backend=%s error=%s", backend, exc)
+        indexed_documents = []
+        load_error = str(exc)
+    documents_by_source: Dict[str, Dict[str, Any]] = {}
+    for document in indexed_documents:
+        source = document.metadata.get("sourceName") or document.source or document.id
+        item = documents_by_source.setdefault(str(source), {
+            "source": str(source),
+            "size": 0,
+            "updatedAt": None,
+            "chunkCount": 0,
+            "vectorStoreBackend": vector_store.name,
+            "collection": getattr(vector_store, "collection_name", ""),
+        })
+        item["chunkCount"] += 1
+        item["size"] += len(document.content.encode("utf-8"))
+    documents = sorted(documents_by_source.values(), key=lambda item: item["source"])
     return {
         "documents": documents,
         "knowledgeBase": {
             "rootDir": str(root),
-            "vectorStoreBackend": os.getenv("RAG_VECTOR_STORE_BACKEND", "local_jsonl"),
-            "chunkIndexPath": str(root / ".index" / "local_chunks.jsonl"),
-            "parentChildIndexPath": str(parent_child_index),
-            "parentChildIndexed": parent_child_index.exists(),
+            "vectorStoreBackend": backend,
+            "chunkIndexPath": "milvus_collection",
+            "parentChildIndexPath": "milvus_collection",
+            "parentChildIndexed": True,
+            "localRawFallback": False,
+            "loadError": load_error,
             "vectorStoreHealth": vector_store.health(),
         },
     }
@@ -863,7 +885,7 @@ def vector_store_health(
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ) -> Dict[str, Any]:
     _require_authorization(authorization)
-    vector_store = build_vector_store(_knowledge_base_root(), backend=os.getenv("RAG_VECTOR_STORE_BACKEND", "local_jsonl"))
+    vector_store = build_vector_store(_knowledge_base_root(), backend=get_vector_store_backend(os.getenv("RAG_VECTOR_STORE_BACKEND")))
     return vector_store.health()
 
 
@@ -1007,7 +1029,7 @@ def _require_authorization(authorization: Optional[str]) -> None:
 
 
 def _knowledge_base_root() -> Path:
-    root_dir = "knowledge_base/raw"
+    root_dir = os.getenv("RAG_KNOWLEDGE_BASE_DIR", "knowledge_base/raw")
     path = Path(root_dir)
     if path.is_absolute():
         return path

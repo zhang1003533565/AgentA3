@@ -4,6 +4,7 @@ from pathlib import Path
 
 from app.rag.core.types import RagDocument
 from app.rag.vector_stores import (
+    DEFAULT_VECTOR_STORE_BACKEND,
     ElasticsearchVectorStore,
     FaissVectorStore,
     LocalJsonlVectorStore,
@@ -62,6 +63,13 @@ class VectorStoreTest(unittest.TestCase):
             self.assertIsInstance(build_vector_store(root, backend="jsonl"), LocalJsonlVectorStore)
             self.assertIsInstance(build_vector_store(root, backend="local_jsonl"), LocalJsonlVectorStore)
 
+    def test_build_vector_store_defaults_to_milvus(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            self.assertEqual("milvus", DEFAULT_VECTOR_STORE_BACKEND)
+            self.assertIsInstance(build_vector_store(root), MilvusVectorStore)
+
     def test_build_vector_store_supports_scaffolded_backends(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -72,18 +80,17 @@ class VectorStoreTest(unittest.TestCase):
             self.assertIsInstance(build_vector_store(root, backend="es"), ElasticsearchVectorStore)
             self.assertIsInstance(build_vector_store(root, backend="pgvector"), PgVectorStore)
 
-    def test_scaffolded_vector_store_health_and_write_guard(self):
+    def test_milvus_vector_store_health_reports_connection_state(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             store = build_vector_store(root, backend="milvus")
 
             health = store.health()
             self.assertEqual("milvus", health["backend"])
-            self.assertEqual("implemented_optional", health["status"])
-            self.assertFalse(health["configured"])
-            self.assertIn("RAG_MILVUS_URI", health["missingEnv"])
-            with self.assertRaisesRegex(RuntimeError, "not configured"):
-                store.upsert_documents([RagDocument(id="a", content="测试", source="a.md")])
+            self.assertEqual("implemented", health["status"])
+            self.assertIn("dependencyAvailable", health)
+            self.assertIn("collection", health)
+            self.assertIn("smart_campus", health["collection"])
 
 
 if __name__ == "__main__":

@@ -19,7 +19,9 @@ const { Text, Title } = Typography
 
 const documentColumns = [
   { title: '来源', dataIndex: 'source', ellipsis: true },
-  { title: '大小', dataIndex: 'size', width: 120 },
+  { title: 'Chunk', dataIndex: 'chunkCount', width: 100, render: (value) => value ?? '-' },
+  { title: '向量库', dataIndex: 'collection', width: 220, ellipsis: true },
+  { title: '大小', dataIndex: 'size', width: 120, render: (value) => (Number.isFinite(Number(value)) ? `${Math.ceil(Number(value) / 1024)} KB` : '-') },
   {
     title: '更新时间',
     dataIndex: 'updatedAt',
@@ -211,7 +213,7 @@ function KnowledgeBaseManage() {
         <div>
           <span className="rag-kicker">Knowledge Base Console</span>
           <Title level={1}>知识库管理</Title>
-          <p>独立管理 RAG 知识文档、向量库状态和文档转换，不再与检索策略测试页面共享。</p>
+          <p>使用 Docker Milvus 管理 RAG 知识文档、向量库状态和文档转换，本地文件索引不再作为默认知识库。</p>
         </div>
         <Button icon={<ReloadOutlined />} onClick={refresh} loading={bootLoading}>
           刷新知识库
@@ -248,7 +250,7 @@ function KnowledgeBaseManage() {
                   >
                     <Button icon={<UploadOutlined />}>选择文件</Button>
                   </Upload>
-                  <Text type="secondary">支持 Markdown、TXT、CSV、TSV、JSON、HTML、PDF 和图片；文件会以 Base64 传给 Python 服务入库。</Text>
+                  <Text type="secondary">支持 Markdown、TXT、CSV、TSV、JSON、HTML、PDF 和图片；文件会解析、切分并写入 Docker Milvus 向量库。</Text>
                 </Form.Item>
                 <Form.Item name="content" label="文档内容">
                   <TextArea rows={10} placeholder="粘贴 Markdown、文本、表格摘要等知识内容" />
@@ -260,7 +262,7 @@ function KnowledgeBaseManage() {
             </Card>
           </Col>
           <Col xs={24} lg={15}>
-            <Card title="已入库文档" extra={<Button icon={<ReloadOutlined />} onClick={refresh} loading={bootLoading}>刷新</Button>} className="rag-panel-card">
+            <Card title="Milvus 已入库文档" extra={<Button icon={<ReloadOutlined />} onClick={refresh} loading={bootLoading}>刷新</Button>} className="rag-panel-card">
               <Table
                 rowKey={(record) => record.source}
                 columns={documentColumns}

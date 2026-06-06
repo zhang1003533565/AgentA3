@@ -4,14 +4,13 @@ set -euo pipefail
 PROJECT_NAME="smart-campus-ai"
 AI_SERVER_HOST="${AI_SERVER_HOST:-127.0.0.1}"
 PYTHON_SERVER_PORT="${PYTHON_SERVER_PORT:-8081}"
-RAG_VECTOR_STORE_BACKEND="${RAG_VECTOR_STORE_BACKEND:-local_jsonl}"
+RAG_VECTOR_STORE_BACKEND="${RAG_VECTOR_STORE_BACKEND:-milvus}"
 RAG_DOCKER_WAIT_SECONDS="${RAG_DOCKER_WAIT_SECONDS:-90}"
 START_DOCKER=1
 BUILD_KB=0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-RAG_COMPOSE_FILE="$ROOT_DIR/docker-compose.rag.yml"
+RAG_COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 cd "$SCRIPT_DIR"
 
 log() {
@@ -28,7 +27,7 @@ usage() {
 Usage: ./start-ai-server.sh [options]
 
 Options:
-  --backend <local_jsonl|milvus>  Select RAG vector store backend.
+  --backend <milvus|local_jsonl>  Select RAG vector store backend, default milvus.
   --build-kb                     Build knowledge base before starting API.
   --host <host>                  API bind host, default 127.0.0.1.
   --no-docker                    Do not start Docker services.

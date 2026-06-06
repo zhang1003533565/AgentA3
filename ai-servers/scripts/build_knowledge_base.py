@@ -14,14 +14,14 @@ sys.path.insert(0, str(ROOT))
 
 from app.rag.indexing.document_loader import DocumentLoader  # noqa: E402
 from app.rag.pipelines import IngestInputDocument, RagIngestionPipeline  # noqa: E402
-from app.rag.vector_stores import build_vector_store  # noqa: E402
+from app.rag.vector_stores import DEFAULT_VECTOR_STORE_BACKEND, build_vector_store  # noqa: E402
 
 
 def main() -> int:
     load_dotenv(ROOT / ".env")
     parser = argparse.ArgumentParser(description="Build Smart Campus RAG knowledge base.")
     parser.add_argument("--source-dir", default=os.getenv("RAG_KNOWLEDGE_BASE_DIR", "knowledge_base/raw"))
-    parser.add_argument("--backend", default=os.getenv("RAG_VECTOR_STORE_BACKEND", "local_jsonl"))
+    parser.add_argument("--backend", default=os.getenv("RAG_VECTOR_STORE_BACKEND", DEFAULT_VECTOR_STORE_BACKEND))
     parser.add_argument("--limit", type=int, default=0)
     args = parser.parse_args()
 

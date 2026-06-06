@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,6 +19,16 @@ from app.rag.retrievers import java_backend_retriever
 
 
 class LocalVectorRetrieverTest(unittest.TestCase):
+    def setUp(self):
+        self._old_rag_vector_store_backend = os.environ.get("RAG_VECTOR_STORE_BACKEND")
+        os.environ["RAG_VECTOR_STORE_BACKEND"] = "local_jsonl"
+
+    def tearDown(self):
+        if self._old_rag_vector_store_backend is None:
+            os.environ.pop("RAG_VECTOR_STORE_BACKEND", None)
+        else:
+            os.environ["RAG_VECTOR_STORE_BACKEND"] = self._old_rag_vector_store_backend
+
     def test_rag_engine_registers_all_document_strategies(self):
         expected = {
             "naive_rag",
