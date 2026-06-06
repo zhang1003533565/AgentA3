@@ -18,6 +18,7 @@
 					<text class="ai-assistant-panel__title">校园对话助手</text>
 				</view>
 				<view class="ai-assistant-panel__actions">
+					<view class="ai-assistant-panel__icon" @click.stop="openFullConversation">展开</view>
 					<view class="ai-assistant-panel__icon" @click="resetSession">新会话</view>
 					<view class="ai-assistant-panel__close" @click="closePanel">×</view>
 				</view>
@@ -252,6 +253,16 @@ export default {
 			this.resetFabPosition()
 			this.panelVisible = false
 			this.scheduleFabCollapse()
+		},
+		openFullConversation() {
+			this.ensureSessionId()
+			uni.setStorageSync(STORAGE_KEY, this.sessionId)
+			this.panelVisible = false
+			this.fabCollapsed = false
+			this.scheduleFabCollapse()
+			uni.navigateTo({
+				url: `/subpackage_ai/aiConversation/aiConversation?sessionId=${encodeURIComponent(this.sessionId)}`
+			})
 		},
 		resetSession() {
 			this.sessionId = this.createSessionId()
@@ -499,7 +510,7 @@ export default {
 					uni.setStorageSync(STORAGE_KEY, payload.sessionId)
 				}
 				this.updateMessage(assistantMessage.id, {
-					content: payload.answer || 'Leader 这次没有返回可用答案，请换一种问法再试。'
+					content: this.formatAssistantAnswer(payload)
 				})
 			} catch (error) {
 				const message = (error && (error.msg || error.message)) || '对话失败，请稍后再试'
@@ -509,6 +520,21 @@ export default {
 			} finally {
 				this.sending = false
 			}
+		},
+		formatAssistantAnswer(payload = {}) {
+			const answer = payload.answer || 'Leader 这次没有返回可用答案，请换一种问法再试。'
+			const meta = payload.retrievalMeta || payload.metadata || {}
+			const executedAgent = meta.executedAgent || meta.targetAgent || payload.agentName || 'leader_agent'
+			const mode = meta.executionModeLabel || ''
+			const strategy = payload.ragStrategy || meta.plannedRagStrategy || meta.strategyLabel || ''
+			const routeParts = [`执行：${executedAgent}`]
+			if (strategy && !['leader_direct_answer', 'direct_agent'].includes(strategy)) {
+				routeParts.push(`策略：${strategy}`)
+			}
+			if (mode) {
+				routeParts.push(mode)
+			}
+			return `${answer}\n\n- ${routeParts.join(' · ')}`
 		}
 	}
 }

@@ -126,9 +126,13 @@ public class AppAiLeaderController {
         response.setSessionId(session.getSessionId());
         response.setModel("");
         response.setRagStrategy(stringValue(result.get("strategy")));
-        response.setAgentName(LEADER_AGENT);
+        response.setAgentName(firstNonBlank(
+                stringValue(metadata.get("executedAgent")),
+                stringValue(metadata.get("targetAgent")),
+                LEADER_AGENT
+        ));
         response.setSearchKeyword("");
-        response.setMatchedResults(List.of());
+        response.setMatchedResults(traceAsMaps(result.get("documents")));
         response.setRetrievalMeta(metadata);
         response.setTrace(traceAsMaps(result.get("trace")));
         response.setAnswer(stringValue(result.get("answer")));
@@ -221,5 +225,14 @@ public class AppAiLeaderController {
 
     private String stringValue(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value;
+            }
+        }
+        return "";
     }
 }

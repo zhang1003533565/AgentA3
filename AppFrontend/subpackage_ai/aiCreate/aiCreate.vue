@@ -200,8 +200,18 @@ const goToImageGenerate = () => {
   })
 }
 
+const goToAiConversation = () => {
+  uni.navigateTo({
+    url: '/subpackage_ai/aiConversation/aiConversation'
+  })
+}
+
 const handleToolTap = (tool) => {
   const name = tool?.name || ''
+  if (name.includes('AI对话')) {
+    goToAiConversation()
+    return
+  }
   if (name.includes('AI玩图') || name.includes('文生图')) {
     goToImageGenerate()
   }

@@ -37,10 +37,19 @@ export function getImageTask(taskId) {
 }
 
 export function queryLeaderAgent(data) {
+  const payload = {
+    ...(data || {}),
+    agentName: 'leader_agent',
+    metadata: {
+      source: 'app_ai_conversation',
+      ...((data && data.metadata) || {})
+    }
+  }
   return request({
     url: '/api/ai/leader/query',
     method: 'POST',
-    data
+    data: payload,
+    timeout: 120000
   })
 }
 

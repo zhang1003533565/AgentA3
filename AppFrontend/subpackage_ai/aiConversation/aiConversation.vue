@@ -21,6 +21,9 @@
       >
         <view class="message-bubble" :class="message.role === 'user' ? 'message-bubble--user' : 'message-bubble--assistant'">
           <text class="message-text">{{ message.content }}</text>
+          <view v-if="message.role === 'assistant' && message.routeLabel" class="message-meta">
+            <text>{{ message.routeLabel }}</text>
+          </view>
         </view>
       </view>
       <view id="message-anchor"></view>
@@ -77,7 +80,8 @@ export default {
         const data = res?.data || {}
         this.messages = (data.messages || []).map((item) => ({
           ...item,
-          localId: `${item.role}-${item.id}`
+          localId: `${item.role}-${item.id}`,
+          routeLabel: this.buildRouteLabel(item)
         }))
         this.scrollToBottom()
       } catch (error) {
@@ -111,7 +115,8 @@ export default {
         this.appendMessage({
           role: 'assistant',
           content: payload.answer || 'Leader 这次没有返回可用答案，请换一种问法再试。',
-          answerType: payload.answerType || 'text'
+          answerType: payload.answerType || 'text',
+          routeLabel: this.buildRouteLabel(payload)
         })
       } catch (error) {
         this.appendMessage({
@@ -129,6 +134,25 @@ export default {
           this.scrollAnchor = 'message-anchor'
         })
       })
+    },
+    buildRouteLabel(payload = {}) {
+      const meta = payload.retrievalMeta || payload.metadata || {}
+      const executedAgent = meta.executedAgent || meta.targetAgent || payload.agentName
+      const strategy = payload.ragStrategy || meta.plannedRagStrategy || meta.strategyLabel || ''
+      const mode = meta.executionModeLabel || ''
+      const parts = []
+      if (executedAgent && executedAgent !== 'leader_agent') {
+        parts.push(`执行：${executedAgent}`)
+      } else {
+        parts.push('执行：leader_agent')
+      }
+      if (strategy && !['leader_direct_answer', 'direct_agent'].includes(strategy)) {
+        parts.push(`策略：${strategy}`)
+      }
+      if (mode) {
+        parts.push(mode)
+      }
+      return parts.join(' · ')
     }
   }
 }
@@ -211,6 +235,15 @@ export default {
   line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.message-meta {
+  margin-top: 14rpx;
+  padding-top: 12rpx;
+  border-top: 1rpx solid rgba(148, 163, 184, 0.18);
+  font-size: 22rpx;
+  line-height: 1.5;
+  color: #7B8794;
 }
 
 .composer {
