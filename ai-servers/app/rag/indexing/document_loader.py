@@ -2,8 +2,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List
 
-from app.rag.indexing.multimodal_parser import MultimodalParser
-
 
 @dataclass
 class LoadedDocument:
@@ -14,24 +12,12 @@ class LoadedDocument:
 
 class DocumentLoader:
     SUPPORTED_SUFFIXES = {
-        ".md",
-        ".markdown",
+        ".docx",
         ".txt",
-        ".csv",
-        ".tsv",
-        ".json",
-        ".html",
-        ".htm",
-        ".pdf",
-        ".png",
-        ".jpg",
-        ".jpeg",
-        ".webp",
-        ".gif",
     }
 
     def __init__(self) -> None:
-        self.multimodal_parser = MultimodalParser()
+        pass
 
     def load(self, source: str) -> Iterable[LoadedDocument]:
         path = Path(source)
@@ -52,22 +38,8 @@ class DocumentLoader:
         return documents
 
     def _load_file(self, path: Path) -> LoadedDocument:
-        if path.suffix.lower() in {
-            ".csv",
-            ".tsv",
-            ".json",
-            ".html",
-            ".htm",
-            ".md",
-            ".markdown",
-            ".pdf",
-            ".png",
-            ".jpg",
-            ".jpeg",
-            ".webp",
-            ".gif",
-        }:
-            content = self.multimodal_parser.parse(str(path)).get("text", "")
+        if path.suffix.lower() == ".docx":
+            content = self._load_docx(path)
         else:
             content = path.read_text(encoding="utf-8", errors="ignore")
         return LoadedDocument(
@@ -75,3 +47,19 @@ class DocumentLoader:
             content=content,
             source=str(path),
         )
+
+    def _load_docx(self, path: Path) -> str:
+        from docx import Document
+
+        document = Document(str(path))
+        blocks: List[str] = []
+        for paragraph in document.paragraphs:
+            text = paragraph.text.strip()
+            if text:
+                blocks.append(text)
+        for table in document.tables:
+            for row in table.rows:
+                cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                if cells:
+                    blocks.append("\t".join(cells))
+        return "\n".join(blocks)

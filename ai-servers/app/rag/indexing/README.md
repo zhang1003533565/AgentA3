@@ -5,7 +5,7 @@
 当前入库入口是 `app.rag.pipelines.ingestion.RagIngestionPipeline`：
 
 - 将 API 提交的文档保存到 `knowledge_base/raw/api_ingest/`。
-- 使用 `DocumentLoader` 和 `MultimodalParser` 解析 Markdown、TXT、CSV、JSON、HTML。
+- 使用 `DocumentLoader` 解析 DOCX 和 TXT。
 - 使用 `SemanticChunker` 生成普通 chunks，使用 `ParentChildChunker` 生成父子 chunks。
 - 使用 `EmbeddingWriter` 写入当前 `RAG_VECTOR_STORE_BACKEND`，默认是 Docker Milvus。
 

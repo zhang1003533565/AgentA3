@@ -157,8 +157,7 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
 
 - `/internal/rag/query` 默认走 Leader 编排；只有路由到检索型智能体时才进入 `app.rag.engine.rag_engine`，未知 RAG 策略会回退到 `naive_rag`。
 - 策略只返回证据时，会由 `local_context_synthesizer` 生成一段带来源的本地答案，方便无 LLM 环境也能调通链路。
-- 本地文档 RAG 默认读取 `ai-servers/knowledge_base/raw` 下的 `.md`、`.markdown`、`.txt`、`.csv`、`.json`、`.html`、`.htm`、`.pdf` 和图片文件。
-- PDF 正文抽取会优先使用可选依赖 `pypdf`；未安装时仍会保留文件元数据，不会阻塞入库。
+- 本地文档 RAG 当前仅支持读取 `ai-servers/knowledge_base/raw` 下的 `.docx` 和 `.txt` 文件。
 - 默认向量库为 Docker Milvus；`local_jsonl` 仅保留显式指定时的兼容能力，不再作为知识库默认方案。
 
 ## Build Knowledge Base With Docker Milvus
@@ -169,7 +168,7 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
 docker compose up -d
 ```
 
-把 Markdown、TXT、CSV、JSON、HTML、PDF 或图片文件放入 `ai-servers/knowledge_base/raw`，然后执行：
+把 DOCX 或 TXT 文件放入 `ai-servers/knowledge_base/raw`，然后执行：
 
 ```bash
 python3 scripts/build_knowledge_base.py --backend milvus

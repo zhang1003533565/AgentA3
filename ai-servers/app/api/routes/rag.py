@@ -32,7 +32,7 @@ from app.rag.evaluators import RagEvaluationInput, RagEvaluator
 from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx
 from app.rag.graph_stores import build_graph_store
 from app.rag.indexing.document_loader import DocumentLoader
-from app.rag.pipelines import IngestInputDocument, RagIngestionPipeline
+from app.rag.pipelines import IngestInputDocument, RagIngestionError, RagIngestionPipeline
 from app.rag.structured.text_to_sql import TextToSqlService
 from app.rag.vector_stores import DEFAULT_VECTOR_STORE_BACKEND, build_vector_store, get_vector_store_backend
 from app.utils.logger import get_logger
@@ -857,15 +857,18 @@ def ingest_rag_documents(
 ) -> RagDocumentIngestResponse:
     _require_authorization(authorization)
     pipeline = RagIngestionPipeline(root_dir=str(_knowledge_base_root()))
-    result = pipeline.run([
-        IngestInputDocument(
-            content=item.content,
-            content_base64=item.contentBase64,
-            source=item.source,
-            metadata=item.metadata,
-        )
-        for item in request.documents
-    ])
+    try:
+        result = pipeline.run([
+            IngestInputDocument(
+                content=item.content,
+                content_base64=item.contentBase64,
+                source=item.source,
+                metadata=item.metadata,
+            )
+            for item in request.documents
+        ])
+    except RagIngestionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     logger.info(
         "rag documents ingested count=%s chunks=%s",

@@ -4,8 +4,8 @@
 
 ## 1. 离线索引
 
-1. 准备资料：把 Markdown、TXT、CSV、TSV、JSON、HTML、PDF、图片放入 `ai-servers/knowledge_base/raw`。
-2. 文档解析：`DocumentLoader` 和 `MultimodalParser` 读取文本、表格、PDF 和图片元数据。
+1. 准备资料：把 DOCX 或 TXT 放入 `ai-servers/knowledge_base/raw`。
+2. 文档解析：`DocumentLoader` 读取 DOCX 和 TXT 文本。
 3. 文本切分：普通索引用 `SemanticChunker`，Parent-Child 索引用 `ParentChildChunker`。
 4. 向量写入：默认 `RAG_VECTOR_STORE_BACKEND=milvus`，写入 Docker Milvus。
 5. 索引产物：

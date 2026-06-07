@@ -44,6 +44,7 @@ const recallStrategyOptions = [
   { value: 'multi_query_rag', label: '多查询 multi_query_rag' },
 ]
 
+const isSupportedKnowledgeFile = (file) => /\.(docx|txt)$/i.test(file?.name || file?.originFileObj?.name || '')
 const isPptxFile = (file) => /\.pptx$/i.test(file?.name || file?.originFileObj?.name || '')
 const isPdfFile = (file) => /\.pdf$/i.test(file?.name || file?.originFileObj?.name || '')
 
@@ -104,14 +105,23 @@ function KnowledgeBaseManage() {
     try {
       const selectedFile = uploadFileList[0]?.originFileObj || uploadFileList[0]
       const textContent = values.content || ''
+      const sourceName = values.source || selectedFile?.name || '后台录入.txt'
       if (!selectedFile && !textContent.trim()) {
         message.warning('请粘贴文档内容，或选择一个本地文件')
+        return
+      }
+      if (selectedFile && !isSupportedKnowledgeFile(selectedFile)) {
+        message.warning('知识库暂时只支持上传 DOCX 或 TXT 文件')
+        return
+      }
+      if (!selectedFile && sourceName && !isSupportedKnowledgeFile({ name: sourceName })) {
+        message.warning('来源文件名请使用 .txt 或 .docx 后缀')
         return
       }
       const contentBase64 = selectedFile ? await readFileAsBase64(selectedFile) : undefined
       const res = await ingestRagDocuments({
         documents: [{
-          source: values.source || selectedFile?.name || '后台录入.md',
+          source: sourceName,
           content: textContent,
           contentBase64,
           metadata: {
@@ -245,11 +255,16 @@ function KnowledgeBaseManage() {
             <Card title="新增知识文档" className="rag-panel-card">
               <Form form={ingestForm} layout="vertical" onFinish={handleIngest}>
                 <Form.Item name="source" label="来源文件名">
-                  <Input placeholder="例如：校园卡服务.md" />
+                  <Input placeholder="例如：校园卡服务.docx" />
                 </Form.Item>
                 <Form.Item label="本地文件">
                   <Upload
+                    accept=".docx,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                     beforeUpload={(file) => {
+                      if (!isSupportedKnowledgeFile(file)) {
+                        message.warning('知识库暂时只支持上传 DOCX 或 TXT 文件')
+                        return Upload.LIST_IGNORE
+                      }
                       setUploadFileList([file])
                       ingestForm.setFieldsValue({ source: file.name })
                       return false
@@ -263,10 +278,10 @@ function KnowledgeBaseManage() {
                   >
                     <Button icon={<UploadOutlined />}>选择文件</Button>
                   </Upload>
-                  <Text type="secondary">支持 Markdown、TXT、CSV、TSV、JSON、HTML、PDF 和图片；文件会解析、切分并写入 Docker Milvus 向量库。</Text>
+                  <Text type="secondary">暂时仅支持 DOCX、TXT；文件会解析、切分并写入 Docker Milvus 向量库。</Text>
                 </Form.Item>
                 <Form.Item name="content" label="文档内容">
-                  <TextArea rows={10} placeholder="粘贴 Markdown、文本、表格摘要等知识内容" />
+                  <TextArea rows={10} placeholder="粘贴 TXT 文本内容，或选择 DOCX / TXT 文件" />
                 </Form.Item>
                 <Button type="primary" htmlType="submit" icon={<FileTextOutlined />} loading={actionLoading} block>
                   入库并索引

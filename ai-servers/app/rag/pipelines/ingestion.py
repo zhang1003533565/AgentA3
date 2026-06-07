@@ -22,6 +22,12 @@ from app.rag.indexing.embedding_writer import EmbeddingWriter
 from app.rag.vector_stores import DEFAULT_VECTOR_STORE_BACKEND
 
 
+class RagIngestionError(Exception):
+    def __init__(self, message: str, status_code: int = 400) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
 @dataclass
 class IngestInputDocument:
     content: str = ""
@@ -154,10 +160,11 @@ class RagIngestionPipeline:
 
     def _build_filename(self, source: Optional[str], content: bytes) -> str:
         digest = hashlib.sha256(content).hexdigest()[:12]
-        source_name = Path(source or "document.md").name
-        suffix = Path(source_name).suffix.lower() or ".md"
+        source_name = Path(source or "document.txt").name
+        suffix = Path(source_name).suffix.lower() or ".txt"
         if suffix not in DocumentLoader.SUPPORTED_SUFFIXES:
-            suffix = ".md"
+            supported = ", ".join(sorted(DocumentLoader.SUPPORTED_SUFFIXES))
+            raise RagIngestionError(f"知识库暂时只支持上传 {supported} 文件")
         stem = Path(source_name).stem or "document"
         safe_stem = re.sub(r"[^a-zA-Z0-9_\-\u4e00-\u9fff]+", "-", stem).strip("-") or "document"
         return f"{safe_stem}-{digest}{suffix}"
@@ -169,18 +176,8 @@ class RagIngestionPipeline:
 
     def _infer_modality(self, path: Path) -> str:
         suffix = path.suffix.lower()
-        if suffix in {".csv", ".tsv"}:
-            return "table"
-        if suffix == ".json":
-            return "structured_json"
-        if suffix in {".html", ".htm"}:
-            return "html"
-        if suffix in {".md", ".markdown"}:
-            return "markdown"
-        if suffix == ".pdf":
-            return "pdf"
-        if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
-            return "image"
+        if suffix == ".docx":
+            return "docx"
         return "text"
 
     def _build_parent_child_documents(
