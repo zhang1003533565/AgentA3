@@ -46,17 +46,17 @@ def convert_ppt_to_docx(ppt_bytes: bytes, original_filename: str) -> Dict[str, A
         for shape in shapes:
             if _is_title_shape(shape, title):
                 continue
-            if getattr(shape, "has_table", False):
+            if _has_table(shape):
                 if _append_table(document, shape):
                     wrote_content = True
                 continue
-            if getattr(shape, "shape_type", None) == MSO_SHAPE_TYPE.PICTURE:
+            if _shape_type(shape) == MSO_SHAPE_TYPE.PICTURE:
                 asset = _append_picture(document, shape, slide_index, len(image_assets) + 1, Inches)
                 if asset:
                     image_assets.append(asset)
                     wrote_content = True
                 continue
-            if getattr(shape, "has_text_frame", False):
+            if _has_text_frame(shape):
                 wrote_content = _append_text_frame(document, shape) or wrote_content
 
         if not wrote_content:
@@ -109,6 +109,27 @@ def _is_title_shape(shape: Any, title: str) -> bool:
     return _normalize_text(_shape_text(shape)) == _normalize_text(title)
 
 
+def _shape_type(shape: Any) -> Any:
+    try:
+        return getattr(shape, "shape_type", None)
+    except NotImplementedError:
+        return None
+
+
+def _has_table(shape: Any) -> bool:
+    try:
+        return bool(getattr(shape, "has_table", False))
+    except NotImplementedError:
+        return False
+
+
+def _has_text_frame(shape: Any) -> bool:
+    try:
+        return bool(getattr(shape, "has_text_frame", False))
+    except NotImplementedError:
+        return False
+
+
 def _append_text_frame(document: Any, shape: Any) -> bool:
     wrote = False
     for paragraph in shape.text_frame.paragraphs:
@@ -157,9 +178,12 @@ def _append_picture(document: Any, shape: Any, slide_index: int, image_index: in
 
 
 def _shape_text(shape: Any) -> str:
-    if not getattr(shape, "has_text_frame", False):
+    if not _has_text_frame(shape):
         return ""
-    return _normalize_text(getattr(shape, "text", "") or "")
+    try:
+        return _normalize_text(getattr(shape, "text", "") or "")
+    except NotImplementedError:
+        return ""
 
 
 def _normalize_text(text: str) -> str:

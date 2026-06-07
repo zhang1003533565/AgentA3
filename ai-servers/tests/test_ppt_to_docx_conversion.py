@@ -66,6 +66,16 @@ class PptToDocxConversionTest(unittest.TestCase):
         table_text = "\n".join(cell.text for table in document.tables for row in table.rows for cell in row.cells)
         self.assertIn("LIFO", table_text)
 
+    def test_shape_type_helper_ignores_unrecognized_shapes(self):
+        from app.rag.document_conversion.ppt_converter import _shape_type
+
+        class UnrecognizedShape:
+            @property
+            def shape_type(self):
+                raise NotImplementedError("Shape instance of unrecognized shape type")
+
+        self.assertIsNone(_shape_type(UnrecognizedShape()))
+
 
 def _tiny_png_bytes() -> bytes:
     return base64.b64decode(
