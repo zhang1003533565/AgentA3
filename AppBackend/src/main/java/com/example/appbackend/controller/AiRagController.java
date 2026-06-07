@@ -103,7 +103,7 @@ public class AiRagController {
     }
 
     @PostMapping(value = "/ppt/convert", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @Operation(summary = "PPTX 转换为 DOCX")
+    @Operation(summary = "PPT/PPTX 转换为 DOCX")
     public Result<Object> convertPpt(
             @RequestParam("file") MultipartFile file,
             HttpServletRequest request) {

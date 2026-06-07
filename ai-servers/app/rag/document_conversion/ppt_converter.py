@@ -1,6 +1,9 @@
 import base64
 import io
 import re
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
@@ -13,11 +16,10 @@ class PptConversionError(RuntimeError):
 
 def convert_ppt_to_docx(ppt_bytes: bytes, original_filename: str) -> Dict[str, Any]:
     if not ppt_bytes:
-        raise PptConversionError("PPTX 文件不能为空", 400)
-    if not (original_filename or "").lower().endswith(".pptx"):
-        raise PptConversionError("当前仅支持 .pptx 文件；.ppt 请先另存为 .pptx 后再上传", 400)
-    if not ppt_bytes[:4] == b"PK\x03\x04":
-        raise PptConversionError("上传文件不是有效的 PPTX", 400)
+        raise PptConversionError("PPT/PPTX 文件不能为空", 400)
+    lower_filename = (original_filename or "").lower()
+    if not lower_filename.endswith((".ppt", ".pptx")):
+        raise PptConversionError("当前仅支持 .ppt 或 .pptx 文件", 400)
 
     try:
         from docx import Document
@@ -28,10 +30,18 @@ def convert_ppt_to_docx(ppt_bytes: bytes, original_filename: str) -> Dict[str, A
         raise PptConversionError("PPTX 转 DOCX 依赖未安装，请安装 python-pptx 和 python-docx", 500) from exc
 
     base_name = _safe_stem(original_filename)
+    conversion_mode = "pptx_to_docx_reflow"
+    presentation_bytes = ppt_bytes
+    if lower_filename.endswith(".ppt"):
+        presentation_bytes = _convert_legacy_ppt_to_pptx(ppt_bytes, base_name)
+        conversion_mode = "ppt_to_docx_reflow"
+    elif not ppt_bytes[:4] == b"PK\x03\x04":
+        raise PptConversionError("上传文件不是有效的 PPTX", 400)
+
     try:
-        presentation = Presentation(io.BytesIO(ppt_bytes))
+        presentation = Presentation(io.BytesIO(presentation_bytes))
     except Exception as exc:
-        raise PptConversionError(f"PPTX 解析失败：{exc}", 400) from exc
+        raise PptConversionError(f"PPT/PPTX 解析失败：{exc}", 400) from exc
 
     document = Document()
     document.add_heading(base_name, level=0)
@@ -78,8 +88,57 @@ def convert_ppt_to_docx(ppt_bytes: bytes, original_filename: str) -> Dict[str, A
         "assets": image_assets,
         "imageCount": len(image_assets),
         "slideCount": len(presentation.slides),
-        "conversionMode": "pptx_to_docx_reflow",
+        "conversionMode": conversion_mode,
     }
+
+
+def _convert_legacy_ppt_to_pptx(ppt_bytes: bytes, base_name: str) -> bytes:
+    soffice = _find_soffice()
+    if not soffice:
+        raise PptConversionError("当前环境未安装 LibreOffice，无法转换 .ppt；请安装 LibreOffice/soffice 后重试", 500)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        source_path = temp_path / f"{base_name}.ppt"
+        output_path = temp_path / f"{base_name}.pptx"
+        source_path.write_bytes(ppt_bytes)
+        try:
+            result = subprocess.run(
+                [
+                    soffice,
+                    "--headless",
+                    "--convert-to",
+                    "pptx",
+                    "--outdir",
+                    str(temp_path),
+                    str(source_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=90,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise PptConversionError(".ppt 转 .pptx 超时，请检查文件大小或 LibreOffice 环境", 500) from exc
+        except Exception as exc:
+            raise PptConversionError(f".ppt 转 .pptx 失败：{exc}", 500) from exc
+
+        if result.returncode != 0 or not output_path.exists() or output_path.stat().st_size == 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            suffix = f"：{detail}" if detail else ""
+            raise PptConversionError(f".ppt 转 .pptx 失败{suffix}", 500)
+        return output_path.read_bytes()
+
+
+def _find_soffice() -> str:
+    for command in ("soffice", "libreoffice"):
+        path = shutil.which(command)
+        if path:
+            return path
+    macos_path = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
+    if Path(macos_path).exists():
+        return macos_path
+    return ""
 
 
 def _iter_shapes(shapes: Iterable[Any]) -> Iterable[Any]:
@@ -194,4 +253,3 @@ def _image_mime_type(ext: str) -> str:
         "tif": "image/tiff",
         "tiff": "image/tiff",
     }.get(ext, f"image/{ext}")
-

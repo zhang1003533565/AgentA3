@@ -8,6 +8,7 @@ from app.multi_agents.catalog import get_agent_catalog, normalize_agent_name
 from app.multi_agents.leader_agent.agent import leader_agent
 from app.multi_agents.ppt_to_docx_agent.agent import ppt_to_docx_agent
 from app.rag.document_conversion import convert_ppt_to_docx
+from app.rag.document_conversion.ppt_converter import PptConversionError
 
 
 PPTX_AVAILABLE = importlib.util.find_spec("pptx") is not None
@@ -26,7 +27,9 @@ class PptToDocxAgentTest(unittest.TestCase):
     def test_agent_process_returns_json_usage_contract(self):
         payload = json.loads(ppt_to_docx_agent.process("转换这份 PPTX", []))
         self.assertEqual("ppt_to_docx_agent", payload["agent"])
-        self.assertEqual("pptx_to_docx", payload["task"])
+        self.assertEqual("ppt_to_docx", payload["task"])
+        self.assertIn(".ppt", payload["supportedInput"])
+        self.assertIn(".pptx", payload["supportedInput"])
         self.assertEqual(".docx", payload["output"])
 
 
@@ -64,6 +67,11 @@ class PptToDocxConversionTest(unittest.TestCase):
         self.assertIn("栈是后进先出", text)
         table_text = "\n".join(cell.text for table in document.tables for row in table.rows for cell in row.cells)
         self.assertIn("LIFO", table_text)
+
+    def test_convert_legacy_ppt_requires_libreoffice(self):
+        with self.assertRaises(PptConversionError) as ctx:
+            convert_ppt_to_docx(b"legacy ppt bytes", "course.ppt")
+        self.assertIn("LibreOffice", str(ctx.exception))
 
 
 def _tiny_png_bytes() -> bytes:

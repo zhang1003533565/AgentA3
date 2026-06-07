@@ -29,7 +29,7 @@ const documentColumns = [
   },
 ]
 
-const isPptxFile = (file) => /\.pptx$/i.test(file?.name || file?.originFileObj?.name || '')
+const isPresentationFile = (file) => /\.pptx?$/i.test(file?.name || file?.originFileObj?.name || '')
 const isPdfFile = (file) => /\.pdf$/i.test(file?.name || file?.originFileObj?.name || '')
 
 const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
@@ -115,13 +115,13 @@ function KnowledgeBaseManage() {
   const handleDocumentConvert = async () => {
     const selectedFile = convertFileList[0]?.originFileObj || convertFileList[0]
     if (!selectedFile) {
-      message.warning('请先选择一个 PDF 或 PPTX 文件')
+      message.warning('请先选择一个 PDF、PPT 或 PPTX 文件')
       return
     }
-    const isPptx = isPptxFile(selectedFile)
+    const isPresentation = isPresentationFile(selectedFile)
     const isPdf = isPdfFile(selectedFile)
-    if (!isPptx && !isPdf) {
-      message.warning('请选择 PDF 或 PPTX 文件')
+    if (!isPresentation && !isPdf) {
+      message.warning('请选择 PDF、PPT 或 PPTX 文件')
       return
     }
     setConvertLoading(true)
@@ -129,12 +129,12 @@ function KnowledgeBaseManage() {
     try {
       const formData = new FormData()
       formData.append('file', selectedFile)
-      if (!isPptx) {
+      if (!isPresentation) {
         formData.append('targetFormat', 'docx')
       }
-      const res = isPptx ? await convertPpt(formData) : await convertPdf(formData)
+      const res = isPresentation ? await convertPpt(formData) : await convertPdf(formData)
       setConvertResult(res.data)
-      message.success(isPptx ? 'PPTX 转 DOCX 完成' : 'PDF 转 DOCX 完成')
+      message.success(isPresentation ? 'PPT 转 DOCX 完成' : 'PDF 转 DOCX 完成')
     } catch (error) {
       message.error(error.message || '文档转换失败')
     } finally {
@@ -256,15 +256,15 @@ function KnowledgeBaseManage() {
                   className="rag-inline-alert"
                   type="info"
                   showIcon
-                  message="支持 PDF 转 DOCX、PPTX 转 DOCX；PDF 仅处理原生可提取文字，PPTX 会按幻灯片顺序重排内容并保留图片。"
+                  message="支持 PDF 转 DOCX、PPT/PPTX 转 DOCX；PDF 仅处理原生可提取文字，PPT 会按幻灯片顺序重排内容并保留图片。"
                 />
                 <Form.Item label="文件" required>
                   <Upload
-                    accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,.pptx"
+                    accept="application/pdf,.pdf,application/vnd.ms-powerpoint,.ppt,application/vnd.openxmlformats-officedocument.presentationml.presentation,.pptx"
                     beforeUpload={(file) => {
                       const lowerName = file.name.toLowerCase()
-                      if (!lowerName.endsWith('.pdf') && !lowerName.endsWith('.pptx')) {
-                        message.warning('请选择 PDF 或 PPTX 文件')
+                      if (!lowerName.endsWith('.pdf') && !lowerName.endsWith('.ppt') && !lowerName.endsWith('.pptx')) {
+                        message.warning('请选择 PDF、PPT 或 PPTX 文件')
                         return Upload.LIST_IGNORE
                       }
                       setConvertFileList([file])
@@ -281,7 +281,7 @@ function KnowledgeBaseManage() {
                   >
                     <Button icon={<UploadOutlined />}>选择文件</Button>
                   </Upload>
-                  <Text type="secondary">支持 .pdf 和 .pptx，输出统一为可下载的 DOCX。</Text>
+                  <Text type="secondary">支持 .pdf、.ppt 和 .pptx，输出统一为可下载的 DOCX；.ppt 需要后端 LibreOffice 支持。</Text>
                 </Form.Item>
                 <Button type="primary" htmlType="submit" icon={<FileTextOutlined />} loading={convertLoading} block>
                   转换为 DOCX
@@ -310,7 +310,7 @@ function KnowledgeBaseManage() {
                   <Alert type="success" showIcon message="DOCX 已生成，点击上方按钮下载。" />
                 </Space>
               ) : (
-                <Empty description="上传 PDF 或 PPTX 后，DOCX 转换结果会显示在这里" />
+                <Empty description="上传 PDF、PPT 或 PPTX 后，DOCX 转换结果会显示在这里" />
               )}
             </Card>
           </Col>
