@@ -53,6 +53,14 @@ class PptConvertRequest(BaseModel):
     contentBase64: str = Field(min_length=1)
 
 
+class RagRecallTestRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=4000)
+    keyword: Optional[str] = Field(default=None, max_length=128)
+    intent: str = Field(default="campus_search", max_length=64)
+    ragStrategy: Optional[str] = Field(default="hybrid_search", max_length=64)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class AgentExampleInputUpdateRequest(BaseModel):
     input: str = Field(min_length=1, max_length=12000)
 
@@ -219,6 +227,7 @@ def get_rag_framework(
         ],
         "embeddingProviders": [
             {"name": "local_lexical", "status": "implemented", "requiredConfig": []},
+            {"name": "qwen", "status": "disabled", "requiredConfig": [], "defaultModel": "text-embedding-v4", "providerAlias": "dashscope", "configSource": "request_required"},
             {"name": "openai", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
             {"name": "dashscope", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
             {"name": "bge", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
@@ -397,6 +406,57 @@ async def run_rag_query_stream(
             reset_active_llm_config(token)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/recall-test", response_model=RagQueryResponse)
+def run_recall_test(
+    request: RagRecallTestRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> RagQueryResponse:
+    _require_authorization(authorization)
+    requested_strategy = request.ragStrategy or "hybrid_search"
+    try:
+        result = rag_engine.run(RagQuery(
+            text=request.query,
+            keyword=request.keyword or "",
+            intent=request.intent,
+            metadata=request.metadata,
+        ), strategy_name=requested_strategy)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    metadata = dict(result.metadata)
+    metadata.update({
+        "needRetrieval": True,
+        "retrievalSkipped": False,
+        "strategyLabel": _strategy_label(result.strategy),
+        "executionMode": "recall_test",
+        "executionModeLabel": "仅召回测试",
+        "answerType": "retrieval_only",
+        "query": request.query,
+        "keyword": request.keyword or "",
+        "documentCount": len(result.documents),
+    })
+    return RagQueryResponse(
+        strategy=result.strategy,
+        answer="",
+        answerType="retrieval_only",
+        documents=[
+            RagDocumentResponse(
+                id=document.id,
+                content=document.content,
+                source=document.source,
+                score=document.score,
+                metadata=document.metadata,
+            )
+            for document in result.documents
+        ],
+        trace=[
+            RagTraceResponse(stage=step.stage, detail=step.detail)
+            for step in result.trace
+        ],
+        metadata=metadata,
+    )
 
 
 def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQueryResponse:

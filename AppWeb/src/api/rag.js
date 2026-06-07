@@ -22,6 +22,10 @@ export const runRagQuery = (data) => request.post(`${base}/query`, data, {
   timeout: 120000,
 })
 
+export const runRagRecallTest = (data) => request.post(`${base}/recall-test`, data, {
+  timeout: 120000,
+})
+
 export const ingestRagDocuments = (data) => request.post(`${base}/documents`, data)
 
 export const convertPdf = (data) => request.post(`${base}/pdf/convert`, data, {

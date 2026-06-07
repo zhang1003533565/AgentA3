@@ -57,6 +57,7 @@ const DEFAULT_MAP_ZOOM = 16
 const AI_MODALITIES = [
   { key: 'text', label: '语言模型' },
   { key: 'vision', label: '视觉/视频理解' },
+  { key: 'embedding', label: '向量模型' },
   { key: 'image', label: '图片生成/编辑' },
   { key: 'video', label: '视频生成/编辑' },
   { key: 'audio', label: '语音/音频' },

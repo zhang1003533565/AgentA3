@@ -87,6 +87,12 @@ public class AiRagController {
         return Result.success(pythonAiProxyService.queryRag(body, adminAuthorization(request)));
     }
 
+    @PostMapping("/recall-test")
+    @Operation(summary = "执行 RAG 召回测试")
+    public Result<Object> recallTest(@RequestBody Map<String, Object> body, HttpServletRequest request) {
+        return Result.success(pythonAiProxyService.recallTestRag(body, adminAuthorization(request)));
+    }
+
     @PostMapping("/documents")
     @Operation(summary = "写入 RAG 知识库")
     public Result<Object> ingestDocuments(@RequestBody Map<String, Object> body, HttpServletRequest request) {

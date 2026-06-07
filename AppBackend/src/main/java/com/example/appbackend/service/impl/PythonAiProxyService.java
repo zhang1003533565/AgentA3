@@ -124,6 +124,14 @@ public class PythonAiProxyService {
         return postRagObject("/internal/rag/query", sanitized, authorization, requestedModel);
     }
 
+    public Object recallTestRag(Map<String, Object> request, String authorization) {
+        validateAuthorization(authorization);
+        Map<String, Object> sanitized = request == null ? Map.of() : new HashMap<>(request);
+        sanitized.remove("llmModel");
+        sanitized.remove("agentName");
+        return postRagObject("/internal/rag/recall-test", sanitized, authorization);
+    }
+
     public SseEmitter streamRag(Map<String, Object> request, String authorization) {
         return streamRag(request, authorization, null);
     }

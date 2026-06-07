@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Col, Empty, Form, Input, Row, Space, Statistic, Table, Tag, Typography, Upload, message } from 'antd'
+import { Alert, Button, Card, Col, Collapse, Empty, Form, Input, Row, Select, Space, Statistic, Table, Tag, Typography, Upload, message } from 'antd'
 import { ApiOutlined, BranchesOutlined, DatabaseOutlined, DownloadOutlined, FileTextOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons'
 import {
   convertPdf,
@@ -9,6 +9,7 @@ import {
   getRagGraphStoreHealth,
   getRagVectorStoreHealth,
   ingestRagDocuments,
+  runRagRecallTest,
 } from '../../../api/rag'
 import '../RagManage/RagManage.css'
 import './KnowledgeBaseManage.css'
@@ -27,6 +28,20 @@ const documentColumns = [
     width: 180,
     render: (value) => (value ? new Date(Number(value) * 1000).toLocaleString() : '-'),
   },
+]
+
+const recallColumns = [
+  { title: '来源', dataIndex: 'source', width: 220, ellipsis: true },
+  { title: '分数', dataIndex: 'score', width: 110, render: (value) => (value === null || value === undefined ? '-' : Number(value).toFixed(4)) },
+  { title: '内容', dataIndex: 'content', ellipsis: true },
+]
+
+const recallStrategyOptions = [
+  { value: 'hybrid_search', label: '混合检索 hybrid_search' },
+  { value: 'parent_child', label: '父子切片 parent_child' },
+  { value: 'reranking', label: '重排序 reranking' },
+  { value: 'naive_rag', label: '基础检索 naive_rag' },
+  { value: 'multi_query_rag', label: '多查询 multi_query_rag' },
 ]
 
 const isPptxFile = (file) => /\.pptx$/i.test(file?.name || file?.originFileObj?.name || '')
@@ -51,8 +66,12 @@ function KnowledgeBaseManage() {
   const [convertFileList, setConvertFileList] = useState([])
   const [convertResult, setConvertResult] = useState(null)
   const [convertLoading, setConvertLoading] = useState(false)
+  const [recallLoading, setRecallLoading] = useState(false)
+  const [recallResult, setRecallResult] = useState(null)
+  const [recallError, setRecallError] = useState('')
   const [ingestForm] = Form.useForm()
   const [convertForm] = Form.useForm()
+  const [recallForm] = Form.useForm()
 
   const refresh = async () => {
     setBootLoading(true)
@@ -139,6 +158,29 @@ function KnowledgeBaseManage() {
       message.error(error.message || '文档转换失败')
     } finally {
       setConvertLoading(false)
+    }
+  }
+
+  const handleRecallTest = async (values) => {
+    setRecallLoading(true)
+    setRecallError('')
+    setRecallResult(null)
+    try {
+      const res = await runRagRecallTest({
+        query: values.query,
+        keyword: values.keyword || undefined,
+        intent: values.intent || 'campus_search',
+        ragStrategy: values.ragStrategy || 'hybrid_search',
+        metadata: {},
+      })
+      setRecallResult(res.data)
+      message.success(`召回完成，命中 ${(res.data?.documents || []).length} 条`)
+    } catch (error) {
+      const errorMessage = error.message || '召回测试失败'
+      setRecallError(errorMessage)
+      message.error(errorMessage)
+    } finally {
+      setRecallLoading(false)
     }
   }
 
@@ -240,6 +282,74 @@ function KnowledgeBaseManage() {
                 dataSource={documents}
                 pagination={{ pageSize: 8 }}
               />
+            </Card>
+          </Col>
+        </Row>
+
+        <Row gutter={[20, 20]}>
+          <Col xs={24} lg={9}>
+            <Card title="召回测试" className="rag-panel-card">
+              <Form
+                form={recallForm}
+                layout="vertical"
+                initialValues={{ ragStrategy: 'hybrid_search', intent: 'campus_search' }}
+                onFinish={handleRecallTest}
+              >
+                <Alert
+                  className="rag-inline-alert"
+                  type="info"
+                  showIcon
+                  message="只测试知识库召回，不调用模型生成回答。"
+                />
+                <Form.Item name="query" label="测试问题" rules={[{ required: true, message: '请输入要测试召回的问题' }]}>
+                  <TextArea rows={4} placeholder="例如：深度学习中的反向传播是什么？" />
+                </Form.Item>
+                <Form.Item name="keyword" label="关键词">
+                  <Input placeholder="可选；用于增强关键词召回" />
+                </Form.Item>
+                <Form.Item name="ragStrategy" label="召回策略">
+                  <Select options={recallStrategyOptions} />
+                </Form.Item>
+                <Form.Item name="intent" label="意图标识">
+                  <Input placeholder="campus_search" />
+                </Form.Item>
+                <Button type="primary" htmlType="submit" icon={<ReloadOutlined />} loading={recallLoading} block>
+                  开始召回测试
+                </Button>
+              </Form>
+            </Card>
+          </Col>
+          <Col xs={24} lg={15}>
+            <Card title="召回结果" className="rag-panel-card">
+              {recallError ? (
+                <Alert type="error" showIcon message="召回测试失败" description={recallError} />
+              ) : recallResult ? (
+                <Space direction="vertical" size="large" className="rag-full">
+                  <div className="rag-agent-test-status">
+                    <Tag color="green">召回完成</Tag>
+                    <Tag color="cyan">{recallResult.metadata?.strategyLabel || recallResult.strategy}</Tag>
+                    <Tag color="blue">命中：{(recallResult.documents || []).length}</Tag>
+                    {recallResult.metadata?.backend ? <Tag>后端：{recallResult.metadata.backend}</Tag> : null}
+                  </div>
+                  <Table
+                    rowKey={(record) => record.id || `${record.source}-${record.content}`}
+                    columns={recallColumns}
+                    dataSource={recallResult.documents || []}
+                    pagination={{ pageSize: 6 }}
+                  />
+                  <Collapse
+                    items={[
+                      {
+                        key: 'metadata',
+                        label: 'Trace / Metadata',
+                        children: <pre className="rag-code-block">{JSON.stringify({ trace: recallResult.trace, metadata: recallResult.metadata }, null, 2)}</pre>,
+                      },
+                    ]}
+                  />
+                </Space>
+              ) : (
+                <Empty description="输入测试问题后，召回命中的知识片段会显示在这里" />
+              )}
             </Card>
           </Col>
         </Row>
