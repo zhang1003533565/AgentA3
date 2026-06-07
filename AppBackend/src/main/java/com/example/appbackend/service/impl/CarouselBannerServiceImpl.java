@@ -37,10 +37,6 @@ public class CarouselBannerServiceImpl implements CarouselBannerService {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "只允许上传图片文件");
         }
 
-        if (file.getSize() > 5 * 1024 * 1024) {
-            throw new BusinessException(Result.BAD_REQUEST_CODE, "图片大小不能超过5MB");
-        }
-
         String originalFilename = file.getOriginalFilename();
         String suffix = originalFilename != null && originalFilename.contains(".")
                 ? originalFilename.substring(originalFilename.lastIndexOf("."))

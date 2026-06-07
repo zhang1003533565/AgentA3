@@ -28,8 +28,8 @@ spring:
     time-zone: Asia/Shanghai
   servlet:
     multipart:
-      max-file-size: 5MB
-      max-request-size: 10MB
+      max-file-size: 200MB
+      max-request-size: 200MB
 
 jwt:
   secret: your-256-bit-secret-key-here-make-it-long-enough-for-hs256

@@ -9,8 +9,6 @@ import { BASE_URL } from './config.js'
 import { getToken } from './storage.js'
 
 const MAX_QUALITY = 80  // 压缩质量
-const MAX_UPLOAD_SIZE_MB = 5
-const MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 const H5_MAX_DIMENSION = 1600
 const H5_QUALITY = 0.8
 
@@ -23,8 +21,7 @@ function isUploadSizeExceededMessage(message) {
     normalized.includes('size exceeds') ||
     normalized.includes('文件大小') ||
     normalized.includes('文件过大') ||
-    normalized.includes('超过 5mb') ||
-    normalized.includes('超过5mb') ||
+    normalized.includes('上传文件过大') ||
     normalized.includes('超出最大上传大小')
 }
 
@@ -41,10 +38,10 @@ function isConnectionResetMessage(message) {
 export function getUploadErrorMessage(error) {
   const message = error?.msg || error?.message || ''
   if (isUploadSizeExceededMessage(message)) {
-    return `图片超过 ${MAX_UPLOAD_SIZE_MB}MB`
+    return '上传文件过大'
   }
   if (isConnectionResetMessage(message)) {
-    return `图片超过 ${MAX_UPLOAD_SIZE_MB}MB 或上传连接被重置`
+    return '上传连接被重置，请稍后重试'
   }
   return message || '图片上传失败'
 }
@@ -57,12 +54,11 @@ function normalizeUploadError(error) {
 }
 
 async function compressBlobForH5(blob) {
-  if (!blob || blob.size <= MAX_UPLOAD_SIZE_BYTES) {
+  if (!blob) {
     return blob
   }
-
   if ((blob.type || '').toLowerCase() === 'image/gif') {
-    throw normalizeUploadError({ msg: `GIF 图片超过 ${MAX_UPLOAD_SIZE_MB}MB，请更换图片` })
+    return blob
   }
 
   const compressed = await new Promise((resolve, reject) => {
@@ -78,11 +74,7 @@ async function compressBlobForH5(blob) {
     throw normalizeUploadError(error)
   })
 
-  if (!compressed || compressed.size > MAX_UPLOAD_SIZE_BYTES) {
-    throw normalizeUploadError({ msg: `图片超过 ${MAX_UPLOAD_SIZE_MB}MB，请选择更小的图片` })
-  }
-
-  return compressed
+  return compressed || blob
 }
 
 /**

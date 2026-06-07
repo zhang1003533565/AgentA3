@@ -35,7 +35,7 @@ public class GlobalExceptionHandler {
     public Result<?> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException e, HttpServletResponse response) {
         log.warn("上传文件超限: {}", e.getMessage());
         response.setStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
-        return Result.error(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE, "图片超过 5MB");
+        return Result.error(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE, "上传文件过大");
     }
 
     @ExceptionHandler(RuntimeException.class)
