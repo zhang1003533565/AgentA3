@@ -73,6 +73,8 @@ class LeaderAgent:
                 tool_name="text_to_sql",
                 route_reason="命中统计/查询结构化数据意图，使用 Text-to-SQL 查询接口。",
             )
+        if "架构图" in normalized and "提示词" in normalized:
+            return LeaderPlan("architecture_diagram_prompt", "architecture_prompt_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中架构图提示词生成意图，分发给图表架构图提示词智能体。")
         if any(token in normalized for token in ("架构图", "系统架构图", "architecture diagram", "architecture")):
             return LeaderPlan("diagram_architecture", "diagram_architecture_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中架构图生成意图，分发给图表架构图智能体。")
         if any(token in normalized for token in ("活动图", "泳道图", "activity diagram", "任务活动图")):
@@ -157,6 +159,7 @@ class LeaderAgent:
         target_agent = normalize_agent_name(str(plan.get("target_agent") or plan.get("targetAgent") or "")) or default_target
         if target_agent not in {
             "leader_agent",
+            "architecture_prompt_agent",
             *DIAGRAM_AGENT_SPECS.keys(),
             "mind_map_agent",
             "textbook_knowledge_agent",

@@ -5,6 +5,7 @@
 | Agent | 中文名称 | 职责 |
 | --- | --- | --- |
 | `leader_agent` | Leader 智能体 | 统一路由、任务拆解、会话记忆、基于 LLM 的直接回答 |
+| `architecture_prompt_agent` | 图表架构图提示词智能体 | 根据系统说明、模块依赖和数据流生成可交给架构图智能体使用的提示词 |
 | `diagram_mind_map_agent` | 图表思维导图智能体 | 根据知识点材料和证据生成 Mermaid 思维导图 |
 | `diagram_flowchart_agent` | 图表流程图智能体 | 根据步骤、算法或业务过程生成 Mermaid 流程图 |
 | `diagram_activity_agent` | 图表活动图智能体 | 根据角色协作、任务执行和活动顺序生成 Mermaid 活动图 |
@@ -32,6 +33,7 @@
 | 功能 | `agentName` | 默认 `ragStrategy` | 主要输入 |
 | --- | --- | --- | --- |
 | Leader 自动分发 | 留空或 `leader_agent` | 不手动传，由 Leader 判断 | `input` |
+| 架构图提示词 | `architecture_prompt_agent` | `multi_agent_rag` | `input` 为系统说明、模块依赖或数据流材料 |
 | 思维导图 | `diagram_mind_map_agent` | `multi_agent_rag` | `input` 为知识点材料 |
 | 流程图 | `diagram_flowchart_agent` | `multi_agent_rag` | `input` 为步骤、算法或流程材料 |
 | 活动图 | `diagram_activity_agent` | `multi_agent_rag` | `input` 为角色协作、任务执行或活动流程材料 |

@@ -5,9 +5,10 @@
 3. delegate_agent：交给专业智能体。
 
 专业智能体只能从这些值选择：
-leader_agent, diagram_mind_map_agent, diagram_flowchart_agent, diagram_activity_agent, diagram_architecture_agent, textbook_knowledge_agent, textbook_question_single_choice_agent, textbook_question_fill_blank_agent, textbook_question_true_false_agent, textbook_question_multiple_choice_agent, textbook_question_short_answer_agent, textbook_question_calculation_agent, textbook_question_programming_agent, meeting_controller_agent, meeting_transcription_agent, meeting_summary_agent, meeting_member_analysis_agent, meeting_resource_recommendation_agent, meeting_voice_broadcast_agent, ppt_outline_agent, ppt_layout_agent, ppt_review_agent, ppt_image_agent, ppt_to_docx_agent。
+leader_agent, architecture_prompt_agent, diagram_mind_map_agent, diagram_flowchart_agent, diagram_activity_agent, diagram_architecture_agent, textbook_knowledge_agent, textbook_question_single_choice_agent, textbook_question_fill_blank_agent, textbook_question_true_false_agent, textbook_question_multiple_choice_agent, textbook_question_short_answer_agent, textbook_question_calculation_agent, textbook_question_programming_agent, meeting_controller_agent, meeting_transcription_agent, meeting_summary_agent, meeting_member_analysis_agent, meeting_resource_recommendation_agent, meeting_voice_broadcast_agent, ppt_outline_agent, ppt_layout_agent, ppt_review_agent, ppt_image_agent, ppt_to_docx_agent。
 
 意图和智能体对应关系：
+- 架构图提示词、为架构图生成提示词：architecture_diagram_prompt / architecture_prompt_agent / 需要检索
 - 思维导图、脑图：diagram_mind_map / diagram_mind_map_agent / 需要检索
 - 流程图、步骤流程、算法流程：diagram_flowchart / diagram_flowchart_agent / 需要检索
 - 活动图、泳道图、角色任务流程：diagram_activity / diagram_activity_agent / 需要检索
