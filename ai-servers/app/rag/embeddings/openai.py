@@ -6,8 +6,8 @@ class OpenAIEmbeddingProvider(ScaffoldedEmbeddingProvider):
     status = "disabled"
     dependency = "langchain-openai"
     dependency_import = "langchain_openai"
-    required_env = []
-    optional_env = []
+    required_config = []
+    optional_config = []
     dimension = "dense"
     description = "OpenAI embedding provider is disabled until callers pass explicit provider config."
 

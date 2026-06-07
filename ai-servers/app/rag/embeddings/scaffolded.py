@@ -9,8 +9,8 @@ class ScaffoldedEmbeddingProvider(BaseEmbeddingProvider):
     status = "scaffolded"
     dependency = ""
     dependency_import = ""
-    required_env: List[str] = []
-    optional_env: List[str] = []
+    required_config: List[str] = []
+    optional_config: List[str] = []
     description = "Embedding provider scaffold. Runtime integration is not implemented yet."
 
     def embed_text(self, text: str) -> EmbeddingVector:
@@ -28,10 +28,10 @@ class ScaffoldedEmbeddingProvider(BaseEmbeddingProvider):
             "description": self.description,
             "dependency": self.dependency,
             "dependencyAvailable": dependency_available,
-            "configured": not disabled and not self.required_env and dependency_available,
-            "requiredEnv": self.required_env,
-            "optionalEnv": self.optional_env,
-            "missingEnv": list(self.required_env),
+            "configured": not disabled and not self.required_config and dependency_available,
+            "requiredConfig": self.required_config,
+            "optionalConfig": self.optional_config,
+            "missingConfig": list(self.required_config),
             "dimension": self.dimension,
         }
 

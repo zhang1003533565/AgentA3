@@ -6,8 +6,8 @@ class DashScopeEmbeddingProvider(ScaffoldedEmbeddingProvider):
     status = "disabled"
     dependency = "dashscope"
     dependency_import = "dashscope"
-    required_env = []
-    optional_env = []
+    required_config = []
+    optional_config = []
     dimension = "dense"
     description = "DashScope embedding provider is disabled until callers pass explicit provider config."
 

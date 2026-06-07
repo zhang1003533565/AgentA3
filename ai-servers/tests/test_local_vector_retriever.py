@@ -1,5 +1,4 @@
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,15 +18,7 @@ from app.rag.retrievers import java_backend_retriever
 
 
 class LocalVectorRetrieverTest(unittest.TestCase):
-    def setUp(self):
-        self._old_rag_vector_store_backend = os.environ.get("RAG_VECTOR_STORE_BACKEND")
-        os.environ["RAG_VECTOR_STORE_BACKEND"] = "local_jsonl"
-
-    def tearDown(self):
-        if self._old_rag_vector_store_backend is None:
-            os.environ.pop("RAG_VECTOR_STORE_BACKEND", None)
-        else:
-            os.environ["RAG_VECTOR_STORE_BACKEND"] = self._old_rag_vector_store_backend
+    local_backend = "local_jsonl"
 
     def test_rag_engine_registers_all_document_strategies(self):
         expected = {
@@ -74,7 +65,7 @@ class LocalVectorRetrieverTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            retriever = VectorRetriever(root_dir=temp_dir, chunk_size=80, overlap=10)
+            retriever = VectorRetriever(root_dir=temp_dir, chunk_size=80, overlap=10, backend=self.local_backend)
             results = retriever.search("图书馆开放时间", top_k=2)
 
             self.assertTrue(results)
@@ -87,7 +78,7 @@ class LocalVectorRetrieverTest(unittest.TestCase):
             (root / "card.md").write_text("校园卡补办地点在行政楼一楼服务大厅。", encoding="utf-8")
             (root / "sports.md").write_text("体育馆开放羽毛球预约。", encoding="utf-8")
 
-            retriever = KeywordRetriever(root_dir=temp_dir, chunk_size=80, overlap=10)
+            retriever = KeywordRetriever(root_dir=temp_dir, chunk_size=80, overlap=10, backend=self.local_backend)
             results = retriever.search("校园卡补办", top_k=2)
 
             self.assertTrue(results)
@@ -99,7 +90,7 @@ class LocalVectorRetrieverTest(unittest.TestCase):
             root = Path(temp_dir)
             (root / "library.md").write_text("图书馆开放时间为早上八点到晚上十点。", encoding="utf-8")
 
-            retriever = HybridRetriever(root_dir=temp_dir)
+            retriever = HybridRetriever(root_dir=temp_dir, backend=self.local_backend)
             results = retriever.search("图书馆开放时间", top_k=2)
 
             self.assertTrue(results)
@@ -122,9 +113,9 @@ class LocalVectorRetrieverTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            vector_results = VectorRetriever(root_dir=temp_dir).search("校园卡补办地点", top_k=2)
-            keyword_results = KeywordRetriever(root_dir=temp_dir).search("校园卡补办地点", top_k=2)
-            hybrid_results = HybridRetriever(root_dir=temp_dir).search("校园卡补办地点", top_k=2)
+            vector_results = VectorRetriever(root_dir=temp_dir, backend=self.local_backend).search("校园卡补办地点", top_k=2)
+            keyword_results = KeywordRetriever(root_dir=temp_dir, backend=self.local_backend).search("校园卡补办地点", top_k=2)
+            hybrid_results = HybridRetriever(root_dir=temp_dir, backend=self.local_backend).search("校园卡补办地点", top_k=2)
 
             self.assertTrue(vector_results)
             self.assertTrue(keyword_results)
@@ -144,7 +135,7 @@ class LocalVectorRetrieverTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            retriever = ParentChildRetriever(root_dir=temp_dir)
+            retriever = ParentChildRetriever(root_dir=temp_dir, backend=self.local_backend)
             results = retriever.search("补办地点 学生证", top_k=2)
 
             self.assertTrue(results)
@@ -177,7 +168,7 @@ class LocalVectorRetrieverTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            results = ParentChildRetriever(root_dir=temp_dir).search("补办地点 学生证", top_k=2)
+            results = ParentChildRetriever(root_dir=temp_dir, backend=self.local_backend).search("补办地点 学生证", top_k=2)
 
             self.assertTrue(results)
             self.assertEqual(parent_id, results[0].id)
@@ -234,9 +225,9 @@ class LocalVectorRetrieverTest(unittest.TestCase):
                 (root / "notice.md").write_text("校园卡补办地点在行政楼一楼服务大厅。", encoding="utf-8")
 
                 agent = TextbookKnowledgeAgent()
-                agent.vector_retriever = VectorRetriever(root_dir=temp_dir, chunk_size=80, overlap=10)
-                agent.hybrid_retriever = HybridRetriever(root_dir=temp_dir)
-                agent.parent_child_retriever = ParentChildRetriever(root_dir=temp_dir)
+                agent.vector_retriever = VectorRetriever(root_dir=temp_dir, chunk_size=80, overlap=10, backend=self.local_backend)
+                agent.hybrid_retriever = HybridRetriever(root_dir=temp_dir, backend=self.local_backend)
+                agent.parent_child_retriever = ParentChildRetriever(root_dir=temp_dir, backend=self.local_backend)
                 results, meta = agent.retrieve_with_meta(
                     authorization="Bearer test",
                     intent="campus_search",
@@ -265,7 +256,7 @@ class LocalVectorRetrieverTest(unittest.TestCase):
                 )
 
                 agent = TextbookKnowledgeAgent()
-                agent.parent_child_retriever = ParentChildRetriever(root_dir=temp_dir)
+                agent.parent_child_retriever = ParentChildRetriever(root_dir=temp_dir, backend=self.local_backend)
                 results, meta = agent.retrieve_with_meta(
                     authorization="Bearer test",
                     intent="campus_search",
@@ -293,8 +284,8 @@ class LocalVectorRetrieverTest(unittest.TestCase):
                 )
 
                 agent = TextbookKnowledgeAgent()
-                agent.vector_retriever = VectorRetriever(root_dir=temp_dir, chunk_size=80, overlap=10)
-                agent.hybrid_retriever = HybridRetriever(root_dir=temp_dir)
+                agent.vector_retriever = VectorRetriever(root_dir=temp_dir, chunk_size=80, overlap=10, backend=self.local_backend)
+                agent.hybrid_retriever = HybridRetriever(root_dir=temp_dir, backend=self.local_backend)
                 results, meta = agent.retrieve_with_meta(
                     authorization="Bearer test",
                     intent="campus_search",
@@ -320,9 +311,9 @@ class LocalVectorRetrieverTest(unittest.TestCase):
                 (root / "card.md").write_text("校园卡补办地点在行政楼一楼服务大厅。", encoding="utf-8")
 
                 agent = TextbookKnowledgeAgent()
-                agent.vector_retriever = VectorRetriever(root_dir=temp_dir, chunk_size=80, overlap=10)
-                agent.hybrid_retriever = HybridRetriever(root_dir=temp_dir)
-                agent.parent_child_retriever = ParentChildRetriever(root_dir=temp_dir)
+                agent.vector_retriever = VectorRetriever(root_dir=temp_dir, chunk_size=80, overlap=10, backend=self.local_backend)
+                agent.hybrid_retriever = HybridRetriever(root_dir=temp_dir, backend=self.local_backend)
+                agent.parent_child_retriever = ParentChildRetriever(root_dir=temp_dir, backend=self.local_backend)
 
                 multi_results, multi_meta = agent.retrieve_with_meta(
                     authorization="Bearer test",

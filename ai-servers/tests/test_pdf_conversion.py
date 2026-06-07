@@ -1,10 +1,12 @@
 import base64
+import io
 import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
 import fitz
+from docx import Document
 
 from app.rag.document_conversion import PdfConversionError, convert_pdf
 
@@ -49,6 +51,32 @@ class PdfConversionTest(unittest.TestCase):
         self.assertEqual("file", result["downloadType"])
         self.assertTrue(result["fileName"].endswith(".docx"))
         self.assertGreater(result["contentLength"], 0)
+        self.assertEqual("pdf_to_docx_reflow", result["conversionMode"])
+        self.assertEqual(1, result["imageCount"])
+
+        docx_bytes = base64.b64decode(result["contentBase64"])
+        document = Document(io.BytesIO(docx_bytes))
+        text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+        self.assertIn("Smart Campus PDF Convert Test", text)
+        self.assertIn("This page has extractable text.", text)
+
+        with zipfile.ZipFile(io.BytesIO(docx_bytes)) as archive:
+            media_files = [name for name in archive.namelist() if name.startswith("word/media/")]
+        self.assertTrue(media_files)
+
+    def test_pdf_to_docx_rejects_scanned_pdf(self):
+        document = fitz.open()
+        page = document.new_page(width=300, height=220)
+        page.insert_image(
+            fitz.Rect(0, 0, 300, 220),
+            stream=base64.b64decode(ONE_PIXEL_PNG),
+        )
+        scanned_pdf = document.tobytes()
+        document.close()
+
+        with self.assertRaises(PdfConversionError) as ctx:
+            convert_pdf(scanned_pdf, "scan.pdf", "docx")
+        self.assertEqual(422, ctx.exception.status_code)
 
     def test_invalid_pdf_fails_without_fallback(self):
         with self.assertRaises(PdfConversionError) as ctx:

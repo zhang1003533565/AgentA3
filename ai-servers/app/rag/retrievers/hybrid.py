@@ -6,9 +6,9 @@ from app.rag.retrievers.vector import VectorRetriever
 
 
 class HybridRetriever:
-    def __init__(self, root_dir: Optional[str] = None) -> None:
-        self.keyword_retriever = KeywordRetriever(root_dir=root_dir)
-        self.vector_retriever = VectorRetriever(root_dir=root_dir)
+    def __init__(self, root_dir: Optional[str] = None, backend: Optional[str] = None) -> None:
+        self.keyword_retriever = KeywordRetriever(root_dir=root_dir, backend=backend)
+        self.vector_retriever = VectorRetriever(root_dir=root_dir, backend=backend)
 
     def search(self, query: str, top_k: int = 5) -> List[RagDocument]:
         keyword_results = self.keyword_retriever.search(query, top_k=top_k)

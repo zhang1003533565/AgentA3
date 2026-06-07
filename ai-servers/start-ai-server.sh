@@ -2,16 +2,16 @@
 set -euo pipefail
 
 PROJECT_NAME="smart-campus-ai"
-AI_SERVER_HOST="${AI_SERVER_HOST:-127.0.0.1}"
-PYTHON_SERVER_PORT="${PYTHON_SERVER_PORT:-8081}"
-RAG_VECTOR_STORE_BACKEND="${RAG_VECTOR_STORE_BACKEND:-milvus}"
-RAG_DOCKER_WAIT_SECONDS="${RAG_DOCKER_WAIT_SECONDS:-90}"
-RAG_DOCKER_PULL_RETRIES="${RAG_DOCKER_PULL_RETRIES:-3}"
+SERVER_HOST="127.0.0.1"
+SERVER_PORT="8081"
+VECTOR_STORE_BACKEND="milvus"
+DOCKER_WAIT_SECONDS="90"
+DOCKER_PULL_RETRIES="3"
 START_DOCKER=1
 BUILD_KB=0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RAG_COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
+COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 cd "$SCRIPT_DIR"
 
 log() {
@@ -40,8 +40,8 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --backend)
-      RAG_VECTOR_STORE_BACKEND="${2:-}"
-      [[ -n "$RAG_VECTOR_STORE_BACKEND" ]] || fail "--backend requires a value"
+      VECTOR_STORE_BACKEND="${2:-}"
+      [[ -n "$VECTOR_STORE_BACKEND" ]] || fail "--backend requires a value"
       shift 2
       ;;
     --build-kb)
@@ -49,8 +49,8 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --host)
-      AI_SERVER_HOST="${2:-}"
-      [[ -n "$AI_SERVER_HOST" ]] || fail "--host requires a value"
+      SERVER_HOST="${2:-}"
+      [[ -n "$SERVER_HOST" ]] || fail "--host requires a value"
       shift 2
       ;;
     --no-docker)
@@ -58,8 +58,8 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --port)
-      PYTHON_SERVER_PORT="${2:-}"
-      [[ -n "$PYTHON_SERVER_PORT" ]] || fail "--port requires a value"
+      SERVER_PORT="${2:-}"
+      [[ -n "$SERVER_PORT" ]] || fail "--port requires a value"
       shift 2
       ;;
     -h|--help)
@@ -105,21 +105,21 @@ wait_for_docker() {
 
 wait_for_milvus() {
   log "Waiting for Milvus at http://localhost:9091/healthz ..."
-  for _ in $(seq 1 "$RAG_DOCKER_WAIT_SECONDS"); do
+  for _ in $(seq 1 "$DOCKER_WAIT_SECONDS"); do
     if command -v curl >/dev/null 2>&1 && curl -fsS http://localhost:9091/healthz >/dev/null 2>&1; then
       return
     fi
     sleep 1
   done
 
-  fail "Milvus did not become ready within ${RAG_DOCKER_WAIT_SECONDS}s."
+  fail "Milvus did not become ready within ${DOCKER_WAIT_SECONDS}s."
 }
 
 pull_docker_images() {
   local attempt
-  for attempt in $(seq 1 "$RAG_DOCKER_PULL_RETRIES"); do
-    log "Pulling RAG Docker images (${attempt}/${RAG_DOCKER_PULL_RETRIES})..."
-    if "${COMPOSE[@]}" -f "$RAG_COMPOSE_FILE" pull; then
+  for attempt in $(seq 1 "$DOCKER_PULL_RETRIES"); do
+    log "Pulling RAG Docker images (${attempt}/${DOCKER_PULL_RETRIES})..."
+    if "${COMPOSE[@]}" -f "$COMPOSE_FILE" pull; then
       return
     fi
     log "Docker image pull failed; retrying in 5 seconds..."
@@ -149,29 +149,26 @@ install_requirements() {
 
 start_docker_services() {
   [[ "$START_DOCKER" -eq 1 ]] || return 0
-  [[ "$RAG_VECTOR_STORE_BACKEND" == "milvus" ]] || return 0
-  [[ -f "$RAG_COMPOSE_FILE" ]] || fail "Missing compose file: $RAG_COMPOSE_FILE"
+  [[ "$VECTOR_STORE_BACKEND" == "milvus" ]] || return 0
+  [[ -f "$COMPOSE_FILE" ]] || fail "Missing compose file: $COMPOSE_FILE"
   command -v docker >/dev/null 2>&1 || fail "Docker is not installed."
   find_compose
   wait_for_docker
   pull_docker_images
   log "Starting RAG Docker services..."
-  "${COMPOSE[@]}" -f "$RAG_COMPOSE_FILE" up -d
+  "${COMPOSE[@]}" -f "$COMPOSE_FILE" up -d
   wait_for_milvus
 }
 
 build_knowledge_base() {
   [[ "$BUILD_KB" -eq 1 ]] || return 0
-  log "Building knowledge base with backend=${RAG_VECTOR_STORE_BACKEND} ..."
-  python scripts/build_knowledge_base.py --backend "$RAG_VECTOR_STORE_BACKEND"
+  log "Building knowledge base with backend=${VECTOR_STORE_BACKEND} ..."
+  python scripts/build_knowledge_base.py --backend "$VECTOR_STORE_BACKEND"
 }
 
 start_ai_server() {
-  export AI_SERVER_HOST
-  export PYTHON_SERVER_PORT
-  export RAG_VECTOR_STORE_BACKEND
-  log "Starting AI Server at http://${AI_SERVER_HOST}:${PYTHON_SERVER_PORT} ..."
-  exec python -m uvicorn app.main:app --host "$AI_SERVER_HOST" --port "$PYTHON_SERVER_PORT"
+  log "Starting AI Server at http://${SERVER_HOST}:${SERVER_PORT} ..."
+  exec python -m uvicorn app.main:app --host "$SERVER_HOST" --port "$SERVER_PORT"
 }
 
 main() {

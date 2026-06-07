@@ -1,7 +1,6 @@
 import base64
 import io
 import re
-import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, List
@@ -30,37 +29,66 @@ def convert_pdf(pdf_bytes: bytes, original_filename: str, target_format: str) ->
 
 def _convert_to_docx(pdf_bytes: bytes, base_name: str) -> Dict[str, Any]:
     try:
-        from pdf2docx import Converter
+        import fitz
+        from docx import Document
+        from docx.shared import Inches
     except Exception as exc:
-        raise PdfConversionError("PDF 转 DOCX 依赖未安装，请安装 pdf2docx", 500) from exc
+        raise PdfConversionError("PDF 转 DOCX 依赖未安装，请安装 PyMuPDF 和 python-docx", 500) from exc
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_path = Path(temp_dir)
-        source_path = temp_path / f"{base_name}.pdf"
-        output_path = temp_path / f"{base_name}.docx"
-        source_path.write_bytes(pdf_bytes)
+    try:
+        pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as exc:
+        raise PdfConversionError(f"PDF 解析失败：{exc}", 400) from exc
 
-        converter = Converter(str(source_path))
-        try:
-            converter.convert(str(output_path))
-        finally:
-            converter.close()
+    document = Document()
+    document.add_heading(base_name, level=0)
+    image_assets: List[Dict[str, Any]] = []
+    has_extractable_text = False
+    page_count = pdf_document.page_count
 
-        if not output_path.exists() or output_path.stat().st_size == 0:
-            raise PdfConversionError("PDF 转 DOCX 失败：未生成有效文件", 500)
+    try:
+        for page_index in range(page_count):
+            page = pdf_document.load_page(page_index)
+            page_number = page_index + 1
+            document.add_heading(f"第 {page_number} 页", level=1)
 
-        output_bytes = output_path.read_bytes()
-        return {
-            "format": "docx",
-            "outputType": "file",
-            "downloadType": "file",
-            "fileName": f"{base_name}.docx",
-            "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "contentBase64": base64.b64encode(output_bytes).decode("ascii"),
-            "contentLength": len(output_bytes),
-            "assets": [],
-            "imageCount": None,
-        }
+            page_dict = page.get_text("dict")
+            text_blocks = [block for block in page_dict.get("blocks", []) if block.get("type") == 0]
+            image_blocks = [block for block in page_dict.get("blocks", []) if block.get("type") == 1]
+
+            for block in sorted(text_blocks + image_blocks, key=_block_position):
+                if block.get("type") == 0:
+                    if _append_docx_text_block(document, block):
+                        has_extractable_text = True
+                    continue
+                asset = _append_docx_image_block(document, block, page_number, len(image_assets) + 1, Inches)
+                if asset:
+                    image_assets.append(asset)
+
+            if page_index < page_count - 1:
+                document.add_page_break()
+    finally:
+        pdf_document.close()
+
+    if not has_extractable_text:
+        raise PdfConversionError("该 PDF 未检测到可提取文本；当前仅支持原生文字 PDF，不支持扫描件 OCR", 422)
+
+    buffer = io.BytesIO()
+    document.save(buffer)
+    output_bytes = buffer.getvalue()
+    return {
+        "format": "docx",
+        "outputType": "file",
+        "downloadType": "file",
+        "fileName": f"{base_name}.docx",
+        "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "contentBase64": base64.b64encode(output_bytes).decode("ascii"),
+        "contentLength": len(output_bytes),
+        "assets": image_assets,
+        "imageCount": len(image_assets),
+        "pageCount": page_count,
+        "conversionMode": "pdf_to_docx_reflow",
+    }
 
 
 def _convert_to_markdown_zip(pdf_bytes: bytes, base_name: str) -> Dict[str, Any]:
@@ -154,6 +182,57 @@ def _safe_stem(filename: str) -> str:
     stem = Path(filename or "converted").stem or "converted"
     safe = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "-", stem).strip(".- ")
     return safe or "converted"
+
+
+def _block_position(block: Dict[str, Any]) -> tuple:
+    bbox = block.get("bbox") or (0, 0, 0, 0)
+    return (float(bbox[1] or 0), float(bbox[0] or 0))
+
+
+def _block_text(block: Dict[str, Any]) -> str:
+    lines: List[str] = []
+    for line in block.get("lines", []):
+        spans = line.get("spans", [])
+        text = "".join(span.get("text", "") for span in spans).strip()
+        if text:
+            lines.append(text)
+    return "\n".join(lines).strip()
+
+
+def _append_docx_text_block(document: Any, block: Dict[str, Any]) -> bool:
+    text = _block_text(block)
+    if not text:
+        return False
+    for line in text.splitlines():
+        if line.strip():
+            document.add_paragraph(line.strip())
+    return True
+
+
+def _append_docx_image_block(
+    document: Any,
+    block: Dict[str, Any],
+    page_number: int,
+    image_index: int,
+    inches_factory: Any,
+) -> Dict[str, Any]:
+    image_bytes = block.get("image") or b""
+    if not image_bytes:
+        return {}
+    ext = _safe_extension(block.get("ext") or "png")
+    name = f"page-{page_number}-image-{image_index}.{ext}"
+    bbox = block.get("bbox") or (0, 0, 0, 0)
+    width_points = max(float(bbox[2] or 0) - float(bbox[0] or 0), 72.0)
+    width_inches = max(1.0, min(width_points / 72.0, 6.2))
+    document.add_picture(io.BytesIO(image_bytes), width=inches_factory(width_inches))
+    return {
+        "name": name,
+        "path": f"assets/{name}",
+        "type": "image",
+        "mimeType": _image_mime_type(ext),
+        "page": page_number,
+        "size": len(image_bytes),
+    }
 
 
 def _safe_extension(ext: str) -> str:

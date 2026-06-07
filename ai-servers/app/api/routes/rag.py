@@ -1,6 +1,5 @@
 import asyncio
 import hashlib
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -26,6 +25,7 @@ from app.multi_agents.runner import run_specialist_agent
 from app.multi_agents.textbook_knowledge_agent.agent import textbook_knowledge_agent
 from app.rag.core import RAG_STRATEGY_SPECS, RagQuery, RagTraceStep
 from app.rag.core.types import RagDocument
+from app.rag.defaults import MILVUS_COLLECTION, MILVUS_PARENT_CHILD_COLLECTION, MILVUS_URI, knowledge_base_root
 from app.rag.embeddings import build_embedding_provider
 from app.rag.engine import rag_engine
 from app.rag.evaluators import RagEvaluationInput, RagEvaluator
@@ -133,7 +133,7 @@ def get_rag_capabilities(
         "indexing": {
             "supportedSuffixes": sorted(DocumentLoader.SUPPORTED_SUFFIXES),
             "defaultChunker": "semantic_boundary",
-            "indexStore": get_vector_store_backend(os.getenv("RAG_VECTOR_STORE_BACKEND")),
+            "indexStore": get_vector_store_backend(),
             "primaryStore": "docker_milvus",
             "localRawFallback": False,
             "parentChildIndex": "milvus_collection",
@@ -141,12 +141,11 @@ def get_rag_capabilities(
         },
         "documentConversion": {
             "supportedInputs": ["pdf", "pptx"],
-            "supportedOutputs": ["md", "docx"],
+            "supportedOutputs": ["docx"],
             "ocr": False,
             "imageHandling": {
-                "docx": "由 pdf2docx 尽量保留图片和基础排版",
+                "docx": "原生 PDF 文字会重建为 Word 文字，图片单独保留；不支持扫描件 OCR",
                 "pptxDocx": "PPTX 转 DOCX 会按幻灯片顺序重排内容，保留文本、表格和图片",
-                "md": "输出 zip，Markdown 使用 assets 相对路径引用图片",
             },
             "noLocalFallback": True,
         },
@@ -219,29 +218,29 @@ def get_rag_framework(
             },
         ],
         "embeddingProviders": [
-            {"name": "local_lexical", "status": "implemented", "requiredEnv": []},
-            {"name": "openai", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
-            {"name": "dashscope", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
-            {"name": "bge", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
-            {"name": "sentence_transformers", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
+            {"name": "local_lexical", "status": "implemented", "requiredConfig": []},
+            {"name": "openai", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
+            {"name": "dashscope", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
+            {"name": "bge", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
+            {"name": "sentence_transformers", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
         ],
         "vectorStores": [
-            {"name": "milvus", "status": "implemented", "requiredEnv": ["RAG_MILVUS_URI", "RAG_MILVUS_COLLECTION"], "configSource": "docker"},
-            {"name": "local_jsonl", "status": "disabled", "requiredEnv": [], "note": "仅保留兼容单元测试，不再作为知识库默认方案"},
-            {"name": "faiss", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
-            {"name": "elasticsearch", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
-            {"name": "pgvector", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
+            {"name": "milvus", "status": "implemented", "requiredConfig": [], "configSource": "code_default_and_docker"},
+            {"name": "local_jsonl", "status": "disabled", "requiredConfig": [], "note": "仅保留兼容单元测试，不再作为知识库默认方案"},
+            {"name": "faiss", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
+            {"name": "elasticsearch", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
+            {"name": "pgvector", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
         ],
         "graphStores": [
-            {"name": "local_graph", "status": "implemented", "requiredEnv": []},
-            {"name": "neo4j", "status": "disabled", "requiredEnv": [], "configSource": "request_required"},
+            {"name": "local_graph", "status": "implemented", "requiredConfig": []},
+            {"name": "neo4j", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
         ],
         "indexing": {
             "supportedSuffixes": sorted(DocumentLoader.SUPPORTED_SUFFIXES),
             "defaultChunker": "semantic_boundary",
             "parentChildChunker": "parent_child",
             "uploadEncoding": "text_or_base64",
-            "vectorStoreBackend": get_vector_store_backend(os.getenv("RAG_VECTOR_STORE_BACKEND")),
+            "vectorStoreBackend": get_vector_store_backend(),
             "vectorStore": "docker_milvus",
             "localRawFallback": False,
         },
@@ -250,11 +249,11 @@ def get_rag_framework(
             {"name": "X-AI-Base-Url", "configured": "由 Java 请求头传入", "source": "ai.service.text.base-url"},
             {"name": "X-AI-Api-Key", "configured": "由 Java 请求头传入", "source": "ai.service.text.api-key"},
             {"name": "X-AI-Model", "configured": "由 Java 请求头传入", "source": "ai.service.text.model"},
-            {"name": "RAG_VECTOR_STORE_BACKEND", "default": DEFAULT_VECTOR_STORE_BACKEND, "configured": get_vector_store_backend(os.getenv("RAG_VECTOR_STORE_BACKEND"))},
-            {"name": "RAG_MILVUS_URI", "default": "http://localhost:19530", "configured": os.getenv("RAG_MILVUS_URI", "http://localhost:19530")},
-            {"name": "RAG_MILVUS_COLLECTION", "default": "smart_campus_knowledge", "configured": os.getenv("RAG_MILVUS_COLLECTION", "smart_campus_knowledge")},
-            {"name": "RAG_MILVUS_PARENT_CHILD_COLLECTION", "default": "smart_campus_knowledge_parent_child", "configured": os.getenv("RAG_MILVUS_PARENT_CHILD_COLLECTION", "smart_campus_knowledge_parent_child")},
-            {"name": "RAG_KNOWLEDGE_BASE_DIR", "default": "knowledge_base/raw", "configured": str(_knowledge_base_root())},
+            {"name": "vectorStoreBackend", "configured": DEFAULT_VECTOR_STORE_BACKEND, "source": "code_default"},
+            {"name": "milvusUri", "configured": MILVUS_URI, "source": "code_default"},
+            {"name": "milvusCollection", "configured": MILVUS_COLLECTION, "source": "code_default"},
+            {"name": "milvusParentChildCollection", "configured": MILVUS_PARENT_CHILD_COLLECTION, "source": "code_default"},
+            {"name": "knowledgeBaseDir", "configured": str(_knowledge_base_root()), "source": "code_default"},
         ],
         "apis": [
             "GET /internal/rag/strategies",
@@ -842,7 +841,7 @@ def list_rag_documents(
 ) -> Dict[str, Any]:
     _require_authorization(authorization)
     root = _knowledge_base_root()
-    backend = get_vector_store_backend(os.getenv("RAG_VECTOR_STORE_BACKEND"))
+    backend = get_vector_store_backend()
     vector_store = build_vector_store(root, backend=backend)
     load_error = ""
     try:
@@ -885,7 +884,7 @@ def vector_store_health(
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ) -> Dict[str, Any]:
     _require_authorization(authorization)
-    vector_store = build_vector_store(_knowledge_base_root(), backend=get_vector_store_backend(os.getenv("RAG_VECTOR_STORE_BACKEND")))
+    vector_store = build_vector_store(_knowledge_base_root(), backend=get_vector_store_backend())
     return vector_store.health()
 
 
@@ -1029,9 +1028,4 @@ def _require_authorization(authorization: Optional[str]) -> None:
 
 
 def _knowledge_base_root() -> Path:
-    root_dir = os.getenv("RAG_KNOWLEDGE_BASE_DIR", "knowledge_base/raw")
-    path = Path(root_dir)
-    if path.is_absolute():
-        return path
-    ai_server_root = Path(__file__).resolve().parents[3]
-    return ai_server_root / path
+    return knowledge_base_root()

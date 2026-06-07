@@ -13,8 +13,8 @@ class FaissVectorStore(ScaffoldedVectorStore):
     status = "disabled"
     dependency = "faiss-cpu"
     dependency_import = "faiss"
-    required_env = []
-    optional_env = []
+    required_config = []
+    optional_config = []
     description = "Local FAISS adapter is disabled until callers pass explicit provider config."
 
     def __init__(self, root_dir: Path, index_path: Optional[Path] = None) -> None:

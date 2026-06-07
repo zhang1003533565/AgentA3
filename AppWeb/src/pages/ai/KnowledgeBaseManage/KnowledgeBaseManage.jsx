@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Col, Collapse, Empty, Form, Input, Row, Select, Space, Statistic, Table, Tag, Typography, Upload, message } from 'antd'
+import { Alert, Button, Card, Col, Empty, Form, Input, Row, Space, Statistic, Table, Tag, Typography, Upload, message } from 'antd'
 import { ApiOutlined, BranchesOutlined, DatabaseOutlined, DownloadOutlined, FileTextOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons'
-import ReactMarkdown from 'react-markdown'
 import {
   convertPdf,
   convertPpt,
@@ -31,6 +30,7 @@ const documentColumns = [
 ]
 
 const isPptxFile = (file) => /\.pptx$/i.test(file?.name || file?.originFileObj?.name || '')
+const isPdfFile = (file) => /\.pdf$/i.test(file?.name || file?.originFileObj?.name || '')
 
 const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader()
@@ -41,36 +41,6 @@ const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
   reader.onerror = reject
   reader.readAsDataURL(file)
 })
-
-const MarkdownPreview = ({ source, assets = [] }) => {
-  const assetPreviewUrls = new Map(
-    assets
-      .filter((asset) => asset.path && asset.previewDataUrl)
-      .map((asset) => [asset.path, asset.previewDataUrl]),
-  )
-
-  return (
-    <article className="rag-markdown-preview">
-      <ReactMarkdown
-        components={{
-          img: ({ src = '', alt = '' }) => {
-            const previewSrc = assetPreviewUrls.get(src)
-            return previewSrc ? (
-              <span className="rag-markdown-image">
-                <img src={previewSrc} alt={alt || 'PDF 提取图片'} />
-                <span className="rag-markdown-image__caption">{alt || src}</span>
-              </span>
-            ) : (
-              <span className="rag-markdown-missing-image">图片资源：{alt || src}</span>
-            )
-          },
-        }}
-      >
-        {source || '暂无预览'}
-      </ReactMarkdown>
-    </article>
-  )
-}
 
 function KnowledgeBaseManage() {
   const [bootLoading, setBootLoading] = useState(false)
@@ -142,15 +112,16 @@ function KnowledgeBaseManage() {
     }
   }
 
-  const handleDocumentConvert = async (values) => {
+  const handleDocumentConvert = async () => {
     const selectedFile = convertFileList[0]?.originFileObj || convertFileList[0]
     if (!selectedFile) {
       message.warning('请先选择一个 PDF 或 PPTX 文件')
       return
     }
     const isPptx = isPptxFile(selectedFile)
-    if (isPptx && values.targetFormat !== 'docx') {
-      message.warning('PPTX 当前仅支持转换为 DOCX')
+    const isPdf = isPdfFile(selectedFile)
+    if (!isPptx && !isPdf) {
+      message.warning('请选择 PDF 或 PPTX 文件')
       return
     }
     setConvertLoading(true)
@@ -159,11 +130,11 @@ function KnowledgeBaseManage() {
       const formData = new FormData()
       formData.append('file', selectedFile)
       if (!isPptx) {
-        formData.append('targetFormat', values.targetFormat)
+        formData.append('targetFormat', 'docx')
       }
       const res = isPptx ? await convertPpt(formData) : await convertPdf(formData)
       setConvertResult(res.data)
-      message.success(isPptx ? 'PPTX 转 DOCX 完成' : 'PDF 转换完成')
+      message.success(isPptx ? 'PPTX 转 DOCX 完成' : 'PDF 转 DOCX 完成')
     } catch (error) {
       message.error(error.message || '文档转换失败')
     } finally {
@@ -279,14 +250,13 @@ function KnowledgeBaseManage() {
               <Form
                 form={convertForm}
                 layout="vertical"
-                initialValues={{ targetFormat: 'md' }}
                 onFinish={handleDocumentConvert}
               >
                 <Alert
                   className="rag-inline-alert"
                   type="info"
                   showIcon
-                  message="支持 PDF 转 Markdown/DOCX，PPTX 转 DOCX；PPTX 会按幻灯片顺序重排内容并保留图片。"
+                  message="支持 PDF 转 DOCX、PPTX 转 DOCX；PDF 仅处理原生可提取文字，PPTX 会按幻灯片顺序重排内容并保留图片。"
                 />
                 <Form.Item label="文件" required>
                   <Upload
@@ -299,9 +269,6 @@ function KnowledgeBaseManage() {
                       }
                       setConvertFileList([file])
                       setConvertResult(null)
-                      if (lowerName.endsWith('.pptx')) {
-                        convertForm.setFieldsValue({ targetFormat: 'docx' })
-                      }
                       return false
                     }}
                     fileList={convertFileList}
@@ -314,17 +281,10 @@ function KnowledgeBaseManage() {
                   >
                     <Button icon={<UploadOutlined />}>选择文件</Button>
                   </Upload>
-                </Form.Item>
-                <Form.Item name="targetFormat" label="输出格式" rules={[{ required: true, message: '请选择输出格式' }]}>
-                  <Select
-                    options={[
-                      { value: 'md', label: 'Markdown（zip，含图片 assets）' },
-                      { value: 'docx', label: 'DOCX（尽量保留图片与基础排版）' },
-                    ]}
-                  />
+                  <Text type="secondary">支持 .pdf 和 .pptx，输出统一为可下载的 DOCX。</Text>
                 </Form.Item>
                 <Button type="primary" htmlType="submit" icon={<FileTextOutlined />} loading={convertLoading} block>
-                  开始转换
+                  转换为 DOCX
                 </Button>
               </Form>
             </Card>
@@ -347,41 +307,10 @@ function KnowledgeBaseManage() {
                       下载结果
                     </Button>
                   </Space>
-                  {convertResult.outputType === 'markdown' ? (
-                    <Collapse
-                      defaultActiveKey={['preview']}
-                      items={[
-                        {
-                          key: 'preview',
-                          label: 'Markdown 预览',
-                          children: <MarkdownPreview source={convertResult.preview} assets={convertResult.assets} />,
-                        },
-                        {
-                          key: 'assets',
-                          label: '图片资源',
-                          children: (
-                            <Table
-                              rowKey="path"
-                              columns={[
-                                { title: '文件', dataIndex: 'name' },
-                                { title: '页码', dataIndex: 'page', width: 100 },
-                                { title: '路径', dataIndex: 'path' },
-                                { title: '大小', dataIndex: 'size', width: 120, render: (value) => `${Math.ceil(Number(value || 0) / 1024)} KB` },
-                              ]}
-                              dataSource={convertResult.assets || []}
-                              pagination={{ pageSize: 5 }}
-                              size="small"
-                            />
-                          ),
-                        },
-                      ]}
-                    />
-                  ) : (
-                    <Alert type="success" showIcon message="DOCX 已生成，点击上方按钮下载。" />
-                  )}
+                  <Alert type="success" showIcon message="DOCX 已生成，点击上方按钮下载。" />
                 </Space>
               ) : (
-                <Empty description="上传 PDF 或 PPTX 后，转换结果会显示在这里" />
+                <Empty description="上传 PDF 或 PPTX 后，DOCX 转换结果会显示在这里" />
               )}
             </Card>
           </Col>

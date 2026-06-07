@@ -1,9 +1,9 @@
-import os
 from pathlib import Path
 from typing import List, Optional
 
 from app.rag.chunking.semantic import SemanticChunker
 from app.rag.core.types import RagDocument
+from app.rag.defaults import KNOWLEDGE_BASE_DIR
 from app.rag.graph_stores import build_graph_store
 from app.rag.indexing.document_loader import DocumentLoader
 from app.rag.indexing.local_chunk_index import LocalChunkIndex
@@ -11,12 +11,12 @@ from app.rag.vector_stores import DEFAULT_VECTOR_STORE_BACKEND, is_local_vector_
 
 
 class GraphRetriever:
-    def __init__(self, root_dir: Optional[str] = None) -> None:
-        self.root_dir = self._resolve_root_dir(root_dir or "knowledge_base/raw")
+    def __init__(self, root_dir: Optional[str] = None, backend: Optional[str] = None) -> None:
+        self.root_dir = self._resolve_root_dir(root_dir or KNOWLEDGE_BASE_DIR)
         self.loader = DocumentLoader()
         self.chunker = SemanticChunker(chunk_size=900, overlap=120)
-        self.local_chunk_index = LocalChunkIndex(self.root_dir)
-        self.vector_store_backend = os.getenv("RAG_VECTOR_STORE_BACKEND", DEFAULT_VECTOR_STORE_BACKEND).strip().lower()
+        self.vector_store_backend = (backend or DEFAULT_VECTOR_STORE_BACKEND).strip().lower()
+        self.local_chunk_index = LocalChunkIndex(self.root_dir, backend=self.vector_store_backend)
         self.graph_store = build_graph_store()
         self._index_signature = ""
         self._documents: List[RagDocument] = []

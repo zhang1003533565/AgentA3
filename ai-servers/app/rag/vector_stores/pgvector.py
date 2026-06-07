@@ -11,8 +11,8 @@ class PgVectorStore(ScaffoldedVectorStore):
     status = "disabled"
     dependency = "psycopg[binary]"
     dependency_import = "psycopg"
-    required_env = []
-    optional_env = []
+    required_config = []
+    optional_config = []
     description = "pgvector adapter is disabled until callers pass explicit provider config."
 
     def __init__(self, root_dir: Path, index_path: Optional[Path] = None) -> None:

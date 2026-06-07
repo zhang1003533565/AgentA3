@@ -1,6 +1,5 @@
 import base64
 import hashlib
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -9,6 +8,15 @@ from typing import Any, Dict, Iterable, List, Optional
 from app.rag.chunking.semantic import SemanticChunker
 from app.rag.chunking.parent_child import ParentChildChunker
 from app.rag.core import RagDocument, RagTraceStep
+from app.rag.defaults import (
+    CHILD_CHUNK_OVERLAP,
+    CHILD_CHUNK_SIZE,
+    CHUNK_OVERLAP,
+    CHUNK_SIZE,
+    KNOWLEDGE_BASE_DIR,
+    PARENT_CHUNK_OVERLAP,
+    PARENT_CHUNK_SIZE,
+)
 from app.rag.indexing.document_loader import DocumentLoader
 from app.rag.indexing.embedding_writer import EmbeddingWriter
 from app.rag.vector_stores import DEFAULT_VECTOR_STORE_BACKEND
@@ -44,22 +52,22 @@ class IngestionResult:
 
 class RagIngestionPipeline:
     def __init__(self, root_dir: Optional[str] = None) -> None:
-        self.root_dir = self._resolve_root_dir(root_dir or "knowledge_base/raw")
+        self.root_dir = self._resolve_root_dir(root_dir or KNOWLEDGE_BASE_DIR)
         self.ingest_dir = self.root_dir / "api_ingest"
         self.index_path = self.root_dir / ".index" / "local_chunks.jsonl"
         self.parent_index_path = self.root_dir / ".index" / "parent_child_chunks.jsonl"
         self.loader = DocumentLoader()
         self.chunker = SemanticChunker(
-            chunk_size=int(os.getenv("RAG_CHUNK_SIZE", "800")),
-            overlap=int(os.getenv("RAG_CHUNK_OVERLAP", "120")),
+            chunk_size=CHUNK_SIZE,
+            overlap=CHUNK_OVERLAP,
         )
         self.parent_child_chunker = ParentChildChunker(
-            parent_chunk_size=int(os.getenv("RAG_PARENT_CHUNK_SIZE", "1600")),
-            parent_overlap=int(os.getenv("RAG_PARENT_CHUNK_OVERLAP", "160")),
-            child_chunk_size=int(os.getenv("RAG_CHILD_CHUNK_SIZE", "420")),
-            child_overlap=int(os.getenv("RAG_CHILD_CHUNK_OVERLAP", "80")),
+            parent_chunk_size=PARENT_CHUNK_SIZE,
+            parent_overlap=PARENT_CHUNK_OVERLAP,
+            child_chunk_size=CHILD_CHUNK_SIZE,
+            child_overlap=CHILD_CHUNK_OVERLAP,
         )
-        self.vector_store_backend = os.getenv("RAG_VECTOR_STORE_BACKEND", DEFAULT_VECTOR_STORE_BACKEND)
+        self.vector_store_backend = DEFAULT_VECTOR_STORE_BACKEND
         self.writer = EmbeddingWriter(index_path=str(self.index_path), backend=self.vector_store_backend)
         self.parent_child_writer = EmbeddingWriter(index_path=str(self.parent_index_path), backend=self.vector_store_backend)
 

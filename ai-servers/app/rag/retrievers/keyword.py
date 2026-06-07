@@ -1,4 +1,3 @@
-import os
 import re
 from collections import Counter
 from pathlib import Path
@@ -6,21 +5,28 @@ from typing import List, Optional
 
 from app.rag.chunking.semantic import SemanticChunker
 from app.rag.core.types import RagDocument
+from app.rag.defaults import KNOWLEDGE_BASE_DIR
 from app.rag.indexing.document_loader import DocumentLoader
 from app.rag.indexing.local_chunk_index import LocalChunkIndex
 from app.rag.vector_stores import DEFAULT_VECTOR_STORE_BACKEND, is_local_vector_store_backend
 
 
 class KeywordRetriever:
-    def __init__(self, root_dir: Optional[str] = None, chunk_size: Optional[int] = None, overlap: Optional[int] = None) -> None:
-        self.root_dir = self._resolve_root_dir(root_dir or "knowledge_base/raw")
+    def __init__(
+        self,
+        root_dir: Optional[str] = None,
+        chunk_size: Optional[int] = None,
+        overlap: Optional[int] = None,
+        backend: Optional[str] = None,
+    ) -> None:
+        self.root_dir = self._resolve_root_dir(root_dir or KNOWLEDGE_BASE_DIR)
         self.chunker = SemanticChunker(
             chunk_size=chunk_size or 800,
             overlap=overlap or 120,
         )
         self.loader = DocumentLoader()
-        self.local_chunk_index = LocalChunkIndex(self.root_dir)
-        self.vector_store_backend = os.getenv("RAG_VECTOR_STORE_BACKEND", DEFAULT_VECTOR_STORE_BACKEND).strip().lower()
+        self.vector_store_backend = (backend or DEFAULT_VECTOR_STORE_BACKEND).strip().lower()
+        self.local_chunk_index = LocalChunkIndex(self.root_dir, backend=self.vector_store_backend)
         self._index_signature = ""
         self._index: List[RagDocument] = []
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import base64
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -12,17 +11,17 @@ sys.path.insert(0, str(ROOT))
 
 from app.rag.indexing.document_loader import DocumentLoader  # noqa: E402
 from app.rag.pipelines import IngestInputDocument, RagIngestionPipeline  # noqa: E402
+from app.rag.defaults import KNOWLEDGE_BASE_DIR  # noqa: E402
 from app.rag.vector_stores import DEFAULT_VECTOR_STORE_BACKEND, build_vector_store  # noqa: E402
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build Smart Campus RAG knowledge base.")
-    parser.add_argument("--source-dir", default=os.getenv("RAG_KNOWLEDGE_BASE_DIR", "knowledge_base/raw"))
-    parser.add_argument("--backend", default=os.getenv("RAG_VECTOR_STORE_BACKEND", DEFAULT_VECTOR_STORE_BACKEND))
+    parser.add_argument("--source-dir", default=KNOWLEDGE_BASE_DIR)
+    parser.add_argument("--backend", default=DEFAULT_VECTOR_STORE_BACKEND)
     parser.add_argument("--limit", type=int, default=0)
     args = parser.parse_args()
 
-    os.environ["RAG_VECTOR_STORE_BACKEND"] = args.backend
     source_dir = resolve_path(args.source_dir)
     loader = DocumentLoader()
     files = [

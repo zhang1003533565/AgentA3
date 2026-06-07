@@ -1,4 +1,3 @@
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -34,28 +33,22 @@ class EmbeddingProviderTest(unittest.TestCase):
         self.assertIsInstance(build_embedding_provider("sentence_transformers"), SentenceTransformersEmbeddingProvider)
 
     def test_scaffolded_embedding_provider_health_and_guard(self):
-        old_key = os.environ.get("OPENAI_API_KEY")
-        try:
-            os.environ.pop("OPENAI_API_KEY", None)
-            provider = build_embedding_provider("openai")
-            health = provider.health()
+        provider = build_embedding_provider("openai")
+        health = provider.health()
 
-            self.assertEqual("openai", health["provider"])
-            self.assertEqual("implemented_optional", health["status"])
-            self.assertIn("OPENAI_API_KEY", health["requiredEnv"])
-            self.assertIn("OPENAI_API_KEY", health["missingEnv"])
-            with self.assertRaisesRegex(RuntimeError, "not configured"):
-                provider.embed_text("test")
-        finally:
-            if old_key is not None:
-                os.environ["OPENAI_API_KEY"] = old_key
+        self.assertEqual("openai", health["provider"])
+        self.assertEqual("disabled", health["status"])
+        self.assertEqual([], health["requiredConfig"])
+        self.assertEqual([], health["missingConfig"])
+        with self.assertRaisesRegex(RuntimeError, "不读取环境变量"):
+            provider.embed_text("test")
 
     def test_vector_retriever_uses_configured_embedding_provider(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             (root / "card.md").write_text("校园卡补办地点在行政楼一楼服务大厅。", encoding="utf-8")
 
-            retriever = VectorRetriever(root_dir=temp_dir, chunk_size=80, overlap=10)
+            retriever = VectorRetriever(root_dir=temp_dir, chunk_size=80, overlap=10, backend="local_jsonl")
             results = retriever.search("校园卡补办地点", top_k=1)
 
             self.assertTrue(results)

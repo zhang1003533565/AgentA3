@@ -19,8 +19,8 @@ class Neo4jGraphStore(BaseGraphStore):
             "dependency": "neo4j",
             "dependencyAvailable": dependency_available,
             "configured": False,
-            "missingEnv": [],
-            "optionalEnv": [],
+            "missingConfig": [],
+            "optionalConfig": [],
         }
 
     def _ensure_ready(self) -> None:

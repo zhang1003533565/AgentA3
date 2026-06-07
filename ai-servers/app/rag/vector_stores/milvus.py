@@ -1,10 +1,17 @@
 import json
 import math
-import os
 from pathlib import Path
 from typing import Iterable, List, Optional
 
 from app.rag.core.types import RagDocument
+from app.rag.defaults import (
+    EMBEDDING_PROVIDER,
+    MILVUS_COLLECTION,
+    MILVUS_DIMENSION,
+    MILVUS_METRIC_TYPE,
+    MILVUS_PARENT_CHILD_COLLECTION,
+    MILVUS_URI,
+)
 from app.rag.embeddings import build_embedding_provider
 from app.rag.vector_stores.base import BaseVectorStore
 
@@ -14,14 +21,14 @@ class MilvusVectorStore(BaseVectorStore):
 
     def __init__(self, root_dir: Path, index_path: Optional[Path] = None) -> None:
         super().__init__(root_dir=root_dir, index_path=index_path)
-        self.uri = os.getenv("RAG_MILVUS_URI", "http://localhost:19530").strip()
-        base_collection = os.getenv("RAG_MILVUS_COLLECTION", "smart_campus_knowledge").strip()
-        parent_collection = os.getenv("RAG_MILVUS_PARENT_CHILD_COLLECTION", f"{base_collection}_parent_child").strip()
+        self.uri = MILVUS_URI
+        base_collection = MILVUS_COLLECTION
+        parent_collection = MILVUS_PARENT_CHILD_COLLECTION
         self.collection_role = "parent_child" if self._is_parent_child_index(index_path) else "chunks"
         self.collection_name = parent_collection if self.collection_role == "parent_child" else base_collection
-        self.dimension = int(os.getenv("RAG_MILVUS_DIMENSION", "384"))
-        self.metric_type = os.getenv("RAG_MILVUS_METRIC_TYPE", "COSINE").strip().upper()
-        self.embedding_provider = build_embedding_provider(os.getenv("RAG_EMBEDDING_PROVIDER"))
+        self.dimension = MILVUS_DIMENSION
+        self.metric_type = MILVUS_METRIC_TYPE
+        self.embedding_provider = build_embedding_provider(EMBEDDING_PROVIDER)
 
     def load_documents(self) -> List[RagDocument]:
         self._ensure_ready()
@@ -160,7 +167,7 @@ class MilvusVectorStore(BaseVectorStore):
         if not self._dependency_available():
             raise RuntimeError("Milvus vector store 需要安装 pymilvus：pip install pymilvus")
         if not self.uri or not self.collection_name:
-            raise RuntimeError("Milvus vector store 缺少 RAG_MILVUS_URI 或 RAG_MILVUS_COLLECTION")
+            raise RuntimeError("Milvus vector store 缺少默认 URI 或 collection 配置")
 
     def _document_to_row(self, document: RagDocument) -> dict:
         metadata = dict(document.metadata)

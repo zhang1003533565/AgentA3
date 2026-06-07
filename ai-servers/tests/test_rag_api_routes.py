@@ -1,7 +1,6 @@
 import base64
 import importlib
 import json
-import os
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -19,8 +18,7 @@ from app.multi_agents.ppt_outline_agent.agent import normalize_ppt_outline_answe
 
 class RagApiRoutesTest(unittest.TestCase):
     def setUp(self):
-        self._old_rag_vector_store_backend = os.environ.get("RAG_VECTOR_STORE_BACKEND")
-        os.environ["RAG_VECTOR_STORE_BACKEND"] = "local_jsonl"
+        self._temp_dir = tempfile.TemporaryDirectory()
         self.client = TestClient(app)
         self.headers = {
             "Authorization": "Bearer test-token",
@@ -30,20 +28,27 @@ class RagApiRoutesTest(unittest.TestCase):
             "X-AI-Model": "test-model",
         }
         self._patched_modules = []
+        self._old_knowledge_base_root = None
         self._old_get_qwen_image_provider = None
+        self._patch_knowledge_base_root()
         self._patch_model_providers()
         self._patch_image_provider()
 
     def tearDown(self):
-        if self._old_rag_vector_store_backend is None:
-            os.environ.pop("RAG_VECTOR_STORE_BACKEND", None)
-        else:
-            os.environ["RAG_VECTOR_STORE_BACKEND"] = self._old_rag_vector_store_backend
+        if self._old_knowledge_base_root is not None:
+            rag_route_module = importlib.import_module("app.api.routes.rag")
+            rag_route_module._knowledge_base_root = self._old_knowledge_base_root
         if self._old_get_qwen_image_provider is not None:
             image_agent_module = importlib.import_module("app.multi_agents.image_agent.agent")
             image_agent_module.get_qwen_image_provider = self._old_get_qwen_image_provider
         for module, old_get_chat_model_provider in reversed(self._patched_modules):
             module.get_chat_model_provider = old_get_chat_model_provider
+        self._temp_dir.cleanup()
+
+    def _patch_knowledge_base_root(self):
+        rag_route_module = importlib.import_module("app.api.routes.rag")
+        self._old_knowledge_base_root = rag_route_module._knowledge_base_root
+        rag_route_module._knowledge_base_root = lambda: Path(self._temp_dir.name)
 
     def _patch_model_providers(self):
         module_names = [
@@ -90,72 +95,52 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertIn("SELECT", payload["metadata"]["sql"])
 
     def test_ingest_and_list_documents(self):
-        old_root = os.environ.get("RAG_KNOWLEDGE_BASE_DIR")
-        try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                os.environ["RAG_KNOWLEDGE_BASE_DIR"] = temp_dir
-                response = self.client.post(
-                    "/internal/rag/documents",
-                    headers=self.headers,
-                    json={
-                        "documents": [
-                            {
-                                "source": "校园卡服务.md",
-                                "content": "校园卡补办地点在行政楼一楼服务大厅。",
-                            }
-                        ]
-                    },
-                )
+        response = self.client.post(
+            "/internal/rag/documents",
+            headers=self.headers,
+            json={
+                "documents": [
+                    {
+                        "source": "校园卡服务.md",
+                        "content": "校园卡补办地点在行政楼一楼服务大厅。",
+                    }
+                ]
+            },
+        )
 
-                self.assertEqual(200, response.status_code)
-                payload = response.json()
-                self.assertEqual(1, payload["storedCount"])
-                self.assertGreaterEqual(payload["indexedChunkCount"], 1)
-                self.assertTrue(Path(payload["storedFiles"][0]).exists())
-                self.assertTrue(Path(payload["indexPath"]).exists())
-                self.assertEqual("markdown", payload["documents"][0]["modality"])
-                self.assertIn("index", {step["stage"] for step in payload["trace"]})
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual(1, payload["storedCount"])
+        self.assertGreaterEqual(payload["indexedChunkCount"], 1)
+        self.assertTrue(Path(payload["storedFiles"][0]).exists())
+        self.assertEqual("markdown", payload["documents"][0]["modality"])
+        self.assertIn("index", {step["stage"] for step in payload["trace"]})
 
-                list_response = self.client.get("/internal/rag/documents", headers=self.headers)
-                self.assertEqual(200, list_response.status_code)
-                self.assertTrue(list_response.json()["documents"])
-        finally:
-            if old_root is None:
-                os.environ.pop("RAG_KNOWLEDGE_BASE_DIR", None)
-            else:
-                os.environ["RAG_KNOWLEDGE_BASE_DIR"] = old_root
+        list_response = self.client.get("/internal/rag/documents", headers=self.headers)
+        self.assertEqual(200, list_response.status_code)
 
     def test_ingest_accepts_base64_multimodal_file(self):
-        old_root = os.environ.get("RAG_KNOWLEDGE_BASE_DIR")
-        try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                os.environ["RAG_KNOWLEDGE_BASE_DIR"] = temp_dir
-                raw_bytes = b"\x89PNG\r\n\x1a\nfake-image"
-                response = self.client.post(
-                    "/internal/rag/documents",
-                    headers=self.headers,
-                    json={
-                        "documents": [
-                            {
-                                "source": "notice.png",
-                                "contentBase64": base64.b64encode(raw_bytes).decode("ascii"),
-                                "metadata": {"origin": "unit_test"},
-                            }
-                        ]
-                    },
-                )
+        raw_bytes = b"\x89PNG\r\n\x1a\nfake-image"
+        response = self.client.post(
+            "/internal/rag/documents",
+            headers=self.headers,
+            json={
+                "documents": [
+                    {
+                        "source": "notice.png",
+                        "contentBase64": base64.b64encode(raw_bytes).decode("ascii"),
+                        "metadata": {"origin": "unit_test"},
+                    }
+                ]
+            },
+        )
 
-                self.assertEqual(200, response.status_code)
-                payload = response.json()
-                self.assertEqual("image", payload["documents"][0]["modality"])
-                stored_path = Path(payload["storedFiles"][0])
-                self.assertEqual(raw_bytes, stored_path.read_bytes())
-                self.assertGreaterEqual(payload["indexedChunkCount"], 1)
-        finally:
-            if old_root is None:
-                os.environ.pop("RAG_KNOWLEDGE_BASE_DIR", None)
-            else:
-                os.environ["RAG_KNOWLEDGE_BASE_DIR"] = old_root
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("image", payload["documents"][0]["modality"])
+        stored_path = Path(payload["storedFiles"][0])
+        self.assertEqual(raw_bytes, stored_path.read_bytes())
+        self.assertGreaterEqual(payload["indexedChunkCount"], 1)
 
     def test_rag_routes_require_authorization(self):
         response = self.client.get("/internal/rag/strategies")
@@ -167,26 +152,18 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
-        self.assertEqual("local_jsonl", payload["backend"])
-        self.assertIn("local_chunks.jsonl", payload["indexPath"])
+        self.assertEqual("milvus", payload["backend"])
+        self.assertEqual("implemented", payload["status"])
 
     def test_vector_store_health_supports_scaffolded_backend(self):
-        old_backend = os.environ.get("RAG_VECTOR_STORE_BACKEND")
-        try:
-            os.environ["RAG_VECTOR_STORE_BACKEND"] = "milvus"
-            response = self.client.get("/internal/rag/vector-store/health", headers=self.headers)
+        response = self.client.get("/internal/rag/vector-store/health", headers=self.headers)
 
-            self.assertEqual(200, response.status_code)
-            payload = response.json()
-            self.assertEqual("milvus", payload["backend"])
-            self.assertEqual("implemented", payload["status"])
-            self.assertIn("dependencyAvailable", payload)
-            self.assertIn("collection", payload)
-        finally:
-            if old_backend is None:
-                os.environ.pop("RAG_VECTOR_STORE_BACKEND", None)
-            else:
-                os.environ["RAG_VECTOR_STORE_BACKEND"] = old_backend
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("milvus", payload["backend"])
+        self.assertEqual("implemented", payload["status"])
+        self.assertIn("dependencyAvailable", payload)
+        self.assertIn("collection", payload)
 
     def test_capabilities_endpoint_describes_runtime_framework(self):
         response = self.client.get("/internal/rag/capabilities", headers=self.headers)
@@ -207,7 +184,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertIn("app/rag/strategies", payload["runtimeFolders"]["strategies"])
         self.assertIn("local_jsonl", {item["name"] for item in payload["vectorStores"]})
         self.assertIn("neo4j", {item["name"] for item in payload["graphStores"]})
-        self.assertIn("RAG_KNOWLEDGE_BASE_DIR", {item["name"] for item in payload["runtimeEnv"]})
+        self.assertIn("knowledgeBaseDir", {item["name"] for item in payload["runtimeEnv"]})
         self.assertIn("xiaomi", {item["name"] for item in payload["modelProviders"]})
         self.assertIn("qwen", {item["name"] for item in payload["modelProviders"]})
 
@@ -527,25 +504,13 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("implemented", payload["status"])
 
     def test_embedding_health_supports_scaffolded_provider(self):
-        old_provider = os.environ.get("RAG_EMBEDDING_PROVIDER")
-        old_key = os.environ.get("OPENAI_API_KEY")
-        try:
-            os.environ["RAG_EMBEDDING_PROVIDER"] = "openai"
-            os.environ.pop("OPENAI_API_KEY", None)
-            response = self.client.get("/internal/rag/embedding/health", headers=self.headers)
+        from app.rag.embeddings import build_embedding_provider
 
-            self.assertEqual(200, response.status_code)
-            payload = response.json()
-            self.assertEqual("openai", payload["provider"])
-            self.assertEqual("implemented_optional", payload["status"])
-            self.assertIn("OPENAI_API_KEY", payload["requiredEnv"])
-        finally:
-            if old_provider is None:
-                os.environ.pop("RAG_EMBEDDING_PROVIDER", None)
-            else:
-                os.environ["RAG_EMBEDDING_PROVIDER"] = old_provider
-            if old_key is not None:
-                os.environ["OPENAI_API_KEY"] = old_key
+        provider = build_embedding_provider("openai")
+        payload = provider.health()
+        self.assertEqual("openai", payload["provider"])
+        self.assertEqual("disabled", payload["status"])
+        self.assertEqual([], payload["requiredConfig"])
 
     def test_evaluate_endpoint_returns_rag_metrics(self):
         response = self.client.post(

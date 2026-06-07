@@ -6,8 +6,8 @@ class SentenceTransformersEmbeddingProvider(ScaffoldedEmbeddingProvider):
     status = "disabled"
     dependency = "sentence-transformers"
     dependency_import = "sentence_transformers"
-    required_env = []
-    optional_env = []
+    required_config = []
+    optional_config = []
     dimension = "dense"
     description = "sentence-transformers embedding provider is disabled until callers pass explicit provider config."
 

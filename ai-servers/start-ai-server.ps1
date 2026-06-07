@@ -1,11 +1,11 @@
 $ErrorActionPreference = "Stop"
 
 $ProjectName = "smart-campus-ai"
-$AiServerHost = if ($env:AI_SERVER_HOST) { $env:AI_SERVER_HOST } else { "127.0.0.1" }
-$PythonServerPort = if ($env:PYTHON_SERVER_PORT) { [int]$env:PYTHON_SERVER_PORT } else { 8081 }
-$RagVectorStoreBackend = if ($env:RAG_VECTOR_STORE_BACKEND) { $env:RAG_VECTOR_STORE_BACKEND } else { "milvus" }
-$RagDockerWaitSeconds = if ($env:RAG_DOCKER_WAIT_SECONDS) { [int]$env:RAG_DOCKER_WAIT_SECONDS } else { 90 }
-$RagDockerPullRetries = if ($env:RAG_DOCKER_PULL_RETRIES) { [int]$env:RAG_DOCKER_PULL_RETRIES } else { 3 }
+$AiServerHost = "127.0.0.1"
+$PythonServerPort = 8081
+$VectorStoreBackend = "milvus"
+$DockerWaitSeconds = 90
+$DockerPullRetries = 3
 $StartDocker = $true
 $BuildKnowledgeBase = $false
 
@@ -14,7 +14,7 @@ for ($i = 0; $i -lt $args.Count; $i++) {
         "--backend" {
             $i++
             if ($i -ge $args.Count) { throw "--backend requires a value" }
-            $RagVectorStoreBackend = $args[$i]
+            $VectorStoreBackend = $args[$i]
         }
         "--build-kb" {
             $BuildKnowledgeBase = $true
@@ -128,7 +128,7 @@ function Start-DockerDesktop {
 
 function Wait-ForMilvus {
     Write-Log "Waiting for Milvus at http://localhost:9091/healthz ..."
-    for ($i = 0; $i -lt $RagDockerWaitSeconds; $i++) {
+    for ($i = 0; $i -lt $DockerWaitSeconds; $i++) {
         try {
             $response = Invoke-WebRequest -Uri "http://localhost:9091/healthz" -UseBasicParsing -TimeoutSec 2
             if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 300) {
@@ -139,12 +139,12 @@ function Wait-ForMilvus {
         }
     }
 
-    Stop-WithError "Milvus did not become ready within ${RagDockerWaitSeconds}s."
+    Stop-WithError "Milvus did not become ready within ${DockerWaitSeconds}s."
 }
 
 function Pull-DockerImages {
-    for ($i = 1; $i -le $RagDockerPullRetries; $i++) {
-        Write-Log "Pulling RAG Docker images (${i}/${RagDockerPullRetries})..."
+    for ($i = 1; $i -le $DockerPullRetries; $i++) {
+        Write-Log "Pulling RAG Docker images (${i}/${DockerPullRetries})..."
         Invoke-Compose -f $RagComposeFile pull
         if ($LASTEXITCODE -eq 0) {
             return
@@ -186,7 +186,7 @@ function Start-DockerServices {
     if (-not $StartDocker) {
         return
     }
-    if ($RagVectorStoreBackend -ne "milvus") {
+    if ($VectorStoreBackend -ne "milvus") {
         return
     }
     if (-not (Test-Path $RagComposeFile)) {
@@ -207,17 +207,14 @@ function Build-KnowledgeBase {
     if (-not $BuildKnowledgeBase) {
         return
     }
-    Write-Log "Building knowledge base with backend=$RagVectorStoreBackend ..."
-    & python scripts/build_knowledge_base.py --backend $RagVectorStoreBackend
+    Write-Log "Building knowledge base with backend=$VectorStoreBackend ..."
+    & python scripts/build_knowledge_base.py --backend $VectorStoreBackend
     if ($LASTEXITCODE -ne 0) {
         Stop-WithError "Failed to build knowledge base."
     }
 }
 
 function Start-AiServer {
-    $env:AI_SERVER_HOST = $AiServerHost
-    $env:PYTHON_SERVER_PORT = [string]$PythonServerPort
-    $env:RAG_VECTOR_STORE_BACKEND = $RagVectorStoreBackend
     Write-Log "Starting AI Server at http://${AiServerHost}:$PythonServerPort ..."
     & python -m uvicorn app.main:app --host $AiServerHost --port $PythonServerPort
     exit $LASTEXITCODE

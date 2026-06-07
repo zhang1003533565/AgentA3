@@ -7,8 +7,9 @@ from app.rag.vector_stores.faiss import FaissVectorStore
 from app.rag.vector_stores.local_jsonl import LocalJsonlVectorStore
 from app.rag.vector_stores.milvus import MilvusVectorStore
 from app.rag.vector_stores.pgvector import PgVectorStore
+from app.rag.defaults import VECTOR_STORE_BACKEND
 
-DEFAULT_VECTOR_STORE_BACKEND = "milvus"
+DEFAULT_VECTOR_STORE_BACKEND = VECTOR_STORE_BACKEND
 LOCAL_VECTOR_STORE_BACKENDS = {"", "local", "jsonl", "local_jsonl"}
 
 

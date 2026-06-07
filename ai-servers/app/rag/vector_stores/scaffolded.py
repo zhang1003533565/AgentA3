@@ -11,8 +11,8 @@ class ScaffoldedVectorStore(BaseVectorStore):
     status = "scaffolded"
     dependency = ""
     dependency_import = ""
-    required_env: List[str] = []
-    optional_env: List[str] = []
+    required_config: List[str] = []
+    optional_config: List[str] = []
     description = "Vector store adapter scaffold. Runtime integration is not implemented yet."
 
     def __init__(self, root_dir: Path, index_path: Optional[Path] = None) -> None:
@@ -40,10 +40,10 @@ class ScaffoldedVectorStore(BaseVectorStore):
             "description": self.description,
             "dependency": self.dependency,
             "dependencyAvailable": dependency_available,
-            "configured": not disabled and not self.required_env and dependency_available,
-            "requiredEnv": self.required_env,
-            "optionalEnv": self.optional_env,
-            "missingEnv": list(self.required_env),
+            "configured": not disabled and not self.required_config and dependency_available,
+            "requiredConfig": self.required_config,
+            "optionalConfig": self.optional_config,
+            "missingConfig": list(self.required_config),
             "rootDir": str(self.root_dir),
             "indexPath": str(self.index_path) if self.index_path else "",
             "documentCount": 0,
