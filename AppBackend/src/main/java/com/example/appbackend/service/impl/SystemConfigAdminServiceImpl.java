@@ -206,6 +206,8 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
             result = testGeneratedMediaModel(req, authorization, modality, provider, baseUrl, apiKey, model, prompt);
         } else if ("audio".equals(modality)) {
             result = testAudioModel(req, modality, provider, baseUrl, apiKey, model, prompt);
+        } else if ("embedding".equals(modality)) {
+            result = testEmbeddingModel(provider, baseUrl, apiKey, model, prompt);
         } else {
             result = testChatCompletionModel(modality, provider, baseUrl, apiKey, model, prompt);
         }
@@ -488,6 +490,44 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
         }
     }
 
+    private SystemConfigDTO.TestResultVO testEmbeddingModel(String provider,
+                                                            String baseUrl,
+                                                            String apiKey,
+                                                            String model,
+                                                            String prompt) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("model", model);
+        payload.put("input", prompt);
+        payload.put("encoding_format", "float");
+
+        String target = trimTrailingSlash(baseUrl) + "/embeddings";
+        try {
+            String body = webClientBuilder.build()
+                    .post()
+                    .uri(target)
+                    .headers(headers -> {
+                        headers.setBearerAuth(apiKey);
+                        headers.set("api-key", apiKey);
+                        headers.setContentType(MediaType.APPLICATION_JSON);
+                    })
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+            JsonNode root = objectMapper.readTree(body == null ? "{}" : body);
+            JsonNode embedding = root.path("data").path(0).path("embedding");
+            int dimension = embedding.isArray() ? embedding.size() : 0;
+            if (dimension <= 0) {
+                return aiModelTestResult(false, target, "模型未返回有效向量", provider, model, "embedding", prompt, jsonOrText(body));
+            }
+            return aiModelTestResult(true, target, "向量模型返回成功，维度：" + dimension, provider, model, "embedding", prompt, jsonOrText(body));
+        } catch (WebClientResponseException error) {
+            return aiModelTestResult(false, target, "模型调用失败：" + error.getStatusCode().value() + " " + abbreviate(error.getResponseBodyAsString(), 800), provider, model, "embedding", prompt, jsonOrText(error.getResponseBodyAsString()));
+        } catch (Exception error) {
+            return aiModelTestResult(false, target, "模型调用失败：" + error.getMessage(), provider, model, "embedding", prompt, null);
+        }
+    }
+
     private SystemConfigDTO.TestResultVO testGeneratedMediaModel(SystemConfigDTO.AiModelTestRequest req,
                                                                   String authorization,
                                                                   String modality,
@@ -721,6 +761,7 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
             case "image" -> "生成一张简洁的智慧校园图标，蓝绿色科技风，干净背景。";
             case "video" -> "生成一个 5 秒的智慧校园欢迎动画，镜头缓慢推进，现代科技感。";
             case "audio" -> "欢迎使用智慧校园模型测试。";
+            case "embedding" -> "智慧校园向量模型连接测试";
             case "vision" -> "请用一句中文回复：视觉模型连接测试成功。";
             default -> "请用一句中文回复：模型连接测试成功。";
         };
@@ -732,6 +773,7 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
             case "video" -> "视频";
             case "audio" -> "语音";
             case "vision" -> "视觉";
+            case "embedding" -> "向量";
             default -> "文本";
         };
     }

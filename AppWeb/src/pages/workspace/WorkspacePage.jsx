@@ -2473,6 +2473,8 @@ function WorkspacePage({ pageKey }) {
         return '生成一个 5 秒的智慧校园欢迎动画，镜头缓慢推进，现代科技感。'
       case 'audio':
         return '欢迎使用智慧校园模型测试。'
+      case 'embedding':
+        return '智慧校园向量模型连接测试'
       case 'vision':
         return '请用一句中文回复：视觉模型连接测试成功。'
       default:
