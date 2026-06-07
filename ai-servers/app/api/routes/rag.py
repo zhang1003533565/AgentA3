@@ -140,12 +140,12 @@ def get_rag_capabilities(
             "uploadEncoding": "text_or_base64",
         },
         "documentConversion": {
-            "supportedInputs": ["pdf", "ppt", "pptx"],
+            "supportedInputs": ["pdf", "pptx"],
             "supportedOutputs": ["docx"],
             "ocr": False,
             "imageHandling": {
                 "docx": "原生 PDF 文字会重建为 Word 文字，图片单独保留；不支持扫描件 OCR",
-                "pptDocx": "PPT/PPTX 转 DOCX 会按幻灯片顺序重排内容，保留文本、表格和图片；.ppt 需要 LibreOffice 支持",
+                "pptxDocx": "PPTX 转 DOCX 会按幻灯片顺序重排内容，保留文本、表格和图片",
             },
             "noLocalFallback": True,
         },
@@ -964,13 +964,13 @@ def convert_ppt_document(
 ) -> Dict[str, Any]:
     _require_authorization(authorization)
     filename = request.fileName or "presentation.pptx"
-    if not filename.lower().endswith((".ppt", ".pptx")):
-        raise HTTPException(status_code=400, detail="当前仅支持上传 PPT 或 PPTX 文件")
+    if not filename.lower().endswith(".pptx"):
+        raise HTTPException(status_code=400, detail="当前仅支持上传 PPTX 文件；请先将 PPT 另存为 PPTX")
     try:
         import base64
         ppt_bytes = base64.b64decode(request.contentBase64, validate=True)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail="PPT/PPTX Base64 内容无效") from exc
+        raise HTTPException(status_code=400, detail="PPTX Base64 内容无效") from exc
     logger.info("ppt convert request filename=%s size=%s", filename, len(ppt_bytes))
     try:
         result = convert_ppt_to_docx(ppt_bytes, filename)

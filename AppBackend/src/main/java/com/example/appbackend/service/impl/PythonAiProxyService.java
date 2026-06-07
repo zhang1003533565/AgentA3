@@ -187,12 +187,11 @@ public class PythonAiProxyService {
     public Object convertPpt(MultipartFile file, String authorization) {
         validateAuthorization(authorization);
         if (file == null || file.isEmpty()) {
-            throw new BusinessException(Result.ERROR_CODE, "PPT/PPTX 文件不能为空");
+            throw new BusinessException(Result.ERROR_CODE, "PPTX 文件不能为空");
         }
         String filename = StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : "presentation.pptx";
-        String lowerFilename = filename.toLowerCase();
-        if (!lowerFilename.endsWith(".ppt") && !lowerFilename.endsWith(".pptx")) {
-            throw new BusinessException(Result.ERROR_CODE, "当前仅支持上传 PPT 或 PPTX 文件");
+        if (!filename.toLowerCase().endsWith(".pptx")) {
+            throw new BusinessException(Result.ERROR_CODE, "当前仅支持上传 PPTX 文件；请先将 PPT 另存为 PPTX");
         }
         String token = normalizeBearerToken(authorization);
         Long userId = extractUserId(token);
