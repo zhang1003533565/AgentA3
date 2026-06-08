@@ -143,8 +143,33 @@ function Wait-ForMilvus {
 }
 
 function Pull-DockerImages {
+    Write-Log "Checking if Docker images exist locally..."
+    
+    # 获取 compose 文件中定义的所有镜像
+    $composeConfig = Invoke-Compose -f $RagComposeFile config | Out-String
+    $images = ($composeConfig | Select-String 'image:' | ForEach-Object { $_.Line.Trim() -replace '^\s*image:\s*', '' }) | Sort-Object -Unique
+    
+    # 检查所有镜像是否已存在
+    $allImagesExist = $true
+    foreach ($image in $images) {
+        if (-not $image) { continue }
+        docker image inspect $image *> $null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "Image not found locally: $image"
+            $allImagesExist = $false
+            break
+        }
+    }
+    
+    # 如果所有镜像都存在，跳过拉取
+    if ($allImagesExist) {
+        Write-Log "All Docker images found locally, skipping pull."
+        return
+    }
+    
+    # 否则尝试拉取缺失的镜像
     for ($i = 1; $i -le $DockerPullRetries; $i++) {
-        Write-Log "Pulling RAG Docker images (${i}/${DockerPullRetries})..."
+        Write-Log "Pulling missing RAG Docker images (${i}/${DockerPullRetries})..."
         Invoke-Compose -f $RagComposeFile pull
         if ($LASTEXITCODE -eq 0) {
             return

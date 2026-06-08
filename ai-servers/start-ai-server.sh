@@ -116,9 +116,28 @@ wait_for_milvus() {
 }
 
 pull_docker_images() {
+  log "Checking if Docker images exist locally..."
+  
+  # 检查所有需要的镜像是否已存在
+  local images_exist=true
+  while IFS= read -r image; do
+    if ! docker image inspect "$image" >/dev/null 2>&1; then
+      log "Image not found locally: $image"
+      images_exist=false
+      break
+    fi
+  done < <("${COMPOSE[@]}" -f "$COMPOSE_FILE" config | grep 'image:' | awk '{print $2}' | sort -u)
+  
+  # 如果所有镜像都存在，跳过拉取
+  if [[ "$images_exist" == "true" ]]; then
+    log "All Docker images found locally, skipping pull."
+    return 0
+  fi
+  
+  # 否则尝试拉取缺失的镜像
   local attempt
   for attempt in $(seq 1 "$DOCKER_PULL_RETRIES"); do
-    log "Pulling RAG Docker images (${attempt}/${DOCKER_PULL_RETRIES})..."
+    log "Pulling missing RAG Docker images (${attempt}/${DOCKER_PULL_RETRIES})..."
     if "${COMPOSE[@]}" -f "$COMPOSE_FILE" pull; then
       return
     fi
