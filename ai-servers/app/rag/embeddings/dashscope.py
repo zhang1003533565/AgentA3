@@ -1,20 +1,13 @@
-from app.rag.embeddings.scaffolded import ScaffoldedEmbeddingProvider
+from typing import Optional
+
+from app.model_providers.runtime_config import LlmRuntimeConfig
+from app.rag.embeddings.openai import OpenAIEmbeddingProvider
 
 
-class DashScopeEmbeddingProvider(ScaffoldedEmbeddingProvider):
+class DashScopeEmbeddingProvider(OpenAIEmbeddingProvider):
     name = "dashscope"
-    status = "disabled"
-    dependency = "dashscope"
-    dependency_import = "dashscope"
-    required_config = []
-    optional_config = []
-    dimension = "dense"
-    description = "DashScope embedding provider is disabled until callers pass explicit provider config."
+    description = "DashScope/Qwen embedding provider using OpenAI-compatible embeddings API."
 
-    def embed_text(self, text: str):
-        raise RuntimeError("DashScope embedding 已禁用：ai-server 不读取环境变量，请由 Java/调用方显式传入配置后再启用。")
-
-    def _ensure_ready(self) -> None:
-        health = self.health()
-        if not health["configured"]:
-            raise RuntimeError(f"DashScope embedding provider is not configured: {health}")
+    def __init__(self, config: Optional[LlmRuntimeConfig] = None) -> None:
+        super().__init__(config=config)
+        self.name = "dashscope"

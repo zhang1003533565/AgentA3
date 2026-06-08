@@ -1,3 +1,4 @@
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -154,14 +155,15 @@ class MilvusVectorStore(BaseVectorStore):
         }
 
     def _dense_vector(self, text: str) -> List[float]:
-        sparse = self.embedding_provider.embed_text(text)
+        embedding = self.embedding_provider.embed_text(text)
+        if self._is_dense_embedding(embedding) and len(embedding) == self.dimension:
+            dense = [float(embedding.get(str(index), 0.0)) for index in range(self.dimension)]
+            return self._normalize_vector(dense)
+
         dense = [0.0] * self.dimension
-        for key, value in sparse.items():
-            dense[hash(key) % self.dimension] += float(value)
-        norm = math.sqrt(sum(value * value for value in dense))
-        if norm > 0:
-            dense = [value / norm for value in dense]
-        return dense
+        for key, value in embedding.items():
+            dense[self._stable_bucket(key)] += float(value)
+        return self._normalize_vector(dense)
 
     def _ensure_ready(self) -> None:
         if not self._dependency_available():
@@ -214,3 +216,18 @@ class MilvusVectorStore(BaseVectorStore):
 
     def _is_parent_child_index(self, index_path: Optional[Path]) -> bool:
         return bool(index_path and index_path.name == "parent_child_chunks.jsonl")
+
+    def _is_dense_embedding(self, embedding: dict) -> bool:
+        return all(str(key).isdigit() for key in embedding.keys())
+
+    def _stable_bucket(self, key: str) -> int:
+        if str(key).isdigit():
+            return int(str(key)) % self.dimension
+        digest = hashlib.sha256(str(key).encode("utf-8")).hexdigest()
+        return int(digest[:16], 16) % self.dimension
+
+    def _normalize_vector(self, vector: List[float]) -> List[float]:
+        norm = math.sqrt(sum(value * value for value in vector))
+        if norm > 0:
+            return [value / norm for value in vector]
+        return vector

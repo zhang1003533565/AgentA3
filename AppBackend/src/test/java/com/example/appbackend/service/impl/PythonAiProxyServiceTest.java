@@ -117,6 +117,10 @@ class PythonAiProxyServiceTest {
         AtomicReference<String> authRef = new AtomicReference<>();
         AtomicReference<String> userIdRef = new AtomicReference<>();
         AtomicReference<String> aiModelRef = new AtomicReference<>();
+        AtomicReference<String> embeddingProviderRef = new AtomicReference<>();
+        AtomicReference<String> embeddingBaseUrlRef = new AtomicReference<>();
+        AtomicReference<String> embeddingApiKeyRef = new AtomicReference<>();
+        AtomicReference<String> embeddingModelRef = new AtomicReference<>();
         AtomicReference<String> requestBodyRef = new AtomicReference<>();
 
         server = HttpServer.create(new InetSocketAddress(0), 0);
@@ -124,6 +128,10 @@ class PythonAiProxyServiceTest {
             authRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
             userIdRef.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
             aiModelRef.set(exchange.getRequestHeaders().getFirst("X-AI-Model"));
+            embeddingProviderRef.set(exchange.getRequestHeaders().getFirst("X-AI-Embedding-Provider"));
+            embeddingBaseUrlRef.set(exchange.getRequestHeaders().getFirst("X-AI-Embedding-Base-Url"));
+            embeddingApiKeyRef.set(exchange.getRequestHeaders().getFirst("X-AI-Embedding-Api-Key"));
+            embeddingModelRef.set(exchange.getRequestHeaders().getFirst("X-AI-Embedding-Model"));
             requestBodyRef.set(readBody(exchange));
 
             String responseJson = """
@@ -143,7 +151,12 @@ class PythonAiProxyServiceTest {
         String token = buildJwtToken(1003L);
 
         Object response = service.queryRag(
-                Map.of("input", "统计菜品数量", "ragStrategy", "text_to_sql", "llmModel", "ai.service.text"),
+                Map.of(
+                        "input", "统计菜品数量",
+                        "ragStrategy", "text_to_sql",
+                        "llmModel", "ai.service.text",
+                        "embeddingModel", "ai.service.embedding.qwen"
+                ),
                 "Bearer " + token
         );
 
@@ -154,12 +167,17 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("Bearer " + token, authRef.get());
         Assertions.assertEquals("1003", userIdRef.get());
         Assertions.assertEquals("test-model", aiModelRef.get());
+        Assertions.assertEquals("qwen", embeddingProviderRef.get());
+        Assertions.assertEquals("https://embedding.test/v1", embeddingBaseUrlRef.get());
+        Assertions.assertEquals("test-embedding-key", embeddingApiKeyRef.get());
+        Assertions.assertEquals("text-embedding-v4", embeddingModelRef.get());
 
         ObjectMapper mapper = new ObjectMapper();
         JsonNode reqJson = mapper.readTree(requestBodyRef.get());
         Assertions.assertEquals("统计菜品数量", reqJson.path("input").asText());
         Assertions.assertEquals("text_to_sql", reqJson.path("ragStrategy").asText());
         Assertions.assertTrue(reqJson.path("llmModel").isMissingNode());
+        Assertions.assertTrue(reqJson.path("embeddingModel").isMissingNode());
     }
 
     @Test
@@ -329,6 +347,18 @@ class PythonAiProxyServiceTest {
             }
             if ("ai.service.text.model".equals(key)) {
                 return "test-model";
+            }
+            if ("ai.service.embedding.qwen.provider".equals(key)) {
+                return "qwen";
+            }
+            if ("ai.service.embedding.qwen.base-url".equals(key)) {
+                return "https://embedding.test/v1";
+            }
+            if ("ai.service.embedding.qwen.api-key".equals(key)) {
+                return "test-embedding-key";
+            }
+            if ("ai.service.embedding.qwen.model".equals(key)) {
+                return "text-embedding-v4";
             }
             return defaultValue;
         }

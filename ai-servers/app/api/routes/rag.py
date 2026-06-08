@@ -27,6 +27,11 @@ from app.rag.core import RAG_STRATEGY_SPECS, RagQuery, RagTraceStep
 from app.rag.core.types import RagDocument
 from app.rag.defaults import MILVUS_COLLECTION, MILVUS_PARENT_CHILD_COLLECTION, MILVUS_URI, knowledge_base_root
 from app.rag.embeddings import build_embedding_provider
+from app.rag.embeddings.runtime_config import (
+    build_embedding_runtime_config,
+    reset_active_embedding_config,
+    set_active_embedding_config,
+)
 from app.rag.engine import rag_engine
 from app.rag.evaluators import RagEvaluationInput, RagEvaluator
 from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx
@@ -318,6 +323,10 @@ def run_rag_query(
     x_ai_base_url: Optional[str] = Header(default=None, alias="X-AI-Base-Url"),
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
+    x_ai_embedding_provider: Optional[str] = Header(default=None, alias="X-AI-Embedding-Provider"),
+    x_ai_embedding_base_url: Optional[str] = Header(default=None, alias="X-AI-Embedding-Base-Url"),
+    x_ai_embedding_api_key: Optional[str] = Header(default=None, alias="X-AI-Embedding-Api-Key"),
+    x_ai_embedding_model: Optional[str] = Header(default=None, alias="X-AI-Embedding-Model"),
 ) -> RagQueryResponse:
     _require_authorization(authorization)
     audit = _llm_header_audit_fields(
@@ -344,9 +353,16 @@ def run_rag_query(
         api_key=x_ai_api_key,
         model=x_ai_model,
     ))
+    embedding_token = set_active_embedding_config(build_embedding_runtime_config(
+        provider=x_ai_embedding_provider,
+        base_url=x_ai_embedding_base_url,
+        api_key=x_ai_embedding_api_key,
+        model=x_ai_embedding_model,
+    ))
     try:
         return _run_rag_query_core(request, authorization or "")
     finally:
+        reset_active_embedding_config(embedding_token)
         reset_active_llm_config(token)
 
 
@@ -358,6 +374,10 @@ async def run_rag_query_stream(
     x_ai_base_url: Optional[str] = Header(default=None, alias="X-AI-Base-Url"),
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
+    x_ai_embedding_provider: Optional[str] = Header(default=None, alias="X-AI-Embedding-Provider"),
+    x_ai_embedding_base_url: Optional[str] = Header(default=None, alias="X-AI-Embedding-Base-Url"),
+    x_ai_embedding_api_key: Optional[str] = Header(default=None, alias="X-AI-Embedding-Api-Key"),
+    x_ai_embedding_model: Optional[str] = Header(default=None, alias="X-AI-Embedding-Model"),
 ):
     _require_authorization(authorization)
     llm_config = build_llm_runtime_config(
@@ -366,10 +386,17 @@ async def run_rag_query_stream(
         api_key=x_ai_api_key,
         model=x_ai_model,
     )
+    embedding_config = build_embedding_runtime_config(
+        provider=x_ai_embedding_provider,
+        base_url=x_ai_embedding_base_url,
+        api_key=x_ai_embedding_api_key,
+        model=x_ai_embedding_model,
+    )
 
     async def event_stream():
         yield build_sse("status", {"stage": "processing"})
         token = set_active_llm_config(llm_config)
+        embedding_token = set_active_embedding_config(embedding_config)
         try:
             response = await asyncio.to_thread(_run_rag_query_core, request, authorization or "")
             metadata = response.metadata or {}
@@ -403,6 +430,7 @@ async def run_rag_query_stream(
             logger.exception("rag stream failed agent=%s", request.agentName or "-")
             yield build_sse("error", {"message": str(exc)})
         finally:
+            reset_active_embedding_config(embedding_token)
             reset_active_llm_config(token)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -412,9 +440,20 @@ async def run_rag_query_stream(
 def run_recall_test(
     request: RagRecallTestRequest,
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
+    x_ai_embedding_provider: Optional[str] = Header(default=None, alias="X-AI-Embedding-Provider"),
+    x_ai_embedding_base_url: Optional[str] = Header(default=None, alias="X-AI-Embedding-Base-Url"),
+    x_ai_embedding_api_key: Optional[str] = Header(default=None, alias="X-AI-Embedding-Api-Key"),
+    x_ai_embedding_model: Optional[str] = Header(default=None, alias="X-AI-Embedding-Model"),
 ) -> RagQueryResponse:
     _require_authorization(authorization)
     requested_strategy = request.ragStrategy or "hybrid_search"
+    embedding_config = build_embedding_runtime_config(
+        provider=x_ai_embedding_provider,
+        base_url=x_ai_embedding_base_url,
+        api_key=x_ai_embedding_api_key,
+        model=x_ai_embedding_model,
+    )
+    embedding_token = set_active_embedding_config(embedding_config)
     try:
         result = rag_engine.run(RagQuery(
             text=request.query,
@@ -424,6 +463,8 @@ def run_recall_test(
         ), strategy_name=requested_strategy)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        reset_active_embedding_config(embedding_token)
 
     metadata = dict(result.metadata)
     metadata.update({
@@ -854,8 +895,19 @@ def _answer_type_for_agent(agent_name: str) -> str:
 def ingest_rag_documents(
     request: RagDocumentIngestRequest,
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
+    x_ai_embedding_provider: Optional[str] = Header(default=None, alias="X-AI-Embedding-Provider"),
+    x_ai_embedding_base_url: Optional[str] = Header(default=None, alias="X-AI-Embedding-Base-Url"),
+    x_ai_embedding_api_key: Optional[str] = Header(default=None, alias="X-AI-Embedding-Api-Key"),
+    x_ai_embedding_model: Optional[str] = Header(default=None, alias="X-AI-Embedding-Model"),
 ) -> RagDocumentIngestResponse:
     _require_authorization(authorization)
+    embedding_config = build_embedding_runtime_config(
+        provider=x_ai_embedding_provider,
+        base_url=x_ai_embedding_base_url,
+        api_key=x_ai_embedding_api_key,
+        model=x_ai_embedding_model,
+    )
+    embedding_token = set_active_embedding_config(embedding_config)
     pipeline = RagIngestionPipeline(root_dir=str(_knowledge_base_root()))
     try:
         result = pipeline.run([
@@ -869,6 +921,8 @@ def ingest_rag_documents(
         ])
     except RagIngestionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    finally:
+        reset_active_embedding_config(embedding_token)
 
     logger.info(
         "rag documents ingested count=%s chunks=%s",

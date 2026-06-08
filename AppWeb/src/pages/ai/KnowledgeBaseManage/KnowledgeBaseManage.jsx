@@ -11,6 +11,7 @@ import {
   ingestRagDocuments,
   runRagRecallTest,
 } from '../../../api/rag'
+import { getSystemConfigList } from '../../../api/systemConfig'
 import '../RagManage/RagManage.css'
 import './KnowledgeBaseManage.css'
 
@@ -47,6 +48,8 @@ const recallStrategyOptions = [
 const isSupportedKnowledgeFile = (file) => /\.(docx|txt)$/i.test(file?.name || file?.originFileObj?.name || '')
 const isPptxFile = (file) => /\.pptx$/i.test(file?.name || file?.originFileObj?.name || '')
 const isPdfFile = (file) => /\.pdf$/i.test(file?.name || file?.originFileObj?.name || '')
+const AI_TESTED_MODEL_PREFIXES_KEY = 'ai_tested_model_prefixes_v1'
+const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.embedding(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
 
 const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader()
@@ -57,6 +60,38 @@ const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
   reader.onerror = reject
   reader.readAsDataURL(file)
 })
+
+const readTestedModelPrefixSet = () => {
+  try {
+    const raw = localStorage.getItem(AI_TESTED_MODEL_PREFIXES_KEY)
+    const parsed = raw ? JSON.parse(raw) : {}
+    return new Set(Object.keys(parsed || {}))
+  } catch {
+    return new Set()
+  }
+}
+
+const buildEmbeddingModelOptions = (configs) => {
+  const testedPrefixes = readTestedModelPrefixSet()
+  const groups = new Map()
+  ;(configs || []).forEach((item) => {
+    const match = AI_MODEL_CONFIG_PATTERN.exec(item.configKey || '')
+    if (!match) return
+    const configName = match[1] || 'default'
+    const field = match[2]
+    const configPrefix = configName === 'default' ? 'ai.service.embedding' : `ai.service.embedding.${configName}`
+    const group = groups.get(configPrefix) || { configPrefix, configName, configs: {} }
+    group.configs[field] = item.configValue || ''
+    groups.set(configPrefix, group)
+  })
+  return Array.from(groups.values())
+    .filter((group) => testedPrefixes.has(group.configPrefix))
+    .filter((group) => group.configs.provider && group.configs['base-url'] && group.configs['api-key'] && group.configs.model)
+    .map((group) => ({
+      value: group.configPrefix,
+      label: `${group.configs.model}（${group.configs.provider || group.configName}）`,
+    }))
+}
 
 function KnowledgeBaseManage() {
   const [bootLoading, setBootLoading] = useState(false)
@@ -70,6 +105,7 @@ function KnowledgeBaseManage() {
   const [recallLoading, setRecallLoading] = useState(false)
   const [recallResult, setRecallResult] = useState(null)
   const [recallError, setRecallError] = useState('')
+  const [embeddingModelOptions, setEmbeddingModelOptions] = useState([])
   const [ingestForm] = Form.useForm()
   const [convertForm] = Form.useForm()
   const [recallForm] = Form.useForm()
@@ -77,13 +113,24 @@ function KnowledgeBaseManage() {
   const refresh = async () => {
     setBootLoading(true)
     try {
-      const [documentRes, vectorHealthRes, embeddingHealthRes, graphHealthRes] = await Promise.all([
+      const [documentRes, vectorHealthRes, embeddingHealthRes, graphHealthRes, configRes] = await Promise.all([
         getRagDocuments(),
         getRagVectorStoreHealth(),
         getRagEmbeddingHealth(),
         getRagGraphStoreHealth(),
+        getSystemConfigList({ current: 1, size: 500, prefixes: 'ai.service.embedding' }),
       ])
+      const options = buildEmbeddingModelOptions(configRes.data?.records || [])
       setDocuments(documentRes.data?.documents || [])
+      setEmbeddingModelOptions(options)
+      const currentIngestModel = ingestForm.getFieldValue('embeddingModel')
+      const currentRecallModel = recallForm.getFieldValue('embeddingModel')
+      if (!currentIngestModel && options[0]?.value) {
+        ingestForm.setFieldsValue({ embeddingModel: options[0].value })
+      }
+      if (!currentRecallModel && options[0]?.value) {
+        recallForm.setFieldsValue({ embeddingModel: options[0].value })
+      }
       setHealth({
         vector: vectorHealthRes.data,
         embedding: embeddingHealthRes.data,
@@ -120,6 +167,7 @@ function KnowledgeBaseManage() {
       }
       const contentBase64 = selectedFile ? await readFileAsBase64(selectedFile) : undefined
       const res = await ingestRagDocuments({
+        embeddingModel: values.embeddingModel,
         documents: [{
           source: sourceName,
           content: textContent,
@@ -181,6 +229,7 @@ function KnowledgeBaseManage() {
         keyword: values.keyword || undefined,
         intent: values.intent || 'campus_search',
         ragStrategy: values.ragStrategy || 'hybrid_search',
+        embeddingModel: values.embeddingModel,
         metadata: {},
       })
       setRecallResult(res.data)
@@ -254,6 +303,18 @@ function KnowledgeBaseManage() {
           <Col xs={24} lg={9}>
             <Card title="新增知识文档" className="rag-panel-card">
               <Form form={ingestForm} layout="vertical" onFinish={handleIngest}>
+                <Form.Item
+                  name="embeddingModel"
+                  label="向量模型"
+                  rules={[{ required: true, message: '请选择已测试成功的向量模型' }]}
+                  extra="只显示系统配置中已测试成功的 ai.service.embedding.*。"
+                >
+                  <Select
+                    options={embeddingModelOptions}
+                    placeholder="请先在系统配置中测试向量模型"
+                    notFoundContent="暂无已测试成功的向量模型"
+                  />
+                </Form.Item>
                 <Form.Item name="source" label="来源文件名">
                   <Input placeholder="例如：校园卡服务.docx" />
                 </Form.Item>
@@ -324,6 +385,18 @@ function KnowledgeBaseManage() {
                 </Form.Item>
                 <Form.Item name="ragStrategy" label="召回策略">
                   <Select options={recallStrategyOptions} />
+                </Form.Item>
+                <Form.Item
+                  name="embeddingModel"
+                  label="向量模型"
+                  rules={[{ required: true, message: '请选择已测试成功的向量模型' }]}
+                  extra="召回会使用和入库一致的向量模型配置。"
+                >
+                  <Select
+                    options={embeddingModelOptions}
+                    placeholder="请先在系统配置中测试向量模型"
+                    notFoundContent="暂无已测试成功的向量模型"
+                  />
                 </Form.Item>
                 <Form.Item name="intent" label="意图标识">
                   <Input placeholder="campus_search" />
