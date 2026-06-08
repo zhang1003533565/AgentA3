@@ -22,6 +22,8 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.HashMap;
@@ -235,6 +237,14 @@ public class PythonAiProxyService {
 
     public Object listRagDocuments(String authorization) {
         return getRagObject("/internal/rag/documents", authorization);
+    }
+
+    public Object listRagDocumentChunks(String source, String authorization) {
+        String path = "/internal/rag/documents/chunks";
+        if (StringUtils.hasText(source)) {
+            path += "?source=" + URLEncoder.encode(source, StandardCharsets.UTF_8);
+        }
+        return getRagObject(path, authorization);
     }
 
     public Object getRagVectorStoreHealth(String authorization) {

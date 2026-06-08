@@ -2,6 +2,7 @@ from app.model_providers.base import ChatModelProvider
 from app.model_providers.deepseek import DeepSeekProvider
 from app.model_providers.qwen import QwenProvider
 from app.model_providers.runtime_config import LlmRuntimeConfig
+from app.model_providers.volcengine import VolcengineProvider
 from app.model_providers.xfyun import XfyunProvider
 from app.model_providers.xiaomi import XiaomiProvider
 
@@ -10,6 +11,7 @@ __all__ = [
     "DeepSeekProvider",
     "LlmRuntimeConfig",
     "QwenProvider",
+    "VolcengineProvider",
     "XfyunProvider",
     "XiaomiProvider",
 ]

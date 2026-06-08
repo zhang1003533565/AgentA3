@@ -122,6 +122,14 @@ public class AiRagController {
         return Result.success(pythonAiProxyService.listRagDocuments(adminAuthorization(request)));
     }
 
+    @GetMapping("/documents/chunks")
+    @Operation(summary = "RAG 知识库文档切片列表")
+    public Result<Object> documentChunks(
+            @RequestParam(value = "source", required = false) String source,
+            HttpServletRequest request) {
+        return Result.success(pythonAiProxyService.listRagDocumentChunks(source, adminAuthorization(request)));
+    }
+
     @GetMapping("/vector-store/health")
     @Operation(summary = "向量库健康检查")
     public Result<Object> vectorStoreHealth(HttpServletRequest request) {

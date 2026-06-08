@@ -188,6 +188,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertIn("xiaomi", {item["name"] for item in payload["modelProviders"]})
         self.assertIn("qwen", {item["name"] for item in payload["modelProviders"]})
         self.assertIn("xfyun", {item["name"] for item in payload["modelProviders"]})
+        self.assertIn("volcengine", {item["name"] for item in payload["modelProviders"]})
 
     def test_model_factory_selects_xiaomi_provider(self):
         class FakeXiaomiProvider:
@@ -250,6 +251,26 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertIsInstance(provider, FakeXfyunProvider)
         self.assertEqual("4.0Ultra", provider.config.model)
 
+    def test_model_factory_selects_volcengine_provider(self):
+        class FakeVolcengineProvider:
+            def __init__(self, config):
+                self.config = config
+
+        old_volcengine_provider = model_provider_factory.VolcengineProvider
+        try:
+            model_provider_factory.VolcengineProvider = FakeVolcengineProvider
+            provider = model_provider_factory.build_chat_model_provider(LlmRuntimeConfig(
+                provider="ark",
+                base_url="https://ark.cn-beijing.volces.com/api/v3",
+                api_key="test-key",
+                model="deepseek-v3",
+            ))
+        finally:
+            model_provider_factory.VolcengineProvider = old_volcengine_provider
+
+        self.assertIsInstance(provider, FakeVolcengineProvider)
+        self.assertEqual("deepseek-v3", provider.config.model)
+
     def test_model_provider_catalog_contains_xfyun_modalities(self):
         response = self.client.get("/internal/models/providers", headers=self.headers)
 
@@ -259,6 +280,16 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertGreaterEqual({"text", "vision", "image", "video"}, set(providers["xfyun"]["capabilities"]))
         self.assertEqual("implemented", providers["xfyun"]["capabilities"]["text"]["status"])
         self.assertEqual("planned", providers["xfyun"]["capabilities"]["image"]["status"])
+
+    def test_model_provider_catalog_contains_volcengine_deepseek_models(self):
+        response = self.client.get("/internal/models/providers", headers=self.headers)
+
+        self.assertEqual(200, response.status_code)
+        providers = {item["id"]: item for item in response.json()["providers"]}
+        self.assertIn("volcengine", providers)
+        text_models = providers["volcengine"]["capabilities"]["text"]["models"]
+        self.assertEqual({"deepseek-v3", "deepseek-r1"}, {item["id"] for item in text_models})
+        self.assertEqual("https://ark.cn-beijing.volces.com/api/v3", providers["volcengine"]["baseUrl"])
 
     def test_qwen_multimodal_content_extracts_image_urls(self):
         text, image_urls = extract_image_references(

@@ -7,6 +7,8 @@ from app.model_providers.deepseek import DeepSeekProvider
 from app.model_providers.qwen import QwenProvider
 from app.model_providers.qwen.provider import QWEN_PROVIDER_ALIASES
 from app.model_providers.runtime_config import require_active_llm_config
+from app.model_providers.volcengine import VolcengineProvider
+from app.model_providers.volcengine.provider import VOLCENGINE_PROVIDER_ALIASES
 from app.model_providers.xfyun import XfyunProvider
 from app.model_providers.xfyun.provider import XFYUN_PROVIDER_ALIASES
 from app.model_providers.xiaomi import XiaomiProvider
@@ -21,6 +23,8 @@ def build_chat_model_provider(config) -> ChatModelProvider:
         return QwenProvider(config=config)
     if provider in XFYUN_PROVIDER_ALIASES:
         return XfyunProvider(config=config)
+    if provider in VOLCENGINE_PROVIDER_ALIASES:
+        return VolcengineProvider(config=config)
     if provider in {"xiaomi", "mimo", "xiaomi_mimo", "xiaomi-mimo"}:
         return XiaomiProvider(config=config)
     return DeepSeekProvider(config=config)

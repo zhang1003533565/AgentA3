@@ -46,6 +46,16 @@
         "https://xingchen.xfyun.cn/"
       ],
       "checkedAt": "2026-06-08"
+    },
+    {
+      "provider": "volcengine",
+      "title": "火山引擎方舟对话 API、产品简介与模型价格官方文档",
+      "urls": [
+        "https://www.volcengine.com/docs/82379/1302010",
+        "https://www.volcengine.com/docs/82379/1099455",
+        "https://www.volcengine.com/docs/82379/1544106"
+      ],
+      "checkedAt": "2026-06-08"
     }
   ],
   "providers": [
@@ -954,6 +964,51 @@
                 "agent_tool"
               ],
               "notes": "公开入口偏星辰 Agent/工具能力，当前项目视频生成路由仍固定为 Qwen，讯飞视频适配待接入。"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "volcengine",
+      "name": "火山引擎方舟 / Volcengine Ark",
+      "aliases": [
+        "volcengine",
+        "volc",
+        "volc_engine",
+        "volc-engine",
+        "ark",
+        "volcengine_ark",
+        "volcengine-ark",
+        "huoshan",
+        "huoshan_ark",
+        "huoshan-ark"
+      ],
+      "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+      "website": "https://console.volcengine.com/ark",
+      "capabilities": {
+        "text": {
+          "label": "语言模型",
+          "status": "implemented",
+          "defaultModel": "deepseek-v3",
+          "models": [
+            {
+              "id": "deepseek-v3",
+              "name": "DeepSeek-V3",
+              "features": [
+                "chat",
+                "fast_generation"
+              ],
+              "notes": "火山方舟在线推理模型；用于普通对话和快速生成。"
+            },
+            {
+              "id": "deepseek-r1",
+              "name": "DeepSeek-R1",
+              "features": [
+                "chat",
+                "reasoning"
+              ],
+              "notes": "火山方舟在线推理模型；用于复杂推理任务。"
             }
           ]
         }

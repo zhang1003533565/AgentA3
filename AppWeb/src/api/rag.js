@@ -42,6 +42,8 @@ export const convertPpt = (data) => request.post(`${base}/ppt/convert`, data, {
 
 export const getRagDocuments = () => request.get(`${base}/documents`)
 
+export const getRagDocumentChunks = (params) => request.get(`${base}/documents/chunks`, { params })
+
 export const getRagVectorStoreHealth = () => request.get(`${base}/vector-store/health`)
 
 export const getRagEmbeddingHealth = () => request.get(`${base}/embedding/health`)

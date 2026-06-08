@@ -239,6 +239,15 @@ def get_rag_framework(
                 "plannedModalities": ["vision", "image", "video"],
                 "configSource": "Java system_config: ai.service.text.provider / ai.service.text.base-url / ai.service.text.api-key / ai.service.text.model",
             },
+            {
+                "name": "volcengine",
+                "runtime": "app.model_providers.volcengine.provider",
+                "status": "implemented",
+                "defaultBaseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+                "exampleModel": "deepseek-v3",
+                "supportedModalities": ["text"],
+                "configSource": "Java system_config: ai.service.text.provider / ai.service.text.base-url / ai.service.text.api-key / ai.service.text.model",
+            },
         ],
         "embeddingProviders": [
             {"name": "local_lexical", "status": "implemented", "requiredConfig": []},
@@ -1003,6 +1012,55 @@ def list_rag_documents(
             "loadError": load_error,
             "vectorStoreHealth": vector_store.health(),
         },
+    }
+
+
+@router.get("/documents/chunks")
+def list_rag_document_chunks(
+    source: Optional[str] = None,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    root = _knowledge_base_root()
+    backend = get_vector_store_backend()
+    vector_store = build_vector_store(root, backend=backend)
+    load_error = ""
+    try:
+        indexed_documents = vector_store.load_documents()
+    except Exception as exc:
+        logger.warning("rag document chunks failed backend=%s error=%s", backend, exc)
+        indexed_documents = []
+        load_error = str(exc)
+
+    normalized_source = (source or "").strip()
+    chunks = []
+    for document in indexed_documents:
+        source_name = str(document.metadata.get("sourceName") or document.source or document.id)
+        if normalized_source and source_name != normalized_source:
+            continue
+        chunks.append({
+            "id": document.id,
+            "source": source_name,
+            "storedPath": document.source,
+            "content": document.content,
+            "score": document.score,
+            "metadata": document.metadata,
+            "chunkIndex": document.metadata.get("chunkIndex"),
+            "size": len(document.content.encode("utf-8")),
+        })
+
+    chunks.sort(key=lambda item: (
+        str(item.get("source") or ""),
+        int(item.get("chunkIndex") if item.get("chunkIndex") is not None else 10**9),
+        str(item.get("id") or ""),
+    ))
+    return {
+        "source": normalized_source,
+        "chunks": chunks,
+        "total": len(chunks),
+        "backend": backend,
+        "collection": getattr(vector_store, "collection_name", ""),
+        "loadError": load_error,
     }
 
 
