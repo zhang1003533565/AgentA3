@@ -95,4 +95,28 @@ RAG_STRATEGY_SPECS = {
         "categoryLabel": "性能优化",
         "purpose": "推测式 RAG：先生成草稿，再并行验证和修订。",
     },
+    "metadata_filter_rag": {
+        "label": "元数据过滤 RAG",
+        "category": "retrieval",
+        "categoryLabel": "检索增强",
+        "purpose": "元数据过滤 RAG：按知识库、来源、标签、业务场景等 metadata 先过滤候选，再进行重排，适合多知识库隔离检索。",
+    },
+    "contextual_compression_rag": {
+        "label": "上下文压缩 RAG",
+        "category": "ranking",
+        "categoryLabel": "排序优化",
+        "purpose": "上下文压缩 RAG：召回后抽取与问题最相关的句子，压缩长片段，减少无关上下文占用。",
+    },
+    "time_weighted_rag": {
+        "label": "时间加权 RAG",
+        "category": "ranking",
+        "categoryLabel": "排序优化",
+        "purpose": "时间加权 RAG：在相关性基础上提高近期文档权重，适合通知、政策、服务流程等会变化的知识。",
+    },
+    "knowledge_base_router_rag": {
+        "label": "知识库路由 RAG",
+        "category": "routing",
+        "categoryLabel": "策略路由",
+        "purpose": "知识库路由 RAG：根据问题和传入的 knowledgeBaseIds 选择目标知识库检索，适合跨多个知识库的精确召回测试。",
+    },
 }

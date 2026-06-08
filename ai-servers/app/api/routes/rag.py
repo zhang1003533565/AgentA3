@@ -45,6 +45,8 @@ from app.utils.sse import build_sse, chunk_answer
 
 router = APIRouter(prefix="/internal/rag", tags=["internal-rag"])
 logger = get_logger("api.rag")
+DEFAULT_KNOWLEDGE_BASE_ID = "default"
+DEFAULT_KNOWLEDGE_BASE_NAME = "默认知识库"
 
 
 class PdfConvertRequest(BaseModel):
@@ -485,6 +487,8 @@ def run_recall_test(
     finally:
         reset_active_embedding_config(embedding_token)
 
+    knowledge_base_ids = _knowledge_base_ids_from_metadata(request.metadata)
+    documents = _filter_documents_by_knowledge_base(result.documents, knowledge_base_ids)
     metadata = dict(result.metadata)
     metadata.update({
         "needRetrieval": True,
@@ -495,7 +499,8 @@ def run_recall_test(
         "answerType": "retrieval_only",
         "query": request.query,
         "keyword": request.keyword or "",
-        "documentCount": len(result.documents),
+        "documentCount": len(documents),
+        "knowledgeBaseIds": knowledge_base_ids,
     })
     return RagQueryResponse(
         strategy=result.strategy,
@@ -509,7 +514,7 @@ def run_recall_test(
                 score=document.score,
                 metadata=document.metadata,
             )
-            for document in result.documents
+            for document in documents
         ],
         trace=[
             RagTraceResponse(stage=step.stage, detail=step.detail)
@@ -891,6 +896,59 @@ def _strategy_label(strategy_name: str) -> str:
     return spec.get("label", strategy_name)
 
 
+def _parse_knowledge_base_ids(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        candidates = value.split(",")
+    elif isinstance(value, list):
+        candidates = value
+    else:
+        candidates = [value]
+    ids = []
+    for item in candidates:
+        normalized = str(item or "").strip()
+        if normalized and normalized not in ids:
+            ids.append(normalized)
+    return ids
+
+
+def _knowledge_base_ids_from_metadata(metadata: Dict[str, Any]) -> List[str]:
+    if not isinstance(metadata, dict):
+        return []
+    return _parse_knowledge_base_ids(
+        metadata.get("knowledgeBaseIds")
+        or metadata.get("knowledgeBaseId")
+        or metadata.get("knowledgeBases")
+    )
+
+
+def _document_knowledge_base_id(metadata: Dict[str, Any]) -> str:
+    if isinstance(metadata, dict):
+        value = metadata.get("knowledgeBaseId") or metadata.get("knowledge_base_id")
+        if value:
+            return str(value)
+    return DEFAULT_KNOWLEDGE_BASE_ID
+
+
+def _document_knowledge_base_name(metadata: Dict[str, Any]) -> str:
+    if isinstance(metadata, dict):
+        value = metadata.get("knowledgeBaseName") or metadata.get("knowledge_base_name")
+        if value:
+            return str(value)
+    return DEFAULT_KNOWLEDGE_BASE_NAME
+
+
+def _filter_documents_by_knowledge_base(documents: List[RagDocument], knowledge_base_ids: List[str]) -> List[RagDocument]:
+    if not knowledge_base_ids:
+        return documents
+    return [
+        document
+        for document in documents
+        if _document_knowledge_base_id(document.metadata) in knowledge_base_ids
+    ]
+
+
 def _answer_type_for_agent(agent_name: str) -> str:
     mapping = {
         "leader_agent": "text",
@@ -987,8 +1045,19 @@ def list_rag_documents(
         indexed_documents = []
         load_error = str(exc)
     documents_by_source: Dict[str, Dict[str, Any]] = {}
+    knowledge_bases_by_id: Dict[str, Dict[str, Any]] = {}
     for document in indexed_documents:
         source = document.metadata.get("sourceName") or document.source or document.id
+        knowledge_base_id = _document_knowledge_base_id(document.metadata)
+        knowledge_base_name = _document_knowledge_base_name(document.metadata)
+        knowledge_base = knowledge_bases_by_id.setdefault(knowledge_base_id, {
+            "id": knowledge_base_id,
+            "name": knowledge_base_name,
+            "description": document.metadata.get("knowledgeBaseDescription") or "",
+            "documentCount": 0,
+            "chunkCount": 0,
+            "size": 0,
+        })
         item = documents_by_source.setdefault(str(source), {
             "source": str(source),
             "size": 0,
@@ -996,12 +1065,22 @@ def list_rag_documents(
             "chunkCount": 0,
             "vectorStoreBackend": vector_store.name,
             "collection": getattr(vector_store, "collection_name", ""),
+            "knowledgeBaseId": knowledge_base_id,
+            "knowledgeBaseName": knowledge_base_name,
         })
         item["chunkCount"] += 1
         item["size"] += len(document.content.encode("utf-8"))
+        knowledge_base["chunkCount"] += 1
+        knowledge_base["size"] += len(document.content.encode("utf-8"))
+    for item in documents_by_source.values():
+        knowledge_base_id = str(item.get("knowledgeBaseId") or DEFAULT_KNOWLEDGE_BASE_ID)
+        if knowledge_base_id in knowledge_bases_by_id:
+            knowledge_bases_by_id[knowledge_base_id]["documentCount"] += 1
     documents = sorted(documents_by_source.values(), key=lambda item: item["source"])
+    knowledge_bases = sorted(knowledge_bases_by_id.values(), key=lambda item: item["name"])
     return {
         "documents": documents,
+        "knowledgeBases": knowledge_bases,
         "knowledgeBase": {
             "rootDir": str(root),
             "vectorStoreBackend": backend,
@@ -1018,6 +1097,7 @@ def list_rag_documents(
 @router.get("/documents/chunks")
 def list_rag_document_chunks(
     source: Optional[str] = None,
+    knowledgeBaseIds: Optional[str] = None,
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ) -> Dict[str, Any]:
     _require_authorization(authorization)
@@ -1033,10 +1113,14 @@ def list_rag_document_chunks(
         load_error = str(exc)
 
     normalized_source = (source or "").strip()
+    normalized_knowledge_base_ids = _parse_knowledge_base_ids(knowledgeBaseIds)
     chunks = []
     for document in indexed_documents:
         source_name = str(document.metadata.get("sourceName") or document.source or document.id)
         if normalized_source and source_name != normalized_source:
+            continue
+        knowledge_base_id = _document_knowledge_base_id(document.metadata)
+        if normalized_knowledge_base_ids and knowledge_base_id not in normalized_knowledge_base_ids:
             continue
         chunks.append({
             "id": document.id,
@@ -1046,6 +1130,8 @@ def list_rag_document_chunks(
             "score": document.score,
             "metadata": document.metadata,
             "chunkIndex": document.metadata.get("chunkIndex"),
+            "knowledgeBaseId": knowledge_base_id,
+            "knowledgeBaseName": _document_knowledge_base_name(document.metadata),
             "size": len(document.content.encode("utf-8")),
         })
 
@@ -1056,6 +1142,7 @@ def list_rag_document_chunks(
     ))
     return {
         "source": normalized_source,
+        "knowledgeBaseIds": normalized_knowledge_base_ids,
         "chunks": chunks,
         "total": len(chunks),
         "backend": backend,

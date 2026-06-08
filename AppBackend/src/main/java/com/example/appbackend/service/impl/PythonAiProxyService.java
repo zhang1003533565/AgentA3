@@ -239,10 +239,15 @@ public class PythonAiProxyService {
         return getRagObject("/internal/rag/documents", authorization);
     }
 
-    public Object listRagDocumentChunks(String source, String authorization) {
+    public Object listRagDocumentChunks(String source, String knowledgeBaseIds, String authorization) {
         String path = "/internal/rag/documents/chunks";
+        String separator = "?";
         if (StringUtils.hasText(source)) {
-            path += "?source=" + URLEncoder.encode(source, StandardCharsets.UTF_8);
+            path += separator + "source=" + URLEncoder.encode(source, StandardCharsets.UTF_8);
+            separator = "&";
+        }
+        if (StringUtils.hasText(knowledgeBaseIds)) {
+            path += separator + "knowledgeBaseIds=" + URLEncoder.encode(knowledgeBaseIds, StandardCharsets.UTF_8);
         }
         return getRagObject(path, authorization);
     }

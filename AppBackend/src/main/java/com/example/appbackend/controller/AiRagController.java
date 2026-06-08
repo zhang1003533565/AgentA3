@@ -126,8 +126,9 @@ public class AiRagController {
     @Operation(summary = "RAG 知识库文档切片列表")
     public Result<Object> documentChunks(
             @RequestParam(value = "source", required = false) String source,
+            @RequestParam(value = "knowledgeBaseIds", required = false) String knowledgeBaseIds,
             HttpServletRequest request) {
-        return Result.success(pythonAiProxyService.listRagDocumentChunks(source, adminAuthorization(request)));
+        return Result.success(pythonAiProxyService.listRagDocumentChunks(source, knowledgeBaseIds, adminAuthorization(request)));
     }
 
     @GetMapping("/vector-store/health")

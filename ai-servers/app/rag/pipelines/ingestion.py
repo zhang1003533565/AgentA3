@@ -97,7 +97,8 @@ class RagIngestionPipeline:
 
             loaded_items = list(self.loader.load(str(target)))
             parsed_text = loaded_items[0].content if loaded_items else item.content
-            chunks = self.chunker.split(parsed_text)
+            chunker = self._semantic_chunker_for_metadata(item.metadata)
+            chunks = chunker.split(parsed_text)
             modality = self._infer_modality(target)
             for index, chunk in enumerate(chunks):
                 chunk_documents.append(RagDocument(
@@ -180,6 +181,30 @@ class RagIngestionPipeline:
             return "docx"
         return "text"
 
+    def _semantic_chunker_for_metadata(self, metadata: Dict[str, Any]) -> SemanticChunker:
+        chunk_size = self._bounded_int(metadata.get("chunkSize"), CHUNK_SIZE, 200, 3000)
+        overlap = self._bounded_int(metadata.get("chunkOverlap"), CHUNK_OVERLAP, 0, min(800, chunk_size - 1))
+        return SemanticChunker(chunk_size=chunk_size, overlap=overlap)
+
+    def _parent_child_chunker_for_metadata(self, metadata: Dict[str, Any]) -> ParentChildChunker:
+        parent_chunk_size = self._bounded_int(metadata.get("parentChunkSize"), PARENT_CHUNK_SIZE, 600, 5000)
+        parent_overlap = self._bounded_int(metadata.get("parentChunkOverlap"), PARENT_CHUNK_OVERLAP, 0, min(1200, parent_chunk_size - 1))
+        child_chunk_size = self._bounded_int(metadata.get("childChunkSize"), CHILD_CHUNK_SIZE, 120, 1600)
+        child_overlap = self._bounded_int(metadata.get("childChunkOverlap"), CHILD_CHUNK_OVERLAP, 0, min(500, child_chunk_size - 1))
+        return ParentChildChunker(
+            parent_chunk_size=parent_chunk_size,
+            parent_overlap=parent_overlap,
+            child_chunk_size=child_chunk_size,
+            child_overlap=child_overlap,
+        )
+
+    def _bounded_int(self, value: Any, default: int, minimum: int, maximum: int) -> int:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            number = default
+        return max(minimum, min(maximum, number))
+
     def _build_parent_child_documents(
         self,
         target: Path,
@@ -188,7 +213,8 @@ class RagIngestionPipeline:
         metadata: Dict[str, Any],
     ) -> List[RagDocument]:
         documents: List[RagDocument] = []
-        for parent_index, parent_chunk in enumerate(self.parent_child_chunker.split(parsed_text)):
+        chunker = self._parent_child_chunker_for_metadata(metadata)
+        for parent_index, parent_chunk in enumerate(chunker.split(parsed_text)):
             parent_id = f"{target.resolve()}#parent-{parent_index}"
             parent_document = RagDocument(
                 id=parent_id,

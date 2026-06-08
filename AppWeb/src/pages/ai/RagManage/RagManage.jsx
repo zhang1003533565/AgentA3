@@ -1032,7 +1032,7 @@ function RagManage({ page = 'playground' }) {
       label: '策略能力',
       children: (
         <Space direction="vertical" size="large" className="rag-full">
-          <Card title="16 种 RAG 执行策略" className="rag-panel-card">
+          <Card title={`${strategies.length || 0} 种 RAG 执行策略`} className="rag-panel-card">
             <Table
               rowKey="name"
               columns={strategyColumns}

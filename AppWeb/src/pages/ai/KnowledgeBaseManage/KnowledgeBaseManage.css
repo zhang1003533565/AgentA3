@@ -82,6 +82,22 @@
   width: 100%;
 }
 
+.kb-chunk-settings {
+  margin-bottom: 18px;
+  padding: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.kb-chunk-settings__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
 .kb-section-head {
   display: flex;
   align-items: flex-start;
@@ -98,6 +114,72 @@
 
 .kb-document-table .ant-table-cell {
   padding: 8px;
+}
+
+.kb-space-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+}
+
+.kb-space-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.kb-space-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 132px;
+  padding: 14px;
+  text-align: left;
+  color: #172033;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.kb-space-card:hover,
+.kb-space-card.is-active {
+  border-color: rgba(15, 118, 110, 0.34);
+  background: #effaf8;
+}
+
+.kb-space-card__title {
+  font-weight: 700;
+}
+
+.kb-space-card__desc {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.kb-space-card__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.kb-space-create {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px dashed rgba(15, 118, 110, 0.28);
+  border-radius: 8px;
+  background: #f8fafc;
 }
 
 .kb-document-button {
@@ -239,6 +321,23 @@
   background: #f6fffd;
 }
 
+.kb-recall-quality {
+  display: grid;
+  grid-template-columns: minmax(0, 260px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.kb-recall-quality > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .kb-checklist {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -300,8 +399,15 @@
   }
 
   .kb-pipeline,
-  .kb-checklist {
+  .kb-checklist,
+  .kb-space-grid,
+  .kb-recall-quality {
     grid-template-columns: 1fr;
+  }
+
+  .kb-chunk-settings__head {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 
