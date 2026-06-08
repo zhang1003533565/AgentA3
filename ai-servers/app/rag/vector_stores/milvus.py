@@ -82,7 +82,8 @@ class MilvusVectorStore(BaseVectorStore):
 
         rows = [self._document_to_row(document) for document in materialized]
         client.upsert(collection_name=self.collection_name, data=rows)
-        client.flush(collection_name=self.collection_name)
+        if hasattr(client, "flush"):
+            client.flush(collection_name=self.collection_name)
         return len(rows)
 
     def search(self, query: str, top_k: int = 5) -> List[RagDocument]:

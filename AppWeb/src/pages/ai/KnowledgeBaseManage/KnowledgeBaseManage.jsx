@@ -31,6 +31,14 @@ const documentColumns = [
   },
 ]
 
+const ingestDocumentColumns = [
+  { title: '来源', dataIndex: 'source', width: 200, ellipsis: true },
+  { title: '类型', dataIndex: 'modality', width: 100, render: (value) => value || '-' },
+  { title: 'Chunk', dataIndex: 'chunkCount', width: 100, render: (value) => value ?? '-' },
+  { title: '大小', dataIndex: 'size', width: 110, render: (value) => (Number.isFinite(Number(value)) ? `${Math.ceil(Number(value) / 1024)} KB` : '-') },
+  { title: '存储路径', dataIndex: 'storedPath', ellipsis: true, render: (value) => value || '-' },
+]
+
 const recallColumns = [
   { title: '来源', dataIndex: 'source', width: 220, ellipsis: true },
   { title: '分数', dataIndex: 'score', width: 110, render: (value) => (value === null || value === undefined ? '-' : Number(value).toFixed(4)) },
@@ -105,6 +113,7 @@ function KnowledgeBaseManage() {
   const [recallLoading, setRecallLoading] = useState(false)
   const [recallResult, setRecallResult] = useState(null)
   const [recallError, setRecallError] = useState('')
+  const [ingestResult, setIngestResult] = useState(null)
   const [embeddingModelOptions, setEmbeddingModelOptions] = useState([])
   const [ingestForm] = Form.useForm()
   const [convertForm] = Form.useForm()
@@ -178,7 +187,9 @@ function KnowledgeBaseManage() {
           },
         }],
       })
-      message.success(`已入库 ${res.data?.storedCount || 0} 个文档`)
+      const result = res.data || {}
+      setIngestResult(result)
+      message.success(`入库完成：${result.storedCount || 0} 个文档，${result.indexedChunkCount || 0} 个片段`)
       ingestForm.resetFields()
       setUploadFileList([])
       await refresh()
@@ -352,12 +363,47 @@ function KnowledgeBaseManage() {
           </Col>
           <Col xs={24} lg={15}>
             <Card title="Milvus 已入库文档" extra={<Button icon={<ReloadOutlined />} onClick={refresh} loading={bootLoading}>刷新</Button>} className="rag-panel-card">
-              <Table
-                rowKey={(record) => record.source}
-                columns={documentColumns}
-                dataSource={documents}
-                pagination={{ pageSize: 8 }}
-              />
+              <Space direction="vertical" size="large" className="rag-full">
+                {ingestResult ? (
+                  <Space direction="vertical" size="middle" className="rag-full knowledge-base-ingest-result">
+                    <div className="rag-agent-test-status">
+                      <Tag color="green">最近入库完成</Tag>
+                      <Tag color="blue">文档：{ingestResult.storedCount || 0}</Tag>
+                      <Tag color="cyan">Chunk：{ingestResult.indexedChunkCount || 0}</Tag>
+                      {ingestResult.indexPath ? <Tag>索引：{ingestResult.indexPath}</Tag> : null}
+                    </div>
+                    <Table
+                      size="small"
+                      rowKey={(record, index) => `${record.source || record.storedPath || 'document'}-${index}`}
+                      columns={ingestDocumentColumns}
+                      dataSource={ingestResult.documents || []}
+                      pagination={false}
+                    />
+                    <Collapse
+                      items={[
+                        {
+                          key: 'ingest-detail',
+                          label: '存储文件 / Trace',
+                          children: (
+                            <pre className="rag-code-block">
+                              {JSON.stringify({
+                                storedFiles: ingestResult.storedFiles || [],
+                                trace: ingestResult.trace || [],
+                              }, null, 2)}
+                            </pre>
+                          ),
+                        },
+                      ]}
+                    />
+                  </Space>
+                ) : null}
+                <Table
+                  rowKey={(record) => record.source}
+                  columns={documentColumns}
+                  dataSource={documents}
+                  pagination={{ pageSize: 8 }}
+                />
+              </Space>
             </Card>
           </Col>
         </Row>

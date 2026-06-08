@@ -26,7 +26,9 @@ export const runRagRecallTest = (data) => request.post(`${base}/recall-test`, da
   timeout: 120000,
 })
 
-export const ingestRagDocuments = (data) => request.post(`${base}/documents`, data)
+export const ingestRagDocuments = (data) => request.post(`${base}/documents`, data, {
+  timeout: 120000,
+})
 
 export const convertPdf = (data) => request.post(`${base}/pdf/convert`, data, {
   headers: { 'Content-Type': 'multipart/form-data' },
