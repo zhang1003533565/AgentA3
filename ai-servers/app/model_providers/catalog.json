@@ -35,6 +35,17 @@
         "https://platform.xiaomimimo.com/docs/usage-guide/speech-synthesis-v2.5"
       ],
       "checkedAt": "2026-06-01"
+    },
+    {
+      "provider": "xfyun",
+      "title": "讯飞星火认知大模型 HTTP API、图片理解、图片生成与星辰 Agent 能力官方文档",
+      "urls": [
+        "https://www.xfyun.cn/doc/spark/HTTP%E8%B0%83%E7%94%A8%E6%96%87%E6%A1%A3.html",
+        "https://www.xfyun.cn/doc/spark/ImageUnderstanding.html",
+        "https://www.xfyun.cn/doc/spark/ImageGeneration.html",
+        "https://xingchen.xfyun.cn/"
+      ],
+      "checkedAt": "2026-06-08"
     }
   ],
   "providers": [
@@ -796,6 +807,153 @@
               "features": [
                 "keyframe_to_video"
               ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "xfyun",
+      "name": "讯飞星火 / iFlytek Spark",
+      "aliases": [
+        "xfyun",
+        "iflytek",
+        "spark",
+        "sparkdesk",
+        "spark_desk",
+        "spark-desk",
+        "xunfei",
+        "xunfei_spark",
+        "xunfei-spark"
+      ],
+      "baseUrl": "https://spark-api-open.xf-yun.com/v1",
+      "website": "https://xinghuo.xfyun.cn",
+      "capabilities": {
+        "text": {
+          "label": "语言模型",
+          "status": "implemented",
+          "defaultModel": "4.0Ultra",
+          "models": [
+            {
+              "id": "lite",
+              "name": "Spark Lite",
+              "features": [
+                "chat",
+                "streaming"
+              ]
+            },
+            {
+              "id": "generalv3",
+              "name": "Spark Pro",
+              "features": [
+                "chat",
+                "streaming"
+              ]
+            },
+            {
+              "id": "pro-128k",
+              "name": "Spark Pro-128K",
+              "features": [
+                "chat",
+                "long_context",
+                "streaming"
+              ]
+            },
+            {
+              "id": "generalv3.5",
+              "name": "Spark Max",
+              "features": [
+                "chat",
+                "streaming"
+              ]
+            },
+            {
+              "id": "max-32k",
+              "name": "Spark Max-32K",
+              "features": [
+                "chat",
+                "long_context",
+                "streaming"
+              ]
+            },
+            {
+              "id": "4.0Ultra",
+              "name": "Spark 4.0 Ultra",
+              "features": [
+                "chat",
+                "reasoning",
+                "streaming"
+              ]
+            },
+            {
+              "id": "spark-x",
+              "name": "Spark X",
+              "features": [
+                "chat",
+                "deep_reasoning",
+                "streaming"
+              ]
+            },
+            {
+              "id": "spark-x-lite",
+              "name": "Spark X Lite",
+              "features": [
+                "chat",
+                "deep_reasoning",
+                "streaming"
+              ]
+            }
+          ]
+        },
+        "vision": {
+          "label": "视觉理解",
+          "status": "planned",
+          "models": [
+            {
+              "id": "general",
+              "name": "图片理解",
+              "features": [
+                "image_understanding"
+              ],
+              "notes": "讯飞图片理解 WebSocket/API 形态与当前 OpenAI-compatible 视觉测试接口不同，已进入目录，运行时适配待接入。"
+            },
+            {
+              "id": "imagev3",
+              "name": "图片理解高级版",
+              "features": [
+                "image_understanding"
+              ],
+              "notes": "讯飞图片理解 WebSocket/API 形态与当前 OpenAI-compatible 视觉测试接口不同，已进入目录，运行时适配待接入。"
+            }
+          ]
+        },
+        "image": {
+          "label": "图片生成",
+          "status": "planned",
+          "defaultModel": "general",
+          "models": [
+            {
+              "id": "general",
+              "name": "图片生成",
+              "features": [
+                "text_to_image"
+              ],
+              "notes": "对应讯飞图片生成文档的 domain=general；当前项目图片生成路由仍固定为 Qwen，讯飞生成适配待接入。"
+            }
+          ]
+        },
+        "video": {
+          "label": "视频生成/编辑",
+          "status": "planned",
+          "models": [
+            {
+              "id": "spark-agent-video-generation",
+              "name": "星辰 Agent 视频生成",
+              "features": [
+                "text_to_video",
+                "agent_tool"
+              ],
+              "notes": "公开入口偏星辰 Agent/工具能力，当前项目视频生成路由仍固定为 Qwen，讯飞视频适配待接入。"
             }
           ]
         }

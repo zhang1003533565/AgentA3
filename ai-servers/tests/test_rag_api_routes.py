@@ -187,6 +187,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertIn("knowledgeBaseDir", {item["name"] for item in payload["runtimeEnv"]})
         self.assertIn("xiaomi", {item["name"] for item in payload["modelProviders"]})
         self.assertIn("qwen", {item["name"] for item in payload["modelProviders"]})
+        self.assertIn("xfyun", {item["name"] for item in payload["modelProviders"]})
 
     def test_model_factory_selects_xiaomi_provider(self):
         class FakeXiaomiProvider:
@@ -228,6 +229,36 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertIsInstance(provider, FakeQwenProvider)
         self.assertEqual("qwen-vl-plus", provider.config.model)
+
+    def test_model_factory_selects_xfyun_provider(self):
+        class FakeXfyunProvider:
+            def __init__(self, config):
+                self.config = config
+
+        old_xfyun_provider = model_provider_factory.XfyunProvider
+        try:
+            model_provider_factory.XfyunProvider = FakeXfyunProvider
+            provider = model_provider_factory.build_chat_model_provider(LlmRuntimeConfig(
+                provider="spark",
+                base_url="https://spark-api-open.xf-yun.com/v1",
+                api_key="test-key",
+                model="4.0Ultra",
+            ))
+        finally:
+            model_provider_factory.XfyunProvider = old_xfyun_provider
+
+        self.assertIsInstance(provider, FakeXfyunProvider)
+        self.assertEqual("4.0Ultra", provider.config.model)
+
+    def test_model_provider_catalog_contains_xfyun_modalities(self):
+        response = self.client.get("/internal/models/providers", headers=self.headers)
+
+        self.assertEqual(200, response.status_code)
+        providers = {item["id"]: item for item in response.json()["providers"]}
+        self.assertIn("xfyun", providers)
+        self.assertGreaterEqual({"text", "vision", "image", "video"}, set(providers["xfyun"]["capabilities"]))
+        self.assertEqual("implemented", providers["xfyun"]["capabilities"]["text"]["status"])
+        self.assertEqual("planned", providers["xfyun"]["capabilities"]["image"]["status"])
 
     def test_qwen_multimodal_content_extracts_image_urls(self):
         text, image_urls = extract_image_references(

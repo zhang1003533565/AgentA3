@@ -229,6 +229,16 @@ def get_rag_framework(
                 "supportedModalities": ["text", "image_url"],
                 "configSource": "Java system_config: ai.service.text.provider / ai.service.text.base-url / ai.service.text.api-key / ai.service.text.model",
             },
+            {
+                "name": "xfyun",
+                "runtime": "app.model_providers.xfyun.provider",
+                "status": "implemented",
+                "defaultBaseUrl": "https://spark-api-open.xf-yun.com/v1",
+                "exampleModel": "4.0Ultra",
+                "supportedModalities": ["text"],
+                "plannedModalities": ["vision", "image", "video"],
+                "configSource": "Java system_config: ai.service.text.provider / ai.service.text.base-url / ai.service.text.api-key / ai.service.text.model",
+            },
         ],
         "embeddingProviders": [
             {"name": "local_lexical", "status": "implemented", "requiredConfig": []},

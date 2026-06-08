@@ -7,6 +7,8 @@ from app.model_providers.deepseek import DeepSeekProvider
 from app.model_providers.qwen import QwenProvider
 from app.model_providers.qwen.provider import QWEN_PROVIDER_ALIASES
 from app.model_providers.runtime_config import require_active_llm_config
+from app.model_providers.xfyun import XfyunProvider
+from app.model_providers.xfyun.provider import XFYUN_PROVIDER_ALIASES
 from app.model_providers.xiaomi import XiaomiProvider
 
 
@@ -17,6 +19,8 @@ def build_chat_model_provider(config) -> ChatModelProvider:
     provider = config.normalized_provider()
     if provider in QWEN_PROVIDER_ALIASES:
         return QwenProvider(config=config)
+    if provider in XFYUN_PROVIDER_ALIASES:
+        return XfyunProvider(config=config)
     if provider in {"xiaomi", "mimo", "xiaomi_mimo", "xiaomi-mimo"}:
         return XiaomiProvider(config=config)
     return DeepSeekProvider(config=config)
