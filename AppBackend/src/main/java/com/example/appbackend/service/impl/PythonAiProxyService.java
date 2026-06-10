@@ -332,7 +332,10 @@ public class PythonAiProxyService {
     }
 
     private SseEmitter streamPythonObject(String path, Object request, String authorization, String requestedModel) {
-        return streamPythonObject(path, request, authorization, requestedModel, null, null);
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        return streamPythonObject(path, request, authorization, userId, requestedModel, (BiConsumer<String, Object>) null);
     }
 
     private SseEmitter streamPythonObject(String path,

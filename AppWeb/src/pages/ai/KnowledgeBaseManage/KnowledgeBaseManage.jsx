@@ -1011,7 +1011,7 @@ function KnowledgeBaseManage() {
                     <span className="kb-recommend-badge">推荐</span>
                   </div>
                   <div className="kb-index-card-desc">
-                    使用向量嵌入进行语义检索，准确率更高，适合大多数场景
+                    使用内嵌向量模型生成嵌入，进行语义检索，准确率更高
                   </div>
                 </div>
                 <div className="kb-index-card-radio">
@@ -1032,7 +1032,7 @@ function KnowledgeBaseManage() {
                 <div className="kb-index-card-info">
                   <div className="kb-index-card-title">经济</div>
                   <div className="kb-index-card-desc">
-                    仅使用关键词索引，成本更低，适合简单检索需求
+                    仅使用关键词索引，不需要嵌入模型，成本更低
                   </div>
                 </div>
                 <div className="kb-index-card-radio">
@@ -1048,23 +1048,38 @@ function KnowledgeBaseManage() {
             <span>索引方式确认后不可更改，请谨慎选择</span>
           </div>
 
-          {/* Embedding model (only for high quality) */}
-          {wizIndexType === 'high_quality' && embeddingModelOptions.length > 0 && (
+          {/* Embedding model section - depends on index type */}
+          {wizIndexType === 'high_quality' ? (
             <div style={{ marginTop: 16, marginBottom: 24 }}>
-              <div className="kb-wizard-section-label">向量模型</div>
+              <div className="kb-wizard-section-label">嵌入模型</div>
+              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
+                选择一个嵌入模型将文本转化为向量，用于语义检索
+              </div>
               <Select
-                placeholder="选择向量模型"
+                placeholder="选择嵌入模型"
                 style={{ width: '100%' }}
                 options={embeddingModelOptions}
                 allowClear
               />
+            </div>
+          ) : (
+            <div className="kb-economy-embedding-notice">
+              <div className="kb-economy-notice-icon">
+                <CheckCircleFilled style={{ color: '#10b981', fontSize: 18 }} />
+              </div>
+              <div className="kb-economy-notice-text">
+                <div style={{ fontWeight: 600, color: '#374151', fontSize: 13 }}>不需要嵌入模型</div>
+                <div style={{ color: '#6b7280', fontSize: 12, marginTop: 2 }}>
+                  经济模式仅使用倒排索引进行关键词检索，无需配置向量模型，节省资源开销
+                </div>
+              </div>
             </div>
           )}
 
           <div style={{ height: 8 }} />
 
           {/* ---- Retrieval Method ---- */}
-          {wizIndexType === 'high_quality' && (
+          {wizIndexType === 'high_quality' ? (
             <>
               <div className="kb-wizard-section-title">检索方式</div>
 
@@ -1076,7 +1091,7 @@ function KnowledgeBaseManage() {
                 <div className="kb-retrieval-card-icon"><SearchOutlined /></div>
                 <div className="kb-retrieval-card-info">
                   <div className="kb-retrieval-card-title">语义检索</div>
-                  <div className="kb-retrieval-card-desc">通过向量模型将查询转化为向量，进行相似度匹配</div>
+                  <div className="kb-retrieval-card-desc">通过向量模型将查询转化为向量，进行语义相似度匹配</div>
                 </div>
                 <div className="kb-retrieval-card-radio">
                   <Radio checked={wizRetrievalMethod === 'semantic_search'} />
@@ -1091,7 +1106,7 @@ function KnowledgeBaseManage() {
                 <div className="kb-retrieval-card-icon"><FileTextOutlined /></div>
                 <div className="kb-retrieval-card-info">
                   <div className="kb-retrieval-card-title">全文检索</div>
-                  <div className="kb-retrieval-card-desc">基于关键词的传统检索方式，适合精确匹配</div>
+                  <div className="kb-retrieval-card-desc">基于 BM25 的传统关键词检索，适合精确匹配场景</div>
                 </div>
                 <div className="kb-retrieval-card-radio">
                   <Radio checked={wizRetrievalMethod === 'full_text_search'} />
@@ -1109,24 +1124,21 @@ function KnowledgeBaseManage() {
                     混合检索
                     <span className="kb-recommend-badge">推荐</span>
                   </div>
-                  <div className="kb-retrieval-card-desc">同时执行语义检索和全文检索，综合排序返回最佳结果</div>
+                  <div className="kb-retrieval-card-desc">同时执行语义检索和全文检索，通过重排序返回最佳结果</div>
                 </div>
                 <div className="kb-retrieval-card-radio">
                   <Radio checked={wizRetrievalMethod === 'hybrid_search'} />
                 </div>
               </div>
             </>
-          )}
-
-          {/* Economy retrieval */}
-          {wizIndexType === 'economy' && (
+          ) : (
             <>
               <div className="kb-wizard-section-title">检索方式</div>
               <div className="kb-retrieval-card selected" style={{ cursor: 'default' }}>
                 <div className="kb-retrieval-card-icon"><SearchOutlined /></div>
                 <div className="kb-retrieval-card-info">
                   <div className="kb-retrieval-card-title">关键词检索</div>
-                  <div className="kb-retrieval-card-desc">经济模式下仅支持关键词检索</div>
+                  <div className="kb-retrieval-card-desc">经济模式下仅支持基于倒排索引的关键词检索方式</div>
                 </div>
                 <div className="kb-retrieval-card-radio">
                   <Radio checked disabled />
@@ -1163,6 +1175,12 @@ function KnowledgeBaseManage() {
               <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>索引方式</div>
               <div style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>
                 {wizIndexType === 'high_quality' ? '高质量（向量嵌入）' : '经济（关键词）'}
+              </div>
+            </div>
+            <div style={{ padding: '12px 16px', borderRadius: 8, background: wizIndexType === 'economy' ? '#ecfdf5' : '#f9fafb', border: wizIndexType === 'economy' ? '0.5px solid #d1fae5' : '0.5px solid #e5e7eb' }}>
+              <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>嵌入模型</div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: wizIndexType === 'economy' ? '#059669' : '#374151' }}>
+                {wizIndexType === 'economy' ? '不需要' : '需要配置'}
               </div>
             </div>
             <div style={{ padding: '12px 16px', borderRadius: 8, background: '#f9fafb', border: '0.5px solid #e5e7eb' }}>
@@ -1246,6 +1264,12 @@ function KnowledgeBaseManage() {
               <span style={{ color: '#9ca3af' }}>索引方式：</span>
               <span style={{ color: '#374151', fontWeight: 500 }}>
                 {wizIndexType === 'high_quality' ? '高质量' : '经济'}
+              </span>
+            </div>
+            <div>
+              <span style={{ color: '#9ca3af' }}>嵌入模型：</span>
+              <span style={{ color: wizIndexType === 'economy' ? '#059669' : '#374151', fontWeight: 500 }}>
+                {wizIndexType === 'economy' ? '不需要' : '需要配置'}
               </span>
             </div>
             <div>
