@@ -1,133 +1,143 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
-  Alert,
-  Breadcrumb,
   Button,
-  Card,
-  Col,
-  Collapse,
   Drawer,
-  Empty,
+  Dropdown,
   Form,
   Input,
   InputNumber,
   Modal,
+  Pagination,
   Popconfirm,
-  Row,
-  Segmented,
+  Radio,
   Select,
   Slider,
   Space,
-  Statistic,
   Switch,
-  Table,
-  Tabs,
   Tag,
-  Tooltip,
-  Typography,
   Upload,
   message,
 } from 'antd'
 import {
   ApiOutlined,
-  BranchesOutlined,
+  ArrowLeftOutlined,
+  ArrowRightOutlined,
+  CheckCircleFilled,
   CheckCircleOutlined,
-  ClockCircleOutlined,
   DatabaseOutlined,
   DeleteOutlined,
   EditOutlined,
   ExperimentOutlined,
+  ExclamationCircleFilled,
   EyeOutlined,
   FileTextOutlined,
   FolderOutlined,
-  HeartOutlined,
-  HomeOutlined,
-  InfoCircleOutlined,
+  GlobalOutlined,
+  LoadingOutlined,
+  MoreOutlined,
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
   SettingOutlined,
-  SwapOutlined,
-  SyncOutlined,
+  StarFilled,
   UploadOutlined,
 } from '@ant-design/icons'
 import {
-  getDatasets,
-  getDataset,
-  createDataset,
-  updateDataset,
-  deleteDataset,
-  getDocuments,
-  getDocument,
-  createDocument,
-  deleteDocument,
-  toggleDocument,
-  getSegments,
-  getSegment,
-  updateSegment,
-  deleteSegment,
-  toggleSegment,
+  getDatasets, getDataset, createDataset, updateDataset, deleteDataset,
+  getDocuments, getDocument, createDocument, deleteDocument, toggleDocument,
+  getSegments, getSegment, updateSegment, deleteSegment, toggleSegment,
   getChildChunks,
-  convertPdf,
-  convertPpt,
+  convertPdf, convertPpt,
   runRagRecallTest,
-  getRagVectorStoreHealth,
-  getRagEmbeddingHealth,
-  getRagGraphStoreHealth,
+  getRagVectorStoreHealth, getRagEmbeddingHealth, getRagGraphStoreHealth,
   getSystemConfigList,
 } from '../../../api/dataset'
-import '../RagManage/RagManage.css'
 import './KnowledgeBaseManage.css'
 
 const { TextArea } = Input
-const { Text, Title } = Typography
 
-// ===================== Constants =====================
+// ======================== Constants ========================
 
 const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.embedding(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
 const AI_TESTED_MODEL_PREFIXES_KEY = 'ai_tested_model_prefixes_v1'
 
 const indexingStatusMap = {
-  waiting:   { color: 'orange',     label: '等待中' },
-  parsing:   { color: 'blue',       label: '解析中' },
-  cleaning:  { color: 'blue',       label: '清洗中' },
-  splitting: { color: 'blue',       label: '切分中' },
-  indexing:  { color: 'processing', label: '索引中' },
-  completed: { color: 'green',      label: '已完成' },
-  error:     { color: 'red',        label: '错误' },
-  paused:    { color: 'default',    label: '已暂停' },
+  waiting:    { label: '等待中', cls: 'warning' },
+  parsing:    { label: '解析中', cls: 'processing' },
+  cleaning:   { label: '清洗中', cls: 'processing' },
+  splitting:  { label: '切分中', cls: 'processing' },
+  indexing:   { label: '索引中', cls: 'processing' },
+  completed:  { label: '可用',   cls: 'success' },
+  error:      { label: '错误',   cls: 'error' },
+  paused:     { label: '已暂停', cls: 'warning' },
 }
 
-const pipelineSteps = [
-  { key: 'upload',  label: '上传' },
-  { key: 'parse',   label: '解析' },
-  { key: 'split',   label: '切分' },
-  { key: 'embed',   label: '向量化' },
-  { key: 'done',    label: '完成' },
+const retrievalStrategyOptions = [
+  { value: 'hybrid_search', label: '混合检索' },
+  { value: 'metadata_filter_rag', label: '元数据过滤' },
+  { value: 'knowledge_base_router_rag', label: '知识库路由' },
+  { value: 'contextual_compression_rag', label: '上下文压缩' },
+  { value: 'time_weighted_rag', label: '时间加权' },
+  { value: 'parent_child', label: '父子切片' },
+  { value: 'reranking', label: '重排序' },
+  { value: 'naive_rag', label: '基础检索' },
+  { value: 'multi_query_rag', label: '多查询' },
 ]
 
-const recallStrategyOptions = [
-  { value: 'hybrid_search',            label: '混合检索 hybrid_search' },
-  { value: 'metadata_filter_rag',      label: '元数据过滤 metadata_filter_rag' },
-  { value: 'knowledge_base_router_rag', label: '知识库路由 knowledge_base_router_rag' },
-  { value: 'contextual_compression_rag', label: '上下文压缩 contextual_compression_rag' },
-  { value: 'time_weighted_rag',        label: '时间加权 time_weighted_rag' },
-  { value: 'parent_child',             label: '父子切片 parent_child' },
-  { value: 'reranking',                label: '重排序 reranking' },
-  { value: 'naive_rag',               label: '基础检索 naive_rag' },
-  { value: 'multi_query_rag',         label: '多查询 multi_query_rag' },
+const WIZARD_STEPS = [
+  { num: 1, label: '数据来源' },
+  { num: 2, label: '索引配置' },
+  { num: 3, label: '完成' },
 ]
 
-// ===================== Helpers =====================
+// ======================== Helpers ========================
+
+const formatCount = (n) => {
+  const num = Number(n) || 0
+  if (num >= 1000) return `${(num / 1000).toFixed(1)}k`
+  return String(num)
+}
+
+const formatTime = (t) => {
+  if (!t) return '-'
+  try { return new Date(t).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) }
+  catch { return '-' }
+}
+
+const formatFileSize = (bytes) => {
+  if (!bytes) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+}
+
+const getFileExtension = (name) => {
+  if (!name) return ''
+  const parts = name.split('.')
+  return parts.length > 1 ? parts.pop().toUpperCase() : ''
+}
+
+const extractRecords = (res) => {
+  if (!res) return []
+  if (Array.isArray(res.data)) return res.data
+  if (res.data?.records) return res.data.records
+  if (res.data?.list) return res.data.list
+  return []
+}
+
+const extractTotal = (res) => {
+  if (res?.data?.total !== undefined) return res.data.total
+  if (Array.isArray(res?.data)) return res.data.length
+  return 0
+}
 
 const readTestedModelPrefixSet = () => {
   try {
     const raw = localStorage.getItem(AI_TESTED_MODEL_PREFIXES_KEY)
     const parsed = raw ? JSON.parse(raw) : {}
     return new Set(Object.keys(parsed || {}))
-  } catch {
-    return new Set()
-  }
+  } catch { return new Set() }
 }
 
 const buildEmbeddingModelOptions = (configs) => {
@@ -144,348 +154,376 @@ const buildEmbeddingModelOptions = (configs) => {
     groups.set(configPrefix, group)
   })
   return Array.from(groups.values())
-    .filter((group) => testedPrefixes.has(group.configPrefix))
-    .filter((group) => group.configs.provider && group.configs['base-url'] && group.configs['api-key'] && group.configs.model)
-    .map((group) => ({
-      value: group.configPrefix,
-      label: `${group.configs.model}（${group.configs.provider || group.configName}）`,
-    }))
+    .filter((g) => testedPrefixes.has(g.configPrefix))
+    .filter((g) => g.configs.provider && g.configs['base-url'] && g.configs['api-key'] && g.configs.model)
+    .map((g) => ({ value: g.configPrefix, label: `${g.configs.model}（${g.configs.provider}）` }))
 }
 
-const getStatusInfo = (status) => {
-  const info = indexingStatusMap[status] || { color: 'default', label: status || '-' }
-  return info
-}
-
-const getPipelineStepState = (indexingStatus, stepIndex) => {
-  const statusOrder = ['waiting', 'parsing', 'cleaning', 'splitting', 'indexing', 'completed']
-  const currentIndex = statusOrder.indexOf(indexingStatus)
-  if (indexingStatus === 'error') {
-    return stepIndex <= 2 ? 'completed' : 'error'
+const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => {
+    const result = String(reader.result || '')
+    resolve(result.includes(',') ? result.split(',').pop() : result)
   }
-  if (currentIndex < 0) return 'pending'
-  if (stepIndex < currentIndex) return 'completed'
-  if (stepIndex === currentIndex) return indexingStatus === 'completed' ? 'completed' : 'active'
-  return 'pending'
-}
+  reader.onerror = reject
+  reader.readAsDataURL(file)
+})
 
-const formatNumber = (val) => {
-  const n = Number(val)
-  if (!Number.isFinite(n)) return '-'
-  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`
-  return String(n)
-}
-
-const formatDateTime = (val) => {
-  if (!val) return '-'
-  try {
-    return new Date(val).toLocaleString()
-  } catch {
-    return String(val)
-  }
-}
-
-const truncateText = (text, maxLen = 120) => {
-  const str = String(text || '')
-  return str.length > maxLen ? str.slice(0, maxLen) + '...' : str
-}
-
-const extractRecords = (res) => {
-  if (!res) return { records: [], total: 0 }
-  const d = res.data
-  if (Array.isArray(d)) return { records: d, total: d.length }
-  if (d && Array.isArray(d.records)) return { records: d.records, total: d.total ?? d.records.length }
-  if (d && Array.isArray(d.list)) return { records: d.list, total: d.total ?? d.list.length }
-  return { records: [], total: 0 }
-}
-
-// ===================== Component =====================
+// ======================== Component ========================
 
 function KnowledgeBaseManage() {
-  // ---------- Navigation ----------
-  const [view, setView] = useState('datasets') // 'datasets' | 'documents' | 'segments'
-  const [activeTab, setActiveTab] = useState('manage') // 'manage' | 'recall' | 'convert'
-
-  // ---------- Dataset state ----------
-  const [datasets, setDatasets] = useState([])
-  const [datasetLoading, setDatasetLoading] = useState(false)
-  const [currentDataset, setCurrentDataset] = useState(null)
+  // ===== View state =====
+  const [creatingWizard, setCreatingWizard] = useState(false)
+  const [wizardStep, setWizardStep] = useState(1)
+  const [view, setView] = useState('list')
+  const [detailTab, setDetailTab] = useState('documents')
   const [currentDocument, setCurrentDocument] = useState(null)
 
-  // ---------- Document state ----------
+  // ===== Wizard state =====
+  const [wizSourceType, setWizSourceType] = useState('file')
+  const [wizFiles, setWizFiles] = useState([])
+  const [wizName, setWizName] = useState('')
+  const [wizDescription, setWizDescription] = useState('')
+  const [wizIndexType, setWizIndexType] = useState('high_quality')
+  const [wizChunkStructure, setWizChunkStructure] = useState('text_model')
+  const [wizRetrievalMethod, setWizRetrievalMethod] = useState('hybrid_search')
+  const [wizChunkSize, setWizChunkSize] = useState(800)
+  const [wizChunkOverlap, setWizChunkOverlap] = useState(120)
+  const [wizProcessMode, setWizProcessMode] = useState('automatic')
+  const [wizCreating, setWizCreating] = useState(false)
+  const [wizCreatedDataset, setWizCreatedDataset] = useState(null)
+  const [wizDragOver, setWizDragOver] = useState(false)
+  const [emptyKbModalVisible, setEmptyKbModalVisible] = useState(false)
+  const [emptyKbForm] = Form.useForm()
+  const [emptyKbLoading, setEmptyKbLoading] = useState(false)
+
+  // ===== Data =====
+  const [datasets, setDatasets] = useState([])
+  const [datasetTotal, setDatasetTotal] = useState(0)
+  const [datasetPage, setDatasetPage] = useState(1)
+  const [datasetSearch, setDatasetSearch] = useState('')
+  const [currentDataset, setCurrentDataset] = useState(null)
   const [documents, setDocuments] = useState([])
-  const [documentLoading, setDocumentLoading] = useState(false)
   const [documentTotal, setDocumentTotal] = useState(0)
   const [documentPage, setDocumentPage] = useState(1)
-
-  // ---------- Segment state ----------
+  const [documentSearch, setDocumentSearch] = useState('')
+  const [docStatusFilter, setDocStatusFilter] = useState('all')
   const [segments, setSegments] = useState([])
-  const [segmentLoading, setSegmentLoading] = useState(false)
   const [segmentTotal, setSegmentTotal] = useState(0)
   const [segmentPage, setSegmentPage] = useState(1)
   const [segmentSearch, setSegmentSearch] = useState('')
 
-  // ---------- Health state ----------
-  const [health, setHealth] = useState({ vector: null, embedding: null, graph: null })
-  const [healthLoading, setHealthLoading] = useState(false)
+  // ===== Loading =====
+  const [listLoading, setListLoading] = useState(false)
+  const [docLoading, setDocLoading] = useState(false)
+  const [segLoading, setSegLoading] = useState(false)
 
-  // ---------- Modal state ----------
+  // ===== Modals =====
   const [datasetModalVisible, setDatasetModalVisible] = useState(false)
-  const [datasetModalMode, setDatasetModalMode] = useState('create') // 'create' | 'edit'
-  const [datasetModalLoading, setDatasetModalLoading] = useState(false)
   const [editingDataset, setEditingDataset] = useState(null)
-
+  const [datasetModalLoading, setDatasetModalLoading] = useState(false)
   const [documentModalVisible, setDocumentModalVisible] = useState(false)
   const [documentModalLoading, setDocumentModalLoading] = useState(false)
-
-  // ---------- Drawer state ----------
   const [segmentDrawerVisible, setSegmentDrawerVisible] = useState(false)
-  const [segmentDrawerLoading, setSegmentDrawerLoading] = useState(false)
   const [activeSegment, setActiveSegment] = useState(null)
-  const [childChunks, setChildChunks] = useState([])
-  const [childChunkLoading, setChildChunkLoading] = useState(false)
-
   const [segmentEditDrawerVisible, setSegmentEditDrawerVisible] = useState(false)
   const [segmentEditLoading, setSegmentEditLoading] = useState(false)
-
-  // ---------- System config / embedding ----------
-  const [systemConfigs, setSystemConfigs] = useState([])
-  const [embeddingModelOptions, setEmbeddingModelOptions] = useState([])
-
-  // ---------- Recall test ----------
-  const [recallLoading, setRecallLoading] = useState(false)
-  const [recallResult, setRecallResult] = useState(null)
-  const [recallError, setRecallError] = useState('')
-
-  // ---------- File conversion ----------
-  const [convertLoading, setConvertLoading] = useState(false)
-  const [convertResult, setConvertResult] = useState(null)
-
-  // ---------- Upload ----------
   const [uploadFileList, setUploadFileList] = useState([])
+  const [convertResult, setConvertResult] = useState(null)
+  const [convertLoading, setConvertLoading] = useState(false)
 
-  // ---------- Forms ----------
+  // ===== Forms =====
   const [datasetForm] = Form.useForm()
   const [documentForm] = Form.useForm()
   const [segmentEditForm] = Form.useForm()
   const [recallForm] = Form.useForm()
+  const [settingsForm] = Form.useForm()
 
-  // ---------- Form watches (must be at component top level) ----------
-  const watchedDataSourceType = Form.useWatch('dataSourceType', documentForm) || 'text_input'
-  const watchedProcessMode = Form.useWatch('processMode', documentForm) || 'automatic'
+  // ===== Health & Recall =====
+  const [health, setHealth] = useState({})
+  const [recallLoading, setRecallLoading] = useState(false)
+  const [recallResult, setRecallResult] = useState(null)
 
-  // ---------- Convert file list ----------
-  const [convertFileList, setConvertFileList] = useState([])
+  // ===== Embedding models =====
+  const [embeddingModelOptions, setEmbeddingModelOptions] = useState([])
 
-  // ===================== Data Loading =====================
+  // ===== Watch form fields =====
+  const watchDataSourceType = Form.useWatch('dataSourceType', documentForm) || 'text_input'
+  const watchProcessMode = Form.useWatch('processMode', documentForm) || 'automatic'
 
-  const loadDatasets = async () => {
-    setDatasetLoading(true)
+  // ======================== Loaders ========================
+
+  const loadDatasets = async (page = 1, keyword = '') => {
+    setListLoading(true)
     try {
-      const res = await getDatasets({ current: 1, size: 100 })
-      const { records } = extractRecords(res)
-      setDatasets(records)
-    } catch (err) {
-      message.error(err?.message || '加载知识库列表失败')
-    } finally {
-      setDatasetLoading(false)
-    }
+      const res = await getDatasets({ current: page, size: 20, keyword })
+      setDatasets(extractRecords(res))
+      setDatasetTotal(extractTotal(res))
+    } catch (err) { message.error(err.message || '加载知识库失败') }
+    finally { setListLoading(false) }
+  }
+
+  const loadDatasetDetail = async (id) => {
+    try {
+      const res = await getDataset(id)
+      setCurrentDataset(res.data)
+      settingsForm.setFieldsValue({
+        name: res.data.name,
+        description: res.data.description,
+        indexingTechnique: res.data.indexingTechnique,
+        embeddingModel: res.data.embeddingModel,
+        chunkStructure: res.data.chunkStructure,
+        permission: res.data.permission,
+        retrievalModel: res.data.retrievalModel,
+      })
+    } catch (err) { message.error(err.message) }
   }
 
   const loadDocuments = async (datasetId, page = 1, keyword = '') => {
-    if (!datasetId) return
-    setDocumentLoading(true)
+    setDocLoading(true)
     try {
       const res = await getDocuments(datasetId, { current: page, size: 20, keyword })
-      const { records, total } = extractRecords(res)
-      setDocuments(records)
-      setDocumentTotal(total)
-      setDocumentPage(page)
-    } catch (err) {
-      message.error(err?.message || '加载文档列表失败')
-    } finally {
-      setDocumentLoading(false)
-    }
+      setDocuments(extractRecords(res))
+      setDocumentTotal(extractTotal(res))
+    } catch (err) { message.error(err.message) }
+    finally { setDocLoading(false) }
   }
 
   const loadSegments = async (documentId, page = 1, keyword = '') => {
-    if (!documentId) return
-    setSegmentLoading(true)
+    setSegLoading(true)
     try {
       const res = await getSegments(documentId, { current: page, size: 20, keyword })
-      const { records, total } = extractRecords(res)
-      setSegments(records)
-      setSegmentTotal(total)
-      setSegmentPage(page)
-    } catch (err) {
-      message.error(err?.message || '加载分段列表失败')
-    } finally {
-      setSegmentLoading(false)
-    }
+      setSegments(extractRecords(res))
+      setSegmentTotal(extractTotal(res))
+    } catch (err) { message.error(err.message) }
+    finally { setSegLoading(false) }
   }
 
   const loadHealth = async () => {
-    setHealthLoading(true)
-    try {
-      const [vectorRes, embeddingRes, graphRes] = await Promise.allSettled([
-        getRagVectorStoreHealth(),
-        getRagEmbeddingHealth(),
-        getRagGraphStoreHealth(),
-      ])
-      setHealth({
-        vector: vectorRes.status === 'fulfilled' ? vectorRes.value?.data : null,
-        embedding: embeddingRes.status === 'fulfilled' ? embeddingRes.value?.data : null,
-        graph: graphRes.status === 'fulfilled' ? graphRes.value?.data : null,
-      })
-    } catch {
-      // errors handled by global interceptor
-    } finally {
-      setHealthLoading(false)
-    }
+    const results = await Promise.allSettled([
+      getRagVectorStoreHealth(), getRagEmbeddingHealth(), getRagGraphStoreHealth(),
+    ])
+    setHealth({
+      vector: results[0].status === 'fulfilled' ? results[0].value?.data : {},
+      embedding: results[1].status === 'fulfilled' ? results[1].value?.data : {},
+      graph: results[2].status === 'fulfilled' ? results[2].value?.data : {},
+    })
   }
 
-  const loadSystemConfigs = async () => {
+  const loadEmbeddingOptions = async () => {
     try {
-      const res = await getSystemConfigList({ current: 1, size: 200, prefixes: 'ai.service.embedding' })
-      const { records } = extractRecords(res)
-      setSystemConfigs(records)
-      setEmbeddingModelOptions(buildEmbeddingModelOptions(records))
-    } catch {
-      // silent
-    }
+      const res = await getSystemConfigList({ current: 1, size: 500, prefixes: 'ai.service.embedding' })
+      setEmbeddingModelOptions(buildEmbeddingModelOptions(res.data?.records || []))
+    } catch { /* ignore */ }
   }
 
-  const loadChildChunks = async (segmentId) => {
-    if (!segmentId) return
-    setChildChunkLoading(true)
-    try {
-      const res = await getChildChunks(segmentId)
-      const data = res?.data
-      setChildChunks(Array.isArray(data) ? data : data?.records || data?.list || [])
-    } catch {
-      setChildChunks([])
-    } finally {
-      setChildChunkLoading(false)
-    }
-  }
-
-  // ===================== Initial Load =====================
+  // ======================== Init ========================
 
   useEffect(() => {
     loadDatasets()
     loadHealth()
-    loadSystemConfigs()
+    loadEmbeddingOptions()
   }, [])
 
-  // ===================== Computed Values =====================
+  // ======================== Navigation ========================
 
-  const totalDocuments = useMemo(
-    () => datasets.reduce((sum, ds) => sum + Number(ds.documentCount || 0), 0),
-    [datasets],
-  )
-
-  const totalSegments = useMemo(
-    () => datasets.reduce((sum, ds) => sum + Number(ds.segmentCount || ds.chunkCount || 0), 0),
-    [datasets],
-  )
-
-  const healthScore = useMemo(() => {
-    const checks = [health.vector, health.embedding, health.graph]
-    const healthy = checks.filter((h) => h && (h.status === 'UP' || h.status === 'healthy' || h.healthy === true)).length
-    return Math.round((healthy / 3) * 100)
-  }, [health])
-
-  const healthStatusLabel = (h) => {
-    if (!h) return { text: '未知', color: 'default' }
-    if (h.status === 'UP' || h.status === 'healthy' || h.healthy === true) return { text: '正常', color: 'green' }
-    if (h.status === 'DOWN' || h.status === 'unhealthy' || h.healthy === false) return { text: '异常', color: 'red' }
-    return { text: h.status || '未知', color: 'default' }
-  }
-
-  // ===================== Navigation Handlers =====================
-
-  const enterDataset = async (dataset) => {
+  const enterDataset = (dataset) => {
     setCurrentDataset(dataset)
+    setView('detail')
+    setDetailTab('documents')
     setCurrentDocument(null)
-    setDocuments([])
-    setSegments([])
-    setView('documents')
+    loadDatasetDetail(dataset.id)
     loadDocuments(dataset.id)
-    // Load full dataset details in background
-    try {
-      const res = await getDataset(dataset.id)
-      if (res?.data) {
-        setCurrentDataset((prev) => ({ ...prev, ...res.data }))
-      }
-    } catch {
-      // use list data as fallback
-    }
   }
 
-  const enterDocument = async (document) => {
-    setCurrentDocument(document)
-    setSegments([])
-    setView('segments')
-    loadSegments(document.id)
-    // Load full document details in background
-    try {
-      const res = await getDocument(document.id)
-      if (res?.data) {
-        setCurrentDocument((prev) => ({ ...prev, ...res.data }))
-      }
-    } catch {
-      // use list data as fallback
-    }
-  }
-
-  const backToDatasets = () => {
-    setView('datasets')
+  const backToList = () => {
+    setView('list')
     setCurrentDataset(null)
     setCurrentDocument(null)
-    setDocuments([])
-    setSegments([])
-    loadDatasets()
+    setCreatingWizard(false)
+    loadDatasets(datasetPage, datasetSearch)
+  }
+
+  const enterDocument = (doc) => {
+    setCurrentDocument(doc)
+    loadSegments(doc.id)
   }
 
   const backToDocuments = () => {
-    setView('documents')
     setCurrentDocument(null)
-    setSegments([])
-    if (currentDataset) {
-      loadDocuments(currentDataset.id)
+    if (currentDataset) loadDocuments(currentDataset.id, documentPage, documentSearch)
+  }
+
+  const switchDetailTab = (tab) => {
+    setDetailTab(tab)
+    setCurrentDocument(null)
+    if (tab === 'documents' && currentDataset) loadDocuments(currentDataset.id)
+  }
+
+  // ======================== Wizard Handlers ========================
+
+  const openCreateWizard = () => {
+    setCreatingWizard(true)
+    setWizardStep(1)
+    setWizFiles([])
+    setWizName('')
+    setWizDescription('')
+    setWizIndexType('high_quality')
+    setWizChunkStructure('text_model')
+    setWizRetrievalMethod('hybrid_search')
+    setWizProcessMode('automatic')
+    setWizSourceType('file')
+    setWizChunkSize(800)
+    setWizChunkOverlap(120)
+    setWizCreatedDataset(null)
+    setWizCreating(false)
+  }
+
+  const closeWizard = () => {
+    setCreatingWizard(false)
+    setWizardStep(1)
+    setWizFiles([])
+  }
+
+  const handleWizardFileSelect = (e) => {
+    const files = Array.from(e.target.files || [])
+    if (files.length > 0) {
+      setWizFiles((prev) => [...prev, ...files])
+      if (!wizName) setWizName(files[0].name.replace(/\.[^.]+$/, ''))
+    }
+    e.target.value = ''
+  }
+
+  const handleWizardFileDrop = (e) => {
+    e.preventDefault()
+    setWizDragOver(false)
+    const files = Array.from(e.dataTransfer.files || [])
+    if (files.length > 0) {
+      setWizFiles((prev) => [...prev, ...files])
+      if (!wizName) setWizName(files[0].name.replace(/\.[^.]+$/, ''))
     }
   }
 
-  // ===================== Dataset CRUD =====================
+  const removeWizFile = (idx) => {
+    setWizFiles((prev) => prev.filter((_, i) => i !== idx))
+  }
 
-  const openCreateDatasetModal = () => {
-    setDatasetModalMode('create')
+  const wizardNextStep = () => {
+    if (wizardStep === 1) {
+      // Step 1 allows proceeding with 0 files (empty KB) or with files
+      setWizardStep(2)
+    } else if (wizardStep === 2) {
+      if (!wizName.trim()) {
+        message.warning('请输入知识库名称')
+        return
+      }
+      handleWizardCreate()
+    }
+  }
+
+  const wizardPrevStep = () => {
+    if (wizardStep > 1) setWizardStep(wizardStep - 1)
+  }
+
+  const handleWizardCreate = async () => {
+    setWizCreating(true)
+    try {
+      // Step 1: Create dataset
+      const datasetPayload = {
+        name: wizName.trim(),
+        description: wizDescription.trim(),
+        indexingTechnique: wizIndexType,
+        chunkStructure: wizChunkStructure,
+        permission: 'only_me',
+      }
+      const dsRes = await createDataset(datasetPayload)
+      const datasetId = dsRes.data?.id || dsRes.data
+      setWizCreatedDataset({ id: datasetId, name: wizName })
+
+      // Step 2: Create documents from uploaded files
+      if (wizFiles.length > 0) {
+        for (const file of wizFiles) {
+          try {
+            const contentBase64 = await readFileAsBase64(file)
+            const docPayload = {
+              name: file.name,
+              dataSourceType: 'upload_file',
+              docForm: wizChunkStructure,
+              processMode: wizProcessMode,
+              contentBase64,
+            }
+            if (wizProcessMode === 'custom') {
+              docPayload.processRules = JSON.stringify({ chunkSize: wizChunkSize, chunkOverlap: wizChunkOverlap })
+            }
+            await createDocument(datasetId, docPayload)
+          } catch (err) {
+            console.error('Failed to create document:', file.name, err)
+          }
+        }
+      }
+
+      // Step 3: Show progress/completion
+      setWizardStep(3)
+      message.success('知识库创建成功')
+    } catch (err) {
+      message.error(err.message || '创建知识库失败')
+    } finally {
+      setWizCreating(false)
+    }
+  }
+
+  const handleWizardFinish = () => {
+    if (wizCreatedDataset?.id) {
+      setCreatingWizard(false)
+      loadDatasets(1, '')
+      // Navigate to the new dataset
+      enterDataset({ id: wizCreatedDataset.id, name: wizCreatedDataset.name })
+    } else {
+      closeWizard()
+      loadDatasets(1, '')
+    }
+  }
+
+  const handleCreateEmptyKb = async () => {
+    try {
+      const values = await emptyKbForm.validateFields()
+      setEmptyKbLoading(true)
+      await createDataset({
+        name: values.name.trim(),
+        description: '',
+        indexingTechnique: 'high_quality',
+        chunkStructure: 'text_model',
+        permission: 'only_me',
+      })
+      message.success('空知识库已创建')
+      setEmptyKbModalVisible(false)
+      emptyKbForm.resetFields()
+      loadDatasets(1, '')
+    } catch (err) {
+      if (err?.message && !err?.errorFields) message.error(err.message)
+    } finally {
+      setEmptyKbLoading(false)
+    }
+  }
+
+  // ======================== Dataset CRUD ========================
+
+  const openCreateDataset = () => {
     setEditingDataset(null)
     datasetForm.resetFields()
-    datasetForm.setFieldsValue({
-      indexingTechnique: 'high_quality',
-      chunkStructure: 'text_model',
-      permission: 'only_me',
-      embeddingModel: '',
-    })
     setDatasetModalVisible(true)
   }
 
-  const openEditDatasetModal = (dataset, e) => {
-    if (e) {
-      e.stopPropagation()
-      e.preventDefault()
-    }
-    setDatasetModalMode('edit')
+  const openEditDataset = (dataset, e) => {
+    e?.stopPropagation()
     setEditingDataset(dataset)
     datasetForm.setFieldsValue({
       name: dataset.name,
       description: dataset.description,
-      indexingTechnique: dataset.indexingTechnique || 'high_quality',
-      embeddingModel: dataset.embeddingModel || '',
-      chunkStructure: dataset.chunkStructure || 'text_model',
-      permission: dataset.permission || 'only_me',
+      indexingTechnique: dataset.indexingTechnique,
+      embeddingModel: dataset.embeddingModel,
+      chunkStructure: dataset.chunkStructure,
+      permission: dataset.permission,
     })
     setDatasetModalVisible(true)
   }
@@ -494,47 +532,34 @@ function KnowledgeBaseManage() {
     try {
       const values = await datasetForm.validateFields()
       setDatasetModalLoading(true)
-      if (datasetModalMode === 'create') {
-        await createDataset(values)
-        message.success('知识库创建成功')
-      } else {
+      if (editingDataset) {
         await updateDataset(editingDataset.id, values)
-        message.success('知识库更新成功')
+        message.success('知识库已更新')
+      } else {
+        await createDataset(values)
+        message.success('知识库已创建')
       }
       setDatasetModalVisible(false)
-      loadDatasets()
+      loadDatasets(datasetPage, datasetSearch)
     } catch (err) {
-      if (err?.message && !err?.errorFields) {
-        message.error(err.message)
-      }
-    } finally {
-      setDatasetModalLoading(false)
-    }
+      if (err?.message && !err?.errorFields) message.error(err.message)
+    } finally { setDatasetModalLoading(false) }
   }
 
   const handleDeleteDataset = async (dataset, e) => {
-    if (e) {
-      e.stopPropagation()
-      e.preventDefault()
-    }
+    e?.stopPropagation()
     try {
       await deleteDataset(dataset.id)
       message.success('知识库已删除')
-      loadDatasets()
-    } catch (err) {
-      message.error(err?.message || '删除失败')
-    }
+      loadDatasets(datasetPage, datasetSearch)
+    } catch (err) { message.error(err.message) }
   }
 
-  // ===================== Document CRUD =====================
+  // ======================== Document CRUD ========================
 
-  const openCreateDocumentModal = () => {
+  const openCreateDocument = () => {
     documentForm.resetFields()
-    documentForm.setFieldsValue({
-      dataSourceType: 'text_input',
-      docForm: 'text_model',
-      processMode: 'automatic',
-    })
+    documentForm.setFieldsValue({ dataSourceType: 'text_input', docForm: 'text_model', processMode: 'automatic' })
     setUploadFileList([])
     setConvertResult(null)
     setDocumentModalVisible(true)
@@ -544,112 +569,80 @@ function KnowledgeBaseManage() {
     try {
       const values = await documentForm.validateFields()
       setDocumentModalLoading(true)
-
       const payload = {
         name: values.name,
         dataSourceType: values.dataSourceType,
-        docForm: values.docForm,
+        docForm: values.docForm || 'text_model',
         processMode: values.processMode || 'automatic',
         embeddingModel: values.embeddingModel,
         docMetadata: values.docMetadata,
       }
-
       if (values.dataSourceType === 'text_input') {
         payload.content = values.textContent
-      } else if (values.dataSourceType === 'upload_file') {
+      } else {
         const fileList = uploadFileList
         let fileObj = null
-        if (fileList.length > 0 && fileList[0].originFileObj) {
-          fileObj = fileList[0].originFileObj
+        if (fileList.length > 0 && fileList[0].originFileObj) fileObj = fileList[0].originFileObj
+        if (fileObj) {
+          payload.contentBase64 = await readFileAsBase64(fileObj)
         } else if (convertResult?.contentBase64) {
           payload.contentBase64 = convertResult.contentBase64
         }
-        if (fileObj) {
-          payload.contentBase64 = await new Promise((resolve, reject) => {
-            const reader = new FileReader()
-            reader.onload = () => {
-              const result = String(reader.result || '')
-              resolve(result.includes(',') ? result.split(',').pop() : result)
-            }
-            reader.onerror = reject
-            reader.readAsDataURL(fileObj)
-          })
-        }
       }
-
-      // Serialize process rules into JSON string
       if (values.processMode === 'custom') {
-        payload.processRules = JSON.stringify({
-          chunkSize: values.chunkSize,
-          chunkOverlap: values.chunkOverlap,
-        })
+        payload.processRules = JSON.stringify({ chunkSize: values.chunkSize, chunkOverlap: values.chunkOverlap })
       } else if (values.processMode === 'hierarchical') {
         payload.processRules = JSON.stringify({
-          parentChunkSize: values.parentChunkSize,
-          parentChunkOverlap: values.parentChunkOverlap,
-          childChunkSize: values.childChunkSize,
-          childChunkOverlap: values.childChunkOverlap,
+          parentChunkSize: values.parentChunkSize, parentChunkOverlap: values.parentChunkOverlap,
+          childChunkSize: values.childChunkSize, childChunkOverlap: values.childChunkOverlap,
         })
       }
-
       await createDocument(currentDataset.id, payload)
       message.success('文档创建成功')
       setDocumentModalVisible(false)
       loadDocuments(currentDataset.id)
+      loadDatasetDetail(currentDataset.id)
     } catch (err) {
-      if (err?.message && !err?.errorFields) {
-        message.error(err.message)
-      }
-    } finally {
-      setDocumentModalLoading(false)
-    }
+      if (err?.message && !err?.errorFields) message.error(err.message)
+    } finally { setDocumentModalLoading(false) }
   }
 
-  const handleDeleteDocument = async (document) => {
+  const handleDeleteDocument = async (doc, e) => {
+    e?.stopPropagation()
     try {
-      await deleteDocument(document.id)
+      await deleteDocument(doc.id)
       message.success('文档已删除')
-      loadDocuments(currentDataset.id, documentPage)
-    } catch (err) {
-      message.error(err?.message || '删除失败')
-    }
+      loadDocuments(currentDataset.id, documentPage, documentSearch)
+      loadDatasetDetail(currentDataset.id)
+    } catch (err) { message.error(err.message) }
   }
 
-  const handleToggleDocument = async (document, enabled) => {
+  const handleToggleDocument = async (doc, enabled) => {
     try {
-      await toggleDocument(document.id, enabled)
+      await toggleDocument(doc.id, enabled)
       message.success(enabled ? '文档已启用' : '文档已禁用')
-      loadDocuments(currentDataset.id, documentPage)
-    } catch (err) {
-      message.error(err?.message || '操作失败')
-    }
+      loadDocuments(currentDataset.id, documentPage, documentSearch)
+    } catch (err) { message.error(err.message) }
   }
 
-  // ===================== Segment CRUD =====================
+  // ======================== Segment ========================
 
-  const openSegmentDetailDrawer = async (segment) => {
+  const openSegmentDetail = async (segment) => {
     setActiveSegment(segment)
-    setChildChunks([])
-    setSegmentDrawerVisible(true)
-    loadChildChunks(segment.id)
-    // Load full segment details in background
     try {
       const res = await getSegment(segment.id)
-      if (res?.data) {
-        setActiveSegment((prev) => ({ ...prev, ...res.data }))
-      }
-    } catch {
-      // use list data as fallback
-    }
+      setActiveSegment(res.data)
+    } catch { /* use existing data */ }
+    setSegmentDrawerVisible(true)
   }
 
-  const openSegmentEditDrawer = (segment) => {
+  const openSegmentEdit = (segment) => {
     setActiveSegment(segment)
     segmentEditForm.setFieldsValue({
       content: segment.content,
       answer: segment.answer,
       keywords: segment.keywords,
-      enabled: segment.enabled !== false,
+      enabled: segment.enabled !== 0,
     })
     setSegmentEditDrawerVisible(true)
   }
@@ -668,12 +661,8 @@ function KnowledgeBaseManage() {
       setSegmentEditDrawerVisible(false)
       loadSegments(currentDocument.id, segmentPage, segmentSearch)
     } catch (err) {
-      if (err?.message && !err?.errorFields) {
-        message.error(err.message)
-      }
-    } finally {
-      setSegmentEditLoading(false)
-    }
+      if (err?.message && !err?.errorFields) message.error(err.message)
+    } finally { setSegmentEditLoading(false) }
   }
 
   const handleDeleteSegment = async (segment) => {
@@ -681,9 +670,7 @@ function KnowledgeBaseManage() {
       await deleteSegment(segment.id)
       message.success('分段已删除')
       loadSegments(currentDocument.id, segmentPage, segmentSearch)
-    } catch (err) {
-      message.error(err?.message || '删除失败')
-    }
+    } catch (err) { message.error(err.message) }
   }
 
   const handleToggleSegment = async (segment, enabled) => {
@@ -691,1171 +678,1374 @@ function KnowledgeBaseManage() {
       await toggleSegment(segment.id, enabled)
       message.success(enabled ? '分段已启用' : '分段已禁用')
       loadSegments(currentDocument.id, segmentPage, segmentSearch)
+    } catch (err) { message.error(err.message) }
+  }
+
+  // ======================== Settings ========================
+
+  const handleSaveSettings = async () => {
+    try {
+      const values = await settingsForm.validateFields()
+      await updateDataset(currentDataset.id, values)
+      message.success('设置已保存')
+      loadDatasetDetail(currentDataset.id)
     } catch (err) {
-      message.error(err?.message || '操作失败')
+      if (err?.message && !err?.errorFields) message.error(err.message)
     }
   }
 
-  // ===================== Recall Test =====================
+  // ======================== Recall ========================
 
-  const handleRecallTest = async () => {
+  const handleRecallTest = async (values) => {
+    setRecallLoading(true)
+    setRecallResult(null)
     try {
-      const values = await recallForm.validateFields()
-      setRecallLoading(true)
-      setRecallError('')
-      setRecallResult(null)
-      const payload = {
+      const res = await runRagRecallTest({
         query: values.query,
-        ragStrategy: values.ragStrategy,
-        knowledgeBaseIds: values.knowledgeBaseIds,
+        ragStrategy: values.ragStrategy || 'hybrid_search',
         embeddingModel: values.embeddingModel,
-        topK: values.topK,
-        similarityThreshold: values.similarityThreshold,
-      }
-      const res = await runRagRecallTest(payload)
-      setRecallResult(res?.data || res)
-    } catch (err) {
-      setRecallError(err?.message || '召回测试失败')
-    } finally {
-      setRecallLoading(false)
-    }
+        metadata: {
+          knowledgeBaseIds: values.knowledgeBaseIds || [currentDataset?.id],
+          topK: values.topK || 5,
+          similarityThreshold: values.similarityThreshold,
+        },
+      })
+      setRecallResult(res.data)
+      message.success(`召回完成，命中 ${(res.data?.documents || []).length} 条`)
+    } catch (err) { message.error(err.message || '召回测试失败') }
+    finally { setRecallLoading(false) }
   }
 
-  // ===================== File Conversion =====================
+  // ======================== File Convert ========================
 
-  const handleConvertPdf = async (file) => {
+  const handleConvert = async (file) => {
     setConvertLoading(true)
     setConvertResult(null)
     try {
+      const isPptx = file.name.toLowerCase().endsWith('.pptx')
       const formData = new FormData()
       formData.append('file', file)
-      const res = await convertPdf(formData)
-      setConvertResult({ type: 'pdf', data: res?.data, fileName: file.name.replace(/\.pdf$/i, '.docx') })
-      message.success('PDF 转换成功')
-    } catch (err) {
-      message.error(err?.message || 'PDF 转换失败')
-    } finally {
-      setConvertLoading(false)
-    }
+      if (!isPptx) formData.append('targetFormat', 'docx')
+      const res = isPptx ? await convertPpt(formData) : await convertPdf(formData)
+      setConvertResult(res.data)
+      message.success('转换完成')
+    } catch (err) { message.error(err.message || '转换失败') }
+    finally { setConvertLoading(false) }
   }
 
-  const handleConvertPpt = async (file) => {
-    setConvertLoading(true)
-    setConvertResult(null)
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const res = await convertPpt(formData)
-      setConvertResult({ type: 'ppt', data: res?.data, fileName: file.name.replace(/\.pptx$/i, '.docx') })
-      message.success('PPT 转换成功')
-    } catch (err) {
-      message.error(err?.message || 'PPT 转换失败')
-    } finally {
-      setConvertLoading(false)
-    }
-  }
+  // ======================== RENDER: Wizard ========================
 
-  // ===================== Dataset List View (Level 1) =====================
-
-  const renderDatasetList = () => (
-    <div>
-      {/* Hero Banner */}
-      <div className="kb-hero">
-        <div className="kb-hero__content">
-          <h1>知识库管理</h1>
-          <p>
-            管理智能校园平台的全部知识库资源。支持创建知识库、上传文档、自动分段与向量化索引，
-            并通过召回测试验证检索质量。
-          </p>
-          <div className="kb-hero__tags">
-            <Tag color="teal">RAG 增强检索</Tag>
-            <Tag color="blue">自动分段</Tag>
-            <Tag color="green">多模型嵌入</Tag>
-            <Tag color="purple">父子切片</Tag>
+  const renderWizard = () => (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#fff' }}>
+      {/* Top bar with stepper */}
+      <div className="kb-wizard-topbar">
+        <button className="kb-wizard-back" onClick={closeWizard}>
+          <ArrowLeftOutlined />
+          <span>知识库</span>
+        </button>
+        <div className="kb-wizard-stepper-wrap">
+          <div className="kb-wizard-stepper">
+            {WIZARD_STEPS.map((s, i) => (
+              <div key={s.num} style={{ display: 'flex', alignItems: 'center' }}>
+                {i > 0 && <div className="kb-wizard-step-connector" />}
+                <div className="kb-wizard-step">
+                  {s.num < wizardStep ? (
+                    <span className="kb-wizard-step-num done">{s.num}</span>
+                  ) : s.num === wizardStep ? (
+                    <span className="kb-wizard-step-badge active">STEP {s.num}</span>
+                  ) : (
+                    <span className="kb-wizard-step-num pending">{s.num}</span>
+                  )}
+                  <span className={`kb-wizard-step-label ${s.num < wizardStep ? 'done' : s.num === wizardStep ? 'active' : 'pending'}`}>
+                    {s.label}
+                  </span>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => { loadDatasets(); loadHealth() }} loading={datasetLoading}>
-            刷新
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDatasetModal}>
-            创建知识库
-          </Button>
-        </Space>
       </div>
 
-      {/* Stats Row */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
-        <Col xs={12} sm={6}>
-          <Card className="kb-metric-card" size="small">
-            <Statistic title="知识库总数" value={datasets.length} prefix={<DatabaseOutlined />} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card className="kb-metric-card" size="small">
-            <Statistic title="文档总数" value={totalDocuments} prefix={<FileTextOutlined />} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card className="kb-metric-card" size="small">
-            <Statistic title="分段总数" value={totalSegments} prefix={<BranchesOutlined />} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card className="kb-metric-card" size="small">
-            <Statistic
-              title="健康评分"
-              value={healthScore}
-              suffix="%"
-              prefix={<HeartOutlined />}
-              valueStyle={{ color: healthScore >= 66 ? '#0f766e' : healthScore >= 33 ? '#d97706' : '#dc2626' }}
-            />
-          </Card>
-        </Col>
-      </Row>
+      {/* Body */}
+      {wizardStep === 1 && renderWizardStep1()}
+      {wizardStep === 2 && renderWizardStep2()}
+      {wizardStep === 3 && renderWizardStep3()}
+    </div>
+  )
 
-      {/* Health Row */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
-        <Col xs={24} sm={8}>
-          <Card className="kb-health-card" size="small" loading={healthLoading}>
-            <div className="kb-health-card__top">
-              <span className="kb-health-card__icon"><ApiOutlined /></span>
-              <Tag color={healthStatusLabel(health.vector).color}>{healthStatusLabel(health.vector).text}</Tag>
-            </div>
-            <Statistic title="向量存储服务" value={health?.vector?.version || health?.vector?.storeType || '-'} />
-          </Card>
-        </Col>
-        <Col xs={24} sm={8}>
-          <Card className="kb-health-card" size="small" loading={healthLoading}>
-            <div className="kb-health-card__top">
-              <span className="kb-health-card__icon"><SettingOutlined /></span>
-              <Tag color={healthStatusLabel(health.embedding).color}>{healthStatusLabel(health.embedding).text}</Tag>
-            </div>
-            <Statistic title="Embedding 服务" value={health?.embedding?.model || health?.embedding?.provider || '-'} />
-          </Card>
-        </Col>
-        <Col xs={24} sm={8}>
-          <Card className="kb-health-card" size="small" loading={healthLoading}>
-            <div className="kb-health-card__top">
-              <span className="kb-health-card__icon"><BranchesOutlined /></span>
-              <Tag color={healthStatusLabel(health.graph).color}>{healthStatusLabel(health.graph).text}</Tag>
-            </div>
-            <Statistic title="图存储服务" value={health?.graph?.storeType || health?.graph?.version || '-'} />
-          </Card>
-        </Col>
-      </Row>
+  // ===== Wizard Step 1: Data Source =====
+  const renderWizardStep1 = () => (
+    <div className="kb-wizard-body">
+      {/* Left panel - form */}
+      <div className="kb-wizard-left">
+        <div className="kb-wizard-left-inner">
+          <div className="kb-wizard-section-title">数据来源</div>
 
-      {/* Dataset Grid */}
-      <div className="kb-section-head">
-        <div>
-          <Title level={4} style={{ margin: 0 }}>知识库列表</Title>
-          <Text type="secondary">共 {datasets.length} 个知识库，点击卡片进入文档管理</Text>
+          {/* Data source type selector */}
+          <div className="kb-data-source-grid">
+            <div className={`kb-data-source-card ${wizSourceType === 'file' ? 'selected' : ''}`}
+              onClick={() => setWizSourceType('file')}>
+              <div className="kb-data-source-icon"><FileTextOutlined /></div>
+              <span className="kb-data-source-label">上传文件</span>
+            </div>
+            <div className={`kb-data-source-card ${wizSourceType === 'notion' ? 'selected' : ''}`}
+              onClick={() => setWizSourceType('notion')}>
+              <div className="kb-data-source-icon"><ApiOutlined /></div>
+              <span className="kb-data-source-label">Notion</span>
+            </div>
+            <div className={`kb-data-source-card ${wizSourceType === 'web' ? 'selected' : ''}`}
+              onClick={() => setWizSourceType('web')}>
+              <div className="kb-data-source-icon"><GlobalOutlined /></div>
+              <span className="kb-data-source-label">网页</span>
+            </div>
+          </div>
+
+          {/* File upload area */}
+          {wizSourceType === 'file' && (
+            <div className="kb-upload-area">
+              <div
+                className={`kb-upload-dropzone ${wizDragOver ? 'dragging' : ''}`}
+                onClick={() => document.getElementById('wiz-file-input')?.click()}
+                onDragOver={(e) => { e.preventDefault(); setWizDragOver(true) }}
+                onDragLeave={() => setWizDragOver(false)}
+                onDrop={handleWizardFileDrop}
+              >
+                <UploadOutlined />
+                <div className="kb-upload-text">
+                  拖放文件到这里，或 <span className="kb-upload-text-accent">浏览</span>
+                </div>
+                <div className="kb-upload-tip">
+                  支持 DOCX、TXT、PDF、PPTX，单个文件最大 15MB
+                </div>
+              </div>
+              <input id="wiz-file-input" type="file" multiple
+                accept=".docx,.txt,.pdf,.pptx,.md,.csv"
+                style={{ display: 'none' }}
+                onChange={handleWizardFileSelect}
+              />
+
+              {/* File list */}
+              {wizFiles.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  {wizFiles.map((file, idx) => (
+                    <div key={idx} className="kb-file-item">
+                      <div className="kb-file-item-icon"><FileTextOutlined /></div>
+                      <div className="kb-file-item-info">
+                        <div className="kb-file-item-name">{file.name}</div>
+                        <div className="kb-file-item-meta">
+                          <span>{getFileExtension(file.name)}</span>
+                          <span>·</span>
+                          <span>{formatFileSize(file.size)}</span>
+                        </div>
+                      </div>
+                      <button className="kb-file-item-delete" onClick={() => removeWizFile(idx)}>
+                        <DeleteOutlined />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Divider */}
+          <div className="kb-divider-regular" />
+
+          {/* Empty KB link */}
+          <button className="kb-empty-kb-link" onClick={() => {
+            closeWizard()
+            setEmptyKbModalVisible(true)
+            emptyKbForm.resetFields()
+          }}>
+            <FolderOutlined />
+            <span>创建一个空知识库</span>
+          </button>
+
+          {/* Next button */}
+          <div className="kb-wizard-footer">
+            <div />
+            <Button type="primary" onClick={wizardNextStep} size="large">
+              下一步 <ArrowRightOutlined />
+            </Button>
+          </div>
         </div>
       </div>
 
-      <div className="kb-dataset-grid">
-        {/* Create card */}
-        <div className="kb-create-card" onClick={openCreateDatasetModal}>
-          <PlusOutlined className="kb-create-card__icon" />
-          <span className="kb-create-card__text">创建知识库</span>
+      {/* Right panel - preview */}
+      <div className="kb-wizard-right">
+        <div className="kb-wizard-right-inner">
+          <div className="kb-wizard-preview-title">文件预览</div>
+          {wizFiles.length > 0 ? (
+            wizFiles.map((file, idx) => (
+              <div key={idx} className="kb-preview-file-card">
+                <div className="kb-preview-file-icon"><FileTextOutlined /></div>
+                <div className="kb-preview-file-info">
+                  <div className="kb-preview-file-name">{file.name}</div>
+                  <div className="kb-preview-file-meta">
+                    {getFileExtension(file.name)} · {formatFileSize(file.size)}
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="kb-wizard-preview-empty">
+              <div className="kb-wizard-preview-empty-icon"><FileTextOutlined /></div>
+              <div>上传文件后，预览将显示在这里</div>
+            </div>
+          )}
         </div>
+      </div>
+    </div>
+  )
 
-        {/* Dataset cards */}
-        {datasets.map((ds) => (
-          <div
-            key={ds.id}
-            className="kb-dataset-card"
-            onClick={() => enterDataset(ds)}
-          >
-            <div className="kb-dataset-card__header">
-              <span className="kb-dataset-card__title">{ds.name || ds.id}</span>
-              <div className="kb-dataset-card__actions">
-                <Tooltip title="编辑">
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<EditOutlined />}
-                    onClick={(e) => openEditDatasetModal(ds, e)}
-                  />
-                </Tooltip>
-                <Popconfirm
-                  title="确定删除该知识库？"
-                  description="删除后所有文档和分段数据将无法恢复"
-                  onConfirm={(e) => handleDeleteDataset(ds, e)}
-                  onCancel={(e) => { if (e) e.stopPropagation() }}
-                  okText="确定"
-                  cancelText="取消"
-                >
-                  <Tooltip title="删除">
-                    <Button
-                      type="text"
-                      size="small"
-                      danger
-                      icon={<DeleteOutlined />}
-                      onClick={(e) => { e.stopPropagation(); e.preventDefault() }}
+  // ===== Wizard Step 2: Indexing Configuration =====
+  const renderWizardStep2 = () => (
+    <div className="kb-wizard-body">
+      {/* Left panel - config forms */}
+      <div className="kb-wizard-left">
+        <div className="kb-wizard-left-inner">
+
+          {/* ---- Knowledge Base Name ---- */}
+          <div className="kb-wizard-section-label" style={{ marginBottom: 4 }}>知识库名称</div>
+          <Input
+            value={wizName}
+            onChange={(e) => setWizName(e.target.value)}
+            placeholder="例如：教学资料库"
+            maxLength={40}
+            style={{ marginBottom: 16 }}
+          />
+
+          <div className="kb-wizard-section-label" style={{ marginBottom: 4 }}>描述（可选）</div>
+          <TextArea
+            value={wizDescription}
+            onChange={(e) => setWizDescription(e.target.value)}
+            placeholder="知识库用途描述..."
+            rows={2}
+            style={{ marginBottom: 24 }}
+          />
+
+          {/* ---- Segmentation ---- */}
+          <div className="kb-wizard-section-title">切分方式</div>
+
+          {/* General chunking */}
+          <div className="kb-seg-options-card">
+            <div
+              className={`kb-seg-options-header ${wizChunkStructure !== 'hierarchical_model' ? 'active' : ''}`}
+              onClick={() => { setWizChunkStructure('text_model'); setWizProcessMode('automatic') }}
+            >
+              <div className="kb-seg-options-icon"><SettingOutlined /></div>
+              <span className="kb-seg-options-title">通用切分</span>
+              <Radio checked={wizChunkStructure !== 'hierarchical_model'} style={{ marginLeft: 'auto' }} />
+            </div>
+            {wizChunkStructure !== 'hierarchical_model' && (
+              <div className="kb-seg-options-body">
+                <div className="kb-seg-fields">
+                  <div className="kb-seg-field">
+                    <div className="kb-seg-field-label">处理模式</div>
+                    <Select
+                      value={wizProcessMode}
+                      onChange={setWizProcessMode}
+                      style={{ width: '100%' }}
+                      options={[
+                        { value: 'automatic', label: '自动' },
+                        { value: 'custom', label: '自定义' },
+                      ]}
                     />
-                  </Tooltip>
-                </Popconfirm>
+                  </div>
+                  {wizProcessMode === 'custom' && (
+                    <>
+                      <div className="kb-seg-field">
+                        <div className="kb-seg-field-label">分段大小</div>
+                        <InputNumber value={wizChunkSize} min={100} max={4000}
+                          onChange={setWizChunkSize} style={{ width: '100%' }} />
+                      </div>
+                      <div className="kb-seg-field">
+                        <div className="kb-seg-field-label">重叠大小</div>
+                        <InputNumber value={wizChunkOverlap} min={0} max={1000}
+                          onChange={setWizChunkOverlap} style={{ width: '100%' }} />
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Parent-child chunking */}
+          <div className="kb-seg-options-card">
+            <div
+              className={`kb-seg-options-header ${wizChunkStructure === 'hierarchical_model' ? 'active' : ''}`}
+              onClick={() => setWizChunkStructure('hierarchical_model')}
+            >
+              <div className="kb-seg-options-icon"><DatabaseOutlined /></div>
+              <span className="kb-seg-options-title">父子切分</span>
+              <Radio checked={wizChunkStructure === 'hierarchical_model'} style={{ marginLeft: 'auto' }} />
+            </div>
+            {wizChunkStructure === 'hierarchical_model' && (
+              <div className="kb-seg-options-body">
+                <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.6 }}>
+                  父块保留上下文语义，子块用于精确检索。适合长文档和结构化内容。
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div style={{ height: 24 }} />
+
+          {/* ---- Index Mode (THE KEY SECTION) ---- */}
+          <div className="kb-wizard-section-title">索引方式</div>
+
+          <div className="kb-index-mode-grid">
+            {/* High Quality / Qualified */}
+            <div
+              className={`kb-index-card ${wizIndexType === 'high_quality' ? 'selected' : ''}`}
+              onClick={() => setWizIndexType('high_quality')}
+            >
+              <div className="kb-index-card-header">
+                <div className="kb-index-card-icon" style={{ background: 'linear-gradient(135deg, #fef3c7, #fde68a)' }}>
+                  <StarFilled style={{ color: '#f59e0b' }} />
+                </div>
+                <div className="kb-index-card-info">
+                  <div className="kb-index-card-title">
+                    高质量
+                    <span className="kb-recommend-badge">推荐</span>
+                  </div>
+                  <div className="kb-index-card-desc">
+                    使用向量嵌入进行语义检索，准确率更高，适合大多数场景
+                  </div>
+                </div>
+                <div className="kb-index-card-radio">
+                  <Radio checked={wizIndexType === 'high_quality'} />
+                </div>
               </div>
             </div>
-            <div className="kb-dataset-card__desc">{ds.description || '暂无描述'}</div>
-            <div className="kb-dataset-card__meta">
-              <span className="kb-dataset-card__meta-item">
-                <FileTextOutlined /> {formatNumber(ds.documentCount)} 文档
+
+            {/* Economy / Economical */}
+            <div
+              className={`kb-index-card ${wizIndexType === 'economy' ? 'selected' : ''}`}
+              onClick={() => setWizIndexType('economy')}
+            >
+              <div className="kb-index-card-header">
+                <div className="kb-index-card-icon" style={{ background: 'linear-gradient(135deg, #e0e7ff, #c7d2fe)' }}>
+                  <DatabaseOutlined style={{ color: '#6366f1' }} />
+                </div>
+                <div className="kb-index-card-info">
+                  <div className="kb-index-card-title">经济</div>
+                  <div className="kb-index-card-desc">
+                    仅使用关键词索引，成本更低，适合简单检索需求
+                  </div>
+                </div>
+                <div className="kb-index-card-radio">
+                  <Radio checked={wizIndexType === 'economy'} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Warning about not being able to change */}
+          <div className="kb-index-warning">
+            <ExclamationCircleFilled />
+            <span>索引方式确认后不可更改，请谨慎选择</span>
+          </div>
+
+          {/* Embedding model (only for high quality) */}
+          {wizIndexType === 'high_quality' && embeddingModelOptions.length > 0 && (
+            <div style={{ marginTop: 16, marginBottom: 24 }}>
+              <div className="kb-wizard-section-label">向量模型</div>
+              <Select
+                placeholder="选择向量模型"
+                style={{ width: '100%' }}
+                options={embeddingModelOptions}
+                allowClear
+              />
+            </div>
+          )}
+
+          <div style={{ height: 8 }} />
+
+          {/* ---- Retrieval Method ---- */}
+          {wizIndexType === 'high_quality' && (
+            <>
+              <div className="kb-wizard-section-title">检索方式</div>
+
+              {/* Semantic Search */}
+              <div
+                className={`kb-retrieval-card ${wizRetrievalMethod === 'semantic_search' ? 'selected' : ''}`}
+                onClick={() => setWizRetrievalMethod('semantic_search')}
+              >
+                <div className="kb-retrieval-card-icon"><SearchOutlined /></div>
+                <div className="kb-retrieval-card-info">
+                  <div className="kb-retrieval-card-title">语义检索</div>
+                  <div className="kb-retrieval-card-desc">通过向量模型将查询转化为向量，进行相似度匹配</div>
+                </div>
+                <div className="kb-retrieval-card-radio">
+                  <Radio checked={wizRetrievalMethod === 'semantic_search'} />
+                </div>
+              </div>
+
+              {/* Full Text Search */}
+              <div
+                className={`kb-retrieval-card ${wizRetrievalMethod === 'full_text_search' ? 'selected' : ''}`}
+                onClick={() => setWizRetrievalMethod('full_text_search')}
+              >
+                <div className="kb-retrieval-card-icon"><FileTextOutlined /></div>
+                <div className="kb-retrieval-card-info">
+                  <div className="kb-retrieval-card-title">全文检索</div>
+                  <div className="kb-retrieval-card-desc">基于关键词的传统检索方式，适合精确匹配</div>
+                </div>
+                <div className="kb-retrieval-card-radio">
+                  <Radio checked={wizRetrievalMethod === 'full_text_search'} />
+                </div>
+              </div>
+
+              {/* Hybrid Search */}
+              <div
+                className={`kb-retrieval-card ${wizRetrievalMethod === 'hybrid_search' ? 'selected' : ''}`}
+                onClick={() => setWizRetrievalMethod('hybrid_search')}
+              >
+                <div className="kb-retrieval-card-icon"><ExperimentOutlined /></div>
+                <div className="kb-retrieval-card-info">
+                  <div className="kb-retrieval-card-title">
+                    混合检索
+                    <span className="kb-recommend-badge">推荐</span>
+                  </div>
+                  <div className="kb-retrieval-card-desc">同时执行语义检索和全文检索，综合排序返回最佳结果</div>
+                </div>
+                <div className="kb-retrieval-card-radio">
+                  <Radio checked={wizRetrievalMethod === 'hybrid_search'} />
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Economy retrieval */}
+          {wizIndexType === 'economy' && (
+            <>
+              <div className="kb-wizard-section-title">检索方式</div>
+              <div className="kb-retrieval-card selected" style={{ cursor: 'default' }}>
+                <div className="kb-retrieval-card-icon"><SearchOutlined /></div>
+                <div className="kb-retrieval-card-info">
+                  <div className="kb-retrieval-card-title">关键词检索</div>
+                  <div className="kb-retrieval-card-desc">经济模式下仅支持关键词检索</div>
+                </div>
+                <div className="kb-retrieval-card-radio">
+                  <Radio checked disabled />
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Footer buttons */}
+          <div className="kb-wizard-footer">
+            <Button onClick={wizardPrevStep}>
+              <ArrowLeftOutlined /> 上一步
+            </Button>
+            <Button type="primary" onClick={wizardNextStep} loading={wizCreating}>
+              创建知识库
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Right panel - preview */}
+      <div className="kb-wizard-right">
+        <div className="kb-wizard-right-inner">
+          <div className="kb-wizard-preview-title">配置预览</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ padding: '12px 16px', borderRadius: 8, background: '#f9fafb', border: '0.5px solid #e5e7eb' }}>
+              <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>切分方式</div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>
+                {wizChunkStructure === 'hierarchical_model' ? '父子切分' : '通用切分'}
+                {wizProcessMode === 'custom' && wizChunkStructure !== 'hierarchical_model' && ` · 分段 ${wizChunkSize} · 重叠 ${wizChunkOverlap}`}
+              </div>
+            </div>
+            <div style={{ padding: '12px 16px', borderRadius: 8, background: '#f9fafb', border: '0.5px solid #e5e7eb' }}>
+              <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>索引方式</div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>
+                {wizIndexType === 'high_quality' ? '高质量（向量嵌入）' : '经济（关键词）'}
+              </div>
+            </div>
+            <div style={{ padding: '12px 16px', borderRadius: 8, background: '#f9fafb', border: '0.5px solid #e5e7eb' }}>
+              <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>检索方式</div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>
+                {wizIndexType === 'economy' ? '关键词检索'
+                  : wizRetrievalMethod === 'semantic_search' ? '语义检索'
+                  : wizRetrievalMethod === 'full_text_search' ? '全文检索'
+                  : '混合检索'}
+              </div>
+            </div>
+            {wizFiles.length > 0 && (
+              <div style={{ padding: '12px 16px', borderRadius: 8, background: '#f9fafb', border: '0.5px solid #e5e7eb' }}>
+                <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>文件数量</div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>{wizFiles.length} 个文件</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
+  // ===== Wizard Step 3: Progress / Completion =====
+  const renderWizardStep3 = () => (
+    <div className="kb-wizard-step3-wrap">
+      <div className="kb-wizard-step3-inner">
+        <div className="kb-wizard-step3-title">知识库创建完成</div>
+        <div className="kb-wizard-step3-desc">
+          正在处理文档索引，这可能需要一些时间，你可以先进入知识库查看。
+        </div>
+
+        {/* Dataset info */}
+        <div className="kb-wizard-step3-info">
+          <div className="kb-wizard-step3-icon">
+            <FolderOutlined />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="kb-wizard-step3-name-label">知识库名称</div>
+            <div className="kb-wizard-step3-name-box">{wizCreatedDataset?.name || wizName}</div>
+          </div>
+        </div>
+
+        {/* Document processing progress */}
+        {wizFiles.length > 0 && (
+          <div>
+            <div className="kb-progress-label">
+              <LoadingOutlined style={{ color: '#6366f1' }} />
+              处理中
+            </div>
+            {wizFiles.map((file, idx) => (
+              <div key={idx} className="kb-progress-item">
+                <div className="kb-progress-bar-wrap">
+                  <div className="kb-progress-bar-fill" style={{ width: wizCreatedDataset ? '100%' : '60%' }} />
+                  <div className="kb-progress-bar-content">
+                    <FileTextOutlined style={{ fontSize: 14, color: '#6b7280' }} />
+                    <span className="kb-progress-bar-name">{file.name}</span>
+                    {wizCreatedDataset && <CheckCircleFilled style={{ fontSize: 14, color: '#10b981' }} />}
+                    {!wizCreatedDataset && <span className="kb-progress-bar-pct">60%</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Config summary */}
+        <div style={{
+          marginTop: 24, padding: '16px', borderRadius: 12,
+          border: '0.5px solid #e5e7eb', background: '#f9fafb'
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 12 }}>配置摘要</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 12 }}>
+            <div>
+              <span style={{ color: '#9ca3af' }}>切分方式：</span>
+              <span style={{ color: '#374151', fontWeight: 500 }}>
+                {wizChunkStructure === 'hierarchical_model' ? '父子切分' : '通用切分'}
               </span>
-              <span className="kb-dataset-card__meta-item">
-                <BranchesOutlined /> {formatNumber(ds.segmentCount || ds.chunkCount)} 分段
+            </div>
+            <div>
+              <span style={{ color: '#9ca3af' }}>索引方式：</span>
+              <span style={{ color: '#374151', fontWeight: 500 }}>
+                {wizIndexType === 'high_quality' ? '高质量' : '经济'}
               </span>
+            </div>
+            <div>
+              <span style={{ color: '#9ca3af' }}>检索方式：</span>
+              <span style={{ color: '#374151', fontWeight: 500 }}>
+                {wizIndexType === 'economy' ? '关键词检索'
+                  : wizRetrievalMethod === 'semantic_search' ? '语义检索'
+                  : wizRetrievalMethod === 'full_text_search' ? '全文检索'
+                  : '混合检索'}
+              </span>
+            </div>
+            <div>
+              <span style={{ color: '#9ca3af' }}>文件数量：</span>
+              <span style={{ color: '#374151', fontWeight: 500 }}>{wizFiles.length}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div style={{ display: 'flex', gap: 8, marginTop: 32 }}>
+          <Button onClick={closeWizard}>返回首页</Button>
+          <Button type="primary" onClick={handleWizardFinish}>
+            进入知识库 <ArrowRightOutlined />
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+
+  // ======================== RENDER: Dataset List ========================
+
+  const renderDatasetList = () => (
+    <div className="kb-page">
+      <div className="kb-list-toolbar">
+        <Input
+          className="kb-search-input"
+          prefix={<SearchOutlined style={{ color: '#9ca3af' }} />}
+          placeholder="搜索知识库..."
+          allowClear
+          value={datasetSearch}
+          onChange={(e) => setDatasetSearch(e.target.value)}
+          onPressEnter={() => loadDatasets(1, datasetSearch)}
+        />
+        <Button icon={<ReloadOutlined />} onClick={() => loadDatasets(datasetPage, datasetSearch)} />
+      </div>
+
+      <div className="kb-card-grid">
+        {/* New dataset card - Dify style */}
+        <div className="kb-new-dataset-card">
+          <div className="kb-new-card-main">
+            <div className="kb-new-card-option" onClick={openCreateWizard}>
+              <PlusOutlined />
+              <span>创建知识库</span>
+            </div>
+          </div>
+          <div className="kb-new-card-divider" />
+          <div className="kb-new-card-bottom">
+            <div className="kb-new-card-option" onClick={() => {
+              setEmptyKbModalVisible(true)
+              emptyKbForm.resetFields()
+            }}>
+              <ApiOutlined />
+              <span>创建空知识库</span>
+            </div>
+          </div>
+        </div>
+
+        {datasets.map((ds) => (
+          <div key={ds.id} className="kb-dataset-card" onClick={() => enterDataset(ds)}>
+            <div className="kb-dataset-card-actions">
+              <Dropdown menu={{
+                items: [
+                  { key: 'edit', label: '重命名', icon: <EditOutlined />, onClick: (e) => openEditDataset(ds, e) },
+                  { type: 'divider' },
+                  { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true,
+                    onClick: (e) => { e.domEvent.stopPropagation(); handleDeleteDataset(ds, e.domEvent) } },
+                ],
+              }} trigger={['click']}>
+                <Button type="text" size="small" icon={<MoreOutlined />}
+                  onClick={(e) => e.stopPropagation()} style={{ borderRadius: 10 }} />
+              </Dropdown>
+            </div>
+
+            <div className="kb-dataset-card-header">
+              <div className="kb-dataset-card-icon"><FolderOutlined /></div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div className="kb-dataset-card-name">{ds.name}</div>
+                <div className="kb-dataset-card-author">
+                  创建于 {formatTime(ds.createTime)}
+                  {ds.indexingTechnique && (
+                    <span style={{ marginLeft: 6, fontSize: 10, color: '#d1d5db' }}>
+                      · {ds.indexingTechnique === 'high_quality' ? '高质量' : '经济'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="kb-dataset-card-desc">{ds.description || '暂无描述'}</div>
+
+            <div className="kb-dataset-card-tags">
               {ds.indexingTechnique && (
-                <Tag style={{ marginRight: 0 }} color={ds.indexingTechnique === 'high_quality' ? 'teal' : 'default'}>
-                  {ds.indexingTechnique === 'high_quality' ? '高质量' : '经济'}
-                </Tag>
+                <span className="kb-card-tag">
+                  {ds.indexingTechnique === 'high_quality' ? 'HIGH QUALITY' : 'ECONOMY'}
+                </span>
               )}
               {ds.chunkStructure && (
-                <Tag style={{ marginRight: 0 }} color="blue">{ds.chunkStructure}</Tag>
+                <span className="kb-card-tag">
+                  {ds.chunkStructure === 'text_model' ? 'TEXT' : ds.chunkStructure === 'qa_model' ? 'QA' : 'HIERARCHICAL'}
+                </span>
               )}
-              {ds.embeddingModel && (
-                <Tag style={{ marginRight: 0 }}>{ds.embeddingModel}</Tag>
-              )}
+            </div>
+
+            <div className="kb-dataset-card-footer">
+              <FileTextOutlined />
+              <span>{formatCount(ds.documentCount)}</span>
+              <span className="kb-footer-sep">/</span>
+              <span style={{ fontSize: 12 }}>更新于 {formatTime(ds.updateTime || ds.createTime)}</span>
             </div>
           </div>
         ))}
       </div>
 
-      {datasets.length === 0 && !datasetLoading && (
-        <Empty description="暂无知识库，点击上方按钮创建" style={{ marginTop: 40 }} />
-      )}
-
-      {/* Create/Edit Dataset Modal */}
+      {/* Edit Dataset Modal (simple, for editing only) */}
       <Modal
-        title={datasetModalMode === 'create' ? '创建知识库' : '编辑知识库'}
+        title={editingDataset ? '编辑知识库' : '创建知识库'}
         open={datasetModalVisible}
         onOk={handleDatasetModalOk}
         onCancel={() => setDatasetModalVisible(false)}
         confirmLoading={datasetModalLoading}
-        okText={datasetModalMode === 'create' ? '创建' : '保存'}
-        cancelText="取消"
-        destroyOnClose
-        width={560}
+        width={520}
       >
-        <Form form={datasetForm} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="name" label="知识库名称" rules={[{ required: true, message: '请输入知识库名称' }]}>
-            <Input placeholder="例如：校园规章制度、课程资料库" maxLength={100} />
+        <Form form={datasetForm} layout="vertical" initialValues={{
+          indexingTechnique: 'high_quality', chunkStructure: 'text_model', permission: 'only_me'
+        }}>
+          <Form.Item name="name" label="知识库名称" rules={[{ required: true, message: '请输入名称' }]}>
+            <Input placeholder="例如：教学资料库" />
           </Form.Item>
           <Form.Item name="description" label="描述">
-            <TextArea placeholder="描述该知识库的用途和内容范围" rows={3} maxLength={500} showCount />
+            <TextArea rows={3} placeholder="知识库用途描述..." />
           </Form.Item>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="indexingTechnique" label="索引质量" rules={[{ required: true }]}>
-                <Select>
-                  <Select.Option value="high_quality">高质量 high_quality</Select.Option>
-                  <Select.Option value="economy">经济 economy</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="embeddingModel" label="嵌入模型">
-                <Input placeholder="例如：text-embedding-3-small" />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="chunkStructure" label="分段结构" rules={[{ required: true }]}>
-                <Select>
-                  <Select.Option value="text_model">文本模型 text_model</Select.Option>
-                  <Select.Option value="qa_model">问答模型 qa_model</Select.Option>
-                  <Select.Option value="hierarchical_model">层级模型 hierarchical_model</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="permission" label="权限" rules={[{ required: true }]}>
-                <Select>
-                  <Select.Option value="only_me">仅自己 only_me</Select.Option>
-                  <Select.Option value="all_team">全团队 all_team</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item name="indexingTechnique" label="索引技术">
+            <Radio.Group>
+              <Radio.Button value="high_quality">高质量（向量）</Radio.Button>
+              <Radio.Button value="economy">经济（关键词）</Radio.Button>
+            </Radio.Group>
+          </Form.Item>
+          <Form.Item name="chunkStructure" label="切分形态">
+            <Select options={[
+              { value: 'text_model', label: '文本模型' },
+              { value: 'qa_model', label: 'QA 模型' },
+              { value: 'hierarchical_model', label: '层次模型（父子）' },
+            ]} />
+          </Form.Item>
+          <Form.Item name="embeddingModel" label="向量模型">
+            <Input placeholder="例如：text-embedding-3-small" />
+          </Form.Item>
+          <Form.Item name="permission" label="权限">
+            <Select options={[
+              { value: 'only_me', label: '仅创建者' },
+              { value: 'all_team', label: '全部团队' },
+            ]} />
+          </Form.Item>
         </Form>
       </Modal>
     </div>
   )
 
-  // ===================== Document Management View (Level 2) =====================
+  // ======================== RENDER: Sidebar ========================
 
-  const documentColumns = [
-    {
-      title: '文档名称',
-      dataIndex: 'name',
-      key: 'name',
-      ellipsis: true,
-      render: (text, record) => (
-        <a onClick={() => enterDocument(record)}>{text || record.id}</a>
-      ),
-    },
-    {
-      title: '数据来源',
-      dataIndex: 'dataSourceType',
-      key: 'dataSourceType',
-      width: 110,
-      render: (val) => {
-        const map = { text_input: '文本输入', upload_file: '文件上传', import: '导入' }
-        return <Tag>{map[val] || val || '-'}</Tag>
-      },
-    },
-    {
-      title: '索引状态',
-      dataIndex: 'indexingStatus',
-      key: 'indexingStatus',
-      width: 110,
-      render: (status) => {
-        const info = getStatusInfo(status)
-        return <Tag color={info.color}>{info.label}</Tag>
-      },
-    },
-    {
-      title: '文档形式',
-      dataIndex: 'docForm',
-      key: 'docForm',
-      width: 110,
-      render: (val) => val || '-',
-    },
-    {
-      title: '字数',
-      dataIndex: 'wordCount',
-      key: 'wordCount',
-      width: 90,
-      render: (val) => formatNumber(val),
-    },
-    {
-      title: '分段数',
-      dataIndex: 'segmentCount',
-      key: 'segmentCount',
-      width: 90,
-      render: (val) => formatNumber(val),
-    },
-    {
-      title: '启用',
-      dataIndex: 'enabled',
-      key: 'enabled',
-      width: 80,
-      render: (val, record) => (
-        <Switch
-          checked={val !== false}
-          size="small"
-          onChange={(checked) => handleToggleDocument(record, checked)}
-        />
-      ),
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      width: 120,
-      render: (_, record) => (
-        <Space size="small">
-          <Tooltip title="查看分段">
-            <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => enterDocument(record)}>
-              查看
-            </Button>
-          </Tooltip>
-          <Popconfirm
-            title="确定删除该文档？"
-            onConfirm={() => handleDeleteDocument(record)}
-            okText="确定"
-            cancelText="取消"
-          >
-            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ]
-
-  const renderDocumentManagement = () => {
+  const renderSidebar = () => {
     if (!currentDataset) return null
-
+    const links = [
+      { key: 'documents', icon: <FileTextOutlined />, label: '文档' },
+      { key: 'hitTesting', icon: <ExperimentOutlined />, label: '召回测试' },
+      { key: 'settings', icon: <SettingOutlined />, label: '设置' },
+    ]
     return (
-      <div>
-        {/* Breadcrumb */}
-        <Breadcrumb className="kb-breadcrumb" items={[
-          { title: <a onClick={backToDatasets}><HomeOutlined /> 知识库管理</a> },
-          { title: currentDataset.name || currentDataset.id },
-        ]} />
-
-        {/* Dataset Info Card */}
-        <div className="kb-dataset-info">
-          <div className="kb-dataset-info__title">{currentDataset.name || currentDataset.id}</div>
-          <div className="kb-dataset-info__desc">{currentDataset.description || '暂无描述'}</div>
-          <div className="kb-dataset-info__tags">
-            <Tag color={currentDataset.indexingTechnique === 'high_quality' ? 'teal' : 'default'}>
-              索引: {currentDataset.indexingTechnique || '-'}
-            </Tag>
-            <Tag color="blue">嵌入模型: {currentDataset.embeddingModel || '-'}</Tag>
-            <Tag color="purple">分段结构: {currentDataset.chunkStructure || '-'}</Tag>
-            <Tag>文档数: {formatNumber(currentDataset.documentCount)}</Tag>
-            <Tag>字数: {formatNumber(currentDataset.wordCount)}</Tag>
+      <div className="kb-sidebar">
+        <div className="kb-sidebar-header">
+          <div className="kb-sidebar-icon"><FolderOutlined /></div>
+          <div style={{ minWidth: 0 }}>
+            <div className="kb-sidebar-name">{currentDataset.name}</div>
+            <div className="kb-sidebar-type">Knowledge</div>
           </div>
         </div>
-
-        {/* Process Rule */}
-        {currentDataset.processRule && (
-          <div className="kb-process-rule">
-            <div className="kb-process-rule__title">
-              <SettingOutlined /> 当前处理规则
-            </div>
-            <div className="kb-process-rule__meta">
-              <span>模式: {currentDataset.processRule.mode || '-'}</span>
-              <span>块大小: {currentDataset.processRule.chunkSize || '-'}</span>
-              <span>重叠: {currentDataset.processRule.chunkOverlap || '-'}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Actions */}
-        <div className="kb-section-head">
-          <div>
-            <Title level={4} style={{ margin: 0 }}>文档列表</Title>
-            <Text type="secondary">共 {documentTotal} 个文档</Text>
-          </div>
-          <Space>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => loadDocuments(currentDataset.id, documentPage)}
-              loading={documentLoading}
-            >
-              刷新
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDocumentModal}>
-              添加文档
-            </Button>
-          </Space>
+        <div className="kb-sidebar-divider" />
+        <div className="kb-sidebar-nav">
+          {links.map((l) => (
+            <button key={l.key} type="button"
+              className={`kb-sidebar-link ${detailTab === l.key ? 'active' : ''}`}
+              onClick={() => switchDetailTab(l.key)}>
+              <span className="kb-sidebar-link-icon">{l.icon}</span>
+              <span>{l.label}</span>
+            </button>
+          ))}
         </div>
-
-        {/* Document Table */}
-        <Card className="kb-panel-card" bodyStyle={{ padding: 0 }}>
-          <Table
-            className="kb-document-table"
-            columns={documentColumns}
-            dataSource={documents}
-            rowKey="id"
-            loading={documentLoading}
-            pagination={{
-              current: documentPage,
-              total: documentTotal,
-              pageSize: 20,
-              showSizeChanger: false,
-              onChange: (page) => loadDocuments(currentDataset.id, page),
-            }}
-            locale={{ emptyText: <Empty description="暂无文档，点击「添加文档」上传" /> }}
-          />
-        </Card>
-
-        {/* Create Document Modal */}
-        <Modal
-          title="添加文档"
-          open={documentModalVisible}
-          onOk={handleDocumentModalOk}
-          onCancel={() => setDocumentModalVisible(false)}
-          confirmLoading={documentModalLoading}
-          okText="创建"
-          cancelText="取消"
-          destroyOnClose
-          width={640}
-        >
-          <Form form={documentForm} layout="vertical" style={{ marginTop: 16 }}>
-            <Form.Item name="name" label="文档名称" rules={[{ required: true, message: '请输入文档名称' }]}>
-              <Input placeholder="例如：校园管理制度2024" maxLength={200} />
-            </Form.Item>
-
-            <Form.Item name="dataSourceType" label="数据来源" rules={[{ required: true }]}>
-              <Segmented
-                block
-                options={[
-                  { label: '文本输入', value: 'text_input', icon: <FileTextOutlined /> },
-                  { label: '文件上传', value: 'upload_file', icon: <UploadOutlined /> },
-                ]}
-              />
-            </Form.Item>
-
-            {watchedDataSourceType === 'text_input' && (
-              <Form.Item name="textContent" label="文本内容" rules={[{ required: true, message: '请输入文本内容' }]}>
-                <TextArea placeholder="粘贴或输入文档内容..." rows={8} showCount maxLength={100000} />
-              </Form.Item>
-            )}
-
-            {watchedDataSourceType === 'upload_file' && (
-              <Form.Item label="上传文件">
-                <Upload
-                  fileList={uploadFileList}
-                  maxCount={1}
-                  accept=".docx,.txt,.pdf,.pptx"
-                  beforeUpload={(file) => {
-                    setUploadFileList([{ ...file, uid: file.uid || '-1', name: file.name }])
-                    return false
-                  }}
-                  onRemove={() => {
-                    setUploadFileList([])
-                    return true
-                  }}
-                >
-                  <Button icon={<UploadOutlined />}>选择文件（.docx, .txt, .pdf, .pptx）</Button>
-                </Upload>
-                {uploadFileList.length > 0 && /\.(pdf|pptx)$/i.test(uploadFileList[0]?.name || '') && (
-                  <Alert
-                    type="info"
-                    showIcon
-                    style={{ marginTop: 8 }}
-                    message="检测到 PDF/PPTX 文件，建议先转换再上传"
-                    description={
-                      <Space style={{ marginTop: 8 }}>
-                        <Button
-                          size="small"
-                          type="primary"
-                          loading={convertLoading}
-                          onClick={() => {
-                            const file = uploadFileList[0]?.originFileObj || uploadFileList[0]
-                            if (/\.pdf$/i.test(uploadFileList[0]?.name || '')) {
-                              handleConvertPdf(file)
-                            } else {
-                              handleConvertPpt(file)
-                            }
-                          }}
-                        >
-                          <SwapOutlined /> 转换为 DOCX
-                        </Button>
-                        {convertResult && (
-                          <Tag color="green">转换成功: {convertResult.fileName}</Tag>
-                        )}
-                      </Space>
-                    }
-                  />
-                )}
-              </Form.Item>
-            )}
-
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="docForm" label="文档形式" rules={[{ required: true }]}>
-                  <Select>
-                    <Select.Option value="text_model">文本模型 text_model</Select.Option>
-                    <Select.Option value="qa_model">问答模型 qa_model</Select.Option>
-                  </Select>
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="processMode" label="处理模式">
-                  <Select>
-                    <Select.Option value="automatic">自动 automatic</Select.Option>
-                    <Select.Option value="custom">自定义 custom</Select.Option>
-                    <Select.Option value="hierarchical">层级 hierarchical</Select.Option>
-                  </Select>
-                </Form.Item>
-              </Col>
-            </Row>
-
-            {watchedProcessMode === 'custom' && (
-              <div className="kb-chunk-settings">
-                <Row gutter={16}>
-                  <Col span={12}>
-                    <Form.Item name="chunkSize" label="分块大小">
-                      <InputNumber min={100} max={4000} style={{ width: '100%' }} placeholder="800" />
-                    </Form.Item>
-                  </Col>
-                  <Col span={12}>
-                    <Form.Item name="chunkOverlap" label="重叠大小">
-                      <InputNumber min={0} max={1000} style={{ width: '100%' }} placeholder="120" />
-                    </Form.Item>
-                  </Col>
-                </Row>
-              </div>
-            )}
-
-            {watchedProcessMode === 'hierarchical' && (
-              <div className="kb-chunk-settings">
-                <Row gutter={16}>
-                  <Col span={12}>
-                    <Form.Item name="parentChunkSize" label="父块大小">
-                      <InputNumber min={200} max={8000} style={{ width: '100%' }} placeholder="1600" />
-                    </Form.Item>
-                  </Col>
-                  <Col span={12}>
-                    <Form.Item name="childChunkSize" label="子块大小">
-                      <InputNumber min={50} max={2000} style={{ width: '100%' }} placeholder="420" />
-                    </Form.Item>
-                  </Col>
-                </Row>
-              </div>
-            )}
-
-            <Form.Item name="embeddingModel" label="嵌入模型">
-              {embeddingModelOptions.length > 0 ? (
-                <Select placeholder="选择嵌入模型" allowClear options={embeddingModelOptions} />
-              ) : (
-                <Input placeholder="输入嵌入模型名称，如 text-embedding-3-small" />
-              )}
-            </Form.Item>
-
-            <Collapse ghost className="kb-advanced-collapse" items={[{
-              key: 'metadata',
-              label: '文档元数据（可选）',
-              children: (
-                <Form.Item name="docMetadata" noStyle>
-                  <TextArea
-                    placeholder='JSON 格式，例如：{"tags": ["制度"], "scene": "campus"}'
-                    rows={3}
-                  />
-                </Form.Item>
-              ),
-            }]} />
-          </Form>
-        </Modal>
+        <div className="kb-sidebar-stats">
+          <div className="kb-sidebar-stat">
+            <span className="kb-sidebar-stat-value">{formatCount(currentDataset.documentCount)}</span>
+            <span className="kb-sidebar-stat-label">文档</span>
+          </div>
+          <div className="kb-sidebar-stat-divider" />
+          <div className="kb-sidebar-stat">
+            <span className="kb-sidebar-stat-value">{formatCount(currentDataset.wordCount)}</span>
+            <span className="kb-sidebar-stat-label">字数</span>
+          </div>
+        </div>
       </div>
     )
   }
 
-  // ===================== Segment Management View (Level 3) =====================
+  // ======================== RENDER: Document List ========================
 
-  const segmentColumns = [
-    {
-      title: '#',
-      key: 'position',
-      width: 60,
-      render: (_, __, index) => (segmentPage - 1) * 20 + index + 1,
-    },
-    {
-      title: '内容',
-      dataIndex: 'content',
-      key: 'content',
-      ellipsis: true,
-      render: (text) => (
-        <div className="kb-segment-content-cell">{truncateText(text, 200)}</div>
-      ),
-    },
-    {
-      title: '字数',
-      dataIndex: 'wordCount',
-      key: 'wordCount',
-      width: 90,
-      render: (val, record) => formatNumber(val || record.size || record.content?.length),
-    },
-    {
-      title: '命中',
-      dataIndex: 'hitCount',
-      key: 'hitCount',
-      width: 80,
-      render: (val) => formatNumber(val),
-    },
-    {
-      title: '启用',
-      dataIndex: 'enabled',
-      key: 'enabled',
-      width: 80,
-      render: (val, record) => (
-        <Switch
-          checked={val !== false}
-          size="small"
-          onChange={(checked) => handleToggleSegment(record, checked)}
-        />
-      ),
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      width: 180,
-      render: (_, record) => (
-        <Space size="small">
-          <Tooltip title="查看详情">
-            <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => openSegmentDetailDrawer(record)}>
-              查看
-            </Button>
-          </Tooltip>
-          <Tooltip title="编辑">
-            <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openSegmentEditDrawer(record)}>
-              编辑
-            </Button>
-          </Tooltip>
-          <Popconfirm
-            title="确定删除该分段？"
-            onConfirm={() => handleDeleteSegment(record)}
-            okText="确定"
-            cancelText="取消"
-          >
-            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ]
-
-  const renderSegmentManagement = () => {
-    if (!currentDocument || !currentDataset) return null
-
-    const indexingStatus = currentDocument.indexingStatus || 'completed'
-
-    return (
-      <div>
-        {/* Breadcrumb */}
-        <Breadcrumb className="kb-breadcrumb" items={[
-          { title: <a onClick={backToDatasets}><HomeOutlined /> 知识库管理</a> },
-          { title: <a onClick={backToDocuments}>{currentDataset.name || currentDataset.id}</a> },
-          { title: currentDocument.name || currentDocument.id },
-        ]} />
-
-        {/* Document Detail Card */}
-        <div className="kb-document-detail">
-          <div className="kb-document-detail__header">
-            <FileTextOutlined className="kb-document-detail__icon" />
-            <div className="kb-document-detail__info">
-              <div className="kb-document-detail__title">{currentDocument.name || currentDocument.id}</div>
-              <div className="kb-document-detail__meta">
-                <span>字数: {formatNumber(currentDocument.wordCount)}</span>
-                <span>分段数: {formatNumber(currentDocument.segmentCount)}</span>
-                <span>Tokens: {formatNumber(currentDocument.tokens)}</span>
-                {currentDocument.batch && <span>批次: {currentDocument.batch}</span>}
-                {currentDocument.completedAt && <span>完成时间: {formatDateTime(currentDocument.completedAt)}</span>}
-              </div>
-            </div>
-            <Tag color={getStatusInfo(indexingStatus).color} style={{ fontSize: 14, padding: '4px 12px' }}>
-              {getStatusInfo(indexingStatus).label}
-            </Tag>
-          </div>
-
-          {/* Pipeline */}
-          <div className="kb-pipeline">
-            {pipelineSteps.map((step, idx) => {
-              const state = getPipelineStepState(indexingStatus, idx)
-              return (
-                <div key={step.key} className={`kb-pipeline__step kb-pipeline__step--${state}`}>
-                  {state === 'completed' ? (
-                    <CheckCircleOutlined />
-                  ) : state === 'active' ? (
-                    <SyncOutlined spin />
-                  ) : state === 'error' ? (
-                    <InfoCircleOutlined />
-                  ) : (
-                    <ClockCircleOutlined />
-                  )}
-                  <span>{step.label}</span>
+  const renderDocumentList = () => (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div className="kb-doc-header">
+        <h1>文档</h1>
+        <p>管理知识库中的所有文档，包括上传、索引和状态追踪。</p>
+      </div>
+      <div className="kb-doc-toolbar">
+        <div className="kb-doc-toolbar-left">
+          <Select value={docStatusFilter} style={{ width: 140 }} onChange={(v) => setDocStatusFilter(v)}
+            options={[
+              { value: 'all', label: '全部' },
+              { value: 'completed', label: '可用' },
+              { value: 'indexing', label: '索引中' },
+              { value: 'error', label: '错误' },
+              { value: 'paused', label: '已暂停' },
+            ]} />
+          <Input prefix={<SearchOutlined style={{ color: '#9ca3af' }} />} placeholder="搜索文档..."
+            style={{ width: 200 }} allowClear value={documentSearch}
+            onChange={(e) => setDocumentSearch(e.target.value)}
+            onPressEnter={() => loadDocuments(currentDataset.id, 1, documentSearch)} />
+        </div>
+        <div className="kb-doc-toolbar-right">
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDocument}>添加文档</Button>
+        </div>
+      </div>
+      <div className="kb-doc-table-wrap">
+        <table className="kb-doc-table">
+          <thead>
+            <tr>
+              <th style={{ width: 48 }}>#</th>
+              <th>文件名称</th>
+              <th style={{ width: 130 }}>切分模式</th>
+              <th style={{ width: 96 }}>字数</th>
+              <th style={{ width: 80 }}>分段</th>
+              <th style={{ width: 120 }}>上传时间</th>
+              <th style={{ width: 100 }}>状态</th>
+              <th style={{ width: 120 }}>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {documents.length === 0 && !docLoading ? (
+              <tr><td colSpan={8}>
+                <div className="kb-empty-state">
+                  <div className="kb-empty-icon"><FileTextOutlined /></div>
+                  <div style={{ fontWeight: 600, color: '#374151', marginBottom: 4 }}>暂无文档</div>
+                  <div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 16 }}>点击"添加文档"开始导入知识内容</div>
+                  <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDocument}>添加文档</Button>
                 </div>
+              </td></tr>
+            ) : documents.map((doc, idx) => {
+              const st = indexingStatusMap[doc.indexingStatus] || { label: doc.indexingStatus, cls: 'disabled' }
+              return (
+                <tr key={doc.id}>
+                  <td style={{ color: '#d1d5db', fontSize: 12 }}>{(documentPage - 1) * 20 + idx + 1}</td>
+                  <td>
+                    <div className="kb-doc-name-cell">
+                      <div className="kb-doc-type-icon"><FileTextOutlined /></div>
+                      <span className="kb-doc-name-text" onClick={() => enterDocument(doc)}>{doc.name}</span>
+                    </div>
+                  </td>
+                  <td><Tag style={{ fontSize: 11 }}>{doc.docForm === 'text_model' ? '文本' : doc.docForm === 'qa_model' ? 'QA' : doc.docForm || '-'}</Tag></td>
+                  <td>{formatCount(doc.wordCount)}</td>
+                  <td>{formatCount(doc.segmentCount)}</td>
+                  <td style={{ fontSize: 12, color: '#9ca3af' }}>{formatTime(doc.createTime)}</td>
+                  <td><span className={`kb-status-dot ${st.cls}`}>{st.label}</span></td>
+                  <td>
+                    <Space size={4}>
+                      <Switch size="small" checked={doc.enabled !== 0}
+                        onChange={(v) => handleToggleDocument(doc, v)} />
+                      <Popconfirm title="确认删除此文档？" onConfirm={(e) => handleDeleteDocument(doc, e)} onCancel={(e) => e?.stopPropagation()}>
+                        <Button type="text" size="small" icon={<DeleteOutlined />} danger onClick={(e) => e.stopPropagation()} />
+                      </Popconfirm>
+                    </Space>
+                  </td>
+                </tr>
               )
             })}
+          </tbody>
+        </table>
+        {documentTotal > 20 && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '16px 0' }}>
+            <Pagination current={documentPage} pageSize={20} total={documentTotal} showSizeChanger={false}
+              onChange={(p) => { setDocumentPage(p); loadDocuments(currentDataset.id, p, documentSearch) }} />
           </div>
-        </div>
+        )}
+      </div>
+    </div>
+  )
 
-        {/* Actions */}
-        <div className="kb-section-head">
-          <div>
-            <Title level={4} style={{ margin: 0 }}>分段列表</Title>
-            <Text type="secondary">共 {segmentTotal} 个分段</Text>
+  // ======================== RENDER: Segment List ========================
+
+  const renderSegmentList = () => {
+    if (!currentDocument) return null
+    const st = indexingStatusMap[currentDocument.indexingStatus] || { label: '-', cls: 'disabled' }
+    const pipelineSteps = ['上传', '解析', '切分', '向量化', '完成']
+    const completedIdx = currentDocument.indexingStatus === 'completed' ? 5
+      : currentDocument.indexingStatus === 'error' ? -1
+      : ['waiting', 'parsing', 'splitting', 'indexing'].indexOf(currentDocument.indexingStatus) + 1
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div className="kb-segment-header">
+          <div className="kb-segment-header-left">
+            <button className="kb-back-btn" onClick={backToDocuments}><ArrowLeftOutlined /></button>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>{currentDocument.name}</div>
+              <div style={{ fontSize: 12, color: '#9ca3af' }}>
+                <span className={`kb-status-dot ${st.cls}`}>{st.label}</span>
+                <span style={{ margin: '0 8px', color: '#e5e7eb' }}>·</span>
+                {formatCount(currentDocument.wordCount)} 字
+                <span style={{ margin: '0 8px', color: '#e5e7eb' }}>·</span>
+                {formatCount(currentDocument.segmentCount)} 分段
+              </div>
+            </div>
           </div>
           <Space>
-            <Input
-              className="kb-segment-search"
-              placeholder="搜索分段内容..."
-              prefix={<SearchOutlined />}
-              allowClear
-              value={segmentSearch}
-              onChange={(e) => setSegmentSearch(e.target.value)}
-              onPressEnter={() => loadSegments(currentDocument.id, 1, segmentSearch)}
-            />
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => loadSegments(currentDocument.id, segmentPage, segmentSearch)}
-              loading={segmentLoading}
-            >
-              刷新
-            </Button>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {pipelineSteps.map((step, i) => (
+                <Tag key={step} color={i < completedIdx ? 'success' : i === completedIdx ? 'processing' : 'default'}
+                  style={{ fontSize: 11, borderRadius: 6, margin: 0 }}>
+                  {i < completedIdx && <CheckCircleOutlined style={{ marginRight: 4 }} />}
+                  {step}
+                </Tag>
+              ))}
+            </div>
           </Space>
         </div>
 
-        {/* Segment Table */}
-        <Card className="kb-panel-card" bodyStyle={{ padding: 0 }}>
-          <Table
-            columns={segmentColumns}
-            dataSource={segments}
-            rowKey="id"
-            loading={segmentLoading}
-            pagination={{
-              current: segmentPage,
-              total: segmentTotal,
-              pageSize: 20,
-              showSizeChanger: false,
-              onChange: (page) => loadSegments(currentDocument.id, page, segmentSearch),
-            }}
-            locale={{ emptyText: <Empty description="暂无分段数据" /> }}
-          />
-        </Card>
+        <div className="kb-segment-toolbar">
+          <Input prefix={<SearchOutlined style={{ color: '#9ca3af' }} />} placeholder="搜索分段内容..."
+            style={{ width: 240 }} allowClear value={segmentSearch}
+            onChange={(e) => setSegmentSearch(e.target.value)}
+            onPressEnter={() => loadSegments(currentDocument.id, 1, segmentSearch)} />
+          <div style={{ flex: 1 }} />
+          <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 600 }}>共 {segmentTotal} 个分段</span>
+        </div>
 
-        {/* Segment Detail Drawer */}
-        <Drawer
-          title="分段详情"
-          open={segmentDrawerVisible}
-          onClose={() => setSegmentDrawerVisible(false)}
-          width={640}
-          destroyOnClose
-        >
-          {activeSegment && (
+        <div className="kb-segment-list">
+          {segments.length === 0 && !segLoading ? (
+            <div className="kb-empty-state">
+              <div className="kb-empty-icon"><DatabaseOutlined /></div>
+              <div style={{ fontWeight: 600, color: '#374151', marginBottom: 4 }}>暂无分段</div>
+              <div style={{ fontSize: 13, color: '#9ca3af' }}>文档索引完成后，分段会自动出现在这里</div>
+            </div>
+          ) : segments.map((seg, idx) => (
+            <div key={seg.id}>
+              {idx > 0 && <div className="kb-segment-divider" />}
+              <div className="kb-segment-card">
+                <div className="kb-segment-actions-float">
+                  <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => openSegmentDetail(seg)} />
+                  <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openSegmentEdit(seg)} />
+                  <Popconfirm title="删除此分段？" onConfirm={() => handleDeleteSegment(seg)}>
+                    <Button type="text" size="small" icon={<DeleteOutlined />} danger />
+                  </Popconfirm>
+                  <Switch size="small" checked={seg.enabled !== 0} onChange={(v) => handleToggleSegment(seg, v)} />
+                </div>
+                <div className="kb-segment-card-top">
+                  <div className="kb-segment-card-meta">
+                    <span className="kb-segment-index-tag">Chunk-{String(idx + 1).padStart(2, '0')}</span>
+                    <span>·</span>
+                    <span>{formatCount(seg.wordCount)} 字</span>
+                    <span>·</span>
+                    <span>{seg.hitCount || 0} 命中</span>
+                  </div>
+                </div>
+                <div className="kb-segment-content">{seg.content}</div>
+                {seg.keywords && (() => {
+                  try {
+                    const kws = typeof seg.keywords === 'string' ? JSON.parse(seg.keywords) : seg.keywords
+                    if (Array.isArray(kws) && kws.length > 0) {
+                      return (
+                        <div className="kb-segment-keywords">
+                          {kws.map((kw, i) => <span key={i} className="kb-segment-keyword">{kw}</span>)}
+                        </div>
+                      )
+                    }
+                  } catch { /* ignore */ }
+                  return null
+                })()}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {segmentTotal > 20 && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '12px 16px', borderTop: '0.5px solid #e5e7eb' }}>
+            <Pagination current={segmentPage} pageSize={20} total={segmentTotal} showSizeChanger={false}
+              onChange={(p) => { setSegmentPage(p); loadSegments(currentDocument.id, p, segmentSearch) }} />
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ======================== RENDER: Hit Testing ========================
+
+  const renderHitTesting = () => (
+    <div className="kb-hit-wrap">
+      <div className="kb-hit-title">
+        <h1>召回测试</h1>
+        <p>测试知识库的检索质量，验证分段是否能被正确召回。</p>
+      </div>
+      <Form form={recallForm} layout="vertical" onFinish={handleRecallTest}
+        initialValues={{ ragStrategy: 'hybrid_search', topK: 5, similarityThreshold: 0.2, knowledgeBaseIds: currentDataset ? [currentDataset.id] : [] }}>
+        <Form.Item name="query" label="测试问题" rules={[{ required: true, message: '请输入测试问题' }]}>
+          <TextArea rows={4} placeholder="例如：校园卡丢了怎么挂失？" />
+        </Form.Item>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Form.Item name="ragStrategy" label="检索策略">
+            <Select options={retrievalStrategyOptions} />
+          </Form.Item>
+          <Form.Item name="embeddingModel" label="向量模型">
+            <Select options={embeddingModelOptions} placeholder="选择向量模型" />
+          </Form.Item>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Form.Item name="topK" label="Top K">
+            <InputNumber min={1} max={20} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="similarityThreshold" label="相似度阈值">
+            <Slider min={0} max={1} step={0.05} />
+          </Form.Item>
+        </div>
+        <Form.Item name="knowledgeBaseIds" label="知识库" hidden>
+          <Select mode="multiple" options={datasets.map((d) => ({ value: d.id, label: d.name }))} />
+        </Form.Item>
+        <Button type="primary" htmlType="submit" icon={<SearchOutlined />} loading={recallLoading} block>
+          开始召回测试
+        </Button>
+      </Form>
+
+      {recallResult && (
+        <div style={{ marginTop: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+            <Tag color="success">召回完成</Tag>
+            <Tag>命中：{(recallResult.documents || []).length}</Tag>
+            {recallResult.metadata?.strategyLabel && <Tag color="blue">{recallResult.metadata.strategyLabel}</Tag>}
+          </div>
+          {(recallResult.documents || []).map((doc, idx) => {
+            const score = Number(doc.score || 0)
+            const scoreCls = score > 0.7 ? 'high' : score > 0.4 ? 'medium' : 'low'
+            return (
+              <div key={idx} className="kb-hit-result-card">
+                <div className="kb-hit-result-header">
+                  <span style={{ fontSize: 12, color: '#9ca3af' }}>{doc.metadata?.sourceName || doc.source || '-'}</span>
+                  <span className={`kb-hit-score ${scoreCls}`}>{score.toFixed(4)}</span>
+                </div>
+                <div className="kb-hit-result-content">{doc.content}</div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+
+  // ======================== RENDER: Settings ========================
+
+  const renderSettings = () => (
+    <div className="kb-settings-wrap">
+      <div className="kb-settings-title">
+        <h1>设置</h1>
+        <p>配置知识库的基本信息、索引方式和检索策略。</p>
+      </div>
+      <Form form={settingsForm} layout="vertical" className="kb-settings-form">
+        <div className="kb-settings-row">
+          <div className="kb-settings-label">名称</div>
+          <div className="kb-settings-control">
+            <Form.Item name="name" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+          </div>
+        </div>
+        <div className="kb-settings-row">
+          <div className="kb-settings-label">描述</div>
+          <div className="kb-settings-control">
+            <Form.Item name="description">
+              <TextArea rows={3} placeholder="知识库描述..." />
+            </Form.Item>
+          </div>
+        </div>
+        <div className="kb-settings-divider" />
+        <div className="kb-settings-row">
+          <div className="kb-settings-label">索引技术</div>
+          <div className="kb-settings-control">
+            <Form.Item name="indexingTechnique">
+              <Radio.Group>
+                <Radio.Button value="high_quality">高质量（向量）</Radio.Button>
+                <Radio.Button value="economy">经济（关键词）</Radio.Button>
+              </Radio.Group>
+            </Form.Item>
+          </div>
+        </div>
+        <div className="kb-settings-row">
+          <div className="kb-settings-label">切分形态</div>
+          <div className="kb-settings-control">
+            <Form.Item name="chunkStructure">
+              <Select options={[
+                { value: 'text_model', label: '文本模型' },
+                { value: 'qa_model', label: 'QA 模型' },
+                { value: 'hierarchical_model', label: '层次模型（父子）' },
+              ]} />
+            </Form.Item>
+          </div>
+        </div>
+        <div className="kb-settings-row">
+          <div className="kb-settings-label">向量模型</div>
+          <div className="kb-settings-control">
+            <Form.Item name="embeddingModel">
+              <Input placeholder="例如：text-embedding-3-small" />
+            </Form.Item>
+          </div>
+        </div>
+        <div className="kb-settings-divider" />
+        <div className="kb-settings-row">
+          <div className="kb-settings-label">权限</div>
+          <div className="kb-settings-control">
+            <Form.Item name="permission">
+              <Select options={[
+                { value: 'only_me', label: '仅创建者' },
+                { value: 'all_team', label: '全部团队' },
+              ]} />
+            </Form.Item>
+          </div>
+        </div>
+        <div className="kb-settings-row">
+          <div className="kb-settings-label">检索模型 (JSON)</div>
+          <div className="kb-settings-control">
+            <Form.Item name="retrievalModel">
+              <TextArea rows={4} placeholder='{"search_method":"hybrid_search","top_k":5,...}' />
+            </Form.Item>
+          </div>
+        </div>
+        <div style={{ paddingTop: 16 }}>
+          <Button type="primary" onClick={handleSaveSettings} style={{ minWidth: 96 }}>保存</Button>
+        </div>
+      </Form>
+    </div>
+  )
+
+  // ======================== RENDER: Detail View ========================
+
+  const renderDetail = () => (
+    <div className="kb-detail-layout">
+      {renderSidebar()}
+      <div className="kb-detail-content">
+        {currentDocument ? renderSegmentList()
+          : detailTab === 'documents' ? renderDocumentList()
+          : detailTab === 'hitTesting' ? renderHitTesting()
+          : renderSettings()}
+      </div>
+    </div>
+  )
+
+  // ======================== RENDER: Document Creation Modal ========================
+
+  const renderDocumentModal = () => {
+    const dataSourceType = watchDataSourceType
+    const processMode = watchProcessMode
+
+    return (
+      <Modal
+        title="添加文档"
+        open={documentModalVisible}
+        onOk={handleDocumentModalOk}
+        onCancel={() => setDocumentModalVisible(false)}
+        confirmLoading={documentModalLoading}
+        width={640}
+        okText="创建并索引"
+      >
+        <Form form={documentForm} layout="vertical">
+          <Form.Item name="name" label="文档名称" rules={[{ required: true, message: '请输入文档名称' }]}>
+            <Input placeholder="例如：校园卡服务指南.txt" />
+          </Form.Item>
+
+          <Form.Item name="dataSourceType" label="数据来源">
+            <Radio.Group>
+              <Radio.Button value="text_input">文本输入</Radio.Button>
+              <Radio.Button value="upload_file">上传文件</Radio.Button>
+            </Radio.Group>
+          </Form.Item>
+
+          {dataSourceType === 'text_input' ? (
+            <Form.Item name="textContent" label="文本内容">
+              <TextArea rows={8} placeholder="粘贴文本内容..." />
+            </Form.Item>
+          ) : (
             <div>
-              {/* Position and status */}
-              <div className="kb-drawer-section">
-                <div className="kb-drawer-meta-grid">
-                  <div className="kb-drawer-meta-item">
-                    <span className="kb-drawer-meta-item__label">分段 ID</span>
-                    <span className="kb-drawer-meta-item__value">{activeSegment.id || '-'}</span>
-                  </div>
-                  <div className="kb-drawer-meta-item">
-                    <span className="kb-drawer-meta-item__label">位置</span>
-                    <span className="kb-drawer-meta-item__value">#{activeSegment.position || activeSegment.chunkIndex || '-'}</span>
-                  </div>
-                  <div className="kb-drawer-meta-item">
-                    <span className="kb-drawer-meta-item__label">字数</span>
-                    <span className="kb-drawer-meta-item__value">{formatNumber(activeSegment.wordCount || activeSegment.content?.length)}</span>
-                  </div>
-                  <div className="kb-drawer-meta-item">
-                    <span className="kb-drawer-meta-item__label">命中次数</span>
-                    <span className="kb-drawer-meta-item__value">{formatNumber(activeSegment.hitCount)}</span>
-                  </div>
-                  <div className="kb-drawer-meta-item">
-                    <span className="kb-drawer-meta-item__label">状态</span>
-                    <span className="kb-drawer-meta-item__value">
-                      <Tag color={activeSegment.enabled !== false ? 'green' : 'default'}>
-                        {activeSegment.enabled !== false ? '启用' : '禁用'}
-                      </Tag>
-                    </span>
-                  </div>
-                  <div className="kb-drawer-meta-item">
-                    <span className="kb-drawer-meta-item__label">创建时间</span>
-                    <span className="kb-drawer-meta-item__value">{formatDateTime(activeSegment.createdAt)}</span>
-                  </div>
+              <Form.Item label="选择文件">
+                <Upload
+                  accept=".docx,.txt,.pdf,.pptx"
+                  beforeUpload={(file) => {
+                    setUploadFileList([file])
+                    documentForm.setFieldsValue({ name: file.name })
+                    return false
+                  }}
+                  fileList={uploadFileList}
+                  maxCount={1}
+                  onRemove={() => setUploadFileList([])}
+                >
+                  <Button icon={<UploadOutlined />}>选择 DOCX / TXT / PDF / PPTX</Button>
+                </Upload>
+              </Form.Item>
+              {uploadFileList.length > 0 && /\.pdf$/i.test(uploadFileList[0]?.name || '') && (
+                <div style={{ marginBottom: 12 }}>
+                  <Button loading={convertLoading} onClick={() => handleConvert(uploadFileList[0].originFileObj || uploadFileList[0])}>
+                    先转换为 DOCX（推荐）
+                  </Button>
+                  {convertResult && <Tag color="success" style={{ marginLeft: 8 }}>已转换：{convertResult.fileName}</Tag>}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Form.Item name="docForm" label="文档形态">
+              <Select options={[
+                { value: 'text_model', label: '文本模型' },
+                { value: 'qa_model', label: 'QA 模型' },
+              ]} />
+            </Form.Item>
+            <Form.Item name="processMode" label="处理模式">
+              <Select options={[
+                { value: 'automatic', label: '自动' },
+                { value: 'custom', label: '自定义' },
+                { value: 'hierarchical', label: '层次（父子）' },
+              ]} />
+            </Form.Item>
+          </div>
+
+          {processMode === 'custom' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Form.Item name="chunkSize" label="Chunk Size" initialValue={800}>
+                <InputNumber min={200} max={3000} style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="chunkOverlap" label="Overlap" initialValue={120}>
+                <InputNumber min={0} max={800} style={{ width: '100%' }} />
+              </Form.Item>
+            </div>
+          )}
+
+          {processMode === 'hierarchical' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Form.Item name="parentChunkSize" label="Parent Size" initialValue={1600}>
+                <InputNumber min={600} max={5000} style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="childChunkSize" label="Child Size" initialValue={420}>
+                <InputNumber min={120} max={1600} style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="parentChunkOverlap" label="Parent Overlap" initialValue={160}>
+                <InputNumber min={0} max={1200} style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="childChunkOverlap" label="Child Overlap" initialValue={80}>
+                <InputNumber min={0} max={500} style={{ width: '100%' }} />
+              </Form.Item>
+            </div>
+          )}
+
+          <Form.Item name="embeddingModel" label="向量模型">
+            <Select options={embeddingModelOptions} placeholder="选择向量模型" allowClear />
+          </Form.Item>
+
+          <Form.Item name="docMetadata" label="元数据 (JSON)">
+            <TextArea rows={2} placeholder='{"tags":["校园卡","后勤"],"scene":"campus_knowledge"}' />
+          </Form.Item>
+        </Form>
+      </Modal>
+    )
+  }
+
+  // ======================== Main Render ========================
+
+  return (
+    <div style={{ height: '100%' }}>
+      {creatingWizard ? renderWizard()
+        : view === 'list' ? renderDatasetList()
+        : renderDetail()}
+
+      {renderDocumentModal()}
+
+      {/* Empty KB Modal */}
+      <Modal
+        title="创建空知识库"
+        open={emptyKbModalVisible}
+        onOk={handleCreateEmptyKb}
+        onCancel={() => setEmptyKbModalVisible(false)}
+        confirmLoading={emptyKbLoading}
+        width={480}
+      >
+        <Form form={emptyKbForm} layout="vertical">
+          <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+            创建一个空的知识库，稍后再添加文档。
+          </div>
+          <Form.Item name="name" label="知识库名称" rules={[{ required: true, message: '请输入名称' }]}>
+            <Input placeholder="例如：教学资料库" maxLength={40} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Segment Detail Drawer */}
+      <Drawer
+        title={activeSegment ? `分段详情 #${activeSegment.position ?? '-'}` : '分段详情'}
+        open={segmentDrawerVisible}
+        onClose={() => setSegmentDrawerVisible(false)}
+        width={560}
+      >
+        {activeSegment && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <Tag>{activeSegment.documentName || '-'}</Tag>
+              <Tag color={activeSegment.enabled !== 0 ? 'success' : 'default'}>
+                {activeSegment.enabled !== 0 ? '已启用' : '已禁用'}
+              </Tag>
+              <span style={{ fontSize: 12, color: '#9ca3af' }}>
+                {formatCount(activeSegment.wordCount)} 字 · {activeSegment.hitCount || 0} 命中
+              </span>
+            </div>
+            <div style={{ padding: 16, borderRadius: 8, border: '0.5px solid #e5e7eb', background: '#f9fafb', lineHeight: 1.8, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {activeSegment.content}
+            </div>
+            {activeSegment.answer && (
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>回答 (QA)</div>
+                <div style={{ padding: 12, borderRadius: 8, border: '0.5px solid #e5e7eb', background: '#fff', lineHeight: 1.7 }}>
+                  {activeSegment.answer}
                 </div>
               </div>
-
-              {/* Content */}
-              <div className="kb-drawer-section">
-                <div className="kb-drawer-section__title">内容</div>
-                <div className="kb-drawer-content">{activeSegment.content || '-'}</div>
-              </div>
-
-              {/* Answer */}
-              {activeSegment.answer && (
-                <div className="kb-drawer-section">
-                  <div className="kb-drawer-section__title">回答</div>
-                  <div className="kb-drawer-content">{activeSegment.answer}</div>
-                </div>
-              )}
-
-              {/* Keywords */}
-              {activeSegment.keywords && (
-                <div className="kb-drawer-section">
-                  <div className="kb-drawer-section__title">关键词</div>
-                  <div className="kb-drawer-tags">
-                    {(Array.isArray(activeSegment.keywords) ? activeSegment.keywords : String(activeSegment.keywords).split(/[,，]/))
-                      .map((kw, i) => (
-                        <Tag key={i} color="teal">{String(kw).trim()}</Tag>
-                      ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Metadata */}
-              {activeSegment.metadata && Object.keys(activeSegment.metadata).length > 0 && (
-                <div className="kb-drawer-section">
-                  <div className="kb-drawer-section__title">元数据</div>
-                  <div className="kb-drawer-content" style={{ fontSize: 12 }}>
-                    {JSON.stringify(activeSegment.metadata, null, 2)}
-                  </div>
-                </div>
-              )}
-
-              {/* Child Chunks */}
-              <div className="kb-drawer-section">
-                <div className="kb-drawer-section__title">
-                  子片段 {childChunks.length > 0 && <Tag>{childChunks.length}</Tag>}
-                  {childChunkLoading && <SyncOutlined spin style={{ marginLeft: 8 }} />}
-                </div>
-                {childChunks.length === 0 && !childChunkLoading && (
-                  <Text type="secondary">暂无子片段</Text>
-                )}
-                {childChunks.map((chunk, idx) => (
-                  <div key={chunk.id || idx} className="kb-child-chunk-item">
-                    <div className="kb-child-chunk-item__header">
-                      <span>子片段 #{idx + 1}</span>
-                      <span>{formatNumber(chunk.content?.length || chunk.wordCount)} 字</span>
+            )}
+            {activeSegment.keywords && (() => {
+              try {
+                const kws = typeof activeSegment.keywords === 'string' ? JSON.parse(activeSegment.keywords) : activeSegment.keywords
+                if (Array.isArray(kws) && kws.length > 0) {
+                  return (
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>关键词</div>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {kws.map((kw, i) => <Tag key={i}>{kw}</Tag>)}
+                      </div>
                     </div>
-                    <div className="kb-child-chunk-item__content">{chunk.content || '-'}</div>
+                  )
+                }
+              } catch { /* ignore */ }
+              return null
+            })()}
+            {activeSegment.childChunks && activeSegment.childChunks.length > 0 && (
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
+                  子片段 ({activeSegment.childChunks.length})
+                </div>
+                {activeSegment.childChunks.map((cc) => (
+                  <div key={cc.id} style={{ padding: 10, borderRadius: 8, border: '0.5px solid #e5e7eb', marginBottom: 6, fontSize: 12, lineHeight: 1.7 }}>
+                    <div style={{ fontSize: 10, color: '#9ca3af', marginBottom: 4 }}>
+                      #{cc.position} · {cc.wordCount} 字 · {cc.type}
+                    </div>
+                    {cc.content}
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-        </Drawer>
-
-        {/* Segment Edit Drawer */}
-        <Drawer
-          title="编辑分段"
-          open={segmentEditDrawerVisible}
-          onClose={() => setSegmentEditDrawerVisible(false)}
-          width={560}
-          destroyOnClose
-          extra={
-            <Space>
-              <Button onClick={() => setSegmentEditDrawerVisible(false)}>取消</Button>
-              <Button type="primary" loading={segmentEditLoading} onClick={handleSegmentEditOk}>
-                保存
-              </Button>
-            </Space>
-          }
-        >
-          <Form form={segmentEditForm} layout="vertical">
-            <Form.Item name="content" label="内容" rules={[{ required: true, message: '请输入内容' }]}>
-              <TextArea rows={10} placeholder="分段内容" />
-            </Form.Item>
-            <Form.Item name="answer" label="回答（QA 模型）">
-              <TextArea rows={4} placeholder="对应回答内容（可选）" />
-            </Form.Item>
-            <Form.Item name="keywords" label="关键词">
-              <Input placeholder="逗号分隔的关键词列表" />
-            </Form.Item>
-            <Form.Item name="enabled" label="启用状态" valuePropName="checked">
-              <Switch />
-            </Form.Item>
-          </Form>
-        </Drawer>
-      </div>
-    )
-  }
-
-  // ===================== Recall Test Tab =====================
-
-  const recallResultChunks = useMemo(() => {
-    if (!recallResult) return []
-    if (Array.isArray(recallResult)) return recallResult
-    if (Array.isArray(recallResult.records)) return recallResult.records
-    if (Array.isArray(recallResult.chunks)) return recallResult.chunks
-    if (Array.isArray(recallResult.hits)) return recallResult.hits
-    return []
-  }, [recallResult])
-
-  const recallColumns = [
-    {
-      title: '来源',
-      key: 'source',
-      width: 160,
-      render: (_, record) => record.metadata?.sourceName || record.source || record.documentName || '-',
-    },
-    {
-      title: '相似度',
-      dataIndex: 'score',
-      key: 'score',
-      width: 100,
-      render: (val) => val != null ? (
-        <Tag color={val >= 0.8 ? 'green' : val >= 0.5 ? 'blue' : 'orange'}>
-          {(val * 100).toFixed(1)}%
-        </Tag>
-      ) : '-',
-      sorter: (a, b) => (a.score || 0) - (b.score || 0),
-      defaultSortOrder: 'descend',
-    },
-    {
-      title: '内容',
-      dataIndex: 'content',
-      key: 'content',
-      render: (text) => (
-        <div className="kb-chunk-cell__text">{text || '-'}</div>
-      ),
-    },
-  ]
-
-  const renderRecallTest = () => (
-    <div>
-      <Card className="kb-panel-card" title={<><ExperimentOutlined /> 召回测试</>} style={{ marginBottom: 20 }}>
-        <Form form={recallForm} layout="vertical" initialValues={{
-          ragStrategy: 'hybrid_search',
-          topK: 5,
-          similarityThreshold: 0.5,
-          knowledgeBaseIds: datasets.length > 0 ? [datasets[0].id] : [],
-        }}>
-          <Form.Item name="query" label="查询内容" rules={[{ required: true, message: '请输入查询内容' }]}>
-            <TextArea rows={3} placeholder="输入要检索的问题或关键词..." />
-          </Form.Item>
-
-          <Row gutter={16}>
-            <Col xs={24} sm={12}>
-              <Form.Item name="ragStrategy" label="检索策略">
-                <Select options={recallStrategyOptions} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item name="knowledgeBaseIds" label="知识库" rules={[{ required: true, message: '请选择知识库' }]}>
-                <Select
-                  mode="multiple"
-                  placeholder="选择要检索的知识库"
-                  options={datasets.map((ds) => ({ value: ds.id, label: ds.name || ds.id }))}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col xs={24} sm={8}>
-              <Form.Item name="embeddingModel" label="嵌入模型">
-                {embeddingModelOptions.length > 0 ? (
-                  <Select placeholder="选择嵌入模型" allowClear options={embeddingModelOptions} />
-                ) : (
-                  <Input placeholder="嵌入模型名称" />
-                )}
-              </Form.Item>
-            </Col>
-            <Col xs={12} sm={8}>
-              <Form.Item name="topK" label="Top K">
-                <Slider min={1} max={20} marks={{ 1: '1', 20: '20' }} />
-              </Form.Item>
-            </Col>
-            <Col xs={12} sm={8}>
-              <Form.Item name="similarityThreshold" label="相似度阈值">
-                <Slider min={0} max={1} step={0.05} marks={{ 0: '0', 0.5: '0.5', 1: '1' }} />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Button
-            type="primary"
-            icon={<SearchOutlined />}
-            loading={recallLoading}
-            onClick={handleRecallTest}
-            size="large"
-          >
-            开始检索
-          </Button>
-        </Form>
-      </Card>
-
-      {recallError && (
-        <Alert type="error" message="召回测试失败" description={recallError} showIcon closable style={{ marginBottom: 16 }} />
-      )}
-
-      {recallResult && (
-        <Card className="kb-panel-card" title={`检索结果（${recallResultChunks.length} 条命中）`}>
-          <Table
-            columns={recallColumns}
-            dataSource={recallResultChunks}
-            rowKey={(record, idx) => record.id || `recall-${idx}`}
-            pagination={false}
-            size="small"
-            locale={{ emptyText: <Empty description="未检索到相关内容" /> }}
-          />
-        </Card>
-      )}
-    </div>
-  )
-
-  // ===================== File Conversion Tab =====================
-
-  const renderFileConversion = () => (
-    <div>
-      <Card className="kb-panel-card" title={<><SwapOutlined /> 文件转换</>} style={{ marginBottom: 20 }}>
-        <Alert
-          type="info"
-          showIcon
-          message="支持将 PDF 和 PPTX 文件转换为 DOCX 格式，转换后可直接上传为文档。"
-          style={{ marginBottom: 16 }}
-        />
-
-        <Row gutter={24}>
-          <Col xs={24} sm={12}>
-            <Card title="PDF -> DOCX" size="small" className="kb-panel-card">
-              <Upload
-                fileList={convertFileList.filter((f) => /\.pdf$/i.test(f.name))}
-                maxCount={1}
-                accept=".pdf"
-                beforeUpload={(file) => {
-                  setConvertFileList([file])
-                  handleConvertPdf(file)
-                  return false
-                }}
-                onRemove={() => setConvertFileList([])}
-              >
-                <Button icon={<UploadOutlined />} loading={convertLoading}>选择 PDF 文件</Button>
-              </Upload>
-            </Card>
-          </Col>
-          <Col xs={24} sm={12}>
-            <Card title="PPTX -> DOCX" size="small" className="kb-panel-card">
-              <Upload
-                fileList={convertFileList.filter((f) => /\.pptx$/i.test(f.name))}
-                maxCount={1}
-                accept=".pptx"
-                beforeUpload={(file) => {
-                  setConvertFileList([file])
-                  handleConvertPpt(file)
-                  return false
-                }}
-                onRemove={() => setConvertFileList([])}
-              >
-                <Button icon={<UploadOutlined />} loading={convertLoading}>选择 PPTX 文件</Button>
-              </Upload>
-            </Card>
-          </Col>
-        </Row>
-
-        {convertResult && (
-          <div className="kb-convert-result">
-            <CheckCircleOutlined style={{ color: '#0f766e', fontSize: 18 }} />
-            <Text strong>转换成功</Text>
-            <Tag color="green">{convertResult.fileName}</Tag>
-            <Text type="secondary">转换后的文件可在「文档管理」中上传</Text>
+            )}
           </div>
         )}
-      </Card>
-    </div>
-  )
+      </Drawer>
 
-  // ===================== Main Render =====================
-
-  const renderCurrentView = () => {
-    switch (view) {
-      case 'documents':
-        return renderDocumentManagement()
-      case 'segments':
-        return renderSegmentManagement()
-      default:
-        return renderDatasetList()
-    }
-  }
-
-  const tabItems = [
-    {
-      key: 'manage',
-      label: <span><FolderOutlined /> 知识库管理</span>,
-      children: renderCurrentView(),
-    },
-    {
-      key: 'recall',
-      label: <span><ExperimentOutlined /> 召回测试</span>,
-      children: renderRecallTest(),
-    },
-    {
-      key: 'convert',
-      label: <span><SwapOutlined /> 文件转换</span>,
-      children: renderFileConversion(),
-    },
-  ]
-
-  return (
-    <div className="knowledge-base-manage">
-      <Tabs
-        activeKey={activeTab}
-        onChange={(key) => setActiveTab(key)}
-        items={tabItems}
-        className="rag-tabs"
-      />
+      {/* Segment Edit Drawer */}
+      <Drawer
+        title="编辑分段"
+        open={segmentEditDrawerVisible}
+        onClose={() => setSegmentEditDrawerVisible(false)}
+        width={560}
+        extra={<Button type="primary" onClick={handleSegmentEditOk} loading={segmentEditLoading}>保存</Button>}
+      >
+        <Form form={segmentEditForm} layout="vertical">
+          <Form.Item name="content" label="内容">
+            <TextArea rows={10} />
+          </Form.Item>
+          <Form.Item name="answer" label="回答 (QA 模式)">
+            <TextArea rows={4} />
+          </Form.Item>
+          <Form.Item name="keywords" label="关键词 (JSON 数组)">
+            <Input placeholder='["关键词1","关键词2"]' />
+          </Form.Item>
+          <Form.Item name="enabled" label="启用" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+        </Form>
+      </Drawer>
     </div>
   )
 }
