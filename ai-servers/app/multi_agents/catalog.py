@@ -141,7 +141,7 @@ def _diagram_profile(agent_name: str, role: str, intent: str, purpose: str, exam
         "diagram_mind_map_agent": "mermaid_mindmap",
         "diagram_flowchart_agent": "mermaid_flowchart",
         "diagram_activity_agent": "mermaid_activity_flowchart",
-        "diagram_architecture_agent": "mermaid_architecture",
+        "diagram_architecture_agent": "image_generation_result",
     }[agent_name]
     alias_map = {
         "diagram_mind_map_agent": ["mind_map", "mindmap", "思维导图", "脑图", "思维导图智能体", "mind_map_agent"],
@@ -151,19 +151,19 @@ def _diagram_profile(agent_name: str, role: str, intent: str, purpose: str, exam
     }
     return {
         "role": role,
-        "purpose": purpose,
+        "purpose": "把系统模块、服务依赖和数据流整理为架构图图片。" if agent_name == "diagram_architecture_agent" else purpose,
         "inputs": ["diagram_material", "evidence"],
         "outputs": [output_type],
-        "skills": ["diagram generation", "mermaid", intent],
+        "skills": ["architecture image generation", "text-to-image", intent] if agent_name == "diagram_architecture_agent" else ["diagram generation", "mermaid", intent],
         "intent": intent,
         "needRetrieval": True,
         "executionMode": "rag_then_agent",
-        "executionModeLabel": f"RAG 检索后生成{role.replace('智能体', '')}",
+        "executionModeLabel": "RAG 检索后生成架构图图片" if agent_name == "diagram_architecture_agent" else f"RAG 检索后生成{role.replace('智能体', '')}",
         "defaultRagStrategy": "multi_agent_rag",
         "supportedRagStrategies": ALL_RAG_STRATEGIES,
         "aliases": [intent, role, role.replace("智能体", ""), agent_name, *alias_map[agent_name]],
         "exampleInput": example_input,
-        "requiredModelModalities": TEXT_MODEL_MODALITY,
+        "requiredModelModalities": IMAGE_MODEL_MODALITY if agent_name == "diagram_architecture_agent" else TEXT_MODEL_MODALITY,
     }
 
 
@@ -206,7 +206,7 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "architecture_prompt_agent": {
         "role": "图表架构图提示词智能体",
-        "purpose": "把系统说明、模块依赖和检索证据整理为纯文本提示词，供图表架构图智能体继续生成 Mermaid 架构图。",
+        "purpose": "把系统说明、模块依赖和检索证据整理为纯文本提示词，用于描述架构图应如何呈现。",
         "inputs": ["topic", "evidence"],
         "outputs": ["architecture_prompt_text"],
         "skills": ["prompt generation", "architecture visualization planning", "visual description"],
