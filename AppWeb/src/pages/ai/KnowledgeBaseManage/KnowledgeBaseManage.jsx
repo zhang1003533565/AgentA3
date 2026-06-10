@@ -40,7 +40,7 @@ import {
   EyeOutlined,
   FileTextOutlined,
   FolderOutlined,
-  HealthMonitorOutlined,
+  HeartOutlined,
   HomeOutlined,
   InfoCircleOutlined,
   PlusOutlined,
@@ -807,7 +807,7 @@ function KnowledgeBaseManage() {
               title="健康评分"
               value={healthScore}
               suffix="%"
-              prefix={<HealthMonitorOutlined />}
+              prefix={<HeartOutlined />}
               valueStyle={{ color: healthScore >= 66 ? '#0f766e' : healthScore >= 33 ? '#d97706' : '#dc2626' }}
             />
           </Card>
