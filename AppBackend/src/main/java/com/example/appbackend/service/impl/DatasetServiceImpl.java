@@ -213,6 +213,11 @@ public class DatasetServiceImpl implements DatasetService {
                 }
             }
             doc = documentRepository.save(doc);
+            try {
+                syncSegmentsFromRagStore(doc, dataset, authorization);
+            } catch (Exception syncError) {
+                log.warn("sync document segments after indexing failed documentId={} error={}", doc.getId(), syncError.getMessage());
+            }
             log.info("document indexed successfully id={} name={}", doc.getId(), doc.getName());
         } catch (Exception e) {
             log.error("document indexing failed id={} error={}", doc.getId(), e.getMessage());
@@ -365,13 +370,20 @@ public class DatasetServiceImpl implements DatasetService {
     // ====== Segment ======
 
     @Override
-    public PageResponse<DatasetDTO.SegmentListItem> listSegments(Long documentId, String keyword, int current, int size) {
-        requireDocument(documentId);
+    public PageResponse<DatasetDTO.SegmentListItem> listSegments(Long documentId, String keyword, int current, int size, String authorization) {
+        KbDocument doc = requireDocument(documentId);
+        if ((doc.getSegmentCount() != null && doc.getSegmentCount() > 0) && segmentRepository.countByDocumentId(documentId) == 0) {
+            try {
+                Dataset dataset = requireDataset(doc.getDatasetId());
+                syncSegmentsFromRagStore(doc, dataset, authorization);
+            } catch (Exception e) {
+                log.warn("lazy sync document segments failed documentId={} error={}", documentId, e.getMessage());
+            }
+        }
         Page<DocumentSegment> page = segmentRepository.searchByDocumentId(
                 documentId,
                 StringUtils.hasText(keyword) ? keyword : null,
                 PageRequest.of(Math.max(0, current - 1), size));
-        KbDocument doc = requireDocument(documentId);
         List<DatasetDTO.SegmentListItem> records = page.getContent().stream()
                 .map(s -> toSegmentListItem(s, doc.getName()))
                 .collect(Collectors.toList());
@@ -571,6 +583,111 @@ public class DatasetServiceImpl implements DatasetService {
         documentItem.put("metadata", metadata);
         ingestRequest.put("documents", List.of(documentItem));
         return ingestRequest;
+    }
+
+    private void syncSegmentsFromRagStore(KbDocument doc, Dataset dataset, String authorization) {
+        if (!StringUtils.hasText(authorization) || segmentRepository.countByDocumentId(doc.getId()) > 0) {
+            return;
+        }
+        Object response = pythonAiProxyService.listRagDocumentChunks(
+                doc.getName(),
+                String.valueOf(dataset.getId()),
+                authorization);
+        if (!(response instanceof Map<?, ?> payload)) {
+            return;
+        }
+        Object rawChunks = payload.get("chunks");
+        if (!(rawChunks instanceof List<?> allChunks) || allChunks.isEmpty()) {
+            return;
+        }
+
+        List<Map<?, ?>> chunks = allChunks.stream()
+                .filter(Map.class::isInstance)
+                .map(chunk -> (Map<?, ?>) chunk)
+                .filter(chunk -> matchesJavaDocumentId(chunk, doc.getId()))
+                .collect(Collectors.toList());
+        if (chunks.isEmpty()) {
+            chunks = allChunks.stream()
+                    .filter(Map.class::isInstance)
+                    .map(chunk -> (Map<?, ?>) chunk)
+                    .collect(Collectors.toList());
+        }
+        if (chunks.isEmpty()) {
+            return;
+        }
+
+        List<DocumentSegment> segments = new ArrayList<>();
+        int fallbackPosition = 1;
+        for (Map<?, ?> chunk : chunks) {
+            String content = stringValue(chunk.get("content"));
+            if (!StringUtils.hasText(content)) {
+                continue;
+            }
+            DocumentSegment segment = new DocumentSegment();
+            segment.setDatasetId(doc.getDatasetId());
+            segment.setDocumentId(doc.getId());
+            segment.setPosition(intValue(firstPresent(chunk, "position", "chunkIndex"), fallbackPosition - 1) + 1);
+            segment.setContent(content);
+            segment.setWordCount(intValue(firstPresent(chunk, "wordCount", "word_count"), content.length()));
+            segment.setTokens(intValue(firstPresent(chunk, "tokenCount", "token_count"), content.length()));
+            segment.setIndexNodeId(stringValue(chunk.get("id")));
+            segment.setHitCount(intValue(firstPresent(chunk, "hitCount", "hit_count"), 0));
+            segment.setEnabled(booleanValue(chunk.get("enabled"), true) ? 1 : 0);
+            segment.setStatus(StringUtils.hasText(stringValue(chunk.get("status"))) ? stringValue(chunk.get("status")) : DocumentSegment.STATUS_COMPLETED);
+            segments.add(segment);
+            fallbackPosition++;
+        }
+        if (segments.isEmpty()) {
+            return;
+        }
+
+        segmentRepository.saveAll(segments);
+        doc.setSegmentCount(segments.size());
+        documentRepository.save(doc);
+        log.info("synced document segments from rag store documentId={} count={}", doc.getId(), segments.size());
+    }
+
+    private boolean matchesJavaDocumentId(Map<?, ?> chunk, Long documentId) {
+        Object metadataValue = chunk.get("metadata");
+        if (!(metadataValue instanceof Map<?, ?> metadata)) {
+            return false;
+        }
+        Object javaDocumentId = metadata.get("javaDocumentId");
+        return javaDocumentId != null && String.valueOf(javaDocumentId).equals(String.valueOf(documentId));
+    }
+
+    private Object firstPresent(Map<?, ?> map, String... keys) {
+        for (String key : keys) {
+            if (map.containsKey(key) && map.get(key) != null) {
+                return map.get(key);
+            }
+        }
+        return null;
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private int intValue(Object value, int fallback) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return value == null ? fallback : Integer.parseInt(String.valueOf(value));
+        } catch (Exception ignored) {
+            return fallback;
+        }
+    }
+
+    private boolean booleanValue(Object value, boolean fallback) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value == null) {
+            return fallback;
+        }
+        return Boolean.parseBoolean(String.valueOf(value));
     }
 
     // ====== VO Converters ======

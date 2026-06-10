@@ -225,7 +225,7 @@ public class DatasetController {
             @RequestParam(defaultValue = "20") Integer size,
             HttpServletRequest request) {
         requireAdmin(request);
-        return Result.success(datasetService.listSegments(documentId, keyword, current, size));
+        return Result.success(datasetService.listSegments(documentId, keyword, current, size, request.getHeader("Authorization")));
     }
 
     @GetMapping("/segments/{segmentId}")

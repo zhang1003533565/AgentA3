@@ -132,12 +132,21 @@ const extractRecords = (res) => {
   if (Array.isArray(res.data)) return res.data
   if (res.data?.records) return res.data.records
   if (res.data?.list) return res.data.list
+  if (res.data?.chunks) return res.data.chunks
+  if (res.data?.items) return res.data.items
+  if (res.data?.content) return res.data.content
   return []
 }
 
 const extractTotal = (res) => {
   if (res?.data?.total !== undefined) return res.data.total
+  if (res?.data?.totalElements !== undefined) return res.data.totalElements
   if (Array.isArray(res?.data)) return res.data.length
+  if (Array.isArray(res?.data?.records)) return res.data.records.length
+  if (Array.isArray(res?.data?.list)) return res.data.list.length
+  if (Array.isArray(res?.data?.chunks)) return res.data.chunks.length
+  if (Array.isArray(res?.data?.items)) return res.data.items.length
+  if (Array.isArray(res?.data?.content)) return res.data.content.length
   return 0
 }
 

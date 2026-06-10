@@ -50,7 +50,7 @@ public interface DatasetService {
 
     // ====== Segment（分段） ======
 
-    PageResponse<DatasetDTO.SegmentListItem> listSegments(Long documentId, String keyword, int current, int size);
+    PageResponse<DatasetDTO.SegmentListItem> listSegments(Long documentId, String keyword, int current, int size, String authorization);
 
     DatasetDTO.SegmentVO getSegment(Long segmentId);
 
