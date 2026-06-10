@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List
 
+from app.rag.indexing.multimodal_parser import MultimodalParser
+
 
 @dataclass
 class LoadedDocument:
@@ -12,12 +14,25 @@ class LoadedDocument:
 
 class DocumentLoader:
     SUPPORTED_SUFFIXES = {
+        ".csv",
         ".docx",
+        ".gif",
+        ".htm",
+        ".html",
+        ".jpeg",
+        ".jpg",
+        ".json",
+        ".markdown",
+        ".md",
+        ".pdf",
+        ".png",
+        ".tsv",
         ".txt",
+        ".webp",
     }
 
     def __init__(self) -> None:
-        pass
+        self.multimodal_parser = MultimodalParser()
 
     def load(self, source: str) -> Iterable[LoadedDocument]:
         path = Path(source)
@@ -40,8 +55,10 @@ class DocumentLoader:
     def _load_file(self, path: Path) -> LoadedDocument:
         if path.suffix.lower() == ".docx":
             content = self._load_docx(path)
-        else:
+        elif path.suffix.lower() in {".txt"}:
             content = path.read_text(encoding="utf-8", errors="ignore")
+        else:
+            content = self.multimodal_parser.parse(str(path)).get("text", "")
         return LoadedDocument(
             id=str(path.resolve()),
             content=content,

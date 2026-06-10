@@ -85,9 +85,58 @@ const recallStrategyOptions = [
 ]
 
 const ingestModeOptions = [
-  { label: '语义边界', value: 'semantic' },
-  { label: '父子片段', value: 'parentChild' },
+  { label: '通用语义切分', value: 'semantic' },
+  { label: '父子切片', value: 'parentChild' },
+  { label: '精细小块', value: 'fine' },
+  { label: '长文保守切分', value: 'long' },
 ]
+
+const chunkStrategyPresets = {
+  semantic: {
+    label: '通用语义切分',
+    description: '按段落、换行和句末标点寻找边界，适合说明文档、服务指南和普通知识库。',
+    mode: 'semantic',
+    chunkSize: 800,
+    chunkOverlap: 120,
+    parentChunkSize: 1600,
+    parentChunkOverlap: 160,
+    childChunkSize: 420,
+    childChunkOverlap: 80,
+  },
+  parentChild: {
+    label: '父子切片',
+    description: '用小片段做召回，用父片段补上下文，适合教材、章节型 DOCX 和长知识文档。',
+    mode: 'parentChild',
+    chunkSize: 800,
+    chunkOverlap: 120,
+    parentChunkSize: 1600,
+    parentChunkOverlap: 160,
+    childChunkSize: 420,
+    childChunkOverlap: 80,
+  },
+  fine: {
+    label: '精细小块',
+    description: '切得更细，便于精确命中办事流程、FAQ、规则条款，但上下文完整度略弱。',
+    mode: 'semantic',
+    chunkSize: 420,
+    chunkOverlap: 80,
+    parentChunkSize: 1200,
+    parentChunkOverlap: 120,
+    childChunkSize: 260,
+    childChunkOverlap: 60,
+  },
+  long: {
+    label: '长文保守切分',
+    description: '保留更长上下文，适合概念解释、课程资料、会议纪要等连续叙述内容。',
+    mode: 'semantic',
+    chunkSize: 1200,
+    chunkOverlap: 180,
+    parentChunkSize: 2200,
+    parentChunkOverlap: 220,
+    childChunkSize: 600,
+    childChunkOverlap: 100,
+  },
+}
 
 const sourceTypeOptions = [
   { label: '全部来源', value: 'all' },
@@ -334,7 +383,7 @@ const buildEmbeddingModelOptions = (configs) => {
 
 const normalizeIndexedChunks = (items) => (items || []).map((item, index) => ({
   id: item.id || `${item.source || 'chunk'}-${index}`,
-  source: item.source || item.metadata?.sourceName || item.storedPath || '-',
+  source: item.metadata?.sourceName || item.source || item.storedPath || '-',
   storedPath: item.storedPath,
   content: item.content || '',
   score: item.score,
@@ -346,6 +395,25 @@ const normalizeIndexedChunks = (items) => (items || []).map((item, index) => ({
   knowledgeBaseName: item.knowledgeBaseName || item.metadata?.knowledgeBaseName || DEFAULT_KNOWLEDGE_BASE_NAME,
   metadata: item.metadata || {},
 }))
+
+const normalizeSourceValue = (value) => String(value || '').trim()
+
+const chunkMatchesDocument = (chunk, document) => {
+  if (!document) return true
+  const selectedSource = normalizeSourceValue(document.source)
+  if (!selectedSource) return true
+  const candidates = [
+    chunk.source,
+    chunk.metadata?.sourceName,
+    chunk.storedPath,
+    chunk.id,
+  ].map(normalizeSourceValue).filter(Boolean)
+  return candidates.some((candidate) => (
+    candidate === selectedSource
+    || candidate.endsWith(`/${selectedSource}`)
+    || candidate.endsWith(`\\${selectedSource}`)
+  ))
+}
 
 const normalizeRecallChunks = (items) => (items || []).map((item, index) => ({
   id: `recall-${item.id || index}`,
@@ -380,6 +448,7 @@ function KnowledgeBaseManage() {
   const [documents, setDocuments] = useState([])
   const [selectedSource, setSelectedSource] = useState('')
   const [indexedChunks, setIndexedChunks] = useState([])
+  const [chunkLoadError, setChunkLoadError] = useState('')
   const [knowledgeBases, setKnowledgeBases] = useState([defaultKnowledgeBase])
   const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState(DEFAULT_KNOWLEDGE_BASE_ID)
   const [recallKnowledgeBaseIds, setRecallKnowledgeBaseIds] = useState([DEFAULT_KNOWLEDGE_BASE_ID])
@@ -391,6 +460,7 @@ function KnowledgeBaseManage() {
   const [previewText, setPreviewText] = useState('')
   const [previewSource, setPreviewSource] = useState('后台录入.txt')
   const [previewMode, setPreviewMode] = useState('semantic')
+  const [chunkStrategy, setChunkStrategy] = useState('semantic')
   const [chunkSettings, setChunkSettings] = useState({
     chunkSize: DEFAULT_CHUNK_SIZE,
     chunkOverlap: DEFAULT_CHUNK_OVERLAP,
@@ -423,6 +493,10 @@ function KnowledgeBaseManage() {
   const visibleDocuments = useMemo(
     () => documents.filter((item) => (item.knowledgeBaseId || DEFAULT_KNOWLEDGE_BASE_ID) === selectedKnowledgeBaseId),
     [documents, selectedKnowledgeBaseId],
+  )
+  const visibleDocumentSignature = useMemo(
+    () => visibleDocuments.map((item) => item.source).join('|'),
+    [visibleDocuments],
   )
 
   const selectedDocument = useMemo(
@@ -460,7 +534,7 @@ function KnowledgeBaseManage() {
     const keyword = chunkSearch.trim().toLowerCase()
     return allChunks.filter((item) => {
       const matchOrigin = chunkOriginFilter === 'all' || item.origin === chunkOriginFilter
-      const matchSource = !selectedDocument || item.origin !== 'indexed' || item.source === selectedDocument.source
+      const matchSource = item.origin !== 'indexed' || chunkMatchesDocument(item, selectedDocument)
       const matchKnowledgeBase = item.origin !== 'indexed' || (item.knowledgeBaseId || DEFAULT_KNOWLEDGE_BASE_ID) === selectedKnowledgeBaseId
       const matchKeyword = !keyword
         || String(item.content || '').toLowerCase().includes(keyword)
@@ -481,19 +555,30 @@ function KnowledgeBaseManage() {
   const previewAverageLength = previewChunks.length
     ? Math.round(previewChunks.reduce((sum, item) => sum + String(item.content || '').length, 0) / previewChunks.length)
     : 0
+  const selectedDocumentChunkCount = Number(selectedDocument?.chunkCount || 0)
+  const indexedChunkCount = indexedChunks.length
+  const hasSelectedDocumentChunkMismatch = (
+    selectedDocumentChunkCount > 0
+    && indexedChunkCount === 0
+    && !chunkLoading
+    && !chunkLoadError
+  )
 
   const refreshChunks = async (source = selectedDocument?.source || '', knowledgeBaseId = selectedKnowledgeBaseId) => {
     setChunkLoading(true)
     try {
       const params = {
-        ...(source ? { source } : {}),
         ...(knowledgeBaseId ? { knowledgeBaseIds: knowledgeBaseId } : {}),
       }
       const res = await getRagDocumentChunks(params)
-      setIndexedChunks(normalizeIndexedChunks(res.data?.chunks || []))
+      const chunks = normalizeIndexedChunks(res.data?.chunks || [])
+      setIndexedChunks(source ? chunks.filter((item) => chunkMatchesDocument(item, { source })) : chunks)
+      setChunkLoadError('')
     } catch (error) {
       setIndexedChunks([])
-      message.warning(error.message || '加载文档切片失败')
+      const errorMessage = error.message || '加载文档切片失败'
+      setChunkLoadError(errorMessage)
+      message.warning(errorMessage)
     } finally {
       setChunkLoading(false)
     }
@@ -542,10 +627,18 @@ function KnowledgeBaseManage() {
         graph: graphHealthRes.data,
       })
       if (nextSelectedSource) {
-        const chunkRes = await getRagDocumentChunks({ source: nextSelectedSource, knowledgeBaseIds: nextKnowledgeBaseId })
-        setIndexedChunks(normalizeIndexedChunks(chunkRes.data?.chunks || []))
+        try {
+          const chunkRes = await getRagDocumentChunks({ knowledgeBaseIds: nextKnowledgeBaseId })
+          const chunks = normalizeIndexedChunks(chunkRes.data?.chunks || [])
+          setIndexedChunks(chunks.filter((item) => chunkMatchesDocument(item, { source: nextSelectedSource })))
+          setChunkLoadError('')
+        } catch (chunkError) {
+          setIndexedChunks([])
+          setChunkLoadError(chunkError.message || '加载文档切片失败')
+        }
       } else {
         setIndexedChunks([])
+        setChunkLoadError('')
       }
     } catch (error) {
       message.error(error.message || '加载知识库数据失败')
@@ -560,11 +653,17 @@ function KnowledgeBaseManage() {
 
   useEffect(() => {
     ingestForm.setFieldsValue({ knowledgeBaseId: selectedKnowledgeBaseId })
+    const nextSource = visibleDocuments.some((item) => item.source === selectedSource)
+      ? selectedSource
+      : visibleDocuments[0]?.source || ''
+    if (nextSource !== selectedSource) {
+      setSelectedSource(nextSource)
+    }
     if (!recallKnowledgeBaseIds.length || !recallKnowledgeBaseIds.every((id) => knowledgeBases.some((item) => item.id === id))) {
       setRecallKnowledgeBaseIds([selectedKnowledgeBaseId])
       recallForm.setFieldsValue({ knowledgeBaseIds: [selectedKnowledgeBaseId] })
     }
-  }, [selectedKnowledgeBaseId, knowledgeBases])
+  }, [selectedKnowledgeBaseId, knowledgeBases, visibleDocumentSignature, selectedSource])
 
   useEffect(() => {
     if (selectedDocument?.source) {
@@ -594,9 +693,10 @@ function KnowledgeBaseManage() {
       }
       const targetKnowledgeBase = knowledgeBases.find((item) => item.id === values.knowledgeBaseId) || selectedKnowledgeBase
       const contentBase64 = selectedFile ? await readFileAsBase64(selectedFile) : undefined
+      const activePreset = chunkStrategyPresets[values.chunkMode] || chunkStrategyPresets[chunkStrategy] || chunkStrategyPresets.semantic
       const previewForRecent = selectedFile && !textContent
         ? []
-        : buildPreviewChunks(textContent, sourceName, values.chunkMode || previewMode, values).map((item) => withChunkKnowledgeBase(item, targetKnowledgeBase))
+        : buildPreviewChunks(textContent, sourceName, activePreset.mode, values).map((item) => withChunkKnowledgeBase(item, targetKnowledgeBase))
       const res = await ingestRagDocuments({
         embeddingModel: values.embeddingModel,
         documents: [{
@@ -606,7 +706,9 @@ function KnowledgeBaseManage() {
           metadata: {
             origin: 'knowledge_base_console',
             uploadMode: selectedFile ? 'file_base64' : 'text',
-            chunkMode: values.chunkMode || previewMode,
+            chunkMode: activePreset.mode,
+            chunkStrategy: values.chunkMode || chunkStrategy,
+            chunkStrategyLabel: activePreset.label,
             chunkSize: values.chunkSize || DEFAULT_CHUNK_SIZE,
             chunkOverlap: values.chunkOverlap || DEFAULT_CHUNK_OVERLAP,
             parentChunkSize: values.parentChunkSize || PARENT_CHUNK_SIZE,
@@ -643,6 +745,7 @@ function KnowledgeBaseManage() {
       setPreviewText('')
       setPreviewSource('后台录入.txt')
       setPreviewMode('semantic')
+      setChunkStrategy('semantic')
       setChunkSettings({
         chunkSize: DEFAULT_CHUNK_SIZE,
         chunkOverlap: DEFAULT_CHUNK_OVERLAP,
@@ -718,6 +821,29 @@ function KnowledgeBaseManage() {
     } finally {
       setRecallLoading(false)
     }
+  }
+
+  const applyChunkStrategy = (strategyName) => {
+    const preset = chunkStrategyPresets[strategyName] || chunkStrategyPresets.semantic
+    setChunkStrategy(strategyName)
+    setPreviewMode(preset.mode)
+    setChunkSettings({
+      chunkSize: preset.chunkSize,
+      chunkOverlap: preset.chunkOverlap,
+      parentChunkSize: preset.parentChunkSize,
+      parentChunkOverlap: preset.parentChunkOverlap,
+      childChunkSize: preset.childChunkSize,
+      childChunkOverlap: preset.childChunkOverlap,
+    })
+    ingestForm.setFieldsValue({
+      chunkMode: strategyName,
+      chunkSize: preset.chunkSize,
+      chunkOverlap: preset.chunkOverlap,
+      parentChunkSize: preset.parentChunkSize,
+      parentChunkOverlap: preset.parentChunkOverlap,
+      childChunkSize: preset.childChunkSize,
+      childChunkOverlap: preset.childChunkOverlap,
+    })
   }
 
   const handleCreateKnowledgeBase = () => {
@@ -899,7 +1025,6 @@ function KnowledgeBaseManage() {
         onValuesChange={(_, values) => {
           setPreviewSource(values.source || uploadFileList[0]?.name || '后台录入.txt')
           setPreviewText(values.content || previewText)
-          setPreviewMode(values.chunkMode || 'semantic')
           setChunkSettings({
             chunkSize: values.chunkSize || DEFAULT_CHUNK_SIZE,
             chunkOverlap: values.chunkOverlap || DEFAULT_CHUNK_OVERLAP,
@@ -948,47 +1073,63 @@ function KnowledgeBaseManage() {
             </Form.Item>
           </Col>
         </Row>
-        <Form.Item name="chunkMode" label="切分模式">
-          <Segmented options={ingestModeOptions} onChange={setPreviewMode} />
+        <Form.Item name="chunkMode" label="切分策略">
+          <Segmented options={ingestModeOptions} onChange={applyChunkStrategy} />
         </Form.Item>
-        <div className="kb-chunk-settings">
-          <div className="kb-chunk-settings__head">
-            <Text strong>索引参数</Text>
-            <Text type="secondary">预计 {previewChunks.length} 个预览片段，平均 {previewAverageLength || 0} 字</Text>
+        <div className="kb-strategy-summary">
+          <div>
+            <Text strong>{chunkStrategyPresets[chunkStrategy]?.label || '通用语义切分'}</Text>
+            <Text type="secondary">{chunkStrategyPresets[chunkStrategy]?.description}</Text>
           </div>
-          <Row gutter={10}>
-            <Col xs={12}>
-              <Form.Item name="chunkSize" label="Chunk Size">
-                <InputNumber min={200} max={3000} step={50} className="kb-full-control" />
-              </Form.Item>
-            </Col>
-            <Col xs={12}>
-              <Form.Item name="chunkOverlap" label="Overlap">
-                <InputNumber min={0} max={800} step={10} className="kb-full-control" />
-              </Form.Item>
-            </Col>
-            <Col xs={12}>
-              <Form.Item name="parentChunkSize" label="Parent Size">
-                <InputNumber min={600} max={5000} step={100} className="kb-full-control" />
-              </Form.Item>
-            </Col>
-            <Col xs={12}>
-              <Form.Item name="parentChunkOverlap" label="Parent Overlap">
-                <InputNumber min={0} max={1200} step={20} className="kb-full-control" />
-              </Form.Item>
-            </Col>
-            <Col xs={12}>
-              <Form.Item name="childChunkSize" label="Child Size">
-                <InputNumber min={120} max={1600} step={20} className="kb-full-control" />
-              </Form.Item>
-            </Col>
-            <Col xs={12}>
-              <Form.Item name="childChunkOverlap" label="Child Overlap">
-                <InputNumber min={0} max={500} step={10} className="kb-full-control" />
-              </Form.Item>
-            </Col>
-          </Row>
+          <div className="kb-strategy-summary__meta">
+            <Tag color="cyan">预计 {previewChunks.length} 段</Tag>
+            <Tag>平均 {previewAverageLength || 0} 字</Tag>
+          </div>
         </div>
+        <Collapse
+          className="kb-advanced-collapse"
+          size="small"
+          items={[{
+            key: 'advanced-chunk-settings',
+            label: '高级切分参数',
+            children: (
+              <div className="kb-chunk-settings">
+                <Row gutter={10}>
+                  <Col xs={12}>
+                    <Form.Item name="chunkSize" label="Chunk Size">
+                      <InputNumber min={200} max={3000} step={50} className="kb-full-control" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={12}>
+                    <Form.Item name="chunkOverlap" label="Overlap">
+                      <InputNumber min={0} max={800} step={10} className="kb-full-control" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={12}>
+                    <Form.Item name="parentChunkSize" label="Parent Size">
+                      <InputNumber min={600} max={5000} step={100} className="kb-full-control" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={12}>
+                    <Form.Item name="parentChunkOverlap" label="Parent Overlap">
+                      <InputNumber min={0} max={1200} step={20} className="kb-full-control" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={12}>
+                    <Form.Item name="childChunkSize" label="Child Size">
+                      <InputNumber min={120} max={1600} step={20} className="kb-full-control" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={12}>
+                    <Form.Item name="childChunkOverlap" label="Child Overlap">
+                      <InputNumber min={0} max={500} step={10} className="kb-full-control" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              </div>
+            ),
+          }]}
+        />
         <Form.Item label="本地文件">
           <Upload
             accept=".docx,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
@@ -1291,7 +1432,7 @@ function KnowledgeBaseManage() {
                     <Text strong>文档与索引</Text>
                     <Text type="secondary">选择文档后查看真实入库的每个 chunk</Text>
                   </div>
-                  <Button icon={<ReloadOutlined />} onClick={() => refreshChunks(selectedDocument?.source)} loading={chunkLoading}>
+                  <Button icon={<ReloadOutlined />} onClick={() => refreshChunks(selectedDocument?.source, selectedKnowledgeBaseId)} loading={chunkLoading}>
                     刷新片段
                   </Button>
                 </div>
@@ -1371,13 +1512,31 @@ function KnowledgeBaseManage() {
                     />
                   </Space>
                 </div>
+                {chunkLoadError && (
+                  <Alert
+                    className="kb-chunk-alert"
+                    type="warning"
+                    showIcon
+                    message="真实入库片段暂时加载失败"
+                    description={`${chunkLoadError}。如果刚更新过后端，请重启 Java 后端和 Python AI 服务后再点“刷新片段”。`}
+                  />
+                )}
+                {hasSelectedDocumentChunkMismatch && (
+                  <Alert
+                    className="kb-chunk-alert"
+                    type="info"
+                    showIcon
+                    message="文档统计已有片段，但当前文档明细没有匹配到"
+                    description="通常是历史入库数据里的来源文件名和存储路径不一致，或服务还在使用旧接口。请点击“刷新片段”，必要时重启 Java 后端和 Python AI 服务后再查看。"
+                  />
+                )}
                 <Table
                   rowKey={(record) => `${record.origin}-${record.id}`}
                   columns={chunkColumns}
                   dataSource={filteredChunks}
                   loading={chunkLoading}
                   pagination={{ pageSize: 8 }}
-                  locale={{ emptyText: <Empty description="暂无可展示片段；粘贴文本或选择已入库文档后查看" /> }}
+                  locale={{ emptyText: <Empty description={chunkLoadError ? '真实片段接口未返回数据；可重启服务后刷新，或粘贴文本查看预览切片' : '暂无可展示片段；粘贴文本或选择已入库文档后查看'} /> }}
                 />
               </Card>
 

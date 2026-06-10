@@ -19,6 +19,14 @@ from app.rag.defaults import (
 )
 from app.rag.indexing.document_loader import DocumentLoader
 from app.rag.indexing.embedding_writer import EmbeddingWriter
+from app.rag.knowledge_base import (
+    DEFAULT_KNOWLEDGE_BASE_ID,
+    DEFAULT_KNOWLEDGE_BASE_NAME,
+    KnowledgeBaseDocument,
+    KnowledgeBaseSegment,
+    KnowledgeBaseStore,
+)
+from app.rag.knowledge_base.models import utc_now_iso
 from app.rag.vector_stores import DEFAULT_VECTOR_STORE_BACKEND
 
 
@@ -38,6 +46,9 @@ class IngestInputDocument:
 
 @dataclass
 class IngestedDocument:
+    id: str
+    knowledge_base_id: str
+    knowledge_base_name: str
     source: str
     stored_path: str
     modality: str
@@ -63,6 +74,7 @@ class RagIngestionPipeline:
         self.index_path = self.root_dir / ".index" / "local_chunks.jsonl"
         self.parent_index_path = self.root_dir / ".index" / "parent_child_chunks.jsonl"
         self.loader = DocumentLoader()
+        self.store = KnowledgeBaseStore(self.root_dir)
         self.chunker = SemanticChunker(
             chunk_size=CHUNK_SIZE,
             overlap=CHUNK_OVERLAP,
@@ -88,10 +100,19 @@ class RagIngestionPipeline:
         ingested_documents: List[IngestedDocument] = []
         chunk_documents: List[RagDocument] = []
         parent_child_documents: List[RagDocument] = []
+        metadata_records: List[tuple[KnowledgeBaseDocument, List[KnowledgeBaseSegment]]] = []
 
         for item in inputs:
+            knowledge_base_id = self._knowledge_base_id(item.metadata)
+            knowledge_base_name = self._knowledge_base_name(item.metadata)
+            self.store.upsert_knowledge_base(
+                knowledge_base_id=knowledge_base_id,
+                name=knowledge_base_name,
+                description=str(item.metadata.get("knowledgeBaseDescription") or item.metadata.get("knowledge_base_description") or ""),
+            )
             payload = self._content_bytes(item)
-            target = self.ingest_dir / self._build_filename(item.source, payload)
+            target = self.ingest_dir / self._safe_path_part(knowledge_base_id) / self._build_filename(item.source, payload)
+            target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(payload)
             stored_files.append(str(target))
 
@@ -100,38 +121,98 @@ class RagIngestionPipeline:
             chunker = self._semantic_chunker_for_metadata(item.metadata)
             chunks = chunker.split(parsed_text)
             modality = self._infer_modality(target)
+            document_id = self._document_id(knowledge_base_id, item.source or target.name, payload)
+            now = utc_now_iso()
+            segment_records: List[KnowledgeBaseSegment] = []
             for index, chunk in enumerate(chunks):
-                chunk_documents.append(RagDocument(
-                    id=f"{target.resolve()}#chunk-{index}",
+                segment_id = f"{document_id}:segment:{index}"
+                metadata = {
+                    **item.metadata,
+                    "chunkIndex": index,
+                    "sourceName": item.source or target.name,
+                    "modality": modality,
+                    "knowledgeBaseId": knowledge_base_id,
+                    "knowledgeBaseName": knowledge_base_name,
+                    "documentId": document_id,
+                    "segmentId": segment_id,
+                    "indexStructure": "text_model",
+                }
+                rag_document = RagDocument(
+                    id=segment_id,
                     content=chunk,
                     source=str(target),
-                    metadata={
-                        **item.metadata,
-                        "chunkIndex": index,
-                        "sourceName": item.source or target.name,
-                        "modality": modality,
-                    },
+                    metadata=metadata,
+                )
+                chunk_documents.append(rag_document)
+                segment_records.append(KnowledgeBaseSegment(
+                    id=segment_id,
+                    document_id=document_id,
+                    knowledge_base_id=knowledge_base_id,
+                    position=index,
+                    content=chunk,
+                    source=str(target),
+                    word_count=len(chunk),
+                    token_count=len(chunk),
+                    created_at=now,
+                    updated_at=now,
+                    metadata=metadata,
                 ))
             parent_child_documents.extend(self._build_parent_child_documents(
                 target=target,
                 parsed_text=parsed_text,
                 source_name=item.source or target.name,
+                document_id=document_id,
+                knowledge_base_id=knowledge_base_id,
+                knowledge_base_name=knowledge_base_name,
                 metadata=item.metadata,
             ))
 
+            document_record = KnowledgeBaseDocument(
+                id=document_id,
+                knowledge_base_id=knowledge_base_id,
+                name=item.source or target.name,
+                source=item.source or target.name,
+                stored_path=str(target),
+                modality=modality,
+                segment_count=len(segment_records),
+                size=len(payload),
+                word_count=len(parsed_text),
+                token_count=len(parsed_text),
+                created_at=now,
+                updated_at=now,
+                metadata={
+                    **item.metadata,
+                    "knowledgeBaseId": knowledge_base_id,
+                    "knowledgeBaseName": knowledge_base_name,
+                    "vectorStoreBackend": self.vector_store_backend,
+                },
+            )
+            metadata_records.append((document_record, segment_records))
+
             ingested_documents.append(IngestedDocument(
+                id=document_id,
+                knowledge_base_id=knowledge_base_id,
+                knowledge_base_name=knowledge_base_name,
                 source=item.source or target.name,
                 stored_path=str(target),
                 modality=modality,
                 chunk_count=len(chunks),
                 size=len(payload),
-                metadata=item.metadata,
+                metadata=document_record.metadata,
             ))
 
         trace.append(RagTraceStep(stage="store", detail={"storedCount": len(stored_files)}))
         trace.append(RagTraceStep(stage="chunk", detail={"chunkCount": len(chunk_documents)}))
         indexed_count = self.writer.write(chunk_documents)
         parent_child_count = self.parent_child_writer.write(parent_child_documents)
+        for document_record, segment_records in metadata_records:
+            document_record.metadata = {
+                **document_record.metadata,
+                "indexedChunkCount": document_record.segment_count,
+                "parentChildIndexed": True,
+                "parentChildIndexedChunkCount": parent_child_count,
+            }
+            self.store.replace_document(document_record, segment_records)
         trace.append(RagTraceStep(
             stage="index",
             detail={
@@ -179,6 +260,18 @@ class RagIngestionPipeline:
         suffix = path.suffix.lower()
         if suffix == ".docx":
             return "docx"
+        if suffix in {".md", ".markdown"}:
+            return "markdown"
+        if suffix == ".pdf":
+            return "pdf"
+        if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+            return "image"
+        if suffix in {".csv", ".tsv"}:
+            return "table"
+        if suffix == ".json":
+            return "structured_json"
+        if suffix in {".html", ".htm"}:
+            return "html"
         return "text"
 
     def _semantic_chunker_for_metadata(self, metadata: Dict[str, Any]) -> SemanticChunker:
@@ -210,12 +303,15 @@ class RagIngestionPipeline:
         target: Path,
         parsed_text: str,
         source_name: str,
+        document_id: str,
+        knowledge_base_id: str,
+        knowledge_base_name: str,
         metadata: Dict[str, Any],
     ) -> List[RagDocument]:
         documents: List[RagDocument] = []
         chunker = self._parent_child_chunker_for_metadata(metadata)
         for parent_index, parent_chunk in enumerate(chunker.split(parsed_text)):
-            parent_id = f"{target.resolve()}#parent-{parent_index}"
+            parent_id = f"{document_id}:parent:{parent_index}"
             parent_document = RagDocument(
                 id=parent_id,
                 content=parent_chunk.parent,
@@ -226,6 +322,10 @@ class RagIngestionPipeline:
                     "parentId": parent_id,
                     "parentIndex": parent_index,
                     "sourceName": source_name,
+                    "documentId": document_id,
+                    "knowledgeBaseId": knowledge_base_id,
+                    "knowledgeBaseName": knowledge_base_name,
+                    "indexStructure": "hierarchical_model",
                 },
             )
             documents.append(parent_document)
@@ -241,6 +341,27 @@ class RagIngestionPipeline:
                         "parentIndex": parent_index,
                         "childIndex": child_index,
                         "sourceName": source_name,
+                        "documentId": document_id,
+                        "knowledgeBaseId": knowledge_base_id,
+                        "knowledgeBaseName": knowledge_base_name,
+                        "indexStructure": "hierarchical_model",
                     },
                 ))
         return documents
+
+    def _knowledge_base_id(self, metadata: Dict[str, Any]) -> str:
+        value = metadata.get("knowledgeBaseId") or metadata.get("knowledge_base_id")
+        return str(value or DEFAULT_KNOWLEDGE_BASE_ID).strip() or DEFAULT_KNOWLEDGE_BASE_ID
+
+    def _knowledge_base_name(self, metadata: Dict[str, Any]) -> str:
+        value = metadata.get("knowledgeBaseName") or metadata.get("knowledge_base_name")
+        return str(value or DEFAULT_KNOWLEDGE_BASE_NAME).strip() or DEFAULT_KNOWLEDGE_BASE_NAME
+
+    def _safe_path_part(self, value: str) -> str:
+        return re.sub(r"[^a-zA-Z0-9_\-\u4e00-\u9fff]+", "-", value).strip("-") or DEFAULT_KNOWLEDGE_BASE_ID
+
+    def _document_id(self, knowledge_base_id: str, source: str, content: bytes) -> str:
+        source_name = Path(source or "document.txt").name
+        digest = hashlib.sha256(content).hexdigest()[:16]
+        seed = f"{knowledge_base_id}:{source_name}:{digest}"
+        return hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24]

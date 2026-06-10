@@ -37,6 +37,13 @@ from app.rag.evaluators import RagEvaluationInput, RagEvaluator
 from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx
 from app.rag.graph_stores import build_graph_store
 from app.rag.indexing.document_loader import DocumentLoader
+from app.rag.knowledge_base import (
+    DEFAULT_KNOWLEDGE_BASE_ID,
+    DEFAULT_KNOWLEDGE_BASE_NAME,
+    KnowledgeBaseStore,
+    ProcessRule,
+    RetrievalConfig,
+)
 from app.rag.pipelines import IngestInputDocument, RagIngestionError, RagIngestionPipeline
 from app.rag.structured.text_to_sql import TextToSqlService
 from app.rag.vector_stores import DEFAULT_VECTOR_STORE_BACKEND, build_vector_store, get_vector_store_backend
@@ -45,8 +52,6 @@ from app.utils.sse import build_sse, chunk_answer
 
 router = APIRouter(prefix="/internal/rag", tags=["internal-rag"])
 logger = get_logger("api.rag")
-DEFAULT_KNOWLEDGE_BASE_ID = "default"
-DEFAULT_KNOWLEDGE_BASE_NAME = "默认知识库"
 
 
 class PdfConvertRequest(BaseModel):
@@ -70,6 +75,15 @@ class RagRecallTestRequest(BaseModel):
 
 class AgentExampleInputUpdateRequest(BaseModel):
     input: str = Field(min_length=1, max_length=12000)
+
+
+class KnowledgeBaseUpsertRequest(BaseModel):
+    id: str = Field(default=DEFAULT_KNOWLEDGE_BASE_ID, min_length=1, max_length=128)
+    name: str = Field(default=DEFAULT_KNOWLEDGE_BASE_NAME, min_length=1, max_length=255)
+    description: str = Field(default="", max_length=2000)
+    processRule: Dict[str, Any] = Field(default_factory=dict)
+    retrievalConfig: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 def _llm_header_audit_fields(
@@ -334,6 +348,38 @@ def save_rag_agent_example_input(
 ) -> Dict[str, Any]:
     _require_authorization(authorization)
     return update_agent_example_input(agent_name, request.input)
+
+
+@router.get("/knowledge-bases")
+def list_knowledge_bases(
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    store = KnowledgeBaseStore(_knowledge_base_root())
+    store.ensure_default()
+    return {
+        "knowledgeBases": store.list_knowledge_bases(),
+        "total": len(store.list_knowledge_bases()),
+        "metadataStore": str(store.path),
+    }
+
+
+@router.post("/knowledge-bases")
+def upsert_knowledge_base(
+    request: KnowledgeBaseUpsertRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    store = KnowledgeBaseStore(_knowledge_base_root())
+    knowledge_base = store.upsert_knowledge_base(
+        knowledge_base_id=request.id,
+        name=request.name,
+        description=request.description,
+        process_rule=ProcessRule.from_dict(request.processRule),
+        retrieval_config=RetrievalConfig.from_dict(request.retrievalConfig),
+        metadata=request.metadata,
+    )
+    return {"knowledgeBase": knowledge_base.to_dict(), "metadataStore": str(store.path)}
 
 
 @router.post("/query", response_model=RagQueryResponse)
@@ -1013,6 +1059,10 @@ def ingest_rag_documents(
         indexPath=result.index_path,
         documents=[
             {
+                "id": document.id,
+                "documentId": document.id,
+                "knowledgeBaseId": document.knowledge_base_id,
+                "knowledgeBaseName": document.knowledge_base_name,
                 "source": document.source,
                 "storedPath": document.stored_path,
                 "modality": document.modality,
@@ -1037,55 +1087,20 @@ def list_rag_documents(
     root = _knowledge_base_root()
     backend = get_vector_store_backend()
     vector_store = build_vector_store(root, backend=backend)
+    store = KnowledgeBaseStore(root)
+    store.ensure_default()
+    documents = store.list_documents()
+    knowledge_bases = store.list_knowledge_bases()
     load_error = ""
-    try:
-        indexed_documents = vector_store.load_documents()
-    except Exception as exc:
-        logger.warning("rag document list failed backend=%s error=%s", backend, exc)
-        indexed_documents = []
-        load_error = str(exc)
-    documents_by_source: Dict[str, Dict[str, Any]] = {}
-    knowledge_bases_by_id: Dict[str, Dict[str, Any]] = {}
-    for document in indexed_documents:
-        source = document.metadata.get("sourceName") or document.source or document.id
-        knowledge_base_id = _document_knowledge_base_id(document.metadata)
-        knowledge_base_name = _document_knowledge_base_name(document.metadata)
-        knowledge_base = knowledge_bases_by_id.setdefault(knowledge_base_id, {
-            "id": knowledge_base_id,
-            "name": knowledge_base_name,
-            "description": document.metadata.get("knowledgeBaseDescription") or "",
-            "documentCount": 0,
-            "chunkCount": 0,
-            "size": 0,
-        })
-        item = documents_by_source.setdefault(str(source), {
-            "source": str(source),
-            "size": 0,
-            "updatedAt": None,
-            "chunkCount": 0,
-            "vectorStoreBackend": vector_store.name,
-            "collection": getattr(vector_store, "collection_name", ""),
-            "knowledgeBaseId": knowledge_base_id,
-            "knowledgeBaseName": knowledge_base_name,
-        })
-        item["chunkCount"] += 1
-        item["size"] += len(document.content.encode("utf-8"))
-        knowledge_base["chunkCount"] += 1
-        knowledge_base["size"] += len(document.content.encode("utf-8"))
-    for item in documents_by_source.values():
-        knowledge_base_id = str(item.get("knowledgeBaseId") or DEFAULT_KNOWLEDGE_BASE_ID)
-        if knowledge_base_id in knowledge_bases_by_id:
-            knowledge_bases_by_id[knowledge_base_id]["documentCount"] += 1
-    documents = sorted(documents_by_source.values(), key=lambda item: item["source"])
-    knowledge_bases = sorted(knowledge_bases_by_id.values(), key=lambda item: item["name"])
     return {
         "documents": documents,
         "knowledgeBases": knowledge_bases,
         "knowledgeBase": {
             "rootDir": str(root),
             "vectorStoreBackend": backend,
-            "chunkIndexPath": "milvus_collection",
-            "parentChildIndexPath": "milvus_collection",
+            "metadataStorePath": str(store.path),
+            "chunkIndexPath": str(root / ".index" / "local_chunks.jsonl"),
+            "parentChildIndexPath": str(root / ".index" / "parent_child_chunks.jsonl"),
             "parentChildIndexed": True,
             "localRawFallback": False,
             "loadError": load_error,
@@ -1104,42 +1119,16 @@ def list_rag_document_chunks(
     root = _knowledge_base_root()
     backend = get_vector_store_backend()
     vector_store = build_vector_store(root, backend=backend)
+    store = KnowledgeBaseStore(root)
+    store.ensure_default()
     load_error = ""
-    try:
-        indexed_documents = vector_store.load_documents()
-    except Exception as exc:
-        logger.warning("rag document chunks failed backend=%s error=%s", backend, exc)
-        indexed_documents = []
-        load_error = str(exc)
 
     normalized_source = (source or "").strip()
     normalized_knowledge_base_ids = _parse_knowledge_base_ids(knowledgeBaseIds)
-    chunks = []
-    for document in indexed_documents:
-        source_name = str(document.metadata.get("sourceName") or document.source or document.id)
-        if normalized_source and source_name != normalized_source:
-            continue
-        knowledge_base_id = _document_knowledge_base_id(document.metadata)
-        if normalized_knowledge_base_ids and knowledge_base_id not in normalized_knowledge_base_ids:
-            continue
-        chunks.append({
-            "id": document.id,
-            "source": source_name,
-            "storedPath": document.source,
-            "content": document.content,
-            "score": document.score,
-            "metadata": document.metadata,
-            "chunkIndex": document.metadata.get("chunkIndex"),
-            "knowledgeBaseId": knowledge_base_id,
-            "knowledgeBaseName": _document_knowledge_base_name(document.metadata),
-            "size": len(document.content.encode("utf-8")),
-        })
-
-    chunks.sort(key=lambda item: (
-        str(item.get("source") or ""),
-        int(item.get("chunkIndex") if item.get("chunkIndex") is not None else 10**9),
-        str(item.get("id") or ""),
-    ))
+    chunks = store.list_segments(
+        source=normalized_source,
+        knowledge_base_ids=normalized_knowledge_base_ids,
+    )
     return {
         "source": normalized_source,
         "knowledgeBaseIds": normalized_knowledge_base_ids,
@@ -1147,6 +1136,7 @@ def list_rag_document_chunks(
         "total": len(chunks),
         "backend": backend,
         "collection": getattr(vector_store, "collection_name", ""),
+        "metadataStorePath": str(store.path),
         "loadError": load_error,
     }
 
