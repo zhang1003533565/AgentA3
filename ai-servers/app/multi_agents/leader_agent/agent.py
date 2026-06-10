@@ -77,8 +77,12 @@ class LeaderAgent:
             return LeaderPlan("architecture_diagram_prompt", "architecture_prompt_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中架构图提示词生成意图，分发给图表架构图提示词智能体。")
         if any(token in normalized for token in ("架构图", "系统架构图", "architecture diagram", "architecture")):
             return LeaderPlan("diagram_architecture", "diagram_architecture_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中架构图生成意图，分发给图表架构图智能体。")
+        if "活动图" in normalized and "提示词" in normalized:
+            return LeaderPlan("diagram_activity_prompt", "diagram_activity_prompt_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中活动图提示词生成意图，分发给活动图提示词智能体。")
         if any(token in normalized for token in ("活动图", "泳道图", "activity diagram", "任务活动图")):
             return LeaderPlan("diagram_activity", "diagram_activity_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中活动图生成意图，分发给图表活动图智能体。")
+        if "流程图" in normalized and "提示词" in normalized:
+            return LeaderPlan("diagram_flowchart_prompt", "diagram_flowchart_prompt_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中流程图提示词生成意图，分发给流程图提示词智能体。")
         if any(token in normalized for token in ("流程图", "flowchart", "流程")):
             return LeaderPlan("diagram_flowchart", "diagram_flowchart_agent", True, rag_strategy or "multi_agent_rag", route_reason="命中流程图生成意图，分发给图表流程图智能体。")
         if any(token in normalized for token in ("思维导图", "mindmap", "mind map", "脑图")):
