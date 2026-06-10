@@ -26,6 +26,7 @@ import {
   ArrowRightOutlined,
   CheckCircleFilled,
   CheckCircleOutlined,
+  CloseCircleFilled,
   DatabaseOutlined,
   DeleteOutlined,
   DownOutlined,
@@ -40,6 +41,7 @@ import {
   LoadingOutlined,
   MoreOutlined,
   PauseCircleOutlined,
+  PictureOutlined,
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
@@ -264,6 +266,7 @@ function KnowledgeBaseManage() {
   const [newSegmentVisible, setNewSegmentVisible] = useState(false)
   const [newSegmentForm] = Form.useForm()
   const [newSegmentLoading, setNewSegmentLoading] = useState(false)
+  const [segmentImages, setSegmentImages] = useState([])
 
   // ===== NEW: Settings retrieval params =====
   const [settingsRetrievalMethod, setSettingsRetrievalMethod] = useState('hybrid_search')
@@ -471,6 +474,10 @@ function KnowledgeBaseManage() {
 
   const wizardNextStep = () => {
     if (wizardStep === 1) {
+      if (wizSourceType === 'file' && wizFiles.length === 0) {
+        message.warning('请至少选择一个文件')
+        return
+      }
       setWizardStep(2)
     } else if (wizardStep === 2) {
       if (!wizName.trim()) {
@@ -500,9 +507,14 @@ function KnowledgeBaseManage() {
       setWizCreatedDataset({ id: datasetId, name: wizName })
 
       if (wizFiles.length > 0) {
+        const failedDocs = []
         for (const file of wizFiles) {
           try {
             const contentBase64 = await readFileAsBase64(file)
+            if (!contentBase64) {
+              failedDocs.push({ name: file.name, reason: '文件读取失败，请重试' })
+              continue
+            }
             const docPayload = {
               name: file.name,
               dataSourceType: 'upload_file',
@@ -515,8 +527,14 @@ function KnowledgeBaseManage() {
             }
             await createDocument(datasetId, docPayload)
           } catch (err) {
+            const reason = err?.response?.data?.message || err.message || '未知错误'
+            failedDocs.push({ name: file.name, reason })
             console.error('Failed to create document:', file.name, err)
           }
+        }
+        if (failedDocs.length > 0) {
+          const detail = failedDocs.map(d => `${d.name}: ${d.reason}`).join('；')
+          message.warning(`${failedDocs.length} 个文档创建失败 — ${detail}`, 8)
         }
       }
 
@@ -634,15 +652,25 @@ function KnowledgeBaseManage() {
         docMetadata: values.docMetadata,
       }
       if (values.dataSourceType === 'text_input') {
+        if (!values.textContent?.trim()) {
+          message.warning('请输入文本内容')
+          return
+        }
         payload.content = values.textContent
       } else {
         const fileList = uploadFileList
         let fileObj = null
-        if (fileList.length > 0 && fileList[0].originFileObj) fileObj = fileList[0].originFileObj
+        if (fileList.length > 0) {
+          fileObj = fileList[0].originFileObj || fileList[0]
+        }
         if (fileObj) {
           payload.contentBase64 = await readFileAsBase64(fileObj)
         } else if (convertResult?.contentBase64) {
           payload.contentBase64 = convertResult.contentBase64
+        }
+        if (!payload.contentBase64) {
+          message.warning('请选择要上传的文件')
+          return
         }
       }
       if (values.processMode === 'custom') {
@@ -906,14 +934,21 @@ function KnowledgeBaseManage() {
     try {
       const values = await newSegmentForm.validateFields()
       setNewSegmentLoading(true)
+      const attachments = []
+      for (const img of segmentImages) {
+        const b64 = await readFileAsBase64(img)
+        attachments.push({ name: img.name, contentBase64: b64, type: img.type || 'image/png' })
+      }
       await createSegment(currentDocument.id, {
         content: values.content,
         answer: values.answer,
         keywords: values.keywords,
+        attachments: attachments.length > 0 ? attachments : undefined,
       })
       message.success('分段已添加')
       setNewSegmentVisible(false)
       newSegmentForm.resetFields()
+      setSegmentImages([])
       loadSegments(currentDocument.id, segmentPage, segmentSearch)
     } catch (err) {
       if (err?.message && !err?.errorFields) message.error(err.message)
@@ -1089,11 +1124,11 @@ function KnowledgeBaseManage() {
                   拖放文件到这里，或 <span className="kb-upload-text-accent">浏览</span>
                 </div>
                 <div className="kb-upload-tip">
-                  支持 DOCX、TXT、PDF、PPTX，单个文件最大 15MB
+                  支持 TXT、MD、PDF、DOCX、XLSX、HTML、CSV、EPUB 等格式，单个文件最大 15MB
                 </div>
               </div>
               <input id="wiz-file-input" type="file" multiple
-                accept=".docx,.txt,.pdf,.pptx,.md,.csv"
+                accept=".txt,.md,.mdx,.markdown,.pdf,.docx,.doc,.xlsx,.xls,.html,.htm,.csv,.pptx,.ppt,.epub,.eml,.xml"
                 style={{ display: 'none' }}
                 onChange={handleWizardFileSelect}
               />
@@ -1954,6 +1989,7 @@ function KnowledgeBaseManage() {
           <div style={{ flex: 1 }} />
           <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => {
             newSegmentForm.resetFields()
+            setSegmentImages([])
             setNewSegmentVisible(true)
           }}>
             添加分段
@@ -1996,6 +2032,26 @@ function KnowledgeBaseManage() {
                   </div>
                 </div>
                 <div className="kb-segment-content">{seg.content}</div>
+                {seg.attachments && (() => {
+                  try {
+                    const atts = typeof seg.attachments === 'string' ? JSON.parse(seg.attachments) : seg.attachments
+                    if (Array.isArray(atts) && atts.length > 0) {
+                      return (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                          {atts.map((att, i) => (
+                            <div key={i} style={{ width: 56, height: 56, borderRadius: 6, overflow: 'hidden', border: '1px solid #e5e7eb' }}>
+                              {att.contentBase64
+                                ? <img src={`data:${att.type || 'image/png'};base64,${att.contentBase64}`} alt={att.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f3f4f6', color: '#9ca3af' }}><PictureOutlined /></div>
+                              }
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    }
+                  } catch { /* ignore */ }
+                  return null
+                })()}
                 {seg.keywords && (() => {
                   try {
                     const kws = typeof seg.keywords === 'string' ? JSON.parse(seg.keywords) : seg.keywords
@@ -2555,9 +2611,9 @@ function KnowledgeBaseManage() {
             <div>
               <Form.Item label="选择文件">
                 <Upload
-                  accept=".docx,.txt,.pdf,.pptx"
+                  accept=".txt,.md,.mdx,.markdown,.pdf,.docx,.doc,.xlsx,.xls,.html,.htm,.csv,.pptx,.ppt,.epub,.eml,.xml"
                   beforeUpload={(file) => {
-                    setUploadFileList([file])
+                    setUploadFileList([{ ...file, originFileObj: file, uid: file.uid || `rc-upload-${Date.now()}`, status: 'done', name: file.name }])
                     documentForm.setFieldsValue({ name: file.name })
                     return false
                   }}
@@ -2771,6 +2827,32 @@ function KnowledgeBaseManage() {
           </Form.Item>
           <Form.Item name="keywords" label="关键词 (JSON 数组，可选)">
             <Input placeholder='["关键词1","关键词2"]' />
+          </Form.Item>
+          <Form.Item label="图片附件（可选）">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              {segmentImages.map((img, idx) => (
+                <div key={idx} style={{ position: 'relative', width: 72, height: 72, borderRadius: 8, overflow: 'hidden', border: '1px solid #e5e7eb' }}>
+                  <img src={URL.createObjectURL(img)} alt={img.name}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <span onClick={() => setSegmentImages(prev => prev.filter((_, i) => i !== idx))}
+                    style={{ position: 'absolute', top: -4, right: -4, cursor: 'pointer', fontSize: 16, color: '#ff4d4f', background: '#fff', borderRadius: '50%' }}>
+                    <CloseCircleFilled />
+                  </span>
+                </div>
+              ))}
+              <label style={{ width: 72, height: 72, border: '1px dashed #d1d5db', borderRadius: 8, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#9ca3af', fontSize: 12 }}>
+                <PictureOutlined style={{ fontSize: 20, marginBottom: 2 }} />
+                <span>添加</span>
+                <input type="file" accept="image/jpeg,image/png,image/gif" multiple style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || [])
+                    setSegmentImages(prev => [...prev, ...files])
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+            </div>
+            <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>支持 JPG、PNG、GIF 格式</div>
           </Form.Item>
         </Form>
       </Modal>

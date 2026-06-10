@@ -200,6 +200,7 @@ public class DatasetDTO {
         private Integer enabled;
         private String status;
         private String errorMessage;
+        private String attachments;
         private LocalDateTime createTime;
         private LocalDateTime updateTime;
         private List<ChildChunkVO> childChunks;
@@ -259,6 +260,22 @@ public class DatasetDTO {
 
         @Schema(description = "关键词列表")
         private List<String> keywords;
+
+        @Schema(description = "附件列表（图片等），每项包含 name 和 contentBase64")
+        private List<AttachmentItem> attachments;
+    }
+
+    @Data
+    @Schema(description = "附件项")
+    public static class AttachmentItem {
+        @Schema(description = "附件名称")
+        private String name;
+
+        @Schema(description = "附件 Base64 内容")
+        private String contentBase64;
+
+        @Schema(description = "附件类型，如 image/png")
+        private String type;
     }
 
     @Data

@@ -141,6 +141,18 @@ public class DatasetServiceImpl implements DatasetService {
     public DatasetDTO.DocumentVO createDocument(Long datasetId, DatasetDTO.DocumentCreateRequest request, Long userId, String authorization) {
         Dataset dataset = requireDataset(datasetId);
 
+        // 0. 校验数据来源内容
+        String dsType = StringUtils.hasText(request.getDataSourceType()) ? request.getDataSourceType() : KbDocument.DATA_SOURCE_TEXT;
+        if (KbDocument.DATA_SOURCE_TEXT.equals(dsType)) {
+            if (!StringUtils.hasText(request.getContent())) {
+                throw new BusinessException(Result.BAD_REQUEST_CODE, "文本内容不能为空");
+            }
+        } else {
+            if (!StringUtils.hasText(request.getContentBase64())) {
+                throw new BusinessException(Result.BAD_REQUEST_CODE, "上传文件内容不能为空，请重新选择文件");
+            }
+        }
+
         // 1. 创建处理规则（如果有）
         DatasetProcessRule processRule = null;
         if (StringUtils.hasText(request.getProcessMode())) {
@@ -433,6 +445,14 @@ public class DatasetServiceImpl implements DatasetService {
                 segment.setKeywords("[]");
             }
         }
+        // 保存附件信息
+        if (request.getAttachments() != null && !request.getAttachments().isEmpty()) {
+            try {
+                segment.setAttachments(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(request.getAttachments()));
+            } catch (Exception e) {
+                segment.setAttachments("[]");
+            }
+        }
         segment.setStatus(DocumentSegment.STATUS_COMPLETED);
         segment = segmentRepository.save(segment);
 
@@ -672,6 +692,7 @@ public class DatasetServiceImpl implements DatasetService {
         vo.setEnabled(s.getEnabled());
         vo.setStatus(s.getStatus());
         vo.setErrorMessage(s.getErrorMessage());
+        vo.setAttachments(s.getAttachments());
         vo.setCreateTime(s.getCreateTime());
         vo.setUpdateTime(s.getUpdateTime());
         if (childChunks != null && !childChunks.isEmpty()) {

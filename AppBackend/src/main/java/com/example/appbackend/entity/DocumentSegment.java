@@ -68,6 +68,9 @@ public class DocumentSegment {
     @Column(name = "error_message", columnDefinition = "TEXT COMMENT '处理错误信息'")
     private String errorMessage;
 
+    @Column(columnDefinition = "JSON COMMENT '附件列表（图片等，JSON 数组）'")
+    private String attachments;
+
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     private LocalDateTime createTime;
 
