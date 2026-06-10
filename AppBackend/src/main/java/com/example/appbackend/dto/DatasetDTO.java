@@ -151,6 +151,7 @@ public class DatasetDTO {
         private Long processRuleId;
         private Integer enabled;
         private Integer archived;
+        private Integer hitCount;
         private String errorMessage;
         private LocalDateTime indexingStartedAt;
         private LocalDateTime parsingCompletedAt;
@@ -173,6 +174,8 @@ public class DatasetDTO {
         private Integer wordCount;
         private Integer segmentCount;
         private Integer enabled;
+        private Integer archived;
+        private Integer hitCount;
         private String errorMessage;
         private LocalDateTime completedAt;
         private LocalDateTime createTime;
@@ -224,6 +227,38 @@ public class DatasetDTO {
         private String answer;
         private String keywords;
         private Integer enabled;
+    }
+
+    @Data
+    @Schema(description = "文档重命名请求")
+    public static class RenameRequest {
+        @NotBlank(message = "文档名称不能为空")
+        private String name;
+    }
+
+    @Data
+    @Schema(description = "重试失败文档请求")
+    public static class RetryRequest {
+        private List<Long> documentIds;
+    }
+
+    @Data
+    @Schema(description = "批量分段操作请求")
+    public static class BatchSegmentActionRequest {
+        private List<Long> segmentIds;
+    }
+
+    @Data
+    @Schema(description = "手动创建分段请求")
+    public static class CreateSegmentRequest {
+        @NotBlank(message = "分段内容不能为空")
+        private String content;
+
+        @Schema(description = "QA 模式的回答内容")
+        private String answer;
+
+        @Schema(description = "关键词列表")
+        private List<String> keywords;
     }
 
     @Data

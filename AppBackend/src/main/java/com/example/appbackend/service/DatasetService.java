@@ -32,9 +32,21 @@ public interface DatasetService {
 
     PageResponse<DatasetDTO.DocumentListItem> listDocuments(Long datasetId, String keyword, int current, int size);
 
+    PageResponse<DatasetDTO.DocumentListItem> listDocumentsSorted(Long datasetId, String keyword, String sortBy, int current, int size);
+
     void deleteDocument(Long documentId);
 
     void enableDocument(Long documentId, boolean enabled);
+
+    void processDocumentAction(Long documentId, String action);
+
+    DatasetDTO.DocumentVO renameDocument(Long documentId, DatasetDTO.RenameRequest request);
+
+    void archiveDocument(Long documentId);
+
+    void unarchiveDocument(Long documentId);
+
+    void retryFailedDocuments(Long datasetId, DatasetDTO.RetryRequest request);
 
     // ====== Segment（分段） ======
 
@@ -47,6 +59,12 @@ public interface DatasetService {
     void deleteSegment(Long segmentId);
 
     void toggleSegment(Long segmentId, boolean enabled);
+
+    DatasetDTO.SegmentVO createSegment(Long documentId, DatasetDTO.CreateSegmentRequest request);
+
+    void batchToggleSegments(Long documentId, String action, java.util.List<Long> segmentIds);
+
+    void batchDeleteSegments(Long documentId, java.util.List<Long> segmentIds);
 
     // ====== ChildChunk（子片段） ======
 

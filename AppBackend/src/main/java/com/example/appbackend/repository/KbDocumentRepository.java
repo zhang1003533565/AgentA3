@@ -38,6 +38,18 @@ public interface KbDocumentRepository extends JpaRepository<KbDocument, Long> {
                                        @Param("keyword") String keyword,
                                        Pageable pageable);
 
+    @Query("""
+            SELECT d FROM KbDocument d
+            WHERE d.datasetId = :datasetId
+              AND (:keyword IS NULL
+                OR :keyword = ''
+                OR LOWER(d.name) LIKE LOWER(CONCAT('%', :keyword, '%'))
+              )
+            """)
+    Page<KbDocument> searchByDatasetIdWithSort(@Param("datasetId") Long datasetId,
+                                               @Param("keyword") String keyword,
+                                               Pageable pageable);
+
     @Modifying
     @Query("UPDATE KbDocument d SET d.segmentCount = :count WHERE d.id = :id")
     void updateSegmentCount(@Param("id") Long id, @Param("count") int count);

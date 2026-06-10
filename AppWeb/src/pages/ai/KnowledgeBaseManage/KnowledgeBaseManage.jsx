@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Button,
+  Checkbox,
   Drawer,
   Dropdown,
   Form,
@@ -15,6 +16,7 @@ import {
   Space,
   Switch,
   Tag,
+  Tooltip,
   Upload,
   message,
 } from 'antd'
@@ -26,6 +28,7 @@ import {
   CheckCircleOutlined,
   DatabaseOutlined,
   DeleteOutlined,
+  DownOutlined,
   EditOutlined,
   ExperimentOutlined,
   ExclamationCircleFilled,
@@ -33,8 +36,10 @@ import {
   FileTextOutlined,
   FolderOutlined,
   GlobalOutlined,
+  InfoCircleOutlined,
   LoadingOutlined,
   MoreOutlined,
+  PauseCircleOutlined,
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
@@ -45,7 +50,9 @@ import {
 import {
   getDatasets, getDataset, createDataset, updateDataset, deleteDataset,
   getDocuments, getDocument, createDocument, deleteDocument, toggleDocument,
+  pauseDocument, renameDocument, archiveDocument, unarchiveDocument, retryDocuments,
   getSegments, getSegment, updateSegment, deleteSegment, toggleSegment,
+  createSegment, batchToggleSegments, batchDeleteSegments,
   getChildChunks,
   convertPdf, convertPpt,
   runRagRecallTest,
@@ -247,6 +254,39 @@ function KnowledgeBaseManage() {
   // ===== Embedding models =====
   const [embeddingModelOptions, setEmbeddingModelOptions] = useState([])
 
+  // ===== NEW: Document batch & sort =====
+  const [selectedDocIds, setSelectedDocIds] = useState([])
+  const [docSortBy, setDocSortBy] = useState('upload_time')
+
+  // ===== NEW: Segment batch & filter =====
+  const [selectedSegmentIds, setSelectedSegmentIds] = useState([])
+  const [segmentStatusFilter, setSegmentStatusFilter] = useState('all')
+  const [newSegmentVisible, setNewSegmentVisible] = useState(false)
+  const [newSegmentForm] = Form.useForm()
+  const [newSegmentLoading, setNewSegmentLoading] = useState(false)
+
+  // ===== NEW: Settings retrieval params =====
+  const [settingsRetrievalMethod, setSettingsRetrievalMethod] = useState('hybrid_search')
+  const [settingsTopK, setSettingsTopK] = useState(2)
+  const [settingsScoreThreshold, setSettingsScoreThreshold] = useState(0.7)
+  const [settingsScoreThresholdEnabled, setSettingsScoreThresholdEnabled] = useState(true)
+  const [settingsRerankEnable, setSettingsRerankEnable] = useState(false)
+  const [settingsRerankModel, setSettingsRerankModel] = useState('')
+  const [settingsRerankingMode, setSettingsRerankingMode] = useState('rerank_model')
+  const [settingsVectorWeight, setSettingsVectorWeight] = useState(0.7)
+  const [settingsKeywordNumber, setSettingsKeywordNumber] = useState(10)
+  const [settingsRetrievalOpen, setSettingsRetrievalOpen] = useState(true)
+
+  // ===== NEW: Hit testing v2 =====
+  const [hitQuery, setHitQuery] = useState('')
+  const [hitTestingRecords, setHitTestingRecords] = useState([])
+  const [hitResults, setHitResults] = useState([])
+  const [hitLoading, setHitLoading] = useState(false)
+  const [hitRetrievalOpen, setHitRetrievalOpen] = useState(false)
+  const [hitTopK, setHitTopK] = useState(5)
+  const [hitScoreThreshold, setHitScoreThreshold] = useState(0.2)
+  const [hitRagStrategy, setHitRagStrategy] = useState('hybrid_search')
+
   // ===== Watch form fields =====
   const watchDataSourceType = Form.useWatch('dataSourceType', documentForm) || 'text_input'
   const watchProcessMode = Form.useWatch('processMode', documentForm) || 'automatic'
@@ -267,22 +307,38 @@ function KnowledgeBaseManage() {
     try {
       const res = await getDataset(id)
       setCurrentDataset(res.data)
+      const d = res.data
       settingsForm.setFieldsValue({
-        name: res.data.name,
-        description: res.data.description,
-        indexingTechnique: res.data.indexingTechnique,
-        embeddingModel: res.data.embeddingModel,
-        chunkStructure: res.data.chunkStructure,
-        permission: res.data.permission,
-        retrievalModel: res.data.retrievalModel,
+        name: d.name,
+        description: d.description,
+        indexingTechnique: d.indexingTechnique,
+        embeddingModel: d.embeddingModel,
+        chunkStructure: d.chunkStructure,
+        permission: d.permission,
+        retrievalModel: d.retrievalModel,
       })
+      // Sync retrieval settings from dataset data
+      try {
+        const rm = typeof d.retrievalModel === 'string' ? JSON.parse(d.retrievalModel) : d.retrievalModel
+        if (rm) {
+          if (rm.search_method) setSettingsRetrievalMethod(rm.search_method)
+          if (rm.top_k) setSettingsTopK(rm.top_k)
+          if (rm.score_threshold !== undefined) setSettingsScoreThreshold(rm.score_threshold)
+          if (rm.score_threshold_enabled !== undefined) setSettingsScoreThresholdEnabled(rm.score_threshold_enabled)
+          if (rm.rerank_enable !== undefined) setSettingsRerankEnable(rm.rerank_enable)
+          if (rm.rerank_model) setSettingsRerankModel(rm.rerank_model)
+          if (rm.reranking_mode) setSettingsRerankingMode(rm.reranking_mode)
+          if (rm.vector_weight !== undefined) setSettingsVectorWeight(rm.vector_weight)
+          if (rm.keyword_number !== undefined) setSettingsKeywordNumber(rm.keyword_number)
+        }
+      } catch { /* ignore parse errors */ }
     } catch (err) { message.error(err.message) }
   }
 
-  const loadDocuments = async (datasetId, page = 1, keyword = '') => {
+  const loadDocuments = async (datasetId, page = 1, keyword = '', sortBy = '') => {
     setDocLoading(true)
     try {
-      const res = await getDocuments(datasetId, { current: page, size: 20, keyword })
+      const res = await getDocuments(datasetId, { current: page, size: 20, keyword, sortBy: sortBy || docSortBy })
       setDocuments(extractRecords(res))
       setDocumentTotal(extractTotal(res))
     } catch (err) { message.error(err.message) }
@@ -332,6 +388,7 @@ function KnowledgeBaseManage() {
     setView('detail')
     setDetailTab('documents')
     setCurrentDocument(null)
+    setSelectedDocIds([])
     loadDatasetDetail(dataset.id)
     loadDocuments(dataset.id)
   }
@@ -341,22 +398,26 @@ function KnowledgeBaseManage() {
     setCurrentDataset(null)
     setCurrentDocument(null)
     setCreatingWizard(false)
+    setSelectedDocIds([])
     loadDatasets(datasetPage, datasetSearch)
   }
 
   const enterDocument = (doc) => {
     setCurrentDocument(doc)
+    setSelectedSegmentIds([])
     loadSegments(doc.id)
   }
 
   const backToDocuments = () => {
     setCurrentDocument(null)
+    setSelectedSegmentIds([])
     if (currentDataset) loadDocuments(currentDataset.id, documentPage, documentSearch)
   }
 
   const switchDetailTab = (tab) => {
     setDetailTab(tab)
     setCurrentDocument(null)
+    setSelectedDocIds([])
     if (tab === 'documents' && currentDataset) loadDocuments(currentDataset.id)
   }
 
@@ -410,7 +471,6 @@ function KnowledgeBaseManage() {
 
   const wizardNextStep = () => {
     if (wizardStep === 1) {
-      // Step 1 allows proceeding with 0 files (empty KB) or with files
       setWizardStep(2)
     } else if (wizardStep === 2) {
       if (!wizName.trim()) {
@@ -428,7 +488,6 @@ function KnowledgeBaseManage() {
   const handleWizardCreate = async () => {
     setWizCreating(true)
     try {
-      // Step 1: Create dataset
       const datasetPayload = {
         name: wizName.trim(),
         description: wizDescription.trim(),
@@ -440,7 +499,6 @@ function KnowledgeBaseManage() {
       const datasetId = dsRes.data?.id || dsRes.data
       setWizCreatedDataset({ id: datasetId, name: wizName })
 
-      // Step 2: Create documents from uploaded files
       if (wizFiles.length > 0) {
         for (const file of wizFiles) {
           try {
@@ -462,7 +520,6 @@ function KnowledgeBaseManage() {
         }
       }
 
-      // Step 3: Show progress/completion
       setWizardStep(3)
       message.success('知识库创建成功')
     } catch (err) {
@@ -476,7 +533,6 @@ function KnowledgeBaseManage() {
     if (wizCreatedDataset?.id) {
       setCreatingWizard(false)
       loadDatasets(1, '')
-      // Navigate to the new dataset
       enterDataset({ id: wizCreatedDataset.id, name: wizCreatedDataset.name })
     } else {
       closeWizard()
@@ -625,6 +681,118 @@ function KnowledgeBaseManage() {
     } catch (err) { message.error(err.message) }
   }
 
+  // ======================== NEW: Document Extra Operations ========================
+
+  const handlePauseDocument = async (doc) => {
+    try {
+      const action = doc.indexingStatus === 'paused' ? 'resume' : 'pause'
+      await pauseDocument(doc.id, action)
+      message.success(action === 'pause' ? '文档已暂停' : '文档已恢复')
+      loadDocuments(currentDataset.id, documentPage, documentSearch)
+    } catch (err) { message.error(err.message) }
+  }
+
+  const handleRenameDocument = async (doc) => {
+    Modal.confirm({
+      title: '重命名文档',
+      content: (
+        <Input
+          defaultValue={doc.name}
+          id="rename-doc-input"
+          placeholder="输入新名称"
+        />
+      ),
+      onOk: async () => {
+        const el = document.getElementById('rename-doc-input')
+        const newName = el?.value?.trim()
+        if (!newName) { message.warning('名称不能为空'); return }
+        try {
+          await renameDocument(doc.id, newName)
+          message.success('重命名成功')
+          loadDocuments(currentDataset.id, documentPage, documentSearch)
+        } catch (err) { message.error(err.message) }
+      },
+    })
+  }
+
+  const handleArchiveDocument = async (doc) => {
+    try {
+      await archiveDocument(doc.id)
+      message.success('文档已归档')
+      loadDocuments(currentDataset.id, documentPage, documentSearch)
+    } catch (err) { message.error(err.message) }
+  }
+
+  const handleUnarchiveDocument = async (doc) => {
+    try {
+      await unarchiveDocument(doc.id)
+      message.success('文档已取消归档')
+      loadDocuments(currentDataset.id, documentPage, documentSearch)
+    } catch (err) { message.error(err.message) }
+  }
+
+  // ===== NEW: Document Batch Operations =====
+
+  const handleBatchDocToggle = (docId, checked) => {
+    setSelectedDocIds((prev) => checked ? [...prev, docId] : prev.filter((id) => id !== docId))
+  }
+
+  const handleSelectAllDocs = (checked) => {
+    if (checked) {
+      setSelectedDocIds(documents.map((d) => d.id))
+    } else {
+      setSelectedDocIds([])
+    }
+  }
+
+  const handleBatchDocEnable = async () => {
+    if (!selectedDocIds.length || !currentDataset) return
+    try {
+      for (const id of selectedDocIds) await toggleDocument(id, true)
+      message.success(`已启用 ${selectedDocIds.length} 个文档`)
+      setSelectedDocIds([])
+      loadDocuments(currentDataset.id, documentPage, documentSearch)
+    } catch (err) { message.error(err.message) }
+  }
+
+  const handleBatchDocDisable = async () => {
+    if (!selectedDocIds.length || !currentDataset) return
+    try {
+      for (const id of selectedDocIds) await toggleDocument(id, false)
+      message.success(`已禁用 ${selectedDocIds.length} 个文档`)
+      setSelectedDocIds([])
+      loadDocuments(currentDataset.id, documentPage, documentSearch)
+    } catch (err) { message.error(err.message) }
+  }
+
+  const handleBatchDocArchive = async () => {
+    if (!selectedDocIds.length || !currentDataset) return
+    try {
+      for (const id of selectedDocIds) await archiveDocument(id)
+      message.success(`已归档 ${selectedDocIds.length} 个文档`)
+      setSelectedDocIds([])
+      loadDocuments(currentDataset.id, documentPage, documentSearch)
+    } catch (err) { message.error(err.message) }
+  }
+
+  const handleBatchDocDelete = async () => {
+    if (!selectedDocIds.length || !currentDataset) return
+    Modal.confirm({
+      title: `确认删除 ${selectedDocIds.length} 个文档？`,
+      content: '此操作不可撤销。',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          for (const id of selectedDocIds) await deleteDocument(id)
+          message.success(`已删除 ${selectedDocIds.length} 个文档`)
+          setSelectedDocIds([])
+          loadDocuments(currentDataset.id, documentPage, documentSearch)
+          loadDatasetDetail(currentDataset.id)
+        } catch (err) { message.error(err.message) }
+      },
+    })
+  }
+
   // ======================== Segment ========================
 
   const openSegmentDetail = async (segment) => {
@@ -681,12 +849,97 @@ function KnowledgeBaseManage() {
     } catch (err) { message.error(err.message) }
   }
 
+  // ===== NEW: Segment Batch Operations =====
+
+  const handleBatchSegToggle = (segId, checked) => {
+    setSelectedSegmentIds((prev) => checked ? [...prev, segId] : prev.filter((id) => id !== segId))
+  }
+
+  const handleSelectAllSegments = (checked) => {
+    if (checked) {
+      setSelectedSegmentIds(segments.map((s) => s.id))
+    } else {
+      setSelectedSegmentIds([])
+    }
+  }
+
+  const handleBatchSegEnable = async () => {
+    if (!selectedSegmentIds.length || !currentDocument) return
+    try {
+      await batchToggleSegments(currentDocument.id, 'enable', selectedSegmentIds)
+      message.success(`已启用 ${selectedSegmentIds.length} 个分段`)
+      setSelectedSegmentIds([])
+      loadSegments(currentDocument.id, segmentPage, segmentSearch)
+    } catch (err) { message.error(err.message) }
+  }
+
+  const handleBatchSegDisable = async () => {
+    if (!selectedSegmentIds.length || !currentDocument) return
+    try {
+      await batchToggleSegments(currentDocument.id, 'disable', selectedSegmentIds)
+      message.success(`已禁用 ${selectedSegmentIds.length} 个分段`)
+      setSelectedSegmentIds([])
+      loadSegments(currentDocument.id, segmentPage, segmentSearch)
+    } catch (err) { message.error(err.message) }
+  }
+
+  const handleBatchSegDelete = async () => {
+    if (!selectedSegmentIds.length || !currentDocument) return
+    Modal.confirm({
+      title: `确认删除 ${selectedSegmentIds.length} 个分段？`,
+      content: '此操作不可撤销。',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          await batchDeleteSegments(currentDocument.id, selectedSegmentIds)
+          message.success(`已删除 ${selectedSegmentIds.length} 个分段`)
+          setSelectedSegmentIds([])
+          loadSegments(currentDocument.id, segmentPage, segmentSearch)
+        } catch (err) { message.error(err.message) }
+      },
+    })
+  }
+
+  // ===== NEW: Create Segment =====
+
+  const handleCreateSegment = async () => {
+    try {
+      const values = await newSegmentForm.validateFields()
+      setNewSegmentLoading(true)
+      await createSegment(currentDocument.id, {
+        content: values.content,
+        answer: values.answer,
+        keywords: values.keywords,
+      })
+      message.success('分段已添加')
+      setNewSegmentVisible(false)
+      newSegmentForm.resetFields()
+      loadSegments(currentDocument.id, segmentPage, segmentSearch)
+    } catch (err) {
+      if (err?.message && !err?.errorFields) message.error(err.message)
+    } finally { setNewSegmentLoading(false) }
+  }
+
   // ======================== Settings ========================
 
   const handleSaveSettings = async () => {
     try {
       const values = await settingsForm.validateFields()
-      await updateDataset(currentDataset.id, values)
+      const retrievalModel = {
+        search_method: settingsRetrievalMethod,
+        top_k: settingsTopK,
+        score_threshold: settingsScoreThreshold,
+        score_threshold_enabled: settingsScoreThresholdEnabled,
+        rerank_enable: settingsRerankEnable,
+        rerank_model: settingsRerankModel,
+        reranking_mode: settingsRerankingMode,
+        vector_weight: settingsVectorWeight,
+        keyword_number: settingsKeywordNumber,
+      }
+      await updateDataset(currentDataset.id, {
+        ...values,
+        retrievalModel: JSON.stringify(retrievalModel),
+      })
       message.success('设置已保存')
       loadDatasetDetail(currentDataset.id)
     } catch (err) {
@@ -694,8 +947,35 @@ function KnowledgeBaseManage() {
     }
   }
 
-  // ======================== Recall ========================
+  // ======================== Recall (Hit Testing v2) ========================
 
+  const handleHitTest = async () => {
+    if (!hitQuery.trim()) { message.warning('请输入测试问题'); return }
+    setHitLoading(true)
+    setHitResults([])
+    try {
+      const res = await runRagRecallTest({
+        query: hitQuery,
+        ragStrategy: hitRagStrategy,
+        metadata: {
+          knowledgeBaseIds: currentDataset ? [currentDataset.id] : [],
+          topK: hitTopK,
+          similarityThreshold: hitScoreThreshold,
+        },
+      })
+      const results = res.data?.documents || res.data || []
+      setHitResults(Array.isArray(results) ? results : [])
+      // Save to records
+      setHitTestingRecords((prev) => [
+        { query: hitQuery, time: new Date().toLocaleTimeString('zh-CN'), count: (Array.isArray(results) ? results : []).length },
+        ...prev.slice(0, 9),
+      ])
+      message.success(`召回完成，命中 ${(Array.isArray(results) ? results : []).length} 条`)
+    } catch (err) { message.error(err.message || '召回测试失败') }
+    finally { setHitLoading(false) }
+  }
+
+  // Legacy recall test handler (kept for form compatibility)
   const handleRecallTest = async (values) => {
     setRecallLoading(true)
     setRecallResult(null)
@@ -737,7 +1017,6 @@ function KnowledgeBaseManage() {
 
   const renderWizard = () => (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#fff' }}>
-      {/* Top bar with stepper */}
       <div className="kb-wizard-topbar">
         <button className="kb-wizard-back" onClick={closeWizard}>
           <ArrowLeftOutlined />
@@ -766,22 +1045,18 @@ function KnowledgeBaseManage() {
         </div>
       </div>
 
-      {/* Body */}
       {wizardStep === 1 && renderWizardStep1()}
       {wizardStep === 2 && renderWizardStep2()}
       {wizardStep === 3 && renderWizardStep3()}
     </div>
   )
 
-  // ===== Wizard Step 1: Data Source =====
+  // ===== Wizard Step 1 =====
   const renderWizardStep1 = () => (
     <div className="kb-wizard-body">
-      {/* Left panel - form */}
       <div className="kb-wizard-left">
         <div className="kb-wizard-left-inner">
           <div className="kb-wizard-section-title">数据来源</div>
-
-          {/* Data source type selector */}
           <div className="kb-data-source-grid">
             <div className={`kb-data-source-card ${wizSourceType === 'file' ? 'selected' : ''}`}
               onClick={() => setWizSourceType('file')}>
@@ -800,7 +1075,6 @@ function KnowledgeBaseManage() {
             </div>
           </div>
 
-          {/* File upload area */}
           {wizSourceType === 'file' && (
             <div className="kb-upload-area">
               <div
@@ -823,8 +1097,6 @@ function KnowledgeBaseManage() {
                 style={{ display: 'none' }}
                 onChange={handleWizardFileSelect}
               />
-
-              {/* File list */}
               {wizFiles.length > 0 && (
                 <div style={{ marginTop: 12 }}>
                   {wizFiles.map((file, idx) => (
@@ -848,10 +1120,8 @@ function KnowledgeBaseManage() {
             </div>
           )}
 
-          {/* Divider */}
           <div className="kb-divider-regular" />
 
-          {/* Empty KB link */}
           <button className="kb-empty-kb-link" onClick={() => {
             closeWizard()
             setEmptyKbModalVisible(true)
@@ -861,7 +1131,6 @@ function KnowledgeBaseManage() {
             <span>创建一个空知识库</span>
           </button>
 
-          {/* Next button */}
           <div className="kb-wizard-footer">
             <div />
             <Button type="primary" onClick={wizardNextStep} size="large">
@@ -871,7 +1140,6 @@ function KnowledgeBaseManage() {
         </div>
       </div>
 
-      {/* Right panel - preview */}
       <div className="kb-wizard-right">
         <div className="kb-wizard-right-inner">
           <div className="kb-wizard-preview-title">文件预览</div>
@@ -898,14 +1166,12 @@ function KnowledgeBaseManage() {
     </div>
   )
 
-  // ===== Wizard Step 2: Indexing Configuration =====
+  // ===== Wizard Step 2 =====
   const renderWizardStep2 = () => (
     <div className="kb-wizard-body">
-      {/* Left panel - config forms */}
       <div className="kb-wizard-left">
         <div className="kb-wizard-left-inner">
 
-          {/* ---- Knowledge Base Name ---- */}
           <div className="kb-wizard-section-label" style={{ marginBottom: 4 }}>知识库名称</div>
           <Input
             value={wizName}
@@ -924,10 +1190,8 @@ function KnowledgeBaseManage() {
             style={{ marginBottom: 24 }}
           />
 
-          {/* ---- Segmentation ---- */}
           <div className="kb-wizard-section-title">切分方式</div>
 
-          {/* General chunking */}
           <div className="kb-seg-options-card">
             <div
               className={`kb-seg-options-header ${wizChunkStructure !== 'hierarchical_model' ? 'active' : ''}`}
@@ -971,7 +1235,6 @@ function KnowledgeBaseManage() {
             )}
           </div>
 
-          {/* Parent-child chunking */}
           <div className="kb-seg-options-card">
             <div
               className={`kb-seg-options-header ${wizChunkStructure === 'hierarchical_model' ? 'active' : ''}`}
@@ -992,11 +1255,9 @@ function KnowledgeBaseManage() {
 
           <div style={{ height: 24 }} />
 
-          {/* ---- Index Mode (THE KEY SECTION) ---- */}
           <div className="kb-wizard-section-title">索引方式</div>
 
           <div className="kb-index-mode-grid">
-            {/* High Quality / Qualified */}
             <div
               className={`kb-index-card ${wizIndexType === 'high_quality' ? 'selected' : ''}`}
               onClick={() => setWizIndexType('high_quality')}
@@ -1020,7 +1281,6 @@ function KnowledgeBaseManage() {
               </div>
             </div>
 
-            {/* Economy / Economical */}
             <div
               className={`kb-index-card ${wizIndexType === 'economy' ? 'selected' : ''}`}
               onClick={() => setWizIndexType('economy')}
@@ -1042,13 +1302,11 @@ function KnowledgeBaseManage() {
             </div>
           </div>
 
-          {/* Warning about not being able to change */}
           <div className="kb-index-warning">
             <ExclamationCircleFilled />
             <span>索引方式确认后不可更改，请谨慎选择</span>
           </div>
 
-          {/* Embedding model section - depends on index type */}
           {wizIndexType === 'high_quality' ? (
             <div style={{ marginTop: 16, marginBottom: 24 }}>
               <div className="kb-wizard-section-label">嵌入模型</div>
@@ -1078,12 +1336,10 @@ function KnowledgeBaseManage() {
 
           <div style={{ height: 8 }} />
 
-          {/* ---- Retrieval Method ---- */}
           {wizIndexType === 'high_quality' ? (
             <>
               <div className="kb-wizard-section-title">检索方式</div>
 
-              {/* Semantic Search */}
               <div
                 className={`kb-retrieval-card ${wizRetrievalMethod === 'semantic_search' ? 'selected' : ''}`}
                 onClick={() => setWizRetrievalMethod('semantic_search')}
@@ -1098,7 +1354,6 @@ function KnowledgeBaseManage() {
                 </div>
               </div>
 
-              {/* Full Text Search */}
               <div
                 className={`kb-retrieval-card ${wizRetrievalMethod === 'full_text_search' ? 'selected' : ''}`}
                 onClick={() => setWizRetrievalMethod('full_text_search')}
@@ -1113,7 +1368,6 @@ function KnowledgeBaseManage() {
                 </div>
               </div>
 
-              {/* Hybrid Search */}
               <div
                 className={`kb-retrieval-card ${wizRetrievalMethod === 'hybrid_search' ? 'selected' : ''}`}
                 onClick={() => setWizRetrievalMethod('hybrid_search')}
@@ -1147,7 +1401,6 @@ function KnowledgeBaseManage() {
             </>
           )}
 
-          {/* Footer buttons */}
           <div className="kb-wizard-footer">
             <Button onClick={wizardPrevStep}>
               <ArrowLeftOutlined /> 上一步
@@ -1159,7 +1412,6 @@ function KnowledgeBaseManage() {
         </div>
       </div>
 
-      {/* Right panel - preview */}
       <div className="kb-wizard-right">
         <div className="kb-wizard-right-inner">
           <div className="kb-wizard-preview-title">配置预览</div>
@@ -1204,7 +1456,7 @@ function KnowledgeBaseManage() {
     </div>
   )
 
-  // ===== Wizard Step 3: Progress / Completion =====
+  // ===== Wizard Step 3 =====
   const renderWizardStep3 = () => (
     <div className="kb-wizard-step3-wrap">
       <div className="kb-wizard-step3-inner">
@@ -1213,7 +1465,6 @@ function KnowledgeBaseManage() {
           正在处理文档索引，这可能需要一些时间，你可以先进入知识库查看。
         </div>
 
-        {/* Dataset info */}
         <div className="kb-wizard-step3-info">
           <div className="kb-wizard-step3-icon">
             <FolderOutlined />
@@ -1224,7 +1475,6 @@ function KnowledgeBaseManage() {
           </div>
         </div>
 
-        {/* Document processing progress */}
         {wizFiles.length > 0 && (
           <div>
             <div className="kb-progress-label">
@@ -1247,7 +1497,6 @@ function KnowledgeBaseManage() {
           </div>
         )}
 
-        {/* Config summary */}
         <div style={{
           marginTop: 24, padding: '16px', borderRadius: 12,
           border: '0.5px solid #e5e7eb', background: '#f9fafb'
@@ -1288,7 +1537,6 @@ function KnowledgeBaseManage() {
           </div>
         </div>
 
-        {/* Action buttons */}
         <div style={{ display: 'flex', gap: 8, marginTop: 32 }}>
           <Button onClick={closeWizard}>返回首页</Button>
           <Button type="primary" onClick={handleWizardFinish}>
@@ -1317,7 +1565,6 @@ function KnowledgeBaseManage() {
       </div>
 
       <div className="kb-card-grid">
-        {/* New dataset card - Dify style */}
         <div className="kb-new-dataset-card">
           <div className="kb-new-card-main">
             <div className="kb-new-card-option" onClick={openCreateWizard}>
@@ -1393,7 +1640,6 @@ function KnowledgeBaseManage() {
         ))}
       </div>
 
-      {/* Edit Dataset Modal (simple, for editing only) */}
       <Modal
         title={editingDataset ? '编辑知识库' : '创建知识库'}
         open={datasetModalVisible}
@@ -1484,94 +1730,160 @@ function KnowledgeBaseManage() {
 
   // ======================== RENDER: Document List ========================
 
-  const renderDocumentList = () => (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div className="kb-doc-header">
-        <h1>文档</h1>
-        <p>管理知识库中的所有文档，包括上传、索引和状态追踪。</p>
-      </div>
-      <div className="kb-doc-toolbar">
-        <div className="kb-doc-toolbar-left">
-          <Select value={docStatusFilter} style={{ width: 140 }} onChange={(v) => setDocStatusFilter(v)}
-            options={[
-              { value: 'all', label: '全部' },
-              { value: 'completed', label: '可用' },
-              { value: 'indexing', label: '索引中' },
-              { value: 'error', label: '错误' },
-              { value: 'paused', label: '已暂停' },
-            ]} />
-          <Input prefix={<SearchOutlined style={{ color: '#9ca3af' }} />} placeholder="搜索文档..."
-            style={{ width: 200 }} allowClear value={documentSearch}
-            onChange={(e) => setDocumentSearch(e.target.value)}
-            onPressEnter={() => loadDocuments(currentDataset.id, 1, documentSearch)} />
+  const renderDocumentList = () => {
+    const allSelected = documents.length > 0 && selectedDocIds.length === documents.length
+    const someSelected = selectedDocIds.length > 0
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
+        <div className="kb-doc-header">
+          <h1>文档</h1>
+          <p>管理知识库中的所有文档，包括上传、索引和状态追踪。</p>
         </div>
-        <div className="kb-doc-toolbar-right">
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDocument}>添加文档</Button>
+        <div className="kb-doc-toolbar">
+          <div className="kb-doc-toolbar-left">
+            <Select value={docStatusFilter} style={{ width: 140 }} onChange={(v) => setDocStatusFilter(v)}
+              options={[
+                { value: 'all', label: '全部' },
+                { value: 'completed', label: '可用' },
+                { value: 'indexing', label: '索引中' },
+                { value: 'error', label: '错误' },
+                { value: 'paused', label: '已暂停' },
+              ]} />
+            <Input prefix={<SearchOutlined style={{ color: '#9ca3af' }} />} placeholder="搜索文档..."
+              style={{ width: 200 }} allowClear value={documentSearch}
+              onChange={(e) => setDocumentSearch(e.target.value)}
+              onPressEnter={() => loadDocuments(currentDataset.id, 1, documentSearch)} />
+            <Select value={docSortBy} style={{ width: 130 }} onChange={(v) => { setDocSortBy(v); if (currentDataset) loadDocuments(currentDataset.id, documentPage, documentSearch, v) }}
+              options={[
+                { value: 'upload_time', label: '按上传时间' },
+                { value: 'hit_count', label: '按命中次数' },
+              ]} />
+          </div>
+          <div className="kb-doc-toolbar-right">
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDocument}>添加文档</Button>
+          </div>
         </div>
-      </div>
-      <div className="kb-doc-table-wrap">
-        <table className="kb-doc-table">
-          <thead>
-            <tr>
-              <th style={{ width: 48 }}>#</th>
-              <th>文件名称</th>
-              <th style={{ width: 130 }}>切分模式</th>
-              <th style={{ width: 96 }}>字数</th>
-              <th style={{ width: 80 }}>分段</th>
-              <th style={{ width: 120 }}>上传时间</th>
-              <th style={{ width: 100 }}>状态</th>
-              <th style={{ width: 120 }}>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {documents.length === 0 && !docLoading ? (
-              <tr><td colSpan={8}>
-                <div className="kb-empty-state">
-                  <div className="kb-empty-icon"><FileTextOutlined /></div>
-                  <div style={{ fontWeight: 600, color: '#374151', marginBottom: 4 }}>暂无文档</div>
-                  <div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 16 }}>点击"添加文档"开始导入知识内容</div>
-                  <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDocument}>添加文档</Button>
-                </div>
-              </td></tr>
-            ) : documents.map((doc, idx) => {
-              const st = indexingStatusMap[doc.indexingStatus] || { label: doc.indexingStatus, cls: 'disabled' }
-              return (
-                <tr key={doc.id}>
-                  <td style={{ color: '#d1d5db', fontSize: 12 }}>{(documentPage - 1) * 20 + idx + 1}</td>
-                  <td>
-                    <div className="kb-doc-name-cell">
-                      <div className="kb-doc-type-icon"><FileTextOutlined /></div>
-                      <span className="kb-doc-name-text" onClick={() => enterDocument(doc)}>{doc.name}</span>
-                    </div>
-                  </td>
-                  <td><Tag style={{ fontSize: 11 }}>{doc.docForm === 'text_model' ? '文本' : doc.docForm === 'qa_model' ? 'QA' : doc.docForm || '-'}</Tag></td>
-                  <td>{formatCount(doc.wordCount)}</td>
-                  <td>{formatCount(doc.segmentCount)}</td>
-                  <td style={{ fontSize: 12, color: '#9ca3af' }}>{formatTime(doc.createTime)}</td>
-                  <td><span className={`kb-status-dot ${st.cls}`}>{st.label}</span></td>
-                  <td>
-                    <Space size={4}>
-                      <Switch size="small" checked={doc.enabled !== 0}
-                        onChange={(v) => handleToggleDocument(doc, v)} />
-                      <Popconfirm title="确认删除此文档？" onConfirm={(e) => handleDeleteDocument(doc, e)} onCancel={(e) => e?.stopPropagation()}>
-                        <Button type="text" size="small" icon={<DeleteOutlined />} danger onClick={(e) => e.stopPropagation()} />
-                      </Popconfirm>
-                    </Space>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-        {documentTotal > 20 && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '16px 0' }}>
-            <Pagination current={documentPage} pageSize={20} total={documentTotal} showSizeChanger={false}
-              onChange={(p) => { setDocumentPage(p); loadDocuments(currentDataset.id, p, documentSearch) }} />
+        <div className="kb-doc-table-wrap">
+          <table className="kb-doc-table">
+            <thead>
+              <tr>
+                <th className="kb-doc-checkbox-col" style={{ width: 36 }}>
+                  <Checkbox
+                    checked={allSelected}
+                    indeterminate={!allSelected && someSelected}
+                    onChange={(e) => handleSelectAllDocs(e.target.checked)}
+                  />
+                </th>
+                <th style={{ width: 36 }}>#</th>
+                <th>文件名称</th>
+                <th style={{ width: 130 }}>切分模式</th>
+                <th style={{ width: 96 }}>字数</th>
+                <th style={{ width: 80 }}>分段</th>
+                <th style={{ width: 120 }}>上传时间</th>
+                <th style={{ width: 100 }}>状态</th>
+                <th style={{ width: 140 }}>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {documents.length === 0 && !docLoading ? (
+                <tr><td colSpan={9}>
+                  <div className="kb-empty-state">
+                    <div className="kb-empty-icon"><FileTextOutlined /></div>
+                    <div style={{ fontWeight: 600, color: '#374151', marginBottom: 4 }}>暂无文档</div>
+                    <div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 16 }}>点击"添加文档"开始导入知识内容</div>
+                    <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDocument}>添加文档</Button>
+                  </div>
+                </td></tr>
+              ) : documents.map((doc, idx) => {
+                const st = indexingStatusMap[doc.indexingStatus] || { label: doc.indexingStatus, cls: 'disabled' }
+                const isPaused = doc.indexingStatus === 'paused'
+                const isProcessing = ['parsing', 'cleaning', 'splitting', 'indexing'].includes(doc.indexingStatus)
+                const isArchived = doc.archived === 1 || doc.archived === true
+                return (
+                  <tr key={doc.id}>
+                    <td className="kb-doc-checkbox-col">
+                      <Checkbox
+                        checked={selectedDocIds.includes(doc.id)}
+                        onChange={(e) => handleBatchDocToggle(doc.id, e.target.checked)}
+                      />
+                    </td>
+                    <td style={{ color: '#d1d5db', fontSize: 12 }}>{(documentPage - 1) * 20 + idx + 1}</td>
+                    <td>
+                      <div className="kb-doc-name-cell">
+                        <div className="kb-doc-type-icon"><FileTextOutlined /></div>
+                        <span className="kb-doc-name-text" onClick={() => enterDocument(doc)}>{doc.name}</span>
+                      </div>
+                    </td>
+                    <td><Tag style={{ fontSize: 11 }}>{doc.docForm === 'text_model' ? '文本' : doc.docForm === 'qa_model' ? 'QA' : doc.docForm || '-'}</Tag></td>
+                    <td>{formatCount(doc.wordCount)}</td>
+                    <td>{formatCount(doc.segmentCount)}</td>
+                    <td style={{ fontSize: 12, color: '#9ca3af' }}>{formatTime(doc.createTime)}</td>
+                    <td><span className={`kb-status-dot ${st.cls}`}>{st.label}</span></td>
+                    <td>
+                      <Space size={4}>
+                        <Switch size="small" checked={doc.enabled !== 0}
+                          onChange={(v) => handleToggleDocument(doc, v)} />
+                        <Dropdown menu={{
+                          items: [
+                            ...(isProcessing ? [{ key: 'pause', label: '暂停', icon: <PauseCircleOutlined /> }] : []),
+                            ...(isPaused ? [{ key: 'resume', label: '恢复处理', icon: <ReloadOutlined /> }] : []),
+                            { key: 'rename', label: '重命名', icon: <EditOutlined /> },
+                            ...(isArchived
+                              ? [{ key: 'unarchive', label: '取消归档', icon: <FolderOutlined /> }]
+                              : [{ key: 'archive', label: '归档', icon: <FolderOutlined /> }]),
+                            { type: 'divider' },
+                            { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true },
+                          ],
+                          onClick: ({ key }) => {
+                            if (key === 'pause' || key === 'resume') handlePauseDocument(doc)
+                            else if (key === 'rename') handleRenameDocument(doc)
+                            else if (key === 'archive') handleArchiveDocument(doc)
+                            else if (key === 'unarchive') handleUnarchiveDocument(doc)
+                            else if (key === 'delete') {
+                              Modal.confirm({
+                                title: '确认删除此文档？',
+                                okType: 'danger',
+                                onOk: () => handleDeleteDocument(doc),
+                              })
+                            }
+                          },
+                        }} trigger={['click']}>
+                          <Button type="text" size="small" icon={<MoreOutlined />} onClick={(e) => e.stopPropagation()} />
+                        </Dropdown>
+                      </Space>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          {documentTotal > 20 && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '16px 0' }}>
+              <Pagination current={documentPage} pageSize={20} total={documentTotal} showSizeChanger={false}
+                onChange={(p) => { setDocumentPage(p); loadDocuments(currentDataset.id, p, documentSearch) }} />
+            </div>
+          )}
+        </div>
+
+        {/* Batch action bar */}
+        {someSelected && (
+          <div className="kb-batch-action-bar">
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>
+              已选择 <Tag color="blue">{selectedDocIds.length}</Tag> 个文档
+            </span>
+            <Space>
+              <Button size="small" onClick={handleBatchDocEnable}>启用</Button>
+              <Button size="small" onClick={handleBatchDocDisable}>禁用</Button>
+              <Button size="small" onClick={handleBatchDocArchive}>归档</Button>
+              <Button size="small" danger onClick={handleBatchDocDelete}>删除</Button>
+              <Button size="small" type="text" onClick={() => setSelectedDocIds([])}>取消</Button>
+            </Space>
           </div>
         )}
       </div>
-    </div>
-  )
+    )
+  }
 
   // ======================== RENDER: Segment List ========================
 
@@ -1583,8 +1895,18 @@ function KnowledgeBaseManage() {
       : currentDocument.indexingStatus === 'error' ? -1
       : ['waiting', 'parsing', 'splitting', 'indexing'].indexOf(currentDocument.indexingStatus) + 1
 
+    const allSegSelected = segments.length > 0 && selectedSegmentIds.length === segments.length
+    const someSegSelected = selectedSegmentIds.length > 0
+
+    // Filter segments by status
+    const filteredSegments = segments.filter((seg) => {
+      if (segmentStatusFilter === 'enabled') return seg.enabled !== 0
+      if (segmentStatusFilter === 'disabled') return seg.enabled === 0
+      return true
+    })
+
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
         <div className="kb-segment-header">
           <div className="kb-segment-header-left">
             <button className="kb-back-btn" onClick={backToDocuments}><ArrowLeftOutlined /></button>
@@ -1613,25 +1935,49 @@ function KnowledgeBaseManage() {
         </div>
 
         <div className="kb-segment-toolbar">
+          <Checkbox
+            checked={allSegSelected}
+            indeterminate={!allSegSelected && someSegSelected}
+            onChange={(e) => handleSelectAllSegments(e.target.checked)}
+            style={{ marginRight: 4 }}
+          />
           <Input prefix={<SearchOutlined style={{ color: '#9ca3af' }} />} placeholder="搜索分段内容..."
             style={{ width: 240 }} allowClear value={segmentSearch}
             onChange={(e) => setSegmentSearch(e.target.value)}
             onPressEnter={() => loadSegments(currentDocument.id, 1, segmentSearch)} />
+          <Select value={segmentStatusFilter} style={{ width: 120 }} onChange={(v) => setSegmentStatusFilter(v)}
+            options={[
+              { value: 'all', label: '全部' },
+              { value: 'enabled', label: '已启用' },
+              { value: 'disabled', label: '已禁用' },
+            ]} />
           <div style={{ flex: 1 }} />
+          <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => {
+            newSegmentForm.resetFields()
+            setNewSegmentVisible(true)
+          }}>
+            添加分段
+          </Button>
           <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 600 }}>共 {segmentTotal} 个分段</span>
         </div>
 
         <div className="kb-segment-list">
-          {segments.length === 0 && !segLoading ? (
+          {filteredSegments.length === 0 && !segLoading ? (
             <div className="kb-empty-state">
               <div className="kb-empty-icon"><DatabaseOutlined /></div>
               <div style={{ fontWeight: 600, color: '#374151', marginBottom: 4 }}>暂无分段</div>
               <div style={{ fontSize: 13, color: '#9ca3af' }}>文档索引完成后，分段会自动出现在这里</div>
             </div>
-          ) : segments.map((seg, idx) => (
+          ) : filteredSegments.map((seg, idx) => (
             <div key={seg.id}>
               {idx > 0 && <div className="kb-segment-divider" />}
               <div className="kb-segment-card">
+                <div className="kb-segment-checkbox">
+                  <Checkbox
+                    checked={selectedSegmentIds.includes(seg.id)}
+                    onChange={(e) => handleBatchSegToggle(seg.id, e.target.checked)}
+                  />
+                </div>
                 <div className="kb-segment-actions-float">
                   <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => openSegmentDetail(seg)} />
                   <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openSegmentEdit(seg)} />
@@ -1674,11 +2020,26 @@ function KnowledgeBaseManage() {
               onChange={(p) => { setSegmentPage(p); loadSegments(currentDocument.id, p, segmentSearch) }} />
           </div>
         )}
+
+        {/* Segment batch action bar */}
+        {someSegSelected && (
+          <div className="kb-batch-action-bar">
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>
+              已选择 <Tag color="blue">{selectedSegmentIds.length}</Tag> 个分段
+            </span>
+            <Space>
+              <Button size="small" onClick={handleBatchSegEnable}>启用</Button>
+              <Button size="small" onClick={handleBatchSegDisable}>禁用</Button>
+              <Button size="small" danger onClick={handleBatchSegDelete}>删除</Button>
+              <Button size="small" type="text" onClick={() => setSelectedSegmentIds([])}>取消</Button>
+            </Space>
+          </div>
+        )}
       </div>
     )
   }
 
-  // ======================== RENDER: Hit Testing ========================
+  // ======================== RENDER: Hit Testing (v2 - Dify Style) ========================
 
   const renderHitTesting = () => (
     <div className="kb-hit-wrap">
@@ -1686,61 +2047,354 @@ function KnowledgeBaseManage() {
         <h1>召回测试</h1>
         <p>测试知识库的检索质量，验证分段是否能被正确召回。</p>
       </div>
-      <Form form={recallForm} layout="vertical" onFinish={handleRecallTest}
-        initialValues={{ ragStrategy: 'hybrid_search', topK: 5, similarityThreshold: 0.2, knowledgeBaseIds: currentDataset ? [currentDataset.id] : [] }}>
-        <Form.Item name="query" label="测试问题" rules={[{ required: true, message: '请输入测试问题' }]}>
-          <TextArea rows={4} placeholder="例如：校园卡丢了怎么挂失？" />
-        </Form.Item>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Form.Item name="ragStrategy" label="检索策略">
-            <Select options={retrievalStrategyOptions} />
-          </Form.Item>
-          <Form.Item name="embeddingModel" label="向量模型">
-            <Select options={embeddingModelOptions} placeholder="选择向量模型" />
-          </Form.Item>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Form.Item name="topK" label="Top K">
-            <InputNumber min={1} max={20} style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="similarityThreshold" label="相似度阈值">
-            <Slider min={0} max={1} step={0.05} />
-          </Form.Item>
-        </div>
-        <Form.Item name="knowledgeBaseIds" label="知识库" hidden>
-          <Select mode="multiple" options={datasets.map((d) => ({ value: d.id, label: d.name }))} />
-        </Form.Item>
-        <Button type="primary" htmlType="submit" icon={<SearchOutlined />} loading={recallLoading} block>
-          开始召回测试
-        </Button>
-      </Form>
-
-      {recallResult && (
-        <div style={{ marginTop: 24 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-            <Tag color="success">召回完成</Tag>
-            <Tag>命中：{(recallResult.documents || []).length}</Tag>
-            {recallResult.metadata?.strategyLabel && <Tag color="blue">{recallResult.metadata.strategyLabel}</Tag>}
-          </div>
-          {(recallResult.documents || []).map((doc, idx) => {
-            const score = Number(doc.score || 0)
-            const scoreCls = score > 0.7 ? 'high' : score > 0.4 ? 'medium' : 'low'
-            return (
-              <div key={idx} className="kb-hit-result-card">
-                <div className="kb-hit-result-header">
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>{doc.metadata?.sourceName || doc.source || '-'}</span>
-                  <span className={`kb-hit-score ${scoreCls}`}>{score.toFixed(4)}</span>
-                </div>
-                <div className="kb-hit-result-content">{doc.content}</div>
+      <div className="kb-hit-v2-layout">
+        {/* Left panel */}
+        <div className="kb-hit-v2-left">
+          <div className="kb-hit-v2-input-section">
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
+              查询文本
+            </div>
+            <div style={{ position: 'relative' }}>
+              <TextArea
+                value={hitQuery}
+                onChange={(e) => setHitQuery(e.target.value.slice(0, 200))}
+                placeholder="输入要测试的查询问题..."
+                rows={5}
+                maxLength={200}
+              />
+              <div style={{ position: 'absolute', bottom: 8, right: 12, fontSize: 11, color: '#9ca3af' }}>
+                {hitQuery.length}/200
               </div>
-            )
-          })}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+              <Button
+                type="primary"
+                icon={<SearchOutlined />}
+                loading={hitLoading}
+                onClick={handleHitTest}
+                block
+              >
+                开始测试
+              </Button>
+            </div>
+            {/* Modify retrieval config toggle */}
+            <div
+              style={{ marginTop: 12, cursor: 'pointer', fontSize: 13, color: '#4f46e5', fontWeight: 500 }}
+              onClick={() => setHitRetrievalOpen(!hitRetrievalOpen)}
+            >
+              <DownOutlined style={{ fontSize: 10, marginRight: 4, transform: hitRetrievalOpen ? 'rotate(0)' : 'rotate(-90deg)', transition: 'transform 0.2s' }} />
+              修改检索配置
+            </div>
+            {hitRetrievalOpen && (
+              <div style={{ marginTop: 12, padding: 12, borderRadius: 8, border: '0.5px solid #e5e7eb', background: '#f9fafb' }}>
+                <div className="kb-param-row">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: 120, flexShrink: 0 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>检索策略</span>
+                  </div>
+                  <Select value={hitRagStrategy} onChange={setHitRagStrategy} style={{ width: '100%' }}
+                    options={retrievalStrategyOptions} size="small" />
+                </div>
+                <div className="kb-param-row" style={{ marginTop: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: 120, flexShrink: 0 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Top K</span>
+                    <Tooltip title="返回的最大结果数量"><InfoCircleOutlined style={{ color: '#9ca3af', fontSize: 11 }} /></Tooltip>
+                  </div>
+                  <Slider min={1} max={10} step={1} value={hitTopK}
+                    onChange={setHitTopK}
+                    style={{ flex: 1, margin: '0 12px' }} />
+                  <InputNumber min={1} max={10} step={1} value={hitTopK}
+                    onChange={setHitTopK} size="small" style={{ width: 64 }} />
+                </div>
+                <div className="kb-param-row" style={{ marginTop: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: 120, flexShrink: 0 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Score 阈值</span>
+                    <Tooltip title="最低相似度分数阈值"><InfoCircleOutlined style={{ color: '#9ca3af', fontSize: 11 }} /></Tooltip>
+                  </div>
+                  <Slider min={0} max={1} step={0.01} value={hitScoreThreshold}
+                    onChange={setHitScoreThreshold}
+                    style={{ flex: 1, margin: '0 12px' }} />
+                  <InputNumber min={0} max={1} step={0.01} value={hitScoreThreshold}
+                    onChange={setHitScoreThreshold} size="small" style={{ width: 64 }} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Testing records */}
+          {hitTestingRecords.length > 0 && (
+            <div style={{ marginTop: 20 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>
+                测试记录
+              </div>
+              {hitTestingRecords.map((rec, idx) => (
+                <div key={idx} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '8px 10px', borderRadius: 6, marginBottom: 4,
+                  background: '#f9fafb', border: '0.5px solid #f3f4f6', cursor: 'pointer',
+                }}
+                  onClick={() => setHitQuery(rec.query)}
+                >
+                  <span style={{ fontSize: 12, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
+                    {rec.query}
+                  </span>
+                  <span style={{ fontSize: 11, color: '#9ca3af', flexShrink: 0, marginLeft: 8 }}>
+                    {rec.count} 条 · {rec.time}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Right panel - results */}
+        <div className="kb-hit-v2-right">
+          {hitLoading && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200 }}>
+              <LoadingOutlined style={{ fontSize: 24, color: '#6366f1' }} />
+              <span style={{ marginLeft: 8, color: '#6b7280' }}>正在检索...</span>
+            </div>
+          )}
+          {!hitLoading && hitResults.length === 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 300, color: '#9ca3af' }}>
+              <ExperimentOutlined style={{ fontSize: 32, marginBottom: 12, color: '#d1d5db' }} />
+              <div style={{ fontSize: 13 }}>输入查询后点击测试，结果将显示在这里</div>
+            </div>
+          )}
+          {!hitLoading && hitResults.length > 0 && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 }}>
+                召回结果 ({hitResults.length})
+              </div>
+              {hitResults.map((doc, idx) => {
+                const score = Number(doc.score || 0)
+                const scorePercent = Math.round(score * 100)
+                return (
+                  <div key={idx} className="kb-hit-result-v2">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span className="kb-segment-index-tag" style={{ fontSize: 11 }}>
+                        Chunk-{String(idx + 1).padStart(2, '0')}
+                      </span>
+                      <span style={{ fontSize: 11, color: '#9ca3af' }}>
+                        {doc.metadata?.sourceName || doc.source || 'unknown'}
+                      </span>
+                    </div>
+                    <div className="kb-hit-v2-content">
+                      {doc.content}
+                    </div>
+                    <div className="kb-score-bar-wrap">
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: '#6b7280' }}>Score</span>
+                        <span className={`kb-hit-score ${score > 0.7 ? 'high' : score > 0.4 ? 'medium' : 'low'}`}>
+                          {score.toFixed(4)}
+                        </span>
+                      </div>
+                      <div className="kb-score-bar">
+                        <div
+                          className="kb-score-bar-fill"
+                          style={{
+                            width: `${scorePercent}%`,
+                            background: score > 0.7 ? '#3b82f6' : score > 0.4 ? '#f59e0b' : '#ef4444',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+
+  // ======================== RENDER: Settings (Full Dify-style Retrieval Config) ========================
+
+  const renderSettingsRetrievalParams = () => (
+    <div style={{ marginTop: 16 }}>
+      {/* Retrieval method cards (same style as wizard) */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        <div
+          className={`kb-retrieval-card ${settingsRetrievalMethod === 'semantic_search' ? 'selected' : ''}`}
+          onClick={() => setSettingsRetrievalMethod('semantic_search')}
+          style={{ flex: 1 }}
+        >
+          <div className="kb-retrieval-card-icon"><SearchOutlined /></div>
+          <div className="kb-retrieval-card-info">
+            <div className="kb-retrieval-card-title">语义检索</div>
+            <div className="kb-retrieval-card-desc">向量语义相似度匹配</div>
+          </div>
+          <div className="kb-retrieval-card-radio">
+            <Radio checked={settingsRetrievalMethod === 'semantic_search'} />
+          </div>
+        </div>
+        <div
+          className={`kb-retrieval-card ${settingsRetrievalMethod === 'full_text_search' ? 'selected' : ''}`}
+          onClick={() => setSettingsRetrievalMethod('full_text_search')}
+          style={{ flex: 1 }}
+        >
+          <div className="kb-retrieval-card-icon"><FileTextOutlined /></div>
+          <div className="kb-retrieval-card-info">
+            <div className="kb-retrieval-card-title">全文检索</div>
+            <div className="kb-retrieval-card-desc">BM25 关键词匹配</div>
+          </div>
+          <div className="kb-retrieval-card-radio">
+            <Radio checked={settingsRetrievalMethod === 'full_text_search'} />
+          </div>
+        </div>
+        <div
+          className={`kb-retrieval-card ${settingsRetrievalMethod === 'hybrid_search' ? 'selected' : ''}`}
+          onClick={() => setSettingsRetrievalMethod('hybrid_search')}
+          style={{ flex: 1 }}
+        >
+          <div className="kb-retrieval-card-icon"><ExperimentOutlined /></div>
+          <div className="kb-retrieval-card-info">
+            <div className="kb-retrieval-card-title">
+              混合检索
+              <span className="kb-recommend-badge">推荐</span>
+            </div>
+            <div className="kb-retrieval-card-desc">语义 + 关键词融合</div>
+          </div>
+          <div className="kb-retrieval-card-radio">
+            <Radio checked={settingsRetrievalMethod === 'hybrid_search'} />
+          </div>
+        </div>
+      </div>
+
+      {/* Top K */}
+      <div className="kb-param-row">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: 140, flexShrink: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Top K</span>
+          <Tooltip title="返回的最大检索结果数量，值越大返回越多结果，但可能降低精确度">
+            <InfoCircleOutlined style={{ color: '#9ca3af', fontSize: 12 }} />
+          </Tooltip>
+        </div>
+        <Slider min={1} max={10} step={1} value={settingsTopK}
+          onChange={setSettingsTopK}
+          style={{ flex: 1, margin: '0 16px' }} />
+        <InputNumber min={1} max={10} step={1} value={settingsTopK}
+          onChange={setSettingsTopK} style={{ width: 72 }} />
+      </div>
+
+      {/* Score Threshold */}
+      <div className="kb-param-row" style={{ marginTop: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: 140, flexShrink: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Score 阈值</span>
+          <Tooltip title="设置最低相似度分数阈值，低于该值的结果将被过滤">
+            <InfoCircleOutlined style={{ color: '#9ca3af', fontSize: 12 }} />
+          </Tooltip>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', flex: 1, gap: 12 }}>
+          <Switch size="small" checked={settingsScoreThresholdEnabled}
+            onChange={setSettingsScoreThresholdEnabled} />
+          <Slider min={0} max={1} step={0.01} value={settingsScoreThreshold}
+            onChange={setSettingsScoreThreshold}
+            disabled={!settingsScoreThresholdEnabled}
+            style={{ flex: 1 }} />
+          <InputNumber min={0} max={1} step={0.01} value={settingsScoreThreshold}
+            onChange={setSettingsScoreThreshold}
+            disabled={!settingsScoreThresholdEnabled}
+            style={{ width: 72 }} />
+        </div>
+      </div>
+
+      {/* Rerank Model */}
+      <div className="kb-param-row" style={{ marginTop: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: 140, flexShrink: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Rerank 模型</span>
+          <Tooltip title="启用后使用 Rerank 模型对检索结果进行重排序，提高结果相关性">
+            <InfoCircleOutlined style={{ color: '#9ca3af', fontSize: 12 }} />
+          </Tooltip>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', flex: 1, gap: 8 }}>
+          <Switch size="small" checked={settingsRerankEnable}
+            onChange={setSettingsRerankEnable} />
+          {settingsRerankEnable && (
+            <Input
+              value={settingsRerankModel}
+              onChange={(e) => setSettingsRerankModel(e.target.value)}
+              placeholder="输入 Rerank 模型名称，如 bge-reranker-v2"
+              style={{ flex: 1 }}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Hybrid search specific: reranking mode */}
+      {settingsRetrievalMethod === 'hybrid_search' && (
+        <div style={{ marginTop: 20, padding: 16, borderRadius: 10, border: '0.5px solid #e5e7eb', background: '#fafafa' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 12 }}>
+            重排序模式
+          </div>
+          <Radio.Group value={settingsRerankingMode} onChange={(e) => setSettingsRerankingMode(e.target.value)}>
+            <Radio value="weighted_score">加权分数</Radio>
+            <Radio value="rerank_model">Rerank 模型</Radio>
+          </Radio.Group>
+
+          {settingsRerankingMode === 'weighted_score' && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>语义权重</span>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>关键词权重</span>
+              </div>
+              <div className="kb-param-row">
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#4f46e5', width: 40 }}>
+                  {settingsVectorWeight.toFixed(1)}
+                </span>
+                <Slider min={0} max={1} step={0.1} value={settingsVectorWeight}
+                  onChange={setSettingsVectorWeight}
+                  style={{ flex: 1, margin: '0 12px' }} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#d97706', width: 40, textAlign: 'right' }}>
+                  {(1 - settingsVectorWeight).toFixed(1)}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
   )
 
-  // ======================== RENDER: Settings ========================
+  const renderSettingsEconomyParams = () => (
+    <div style={{ marginTop: 16 }}>
+      {/* Keyword Number for economy mode */}
+      <div className="kb-param-row">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: 140, flexShrink: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>关键词数量</span>
+          <Tooltip title="经济模式下返回的关键词匹配结果数量">
+            <InfoCircleOutlined style={{ color: '#9ca3af', fontSize: 12 }} />
+          </Tooltip>
+        </div>
+        <Slider min={0} max={50} step={1} value={settingsKeywordNumber}
+          onChange={setSettingsKeywordNumber}
+          style={{ flex: 1, margin: '0 16px' }} />
+        <InputNumber min={0} max={50} step={1} value={settingsKeywordNumber}
+          onChange={setSettingsKeywordNumber} style={{ width: 72 }} />
+      </div>
+
+      {/* Score Threshold for economy */}
+      <div className="kb-param-row" style={{ marginTop: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: 140, flexShrink: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Score 阈值</span>
+          <Tooltip title="设置最低相似度分数阈值">
+            <InfoCircleOutlined style={{ color: '#9ca3af', fontSize: 12 }} />
+          </Tooltip>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', flex: 1, gap: 12 }}>
+          <Switch size="small" checked={settingsScoreThresholdEnabled}
+            onChange={setSettingsScoreThresholdEnabled} />
+          <Slider min={0} max={1} step={0.01} value={settingsScoreThreshold}
+            onChange={setSettingsScoreThreshold}
+            disabled={!settingsScoreThresholdEnabled}
+            style={{ flex: 1 }} />
+          <InputNumber min={0} max={1} step={0.01} value={settingsScoreThreshold}
+            onChange={setSettingsScoreThreshold}
+            disabled={!settingsScoreThresholdEnabled}
+            style={{ width: 72 }} />
+        </div>
+      </div>
+    </div>
+  )
 
   const renderSettings = () => (
     <div className="kb-settings-wrap">
@@ -1749,6 +2403,7 @@ function KnowledgeBaseManage() {
         <p>配置知识库的基本信息、索引方式和检索策略。</p>
       </div>
       <Form form={settingsForm} layout="vertical" className="kb-settings-form">
+        {/* Basic info */}
         <div className="kb-settings-row">
           <div className="kb-settings-label">名称</div>
           <div className="kb-settings-control">
@@ -1766,6 +2421,8 @@ function KnowledgeBaseManage() {
           </div>
         </div>
         <div className="kb-settings-divider" />
+
+        {/* Index config */}
         <div className="kb-settings-row">
           <div className="kb-settings-label">索引技术</div>
           <div className="kb-settings-control">
@@ -1798,6 +2455,8 @@ function KnowledgeBaseManage() {
           </div>
         </div>
         <div className="kb-settings-divider" />
+
+        {/* Permission */}
         <div className="kb-settings-row">
           <div className="kb-settings-label">权限</div>
           <div className="kb-settings-control">
@@ -1809,14 +2468,36 @@ function KnowledgeBaseManage() {
             </Form.Item>
           </div>
         </div>
-        <div className="kb-settings-row">
-          <div className="kb-settings-label">检索模型 (JSON)</div>
-          <div className="kb-settings-control">
-            <Form.Item name="retrievalModel">
-              <TextArea rows={4} placeholder='{"search_method":"hybrid_search","top_k":5,...}' />
-            </Form.Item>
+        <div className="kb-settings-divider" />
+
+        {/* Retrieval Settings section */}
+        <div style={{ marginBottom: 8 }}>
+          <div
+            style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}
+            onClick={() => setSettingsRetrievalOpen(!settingsRetrievalOpen)}
+          >
+            <DownOutlined style={{
+              fontSize: 10, color: '#6b7280',
+              transform: settingsRetrievalOpen ? 'rotate(0)' : 'rotate(-90deg)',
+              transition: 'transform 0.2s',
+            }} />
+            <span style={{ fontSize: 15, fontWeight: 600, color: '#111827' }}>检索设置</span>
+          </div>
+          <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4, marginLeft: 18 }}>
+            配置检索方法、参数和重排序策略
           </div>
         </div>
+
+        {settingsRetrievalOpen && (
+          <div style={{ padding: '16px 0' }}>
+            {/* Show different params based on index technique */}
+            {settingsForm.getFieldValue('indexingTechnique') === 'economy'
+              ? renderSettingsEconomyParams()
+              : renderSettingsRetrievalParams()
+            }
+          </div>
+        )}
+
         <div style={{ paddingTop: 16 }}>
           <Button type="primary" onClick={handleSaveSettings} style={{ minWidth: 96 }}>保存</Button>
         </div>
@@ -2070,6 +2751,29 @@ function KnowledgeBaseManage() {
           </Form.Item>
         </Form>
       </Drawer>
+
+      {/* New Segment Modal */}
+      <Modal
+        title="添加分段"
+        open={newSegmentVisible}
+        onOk={handleCreateSegment}
+        onCancel={() => setNewSegmentVisible(false)}
+        confirmLoading={newSegmentLoading}
+        width={560}
+        okText="添加"
+      >
+        <Form form={newSegmentForm} layout="vertical">
+          <Form.Item name="content" label="内容" rules={[{ required: true, message: '请输入分段内容' }]}>
+            <TextArea rows={8} placeholder="输入分段内容..." />
+          </Form.Item>
+          <Form.Item name="answer" label="回答 (QA 模式，可选)">
+            <TextArea rows={4} placeholder="如果是 QA 模式，输入对应的回答..." />
+          </Form.Item>
+          <Form.Item name="keywords" label="关键词 (JSON 数组，可选)">
+            <Input placeholder='["关键词1","关键词2"]' />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   )
 }

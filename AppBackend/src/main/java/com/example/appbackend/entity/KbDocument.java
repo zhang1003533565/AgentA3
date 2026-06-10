@@ -120,6 +120,9 @@ public class KbDocument {
     @Column(name = "archived", columnDefinition = "TINYINT DEFAULT 0 COMMENT '是否归档：0-否 1-是'")
     private Integer archived = 0;
 
+    @Column(name = "hit_count", columnDefinition = "INT DEFAULT 0 COMMENT '命中次数'")
+    private Integer hitCount = 0;
+
     @Column(name = "created_by", nullable = false, columnDefinition = "BIGINT NOT NULL COMMENT '创建者用户ID'")
     private Long createdBy;
 
@@ -140,6 +143,7 @@ public class KbDocument {
         if (position == null) position = 1;
         if (enabled == null) enabled = 1;
         if (archived == null) archived = 0;
+        if (hitCount == null) hitCount = 0;
     }
 
     @PreUpdate

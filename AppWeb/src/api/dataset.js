@@ -26,8 +26,12 @@ export const createProcessRule = (datasetId, data) =>
 
 // ====== Document（文档） ======
 
-export const getDocuments = (datasetId, params = {}) =>
-  request.get(`${base}/${datasetId}/documents`, { params: { current: params.current ?? 1, size: params.size ?? 20, keyword: params.keyword } })
+export const getDocuments = (datasetId, params = {}) => {
+  // Map frontend sort keys to backend format
+  const sortMap = { upload_time: '-created_at', hit_count: '-hit_count' }
+  const sortBy = params.sortBy ? (sortMap[params.sortBy] || params.sortBy) : undefined
+  return request.get(`${base}/${datasetId}/documents`, { params: { current: params.current ?? 1, size: params.size ?? 20, keyword: params.keyword, sortBy } })
+}
 
 export const getDocument = (documentId) =>
   request.get(`${base}/documents/${documentId}`)
@@ -40,6 +44,21 @@ export const deleteDocument = (documentId) =>
 
 export const toggleDocument = (documentId, enabled) =>
   request.put(`${base}/documents/${documentId}/toggle`, null, { params: { enabled } })
+
+export const pauseDocument = (docId, action) =>
+  request.patch(`${base}/documents/${docId}/processing/${action}`)
+
+export const renameDocument = (docId, name) =>
+  request.post(`${base}/documents/${docId}/rename`, { name })
+
+export const archiveDocument = (docId) =>
+  request.patch(`${base}/documents/${docId}/archive`)
+
+export const unarchiveDocument = (docId) =>
+  request.patch(`${base}/documents/${docId}/unarchive`)
+
+export const retryDocuments = (datasetId, documentIds) =>
+  request.post(`${base}/${datasetId}/retry`, { documentIds })
 
 // ====== Segment（分段） ======
 
@@ -57,6 +76,15 @@ export const deleteSegment = (segmentId) =>
 
 export const toggleSegment = (segmentId, enabled) =>
   request.put(`${base}/segments/${segmentId}/toggle`, null, { params: { enabled } })
+
+export const createSegment = (documentId, data) =>
+  request.post(`${base}/documents/${documentId}/segment`, data)
+
+export const batchToggleSegments = (documentId, action, segmentIds) =>
+  request.patch(`${base}/documents/${documentId}/segment/${action}`, null, { params: { segmentIds: segmentIds.join(',') } })
+
+export const batchDeleteSegments = (documentId, segmentIds) =>
+  request.delete(`${base}/documents/${documentId}/segments`, { params: { segmentIds: segmentIds.join(',') } })
 
 // ====== ChildChunk（子片段） ======
 

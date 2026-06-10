@@ -70,6 +70,12 @@ public class Dataset {
     @Column(name = "word_count", columnDefinition = "BIGINT DEFAULT 0 COMMENT '总字数'")
     private Long wordCount = 0L;
 
+    @Column(name = "keyword_number", columnDefinition = "INT DEFAULT 10 COMMENT '经济模式关键词数量'")
+    private Integer keywordNumber = 10;
+
+    @Column(name = "enable_api", columnDefinition = "TINYINT DEFAULT 1 COMMENT '是否开启API访问：0-关闭 1-开启'")
+    private Boolean enableApi = true;
+
     @Column(name = "created_by", nullable = false, columnDefinition = "BIGINT NOT NULL COMMENT '创建者用户ID'")
     private Long createdBy;
 
@@ -85,6 +91,8 @@ public class Dataset {
         updateTime = LocalDateTime.now();
         if (documentCount == null) documentCount = 0;
         if (wordCount == null) wordCount = 0L;
+        if (keywordNumber == null) keywordNumber = 10;
+        if (enableApi == null) enableApi = true;
     }
 
     @PreUpdate

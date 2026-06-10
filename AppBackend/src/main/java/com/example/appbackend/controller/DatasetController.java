@@ -121,10 +121,14 @@ public class DatasetController {
     public Result<PageResponse<DatasetDTO.DocumentListItem>> listDocuments(
             @PathVariable Long datasetId,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String sortBy,
             @RequestParam(defaultValue = "1") Integer current,
             @RequestParam(defaultValue = "20") Integer size,
             HttpServletRequest request) {
         requireAdmin(request);
+        if (sortBy != null && !sortBy.isEmpty()) {
+            return Result.success(datasetService.listDocumentsSorted(datasetId, keyword, sortBy, current, size));
+        }
         return Result.success(datasetService.listDocuments(datasetId, keyword, current, size));
     }
 
@@ -156,6 +160,58 @@ public class DatasetController {
         requireAdmin(request);
         datasetService.enableDocument(documentId, enabled);
         return Result.success("操作成功", (Void) null);
+    }
+
+    @PatchMapping("/documents/{id}/processing/{action}")
+    @Operation(summary = "暂停或恢复文档索引")
+    public Result<Void> processDocumentAction(
+            @PathVariable Long id,
+            @PathVariable String action,
+            HttpServletRequest request) {
+        requireAdmin(request);
+        datasetService.processDocumentAction(id, action);
+        return Result.success("操作成功", (Void) null);
+    }
+
+    @PostMapping("/documents/{id}/rename")
+    @Operation(summary = "重命名文档")
+    public Result<DatasetDTO.DocumentVO> renameDocument(
+            @PathVariable Long id,
+            @Valid @RequestBody DatasetDTO.RenameRequest req,
+            HttpServletRequest request) {
+        requireAdmin(request);
+        return Result.success(datasetService.renameDocument(id, req));
+    }
+
+    @PatchMapping("/documents/{id}/archive")
+    @Operation(summary = "归档文档")
+    public Result<Void> archiveDocument(
+            @PathVariable Long id,
+            HttpServletRequest request) {
+        requireAdmin(request);
+        datasetService.archiveDocument(id);
+        return Result.success("文档已归档", (Void) null);
+    }
+
+    @PatchMapping("/documents/{id}/unarchive")
+    @Operation(summary = "取消归档")
+    public Result<Void> unarchiveDocument(
+            @PathVariable Long id,
+            HttpServletRequest request) {
+        requireAdmin(request);
+        datasetService.unarchiveDocument(id);
+        return Result.success("文档已取消归档", (Void) null);
+    }
+
+    @PostMapping("/{datasetId}/retry")
+    @Operation(summary = "重试失败文档")
+    public Result<Void> retryFailedDocuments(
+            @PathVariable Long datasetId,
+            @RequestBody DatasetDTO.RetryRequest req,
+            HttpServletRequest request) {
+        requireAdmin(request);
+        datasetService.retryFailedDocuments(datasetId, req);
+        return Result.success("重试已触发", (Void) null);
     }
 
     // ====== Segment（分段） ======
@@ -210,6 +266,39 @@ public class DatasetController {
         requireAdmin(request);
         datasetService.toggleSegment(segmentId, enabled);
         return Result.success("操作成功", (Void) null);
+    }
+
+    @PostMapping("/documents/{documentId}/segment")
+    @Operation(summary = "手动创建分段")
+    public Result<DatasetDTO.SegmentVO> createSegment(
+            @PathVariable Long documentId,
+            @Valid @RequestBody DatasetDTO.CreateSegmentRequest req,
+            HttpServletRequest request) {
+        requireAdmin(request);
+        return Result.success(datasetService.createSegment(documentId, req));
+    }
+
+    @PatchMapping("/documents/{documentId}/segment/{action}")
+    @Operation(summary = "批量启用/禁用分段")
+    public Result<Void> batchToggleSegments(
+            @PathVariable Long documentId,
+            @PathVariable String action,
+            @RequestParam List<Long> segmentIds,
+            HttpServletRequest request) {
+        requireAdmin(request);
+        datasetService.batchToggleSegments(documentId, action, segmentIds);
+        return Result.success("操作成功", (Void) null);
+    }
+
+    @DeleteMapping("/documents/{documentId}/segments")
+    @Operation(summary = "批量删除分段")
+    public Result<Void> batchDeleteSegments(
+            @PathVariable Long documentId,
+            @RequestParam List<Long> segmentIds,
+            HttpServletRequest request) {
+        requireAdmin(request);
+        datasetService.batchDeleteSegments(documentId, segmentIds);
+        return Result.success("分段已删除", (Void) null);
     }
 
     // ====== ChildChunk（子片段） ======

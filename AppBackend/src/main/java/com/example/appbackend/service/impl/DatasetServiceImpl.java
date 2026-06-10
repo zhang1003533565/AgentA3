@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -230,6 +231,30 @@ public class DatasetServiceImpl implements DatasetService {
     }
 
     @Override
+    public PageResponse<DatasetDTO.DocumentListItem> listDocumentsSorted(Long datasetId, String keyword, String sortBy, int current, int size) {
+        requireDataset(datasetId);
+        Sort sort = buildSort(sortBy);
+        Page<KbDocument> page = documentRepository.searchByDatasetIdWithSort(
+                datasetId,
+                StringUtils.hasText(keyword) ? keyword : null,
+                PageRequest.of(Math.max(0, current - 1), size, sort));
+        List<DatasetDTO.DocumentListItem> records = page.getContent().stream().map(this::toDocumentListItem).collect(Collectors.toList());
+        return new PageResponse<>(records, page.getTotalElements(), current, size);
+    }
+
+    private Sort buildSort(String sortBy) {
+        if (sortBy == null || sortBy.isEmpty() || "created_at".equals(sortBy)) {
+            return Sort.by(Sort.Direction.DESC, "createTime");
+        }
+        return switch (sortBy) {
+            case "-created_at" -> Sort.by(Sort.Direction.ASC, "createTime");
+            case "hit_count" -> Sort.by(Sort.Direction.ASC, "hitCount");
+            case "-hit_count" -> Sort.by(Sort.Direction.DESC, "hitCount");
+            default -> Sort.by(Sort.Direction.DESC, "createTime");
+        };
+    }
+
+    @Override
     @Transactional
     public void deleteDocument(Long documentId) {
         KbDocument doc = requireDocument(documentId);
@@ -254,6 +279,75 @@ public class DatasetServiceImpl implements DatasetService {
         KbDocument doc = requireDocument(documentId);
         doc.setEnabled(enabled ? 1 : 0);
         documentRepository.save(doc);
+    }
+
+    @Override
+    @Transactional
+    public void processDocumentAction(Long documentId, String action) {
+        KbDocument doc = requireDocument(documentId);
+        if ("pause".equals(action)) {
+            if (!KbDocument.STATUS_INDEXING.equals(doc.getIndexingStatus())) {
+                throw new BusinessException(Result.BAD_REQUEST_CODE, "仅索引中的文档可以暂停，当前状态: " + doc.getIndexingStatus());
+            }
+            doc.setIndexingStatus(KbDocument.STATUS_PAUSED);
+        } else if ("resume".equals(action)) {
+            String currentStatus = doc.getIndexingStatus();
+            if (!KbDocument.STATUS_PAUSED.equals(currentStatus) && !KbDocument.STATUS_ERROR.equals(currentStatus)) {
+                throw new BusinessException(Result.BAD_REQUEST_CODE, "仅暂停或错误的文档可以恢复，当前状态: " + currentStatus);
+            }
+            doc.setIndexingStatus(KbDocument.STATUS_INDEXING);
+        } else {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "不支持的操作: " + action + "，仅支持 pause / resume");
+        }
+        documentRepository.save(doc);
+        log.info("document id={} action={} newStatus={}", documentId, action, doc.getIndexingStatus());
+    }
+
+    @Override
+    @Transactional
+    public DatasetDTO.DocumentVO renameDocument(Long documentId, DatasetDTO.RenameRequest request) {
+        KbDocument doc = requireDocument(documentId);
+        doc.setName(request.getName());
+        doc = documentRepository.save(doc);
+        Dataset dataset = requireDataset(doc.getDatasetId());
+        return toDocumentVO(doc, dataset.getName());
+    }
+
+    @Override
+    @Transactional
+    public void archiveDocument(Long documentId) {
+        KbDocument doc = requireDocument(documentId);
+        doc.setArchived(1);
+        documentRepository.save(doc);
+    }
+
+    @Override
+    @Transactional
+    public void unarchiveDocument(Long documentId) {
+        KbDocument doc = requireDocument(documentId);
+        doc.setArchived(0);
+        documentRepository.save(doc);
+    }
+
+    @Override
+    @Transactional
+    public void retryFailedDocuments(Long datasetId, DatasetDTO.RetryRequest request) {
+        requireDataset(datasetId);
+        if (request.getDocumentIds() == null || request.getDocumentIds().isEmpty()) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "documentIds 不能为空");
+        }
+        int retried = 0;
+        for (Long docId : request.getDocumentIds()) {
+            KbDocument doc = documentRepository.findById(docId).orElse(null);
+            if (doc != null && doc.getDatasetId().equals(datasetId) && KbDocument.STATUS_ERROR.equals(doc.getIndexingStatus())) {
+                doc.setIndexingStatus(KbDocument.STATUS_WAITING);
+                doc.setErrorMessage(null);
+                documentRepository.save(doc);
+                retried++;
+                log.info("retrying failed document id={} datasetId={}", docId, datasetId);
+            }
+        }
+        log.info("retry completed datasetId={} requested={} retried={}", datasetId, request.getDocumentIds().size(), retried);
     }
 
     // ====== Segment ======
@@ -315,6 +409,86 @@ public class DatasetServiceImpl implements DatasetService {
         DocumentSegment segment = requireSegment(segmentId);
         segment.setEnabled(enabled ? 1 : 0);
         segmentRepository.save(segment);
+    }
+
+    @Override
+    @Transactional
+    public DatasetDTO.SegmentVO createSegment(Long documentId, DatasetDTO.CreateSegmentRequest request) {
+        KbDocument doc = requireDocument(documentId);
+        // 计算下一个 position
+        List<DocumentSegment> existing = segmentRepository.findByDocumentIdOrderByPositionAsc(documentId);
+        int maxPosition = existing.stream().mapToInt(DocumentSegment::getPosition).max().orElse(0);
+
+        DocumentSegment segment = new DocumentSegment();
+        segment.setDatasetId(doc.getDatasetId());
+        segment.setDocumentId(documentId);
+        segment.setPosition(maxPosition + 1);
+        segment.setContent(request.getContent());
+        segment.setWordCount(request.getContent() != null ? request.getContent().length() : 0);
+        segment.setAnswer(request.getAnswer());
+        if (request.getKeywords() != null) {
+            try {
+                segment.setKeywords(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(request.getKeywords()));
+            } catch (Exception e) {
+                segment.setKeywords("[]");
+            }
+        }
+        segment.setStatus(DocumentSegment.STATUS_COMPLETED);
+        segment = segmentRepository.save(segment);
+
+        // 更新文档分段计数
+        long newCount = segmentRepository.countByDocumentId(documentId);
+        documentRepository.updateSegmentCount(documentId, (int) newCount);
+
+        List<ChildChunk> childChunks = childChunkRepository.findBySegmentIdOrderByPositionAsc(segment.getId());
+        return toSegmentVO(segment, doc.getName(), childChunks);
+    }
+
+    @Override
+    @Transactional
+    public void batchToggleSegments(Long documentId, String action, List<Long> segmentIds) {
+        requireDocument(documentId);
+        if (segmentIds == null || segmentIds.isEmpty()) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "segmentIds 不能为空");
+        }
+        int enabledValue;
+        if ("enable".equals(action)) {
+            enabledValue = 1;
+        } else if ("disable".equals(action)) {
+            enabledValue = 0;
+        } else {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "不支持的操作: " + action + "，仅支持 enable / disable");
+        }
+        for (Long segId : segmentIds) {
+            DocumentSegment segment = segmentRepository.findById(segId).orElse(null);
+            if (segment != null && segment.getDocumentId().equals(documentId)) {
+                segment.setEnabled(enabledValue);
+                segmentRepository.save(segment);
+            }
+        }
+        log.info("batch toggle segments documentId={} action={} count={}", documentId, action, segmentIds.size());
+    }
+
+    @Override
+    @Transactional
+    public void batchDeleteSegments(Long documentId, List<Long> segmentIds) {
+        KbDocument doc = requireDocument(documentId);
+        if (segmentIds == null || segmentIds.isEmpty()) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "segmentIds 不能为空");
+        }
+        int deleted = 0;
+        for (Long segId : segmentIds) {
+            DocumentSegment segment = segmentRepository.findById(segId).orElse(null);
+            if (segment != null && segment.getDocumentId().equals(documentId)) {
+                childChunkRepository.deleteAll(childChunkRepository.findBySegmentIdOrderByPositionAsc(segId));
+                segmentRepository.delete(segment);
+                deleted++;
+            }
+        }
+        // 更新文档分段计数
+        long newCount = segmentRepository.countByDocumentId(documentId);
+        documentRepository.updateSegmentCount(documentId, (int) newCount);
+        log.info("batch deleted segments documentId={} requested={} deleted={}", documentId, segmentIds.size(), deleted);
     }
 
     // ====== ChildChunk ======
@@ -449,6 +623,7 @@ public class DatasetServiceImpl implements DatasetService {
         vo.setProcessRuleId(doc.getProcessRuleId());
         vo.setEnabled(doc.getEnabled());
         vo.setArchived(doc.getArchived());
+        vo.setHitCount(doc.getHitCount());
         vo.setErrorMessage(doc.getErrorMessage());
         vo.setIndexingStartedAt(doc.getIndexingStartedAt());
         vo.setParsingCompletedAt(doc.getParsingCompletedAt());
@@ -471,6 +646,8 @@ public class DatasetServiceImpl implements DatasetService {
         item.setWordCount(doc.getWordCount());
         item.setSegmentCount(doc.getSegmentCount());
         item.setEnabled(doc.getEnabled());
+        item.setArchived(doc.getArchived());
+        item.setHitCount(doc.getHitCount());
         item.setErrorMessage(doc.getErrorMessage());
         item.setCompletedAt(doc.getCompletedAt());
         item.setCreateTime(doc.getCreateTime());
