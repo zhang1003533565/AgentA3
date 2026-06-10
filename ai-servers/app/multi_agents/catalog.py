@@ -47,6 +47,7 @@ DIAGRAM_AGENT_SPECS = {
 
 AGENT_ORDER = [
     "leader_agent",
+    "architecture_prompt_agent",
     *DIAGRAM_AGENT_SPECS.keys(),
     "diagram_mind_map_agent",
     "mind_map_agent",
@@ -140,7 +141,7 @@ def _diagram_profile(agent_name: str, role: str, intent: str, purpose: str, exam
         "diagram_mind_map_agent": "mermaid_mindmap",
         "diagram_flowchart_agent": "mermaid_flowchart",
         "diagram_activity_agent": "mermaid_activity_flowchart",
-        "diagram_architecture_agent": "mermaid_architecture",
+        "diagram_architecture_agent": "image_generation_result",
     }[agent_name]
     alias_map = {
         "diagram_mind_map_agent": ["mind_map", "mindmap", "思维导图", "脑图", "思维导图智能体", "mind_map_agent"],
@@ -150,19 +151,19 @@ def _diagram_profile(agent_name: str, role: str, intent: str, purpose: str, exam
     }
     return {
         "role": role,
-        "purpose": purpose,
+        "purpose": "把系统模块、服务依赖和数据流整理为架构图图片。" if agent_name == "diagram_architecture_agent" else purpose,
         "inputs": ["diagram_material", "evidence"],
         "outputs": [output_type],
-        "skills": ["diagram generation", "mermaid", intent],
+        "skills": ["architecture image generation", "text-to-image", intent] if agent_name == "diagram_architecture_agent" else ["diagram generation", "mermaid", intent],
         "intent": intent,
         "needRetrieval": True,
         "executionMode": "rag_then_agent",
-        "executionModeLabel": f"RAG 检索后生成{role.replace('智能体', '')}",
+        "executionModeLabel": "RAG 检索后生成架构图图片" if agent_name == "diagram_architecture_agent" else f"RAG 检索后生成{role.replace('智能体', '')}",
         "defaultRagStrategy": "multi_agent_rag",
         "supportedRagStrategies": ALL_RAG_STRATEGIES,
         "aliases": [intent, role, role.replace("智能体", ""), agent_name, *alias_map[agent_name]],
         "exampleInput": example_input,
-        "requiredModelModalities": TEXT_MODEL_MODALITY,
+        "requiredModelModalities": IMAGE_MODEL_MODALITY if agent_name == "diagram_architecture_agent" else TEXT_MODEL_MODALITY,
     }
 
 
@@ -202,6 +203,22 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "aliases": ["diagram_mind_map_image", "思维导图图片生成", "思维导图图片生成智能体"],
         "exampleInput": "一张教学用思维导图图片，中心主题是'进程调度'，位于画面中央，使用深蓝色粗体字...",
         "requiredModelModalities": IMAGE_MODEL_MODALITY,
+    },
+    "architecture_prompt_agent": {
+        "role": "图表架构图提示词智能体",
+        "purpose": "把系统说明、模块依赖和检索证据整理为纯文本提示词，用于描述架构图应如何呈现。",
+        "inputs": ["topic", "evidence"],
+        "outputs": ["architecture_prompt_text"],
+        "skills": ["prompt generation", "architecture visualization planning", "visual description"],
+        "intent": "architecture_diagram_prompt",
+        "needRetrieval": True,
+        "executionMode": "rag_then_agent",
+        "executionModeLabel": "RAG 检索后生成架构图提示词",
+        "defaultRagStrategy": "multi_agent_rag",
+        "supportedRagStrategies": ALL_RAG_STRATEGIES,
+        "aliases": ["architecture_diagram_prompt", "架构图提示词", "架构图提示词智能体", "图表架构图提示词", "architecture_prompt_agent"],
+        "exampleInput": "为智慧校园 AI RAG 系统生成一段可交给图表架构图智能体使用的提示词",
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
     },
     "mind_map_agent": {
         "role": "思维导图图片提示词智能体",
@@ -292,6 +309,11 @@ AGENT_ALIASES = {
     for alias in [agent_name, *profile.get("aliases", [])]
 }
 AGENT_ALIASES.update({
+    "architecture_diagram_prompt": "architecture_prompt_agent",
+    "架构图提示词": "architecture_prompt_agent",
+    "架构图提示词智能体": "architecture_prompt_agent",
+    "图表架构图提示词": "architecture_prompt_agent",
+    "architecture_prompt_agent": "architecture_prompt_agent",
     "mind_map": "diagram_mind_map_agent",
     "mindmap": "diagram_mind_map_agent",
     "mind map": "diagram_mind_map_agent",
@@ -337,6 +359,7 @@ def get_agent_catalog() -> Dict[str, Any]:
             "default": ["leader_agent", "textbook_knowledge_agent"],
             "mindMap": ["leader_agent", "textbook_knowledge_agent", "diagram_mind_map_agent"],
             "mindMapImage": ["leader_agent", "textbook_knowledge_agent", "mind_map_agent"],
+            "architecturePrompt": ["leader_agent", "textbook_knowledge_agent", "architecture_prompt_agent", "diagram_architecture_agent"],
             "diagram": ["leader_agent", "textbook_knowledge_agent", *DIAGRAM_AGENT_SPECS.keys()],
             "flowchart": ["leader_agent", "textbook_knowledge_agent", "diagram_flowchart_agent"],
             "activityDiagram": ["leader_agent", "textbook_knowledge_agent", "diagram_activity_agent"],
