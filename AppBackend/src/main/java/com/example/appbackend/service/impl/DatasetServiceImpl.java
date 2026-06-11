@@ -408,6 +408,7 @@ public class DatasetServiceImpl implements DatasetService {
         }
         if (request.getAnswer() != null) segment.setAnswer(request.getAnswer());
         if (request.getKeywords() != null) segment.setKeywords(request.getKeywords());
+        if (request.getAttachments() != null) segment.setAttachments(request.getAttachments());
         if (request.getEnabled() != null) segment.setEnabled(request.getEnabled());
         segment = segmentRepository.save(segment);
         KbDocument doc = requireDocument(segment.getDocumentId());
@@ -532,6 +533,42 @@ public class DatasetServiceImpl implements DatasetService {
                 .stream().map(this::toChildChunkVO).collect(Collectors.toList());
     }
 
+    @Override
+    @Transactional
+    public DatasetDTO.ChildChunkVO createChildChunk(Long segmentId, DatasetDTO.ChildChunkRequest request) {
+        DocumentSegment segment = requireSegment(segmentId);
+        List<ChildChunk> existing = childChunkRepository.findBySegmentIdOrderByPositionAsc(segmentId);
+        int maxPosition = existing.stream().mapToInt(ChildChunk::getPosition).max().orElse(0);
+
+        ChildChunk childChunk = new ChildChunk();
+        childChunk.setDatasetId(segment.getDatasetId());
+        childChunk.setDocumentId(segment.getDocumentId());
+        childChunk.setSegmentId(segmentId);
+        childChunk.setPosition(maxPosition + 1);
+        childChunk.setContent(request.getContent());
+        childChunk.setWordCount(request.getContent() != null ? request.getContent().length() : 0);
+        childChunk.setType(ChildChunk.TYPE_CUSTOMIZED);
+        childChunk = childChunkRepository.save(childChunk);
+        return toChildChunkVO(childChunk);
+    }
+
+    @Override
+    @Transactional
+    public DatasetDTO.ChildChunkVO updateChildChunk(Long childChunkId, DatasetDTO.ChildChunkRequest request) {
+        ChildChunk childChunk = requireChildChunk(childChunkId);
+        childChunk.setContent(request.getContent());
+        childChunk.setWordCount(request.getContent() != null ? request.getContent().length() : 0);
+        childChunk = childChunkRepository.save(childChunk);
+        return toChildChunkVO(childChunk);
+    }
+
+    @Override
+    @Transactional
+    public void deleteChildChunk(Long childChunkId) {
+        ChildChunk childChunk = requireChildChunk(childChunkId);
+        childChunkRepository.delete(childChunk);
+    }
+
     // ====== Helper Methods ======
 
     private Dataset requireDataset(Long datasetId) {
@@ -547,6 +584,11 @@ public class DatasetServiceImpl implements DatasetService {
     private DocumentSegment requireSegment(Long segmentId) {
         return segmentRepository.findById(segmentId)
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "分段不存在: " + segmentId));
+    }
+
+    private ChildChunk requireChildChunk(Long childChunkId) {
+        return childChunkRepository.findById(childChunkId)
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "子片段不存在: " + childChunkId));
     }
 
     private Map<String, Object> buildIngestRequest(KbDocument doc, DatasetDTO.DocumentCreateRequest request, Dataset dataset) {
@@ -812,9 +854,9 @@ public class DatasetServiceImpl implements DatasetService {
         vo.setAttachments(s.getAttachments());
         vo.setCreateTime(s.getCreateTime());
         vo.setUpdateTime(s.getUpdateTime());
-        if (childChunks != null && !childChunks.isEmpty()) {
-            vo.setChildChunks(childChunks.stream().map(this::toChildChunkVO).collect(Collectors.toList()));
-        }
+        vo.setChildChunks(childChunks == null
+                ? Collections.emptyList()
+                : childChunks.stream().map(this::toChildChunkVO).collect(Collectors.toList()));
         return vo;
     }
 
@@ -825,10 +867,13 @@ public class DatasetServiceImpl implements DatasetService {
         item.setDocumentName(documentName);
         item.setPosition(s.getPosition());
         item.setContent(s.getContent());
+        item.setAnswer(s.getAnswer());
         item.setWordCount(s.getWordCount());
         item.setHitCount(s.getHitCount());
         item.setEnabled(s.getEnabled());
         item.setStatus(s.getStatus());
+        item.setKeywords(s.getKeywords());
+        item.setAttachments(s.getAttachments());
         item.setCreateTime(s.getCreateTime());
         return item;
     }

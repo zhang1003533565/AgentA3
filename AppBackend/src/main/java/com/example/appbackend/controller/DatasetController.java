@@ -311,4 +311,34 @@ public class DatasetController {
         requireAdmin(request);
         return Result.success(datasetService.listChildChunks(segmentId));
     }
+
+    @PostMapping("/segments/{segmentId}/child-chunks")
+    @Operation(summary = "新增子片段")
+    public Result<DatasetDTO.ChildChunkVO> createChildChunk(
+            @PathVariable Long segmentId,
+            @Valid @RequestBody DatasetDTO.ChildChunkRequest req,
+            HttpServletRequest request) {
+        requireAdmin(request);
+        return Result.success(datasetService.createChildChunk(segmentId, req));
+    }
+
+    @PutMapping("/child-chunks/{childChunkId}")
+    @Operation(summary = "更新子片段")
+    public Result<DatasetDTO.ChildChunkVO> updateChildChunk(
+            @PathVariable Long childChunkId,
+            @Valid @RequestBody DatasetDTO.ChildChunkRequest req,
+            HttpServletRequest request) {
+        requireAdmin(request);
+        return Result.success(datasetService.updateChildChunk(childChunkId, req));
+    }
+
+    @DeleteMapping("/child-chunks/{childChunkId}")
+    @Operation(summary = "删除子片段")
+    public Result<Void> deleteChildChunk(
+            @PathVariable Long childChunkId,
+            HttpServletRequest request) {
+        requireAdmin(request);
+        datasetService.deleteChildChunk(childChunkId);
+        return Result.success("子片段已删除", (Void) null);
+    }
 }

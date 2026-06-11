@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 import {
   Button,
   Checkbox,
@@ -36,6 +37,8 @@ import {
   EyeOutlined,
   FileTextOutlined,
   FolderOutlined,
+  FullscreenExitOutlined,
+  FullscreenOutlined,
   GlobalOutlined,
   InfoCircleOutlined,
   LoadingOutlined,
@@ -44,6 +47,7 @@ import {
   PictureOutlined,
   PlusOutlined,
   ReloadOutlined,
+  SaveOutlined,
   SearchOutlined,
   SettingOutlined,
   StarFilled,
@@ -55,7 +59,7 @@ import {
   pauseDocument, renameDocument, archiveDocument, unarchiveDocument, retryDocuments,
   getSegments, getSegment, updateSegment, deleteSegment, toggleSegment,
   createSegment, batchToggleSegments, batchDeleteSegments,
-  getChildChunks,
+  createChildChunk, updateChildChunk, deleteChildChunk,
   convertPdf, convertPpt,
   runRagRecallTest,
   getRagVectorStoreHealth, getRagEmbeddingHealth, getRagGraphStoreHealth,
@@ -187,6 +191,89 @@ const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file)
 })
 
+const readFileAsText = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => resolve(String(reader.result || ''))
+  reader.onerror = reject
+  reader.readAsText(file, 'utf-8')
+})
+
+const parseJsonArray = (value) => {
+  if (Array.isArray(value)) return value
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return String(value).split(',').map(item => item.trim()).filter(Boolean)
+  }
+}
+
+const parseCsvText = (text) => {
+  const rows = []
+  let row = []
+  let field = ''
+  let quoted = false
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]
+    const next = text[i + 1]
+    if (quoted) {
+      if (ch === '"' && next === '"') {
+        field += '"'
+        i += 1
+      } else if (ch === '"') {
+        quoted = false
+      } else {
+        field += ch
+      }
+    } else if (ch === '"') {
+      quoted = true
+    } else if (ch === ',') {
+      row.push(field.trim())
+      field = ''
+    } else if (ch === '\n') {
+      row.push(field.trim())
+      if (row.some(Boolean)) rows.push(row)
+      row = []
+      field = ''
+    } else if (ch !== '\r') {
+      field += ch
+    }
+  }
+  row.push(field.trim())
+  if (row.some(Boolean)) rows.push(row)
+  return rows
+}
+
+const parseMaybeJsonArray = (value) => {
+  if (Array.isArray(value)) return value
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return String(value).split(/[,，\n]/).map(item => item.trim()).filter(Boolean)
+  }
+}
+
+const stringifyKeywordInput = (value) => {
+  const items = parseMaybeJsonArray(value)
+  return items.length ? JSON.stringify(items) : ''
+}
+
+const renderAttachmentThumb = (att, className = '') => {
+  if (att?.contentBase64) {
+    return (
+      <img
+        src={`data:${att.type || 'image/png'};base64,${att.contentBase64}`}
+        alt={att.name || 'attachment'}
+        className={className}
+      />
+    )
+  }
+  return <PictureOutlined />
+}
+
 // ======================== Component ========================
 
 function KnowledgeBaseManage() {
@@ -244,8 +331,17 @@ function KnowledgeBaseManage() {
   const [documentModalLoading, setDocumentModalLoading] = useState(false)
   const [segmentDrawerVisible, setSegmentDrawerVisible] = useState(false)
   const [activeSegment, setActiveSegment] = useState(null)
-  const [segmentEditDrawerVisible, setSegmentEditDrawerVisible] = useState(false)
+  const [segmentDrawerMode, setSegmentDrawerMode] = useState('view')
+  const [segmentPreviewMode, setSegmentPreviewMode] = useState(false)
+  const [segmentFullScreen, setSegmentFullScreen] = useState(false)
   const [segmentEditLoading, setSegmentEditLoading] = useState(false)
+  const [childChunkLoading, setChildChunkLoading] = useState(false)
+  const [editingChildChunkId, setEditingChildChunkId] = useState(null)
+  const [childChunkDraft, setChildChunkDraft] = useState('')
+  const [newChildChunkDraft, setNewChildChunkDraft] = useState('')
+  const [csvImporting, setCsvImporting] = useState(false)
+  const [csvImportProgress, setCsvImportProgress] = useState(null)
+  const [segmentAttachmentDraft, setSegmentAttachmentDraft] = useState([])
   const [uploadFileList, setUploadFileList] = useState([])
   const [convertResult, setConvertResult] = useState(null)
   const [convertLoading, setConvertLoading] = useState(false)
@@ -392,6 +488,34 @@ function KnowledgeBaseManage() {
     loadHealth()
     loadEmbeddingOptions()
   }, [])
+
+  useEffect(() => {
+    if (!currentDocument) return undefined
+    const running = ['waiting', 'parsing', 'cleaning', 'splitting', 'indexing'].includes(currentDocument.indexingStatus)
+    if (!running) return undefined
+    const timer = window.setInterval(async () => {
+      try {
+        const res = await getDocument(currentDocument.id)
+        setCurrentDocument(res.data)
+        if (res.data?.indexingStatus === 'completed') {
+          loadSegments(currentDocument.id, segmentPage, segmentSearch)
+          if (currentDataset) loadDocuments(currentDataset.id, documentPage, documentSearch)
+        }
+      } catch { /* polling should stay quiet */ }
+    }, 2500)
+    return () => window.clearInterval(timer)
+  }, [currentDocument?.id, currentDocument?.indexingStatus, segmentPage, segmentSearch, currentDataset?.id, documentPage, documentSearch])
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's' && segmentDrawerVisible && segmentDrawerMode === 'edit') {
+        event.preventDefault()
+        handleSegmentEditOk()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [segmentDrawerVisible, segmentDrawerMode, activeSegment?.id])
 
   // ======================== Navigation ========================
 
@@ -832,24 +956,41 @@ function KnowledgeBaseManage() {
 
   // ======================== Segment ========================
 
-  const openSegmentDetail = async (segment) => {
+  const hydrateSegmentForm = (segment) => {
+    const attachments = parseMaybeJsonArray(segment?.attachments)
+    segmentEditForm.setFieldsValue({
+      content: segment?.content || '',
+      answer: segment?.answer || '',
+      keywords: stringifyKeywordInput(segment?.keywords),
+      enabled: segment?.enabled !== 0,
+    })
+    setSegmentAttachmentDraft(attachments)
+  }
+
+  const refreshActiveSegment = async (segmentId = activeSegment?.id) => {
+    if (!segmentId) return null
+    const res = await getSegment(segmentId)
+    setActiveSegment(res.data)
+    hydrateSegmentForm(res.data)
+    return res.data
+  }
+
+  const openSegmentDetail = async (segment, mode = 'view') => {
     setActiveSegment(segment)
+    setSegmentDrawerMode(mode)
+    setSegmentPreviewMode(false)
+    setEditingChildChunkId(null)
+    setChildChunkDraft('')
+    setNewChildChunkDraft('')
+    hydrateSegmentForm(segment)
     try {
-      const res = await getSegment(segment.id)
-      setActiveSegment(res.data)
+      await refreshActiveSegment(segment.id)
     } catch { /* use existing data */ }
     setSegmentDrawerVisible(true)
   }
 
   const openSegmentEdit = (segment) => {
-    setActiveSegment(segment)
-    segmentEditForm.setFieldsValue({
-      content: segment.content,
-      answer: segment.answer,
-      keywords: segment.keywords,
-      enabled: segment.enabled !== 0,
-    })
-    setSegmentEditDrawerVisible(true)
+    openSegmentDetail(segment, 'edit')
   }
 
   const handleSegmentEditOk = async () => {
@@ -859,12 +1000,14 @@ function KnowledgeBaseManage() {
       await updateSegment(activeSegment.id, {
         content: values.content,
         answer: values.answer,
-        keywords: values.keywords,
+        keywords: stringifyKeywordInput(values.keywords),
+        attachments: JSON.stringify(segmentAttachmentDraft || []),
         enabled: values.enabled ? 1 : 0,
       })
       message.success('分段更新成功')
-      setSegmentEditDrawerVisible(false)
+      setSegmentDrawerMode('view')
       loadSegments(currentDocument.id, segmentPage, segmentSearch)
+      refreshActiveSegment(activeSegment.id)
     } catch (err) {
       if (err?.message && !err?.errorFields) message.error(err.message)
     } finally { setSegmentEditLoading(false) }
@@ -876,6 +1019,99 @@ function KnowledgeBaseManage() {
       message.success('分段已删除')
       loadSegments(currentDocument.id, segmentPage, segmentSearch)
     } catch (err) { message.error(err.message) }
+  }
+
+  const handleSegmentAttachmentFiles = async (files) => {
+    const next = []
+    for (const file of files) {
+      const b64 = await readFileAsBase64(file)
+      next.push({ name: file.name, contentBase64: b64, type: file.type || 'image/png' })
+    }
+    setSegmentAttachmentDraft(prev => [...prev, ...next])
+  }
+
+  const handleCreateChildChunk = async () => {
+    if (!activeSegment?.id || !newChildChunkDraft.trim()) return
+    setChildChunkLoading(true)
+    try {
+      await createChildChunk(activeSegment.id, { content: newChildChunkDraft.trim() })
+      setNewChildChunkDraft('')
+      await refreshActiveSegment(activeSegment.id)
+      message.success('子分段已添加')
+    } catch (err) {
+      message.error(err.message || '添加子分段失败')
+    } finally { setChildChunkLoading(false) }
+  }
+
+  const handleUpdateChildChunk = async (childChunkId) => {
+    if (!childChunkDraft.trim()) return
+    setChildChunkLoading(true)
+    try {
+      await updateChildChunk(childChunkId, { content: childChunkDraft.trim() })
+      setEditingChildChunkId(null)
+      setChildChunkDraft('')
+      await refreshActiveSegment(activeSegment.id)
+      message.success('子分段已更新')
+    } catch (err) {
+      message.error(err.message || '更新子分段失败')
+    } finally { setChildChunkLoading(false) }
+  }
+
+  const handleDeleteChildChunk = async (childChunkId) => {
+    setChildChunkLoading(true)
+    try {
+      await deleteChildChunk(childChunkId)
+      await refreshActiveSegment(activeSegment.id)
+      message.success('子分段已删除')
+    } catch (err) {
+      message.error(err.message || '删除子分段失败')
+    } finally { setChildChunkLoading(false) }
+  }
+
+  const handleImportSegmentsCsv = async (file) => {
+    if (!currentDocument || csvImporting) return
+    setCsvImporting(true)
+    setCsvImportProgress({ done: 0, total: 0 })
+    try {
+      const rows = parseCsvText(await readFileAsText(file))
+      const header = (rows[0] || []).map(cell => cell.toLowerCase())
+      const hasHeader = header.some(cell => ['content', 'segment content', 'question', 'answer', 'keywords'].includes(cell))
+      const bodyRows = hasHeader ? rows.slice(1) : rows
+      const contentIdx = hasHeader ? Math.max(header.indexOf('content'), header.indexOf('segment content'), header.indexOf('question')) : 0
+      const answerIdx = hasHeader ? header.indexOf('answer') : 1
+      const keywordsIdx = hasHeader ? header.indexOf('keywords') : 2
+      let done = 0
+      setCsvImportProgress({ done, total: bodyRows.length })
+      for (const row of bodyRows) {
+        const content = row[contentIdx >= 0 ? contentIdx : 0]
+        if (!content) continue
+        await createSegment(currentDocument.id, {
+          content,
+          answer: answerIdx >= 0 ? row[answerIdx] : undefined,
+          keywords: keywordsIdx >= 0 ? parseJsonArray(row[keywordsIdx]) : undefined,
+        })
+        done += 1
+        setCsvImportProgress({ done, total: bodyRows.length })
+      }
+      message.success(`已导入 ${done} 个分段`)
+      loadSegments(currentDocument.id, 1, segmentSearch)
+    } catch (err) {
+      message.error(err.message || 'CSV 导入失败')
+    } finally {
+      setCsvImporting(false)
+      setTimeout(() => setCsvImportProgress(null), 1200)
+    }
+  }
+
+  const handleDownloadSegmentCsvTemplate = () => {
+    const csv = 'content,answer,keywords\n"segment content","answer for qa mode","keyword1,keyword2"\n'
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = currentDocument?.docForm === 'qa_model' ? 'qa-segments-template.csv' : 'segments-template.csv'
+    link.click()
+    URL.revokeObjectURL(url)
   }
 
   const handleToggleSegment = async (segment, enabled) => {
@@ -951,7 +1187,7 @@ function KnowledgeBaseManage() {
       await createSegment(currentDocument.id, {
         content: values.content,
         answer: values.answer,
-        keywords: values.keywords,
+        keywords: parseMaybeJsonArray(values.keywords),
         attachments: attachments.length > 0 ? attachments : undefined,
       })
       message.success('分段已添加')
@@ -1996,6 +2232,19 @@ function KnowledgeBaseManage() {
               { value: 'disabled', label: '已禁用' },
             ]} />
           <div style={{ flex: 1 }} />
+          <Button size="small" onClick={handleDownloadSegmentCsvTemplate}>
+            CSV 模板
+          </Button>
+          <Upload
+            accept=".csv"
+            showUploadList={false}
+            beforeUpload={(file) => {
+              handleImportSegmentsCsv(file)
+              return false
+            }}
+          >
+            <Button size="small" loading={csvImporting} icon={<UploadOutlined />}>批量导入</Button>
+          </Upload>
           <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => {
             newSegmentForm.resetFields()
             setSegmentImages([])
@@ -2003,6 +2252,11 @@ function KnowledgeBaseManage() {
           }}>
             添加分段
           </Button>
+          {csvImportProgress && (
+            <span style={{ fontSize: 12, color: '#6b7280' }}>
+              导入 {csvImportProgress.done}/{csvImportProgress.total}
+            </span>
+          )}
           <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 600 }}>共 {segmentTotal} 个分段</span>
         </div>
 
@@ -2040,7 +2294,14 @@ function KnowledgeBaseManage() {
                     <span>{seg.hitCount || 0} 命中</span>
                   </div>
                 </div>
-                <div className="kb-segment-content">{seg.content}</div>
+                {seg.answer ? (
+                  <div className="kb-qa-segment-preview">
+                    <div className="kb-qa-row"><span className="kb-qa-label">Q</span><div className="kb-segment-content">{seg.content}</div></div>
+                    <div className="kb-qa-row"><span className="kb-qa-label answer">A</span><div className="kb-segment-content">{seg.answer}</div></div>
+                  </div>
+                ) : (
+                  <div className="kb-segment-content">{seg.content}</div>
+                )}
                 {seg.attachments && (() => {
                   try {
                     const atts = typeof seg.attachments === 'string' ? JSON.parse(seg.attachments) : seg.attachments
@@ -2700,6 +2961,225 @@ function KnowledgeBaseManage() {
     )
   }
 
+  const renderSegmentViewer = (title, value, labelClass = '') => (
+    <section className="kb-segment-detail-block">
+      <div className="kb-segment-detail-title">
+        <span className={`kb-qa-label ${labelClass}`}>{title}</span>
+        <span>{title === 'Q' ? '问题' : title === 'A' ? '回答' : '内容'}</span>
+      </div>
+      <div className="kb-segment-markdown">
+        {segmentPreviewMode
+          ? <ReactMarkdown>{value || ''}</ReactMarkdown>
+          : <pre>{value || ''}</pre>}
+      </div>
+    </section>
+  )
+
+  const renderSegmentDrawer = () => {
+    const keywords = parseMaybeJsonArray(activeSegment?.keywords)
+    const attachments = parseMaybeJsonArray(activeSegment?.attachments)
+    const childChunks = activeSegment?.childChunks || []
+    const isEditing = segmentDrawerMode === 'edit'
+    const drawerWidth = segmentFullScreen ? '100vw' : 860
+
+    return (
+      <Drawer
+        className="kb-segment-detail-drawer"
+        title={activeSegment ? `Chunk-${String(activeSegment.position ?? 0).padStart(2, '0')}` : '分段详情'}
+        open={segmentDrawerVisible}
+        onClose={() => {
+          setSegmentDrawerVisible(false)
+          setSegmentFullScreen(false)
+          setSegmentDrawerMode('view')
+          setSegmentPreviewMode(false)
+        }}
+        width={drawerWidth}
+        extra={activeSegment && (
+          <Space>
+            <Tooltip title={segmentPreviewMode ? '查看原文' : 'Markdown 预览'}>
+              <Button size="small" icon={segmentPreviewMode ? <FileTextOutlined /> : <EyeOutlined />} onClick={() => setSegmentPreviewMode(v => !v)} />
+            </Tooltip>
+            <Tooltip title={segmentFullScreen ? '退出全屏' : '全屏'}>
+              <Button
+                size="small"
+                icon={segmentFullScreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                onClick={() => setSegmentFullScreen(v => !v)}
+              />
+            </Tooltip>
+            {isEditing ? (
+              <>
+                <Button size="small" onClick={() => {
+                  hydrateSegmentForm(activeSegment)
+                  setSegmentDrawerMode('view')
+                }}>
+                  取消
+                </Button>
+                <Button type="primary" size="small" icon={<SaveOutlined />} loading={segmentEditLoading} onClick={handleSegmentEditOk}>
+                  保存
+                </Button>
+              </>
+            ) : (
+              <Button size="small" icon={<EditOutlined />} onClick={() => setSegmentDrawerMode('edit')}>
+                编辑
+              </Button>
+            )}
+          </Space>
+        )}
+      >
+        {activeSegment && (
+          <div className="kb-segment-detail-shell">
+            <div className="kb-segment-detail-main">
+              <div className="kb-segment-detail-meta">
+                <Tag>{activeSegment.documentName || currentDocument?.name || '-'}</Tag>
+                <Tag color={activeSegment.enabled !== 0 ? 'success' : 'default'}>{activeSegment.enabled !== 0 ? '已启用' : '已禁用'}</Tag>
+                <span>{formatCount(activeSegment.wordCount)} 字</span>
+                <span>{formatCount(activeSegment.tokens)} tokens</span>
+                <span>{activeSegment.hitCount || 0} 命中</span>
+                {isEditing && <span>Ctrl/⌘ + S 保存</span>}
+              </div>
+
+              {isEditing ? (
+                <Form form={segmentEditForm} layout="vertical" className="kb-segment-edit-form">
+                  <Form.Item name="content" label={activeSegment.answer ? '问题 / Q' : '内容'} rules={[{ required: true, message: '请输入分段内容' }]}>
+                    <TextArea rows={segmentFullScreen ? 16 : 10} />
+                  </Form.Item>
+                  <Form.Item name="answer" label="回答 / A">
+                    <TextArea rows={5} placeholder="QA 模式下的回答，可留空" />
+                  </Form.Item>
+                  <Form.Item name="keywords" label="关键词">
+                    <TextArea rows={2} placeholder="关键词1, 关键词2 或 JSON 数组" />
+                  </Form.Item>
+                  <Form.Item name="enabled" label="启用检索" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                  <div className="kb-segment-section-heading">附件</div>
+                  <div className="kb-segment-attachments">
+                    {segmentAttachmentDraft.map((att, idx) => (
+                      <div key={`${att.name || 'attachment'}-${idx}`} className="kb-segment-attachment">
+                        {renderAttachmentThumb(att)}
+                        <Button
+                          size="small"
+                          type="text"
+                          danger
+                          icon={<CloseCircleFilled />}
+                          onClick={() => setSegmentAttachmentDraft(prev => prev.filter((_, i) => i !== idx))}
+                        />
+                      </div>
+                    ))}
+                    <label className="kb-segment-attachment-add">
+                      <PictureOutlined />
+                      <span>添加</span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/gif,image/webp"
+                        multiple
+                        style={{ display: 'none' }}
+                        onChange={(e) => {
+                          handleSegmentAttachmentFiles(Array.from(e.target.files || []))
+                          e.target.value = ''
+                        }}
+                      />
+                    </label>
+                  </div>
+                </Form>
+              ) : (
+                <div className="kb-segment-read">
+                  {activeSegment.answer ? (
+                    <>
+                      {renderSegmentViewer('Q', activeSegment.content)}
+                      {renderSegmentViewer('A', activeSegment.answer, 'answer')}
+                    </>
+                  ) : (
+                    renderSegmentViewer('正文', activeSegment.content)
+                  )}
+
+                  {attachments.length > 0 && (
+                    <section className="kb-segment-detail-block">
+                      <div className="kb-segment-section-heading">附件</div>
+                      <div className="kb-segment-attachments readonly">
+                        {attachments.map((att, idx) => (
+                          <div key={`${att.name || 'attachment'}-${idx}`} className="kb-segment-attachment">
+                            {renderAttachmentThumb(att)}
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {keywords.length > 0 && (
+                    <section className="kb-segment-detail-block">
+                      <div className="kb-segment-section-heading">关键词</div>
+                      <div className="kb-segment-keywords">
+                        {keywords.map((kw, i) => <span key={`${kw}-${i}`} className="kb-segment-keyword">{kw}</span>)}
+                      </div>
+                    </section>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <aside className="kb-segment-detail-side">
+              <div className="kb-segment-side-header">
+                <div>
+                  <div className="kb-segment-side-title">子分段</div>
+                  <div className="kb-segment-side-desc">父子切片检索时用于精确召回</div>
+                </div>
+                <Tag>{childChunks.length}</Tag>
+              </div>
+              <div className="kb-child-add-row">
+                <Input.TextArea
+                  rows={2}
+                  value={newChildChunkDraft}
+                  onChange={(e) => setNewChildChunkDraft(e.target.value)}
+                  placeholder="新增子分段内容..."
+                />
+                <Button type="primary" loading={childChunkLoading} onClick={handleCreateChildChunk}>添加</Button>
+              </div>
+              <div className="kb-child-list">
+                {childChunks.length === 0 ? (
+                  <div className="kb-child-empty">
+                    <DatabaseOutlined />
+                    <span>暂无子分段</span>
+                  </div>
+                ) : childChunks.map((cc) => (
+                  <div key={cc.id} className="kb-child-chunk-card">
+                    <div className="kb-child-chunk-head">
+                      <span>C-{cc.position}</span>
+                      <span>{formatCount(cc.wordCount)} 字 · {cc.type || 'chunk'}</span>
+                      <Space size={2}>
+                        <Button type="text" size="small" icon={<EditOutlined />} onClick={() => {
+                          setEditingChildChunkId(cc.id)
+                          setChildChunkDraft(cc.content || '')
+                        }} />
+                        <Popconfirm title="删除此子分段？" onConfirm={() => handleDeleteChildChunk(cc.id)}>
+                          <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                        </Popconfirm>
+                      </Space>
+                    </div>
+                    {editingChildChunkId === cc.id ? (
+                      <div className="kb-child-edit">
+                        <Input.TextArea rows={4} value={childChunkDraft} onChange={(e) => setChildChunkDraft(e.target.value)} />
+                        <Space>
+                          <Button size="small" type="primary" loading={childChunkLoading} onClick={() => handleUpdateChildChunk(cc.id)}>保存</Button>
+                          <Button size="small" onClick={() => {
+                            setEditingChildChunkId(null)
+                            setChildChunkDraft('')
+                          }}>取消</Button>
+                        </Space>
+                      </div>
+                    ) : (
+                      <div className="kb-child-chunk-content">{cc.content}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </aside>
+          </div>
+        )}
+      </Drawer>
+    )
+  }
+
   // ======================== Main Render ========================
 
   return (
@@ -2729,93 +3209,7 @@ function KnowledgeBaseManage() {
         </Form>
       </Modal>
 
-      {/* Segment Detail Drawer */}
-      <Drawer
-        title={activeSegment ? `分段详情 #${activeSegment.position ?? '-'}` : '分段详情'}
-        open={segmentDrawerVisible}
-        onClose={() => setSegmentDrawerVisible(false)}
-        width={560}
-      >
-        {activeSegment && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <Tag>{activeSegment.documentName || '-'}</Tag>
-              <Tag color={activeSegment.enabled !== 0 ? 'success' : 'default'}>
-                {activeSegment.enabled !== 0 ? '已启用' : '已禁用'}
-              </Tag>
-              <span style={{ fontSize: 12, color: '#9ca3af' }}>
-                {formatCount(activeSegment.wordCount)} 字 · {activeSegment.hitCount || 0} 命中
-              </span>
-            </div>
-            <div style={{ padding: 16, borderRadius: 8, border: '0.5px solid #e5e7eb', background: '#f9fafb', lineHeight: 1.8, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-              {activeSegment.content}
-            </div>
-            {activeSegment.answer && (
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>回答 (QA)</div>
-                <div style={{ padding: 12, borderRadius: 8, border: '0.5px solid #e5e7eb', background: '#fff', lineHeight: 1.7 }}>
-                  {activeSegment.answer}
-                </div>
-              </div>
-            )}
-            {activeSegment.keywords && (() => {
-              try {
-                const kws = typeof activeSegment.keywords === 'string' ? JSON.parse(activeSegment.keywords) : activeSegment.keywords
-                if (Array.isArray(kws) && kws.length > 0) {
-                  return (
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>关键词</div>
-                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        {kws.map((kw, i) => <Tag key={i}>{kw}</Tag>)}
-                      </div>
-                    </div>
-                  )
-                }
-              } catch { /* ignore */ }
-              return null
-            })()}
-            {activeSegment.childChunks && activeSegment.childChunks.length > 0 && (
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
-                  子片段 ({activeSegment.childChunks.length})
-                </div>
-                {activeSegment.childChunks.map((cc) => (
-                  <div key={cc.id} style={{ padding: 10, borderRadius: 8, border: '0.5px solid #e5e7eb', marginBottom: 6, fontSize: 12, lineHeight: 1.7 }}>
-                    <div style={{ fontSize: 10, color: '#9ca3af', marginBottom: 4 }}>
-                      #{cc.position} · {cc.wordCount} 字 · {cc.type}
-                    </div>
-                    {cc.content}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </Drawer>
-
-      {/* Segment Edit Drawer */}
-      <Drawer
-        title="编辑分段"
-        open={segmentEditDrawerVisible}
-        onClose={() => setSegmentEditDrawerVisible(false)}
-        width={560}
-        extra={<Button type="primary" onClick={handleSegmentEditOk} loading={segmentEditLoading}>保存</Button>}
-      >
-        <Form form={segmentEditForm} layout="vertical">
-          <Form.Item name="content" label="内容">
-            <TextArea rows={10} />
-          </Form.Item>
-          <Form.Item name="answer" label="回答 (QA 模式)">
-            <TextArea rows={4} />
-          </Form.Item>
-          <Form.Item name="keywords" label="关键词 (JSON 数组)">
-            <Input placeholder='["关键词1","关键词2"]' />
-          </Form.Item>
-          <Form.Item name="enabled" label="启用" valuePropName="checked">
-            <Switch />
-          </Form.Item>
-        </Form>
-      </Drawer>
+      {renderSegmentDrawer()}
 
       {/* New Segment Modal */}
       <Modal

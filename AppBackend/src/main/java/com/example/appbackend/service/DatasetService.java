@@ -69,4 +69,10 @@ public interface DatasetService {
     // ====== ChildChunk（子片段） ======
 
     java.util.List<DatasetDTO.ChildChunkVO> listChildChunks(Long segmentId);
+
+    DatasetDTO.ChildChunkVO createChildChunk(Long segmentId, DatasetDTO.ChildChunkRequest request);
+
+    DatasetDTO.ChildChunkVO updateChildChunk(Long childChunkId, DatasetDTO.ChildChunkRequest request);
+
+    void deleteChildChunk(Long childChunkId);
 }

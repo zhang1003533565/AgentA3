@@ -91,6 +91,15 @@ export const batchDeleteSegments = (documentId, segmentIds) =>
 export const getChildChunks = (segmentId) =>
   request.get(`${base}/segments/${segmentId}/child-chunks`)
 
+export const createChildChunk = (segmentId, data) =>
+  request.post(`${base}/segments/${segmentId}/child-chunks`, data)
+
+export const updateChildChunk = (childChunkId, data) =>
+  request.put(`${base}/child-chunks/${childChunkId}`, data)
+
+export const deleteChildChunk = (childChunkId) =>
+  request.delete(`${base}/child-chunks/${childChunkId}`)
+
 // ====== 文件转换（复用原有 RAG 代理） ======
 
 const ragBase = '/api/ai/rag'

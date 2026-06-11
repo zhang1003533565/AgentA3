@@ -214,10 +214,13 @@ public class DatasetDTO {
         private String documentName;
         private Integer position;
         private String content;
+        private String answer;
         private Integer wordCount;
         private Integer hitCount;
         private Integer enabled;
         private String status;
+        private String keywords;
+        private String attachments;
         private LocalDateTime createTime;
     }
 
@@ -227,6 +230,7 @@ public class DatasetDTO {
         private String content;
         private String answer;
         private String keywords;
+        private String attachments;
         private Integer enabled;
     }
 
@@ -291,5 +295,12 @@ public class DatasetDTO {
         private String indexNodeId;
         private String type;
         private LocalDateTime createTime;
+    }
+
+    @Data
+    @Schema(description = "子片段创建/更新请求")
+    public static class ChildChunkRequest {
+        @NotBlank(message = "子片段内容不能为空")
+        private String content;
     }
 }
