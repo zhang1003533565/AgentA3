@@ -43,6 +43,8 @@ DIAGRAM_AGENT_SPECS = {
     "diagram_flowchart_agent": ("图表流程图智能体", "diagram_flowchart", "把算法步骤、业务过程和知识点流程整理成 Mermaid 流程图。", "括号匹配算法流程材料"),
     "diagram_activity_agent": ("图表活动图智能体", "diagram_activity", "把角色协作、任务执行和活动顺序整理成 Mermaid 活动图。", "会议任务活动流程材料"),
     "diagram_architecture_agent": ("图表架构图智能体", "diagram_architecture", "把系统模块、服务依赖和数据流整理成 Mermaid 架构图。", "智慧校园 AI RAG 架构材料"),
+    "diagram_flowchart_prompt_agent": ("流程图提示词智能体", "diagram_flowchart_prompt", "把算法步骤、业务流程整理成用于生成流程图图片的文生图提示词。", "括号匹配算法流程"),
+    "diagram_activity_prompt_agent": ("活动图提示词智能体", "diagram_activity_prompt", "把角色协作、任务流程整理成用于生成活动图图片的文生图提示词。", "会议任务活动流程"),
 }
 
 AGENT_ORDER = [
@@ -141,29 +143,34 @@ def _diagram_profile(agent_name: str, role: str, intent: str, purpose: str, exam
         "diagram_mind_map_agent": "mermaid_mindmap",
         "diagram_flowchart_agent": "mermaid_flowchart",
         "diagram_activity_agent": "mermaid_activity_flowchart",
-        "diagram_architecture_agent": "image_generation_result",
+        "diagram_architecture_agent": "mermaid_architecture",
+        "diagram_flowchart_prompt_agent": "flowchart_prompt_text",
+        "diagram_activity_prompt_agent": "activity_prompt_text",
     }[agent_name]
     alias_map = {
         "diagram_mind_map_agent": ["mind_map", "mindmap", "思维导图", "脑图", "思维导图智能体", "mind_map_agent"],
         "diagram_flowchart_agent": ["flowchart", "流程图", "流程图智能体", "流程"],
         "diagram_activity_agent": ["activity_diagram", "活动图", "活动图智能体", "泳道图", "任务活动图"],
         "diagram_architecture_agent": ["architecture_diagram", "架构图", "系统架构图", "架构图智能体", "系统架构"],
+        "diagram_flowchart_prompt_agent": ["flowchart_prompt", "流程图提示词", "流程图提示词智能体"],
+        "diagram_activity_prompt_agent": ["activity_prompt", "活动图提示词", "活动图提示词智能体"],
     }
+    is_prompt_agent = agent_name.endswith("_prompt_agent")
     return {
         "role": role,
-        "purpose": "把系统模块、服务依赖和数据流整理为架构图图片。" if agent_name == "diagram_architecture_agent" else purpose,
+        "purpose": purpose,
         "inputs": ["diagram_material", "evidence"],
         "outputs": [output_type],
-        "skills": ["architecture image generation", "text-to-image", intent] if agent_name == "diagram_architecture_agent" else ["diagram generation", "mermaid", intent],
+        "skills": ["prompt generation", "visual description", intent] if is_prompt_agent else ["diagram generation", "mermaid", intent],
         "intent": intent,
-        "needRetrieval": True,
-        "executionMode": "rag_then_agent",
-        "executionModeLabel": "RAG 检索后生成架构图图片" if agent_name == "diagram_architecture_agent" else f"RAG 检索后生成{role.replace('智能体', '')}",
-        "defaultRagStrategy": "multi_agent_rag",
-        "supportedRagStrategies": ALL_RAG_STRATEGIES,
+        "needRetrieval": False if is_prompt_agent else True,
+        "executionMode": "direct_agent" if is_prompt_agent else "rag_then_agent",
+        "executionModeLabel": f"直接生成{role.replace('智能体', '')}" if is_prompt_agent else f"RAG 检索后生成{role.replace('智能体', '')}",
+        "defaultRagStrategy": "" if is_prompt_agent else "multi_agent_rag",
+        "supportedRagStrategies": [] if is_prompt_agent else ALL_RAG_STRATEGIES,
         "aliases": [intent, role, role.replace("智能体", ""), agent_name, *alias_map[agent_name]],
         "exampleInput": example_input,
-        "requiredModelModalities": IMAGE_MODEL_MODALITY if agent_name == "diagram_architecture_agent" else TEXT_MODEL_MODALITY,
+        "requiredModelModalities": IMAGE_MODEL_MODALITY if agent_name in {"diagram_flowchart_agent", "diagram_activity_agent"} else TEXT_MODEL_MODALITY,
     }
 
 
@@ -206,7 +213,7 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "architecture_prompt_agent": {
         "role": "图表架构图提示词智能体",
-        "purpose": "把系统说明、模块依赖和检索证据整理为纯文本提示词，用于描述架构图应如何呈现。",
+        "purpose": "把系统说明、模块依赖和检索证据整理为纯文本提示词，供图表架构图智能体继续生成 Mermaid 架构图。",
         "inputs": ["topic", "evidence"],
         "outputs": ["architecture_prompt_text"],
         "skills": ["prompt generation", "architecture visualization planning", "visual description"],
