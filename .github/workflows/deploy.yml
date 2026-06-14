@@ -22,5 +22,5 @@ jobs:
             export REPO_DIR="${{ secrets.DEPLOY_PATH }}"
             export DEPLOY_BRANCH="${{ github.ref_name }}"
             cd "$REPO_DIR"
-            chmod +x deploy/deploy-on-server.sh
-            ./deploy/deploy-on-server.sh
+            chmod +x AppBackend/deploy/deploy-on-server.sh
+            ./AppBackend/deploy/deploy-on-server.sh

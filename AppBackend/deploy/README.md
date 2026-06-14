@@ -8,19 +8,20 @@
 - `redis`: runtime dependency
 
 `AppWeb` uses Nginx to proxy `/api`, `/uploads`, `/swagger-ui*`, `/v3/api-docs*`, and `/webjars/*` to `AppBackend`.
+Deployment reuses `AppBackend/docker-compose.yml`, and starts `backend` / `web` through the `deploy` profile.
 
 ## Server Preparation
 
 1. Install Docker and Docker Compose.
 2. Clone this repository onto the server.
-3. Copy `deploy/.env.example` to `deploy/.env`.
-4. Fill real values in `deploy/.env`.
+3. Copy `AppBackend/deploy/.env.example` to `AppBackend/deploy/.env`.
+4. Fill real values in `AppBackend/deploy/.env`.
 5. Run once on the server:
 
 ```bash
 cd /path/to/AgentA3
-chmod +x deploy/deploy-on-server.sh
-./deploy/deploy-on-server.sh
+chmod +x AppBackend/deploy/deploy-on-server.sh
+./AppBackend/deploy/deploy-on-server.sh
 ```
 
 ## GitHub Secrets
@@ -43,6 +44,7 @@ Configure these repository secrets:
 
 ## Notes
 
-- `AI_PYTHON_BASE_URL` defaults to `http://host.docker.internal:8081`. If your Python AI service is elsewhere, change it in `deploy/.env`.
+- `AI_PYTHON_BASE_URL` defaults to `http://host.docker.internal:8081`. If your Python AI service is elsewhere, change it in `AppBackend/deploy/.env`.
 - Uploaded backend files are persisted in the Docker volume `smart-campus-prod_backend_uploads`.
-- MySQL and Redis data are persisted in named Docker volumes.
+- Uploaded files are persisted in `AppBackend/uploads`.
+- MySQL and Redis data are persisted in `AppBackend/.data` and `AppBackend/.redis-data`.

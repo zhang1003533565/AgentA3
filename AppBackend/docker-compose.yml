@@ -6,19 +6,27 @@ services:
     image: docker.m.daocloud.io/library/adminer:latest
     restart: always
     ports:
-      - 7070:8080
+      - "${ADMINER_PORT:-7070}:8080"
 
   mysql:
     container_name: smart-campus-mysql
     image: docker.m.daocloud.io/library/mysql:8
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: "123456"
-      MYSQL_DATABASE: "smart-campus"
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-123456}"
+      MYSQL_DATABASE: "${MYSQL_DATABASE:-smart-campus}"
+    command:
+      - --character-set-server=${MYSQL_CHARSET:-utf8mb4}
+      - --collation-server=${MYSQL_COLLATION:-utf8mb4_unicode_ci}
     ports:
       - "3306:3306"
     volumes:
       - ./.data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   redis:
     container_name: smart-campus-redis
@@ -34,3 +42,41 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+
+  backend:
+    profiles: ["deploy"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smart-campus-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-smart-campus}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      AI_PYTHON_BASE_URL: ${AI_PYTHON_BASE_URL:-http://host.docker.internal:8081}
+      FILE_BASE_URL: ${FILE_BASE_URL:-http://localhost}
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./uploads:/app/uploads
+
+  web:
+    profiles: ["deploy"]
+    build:
+      context: ../AppWeb
+      dockerfile: Dockerfile
+    container_name: smart-campus-web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${WEB_PORT:-80}:80"
