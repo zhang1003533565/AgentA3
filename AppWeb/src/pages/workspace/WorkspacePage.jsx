@@ -57,7 +57,6 @@ const DEFAULT_MAP_ZOOM = 16
 const AI_MODALITIES = [
   { key: 'text', label: '语言模型' },
   { key: 'vision', label: '视觉/视频理解' },
-  { key: 'embedding', label: '向量模型' },
   { key: 'image', label: '图片生成/编辑' },
   { key: 'video', label: '视频生成/编辑' },
   { key: 'audio', label: '语音/音频' },
@@ -2473,8 +2472,6 @@ function WorkspacePage({ pageKey }) {
         return '生成一个 5 秒的智慧校园欢迎动画，镜头缓慢推进，现代科技感。'
       case 'audio':
         return '欢迎使用智慧校园模型测试。'
-      case 'embedding':
-        return '智慧校园向量模型连接测试'
       case 'vision':
         return '请用一句中文回复：视觉模型连接测试成功。'
       default:

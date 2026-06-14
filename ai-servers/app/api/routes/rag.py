@@ -1,6 +1,5 @@
 import asyncio
 import hashlib
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Header, HTTPException
@@ -8,11 +7,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.models.schemas import (
-    RagDocumentIngestRequest,
-    RagDocumentIngestResponse,
     RagDocumentResponse,
-    RagEvaluateRequest,
-    RagEvaluateResponse,
     RagQueryRequest,
     RagQueryResponse,
     RagTraceResponse,
@@ -24,29 +19,14 @@ from app.multi_agents.leader_agent.agent import leader_agent
 from app.multi_agents.runner import run_specialist_agent
 from app.multi_agents.textbook_knowledge_agent.agent import textbook_knowledge_agent
 from app.rag.core import RAG_STRATEGY_SPECS, RagQuery, RagTraceStep
-from app.rag.core.types import RagDocument
-from app.rag.defaults import MILVUS_COLLECTION, MILVUS_PARENT_CHILD_COLLECTION, MILVUS_URI, knowledge_base_root
-from app.rag.embeddings import build_embedding_provider
 from app.rag.embeddings.runtime_config import (
     build_embedding_runtime_config,
     reset_active_embedding_config,
     set_active_embedding_config,
 )
 from app.rag.engine import rag_engine
-from app.rag.evaluators import RagEvaluationInput, RagEvaluator
 from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx
-from app.rag.graph_stores import build_graph_store
-from app.rag.indexing.document_loader import DocumentLoader
-from app.rag.knowledge_base import (
-    DEFAULT_KNOWLEDGE_BASE_ID,
-    DEFAULT_KNOWLEDGE_BASE_NAME,
-    KnowledgeBaseStore,
-    ProcessRule,
-    RetrievalConfig,
-)
-from app.rag.pipelines import IngestInputDocument, RagIngestionError, RagIngestionPipeline
 from app.rag.structured.text_to_sql import TextToSqlService
-from app.rag.vector_stores import DEFAULT_VECTOR_STORE_BACKEND, build_vector_store, get_vector_store_backend
 from app.utils.logger import get_logger
 from app.utils.sse import build_sse, chunk_answer
 
@@ -65,25 +45,8 @@ class PptConvertRequest(BaseModel):
     contentBase64: str = Field(min_length=1)
 
 
-class RagRecallTestRequest(BaseModel):
-    query: str = Field(min_length=1, max_length=4000)
-    keyword: Optional[str] = Field(default=None, max_length=128)
-    intent: str = Field(default="campus_search", max_length=64)
-    ragStrategy: Optional[str] = Field(default="hybrid_search", max_length=64)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-
-
 class AgentExampleInputUpdateRequest(BaseModel):
     input: str = Field(min_length=1, max_length=12000)
-
-
-class KnowledgeBaseUpsertRequest(BaseModel):
-    id: str = Field(default=DEFAULT_KNOWLEDGE_BASE_ID, min_length=1, max_length=128)
-    name: str = Field(default=DEFAULT_KNOWLEDGE_BASE_NAME, min_length=1, max_length=255)
-    description: str = Field(default="", max_length=2000)
-    processRule: Dict[str, Any] = Field(default_factory=dict)
-    retrievalConfig: Dict[str, Any] = Field(default_factory=dict)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 def _llm_header_audit_fields(
@@ -159,15 +122,6 @@ def get_rag_capabilities(
             "answerSynthesizer": "llm_required_from_java_system_config",
             "noLocalFallback": True,
         },
-        "indexing": {
-            "supportedSuffixes": sorted(DocumentLoader.SUPPORTED_SUFFIXES),
-            "defaultChunker": "semantic_boundary",
-            "indexStore": get_vector_store_backend(),
-            "primaryStore": "docker_milvus",
-            "localRawFallback": False,
-            "parentChildIndex": "milvus_collection",
-            "uploadEncoding": "text_or_base64",
-        },
         "documentConversion": {
             "supportedInputs": ["pdf", "pptx"],
             "supportedOutputs": ["docx"],
@@ -177,10 +131,6 @@ def get_rag_capabilities(
                 "pptxDocx": "PPTX 转 DOCX 会按幻灯片顺序重排内容，保留文本、表格和图片",
             },
             "noLocalFallback": True,
-        },
-        "retrieval": {
-            "retrievers": ["keyword", "vector", "hybrid", "parent_child", "graph", "java_backend"],
-            "rerankers": ["lexical"],
         },
         "evaluation": {
             "metrics": ["hitRate", "mrr", "contextRelevance", "faithfulness", "answerTermCoverage"],
@@ -215,11 +165,6 @@ def get_rag_framework(
             "strategies": "app/rag/strategies",
             "multiAgents": "app/multi_agents",
             "langgraphWorkflow": "app/langgraph",
-            "indexing": "app/rag/indexing",
-            "retrievers": "app/rag/retrievers",
-            "vectorStores": "app/rag/vector_stores",
-            "graphStores": "app/rag/graph_stores",
-            "evaluators": "app/rag/evaluators",
         },
         "modelProviders": [
             {
@@ -265,44 +210,11 @@ def get_rag_framework(
                 "configSource": "Java system_config: ai.service.text.provider / ai.service.text.base-url / ai.service.text.api-key / ai.service.text.model",
             },
         ],
-        "embeddingProviders": [
-            {"name": "local_lexical", "status": "implemented", "requiredConfig": []},
-            {"name": "qwen", "status": "disabled", "requiredConfig": [], "defaultModel": "text-embedding-v4", "providerAlias": "dashscope", "configSource": "request_required"},
-            {"name": "openai", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
-            {"name": "dashscope", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
-            {"name": "bge", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
-            {"name": "sentence_transformers", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
-        ],
-        "vectorStores": [
-            {"name": "milvus", "status": "implemented", "requiredConfig": [], "configSource": "code_default_and_docker"},
-            {"name": "local_jsonl", "status": "disabled", "requiredConfig": [], "note": "仅保留兼容单元测试，不再作为知识库默认方案"},
-            {"name": "faiss", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
-            {"name": "elasticsearch", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
-            {"name": "pgvector", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
-        ],
-        "graphStores": [
-            {"name": "local_graph", "status": "implemented", "requiredConfig": []},
-            {"name": "neo4j", "status": "disabled", "requiredConfig": [], "configSource": "request_required"},
-        ],
-        "indexing": {
-            "supportedSuffixes": sorted(DocumentLoader.SUPPORTED_SUFFIXES),
-            "defaultChunker": "semantic_boundary",
-            "parentChildChunker": "parent_child",
-            "uploadEncoding": "text_or_base64",
-            "vectorStoreBackend": get_vector_store_backend(),
-            "vectorStore": "docker_milvus",
-            "localRawFallback": False,
-        },
         "runtimeEnv": [
             {"name": "X-AI-Provider", "configured": "由 Java 请求头传入", "source": "ai.service.text.provider"},
             {"name": "X-AI-Base-Url", "configured": "由 Java 请求头传入", "source": "ai.service.text.base-url"},
             {"name": "X-AI-Api-Key", "configured": "由 Java 请求头传入", "source": "ai.service.text.api-key"},
             {"name": "X-AI-Model", "configured": "由 Java 请求头传入", "source": "ai.service.text.model"},
-            {"name": "vectorStoreBackend", "configured": DEFAULT_VECTOR_STORE_BACKEND, "source": "code_default"},
-            {"name": "milvusUri", "configured": MILVUS_URI, "source": "code_default"},
-            {"name": "milvusCollection", "configured": MILVUS_COLLECTION, "source": "code_default"},
-            {"name": "milvusParentChildCollection", "configured": MILVUS_PARENT_CHILD_COLLECTION, "source": "code_default"},
-            {"name": "knowledgeBaseDir", "configured": str(_knowledge_base_root()), "source": "code_default"},
         ],
         "apis": [
             "GET /internal/rag/strategies",
@@ -346,36 +258,6 @@ def save_rag_agent_example_input(
 ) -> Dict[str, Any]:
     _require_authorization(authorization)
     return update_agent_example_input(agent_name, request.input)
-
-
-def list_knowledge_bases(
-    authorization: Optional[str] = Header(default=None, alias="Authorization"),
-) -> Dict[str, Any]:
-    _require_authorization(authorization)
-    store = KnowledgeBaseStore(_knowledge_base_root())
-    store.ensure_default()
-    return {
-        "knowledgeBases": store.list_knowledge_bases(),
-        "total": len(store.list_knowledge_bases()),
-        "metadataStore": str(store.path),
-    }
-
-
-def upsert_knowledge_base(
-    request: KnowledgeBaseUpsertRequest,
-    authorization: Optional[str] = Header(default=None, alias="Authorization"),
-) -> Dict[str, Any]:
-    _require_authorization(authorization)
-    store = KnowledgeBaseStore(_knowledge_base_root())
-    knowledge_base = store.upsert_knowledge_base(
-        knowledge_base_id=request.id,
-        name=request.name,
-        description=request.description,
-        process_rule=ProcessRule.from_dict(request.processRule),
-        retrieval_config=RetrievalConfig.from_dict(request.retrievalConfig),
-        metadata=request.metadata,
-    )
-    return {"knowledgeBase": knowledge_base.to_dict(), "metadataStore": str(store.path)}
 
 
 @router.post("/query", response_model=RagQueryResponse)
@@ -497,73 +379,6 @@ async def run_rag_query_stream(
             reset_active_llm_config(token)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
-
-
-@router.post("/recall-test", response_model=RagQueryResponse)
-def run_recall_test(
-    request: RagRecallTestRequest,
-    authorization: Optional[str] = Header(default=None, alias="Authorization"),
-    x_ai_embedding_provider: Optional[str] = Header(default=None, alias="X-AI-Embedding-Provider"),
-    x_ai_embedding_base_url: Optional[str] = Header(default=None, alias="X-AI-Embedding-Base-Url"),
-    x_ai_embedding_api_key: Optional[str] = Header(default=None, alias="X-AI-Embedding-Api-Key"),
-    x_ai_embedding_model: Optional[str] = Header(default=None, alias="X-AI-Embedding-Model"),
-) -> RagQueryResponse:
-    _require_authorization(authorization)
-    requested_strategy = request.ragStrategy or "hybrid_search"
-    embedding_config = build_embedding_runtime_config(
-        provider=x_ai_embedding_provider,
-        base_url=x_ai_embedding_base_url,
-        api_key=x_ai_embedding_api_key,
-        model=x_ai_embedding_model,
-    )
-    embedding_token = set_active_embedding_config(embedding_config)
-    try:
-        result = rag_engine.run(RagQuery(
-            text=request.query,
-            keyword=request.keyword or "",
-            intent=request.intent,
-            metadata=request.metadata,
-        ), strategy_name=requested_strategy)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    finally:
-        reset_active_embedding_config(embedding_token)
-
-    knowledge_base_ids = _knowledge_base_ids_from_metadata(request.metadata)
-    documents = _filter_documents_by_knowledge_base(result.documents, knowledge_base_ids)
-    metadata = dict(result.metadata)
-    metadata.update({
-        "needRetrieval": True,
-        "retrievalSkipped": False,
-        "strategyLabel": _strategy_label(result.strategy),
-        "executionMode": "recall_test",
-        "executionModeLabel": "仅召回测试",
-        "answerType": "retrieval_only",
-        "query": request.query,
-        "keyword": request.keyword or "",
-        "documentCount": len(documents),
-        "knowledgeBaseIds": knowledge_base_ids,
-    })
-    return RagQueryResponse(
-        strategy=result.strategy,
-        answer="",
-        answerType="retrieval_only",
-        documents=[
-            RagDocumentResponse(
-                id=document.id,
-                content=document.content,
-                source=document.source,
-                score=document.score,
-                metadata=document.metadata,
-            )
-            for document in documents
-        ],
-        trace=[
-            RagTraceResponse(stage=step.stage, detail=step.detail)
-            for step in result.trace
-        ],
-        metadata=metadata,
-    )
 
 
 def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
@@ -938,59 +753,6 @@ def _strategy_label(strategy_name: str) -> str:
     return spec.get("label", strategy_name)
 
 
-def _parse_knowledge_base_ids(value: Any) -> List[str]:
-    if value is None:
-        return []
-    if isinstance(value, str):
-        candidates = value.split(",")
-    elif isinstance(value, list):
-        candidates = value
-    else:
-        candidates = [value]
-    ids = []
-    for item in candidates:
-        normalized = str(item or "").strip()
-        if normalized and normalized not in ids:
-            ids.append(normalized)
-    return ids
-
-
-def _knowledge_base_ids_from_metadata(metadata: Dict[str, Any]) -> List[str]:
-    if not isinstance(metadata, dict):
-        return []
-    return _parse_knowledge_base_ids(
-        metadata.get("knowledgeBaseIds")
-        or metadata.get("knowledgeBaseId")
-        or metadata.get("knowledgeBases")
-    )
-
-
-def _document_knowledge_base_id(metadata: Dict[str, Any]) -> str:
-    if isinstance(metadata, dict):
-        value = metadata.get("knowledgeBaseId") or metadata.get("knowledge_base_id")
-        if value:
-            return str(value)
-    return DEFAULT_KNOWLEDGE_BASE_ID
-
-
-def _document_knowledge_base_name(metadata: Dict[str, Any]) -> str:
-    if isinstance(metadata, dict):
-        value = metadata.get("knowledgeBaseName") or metadata.get("knowledge_base_name")
-        if value:
-            return str(value)
-    return DEFAULT_KNOWLEDGE_BASE_NAME
-
-
-def _filter_documents_by_knowledge_base(documents: List[RagDocument], knowledge_base_ids: List[str]) -> List[RagDocument]:
-    if not knowledge_base_ids:
-        return documents
-    return [
-        document
-        for document in documents
-        if _document_knowledge_base_id(document.metadata) in knowledge_base_ids
-    ]
-
-
 def _answer_type_for_agent(agent_name: str) -> str:
     mapping = {
         "leader_agent": "text",
@@ -1009,170 +771,6 @@ def _answer_type_for_agent(agent_name: str) -> str:
     if (agent_name or "").startswith("meeting_"):
         return "markdown"
     return mapping.get(agent_name or "", "text")
-
-
-def ingest_rag_documents(
-    request: RagDocumentIngestRequest,
-    authorization: Optional[str] = Header(default=None, alias="Authorization"),
-    x_ai_embedding_provider: Optional[str] = Header(default=None, alias="X-AI-Embedding-Provider"),
-    x_ai_embedding_base_url: Optional[str] = Header(default=None, alias="X-AI-Embedding-Base-Url"),
-    x_ai_embedding_api_key: Optional[str] = Header(default=None, alias="X-AI-Embedding-Api-Key"),
-    x_ai_embedding_model: Optional[str] = Header(default=None, alias="X-AI-Embedding-Model"),
-) -> RagDocumentIngestResponse:
-    _require_authorization(authorization)
-    embedding_config = build_embedding_runtime_config(
-        provider=x_ai_embedding_provider,
-        base_url=x_ai_embedding_base_url,
-        api_key=x_ai_embedding_api_key,
-        model=x_ai_embedding_model,
-    )
-    embedding_token = set_active_embedding_config(embedding_config)
-    pipeline = RagIngestionPipeline(root_dir=str(_knowledge_base_root()))
-    try:
-        result = pipeline.run([
-            IngestInputDocument(
-                content=item.content,
-                content_base64=item.contentBase64,
-                source=item.source,
-                metadata=item.metadata,
-            )
-            for item in request.documents
-        ])
-    except RagIngestionError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    finally:
-        reset_active_embedding_config(embedding_token)
-
-    logger.info(
-        "rag documents ingested count=%s chunks=%s",
-        result.stored_count,
-        result.indexed_chunk_count,
-    )
-    return RagDocumentIngestResponse(
-        storedCount=result.stored_count,
-        storedFiles=result.stored_files,
-        indexedChunkCount=result.indexed_chunk_count,
-        indexPath=result.index_path,
-        documents=[
-            {
-                "id": document.id,
-                "documentId": document.id,
-                "knowledgeBaseId": document.knowledge_base_id,
-                "knowledgeBaseName": document.knowledge_base_name,
-                "source": document.source,
-                "storedPath": document.stored_path,
-                "modality": document.modality,
-                "chunkCount": document.chunk_count,
-                "size": document.size,
-                "metadata": document.metadata,
-            }
-            for document in result.documents
-        ],
-        trace=[
-            RagTraceResponse(stage=step.stage, detail=step.detail)
-            for step in result.trace
-        ],
-    )
-
-
-def list_rag_documents(
-    authorization: Optional[str] = Header(default=None, alias="Authorization"),
-) -> Dict[str, Any]:
-    _require_authorization(authorization)
-    root = _knowledge_base_root()
-    backend = get_vector_store_backend()
-    vector_store = build_vector_store(root, backend=backend)
-    store = KnowledgeBaseStore(root)
-    store.ensure_default()
-    documents = store.list_documents()
-    knowledge_bases = store.list_knowledge_bases()
-    load_error = ""
-    return {
-        "documents": documents,
-        "knowledgeBases": knowledge_bases,
-        "knowledgeBase": {
-            "rootDir": str(root),
-            "vectorStoreBackend": backend,
-            "metadataStorePath": str(store.path),
-            "chunkIndexPath": str(root / ".index" / "local_chunks.jsonl"),
-            "parentChildIndexPath": str(root / ".index" / "parent_child_chunks.jsonl"),
-            "parentChildIndexed": True,
-            "localRawFallback": False,
-            "loadError": load_error,
-            "vectorStoreHealth": vector_store.health(),
-        },
-    }
-
-
-def list_rag_document_chunks(
-    source: Optional[str] = None,
-    knowledgeBaseIds: Optional[str] = None,
-    authorization: Optional[str] = Header(default=None, alias="Authorization"),
-) -> Dict[str, Any]:
-    _require_authorization(authorization)
-    root = _knowledge_base_root()
-    backend = get_vector_store_backend()
-    vector_store = build_vector_store(root, backend=backend)
-    store = KnowledgeBaseStore(root)
-    store.ensure_default()
-    load_error = ""
-
-    normalized_source = (source or "").strip()
-    normalized_knowledge_base_ids = _parse_knowledge_base_ids(knowledgeBaseIds)
-    chunks = store.list_segments(
-        source=normalized_source,
-        knowledge_base_ids=normalized_knowledge_base_ids,
-    )
-    return {
-        "source": normalized_source,
-        "knowledgeBaseIds": normalized_knowledge_base_ids,
-        "chunks": chunks,
-        "total": len(chunks),
-        "backend": backend,
-        "collection": getattr(vector_store, "collection_name", ""),
-        "metadataStorePath": str(store.path),
-        "loadError": load_error,
-    }
-
-
-def vector_store_health(
-    authorization: Optional[str] = Header(default=None, alias="Authorization"),
-) -> Dict[str, Any]:
-    _require_authorization(authorization)
-    vector_store = build_vector_store(_knowledge_base_root(), backend=get_vector_store_backend())
-    return vector_store.health()
-
-
-def embedding_health(
-    authorization: Optional[str] = Header(default=None, alias="Authorization"),
-) -> Dict[str, Any]:
-    _require_authorization(authorization)
-    embedding_provider = build_embedding_provider()
-    return embedding_provider.health()
-
-
-def evaluate_rag(
-    request: RagEvaluateRequest,
-    authorization: Optional[str] = Header(default=None, alias="Authorization"),
-) -> RagEvaluateResponse:
-    _require_authorization(authorization)
-    result = RagEvaluator().evaluate(RagEvaluationInput(
-        query=request.query,
-        answer=request.answer,
-        documents=[
-            RagDocument(
-                id=document.id,
-                content=document.content,
-                source=document.source,
-                score=document.score,
-                metadata=document.metadata,
-            )
-            for document in request.documents
-        ],
-        expected_sources=request.expectedSources,
-        expected_answer_terms=request.expectedAnswerTerms,
-    ))
-    return RagEvaluateResponse(metrics=result.metrics, passed=result.passed, detail=result.detail)
 
 
 @router.post("/pdf/convert")
@@ -1241,13 +839,6 @@ def convert_ppt_document(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
-def graph_store_health(
-    authorization: Optional[str] = Header(default=None, alias="Authorization"),
-) -> Dict[str, Any]:
-    _require_authorization(authorization)
-    return build_graph_store().health()
-
-
 @router.get("/text-to-sql/schema")
 def text_to_sql_schema(
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
@@ -1277,7 +868,3 @@ def text_to_sql_execute(
 def _require_authorization(authorization: Optional[str]) -> None:
     if not authorization:
         raise HTTPException(status_code=401, detail="未登录或Token无效")
-
-
-def _knowledge_base_root() -> Path:
-    return knowledge_base_root()

@@ -354,7 +354,7 @@ const ragPageConfig = {
     sectionKey: 'framework',
     kicker: 'RAG Framework',
     title: '框架配置',
-    description: '查看模型、Embedding、向量库、图谱存储、运行环境和 API 配置。',
+    description: '查看智能体策略、模型服务、运行目录和 API 配置。',
   },
   evaluate: {
     sectionKey: 'evaluate',
@@ -1365,7 +1365,7 @@ function RagManage({ page = 'playground' }) {
       label: '框架配置',
       children: (
         <Space direction="vertical" size="large" className="rag-full">
-          <Card title="文档功能覆盖" className="rag-panel-card">
+          <Card title="策略功能覆盖" className="rag-panel-card">
             <Table
               rowKey="name"
               columns={coverageColumns}
@@ -1375,9 +1375,6 @@ function RagManage({ page = 'playground' }) {
           </Card>
           <div className="rag-provider-grid">
             {renderProviderCard('Model Provider', framework?.modelProviders)}
-            {renderProviderCard('Embedding Provider', framework?.embeddingProviders)}
-            {renderProviderCard('Vector Store', framework?.vectorStores)}
-            {renderProviderCard('Graph Store', framework?.graphStores)}
           </div>
           <Row gutter={[20, 20]}>
             <Col xs={24} lg={10}>
@@ -1399,11 +1396,6 @@ function RagManage({ page = 'playground' }) {
                       key: 'folders',
                       label: '运行目录',
                       children: <pre className="rag-code-block">{JSON.stringify(framework?.runtimeFolders || {}, null, 2)}</pre>,
-                    },
-                    {
-                      key: 'indexing',
-                      label: '索引配置',
-                      children: <pre className="rag-code-block">{JSON.stringify(framework?.indexing || {}, null, 2)}</pre>,
                     },
                     {
                       key: 'apis',

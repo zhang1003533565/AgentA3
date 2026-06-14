@@ -16,21 +16,9 @@ export const getRagAgent = (agentName) => request.get(`${base}/agents/${agentNam
 
 export const saveRagAgentExampleInput = (agentName, input) => request.post(`${base}/agents/${agentName}/example-input`, { input })
 
-export const getRagKnowledgeBases = () => request.get(`${base}/knowledge-bases`)
-
-export const upsertRagKnowledgeBase = (data) => request.post(`${base}/knowledge-bases`, data)
-
 export const getAiModelProviders = () => request.get(`${base}/model-providers`)
 
 export const runRagQuery = (data) => request.post(`${base}/query`, data, {
-  timeout: 120000,
-})
-
-export const runRagRecallTest = (data) => request.post(`${base}/recall-test`, data, {
-  timeout: 120000,
-})
-
-export const ingestRagDocuments = (data) => request.post(`${base}/documents`, data, {
   timeout: 120000,
 })
 
@@ -43,16 +31,6 @@ export const convertPpt = (data) => request.post(`${base}/ppt/convert`, data, {
   headers: { 'Content-Type': 'multipart/form-data' },
   timeout: 120000,
 })
-
-export const getRagDocuments = () => request.get(`${base}/documents`)
-
-export const getRagDocumentChunks = (params) => request.get(`${base}/documents/chunks`, { params })
-
-export const getRagVectorStoreHealth = () => request.get(`${base}/vector-store/health`)
-
-export const getRagEmbeddingHealth = () => request.get(`${base}/embedding/health`)
-
-export const getRagGraphStoreHealth = () => request.get(`${base}/graph-store/health`)
 
 export const getTextToSqlSchema = () => request.get(`${base}/text-to-sql/schema`)
 

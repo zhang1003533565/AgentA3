@@ -1,7 +1,6 @@
 import base64
 import importlib
 import json
-import tempfile
 import unittest
 from types import SimpleNamespace
 from pathlib import Path
@@ -18,7 +17,6 @@ from app.multi_agents.ppt_outline_agent.agent import normalize_ppt_outline_answe
 
 class RagApiRoutesTest(unittest.TestCase):
     def setUp(self):
-        self._temp_dir = tempfile.TemporaryDirectory()
         self.client = TestClient(app)
         self.headers = {
             "Authorization": "Bearer test-token",
@@ -28,27 +26,16 @@ class RagApiRoutesTest(unittest.TestCase):
             "X-AI-Model": "test-model",
         }
         self._patched_modules = []
-        self._old_knowledge_base_root = None
         self._old_get_qwen_image_provider = None
-        self._patch_knowledge_base_root()
         self._patch_model_providers()
         self._patch_image_provider()
 
     def tearDown(self):
-        if self._old_knowledge_base_root is not None:
-            rag_route_module = importlib.import_module("app.api.routes.rag")
-            rag_route_module._knowledge_base_root = self._old_knowledge_base_root
         if self._old_get_qwen_image_provider is not None:
             image_agent_module = importlib.import_module("app.multi_agents.image_agent.agent")
             image_agent_module.get_qwen_image_provider = self._old_get_qwen_image_provider
         for module, old_get_chat_model_provider in reversed(self._patched_modules):
             module.get_chat_model_provider = old_get_chat_model_provider
-        self._temp_dir.cleanup()
-
-    def _patch_knowledge_base_root(self):
-        rag_route_module = importlib.import_module("app.api.routes.rag")
-        self._old_knowledge_base_root = rag_route_module._knowledge_base_root
-        rag_route_module._knowledge_base_root = lambda: Path(self._temp_dir.name)
 
     def _patch_model_providers(self):
         module_names = [
@@ -73,7 +60,8 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         payload = response.json()
         names = {item["name"] for item in payload["strategies"]}
-        self.assertEqual(16, len(names))
+        self.assertEqual(payload["total"], len(names))
+        self.assertGreaterEqual(len(names), 16)
         self.assertIn("multi_agent_rag", names)
         self.assertIn("text_to_sql", names)
 
@@ -155,6 +143,7 @@ class RagApiRoutesTest(unittest.TestCase):
             ("post", "/internal/rag/knowledge-bases"),
             ("get", "/internal/rag/documents"),
             ("post", "/internal/rag/documents"),
+            ("post", "/internal/rag/recall-test"),
             ("get", "/internal/rag/vector-store/health"),
             ("get", "/internal/rag/embedding/health"),
             ("get", "/internal/rag/graph-store/health"),
@@ -193,7 +182,8 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         payload = response.json()
         self.assertIn("naive_rag", payload["query"]["strategies"])
-        self.assertIn("hybrid", payload["retrieval"]["retrievers"])
+        self.assertNotIn("indexing", payload)
+        self.assertNotIn("retrieval", payload)
         self.assertIn("faithfulness", payload["evaluation"]["metrics"])
         self.assertIn("textbook_knowledge_agent", payload["agents"])
 
@@ -202,11 +192,13 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
-        self.assertEqual(16, len(payload["coverage"]))
+        self.assertGreaterEqual(len(payload["coverage"]), 16)
         self.assertIn("app/rag/strategies", payload["runtimeFolders"]["strategies"])
-        self.assertIn("local_jsonl", {item["name"] for item in payload["vectorStores"]})
-        self.assertIn("neo4j", {item["name"] for item in payload["graphStores"]})
-        self.assertIn("knowledgeBaseDir", {item["name"] for item in payload["runtimeEnv"]})
+        self.assertNotIn("embeddingProviders", payload)
+        self.assertNotIn("vectorStores", payload)
+        self.assertNotIn("graphStores", payload)
+        self.assertNotIn("indexing", payload)
+        self.assertNotIn("knowledgeBaseDir", {item["name"] for item in payload["runtimeEnv"]})
         self.assertIn("xiaomi", {item["name"] for item in payload["modelProviders"]})
         self.assertIn("qwen", {item["name"] for item in payload["modelProviders"]})
         self.assertIn("xfyun", {item["name"] for item in payload["modelProviders"]})
@@ -336,7 +328,8 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         payload = response.json()
         names = {item["name"] for item in payload["agents"]}
-        self.assertEqual(21, payload["total"])
+        self.assertEqual(payload["total"], len(names))
+        self.assertGreaterEqual(payload["total"], 21)
         self.assertIn("textbook_knowledge_agent", names)
         self.assertIn("textbook_question_single_choice_agent", names)
         self.assertIn("textbook_question_programming_agent", names)

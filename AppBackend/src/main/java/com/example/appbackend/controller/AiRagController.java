@@ -20,7 +20,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/ai/rag")
-@Tag(name = "AI RAG 管理", description = "管理员代理 Python RAG 服务的策略、知识库、智能体、框架和评估接口")
+@Tag(name = "AI RAG 管理", description = "管理员代理 Python RAG 服务的策略、智能体、框架和评估接口")
 public class AiRagController {
     private static final String ROLE_ADMIN = "ADMIN";
 
@@ -87,18 +87,6 @@ public class AiRagController {
         return Result.success(pythonAiProxyService.queryRag(body, adminAuthorization(request)));
     }
 
-    @PostMapping("/recall-test")
-    @Operation(summary = "执行 RAG 召回测试")
-    public Result<Object> recallTest(@RequestBody Map<String, Object> body, HttpServletRequest request) {
-        return Result.success(pythonAiProxyService.recallTestRag(body, adminAuthorization(request)));
-    }
-
-    @PostMapping("/documents")
-    @Operation(summary = "写入 RAG 知识库")
-    public Result<Object> ingestDocuments(@RequestBody Map<String, Object> body, HttpServletRequest request) {
-        return Result.success(pythonAiProxyService.ingestRagDocuments(body, adminAuthorization(request)));
-    }
-
     @PostMapping(value = "/pdf/convert", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "PDF 转换为 Markdown 或 DOCX")
     public Result<Object> convertPdf(
@@ -114,39 +102,6 @@ public class AiRagController {
             @RequestParam("file") MultipartFile file,
             HttpServletRequest request) {
         return Result.success(pythonAiProxyService.convertPpt(file, adminAuthorization(request)));
-    }
-
-    @GetMapping("/documents")
-    @Operation(summary = "RAG 知识库文档列表")
-    public Result<Object> documents(HttpServletRequest request) {
-        return Result.success(pythonAiProxyService.listRagDocuments(adminAuthorization(request)));
-    }
-
-    @GetMapping("/documents/chunks")
-    @Operation(summary = "RAG 知识库文档切片列表")
-    public Result<Object> documentChunks(
-            @RequestParam(value = "source", required = false) String source,
-            @RequestParam(value = "knowledgeBaseIds", required = false) String knowledgeBaseIds,
-            HttpServletRequest request) {
-        return Result.success(pythonAiProxyService.listRagDocumentChunks(source, knowledgeBaseIds, adminAuthorization(request)));
-    }
-
-    @GetMapping("/vector-store/health")
-    @Operation(summary = "向量库健康检查")
-    public Result<Object> vectorStoreHealth(HttpServletRequest request) {
-        return Result.success(pythonAiProxyService.getRagVectorStoreHealth(adminAuthorization(request)));
-    }
-
-    @GetMapping("/embedding/health")
-    @Operation(summary = "Embedding 服务健康检查")
-    public Result<Object> embeddingHealth(HttpServletRequest request) {
-        return Result.success(pythonAiProxyService.getRagEmbeddingHealth(adminAuthorization(request)));
-    }
-
-    @GetMapping("/graph-store/health")
-    @Operation(summary = "图谱存储健康检查")
-    public Result<Object> graphStoreHealth(HttpServletRequest request) {
-        return Result.success(pythonAiProxyService.getRagGraphStoreHealth(adminAuthorization(request)));
     }
 
     @GetMapping("/text-to-sql/schema")
