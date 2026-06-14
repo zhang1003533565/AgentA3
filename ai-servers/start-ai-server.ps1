@@ -93,6 +93,7 @@ function Invoke-Compose {
 }
 
 function Test-DockerReady {
+    $ErrorActionPreference = "SilentlyContinue"
     docker info *> $null
     return $LASTEXITCODE -eq 0
 }
@@ -153,7 +154,9 @@ function Pull-DockerImages {
     $allImagesExist = $true
     foreach ($image in $images) {
         if (-not $image) { continue }
+        $ErrorActionPreference = "SilentlyContinue"
         docker image inspect $image *> $null
+        $ErrorActionPreference = "Stop"
         if ($LASTEXITCODE -ne 0) {
             Write-Log "Image not found locally: $image"
             $allImagesExist = $false
