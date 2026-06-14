@@ -27,7 +27,7 @@ AI 相关框架统一放在 `app/` 下维护，避免运行代码、skill、cont
 ./start-ai-server.sh
 ```
 
-默认 `RAG_VECTOR_STORE_BACKEND=milvus`，脚本会先通过当前目录的 `docker-compose.yml` 自动启动 Milvus/Etcd/MinIO 向量库，再启动 FastAPI 服务。
+启动脚本现在只负责创建虚拟环境、安装依赖并启动 FastAPI 服务，不再自动启动 Docker、Milvus 或知识库构建流程。
 
 ## Endpoints
 
@@ -40,17 +40,13 @@ AI 相关框架统一放在 `app/` 下维护，避免运行代码、skill、cont
 - `GET /internal/rag/agents`：多智能体与 skill/prompt/contract/tools 目录
 - `GET /internal/rag/agents/{agent_name}`：单个智能体详情
 - `POST /internal/rag/query`
-- `POST /internal/rag/documents`：保存文档、解析、切分并写入 Docker Milvus 向量库
 - `POST /internal/rag/pdf/convert`：PDF 转 Markdown zip 或 DOCX
 - `POST /internal/rag/ppt/convert`：PPTX 转 DOCX，按幻灯片顺序重排并保留图片
-- `GET /internal/rag/documents`
-- `GET /internal/rag/vector-store/health`
-- `GET /internal/rag/embedding/health`
-- `GET /internal/rag/graph-store/health`
 - `GET /internal/rag/text-to-sql/schema`
 - `POST /internal/rag/text-to-sql/execute`
-- `POST /internal/rag/evaluate`
 - `GET /healthz`
+
+知识库管理、文档入库、向量库健康检查和评估类接口已从对外路由中移除，当前服务只保留第三方模型调用与非知识库类内部能力。
 
 `POST /internal/chat`、SSE 接口和 `POST /internal/rag/query` 都支持传入 `agentName` 指定当前多智能体之一：
 
@@ -74,20 +70,6 @@ AI 相关框架统一放在 `app/` 下维护，避免运行代码、skill、cont
 ```bash
 cd ai-servers
 ./start-ai-server.sh
-```
-
-默认会启动 Docker Milvus 并使用向量库作为知识库后端。构建知识库 + 启动服务：
-
-```bash
-cd ai-servers
-./start-ai-server.sh --build-kb
-```
-
-Windows PowerShell：
-
-```powershell
-cd ai-servers
-.\start-ai-server.ps1 --build-kb
 ```
 
 手动启动仍然可用：
@@ -158,20 +140,3 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
 - `/internal/rag/query` 默认走 Leader 编排；只有路由到检索型智能体时才进入 `app.rag.engine.rag_engine`，未知 RAG 策略会回退到 `naive_rag`。
 - 策略只返回证据时，会由 `local_context_synthesizer` 生成一段带来源的本地答案，方便无 LLM 环境也能调通链路。
 - 本地文档 RAG 当前仅支持读取 `ai-servers/knowledge_base/raw` 下的 `.docx` 和 `.txt` 文件。
-- 默认向量库为 Docker Milvus；`local_jsonl` 仅保留显式指定时的兼容能力，不再作为知识库默认方案。
-
-## Build Knowledge Base With Docker Milvus
-
-在 `ai-servers` 目录启动 Docker 向量库：
-
-```bash
-docker compose up -d
-```
-
-把 DOCX 或 TXT 文件放入 `ai-servers/knowledge_base/raw`，然后执行：
-
-```bash
-python3 scripts/build_knowledge_base.py --backend milvus
-```
-
-默认不再扫描本地 raw 目录作为检索兜底；上传和离线构建都会写入 Milvus collection。

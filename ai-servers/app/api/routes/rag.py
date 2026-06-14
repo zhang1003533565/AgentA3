@@ -310,10 +310,8 @@ def get_rag_framework(
             "GET /internal/rag/framework",
             "GET /internal/rag/agents",
             "POST /internal/rag/query",
-            "POST /internal/rag/documents",
             "POST /internal/rag/pdf/convert",
             "POST /internal/rag/ppt/convert",
-            "POST /internal/rag/evaluate",
             "GET /internal/rag/text-to-sql/schema",
             "POST /internal/rag/text-to-sql/execute",
         ],
@@ -350,7 +348,6 @@ def save_rag_agent_example_input(
     return update_agent_example_input(agent_name, request.input)
 
 
-@router.get("/knowledge-bases")
 def list_knowledge_bases(
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ) -> Dict[str, Any]:
@@ -364,7 +361,6 @@ def list_knowledge_bases(
     }
 
 
-@router.post("/knowledge-bases")
 def upsert_knowledge_base(
     request: KnowledgeBaseUpsertRequest,
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
@@ -1015,7 +1011,6 @@ def _answer_type_for_agent(agent_name: str) -> str:
     return mapping.get(agent_name or "", "text")
 
 
-@router.post("/documents", response_model=RagDocumentIngestResponse)
 def ingest_rag_documents(
     request: RagDocumentIngestRequest,
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
@@ -1080,7 +1075,6 @@ def ingest_rag_documents(
     )
 
 
-@router.get("/documents")
 def list_rag_documents(
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ) -> Dict[str, Any]:
@@ -1110,7 +1104,6 @@ def list_rag_documents(
     }
 
 
-@router.get("/documents/chunks")
 def list_rag_document_chunks(
     source: Optional[str] = None,
     knowledgeBaseIds: Optional[str] = None,
@@ -1142,7 +1135,6 @@ def list_rag_document_chunks(
     }
 
 
-@router.get("/vector-store/health")
 def vector_store_health(
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ) -> Dict[str, Any]:
@@ -1151,7 +1143,6 @@ def vector_store_health(
     return vector_store.health()
 
 
-@router.get("/embedding/health")
 def embedding_health(
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ) -> Dict[str, Any]:
@@ -1160,7 +1151,6 @@ def embedding_health(
     return embedding_provider.health()
 
 
-@router.post("/evaluate", response_model=RagEvaluateResponse)
 def evaluate_rag(
     request: RagEvaluateRequest,
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
@@ -1251,7 +1241,6 @@ def convert_ppt_document(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
-@router.get("/graph-store/health")
 def graph_store_health(
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ) -> Dict[str, Any]:

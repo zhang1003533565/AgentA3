@@ -125,9 +125,9 @@ function Set-AdminerPort {
 function Wait-ForMysql {
     Write-Log "Waiting for MySQL container..."
     for ($i = 0; $i -lt $MysqlWaitSeconds; $i++) {
-        # Use environment variable to pass password securely
-        $env:MYSQL_PWD = $MysqlRootPassword
-        Invoke-Compose exec -T $MysqlService mysqladmin ping -uroot --silent *> $null
+        $ErrorActionPreference = "SilentlyContinue"
+        Invoke-Compose exec -T -e "MYSQL_PWD=$MysqlRootPassword" $MysqlService mysqladmin ping -uroot --silent *> $null
+        $ErrorActionPreference = "Stop"
         if ($LASTEXITCODE -eq 0) {
             return
         }
@@ -142,9 +142,7 @@ function Ensure-Database {
     $quotedDatabase = '`' + $MysqlDatabase + '`'
     $query = "CREATE DATABASE IF NOT EXISTS $quotedDatabase DEFAULT CHARACTER SET $MysqlCharset COLLATE $MysqlCollation;"
     
-    # Use environment variable to pass password securely
-    $env:MYSQL_PWD = $MysqlRootPassword
-    Invoke-Compose exec -T $MysqlService mysql -uroot -e $query
+    Invoke-Compose exec -T -e "MYSQL_PWD=$MysqlRootPassword" $MysqlService mysql -uroot -e $query
     if ($LASTEXITCODE -ne 0) {
         Stop-WithError "Failed to create or verify database '$MysqlDatabase'."
     }

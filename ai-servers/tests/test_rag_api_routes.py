@@ -94,6 +94,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertTrue(payload["metadata"]["readonly"])
         self.assertIn("SELECT", payload["metadata"]["sql"])
 
+    @unittest.skip("Knowledge-base routes were removed from ai-servers.")
     def test_ingest_and_list_documents(self):
         response = self.client.post(
             "/internal/rag/documents",
@@ -119,6 +120,7 @@ class RagApiRoutesTest(unittest.TestCase):
         list_response = self.client.get("/internal/rag/documents", headers=self.headers)
         self.assertEqual(200, list_response.status_code)
 
+    @unittest.skip("Knowledge-base routes were removed from ai-servers.")
     def test_ingest_accepts_base64_multimodal_file(self):
         raw_bytes = b"\x89PNG\r\n\x1a\nfake-image"
         response = self.client.post(
@@ -147,6 +149,25 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(401, response.status_code)
 
+    def test_removed_knowledge_base_routes_return_404(self):
+        for method, path in (
+            ("get", "/internal/rag/knowledge-bases"),
+            ("post", "/internal/rag/knowledge-bases"),
+            ("get", "/internal/rag/documents"),
+            ("post", "/internal/rag/documents"),
+            ("get", "/internal/rag/vector-store/health"),
+            ("get", "/internal/rag/embedding/health"),
+            ("get", "/internal/rag/graph-store/health"),
+            ("post", "/internal/rag/evaluate"),
+        ):
+            request = getattr(self.client, method)
+            if method == "post":
+                response = request(path, headers=self.headers, json={})
+            else:
+                response = request(path, headers=self.headers)
+            self.assertEqual(404, response.status_code, path)
+
+    @unittest.skip("Knowledge-base routes were removed from ai-servers.")
     def test_vector_store_health_returns_backend_metadata(self):
         response = self.client.get("/internal/rag/vector-store/health", headers=self.headers)
 
@@ -155,6 +176,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("milvus", payload["backend"])
         self.assertEqual("implemented", payload["status"])
 
+    @unittest.skip("Knowledge-base routes were removed from ai-servers.")
     def test_vector_store_health_supports_scaffolded_backend(self):
         response = self.client.get("/internal/rag/vector-store/health", headers=self.headers)
 
@@ -557,6 +579,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertTrue(payload["answer"])
         self.assertNotIn("answerSynthesizer", payload["metadata"])
 
+    @unittest.skip("Knowledge-base routes were removed from ai-servers.")
     def test_embedding_health_returns_provider_metadata(self):
         response = self.client.get("/internal/rag/embedding/health", headers=self.headers)
 
@@ -574,6 +597,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("disabled", payload["status"])
         self.assertEqual([], payload["requiredConfig"])
 
+    @unittest.skip("Knowledge-base routes were removed from ai-servers.")
     def test_evaluate_endpoint_returns_rag_metrics(self):
         response = self.client.post(
             "/internal/rag/evaluate",
@@ -601,6 +625,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertGreater(payload["metrics"]["hitRate"], 0)
         self.assertGreater(payload["metrics"]["faithfulness"], 0)
 
+    @unittest.skip("Knowledge-base routes were removed from ai-servers.")
     def test_graph_store_health_returns_backend(self):
         response = self.client.get("/internal/rag/graph-store/health", headers=self.headers)
 
