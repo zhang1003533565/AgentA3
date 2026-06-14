@@ -45,7 +45,7 @@ services:
 
   backend:
     profiles: ["deploy"]
-    image: ${BACKEND_IMAGE}:${IMAGE_TAG:-latest}
+    image: ${BACKEND_IMAGE:-crpi-awzm63dqn5ugddo8.cn-hangzhou.personal.cr.aliyuncs.com/lukezhang/appbackend}:${IMAGE_TAG:-latest}
     container_name: smart-campus-backend
     restart: unless-stopped
     depends_on:
@@ -69,7 +69,7 @@ services:
 
   web:
     profiles: ["deploy"]
-    image: ${WEB_IMAGE}:${IMAGE_TAG:-latest}
+    image: ${WEB_IMAGE:-crpi-awzm63dqn5ugddo8.cn-hangzhou.personal.cr.aliyuncs.com/lukezhang/appweb}:${IMAGE_TAG:-latest}
     container_name: smart-campus-web
     restart: unless-stopped
     depends_on:
