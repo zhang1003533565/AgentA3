@@ -7,7 +7,7 @@ const getErrorMessage = (data, fallback = '请求失败') => {
 }
 
 const request = axios.create({
-  baseURL: 'http://localhost:8080',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json'

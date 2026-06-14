@@ -1,0 +1,7 @@
+target
+.idea
+.git
+.data
+.redis-data
+uploads
+*.log
