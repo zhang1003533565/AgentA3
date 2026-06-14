@@ -55,6 +55,7 @@ function Invoke-Compose {
 }
 
 function Test-DockerReady {
+    $ErrorActionPreference = "SilentlyContinue"
     docker info *> $null
     return $LASTEXITCODE -eq 0
 }
