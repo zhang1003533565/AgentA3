@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
@@ -10,7 +10,13 @@ from app.multi_agents.runtime import complete_agent_or_raise
 class TrueFalseQuestionAgent:
     name = "textbook_question_true_false_agent"
 
-    def generate_questions(self, topic: str, evidence: List[Dict[str, Any]], count: int | None = None, chat_service=None) -> str:
+    def generate_questions(
+        self,
+        topic: str,
+        evidence: List[Dict[str, Any]],
+        count: Optional[int] = None,
+        chat_service=None,
+    ) -> str:
         prompt = topic if not count else f"{topic}\n\n题目数量要求：{count}"
         answer = complete_agent_or_raise(self.name, prompt, evidence, model_provider=chat_service)
         return _validate_json_answer(answer)
