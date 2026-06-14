@@ -45,9 +45,7 @@ services:
 
   backend:
     profiles: ["deploy"]
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${BACKEND_IMAGE}:${IMAGE_TAG:-latest}
     container_name: smart-campus-backend
     restart: unless-stopped
     depends_on:
@@ -71,9 +69,7 @@ services:
 
   web:
     profiles: ["deploy"]
-    build:
-      context: ../AppWeb
-      dockerfile: Dockerfile
+    image: ${WEB_IMAGE}:${IMAGE_TAG:-latest}
     container_name: smart-campus-web
     restart: unless-stopped
     depends_on:

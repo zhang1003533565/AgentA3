@@ -17,4 +17,5 @@ git fetch origin "$DEPLOY_BRANCH"
 git checkout "$DEPLOY_BRANCH"
 git pull --ff-only origin "$DEPLOY_BRANCH"
 
-docker compose --profile deploy --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --build --remove-orphans
+docker compose --profile deploy --env-file "$ENV_FILE" -f "$COMPOSE_FILE" pull
+docker compose --profile deploy --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --remove-orphans
