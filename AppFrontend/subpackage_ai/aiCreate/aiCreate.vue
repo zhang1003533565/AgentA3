@@ -209,6 +209,43 @@ const handleToolTap = (tool) => {
   }
   if (name.includes('AI玩图') || name.includes('文生图')) {
     goToImageGenerate()
+    return
+  }
+  if (name.includes('试卷生成') || name.includes('学科出题')) {
+    uni.navigateTo({
+      url: '/subpackage_ai/examGenerate/examGenerate'
+    })
+    return
+  }
+  if (name.includes('PPT生成') || name.includes('AIPPT')) {
+    uni.navigateTo({
+      url: '/subpackage_ai/pptGenerate/pptGenerate'
+    })
+    return
+  }
+  if (name.includes('思维导图')) {
+    uni.navigateTo({
+      url: '/subpackage_ai/mindmapGenerate/mindmapGenerate'
+    })
+    return
+  }
+  if (name.includes('活动图')) {
+    uni.navigateTo({
+      url: '/subpackage_ai/activityGenerate/activityGenerate'
+    })
+    return
+  }
+  if (name.includes('架构图')) {
+    uni.navigateTo({
+      url: '/subpackage_ai/architectureGenerate/architectureGenerate'
+    })
+    return
+  }
+  if (name.includes('流程图')) {
+    uni.navigateTo({
+      url: '/subpackage_ai/flowchartGenerate/flowchartGenerate'
+    })
+    return
   }
 }
 </script>

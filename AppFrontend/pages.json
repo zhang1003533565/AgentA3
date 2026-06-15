@@ -469,6 +469,105 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
 					}
+				},
+				{
+					"path": "examGenerate/examGenerate",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "pptGenerate/pptGenerate",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "pptPreview/pptPreview",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "mindmapGenerate/mindmapGenerate",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "mindmapPreview/mindmapPreview",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "activityGenerate/activityGenerate",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "activityPreview/activityPreview",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "architectureGenerate/architectureGenerate",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "architecturePreview/architecturePreview",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "flowchartGenerate/flowchartGenerate",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "flowchartPreview/flowchartPreview",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
 				}
 			]
 		},
