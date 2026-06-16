@@ -46,10 +46,25 @@
 								<text></text>
 								<text></text>
 							</view>
-						</view>
-						<view v-else-if="message.role === 'assistant'" class="ai-message-content">
-							<view
-								v-for="(line, lineIndex) in formatAnswerLines(message.content)"
+							</view>
+							<view v-else-if="message.role === 'assistant'" class="ai-message-content">
+								<view v-if="getOutputTypeTags(message).length" class="ai-output-type-list">
+									<text
+										v-for="type in getOutputTypeTags(message)"
+										:key="`${message.id}-type-${type}`"
+										class="ai-output-type-tag"
+									>{{ getOutputTypeLabel(type) }}</text>
+								</view>
+								<image
+									v-for="(image, imageIndex) in getMessageImages(message)"
+									:key="`${message.id}-image-${imageIndex}`"
+									class="ai-message-image"
+									:src="image.url"
+									mode="aspectFill"
+									@click="previewMessageImage(image, message)"
+								/>
+								<view
+									v-for="(line, lineIndex) in formatAnswerLines(getDisplayContent(message))"
 								:key="`${message.id}-line-${lineIndex}`"
 								class="ai-message-line"
 								:class="{
@@ -307,8 +322,12 @@ export default {
 				this.messages = records.map((item) => ({
 					id: `${item.role}-${item.id}`,
 					role: item.role,
-					content: item.content,
-					answerType: item.answerType || ''
+						content: item.content,
+						answerType: item.answerType || '',
+						outputType: item.outputType || item.answerType || 'text',
+						outputTypes: item.outputTypes || [],
+						outputMeta: item.outputMeta || {},
+						attachments: item.attachments || []
 				}))
 				this.scrollToBottom()
 			} catch (error) {
@@ -360,21 +379,101 @@ export default {
 				})
 			})
 		},
-		formatAnswerLines(content) {
-			const normalized = String(content || '').replace(/\*\*(.*?)\*\*/g, '$1')
-			if (!normalized) {
-				return []
-			}
-			return normalized.split('\n').map(line => line.trim()).map((line) => {
-				if (!line) {
-					return { type: 'empty', text: '' }
+			formatAnswerLines(content) {
+				const normalized = String(content || '').replace(/\*\*(.*?)\*\*/g, '$1')
+				if (!normalized) {
+					return []
+				}
+				return normalized.split('\n').map(line => line.trim()).map((line) => {
+					if (!line) {
+						return { type: 'empty', text: '' }
 				}
 				if (line.startsWith('- ')) {
 					return { type: 'bullet', text: line.slice(2).trim() }
+					}
+					return { type: 'text', text: line }
+				})
+			},
+			getDisplayContent(message) {
+				const content = String(message?.content || '')
+				try {
+					const parsed = JSON.parse(content)
+					if (parsed && Array.isArray(parsed.images)) return String(parsed.message || '')
+				} catch (error) {
+					// Keep non-JSON image descriptions visible.
 				}
-				return { type: 'text', text: line }
-			})
-		},
+				return content
+			},
+			getOutputTypeTags(message) {
+				return [this.detectMessageType(message)]
+			},
+			detectMessageType(message) {
+				const attachments = this.getMessageAttachments(message)
+				if (attachments.some(item => item.type === 'image')) return 'image'
+				const content = String(message?.content || '')
+				if (this.containsFormula(content)) return 'formula'
+				return 'text'
+			},
+			containsFormula(content) {
+				return /```(?:math|latex|tex)\b|\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|(?:公式|方程)\s*[:：]/i.test(String(content || ''))
+			},
+			getOutputTypeLabel(type) {
+				const labels = {
+					text: '文本', image: '照片', formula: '公式'
+				}
+				return labels[type] || '文本'
+			},
+			getMessageImages(message) {
+				return this.getMessageAttachments(message).filter(item => item.type === 'image')
+			},
+			getMessageAttachments(message) {
+				const files = []
+				const structured = Array.isArray(message?.attachments) ? message.attachments : []
+				structured.forEach(item => {
+					const normalized = this.normalizeMessageAttachment(item)
+					if (normalized) files.push(normalized)
+				})
+
+				const content = String(message?.content || '')
+				try {
+					const parsed = JSON.parse(content)
+					if (Array.isArray(parsed?.images)) {
+						parsed.images.forEach(item => {
+							const normalized = this.normalizeMessageAttachment(
+								typeof item === 'string' ? { url: item, type: 'image' } : { ...item, type: item?.type || 'image' }
+							)
+							if (normalized) files.push(normalized)
+						})
+					}
+				} catch (error) {
+					// Plain text responses are inspected below.
+				}
+
+				const imageUrls = content.match(/https?:\/\/[^\s"'<>，。！？；、]+?\.(?:png|jpe?g|gif|webp|bmp)(?:\?[^\s"'<>，。！？；、]*)?/gi) || []
+				imageUrls.forEach(url => files.push({ type: 'image', url }))
+
+				const seen = new Set()
+				return files.filter(item => {
+					if (!item?.url || seen.has(item.url)) return false
+					seen.add(item.url)
+					return true
+				})
+			},
+			normalizeMessageAttachment(item) {
+				if (!item) return null
+				const url = String(item.url || item.fileUrl || item.path || item.href || '').trim()
+				if (!url) return null
+				const hint = String(item.type || item.fileType || item.mimeType || '').toLowerCase()
+				const cleanUrl = url.split('?')[0].toLowerCase()
+				let type = hint.includes('image') || /\.(?:png|jpe?g|gif|webp|bmp)$/.test(cleanUrl) ? 'image' : ''
+				if (!type && (hint.includes('video') || /\.(?:mp4|mov|m4v|webm|ogg)$/.test(cleanUrl))) type = 'video'
+				if (!type && /\.(?:pdf|docx?|pptx?)$/.test(cleanUrl)) type = cleanUrl.endsWith('.pdf') ? 'pdf' : cleanUrl.match(/\.docx?$/) ? 'docx' : 'ppt'
+				return type ? { ...item, type, url } : null
+			},
+			previewMessageImage(image, message) {
+				const urls = this.getMessageImages(message).map(item => item.url)
+				uni.previewImage({ urls, current: image.url })
+			},
 		getTouchPoint(event) {
 			const touch = event.touches && event.touches[0]
 			if (touch) {
@@ -559,18 +658,16 @@ export default {
 						streamTouched = true
 						this.syncSessionId(payload?.sessionId)
 						const finalAnswer = payload?.answer || ''
-						const current = this.messages.find(item => item.id === assistantMessage.id)
-						if (finalAnswer && current && current.content !== finalAnswer) {
+							const current = this.messages.find(item => item.id === assistantMessage.id)
 							this.updateMessage(assistantMessage.id, {
 								type: '',
-								content: finalAnswer
+								content: finalAnswer || current?.content || 'Leader 这次没有返回可用答案，请换一种问法再试。',
+								answerType: payload?.answerType || 'text',
+								outputType: payload?.outputType || payload?.answerType || 'text',
+								outputTypes: payload?.outputTypes || [],
+								outputMeta: payload?.outputMeta || {},
+								attachments: payload?.attachments || []
 							})
-						} else if (!current || current.type === 'thinking') {
-							this.updateMessage(assistantMessage.id, {
-								type: '',
-								content: finalAnswer || 'Leader 这次没有返回可用答案，请换一种问法再试。'
-							})
-						}
 					},
 					onError: (payload) => {
 						streamTouched = true
@@ -607,10 +704,15 @@ export default {
 				})
 				const payload = res.data || {}
 				this.syncSessionId(payload.sessionId)
-				this.updateMessage(assistantMessageId, {
-					type: '',
-					content: payload.answer || 'Leader 这次没有返回可用答案，请换一种问法再试。'
-				})
+					this.updateMessage(assistantMessageId, {
+						type: '',
+						content: payload.answer || 'Leader 这次没有返回可用答案，请换一种问法再试。',
+						answerType: payload.answerType || 'text',
+						outputType: payload.outputType || payload.answerType || 'text',
+						outputTypes: payload.outputTypes || [],
+						outputMeta: payload.outputMeta || {},
+						attachments: payload.attachments || []
+					})
 			} catch (error) {
 				const message = (error && (error.msg || error.message)) || streamError?.message || '对话失败，请稍后再试'
 				this.updateMessage(assistantMessageId, {
@@ -822,6 +924,31 @@ export default {
 	font-size: 27rpx;
 	line-height: 1.72;
 	word-break: break-all;
+}
+
+.ai-output-type-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8rpx;
+	margin-bottom: 10rpx;
+}
+
+.ai-output-type-tag {
+	padding: 4rpx 10rpx;
+	border-radius: 999rpx;
+	background: #eef3fa;
+	color: #496d9c;
+	font-size: 19rpx;
+	font-weight: 700;
+}
+
+.ai-message-image {
+	width: 360rpx;
+	max-width: 100%;
+	height: 220rpx;
+	margin-bottom: 12rpx;
+	border-radius: 16rpx;
+	background: #eef2f7;
 }
 
 .ai-message-line {

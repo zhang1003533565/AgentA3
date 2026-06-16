@@ -34,6 +34,14 @@
             </view>
           </view>
           <view v-else class="message-content">
+            <view v-if="message.role === 'assistant' && getOutputTypeTags(message).length" class="output-type-list">
+              <text
+                v-for="type in getOutputTypeTags(message)"
+                :key="`${message.localId || message.id}-type-${type}`"
+                class="output-type-tag"
+                :class="`output-type-tag--${type}`"
+              >{{ getOutputTypeLabel(type) }}</text>
+            </view>
             <text v-if="getDisplayText(message)" class="message-text">{{ getDisplayText(message) }}</text>
             <view v-if="getMessageAttachments(message).length" class="attachment-list">
               <view
@@ -175,19 +183,15 @@ export default {
             this.syncSessionId(payload?.sessionId)
             const finalAnswer = payload?.answer || ''
             const current = this.messages.find((item) => item.localId === thinkingMessage.localId)
-            if (finalAnswer && current && current.content !== finalAnswer) {
-              this.replaceMessage(thinkingMessage.localId, {
-                role: 'assistant',
-                content: finalAnswer,
-                answerType: payload.answerType || 'text'
-              })
-            } else if (!current || current.type === 'thinking') {
-              this.replaceMessage(thinkingMessage.localId, {
-                role: 'assistant',
-                content: finalAnswer || 'Leader 这次没有返回可用答案，请换一种问法再试。',
-                answerType: payload?.answerType || 'text'
-              })
-            }
+            this.replaceMessage(thinkingMessage.localId, {
+              role: 'assistant',
+              content: finalAnswer || current?.content || 'Leader 这次没有返回可用答案，请换一种问法再试。',
+              answerType: payload?.answerType || 'text',
+              outputType: payload?.outputType || payload?.answerType || 'text',
+              outputTypes: payload?.outputTypes || [],
+              outputMeta: payload?.outputMeta || {},
+              attachments: payload?.attachments || []
+            })
           },
           onError: (payload) => {
             streamTouched = true
@@ -224,7 +228,11 @@ export default {
         this.replaceMessage(localId, {
           role: 'assistant',
           content: payload.answer || 'Leader 这次没有返回可用答案，请换一种问法再试。',
-          answerType: payload.answerType || 'text'
+          answerType: payload.answerType || 'text',
+          outputType: payload.outputType || payload.answerType || 'text',
+          outputTypes: payload.outputTypes || [],
+          outputMeta: payload.outputMeta || {},
+          attachments: payload.attachments || []
         })
       } catch (error) {
         this.replaceMessage(localId, {
@@ -298,10 +306,40 @@ export default {
       })
     },
     getDisplayText(message) {
-      return String(message?.content || '')
+      const content = String(message?.content || '')
+      try {
+        const parsed = JSON.parse(content)
+        if (parsed && Array.isArray(parsed.images)) {
+          return String(parsed.message || '').trim()
+        }
+      } catch (error) {
+        // Non-JSON responses continue through normal text cleanup.
+      }
+      return content
         .replace(this.markdownAttachmentPattern(), '')
         .replace(this.attachmentUrlPattern(), '')
         .trim()
+    },
+    getOutputTypeTags(message) {
+      return [this.detectMessageType(message)]
+    },
+    detectMessageType(message) {
+      const attachments = this.getMessageAttachments(message)
+      if (attachments.some((item) => item.type === 'image')) return 'image'
+      const content = String(message?.content || '')
+      if (this.containsFormula(content)) return 'formula'
+      return 'text'
+    },
+    containsFormula(content) {
+      return /```(?:math|latex|tex)\b|\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|(?:公式|方程)\s*[:：]/i.test(String(content || ''))
+    },
+    getOutputTypeLabel(type) {
+      const labels = {
+        text: '文本',
+        image: '照片',
+        formula: '公式'
+      }
+      return labels[type] || '文本'
     },
     getMessageAttachments(message) {
       const structured = this.normalizeAttachments(message?.attachments || message?.files || message?.fileList || [])
@@ -327,6 +365,17 @@ export default {
     extractAttachmentsFromText(text) {
       const content = String(text || '')
       const files = []
+      try {
+        const parsed = JSON.parse(content)
+        if (Array.isArray(parsed?.images)) {
+          parsed.images.forEach((item) => {
+            const value = typeof item === 'string' ? { url: item, type: 'image' } : { ...item, type: item?.type || 'image' }
+            files.push(this.normalizeAttachment(value))
+          })
+        }
+      } catch (error) {
+        // Plain text responses are inspected below.
+      }
       const markdownPattern = this.markdownAttachmentPattern()
       let match
       while ((match = markdownPattern.exec(content)) !== null) {
@@ -338,7 +387,7 @@ export default {
       return files.filter(Boolean)
     },
     markdownAttachmentPattern() {
-      return /\[([^\]]+)\]\((https?:\/\/[^\s"'<>，。！？；、)]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?)(?:\?[^\s"'<>，。！？；、)]*)?)\)/gi
+      return /!?\[([^\]]+)\]\((https?:\/\/[^\s"'<>，。！？；、)]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?)(?:\?[^\s"'<>，。！？；、)]*)?)\)/gi
     },
     attachmentUrlPattern() {
       return /https?:\/\/[^\s"'<>，。！？；、]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?)(?:\?[^\s"'<>，。！？；、]*)?/gi
@@ -539,6 +588,38 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 16rpx;
+}
+
+.output-type-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx;
+}
+
+.output-type-tag {
+  padding: 5rpx 12rpx;
+  border-radius: 999rpx;
+  background: #EEF3FA;
+  color: #5B6472;
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.output-type-tag--image {
+  background: #E8F7EF;
+  color: #16865B;
+}
+
+.output-type-tag--formula {
+  background: #FFF3DF;
+  color: #B96800;
+}
+
+.output-type-tag--code,
+.output-type-tag--mermaid {
+  background: #E8F1FF;
+  color: #2F6FE4;
 }
 
 .attachment-list {
