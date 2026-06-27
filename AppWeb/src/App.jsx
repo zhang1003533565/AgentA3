@@ -6,6 +6,7 @@ import ActivityEditor from './pages/activity/ActivityEditor/ActivityEditor'
 import ActivityManage from './pages/activity/ActivityManage/ActivityManage'
 import Home from './pages/Home/Home'
 import QuestionBank from './pages/ai/QuestionBank/QuestionBank'
+import ProfileRules from './pages/ai/ProfileRules/ProfileRules'
 import RagManage from './pages/ai/RagManage/RagManage'
 import Login from './pages/Login/Login'
 import WorkspacePage from './pages/workspace/WorkspacePage'
@@ -36,6 +37,7 @@ function App() {
           <Route path="/ai/rag/strategy" element={<Navigate to="/ai/rag/agents" replace />} />
           <Route path="/ai/rag/agents" element={<RagManage page="agents" />} />
           <Route path="/ai/question-bank" element={<QuestionBank />} />
+          <Route path="/ai/profile-rules" element={<ProfileRules />} />
           {workspaceRoutes}
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -47,6 +47,14 @@
           </view>
           <text class="cell-arrow">›</text>
         </view>
+        <view class="cell-divider"></view>
+        <view class="cell" @click="goToProfileRadar">
+          <view class="cell-left">
+            <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/chart.svg" mode="aspectFit" /></view>
+            <text class="cell-label">个人画像雷达图</text>
+          </view>
+          <text class="cell-arrow">›</text>
+        </view>
       </view>
       <!-- 12px 灰色隔离条 -->
       <view class="gap-bar"></view>
@@ -146,6 +154,9 @@ export default {
     },
     goToAiHistory() {
       uni.navigateTo({ url: '/subpackage_ai/aiHistory/aiHistory' })
+    },
+    goToProfileRadar() {
+      uni.navigateTo({ url: '/subpackage_ai/profileRadar/profileRadar' })
     },
     goToChangePassword() {
       uni.navigateTo({ url: '/pages/changePassword/changePassword' })

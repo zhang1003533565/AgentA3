@@ -1,5 +1,7 @@
 import asyncio
 import hashlib
+import json
+import re
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Header, HTTPException
@@ -313,6 +315,10 @@ async def run_rag_query_stream(
                 "sessionId": session_id,
                 "answer": response.answer,
                 "answerType": response.answerType,
+                "outputType": response.outputType,
+                "outputTypes": response.outputTypes,
+                "outputMeta": response.outputMeta,
+                "attachments": response.attachments,
                 "ragStrategy": response.strategy,
                 "agentName": metadata.get("executedAgent") or metadata.get("targetAgent") or metadata.get("agentName") or "leader_agent",
                 "searchKeyword": request.keyword or "",
@@ -338,6 +344,8 @@ def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQuer
     active_agent = requested_agent or "leader_agent"
     if active_agent == "leader_agent":
         return _run_leader_orchestration(request, authorization)
+    if not _is_agent_enabled(request, active_agent):
+        return _run_disabled_agent_response(request, active_agent)
 
     agent_profile = get_agent_profile(active_agent)
     if agent_profile and not agent_profile.get("needRetrieval", True):
@@ -347,9 +355,10 @@ def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQuer
 
 
 def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
-    plan = leader_agent.plan(request.input, request.ragStrategy or "")
+    profile_context = _profile_context_from_request(request)
+    plan = leader_agent.plan(request.input, request.ragStrategy or "", profile_context=profile_context)
     if plan.action == "direct_answer":
-        return _run_leader_direct_answer(plan)
+        return _run_leader_direct_answer(plan, profile_context=profile_context)
     if plan.action == "call_tool":
         if plan.tool_name == "text_to_sql":
             return _run_text_to_sql_tool(request, plan)
@@ -359,9 +368,139 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
     agent_profile = get_agent_profile(plan.target_agent)
     if not agent_profile:
         raise HTTPException(status_code=502, detail=f"Leader 路由到了不存在的目标智能体：{plan.target_agent}")
+    if not _is_agent_enabled(request, plan.target_agent):
+        return _run_disabled_agent_response(request, plan.target_agent, leader_plan=plan)
     if not agent_profile.get("needRetrieval", True):
         return _run_direct_agent(request, agent_profile, leader_plan=plan)
     return _run_agent_without_local_retrieval(request, plan.target_agent, leader_plan=plan)
+
+
+def _agent_toggles_from_request(request: RagQueryRequest) -> Dict[str, Any]:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    toggles = metadata.get("agentToggles")
+    if isinstance(toggles, dict):
+        return toggles
+    disabled_agents = metadata.get("disabledAgents")
+    if isinstance(disabled_agents, list):
+        return {str(item): False for item in disabled_agents if str(item or "").strip()}
+    return {}
+
+
+def _is_agent_enabled(request: RagQueryRequest, agent_name: Optional[str]) -> bool:
+    normalized = normalize_agent_name(agent_name)
+    if not normalized or normalized == "leader_agent":
+        return True
+    toggles = _agent_toggles_from_request(request)
+    if normalized not in toggles:
+        return True
+    return _parse_agent_enabled_value(toggles.get(normalized))
+
+
+def _parse_agent_enabled_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = str(value or "").strip().lower()
+    return text not in {"0", "false", "off", "disabled", "no"}
+
+
+def _run_disabled_agent_response(
+    request: RagQueryRequest,
+    agent_name: str,
+    leader_plan=None,
+) -> RagQueryResponse:
+    normalized = normalize_agent_name(agent_name) or str(agent_name or "").strip()
+    profile = get_agent_profile(normalized) or {}
+    role = profile.get("role") or normalized or "目标智能体"
+    if leader_plan:
+        answer = (
+            f"Leader 已识别到需要调用「{role}（{normalized}）」；"
+            "但后台开关当前为关闭，所以本次已跳过该智能体，没有继续执行。"
+        )
+        execution_mode = "leader_skipped_disabled_agent"
+        execution_label = "Leader 跳过已关闭智能体"
+    else:
+        answer = (
+            f"你选择的「{role}（{normalized}）」当前未开启，"
+            "所以本次没有执行该智能体。请在后台多智能体页面开启后再使用。"
+        )
+        execution_mode = "direct_disabled_agent"
+        execution_label = "已关闭智能体未执行"
+
+    metadata = {
+        "agentName": "leader_agent" if leader_plan else normalized,
+        "targetAgent": normalized,
+        "executedAgent": None,
+        "disabledAgent": normalized,
+        "agentDisabled": True,
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "strategyLabel": "智能体已关闭，跳过执行",
+        "executionMode": execution_mode,
+        "executionModeLabel": execution_label,
+        "answerType": "text",
+    }
+    if leader_plan:
+        metadata.update({
+            "intent": leader_plan.intent,
+            "leaderAction": leader_plan.action,
+            "leaderActionLabel": _leader_action_label(leader_plan.action),
+            "routeReason": leader_plan.route_reason,
+        })
+
+    trace = []
+    if leader_plan:
+        trace.append(RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)))
+    trace.append(RagTraceResponse(
+        stage="agent_skipped",
+        detail={
+            "agentName": normalized,
+            "reason": "agent_disabled",
+            "message": "后台智能体开关关闭，跳过执行",
+        },
+    ))
+    return _decorate_output_response(RagQueryResponse(
+        strategy="agent_disabled",
+        answer=answer,
+        answerType="text",
+        documents=[],
+        trace=trace,
+        metadata=metadata,
+    ))
+
+
+def _profile_context_from_request(request: RagQueryRequest) -> Dict[str, Any]:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    profile_context = metadata.get("profileSnapshot")
+    return profile_context if isinstance(profile_context, dict) else {}
+
+
+def _profile_evidence_from_request(request: RagQueryRequest) -> List[Dict[str, Any]]:
+    profile_context = _profile_context_from_request(request)
+    if not profile_context:
+        return []
+    content = json.dumps({
+        "overallScore": profile_context.get("overallScore"),
+        "confidenceLevel": profile_context.get("confidenceLevel"),
+        "profileTags": profile_context.get("profileTags"),
+        "strongDimensions": profile_context.get("strongDimensions"),
+        "weakDimensions": profile_context.get("weakDimensions"),
+        "resourcePreference": profile_context.get("resourcePreference"),
+        "dimensions": profile_context.get("dimensions"),
+        "leaderUsageRules": profile_context.get("leaderUsageRules"),
+    }, ensure_ascii=False)
+    return [{
+        "id": "user_profile_snapshot",
+        "source": "user_profile",
+        "content": content,
+        "score": 1.0,
+        "metadata": {
+            "profileContextUsed": True,
+            "updateMode": profile_context.get("updateMode"),
+            "updateContract": profile_context.get("updateContract"),
+        },
+    }]
 
 
 def _run_agent_without_local_retrieval(
@@ -369,7 +508,8 @@ def _run_agent_without_local_retrieval(
     active_agent: str,
     leader_plan=None,
 ) -> RagQueryResponse:
-    answer = run_specialist_agent(active_agent, request.input, [])
+    profile_evidence = _profile_evidence_from_request(request)
+    answer = run_specialist_agent(active_agent, request.input, profile_evidence)
     answer_type = _answer_type_for_agent(active_agent)
     trace = []
     if leader_plan:
@@ -390,6 +530,7 @@ def _run_agent_without_local_retrieval(
         "localRagStrategies": False,
         "strategyLabel": "直接执行智能体",
         "answerType": answer_type,
+        "profileContextUsed": bool(profile_evidence),
     }
     if leader_plan:
         metadata.update({
@@ -406,17 +547,17 @@ def _run_agent_without_local_retrieval(
         metadata["agentName"] = active_agent
         metadata["executionMode"] = "direct_agent"
         metadata["executionModeLabel"] = "专业智能体直接处理"
-    return RagQueryResponse(
+    return _decorate_output_response(RagQueryResponse(
         strategy="direct_agent",
         answer=answer,
         answerType=answer_type,
         documents=[],
         trace=trace,
         metadata=metadata,
-    )
+    ))
 
 
-def _run_leader_direct_answer(plan) -> RagQueryResponse:
+def _run_leader_direct_answer(plan, profile_context: Optional[Dict[str, Any]] = None) -> RagQueryResponse:
     answer = (plan.answer or "").strip()
     if not answer:
         raise HTTPException(status_code=502, detail="Leader LLM 选择直接回答，但 answer 为空，已禁止本地兜底回答")
@@ -434,8 +575,9 @@ def _run_leader_direct_answer(plan) -> RagQueryResponse:
         "retrievalSkipped": True,
         "strategyLabel": "直接回答（不使用 RAG）",
         "answerType": "text",
+        "profileContextUsed": bool(profile_context),
     }
-    return RagQueryResponse(
+    return _decorate_output_response(RagQueryResponse(
         strategy="leader_direct_answer",
         answer=answer,
         answerType="text",
@@ -445,7 +587,7 @@ def _run_leader_direct_answer(plan) -> RagQueryResponse:
             RagTraceResponse(stage="direct_answer", detail={"answerLength": len(answer or "")}),
         ],
         metadata=metadata,
-    )
+    ))
 
 
 def _run_direct_agent(
@@ -454,7 +596,8 @@ def _run_direct_agent(
     leader_plan=None,
 ) -> RagQueryResponse:
     agent_name = agent_profile["name"]
-    answer = run_specialist_agent(agent_name, request.input, [])
+    profile_evidence = _profile_evidence_from_request(request)
+    answer = run_specialist_agent(agent_name, request.input, profile_evidence)
     answer_type = _answer_type_for_agent(agent_name)
     metadata = {
         "agentName": "leader_agent" if leader_plan else agent_name,
@@ -467,6 +610,7 @@ def _run_direct_agent(
         "executionMode": "leader_routed_direct_agent" if leader_plan else "direct_agent",
         "executionModeLabel": "Leader 分发给非检索智能体" if leader_plan else "专业智能体直接处理",
         "answerType": answer_type,
+        "profileContextUsed": bool(profile_evidence),
     }
     if leader_plan:
         metadata.update({
@@ -481,14 +625,14 @@ def _run_direct_agent(
         stage="direct_agent",
         detail={**metadata, "answerLength": len(answer or "")},
     ))
-    return RagQueryResponse(
+    return _decorate_output_response(RagQueryResponse(
         strategy="direct_agent",
         answer=answer,
         answerType=answer_type,
         documents=[],
         trace=trace,
         metadata=metadata,
-    )
+    ))
 
 
 def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResponse:
@@ -527,14 +671,14 @@ def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResp
         RagTraceResponse(stage="generate_sql", detail={"readonly": bool(result.sql), "sql": result.sql, "error": result.error}),
         RagTraceResponse(stage="tool_call", detail={"toolName": "text_to_sql", "strategy": "text_to_sql"}),
     ]
-    return RagQueryResponse(
+    return _decorate_output_response(RagQueryResponse(
         strategy="text_to_sql",
         answer=answer,
         answerType="tool_result",
         documents=[],
         trace=trace,
         metadata=metadata,
-    )
+    ))
 
 
 def _format_text_to_sql_answer(metadata: Dict[str, Any]) -> str:
@@ -589,7 +733,7 @@ def _run_schedule_tool(request: RagQueryRequest, authorization: str, leader_plan
         "answerType": "tool_result",
         **retrieval_meta,
     }
-    return RagQueryResponse(
+    return _decorate_output_response(RagQueryResponse(
         strategy="java_schedule_api",
         answer=answer,
         answerType="tool_result",
@@ -599,7 +743,215 @@ def _run_schedule_tool(request: RagQueryRequest, authorization: str, leader_plan
             RagTraceResponse(stage="tool_call", detail={"toolName": leader_plan.tool_name, **retrieval_meta}),
         ],
         metadata=metadata,
+    ))
+
+
+def _decorate_output_response(response: RagQueryResponse) -> RagQueryResponse:
+    attachments = _extract_response_attachments(response.answer)
+    output_types = _infer_output_types(response.answerType, response.metadata, attachments)
+    response.attachments = attachments
+    response.outputTypes = output_types
+    response.outputType = output_types[0] if output_types else "text"
+    response.outputMeta = {
+        "pushStrategy": _push_strategy_for_output(response.answerType, response.metadata, output_types),
+        "attachmentCount": len(attachments),
+        "displayPolicy": "App 会话页优先展示结构化附件；文本中出现图片/文档链接时也会转成卡片。",
+    }
+    if response.metadata is None:
+        response.metadata = {}
+    response.metadata["outputType"] = response.outputType
+    response.metadata["outputTypes"] = output_types
+    response.metadata["attachmentCount"] = len(attachments)
+    response.metadata["pushStrategy"] = response.outputMeta["pushStrategy"]
+    return response
+
+
+def _infer_output_types(answer_type: str, metadata: Dict[str, Any], attachments: List[Dict[str, Any]]) -> List[str]:
+    types: List[str] = []
+    if any(item.get("type") == "image" for item in attachments):
+        types.append("image")
+    if any(item.get("type") == "video" for item in attachments):
+        types.append("video")
+    if any(item.get("type") in {"pdf", "docx", "ppt", "excel", "file"} for item in attachments):
+        types.append("document")
+    normalized_answer_type = str(answer_type or "").strip()
+    agent = str((metadata or {}).get("executedAgent") or (metadata or {}).get("targetAgent") or "").strip()
+    if normalized_answer_type in {"image_generation", "image_prompt", "ppt_image_prompt"} or agent in {
+        "image_agent",
+        "diagram_mind_map_agent",
+        "diagram_architecture_agent",
+        "diagram_flowchart_agent",
+        "diagram_activity_agent",
+    }:
+        if "image" not in types:
+            types.append("image")
+    if normalized_answer_type == "document_conversion" or agent == "ppt_to_docx_agent":
+        if "document" not in types:
+            types.append("document")
+    if normalized_answer_type in {"mermaid_mindmap", "mermaid_flowchart", "mermaid_activity_flowchart", "mermaid_architecture"}:
+        if "diagram" not in types:
+            types.append("diagram")
+    if not types:
+        types.append("text")
+    return types
+
+
+def _push_strategy_for_output(answer_type: str, metadata: Dict[str, Any], output_types: List[str]) -> Dict[str, Any]:
+    agent = str((metadata or {}).get("executedAgent") or (metadata or {}).get("targetAgent") or "").strip()
+    if "image" in output_types:
+        return {
+            "pushType": "image",
+            "trigger": "用户要求生成图片、流程图、活动图、架构图、思维导图图片、PPT 配图或封面图时触发。",
+            "agent": agent or "image_agent",
+            "display": "以图片卡片推送到会话页，支持点击预览。",
+        }
+    if "document" in output_types:
+        return {
+            "pushType": "document",
+            "trigger": "用户要求导出、转换、下载、生成 Word/PDF/PPT/Excel 文档或上传 PPTX 转 DOCX 时触发。",
+            "agent": agent or "document_agent",
+            "display": "以文档卡片推送到会话页，支持点击打开；不支持打开时复制链接。",
+        }
+    return {
+        "pushType": "text",
+        "trigger": "普通问答、知识点解释、会议总结、题库 JSON 和策略说明默认触发。",
+        "agent": agent or "leader_agent",
+        "display": "以文本消息展示。",
+    }
+
+
+def _extract_response_attachments(answer: str) -> List[Dict[str, Any]]:
+    content = str(answer or "")
+    attachments: List[Dict[str, Any]] = []
+    parsed = _try_parse_json_object(content)
+    if parsed:
+        attachments.extend(_attachments_from_json_payload(parsed))
+
+    markdown_pattern = re.compile(
+        r"!?\[([^\]]+)\]\(((?:https?://|/uploads/)[^\s\"'<>，。！？；、)]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv)(?:\?[^\s\"'<>，。！？；、)]*)?)\)",
+        re.IGNORECASE,
     )
+    for match in markdown_pattern.finditer(content):
+        attachments.append(_build_attachment(match.group(2), match.group(1), ""))
+
+    plain_text = markdown_pattern.sub("", content)
+    url_pattern = re.compile(
+        r"(?:https?://|/uploads/)[^\s\"'<>，。！？；、]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv)(?:\?[^\s\"'<>，。！？；、]*)?",
+        re.IGNORECASE,
+    )
+    for match in url_pattern.finditer(plain_text):
+        attachments.append(_build_attachment(match.group(0), "", ""))
+
+    normalized: List[Dict[str, Any]] = []
+    seen = set()
+    for item in attachments:
+        if not item:
+            continue
+        url = str(item.get("url") or "").strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        normalized.append(item)
+    return normalized
+
+
+def _attachments_from_json_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    attachments: List[Dict[str, Any]] = []
+    for key, default_type in (
+        ("images", "image"),
+        ("documents", "document"),
+        ("files", "file"),
+        ("attachments", "file"),
+    ):
+        value = payload.get(key)
+        if isinstance(value, list):
+            for item in value:
+                attachments.append(_attachment_from_json_item(item, default_type))
+    for key, default_type in (
+        ("imageUrl", "image"),
+        ("image_url", "image"),
+        ("documentUrl", "document"),
+        ("document_url", "document"),
+        ("fileUrl", "file"),
+        ("file_url", "file"),
+        ("url", ""),
+    ):
+        if payload.get(key):
+            attachments.append(_attachment_from_json_item(payload, default_type, url_key=key))
+    return [item for item in attachments if item]
+
+
+def _attachment_from_json_item(item: Any, default_type: str, url_key: str = "url") -> Dict[str, Any]:
+    if isinstance(item, str):
+        return _build_attachment(item, "", default_type)
+    if not isinstance(item, dict):
+        return {}
+    url = str(item.get(url_key) or item.get("url") or item.get("fileUrl") or item.get("href") or "").strip()
+    if not url:
+        return {}
+    name = str(item.get("name") or item.get("fileName") or item.get("title") or "").strip()
+    type_hint = str(item.get("type") or item.get("fileType") or item.get("mimeType") or default_type or "").strip()
+    attachment = _build_attachment(url, name, type_hint)
+    if item.get("index") is not None:
+        attachment["index"] = item.get("index")
+    if item.get("status") is not None:
+        attachment["status"] = item.get("status")
+    return attachment
+
+
+def _build_attachment(url: str, name: str = "", type_hint: str = "") -> Dict[str, Any]:
+    normalized_url = str(url or "").strip()
+    if not normalized_url:
+        return {}
+    ext = _file_ext(name or normalized_url)
+    hinted = str(type_hint or "").lower()
+    attachment_type = "file"
+    if "image" in hinted or ext in {"png", "jpg", "jpeg", "gif", "webp", "bmp"}:
+        attachment_type = "image"
+    elif "video" in hinted or ext in {"mp4", "mov", "m4v", "webm", "ogg"}:
+        attachment_type = "video"
+    elif ext == "pdf":
+        attachment_type = "pdf"
+    elif ext in {"doc", "docx"}:
+        attachment_type = "docx"
+    elif ext in {"ppt", "pptx"}:
+        attachment_type = "ppt"
+    elif ext in {"xls", "xlsx", "csv"}:
+        attachment_type = "excel"
+    elif hinted in {"document", "file"}:
+        attachment_type = "file"
+    if attachment_type == "file" and not ext:
+        return {}
+    return {
+        "url": normalized_url,
+        "name": name or _file_name_from_url(normalized_url),
+        "type": attachment_type,
+        "ext": ext,
+    }
+
+
+def _try_parse_json_object(content: str) -> Dict[str, Any]:
+    raw = (content or "").strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?", "", raw, flags=re.IGNORECASE).strip()
+        raw = re.sub(r"```$", "", raw).strip()
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
+def _file_ext(value: str) -> str:
+    clean = str(value or "").split("?")[0].lower()
+    index = clean.rfind(".")
+    return clean[index + 1:] if index >= 0 else ""
+
+
+def _file_name_from_url(url: str) -> str:
+    clean = str(url or "").split("?")[0].rstrip("/")
+    name = clean[clean.rfind("/") + 1:] if "/" in clean else clean
+    return name or "文件"
 
 
 def _tool_result_to_document(item: Dict[str, Any], index: int) -> RagDocumentResponse:

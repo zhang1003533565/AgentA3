@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, Card, Col, Collapse, Empty, Form, Image, Input, Row, Select, Space, Table, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Col, Collapse, Empty, Form, Image, Input, Row, Select, Space, Switch, Table, Tag, Typography, message } from 'antd'
 import { DatabaseOutlined, PlayCircleOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons'
 import { importExamQuestions } from '../../../api/examQuestion'
 import {
@@ -18,6 +18,7 @@ const { Text, Title } = Typography
 // 匹配所有 AI 服务配置（文本、图片、视频、语音）
 const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.(text|image|video|audio)(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
 const AGENT_MODEL_BINDING_PATTERN = /^ai\.agent-bindings\.([A-Za-z0-9_-]+)\.model$/
+const AGENT_ENABLED_CONFIG_PREFIX = 'ai.agent-enabled.'
 const AI_TESTED_MODEL_PREFIXES_KEY = 'ai_tested_model_prefixes_v1'
 const AI_TESTED_MODEL_IDS_KEY = 'ai_tested_model_ids_v1'
 const MODEL_MODALITY_LABELS = {
@@ -44,8 +45,25 @@ const evidenceColumns = [
   { title: '内容', dataIndex: 'content', ellipsis: true },
 ]
 
-const agentColumns = [
+const buildAgentColumns = (onToggleAgentEnabled) => [
   { title: '智能体', dataIndex: 'name', render: (value) => <Tag color="geekblue">{value}</Tag> },
+  {
+    title: '开关',
+    dataIndex: 'enabled',
+    width: 110,
+    render: (value, record) => {
+      const locked = record.name === 'leader_agent'
+      return (
+        <Switch
+          checked={locked || value !== false}
+          disabled={locked}
+          checkedChildren="开"
+          unCheckedChildren="关"
+          onChange={(checked) => onToggleAgentEnabled(record.name, checked)}
+        />
+      )
+    },
+  },
   { title: '角色', dataIndex: 'role' },
   { title: '职责', dataIndex: 'purpose' },
   {
@@ -179,6 +197,8 @@ const executionModeLabels = {
   leader_call_tool: 'Leader 调用接口',
   leader_routed_direct_agent: 'Leader 调用非检索智能体',
   direct_agent: '直接处理',
+  leader_skipped_disabled_agent: 'Leader 跳过已关闭智能体',
+  direct_disabled_agent: '已关闭智能体未执行',
 }
 
 const getAgentRequiredModelModalities = (agent) => {
@@ -197,6 +217,8 @@ const updateAgentInList = (agents, updatedAgent) => (
     ? agents.map((item) => (item.name === updatedAgent.name ? { ...item, ...updatedAgent } : item))
     : agents
 )
+
+const isAgentEnabled = (agent) => !agent || agent.name === 'leader_agent' || agent.enabled !== false
 
 const getExecutionLabel = (metadata = {}) => (
   metadata.executionModeLabel ||
@@ -392,12 +414,51 @@ function RagManage({ page = 'playground' }) {
     }
   }, [agents, getAgentExampleInput, getDefaultModelForAgent, queryForm])
 
+  const toggleAgentEnabled = useCallback(async (agentName, enabled) => {
+    if (agentName === 'leader_agent') {
+      message.warning('Leader 是总控入口，保持开启')
+      return
+    }
+    try {
+      await upsertSystemConfig({
+        configKey: `${AGENT_ENABLED_CONFIG_PREFIX}${agentName}`,
+        configValue: enabled ? '1' : '0',
+        configGroup: 'ai',
+        description: `智能体 ${agentName} 启用开关`,
+        status: 1,
+        isDefault: 0,
+      })
+      setAgents((prev) => prev.map((item) => (
+        item.name === agentName ? { ...item, enabled } : item
+      )))
+      if (!enabled) {
+        if (queryForm.getFieldValue('agentName') === agentName) {
+          queryForm.setFieldsValue({ agentName: 'leader_agent' })
+          applyAgentDefaultModel(queryForm, 'leader_agent')
+        }
+        if (agentTestForm.getFieldValue('agentName') === agentName) {
+          agentTestForm.setFieldsValue({ agentName: 'leader_agent' })
+          applyAgentDefaultModel(agentTestForm, 'leader_agent')
+        }
+      }
+      message.success(enabled ? '智能体已开启' : '智能体已关闭，Leader 路由到它时会跳过')
+    } catch (error) {
+      message.error(error.message || '智能体开关保存失败')
+    }
+  }, [agentTestForm, applyAgentDefaultModel, queryForm])
+
+  const tableAgentColumns = useMemo(
+    () => buildAgentColumns(toggleAgentEnabled),
+    [toggleAgentEnabled]
+  )
+
   const agentOptions = useMemo(
     () => [
       { value: 'leader_agent', label: 'Leader 自动路由 · 意图识别/分发' },
       ...agents.filter((item) => item.name !== 'leader_agent').map((item) => ({
         value: item.name,
-        label: `${item.role} · ${item.name}`,
+        label: `${item.role} · ${item.name}${isAgentEnabled(item) ? '' : ' · 已关闭'}`,
+        disabled: !isAgentEnabled(item),
       })),
     ],
     [agents]
@@ -406,7 +467,8 @@ function RagManage({ page = 'playground' }) {
   const agentTestOptions = useMemo(
     () => agents.map((item) => ({
       value: item.name,
-      label: `${item.role} · ${item.name}`,
+      label: `${item.role} · ${item.name}${isAgentEnabled(item) ? '' : ' · 已关闭'}`,
+      disabled: !isAgentEnabled(item),
     })),
     [agents]
   )
@@ -540,6 +602,11 @@ function RagManage({ page = 'playground' }) {
     setQueryError('')
     try {
       const selectedAgentName = values.agentName || 'leader_agent'
+      const selectedAgent = agents.find((item) => item.name === selectedAgentName)
+      if (selectedAgent && !isAgentEnabled(selectedAgent)) {
+        message.warning('该智能体当前未开启，请先打开开关')
+        return
+      }
       const res = await runRagQuery({
         input: values.input,
         keyword: values.keyword || undefined,
@@ -579,6 +646,10 @@ function RagManage({ page = 'playground' }) {
     const agent = agents.find((item) => item.name === values.agentName)
     if (!agent) {
       message.warning('请先选择一个智能体')
+      return
+    }
+    if (!isAgentEnabled(agent)) {
+      message.warning('该智能体当前未开启，请先打开开关')
       return
     }
     const payload = {
@@ -1169,7 +1240,7 @@ function RagManage({ page = 'playground' }) {
               <Card title="Agent / Skill 目录" className="rag-panel-card">
                 <Table
                   rowKey="name"
-                  columns={agentColumns}
+                  columns={tableAgentColumns}
                   dataSource={agents}
                   pagination={{ pageSize: 6 }}
                 />

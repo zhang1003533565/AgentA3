@@ -64,6 +64,7 @@ export const navigationSections = [
       { path: '/ai/model', label: '模型配置', icon: 'robot', pageKey: 'system-config' },
       { path: '/ai/rag/agents', label: '多智能体', icon: 'robot' },
       { path: '/ai/question-bank', label: '题库管理', icon: 'appstore' },
+      { path: '/ai/profile-rules', label: '画像规则', icon: 'pie-chart' },
     ],
   },
 ]
@@ -78,6 +79,7 @@ export const moduleCards = [
   { title: 'AI 模块', description: '维护 AI 模型配置和多智能体', route: '/ai/model' },
   { title: '多智能体', description: '测试智能体、绑定模型并维护示例输入', route: '/ai/rag/agents' },
   { title: '题库管理', description: '查看智能体导入的标准题库', route: '/ai/question-bank' },
+  { title: '画像规则', description: '查看个人画像雷达图来源、更新策略和 Leader 使用边界', route: '/ai/profile-rules' },
 ]
 
 const columns = {

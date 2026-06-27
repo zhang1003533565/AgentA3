@@ -14,6 +14,27 @@ from app.utils.text_utils import is_schedule_intent, is_smalltalk_intent
 
 logger = get_logger("multi_agents.leader")
 
+LEADER_OUTPUT_PUSH_STRATEGIES = [
+    {
+        "push_type": "image",
+        "triggers": ["生成图片", "画一张", "配图", "插图", "封面图", "海报", "图片素材", "架构图", "流程图", "活动图", "思维导图图片"],
+        "target_agents": ["image_agent", "diagram_mind_map_agent", "diagram_architecture_agent", "diagram_flowchart_agent", "diagram_activity_agent", "ppt_image_agent"],
+        "display_policy": "返回图片 URL 或图片生成 JSON 时，App 会话页以图片卡片展示，支持点击预览。",
+    },
+    {
+        "push_type": "document",
+        "triggers": ["导出文档", "生成文档", "下载文档", "转 Word", "转 DOCX", "PPT 转 Word", "PPTX 转 DOCX", "PDF", "Word"],
+        "target_agents": ["ppt_to_docx_agent"],
+        "display_policy": "返回 PDF/Word/PPT/Excel URL 或文档转换结果时，App 会话页以文档卡片展示，支持点击打开。",
+    },
+    {
+        "push_type": "text",
+        "triggers": ["普通问答", "知识解释", "会议总结", "题库 JSON", "策略说明"],
+        "target_agents": ["leader_agent", "textbook_knowledge_agent", "meeting_summary_agent"],
+        "display_policy": "默认以文本或 Markdown 展示。",
+    },
+]
+
 
 @dataclass
 class LeaderPlan:
@@ -33,12 +54,19 @@ class LeaderPlan:
 class LeaderAgent:
     name = "leader_agent"
 
-    def plan(self, input_text: str, rag_strategy: str = "", requested_agent: Optional[str] = None, chat_service=None) -> LeaderPlan:
+    def plan(
+        self,
+        input_text: str,
+        rag_strategy: str = "",
+        requested_agent: Optional[str] = None,
+        chat_service=None,
+        profile_context: Optional[Dict[str, Any]] = None,
+    ) -> LeaderPlan:
         forced_plan = self._plan_for_requested_agent(requested_agent, rag_strategy)
         if forced_plan:
             return forced_plan
 
-        return self._plan_with_llm(input_text, rag_strategy, chat_service)
+        return self._plan_with_llm(input_text, rag_strategy, chat_service, profile_context=profile_context)
 
     def _plan_with_rules(self, input_text: str, rag_strategy: str = "") -> LeaderPlan:
         normalized = (input_text or "").strip().lower()
@@ -86,6 +114,8 @@ class LeaderAgent:
             return LeaderPlan("diagram_flowchart", "diagram_flowchart_agent", False, "", route_reason="命中流程图生成意图，分发给图表流程图智能体。")
         if any(token in normalized for token in ("思维导图", "mindmap", "mind map", "脑图")):
             return LeaderPlan("diagram_mind_map", "diagram_mind_map_agent", False, "", route_reason="命中思维导图生成意图，分发给图表思维导图智能体。")
+        if any(token in normalized for token in ("生成图片", "画一张", "画张", "配图", "插图", "封面图", "海报", "图片素材", "文生图")):
+            return LeaderPlan("image_generation", "image_agent", False, "", route_reason="命中图片生成/配图意图，分发给图片智能体，并在 App 会话页以图片卡片推送。")
         if any(token in normalized for token in ("多选题", "多项选择")):
             return LeaderPlan("multiple_choice", "textbook_question_multiple_choice_agent", False, "", route_reason="命中多选题生成意图，分发给多选题智能体。")
         if any(token in normalized for token in ("选择题", "单选题", "单项选择")):
@@ -132,11 +162,17 @@ class LeaderAgent:
             return LeaderPlan("textbook_knowledge", "textbook_knowledge_agent", False, "", route_reason="命中教材/课程知识意图，使用教材知识点智能体直接整理。")
         return LeaderPlan("campus_search", "textbook_knowledge_agent", False, "", route_reason="未命中特定生成类意图，按校园知识查询处理。")
 
-    def _plan_with_llm(self, input_text: str, rag_strategy: str, chat_service=None) -> LeaderPlan:
+    def _plan_with_llm(
+        self,
+        input_text: str,
+        rag_strategy: str,
+        chat_service=None,
+        profile_context: Optional[Dict[str, Any]] = None,
+    ) -> LeaderPlan:
         provider = chat_service or get_chat_model_provider()
         text = provider.complete(
             system_prompt=load_agent_prompt(self.name),
-            user_prompt=build_leader_router_user_prompt(input_text, rag_strategy),
+            user_prompt=build_leader_router_user_prompt(input_text, rag_strategy, profile_context=profile_context),
         )
         plan = parse_json_object(text)
         if not plan:
@@ -254,11 +290,24 @@ class LeaderAgent:
 leader_agent = LeaderAgent()
 
 
-def build_leader_router_user_prompt(input_text: str, rag_strategy: str) -> str:
+def build_leader_router_user_prompt(
+    input_text: str,
+    rag_strategy: str,
+    profile_context: Optional[Dict[str, Any]] = None,
+) -> str:
     return json.dumps({
         "user_input": input_text or "",
         "requested_rag_strategy": rag_strategy or "",
         "allowed_rag_strategy_when_needed": rag_strategy or "",
+        "profile_snapshot": profile_context or {},
+        "profile_usage_policy": [
+            "必须参考 profile_snapshot，但用户当前问题优先级最高。",
+            "高置信度画像可以用于推荐顺序、解释深度和资源形式。",
+            "中低置信度画像只能作为倾向，不能武断判断用户能力。",
+            "Leader 不能直接更新画像分数；只能在回答后通过 Java 画像证据接口沉淀证据。",
+            "当前输入与画像冲突时，以当前输入完成本轮回答，并在 route_reason 中说明冲突倾向。",
+        ],
+        "leader_output_push_strategies": LEADER_OUTPUT_PUSH_STRATEGIES,
     }, ensure_ascii=False)
 
 

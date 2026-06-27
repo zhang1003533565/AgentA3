@@ -64,6 +64,21 @@ export async function streamLeaderAgent(data, handlers = {}) {
   }, handlers, '当前运行环境暂不支持流式对话')
 }
 
+export function getProfileRadarSnapshot() {
+  return request({
+    url: '/api/profile/radar/my',
+    method: 'GET'
+  })
+}
+
+export function submitProfileEvidence(data) {
+  return request({
+    url: '/api/profile/evidence',
+    method: 'POST',
+    data
+  })
+}
+
 export function queryMeetingAgent(data = {}) {
   const payload = { ...data }
   const targetSessionId = payload.sessionId || payload.meetingSessionId

@@ -62,3 +62,7 @@ class RagQueryResponse(BaseModel):
     documents: List[RagDocumentResponse] = Field(default_factory=list)
     trace: List[RagTraceResponse] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    outputType: str = "text"
+    outputTypes: List[str] = Field(default_factory=list)
+    outputMeta: Dict[str, Any] = Field(default_factory=dict)
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)

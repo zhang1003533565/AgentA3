@@ -321,14 +321,38 @@ export default {
         .trim()
     },
     getOutputTypeTags(message) {
-      return [this.detectMessageType(message)]
+      const rawTypes = []
+      if (Array.isArray(message?.outputTypes)) rawTypes.push(...message.outputTypes)
+      if (message?.outputType) rawTypes.push(message.outputType)
+      if (message?.answerType) rawTypes.push(message.answerType)
+      rawTypes.push(this.detectMessageType(message))
+      const normalized = rawTypes
+        .map((type) => this.normalizeOutputType(type))
+        .filter(Boolean)
+      return [...new Set(normalized)]
     },
     detectMessageType(message) {
       const attachments = this.getMessageAttachments(message)
       if (attachments.some((item) => item.type === 'image')) return 'image'
+      if (attachments.some((item) => item.type === 'video')) return 'video'
+      if (attachments.some((item) => ['pdf', 'docx', 'ppt', 'excel', 'file'].includes(item.type))) return 'document'
       const content = String(message?.content || '')
       if (this.containsFormula(content)) return 'formula'
+      if ((message?.answerType || '').includes('document')) return 'document'
+      if ((message?.answerType || '').includes('image')) return 'image'
       return 'text'
+    },
+    normalizeOutputType(type) {
+      const value = String(type || '').toLowerCase()
+      if (!value) return ''
+      if (value.includes('image') || value === 'picture') return 'image'
+      if (value.includes('video')) return 'video'
+      if (value.includes('document') || value.includes('docx') || value.includes('pdf') || value.includes('ppt') || value.includes('excel')) return 'document'
+      if (value.includes('mermaid') || value.includes('diagram')) return 'diagram'
+      if (value.includes('formula') || value.includes('math')) return 'formula'
+      if (value.includes('question_bank')) return 'question'
+      if (value.includes('markdown') || value.includes('tool_result')) return 'text'
+      return value === 'text' ? 'text' : ''
     },
     containsFormula(content) {
       return /```(?:math|latex|tex)\b|\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|(?:公式|方程)\s*[:：]/i.test(String(content || ''))
@@ -336,8 +360,12 @@ export default {
     getOutputTypeLabel(type) {
       const labels = {
         text: '文本',
-        image: '照片',
-        formula: '公式'
+        image: '图片',
+        video: '视频',
+        document: '文档',
+        diagram: '图表',
+        formula: '公式',
+        question: '题库'
       }
       return labels[type] || '文本'
     },
@@ -373,6 +401,24 @@ export default {
             files.push(this.normalizeAttachment(value))
           })
         }
+        ;['documents', 'files', 'attachments'].forEach((key) => {
+          if (Array.isArray(parsed?.[key])) {
+            parsed[key].forEach((item) => files.push(this.normalizeAttachment(item)))
+          }
+        })
+        ;[
+          ['imageUrl', 'image'],
+          ['image_url', 'image'],
+          ['documentUrl', 'document'],
+          ['document_url', 'document'],
+          ['fileUrl', 'file'],
+          ['file_url', 'file'],
+          ['url', parsed?.type || '']
+        ].forEach(([key, type]) => {
+          if (parsed?.[key]) {
+            files.push(this.normalizeAttachment({ ...parsed, url: parsed[key], type }))
+          }
+        })
       } catch (error) {
         // Plain text responses are inspected below.
       }
@@ -387,10 +433,10 @@ export default {
       return files.filter(Boolean)
     },
     markdownAttachmentPattern() {
-      return /!?\[([^\]]+)\]\((https?:\/\/[^\s"'<>，。！？；、)]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?)(?:\?[^\s"'<>，。！？；、)]*)?)\)/gi
+      return /!?\[([^\]]+)\]\(((?:https?:\/\/|\/uploads\/)[^\s"'<>，。！？；、)]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv)(?:\?[^\s"'<>，。！？；、)]*)?)\)/gi
     },
     attachmentUrlPattern() {
-      return /https?:\/\/[^\s"'<>，。！？；、]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?)(?:\?[^\s"'<>，。！？；、]*)?/gi
+      return /(?:https?:\/\/|\/uploads\/)[^\s"'<>，。！？；、]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv)(?:\?[^\s"'<>，。！？；、]*)?/gi
     },
     buildAttachment(url, name, typeHint) {
       const ext = this.fileExt(name || url)
@@ -401,7 +447,10 @@ export default {
       else if (['pdf'].includes(ext)) type = 'pdf'
       else if (['doc', 'docx'].includes(ext)) type = 'docx'
       else if (['ppt', 'pptx'].includes(ext)) type = 'ppt'
-      if (!['image', 'video', 'pdf', 'docx', 'ppt'].includes(type)) return null
+      else if (['xls', 'xlsx', 'csv'].includes(ext)) type = 'excel'
+      else if (hinted.includes('document')) type = 'file'
+      if (!['image', 'video', 'pdf', 'docx', 'ppt', 'excel', 'file'].includes(type)) return null
+      if (type === 'file' && !ext) return null
       return {
         url,
         name: name || this.fileNameFromUrl(url),
@@ -426,7 +475,9 @@ export default {
         video: '视频',
         pdf: 'PDF',
         docx: 'Word 文档',
-        ppt: 'PPT 演示文稿'
+        ppt: 'PPT 演示文稿',
+        excel: '表格文件',
+        file: '文档'
       }
       return labels[type] || '文件'
     },
@@ -611,6 +662,26 @@ export default {
   color: #16865B;
 }
 
+.output-type-tag--video {
+  background: #F0E8FF;
+  color: #6D3FD1;
+}
+
+.output-type-tag--document {
+  background: #EAF2FF;
+  color: #2563EB;
+}
+
+.output-type-tag--diagram {
+  background: #EEF8F8;
+  color: #087F8C;
+}
+
+.output-type-tag--question {
+  background: #F7F1E8;
+  color: #9A5B14;
+}
+
 .output-type-tag--formula {
   background: #FFF3DF;
   color: #B96800;
@@ -691,6 +762,16 @@ export default {
 .attachment-file__icon--ppt {
   background: #FFF3E8;
   color: #EA580C;
+}
+
+.attachment-file__icon--excel {
+  background: #EAF8EF;
+  color: #16865B;
+}
+
+.attachment-file__icon--file {
+  background: #F1F5F9;
+  color: #475569;
 }
 
 .attachment-file__body {

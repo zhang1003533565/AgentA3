@@ -4,6 +4,7 @@ import com.example.appbackend.dto.LlmChatRequest;
 import com.example.appbackend.dto.LlmChatResponse;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
+import com.example.appbackend.repository.SystemConfigRepository;
 import com.example.appbackend.service.SystemConfigService;
 import com.example.appbackend.util.JwtUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,6 +24,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
@@ -35,11 +37,13 @@ public class PythonAiProxyService {
     private static final Logger log = LoggerFactory.getLogger(PythonAiProxyService.class);
     private static final String DEFAULT_AGENT_NAME = "leader_agent";
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
+    private static final String AGENT_ENABLED_PREFIX = "ai.agent-enabled.";
 
     private final WebClient.Builder webClientBuilder;
     private final ObjectMapper objectMapper;
     private final JwtUtil jwtUtil;
     private final SystemConfigService systemConfigService;
+    private final SystemConfigRepository systemConfigRepository;
     private final String pythonBaseUrl;
     private final long timeoutSeconds;
     private final int fileResponseMaxInMemoryBytes;
@@ -48,6 +52,7 @@ public class PythonAiProxyService {
                                 ObjectMapper objectMapper,
                                 JwtUtil jwtUtil,
                                 SystemConfigService systemConfigService,
+                                SystemConfigRepository systemConfigRepository,
                                 @Value("${ai.python.base-url:http://localhost:8081}") String pythonBaseUrl,
                                 @Value("${ai.python.timeout-seconds:65}") long timeoutSeconds,
                                 @Value("${ai.python.file-response-max-in-memory-bytes:52428800}") int fileResponseMaxInMemoryBytes) {
@@ -55,6 +60,7 @@ public class PythonAiProxyService {
         this.objectMapper = objectMapper;
         this.jwtUtil = jwtUtil;
         this.systemConfigService = systemConfigService;
+        this.systemConfigRepository = systemConfigRepository;
         this.pythonBaseUrl = pythonBaseUrl;
         this.timeoutSeconds = timeoutSeconds;
         this.fileResponseMaxInMemoryBytes = fileResponseMaxInMemoryBytes;
@@ -92,11 +98,11 @@ public class PythonAiProxyService {
     }
 
     public Object getRagAgents(String authorization) {
-        return getRagObject("/internal/rag/agents", authorization);
+        return withAgentEnabledState(getRagObject("/internal/rag/agents", authorization));
     }
 
     public Object getRagAgent(String agentName, String authorization) {
-        return getRagObject("/internal/rag/agents/" + agentName, authorization);
+        return mergeAgentEnabledState(getRagObject("/internal/rag/agents/" + agentName, authorization), loadAgentToggles());
     }
 
     public Object updateRagAgentExampleInput(String agentName, Map<String, Object> request, String authorization) {
@@ -112,7 +118,7 @@ public class PythonAiProxyService {
         if (!StringUtils.hasText(requestedModel)) {
             throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
         }
-        Map<String, Object> sanitized = sanitizeRagRequest(request);
+        Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request));
         return postRagObject("/internal/rag/query", sanitized, authorization, requestedModel);
     }
 
@@ -127,7 +133,7 @@ public class PythonAiProxyService {
         if (!StringUtils.hasText(requestedModel)) {
             throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
         }
-        Map<String, Object> sanitized = sanitizeRagRequest(request);
+        Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request));
         return streamPythonObject(
                 "/internal/rag/query/stream",
                 sanitized,
@@ -583,6 +589,77 @@ public class PythonAiProxyService {
         String key = AGENT_MODEL_BINDING_PREFIX + normalizedAgent + ".model";
         String value = systemConfigService.getValue(key, "");
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private Map<String, Object> withAgentToggles(Map<String, Object> request) {
+        Map<String, Object> copy = request == null ? new HashMap<>() : new HashMap<>(request);
+        Map<String, Object> metadata = new HashMap<>();
+        Object rawMetadata = copy.get("metadata");
+        if (rawMetadata instanceof Map<?, ?> sourceMetadata) {
+            sourceMetadata.forEach((key, value) -> metadata.put(String.valueOf(key), value));
+        }
+        metadata.put("agentToggles", loadAgentToggles());
+        copy.put("metadata", metadata);
+        return copy;
+    }
+
+    private Object withAgentEnabledState(Object source) {
+        Map<String, Boolean> toggles = loadAgentToggles();
+        if (!(source instanceof Map<?, ?> sourceMap)) {
+            return source;
+        }
+        Map<String, Object> copy = new HashMap<>();
+        sourceMap.forEach((key, value) -> copy.put(String.valueOf(key), value));
+        Object agentsValue = sourceMap.get("agents");
+        if (agentsValue instanceof List<?> agentsList) {
+            List<Object> mergedAgents = new ArrayList<>();
+            for (Object agent : agentsList) {
+                mergedAgents.add(mergeAgentEnabledState(agent, toggles));
+            }
+            copy.put("agents", mergedAgents);
+        }
+        copy.put("agentToggles", toggles);
+        return copy;
+    }
+
+    private Object mergeAgentEnabledState(Object source, Map<String, Boolean> toggles) {
+        if (!(source instanceof Map<?, ?> sourceMap)) {
+            return source;
+        }
+        Map<String, Object> copy = new HashMap<>();
+        sourceMap.forEach((key, value) -> copy.put(String.valueOf(key), value));
+        String agentName = String.valueOf(copy.getOrDefault("name", ""));
+        copy.put("enabled", isAgentEnabled(agentName, toggles));
+        return copy;
+    }
+
+    private Map<String, Boolean> loadAgentToggles() {
+        Map<String, Boolean> toggles = new HashMap<>();
+        systemConfigRepository.findByConfigKeyStartingWithAndStatus(AGENT_ENABLED_PREFIX, 1)
+                .forEach(config -> {
+                    String key = config.getConfigKey();
+                    if (!StringUtils.hasText(key) || key.length() <= AGENT_ENABLED_PREFIX.length()) {
+                        return;
+                    }
+                    String agentName = key.substring(AGENT_ENABLED_PREFIX.length()).trim();
+                    if (StringUtils.hasText(agentName)) {
+                        toggles.put(agentName, parseEnabledValue(config.getConfigValue()));
+                    }
+                });
+        toggles.put(DEFAULT_AGENT_NAME, true);
+        return toggles;
+    }
+
+    private boolean isAgentEnabled(String agentName, Map<String, Boolean> toggles) {
+        if (!StringUtils.hasText(agentName) || DEFAULT_AGENT_NAME.equals(agentName)) {
+            return true;
+        }
+        return toggles.getOrDefault(agentName, true);
+    }
+
+    private boolean parseEnabledValue(String value) {
+        String normalized = String.valueOf(value == null ? "" : value).trim().toLowerCase();
+        return !List.of("0", "false", "off", "disabled", "no").contains(normalized);
     }
 
     private Map<String, Object> sanitizeRagRequest(Map<String, Object> request) {

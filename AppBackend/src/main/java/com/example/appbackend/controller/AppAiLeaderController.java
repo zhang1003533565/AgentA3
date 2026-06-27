@@ -12,6 +12,7 @@ import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.AiLeaderMessageRepository;
 import com.example.appbackend.repository.AiLeaderSessionRepository;
+import com.example.appbackend.service.UserProfileService;
 import com.example.appbackend.service.impl.PythonAiProxyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -47,13 +48,16 @@ public class AppAiLeaderController {
     private final PythonAiProxyService pythonAiProxyService;
     private final AiLeaderSessionRepository sessionRepository;
     private final AiLeaderMessageRepository messageRepository;
+    private final UserProfileService userProfileService;
 
     public AppAiLeaderController(PythonAiProxyService pythonAiProxyService,
                                  AiLeaderSessionRepository sessionRepository,
-                                 AiLeaderMessageRepository messageRepository) {
+                                 AiLeaderMessageRepository messageRepository,
+                                 UserProfileService userProfileService) {
         this.pythonAiProxyService = pythonAiProxyService;
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
+        this.userProfileService = userProfileService;
     }
 
     @PostMapping("/query")
@@ -64,7 +68,7 @@ public class AppAiLeaderController {
         saveMessage(session, AiLeaderMessage.ROLE_USER, request.getInput(), "text");
         refreshSession(session, request.getInput());
 
-        Map<String, Object> payload = buildLeaderPayload(request, session.getSessionId());
+        Map<String, Object> payload = buildLeaderPayload(request, session.getSessionId(), userId);
 
         Object ragResult = pythonAiProxyService.queryRag(payload, httpRequest.getHeader("Authorization"));
         LlmChatResponse response = toChatResponse(session, ragResult);
@@ -83,7 +87,7 @@ public class AppAiLeaderController {
         saveMessage(session, AiLeaderMessage.ROLE_USER, request.getInput(), "text");
         refreshSession(session, request.getInput());
 
-        Map<String, Object> payload = buildLeaderPayload(request, session.getSessionId());
+        Map<String, Object> payload = buildLeaderPayload(request, session.getSessionId(), userId);
         return pythonAiProxyService.streamRag(payload, authorization, (eventName, eventPayload) -> {
             if (!"done".equals(eventName)) {
                 return;
@@ -156,6 +160,16 @@ public class AppAiLeaderController {
         response.setTrace(traceAsMaps(result.get("trace")));
         response.setAnswer(stringValue(result.get("answer")));
         response.setAnswerType(firstNonBlank(stringValue(result.get("answerType")), "text"));
+        response.setOutputType(firstNonBlank(
+                stringValue(result.get("outputType")),
+                stringValue(metadata.get("outputType")),
+                response.getAnswerType()
+        ));
+        response.setOutputTypes(stringList(result.containsKey("outputTypes")
+                ? result.get("outputTypes")
+                : metadata.get("outputTypes")));
+        response.setOutputMeta(mapValue(result.get("outputMeta")));
+        response.setAttachments(traceAsMaps(result.get("attachments")));
         return response;
     }
 
@@ -167,17 +181,24 @@ public class AppAiLeaderController {
         return (Long) userId;
     }
 
-    private Map<String, Object> buildLeaderPayload(LlmChatRequest request, String sessionId) {
+    private Map<String, Object> buildLeaderPayload(LlmChatRequest request, String sessionId, Long userId) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("input", request.getInput());
         payload.put("agentName", LEADER_AGENT);
         if (StringUtils.hasText(request.getLlmModel())) {
             payload.put("llmModel", request.getLlmModel().trim());
         }
-        payload.put("metadata", Map.of(
-                "source", "app_ai_assistant",
-                "sessionId", sessionId == null ? "" : sessionId
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("source", "app_ai_assistant");
+        metadata.put("sessionId", sessionId == null ? "" : sessionId);
+        metadata.put("profileSnapshot", userProfileService.buildLeaderProfileContext(userId));
+        metadata.put("profileEvidencePolicy", Map.of(
+                "leaderCanUpdateScore", false,
+                "leaderCanSubmitEvidence", true,
+                "evidenceEndpoint", "POST /api/profile/evidence",
+                "updateMode", "证据先沉淀，画像慢更新"
         ));
+        payload.put("metadata", metadata);
         return payload;
     }
 
@@ -267,5 +288,20 @@ public class AppAiLeaderController {
             }
         }
         return "";
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> mapValue(Object value) {
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+    }
+
+    private List<String> stringList(Object value) {
+        if (value instanceof List<?> list) {
+            return list.stream()
+                    .map(this::stringValue)
+                    .filter(StringUtils::hasText)
+                    .toList();
+        }
+        return List.of();
     }
 }

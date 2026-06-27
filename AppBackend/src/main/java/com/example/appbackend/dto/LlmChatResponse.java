@@ -46,4 +46,16 @@ public class LlmChatResponse {
 
     @Schema(description = "回答内容类型：text/markdown/mermaid_mindmap/image_prompt/ppt_outline/ppt_layout/ppt_review/ppt_image_prompt/question_bank/tool_result 等")
     private String answerType;
+
+    @Schema(description = "前端展示主类型：text/image/document/video/diagram 等")
+    private String outputType;
+
+    @Schema(description = "前端展示类型集合")
+    private List<String> outputTypes;
+
+    @Schema(description = "输出策略、附件数量等展示元信息")
+    private Map<String, Object> outputMeta;
+
+    @Schema(description = "结构化附件列表，包含图片、视频、PDF、Word、PPT 等")
+    private List<Map<String, Object>> attachments;
 }

@@ -462,6 +462,15 @@
 					}
 				},
 				{
+					"path": "profileRadar/profileRadar",
+					"style": {
+						"navigationBarTitleText": "个人画像",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "aiConversation/aiConversation",
 					"style": {
 						"navigationBarTitleText": "AI 会话",
