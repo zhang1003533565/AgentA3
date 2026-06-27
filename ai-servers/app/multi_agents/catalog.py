@@ -62,7 +62,7 @@ def _question_agent_profile(agent_name: str, role: str, intent: str, purpose: st
         "role": role,
         "purpose": f"基于用户输入或 Java 已接入的第三方知识库能力{purpose}",
         "inputs": ["topic", "evidence", "count"],
-        "outputs": ["question_markdown"],
+        "outputs": ["strict_question_bank_json"],
         "skills": ["question generation", "answer key", "assessment design", intent],
         "intent": intent,
         "needRetrieval": False,

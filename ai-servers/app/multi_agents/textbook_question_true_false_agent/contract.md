@@ -1,27 +1,26 @@
 # Contract
 
 - agentName: `textbook_question_true_false_agent`
-- input: unrestricted knowledge text or retrieved evidence
-- output: strict JSON object
-- questionCount: determined by knowledge point coverage
+- output: strict_question_bank_json
+- questionType: `true_false`
+- validation: `app.multi_agents.question_bank_schema.review_question_bank_payload`
 
 ## Output Schema
 
+Top-level JSON must contain exactly:
+
 ```json
 {
-  "questions": [
-    {
-      "statement": "判断题陈述句",
-      "answer": true,
-      "explanation": "解析"
-    }
-  ]
+  "questions": [],
+  "missingInfo": []
 }
 ```
 
+Each question must use the unified question-bank shape documented in `docs/exam-question-json-spec.md`.
+
 ## Rules
 
-- Output must be valid JSON only.
-- `questions` must be a non-empty array.
-- `answer` must be a boolean, not a string.
-- The number of questions should match the number and density of knowledge points.
+- Output valid JSON only.
+- Do not output Markdown code fences or explanatory text.
+- Every question `type` must be `true_false`.
+- Invalid JSON or invalid question schema must not pass validation.

@@ -16,6 +16,7 @@ from app.model_providers.multimodal import append_image_references_to_text, coll
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
 from app.multi_agents.catalog import AGENT_ORDER, get_agent_catalog, get_agent_detail, get_agent_profile, normalize_agent_name, update_agent_example_input
 from app.multi_agents.leader_agent.agent import leader_agent
+from app.multi_agents.question_bank_schema import review_question_bank_payload
 from app.multi_agents.runner import run_specialist_agent
 from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx
 from app.rag.structured.text_to_sql import TextToSqlService
@@ -40,6 +41,11 @@ class PptConvertRequest(BaseModel):
 
 class AgentExampleInputUpdateRequest(BaseModel):
     input: str = Field(min_length=1, max_length=12000)
+
+
+class QuestionBankReviewRequest(BaseModel):
+    payload: Dict[str, Any]
+    expectedType: Optional[str] = Field(default=None, max_length=64)
 
 
 def _llm_header_audit_fields(
@@ -202,6 +208,27 @@ def save_rag_agent_example_input(
 ) -> Dict[str, Any]:
     _require_authorization(authorization)
     return update_agent_example_input(agent_name, request.input)
+
+
+@router.post("/question-bank/review")
+def review_question_bank(
+    request: QuestionBankReviewRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    return review_question_bank_payload(request.payload, expected_type=request.expectedType)
+
+
+@router.post("/question-bank/validate")
+def validate_question_bank(
+    request: QuestionBankReviewRequest,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    review = review_question_bank_payload(request.payload, expected_type=request.expectedType)
+    if not review["valid"]:
+        raise HTTPException(status_code=400, detail=review)
+    return review
 
 
 @router.post("/query", response_model=RagQueryResponse)

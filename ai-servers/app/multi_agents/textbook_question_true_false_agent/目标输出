@@ -1,14 +1,47 @@
 {
   "questions": [
     {
-      "statement": "列表是 Python 中的可变序列类型",
-      "answer": true,
-      "explanation": "列表确实是可变序列类型，可以在创建后修改其内容。"
+      "id": "TF1",
+      "type": "true_false",
+      "stem": "列表是 Python 中的可变序列类型。",
+      "score": 2,
+      "difficulty": "easy",
+      "knowledgePoints": ["列表"],
+      "tags": ["Python基础"],
+      "body": {
+        "statement": "列表是 Python 中的可变序列类型。"
+      },
+      "answer": {
+        "correct": true
+      },
+      "analysis": "列表可以在创建后修改其内容，因此属于可变序列类型。",
+      "scoring": {
+        "mode": "exact",
+        "rubrics": []
+      },
+      "sourceBasis": ["列表是 Python 中的可变序列类型，可以在创建后修改内容。"]
     },
     {
-      "statement": "字典的键可以是列表类型",
-      "answer": false,
-      "explanation": "字典的键必须是不可变类型，列表是可变类型，不能作为字典的键。"
+      "id": "TF2",
+      "type": "true_false",
+      "stem": "字典的键可以是列表类型。",
+      "score": 2,
+      "difficulty": "easy",
+      "knowledgePoints": ["字典"],
+      "tags": ["Python基础"],
+      "body": {
+        "statement": "字典的键可以是列表类型。"
+      },
+      "answer": {
+        "correct": false
+      },
+      "analysis": "字典的键必须是不可变类型，列表是可变类型，不能作为字典的键。",
+      "scoring": {
+        "mode": "exact",
+        "rubrics": []
+      },
+      "sourceBasis": ["字典的键必须是不可变类型，列表不能作为字典键。"]
     }
-  ]
+  ],
+  "missingInfo": []
 }
