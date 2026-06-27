@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -27,6 +28,37 @@ import java.util.stream.Collectors;
 
 @Service
 public class UserProfileServiceImpl implements UserProfileService {
+
+    private static final String EVIDENCE_PROTOCOL_VERSION = "campus-profile-evidence-v1";
+    private static final int RECENT_EVIDENCE_DAYS = 30;
+    private static final Map<String, Double> SOURCE_RELIABILITY_WEIGHTS = Map.ofEntries(
+            Map.entry("profile", 0.90),
+            Map.entry("profile_form", 0.90),
+            Map.entry("user_profile", 0.90),
+            Map.entry("schedule", 0.90),
+            Map.entry("course", 0.90),
+            Map.entry("grade", 0.90),
+            Map.entry("exam", 0.85),
+            Map.entry("question_result", 0.85),
+            Map.entry("wrong_question", 0.85),
+            Map.entry("task", 0.85),
+            Map.entry("meeting", 0.75),
+            Map.entry("meeting_summary", 0.75),
+            Map.entry("member_analysis", 0.75),
+            Map.entry("chat", 0.70),
+            Map.entry("app_ai_assistant", 0.70),
+            Map.entry("user_statement", 0.70),
+            Map.entry("click", 0.55),
+            Map.entry("resource", 0.55),
+            Map.entry("favorite", 0.55),
+            Map.entry("download", 0.55),
+            Map.entry("navigation", 0.55),
+            Map.entry("forum", 0.55),
+            Map.entry("activity", 0.55),
+            Map.entry("leader_route", 0.45),
+            Map.entry("ai", 0.40),
+            Map.entry("inference", 0.40)
+    );
 
     private static final List<String> GLOBAL_RULES = List.of(
             "行为、聊天、会议、做题和点击会持续实时记录到画像证据池。",
@@ -47,7 +79,7 @@ public class UserProfileServiceImpl implements UserProfileService {
 
     private static final List<String> EVIDENCE_FLOW = List.of(
             "1. 用户聊天、会议总结、做题结果、资源点击等行为实时写入 profile_evidence。",
-            "2. 画像提取逻辑只负责判断维度、证据、方向、置信度和建议变化分，不直接改雷达图。",
+            "2. 提交方只负责判断维度、证据、方向和建议变化分；后端统一计算置信度拆解，不直接改雷达图。",
             "3. 定时画像汇总任务按用户和维度拉取候选证据，并读取该维度历史分数与历史置信度。",
             "4. 汇总任务把一段时间内的新证据聚合成一次画像更新，按历史-最新融合权重更新 user_profile_dimension。",
             "5. 已参与汇总的证据标记为 applied；低置信、冲突或信息不足的证据继续留在候选池。",
@@ -60,12 +92,25 @@ public class UserProfileServiceImpl implements UserProfileService {
     private static final List<UserProfileDTO.UpdateDecisionStep> UPDATE_DECISION_STEPS = buildUpdateDecisionSteps();
     private static final List<UserProfileDTO.LeaderUsagePolicy> LEADER_USAGE_POLICIES = buildLeaderUsagePolicies();
     private static final List<UserProfileDTO.ConflictPolicy> CONFLICT_POLICIES = buildConflictPolicies();
+    private static final List<UserProfileDTO.EvidenceSubmissionField> EVIDENCE_SUBMISSION_FIELDS = buildEvidenceSubmissionFields();
+    private static final List<UserProfileDTO.EvidenceSubmissionExample> EVIDENCE_SUBMISSION_EXAMPLES = buildEvidenceSubmissionExamples();
+    private static final List<UserProfileDTO.AutoCaptureSource> AUTO_CAPTURE_SOURCES = buildAutoCaptureSources();
+    private static final List<String> EVIDENCE_PROTOCOL_RULES = List.of(
+            "证据提交采用 actor-action-object-result-context-time 的事件结构，参考 xAPI/Caliper 的学习行为记录方式。",
+            "画像审计采用 entity-activity-agent 的来源追溯结构，参考 W3C PROV 思路保留来源、活动和责任主体。",
+            "客户端或智能体可以给 confidence 建议值，但后端会重新计算并生成 confidenceBreakdown。",
+            "最终 confidence 由后端计算值和提交方建议值保守融合，避免智能体单次自信导致画像漂移。",
+            "所有证据先进入 candidate；雷达图只由定时汇总任务统一更新。"
+    );
     private static final List<String> AUDIT_FIELDS = List.of(
             "dimensionKey：证据影响的画像维度",
             "sourceType/sourceId：证据来源与来源业务 ID",
+            "action/objectType/objectId/objectName：本次行为动作和被作用对象",
+            "occurredAt：行为实际发生时间；缺失时使用提交时间",
             "evidence：原始证据摘要，不保存空泛结论",
             "direction：positive、negative、weakness、increase、decrease 或中文方向词",
-            "confidence：0-1 综合置信度",
+            "confidence：0-1 后端融合后的综合置信度",
+            "confidenceBreakdown：来源可靠性、表达明确度、重复出现度、时间新鲜度、历史一致性拆解",
             "suggestedDelta：智能体建议变化值，定时汇总时会按融合权重裁剪",
             "status：candidate 表示已记录待汇总，applied 表示已参与画像汇总",
             "reason：等待汇总、冲突、低置信或正式采纳的原因",
@@ -118,6 +163,10 @@ public class UserProfileServiceImpl implements UserProfileService {
         response.setUpdateDecisionSteps(UPDATE_DECISION_STEPS);
         response.setLeaderUsagePolicies(LEADER_USAGE_POLICIES);
         response.setConflictPolicies(CONFLICT_POLICIES);
+        response.setEvidenceSubmissionFields(EVIDENCE_SUBMISSION_FIELDS);
+        response.setEvidenceSubmissionExamples(EVIDENCE_SUBMISSION_EXAMPLES);
+        response.setAutoCaptureSources(AUTO_CAPTURE_SOURCES);
+        response.setEvidenceProtocolRules(EVIDENCE_PROTOCOL_RULES);
         response.setAuditFields(AUDIT_FIELDS);
         response.setAcceptanceCriteria(ACCEPTANCE_CRITERIA);
         return response;
@@ -127,31 +176,58 @@ public class UserProfileServiceImpl implements UserProfileService {
     @Transactional
     public UserProfileDTO.EvidenceResponse addEvidence(Long userId, UserProfileDTO.EvidenceRequest request) {
         String dimensionKey = normalize(request.getDimensionKey());
+        String sourceType = normalize(request.getSourceType());
         UserProfileDTO.DimensionRule rule = RULES.get(dimensionKey);
         if (rule == null) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "画像维度不存在：" + request.getDimensionKey());
         }
 
-        double confidence = round2(clamp(request.getConfidence() == null ? 0.5 : request.getConfidence(), 0, 1));
         int requestedDelta = normalizeDelta(request);
         UserProfileDimension dimension = getOrCreateDimension(userId, rule);
+        ConfidenceEvaluation confidenceEvaluation = evaluateConfidence(userId, rule, dimension, request, requestedDelta);
+        double confidence = resolveFinalConfidence(request.getConfidence(), confidenceEvaluation.total());
+        Map<String, Object> confidenceBreakdown = confidenceEvaluation.toMap(request.getConfidence(), confidence);
+        Map<String, Object> metadata = buildEvidenceMetadata(
+                userId,
+                request,
+                rule,
+                sourceType,
+                requestedDelta,
+                confidenceBreakdown
+        );
 
         UserProfileEvidence evidence = new UserProfileEvidence();
         evidence.setUserId(userId);
         evidence.setDimensionKey(dimensionKey);
-        evidence.setSourceType(normalize(request.getSourceType()));
+        evidence.setSourceType(sourceType);
         evidence.setSourceId(StringUtils.hasText(request.getSourceId()) ? request.getSourceId().trim() : "");
+        evidence.setAction(resolveAction(request, sourceType));
+        evidence.setObjectType(resolveObjectType(request, sourceType));
+        evidence.setObjectId(StringUtils.hasText(request.getObjectId()) ? request.getObjectId().trim() : evidence.getSourceId());
+        evidence.setObjectName(resolveObjectName(request, rule));
+        evidence.setResult(StringUtils.hasText(request.getResult()) ? truncate(request.getResult().trim(), 300) : "");
         evidence.setEvidence(request.getEvidence().trim());
         evidence.setDirection(StringUtils.hasText(request.getDirection()) ? request.getDirection().trim() : "");
         evidence.setConfidence(confidence);
         evidence.setSuggestedDelta(requestedDelta);
-        evidence.setMetadataJson(writeJson(request.getMetadata()));
+        evidence.setMetadataJson(writeJson(metadata));
+        evidence.setConfidenceBreakdownJson(writeJson(confidenceBreakdown));
+        evidence.setOccurredAt(request.getOccurredAt() == null ? LocalDateTime.now() : request.getOccurredAt());
         evidence.setStatus("candidate");
         evidence.setAppliedDelta(0);
         evidence.setReason("证据已记录到画像候选池，等待定时画像汇总任务统一更新");
         evidenceRepository.save(evidence);
 
-        return evidenceResponse(dimensionKey, "candidate", false, 0, evidence.getReason(), toSnapshot(dimension, rule));
+        return evidenceResponse(
+                dimensionKey,
+                "candidate",
+                false,
+                0,
+                evidence.getReason(),
+                confidence,
+                confidenceBreakdown,
+                toSnapshot(dimension, rule)
+        );
     }
 
     @Override
@@ -350,18 +426,284 @@ public class UserProfileServiceImpl implements UserProfileService {
         evidenceRepository.saveAll(validEvidence);
     }
 
-    private String candidateReason(UserProfileDTO.DimensionRule rule,
-                                   UserProfileDimension dimension,
-                                   double confidence,
-                                   int requestedDelta,
-                                   LocalDateTime now) {
-        if (confidence < rule.getMinConfidence()) {
-            return "证据置信度低于 " + rule.getMinConfidence() + "，进入候选池";
+    private ConfidenceEvaluation evaluateConfidence(Long userId,
+                                                    UserProfileDTO.DimensionRule rule,
+                                                    UserProfileDimension dimension,
+                                                    UserProfileDTO.EvidenceRequest request,
+                                                    int requestedDelta) {
+        double sourceReliability = sourceReliabilityScore(request.getSourceType());
+        double expressionClarity = expressionClarityScore(request, requestedDelta);
+        double repetition = repetitionScore(userId, rule, request);
+        double recency = recencyScore(request.getOccurredAt());
+        double historyConsistency = historyConsistencyScore(dimension, requestedDelta);
+        double total = round2(
+                sourceReliability * 0.35
+                        + expressionClarity * 0.25
+                        + repetition * 0.20
+                        + recency * 0.10
+                        + historyConsistency * 0.10
+        );
+        List<String> reasons = new ArrayList<>();
+        reasons.add("来源可靠性 " + sourceReliability + "，来源类型：" + normalize(request.getSourceType()));
+        reasons.add("表达明确度 " + expressionClarity + "，依据：维度、方向、对象和证据内容完整度");
+        reasons.add("重复出现度 " + repetition + "，统计最近 " + RECENT_EVIDENCE_DAYS + " 天同维度证据");
+        reasons.add("时间新鲜度 " + recency + "，依据 occurredAt 或提交时间");
+        reasons.add("历史一致性 " + historyConsistency + "，依据当前画像趋势和历史置信度");
+        return new ConfidenceEvaluation(
+                sourceReliability,
+                expressionClarity,
+                repetition,
+                recency,
+                historyConsistency,
+                total,
+                reasons
+        );
+    }
+
+    private double sourceReliabilityScore(String sourceType) {
+        String normalized = normalize(sourceType);
+        if (!StringUtils.hasText(normalized)) {
+            return 0.40;
         }
+        if (SOURCE_RELIABILITY_WEIGHTS.containsKey(normalized)) {
+            return SOURCE_RELIABILITY_WEIGHTS.get(normalized);
+        }
+        if (normalized.contains("资料") || normalized.contains("课表") || normalized.contains("成绩") || normalized.contains("用户填写")) {
+            return 0.90;
+        }
+        if (normalized.contains("答题") || normalized.contains("错题") || normalized.contains("任务完成")) {
+            return 0.85;
+        }
+        if (normalized.contains("会议") || normalized.contains("成员分析")) {
+            return 0.75;
+        }
+        if (normalized.contains("聊天") || normalized.contains("对话") || normalized.contains("明确表达")) {
+            return 0.70;
+        }
+        if (normalized.contains("点击") || normalized.contains("浏览") || normalized.contains("收藏") || normalized.contains("下载")) {
+            return 0.55;
+        }
+        return 0.45;
+    }
+
+    private double expressionClarityScore(UserProfileDTO.EvidenceRequest request, int requestedDelta) {
+        double score = 0.35;
+        String evidence = request.getEvidence() == null ? "" : request.getEvidence().trim();
+        if (StringUtils.hasText(request.getDirection()) || requestedDelta != 0) {
+            score += 0.18;
+        }
+        if (evidence.length() >= 20) {
+            score += 0.18;
+        }
+        if (evidence.length() >= 60) {
+            score += 0.08;
+        }
+        if (StringUtils.hasText(request.getAction())) {
+            score += 0.08;
+        }
+        if (StringUtils.hasText(request.getObjectName()) || StringUtils.hasText(request.getObjectId())) {
+            score += 0.13;
+        }
+        if (request.getEvidenceTags() != null && !request.getEvidenceTags().isEmpty()) {
+            score += 0.08;
+        }
+        if (containsAny(evidence, "不会", "不懂", "薄弱", "错题", "完成", "通过", "喜欢", "目标", "备考", "项目", "图解", "代码")) {
+            score += 0.10;
+        }
+        return round2(clamp(score, 0.25, 1.0));
+    }
+
+    private double repetitionScore(Long userId, UserProfileDTO.DimensionRule rule, UserProfileDTO.EvidenceRequest request) {
+        List<UserProfileEvidence> recent = evidenceRepository.findByUserIdAndDimensionKeyAndCreateTimeAfter(
+                userId,
+                rule.getKey(),
+                LocalDateTime.now().minusDays(RECENT_EVIDENCE_DAYS)
+        );
+        if (recent.isEmpty()) {
+            return 0.35;
+        }
+        String sourceType = normalize(request.getSourceType());
+        String sourceId = StringUtils.hasText(request.getSourceId()) ? request.getSourceId().trim() : "";
+        String objectId = StringUtils.hasText(request.getObjectId()) ? request.getObjectId().trim() : "";
+        long sameSourceType = recent.stream().filter(item -> sourceType.equals(normalize(item.getSourceType()))).count();
+        long sameSourceId = recent.stream().filter(item -> StringUtils.hasText(sourceId) && sourceId.equals(item.getSourceId())).count();
+        long sameObjectId = recent.stream().filter(item -> StringUtils.hasText(objectId) && objectId.equals(item.getObjectId())).count();
+        double score = 0.35
+                + Math.min(0.34, recent.size() * 0.07)
+                + Math.min(0.18, sameSourceType * 0.06)
+                + Math.min(0.08, sameSourceId * 0.04)
+                + Math.min(0.05, sameObjectId * 0.05);
+        return round2(clamp(score, 0.35, 1.0));
+    }
+
+    private double recencyScore(LocalDateTime occurredAt) {
+        if (occurredAt == null) {
+            return 1.0;
+        }
+        long days = Math.max(0, ChronoUnit.DAYS.between(occurredAt, LocalDateTime.now()));
+        if (days <= 7) {
+            return 1.0;
+        }
+        if (days <= 30) {
+            return 0.75;
+        }
+        if (days <= 90) {
+            return 0.55;
+        }
+        return 0.35;
+    }
+
+    private double historyConsistencyScore(UserProfileDimension dimension, int requestedDelta) {
         if (requestedDelta == 0) {
-            return "证据没有明确变化方向，进入候选池";
+            return 0.58;
         }
-        return null;
+        String trend = normalize(dimension.getTrend());
+        double historyConfidence = dimension.getConfidence() == null ? 0.5 : dimension.getConfidence();
+        if (!StringUtils.hasText(trend) || "stable".equals(trend)) {
+            return historyConfidence >= 0.75 ? 0.72 : 0.80;
+        }
+        boolean sameDirection = (requestedDelta > 0 && "up".equals(trend)) || (requestedDelta < 0 && "down".equals(trend));
+        if (sameDirection) {
+            return 0.88;
+        }
+        return historyConfidence >= 0.75 ? 0.42 : 0.60;
+    }
+
+    private double resolveFinalConfidence(Double submittedConfidence, double computedConfidence) {
+        double computed = round2(clamp(computedConfidence, 0, 1));
+        if (submittedConfidence == null) {
+            return computed;
+        }
+        double submitted = clamp(submittedConfidence, 0, 1);
+        double blended = computed * 0.75 + submitted * 0.25;
+        double min = Math.max(0, computed - 0.12);
+        double max = Math.min(1, computed + 0.12);
+        return round2(clamp(blended, min, max));
+    }
+
+    private Map<String, Object> buildEvidenceMetadata(Long userId,
+                                                      UserProfileDTO.EvidenceRequest request,
+                                                      UserProfileDTO.DimensionRule rule,
+                                                      String sourceType,
+                                                      int requestedDelta,
+                                                      Map<String, Object> confidenceBreakdown) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (request.getMetadata() != null) {
+            request.getMetadata().forEach((key, value) -> {
+                if (StringUtils.hasText(key)) {
+                    metadata.put(key, value);
+                }
+            });
+        }
+
+        LocalDateTime occurredAt = request.getOccurredAt() == null ? LocalDateTime.now() : request.getOccurredAt();
+        String sourceId = StringUtils.hasText(request.getSourceId()) ? request.getSourceId().trim() : "";
+        String objectId = StringUtils.hasText(request.getObjectId()) ? request.getObjectId().trim() : sourceId;
+        String action = resolveAction(request, sourceType);
+        String objectType = resolveObjectType(request, sourceType);
+        String objectName = resolveObjectName(request, rule);
+
+        Map<String, Object> object = new LinkedHashMap<>();
+        object.put("type", objectType);
+        object.put("id", objectId);
+        object.put("name", objectName);
+
+        Map<String, Object> context = new LinkedHashMap<>();
+        context.put("dimensionKey", rule.getKey());
+        context.put("dimensionName", rule.getName());
+        context.put("sourceType", sourceType);
+        context.put("sourceId", sourceId);
+        context.put("evidenceTags", safeEvidenceTags(request.getEvidenceTags()));
+        context.put("suggestedDelta", requestedDelta);
+
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("actor", "user:" + userId);
+        event.put("action", action);
+        event.put("object", object);
+        event.put("result", StringUtils.hasText(request.getResult()) ? request.getResult().trim() : "");
+        event.put("context", context);
+        event.put("eventTime", occurredAt.toString());
+
+        Map<String, Object> provenance = new LinkedHashMap<>();
+        provenance.put("entity", "user_profile_evidence:" + rule.getKey());
+        provenance.put("activity", sourceType + ":" + action);
+        provenance.put("agent", "smart-campus-profile-service");
+        provenance.put("wasGeneratedBy", sourceId);
+        provenance.put("generatedAt", LocalDateTime.now().toString());
+
+        metadata.put("protocolVersion", EVIDENCE_PROTOCOL_VERSION);
+        metadata.put("event", event);
+        metadata.put("provenance", provenance);
+        metadata.put("confidenceBreakdown", confidenceBreakdown);
+        metadata.put("standardsReference", List.of(
+                "xAPI-like actor/verb/object/result/context/timestamp",
+                "Caliper-like actor/action/object/eventTime",
+                "W3C PROV-like entity/activity/agent provenance"
+        ));
+        return metadata;
+    }
+
+    private String resolveAction(UserProfileDTO.EvidenceRequest request, String sourceType) {
+        if (StringUtils.hasText(request.getAction())) {
+            return truncate(request.getAction().trim(), 80);
+        }
+        return switch (normalize(sourceType)) {
+            case "chat", "app_ai_assistant", "user_statement" -> "expressed";
+            case "meeting", "meeting_summary", "member_analysis" -> "analyzed";
+            case "exam", "question_result", "wrong_question" -> "answered";
+            case "click", "resource", "favorite", "download" -> "interacted";
+            case "profile", "profile_form", "user_profile" -> "declared";
+            default -> "observed";
+        };
+    }
+
+    private String resolveObjectType(UserProfileDTO.EvidenceRequest request, String sourceType) {
+        if (StringUtils.hasText(request.getObjectType())) {
+            return truncate(request.getObjectType().trim(), 80);
+        }
+        return switch (normalize(sourceType)) {
+            case "chat", "app_ai_assistant", "user_statement", "leader_route" -> "conversation";
+            case "meeting", "meeting_summary", "member_analysis" -> "meeting";
+            case "exam", "question_result", "wrong_question" -> "question";
+            case "click", "resource", "favorite", "download" -> "resource";
+            case "schedule", "course", "grade" -> "course";
+            default -> "profile_evidence";
+        };
+    }
+
+    private String resolveObjectName(UserProfileDTO.EvidenceRequest request, UserProfileDTO.DimensionRule rule) {
+        if (StringUtils.hasText(request.getObjectName())) {
+            return truncate(request.getObjectName().trim(), 200);
+        }
+        List<String> tags = safeEvidenceTags(request.getEvidenceTags());
+        if (!tags.isEmpty()) {
+            return truncate(String.join("、", tags), 200);
+        }
+        return rule.getName();
+    }
+
+    private List<String> safeEvidenceTags(List<String> evidenceTags) {
+        if (evidenceTags == null) {
+            return List.of();
+        }
+        return evidenceTags.stream()
+                .filter(StringUtils::hasText)
+                .map(item -> truncate(item.trim(), 40))
+                .distinct()
+                .limit(12)
+                .toList();
+    }
+
+    private boolean containsAny(String text, String... tokens) {
+        if (!StringUtils.hasText(text)) {
+            return false;
+        }
+        for (String token : tokens) {
+            if (text.contains(token)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private int calculateFusionDelta(UserProfileDimension dimension,
@@ -418,6 +760,8 @@ public class UserProfileServiceImpl implements UserProfileService {
                                                              boolean accepted,
                                                              int appliedDelta,
                                                              String reason,
+                                                             double confidence,
+                                                             Map<String, Object> confidenceBreakdown,
                                                              UserProfileDTO.DimensionSnapshot snapshot) {
         UserProfileDTO.EvidenceResponse response = new UserProfileDTO.EvidenceResponse();
         response.setDimensionKey(dimensionKey);
@@ -425,6 +769,8 @@ public class UserProfileServiceImpl implements UserProfileService {
         response.setAccepted(accepted);
         response.setAppliedDelta(appliedDelta);
         response.setReason(reason);
+        response.setConfidence(confidence);
+        response.setConfidenceBreakdown(confidenceBreakdown);
         response.setSnapshot(snapshot);
         return response;
     }
@@ -585,6 +931,106 @@ public class UserProfileServiceImpl implements UserProfileService {
                 conflictPolicy("多来源证据互相冲突", "暂停改分，保留原分数", "全部进入候选池并标记 conflict", "回答中避免下结论"),
                 conflictPolicy("用户明确纠正画像", "用户明确反馈优先级高", "作为高置信候选证据进入最近一次画像汇总", "承认纠正并按新表达完成本轮回答"),
                 conflictPolicy("负向证据缺少具体对象", "不得更新薄弱知识或能力表现", "进入候选池，要求后续证据包含具体知识点/任务", "不输出负面标签")
+        );
+    }
+
+    private static List<UserProfileDTO.EvidenceSubmissionField> buildEvidenceSubmissionFields() {
+        return List.of(
+                submissionField("dimensionKey", true, "string", "profile dimension",
+                        "画像维度枚举，只能取后台规则中的 7 个 key。", "weak_points"),
+                submissionField("sourceType", true, "string", "PROV agent / Caliper edApp",
+                        "证据来源类型，用于计算来源可靠性。", "chat / meeting / exam / click / profile"),
+                submissionField("sourceId", false, "string", "PROV activity id",
+                        "来源业务 ID，用于追溯会话、会议、题目、资源。", "app-ai-xxx 或 meeting-xxx"),
+                submissionField("action", false, "string", "xAPI verb / Caliper action",
+                        "用户或系统发生了什么行为；缺失时后端按 sourceType 自动补。", "expressed / answered / analyzed / interacted"),
+                submissionField("objectType", false, "string", "xAPI object / Caliper object",
+                        "行为作用对象类型；缺失时后端按 sourceType 自动补。", "conversation / meeting / question / resource"),
+                submissionField("objectId", false, "string", "object id",
+                        "行为对象 ID，便于统计同一对象重复证据。", "question-1024"),
+                submissionField("objectName", false, "string", "object name",
+                        "行为对象名称或知识点名称，表达明确度会参考它。", "循环队列判满条件"),
+                submissionField("result", false, "string", "xAPI result",
+                        "行为结果摘要，例如正确率、完成状态、会议分析结论。", "连续 3 次答错"),
+                submissionField("occurredAt", false, "datetime", "Caliper eventTime / xAPI timestamp",
+                        "行为实际发生时间，缺失时使用提交时间。", "2026-06-27T15:30:00"),
+                submissionField("evidence", true, "string", "evidence entity",
+                        "原始证据摘要，必须具体，不能只写“用户可能薄弱”。", "用户连续询问循环队列 front/rear 判满条件"),
+                submissionField("direction", false, "string", "profile delta direction",
+                        "变化方向；positive/increase 表示增强，negative/weakness/decrease 表示下降或薄弱。", "weakness"),
+                submissionField("suggestedDelta", false, "integer", "profile delta hint",
+                        "提交方建议变化分；后端定时汇总会按融合权重裁剪。", "-2"),
+                submissionField("confidence", false, "number", "confidence hint",
+                        "提交方建议置信度；后端仍会重新计算并保守融合。", "0.72"),
+                submissionField("evidenceTags", false, "array<string>", "context tags",
+                        "知识点、资源类型、任务标签，用于表达明确度和后台筛选。", "[\"循环队列\", \"判满条件\"]"),
+                submissionField("metadata", false, "object", "PROV attributes / extensions",
+                        "扩展上下文；后端会追加 event、provenance、confidenceBreakdown。", "{\"agentName\":\"leader_agent\"}")
+        );
+    }
+
+    private static List<UserProfileDTO.EvidenceSubmissionExample> buildEvidenceSubmissionExamples() {
+        Map<String, Object> chatPayload = new LinkedHashMap<>();
+        chatPayload.put("dimensionKey", "weak_points");
+        chatPayload.put("sourceType", "chat");
+        chatPayload.put("sourceId", "app-ai-1782549317335-zgris0");
+        chatPayload.put("action", "expressed");
+        chatPayload.put("objectType", "conversation");
+        chatPayload.put("objectName", "循环队列判满条件");
+        chatPayload.put("evidence", "用户明确说循环队列 front/rear 判满条件不懂，并继续追问例子。");
+        chatPayload.put("direction", "weakness");
+        chatPayload.put("suggestedDelta", -2);
+        chatPayload.put("evidenceTags", List.of("循环队列", "front/rear", "判满条件"));
+
+        Map<String, Object> meetingPayload = new LinkedHashMap<>();
+        meetingPayload.put("dimensionKey", "learning_progress");
+        meetingPayload.put("sourceType", "meeting");
+        meetingPayload.put("sourceId", "meeting-xxx:meeting_summary_agent");
+        meetingPayload.put("action", "analyzed");
+        meetingPayload.put("objectType", "meeting");
+        meetingPayload.put("objectName", "数据结构复习会议");
+        meetingPayload.put("evidence", "会议纪要明确记录用户已完成栈与队列知识点初稿，并领取下一步练习题整理任务。");
+        meetingPayload.put("direction", "increase");
+        meetingPayload.put("suggestedDelta", 2);
+        meetingPayload.put("evidenceTags", List.of("会议纪要", "任务完成", "学习进度"));
+
+        Map<String, Object> examPayload = new LinkedHashMap<>();
+        examPayload.put("dimensionKey", "ability_performance");
+        examPayload.put("sourceType", "exam");
+        examPayload.put("sourceId", "practice-20260627");
+        examPayload.put("action", "answered");
+        examPayload.put("objectType", "question_set");
+        examPayload.put("objectName", "栈与队列专项练习");
+        examPayload.put("result", "正确率 86%，连续两次提升");
+        examPayload.put("evidence", "用户在栈与队列专项练习中正确率达到 86%，较上次提升 14 个百分点。");
+        examPayload.put("direction", "increase");
+        examPayload.put("suggestedDelta", 2);
+        examPayload.put("evidenceTags", List.of("栈与队列", "正确率提升"));
+
+        return List.of(
+                submissionExample("聊天中暴露薄弱点", "chat", "用户明确表达不会、卡住、想换解释方式时提交。", chatPayload),
+                submissionExample("会议后形成学习进度", "meeting", "会议总结、成员分析、资源推荐智能体输出后提交。", meetingPayload),
+                submissionExample("练习结果形成能力证据", "exam", "答题、错题、正确率和任务完成记录产生后提交。", examPayload)
+        );
+    }
+
+    private static List<UserProfileDTO.AutoCaptureSource> buildAutoCaptureSources() {
+        return List.of(
+                autoCaptureSource("chat", "用户明确说不会/喜欢/要备考/要项目/要图解/要代码，或 Leader 路由到课程、题库、资源类任务。",
+                        "AppAiLeaderController", List.of("learning_goal", "resource_preference", "weak_points"),
+                        "基础权重 0.70，再按表达明确度、重复度、新鲜度、历史一致性融合。", "只捕捉明确表达，不从普通闲聊强行推断。"),
+                autoCaptureSource("meeting", "会议结束自动整理，或手动运行会议总结/成员分析/资源推荐智能体。",
+                        "MeetingServiceImpl", List.of("learning_progress", "weak_points", "resource_preference"),
+                        "基础权重 0.75，会议智能体结果越具体、对象越明确，表达明确度越高。", "会议证据先进入候选池，避免一次会议直接改画像。"),
+                autoCaptureSource("exam", "练习提交、错题归因、题库练习结果产生。",
+                        "Exam/Practice module", List.of("weak_points", "ability_performance", "learning_progress"),
+                        "基础权重 0.85，连续正确率/错题趋势会提高重复出现度。", "当前只完成协议和后端能力，后续接入真实答题记录。"),
+                autoCaptureSource("click", "资源点击、收藏、下载、打开同类内容多次出现。",
+                        "Resource interaction module", List.of("campus_behavior", "resource_preference"),
+                        "基础权重 0.55，需要重复出现或多来源一致才容易通过汇总。", "单次点击只做弱候选证据。"),
+                autoCaptureSource("profile", "用户资料、课表、成绩、明确填写发生变化。",
+                        "Profile/Course module", List.of("course_background", "learning_goal"),
+                        "基础权重 0.90，事实类来源优先，但仍通过定时汇总写入雷达图。", "聊天猜测不能替代用户资料。")
         );
     }
 
@@ -767,5 +1213,81 @@ public class UserProfileServiceImpl implements UserProfileService {
         policy.setEvidenceAction(evidenceAction);
         policy.setLeaderBehavior(leaderBehavior);
         return policy;
+    }
+
+    private static UserProfileDTO.EvidenceSubmissionField submissionField(String field,
+                                                                          boolean required,
+                                                                          String type,
+                                                                          String sourceStandard,
+                                                                          String description,
+                                                                          String example) {
+        UserProfileDTO.EvidenceSubmissionField submissionField = new UserProfileDTO.EvidenceSubmissionField();
+        submissionField.setField(field);
+        submissionField.setRequired(required);
+        submissionField.setType(type);
+        submissionField.setSourceStandard(sourceStandard);
+        submissionField.setDescription(description);
+        submissionField.setExample(example);
+        return submissionField;
+    }
+
+    private static UserProfileDTO.EvidenceSubmissionExample submissionExample(String scenario,
+                                                                              String sourceType,
+                                                                              String description,
+                                                                              Map<String, Object> payload) {
+        UserProfileDTO.EvidenceSubmissionExample example = new UserProfileDTO.EvidenceSubmissionExample();
+        example.setScenario(scenario);
+        example.setSourceType(sourceType);
+        example.setDescription(description);
+        example.setPayload(payload);
+        return example;
+    }
+
+    private static UserProfileDTO.AutoCaptureSource autoCaptureSource(String sourceType,
+                                                                      String trigger,
+                                                                      String submitter,
+                                                                      List<String> dimensions,
+                                                                      String confidenceRule,
+                                                                      String note) {
+        UserProfileDTO.AutoCaptureSource source = new UserProfileDTO.AutoCaptureSource();
+        source.setSourceType(sourceType);
+        source.setTrigger(trigger);
+        source.setSubmitter(submitter);
+        source.setDimensions(dimensions);
+        source.setConfidenceRule(confidenceRule);
+        source.setNote(note);
+        return source;
+    }
+
+    private static String truncate(String text, int maxLength) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() <= maxLength ? text : text.substring(0, maxLength);
+    }
+
+    private record ConfidenceEvaluation(
+            double sourceReliability,
+            double expressionClarity,
+            double repetition,
+            double recency,
+            double historyConsistency,
+            double total,
+            List<String> reasons
+    ) {
+        Map<String, Object> toMap(Double submittedConfidence, double finalConfidence) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("sourceReliability", sourceReliability);
+            map.put("expressionClarity", expressionClarity);
+            map.put("repetition", repetition);
+            map.put("recency", recency);
+            map.put("historyConsistency", historyConsistency);
+            map.put("computedConfidence", total);
+            map.put("submittedConfidence", submittedConfidence);
+            map.put("finalConfidence", finalConfidence);
+            map.put("formula", "sourceReliability*35% + expressionClarity*25% + repetition*20% + recency*10% + historyConsistency*10%");
+            map.put("reasons", reasons);
+            return map;
+        }
     }
 }

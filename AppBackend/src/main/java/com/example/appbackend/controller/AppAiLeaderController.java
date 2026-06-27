@@ -6,6 +6,7 @@ import com.example.appbackend.dto.AiLeaderSessionItem;
 import com.example.appbackend.dto.LlmChatRequest;
 import com.example.appbackend.dto.LlmChatResponse;
 import com.example.appbackend.dto.PageResponse;
+import com.example.appbackend.dto.UserProfileDTO;
 import com.example.appbackend.entity.AiLeaderMessage;
 import com.example.appbackend.entity.AiLeaderSession;
 import com.example.appbackend.entity.Result;
@@ -31,7 +32,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +47,7 @@ import java.util.stream.Collectors;
 @Tag(name = "App Leader 智能助手", description = "App 端固定接入 Leader 智能体")
 public class AppAiLeaderController {
 
+    private static final Logger log = LoggerFactory.getLogger(AppAiLeaderController.class);
     private static final String LEADER_AGENT = "leader_agent";
 
     private final PythonAiProxyService pythonAiProxyService;
@@ -74,6 +79,7 @@ public class AppAiLeaderController {
         LlmChatResponse response = toChatResponse(session, ragResult);
         saveMessage(session, AiLeaderMessage.ROLE_ASSISTANT, response.getAnswer(), response.getAnswerType());
         refreshSession(session, response.getAnswer());
+        captureLeaderProfileEvidence(userId, session, request, response);
         return Result.success(response);
     }
 
@@ -95,6 +101,7 @@ public class AppAiLeaderController {
             LlmChatResponse response = toChatResponse(session, eventPayload);
             saveMessage(session, AiLeaderMessage.ROLE_ASSISTANT, response.getAnswer(), response.getAnswerType());
             refreshSession(session, response.getAnswer());
+            captureLeaderProfileEvidence(userId, session, request, response);
         });
     }
 
@@ -196,10 +203,114 @@ public class AppAiLeaderController {
                 "leaderCanUpdateScore", false,
                 "leaderCanSubmitEvidence", true,
                 "evidenceEndpoint", "POST /api/profile/evidence",
-                "updateMode", "证据先沉淀，画像慢更新"
+                "updateMode", "行为证据实时记录，画像分数定时汇总更新"
         ));
         payload.put("metadata", metadata);
         return payload;
+    }
+
+    private void captureLeaderProfileEvidence(Long userId,
+                                              AiLeaderSession session,
+                                              LlmChatRequest request,
+                                              LlmChatResponse response) {
+        String input = request == null ? "" : request.getInput();
+        if (!StringUtils.hasText(input)) {
+            return;
+        }
+        List<UserProfileDTO.EvidenceRequest> evidenceList = new ArrayList<>();
+        String objectName = inferObjectName(input);
+
+        if (containsAny(input, "不会", "不懂", "没懂", "不清楚", "薄弱", "卡住", "错题", "哪里错", "看不懂")) {
+            evidenceList.add(buildLeaderEvidence(
+                    session,
+                    response,
+                    "weak_points",
+                    "weakness",
+                    -2,
+                    objectName,
+                    "用户在 Leader 对话中明确暴露薄弱点：" + truncate(input, 520),
+                    List.of(objectName, "薄弱点")
+            ));
+        }
+        if (containsAny(input, "备考", "考试", "复习", "考研", "期末", "项目", "作业", "面试", "论文", "毕业设计")) {
+            evidenceList.add(buildLeaderEvidence(
+                    session,
+                    response,
+                    "learning_goal",
+                    "increase",
+                    2,
+                    objectName,
+                    "用户在 Leader 对话中明确表达学习目标：" + truncate(input, 520),
+                    List.of(objectName, "学习目标")
+            ));
+        }
+        if (containsAny(input, "图解", "图片", "流程图", "思维导图", "视频", "代码", "例子", "案例", "文档", "markdown", "表格")) {
+            evidenceList.add(buildLeaderEvidence(
+                    session,
+                    response,
+                    "resource_preference",
+                    "increase",
+                    2,
+                    objectName,
+                    "用户在 Leader 对话中表达资源形式偏好：" + truncate(input, 520),
+                    List.of(objectName, "资源偏好")
+            ));
+        }
+        if (evidenceList.isEmpty() && isStudyAgent(response == null ? "" : response.getAgentName())) {
+            evidenceList.add(buildLeaderEvidence(
+                    session,
+                    response,
+                    "learning_goal",
+                    "increase",
+                    1,
+                    objectName,
+                    "Leader 路由到学习/题库类智能体，作为弱学习目标候选证据：" + truncate(input, 520),
+                    List.of(objectName, "Leader 路由")
+            ));
+        }
+
+        for (UserProfileDTO.EvidenceRequest evidence : evidenceList) {
+            try {
+                userProfileService.addEvidence(userId, evidence);
+            } catch (Exception error) {
+                log.warn("leader profile evidence skipped userId={} sessionId={}: {}", userId, session.getSessionId(), error.getMessage());
+            }
+        }
+    }
+
+    private UserProfileDTO.EvidenceRequest buildLeaderEvidence(AiLeaderSession session,
+                                                               LlmChatResponse response,
+                                                               String dimensionKey,
+                                                               String direction,
+                                                               int suggestedDelta,
+                                                               String objectName,
+                                                               String evidenceText,
+                                                               List<String> evidenceTags) {
+        UserProfileDTO.EvidenceRequest evidence = new UserProfileDTO.EvidenceRequest();
+        evidence.setDimensionKey(dimensionKey);
+        evidence.setSourceType("chat");
+        evidence.setSourceId(session.getSessionId());
+        evidence.setAction("expressed");
+        evidence.setObjectType("conversation");
+        evidence.setObjectId(session.getSessionId());
+        evidence.setObjectName(objectName);
+        evidence.setEvidence(truncate(evidenceText, 1000));
+        evidence.setDirection(direction);
+        evidence.setSuggestedDelta(suggestedDelta);
+        evidence.setEvidenceTags(evidenceTags.stream().filter(StringUtils::hasText).distinct().limit(6).toList());
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("submitter", "AppAiLeaderController");
+        metadata.put("agentName", response == null ? "" : response.getAgentName());
+        metadata.put("answerType", response == null ? "" : response.getAnswerType());
+        metadata.put("outputTypes", response == null ? List.of() : response.getOutputTypes());
+        metadata.put("capturePolicy", "only_explicit_chat_signal_or_weak_leader_route");
+        evidence.setMetadata(metadata);
+        return evidence;
+    }
+
+    private boolean isStudyAgent(String agentName) {
+        String normalized = agentName == null ? "" : agentName.trim();
+        return normalized.equals("textbook_knowledge_agent") || normalized.startsWith("textbook_question_");
     }
 
     private AiLeaderSession getOrCreateSession(Long userId, String requestedSessionId, String firstInput) {
@@ -303,5 +414,35 @@ public class AppAiLeaderController {
                     .toList();
         }
         return List.of();
+    }
+
+    private boolean containsAny(String text, String... tokens) {
+        if (!StringUtils.hasText(text)) {
+            return false;
+        }
+        for (String token : tokens) {
+            if (text.contains(token)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String inferObjectName(String input) {
+        if (!StringUtils.hasText(input)) {
+            return "Leader 对话";
+        }
+        List<String> knownTopics = List.of(
+                "循环队列", "栈", "队列", "链表", "二叉树", "排序", "数据结构",
+                "Java", "Python", "数据库", "SQL", "前端", "后端",
+                "PPT", "文档", "思维导图", "流程图", "图解", "代码",
+                "考试", "复习", "项目", "作业", "论文", "面试"
+        );
+        for (String topic : knownTopics) {
+            if (input.contains(topic)) {
+                return topic;
+            }
+        }
+        return truncate(input.trim().replaceAll("\\s+", " "), 40);
     }
 }

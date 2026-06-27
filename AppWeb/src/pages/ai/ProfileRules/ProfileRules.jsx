@@ -40,6 +40,10 @@ function ProfileRules() {
   const [updateDecisionSteps, setUpdateDecisionSteps] = useState([])
   const [leaderUsagePolicies, setLeaderUsagePolicies] = useState([])
   const [conflictPolicies, setConflictPolicies] = useState([])
+  const [evidenceSubmissionFields, setEvidenceSubmissionFields] = useState([])
+  const [evidenceSubmissionExamples, setEvidenceSubmissionExamples] = useState([])
+  const [autoCaptureSources, setAutoCaptureSources] = useState([])
+  const [evidenceProtocolRules, setEvidenceProtocolRules] = useState([])
   const [auditFields, setAuditFields] = useState([])
   const [acceptanceCriteria, setAcceptanceCriteria] = useState([])
 
@@ -58,6 +62,10 @@ function ProfileRules() {
       setUpdateDecisionSteps(data.updateDecisionSteps || [])
       setLeaderUsagePolicies(data.leaderUsagePolicies || [])
       setConflictPolicies(data.conflictPolicies || [])
+      setEvidenceSubmissionFields(data.evidenceSubmissionFields || [])
+      setEvidenceSubmissionExamples(data.evidenceSubmissionExamples || [])
+      setAutoCaptureSources(data.autoCaptureSources || [])
+      setEvidenceProtocolRules(data.evidenceProtocolRules || [])
       setAuditFields(data.auditFields || [])
       setAcceptanceCriteria(data.acceptanceCriteria || [])
     } catch (error) {
@@ -220,6 +228,42 @@ function ProfileRules() {
     { title: 'Leader 行为', dataIndex: 'leaderBehavior' },
   ], [])
 
+  const submissionColumns = useMemo(() => [
+    {
+      title: '字段',
+      dataIndex: 'field',
+      width: 150,
+      render: (value, record) => (
+        <Space direction="vertical" size={0}>
+          <Text strong>{value}</Text>
+          <Tag color={record.required ? 'red' : 'default'}>{record.required ? '必填' : '可选'}</Tag>
+        </Space>
+      ),
+    },
+    { title: '类型', dataIndex: 'type', width: 120 },
+    { title: '标准映射', dataIndex: 'sourceStandard', width: 180 },
+    { title: '说明', dataIndex: 'description' },
+    { title: '示例', dataIndex: 'example' },
+  ], [])
+
+  const autoCaptureColumns = useMemo(() => [
+    {
+      title: '来源',
+      dataIndex: 'sourceType',
+      width: 110,
+      render: (value) => <Tag color="blue">{value}</Tag>,
+    },
+    { title: '触发条件', dataIndex: 'trigger' },
+    { title: '提交方', dataIndex: 'submitter', width: 170 },
+    {
+      title: '影响维度',
+      dataIndex: 'dimensions',
+      render: (value = []) => <TagGroup rows={value} color="cyan" />,
+    },
+    { title: '置信规则', dataIndex: 'confidenceRule' },
+    { title: '限制', dataIndex: 'note' },
+  ], [])
+
   return (
     <div className="profile-rules-page">
       <section className="profile-rules-hero">
@@ -259,6 +303,46 @@ function ProfileRules() {
           message="设计原则"
           description="聊天、会议、做题和点击行为会实时记录为画像证据；雷达图分数由定时汇总任务统一更新。Leader 每次可读取画像，但不能直接修改画像分数。"
         />
+
+        <Card title="证据提交协议" className="profile-rules-card profile-rules-flow">
+          <RuleList rows={evidenceProtocolRules} emptyText="暂无证据协议" />
+          <Table
+            rowKey="field"
+            columns={submissionColumns}
+            dataSource={evidenceSubmissionFields}
+            pagination={false}
+            locale={{ emptyText: <Empty description="暂无证据提交字段" /> }}
+          />
+        </Card>
+
+        <Card title="自动采集来源" className="profile-rules-card profile-rules-flow">
+          <Table
+            rowKey="sourceType"
+            columns={autoCaptureColumns}
+            dataSource={autoCaptureSources}
+            pagination={false}
+            locale={{ emptyText: <Empty description="暂无自动采集来源" /> }}
+          />
+        </Card>
+
+        <Card title="提交示例" className="profile-rules-card profile-rules-flow">
+          <List
+            dataSource={evidenceSubmissionExamples}
+            locale={{ emptyText: <Empty description="暂无提交示例" /> }}
+            renderItem={(item) => (
+              <List.Item>
+                <Space direction="vertical" size={8} className="profile-rules-example">
+                  <Space size={8} wrap>
+                    <Text strong>{item.scenario}</Text>
+                    <Tag color="geekblue">{item.sourceType}</Tag>
+                    <Text type="secondary">{item.description}</Text>
+                  </Space>
+                  <pre>{formatJson(item.payload)}</pre>
+                </Space>
+              </List.Item>
+            )}
+          />
+        </Card>
 
         <Card title="证据评分公式" className="profile-rules-card profile-rules-flow">
           <div className="profile-rules-formula">
@@ -390,6 +474,14 @@ function TagGroup({ rows = [], color }) {
       {rows.map((item) => <Tag key={item} color={color}>{item}</Tag>)}
     </Space>
   )
+}
+
+function formatJson(value) {
+  try {
+    return JSON.stringify(value || {}, null, 2)
+  } catch (error) {
+    return '{}'
+  }
 }
 
 export default ProfileRules

@@ -10,6 +10,12 @@ public interface UserProfileEvidenceRepository extends JpaRepository<UserProfile
 
     List<UserProfileEvidence> findByStatusAndCreateTimeBefore(String status, LocalDateTime createTime);
 
+    List<UserProfileEvidence> findByUserIdAndDimensionKeyAndCreateTimeAfter(
+            Long userId,
+            String dimensionKey,
+            LocalDateTime createTime
+    );
+
     List<UserProfileEvidence> findByUserIdAndDimensionKeyAndStatusAndCreateTimeAfter(
             Long userId,
             String dimensionKey,

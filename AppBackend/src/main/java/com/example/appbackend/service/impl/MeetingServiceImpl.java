@@ -4,6 +4,7 @@ import com.example.appbackend.dto.LlmChatRequest;
 import com.example.appbackend.dto.LlmChatResponse;
 import com.example.appbackend.dto.MeetingDTO;
 import com.example.appbackend.dto.PageResponse;
+import com.example.appbackend.dto.UserProfileDTO;
 import com.example.appbackend.entity.MeetingAgentResult;
 import com.example.appbackend.entity.MeetingParticipant;
 import com.example.appbackend.entity.MeetingRecord;
@@ -22,6 +23,7 @@ import com.example.appbackend.repository.SystemConfigTestLogRepository;
 import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.LlmService;
 import com.example.appbackend.service.MeetingService;
+import com.example.appbackend.service.UserProfileService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -78,6 +80,7 @@ public class MeetingServiceImpl implements MeetingService {
     private final SystemConfigRepository systemConfigRepository;
     private final SystemConfigTestLogRepository systemConfigTestLogRepository;
     private final LlmService llmService;
+    private final UserProfileService userProfileService;
 
     public MeetingServiceImpl(MeetingSessionRepository sessionRepository,
                               MeetingParticipantRepository participantRepository,
@@ -86,7 +89,8 @@ public class MeetingServiceImpl implements MeetingService {
                               UserRepository userRepository,
                               SystemConfigRepository systemConfigRepository,
                               SystemConfigTestLogRepository systemConfigTestLogRepository,
-                              LlmService llmService) {
+                              LlmService llmService,
+                              UserProfileService userProfileService) {
         this.sessionRepository = sessionRepository;
         this.participantRepository = participantRepository;
         this.recordRepository = recordRepository;
@@ -95,6 +99,7 @@ public class MeetingServiceImpl implements MeetingService {
         this.systemConfigRepository = systemConfigRepository;
         this.systemConfigTestLogRepository = systemConfigTestLogRepository;
         this.llmService = llmService;
+        this.userProfileService = userProfileService;
     }
 
     @Override
@@ -396,7 +401,94 @@ public class MeetingServiceImpl implements MeetingService {
         result.setAgentName(chatRequest.getAgentName());
         result.setAnswerType(StringUtils.hasText(chatResponse.getAnswerType()) ? chatResponse.getAnswerType() : "markdown");
         result.setAnswer(StringUtils.hasText(chatResponse.getAnswer()) ? chatResponse.getAnswer() : "智能体没有返回可用内容。");
-        return resultRepository.save(result);
+        MeetingAgentResult saved = resultRepository.save(result);
+        captureMeetingProfileEvidence(session, saved);
+        return saved;
+    }
+
+    private void captureMeetingProfileEvidence(MeetingSession session, MeetingAgentResult result) {
+        if (session == null || result == null || session.getUserId() == null) {
+            return;
+        }
+        UserProfileDTO.EvidenceRequest evidence = switch (result.getAgentName()) {
+            case "meeting_member_analysis_agent" -> buildMeetingEvidence(
+                    session,
+                    result,
+                    "weak_points",
+                    "weakness",
+                    -2,
+                    "会议成员分析指出理解偏差或薄弱点：" + truncate(result.getAnswer(), 820),
+                    List.of("会议成员分析", "薄弱点")
+            );
+            case "meeting_summary_agent", "meeting_controller_agent" -> buildMeetingEvidence(
+                    session,
+                    result,
+                    "learning_progress",
+                    "increase",
+                    2,
+                    "会议整理形成学习任务、进度或后续计划：" + truncate(result.getAnswer(), 820),
+                    List.of("会议总结", "学习进度")
+            );
+            case "meeting_resource_recommendation_agent" -> buildMeetingEvidence(
+                    session,
+                    result,
+                    "resource_preference",
+                    "increase",
+                    1,
+                    "会议资源推荐体现学习资源需求或偏好：" + truncate(result.getAnswer(), 820),
+                    List.of("会议资源推荐", "资源偏好")
+            );
+            default -> null;
+        };
+        if (evidence == null) {
+            return;
+        }
+        try {
+            userProfileService.addEvidence(session.getUserId(), evidence);
+        } catch (Exception error) {
+            log.warn("meeting profile evidence skipped sessionId={} agentName={}: {}", session.getSessionId(), result.getAgentName(), error.getMessage());
+        }
+    }
+
+    private UserProfileDTO.EvidenceRequest buildMeetingEvidence(MeetingSession session,
+                                                                MeetingAgentResult result,
+                                                                String dimensionKey,
+                                                                String direction,
+                                                                int suggestedDelta,
+                                                                String evidenceText,
+                                                                List<String> evidenceTags) {
+        UserProfileDTO.EvidenceRequest evidence = new UserProfileDTO.EvidenceRequest();
+        evidence.setDimensionKey(dimensionKey);
+        evidence.setSourceType("meeting");
+        evidence.setSourceId(session.getSessionId() + ":" + result.getAgentName() + ":" + result.getId());
+        evidence.setAction("analyzed");
+        evidence.setObjectType("meeting");
+        evidence.setObjectId(session.getSessionId());
+        evidence.setObjectName(session.getTitle());
+        evidence.setResult(agentLabel(result.getAgentName()));
+        evidence.setEvidence(truncate(evidenceText, 1000));
+        evidence.setDirection(direction);
+        evidence.setSuggestedDelta(suggestedDelta);
+        evidence.setEvidenceTags(evidenceTags.stream().filter(StringUtils::hasText).distinct().limit(6).toList());
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("submitter", "MeetingServiceImpl");
+        metadata.put("meetingSessionId", session.getSessionId());
+        metadata.put("roomCode", session.getRoomCode());
+        metadata.put("agentName", result.getAgentName());
+        metadata.put("answerType", result.getAnswerType());
+        metadata.put("capturePolicy", "post_meeting_agent_result");
+        evidence.setMetadata(metadata);
+        return evidence;
+    }
+
+    private String agentLabel(String agentName) {
+        return switch (agentName) {
+            case "meeting_member_analysis_agent" -> "成员分析";
+            case "meeting_summary_agent" -> "会议总结";
+            case "meeting_controller_agent" -> "会议总控";
+            case "meeting_resource_recommendation_agent" -> "资源推荐";
+            default -> StringUtils.hasText(agentName) ? agentName : "会议智能体";
+        };
     }
 
     private String allMeetingContent(Long meetingSessionId) {

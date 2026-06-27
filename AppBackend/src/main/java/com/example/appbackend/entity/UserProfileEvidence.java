@@ -11,6 +11,8 @@ import java.time.LocalDateTime;
         @Index(name = "idx_user_profile_evidence_user", columnList = "user_id"),
         @Index(name = "idx_user_profile_evidence_dimension", columnList = "dimension_key"),
         @Index(name = "idx_user_profile_evidence_status", columnList = "status"),
+        @Index(name = "idx_user_profile_evidence_source", columnList = "source_type"),
+        @Index(name = "idx_user_profile_evidence_occurred", columnList = "occurred_at"),
         @Index(name = "idx_user_profile_evidence_create_time", columnList = "create_time")
 })
 public class UserProfileEvidence {
@@ -30,6 +32,21 @@ public class UserProfileEvidence {
 
     @Column(name = "source_id", length = 120, columnDefinition = "VARCHAR(120) COMMENT '来源业务ID'")
     private String sourceId;
+
+    @Column(length = 80, columnDefinition = "VARCHAR(80) COMMENT '行为动作，如 asked/completed/clicked/analyzed'")
+    private String action;
+
+    @Column(name = "object_type", length = 80, columnDefinition = "VARCHAR(80) COMMENT '证据对象类型，如 conversation/meeting/question/resource'")
+    private String objectType;
+
+    @Column(name = "object_id", length = 120, columnDefinition = "VARCHAR(120) COMMENT '证据对象ID'")
+    private String objectId;
+
+    @Column(name = "object_name", length = 200, columnDefinition = "VARCHAR(200) COMMENT '证据对象名称'")
+    private String objectName;
+
+    @Column(length = 300, columnDefinition = "VARCHAR(300) COMMENT '行为结果摘要'")
+    private String result;
 
     @Column(nullable = false, columnDefinition = "TEXT NOT NULL COMMENT '证据内容'")
     private String evidence;
@@ -55,6 +72,13 @@ public class UserProfileEvidence {
     @Lob
     @Column(name = "metadata_json", columnDefinition = "LONGTEXT COMMENT '扩展元数据JSON'")
     private String metadataJson;
+
+    @Lob
+    @Column(name = "confidence_breakdown_json", columnDefinition = "LONGTEXT COMMENT '置信度拆解JSON'")
+    private String confidenceBreakdownJson;
+
+    @Column(name = "occurred_at", columnDefinition = "DATETIME COMMENT '行为实际发生时间'")
+    private LocalDateTime occurredAt;
 
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     private LocalDateTime createTime;
