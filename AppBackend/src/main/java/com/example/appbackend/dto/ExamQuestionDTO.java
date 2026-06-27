@@ -28,6 +28,10 @@ public class ExamQuestionDTO {
         @Size(max = 160, message = "来源标题最多 160 字符")
         @Schema(description = "来源标题或批次名称")
         private String sourceTitle;
+
+        @Size(max = 40, message = "来源场景最多 40 字符")
+        @Schema(description = "来源场景：test/import/manual", example = "test")
+        private String sourceScene;
     }
 
     @Data
@@ -66,6 +70,7 @@ public class ExamQuestionDTO {
         private Object rawQuestion;
         private String sourceAgent;
         private String sourceTitle;
+        private String sourceScene;
         private Long createdBy;
         private LocalDateTime createTime;
         private LocalDateTime updateTime;

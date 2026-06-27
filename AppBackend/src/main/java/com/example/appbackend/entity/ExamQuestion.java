@@ -71,6 +71,9 @@ public class ExamQuestion {
     @Column(name = "source_title", length = 160, columnDefinition = "VARCHAR(160) COMMENT '来源标题或批次名称'")
     private String sourceTitle;
 
+    @Column(name = "source_scene", length = 40, columnDefinition = "VARCHAR(40) COMMENT '来源场景：test/import/manual'")
+    private String sourceScene;
+
     @Column(name = "created_by", columnDefinition = "BIGINT COMMENT '创建用户ID'")
     private Long createdBy;
 

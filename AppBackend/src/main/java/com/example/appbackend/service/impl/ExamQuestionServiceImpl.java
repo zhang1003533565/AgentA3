@@ -133,6 +133,7 @@ public class ExamQuestionServiceImpl implements ExamQuestionService {
             entity.setRawQuestionJson(toJson(question));
             entity.setSourceAgent(blankToNull(request.getSourceAgent()));
             entity.setSourceTitle(blankToNull(request.getSourceTitle()));
+            entity.setSourceScene(blankToNull(request.getSourceScene()));
             entity.setCreatedBy(userId);
             ids.add(questionRepository.save(entity).getId());
         }
@@ -634,6 +635,7 @@ public class ExamQuestionServiceImpl implements ExamQuestionService {
         vo.setRawQuestion(fromJson(question.getRawQuestionJson()));
         vo.setSourceAgent(question.getSourceAgent());
         vo.setSourceTitle(question.getSourceTitle());
+        vo.setSourceScene(question.getSourceScene());
         vo.setCreatedBy(question.getCreatedBy());
         vo.setCreateTime(question.getCreateTime());
         vo.setUpdateTime(question.getUpdateTime());

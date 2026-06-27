@@ -63,6 +63,7 @@ export const navigationSections = [
     items: [
       { path: '/ai/model', label: '模型配置', icon: 'robot', pageKey: 'system-config' },
       { path: '/ai/rag/agents', label: '多智能体', icon: 'robot' },
+      { path: '/ai/question-bank', label: '题库管理', icon: 'appstore' },
     ],
   },
 ]
@@ -76,6 +77,7 @@ export const moduleCards = [
   { title: '会议模块', description: '查看会议历史、转写记录和会议智能体结果', route: '/meeting/history' },
   { title: 'AI 模块', description: '维护 AI 模型配置和多智能体', route: '/ai/model' },
   { title: '多智能体', description: '测试智能体、绑定模型并维护示例输入', route: '/ai/rag/agents' },
+  { title: '题库管理', description: '查看智能体导入的标准题库', route: '/ai/question-bank' },
 ]
 
 const columns = {

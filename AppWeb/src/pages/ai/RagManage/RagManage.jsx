@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button, Card, Col, Collapse, Empty, Form, Image, Input, Row, Select, Space, Table, Tag, Typography, message } from 'antd'
-import { PlayCircleOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons'
+import { DatabaseOutlined, PlayCircleOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons'
+import { importExamQuestions } from '../../../api/examQuestion'
 import {
   getRagAgents,
   executeTextToSql,
@@ -25,6 +26,16 @@ const MODEL_MODALITY_LABELS = {
   video: '视频',
   audio: '语音',
   vision: '视觉理解',
+}
+
+const QUESTION_AGENT_TYPES = {
+  textbook_question_single_choice_agent: 'single_choice',
+  textbook_question_multiple_choice_agent: 'multiple_choice',
+  textbook_question_true_false_agent: 'true_false',
+  textbook_question_fill_blank_agent: 'fill_blank',
+  textbook_question_short_answer_agent: 'short_answer',
+  textbook_question_calculation_agent: 'calculation',
+  textbook_question_programming_agent: 'programming',
 }
 
 const evidenceColumns = [
@@ -335,6 +346,7 @@ function RagManage({ page = 'playground' }) {
   const [sqlResult, setSqlResult] = useState(null)
   const [agentTestResult, setAgentTestResult] = useState(null)
   const [agentTestLoading, setAgentTestLoading] = useState(false)
+  const [questionImportLoading, setQuestionImportLoading] = useState(false)
   const [llmModelOptions, setLlmModelOptions] = useState([])
   const [agentModelBindings, setAgentModelBindings] = useState({})
   const [queryForm] = Form.useForm()
@@ -599,6 +611,49 @@ function RagManage({ page = 'playground' }) {
       message.error(error.message || '智能体调用失败')
     } finally {
       setAgentTestLoading(false)
+    }
+  }
+
+  const getQuestionBankPayloadFromResult = (result) => {
+    const answerType = result?.response?.answerType || result?.response?.metadata?.answerType
+    const agentName = result?.agent?.name || result?.request?.agentName
+    if (answerType !== 'question_bank' && !QUESTION_AGENT_TYPES[agentName]) {
+      return null
+    }
+    const payload = safeJsonParse(result?.response?.answer, null)
+    if (!payload || !Array.isArray(payload.questions)) {
+      return null
+    }
+    return payload
+  }
+
+  const handleImportQuestionBank = async () => {
+    const payload = getQuestionBankPayloadFromResult(agentTestResult)
+    if (!payload) {
+      message.warning('当前结果不是可导入的题库 JSON')
+      return
+    }
+    if (!payload.questions.length) {
+      message.warning('当前题库 JSON 没有可导入的题目')
+      return
+    }
+    const agentName = agentTestResult?.agent?.name || agentTestResult?.request?.agentName
+    const expectedType = QUESTION_AGENT_TYPES[agentName] || agentTestResult?.agent?.intent
+    setQuestionImportLoading(true)
+    try {
+      const res = await importExamQuestions({
+        questions: payload.questions,
+        missingInfo: payload.missingInfo || [],
+        sourceAgent: agentName,
+        sourceTitle: `智能体测试：${agentTestResult?.agent?.role || agentName}`,
+        sourceScene: 'test',
+      }, expectedType)
+      const importedCount = res.data?.importedCount || 0
+      message.success(`已导入题库 ${importedCount} 道题`)
+    } catch (error) {
+      message.error(error.message || '题库导入失败')
+    } finally {
+      setQuestionImportLoading(false)
     }
   }
 
@@ -1054,6 +1109,17 @@ function RagManage({ page = 'playground' }) {
                       <Tag color="purple">{getExecutionLabel(agentTestResult.response?.metadata)}</Tag>
                       {agentTestResult.response?.metadata?.executedAgent && <Tag color="geekblue">执行：{agentTestResult.response.metadata.executedAgent}</Tag>}
                       <Tag color="volcano">类型：{agentTestResult.response?.answerType || agentTestResult.response?.metadata?.answerType || 'text'}</Tag>
+                      {!agentTestResult.error && getQuestionBankPayloadFromResult(agentTestResult) ? (
+                        <Button
+                          size="small"
+                          type="primary"
+                          icon={<DatabaseOutlined />}
+                          loading={questionImportLoading}
+                          onClick={handleImportQuestionBank}
+                        >
+                          导入题库
+                        </Button>
+                      ) : null}
                     </div>
                     {agentTestResult.error ? (
                       <div className="rag-answer-box">{agentTestResult.error}</div>
