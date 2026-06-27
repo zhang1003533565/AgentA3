@@ -171,9 +171,6 @@ public class AppAiLeaderController {
         Map<String, Object> payload = new HashMap<>();
         payload.put("input", request.getInput());
         payload.put("agentName", LEADER_AGENT);
-        if (StringUtils.hasText(request.getRagStrategy())) {
-            payload.put("ragStrategy", request.getRagStrategy().trim());
-        }
         if (StringUtils.hasText(request.getLlmModel())) {
             payload.put("llmModel", request.getLlmModel().trim());
         }

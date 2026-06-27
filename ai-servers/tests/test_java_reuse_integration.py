@@ -103,12 +103,11 @@ class FakeLLM:
         if "Leader 智能体" in system_prompt:
             payload = json.loads(user_prompt)
             input_text = payload.get("user_input") or ""
-            rag_strategy = payload.get("requested_rag_strategy") or ""
             return json.dumps({
                 "intent": "campus_search",
                 "target_agent": "textbook_knowledge_agent",
-                "need_retrieval": True,
-                "rag_strategy": rag_strategy or "naive_rag",
+                "need_retrieval": False,
+                "rag_strategy": "",
                 "action": "delegate_agent",
                 "tool_name": "",
                 "route_reason": "测试 LLM 路由到教材知识点智能体。",
@@ -162,13 +161,11 @@ class JavaReuseIntegrationTest(unittest.TestCase):
     def _patch_model_providers(self):
         leader_agent_module = importlib.import_module("app.multi_agents.leader_agent.agent")
         runtime_module = importlib.import_module("app.multi_agents.runtime")
-        naive_rag_module = importlib.import_module("app.rag.principles.naive_rag")
 
         for module in (
             extract_keyword_node_module,
             leader_agent_module,
             runtime_module,
-            naive_rag_module,
         ):
             self._patched_modules.append((module, module.get_chat_model_provider))
             module.get_chat_model_provider = lambda provider=FakeLLM(): provider

@@ -23,7 +23,7 @@ public class LlmChatResponse {
     @Schema(description = "模型名称")
     private String model;
 
-    @Schema(description = "实际使用的 RAG 策略")
+    @Schema(description = "兼容旧客户端字段；本地检索策略已移除，通常返回 direct_agent 或工具名")
     private String ragStrategy;
 
     @Schema(description = "实际执行回答的智能体")
@@ -32,10 +32,10 @@ public class LlmChatResponse {
     @Schema(description = "AI 整理出的搜索关键词")
     private String searchKeyword;
 
-    @Schema(description = "本地匹配到的候选结果")
+    @Schema(description = "Java 后端业务接口或第三方知识库返回的候选结果")
     private List<Map<String, Object>> matchedResults;
 
-    @Schema(description = "检索元信息")
+    @Schema(description = "上下文来源元信息")
     private Map<String, Object> retrievalMeta;
 
     @Schema(description = "执行轨迹")

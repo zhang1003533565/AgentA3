@@ -20,7 +20,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/ai/rag")
-@Tag(name = "AI RAG 管理", description = "管理员代理 Python RAG 服务的策略、智能体、框架和评估接口")
+@Tag(name = "AI 智能体管理", description = "管理员代理 Python AI 服务的智能体、框架、文档转换和 Text-to-SQL 接口")
 public class AiRagController {
     private static final String ROLE_ADMIN = "ADMIN";
 
@@ -30,32 +30,20 @@ public class AiRagController {
         this.pythonAiProxyService = pythonAiProxyService;
     }
 
-    @GetMapping("/strategies")
-    @Operation(summary = "RAG 策略列表")
-    public Result<Object> strategies(HttpServletRequest request) {
-        return Result.success(pythonAiProxyService.getRagStrategies(adminAuthorization(request)));
-    }
-
-    @GetMapping("/strategies/{strategyName}")
-    @Operation(summary = "RAG 策略详情")
-    public Result<Object> strategy(@PathVariable String strategyName, HttpServletRequest request) {
-        return Result.success(pythonAiProxyService.getRagStrategy(strategyName, adminAuthorization(request)));
-    }
-
     @GetMapping("/capabilities")
-    @Operation(summary = "RAG 能力目录")
+    @Operation(summary = "AI 能力目录")
     public Result<Object> capabilities(HttpServletRequest request) {
         return Result.success(pythonAiProxyService.getRagCapabilities(adminAuthorization(request)));
     }
 
     @GetMapping("/framework")
-    @Operation(summary = "RAG 框架目录")
+    @Operation(summary = "AI 框架目录")
     public Result<Object> framework(HttpServletRequest request) {
         return Result.success(pythonAiProxyService.getRagFramework(adminAuthorization(request)));
     }
 
     @GetMapping("/agents")
-    @Operation(summary = "RAG 多智能体列表")
+    @Operation(summary = "AI 多智能体列表")
     public Result<Object> agents(HttpServletRequest request) {
         return Result.success(pythonAiProxyService.getRagAgents(adminAuthorization(request)));
     }
@@ -67,7 +55,7 @@ public class AiRagController {
     }
 
     @GetMapping("/agents/{agentName}")
-    @Operation(summary = "RAG 多智能体详情")
+    @Operation(summary = "AI 多智能体详情")
     public Result<Object> agent(@PathVariable String agentName, HttpServletRequest request) {
         return Result.success(pythonAiProxyService.getRagAgent(agentName, adminAuthorization(request)));
     }
@@ -82,7 +70,7 @@ public class AiRagController {
     }
 
     @PostMapping("/query")
-    @Operation(summary = "执行 RAG 查询")
+    @Operation(summary = "执行 AI 智能体查询")
     public Result<Object> query(@RequestBody Map<String, Object> body, HttpServletRequest request) {
         return Result.success(pythonAiProxyService.queryRag(body, adminAuthorization(request)));
     }
@@ -114,12 +102,6 @@ public class AiRagController {
     @Operation(summary = "执行 Text-to-SQL")
     public Result<Object> executeTextToSql(@RequestBody Map<String, Object> body, HttpServletRequest request) {
         return Result.success(pythonAiProxyService.executeTextToSql(body, adminAuthorization(request)));
-    }
-
-    @PostMapping("/evaluate")
-    @Operation(summary = "RAG 评估")
-    public Result<Object> evaluate(@RequestBody Map<String, Object> body, HttpServletRequest request) {
-        return Result.success(pythonAiProxyService.evaluateRag(body, adminAuthorization(request)));
     }
 
     private String adminAuthorization(HttpServletRequest request) {

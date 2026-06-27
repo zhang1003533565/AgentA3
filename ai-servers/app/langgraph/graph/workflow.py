@@ -16,7 +16,6 @@ from app.models.schemas import ChatRequest, ChatResponse
 from app.model_providers.multimodal import append_image_references_to_text, collect_request_image_references
 from app.model_providers.runtime_config import require_active_llm_config
 from app.multi_agents.catalog import get_agent_profile, normalize_agent_name
-from app.rag.engine import rag_engine
 from app.utils.logger import get_logger, mask_id
 from app.utils.prompts import DEFAULT_SYSTEM_PROMPT
 from app.utils.text_utils import build_session_token
@@ -24,7 +23,7 @@ from app.utils.text_utils import build_session_token
 logger = get_logger("langgraph.workflow")
 
 
-# Graph order: START -> leader memory -> leader route -> textbook retrieval -> specialist answer -> leader memory save -> END
+# Graph order: START -> memory -> keyword -> Java-backed business search -> specialist answer -> memory save -> END
 NODE_CHAIN = [
     load_memory_node,
     extract_keyword_node,
@@ -48,12 +47,6 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: Op
     prompt = request.prompt if request.prompt else DEFAULT_SYSTEM_PROMPT
 
     agent_profile = get_agent_profile(requested_agent) if requested_agent else None
-    default_strategy = agent_profile["defaultRagStrategy"] if agent_profile else "naive_rag"
-    requested_strategy = request.ragStrategy or default_strategy
-    supported_strategies = set(rag_engine.list_strategies())
-    if requested_strategy not in supported_strategies:
-        raise HTTPException(status_code=400, detail=f"未知 RAG 策略：{requested_strategy}")
-
     state = ConversationState(
         session_id=session_id,
         session_token=session_token,
@@ -62,7 +55,7 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: Op
         input_text=append_image_references_to_text(request.input, collect_request_image_references(request)),
         model=active_llm_config.model,
         user_id=user_id,
-        rag_strategy=requested_strategy,
+        rag_strategy="direct_agent",
         rag_strategy_explicit=bool(request.ragStrategy),
         requested_agent=requested_agent or "",
         active_agent=requested_agent or "leader_agent",

@@ -5,7 +5,7 @@ PPT 转 DOCX 智能体用于把 `.pptx` 文件转换为 `.docx`。它是确定�
 转换入口：
 - Python：`POST /internal/rag/ppt/convert`
 - Java：`POST /api/ai/rag/ppt/convert`
-- 前端：`/ai/rag` 的“文档转换”页签
+- 前端：`/ai/rag/agents` 的智能体工作台
 
 转换原则：
 - 按幻灯片顺序生成 Word 章节。

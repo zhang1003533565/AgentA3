@@ -62,8 +62,6 @@ export const navigationSections = [
     label: 'AI 模块',
     items: [
       { path: '/ai/model', label: '模型配置', icon: 'robot', pageKey: 'system-config' },
-      { path: '/ai/rag', label: 'RAG 执行', icon: 'database', exact: true },
-      { path: '/ai/rag/strategy', label: '策略能力', icon: 'rocket' },
       { path: '/ai/rag/agents', label: '多智能体', icon: 'robot' },
     ],
   },
@@ -76,9 +74,7 @@ export const moduleCards = [
   { title: '旧物交易', description: '物品、分类与后台审核管理', route: '/market/item' },
   { title: '校园特惠', description: '商家、优惠活动与分类运营', route: '/discount/merchant' },
   { title: '会议模块', description: '查看会议历史、转写记录和会议智能体结果', route: '/meeting/history' },
-  { title: 'AI 模块', description: '维护 AI 模型配置、RAG 策略和多智能体', route: '/ai/model' },
-  { title: 'RAG 执行', description: '测试 Leader 路由、RAG 查询和智能体执行结果', route: '/ai/rag' },
-  { title: '策略能力', description: '查看 RAG 策略目录和能力配置', route: '/ai/rag/strategy' },
+  { title: 'AI 模块', description: '维护 AI 模型配置和多智能体', route: '/ai/model' },
   { title: '多智能体', description: '测试智能体、绑定模型并维护示例输入', route: '/ai/rag/agents' },
 ]
 

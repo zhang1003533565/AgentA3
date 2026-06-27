@@ -2,10 +2,6 @@ import request from '../utils/request'
 
 const base = '/api/ai/rag'
 
-export const getRagStrategies = () => request.get(`${base}/strategies`)
-
-export const getRagStrategy = (strategyName) => request.get(`${base}/strategies/${strategyName}`)
-
 export const getRagCapabilities = () => request.get(`${base}/capabilities`)
 
 export const getRagFramework = () => request.get(`${base}/framework`)
@@ -35,7 +31,3 @@ export const convertPpt = (data) => request.post(`${base}/ppt/convert`, data, {
 export const getTextToSqlSchema = () => request.get(`${base}/text-to-sql/schema`)
 
 export const executeTextToSql = (data) => request.post(`${base}/text-to-sql/execute`, data)
-
-export const evaluateRag = (data) => request.post(`${base}/evaluate`, data, {
-  timeout: 120000,
-})

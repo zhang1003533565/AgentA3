@@ -29,7 +29,7 @@ def build_search_facts_prompt(keyword: str, search_results: List[Dict[str, Any]]
     document_count = sum(1 for item in search_results if item.get("type") == "knowledge_document")
     if document_count:
         return (
-            f"系统已经根据关键词 `{keyword}` 同时检索了业务接口和本地知识库。"
+            f"系统已经根据关键词 `{keyword}` 获取了业务接口和 Java 后端接入的第三方知识库候选。"
             "下面这些是受控检索返回的候选，请优先依据这些结果回答，不要编造不存在的数据；"
             "如果引用知识库内容，请说明信息来自对应 source："
             + json.dumps(search_results, ensure_ascii=False)

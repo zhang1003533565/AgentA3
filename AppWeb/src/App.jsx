@@ -31,8 +31,8 @@ function App() {
           <Route path="/activity/create" element={<ActivityEditor />} />
           <Route path="/activity/:id/edit" element={<ActivityEditor />} />
           <Route path="/activity/:id" element={<ActivityDetail />} />
-          <Route path="/ai/rag" element={<RagManage />} />
-          <Route path="/ai/rag/strategy" element={<RagManage page="strategy" />} />
+          <Route path="/ai/rag" element={<Navigate to="/ai/rag/agents" replace />} />
+          <Route path="/ai/rag/strategy" element={<Navigate to="/ai/rag/agents" replace />} />
           <Route path="/ai/rag/agents" element={<RagManage page="agents" />} />
           {workspaceRoutes}
         </Route>

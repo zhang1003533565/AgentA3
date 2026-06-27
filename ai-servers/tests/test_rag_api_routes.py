@@ -1,9 +1,7 @@
-import base64
 import importlib
 import json
 import unittest
 from types import SimpleNamespace
-from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -26,14 +24,13 @@ class RagApiRoutesTest(unittest.TestCase):
             "X-AI-Model": "test-model",
         }
         self._patched_modules = []
-        self._old_get_qwen_image_provider = None
+        self._patched_image_modules = []
         self._patch_model_providers()
         self._patch_image_provider()
 
     def tearDown(self):
-        if self._old_get_qwen_image_provider is not None:
-            image_agent_module = importlib.import_module("app.multi_agents.image_agent.agent")
-            image_agent_module.get_qwen_image_provider = self._old_get_qwen_image_provider
+        for module, old_get_qwen_image_provider in reversed(self._patched_image_modules):
+            module.get_qwen_image_provider = old_get_qwen_image_provider
         for module, old_get_chat_model_provider in reversed(self._patched_modules):
             module.get_chat_model_provider = old_get_chat_model_provider
 
@@ -42,7 +39,6 @@ class RagApiRoutesTest(unittest.TestCase):
             "app.multi_agents.leader_agent.agent",
             "app.multi_agents.runtime",
             "app.langgraph.nodes.extract_keyword",
-            "app.rag.principles.naive_rag",
         ]
         for module_name in module_names:
             module = importlib.import_module(module_name)
@@ -50,20 +46,22 @@ class RagApiRoutesTest(unittest.TestCase):
             module.get_chat_model_provider = lambda provider=FakeRagModelProvider(): provider
 
     def _patch_image_provider(self):
-        image_agent_module = importlib.import_module("app.multi_agents.image_agent.agent")
-        self._old_get_qwen_image_provider = image_agent_module.get_qwen_image_provider
-        image_agent_module.get_qwen_image_provider = lambda: FakeImageProvider()
+        module_names = [
+            "app.multi_agents.image_agent.agent",
+            "app.multi_agents.diagram_activity_agent.agent",
+            "app.multi_agents.diagram_architecture_agent.agent",
+            "app.multi_agents.diagram_flowchart_agent.agent",
+            "app.multi_agents.diagram_mind_map_agent.agent",
+        ]
+        for module_name in module_names:
+            module = importlib.import_module(module_name)
+            self._patched_image_modules.append((module, module.get_qwen_image_provider))
+            module.get_qwen_image_provider = lambda: FakeImageProvider()
 
-    def test_list_strategies_returns_all_rag_modes(self):
+    def test_removed_strategy_routes_return_404(self):
         response = self.client.get("/internal/rag/strategies", headers=self.headers)
 
-        self.assertEqual(200, response.status_code)
-        payload = response.json()
-        names = {item["name"] for item in payload["strategies"]}
-        self.assertEqual(payload["total"], len(names))
-        self.assertGreaterEqual(len(names), 16)
-        self.assertIn("multi_agent_rag", names)
-        self.assertIn("text_to_sql", names)
+        self.assertEqual(404, response.status_code)
 
     def test_query_endpoint_runs_strategy(self):
         response = self.client.post(
@@ -82,58 +80,8 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertTrue(payload["metadata"]["readonly"])
         self.assertIn("SELECT", payload["metadata"]["sql"])
 
-    @unittest.skip("Knowledge-base routes were removed from ai-servers.")
-    def test_ingest_and_list_documents(self):
-        response = self.client.post(
-            "/internal/rag/documents",
-            headers=self.headers,
-            json={
-                "documents": [
-                    {
-                        "source": "校园卡服务.md",
-                        "content": "校园卡补办地点在行政楼一楼服务大厅。",
-                    }
-                ]
-            },
-        )
-
-        self.assertEqual(200, response.status_code)
-        payload = response.json()
-        self.assertEqual(1, payload["storedCount"])
-        self.assertGreaterEqual(payload["indexedChunkCount"], 1)
-        self.assertTrue(Path(payload["storedFiles"][0]).exists())
-        self.assertEqual("markdown", payload["documents"][0]["modality"])
-        self.assertIn("index", {step["stage"] for step in payload["trace"]})
-
-        list_response = self.client.get("/internal/rag/documents", headers=self.headers)
-        self.assertEqual(200, list_response.status_code)
-
-    @unittest.skip("Knowledge-base routes were removed from ai-servers.")
-    def test_ingest_accepts_base64_multimodal_file(self):
-        raw_bytes = b"\x89PNG\r\n\x1a\nfake-image"
-        response = self.client.post(
-            "/internal/rag/documents",
-            headers=self.headers,
-            json={
-                "documents": [
-                    {
-                        "source": "notice.png",
-                        "contentBase64": base64.b64encode(raw_bytes).decode("ascii"),
-                        "metadata": {"origin": "unit_test"},
-                    }
-                ]
-            },
-        )
-
-        self.assertEqual(200, response.status_code)
-        payload = response.json()
-        self.assertEqual("image", payload["documents"][0]["modality"])
-        stored_path = Path(payload["storedFiles"][0])
-        self.assertEqual(raw_bytes, stored_path.read_bytes())
-        self.assertGreaterEqual(payload["indexedChunkCount"], 1)
-
     def test_rag_routes_require_authorization(self):
-        response = self.client.get("/internal/rag/strategies")
+        response = self.client.get("/internal/rag/agents")
 
         self.assertEqual(401, response.status_code)
 
@@ -156,35 +104,17 @@ class RagApiRoutesTest(unittest.TestCase):
                 response = request(path, headers=self.headers)
             self.assertEqual(404, response.status_code, path)
 
-    @unittest.skip("Knowledge-base routes were removed from ai-servers.")
-    def test_vector_store_health_returns_backend_metadata(self):
-        response = self.client.get("/internal/rag/vector-store/health", headers=self.headers)
-
-        self.assertEqual(200, response.status_code)
-        payload = response.json()
-        self.assertEqual("milvus", payload["backend"])
-        self.assertEqual("implemented", payload["status"])
-
-    @unittest.skip("Knowledge-base routes were removed from ai-servers.")
-    def test_vector_store_health_supports_scaffolded_backend(self):
-        response = self.client.get("/internal/rag/vector-store/health", headers=self.headers)
-
-        self.assertEqual(200, response.status_code)
-        payload = response.json()
-        self.assertEqual("milvus", payload["backend"])
-        self.assertEqual("implemented", payload["status"])
-        self.assertIn("dependencyAvailable", payload)
-        self.assertIn("collection", payload)
-
     def test_capabilities_endpoint_describes_runtime_framework(self):
         response = self.client.get("/internal/rag/capabilities", headers=self.headers)
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
-        self.assertIn("naive_rag", payload["query"]["strategies"])
+        self.assertFalse(payload["query"]["localKnowledgeBase"])
+        self.assertFalse(payload["query"]["localRagStrategies"])
+        self.assertTrue(payload["query"]["noLocalFallback"])
+        self.assertFalse(payload["agentInvocation"]["ragStrategyAccepted"])
         self.assertNotIn("indexing", payload)
         self.assertNotIn("retrieval", payload)
-        self.assertIn("faithfulness", payload["evaluation"]["metrics"])
         self.assertIn("textbook_knowledge_agent", payload["agents"])
 
     def test_framework_endpoint_describes_full_runtime_layout(self):
@@ -192,8 +122,10 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
-        self.assertGreaterEqual(len(payload["coverage"]), 16)
-        self.assertIn("app/rag/strategies", payload["runtimeFolders"]["strategies"])
+        self.assertEqual([], payload["coverage"])
+        self.assertNotIn("strategies", payload["runtimeFolders"])
+        self.assertIn("app/rag/document_conversion", payload["runtimeFolders"]["documentConversion"])
+        self.assertIn("app/rag/structured", payload["runtimeFolders"]["textToSql"])
         self.assertNotIn("embeddingProviders", payload)
         self.assertNotIn("vectorStores", payload)
         self.assertNotIn("graphStores", payload)
@@ -346,8 +278,8 @@ class RagApiRoutesTest(unittest.TestCase):
         textbook_agent = next(item for item in payload["agents"] if item["name"] == "textbook_knowledge_agent")
         self.assertIn("skill.md", textbook_agent["files"]["skill"])
         self.assertIn("教材知识点智能体 Skill", textbook_agent["documents"]["skill"])
-        self.assertTrue(textbook_agent["needRetrieval"])
-        self.assertTrue(textbook_agent["supportedRagStrategies"])
+        self.assertFalse(textbook_agent["needRetrieval"])
+        self.assertEqual([], textbook_agent["supportedRagStrategies"])
         leader_agent = next(item for item in payload["agents"] if item["name"] == "leader_agent")
         self.assertFalse(leader_agent["needRetrieval"])
         self.assertEqual([], leader_agent["supportedRagStrategies"])
@@ -374,8 +306,10 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
-        self.assertEqual("multi_agent_rag", payload["strategy"])
+        self.assertEqual("direct_agent", payload["strategy"])
         self.assertEqual("ppt_outline_agent", payload["metadata"]["agentName"])
+        self.assertTrue(payload["metadata"]["retrievalSkipped"])
+        self.assertFalse(payload["metadata"]["needRetrieval"])
         self.assertIn("PPT 大纲", payload["answer"])
         self.assertIn("### 大纲信息", payload["answer"])
         self.assertIn("- 使用场景：", payload["answer"])
@@ -383,8 +317,8 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertNotIn("讲解目标", payload["answer"])
         self.assertNotIn("页面内容建议", payload["answer"])
         self.assertNotIn("课堂互动建议", payload["answer"])
-        self.assertEqual("agent_answer", payload["trace"][-1]["stage"])
-        self.assertEqual("rag_then_agent", payload["metadata"]["executionMode"])
+        self.assertEqual("direct_agent", payload["trace"][-1]["stage"])
+        self.assertEqual("direct_agent", payload["metadata"]["executionMode"])
 
     def test_ppt_layout_normalizer_rewrites_legacy_fields(self):
         raw = """## PPT 布局方案
@@ -452,9 +386,10 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("leader_agent", payload["metadata"]["agentName"])
         self.assertEqual("ppt_outline_agent", payload["metadata"]["targetAgent"])
         self.assertEqual("ppt_outline_agent", payload["metadata"]["executedAgent"])
-        self.assertEqual("multi_agent_rag", payload["metadata"]["plannedRagStrategy"])
-        self.assertEqual("multi_agent_rag", payload["strategy"])
-        self.assertEqual("leader_routed_rag", payload["metadata"]["executionMode"])
+        self.assertNotIn("plannedRagStrategy", payload["metadata"])
+        self.assertEqual("direct_agent", payload["strategy"])
+        self.assertEqual("leader_routed_direct_agent", payload["metadata"]["executionMode"])
+        self.assertTrue(payload["metadata"]["retrievalSkipped"])
         self.assertEqual("leader_route", payload["trace"][0]["stage"])
         self.assertIn("PPT 大纲", payload["answer"])
 
@@ -465,7 +400,6 @@ class RagApiRoutesTest(unittest.TestCase):
             json={
                 "input": "你好",
                 "agentName": "leader_agent",
-                "ragStrategy": "adaptive_rag",
             },
         )
 
@@ -547,13 +481,13 @@ class RagApiRoutesTest(unittest.TestCase):
                     json={
                         "input": example["input"],
                         "agentName": example["agentName"],
-                        **({"ragStrategy": example["ragStrategy"]} if "ragStrategy" in example else {}),
                     },
                 )
 
                 self.assertEqual(200, response.status_code)
                 payload = response.json()
                 self.assertEqual(agent["name"], payload["metadata"]["agentName"])
+                self.assertEqual("direct_agent", payload["strategy"])
                 self.assertTrue(payload["answer"])
 
     def test_query_endpoint_text_to_sql_returns_tool_answer_without_local_synthesizer(self):
@@ -571,59 +505,6 @@ class RagApiRoutesTest(unittest.TestCase):
         payload = response.json()
         self.assertTrue(payload["answer"])
         self.assertNotIn("answerSynthesizer", payload["metadata"])
-
-    @unittest.skip("Knowledge-base routes were removed from ai-servers.")
-    def test_embedding_health_returns_provider_metadata(self):
-        response = self.client.get("/internal/rag/embedding/health", headers=self.headers)
-
-        self.assertEqual(200, response.status_code)
-        payload = response.json()
-        self.assertEqual("local_lexical", payload["provider"])
-        self.assertEqual("implemented", payload["status"])
-
-    def test_embedding_health_supports_scaffolded_provider(self):
-        from app.rag.embeddings import build_embedding_provider
-
-        provider = build_embedding_provider("openai")
-        payload = provider.health()
-        self.assertEqual("openai", payload["provider"])
-        self.assertEqual("disabled", payload["status"])
-        self.assertEqual([], payload["requiredConfig"])
-
-    @unittest.skip("Knowledge-base routes were removed from ai-servers.")
-    def test_evaluate_endpoint_returns_rag_metrics(self):
-        response = self.client.post(
-            "/internal/rag/evaluate",
-            headers=self.headers,
-            json={
-                "query": "校园卡补办地点",
-                "answer": "校园卡补办地点在行政楼一楼服务大厅。",
-                "documents": [
-                    {
-                        "id": "doc-1",
-                        "content": "校园卡补办地点在行政楼一楼服务大厅。",
-                        "source": "card.md",
-                        "score": 1.0,
-                        "metadata": {},
-                    }
-                ],
-                "expectedSources": ["card.md"],
-                "expectedAnswerTerms": ["行政楼"],
-            },
-        )
-
-        self.assertEqual(200, response.status_code)
-        payload = response.json()
-        self.assertTrue(payload["passed"])
-        self.assertGreater(payload["metrics"]["hitRate"], 0)
-        self.assertGreater(payload["metrics"]["faithfulness"], 0)
-
-    @unittest.skip("Knowledge-base routes were removed from ai-servers.")
-    def test_graph_store_health_returns_backend(self):
-        response = self.client.get("/internal/rag/graph-store/health", headers=self.headers)
-
-        self.assertEqual(200, response.status_code)
-        self.assertEqual("local_graph", response.json()["backend"])
 
     def test_ppt_outline_normalizer_rewrites_legacy_fields(self):
         raw = """## PPT 大纲
@@ -679,8 +560,8 @@ class FakeRagModelProvider:
             return {
                 "intent": "ppt_outline",
                 "target_agent": "ppt_outline_agent",
-                "need_retrieval": True,
-                "rag_strategy": rag_strategy or "multi_agent_rag",
+                "need_retrieval": False,
+                "rag_strategy": "",
                 "action": "delegate_agent",
                 "tool_name": "",
                 "route_reason": "LLM 根据 Java 后台模型配置路由到 PPT 大纲智能体。",
@@ -702,7 +583,63 @@ class FakeRagModelProvider:
             return "```mermaid\nmindmap\n  root((测试思维导图))\n```"
         if "教材知识点智能体" in system_prompt:
             return "## 教材知识点\n- 基于 LLM 整理教材知识点"
-        if "选择题智能体" in system_prompt or "填空题智能体" in system_prompt or "判断题智能体" in system_prompt or "多选题智能体" in system_prompt or "简答题智能体" in system_prompt or "计算题智能体" in system_prompt or "编程题智能体" in system_prompt:
+        if "判断题智能体" in system_prompt:
+            return json.dumps({
+                "questions": [{
+                    "statement": "栈遵循后进先出原则。",
+                    "answer": True,
+                    "explanation": "栈的基本特征是 LIFO。",
+                }],
+            }, ensure_ascii=False)
+        if "简答题智能体" in system_prompt:
+            return json.dumps({
+                "questions": [{
+                    "id": "sa-1",
+                    "question": "简述栈和队列的区别。",
+                    "knowledgePoints": ["栈", "队列"],
+                    "difficulty": "easy",
+                    "answerPoints": [{
+                        "point": "栈是后进先出结构，队列是先进先出结构。",
+                        "sourceBasis": ["测试材料"],
+                    }],
+                    "scoringRubric": [{
+                        "criterion": "说明两种线性结构的出入顺序差异",
+                        "score": 5,
+                    }],
+                    "totalScore": 5,
+                    "sourceBasis": ["测试材料"],
+                }],
+                "missingInfo": [],
+            }, ensure_ascii=False)
+        if "编程题智能体" in system_prompt:
+            return json.dumps({
+                "questions": [{
+                    "id": "pg-1",
+                    "title": "括号匹配",
+                    "knowledgePoints": ["栈"],
+                    "difficulty": "easy",
+                    "language": "Python",
+                    "description": "判断只包含圆括号的字符串是否匹配。",
+                    "inputFormat": "一行括号字符串",
+                    "outputFormat": "true 或 false",
+                    "constraints": ["字符串长度不超过 1000"],
+                    "examples": [{
+                        "input": "()",
+                        "output": "true",
+                        "explanation": "左右括号成对匹配。",
+                    }],
+                    "testCases": [{
+                        "input": "()",
+                        "expectedOutput": "true",
+                        "hidden": False,
+                    }],
+                    "solutionOutline": ["使用栈保存左括号，遇到右括号时弹栈匹配。"],
+                    "referenceSolution": "def ok(s):\n    st = []\n    for ch in s:\n        if ch == '(':\n            st.append(ch)\n        elif ch == ')':\n            if not st:\n                return False\n            st.pop()\n    return not st",
+                    "sourceBasis": ["测试材料"],
+                }],
+                "missingInfo": [],
+            }, ensure_ascii=False)
+        if "选择题智能体" in system_prompt or "填空题智能体" in system_prompt or "多选题智能体" in system_prompt or "计算题智能体" in system_prompt:
             return json.dumps({"questions": [{"question": "测试题", "answer": "A", "explanation": "测试解析"}]}, ensure_ascii=False)
         if "会议总控智能体" in system_prompt:
             return "## 会议总控\n- 当前状态：进行中"

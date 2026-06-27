@@ -22,8 +22,6 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.HashMap;
@@ -37,7 +35,6 @@ public class PythonAiProxyService {
     private static final Logger log = LoggerFactory.getLogger(PythonAiProxyService.class);
     private static final String DEFAULT_AGENT_NAME = "leader_agent";
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
-    private static final String EMBEDDING_MODEL_FIELD = "embeddingModel";
 
     private final WebClient.Builder webClientBuilder;
     private final ObjectMapper objectMapper;
@@ -86,14 +83,6 @@ public class PythonAiProxyService {
         }
     }
 
-    public Object getRagStrategies(String authorization) {
-        return getRagObject("/internal/rag/strategies", authorization);
-    }
-
-    public Object getRagStrategy(String strategyName, String authorization) {
-        return getRagObject("/internal/rag/strategies/" + strategyName, authorization);
-    }
-
     public Object getRagCapabilities(String authorization) {
         return getRagObject("/internal/rag/capabilities", authorization);
     }
@@ -123,19 +112,8 @@ public class PythonAiProxyService {
         if (!StringUtils.hasText(requestedModel)) {
             throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
         }
-        String requestedEmbeddingModel = resolveRequestedEmbeddingModel(request);
         Map<String, Object> sanitized = sanitizeRagRequest(request);
-        return postRagObject("/internal/rag/query", sanitized, authorization, requestedModel, requestedEmbeddingModel);
-    }
-
-    public Object recallTestRag(Map<String, Object> request, String authorization) {
-        validateAuthorization(authorization);
-        String requestedEmbeddingModel = resolveRequestedEmbeddingModel(request);
-        Map<String, Object> sanitized = request == null ? new HashMap<>() : new HashMap<>(request);
-        sanitized.remove("llmModel");
-        sanitized.remove("agentName");
-        sanitized.remove(EMBEDDING_MODEL_FIELD);
-        return postRagObject("/internal/rag/recall-test", sanitized, authorization, null, requestedEmbeddingModel);
+        return postRagObject("/internal/rag/query", sanitized, authorization, requestedModel);
     }
 
     public SseEmitter streamRag(Map<String, Object> request, String authorization) {
@@ -149,23 +127,14 @@ public class PythonAiProxyService {
         if (!StringUtils.hasText(requestedModel)) {
             throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
         }
-        String requestedEmbeddingModel = resolveRequestedEmbeddingModel(request);
         Map<String, Object> sanitized = sanitizeRagRequest(request);
         return streamPythonObject(
                 "/internal/rag/query/stream",
                 sanitized,
                 authorization,
                 requestedModel,
-                requestedEmbeddingModel,
-                eventConsumer,
-                true
+                eventConsumer
         );
-    }
-
-    public Object ingestRagDocuments(Map<String, Object> request, String authorization) {
-        String requestedEmbeddingModel = resolveRequestedEmbeddingModel(request);
-        Map<String, Object> sanitized = sanitizeRagRequest(request);
-        return postRagObject("/internal/rag/documents", sanitized, authorization, null, requestedEmbeddingModel);
     }
 
     public Object convertPdf(MultipartFile file, String targetFormat, String authorization) {
@@ -196,9 +165,9 @@ public class PythonAiProxyService {
                     .timeout(Duration.ofSeconds(timeoutSeconds))
                     .block();
         } catch (WebClientResponseException e) {
-            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + extractRemoteMessage(e));
+            throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + extractRemoteMessage(e));
         } catch (Exception e) {
-            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + e.getMessage());
+            throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + e.getMessage());
         }
     }
 
@@ -229,39 +198,10 @@ public class PythonAiProxyService {
                     .timeout(Duration.ofSeconds(timeoutSeconds))
                     .block();
         } catch (WebClientResponseException e) {
-            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + extractRemoteMessage(e));
+            throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + extractRemoteMessage(e));
         } catch (Exception e) {
-            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + e.getMessage());
+            throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + e.getMessage());
         }
-    }
-
-    public Object listRagDocuments(String authorization) {
-        return getRagObject("/internal/rag/documents", authorization);
-    }
-
-    public Object listRagDocumentChunks(String source, String knowledgeBaseIds, String authorization) {
-        String path = "/internal/rag/documents/chunks";
-        String separator = "?";
-        if (StringUtils.hasText(source)) {
-            path += separator + "source=" + URLEncoder.encode(source, StandardCharsets.UTF_8);
-            separator = "&";
-        }
-        if (StringUtils.hasText(knowledgeBaseIds)) {
-            path += separator + "knowledgeBaseIds=" + URLEncoder.encode(knowledgeBaseIds, StandardCharsets.UTF_8);
-        }
-        return getRagObject(path, authorization);
-    }
-
-    public Object getRagVectorStoreHealth(String authorization) {
-        return getRagObject("/internal/rag/vector-store/health", authorization);
-    }
-
-    public Object getRagEmbeddingHealth(String authorization) {
-        return getRagObject("/internal/rag/embedding/health", authorization);
-    }
-
-    public Object getRagGraphStoreHealth(String authorization) {
-        return getRagObject("/internal/rag/graph-store/health", authorization);
     }
 
     public Object getTextToSqlSchema(String authorization) {
@@ -270,10 +210,6 @@ public class PythonAiProxyService {
 
     public Object executeTextToSql(Map<String, Object> request, String authorization) {
         return postRagObject("/internal/rag/text-to-sql/execute", request, authorization);
-    }
-
-    public Object evaluateRag(Map<String, Object> request, String authorization) {
-        return postRagObject("/internal/rag/evaluate", request, authorization);
     }
 
     public Object generateImage(Map<String, Object> request, String authorization) {
@@ -343,20 +279,10 @@ public class PythonAiProxyService {
                                          String authorization,
                                          String requestedModel,
                                          BiConsumer<String, Object> eventConsumer) {
-        return streamPythonObject(path, request, authorization, requestedModel, null, eventConsumer, false);
-    }
-
-    private SseEmitter streamPythonObject(String path,
-                                         Object request,
-                                         String authorization,
-                                         String requestedModel,
-                                         String requestedEmbeddingModel,
-                                         BiConsumer<String, Object> eventConsumer,
-                                         boolean ragHeaders) {
         validateAuthorization(authorization);
         String token = normalizeBearerToken(authorization);
         Long userId = extractUserId(token);
-        return streamPythonObject(path, request, authorization, userId, requestedModel, requestedEmbeddingModel, eventConsumer, ragHeaders);
+        return streamPythonObject(path, request, authorization, userId, requestedModel, eventConsumer);
     }
 
     private SseEmitter streamPythonObject(String path,
@@ -373,9 +299,7 @@ public class PythonAiProxyService {
                                          String authorization,
                                          Long userId,
                                          String requestedModel,
-                                         String requestedEmbeddingModel,
-                                         BiConsumer<String, Object> eventConsumer,
-                                         boolean ragHeaders) {
+                                         BiConsumer<String, Object> eventConsumer) {
         SseEmitter emitter = new SseEmitter(0L);
         CompletableFuture.runAsync(() -> {
             try {
@@ -383,13 +307,7 @@ public class PythonAiProxyService {
                 webClientBuilder.build()
                         .post()
                         .uri(buildUri(path))
-                        .headers(headers -> {
-                            if (ragHeaders) {
-                                applyPythonHeadersForRag(headers, authorization, userId, requestedModel, requestedEmbeddingModel);
-                            } else {
-                                applyPythonHeaders(headers, authorization, userId, requestedModel);
-                            }
-                        })
+                        .headers(headers -> applyPythonHeaders(headers, authorization, userId, requestedModel))
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .contentType(MediaType.APPLICATION_JSON)
                         .bodyValue(request)
@@ -447,27 +365,7 @@ public class PythonAiProxyService {
     }
 
     private Object getRagObject(String path, String authorization) {
-        return getPythonAuthObject(path, authorization, "Python RAG 服务调用失败");
-    }
-
-    private Object getPythonObject(String path, String authorization, String errorPrefix) {
-        validateAuthorization(authorization);
-        String token = normalizeBearerToken(authorization);
-        Long userId = extractUserId(token);
-        try {
-            return webClientBuilder.build()
-                    .get()
-                    .uri(buildUri(path))
-                    .headers(headers -> applyPythonHeaders(headers, authorization, userId, null))
-                    .retrieve()
-                    .bodyToMono(Object.class)
-                    .timeout(Duration.ofSeconds(timeoutSeconds))
-                    .block();
-        } catch (WebClientResponseException e) {
-            throw new BusinessException(Result.ERROR_CODE, errorPrefix + ": " + extractRemoteMessage(e));
-        } catch (Exception e) {
-            throw new BusinessException(Result.ERROR_CODE, errorPrefix + ": " + e.getMessage());
-        }
+        return getPythonAuthObject(path, authorization, "Python AI 服务调用失败");
     }
 
     private Object getPythonAuthObject(String path, String authorization, String errorPrefix) {
@@ -490,18 +388,10 @@ public class PythonAiProxyService {
     }
 
     private Object postRagObject(String path, Map<String, Object> request, String authorization) {
-        return postRagObject(path, request, authorization, null, null);
+        return postRagObject(path, request, authorization, null);
     }
 
     private Object postRagObject(String path, Map<String, Object> request, String authorization, String requestedModel) {
-        return postRagObject(path, request, authorization, requestedModel, null);
-    }
-
-    private Object postRagObject(String path,
-                                Map<String, Object> request,
-                                String authorization,
-                                String requestedModel,
-                                String requestedEmbeddingModel) {
         validateAuthorization(authorization);
         String token = normalizeBearerToken(authorization);
         Long userId = extractUserId(token);
@@ -509,16 +399,22 @@ public class PythonAiProxyService {
             return webClientBuilder.build()
                     .post()
                     .uri(buildUri(path))
-                    .headers(headers -> applyPythonHeadersForRag(headers, authorization, userId, requestedModel, requestedEmbeddingModel))
+                    .headers(headers -> {
+                        if (StringUtils.hasText(requestedModel)) {
+                            applyPythonHeaders(headers, authorization, userId, requestedModel);
+                        } else {
+                            applyPythonAuthHeaders(headers, authorization, userId);
+                        }
+                    })
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(request == null ? Map.of() : request)
                     .retrieve()
                     .bodyToMono(Object.class)
                     .block();
         } catch (WebClientResponseException e) {
-            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + extractRemoteMessage(e));
+            throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + extractRemoteMessage(e));
         } catch (Exception e) {
-            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + e.getMessage());
+            throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + e.getMessage());
         }
     }
 
@@ -537,9 +433,9 @@ public class PythonAiProxyService {
                     .bodyToMono(Object.class)
                     .block();
         } catch (WebClientResponseException e) {
-            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + extractRemoteMessage(e));
+            throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + extractRemoteMessage(e));
         } catch (Exception e) {
-            throw new BusinessException(Result.ERROR_CODE, "Python RAG 服务调用失败: " + e.getMessage());
+            throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + e.getMessage());
         }
     }
 
@@ -663,39 +559,6 @@ public class PythonAiProxyService {
         headers.set("X-AI-Model", requireAiConfig(configPrefix, "model", "模型 ID"));
     }
 
-    private void applyPythonHeadersForRag(HttpHeaders headers, String authorization, Long userId, String requestedModel) {
-        applyPythonHeadersForRag(headers, authorization, userId, requestedModel, null);
-    }
-
-    private void applyPythonHeadersForRag(HttpHeaders headers,
-                                          String authorization,
-                                          Long userId,
-                                          String requestedModel,
-                                          String requestedEmbeddingModel) {
-        applyPythonAuthHeaders(headers, authorization, userId);
-        if (!StringUtils.hasText(requestedModel)) {
-            applyPythonEmbeddingHeaders(headers, requestedEmbeddingModel);
-            return;
-        }
-        String configPrefix = resolveConfigPrefix(requestedModel);
-        headers.set("X-AI-Provider", requireAiConfig(configPrefix, "provider", "模型服务商"));
-        headers.set("X-AI-Base-Url", requireAiConfig(configPrefix, "base-url", "模型服务地址"));
-        headers.set("X-AI-Api-Key", requireAiConfig(configPrefix, "api-key", "模型服务密钥"));
-        headers.set("X-AI-Model", requireAiConfig(configPrefix, "model", "模型 ID"));
-        applyPythonEmbeddingHeaders(headers, requestedEmbeddingModel);
-    }
-
-    private void applyPythonEmbeddingHeaders(HttpHeaders headers, String requestedEmbeddingModel) {
-        if (!StringUtils.hasText(requestedEmbeddingModel)) {
-            return;
-        }
-        String configPrefix = resolveEmbeddingConfigPrefix(requestedEmbeddingModel);
-        headers.set("X-AI-Embedding-Provider", requireAiConfig(configPrefix, "provider", "向量模型服务商"));
-        headers.set("X-AI-Embedding-Base-Url", requireAiConfig(configPrefix, "base-url", "向量模型服务地址"));
-        headers.set("X-AI-Embedding-Api-Key", requireAiConfig(configPrefix, "api-key", "向量模型服务密钥"));
-        headers.set("X-AI-Embedding-Model", requireAiConfig(configPrefix, "model", "向量模型 ID"));
-    }
-
     private void applyPythonAuthHeaders(HttpHeaders headers, String authorization, Long userId) {
         headers.set(HttpHeaders.AUTHORIZATION, authorization);
         headers.set("X-User-Id", userId.toString());
@@ -724,17 +587,6 @@ public class PythonAiProxyService {
         return resolveAgentBoundModel(agentName);
     }
 
-    private String resolveRequestedEmbeddingModel(Map<String, Object> request) {
-        if (request == null || request.isEmpty()) {
-            return null;
-        }
-        Object embeddingModel = request.get(EMBEDDING_MODEL_FIELD);
-        if (embeddingModel != null && StringUtils.hasText(String.valueOf(embeddingModel))) {
-            return String.valueOf(embeddingModel).trim();
-        }
-        return null;
-    }
-
     private String resolveAgentBoundModel(String agentName) {
         String normalizedAgent = StringUtils.hasText(agentName) ? agentName.trim() : DEFAULT_AGENT_NAME;
         String key = AGENT_MODEL_BINDING_PREFIX + normalizedAgent + ".model";
@@ -749,7 +601,8 @@ public class PythonAiProxyService {
         Map<String, Object> copy = new HashMap<>(request);
         copy.remove("llmModel");
         copy.remove("xAiModel");
-        copy.remove(EMBEDDING_MODEL_FIELD);
+        copy.remove("ragStrategy");
+        copy.remove("embeddingModel");
         return copy;
     }
 
@@ -760,14 +613,6 @@ public class PythonAiProxyService {
         String trimmed = requestedModel.trim();
         if (!trimmed.startsWith("ai.service.")) {
             throw new BusinessException(Result.ERROR_CODE, "模型参数必须是 ai.service.* 配置前缀");
-        }
-        return trimmed;
-    }
-
-    private String resolveEmbeddingConfigPrefix(String requestedModel) {
-        String trimmed = resolveConfigPrefix(requestedModel);
-        if (!trimmed.startsWith("ai.service.embedding")) {
-            throw new BusinessException(Result.ERROR_CODE, "向量模型参数必须是 ai.service.embedding* 配置前缀");
         }
         return trimmed;
     }

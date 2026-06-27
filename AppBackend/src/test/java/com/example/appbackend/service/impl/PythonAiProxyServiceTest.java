@@ -60,7 +60,7 @@ class PythonAiProxyServiceTest {
                       "sessionId": "session-001",
                       "sessionToken": "session-001_hash",
                       "model": "deepseek-chat",
-                      "ragStrategy": "hybrid_search",
+                      "ragStrategy": "direct_agent",
                       "agentName": "ppt_outline_agent",
                       "searchKeyword": "黄焖鸡",
                       "matchedResults": [{"type":"dish","id":1,"name":"黄焖鸡"}],
@@ -79,7 +79,6 @@ class PythonAiProxyServiceTest {
         LlmChatRequest request = new LlmChatRequest();
         request.setSessionId("session-001");
         request.setPrompt("你是校园助手");
-        request.setRagStrategy("hybrid_search");
         request.setAgentName("ppt_outline_agent");
         request.setLlmModel("ai.service.text");
         request.setInput("哪个食堂有黄焖鸡");
@@ -90,7 +89,7 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("session-001", response.getSessionId());
         Assertions.assertEquals("session-001_hash", response.getSessionToken());
         Assertions.assertEquals("deepseek-chat", response.getModel());
-        Assertions.assertEquals("hybrid_search", response.getRagStrategy());
+        Assertions.assertEquals("direct_agent", response.getRagStrategy());
         Assertions.assertEquals("ppt_outline_agent", response.getAgentName());
         Assertions.assertEquals("黄焖鸡", response.getSearchKeyword());
         Assertions.assertEquals("推荐你去一食堂二楼。", response.getAnswer());
@@ -107,7 +106,7 @@ class PythonAiProxyServiceTest {
         JsonNode reqJson = mapper.readTree(requestBodyRef.get());
         Assertions.assertEquals("session-001", reqJson.path("sessionId").asText());
         Assertions.assertEquals("你是校园助手", reqJson.path("prompt").asText());
-        Assertions.assertEquals("hybrid_search", reqJson.path("ragStrategy").asText());
+        Assertions.assertTrue(reqJson.path("ragStrategy").isMissingNode() || reqJson.path("ragStrategy").isNull());
         Assertions.assertEquals("ppt_outline_agent", reqJson.path("agentName").asText());
         Assertions.assertEquals("哪个食堂有黄焖鸡", reqJson.path("input").asText());
     }
@@ -117,10 +116,6 @@ class PythonAiProxyServiceTest {
         AtomicReference<String> authRef = new AtomicReference<>();
         AtomicReference<String> userIdRef = new AtomicReference<>();
         AtomicReference<String> aiModelRef = new AtomicReference<>();
-        AtomicReference<String> embeddingProviderRef = new AtomicReference<>();
-        AtomicReference<String> embeddingBaseUrlRef = new AtomicReference<>();
-        AtomicReference<String> embeddingApiKeyRef = new AtomicReference<>();
-        AtomicReference<String> embeddingModelRef = new AtomicReference<>();
         AtomicReference<String> requestBodyRef = new AtomicReference<>();
 
         server = HttpServer.create(new InetSocketAddress(0), 0);
@@ -128,10 +123,6 @@ class PythonAiProxyServiceTest {
             authRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
             userIdRef.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
             aiModelRef.set(exchange.getRequestHeaders().getFirst("X-AI-Model"));
-            embeddingProviderRef.set(exchange.getRequestHeaders().getFirst("X-AI-Embedding-Provider"));
-            embeddingBaseUrlRef.set(exchange.getRequestHeaders().getFirst("X-AI-Embedding-Base-Url"));
-            embeddingApiKeyRef.set(exchange.getRequestHeaders().getFirst("X-AI-Embedding-Api-Key"));
-            embeddingModelRef.set(exchange.getRequestHeaders().getFirst("X-AI-Embedding-Model"));
             requestBodyRef.set(readBody(exchange));
 
             String responseJson = """
@@ -167,15 +158,11 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("Bearer " + token, authRef.get());
         Assertions.assertEquals("1003", userIdRef.get());
         Assertions.assertEquals("test-model", aiModelRef.get());
-        Assertions.assertEquals("qwen", embeddingProviderRef.get());
-        Assertions.assertEquals("https://embedding.test/v1", embeddingBaseUrlRef.get());
-        Assertions.assertEquals("test-embedding-key", embeddingApiKeyRef.get());
-        Assertions.assertEquals("text-embedding-v4", embeddingModelRef.get());
 
         ObjectMapper mapper = new ObjectMapper();
         JsonNode reqJson = mapper.readTree(requestBodyRef.get());
         Assertions.assertEquals("统计菜品数量", reqJson.path("input").asText());
-        Assertions.assertEquals("text_to_sql", reqJson.path("ragStrategy").asText());
+        Assertions.assertTrue(reqJson.path("ragStrategy").isMissingNode());
         Assertions.assertTrue(reqJson.path("llmModel").isMissingNode());
         Assertions.assertTrue(reqJson.path("embeddingModel").isMissingNode());
     }
@@ -190,8 +177,8 @@ class PythonAiProxyServiceTest {
             frameworkAuthRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
             writeJson(exchange, 200, """
                     {
-                      "runtimeFolders": {"strategies": "app/rag/strategies"},
-                      "coverage": [{"name":"naive_rag","status":"implemented"}]
+                      "runtimeFolders": {"multiAgents": "app/multi_agents"},
+                      "coverage": []
                     }
                     """);
         });

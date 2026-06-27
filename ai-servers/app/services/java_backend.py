@@ -12,7 +12,7 @@ from app.utils.text_utils import (
     parse_session_start,
 )
 
-logger = get_logger("rag.retrievers.java_backend")
+logger = get_logger("services.java_backend")
 
 
 class JavaBackendRetriever:

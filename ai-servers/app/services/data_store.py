@@ -1,12 +1,12 @@
 from typing import Any, Dict, List
 
-from app.rag.retrievers import JavaBackendRetriever, java_backend_retriever
+from app.services.java_backend import JavaBackendRetriever, java_backend_retriever
 
 
 class DataStore:
     """
     Backward-compatible adapter.
-    Real retrieval implementation now lives in app/rag/retrievers/java_backend.py.
+    Adapter around Java backend APIs. Third-party knowledge-base connections belong in Java.
     """
 
     def __init__(self, retriever: JavaBackendRetriever) -> None:

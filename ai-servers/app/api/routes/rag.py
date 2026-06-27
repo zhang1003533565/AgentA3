@@ -17,16 +17,9 @@ from app.model_providers.runtime_config import build_llm_runtime_config, reset_a
 from app.multi_agents.catalog import AGENT_ORDER, get_agent_catalog, get_agent_detail, get_agent_profile, normalize_agent_name, update_agent_example_input
 from app.multi_agents.leader_agent.agent import leader_agent
 from app.multi_agents.runner import run_specialist_agent
-from app.multi_agents.textbook_knowledge_agent.agent import textbook_knowledge_agent
-from app.rag.core import RAG_STRATEGY_SPECS, RagQuery, RagTraceStep
-from app.rag.embeddings.runtime_config import (
-    build_embedding_runtime_config,
-    reset_active_embedding_config,
-    set_active_embedding_config,
-)
-from app.rag.engine import rag_engine
 from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx
 from app.rag.structured.text_to_sql import TextToSqlService
+from app.services.data_store import data_store
 from app.utils.logger import get_logger
 from app.utils.sse import build_sse, chunk_answer
 
@@ -66,49 +59,6 @@ def _llm_header_audit_fields(
     }
 
 
-@router.get("/strategies")
-def list_rag_strategies(
-    authorization: Optional[str] = Header(default=None, alias="Authorization"),
-) -> Dict[str, Any]:
-    _require_authorization(authorization)
-    return {
-        "total": len(rag_engine.list_strategies()),
-        "strategies": [
-            {
-                "name": name,
-                "label": RAG_STRATEGY_SPECS[name].get("label", name),
-                "category": RAG_STRATEGY_SPECS[name]["category"],
-                "categoryLabel": RAG_STRATEGY_SPECS[name].get("categoryLabel", RAG_STRATEGY_SPECS[name]["category"]),
-                "purpose": RAG_STRATEGY_SPECS[name]["purpose"],
-                "status": "implemented",
-                "runtime": f"app.rag.strategies.{name}.strategy",
-            }
-            for name in rag_engine.list_strategies()
-        ]
-    }
-
-
-@router.get("/strategies/{strategy_name}")
-def get_rag_strategy(
-    strategy_name: str,
-    authorization: Optional[str] = Header(default=None, alias="Authorization"),
-) -> Dict[str, Any]:
-    _require_authorization(authorization)
-    if strategy_name not in RAG_STRATEGY_SPECS:
-        raise HTTPException(status_code=404, detail="RAG 策略不存在")
-    spec = RAG_STRATEGY_SPECS[strategy_name]
-    return {
-        "name": strategy_name,
-        "label": spec.get("label", strategy_name),
-        "category": spec["category"],
-        "categoryLabel": spec.get("categoryLabel", spec["category"]),
-        "purpose": spec["purpose"],
-        "status": "implemented",
-        "runtime": f"app.rag.strategies.{strategy_name}.strategy",
-        "docs": f"app/rag/strategies/{strategy_name}/README.md",
-    }
-
-
 @router.get("/capabilities")
 def get_rag_capabilities(
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
@@ -116,9 +66,10 @@ def get_rag_capabilities(
     _require_authorization(authorization)
     return {
         "query": {
-            "strategies": rag_engine.describe_strategies(),
-            "defaultStrategy": "leader_orchestration",
-            "ragStrategyRule": "只有 needRetrieval=true 的专业智能体才使用 ragStrategy",
+            "defaultMode": "leader_orchestration",
+            "localKnowledgeBase": False,
+            "localRagStrategies": False,
+            "knowledgeBaseBoundary": "第三方知识库由 Java 后端对接；AI Server 不维护本地知识库、向量库或检索策略。",
             "answerSynthesizer": "llm_required_from_java_system_config",
             "noLocalFallback": True,
         },
@@ -132,18 +83,15 @@ def get_rag_capabilities(
             },
             "noLocalFallback": True,
         },
-        "evaluation": {
-            "metrics": ["hitRate", "mrr", "contextRelevance", "faithfulness", "answerTermCoverage"],
-        },
         "structuredKnowledge": {
             "textToSql": True,
-            "graphRag": True,
         },
         "agents": AGENT_ORDER,
         "agentInvocation": {
             "chatParameter": "agentName",
             "ragQueryParameter": "agentName",
             "automaticRouting": "不传 agentName 或传 leader_agent",
+            "ragStrategyAccepted": False,
         },
     }
 
@@ -154,17 +102,14 @@ def get_rag_framework(
 ) -> Dict[str, Any]:
     _require_authorization(authorization)
     return {
-        "sourceDocument": "https://www.cnblogs.com/yupi/p/19914426",
-        "coverage": [
-            {"name": name, **spec, "status": "implemented"}
-            for name, spec in RAG_STRATEGY_SPECS.items()
-        ],
+        "knowledgeBaseBoundary": "第三方知识库能力由 Java 后端连接并对外代理；AI Server 只负责模型、多智能体、文件转换和工具编排。",
+        "coverage": [],
         "runtimeFolders": {
             "modelProviders": "app/model_providers",
-            "ragCore": "app/rag/core",
-            "strategies": "app/rag/strategies",
             "multiAgents": "app/multi_agents",
             "langgraphWorkflow": "app/langgraph",
+            "documentConversion": "app/rag/document_conversion",
+            "textToSql": "app/rag/structured",
         },
         "modelProviders": [
             {
@@ -217,7 +162,6 @@ def get_rag_framework(
             {"name": "X-AI-Model", "configured": "由 Java 请求头传入", "source": "ai.service.text.model"},
         ],
         "apis": [
-            "GET /internal/rag/strategies",
             "GET /internal/rag/capabilities",
             "GET /internal/rag/framework",
             "GET /internal/rag/agents",
@@ -268,10 +212,6 @@ def run_rag_query(
     x_ai_base_url: Optional[str] = Header(default=None, alias="X-AI-Base-Url"),
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
-    x_ai_embedding_provider: Optional[str] = Header(default=None, alias="X-AI-Embedding-Provider"),
-    x_ai_embedding_base_url: Optional[str] = Header(default=None, alias="X-AI-Embedding-Base-Url"),
-    x_ai_embedding_api_key: Optional[str] = Header(default=None, alias="X-AI-Embedding-Api-Key"),
-    x_ai_embedding_model: Optional[str] = Header(default=None, alias="X-AI-Embedding-Model"),
 ) -> RagQueryResponse:
     _require_authorization(authorization)
     audit = _llm_header_audit_fields(
@@ -298,16 +238,9 @@ def run_rag_query(
         api_key=x_ai_api_key,
         model=x_ai_model,
     ))
-    embedding_token = set_active_embedding_config(build_embedding_runtime_config(
-        provider=x_ai_embedding_provider,
-        base_url=x_ai_embedding_base_url,
-        api_key=x_ai_embedding_api_key,
-        model=x_ai_embedding_model,
-    ))
     try:
         return _run_rag_query_core(request, authorization or "")
     finally:
-        reset_active_embedding_config(embedding_token)
         reset_active_llm_config(token)
 
 
@@ -319,10 +252,6 @@ async def run_rag_query_stream(
     x_ai_base_url: Optional[str] = Header(default=None, alias="X-AI-Base-Url"),
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
-    x_ai_embedding_provider: Optional[str] = Header(default=None, alias="X-AI-Embedding-Provider"),
-    x_ai_embedding_base_url: Optional[str] = Header(default=None, alias="X-AI-Embedding-Base-Url"),
-    x_ai_embedding_api_key: Optional[str] = Header(default=None, alias="X-AI-Embedding-Api-Key"),
-    x_ai_embedding_model: Optional[str] = Header(default=None, alias="X-AI-Embedding-Model"),
 ):
     _require_authorization(authorization)
     llm_config = build_llm_runtime_config(
@@ -331,17 +260,10 @@ async def run_rag_query_stream(
         api_key=x_ai_api_key,
         model=x_ai_model,
     )
-    embedding_config = build_embedding_runtime_config(
-        provider=x_ai_embedding_provider,
-        base_url=x_ai_embedding_base_url,
-        api_key=x_ai_embedding_api_key,
-        model=x_ai_embedding_model,
-    )
 
     async def event_stream():
         yield build_sse("status", {"stage": "processing"})
         token = set_active_llm_config(llm_config)
-        embedding_token = set_active_embedding_config(embedding_config)
         try:
             response = await asyncio.to_thread(_run_rag_query_core, request, authorization or "")
             metadata = response.metadata or {}
@@ -375,7 +297,6 @@ async def run_rag_query_stream(
             logger.exception("rag stream failed agent=%s", request.agentName or "-")
             yield build_sse("error", {"message": str(exc)})
         finally:
-            reset_active_embedding_config(embedding_token)
             reset_active_llm_config(token)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -395,10 +316,7 @@ def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQuer
     if agent_profile and not agent_profile.get("needRetrieval", True):
         return _run_direct_agent(request, agent_profile)
 
-    requested_strategy = request.ragStrategy or (
-        agent_profile["defaultRagStrategy"] if agent_profile else "naive_rag"
-    )
-    return _run_rag_then_agent(request, active_agent, requested_strategy)
+    return _run_agent_without_local_retrieval(request, active_agent)
 
 
 def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
@@ -416,58 +334,36 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
         raise HTTPException(status_code=502, detail=f"Leader 路由到了不存在的目标智能体：{plan.target_agent}")
     if not agent_profile.get("needRetrieval", True):
         return _run_direct_agent(request, agent_profile, leader_plan=plan)
-    requested_strategy = plan.rag_strategy or agent_profile["defaultRagStrategy"]
-    return _run_rag_then_agent(request, plan.target_agent, requested_strategy, leader_plan=plan)
+    return _run_agent_without_local_retrieval(request, plan.target_agent, leader_plan=plan)
 
 
-def _run_rag_then_agent(
+def _run_agent_without_local_retrieval(
     request: RagQueryRequest,
     active_agent: str,
-    requested_strategy: str,
     leader_plan=None,
 ) -> RagQueryResponse:
-    try:
-        rag_engine.get_strategy(requested_strategy)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    result = rag_engine.run(RagQuery(
-        text=request.input,
-        keyword=request.keyword or "",
-        intent=request.intent,
-        metadata=request.metadata,
-    ), strategy_name=requested_strategy)
-    documents = [
-        {
-            "id": document.id,
-            "content": document.content,
-            "source": document.source,
-            "score": document.score,
-            "metadata": document.metadata,
-        }
-        for document in result.documents
-    ]
-    answer = run_specialist_agent(active_agent, request.input, documents)
+    answer = run_specialist_agent(active_agent, request.input, [])
     answer_type = _answer_type_for_agent(active_agent)
     trace = []
     if leader_plan:
-        trace.append(RagTraceStep(stage="leader_route", detail=_leader_plan_detail(leader_plan)))
-    trace.extend(result.trace)
-    metadata = dict(result.metadata)
-    trace.append(RagTraceStep(
+        trace.append(RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)))
+    trace.append(RagTraceResponse(
         stage="agent_answer",
         detail={
             "agentName": active_agent,
             "answerLength": len(answer or ""),
-            "executionMode": "leader_routed_rag" if leader_plan else "rag_then_agent",
+            "executionMode": "leader_routed_agent" if leader_plan else "direct_agent",
+            "localRetrievalSkipped": True,
         },
     ))
-    metadata.update({
-        "needRetrieval": True,
-        "retrievalSkipped": False,
-        "strategyLabel": _strategy_label(result.strategy),
+    metadata = {
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "localKnowledgeBase": False,
+        "localRagStrategies": False,
+        "strategyLabel": "直接执行智能体",
         "answerType": answer_type,
-    })
+    }
     if leader_plan:
         metadata.update({
             "agentName": "leader_agent",
@@ -476,32 +372,19 @@ def _run_rag_then_agent(
             "intent": leader_plan.intent,
             "leaderAction": leader_plan.action,
             "routeReason": leader_plan.route_reason,
-            "plannedRagStrategy": leader_plan.rag_strategy,
-            "executionMode": "leader_routed_rag",
-            "executionModeLabel": "Leader 路由后执行 RAG + 专业智能体",
+            "executionMode": "leader_routed_agent",
+            "executionModeLabel": "Leader 路由后直接执行专业智能体",
         })
     else:
         metadata["agentName"] = active_agent
-        metadata["executionMode"] = "rag_then_agent"
-        metadata["executionModeLabel"] = "RAG 检索后交给专业智能体"
+        metadata["executionMode"] = "direct_agent"
+        metadata["executionModeLabel"] = "专业智能体直接处理"
     return RagQueryResponse(
-        strategy=result.strategy,
+        strategy="direct_agent",
         answer=answer,
         answerType=answer_type,
-        documents=[
-            RagDocumentResponse(
-                id=document.id,
-                content=document.content,
-                source=document.source,
-                score=document.score,
-                metadata=document.metadata,
-            )
-            for document in result.documents
-        ],
-        trace=[
-            RagTraceResponse(stage=step.stage, detail=step.detail)
-            for step in trace
-        ],
+        documents=[],
+        trace=trace,
         metadata=metadata,
     )
 
@@ -582,14 +465,15 @@ def _run_direct_agent(
 
 
 def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResponse:
-    result = rag_engine.run(RagQuery(
-        text=request.input,
-        keyword=request.keyword or "",
-        intent=leader_plan.intent,
-        metadata=request.metadata,
-    ), strategy_name="text_to_sql")
-    metadata = dict(result.metadata)
-    answer = result.answer or _format_text_to_sql_answer(metadata)
+    result = TextToSqlService().plan(request.input)
+    metadata = {
+        "sql": result.sql,
+        "rows": result.rows,
+        "rowCount": len(result.rows),
+        "readonly": bool(result.sql),
+        "error": result.error,
+    }
+    answer = _format_text_to_sql_answer(metadata)
     if not answer:
         raise HTTPException(
             status_code=502,
@@ -606,30 +490,21 @@ def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResp
         "leaderActionLabel": _leader_action_label(leader_plan.action),
         "toolName": leader_plan.tool_name,
         "routeReason": leader_plan.route_reason,
-        "strategyLabel": _strategy_label(result.strategy),
+        "strategyLabel": _strategy_label("text_to_sql"),
         "executionMode": "leader_call_tool",
         "executionModeLabel": "Leader 调用 Text-to-SQL 接口",
         "answerType": "tool_result",
     })
     trace = [
         RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
-        *[RagTraceResponse(stage=step.stage, detail=step.detail) for step in result.trace],
-        RagTraceResponse(stage="tool_call", detail={"toolName": "text_to_sql", "strategy": result.strategy}),
+        RagTraceResponse(stage="generate_sql", detail={"readonly": bool(result.sql), "sql": result.sql, "error": result.error}),
+        RagTraceResponse(stage="tool_call", detail={"toolName": "text_to_sql", "strategy": "text_to_sql"}),
     ]
     return RagQueryResponse(
-        strategy=result.strategy,
+        strategy="text_to_sql",
         answer=answer,
         answerType="tool_result",
-        documents=[
-            RagDocumentResponse(
-                id=document.id,
-                content=document.content,
-                source=document.source,
-                score=document.score,
-                metadata=document.metadata,
-            )
-            for document in result.documents
-        ],
+        documents=[],
         trace=trace,
         metadata=metadata,
     )
@@ -656,13 +531,8 @@ def _format_text_to_sql_answer(metadata: Dict[str, Any]) -> str:
 
 
 def _run_schedule_tool(request: RagQueryRequest, authorization: str, leader_plan) -> RagQueryResponse:
-    results, retrieval_meta = textbook_knowledge_agent.retrieve_with_meta(
-        authorization=authorization,
-        intent="schedule",
-        keyword="课表查询",
-        input_text=request.input,
-        rag_strategy="",
-    )
+    results = data_store.search_schedule(authorization, request.input)
+    retrieval_meta = {"javaBackendCount": len(results), "documentCount": 0}
     documents = [_tool_result_to_document(item, index) for index, item in enumerate(results, start=1)]
     if results:
         lines = ["## 课表接口查询结果"]
@@ -726,7 +596,7 @@ def _leader_plan_detail(plan) -> Dict[str, Any]:
     return {
         **plan.to_dict(),
         "leaderActionLabel": _leader_action_label(plan.action),
-        "strategyLabel": _strategy_label(plan.rag_strategy) if plan.rag_strategy else "不使用 RAG",
+        "strategyLabel": _strategy_label(plan.rag_strategy) if plan.rag_strategy else "直接处理",
     }
 
 
@@ -742,15 +612,13 @@ def _leader_action_label(action: str) -> str:
 def _strategy_label(strategy_name: str) -> str:
     custom_labels = {
         "leader_direct_answer": "Leader 直接回答",
-        "direct_agent": "直接处理（不使用 RAG）",
+        "direct_agent": "直接处理",
         "java_schedule_api": "Java 课表接口",
+        "text_to_sql": "Text-to-SQL",
     }
     if strategy_name in custom_labels:
         return custom_labels[strategy_name]
-    spec = RAG_STRATEGY_SPECS.get(strategy_name)
-    if not spec:
-        return strategy_name or "不使用 RAG"
-    return spec.get("label", strategy_name)
+    return strategy_name or "直接处理"
 
 
 def _answer_type_for_agent(agent_name: str) -> str:

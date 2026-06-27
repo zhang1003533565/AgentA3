@@ -3,10 +3,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import HTTPException
 
-from app.rag.core import RAG_STRATEGY_SPECS
-
-
-ALL_RAG_STRATEGIES = sorted(RAG_STRATEGY_SPECS.keys())
+ALL_RAG_STRATEGIES: list[str] = []
 TEXT_MODEL_MODALITY = ["text"]
 IMAGE_MODEL_MODALITY = ["image"]
 VIDEO_MODEL_MODALITY = ["video"]
@@ -42,7 +39,7 @@ PPT_AGENT_SPECS = {
 DIAGRAM_AGENT_SPECS = {
     "diagram_flowchart_agent": ("图表流程图智能体", "diagram_flowchart", "把算法步骤、业务过程和知识点流程整理成 Mermaid 流程图。", "括号匹配算法流程材料"),
     "diagram_activity_agent": ("图表活动图智能体", "diagram_activity", "把角色协作、任务执行和活动顺序整理成 Mermaid 活动图。", "会议任务活动流程材料"),
-    "diagram_architecture_agent": ("图表架构图智能体", "diagram_architecture", "把系统模块、服务依赖和数据流整理成 Mermaid 架构图。", "智慧校园 AI RAG 架构材料"),
+    "diagram_architecture_agent": ("图表架构图智能体", "diagram_architecture", "把系统模块、服务依赖和数据流整理成 Mermaid 架构图。", "智慧校园 AI 智能体架构材料"),
     "diagram_flowchart_prompt_agent": ("流程图提示词智能体", "diagram_flowchart_prompt", "把算法步骤、业务流程整理成用于生成流程图图片的文生图提示词。", "括号匹配算法流程"),
     "diagram_activity_prompt_agent": ("活动图提示词智能体", "diagram_activity_prompt", "把角色协作、任务流程整理成用于生成活动图图片的文生图提示词。", "会议任务活动流程"),
 }
@@ -63,16 +60,16 @@ AGENT_ORDER = [
 def _question_agent_profile(agent_name: str, role: str, intent: str, purpose: str, example_input: str) -> Dict[str, Any]:
     return {
         "role": role,
-        "purpose": f"基于教材知识点和检索证据{purpose}",
+        "purpose": f"基于用户输入或 Java 已接入的第三方知识库能力{purpose}",
         "inputs": ["topic", "evidence", "count"],
         "outputs": ["question_markdown"],
         "skills": ["question generation", "answer key", "assessment design", intent],
         "intent": intent,
-        "needRetrieval": True,
-        "executionMode": "rag_then_agent",
-        "executionModeLabel": f"RAG 检索后生成{role.replace('智能体', '')}",
-        "defaultRagStrategy": "multi_agent_rag",
-        "supportedRagStrategies": ALL_RAG_STRATEGIES,
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": f"直接生成{role.replace('智能体', '')}",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
         "aliases": [intent, role, role.replace("智能体", ""), agent_name],
         "exampleInput": example_input,
         "requiredModelModalities": TEXT_MODEL_MODALITY,
@@ -98,7 +95,6 @@ def _meeting_agent_profile(agent_name: str, role: str, intent: str, purpose: str
     }
 
 def _ppt_profile(agent_name: str, role: str, intent: str, purpose: str, example_input: str) -> Dict[str, Any]:
-    default_strategy = "multimodal_rag" if agent_name == "ppt_image_agent" else "multi_agent_rag"
     output_type = {
         "ppt_outline_agent": "ppt_outline_markdown",
         "ppt_layout_agent": "ppt_layout_markdown",
@@ -112,7 +108,6 @@ def _ppt_profile(agent_name: str, role: str, intent: str, purpose: str, example_
         extra_aliases = ["ppt", "课件大纲智能体", "PPT大纲智能体"]
     elif agent_name == "ppt_to_docx_agent":
         extra_aliases = ["ppt转docx", "pptx转docx", "ppt转word", "pptx转word", "PPT转DOCX智能体", "PPT转Word智能体"]
-    need_retrieval = agent_name != "ppt_to_docx_agent"
     return {
         "role": role,
         "purpose": purpose,
@@ -120,11 +115,11 @@ def _ppt_profile(agent_name: str, role: str, intent: str, purpose: str, example_
         "outputs": [output_type],
         "skills": ["pptx conversion", "docx generation", intent] if agent_name == "ppt_to_docx_agent" else ["ppt generation", "presentation design", intent],
         "intent": intent,
-        "needRetrieval": need_retrieval,
-        "executionMode": "direct_agent" if not need_retrieval else "rag_then_agent",
-        "executionModeLabel": "直接转换 PPTX 文件为 DOCX" if not need_retrieval else f"RAG 检索后生成{role.replace('智能体', '')}结果",
-        "defaultRagStrategy": default_strategy if need_retrieval else "",
-        "supportedRagStrategies": ALL_RAG_STRATEGIES if need_retrieval else [],
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": "直接转换 PPTX 文件为 DOCX" if agent_name == "ppt_to_docx_agent" else f"直接生成{role.replace('智能体', '')}结果",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
         "aliases": [
             intent,
             alias_core,
@@ -163,11 +158,11 @@ def _diagram_profile(agent_name: str, role: str, intent: str, purpose: str, exam
         "outputs": [output_type],
         "skills": ["prompt generation", "visual description", intent] if is_prompt_agent else ["diagram generation", "mermaid", intent],
         "intent": intent,
-        "needRetrieval": False if is_prompt_agent else True,
-        "executionMode": "direct_agent" if is_prompt_agent else "rag_then_agent",
-        "executionModeLabel": f"直接生成{role.replace('智能体', '')}" if is_prompt_agent else f"RAG 检索后生成{role.replace('智能体', '')}",
-        "defaultRagStrategy": "" if is_prompt_agent else "multi_agent_rag",
-        "supportedRagStrategies": [] if is_prompt_agent else ALL_RAG_STRATEGIES,
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": f"直接生成{role.replace('智能体', '')}",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
         "aliases": [intent, role, role.replace("智能体", ""), agent_name, *alias_map[agent_name]],
         "exampleInput": example_input,
         "requiredModelModalities": IMAGE_MODEL_MODALITY if agent_name in {"diagram_flowchart_agent", "diagram_activity_agent"} else TEXT_MODEL_MODALITY,
@@ -185,7 +180,7 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "needRetrieval": False,
         "executionMode": "leader_orchestration",
         "executionModeLabel": "Leader 意图识别与自动分发",
-        "defaultRagStrategy": "naive_rag",
+        "defaultRagStrategy": "",
         "supportedRagStrategies": [],
         "aliases": ["leader", "leader_agent", "总控智能体", "leader智能体"],
         "exampleInput": "帮我把数据结构中的栈与队列整理成 PPT 大纲",
@@ -213,18 +208,18 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "architecture_prompt_agent": {
         "role": "图表架构图提示词智能体",
-        "purpose": "把系统说明、模块依赖和检索证据整理为纯文本提示词，供图表架构图智能体继续生成 Mermaid 架构图。",
+        "purpose": "把系统说明、模块依赖和输入上下文整理为纯文本提示词，供图表架构图智能体继续生成 Mermaid 架构图。",
         "inputs": ["topic", "evidence"],
         "outputs": ["architecture_prompt_text"],
         "skills": ["prompt generation", "architecture visualization planning", "visual description"],
         "intent": "architecture_diagram_prompt",
-        "needRetrieval": True,
-        "executionMode": "rag_then_agent",
-        "executionModeLabel": "RAG 检索后生成架构图提示词",
-        "defaultRagStrategy": "multi_agent_rag",
-        "supportedRagStrategies": ALL_RAG_STRATEGIES,
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": "直接生成架构图提示词",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
         "aliases": ["architecture_diagram_prompt", "架构图提示词", "架构图提示词智能体", "图表架构图提示词", "architecture_prompt_agent"],
-        "exampleInput": "为智慧校园 AI RAG 系统生成一段可交给图表架构图智能体使用的提示词",
+        "exampleInput": "为智慧校园 AI 智能体系统生成一段可交给图表架构图智能体使用的提示词",
         "requiredModelModalities": TEXT_MODEL_MODALITY,
     },
     "mind_map_agent": {
@@ -234,27 +229,27 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "outputs": ["image_prompt_text"],
         "skills": ["image prompt generation", "mind map visualization design", "visual description"],
         "intent": "mind_map_image_prompt",
-        "needRetrieval": True,
-        "executionMode": "rag_then_agent",
-        "executionModeLabel": "RAG 检索后生成思维导图图片的文字提示词",
-        "defaultRagStrategy": "multi_agent_rag",
-        "supportedRagStrategies": ALL_RAG_STRATEGIES,
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": "直接生成思维导图图片的文字提示词",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
         "aliases": ["mind_map_image_prompt", "思维导图图片提示词", "思维导图图片提示词智能体"],
         "exampleInput": "为操作系统进程调度知识点生成思维导图图片的提示词",
         "requiredModelModalities": TEXT_MODEL_MODALITY,
     },
     "textbook_knowledge_agent": {
         "role": "教材知识点智能体",
-        "purpose": "围绕教材章节、课程内容、Markdown 教材文本、知识点和考点做检索增强，并统一整理为 Markdown 教材知识点。",
-        "inputs": ["authorization", "intent", "keyword", "input_text", "rag_strategy"],
-        "outputs": ["matched_results", "retrieval_meta"],
-        "skills": ["textbook retrieval", "markdown knowledge extraction", "hybrid search", "reranking", "graph/text-to-sql retrieval"],
+        "purpose": "围绕教材章节、课程内容、Markdown 教材文本、知识点和考点做整理，第三方知识库证据由 Java 后端接入后再作为输入传入。",
+        "inputs": ["topic", "evidence"],
+        "outputs": ["knowledge_markdown"],
+        "skills": ["textbook knowledge extraction", "markdown knowledge organization"],
         "intent": "textbook_knowledge",
-        "needRetrieval": True,
-        "executionMode": "rag_then_agent",
-        "executionModeLabel": "RAG/接口召回后整理教材知识点",
-        "defaultRagStrategy": "hybrid_search",
-        "supportedRagStrategies": ALL_RAG_STRATEGIES,
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": "直接整理教材知识点",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
         "aliases": [
             "textbook_knowledge",
             "教材知识点",
@@ -278,36 +273,20 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "image_agent": {
         "role": "图片智能体",
-        "purpose": "根据课程主题和知识点证据生成教学配图、封面图、插图提示词。",
+        "purpose": "根据用户需求、课程主题、知识点证据和用户画像生成单张或批量图片，并返回图片 URL/Base64、任务状态和完整生成参数。",
         "inputs": ["topic", "evidence", "prompt", "style", "size", "count", "seed", "negativePrompt"],
         "outputs": ["image_generation_result"],
         "skills": ["text-to-image", "batch image generation", "image prompt", "visual planning", "multimodal context"],
         "intent": "image",
-        "needRetrieval": True,
-        "executionMode": "rag_then_agent",
-        "executionModeLabel": "多模态 RAG 后生成图片提示词",
-        "defaultRagStrategy": "multimodal_rag",
-        "supportedRagStrategies": ALL_RAG_STRATEGIES,
-        "aliases": ["image", "image_agent", "图片智能体", "配图智能体"],
-        "exampleInput": "为操作系统进程调度知识点生成一张课堂教学配图提示词",
-    },
-}
-
-AGENT_PROFILES["image_agent"] = {
-    "role": "图片智能体",
-    "purpose": "根据用户需求、课程主题、知识点证据和用户画像生成单张或批量图片，并返回图片 URL/Base64、任务状态和完整生成参数。",
-    "inputs": ["topic", "evidence", "prompt", "style", "size", "count", "seed", "negativePrompt"],
-    "outputs": ["image_generation_result"],
-    "skills": ["text-to-image", "batch image generation", "image prompt", "visual planning", "multimodal context"],
-    "intent": "image",
-    "needRetrieval": True,
-    "executionMode": "rag_then_agent",
-    "executionModeLabel": "多模态 RAG 后生成图片或批量图片",
-    "defaultRagStrategy": "multimodal_rag",
-    "supportedRagStrategies": ALL_RAG_STRATEGIES,
-    "aliases": ["image", "image_agent", "图片智能体", "配图智能体", "文生图", "批量文生图"],
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": "直接生成图片或批量图片",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": ["image", "image_agent", "图片智能体", "配图智能体", "文生图", "批量文生图"],
         "exampleInput": "为操作系统进程调度知识点生成 4 张课堂教学配图，风格为扁平教学插画，尺寸 1024x1024",
         "requiredModelModalities": IMAGE_MODEL_MODALITY,
+    },
 }
 
 AGENT_ALIASES = {
@@ -351,16 +330,14 @@ def get_agent_catalog() -> Dict[str, Any]:
             "ragQueryEndpoint": "POST /internal/rag/query",
             "parameter": "agentName",
             "automaticRouting": "agentName 留空或填写 leader_agent",
-            "strategyRule": "只有 needRetrieval=true 的专业智能体才需要 ragStrategy；Leader 不传 ragStrategy。",
+            "strategyRule": "AI Server 已移除本地检索策略；第三方知识库能力由 Java 后端接入。",
             "llmConfigRule": "Leader 意图识别和所有专业智能体生成都必须由 Java 后端转发 ai.service.* 模型配置；配置缺失或模型失败会直接报错。",
         },
         "executionModes": {
             "leader_direct_answer": "Leader 直接回答",
             "leader_call_tool": "Leader 调用接口/工具",
             "leader_routed_direct_agent": "Leader 分发给非检索智能体",
-            "leader_routed_rag": "Leader 分发给 RAG 智能体",
             "direct_agent": "专业智能体直接处理",
-            "rag_then_agent": "RAG 检索后交给专业智能体",
         },
         "workflow": {
             "default": ["leader_agent", "textbook_knowledge_agent"],

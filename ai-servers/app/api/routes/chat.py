@@ -104,7 +104,7 @@ async def internal_chat_stream(
                     yield build_sse("done", {
                         "answer": answer,
                         "answerType": "markdown",
-                        "ragStrategy": request.ragStrategy or "naive_rag",
+                        "ragStrategy": "direct_agent",
                         "agentName": request.agentName,
                         "searchKeyword": "",
                         "matchedResults": [],

@@ -17,8 +17,8 @@ public class LlmChatRequest {
     @Schema(description = "系统提示词，可为空", example = "你是智慧校园助手，请简洁回答。")
     private String prompt;
 
-    @Size(max = 64, message = "RAG 策略最多 64 字符")
-    @Schema(description = "RAG 策略，可为空；未指定时使用所选智能体默认策略", example = "hybrid_search")
+    @Size(max = 64, message = "兼容策略字段最多 64 字符")
+    @Schema(description = "兼容旧客户端字段；AI Server 已移除本地检索策略，当前会忽略该值", example = "direct_agent")
     private String ragStrategy;
 
     @Size(max = 64, message = "智能体名称最多 64 字符")
