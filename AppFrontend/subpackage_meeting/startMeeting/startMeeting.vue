@@ -77,7 +77,7 @@ export default {
 				})
 				const session = res?.data?.session || {}
 				uni.redirectTo({
-					url: `/subpackage_meeting/meetingLive/meetingLive?title=${encodeURIComponent(session.title || this.meetingTitle || '快速会议')}&roomCode=${encodeURIComponent(session.roomCode || '')}&sessionId=${encodeURIComponent(session.sessionId || '')}`
+					url: `/subpackage_meeting/meetingLive/meetingLive?title=${encodeURIComponent(session.title || this.meetingTitle || '快速会议')}&roomCode=${encodeURIComponent(session.roomCode || '')}&sessionId=${encodeURIComponent(session.sessionId || '')}&micOn=${this.micOn ? '1' : '0'}`
 				})
 			} catch (error) {
 				uni.showToast({ title: '会议创建失败，请稍后重试', icon: 'none' })

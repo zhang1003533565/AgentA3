@@ -10,4 +10,6 @@ public interface MeetingRecordRepository extends JpaRepository<MeetingRecord, Lo
     List<MeetingRecord> findByMeetingSessionIdOrderByCreateTimeAscIdAsc(Long meetingSessionId);
 
     long countByMeetingSessionId(Long meetingSessionId);
+
+    void deleteByMeetingSessionId(Long meetingSessionId);
 }

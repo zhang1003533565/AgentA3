@@ -150,6 +150,21 @@ export function endMeeting(sessionId) {
   })
 }
 
+export function organizeMeeting(sessionId) {
+  return request({
+    url: `/api/meetings/${encodeURIComponent(sessionId)}/organize`,
+    method: 'POST',
+    timeout: 180000
+  })
+}
+
+export function deleteMeeting(sessionId) {
+  return request({
+    url: `/api/meetings/${encodeURIComponent(sessionId)}`,
+    method: 'DELETE'
+  })
+}
+
 export function saveMeetingRecord(sessionId, data) {
   return request({
     url: `/api/meetings/${encodeURIComponent(sessionId)}/records`,

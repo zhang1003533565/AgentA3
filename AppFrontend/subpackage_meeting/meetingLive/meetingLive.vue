@@ -162,6 +162,7 @@ export default {
 		if (options?.sessionId) this.sessionId = decodeURIComponent(options.sessionId)
 		if (options?.title) this.title = decodeURIComponent(options.title)
 		if (options?.roomCode) this.roomCode = decodeURIComponent(options.roomCode)
+		if (options?.micOn === '0' || options?.micOn === 'false') this.muted = true
 		this.initCurrentMember()
 		this.startTimer()
 		this.loadMeeting()
@@ -845,6 +846,7 @@ export default {
 			if (this.sessionId) {
 				try {
 					await finishMeetingApi(this.sessionId)
+					uni.showToast({ title: '会议已结束，AI正在整理', icon: 'none' })
 				} catch (error) {}
 			}
 			this.stopTimer()

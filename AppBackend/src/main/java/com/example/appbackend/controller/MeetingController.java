@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -92,7 +93,30 @@ public class MeetingController {
     @Operation(summary = "结束会议")
     public Result<MeetingDTO.SessionDetail> end(@PathVariable String sessionId,
                                                 HttpServletRequest httpRequest) {
-        return Result.success(meetingService.endMeeting(currentUserId(httpRequest), sessionId));
+        return Result.success(meetingService.endMeeting(
+                currentUserId(httpRequest),
+                sessionId,
+                httpRequest.getHeader("Authorization")
+        ));
+    }
+
+    @PostMapping("/{sessionId}/organize")
+    @Operation(summary = "整理会后内容", description = "根据会议记录生成转写整理、会议纪要、流程调度、成员分析和资源推荐结果")
+    public Result<MeetingDTO.SessionDetail> organize(@PathVariable String sessionId,
+                                                     HttpServletRequest httpRequest) {
+        return Result.success(meetingService.organizeMeeting(
+                currentUserId(httpRequest),
+                sessionId,
+                httpRequest.getHeader("Authorization")
+        ));
+    }
+
+    @DeleteMapping("/{sessionId}")
+    @Operation(summary = "删除会议")
+    public Result<Void> delete(@PathVariable String sessionId,
+                               HttpServletRequest httpRequest) {
+        meetingService.deleteMeeting(currentUserId(httpRequest), sessionId);
+        return Result.success();
     }
 
     @PostMapping("/{sessionId}/records")

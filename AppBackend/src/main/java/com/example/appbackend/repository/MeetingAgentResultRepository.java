@@ -10,4 +10,8 @@ public interface MeetingAgentResultRepository extends JpaRepository<MeetingAgent
     List<MeetingAgentResult> findByMeetingSessionIdOrderByCreateTimeDescIdDesc(Long meetingSessionId);
 
     long countByMeetingSessionId(Long meetingSessionId);
+
+    boolean existsByMeetingSessionIdAndAgentName(Long meetingSessionId, String agentName);
+
+    void deleteByMeetingSessionId(Long meetingSessionId);
 }

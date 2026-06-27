@@ -21,7 +21,11 @@ public interface MeetingService {
 
     MeetingDTO.SessionDetail startMeeting(Long userId, String sessionId);
 
-    MeetingDTO.SessionDetail endMeeting(Long userId, String sessionId);
+    MeetingDTO.SessionDetail endMeeting(Long userId, String sessionId, String authorization);
+
+    MeetingDTO.SessionDetail organizeMeeting(Long userId, String sessionId, String authorization);
+
+    void deleteMeeting(Long userId, String sessionId);
 
     MeetingDTO.RecordItem addRecord(Long userId, String sessionId, MeetingDTO.RecordRequest request);
 

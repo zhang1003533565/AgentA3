@@ -291,15 +291,6 @@ public class PythonAiProxyService {
                                          Long userId,
                                          String requestedModel,
                                          BiConsumer<String, Object> eventConsumer) {
-        return streamPythonObject(path, request, authorization, userId, requestedModel, null, eventConsumer, false);
-    }
-
-    private SseEmitter streamPythonObject(String path,
-                                         Object request,
-                                         String authorization,
-                                         Long userId,
-                                         String requestedModel,
-                                         BiConsumer<String, Object> eventConsumer) {
         SseEmitter emitter = new SseEmitter(0L);
         CompletableFuture.runAsync(() -> {
             try {

@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 @Service
@@ -54,6 +55,13 @@ public class MeetingServiceImpl implements MeetingService {
             "meeting_member_analysis_agent",
             "meeting_resource_recommendation_agent",
             "meeting_voice_broadcast_agent"
+    );
+    private static final List<String> POST_MEETING_AGENT_ORDER = List.of(
+            "meeting_transcription_agent",
+            "meeting_summary_agent",
+            "meeting_controller_agent",
+            "meeting_member_analysis_agent",
+            "meeting_resource_recommendation_agent"
     );
 
     private static final int LLM_INPUT_LIMIT = 3900;
@@ -151,7 +159,7 @@ public class MeetingServiceImpl implements MeetingService {
     @Override
     @Transactional
     public MeetingDTO.SessionDetail updateMeeting(Long userId, String sessionId, MeetingDTO.SessionRequest request) {
-        MeetingSession session = findAccessibleSession(sessionId);
+        MeetingSession session = findOwnedSession(userId, sessionId);
         if (request != null) {
             if (StringUtils.hasText(request.getTitle())) {
                 session.setTitle(truncate(request.getTitle().trim(), 120));
@@ -213,13 +221,13 @@ public class MeetingServiceImpl implements MeetingService {
     @Override
     @Transactional(readOnly = true)
     public MeetingDTO.SessionDetail getMeeting(Long userId, String sessionId) {
-        return buildDetail(findAccessibleSession(sessionId));
+        return buildDetail(findAccessibleSession(userId, sessionId));
     }
 
     @Override
     @Transactional
     public MeetingDTO.SessionDetail startMeeting(Long userId, String sessionId) {
-        MeetingSession session = findAccessibleSession(sessionId);
+        MeetingSession session = findAccessibleSession(userId, sessionId);
         if (MeetingSession.STATUS_ENDED.equals(session.getStatus())) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "已结束的会议不能重新开始");
         }
@@ -233,18 +241,39 @@ public class MeetingServiceImpl implements MeetingService {
 
     @Override
     @Transactional
-    public MeetingDTO.SessionDetail endMeeting(Long userId, String sessionId) {
-        MeetingSession session = findAccessibleSession(sessionId);
+    public MeetingDTO.SessionDetail endMeeting(Long userId, String sessionId, String authorization) {
+        MeetingSession session = findAccessibleSession(userId, sessionId);
         session.setStatus(MeetingSession.STATUS_ENDED);
         session.setEndTime(LocalDateTime.now());
+        refreshCounters(session);
+        MeetingDTO.SessionDetail detail = buildDetail(session);
+        triggerPostMeetingOrganization(session.getSessionId(), authorization);
+        return detail;
+    }
+
+    @Override
+    @Transactional
+    public MeetingDTO.SessionDetail organizeMeeting(Long userId, String sessionId, String authorization) {
+        MeetingSession session = findAccessibleSession(userId, sessionId);
+        organizeMeetingResults(session, authorization, true);
         refreshCounters(session);
         return buildDetail(session);
     }
 
     @Override
     @Transactional
+    public void deleteMeeting(Long userId, String sessionId) {
+        MeetingSession session = findOwnedSession(userId, sessionId);
+        resultRepository.deleteByMeetingSessionId(session.getId());
+        recordRepository.deleteByMeetingSessionId(session.getId());
+        participantRepository.deleteByMeetingSessionId(session.getId());
+        sessionRepository.delete(session);
+    }
+
+    @Override
+    @Transactional
     public MeetingDTO.RecordItem addRecord(Long userId, String sessionId, MeetingDTO.RecordRequest request) {
-        MeetingSession session = findAccessibleSession(sessionId);
+        MeetingSession session = findAccessibleSession(userId, sessionId);
         MeetingRecord record = saveRecord(session, request.getContent(), request.getSource());
         refreshCounters(session);
         return toRecordItem(record);
@@ -253,7 +282,7 @@ public class MeetingServiceImpl implements MeetingService {
     @Override
     @Transactional
     public MeetingDTO.RunAgentResponse runAgent(Long userId, String sessionId, MeetingDTO.RunAgentRequest request, String authorization) {
-        MeetingSession session = findAccessibleSession(sessionId);
+        MeetingSession session = findAccessibleSession(userId, sessionId);
         String agentName = normalizeAgentName(request.getAgentName());
         String content = resolveMeetingContent(session, request.getContent());
         if (StringUtils.hasText(request.getContent())) {
@@ -270,13 +299,7 @@ public class MeetingServiceImpl implements MeetingService {
         chatRequest.setLlmModel(resolveMeetingLlmModel(request.getLlmModel()));
         chatRequest.setInput(truncate(buildAgentInput(session, content), LLM_INPUT_LIMIT));
 
-        LlmChatResponse chatResponse = llmService.chat(chatRequest, authorization);
-        MeetingAgentResult result = new MeetingAgentResult();
-        result.setMeetingSessionId(session.getId());
-        result.setAgentName(agentName);
-        result.setAnswerType(StringUtils.hasText(chatResponse.getAnswerType()) ? chatResponse.getAnswerType() : "markdown");
-        result.setAnswer(StringUtils.hasText(chatResponse.getAnswer()) ? chatResponse.getAnswer() : "智能体没有返回可用内容。");
-        result = resultRepository.save(result);
+        MeetingAgentResult result = runAndSaveAgent(session, chatRequest, authorization);
 
         refreshCounters(session);
 
@@ -292,7 +315,7 @@ public class MeetingServiceImpl implements MeetingService {
     @Override
     @Transactional(readOnly = true)
     public MeetingDTO.RunAgentResponse previewAgent(Long userId, String sessionId, MeetingDTO.RunAgentRequest request, String authorization) {
-        MeetingSession session = findAccessibleSession(sessionId);
+        MeetingSession session = findAccessibleSession(userId, sessionId);
         String agentName = normalizeAgentName(request.getAgentName());
         String content = resolveMeetingContent(session, request.getContent());
 
@@ -321,12 +344,126 @@ public class MeetingServiceImpl implements MeetingService {
         return response;
     }
 
-    private MeetingSession findAccessibleSession(String sessionId) {
+    private void triggerPostMeetingOrganization(String sessionId, String authorization) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                MeetingSession latestSession = findSession(sessionId);
+                organizeMeetingResults(latestSession, authorization, false);
+                refreshCounters(latestSession);
+            } catch (Exception error) {
+                log.warn("post meeting organization skipped sessionId={}: {}", sessionId, error.getMessage());
+            }
+        });
+    }
+
+    private void organizeMeetingResults(MeetingSession session, String authorization, boolean failFast) {
+        String content = allMeetingContent(session.getId());
+        if (!StringUtils.hasText(content)) {
+            log.info("skip post meeting organization sessionId={} because records are empty", session.getSessionId());
+            return;
+        }
+        for (String agentName : POST_MEETING_AGENT_ORDER) {
+            if (resultRepository.existsByMeetingSessionIdAndAgentName(session.getId(), agentName)) {
+                continue;
+            }
+            try {
+                LlmChatRequest chatRequest = new LlmChatRequest();
+                chatRequest.setSessionId(session.getSessionId() + "-post-" + agentName);
+                chatRequest.setAgentName(agentName);
+                chatRequest.setLlmModel(resolveMeetingLlmModel(null));
+                chatRequest.setInput(truncate(buildPostMeetingAgentInput(session, content, agentName), LLM_INPUT_LIMIT));
+                runAndSaveAgent(session, chatRequest, authorization);
+            } catch (BusinessException error) {
+                if (failFast || error.getCode() < Result.ERROR_CODE) {
+                    throw error;
+                }
+                log.warn("post meeting agent failed sessionId={} agentName={}: {}", session.getSessionId(), agentName, error.getMessage());
+                return;
+            } catch (Exception error) {
+                if (failFast) {
+                    throw new BusinessException(Result.ERROR_CODE, "会议整理失败: " + error.getMessage());
+                }
+                log.warn("post meeting agent failed sessionId={} agentName={}: {}", session.getSessionId(), agentName, error.getMessage());
+                return;
+            }
+        }
+    }
+
+    private MeetingAgentResult runAndSaveAgent(MeetingSession session, LlmChatRequest chatRequest, String authorization) {
+        LlmChatResponse chatResponse = llmService.chat(chatRequest, authorization);
+        MeetingAgentResult result = new MeetingAgentResult();
+        result.setMeetingSessionId(session.getId());
+        result.setAgentName(chatRequest.getAgentName());
+        result.setAnswerType(StringUtils.hasText(chatResponse.getAnswerType()) ? chatResponse.getAnswerType() : "markdown");
+        result.setAnswer(StringUtils.hasText(chatResponse.getAnswer()) ? chatResponse.getAnswer() : "智能体没有返回可用内容。");
+        return resultRepository.save(result);
+    }
+
+    private String allMeetingContent(Long meetingSessionId) {
+        return recordRepository.findByMeetingSessionIdOrderByCreateTimeAscIdAsc(meetingSessionId).stream()
+                .map(record -> String.join("\n",
+                        "记录来源：" + (StringUtils.hasText(record.getSource()) ? record.getSource() : MeetingRecord.SOURCE_MANUAL),
+                        "记录时间：" + record.getCreateTime(),
+                        record.getContent()
+                ))
+                .filter(StringUtils::hasText)
+                .collect(Collectors.joining("\n\n"));
+    }
+
+    private String buildPostMeetingAgentInput(MeetingSession session, String content, String agentName) {
+        List<String> participantNames = participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(session.getId()).stream()
+                .map(MeetingParticipant::getName)
+                .toList();
+        String task = switch (agentName) {
+            case "meeting_transcription_agent" -> "请整理完整会议转写稿，修正明显断句问题，保留说话人和待确认片段。";
+            case "meeting_summary_agent" -> "请生成正式会后纪要，区分核心观点、主要结论、任务分工、后续计划和待确认事项。";
+            case "meeting_controller_agent" -> "请梳理会议状态、议题进度、任务分发、下一步调度建议和仍需补充的信息。";
+            case "meeting_member_analysis_agent" -> "请基于发言证据分析成员参与情况、理解偏差、薄弱点和后续观察问题。";
+            case "meeting_resource_recommendation_agent" -> "请基于会议暴露的问题和任务分工给出成员级学习资源推荐和推送计划。";
+            default -> "请基于会议记录输出结构化会议处理结果。";
+        };
+        return String.join("\n",
+                "会议主题：" + session.getTitle(),
+                "会议状态：" + statusLabel(session.getStatus()),
+                "会议号：" + session.getRoomCode(),
+                "参会成员：" + (participantNames.isEmpty() ? "未填写" : String.join("、", participantNames)),
+                "整理任务：" + task,
+                "要求：只依据下方会议记录，不新增负责人、截止时间、结论或外部链接；缺失信息标注未明确。",
+                "完整会议记录：",
+                content
+        );
+    }
+
+    private MeetingSession findSession(String sessionId) {
         if (!StringUtils.hasText(sessionId)) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "会议ID不能为空");
         }
         return sessionRepository.findBySessionId(sessionId.trim())
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "会议不存在"));
+    }
+
+    private MeetingSession findOwnedSession(Long userId, String sessionId) {
+        MeetingSession session = findSession(sessionId);
+        if (userId != null && userId.equals(session.getUserId())) {
+            return session;
+        }
+        throw new BusinessException(Result.FORBIDDEN_CODE, "仅会议创建者可执行该操作");
+    }
+
+    private MeetingSession findAccessibleSession(Long userId, String sessionId) {
+        MeetingSession session = findSession(sessionId);
+        if (userId != null && userId.equals(session.getUserId())) {
+            return session;
+        }
+        String displayName = resolveUserDisplayName(userId);
+        if (StringUtils.hasText(displayName)) {
+            boolean joined = participantRepository.findByMeetingSessionIdOrderBySortOrderAscIdAsc(session.getId()).stream()
+                    .anyMatch(participant -> displayName.equals(participant.getName()));
+            if (joined) {
+                return session;
+            }
+        }
+        throw new BusinessException(Result.FORBIDDEN_CODE, "请先通过会议号加入会议");
     }
 
     private void syncParticipants(Long meetingSessionId, List<String> participants) {

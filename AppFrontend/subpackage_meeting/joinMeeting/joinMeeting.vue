@@ -58,7 +58,7 @@ export default {
 				const res = await joinMeeting({ roomCode: compactCode, displayName: this.displayName || getCurrentDisplayName() })
 				const session = res?.data?.session || {}
 				uni.redirectTo({
-					url: `/subpackage_meeting/meetingLive/meetingLive?title=${encodeURIComponent(session.title || '会议')}&roomCode=${encodeURIComponent(session.roomCode || compactCode)}&sessionId=${encodeURIComponent(session.sessionId || '')}`
+					url: `/subpackage_meeting/meetingLive/meetingLive?title=${encodeURIComponent(session.title || '会议')}&roomCode=${encodeURIComponent(session.roomCode || compactCode)}&sessionId=${encodeURIComponent(session.sessionId || '')}&micOn=${this.micOn ? '1' : '0'}`
 				})
 			} catch (error) {
 				uni.showToast({ title: '加入会议失败，请检查会议号', icon: 'none' })
