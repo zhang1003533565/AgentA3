@@ -23,6 +23,7 @@ function AgentSettings() {
   const [loading, setLoading] = useState(false)
   const [savingKey, setSavingKey] = useState('')
   const [agents, setAgents] = useState([])
+  const [leaderTools, setLeaderTools] = useState([])
   const [tools, setTools] = useState([])
   const [llmModelOptions, setLlmModelOptions] = useState([])
   const [agentModelBindings, setAgentModelBindings] = useState({})
@@ -48,6 +49,13 @@ function AgentSettings() {
         return {
           ...tool,
           enabled: hasConfiguredValue ? nextToolToggles[tool.name] : tool.enabled !== false,
+        }
+      }))
+      setLeaderTools((agentRes.data?.leaderTools || []).map((tool) => {
+        const hasConfiguredValue = Object.prototype.hasOwnProperty.call(nextToolToggles, tool.name)
+        return {
+          ...tool,
+          enabled: tool.configurable === false ? true : hasConfiguredValue ? nextToolToggles[tool.name] : tool.enabled !== false,
         }
       }))
       setLlmModelOptions(buildLlmModelOptions(configRows))
@@ -134,6 +142,9 @@ function AgentSettings() {
       setTools((prev) => prev.map((item) => (
         item.name === toolName ? { ...item, enabled } : item
       )))
+      setLeaderTools((prev) => prev.map((item) => (
+        item.name === toolName ? { ...item, enabled } : item
+      )))
       message.success(enabled ? '工具已开启，Leader 可调用' : '工具已关闭，Leader 不会调用')
     } catch (error) {
       message.error(error.message || '工具开关保存失败')
@@ -157,6 +168,15 @@ function AgentSettings() {
     ...tool,
     enabled: isToolEnabled(tool),
   })), [tools])
+
+  const configuredLeaderTools = useMemo(() => leaderTools.map((tool) => ({
+    ...tool,
+    enabled: tool.configurable === false ? true : isToolEnabled(tool),
+  })), [leaderTools])
+
+  const leaderCallableAgents = useMemo(() => (
+    configuredAgents.filter((agent) => agent.name !== 'leader_agent')
+  ), [configuredAgents])
 
   const columns = useMemo(() => [
     {
@@ -284,9 +304,89 @@ function AgentSettings() {
     },
   ], [saveToolEnabled, savingKey])
 
+  const leaderAgentColumns = useMemo(() => [
+    {
+      title: '智能体',
+      dataIndex: 'name',
+      width: 230,
+      render: (value, record) => (
+        <Space direction="vertical" size={4}>
+          <Space size={6} wrap>
+            <Tag color={record.enabled === false ? 'red' : 'green'}>
+              {record.enabled === false ? '关闭' : '可调用'}
+            </Tag>
+            <Tag color="geekblue">{value}</Tag>
+          </Space>
+          <Text type="secondary">{record.role}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '意图',
+      dataIndex: 'intent',
+      width: 160,
+      render: (value) => <Tag>{value || '-'}</Tag>,
+    },
+    {
+      title: '输出',
+      dataIndex: 'outputs',
+      width: 180,
+      render: (outputs) => (
+        <Space size={[6, 6]} wrap>
+          {(Array.isArray(outputs) ? outputs : []).map((item) => (
+            <Tag color="blue" key={item}>{item}</Tag>
+          ))}
+        </Space>
+      ),
+    },
+    {
+      title: '职责',
+      dataIndex: 'purpose',
+      ellipsis: true,
+    },
+  ], [])
+
+  const leaderToolColumns = useMemo(() => [
+    {
+      title: '工具',
+      dataIndex: 'name',
+      width: 220,
+      render: (value, record) => (
+        <Space direction="vertical" size={4}>
+          <Space size={6} wrap>
+            <Tag color={record.enabled === false ? 'red' : 'green'}>
+              {record.enabled === false ? '关闭' : '可调用'}
+            </Tag>
+            <Tag color="cyan">{value}</Tag>
+          </Space>
+          <Text type="secondary">{record.category}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '输出',
+      dataIndex: 'outputs',
+      width: 150,
+      render: (outputs) => (
+        <Space size={[6, 6]} wrap>
+          {(Array.isArray(outputs) ? outputs : []).map((item) => (
+            <Tag color="blue" key={item}>{String(item).toUpperCase()}</Tag>
+          ))}
+        </Space>
+      ),
+    },
+    {
+      title: '触发条件',
+      dataIndex: 'trigger',
+      ellipsis: true,
+    },
+  ], [])
+
   const disabledAgentCount = configuredAgents.filter((item) => item.enabled === false).length
   const disabledToolCount = configuredTools.filter((item) => item.enabled === false).length
   const boundCount = configuredAgents.filter((item) => item.boundModel).length
+  const callableAgentCount = leaderCallableAgents.filter((item) => item.enabled !== false).length
+  const callableToolCount = configuredLeaderTools.filter((item) => item.enabled !== false).length
 
   return (
     <div className="agent-settings-page">
@@ -327,6 +427,42 @@ function AgentSettings() {
         message="开关规则"
         description="Leader 固定开启。其他智能体关闭后会被跳过；工具关闭后，Leader 不会调用，自动整理附件也只会生成仍开启的格式。"
       />
+
+      <Card
+        className="agent-settings-card"
+        title={<Space><SettingOutlined />Leader 可调用清单</Space>}
+      >
+        <div className="agent-settings-callable-head">
+          <Text type="secondary">可调用智能体 {callableAgentCount} 个</Text>
+          <Text type="secondary">可直接调用工具 {callableToolCount} 个</Text>
+        </div>
+        <div className="agent-settings-leader-grid">
+          <div>
+            <div className="agent-settings-section-title">专业智能体</div>
+            <Table
+              rowKey="name"
+              loading={loading}
+              columns={leaderAgentColumns}
+              dataSource={leaderCallableAgents}
+              pagination={{ pageSize: 6 }}
+              size="small"
+              scroll={{ x: 860 }}
+            />
+          </div>
+          <div>
+            <div className="agent-settings-section-title">系统工具</div>
+            <Table
+              rowKey="name"
+              loading={loading}
+              columns={leaderToolColumns}
+              dataSource={configuredLeaderTools}
+              pagination={false}
+              size="small"
+              scroll={{ x: 620 }}
+            />
+          </div>
+        </div>
+      </Card>
 
       <Card
         className="agent-settings-card"

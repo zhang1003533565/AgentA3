@@ -118,6 +118,36 @@ GENERATED_CONTENT_TOOLS = [
     },
 ]
 
+LEADER_CALLABLE_TOOLS = [
+    {
+        "name": "text_to_sql",
+        "category": "structured_query",
+        "purpose": "把统计、列表、数量类问题转换为只读 SQL，并返回可展示查询结果。",
+        "trigger": "用户询问优惠券、食堂、菜品、课程、课表等结构化数据的统计、数量、列表或排名。",
+        "outputs": ["sql", "text"],
+        "status": "implemented",
+        "configurable": False,
+    },
+    {
+        "name": "java_schedule_api",
+        "category": "java_backend",
+        "purpose": "调用 Java 后端课表接口查询用户课程安排。",
+        "trigger": "用户询问今天/明天/本周有什么课、几点上课、课表安排。",
+        "outputs": ["schedule_text"],
+        "status": "implemented",
+        "configurable": False,
+    },
+    {
+        "name": "generated_export_tools",
+        "category": "content_export",
+        "purpose": "把已有 Markdown、普通文本或标准题库 JSON 直接整理成附件。",
+        "trigger": "用户已经提供要导出的内容，并明确要求文件版、文档版、表格版或打包下载。",
+        "outputs": ["md", "docx", "xlsx", "mmd", "zip"],
+        "status": "implemented",
+        "configurable": True,
+    },
+]
+
 
 class PdfConvertRequest(BaseModel):
     fileName: str = Field(min_length=1, max_length=255)
@@ -317,6 +347,8 @@ def list_rag_agents(
 ) -> Dict[str, Any]:
     _require_authorization(authorization)
     catalog = get_agent_catalog()
+    catalog["leaderTools"] = LEADER_CALLABLE_TOOLS
+    catalog["leaderCallableCatalog"] = _build_leader_callable_catalog()
     catalog["generatedTools"] = GENERATED_CONTENT_TOOLS
     return catalog
 
@@ -434,11 +466,13 @@ async def run_rag_query_stream(
             active_agent = requested_agent or "leader_agent"
             if active_agent == "leader_agent":
                 profile_context = _profile_context_from_request(request)
+                callable_catalog = _build_leader_callable_catalog(request)
                 plan = await asyncio.to_thread(
                     leader_agent.plan,
                     request.input,
                     request.ragStrategy or "",
                     profile_context=profile_context,
+                    callable_catalog=callable_catalog,
                 )
                 if _should_emit_generation_start(request, plan.target_agent, plan):
                     yield build_sse("generation_start", _build_generation_start_payload(request, plan))
@@ -511,7 +545,13 @@ def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQuer
 
 def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
     profile_context = _profile_context_from_request(request)
-    plan = leader_agent.plan(request.input, request.ragStrategy or "", profile_context=profile_context)
+    callable_catalog = _build_leader_callable_catalog(request)
+    plan = leader_agent.plan(
+        request.input,
+        request.ragStrategy or "",
+        profile_context=profile_context,
+        callable_catalog=callable_catalog,
+    )
     return _execute_leader_plan(request, authorization, profile_context, plan)
 
 
@@ -674,6 +714,78 @@ def _require_tool_enabled(request: RagQueryRequest, tool_name: str) -> None:
     if _is_tool_enabled(request, tool_name):
         return
     raise HTTPException(status_code=403, detail=f"工具 {tool_name} 已在后台关闭，Leader 本次不会调用。")
+
+
+def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) -> Dict[str, Any]:
+    agents = [
+        _leader_callable_agent_item(agent_name, request)
+        for agent_name in AGENT_ORDER
+        if agent_name != "leader_agent"
+    ]
+    agents = [item for item in agents if item]
+    tools = [_leader_callable_tool_item(tool, request) for tool in LEADER_CALLABLE_TOOLS]
+    content_tools = [_leader_callable_tool_item(tool, request) for tool in GENERATED_CONTENT_TOOLS]
+    return {
+        "routingActions": ["direct_answer", "delegate_agent", "call_tool"],
+        "agents": agents,
+        "tools": tools,
+        "contentTools": content_tools,
+        "summary": {
+            "agentCount": len(agents),
+            "enabledAgentCount": sum(1 for item in agents if item.get("enabled") is not False),
+            "disabledAgentCount": sum(1 for item in agents if item.get("enabled") is False),
+            "toolCount": len(tools),
+            "enabledToolCount": sum(1 for item in tools if item.get("enabled") is not False),
+            "disabledToolCount": sum(1 for item in tools if item.get("enabled") is False),
+            "contentToolCount": len(content_tools),
+            "enabledContentToolCount": sum(1 for item in content_tools if item.get("enabled") is not False),
+        },
+        "routingRule": "Leader 只能从 enabled=true 的 agents 和 tools 中选择；关闭项只允许展示为不可用，不允许继续调用或兜底改调。",
+    }
+
+
+def _leader_callable_agent_item(agent_name: str, request: Optional[RagQueryRequest]) -> Dict[str, Any]:
+    profile = get_agent_profile(agent_name)
+    if not profile:
+        return {}
+    enabled = True if request is None else _is_agent_enabled(request, agent_name)
+    return {
+        "name": agent_name,
+        "role": profile.get("role") or agent_name,
+        "category": _leader_agent_category(agent_name),
+        "intent": profile.get("intent") or "",
+        "purpose": profile.get("purpose") or "",
+        "outputs": profile.get("outputs") or [],
+        "requiredModelModalities": profile.get("requiredModelModalities") or ["text"],
+        "enabled": enabled,
+    }
+
+
+def _leader_callable_tool_item(tool: Dict[str, Any], request: Optional[RagQueryRequest]) -> Dict[str, Any]:
+    name = str(tool.get("name") or "").strip()
+    enabled = True if request is None else _is_tool_enabled(request, name)
+    return {
+        **tool,
+        "enabled": enabled,
+    }
+
+
+def _leader_agent_category(agent_name: str) -> str:
+    if agent_name == "profile_summary_agent":
+        return "profile"
+    if agent_name == "textbook_knowledge_agent":
+        return "textbook"
+    if agent_name.startswith("textbook_question_"):
+        return "question_bank"
+    if agent_name.startswith("meeting_"):
+        return "meeting"
+    if agent_name.startswith("ppt_"):
+        return "ppt"
+    if agent_name.startswith("diagram_") or agent_name in {"mind_map_agent", "architecture_prompt_agent"}:
+        return "diagram"
+    if agent_name == "image_agent":
+        return "image"
+    return "other"
 
 
 def _run_disabled_agent_response(

@@ -61,12 +61,24 @@ class LeaderAgent:
         requested_agent: Optional[str] = None,
         chat_service=None,
         profile_context: Optional[Dict[str, Any]] = None,
+        callable_catalog: Optional[Dict[str, Any]] = None,
     ) -> LeaderPlan:
         forced_plan = self._plan_for_requested_agent(requested_agent, rag_strategy)
         if forced_plan:
             return forced_plan
 
-        return self._plan_with_llm(input_text, rag_strategy, chat_service, profile_context=profile_context)
+        if self._is_callable_catalog_query(input_text):
+            return LeaderPlan(
+                intent="leader_callable_catalog",
+                target_agent="leader_agent",
+                need_retrieval=False,
+                rag_strategy="",
+                action="direct_answer",
+                route_reason="用户询问 Leader 当前可调用的智能体和工具，直接展示后台清单。",
+                answer=self._callable_catalog_answer(callable_catalog),
+            )
+
+        return self._plan_with_llm(input_text, rag_strategy, chat_service, profile_context=profile_context, callable_catalog=callable_catalog)
 
     def _plan_with_rules(self, input_text: str, rag_strategy: str = "") -> LeaderPlan:
         normalized = (input_text or "").strip().lower()
@@ -170,11 +182,17 @@ class LeaderAgent:
         rag_strategy: str,
         chat_service=None,
         profile_context: Optional[Dict[str, Any]] = None,
+        callable_catalog: Optional[Dict[str, Any]] = None,
     ) -> LeaderPlan:
         provider = chat_service or get_chat_model_provider()
         text = provider.complete(
             system_prompt=load_agent_prompt(self.name),
-            user_prompt=build_leader_router_user_prompt(input_text, rag_strategy, profile_context=profile_context),
+            user_prompt=build_leader_router_user_prompt(
+                input_text,
+                rag_strategy,
+                profile_context=profile_context,
+                callable_catalog=callable_catalog,
+            ),
         )
         plan = parse_json_object(text)
         if not plan:
@@ -259,6 +277,69 @@ class LeaderAgent:
             return "再见，需要继续做思维导图、知识点、题库、PPT 或配图时再叫我就行。"
         return "你好，我是 Leader 智能体。我会先判断你的意图，再决定直接回答、调用专业智能体，或走 Text-to-SQL 或 Java 后端接口。"
 
+    def _is_callable_catalog_query(self, input_text: str) -> bool:
+        normalized = (input_text or "").strip().lower()
+        if not normalized:
+            return False
+        action_tokens = ("能调用", "会调用", "调用哪些", "调用什么", "有哪些", "有什么", "清单", "列表", "能力")
+        target_tokens = ("智能体", "agent", "工具", "tool", "功能", "能力")
+        return any(token in normalized for token in action_tokens) and any(token in normalized for token in target_tokens)
+
+    def _callable_catalog_answer(self, callable_catalog: Optional[Dict[str, Any]]) -> str:
+        catalog = callable_catalog if isinstance(callable_catalog, dict) else {}
+        agents = [item for item in catalog.get("agents", []) if isinstance(item, dict)]
+        tools = [item for item in catalog.get("tools", []) if isinstance(item, dict)]
+        content_tools = [item for item in catalog.get("contentTools", []) if isinstance(item, dict)]
+        if not agents and not tools:
+            return "当前还没有拿到后台可调用清单。请先确认 AI Server 的智能体目录和工具目录是否正常返回。"
+
+        lines = ["我当前会按后台启用状态调用这些能力：", ""]
+        enabled_agents = [item for item in agents if item.get("enabled") is not False]
+        disabled_agents = [item for item in agents if item.get("enabled") is False]
+        grouped_agents: Dict[str, List[Dict[str, Any]]] = {}
+        for item in enabled_agents:
+            grouped_agents.setdefault(str(item.get("category") or "other"), []).append(item)
+        lines.append("可调用智能体：")
+        for category, items in grouped_agents.items():
+            names = "、".join(f"{item.get('role') or item.get('name')}（{item.get('name')}）" for item in items[:8])
+            overflow = f" 等 {len(items)} 个" if len(items) > 8 else ""
+            lines.append(f"- {self._category_label(category)}：{names}{overflow}")
+        if disabled_agents:
+            lines.append(f"- 已关闭：{len(disabled_agents)} 个，Leader 识别到也不会继续执行。")
+
+        lines.append("")
+        lines.append("Leader 可直接调用的工具：")
+        for item in tools:
+            status = "可用" if item.get("enabled") is not False else "已关闭"
+            lines.append(f"- {item.get('name')}（{status}）：{item.get('purpose') or ''}")
+
+        if content_tools:
+            enabled_content_tools = [item for item in content_tools if item.get("enabled") is not False]
+            disabled_content_tools = [item for item in content_tools if item.get("enabled") is False]
+            lines.append("")
+            lines.append("内容整理子工具：")
+            if enabled_content_tools:
+                lines.append("- 可用：" + "、".join(item.get("name") or "" for item in enabled_content_tools))
+            if disabled_content_tools:
+                lines.append("- 已关闭：" + "、".join(item.get("name") or "" for item in disabled_content_tools))
+
+        lines.append("")
+        lines.append("规则：我只能调用清单里开启的项；关闭的智能体或工具不会被兜底调用。")
+        return "\n".join(lines).strip()
+
+    def _category_label(self, category: str) -> str:
+        labels = {
+            "profile": "画像",
+            "diagram": "图表",
+            "image": "图片",
+            "textbook": "教材知识",
+            "question_bank": "题库",
+            "meeting": "会议",
+            "ppt": "PPT",
+            "other": "其他",
+        }
+        return labels.get(category or "", category or "其他")
+
     def load_memory(self, session_token: str) -> List[Dict[str, str]]:
         return memory_store.get_history(session_token)
 
@@ -297,12 +378,14 @@ def build_leader_router_user_prompt(
     input_text: str,
     rag_strategy: str,
     profile_context: Optional[Dict[str, Any]] = None,
+    callable_catalog: Optional[Dict[str, Any]] = None,
 ) -> str:
     return json.dumps({
         "user_input": input_text or "",
         "requested_rag_strategy": rag_strategy or "",
         "allowed_rag_strategy_when_needed": rag_strategy or "",
         "profile_snapshot": profile_context or {},
+        "leader_callable_catalog": callable_catalog or {},
         "profile_usage_policy": [
             "必须参考 profile_snapshot，但用户当前问题优先级最高。",
             "高置信度画像可以用于推荐顺序、解释深度和资源形式。",
@@ -316,6 +399,8 @@ def build_leader_router_user_prompt(
             "用户要求题库表格或题库 Excel 时，仍先选择对应题型智能体生成严格题库 JSON，再由导出工具转换为 md/docx/xlsx/zip。",
             "用户要求 Mermaid 源文件、图表源码或后续编辑图表时，图表智能体返回 Mermaid 后会自动生成 mmd/md/zip 附件。",
             "如果用户已经提供了要导出的 Markdown、普通文本或标准题库 JSON，且只要求转成文件，可以直接 call_tool: generated_export_tools。",
+            "路由时只能选择 leader_callable_catalog 中 enabled=true 的 agents/tools；关闭项只可在 route_reason 中说明，不允许绕过后台配置。",
+            "target_agent 必须来自 leader_callable_catalog.agents.name；tool_name 必须来自 leader_callable_catalog.tools.name。",
         ],
         "leader_output_push_strategies": LEADER_OUTPUT_PUSH_STRATEGIES,
     }, ensure_ascii=False)

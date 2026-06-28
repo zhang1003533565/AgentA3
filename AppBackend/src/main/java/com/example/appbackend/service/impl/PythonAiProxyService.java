@@ -658,6 +658,14 @@ public class PythonAiProxyService {
             }
             copy.put("generatedTools", mergedTools);
         }
+        Object leaderToolsValue = sourceMap.get("leaderTools");
+        if (leaderToolsValue instanceof List<?> leaderToolsList) {
+            List<Object> mergedLeaderTools = new ArrayList<>();
+            for (Object tool : leaderToolsList) {
+                mergedLeaderTools.add(mergeToolEnabledState(tool, toolToggles));
+            }
+            copy.put("leaderTools", mergedLeaderTools);
+        }
         copy.put("toolToggles", toolToggles);
         return copy;
     }
