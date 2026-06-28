@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
@@ -101,6 +102,24 @@ class JavaBackendRetriever:
                 result["requestedWeekdayText"] = format_weekday(requested_weekday)
             results.append(result)
         return results
+
+    def search_service_tool(self, authorization: str, tool_name: str, input_text: str) -> List[Dict[str, Any]]:
+        name = str(tool_name or "").strip()
+        if name == "java_schedule_api":
+            return self.search_schedule(authorization, input_text)
+        if not self.enabled:
+            return []
+        handlers = {
+            "java_activity_api": self._search_activities,
+            "java_meeting_api": self._search_meetings,
+            "java_canteen_api": self._search_canteen,
+            "java_facility_api": self._search_facilities,
+            "java_secondhand_api": self._search_secondhand,
+        }
+        handler = handlers.get(name)
+        if handler is None:
+            return []
+        return handler(authorization, input_text)
 
     def search_keyword(self, authorization: str, keyword: str) -> List[Dict[str, Any]]:
         if not self.enabled or not keyword:
@@ -223,6 +242,218 @@ class JavaBackendRetriever:
                 results.append(self._coupon_result(row))
 
         return results[:10]
+
+    def _search_activities(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
+        keyword = self._keyword_from_input(input_text, {"活动", "讲座", "比赛", "报名", "校园活动"})
+        if keyword:
+            payload = self._get_json("/api/activities/search", authorization, params={"page": 1, "size": 10, "keyword": keyword})
+        else:
+            payload = self._get_json("/api/activities", authorization, params={"page": 1, "size": 10, "status": "PUBLISHED"})
+        records = self._page_records(self._extract_result_data(payload))
+        return [self._activity_result(row) for row in records[:10]]
+
+    def _search_meetings(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
+        keyword = self._keyword_from_input(input_text, {"会议", "会议室", "预约", "开会", "日程"})
+        payload = self._get_json("/api/meetings", authorization, params={"pageNum": 1, "pageSize": 10, "keyword": keyword})
+        records = self._page_records(self._extract_result_data(payload))
+        return [self._meeting_result(row) for row in records[:10]]
+
+    def _search_canteen(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
+        keyword = self._keyword_from_input(input_text, {"食堂", "餐厅", "档口", "菜品", "吃饭", "推荐", "窗口"})
+        results = self.search_keyword(authorization, keyword) if keyword else []
+        if results:
+            return results[:10]
+
+        facility_payload = self._get_json(
+            "/api/v1/facility/list",
+            authorization,
+            params={"type": 1, "status": 1, "pageNum": 1, "pageSize": 5},
+        )
+        facilities = self._page_records(self._extract_result_data(facility_payload))
+        for row in facilities[:5]:
+            results.append({
+                "type": "restaurant",
+                "id": row.get("id"),
+                "name": row.get("facilityName"),
+                "location": row.get("location"),
+                "description": row.get("description"),
+                "status": row.get("status"),
+            })
+
+        stalls_payload = self._get_json("/api/v1/canteen-stall/list", authorization)
+        stalls = self._extract_result_data(stalls_payload)
+        if isinstance(stalls, list):
+            for row in stalls[:5]:
+                results.append({
+                    "type": "stall",
+                    "id": row.get("id"),
+                    "name": row.get("stallName"),
+                    "category": row.get("category"),
+                    "restaurantId": row.get("restaurantId"),
+                    "location": row.get("location"),
+                    "score": row.get("score"),
+                    "avgPrice": row.get("avgPrice"),
+                })
+        return results[:10]
+
+    def _search_facilities(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
+        keyword = self._keyword_from_input(input_text, {"设施", "位置", "在哪", "哪里", "地图", "导航", "定位", "怎么走", "路线"})
+        results: List[Dict[str, Any]] = []
+        if keyword:
+            search_payload = self._get_json("/api/v1/map/search", authorization, params={"keyword": keyword, "limit": 10})
+            markers = self._extract_result_data(search_payload)
+            if isinstance(markers, list):
+                results.extend(self._marker_result(row) for row in markers[:10])
+            locate_payload = self._get_json("/api/v1/map/locate", authorization, params={"keyword": keyword})
+            located = self._extract_result_data(locate_payload)
+            if isinstance(located, dict) and located:
+                located_result = self._locate_result(located)
+                if located_result:
+                    results.insert(0, located_result)
+        else:
+            facility_payload = self._get_json("/api/v1/facility/list", authorization, params={"pageNum": 1, "pageSize": 10})
+            facilities = self._page_records(self._extract_result_data(facility_payload))
+            results.extend(self._facility_result(row) for row in facilities[:10])
+        return self._dedupe_results(results)[:10]
+
+    def _search_secondhand(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
+        keyword = self._keyword_from_input(input_text, {"旧物", "二手", "闲置", "物品", "卖", "买", "转让"})
+        payload = self._get_json(
+            "/api/secondhand/item/list",
+            authorization,
+            params={"current": 1, "size": 10, "keyword": keyword, "sort": "latest"},
+        )
+        records = self._page_records(self._extract_result_data(payload))
+        return [self._secondhand_result(row) for row in records[:10]]
+
+    def _page_records(self, data: Any) -> List[Dict[str, Any]]:
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+        if not isinstance(data, dict):
+            return []
+        for key in ("records", "list", "items", "content"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+        return []
+
+    def _keyword_from_input(self, input_text: str, domain_tokens: set[str]) -> str:
+        text = re.sub(r"[，。！？、,.!?;；:：\n\r\t]", " ", str(input_text or "")).strip()
+        if not text:
+            return ""
+        remove_tokens = {
+            "帮我", "请", "一下", "查一下", "查询", "查找", "查", "找", "看看", "看下",
+            "有哪些", "有什么", "有没有", "多少", "列表", "推荐", "最近", "今天", "明天",
+            "本周", "这周", "我的", "我", "想", "要", "可以", "吗", "呢", "的", "安排",
+            "信息", "详情", "状态", "当前", "在",
+        } | set(domain_tokens)
+        candidate = text
+        for token in sorted(remove_tokens, key=len, reverse=True):
+            candidate = candidate.replace(token, " ")
+        candidate = re.sub(r"\s+", " ", candidate).strip()
+        if len(candidate) >= 2:
+            return candidate[:60]
+        if any(token in text for token in domain_tokens) and len(text) <= 8:
+            return ""
+        return text[:60] if len(text) >= 2 and not any(token in text for token in domain_tokens) else ""
+
+    def _activity_result(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "type": "activity",
+            "id": row.get("id"),
+            "name": row.get("title") or row.get("activityTitle"),
+            "category": row.get("categoryName") or row.get("category"),
+            "location": row.get("location"),
+            "organizerName": row.get("organizerName"),
+            "status": row.get("status"),
+            "startTime": row.get("startTime"),
+            "endTime": row.get("endTime"),
+            "description": row.get("description") or row.get("content"),
+        }
+
+    def _meeting_result(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "type": "meeting",
+            "id": row.get("id") or row.get("sessionId"),
+            "sessionId": row.get("sessionId"),
+            "name": row.get("title"),
+            "meetingType": row.get("meetingType"),
+            "status": row.get("status"),
+            "roomCode": row.get("roomCode"),
+            "scheduledStartTime": row.get("scheduledStartTime"),
+            "participantCount": row.get("participantCount"),
+            "updatedAt": row.get("updatedAt") or row.get("updateTime"),
+        }
+
+    def _facility_result(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "type": "facility",
+            "id": row.get("id"),
+            "name": row.get("facilityName") or row.get("name"),
+            "facilityType": row.get("facilityType"),
+            "facilityTypeName": row.get("facilityTypeName"),
+            "location": row.get("location"),
+            "description": row.get("description"),
+            "longitude": row.get("longitude"),
+            "latitude": row.get("latitude"),
+            "status": row.get("status"),
+        }
+
+    def _marker_result(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "type": "facility",
+            "id": row.get("facilityId") or row.get("id"),
+            "markerId": row.get("markerId") or row.get("id"),
+            "name": row.get("facilityName") or row.get("name") or row.get("title"),
+            "facilityType": row.get("facilityType"),
+            "facilityTypeName": row.get("facilityTypeName"),
+            "location": row.get("location") or row.get("address"),
+            "description": row.get("description"),
+            "longitude": row.get("longitude"),
+            "latitude": row.get("latitude"),
+            "distance": row.get("distance"),
+        }
+
+    def _locate_result(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        name = row.get("facilityName") or row.get("name")
+        if not name:
+            return {}
+        return {
+            "type": "facility_location",
+            "id": row.get("facilityId") or row.get("id"),
+            "name": name,
+            "location": row.get("location") or row.get("address"),
+            "longitude": row.get("longitude"),
+            "latitude": row.get("latitude"),
+            "floor": row.get("floor"),
+            "building": row.get("building"),
+        }
+
+    def _secondhand_result(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "type": "secondhand_item",
+            "id": row.get("id"),
+            "name": row.get("title") or row.get("itemName"),
+            "category": row.get("categoryName"),
+            "price": row.get("price"),
+            "condition": row.get("condition") or row.get("conditionText"),
+            "status": row.get("status"),
+            "sellerName": row.get("sellerName") or row.get("publisherName"),
+            "location": row.get("location"),
+            "description": row.get("description"),
+            "viewCount": row.get("viewCount"),
+        }
+
+    def _dedupe_results(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        seen: set[str] = set()
+        deduped: List[Dict[str, Any]] = []
+        for row in rows:
+            key = f"{row.get('type')}:{row.get('id') or row.get('name')}"
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(row)
+        return deduped
 
     def _contains_keyword(self, keyword: str, *fields: Any) -> bool:
         for field in fields:

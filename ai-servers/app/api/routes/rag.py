@@ -130,6 +130,77 @@ GENERATED_CONTENT_TOOLS = [
     },
 ]
 
+CAMPUS_SERVICE_TOOLS = [
+    {
+        "name": "java_schedule_api",
+        "zhName": "课表查询工具",
+        "displayName": "课表查询工具（java_schedule_api）",
+        "category": "campus_service",
+        "purpose": "调用 Java 后端课表接口查询用户课程安排。",
+        "trigger": "用户询问今天/明天/本周有什么课、几点上课、课表安排。",
+        "outputs": ["schedule_text"],
+        "status": "implemented",
+        "configurable": True,
+    },
+    {
+        "name": "java_activity_api",
+        "zhName": "活动查询工具",
+        "displayName": "活动查询工具（java_activity_api）",
+        "category": "campus_service",
+        "purpose": "调用 Java 后端活动接口查询校园活动、讲座、比赛和报名信息。",
+        "trigger": "用户询问最近活动、讲座、比赛、报名活动或校园活动安排。",
+        "outputs": ["activity_list"],
+        "status": "implemented",
+        "configurable": True,
+    },
+    {
+        "name": "java_meeting_api",
+        "zhName": "会议查询工具",
+        "displayName": "会议查询工具（java_meeting_api）",
+        "category": "campus_service",
+        "purpose": "调用 Java 后端会议接口查询我的会议、预约会议和会议状态。",
+        "trigger": "用户询问我的会议、会议列表、会议状态、预约会议安排。",
+        "outputs": ["meeting_list"],
+        "status": "implemented",
+        "configurable": True,
+    },
+    {
+        "name": "java_canteen_api",
+        "zhName": "食堂餐饮查询工具",
+        "displayName": "食堂餐饮查询工具（java_canteen_api）",
+        "category": "campus_service",
+        "purpose": "调用 Java 后端食堂、档口、菜品和优惠接口查询餐饮信息。",
+        "trigger": "用户询问食堂、餐厅、档口、菜品、吃什么或餐饮优惠。",
+        "outputs": ["canteen_list"],
+        "status": "implemented",
+        "configurable": True,
+    },
+    {
+        "name": "java_facility_api",
+        "zhName": "设施位置查询工具",
+        "displayName": "设施位置查询工具（java_facility_api）",
+        "category": "campus_service",
+        "purpose": "调用 Java 后端设施和地图接口查询建筑、设施位置和定位信息。",
+        "trigger": "用户询问教学楼、宿舍、操场、食堂等设施在哪、位置、地图或导航。",
+        "outputs": ["facility_list", "location"],
+        "status": "implemented",
+        "configurable": True,
+    },
+    {
+        "name": "java_secondhand_api",
+        "zhName": "旧物查询工具",
+        "displayName": "旧物查询工具（java_secondhand_api）",
+        "category": "campus_service",
+        "purpose": "调用 Java 后端校园旧物接口查询二手、闲置、转让物品。",
+        "trigger": "用户询问旧物、二手、闲置、转让、买卖物品。",
+        "outputs": ["secondhand_list"],
+        "status": "implemented",
+        "configurable": True,
+    },
+]
+
+SERVICE_TOOL_NAMES = {tool["name"] for tool in CAMPUS_SERVICE_TOOLS}
+
 LEADER_CALLABLE_TOOLS = [
     {
         "name": "text_to_sql",
@@ -140,19 +211,9 @@ LEADER_CALLABLE_TOOLS = [
         "trigger": "用户询问优惠券、食堂、菜品、课程、课表等结构化数据的统计、数量、列表或排名。",
         "outputs": ["sql", "text"],
         "status": "implemented",
-        "configurable": False,
+        "configurable": True,
     },
-    {
-        "name": "java_schedule_api",
-        "zhName": "课表查询工具",
-        "displayName": "课表查询工具（java_schedule_api）",
-        "category": "java_backend",
-        "purpose": "调用 Java 后端课表接口查询用户课程安排。",
-        "trigger": "用户询问今天/明天/本周有什么课、几点上课、课表安排。",
-        "outputs": ["schedule_text"],
-        "status": "implemented",
-        "configurable": False,
-    },
+    *CAMPUS_SERVICE_TOOLS,
     {
         "name": "generated_export_tools",
         "zhName": "内容整理工具",
@@ -280,12 +341,19 @@ def get_rag_framework(
                 "status": "implemented",
             },
             {
+                "name": "campus_service_tools",
+                "category": "java_backend",
+                "purpose": "Leader 识别课表、活动、会议、食堂、设施位置、旧物查询意图后调用对应 Java 后端接口，且受后台工具开关控制。",
+                "status": "implemented",
+            },
+            {
                 "name": "profile_summary_agent",
                 "category": "profile",
                 "purpose": "汇总个人画像雷达图强弱、置信度、证据状态和补证建议。",
                 "status": "implemented",
             },
         ],
+        "serviceTools": CAMPUS_SERVICE_TOOLS,
         "generatedTools": GENERATED_CONTENT_TOOLS,
         "runtimeFolders": {
             "modelProviders": "app/model_providers",
@@ -366,6 +434,7 @@ def list_rag_agents(
     _require_authorization(authorization)
     catalog = get_agent_catalog()
     catalog["leaderTools"] = LEADER_CALLABLE_TOOLS
+    catalog["serviceTools"] = CAMPUS_SERVICE_TOOLS
     catalog["leaderCallableCatalog"] = _build_leader_callable_catalog()
     catalog["generatedTools"] = GENERATED_CONTENT_TOOLS
     return catalog
@@ -586,13 +655,15 @@ def _execute_leader_plan(
     if plan.action == "direct_answer":
         return _run_leader_direct_answer(plan, profile_context=profile_context)
     if plan.action == "call_tool":
+        if not _is_tool_enabled(request, plan.tool_name):
+            return _run_disabled_tool_response(request, plan.tool_name, leader_plan=plan)
         if plan.tool_name == "text_to_sql":
             return _run_text_to_sql_tool(request, plan)
-        if plan.tool_name == "java_schedule_api":
-            return _run_schedule_tool(request, authorization, plan)
+        if plan.tool_name in SERVICE_TOOL_NAMES:
+            return _run_service_tool(request, authorization, plan)
         if plan.tool_name == "generated_export_tools":
-            _require_tool_enabled(request, "generated_export_tools")
             return _run_generated_export_tool(request, plan)
+        raise HTTPException(status_code=502, detail=f"Leader 选择了未注册工具：{plan.tool_name or '空'}，已停止执行。")
 
     agent_profile = get_agent_profile(plan.target_agent)
     if not agent_profile:
@@ -1449,34 +1520,76 @@ def _format_text_to_sql_answer(metadata: Dict[str, Any]) -> str:
     )
 
 
-def _run_schedule_tool(request: RagQueryRequest, authorization: str, leader_plan) -> RagQueryResponse:
-    results = data_store.search_schedule(authorization, request.input)
-    retrieval_meta = {"javaBackendCount": len(results), "documentCount": 0}
-    documents = [_tool_result_to_document(item, index) for index, item in enumerate(results, start=1)]
-    if results:
-        lines = ["## 课表接口查询结果"]
-        for item in results[:8]:
-            lines.append(
-                f"- {item.get('weekdayText') or ''} {item.get('classSessions') or ''}："
-                f"{item.get('name') or item.get('courseName') or '课程'}"
-                f"（{item.get('location') or '地点待补充'}，{item.get('teacherName') or '教师待补充'}）"
-            )
-        answer = "\n".join(lines)
-    else:
-        answer = "Leader 已识别为课表查询，并调用 Java 后端课表接口，但当前没有返回可展示的课程数据。请确认 Java 服务和登录态是否正常。"
+def _run_disabled_tool_response(request: RagQueryRequest, tool_name: str, leader_plan) -> RagQueryResponse:
+    normalized = str(tool_name or "").strip()
+    display_name = _tool_display_name(normalized) or "目标工具"
+    answer = (
+        f"Leader 已识别到需要调用「{display_name}」；"
+        "但后台工具开关当前为关闭，所以本次已跳过，没有继续调用，也没有改用其他兜底能力。"
+    )
     metadata = {
         "agentName": "leader_agent",
-        "targetAgent": "java_schedule_api",
-        "executedAgent": "java_schedule_api",
+        "targetAgent": normalized,
+        "executedAgent": None,
+        "disabledTool": normalized,
+        "toolDisabled": True,
         "intent": leader_plan.intent,
         "needRetrieval": False,
         "retrievalSkipped": True,
         "leaderAction": leader_plan.action,
         "leaderActionLabel": _leader_action_label(leader_plan.action),
-        "toolName": leader_plan.tool_name,
-        "toolDisplayName": _tool_display_name(leader_plan.tool_name),
+        "toolName": normalized,
+        "toolDisplayName": display_name,
         "routeReason": leader_plan.route_reason,
-        "strategyLabel": "Java 课表接口",
+        "strategyLabel": "工具已关闭，跳过执行",
+        "executionMode": "leader_skipped_disabled_tool",
+        "executionModeLabel": "Leader 跳过已关闭工具",
+        "answerType": "text",
+        "toolToggles": _tool_toggles_from_request(request),
+    }
+    return _decorate_output_response(RagQueryResponse(
+        strategy="tool_disabled",
+        answer=answer,
+        answerType="text",
+        documents=[],
+        trace=[
+            RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+            RagTraceResponse(stage="tool_call", detail={
+                "toolName": normalized,
+                "toolDisplayName": display_name,
+                "reason": "tool_disabled",
+                "message": "后台工具开关关闭，跳过执行",
+            }),
+        ],
+        metadata=metadata,
+    ))
+
+
+def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan) -> RagQueryResponse:
+    tool_name = leader_plan.tool_name
+    results = data_store.search_service_tool(authorization, tool_name, request.input)
+    retrieval_meta = {"javaBackendCount": len(results), "documentCount": len(results)}
+    documents = [_tool_result_to_document(item, index) for index, item in enumerate(results, start=1)]
+    if results:
+        answer = _format_service_tool_answer(tool_name, results)
+    else:
+        answer = (
+            f"Leader 已识别为「{_tool_zh_name(tool_name)}」，并调用了对应 Java 后端接口；"
+            "但当前没有返回可展示的数据。请确认 Java 服务、登录态或该业务数据是否正常。"
+        )
+    metadata = {
+        "agentName": "leader_agent",
+        "targetAgent": tool_name,
+        "executedAgent": tool_name,
+        "intent": leader_plan.intent,
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "leaderAction": leader_plan.action,
+        "leaderActionLabel": _leader_action_label(leader_plan.action),
+        "toolName": tool_name,
+        "toolDisplayName": _tool_display_name(tool_name),
+        "routeReason": leader_plan.route_reason,
+        "strategyLabel": _strategy_label(tool_name),
         "executionMode": "leader_call_tool",
         "executionModeLabel": "Leader 调用 Java 后端接口",
         "answerType": "tool_result",
@@ -1484,16 +1597,66 @@ def _run_schedule_tool(request: RagQueryRequest, authorization: str, leader_plan
         **retrieval_meta,
     }
     return _decorate_output_response(RagQueryResponse(
-        strategy="java_schedule_api",
+        strategy=tool_name,
         answer=answer,
         answerType="tool_result",
         documents=documents,
         trace=[
             RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
-            RagTraceResponse(stage="tool_call", detail={"toolName": leader_plan.tool_name, "toolDisplayName": _tool_display_name(leader_plan.tool_name), **retrieval_meta}),
+            RagTraceResponse(stage="tool_call", detail={"toolName": tool_name, "toolDisplayName": _tool_display_name(tool_name), **retrieval_meta}),
         ],
         metadata=metadata,
     ))
+
+
+def _format_service_tool_answer(tool_name: str, results: List[Dict[str, Any]]) -> str:
+    title = _tool_zh_name(tool_name)
+    lines = [f"## {title}结果"]
+    for item in results[:8]:
+        lines.append(f"- {_format_service_tool_item(item)}")
+    if len(results) > 8:
+        lines.append(f"- 另有 {len(results) - 8} 条结果未展开。")
+    return "\n".join(lines)
+
+
+def _format_service_tool_item(item: Dict[str, Any]) -> str:
+    item_type = str(item.get("type") or "")
+    name = item.get("name") or item.get("courseName") or item.get("title") or "未命名"
+    if item_type == "course_schedule":
+        return (
+            f"{item.get('weekdayText') or ''} {item.get('classSessions') or ''}：{name}"
+            f"（{item.get('location') or '地点待补充'}，{item.get('teacherName') or '教师待补充'}）"
+        )
+    if item_type == "activity":
+        time_text = _join_non_empty(item.get("startTime"), item.get("endTime"), separator=" - ")
+        suffix = _join_non_empty(time_text, item.get("location"), item.get("organizerName"))
+        return f"{name}" + (f"（{suffix}）" if suffix else "")
+    if item_type == "meeting":
+        suffix = _join_non_empty(item.get("scheduledStartTime"), item.get("status"), item.get("roomCode"))
+        return f"{name}" + (f"（{suffix}）" if suffix else "")
+    if item_type in {"restaurant", "stall", "dish", "coupon"}:
+        suffix = _join_non_empty(item.get("location"), item.get("category"), item.get("avgPrice") or item.get("price") or item.get("pickupLocation"))
+        return f"{name}" + (f"（{suffix}）" if suffix else "")
+    if item_type in {"facility", "facility_location"}:
+        suffix = _join_non_empty(item.get("location"), item.get("facilityTypeName"), _coordinate_text(item))
+        return f"{name}" + (f"（{suffix}）" if suffix else "")
+    if item_type == "secondhand_item":
+        suffix = _join_non_empty(item.get("price"), item.get("condition"), item.get("sellerName"), item.get("location"))
+        return f"{name}" + (f"（{suffix}）" if suffix else "")
+    return str(name)
+
+
+def _join_non_empty(*values: Any, separator: str = "，") -> str:
+    parts = [str(value).strip() for value in values if value is not None and str(value).strip()]
+    return separator.join(parts)
+
+
+def _coordinate_text(item: Dict[str, Any]) -> str:
+    longitude = item.get("longitude")
+    latitude = item.get("latitude")
+    if longitude is None or latitude is None:
+        return ""
+    return f"{longitude},{latitude}"
 
 
 def _decorate_output_response(response: RagQueryResponse) -> RagQueryResponse:
@@ -1798,10 +1961,11 @@ def _file_name_from_url(url: str) -> str:
 
 def _tool_result_to_document(item: Dict[str, Any], index: int) -> RagDocumentResponse:
     content_parts = [
-        str(item.get("name") or item.get("courseName") or item.get("content") or "").strip(),
+        str(item.get("name") or item.get("courseName") or item.get("title") or item.get("content") or "").strip(),
         str(item.get("location") or "").strip(),
         str(item.get("teacherName") or "").strip(),
         str(item.get("classSessions") or "").strip(),
+        str(item.get("description") or "").strip(),
     ]
     content = " ".join(part for part in content_parts if part) or str(item)
     return RagDocumentResponse(
@@ -1835,7 +1999,12 @@ def _strategy_label(strategy_name: str) -> str:
     custom_labels = {
         "leader_direct_answer": "Leader 直接回答",
         "direct_agent": "直接处理",
-        "java_schedule_api": "Java 课表接口",
+        "java_schedule_api": "课表查询工具",
+        "java_activity_api": "活动查询工具",
+        "java_meeting_api": "会议查询工具",
+        "java_canteen_api": "食堂餐饮查询工具",
+        "java_facility_api": "设施位置查询工具",
+        "java_secondhand_api": "旧物查询工具",
         "generated_export_tools": "内容导出工具",
         "text_to_sql": "Text-to-SQL",
     }
@@ -1848,6 +2017,11 @@ def _tool_zh_name(tool_name: str) -> str:
     labels = {
         "text_to_sql": "结构化查询工具",
         "java_schedule_api": "课表查询工具",
+        "java_activity_api": "活动查询工具",
+        "java_meeting_api": "会议查询工具",
+        "java_canteen_api": "食堂餐饮查询工具",
+        "java_facility_api": "设施位置查询工具",
+        "java_secondhand_api": "旧物查询工具",
         "generated_export_tools": "内容整理工具",
         "markdown_export_tool": "Markdown 导出工具",
         "docx_export_tool": "Word 导出工具",

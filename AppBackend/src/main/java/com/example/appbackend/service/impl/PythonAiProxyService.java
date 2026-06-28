@@ -666,6 +666,18 @@ public class PythonAiProxyService {
             }
             copy.put("leaderTools", mergedLeaderTools);
         }
+        Object serviceToolsValue = sourceMap.get("serviceTools");
+        if (serviceToolsValue instanceof List<?> serviceToolsList) {
+            List<Object> mergedServiceTools = new ArrayList<>();
+            for (Object tool : serviceToolsList) {
+                mergedServiceTools.add(mergeToolEnabledState(tool, toolToggles));
+            }
+            copy.put("serviceTools", mergedServiceTools);
+        }
+        Object leaderCallableCatalogValue = sourceMap.get("leaderCallableCatalog");
+        if (leaderCallableCatalogValue instanceof Map<?, ?> leaderCallableCatalogMap) {
+            copy.put("leaderCallableCatalog", mergeLeaderCallableCatalogEnabledState(leaderCallableCatalogMap, toggles, toolToggles));
+        }
         copy.put("toolToggles", toolToggles);
         return copy;
     }
@@ -689,6 +701,40 @@ public class PythonAiProxyService {
         sourceMap.forEach((key, value) -> copy.put(String.valueOf(key), value));
         String toolName = String.valueOf(copy.getOrDefault("name", ""));
         copy.put("enabled", isToolEnabled(toolName, toggles));
+        return copy;
+    }
+
+    private Object mergeLeaderCallableCatalogEnabledState(
+            Map<?, ?> sourceMap,
+            Map<String, Boolean> agentToggles,
+            Map<String, Boolean> toolToggles
+    ) {
+        Map<String, Object> copy = new HashMap<>();
+        sourceMap.forEach((key, value) -> copy.put(String.valueOf(key), value));
+        Object agentsValue = sourceMap.get("agents");
+        if (agentsValue instanceof List<?> agentsList) {
+            List<Object> mergedAgents = new ArrayList<>();
+            for (Object agent : agentsList) {
+                mergedAgents.add(mergeAgentEnabledState(agent, agentToggles));
+            }
+            copy.put("agents", mergedAgents);
+        }
+        Object toolsValue = sourceMap.get("tools");
+        if (toolsValue instanceof List<?> toolsList) {
+            List<Object> mergedTools = new ArrayList<>();
+            for (Object tool : toolsList) {
+                mergedTools.add(mergeToolEnabledState(tool, toolToggles));
+            }
+            copy.put("tools", mergedTools);
+        }
+        Object contentToolsValue = sourceMap.get("contentTools");
+        if (contentToolsValue instanceof List<?> contentToolsList) {
+            List<Object> mergedContentTools = new ArrayList<>();
+            for (Object tool : contentToolsList) {
+                mergedContentTools.add(mergeToolEnabledState(tool, toolToggles));
+            }
+            copy.put("contentTools", mergedContentTools);
+        }
         return copy;
     }
 

@@ -180,6 +180,13 @@ function AgentSettings() {
     enabled: tool.configurable === false ? true : isToolEnabled(tool),
   })), [leaderTools])
 
+  const allConfiguredTools = useMemo(() => {
+    const map = new Map()
+    configuredLeaderTools.forEach((tool) => map.set(tool.name, tool))
+    configuredTools.forEach((tool) => map.set(tool.name, tool))
+    return Array.from(map.values())
+  }, [configuredLeaderTools, configuredTools])
+
   const leaderCallableAgents = useMemo(() => (
     configuredAgents.filter((agent) => agent.name !== 'leader_agent')
   ), [configuredAgents])
@@ -370,6 +377,21 @@ function AgentSettings() {
       ),
     },
     {
+      title: '开关',
+      dataIndex: 'enabled',
+      width: 100,
+      render: (value, record) => (
+        <Switch
+          checked={record.configurable === false || value !== false}
+          disabled={record.configurable === false}
+          loading={savingKey === `tool:${record.name}`}
+          checkedChildren="开"
+          unCheckedChildren="关"
+          onChange={(checked) => saveToolEnabled(record.name, checked)}
+        />
+      ),
+    },
+    {
       title: '输出',
       dataIndex: 'outputs',
       width: 150,
@@ -386,10 +408,10 @@ function AgentSettings() {
       dataIndex: 'trigger',
       ellipsis: true,
     },
-  ], [])
+  ], [saveToolEnabled, savingKey])
 
   const disabledAgentCount = configuredAgents.filter((item) => item.enabled === false).length
-  const disabledToolCount = configuredTools.filter((item) => item.enabled === false).length
+  const disabledToolCount = allConfiguredTools.filter((item) => item.enabled === false).length
   const boundCount = configuredAgents.filter((item) => item.boundModel).length
   const callableAgentCount = leaderCallableAgents.filter((item) => item.enabled !== false).length
   const callableToolCount = configuredLeaderTools.filter((item) => item.enabled !== false).length
@@ -431,7 +453,7 @@ function AgentSettings() {
         type="info"
         showIcon
         message="开关规则"
-        description="Leader 固定开启。其他智能体关闭后会被跳过；工具关闭后，Leader 不会调用，自动整理附件也只会生成仍开启的格式。"
+        description="Leader 固定开启。其他智能体关闭后会被跳过；校园服务工具关闭后，Leader 识别到也不会调用；内容整理工具关闭后，自动整理附件只会生成仍开启的格式。"
       />
 
       <Card
@@ -464,7 +486,7 @@ function AgentSettings() {
               dataSource={configuredLeaderTools}
               pagination={false}
               size="small"
-              scroll={{ x: 620 }}
+              scroll={{ x: 760 }}
             />
           </div>
         </div>

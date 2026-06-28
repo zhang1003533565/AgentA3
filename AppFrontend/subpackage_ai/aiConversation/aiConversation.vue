@@ -215,6 +215,11 @@ const AGENT_LABELS = {
 const TOOL_LABELS = {
   text_to_sql: '结构化查询工具',
   java_schedule_api: '课表查询工具',
+  java_activity_api: '活动查询工具',
+  java_meeting_api: '会议查询工具',
+  java_canteen_api: '食堂餐饮查询工具',
+  java_facility_api: '设施位置查询工具',
+  java_secondhand_api: '旧物查询工具',
   generated_export_tools: '内容整理工具',
   markdown_export_tool: 'Markdown 导出工具',
   docx_export_tool: 'Word 导出工具',

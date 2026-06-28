@@ -78,6 +78,10 @@ class LeaderAgent:
                 answer=self._callable_catalog_answer(callable_catalog),
             )
 
+        service_plan = self._plan_for_service_tool_intent(input_text, rag_strategy, callable_catalog)
+        if service_plan:
+            return service_plan
+
         return self._plan_with_llm(input_text, rag_strategy, chat_service, profile_context=profile_context, callable_catalog=callable_catalog)
 
     def _plan_with_rules(self, input_text: str, rag_strategy: str = "") -> LeaderPlan:
@@ -269,6 +273,80 @@ class LeaderAgent:
         domain_tokens = ("优惠券", "优惠", "满减", "食堂", "餐厅", "档口", "菜品", "课程", "课表")
         return any(token in normalized_text for token in query_tokens) and any(token in normalized_text for token in domain_tokens)
 
+    def _plan_for_service_tool_intent(
+        self,
+        input_text: str,
+        rag_strategy: str = "",
+        callable_catalog: Optional[Dict[str, Any]] = None,
+    ) -> Optional[LeaderPlan]:
+        normalized = (input_text or "").strip().lower()
+        if not normalized:
+            return None
+        catalog_tool_names = self._catalog_tool_names(callable_catalog)
+
+        def allow(tool_name: str) -> bool:
+            return not catalog_tool_names or tool_name in catalog_tool_names
+
+        def plan(tool_name: str, intent: str, reason: str) -> LeaderPlan:
+            return LeaderPlan(
+                intent=intent,
+                target_agent="leader_agent",
+                need_retrieval=False,
+                rag_strategy=rag_strategy if tool_name == "text_to_sql" else "",
+                action="call_tool",
+                tool_name=tool_name,
+                route_reason=reason,
+            )
+
+        schedule_tokens = ("课表", "课程安排", "有什么课", "上什么课", "有课吗", "几点上课", "下节课", "下一节课")
+        if allow("java_schedule_api") and (is_schedule_intent(input_text) or any(token in normalized for token in schedule_tokens)):
+            return plan("java_schedule_api", "schedule", "命中课表查询意图，调用课表查询工具。")
+
+        location_tokens = ("在哪", "哪里", "位置", "定位", "导航", "地图", "怎么走", "路线")
+        place_tokens = ("设施", "教学楼", "宿舍", "操场", "图书馆", "实验楼", "食堂", "餐厅", "楼", "馆")
+        if allow("java_facility_api") and any(token in normalized for token in location_tokens) and any(token in normalized for token in place_tokens):
+            return plan("java_facility_api", "facility_location", "命中设施位置/地图定位意图，调用设施位置查询工具。")
+
+        if allow("java_secondhand_api") and any(token in normalized for token in ("旧物", "二手", "闲置", "转让", "跳蚤", "卖二手", "买二手")):
+            return plan("java_secondhand_api", "secondhand_query", "命中校园旧物/二手物品查询意图，调用旧物查询工具。")
+
+        if allow("java_canteen_api") and any(token in normalized for token in ("食堂", "餐厅", "档口", "菜品", "吃什么", "吃饭", "午饭", "晚饭", "餐饮", "优惠券", "满减")):
+            return plan("java_canteen_api", "canteen_query", "命中食堂餐饮查询意图，调用食堂餐饮查询工具。")
+
+        meeting_exclusions = ("会议总结", "会议纪要", "会议摘要", "整理会议", "会议整理", "语音转写", "会议转写", "成员分析", "资源推荐", "会议总控", "流程调度")
+        meeting_query_tokens = ("查询", "查", "列表", "安排", "状态", "预约", "我的", "最近", "今天", "明天", "本周", "会议号")
+        if (
+            allow("java_meeting_api")
+            and "会议" in normalized
+            and not any(token in normalized for token in meeting_exclusions)
+            and any(token in normalized for token in meeting_query_tokens)
+        ):
+            return plan("java_meeting_api", "meeting_query", "命中会议查询/预约状态意图，调用会议查询工具。")
+
+        activity_exclusions = ("活动图", "任务活动图", "activity diagram", "泳道图")
+        activity_query_tokens = ("查询", "查", "列表", "安排", "报名", "最近", "今天", "明天", "本周", "有哪些", "有什么")
+        has_activity_domain = any(token in normalized for token in ("校园活动", "活动", "讲座", "比赛", "社团", "志愿"))
+        if (
+            allow("java_activity_api")
+            and has_activity_domain
+            and not any(token in normalized for token in activity_exclusions)
+            and (any(token in normalized for token in activity_query_tokens) or "讲座" in normalized or "比赛" in normalized)
+        ):
+            return plan("java_activity_api", "activity_query", "命中校园活动/讲座/比赛查询意图，调用活动查询工具。")
+
+        return None
+
+    def _catalog_tool_names(self, callable_catalog: Optional[Dict[str, Any]]) -> set[str]:
+        if not isinstance(callable_catalog, dict):
+            return set()
+        names = set()
+        for item in callable_catalog.get("tools", []):
+            if isinstance(item, dict):
+                name = str(item.get("name") or "").strip()
+                if name:
+                    names.add(name)
+        return names
+
     def _smalltalk_answer(self, input_text: str) -> str:
         normalized = (input_text or "").strip()
         if "谢谢" in normalized:
@@ -407,6 +485,8 @@ def build_leader_router_user_prompt(
             "用户要求题库表格或题库 Excel 时，仍先选择对应题型智能体生成严格题库 JSON，再由导出工具转换为 md/docx/xlsx/zip。",
             "用户要求 Mermaid 源文件、图表源码或后续编辑图表时，图表智能体返回 Mermaid 后会自动生成 mmd/md/zip 附件。",
             "如果用户已经提供了要导出的 Markdown、普通文本或标准题库 JSON，且只要求转成文件，可以直接 call_tool: generated_export_tools。",
+            "用户表达课表、活动、会议列表/状态、食堂餐饮、设施位置、旧物二手等查询意图时，优先选择 leader_callable_catalog.tools 中对应的 Java 后端服务工具，而不是编造答案。",
+            "会议纪要/总结/转写/成员分析仍属于会议专业智能体；活动图/流程图仍属于图表智能体，不要误判为校园活动查询。",
             "路由时只能选择 leader_callable_catalog 中 enabled=true 的 agents/tools；关闭项只可在 route_reason 中说明，不允许绕过后台配置。",
             "target_agent 必须来自 leader_callable_catalog.agents.name；tool_name 必须来自 leader_callable_catalog.tools.name。",
         ],

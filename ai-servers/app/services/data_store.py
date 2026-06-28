@@ -39,6 +39,9 @@ class DataStore:
     def search_schedule(self, authorization: str, input_text: str) -> List[Dict[str, Any]]:
         return self._retriever.search_schedule(authorization, input_text)
 
+    def search_service_tool(self, authorization: str, tool_name: str, input_text: str) -> List[Dict[str, Any]]:
+        return self._retriever.search_service_tool(authorization, tool_name, input_text)
+
     def search_keyword(self, authorization: str, keyword: str) -> List[Dict[str, Any]]:
         return self._retriever.search_keyword(authorization, keyword)
 
