@@ -43,7 +43,7 @@
 
 .agent-settings-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 18px;
 }
@@ -74,6 +74,10 @@
   border: 1px solid rgba(47, 88, 67, 0.1);
   border-radius: 18px;
   box-shadow: 0 14px 34px rgba(37, 58, 47, 0.08);
+}
+
+.agent-settings-card + .agent-settings-card {
+  margin-top: 18px;
 }
 
 .agent-settings-model {

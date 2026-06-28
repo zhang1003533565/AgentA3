@@ -296,6 +296,9 @@ class PythonAiProxyServiceTest {
                         if ("ai.agent-enabled.".equals(prefix)) {
                             return List.of();
                         }
+                        if ("ai.tool-enabled.".equals(prefix)) {
+                            return List.of();
+                        }
                         if ("ai.agent-bindings.".equals(prefix)) {
                             return List.of(
                                     systemConfig("ai.agent-bindings.leader_agent.model", systemConfigService.getValue("ai.agent-bindings.leader_agent.model", "")),

@@ -43,6 +43,21 @@ EXPORTABLE_DIAGRAM_ANSWER_TYPES = {
     "mermaid_architecture",
 }
 
+GENERATED_EXPORT_TOOL_NAME = "generated_export_tools"
+MARKDOWN_EXPORT_TOOL_NAME = "markdown_export_tool"
+DOCX_EXPORT_TOOL_NAME = "docx_export_tool"
+EXCEL_EXPORT_TOOL_NAME = "excel_export_tool"
+ARCHIVE_EXPORT_TOOL_NAME = "content_archive_tool"
+DIAGRAM_SOURCE_EXPORT_TOOL_NAME = "diagram_source_export_tool"
+KNOWN_EXPORT_TOOL_NAMES = {
+    GENERATED_EXPORT_TOOL_NAME,
+    MARKDOWN_EXPORT_TOOL_NAME,
+    DOCX_EXPORT_TOOL_NAME,
+    EXCEL_EXPORT_TOOL_NAME,
+    ARCHIVE_EXPORT_TOOL_NAME,
+    DIAGRAM_SOURCE_EXPORT_TOOL_NAME,
+}
+
 
 @dataclass
 class GeneratedExportResult:
@@ -59,6 +74,12 @@ def export_generated_answer(answer: str, answer_type: str, metadata: Optional[Di
         return GeneratedExportResult(diagnostics={"skipped": True, "reason": "empty_answer"})
     if not metadata.get("allowGeneratedExportTool") and (agent == "generated_export_tools" or normalized_type == "document_export"):
         return GeneratedExportResult(diagnostics={"skipped": True, "reason": "already_exported_by_generated_export_tools"})
+    if not _is_export_tool_enabled(metadata, GENERATED_EXPORT_TOOL_NAME):
+        return GeneratedExportResult(diagnostics={
+            "skipped": True,
+            "reason": "tool_disabled",
+            "disabledTool": GENERATED_EXPORT_TOOL_NAME,
+        })
 
     if normalized_type == "question_bank" or agent.startswith("textbook_question_"):
         payload = _parse_json_object(content)
@@ -86,29 +107,91 @@ def _should_export_markdown(answer_type: str, agent: str, metadata: Dict[str, An
     return False
 
 
+def _is_export_tool_enabled(metadata: Dict[str, Any], tool_name: str) -> bool:
+    toggles = metadata.get("toolToggles")
+    if not isinstance(toggles, dict):
+        return True
+    if tool_name not in toggles:
+        return True
+    return _parse_enabled_value(toggles.get(tool_name))
+
+
+def _parse_enabled_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = str(value or "").strip().lower()
+    return text not in {"0", "false", "off", "disabled", "no"}
+
+
+def _disabled_export_tools(metadata: Dict[str, Any]) -> List[str]:
+    toggles = metadata.get("toolToggles")
+    if not isinstance(toggles, dict):
+        return []
+    return [
+        name
+        for name in sorted(KNOWN_EXPORT_TOOL_NAMES)
+        if name in toggles and not _parse_enabled_value(toggles.get(name))
+    ]
+
+
+def _formats_from_attachments(attachments: List[Dict[str, Any]]) -> List[str]:
+    formats: List[str] = []
+    for attachment in attachments:
+        ext = str(attachment.get("ext") or "").strip().lower()
+        if ext and ext not in formats:
+            formats.append(ext)
+    return formats
+
+
+def _no_enabled_export_format_result(content_kind: str, metadata: Dict[str, Any], extra: Optional[Dict[str, Any]] = None) -> GeneratedExportResult:
+    diagnostics = {
+        "skipped": True,
+        "reason": "no_enabled_export_format",
+        "contentKind": content_kind,
+        "disabledTools": _disabled_export_tools(metadata),
+    }
+    if extra:
+        diagnostics.update(extra)
+    return GeneratedExportResult(diagnostics=diagnostics)
+
+
 def _export_question_bank(payload: Dict[str, Any], metadata: Dict[str, Any]) -> GeneratedExportResult:
     title = _title_from_metadata(metadata, "题库导出")
     slug = _slugify(title or "question-bank")
     markdown = _question_bank_to_markdown(payload, title)
     rows = _question_bank_rows(payload)
-    paths = [
-        _write_text_file(slug, "md", markdown),
-        _write_question_bank_docx(slug, title, payload),
-        _write_xlsx(slug, "题库", rows),
-    ]
-    attachments = [
-        _attachment_for_file(paths[0], "markdown_export_tool", "Markdown"),
-        _attachment_for_file(paths[1], "docx_export_tool", "Word 文档"),
-        _attachment_for_file(paths[2], "excel_export_tool", "Excel 表格"),
-        _attachment_for_file(_write_archive(slug, paths), "content_archive_tool", "打包文件"),
-    ]
+    paths: List[Path] = []
+    attachments: List[Dict[str, Any]] = []
+    if _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
+        path = _write_text_file(slug, "md", markdown)
+        paths.append(path)
+        attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown"))
+    if _is_export_tool_enabled(metadata, DOCX_EXPORT_TOOL_NAME):
+        path = _write_question_bank_docx(slug, title, payload)
+        paths.append(path)
+        attachments.append(_attachment_for_file(path, DOCX_EXPORT_TOOL_NAME, "Word 文档"))
+    if _is_export_tool_enabled(metadata, EXCEL_EXPORT_TOOL_NAME):
+        path = _write_xlsx(slug, "题库", rows)
+        paths.append(path)
+        attachments.append(_attachment_for_file(path, EXCEL_EXPORT_TOOL_NAME, "Excel 表格"))
+    if _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
+        attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件"))
+    if not attachments:
+        return _no_enabled_export_format_result(
+            "question_bank",
+            metadata,
+            {"questionCount": len(payload.get("questions") or [])},
+        )
     return GeneratedExportResult(
         attachments=attachments,
         diagnostics={
             "skipped": False,
             "contentKind": "question_bank",
             "questionCount": len(payload.get("questions") or []),
-            "producedFormats": ["md", "docx", "xlsx", "zip"],
+            "producedFormats": _formats_from_attachments(attachments),
+            "disabledTools": _disabled_export_tools(metadata),
         },
     )
 
@@ -117,26 +200,36 @@ def _export_markdown_content(content: str, metadata: Dict[str, Any]) -> Generate
     title = _title_from_markdown(content) or _title_from_metadata(metadata, "知识整理")
     slug = _slugify(title or "knowledge")
     rows = _markdown_rows(content)
-    paths = [
-        _write_text_file(slug, "md", content),
-        _write_markdown_docx(slug, title, content),
-    ]
-    if rows:
-        paths.append(_write_xlsx(slug, "知识清单", rows))
-    attachments = [
-        _attachment_for_file(paths[0], "markdown_export_tool", "Markdown"),
-        _attachment_for_file(paths[1], "docx_export_tool", "Word 文档"),
-    ]
-    if rows:
-        attachments.append(_attachment_for_file(paths[2], "excel_export_tool", "Excel 表格"))
-    attachments.append(_attachment_for_file(_write_archive(slug, paths), "content_archive_tool", "打包文件"))
+    paths: List[Path] = []
+    attachments: List[Dict[str, Any]] = []
+    if _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
+        path = _write_text_file(slug, "md", content)
+        paths.append(path)
+        attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown"))
+    if _is_export_tool_enabled(metadata, DOCX_EXPORT_TOOL_NAME):
+        path = _write_markdown_docx(slug, title, content)
+        paths.append(path)
+        attachments.append(_attachment_for_file(path, DOCX_EXPORT_TOOL_NAME, "Word 文档"))
+    if rows and _is_export_tool_enabled(metadata, EXCEL_EXPORT_TOOL_NAME):
+        path = _write_xlsx(slug, "知识清单", rows)
+        paths.append(path)
+        attachments.append(_attachment_for_file(path, EXCEL_EXPORT_TOOL_NAME, "Excel 表格"))
+    if _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
+        attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件"))
+    if not attachments:
+        return _no_enabled_export_format_result(
+            "markdown_content",
+            metadata,
+            {"itemCount": max(len(rows) - 1, 0)},
+        )
     return GeneratedExportResult(
         attachments=attachments,
         diagnostics={
             "skipped": False,
             "contentKind": "markdown_content",
             "itemCount": max(len(rows) - 1, 0),
-            "producedFormats": ["md", "docx", "xlsx", "zip"] if rows else ["md", "docx", "zip"],
+            "producedFormats": _formats_from_attachments(attachments),
+            "disabledTools": _disabled_export_tools(metadata),
         },
     )
 
@@ -146,21 +239,27 @@ def _export_diagram_source(content: str, metadata: Dict[str, Any]) -> GeneratedE
     slug = _slugify(title or "diagram-source")
     mermaid_code = _extract_mermaid_code(content) or str(content or "").strip()
     markdown = f"# {title or '图表源码'}\n\n```mermaid\n{mermaid_code}\n```\n"
-    paths = [
-        _write_text_file(slug, "mmd", mermaid_code.strip() + "\n"),
-        _write_text_file(f"{slug}-mermaid", "md", markdown),
-    ]
-    attachments = [
-        _attachment_for_file(paths[0], "diagram_source_export_tool", "Mermaid 源文件"),
-        _attachment_for_file(paths[1], "markdown_export_tool", "Markdown"),
-        _attachment_for_file(_write_archive(slug, paths), "content_archive_tool", "打包文件"),
-    ]
+    paths: List[Path] = []
+    attachments: List[Dict[str, Any]] = []
+    if _is_export_tool_enabled(metadata, DIAGRAM_SOURCE_EXPORT_TOOL_NAME):
+        path = _write_text_file(slug, "mmd", mermaid_code.strip() + "\n")
+        paths.append(path)
+        attachments.append(_attachment_for_file(path, DIAGRAM_SOURCE_EXPORT_TOOL_NAME, "Mermaid 源文件"))
+    if _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
+        path = _write_text_file(f"{slug}-mermaid", "md", markdown)
+        paths.append(path)
+        attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown"))
+    if _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
+        attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件"))
+    if not attachments:
+        return _no_enabled_export_format_result("diagram_source", metadata)
     return GeneratedExportResult(
         attachments=attachments,
         diagnostics={
             "skipped": False,
             "contentKind": "diagram_source",
-            "producedFormats": ["mmd", "md", "zip"],
+            "producedFormats": _formats_from_attachments(attachments),
+            "disabledTools": _disabled_export_tools(metadata),
         },
     )
 

@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Empty, Select, Space, Switch, Table, Tag, Typography, message } from 'antd'
-import { ReloadOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons'
+import { ReloadOutlined, SaveOutlined, SettingOutlined, ToolOutlined } from '@ant-design/icons'
 import { getRagAgents } from '../../../api/rag'
 import { getSystemConfigList, upsertSystemConfig } from '../../../api/systemConfig'
 import {
   AGENT_ENABLED_CONFIG_PREFIX,
+  TOOL_ENABLED_CONFIG_PREFIX,
   buildAgentModelBindings,
+  buildToolToggles,
   buildLlmModelOptions,
   getAgentModelRequirementText,
   getAgentRequiredModelModalities,
   isAgentEnabled,
+  isToolEnabled,
   MODEL_MODALITY_LABELS,
 } from '../agentConfig'
 import './AgentSettings.css'
@@ -20,6 +23,7 @@ function AgentSettings() {
   const [loading, setLoading] = useState(false)
   const [savingKey, setSavingKey] = useState('')
   const [agents, setAgents] = useState([])
+  const [tools, setTools] = useState([])
   const [llmModelOptions, setLlmModelOptions] = useState([])
   const [agentModelBindings, setAgentModelBindings] = useState({})
   const [draftBindings, setDraftBindings] = useState({})
@@ -32,12 +36,20 @@ function AgentSettings() {
         getSystemConfigList({
           current: 1,
           size: 500,
-          prefixes: 'ai.service.,ai.agent-bindings.,ai.agent-enabled.',
+          prefixes: 'ai.service.,ai.agent-bindings.,ai.agent-enabled.,ai.tool-enabled.',
         }),
       ])
       const configRows = configRes.data?.records || []
       const nextBindings = buildAgentModelBindings(configRows)
+      const nextToolToggles = buildToolToggles(configRows)
       setAgents(agentRes.data?.agents || [])
+      setTools((agentRes.data?.generatedTools || []).map((tool) => {
+        const hasConfiguredValue = Object.prototype.hasOwnProperty.call(nextToolToggles, tool.name)
+        return {
+          ...tool,
+          enabled: hasConfiguredValue ? nextToolToggles[tool.name] : tool.enabled !== false,
+        }
+      }))
       setLlmModelOptions(buildLlmModelOptions(configRows))
       setAgentModelBindings(nextBindings)
       setDraftBindings(nextBindings)
@@ -108,6 +120,28 @@ function AgentSettings() {
     }
   }, [draftBindings])
 
+  const saveToolEnabled = useCallback(async (toolName, enabled) => {
+    setSavingKey(`tool:${toolName}`)
+    try {
+      await upsertSystemConfig({
+        configKey: `${TOOL_ENABLED_CONFIG_PREFIX}${toolName}`,
+        configValue: enabled ? '1' : '0',
+        configGroup: 'ai',
+        description: `工具 ${toolName} 启用开关`,
+        status: 1,
+        isDefault: 0,
+      })
+      setTools((prev) => prev.map((item) => (
+        item.name === toolName ? { ...item, enabled } : item
+      )))
+      message.success(enabled ? '工具已开启，Leader 可调用' : '工具已关闭，Leader 不会调用')
+    } catch (error) {
+      message.error(error.message || '工具开关保存失败')
+    } finally {
+      setSavingKey('')
+    }
+  }, [])
+
   const configuredAgents = useMemo(() => agents.map((agent) => {
     const enabled = isAgentEnabled(agent)
     const boundModel = agentModelBindings[agent.name] || ''
@@ -118,6 +152,11 @@ function AgentSettings() {
       modelChanged: (draftBindings[agent.name] || '') !== boundModel,
     }
   }), [agents, agentModelBindings, draftBindings])
+
+  const configuredTools = useMemo(() => tools.map((tool) => ({
+    ...tool,
+    enabled: isToolEnabled(tool),
+  })), [tools])
 
   const columns = useMemo(() => [
     {
@@ -195,7 +234,58 @@ function AgentSettings() {
     },
   ], [draftBindings, getModelOptionsForAgent, saveAgentEnabled, saveAgentModelBinding, savingKey])
 
-  const disabledCount = configuredAgents.filter((item) => item.enabled === false).length
+  const toolColumns = useMemo(() => [
+    {
+      title: '工具',
+      dataIndex: 'name',
+      width: 260,
+      render: (value, record) => (
+        <Space direction="vertical" size={4}>
+          <Tag color={record.name === 'generated_export_tools' ? 'purple' : 'cyan'}>{value}</Tag>
+          <Text type="secondary">{record.category}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '开关',
+      dataIndex: 'enabled',
+      width: 120,
+      render: (value, record) => (
+        <Switch
+          checked={value !== false}
+          loading={savingKey === `tool:${record.name}`}
+          checkedChildren="开"
+          unCheckedChildren="关"
+          onChange={(checked) => saveToolEnabled(record.name, checked)}
+        />
+      ),
+    },
+    {
+      title: '输出',
+      dataIndex: 'outputs',
+      width: 180,
+      render: (outputs) => (
+        <Space size={[6, 6]} wrap>
+          {(Array.isArray(outputs) ? outputs : []).map((item) => (
+            <Tag color="blue" key={item}>{String(item).toUpperCase()}</Tag>
+          ))}
+        </Space>
+      ),
+    },
+    {
+      title: '触发条件',
+      dataIndex: 'trigger',
+      ellipsis: true,
+    },
+    {
+      title: '作用',
+      dataIndex: 'purpose',
+      ellipsis: true,
+    },
+  ], [saveToolEnabled, savingKey])
+
+  const disabledAgentCount = configuredAgents.filter((item) => item.enabled === false).length
+  const disabledToolCount = configuredTools.filter((item) => item.enabled === false).length
   const boundCount = configuredAgents.filter((item) => item.boundModel).length
 
   return (
@@ -204,7 +294,7 @@ function AgentSettings() {
         <div>
           <span className="agent-settings-kicker">AGENT SETTINGS</span>
           <Title level={1}>智能体设置</Title>
-          <p>集中维护智能体开关和默认模型。测试页只负责试跑；这里的配置会影响 Leader 后续路由与专业智能体调用。</p>
+          <p>集中维护智能体开关、默认模型和内容整理工具。测试页只负责试跑；这里的配置会影响 Leader 后续路由、专业智能体调用和附件生成。</p>
         </div>
         <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading}>
           刷新状态
@@ -222,7 +312,11 @@ function AgentSettings() {
         </Card>
         <Card>
           <Text type="secondary">已关闭</Text>
-          <strong>{disabledCount}</strong>
+          <strong>{disabledAgentCount}</strong>
+        </Card>
+        <Card>
+          <Text type="secondary">关闭工具</Text>
+          <strong>{disabledToolCount}</strong>
         </Card>
       </div>
 
@@ -231,7 +325,7 @@ function AgentSettings() {
         type="info"
         showIcon
         message="开关规则"
-        description="Leader 固定开启。其他智能体关闭后，Leader 识别到需要调用它时会直接跳过并返回提示，不会绕过后台配置继续执行。"
+        description="Leader 固定开启。其他智能体关闭后会被跳过；工具关闭后，Leader 不会调用，自动整理附件也只会生成仍开启的格式。"
       />
 
       <Card
@@ -249,6 +343,24 @@ function AgentSettings() {
           />
         ) : (
           <Empty description="暂无智能体配置" />
+        )}
+      </Card>
+
+      <Card
+        className="agent-settings-card"
+        title={<Space><ToolOutlined />内容整理工具</Space>}
+      >
+        {configuredTools.length ? (
+          <Table
+            rowKey="name"
+            loading={loading}
+            columns={toolColumns}
+            dataSource={configuredTools}
+            pagination={false}
+            scroll={{ x: 1040 }}
+          />
+        ) : (
+          <Empty description="暂无工具配置" />
         )}
       </Card>
     </div>

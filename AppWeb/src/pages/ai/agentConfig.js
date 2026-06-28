@@ -1,6 +1,7 @@
 export const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.(text|image|video|audio)(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
 export const AGENT_MODEL_BINDING_PATTERN = /^ai\.agent-bindings\.([A-Za-z0-9_-]+)\.model$/
 export const AGENT_ENABLED_CONFIG_PREFIX = 'ai.agent-enabled.'
+export const TOOL_ENABLED_CONFIG_PREFIX = 'ai.tool-enabled.'
 export const AI_TESTED_MODEL_PREFIXES_KEY = 'ai_tested_model_prefixes_v1'
 export const AI_TESTED_MODEL_IDS_KEY = 'ai_tested_model_ids_v1'
 
@@ -77,6 +78,26 @@ export const buildAgentModelBindings = (configRows = []) => {
   return bindings
 }
 
+const parseEnabledConfigValue = (value) => {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value !== 0
+  const normalized = String(value ?? '').trim().toLowerCase()
+  return !['0', 'false', 'off', 'disabled', 'no'].includes(normalized)
+}
+
+export const buildToolToggles = (configRows = []) => {
+  const toggles = {}
+  configRows.forEach((item) => {
+    const key = String(item.configKey || '')
+    if (!key.startsWith(TOOL_ENABLED_CONFIG_PREFIX)) return
+    const toolName = key.slice(TOOL_ENABLED_CONFIG_PREFIX.length).trim()
+    if (toolName) {
+      toggles[toolName] = parseEnabledConfigValue(item.configValue)
+    }
+  })
+  return toggles
+}
+
 export const getAgentRequiredModelModalities = (agent) => {
   const modalities = Array.isArray(agent?.requiredModelModalities) ? agent.requiredModelModalities : []
   return modalities.length ? modalities : ['text']
@@ -89,3 +110,5 @@ export const getAgentModelRequirementText = (agent) => (
 )
 
 export const isAgentEnabled = (agent) => !agent || agent.name === 'leader_agent' || agent.enabled !== false
+
+export const isToolEnabled = (tool) => !tool || tool.enabled !== false

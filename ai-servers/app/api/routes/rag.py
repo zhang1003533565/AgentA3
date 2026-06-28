@@ -69,6 +69,14 @@ class AgentExecutionError(Exception):
 
 GENERATED_CONTENT_TOOLS = [
     {
+        "name": "generated_export_tools",
+        "category": "content_export",
+        "purpose": "内容整理工具总开关。关闭后 Leader 不会调用导出整理能力，自动附件整理也会停止。",
+        "trigger": "用户要求文件版、文档版、表格版、源码版，或智能体生成结果适合沉淀为附件。",
+        "outputs": ["md", "docx", "xlsx", "mmd", "zip"],
+        "status": "implemented",
+    },
+    {
         "name": "markdown_export_tool",
         "category": "content_export",
         "purpose": "把知识点、会议纪要、PPT 大纲、题库等生成结果保存为 Markdown 阅读文件。",
@@ -308,7 +316,9 @@ def list_rag_agents(
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ) -> Dict[str, Any]:
     _require_authorization(authorization)
-    return get_agent_catalog()
+    catalog = get_agent_catalog()
+    catalog["generatedTools"] = GENERATED_CONTENT_TOOLS
+    return catalog
 
 
 @router.get("/agents/{agent_name}")
@@ -523,6 +533,7 @@ def _execute_leader_plan(
         if plan.tool_name == "java_schedule_api":
             return _run_schedule_tool(request, authorization, plan)
         if plan.tool_name == "generated_export_tools":
+            _require_tool_enabled(request, "generated_export_tools")
             return _run_generated_export_tool(request, plan)
 
     agent_profile = get_agent_profile(plan.target_agent)
@@ -641,6 +652,28 @@ def _parse_agent_enabled_value(value: Any) -> bool:
         return value != 0
     text = str(value or "").strip().lower()
     return text not in {"0", "false", "off", "disabled", "no"}
+
+
+def _tool_toggles_from_request(request: RagQueryRequest) -> Dict[str, Any]:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    toggles = metadata.get("toolToggles")
+    return toggles if isinstance(toggles, dict) else {}
+
+
+def _is_tool_enabled(request: RagQueryRequest, tool_name: str) -> bool:
+    normalized = str(tool_name or "").strip()
+    if not normalized:
+        return True
+    toggles = _tool_toggles_from_request(request)
+    if normalized not in toggles:
+        return True
+    return _parse_agent_enabled_value(toggles.get(normalized))
+
+
+def _require_tool_enabled(request: RagQueryRequest, tool_name: str) -> None:
+    if _is_tool_enabled(request, tool_name):
+        return
+    raise HTTPException(status_code=403, detail=f"工具 {tool_name} 已在后台关闭，Leader 本次不会调用。")
 
 
 def _run_disabled_agent_response(
@@ -907,6 +940,7 @@ def _run_agent_without_local_retrieval(
         "answerType": answer_type,
         "profileContextUsed": bool(profile_evidence),
         "outputPreferenceHints": _output_preference_hints_from_request(request),
+        "toolToggles": _tool_toggles_from_request(request),
         **model_metadata,
     }
     if leader_plan:
@@ -996,6 +1030,7 @@ def _run_direct_agent(
         "answerType": answer_type,
         "profileContextUsed": bool(profile_evidence),
         "outputPreferenceHints": _output_preference_hints_from_request(request),
+        "toolToggles": _tool_toggles_from_request(request),
         **model_metadata,
     }
     if leader_plan:
@@ -1194,6 +1229,7 @@ def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResp
         "executionMode": "leader_call_tool",
         "executionModeLabel": "Leader 调用 Text-to-SQL 接口",
         "answerType": "tool_result",
+        "toolToggles": _tool_toggles_from_request(request),
     })
     trace = [
         RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
@@ -1228,11 +1264,18 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
         "answerType": "document_export",
         "requestedOutputType": "document",
         "allowGeneratedExportTool": True,
+        "toolToggles": _tool_toggles_from_request(request),
     }
     parsed_input = _try_parse_json_object(request.input)
     export_answer_type = "question_bank" if isinstance(parsed_input.get("questions"), list) else "markdown"
     export_result = export_generated_answer(request.input, export_answer_type, metadata)
     if not export_result.attachments:
+        reason = export_result.diagnostics.get("reason") if isinstance(export_result.diagnostics, dict) else ""
+        if reason == "tool_disabled":
+            disabled_tool = export_result.diagnostics.get("disabledTool") or "generated_export_tools"
+            raise HTTPException(status_code=403, detail=f"工具 {disabled_tool} 已在后台关闭，Leader 本次不会调用。")
+        if reason == "no_enabled_export_format":
+            raise HTTPException(status_code=403, detail="当前没有开启可生成的附件格式，Leader 本次不会调用内容整理工具。")
         raise HTTPException(status_code=400, detail="当前内容无法导出，请提供 Markdown 文本或标准题库 JSON")
     metadata["generatedExports"] = export_result.diagnostics
     metadata.pop("allowGeneratedExportTool", None)
@@ -1302,6 +1345,7 @@ def _run_schedule_tool(request: RagQueryRequest, authorization: str, leader_plan
         "executionMode": "leader_call_tool",
         "executionModeLabel": "Leader 调用 Java 后端接口",
         "answerType": "tool_result",
+        "toolToggles": _tool_toggles_from_request(request),
         **retrieval_meta,
     }
     return _decorate_output_response(RagQueryResponse(

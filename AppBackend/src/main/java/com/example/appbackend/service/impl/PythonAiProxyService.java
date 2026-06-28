@@ -38,6 +38,7 @@ public class PythonAiProxyService {
     private static final String DEFAULT_AGENT_NAME = "leader_agent";
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
     private static final String AGENT_ENABLED_PREFIX = "ai.agent-enabled.";
+    private static final String TOOL_ENABLED_PREFIX = "ai.tool-enabled.";
 
     private final WebClient.Builder webClientBuilder;
     private final ObjectMapper objectMapper;
@@ -600,6 +601,7 @@ public class PythonAiProxyService {
         }
         metadata.put("agentToggles", loadAgentToggles());
         metadata.put("agentModelConfigs", loadAgentModelConfigs());
+        metadata.put("toolToggles", loadToolToggles());
         copy.put("metadata", metadata);
         return copy;
     }
@@ -633,6 +635,7 @@ public class PythonAiProxyService {
 
     private Object withAgentEnabledState(Object source) {
         Map<String, Boolean> toggles = loadAgentToggles();
+        Map<String, Boolean> toolToggles = loadToolToggles();
         if (!(source instanceof Map<?, ?> sourceMap)) {
             return source;
         }
@@ -647,6 +650,15 @@ public class PythonAiProxyService {
             copy.put("agents", mergedAgents);
         }
         copy.put("agentToggles", toggles);
+        Object toolsValue = sourceMap.get("generatedTools");
+        if (toolsValue instanceof List<?> toolsList) {
+            List<Object> mergedTools = new ArrayList<>();
+            for (Object tool : toolsList) {
+                mergedTools.add(mergeToolEnabledState(tool, toolToggles));
+            }
+            copy.put("generatedTools", mergedTools);
+        }
+        copy.put("toolToggles", toolToggles);
         return copy;
     }
 
@@ -658,6 +670,17 @@ public class PythonAiProxyService {
         sourceMap.forEach((key, value) -> copy.put(String.valueOf(key), value));
         String agentName = String.valueOf(copy.getOrDefault("name", ""));
         copy.put("enabled", isAgentEnabled(agentName, toggles));
+        return copy;
+    }
+
+    private Object mergeToolEnabledState(Object source, Map<String, Boolean> toggles) {
+        if (!(source instanceof Map<?, ?> sourceMap)) {
+            return source;
+        }
+        Map<String, Object> copy = new HashMap<>();
+        sourceMap.forEach((key, value) -> copy.put(String.valueOf(key), value));
+        String toolName = String.valueOf(copy.getOrDefault("name", ""));
+        copy.put("enabled", isToolEnabled(toolName, toggles));
         return copy;
     }
 
@@ -678,11 +701,34 @@ public class PythonAiProxyService {
         return toggles;
     }
 
+    private Map<String, Boolean> loadToolToggles() {
+        Map<String, Boolean> toggles = new HashMap<>();
+        systemConfigRepository.findByConfigKeyStartingWithAndStatus(TOOL_ENABLED_PREFIX, 1)
+                .forEach(config -> {
+                    String key = config.getConfigKey();
+                    if (!StringUtils.hasText(key) || key.length() <= TOOL_ENABLED_PREFIX.length()) {
+                        return;
+                    }
+                    String toolName = key.substring(TOOL_ENABLED_PREFIX.length()).trim();
+                    if (StringUtils.hasText(toolName)) {
+                        toggles.put(toolName, parseEnabledValue(config.getConfigValue()));
+                    }
+                });
+        return toggles;
+    }
+
     private boolean isAgentEnabled(String agentName, Map<String, Boolean> toggles) {
         if (!StringUtils.hasText(agentName) || DEFAULT_AGENT_NAME.equals(agentName)) {
             return true;
         }
         return toggles.getOrDefault(agentName, true);
+    }
+
+    private boolean isToolEnabled(String toolName, Map<String, Boolean> toggles) {
+        if (!StringUtils.hasText(toolName)) {
+            return true;
+        }
+        return toggles.getOrDefault(toolName, true);
     }
 
     private boolean parseEnabledValue(String value) {
