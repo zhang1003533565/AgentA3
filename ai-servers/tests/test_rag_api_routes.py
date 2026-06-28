@@ -712,6 +712,54 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertIn("Python程序设计", payload["answer"])
         self.assertNotIn("哪门课", payload["answer"])
 
+    def test_leader_does_not_override_explicit_no_class_intent_with_context_subject(self):
+        rag_routes = importlib.import_module("app.api.routes.rag")
+        old_search_service_tool = rag_routes.data_store.search_service_tool
+        calls = []
+        session_id = "ctx-no-class-intent"
+        try:
+            def fake_search_service_tool(authorization, tool_name, query):
+                calls.append((authorization, tool_name, query))
+                if "没有课" in query or "没课" in query or "有课吗" in query:
+                    return []
+                return [{
+                    "type": "course_schedule_summary",
+                    "name": "深度学习",
+                    "semesterLabel": "2025-2026 第 2 学期",
+                    "teacherName": "赵明皓",
+                    "scheduleItems": ["周一 1-2节 明德楼阶梯110"],
+                }]
+
+            rag_routes.data_store.search_service_tool = fake_search_service_tool
+            first = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={
+                    "input": "深度学习什么时候上课",
+                    "agentName": "leader_agent",
+                    "metadata": {"sessionId": session_id},
+                },
+            )
+            second = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={
+                    "input": "从什么时候开始没有课的",
+                    "agentName": "leader_agent",
+                    "metadata": {"sessionId": session_id},
+                },
+            )
+        finally:
+            rag_routes.data_store.search_service_tool = old_search_service_tool
+
+        self.assertEqual(200, first.status_code)
+        self.assertEqual(200, second.status_code)
+        payload = second.json()
+        self.assertEqual("java_schedule_api", payload["metadata"]["toolName"])
+        self.assertNotIn("contextualizedInput", payload["metadata"])
+        self.assertEqual("从什么时候开始没有课的", calls[-1][2])
+        self.assertNotIn("深度学习", calls[-1][2])
+
     def test_removed_md_agent_is_rejected(self):
         response = self.client.post(
             "/internal/rag/query",
@@ -819,11 +867,19 @@ class FakeRagModelProvider:
                     "如果需要，我可以继续帮你筛选其他菜品。"
                 )
             if payload.get("answer_policy", {}).get("mode") == "course_time":
+                rows = payload.get("tool_results") or [{}]
+                first = rows[0] if isinstance(rows[0], dict) else {}
+                name = first.get("name") or "Python程序设计"
+                semester = first.get("semesterLabel") or "2025-2026 第 2 学期"
+                teacher = first.get("teacherName") or "范晶晶"
+                schedule_items = first.get("scheduleItems") if isinstance(first.get("scheduleItems"), list) else []
+                schedule_text = schedule_items[0] if schedule_items else "周三 1-2节（第3周、第8-10周双周、第11-12周）；地点：明德楼阶梯110"
+                prefix = "当前学期没查到，已自动扩大到所有学期。\n" if first.get("queryScope") == "all_semesters_fallback" else ""
                 return (
-                    "**课程名：Python程序设计**\n"
+                    f"{prefix}**课程名：{name}**\n"
                     "---\n"
-                    "**学期：2025-2026 第 2 学期**\n"
-                    "理论课（范晶晶）：周三 1-2节（第3周、第8-10周双周、第11-12周）；地点：明德楼阶梯110\n"
+                    f"**学期：{semester}**\n"
+                    f"理论课（{teacher}）：{schedule_text}\n"
                     "你需要的是哪部分的具体信息？"
                 )
             if payload.get("answer_policy", {}).get("mode") == "course_count":
@@ -872,10 +928,11 @@ class FakeRagModelProvider:
                 "route_reason": "LLM 根据启用工具清单选择食堂餐饮查询工具。",
                 "answer": "正在为你查询食堂餐饮信息。",
             }
-        if "课表" in text or "有什么课" in text or "老师是谁" in text or "谁教" in text or "几节课" in text or "几次课" in text or "上几次" in text or "多少次课" in text or "什么时候" in text:
+        if "课表" in text or "有什么课" in text or "有课吗" in text or "没有课" in text or "没课" in text or "老师是谁" in text or "谁教" in text or "几节课" in text or "几次课" in text or "上几次" in text or "多少次课" in text or "什么时候" in text:
+            schedule_status_query = "有课吗" in text or "没有课" in text or "没课" in text
             teacher_query = "老师是谁" in text or "谁教" in text
             count_query = "几节课" in text or "几次课" in text or "上几次" in text or "多少次课" in text
-            time_query = "什么时候" in text
+            time_query = "什么时候" in text and not schedule_status_query
             return {
                 "intent": "course_teacher" if teacher_query else ("course_count" if count_query else ("course_time" if time_query else "schedule")),
                 "target_agent": "leader_agent",

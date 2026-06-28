@@ -143,6 +143,18 @@ def parse_schedule_course_keyword(text: str) -> Optional[str]:
     candidate = normalize_text(text)
     if not candidate:
         return None
+    direct_patterns = [
+        r"(?:请问|帮我查一下|查一下|查询|想知道)?(.+?)(?:是)?(?:什么时候|什么时间|哪天|周几|几点)(?:上|学)",
+        r"(?:请问|帮我查一下|查一下|查询|想知道)?(?:我)?(?:上过|学过)(.+?)(?:吗|么)?$",
+        r"(?:请问|帮我查一下|查一下|查询|想知道)?(.+?)(?:我)?(?:上过|学过)(?:吗|么)?$",
+    ]
+    for pattern in direct_patterns:
+        match = re.search(pattern, candidate)
+        if not match:
+            continue
+        extracted = _clean_course_keyword_candidate(match.group(1) or "")
+        if extracted:
+            return extracted
     cleanup_patterns = [
         r"第\d+周",
         r"第?\d+(?:[-到至]\d+)?节",
@@ -162,12 +174,13 @@ def parse_schedule_course_keyword(text: str) -> Optional[str]:
         "这门课", "课程", "这门", "课",
         "老师是谁", "教师是谁", "任课老师", "授课老师", "任课教师", "授课教师",
         "哪个老师", "哪位老师", "谁教", "谁上的",
-        "什么时候上", "什么时候", "几点上", "几点", "在哪上", "在哪里上", "在哪", "哪里",
+        "什么时候上", "什么时候", "什么时间", "几点上", "几点", "在哪上", "在哪里上", "在哪", "哪里",
+        "我上过", "我学过", "上过", "学过", "上的呢", "学的呢", "上的", "学的", "上吗", "学吗", "吗", "呢", "是",
         "地点", "教室", "上课安排", "安排",
     )
     for token in noise_tokens:
         candidate = candidate.replace(token, "")
-    candidate = candidate.strip()
+    candidate = _clean_course_keyword_candidate(candidate)
     if not candidate:
         return None
     if candidate in {"老师", "教师", "课程", "课表", "本学期", "当前学期", "所有学期"}:
@@ -177,6 +190,18 @@ def parse_schedule_course_keyword(text: str) -> Optional[str]:
     if len(candidate) >= 2:
         return candidate[:40]
     return None
+
+
+def _clean_course_keyword_candidate(candidate: str) -> str:
+    text = (candidate or "").strip()
+    text = re.sub(r"^(请问|帮我查一下|查一下|查询|想知道|一下|我想知道|我想问)", "", text)
+    text = re.sub(r"(这门课|课程|课|吗|么|呢|呀|啊)$", "", text)
+    text = text.strip()
+    if len(text) % 2 == 0:
+        half = len(text) // 2
+        if half >= 2 and text[:half] == text[half:]:
+            text = text[:half]
+    return text[:40]
 
 
 def is_smalltalk_intent(text: str) -> bool:

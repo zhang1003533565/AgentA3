@@ -717,6 +717,8 @@ def _bounded_conversation_context(context: Dict[str, Any]) -> Dict[str, Any]:
 def _contextualize_followup_input(input_text: str, context: Dict[str, Any]) -> str:
     text = str(input_text or "").strip()
     compact = normalize_text(text)
+    if _has_explicit_current_schedule_intent(compact):
+        return text
     if not text or not _is_contextual_followup(compact):
         return text
     subject = _latest_context_subject(context)
@@ -744,6 +746,20 @@ def _is_contextual_followup(compact_text: str) -> bool:
         "这个呢", "它呢", "那上", "上次呢",
     )
     return len(compact_text) <= 18 and any(token in compact_text for token in followup_tokens)
+
+
+def _has_explicit_current_schedule_intent(compact_text: str) -> bool:
+    if not compact_text:
+        return False
+    no_class_tokens = (
+        "没有课", "没课", "无课", "不用上课", "不上课",
+        "有课吗", "有没有课", "还有课吗", "哪天没课", "哪天没有课",
+        "什么时候开始没有课", "从什么时候开始没有课", "什么时候没课", "什么时候没有课",
+    )
+    time_scope_tokens = ("今天", "明天", "后天", "本周", "这周", "下周", "第")
+    if any(token in compact_text for token in no_class_tokens):
+        return True
+    return any(token in compact_text for token in time_scope_tokens) and any(token in compact_text for token in ("有课", "没课", "没有课", "课吗"))
 
 
 def _latest_context_subject(context: Dict[str, Any]) -> str:

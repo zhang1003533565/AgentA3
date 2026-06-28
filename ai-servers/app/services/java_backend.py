@@ -11,6 +11,7 @@ from app.utils.text_utils import (
     format_weekday,
     is_all_semester_schedule_query,
     is_semester_schedule_query,
+    normalize_text,
     parse_requested_date,
     parse_requested_session,
     parse_requested_week,
@@ -96,6 +97,16 @@ class JavaBackendRetriever:
         if not isinstance(schedules, list):
             return []
 
+        query_scope = "all_semesters" if all_semester_scope else "current_semester"
+        fallback_reason = ""
+        if course_lookup_scope and not all_semester_scope and not self._has_course_keyword_match(schedules, course_keyword):
+            fallback_payload = self._get_json("/api/schedule", authorization, params={"allSemesters": "true"})
+            fallback_schedules = self._extract_result_data(fallback_payload)
+            if isinstance(fallback_schedules, list):
+                schedules = fallback_schedules
+                query_scope = "all_semesters_fallback"
+                fallback_reason = "current_semester_no_course_match"
+
         if requested_weekday is not None:
             schedules = [item for item in schedules if item.get("weekday") == requested_weekday]
         if semester_scope and requested_week is not None:
@@ -105,7 +116,17 @@ class JavaBackendRetriever:
 
         schedules.sort(key=lambda item: ((item.get("weekday") or 99), parse_session_start(item.get("classSessions"))))
         if semester_scope or course_lookup_scope:
-            return self._semester_course_results(schedules, include_semester=all_semester_scope)
+            results = self._semester_course_results(
+                schedules,
+                include_semester=all_semester_scope or query_scope == "all_semesters_fallback",
+            )
+            if query_scope != "current_semester":
+                for item in results:
+                    item["queryScope"] = query_scope
+                    if fallback_reason:
+                        item["fallbackReason"] = fallback_reason
+                        item["currentSemesterMatched"] = False
+            return results
 
         results: List[Dict[str, Any]] = []
         for row in schedules[:12]:
@@ -160,6 +181,16 @@ class JavaBackendRetriever:
         end = int(match.group(2) or start)
         request_start, request_end = requested_session
         return max(start, request_start) <= min(end, request_end)
+
+    def _has_course_keyword_match(self, schedules: List[Dict[str, Any]], course_keyword: Optional[str]) -> bool:
+        keyword = normalize_text(course_keyword)
+        if not keyword:
+            return bool(schedules)
+        for row in schedules:
+            course_name = normalize_text(str(row.get("courseName") or row.get("name") or ""))
+            if course_name and (keyword in course_name or course_name in keyword):
+                return True
+        return False
 
     def _semester_course_results(self, schedules: List[Dict[str, Any]], include_semester: bool = False) -> List[Dict[str, Any]]:
         grouped: Dict[str, Dict[str, Any]] = {}

@@ -105,9 +105,10 @@ class FakeJavaHandler(BaseHTTPRequestHandler):
                 {"id": 49, "academicYear": "2025-2026", "semesterTerm": 2, "courseName": "Linux系统", "teacherName": "庄老师", "location": "D403", "weekday": 2, "classSessions": "5-6节", "weekRange": "1-16周", "assessmentType": "考查", "campus": "主校区", "classCode": "LINUX101", "credit": 2},
             ]
             if "true" in qs.get("allSemesters", []):
-                records.append(
-                    {"id": 47, "academicYear": "2024-2025", "semesterTerm": 1, "courseName": "大学英语", "teacherName": "钱老师", "location": "A201", "weekday": 2, "classSessions": "1-2节", "weekRange": "1-16周", "assessmentType": "考试", "campus": "主校区", "classCode": "ENG101", "credit": 2}
-                )
+                records.extend([
+                    {"id": 47, "academicYear": "2024-2025", "semesterTerm": 1, "courseName": "大学英语", "teacherName": "钱老师", "location": "A201", "weekday": 2, "classSessions": "1-2节", "weekRange": "1-16周", "assessmentType": "考试", "campus": "主校区", "classCode": "ENG101", "credit": 2},
+                    {"id": 50, "academicYear": "2024-2025", "semesterTerm": 1, "courseName": "Java程序设计", "teacherName": "李老师", "location": "B202", "weekday": 2, "classSessions": "3-4节", "weekRange": "1-16周", "assessmentType": "考试", "campus": "主校区", "classCode": "JAVA101", "credit": 3},
+                ])
             self._send_json({
                 "code": 200,
                 "msg": "success",
@@ -260,6 +261,16 @@ class JavaReuseIntegrationTest(unittest.TestCase):
         self.assertIn("Linux系统", names)
         by_name = {item.get("name"): item for item in results}
         self.assertEqual("庄老师", by_name["Linux系统"].get("teacherName"))
+
+    def test_course_lookup_falls_back_to_all_semesters_when_current_semester_misses(self):
+        results = data_store.search_schedule("Bearer t", "java是什么时候上的呢？我上过java吗")
+        names = {item.get("name") for item in results}
+        self.assertIn("Java程序设计", names)
+        by_name = {item.get("name"): item for item in results}
+        java_course = by_name["Java程序设计"]
+        self.assertEqual("2024-2025 第 1 学期", java_course.get("semesterLabel"))
+        self.assertEqual("all_semesters_fallback", java_course.get("queryScope"))
+        self.assertEqual("current_semester_no_course_match", java_course.get("fallbackReason"))
 
     def test_search_date_and_session_schedule_via_java_api(self):
         results = data_store.search_schedule("Bearer t", "2026年3月4日第3节有什么课")
