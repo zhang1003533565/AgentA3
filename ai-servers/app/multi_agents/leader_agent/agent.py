@@ -10,7 +10,7 @@ from app.model_providers.factory import get_chat_model_provider
 from app.multi_agents.runtime import load_agent_prompt
 from app.services.memory_store import memory_store
 from app.utils.logger import get_logger
-from app.utils.text_utils import is_schedule_intent, is_smalltalk_intent
+from app.utils.text_utils import is_all_semester_schedule_query, is_schedule_intent, is_semester_schedule_query, is_smalltalk_intent
 
 logger = get_logger("multi_agents.leader")
 
@@ -77,10 +77,6 @@ class LeaderAgent:
                 route_reason="用户询问 Leader 当前可调用的智能体和工具，直接展示后台清单。",
                 answer=self._callable_catalog_answer(callable_catalog),
             )
-
-        service_plan = self._plan_for_service_tool_intent(input_text, rag_strategy, callable_catalog)
-        if service_plan:
-            return service_plan
 
         return self._plan_with_llm(input_text, rag_strategy, chat_service, profile_context=profile_context, callable_catalog=callable_catalog)
 
@@ -273,80 +269,6 @@ class LeaderAgent:
         domain_tokens = ("优惠券", "优惠", "满减", "食堂", "餐厅", "档口", "菜品", "课程", "课表")
         return any(token in normalized_text for token in query_tokens) and any(token in normalized_text for token in domain_tokens)
 
-    def _plan_for_service_tool_intent(
-        self,
-        input_text: str,
-        rag_strategy: str = "",
-        callable_catalog: Optional[Dict[str, Any]] = None,
-    ) -> Optional[LeaderPlan]:
-        normalized = (input_text or "").strip().lower()
-        if not normalized:
-            return None
-        catalog_tool_names = self._catalog_tool_names(callable_catalog)
-
-        def allow(tool_name: str) -> bool:
-            return not catalog_tool_names or tool_name in catalog_tool_names
-
-        def plan(tool_name: str, intent: str, reason: str) -> LeaderPlan:
-            return LeaderPlan(
-                intent=intent,
-                target_agent="leader_agent",
-                need_retrieval=False,
-                rag_strategy=rag_strategy if tool_name == "text_to_sql" else "",
-                action="call_tool",
-                tool_name=tool_name,
-                route_reason=reason,
-            )
-
-        schedule_tokens = ("课表", "课程安排", "有什么课", "上什么课", "有课吗", "几点上课", "下节课", "下一节课")
-        if allow("java_schedule_api") and (is_schedule_intent(input_text) or any(token in normalized for token in schedule_tokens)):
-            return plan("java_schedule_api", "schedule", "命中课表查询意图，调用课表查询工具。")
-
-        location_tokens = ("在哪", "哪里", "位置", "定位", "导航", "地图", "怎么走", "路线")
-        place_tokens = ("设施", "教学楼", "宿舍", "操场", "图书馆", "实验楼", "食堂", "餐厅", "楼", "馆")
-        if allow("java_facility_api") and any(token in normalized for token in location_tokens) and any(token in normalized for token in place_tokens):
-            return plan("java_facility_api", "facility_location", "命中设施位置/地图定位意图，调用设施位置查询工具。")
-
-        if allow("java_secondhand_api") and any(token in normalized for token in ("旧物", "二手", "闲置", "转让", "跳蚤", "卖二手", "买二手")):
-            return plan("java_secondhand_api", "secondhand_query", "命中校园旧物/二手物品查询意图，调用旧物查询工具。")
-
-        if allow("java_canteen_api") and any(token in normalized for token in ("食堂", "餐厅", "档口", "菜品", "吃什么", "吃饭", "午饭", "晚饭", "餐饮", "优惠券", "满减")):
-            return plan("java_canteen_api", "canteen_query", "命中食堂餐饮查询意图，调用食堂餐饮查询工具。")
-
-        meeting_exclusions = ("会议总结", "会议纪要", "会议摘要", "整理会议", "会议整理", "语音转写", "会议转写", "成员分析", "资源推荐", "会议总控", "流程调度")
-        meeting_query_tokens = ("查询", "查", "列表", "安排", "状态", "预约", "我的", "最近", "今天", "明天", "本周", "会议号")
-        if (
-            allow("java_meeting_api")
-            and "会议" in normalized
-            and not any(token in normalized for token in meeting_exclusions)
-            and any(token in normalized for token in meeting_query_tokens)
-        ):
-            return plan("java_meeting_api", "meeting_query", "命中会议查询/预约状态意图，调用会议查询工具。")
-
-        activity_exclusions = ("活动图", "任务活动图", "activity diagram", "泳道图")
-        activity_query_tokens = ("查询", "查", "列表", "安排", "报名", "最近", "今天", "明天", "本周", "有哪些", "有什么")
-        has_activity_domain = any(token in normalized for token in ("校园活动", "活动", "讲座", "比赛", "社团", "志愿"))
-        if (
-            allow("java_activity_api")
-            and has_activity_domain
-            and not any(token in normalized for token in activity_exclusions)
-            and (any(token in normalized for token in activity_query_tokens) or "讲座" in normalized or "比赛" in normalized)
-        ):
-            return plan("java_activity_api", "activity_query", "命中校园活动/讲座/比赛查询意图，调用活动查询工具。")
-
-        return None
-
-    def _catalog_tool_names(self, callable_catalog: Optional[Dict[str, Any]]) -> set[str]:
-        if not isinstance(callable_catalog, dict):
-            return set()
-        names = set()
-        for item in callable_catalog.get("tools", []):
-            if isinstance(item, dict):
-                name = str(item.get("name") or "").strip()
-                if name:
-                    names.add(name)
-        return names
-
     def _smalltalk_answer(self, input_text: str) -> str:
         normalized = (input_text or "").strip()
         if "谢谢" in normalized:
@@ -450,6 +372,138 @@ class LeaderAgent:
             search_results=search_results,
         ).strip()
 
+    def summarize_tool_result(
+        self,
+        *,
+        input_text: str,
+        plan: LeaderPlan,
+        tool_display_name: str,
+        tool_results: List[Dict[str, Any]],
+        chat_service=None,
+    ) -> str:
+        provider = chat_service or get_chat_model_provider()
+        bounded_results = self._shape_tool_results_for_answer(input_text, plan, tool_results)
+        answer_policy = self._tool_result_answer_policy(input_text, plan, tool_results)
+        payload = {
+            "user_input": input_text or "",
+            "leader_intent": plan.intent,
+            "leader_route_reason": plan.route_reason,
+            "leader_planning_answer": plan.answer,
+            "tool_name": plan.tool_name,
+            "tool_display_name": tool_display_name,
+            "tool_result_count": len(tool_results or []),
+            "answer_policy": answer_policy,
+            "tool_results": bounded_results,
+            "answer_requirements": [
+                "用自然中文回答用户，不要输出 JSON。",
+                "严格按用户问题的范围回答；不要主动扩展成文档、报告、分析或完整明细。",
+                "只能基于 tool_results 里的数据整理，不要编造课程、时间、地点或数量。",
+                "如果 tool_results 为空，要说明已调用对应系统能力但暂时没有可展示数据，并给出可能检查项。",
+                "如果 leader_planning_answer 不为空，可承接它，但最终必须给出查询结果或空结果说明。",
+                *answer_policy.get("requirements", []),
+            ],
+        }
+        text = provider.complete(
+            system_prompt=(
+                "你负责把智慧校园系统接口返回的数据整理成给用户看的最终回答。"
+                "你不是路由器，不要重新选择工具或智能体；不要输出 JSON、代码块、内部字段名或文档式大纲。"
+                "必须遵守用户意图对应的 answer_policy，答案短而准。"
+            ),
+            user_prompt=json.dumps(payload, ensure_ascii=False),
+        )
+        answer = (text or "").strip()
+        parsed = parse_json_object(answer)
+        if parsed and parsed.get("action") and parsed.get("intent"):
+            return ""
+        return answer
+
+    def _tool_result_answer_policy(
+        self,
+        input_text: str,
+        plan: LeaderPlan,
+        tool_results: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        if plan.tool_name == "java_schedule_api":
+            mode = self._schedule_answer_mode(input_text, tool_results)
+            if mode == "course_list":
+                return {
+                    "mode": mode,
+                    "format": "short_course_list",
+                    "requirements": [
+                        "用户是在问本学期/全部学期有哪些课，只列课程清单，不展开每次上课时间、周次、地点或教室。",
+                        "把同一门课的多条上课安排合并成一门课；课程数量按去重后的课程数，不按上课安排条数。",
+                        "可以保留学期、课程名、教师、学分、考核方式；没有字段就不要提。",
+                        "不要输出“具体如下”“完整课表”“上课安排”“第几周”“第几节”等多余说明。",
+                        "不要使用三级标题、分隔线或文档式 Markdown；最多用一句引导语加简短项目符号。",
+                    ],
+                }
+            if mode == "session_lookup":
+                return {
+                    "mode": mode,
+                    "format": "specific_class_lookup",
+                    "requirements": [
+                        "用户在问某天/某节/本周有没有课，直接回答对应课程、节次、地点和教师。",
+                        "不要列出整个学期的其他课程。",
+                        "如果没有课，只说该时间段暂未查到课程。",
+                    ],
+                }
+            return {
+                "mode": mode,
+                "format": "schedule_overview",
+                "requirements": [
+                    "按用户询问的日期、星期或周次列课表；只展开必要的节次、课程、地点和教师。",
+                    "不要主动补充学分、考核方式等与上课安排无关的信息，除非用户问课程详情。",
+                ],
+            }
+        return {
+            "mode": "tool_result",
+            "format": "concise_answer",
+            "requirements": [
+                "优先回答用户直接问的对象，不要把接口返回的所有字段都铺开。",
+                "结果较多时先给核心列表，再提示还有多少条可继续查看。",
+            ],
+        }
+
+    def _schedule_answer_mode(self, input_text: str, tool_results: List[Dict[str, Any]]) -> str:
+        text = (input_text or "").strip()
+        compact = re.sub(r"\s+", "", text)
+        asks_full_detail = any(token in compact for token in ("完整课表", "详细课表", "上课安排", "什么时候", "几点", "教室", "地点", "在哪", "哪儿"))
+        asks_specific_slot = any(token in compact for token in ("今天", "明天", "后天", "周一", "周二", "周三", "周四", "周五", "周六", "周日", "星期", "第"))
+        result_types = {str(item.get("type") or "") for item in tool_results or [] if isinstance(item, dict)}
+        has_course_summary = "course_schedule_summary" in result_types
+        if has_course_summary and not asks_full_detail and (
+            is_semester_schedule_query(text)
+            or is_all_semester_schedule_query(text)
+            or any(token in compact for token in ("有什么课", "有哪些课", "什么课程", "课程列表"))
+        ):
+            return "course_list"
+        if asks_specific_slot:
+            return "session_lookup"
+        return "schedule_overview"
+
+    def _shape_tool_results_for_answer(
+        self,
+        input_text: str,
+        plan: LeaderPlan,
+        tool_results: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        if not isinstance(tool_results, list):
+            return []
+        bounded_results = tool_results[:30]
+        if plan.tool_name != "java_schedule_api" or self._schedule_answer_mode(input_text, tool_results) != "course_list":
+            return bounded_results
+        shaped_results: List[Dict[str, Any]] = []
+        for item in bounded_results:
+            if not isinstance(item, dict):
+                continue
+            shaped = {
+                key: value
+                for key, value in item.items()
+                if key not in {"scheduleItems", "scheduleCount", "classSessions", "weekRange", "weekday", "weekdayText", "location"}
+            }
+            shaped_results.append(shaped)
+        return shaped_results
+
     def _normalize_rag_strategy(self, value: Any) -> str:
         rag_strategy = str(value or "").strip()
         if not rag_strategy or rag_strategy in {"按目标智能体默认策略", "默认策略", "目标智能体默认策略"}:
@@ -485,10 +539,11 @@ def build_leader_router_user_prompt(
             "用户要求题库表格或题库 Excel 时，仍先选择对应题型智能体生成严格题库 JSON，再由导出工具转换为 md/docx/xlsx/zip。",
             "用户要求 Mermaid 源文件、图表源码或后续编辑图表时，图表智能体返回 Mermaid 后会自动生成 mmd/md/zip 附件。",
             "如果用户已经提供了要导出的 Markdown、普通文本或标准题库 JSON，且只要求转成文件，可以直接 call_tool: generated_export_tools。",
-            "用户表达课表、活动、会议列表/状态、食堂餐饮、设施位置、旧物二手等查询意图时，优先选择 leader_callable_catalog.tools 中对应的 Java 后端服务工具，而不是编造答案。",
+            "用户表达课表、活动、会议列表/状态、食堂餐饮、设施位置、旧物二手等查询意图时，你必须根据当前语义自行从 leader_callable_catalog.tools 中选择对应的 Java 后端服务工具，而不是依赖系统关键词规则或编造答案。",
             "会议纪要/总结/转写/成员分析仍属于会议专业智能体；活动图/流程图仍属于图表智能体，不要误判为校园活动查询。",
             "路由时只能选择 leader_callable_catalog 中 enabled=true 的 agents/tools；关闭项只可在 route_reason 中说明，不允许绕过后台配置。",
             "target_agent 必须来自 leader_callable_catalog.agents.name；tool_name 必须来自 leader_callable_catalog.tools.name。",
+            "action=call_tool 时，answer 必须是一句简短自然的进行中回复，例如“正在为你查询今日课表。”；最终结果会在工具返回后再由模型整理。",
         ],
         "leader_output_push_strategies": LEADER_OUTPUT_PUSH_STRATEGIES,
     }, ensure_ascii=False)

@@ -59,13 +59,32 @@ def is_schedule_intent(text: str) -> bool:
         "课表", "课程安排", "下节课", "下一节课", "再下一节课", "后一节课",
         "下一门课", "再下一门课", "下门课", "今天有什么课", "明天有什么课",
         "后天有什么课", "今天有课吗", "明天有课吗", "本周有什么课", "这周有什么课",
-        "接下来有什么课", "接下来哪门课", "第几节有课",
+        "接下来有什么课", "接下来哪门课", "第几节有课", "这个学期", "这学期",
+        "本学期", "当前学期", "所有学期", "全部学期", "课程列表", "全部课程",
     ]
     if any(p in normalized for p in patterns):
         return True
     return bool(re.match(r".*第\d+周.*", normalized)) \
         or bool(re.match(r".*周[一二三四五六日天].*有.*课.*", normalized)) \
         or bool(re.match(r".*星期[一二三四五六日天].*有.*课.*", normalized))
+
+
+def is_semester_schedule_query(text: str) -> bool:
+    normalized = normalize_text(text)
+    if not normalized:
+        return False
+    semester_tokens = ("这个学期", "这学期", "本学期", "当前学期", "整个学期", "一学期")
+    course_tokens = ("都有什么课", "有哪些课", "有什么课程", "全部课程", "所有课程", "课程列表", "课表")
+    return any(token in normalized for token in semester_tokens) and any(token in normalized for token in course_tokens)
+
+
+def is_all_semester_schedule_query(text: str) -> bool:
+    normalized = normalize_text(text)
+    if not normalized:
+        return False
+    semester_tokens = ("所有学期", "全部学期", "每个学期", "各个学期", "历史学期", "历年学期")
+    course_tokens = ("都有什么课", "有哪些课", "有什么课程", "全部课程", "所有课程", "课程列表", "课表", "课程")
+    return any(token in normalized for token in semester_tokens) and any(token in normalized for token in course_tokens)
 
 
 def is_smalltalk_intent(text: str) -> bool:
@@ -118,6 +137,65 @@ def parse_requested_weekday(text: str) -> Optional[int]:
     for keys, value in mappings.items():
         if any(k in compact for k in keys):
             return value
+    return None
+
+
+def parse_requested_session(text: str) -> Optional[tuple[int, int]]:
+    compact = re.sub(r"\s+", "", text or "")
+    if not compact:
+        return None
+    match = re.search(r"第?(\d{1,2})(?:[-到至](\d{1,2}))?节", compact)
+    if match:
+        start = int(match.group(1))
+        end = int(match.group(2) or start)
+        return (min(start, end), max(start, end))
+
+    numerals = {
+        "一": 1,
+        "二": 2,
+        "两": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+        "十": 10,
+    }
+    match = re.search(r"第?([一二两三四五六七八九十])节", compact)
+    if match:
+        value = numerals.get(match.group(1))
+        return (value, value) if value else None
+    return None
+
+
+def parse_requested_date(text: str) -> Optional[date]:
+    compact = re.sub(r"\s+", "", text or "")
+    if not compact:
+        return None
+
+    today = date.today()
+    if "今天" in compact:
+        return today
+    if "明天" in compact:
+        return today + timedelta(days=1)
+    if "后天" in compact:
+        return today + timedelta(days=2)
+
+    match = re.search(r"(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})日?", compact)
+    if match:
+        try:
+            return date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        except ValueError:
+            return None
+
+    match = re.search(r"(\d{1,2})月(\d{1,2})日?", compact)
+    if match:
+        try:
+            return date(today.year, int(match.group(1)), int(match.group(2)))
+        except ValueError:
+            return None
     return None
 
 

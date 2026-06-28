@@ -561,6 +561,15 @@ async def run_rag_query_stream(
                     profile_context=profile_context,
                     callable_catalog=callable_catalog,
                 )
+                if getattr(plan, "action", "") == "call_tool" and getattr(plan, "answer", ""):
+                    yield build_sse("tool_start", {
+                        "stage": "tool_start",
+                        "message": plan.answer,
+                        "intent": plan.intent,
+                        "toolName": plan.tool_name,
+                        "toolDisplayName": _tool_display_name(plan.tool_name),
+                        "routeReason": plan.route_reason,
+                    })
                 if _should_emit_generation_start(request, plan.target_agent, plan):
                     yield build_sse("generation_start", _build_generation_start_payload(request, plan))
                     generation_started = True
@@ -1567,12 +1576,29 @@ def _run_disabled_tool_response(request: RagQueryRequest, tool_name: str, leader
 
 def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan) -> RagQueryResponse:
     tool_name = leader_plan.tool_name
+    tool_display_name = _tool_display_name(tool_name)
+    planning_answer = str(getattr(leader_plan, "answer", "") or "").strip()
+    answer_type = "service_tool_result"
     results = data_store.search_service_tool(authorization, tool_name, request.input)
     retrieval_meta = {"javaBackendCount": len(results), "documentCount": len(results)}
     documents = [_tool_result_to_document(item, index) for index, item in enumerate(results, start=1)]
-    if results:
+    summary_error = ""
+    summarized_by_model = False
+    try:
+        answer = leader_agent.summarize_tool_result(
+            input_text=request.input,
+            plan=leader_plan,
+            tool_display_name=tool_display_name,
+            tool_results=results,
+        )
+        summarized_by_model = bool(answer)
+    except Exception as exc:
+        logger.warning("leader tool result summarization failed tool=%s error=%s", tool_name, exc)
+        answer = ""
+        summary_error = str(exc)
+    if not answer and results:
         answer = _format_service_tool_answer(tool_name, results)
-    else:
+    elif not answer:
         answer = (
             f"Leader 已识别为「{_tool_zh_name(tool_name)}」，并调用了对应 Java 后端接口；"
             "但当前没有返回可展示的数据。请确认 Java 服务、登录态或该业务数据是否正常。"
@@ -1587,23 +1613,40 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
         "leaderAction": leader_plan.action,
         "leaderActionLabel": _leader_action_label(leader_plan.action),
         "toolName": tool_name,
-        "toolDisplayName": _tool_display_name(tool_name),
+        "toolDisplayName": tool_display_name,
+        "planningAnswer": planning_answer,
         "routeReason": leader_plan.route_reason,
         "strategyLabel": _strategy_label(tool_name),
         "executionMode": "leader_call_tool",
-        "executionModeLabel": "Leader 调用 Java 后端接口",
-        "answerType": "tool_result",
+        "executionModeLabel": "Leader 调用 Java 后端接口并整理结果",
+        "answerType": answer_type,
+        "toolResultSummarized": summarized_by_model,
         "toolToggles": _tool_toggles_from_request(request),
         **retrieval_meta,
     }
+    if summary_error:
+        metadata["toolResultSummaryError"] = summary_error
     return _decorate_output_response(RagQueryResponse(
         strategy=tool_name,
         answer=answer,
-        answerType="tool_result",
+        answerType=answer_type,
         documents=documents,
         trace=[
             RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
-            RagTraceResponse(stage="tool_call", detail={"toolName": tool_name, "toolDisplayName": _tool_display_name(tool_name), **retrieval_meta}),
+            RagTraceResponse(stage="tool_call", detail={
+                "toolName": tool_name,
+                "toolDisplayName": tool_display_name,
+                "planningAnswer": planning_answer,
+                **retrieval_meta,
+            }),
+            RagTraceResponse(stage="tool_result_summary", detail={
+                "agentName": "leader_agent",
+                "toolName": tool_name,
+                "toolDisplayName": tool_display_name,
+                "summarizedByModel": summarized_by_model,
+                "resultCount": len(results),
+                **({"error": summary_error} if summary_error else {}),
+            }),
         ],
         metadata=metadata,
     ))
@@ -1627,6 +1670,16 @@ def _format_service_tool_item(item: Dict[str, Any]) -> str:
             f"{item.get('weekdayText') or ''} {item.get('classSessions') or ''}：{name}"
             f"（{item.get('location') or '地点待补充'}，{item.get('teacherName') or '教师待补充'}）"
         )
+    if item_type == "course_schedule_summary":
+        schedule_items = item.get("scheduleItems") if isinstance(item.get("scheduleItems"), list) else []
+        schedule_text = "；".join(str(value) for value in schedule_items[:3] if str(value or "").strip())
+        if len(schedule_items) > 3:
+            schedule_text += f"；另有 {len(schedule_items) - 3} 次安排"
+        suffix = _join_non_empty(item.get("teacherName"), item.get("assessmentType"), f"{item.get('credit')} 学分" if item.get("credit") not in (None, "") else "")
+        detail = f"（{suffix}）" if suffix else ""
+        semester_label = str(item.get("semesterLabel") or "").strip()
+        prefix = f"[{semester_label}] " if semester_label else ""
+        return f"{prefix}{name}{detail}" + (f"：{schedule_text}" if schedule_text else "")
     if item_type == "activity":
         time_text = _join_non_empty(item.get("startTime"), item.get("endTime"), separator=" - ")
         suffix = _join_non_empty(time_text, item.get("location"), item.get("organizerName"))
@@ -1961,10 +2014,12 @@ def _file_name_from_url(url: str) -> str:
 
 def _tool_result_to_document(item: Dict[str, Any], index: int) -> RagDocumentResponse:
     content_parts = [
+        str(item.get("semesterLabel") or "").strip(),
         str(item.get("name") or item.get("courseName") or item.get("title") or item.get("content") or "").strip(),
         str(item.get("location") or "").strip(),
         str(item.get("teacherName") or "").strip(),
         str(item.get("classSessions") or "").strip(),
+        " ".join(str(value) for value in item.get("scheduleItems", [])[:3]) if isinstance(item.get("scheduleItems"), list) else "",
         str(item.get("description") or "").strip(),
     ]
     content = " ".join(part for part in content_parts if part) or str(item)

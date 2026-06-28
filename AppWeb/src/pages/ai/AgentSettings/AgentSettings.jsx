@@ -25,6 +25,16 @@ const getToolDisplayName = (tool) => {
   return tool.name || ''
 }
 
+const getToolCategoryLabel = (category) => {
+  const labels = {
+    campus_service: '系统能力',
+    structured_query: '结构化查询',
+    content_export: '内容整理',
+    diagram_export: '图表导出',
+  }
+  return labels[category] || category || '-'
+}
+
 function AgentSettings() {
   const [loading, setLoading] = useState(false)
   const [savingKey, setSavingKey] = useState('')
@@ -275,7 +285,7 @@ function AgentSettings() {
       render: (value, record) => (
         <Space direction="vertical" size={4}>
           <Tag color={record.name === 'generated_export_tools' ? 'purple' : 'cyan'}>{getToolDisplayName(record)}</Tag>
-          <Text type="secondary">{record.category}</Text>
+          <Text type="secondary">{getToolCategoryLabel(record.category)}</Text>
         </Space>
       ),
     },
@@ -370,9 +380,9 @@ function AgentSettings() {
             <Tag color={record.enabled === false ? 'red' : 'green'}>
               {record.enabled === false ? '关闭' : '可调用'}
             </Tag>
-            <Tag color="cyan">{getToolDisplayName(record)}</Tag>
+            <Tag color={record.category === 'campus_service' ? 'green' : 'cyan'}>{getToolDisplayName(record)}</Tag>
           </Space>
-          <Text type="secondary">{record.category}</Text>
+          <Text type="secondary">{getToolCategoryLabel(record.category)}</Text>
         </Space>
       ),
     },
@@ -415,6 +425,8 @@ function AgentSettings() {
   const boundCount = configuredAgents.filter((item) => item.boundModel).length
   const callableAgentCount = leaderCallableAgents.filter((item) => item.enabled !== false).length
   const callableToolCount = configuredLeaderTools.filter((item) => item.enabled !== false).length
+  const campusServiceTools = configuredLeaderTools.filter((item) => item.category === 'campus_service')
+  const enabledCampusServiceCount = campusServiceTools.filter((item) => item.enabled !== false).length
 
   return (
     <div className="agent-settings-page">
@@ -446,6 +458,10 @@ function AgentSettings() {
           <Text type="secondary">关闭工具</Text>
           <strong>{disabledToolCount}</strong>
         </Card>
+        <Card>
+          <Text type="secondary">系统能力</Text>
+          <strong>{enabledCampusServiceCount}</strong>
+        </Card>
       </div>
 
       <Alert
@@ -453,7 +469,7 @@ function AgentSettings() {
         type="info"
         showIcon
         message="开关规则"
-        description="Leader 固定开启。其他智能体关闭后会被跳过；校园服务工具关闭后，Leader 识别到也不会调用；内容整理工具关闭后，自动整理附件只会生成仍开启的格式。"
+        description="Leader 固定开启。右侧系统能力会直连 Java 后端接口，例如课表、活动、会议、食堂、设施和旧物；关闭后 Leader 识别到对应意图也不会调用。内容整理工具关闭后，自动整理附件只会生成仍开启的格式。"
       />
 
       <Card
@@ -463,6 +479,7 @@ function AgentSettings() {
         <div className="agent-settings-callable-head">
           <Text type="secondary">可调用智能体 {callableAgentCount} 个</Text>
           <Text type="secondary">可直接调用工具 {callableToolCount} 个</Text>
+          <Text type="secondary">已开启系统能力 {enabledCampusServiceCount}/{campusServiceTools.length} 个</Text>
         </div>
         <div className="agent-settings-leader-grid">
           <div>
@@ -478,7 +495,7 @@ function AgentSettings() {
             />
           </div>
           <div>
-            <div className="agent-settings-section-title">系统工具</div>
+            <div className="agent-settings-section-title">系统能力 / 接口工具</div>
             <Table
               rowKey="name"
               loading={loading}

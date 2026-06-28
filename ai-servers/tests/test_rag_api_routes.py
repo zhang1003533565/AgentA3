@@ -440,6 +440,49 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("leader_direct_answer", payload["metadata"]["executionMode"])
         self.assertEqual("leader_direct_answer", payload["strategy"])
 
+    def test_leader_service_tool_result_is_summarized_by_model(self):
+        rag_routes = importlib.import_module("app.api.routes.rag")
+        old_search_service_tool = rag_routes.data_store.search_service_tool
+        calls = []
+        try:
+            def fake_search_service_tool(authorization, tool_name, query):
+                calls.append((authorization, tool_name, query))
+                return [{
+                    "type": "course_schedule_summary",
+                    "name": "数据结构",
+                    "semesterLabel": "2025-2026 第 2 学期",
+                    "teacherName": "张老师",
+                    "scheduleCount": 1,
+                    "scheduleItems": ["周一 1-2节 A101 1-16周"],
+                }]
+
+            rag_routes.data_store.search_service_tool = fake_search_service_tool
+            response = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={
+                    "input": "这个学期都有什么课啊",
+                    "agentName": "leader_agent",
+                },
+            )
+        finally:
+            rag_routes.data_store.search_service_tool = old_search_service_tool
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("java_schedule_api", payload["strategy"])
+        self.assertEqual("java_schedule_api", payload["metadata"]["toolName"])
+        self.assertEqual("正在为你查询本学期课表。", payload["metadata"]["planningAnswer"])
+        self.assertTrue(payload["metadata"]["toolResultSummarized"])
+        self.assertEqual("service_tool_result", payload["answerType"])
+        self.assertEqual(["text"], payload["outputTypes"])
+        self.assertEqual([], payload["attachments"])
+        self.assertIn("本学期有 1 门课", payload["answer"])
+        self.assertIn("数据结构", payload["answer"])
+        self.assertNotIn("周一 1-2节", payload["answer"])
+        self.assertEqual("java_schedule_api", calls[0][1])
+        self.assertEqual("tool_result_summary", payload["trace"][-1]["stage"])
+
     def test_removed_md_agent_is_rejected(self):
         response = self.client.post(
             "/internal/rag/query",
@@ -536,6 +579,15 @@ class RagApiRoutesTest(unittest.TestCase):
 
 class FakeRagModelProvider:
     def complete(self, system_prompt, user_prompt):
+        if "系统接口返回的数据" in system_prompt:
+            payload = json.loads(user_prompt)
+            if payload.get("answer_policy", {}).get("mode") == "course_list":
+                first = (payload.get("tool_results") or [{}])[0]
+                schedule_text = "；".join(first.get("scheduleItems") or []) if isinstance(first, dict) else ""
+                teacher = first.get("teacherName") if isinstance(first, dict) else ""
+                teacher_text = f"（{teacher}）" if teacher else ""
+                return f"本学期有 {payload.get('tool_result_count')} 门课：\n- {first.get('name')}{teacher_text}{schedule_text}"
+            return f"模型整理：{payload.get('tool_display_name')} 返回 {payload.get('tool_result_count')} 条数据。"
         if "Leader 智能体" in system_prompt:
             payload = json.loads(user_prompt)
             text = payload.get("user_input") or ""
@@ -555,6 +607,17 @@ class FakeRagModelProvider:
                 "tool_name": "text_to_sql",
                 "route_reason": "LLM 根据 Java 后台模型配置完成结构化查询识别。",
                 "answer": "",
+            }
+        if "课表" in text or "有什么课" in text:
+            return {
+                "intent": "schedule",
+                "target_agent": "leader_agent",
+                "need_retrieval": False,
+                "rag_strategy": "",
+                "action": "call_tool",
+                "tool_name": "java_schedule_api",
+                "route_reason": "LLM 根据启用工具清单选择课表查询工具。",
+                "answer": "正在为你查询本学期课表。",
             }
         if "PPT" in text or "课件" in text:
             return {

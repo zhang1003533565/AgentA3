@@ -79,8 +79,38 @@ class FakeJavaHandler(BaseHTTPRequestHandler):
                 "code": 200,
                 "msg": "success",
                 "data": [
-                    {"id": 41, "courseName": "高等数学", "teacherName": "王老师", "location": "A101", "weekday": 1, "classSessions": "1-2节", "weekRange": "1-16周", "assessmentType": "考试", "campus": "主校区", "classCode": "MATH101", "credit": 4}
+                    {"id": 41, "courseName": "高等数学", "teacherName": "王老师", "location": "A101", "weekday": 1, "classSessions": "1-2节", "weekRange": "1-16周", "assessmentType": "考试", "campus": "主校区", "classCode": "MATH101", "credit": 4},
+                    {"id": 46, "courseName": "大学物理", "teacherName": "周老师", "location": "E501", "weekday": 3, "classSessions": "3-4节", "weekRange": "1-16周", "assessmentType": "考试", "campus": "主校区", "classCode": "PHY101", "credit": 3}
                 ]
+            })
+            return
+
+        if path == "/api/schedule/settings":
+            self._send_json({
+                "code": 200,
+                "msg": "success",
+                "data": {
+                    "academicYear": "2025-2026",
+                    "semesterTerm": 2,
+                    "semesterStart": "2026-03-02",
+                }
+            })
+            return
+
+        if path == "/api/schedule":
+            records = [
+                {"id": 43, "academicYear": "2025-2026", "semesterTerm": 2, "courseName": "数据结构", "teacherName": "赵老师", "location": "C301", "weekday": 1, "classSessions": "1-2节", "weekRange": "1-16周", "assessmentType": "考试", "campus": "主校区", "classCode": "CS201", "credit": 3},
+                {"id": 44, "academicYear": "2025-2026", "semesterTerm": 2, "courseName": "数据结构", "teacherName": "赵老师", "location": "C301", "weekday": 3, "classSessions": "3-4节", "weekRange": "1-16周", "assessmentType": "考试", "campus": "主校区", "classCode": "CS201", "credit": 3},
+                {"id": 45, "academicYear": "2025-2026", "semesterTerm": 2, "courseName": "操作系统", "teacherName": "孙老师", "location": "D402", "weekday": 5, "classSessions": "5-6节", "weekRange": "1-16周", "assessmentType": "考查", "campus": "主校区", "classCode": "CS301", "credit": 3},
+            ]
+            if "true" in qs.get("allSemesters", []):
+                records.append(
+                    {"id": 47, "academicYear": "2024-2025", "semesterTerm": 1, "courseName": "大学英语", "teacherName": "钱老师", "location": "A201", "weekday": 2, "classSessions": "1-2节", "weekRange": "1-16周", "assessmentType": "考试", "campus": "主校区", "classCode": "ENG101", "credit": 2}
+                )
+            self._send_json({
+                "code": 200,
+                "msg": "success",
+                "data": records
             })
             return
 
@@ -89,7 +119,8 @@ class FakeJavaHandler(BaseHTTPRequestHandler):
                 "code": 200,
                 "msg": "success",
                 "data": [
-                    {"id": 42, "courseName": "Java程序设计", "teacherName": "李老师", "location": "B202", "weekday": 2, "classSessions": "3-4节", "weekRange": "1-16周", "assessmentType": "考试", "campus": "主校区", "classCode": "CS102", "credit": 3}
+                    {"id": 42, "courseName": "Java程序设计", "teacherName": "李老师", "location": "B202", "weekday": 2, "classSessions": "3-4节", "weekRange": "1-16周", "assessmentType": "考试", "campus": "主校区", "classCode": "CS102", "credit": 3},
+                    {"id": 48, "courseName": "数据库原理", "teacherName": "吴老师", "location": "F601", "weekday": 3, "classSessions": "3-4节", "weekRange": "1-16周", "assessmentType": "考试", "campus": "主校区", "classCode": "DB101", "credit": 3}
                 ]
             })
             return
@@ -184,6 +215,29 @@ class JavaReuseIntegrationTest(unittest.TestCase):
         self.assertTrue(len(results) > 0)
         self.assertEqual("course_schedule", results[0].get("type"))
         self.assertIn("name", results[0])
+
+    def test_search_semester_schedule_via_java_api(self):
+        results = data_store.search_schedule("Bearer t", "这个学期都有什么课啊")
+        self.assertEqual(2, len(results))
+        by_name = {item.get("name"): item for item in results}
+        self.assertEqual("course_schedule_summary", by_name["数据结构"].get("type"))
+        self.assertEqual(2, by_name["数据结构"].get("scheduleCount"))
+
+    def test_search_weekday_and_session_schedule_via_java_api(self):
+        results = data_store.search_schedule("Bearer t", "周三第3节有什么课")
+        self.assertEqual(1, len(results))
+        self.assertEqual("大学物理", results[0].get("name"))
+
+    def test_search_all_semester_schedule_via_java_api(self):
+        results = data_store.search_schedule("Bearer t", "所有学期都有什么课程")
+        names = {item.get("name") for item in results}
+        self.assertIn("大学英语", names)
+        self.assertIn("数据结构", names)
+
+    def test_search_date_and_session_schedule_via_java_api(self):
+        results = data_store.search_schedule("Bearer t", "2026年3月4日第3节有什么课")
+        self.assertEqual(1, len(results))
+        self.assertEqual("数据库原理", results[0].get("name"))
 
     def test_run_chat_core_uses_graph_and_java_data(self):
         req = ChatRequest(sessionId="s1", prompt="你是助手", input="推荐黄焖鸡")

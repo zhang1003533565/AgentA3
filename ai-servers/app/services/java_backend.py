@@ -1,6 +1,7 @@
 import json
 import re
 import time
+from datetime import date
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -8,9 +9,14 @@ from urllib.request import Request, urlopen
 from app.utils.logger import get_logger
 from app.utils.text_utils import (
     format_weekday,
+    is_all_semester_schedule_query,
+    is_semester_schedule_query,
+    parse_requested_date,
+    parse_requested_session,
     parse_requested_week,
     parse_requested_weekday,
     parse_session_start,
+    week_in_range,
 )
 
 logger = get_logger("services.java_backend")
@@ -62,9 +68,23 @@ class JavaBackendRetriever:
             return []
 
         requested_week = parse_requested_week(input_text)
+        requested_date = parse_requested_date(input_text)
         requested_weekday = parse_requested_weekday(input_text)
+        requested_session = parse_requested_session(input_text)
+        all_semester_scope = is_all_semester_schedule_query(input_text)
+        semester_scope = all_semester_scope or is_semester_schedule_query(input_text)
 
-        if requested_week is not None:
+        if requested_date is not None:
+            requested_weekday = requested_date.isoweekday()
+            requested_week = self._week_for_date(authorization, requested_date)
+            if requested_week is None and not semester_scope:
+                return []
+
+        if all_semester_scope:
+            payload = self._get_json("/api/schedule", authorization, params={"allSemesters": "true"})
+        elif semester_scope:
+            payload = self._get_json("/api/schedule", authorization)
+        elif requested_week is not None:
             payload = self._get_json(f"/api/schedule/week/{requested_week}", authorization)
         else:
             payload = self._get_json("/api/schedule/current-week", authorization)
@@ -75,8 +95,14 @@ class JavaBackendRetriever:
 
         if requested_weekday is not None:
             schedules = [item for item in schedules if item.get("weekday") == requested_weekday]
+        if semester_scope and requested_week is not None:
+            schedules = [item for item in schedules if week_in_range(item.get("weekRange"), requested_week)]
+        if requested_session is not None:
+            schedules = [item for item in schedules if self._session_matches(item.get("classSessions"), requested_session)]
 
         schedules.sort(key=lambda item: ((item.get("weekday") or 99), parse_session_start(item.get("classSessions"))))
+        if semester_scope:
+            return self._semester_course_results(schedules, include_semester=all_semester_scope)
 
         results: List[Dict[str, Any]] = []
         for row in schedules[:12]:
@@ -100,8 +126,99 @@ class JavaBackendRetriever:
             if requested_weekday is not None:
                 result["requestedWeekday"] = requested_weekday
                 result["requestedWeekdayText"] = format_weekday(requested_weekday)
+            if requested_session is not None:
+                result["requestedSessionStart"] = requested_session[0]
+                result["requestedSessionEnd"] = requested_session[1]
             results.append(result)
         return results
+
+    def _week_for_date(self, authorization: str, target_date: date) -> Optional[int]:
+        payload = self._get_json("/api/schedule/settings", authorization)
+        settings = self._extract_result_data(payload)
+        if not isinstance(settings, dict):
+            return None
+        semester_start_text = str(settings.get("semesterStart") or "").strip()
+        if not semester_start_text:
+            return None
+        try:
+            semester_start = date.fromisoformat(semester_start_text)
+        except ValueError:
+            return None
+        if target_date < semester_start:
+            return None
+        return (target_date - semester_start).days // 7 + 1
+
+    def _session_matches(self, class_sessions: Any, requested_session: tuple[int, int]) -> bool:
+        text = str(class_sessions or "")
+        match = re.search(r"(\d{1,2})(?:\s*-\s*(\d{1,2}))?", text)
+        if not match:
+            return False
+        start = int(match.group(1))
+        end = int(match.group(2) or start)
+        request_start, request_end = requested_session
+        return max(start, request_start) <= min(end, request_end)
+
+    def _semester_course_results(self, schedules: List[Dict[str, Any]], include_semester: bool = False) -> List[Dict[str, Any]]:
+        grouped: Dict[str, Dict[str, Any]] = {}
+        for row in schedules:
+            course_name = str(row.get("courseName") or row.get("name") or "").strip()
+            if not course_name:
+                continue
+            academic_year = str(row.get("academicYear") or "").strip()
+            semester_term = row.get("semesterTerm")
+            class_code = str(row.get("classCode") or "").strip()
+            key = f"{academic_year}::{semester_term}::{course_name}::{class_code}" if include_semester else f"{course_name}::{class_code}"
+            item = grouped.setdefault(key, {
+                "type": "course_schedule_summary",
+                "id": row.get("id") or key,
+                "name": course_name,
+                "academicYear": academic_year,
+                "semesterTerm": semester_term,
+                "semesterLabel": self._semester_label(academic_year, semester_term),
+                "teacherName": row.get("teacherName"),
+                "assessmentType": row.get("assessmentType"),
+                "classCode": row.get("classCode"),
+                "credit": row.get("credit"),
+                "scheduleItems": [],
+                "locations": [],
+                "weekRanges": [],
+            })
+            location = str(row.get("location") or "").strip()
+            week_range = str(row.get("weekRange") or "").strip()
+            schedule_text = " ".join(
+                part for part in (
+                    format_weekday(row.get("weekday")),
+                    str(row.get("classSessions") or "").strip(),
+                    week_range,
+                    location,
+                )
+                if part
+            )
+            if schedule_text and schedule_text not in item["scheduleItems"]:
+                item["scheduleItems"].append(schedule_text)
+            if location and location not in item["locations"]:
+                item["locations"].append(location)
+            if week_range and week_range not in item["weekRanges"]:
+                item["weekRanges"].append(week_range)
+
+        results = list(grouped.values())
+        for item in results:
+            item["scheduleCount"] = len(item.get("scheduleItems") or [])
+            item["location"] = "、".join(item.get("locations") or [])
+            item["weekRange"] = "、".join(item.get("weekRanges") or [])
+        results.sort(key=lambda item: (
+            str(item.get("academicYear") or ""),
+            item.get("semesterTerm") or 0,
+            str(item.get("name") or ""),
+        ))
+        return results[:40]
+
+    def _semester_label(self, academic_year: str, semester_term: Any) -> str:
+        if not academic_year and not semester_term:
+            return ""
+        if academic_year and semester_term:
+            return f"{academic_year} 第 {semester_term} 学期"
+        return academic_year or f"第 {semester_term} 学期"
 
     def search_service_tool(self, authorization: str, tool_name: str, input_text: str) -> List[Dict[str, Any]]:
         name = str(tool_name or "").strip()

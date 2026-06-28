@@ -26,7 +26,7 @@
       >
         <view class="message-bubble" :class="message.role === 'user' ? 'message-bubble--user' : 'message-bubble--assistant'">
           <view v-if="message.type === 'thinking'" class="thinking-indicator">
-            <text class="thinking-text">思考中</text>
+            <text class="thinking-text">{{ message.content || '思考中' }}</text>
             <view class="thinking-dots">
               <text></text>
               <text></text>
@@ -183,7 +183,9 @@ const CALL_DETAIL_STAGE_LABELS = {
   agent_answer: '执行智能体',
   agent_failed: '执行智能体',
   generate_sql: '生成查询',
+  tool_start: '准备调用工具',
   tool_call: '调用工具',
+  tool_result_summary: '整理结果',
   done: '完成',
   error: '异常'
 }
@@ -320,6 +322,16 @@ export default {
               this.applyGenerationStart(thinkingMessage.localId, payload)
               releaseComposer()
               return
+            }
+            if (eventName === 'tool_start' && payload?.message) {
+              const current = this.messages.find((item) => item.localId === thinkingMessage.localId)
+              if (current) {
+                this.replaceMessage(thinkingMessage.localId, {
+                  ...current,
+                  type: 'thinking',
+                  content: payload.message
+                })
+              }
             }
             this.updateCallDetail(thinkingMessage.localId, this.buildLiveCallDetailPatch(eventName, payload))
           },
@@ -846,9 +858,21 @@ export default {
         const toolName = detail.toolName || detail.tool_name || normalized.retrievalMeta?.toolName || 'text_to_sql'
         return `${this.getToolLabel(toolName, detail.toolDisplayName || detail.tool_display_name || normalized.retrievalMeta?.toolDisplayName)} 正在生成只读查询`
       }
+      if (stage === 'tool_start') {
+        const toolName = detail.toolName || detail.tool_name || normalized.retrievalMeta?.toolName
+        const message = detail.message || normalized.retrievalMeta?.planningAnswer
+        return message || `${this.getToolLabel(toolName, detail.toolDisplayName || detail.tool_display_name || normalized.retrievalMeta?.toolDisplayName)} 准备调用`
+      }
       if (stage === 'tool_call') {
         const toolName = detail.toolName || detail.tool_name || normalized.retrievalMeta?.toolName
         return `${this.getToolLabel(toolName, detail.toolDisplayName || detail.tool_display_name || normalized.retrievalMeta?.toolDisplayName)} 已执行`
+      }
+      if (stage === 'tool_result_summary') {
+        const count = detail.resultCount !== undefined && detail.resultCount !== null ? ` · ${detail.resultCount} 条数据` : ''
+        if (detail.summarizedByModel) {
+          return `Leader 智能体已整理工具结果${count}`
+        }
+        return detail.error ? `工具结果整理失败，已回退展示${count}` : `工具结果已回退展示${count}`
       }
       if (stage === 'session') {
         const agent = detail.agentName || normalized.agentName

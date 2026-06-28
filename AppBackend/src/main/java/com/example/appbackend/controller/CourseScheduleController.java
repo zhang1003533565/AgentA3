@@ -61,8 +61,12 @@ public class CourseScheduleController {
     public Result<List<CourseSchedule>> getSchedule(
             HttpServletRequest request,
             @RequestParam(required = false) String academicYear,
-            @RequestParam(required = false) Integer semesterTerm) {
+            @RequestParam(required = false) Integer semesterTerm,
+            @RequestParam(required = false, defaultValue = "false") Boolean allSemesters) {
         Long userId = getCurrentUserId(request);
+        if (Boolean.TRUE.equals(allSemesters)) {
+            return Result.success(courseScheduleService.getUserSchedule(userId));
+        }
         SemesterSelection semester = resolveSemester(userId, academicYear, semesterTerm);
         List<CourseSchedule> schedules = courseScheduleService.getUserSchedule(userId, semester.academicYear, semester.semesterTerm);
         return Result.success(schedules);
