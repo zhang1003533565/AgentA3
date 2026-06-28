@@ -78,7 +78,7 @@ public class AppAiLeaderController {
         saveMessage(session, AiLeaderMessage.ROLE_USER, request.getInput(), "text");
         refreshSession(session, request.getInput());
 
-        Map<String, Object> payload = buildLeaderPayload(request, session.getSessionId(), userId);
+        Map<String, Object> payload = buildLeaderPayload(request, session.getSessionId(), userId, httpRequest.getHeader("Authorization"));
 
         Object ragResult = pythonAiProxyService.queryRag(payload, httpRequest.getHeader("Authorization"));
         LlmChatResponse response = toChatResponse(session, ragResult);
@@ -98,7 +98,7 @@ public class AppAiLeaderController {
         saveMessage(session, AiLeaderMessage.ROLE_USER, request.getInput(), "text");
         refreshSession(session, request.getInput());
 
-        Map<String, Object> payload = buildLeaderPayload(request, session.getSessionId(), userId);
+        Map<String, Object> payload = buildLeaderPayload(request, session.getSessionId(), userId, authorization);
         return pythonAiProxyService.streamRag(payload, authorization, (eventName, eventPayload) -> {
             if (!"done".equals(eventName)) {
                 return;
@@ -193,7 +193,7 @@ public class AppAiLeaderController {
         return (Long) userId;
     }
 
-    private Map<String, Object> buildLeaderPayload(LlmChatRequest request, String sessionId, Long userId) {
+    private Map<String, Object> buildLeaderPayload(LlmChatRequest request, String sessionId, Long userId, String authorization) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("input", request.getInput());
         payload.put("agentName", LEADER_AGENT);
@@ -203,7 +203,7 @@ public class AppAiLeaderController {
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("source", "app_ai_assistant");
         metadata.put("sessionId", sessionId == null ? "" : sessionId);
-        metadata.put("profileSnapshot", userProfileService.buildLeaderProfileContext(userId));
+        metadata.put("profileSnapshot", userProfileService.buildLeaderProfileContext(userId, authorization));
         metadata.put("profileEvidencePolicy", Map.of(
                 "leaderCanUpdateScore", false,
                 "leaderCanSubmitEvidence", true,

@@ -7,8 +7,10 @@ import com.example.appbackend.entity.UserProfileEvidence;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.UserProfileDimensionRepository;
 import com.example.appbackend.repository.UserProfileEvidenceRepository;
+import com.example.appbackend.service.SystemConfigService;
 import com.example.appbackend.service.UserProfileService;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -30,6 +32,8 @@ import java.util.stream.Collectors;
 public class UserProfileServiceImpl implements UserProfileService {
 
     private static final String EVIDENCE_PROTOCOL_VERSION = "campus-profile-evidence-v1";
+    private static final String PROFILE_SUMMARY_AGENT = "profile_summary_agent";
+    private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
     private static final int RECENT_EVIDENCE_DAYS = 30;
     private static final Map<String, Double> SOURCE_RELIABILITY_WEIGHTS = Map.ofEntries(
             Map.entry("profile", 0.90),
@@ -66,6 +70,7 @@ public class UserProfileServiceImpl implements UserProfileService {
             "正式更新必须有明确来源、证据内容、置信度和建议变化方向。",
             "低置信度证据留在候选池等待更多同类行为；高置信新证据会在最近一次定时汇总中体现。",
             "每次定时汇总按历史置信度和最新证据置信度计算融合权重，避免一句话大幅改分，也允许真实变化及时体现。",
+            "每次画像快照都会优先调用 profile_summary_agent 基于最新分数、证据数量和置信度生成优势、欠缺和下一步补证建议；智能体不可直接改分。",
             "当前输入与历史画像冲突时，以当前输入完成本轮回答，同时把冲突作为新证据沉淀。"
     );
 
@@ -83,7 +88,8 @@ public class UserProfileServiceImpl implements UserProfileService {
             "3. 定时画像汇总任务按用户和维度拉取候选证据，并读取该维度历史分数与历史置信度。",
             "4. 汇总任务把一段时间内的新证据聚合成一次画像更新，按历史-最新融合权重更新 user_profile_dimension。",
             "5. 已参与汇总的证据标记为 applied；低置信、冲突或信息不足的证据继续留在候选池。",
-            "6. 移动端雷达图和 Leader 统一读取最新画像快照。"
+            "6. 画像快照优先调用 profile_summary_agent 生成智能总结，说明当前强项、欠缺、证据状态和后续补证建议；JSON 不合法时使用后端规则总结兜底。",
+            "7. 移动端雷达图和 Leader 统一读取最新画像快照。"
     );
 
     private static final List<UserProfileDTO.EvidenceScoringCriterion> EVIDENCE_SCORING_CRITERIA = buildEvidenceScoringCriteria();
@@ -123,6 +129,7 @@ public class UserProfileServiceImpl implements UserProfileService {
             "会议、做题或对话中的高置信新证据会在最近一次定时汇总中影响画像，并被融合权重限制幅度。",
             "历史高置信画像不会被一次弱证据推翻；历史低置信画像会更容易吸收强新证据。",
             "Leader 每次可以读取画像并调整回答方式，但不能直接修改画像分数。",
+            "画像快照必须返回强项总结、欠缺总结、置信依据、数据状态和补证建议，不能把默认基线伪装成真实画像。",
             "当前用户明确表达与历史画像冲突时，本轮回答必须以当前表达为准。",
             "每次正式分数变化都能追溯到来源、证据、置信度、实际改分和原因。",
             "后台规则页能看到评分公式、来源权重、更新节奏、冲突处理和 Leader 使用边界。"
@@ -131,23 +138,35 @@ public class UserProfileServiceImpl implements UserProfileService {
 
     private final UserProfileDimensionRepository dimensionRepository;
     private final UserProfileEvidenceRepository evidenceRepository;
+    private final PythonAiProxyService pythonAiProxyService;
+    private final SystemConfigService systemConfigService;
     private final ObjectMapper objectMapper;
 
     public UserProfileServiceImpl(UserProfileDimensionRepository dimensionRepository,
                                   UserProfileEvidenceRepository evidenceRepository,
+                                  PythonAiProxyService pythonAiProxyService,
+                                  SystemConfigService systemConfigService,
                                   ObjectMapper objectMapper) {
         this.dimensionRepository = dimensionRepository;
         this.evidenceRepository = evidenceRepository;
+        this.pythonAiProxyService = pythonAiProxyService;
+        this.systemConfigService = systemConfigService;
         this.objectMapper = objectMapper;
     }
 
     @Override
     @Transactional
     public UserProfileDTO.RadarSnapshot getSnapshot(Long userId) {
+        return getSnapshot(userId, "");
+    }
+
+    @Override
+    @Transactional
+    public UserProfileDTO.RadarSnapshot getSnapshot(Long userId, String authorization) {
         List<UserProfileDTO.DimensionSnapshot> dimensions = RULES.values().stream()
                 .map(rule -> toSnapshot(getOrCreateDimension(userId, rule), rule))
                 .toList();
-        return buildSnapshot(userId, dimensions);
+        return buildSnapshot(userId, dimensions, authorization);
     }
 
     @Override
@@ -233,16 +252,34 @@ public class UserProfileServiceImpl implements UserProfileService {
     @Override
     @Transactional
     public Map<String, Object> buildLeaderProfileContext(Long userId) {
-        UserProfileDTO.RadarSnapshot snapshot = getSnapshot(userId);
+        return buildLeaderProfileContext(userId, "");
+    }
+
+    @Override
+    @Transactional
+    public Map<String, Object> buildLeaderProfileContext(Long userId, String authorization) {
+        UserProfileDTO.RadarSnapshot snapshot = getSnapshot(userId, authorization);
         Map<String, Object> context = new LinkedHashMap<>();
         context.put("overallScore", snapshot.getOverallScore());
         context.put("confidenceLevel", snapshot.getConfidenceLevel());
+        context.put("dataStatus", snapshot.getDataStatus());
+        context.put("dataStatusText", snapshot.getDataStatusText());
+        context.put("dataSourceText", snapshot.getDataSourceText());
         context.put("profileTags", snapshot.getProfileTags());
         context.put("strongDimensions", snapshot.getStrongDimensions());
         context.put("weakDimensions", snapshot.getWeakDimensions());
+        context.put("advantageDimensions", snapshot.getAdvantageDimensions());
+        context.put("gapDimensions", snapshot.getGapDimensions());
+        context.put("aiSummary", snapshot.getAiSummary());
+        context.put("strengthSummary", snapshot.getStrengthSummary());
+        context.put("weaknessSummary", snapshot.getWeaknessSummary());
+        context.put("improvementSuggestions", snapshot.getImprovementSuggestions());
+        context.put("confidenceNotes", snapshot.getConfidenceNotes());
+        context.put("summaryEngine", snapshot.getSummaryEngine());
         context.put("resourcePreference", snapshot.getResourcePreference());
         context.put("outputPreferenceHints", buildOutputPreferenceHints(userId));
         context.put("updateMode", snapshot.getUpdateMode());
+        context.put("summaryUpdatedAt", snapshot.getSummaryUpdatedAt());
         context.put("lastUpdatedAt", snapshot.getLastUpdatedAt());
         context.put("dimensions", snapshot.getDimensions().stream().map(item -> {
             Map<String, Object> dimension = new LinkedHashMap<>();
@@ -288,31 +325,272 @@ public class UserProfileServiceImpl implements UserProfileService {
         );
     }
 
-    private UserProfileDTO.RadarSnapshot buildSnapshot(Long userId, List<UserProfileDTO.DimensionSnapshot> dimensions) {
+    private UserProfileDTO.RadarSnapshot buildSnapshot(Long userId,
+                                                       List<UserProfileDTO.DimensionSnapshot> dimensions,
+                                                       String authorization) {
         UserProfileDTO.RadarSnapshot snapshot = new UserProfileDTO.RadarSnapshot();
         snapshot.setUserId(userId);
         snapshot.setDimensions(dimensions);
         snapshot.setOverallScore((int) Math.round(dimensions.stream().mapToInt(UserProfileDTO.DimensionSnapshot::getScore).average().orElse(70)));
         double confidenceAverage = dimensions.stream().mapToDouble(UserProfileDTO.DimensionSnapshot::getConfidence).average().orElse(0.5);
         snapshot.setConfidenceLevel(confidenceAverage >= 0.75 ? "high" : confidenceAverage >= 0.55 ? "medium" : "low");
-        snapshot.setStrongDimensions(dimensions.stream()
+        List<String> strongDimensions = dimensions.stream()
                 .filter(item -> item.getScore() >= 78)
                 .map(UserProfileDTO.DimensionSnapshot::getName)
-                .toList());
-        snapshot.setWeakDimensions(dimensions.stream()
+                .toList();
+        List<String> weakDimensions = dimensions.stream()
                 .filter(item -> item.getScore() <= 68)
                 .map(UserProfileDTO.DimensionSnapshot::getName)
-                .toList());
+                .toList();
+        snapshot.setStrongDimensions(strongDimensions);
+        snapshot.setWeakDimensions(weakDimensions);
+        snapshot.setAdvantageDimensions(buildAdvantageDimensions(dimensions));
+        snapshot.setGapDimensions(buildGapDimensions(dimensions));
         snapshot.setResourcePreference(buildResourcePreference(dimensions));
         snapshot.setProfileTags(buildProfileTags(snapshot.getStrongDimensions(), snapshot.getWeakDimensions()));
         snapshot.setLeaderUsageRules(LEADER_RULES);
         snapshot.setUpdateMode("行为证据实时记录，画像分数定时汇总更新");
-        snapshot.setLastUpdatedAt(dimensions.stream()
+        LocalDateTime lastUpdatedAt = dimensions.stream()
                 .map(UserProfileDTO.DimensionSnapshot::getLastUpdatedAt)
                 .filter(Objects::nonNull)
                 .max(Comparator.naturalOrder())
-                .orElse(null));
+                .orElse(null);
+        int appliedEvidenceCount = dimensions.stream()
+                .mapToInt(item -> item.getEvidenceCount() == null ? 0 : item.getEvidenceCount())
+                .sum();
+        int totalEvidenceCount = safeLongToInt(evidenceRepository.countByUserId(userId));
+        int candidateEvidenceCount = safeLongToInt(evidenceRepository.countByUserIdAndStatus(userId, "candidate"));
+        snapshot.setAppliedEvidenceCount(appliedEvidenceCount);
+        snapshot.setTotalEvidenceCount(totalEvidenceCount);
+        snapshot.setCandidateEvidenceCount(candidateEvidenceCount);
+        if (appliedEvidenceCount > 0) {
+            snapshot.setDataStatus("evidence_ready");
+            snapshot.setDataStatusText("真实画像");
+            snapshot.setDataSourceText("已基于 " + appliedEvidenceCount + " 条正式采纳证据更新；另有 " + candidateEvidenceCount + " 条候选证据等待汇总。");
+        } else if (totalEvidenceCount > 0) {
+            snapshot.setDataStatus("evidence_collecting");
+            snapshot.setDataStatusText("证据沉淀中");
+            snapshot.setDataSourceText("已记录 " + totalEvidenceCount + " 条真实行为证据，雷达分仍使用默认基线等待定时汇总。");
+        } else {
+            snapshot.setDataStatus("baseline");
+            snapshot.setDataStatusText("默认基线");
+            snapshot.setDataSourceText("当前还没有可采纳的聊天、会议、做题或点击证据，分数来自后端默认画像基线。");
+        }
+        ProfileInsight insight = buildProfileInsight(snapshot, dimensions, confidenceAverage);
+        snapshot.setAiSummary(insight.summary());
+        snapshot.setStrengthSummary(insight.strengthSummary());
+        snapshot.setWeaknessSummary(insight.weaknessSummary());
+        snapshot.setImprovementSuggestions(insight.suggestions());
+        snapshot.setConfidenceNotes(insight.confidenceNotes());
+        snapshot.setSummaryEngine("local_profile_summary_v1");
+        snapshot.setSummaryUpdatedAt(lastUpdatedAt);
+        snapshot.setLastUpdatedAt(lastUpdatedAt);
+        applyProfileSummaryAgent(snapshot, dimensions, authorization);
         return snapshot;
+    }
+
+    private List<String> buildAdvantageDimensions(List<UserProfileDTO.DimensionSnapshot> dimensions) {
+        List<String> advantages = dimensions.stream()
+                .filter(item -> item.getScore() >= 75 || "up".equals(normalize(item.getTrend())))
+                .sorted(Comparator.comparingInt(UserProfileDTO.DimensionSnapshot::getScore).reversed())
+                .limit(3)
+                .map(this::dimensionLabel)
+                .toList();
+        if (!advantages.isEmpty()) {
+            return advantages;
+        }
+        return dimensions.stream()
+                .sorted(Comparator.comparingInt(UserProfileDTO.DimensionSnapshot::getScore).reversed())
+                .limit(2)
+                .map(this::dimensionLabel)
+                .toList();
+    }
+
+    private List<String> buildGapDimensions(List<UserProfileDTO.DimensionSnapshot> dimensions) {
+        List<String> gaps = dimensions.stream()
+                .filter(item -> item.getScore() <= 68 || "down".equals(normalize(item.getTrend())))
+                .sorted(Comparator.comparingInt(UserProfileDTO.DimensionSnapshot::getScore))
+                .limit(3)
+                .map(this::dimensionLabel)
+                .toList();
+        if (!gaps.isEmpty()) {
+            return gaps;
+        }
+        return dimensions.stream()
+                .sorted(Comparator.comparingInt(UserProfileDTO.DimensionSnapshot::getScore))
+                .limit(2)
+                .map(this::dimensionLabel)
+                .toList();
+    }
+
+    private ProfileInsight buildProfileInsight(UserProfileDTO.RadarSnapshot snapshot,
+                                               List<UserProfileDTO.DimensionSnapshot> dimensions,
+                                               double confidenceAverage) {
+        List<String> advantages = snapshot.getAdvantageDimensions() == null ? List.of() : snapshot.getAdvantageDimensions();
+        List<String> gaps = snapshot.getGapDimensions() == null ? List.of() : snapshot.getGapDimensions();
+        String confidenceText = switch (snapshot.getConfidenceLevel()) {
+            case "high" -> "高置信";
+            case "low" -> "低置信";
+            default -> "中置信";
+        };
+        String evidenceText = switch (snapshot.getDataStatus()) {
+            case "evidence_ready" -> "已采纳真实证据";
+            case "evidence_collecting" -> "真实证据正在沉淀";
+            default -> "仍处在默认基线阶段";
+        };
+        String topAdvantage = advantages.isEmpty() ? "暂未形成稳定优势" : String.join("、", advantages);
+        String topGap = gaps.isEmpty() ? "暂未发现明显欠缺" : String.join("、", gaps);
+        String summary = "当前画像综合分 " + snapshot.getOverallScore() + "，属于" + confidenceText + "画像，" + evidenceText
+                + "。优势主要集中在 " + topAdvantage + "；需要继续观察或补强的是 " + topGap + "。";
+        String strengthSummary = advantages.isEmpty()
+                ? "优势尚未稳定，需要更多聊天、会议、做题和资源使用证据来确认。"
+                : "较有优势：" + topAdvantage + "。Leader 可在这些方向上给更结构化、稍进阶的解释。";
+        String weaknessSummary = gaps.isEmpty()
+                ? "当前没有明显短板，但仍要用最新问题校正历史画像。"
+                : "欠缺或待确认：" + topGap + "。Leader 回答时应优先补基础、给例子，并避免直接贴负面标签。";
+        List<String> suggestions = new ArrayList<>();
+        if ("baseline".equals(snapshot.getDataStatus())) {
+            suggestions.add("先通过 AI 对话、会议总结、做题记录和资源点击积累真实证据，再进行正式画像更新。");
+        } else if ("evidence_collecting".equals(snapshot.getDataStatus())) {
+            suggestions.add("候选证据已有积累，等待定时汇总任务把多条证据融合到正式雷达分。");
+        } else {
+            suggestions.add("继续记录最新聊天、会议、练习和资源选择，下一次汇总时对强弱变化做小幅校正。");
+        }
+        dimensions.stream()
+                .filter(item -> item.getScore() <= 68)
+                .findFirst()
+                .ifPresent(item -> suggestions.add("围绕「" + item.getName() + "」补充更具体的题目、知识点或任务结果，提升判断准确度。"));
+        if (confidenceAverage < 0.65) {
+            suggestions.add("当前置信度还不够高，Leader 只能把画像作为倾向，回答仍应优先相信用户本轮明确表达。");
+        }
+        List<String> confidenceNotes = new ArrayList<>();
+        confidenceNotes.add("当前平均置信度约 " + round2(confidenceAverage) + "，来自各维度历史置信度的平均值。");
+        confidenceNotes.add("已采纳证据 " + snapshot.getAppliedEvidenceCount() + " 条，候选证据 " + snapshot.getCandidateEvidenceCount() + " 条。");
+        if ("baseline".equals(snapshot.getDataStatus())) {
+            confidenceNotes.add("暂无真实证据时只展示默认基线，不作为确定性结论。");
+        }
+        return new ProfileInsight(
+                summary,
+                strengthSummary,
+                weaknessSummary,
+                suggestions.stream().distinct().limit(3).toList(),
+                confidenceNotes.stream().distinct().limit(3).toList()
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    private void applyProfileSummaryAgent(UserProfileDTO.RadarSnapshot snapshot,
+                                          List<UserProfileDTO.DimensionSnapshot> dimensions,
+                                          String authorization) {
+        String modelBinding = resolveProfileSummaryModelBinding();
+        if (!StringUtils.hasText(authorization) || !StringUtils.hasText(modelBinding)) {
+            return;
+        }
+        Map<String, Object> profilePayload = buildProfileSummaryPayload(snapshot, dimensions);
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("agentName", PROFILE_SUMMARY_AGENT);
+        request.put("llmModel", modelBinding);
+        request.put("input", writeJson(profilePayload));
+        request.put("metadata", Map.of(
+                "source", "user_profile_snapshot",
+                "profileSnapshot", profilePayload
+        ));
+        try {
+            Object raw = pythonAiProxyService.queryRag(request, authorization);
+            Map<String, Object> result = raw instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+            String answer = String.valueOf(result.getOrDefault("answer", "")).trim();
+            if (applyProfileSummaryAgentJson(snapshot, answer)) {
+                snapshot.setSummaryEngine(PROFILE_SUMMARY_AGENT);
+            }
+        } catch (Exception ignored) {
+            snapshot.setSummaryEngine("local_profile_summary_v1");
+        }
+    }
+
+    private Map<String, Object> buildProfileSummaryPayload(UserProfileDTO.RadarSnapshot snapshot,
+                                                           List<UserProfileDTO.DimensionSnapshot> dimensions) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("overallScore", snapshot.getOverallScore());
+        payload.put("confidenceLevel", snapshot.getConfidenceLevel());
+        payload.put("dataStatus", snapshot.getDataStatus());
+        payload.put("totalEvidenceCount", snapshot.getTotalEvidenceCount());
+        payload.put("appliedEvidenceCount", snapshot.getAppliedEvidenceCount());
+        payload.put("candidateEvidenceCount", snapshot.getCandidateEvidenceCount());
+        payload.put("strongDimensions", snapshot.getStrongDimensions());
+        payload.put("weakDimensions", snapshot.getWeakDimensions());
+        payload.put("resourcePreference", snapshot.getResourcePreference());
+        payload.put("leaderUsageRules", snapshot.getLeaderUsageRules());
+        payload.put("updateMode", snapshot.getUpdateMode());
+        payload.put("lastUpdatedAt", snapshot.getLastUpdatedAt());
+        payload.put("dimensions", dimensions.stream().map(item -> {
+            Map<String, Object> dimension = new LinkedHashMap<>();
+            dimension.put("key", item.getKey());
+            dimension.put("name", item.getName());
+            dimension.put("score", item.getScore());
+            dimension.put("confidence", item.getConfidence());
+            dimension.put("trend", item.getTrend());
+            dimension.put("evidenceCount", item.getEvidenceCount());
+            dimension.put("sourceSummary", item.getSourceSummary());
+            dimension.put("updatePolicy", item.getUpdatePolicy());
+            dimension.put("lastUpdatedAt", item.getLastUpdatedAt());
+            return dimension;
+        }).toList());
+        return payload;
+    }
+
+    private boolean applyProfileSummaryAgentJson(UserProfileDTO.RadarSnapshot snapshot, String answer) {
+        String json = extractJsonObject(answer);
+        if (!StringUtils.hasText(json)) {
+            return false;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(json);
+            String aiSummary = jsonText(root, "aiSummary");
+            String strengthSummary = jsonText(root, "strengthSummary");
+            String weaknessSummary = jsonText(root, "weaknessSummary");
+            if (!StringUtils.hasText(aiSummary) || !StringUtils.hasText(strengthSummary) || !StringUtils.hasText(weaknessSummary)) {
+                return false;
+            }
+            snapshot.setAiSummary(truncate(aiSummary, 700));
+            snapshot.setStrengthSummary(truncate(strengthSummary, 700));
+            snapshot.setWeaknessSummary(truncate(weaknessSummary, 700));
+            List<String> advantageDimensions = jsonTextList(root, "advantageDimensions", 3);
+            List<String> gapDimensions = jsonTextList(root, "gapDimensions", 3);
+            List<String> improvementSuggestions = jsonTextList(root, "improvementSuggestions", 4);
+            List<String> confidenceNotes = jsonTextList(root, "confidenceNotes", 4);
+            if (!advantageDimensions.isEmpty()) {
+                snapshot.setAdvantageDimensions(advantageDimensions);
+            }
+            if (!gapDimensions.isEmpty()) {
+                snapshot.setGapDimensions(gapDimensions);
+            }
+            if (!improvementSuggestions.isEmpty()) {
+                snapshot.setImprovementSuggestions(improvementSuggestions);
+            }
+            if (!confidenceNotes.isEmpty()) {
+                snapshot.setConfidenceNotes(confidenceNotes);
+            }
+            String dataStatusText = jsonText(root, "dataStatusText");
+            if (List.of("真实画像", "证据沉淀中", "默认基线").contains(dataStatusText)) {
+                snapshot.setDataStatusText(dataStatusText);
+            }
+            String dataSourceText = jsonText(root, "dataSourceText");
+            if (StringUtils.hasText(dataSourceText)) {
+                snapshot.setDataSourceText(truncate(dataSourceText, 300));
+            }
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private String resolveProfileSummaryModelBinding() {
+        String profileModel = systemConfigService.getValue(AGENT_MODEL_BINDING_PREFIX + PROFILE_SUMMARY_AGENT + ".model", "");
+        if (StringUtils.hasText(profileModel)) {
+            return profileModel.trim();
+        }
+        String leaderModel = systemConfigService.getValue(AGENT_MODEL_BINDING_PREFIX + "leader_agent.model", "");
+        return StringUtils.hasText(leaderModel) ? leaderModel.trim() : "";
     }
 
     private Map<String, Object> buildOutputPreferenceHints(Long userId) {
@@ -886,6 +1164,18 @@ public class UserProfileServiceImpl implements UserProfileService {
         };
     }
 
+    private String dimensionLabel(UserProfileDTO.DimensionSnapshot item) {
+        if (item == null) {
+            return "";
+        }
+        String trend = switch (normalize(item.getTrend())) {
+            case "up" -> "，上升";
+            case "down" -> "，下降";
+            default -> "";
+        };
+        return item.getName() + " " + item.getScore() + "分" + trend;
+    }
+
     private List<String> readStringList(String json) {
         if (!StringUtils.hasText(json)) {
             return List.of();
@@ -895,6 +1185,43 @@ public class UserProfileServiceImpl implements UserProfileService {
         } catch (Exception ignored) {
             return List.of();
         }
+    }
+
+    private String jsonText(JsonNode root, String field) {
+        if (root == null || !root.has(field)) {
+            return "";
+        }
+        return truncate(root.path(field).asText("").trim(), 1000);
+    }
+
+    private List<String> jsonTextList(JsonNode root, String field, int limit) {
+        if (root == null || !root.has(field) || !root.path(field).isArray()) {
+            return List.of();
+        }
+        List<String> values = new ArrayList<>();
+        for (JsonNode node : root.path(field)) {
+            String value = truncate(node.asText("").trim(), 200);
+            if (StringUtils.hasText(value) && !values.contains(value)) {
+                values.add(value);
+            }
+            if (values.size() >= limit) {
+                break;
+            }
+        }
+        return values;
+    }
+
+    private String extractJsonObject(String text) {
+        if (!StringUtils.hasText(text)) {
+            return "";
+        }
+        String value = text.trim();
+        int start = value.indexOf('{');
+        int end = value.lastIndexOf('}');
+        if (start < 0 || end <= start) {
+            return "";
+        }
+        return value.substring(start, end + 1);
     }
 
     private String writeJson(Object value) {
@@ -914,6 +1241,10 @@ public class UserProfileServiceImpl implements UserProfileService {
 
     private static int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    private static int safeLongToInt(long value) {
+        return value > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) value;
     }
 
     private static double round2(double value) {
@@ -986,7 +1317,8 @@ public class UserProfileServiceImpl implements UserProfileService {
                 decisionStep(5, "正负冲突判断", "同一批证据正负方向不接近抵消", "标记冲突原因并留在候选池"),
                 decisionStep(6, "历史画像读取", "读取该维度当前 score、confidence、trend 和来源摘要", "缺失时使用默认画像基线"),
                 decisionStep(7, "批量融合裁剪", "候选证据聚合成一次 requestedDelta，再按历史-最新融合权重生成 appliedDelta", "实际变化为 0 时继续候选"),
-                decisionStep(8, "正式应用与审计", "实际 appliedDelta 非 0 且分数仍在 0-100", "保存 applied 证据、更新趋势和来源摘要")
+                decisionStep(8, "正式应用与审计", "实际 appliedDelta 非 0 且分数仍在 0-100", "保存 applied 证据、更新趋势和来源摘要"),
+                decisionStep(9, "智能总结生成", "读取最新分数、证据状态和置信度", "如果无真实证据则明确标记默认基线，不输出确定性结论")
         );
     }
 
@@ -1366,6 +1698,15 @@ public class UserProfileServiceImpl implements UserProfileService {
             map.put("reasons", reasons);
             return map;
         }
+    }
+
+    private record ProfileInsight(
+            String summary,
+            String strengthSummary,
+            String weaknessSummary,
+            List<String> suggestions,
+            List<String> confidenceNotes
+    ) {
     }
 
     private static class OutputPreferenceAccumulator {

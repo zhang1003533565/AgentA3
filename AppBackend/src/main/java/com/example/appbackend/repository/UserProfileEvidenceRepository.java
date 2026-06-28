@@ -22,4 +22,8 @@ public interface UserProfileEvidenceRepository extends JpaRepository<UserProfile
             String status,
             LocalDateTime createTime
     );
+
+    long countByUserId(Long userId);
+
+    long countByUserIdAndStatus(Long userId, String status);
 }

@@ -116,6 +116,8 @@ class LeaderAgent:
             return LeaderPlan("diagram_mind_map", "diagram_mind_map_agent", False, "", route_reason="命中思维导图生成意图，分发给图表思维导图智能体。")
         if any(token in normalized for token in ("生成图片", "画一张", "画张", "配图", "插图", "封面图", "海报", "图片素材", "文生图")):
             return LeaderPlan("image_generation", "image_agent", False, "", route_reason="命中图片生成/配图意图，分发给图片智能体，并在 App 会话页以图片卡片推送。")
+        if any(token in normalized for token in ("个人画像汇总", "画像汇总", "画像总结", "画像分析", "画像雷达总结", "profile summary")):
+            return LeaderPlan("profile_summary", "profile_summary_agent", False, "", route_reason="命中个人画像汇总意图，分发给个人画像汇总智能体。")
         if any(token in normalized for token in ("多选题", "多项选择")):
             return LeaderPlan("multiple_choice", "textbook_question_multiple_choice_agent", False, "", route_reason="命中多选题生成意图，分发给多选题智能体。")
         if any(token in normalized for token in ("选择题", "单选题", "单项选择")):
@@ -198,6 +200,7 @@ class LeaderAgent:
         target_agent = normalize_agent_name(str(plan.get("target_agent") or plan.get("targetAgent") or "")) or default_target
         if target_agent not in {
             "leader_agent",
+            "profile_summary_agent",
             "architecture_prompt_agent",
             *DIAGRAM_AGENT_SPECS.keys(),
             "mind_map_agent",

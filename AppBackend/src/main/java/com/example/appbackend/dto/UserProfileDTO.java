@@ -48,13 +48,28 @@ public class UserProfileDTO {
         private Long userId;
         private Integer overallScore;
         private String confidenceLevel;
+        private String dataStatus;
+        private String dataStatusText;
+        private String dataSourceText;
+        private Integer totalEvidenceCount;
+        private Integer appliedEvidenceCount;
+        private Integer candidateEvidenceCount;
         private List<String> profileTags;
         private List<String> strongDimensions;
         private List<String> weakDimensions;
+        private List<String> advantageDimensions;
+        private List<String> gapDimensions;
         private List<String> resourcePreference;
         private List<DimensionSnapshot> dimensions;
         private List<String> leaderUsageRules;
         private String updateMode;
+        private String aiSummary;
+        private String strengthSummary;
+        private String weaknessSummary;
+        private List<String> improvementSuggestions;
+        private List<String> confidenceNotes;
+        private String summaryEngine;
+        private LocalDateTime summaryUpdatedAt;
         private LocalDateTime lastUpdatedAt;
     }
 

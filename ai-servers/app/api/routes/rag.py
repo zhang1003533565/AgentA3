@@ -144,6 +144,11 @@ def get_rag_capabilities(
         "structuredKnowledge": {
             "textToSql": True,
         },
+        "profileSummary": {
+            "agent": "profile_summary_agent",
+            "purpose": "把 Java 画像快照总结为强项、欠缺、置信依据和补证建议；不修改画像分数。",
+            "output": "strict_profile_summary_json",
+        },
         "agents": AGENT_ORDER,
         "agentInvocation": {
             "chatParameter": "agentName",
@@ -178,6 +183,12 @@ def get_rag_framework(
                 "name": "agent_enabled_gate",
                 "category": "runtime_control",
                 "purpose": "Leader 路由到关闭的智能体时跳过执行，后台开关是运行边界。",
+                "status": "implemented",
+            },
+            {
+                "name": "profile_summary_agent",
+                "category": "profile",
+                "purpose": "汇总个人画像雷达图强弱、置信度、证据状态和补证建议。",
                 "status": "implemented",
             },
         ],
@@ -557,9 +568,19 @@ def _profile_evidence_from_request(request: RagQueryRequest) -> List[Dict[str, A
     content = json.dumps({
         "overallScore": profile_context.get("overallScore"),
         "confidenceLevel": profile_context.get("confidenceLevel"),
+        "dataStatus": profile_context.get("dataStatus"),
+        "dataStatusText": profile_context.get("dataStatusText"),
+        "dataSourceText": profile_context.get("dataSourceText"),
         "profileTags": profile_context.get("profileTags"),
         "strongDimensions": profile_context.get("strongDimensions"),
         "weakDimensions": profile_context.get("weakDimensions"),
+        "advantageDimensions": profile_context.get("advantageDimensions"),
+        "gapDimensions": profile_context.get("gapDimensions"),
+        "aiSummary": profile_context.get("aiSummary"),
+        "strengthSummary": profile_context.get("strengthSummary"),
+        "weaknessSummary": profile_context.get("weaknessSummary"),
+        "improvementSuggestions": profile_context.get("improvementSuggestions"),
+        "confidenceNotes": profile_context.get("confidenceNotes"),
         "resourcePreference": profile_context.get("resourcePreference"),
         "dimensions": profile_context.get("dimensions"),
         "leaderUsageRules": profile_context.get("leaderUsageRules"),
@@ -1226,6 +1247,7 @@ def _strategy_label(strategy_name: str) -> str:
 def _answer_type_for_agent(agent_name: str) -> str:
     mapping = {
         "leader_agent": "text",
+        "profile_summary_agent": "profile_summary_json",
         "mind_map_agent": "mermaid_mindmap",
         "diagram_architecture_agent": "image_generation",
         "textbook_knowledge_agent": "markdown",

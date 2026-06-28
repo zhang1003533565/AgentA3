@@ -46,6 +46,7 @@ DIAGRAM_AGENT_SPECS = {
 
 AGENT_ORDER = [
     "leader_agent",
+    "profile_summary_agent",
     "architecture_prompt_agent",
     *DIAGRAM_AGENT_SPECS.keys(),
     "diagram_mind_map_agent",
@@ -172,7 +173,7 @@ def _diagram_profile(agent_name: str, role: str, intent: str, purpose: str, exam
 AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
     "leader_agent": {
         "role": "Leader 智能体",
-        "purpose": "统一理解用户任务，路由到思维导图、教材知识点、各题型出题、会议处理、PPT、图片等专业智能体，并基于 Java 数据库中的 LLM 配置完成必要的直接回答。",
+        "purpose": "统一理解用户任务，路由到个人画像汇总、思维导图、教材知识点、各题型出题、会议处理、PPT、图片等专业智能体，并基于 Java 数据库中的 LLM 配置完成必要的直接回答。",
         "inputs": ["user_query", "rag_strategy", "session_token", "history"],
         "outputs": ["intent", "target_agent", "need_retrieval", "answer"],
         "skills": ["task routing", "agent orchestration", "memory", "llm direct answering"],
@@ -184,6 +185,22 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "supportedRagStrategies": [],
         "aliases": ["leader", "leader_agent", "总控智能体", "leader智能体"],
         "exampleInput": "帮我把数据结构中的栈与队列整理成 PPT 大纲",
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+    },
+    "profile_summary_agent": {
+        "role": "个人画像汇总智能体",
+        "purpose": "把 Java 后端画像快照整理成强项、欠缺、置信度说明、补证建议和 Leader 参考规则；只解释画像，不修改分数。",
+        "inputs": ["profile_snapshot", "dimensions", "evidence_counts", "confidence_level"],
+        "outputs": ["strict_profile_summary_json"],
+        "skills": ["profile summarization", "confidence explanation", "leader personalization policy"],
+        "intent": "profile_summary",
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": "直接汇总个人画像快照",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": ["profile_summary", "profile_summary_agent", "个人画像汇总", "画像汇总智能体", "个人画像汇总智能体"],
+        "exampleInput": "根据用户画像快照生成强项、欠缺、置信度说明和补证建议 JSON",
         "requiredModelModalities": TEXT_MODEL_MODALITY,
     },
     **{
@@ -318,6 +335,10 @@ AGENT_ALIASES.update({
     "配图智能体": "",
     "image": "",
     "image_agent": "image_agent",
+    "profile_summary": "profile_summary_agent",
+    "个人画像汇总": "profile_summary_agent",
+    "画像汇总智能体": "profile_summary_agent",
+    "个人画像汇总智能体": "profile_summary_agent",
 })
 
 
@@ -341,6 +362,7 @@ def get_agent_catalog() -> Dict[str, Any]:
         },
         "workflow": {
             "default": ["leader_agent", "textbook_knowledge_agent"],
+            "profileSummary": ["profile_summary_agent"],
             "mindMap": ["leader_agent", "textbook_knowledge_agent", "diagram_mind_map_agent"],
             "mindMapImage": ["leader_agent", "textbook_knowledge_agent", "mind_map_agent"],
             "architecturePrompt": ["leader_agent", "textbook_knowledge_agent", "architecture_prompt_agent", "diagram_architecture_agent"],
