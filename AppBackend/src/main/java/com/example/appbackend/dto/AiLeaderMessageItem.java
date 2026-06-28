@@ -13,8 +13,12 @@ public class AiLeaderMessageItem {
     private String content;
     private String answerType;
     private String outputType;
+    private String agentName;
+    private String searchKeyword;
     private List<String> outputTypes;
     private Map<String, Object> outputMeta;
+    private Map<String, Object> retrievalMeta;
+    private List<Map<String, Object>> trace;
     private List<Map<String, Object>> attachments;
     private LocalDateTime createTime;
 }

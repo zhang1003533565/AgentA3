@@ -29,6 +29,28 @@ from app.utils.sse import build_sse, chunk_answer
 router = APIRouter(prefix="/internal/rag", tags=["internal-rag"])
 logger = get_logger("api.rag")
 
+
+class AgentExecutionError(Exception):
+    def __init__(
+        self,
+        *,
+        message: str,
+        agent_name: str = "",
+        intent: str = "",
+        stage: str = "agent_failed",
+        route_reason: str = "",
+        status_code: int = 500,
+        raw_message: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.agent_name = agent_name
+        self.intent = intent
+        self.stage = stage
+        self.route_reason = route_reason
+        self.status_code = status_code
+        self.raw_message = raw_message or message
+
 GENERATED_CONTENT_TOOLS = [
     {
         "name": "markdown_export_tool",
@@ -411,7 +433,7 @@ async def run_rag_query_stream(
             })
         except Exception as exc:
             logger.exception("rag stream failed agent=%s", request.agentName or "-")
-            yield build_sse("error", {"message": str(exc)})
+            yield build_sse("error", _build_stream_error_payload(request, exc, llm_config))
         finally:
             reset_active_llm_config(token)
 
@@ -615,7 +637,10 @@ def _run_agent_without_local_retrieval(
     leader_plan=None,
 ) -> RagQueryResponse:
     profile_evidence = _profile_evidence_from_request(request)
-    answer = run_specialist_agent(active_agent, request.input, profile_evidence)
+    try:
+        answer = run_specialist_agent(active_agent, request.input, profile_evidence)
+    except Exception as exc:
+        _raise_agent_execution_error(exc, active_agent, leader_plan=leader_plan)
     answer_type = _answer_type_for_agent(active_agent)
     trace = []
     if leader_plan:
@@ -705,7 +730,10 @@ def _run_direct_agent(
 ) -> RagQueryResponse:
     agent_name = agent_profile["name"]
     profile_evidence = _profile_evidence_from_request(request)
-    answer = run_specialist_agent(agent_name, request.input, profile_evidence)
+    try:
+        answer = run_specialist_agent(agent_name, request.input, profile_evidence)
+    except Exception as exc:
+        _raise_agent_execution_error(exc, agent_name, leader_plan=leader_plan)
     answer_type = _answer_type_for_agent(agent_name)
     metadata = {
         "agentName": "leader_agent" if leader_plan else agent_name,
@@ -742,6 +770,123 @@ def _run_direct_agent(
         trace=trace,
         metadata=metadata,
     ))
+
+
+def _raise_agent_execution_error(exc: Exception, agent_name: str, leader_plan=None) -> None:
+    raw_message = _exception_message(exc)
+    friendly_message = _friendly_agent_failure_message(raw_message, agent_name)
+    raise AgentExecutionError(
+        message=friendly_message,
+        agent_name=agent_name,
+        intent=getattr(leader_plan, "intent", "") or "",
+        route_reason=getattr(leader_plan, "route_reason", "") or "",
+        status_code=getattr(exc, "status_code", 500) or 500,
+        raw_message=raw_message,
+    ) from exc
+
+
+def _exception_message(exc: Exception) -> str:
+    detail = getattr(exc, "detail", None)
+    if detail:
+        return str(detail)
+    return str(exc)
+
+
+def _friendly_agent_failure_message(raw_message: str, agent_name: str = "") -> str:
+    message = str(raw_message or "").strip()
+    lowered = message.lower()
+    is_image_agent = agent_name in {
+        "image_agent",
+        "diagram_mind_map_agent",
+        "diagram_architecture_agent",
+        "diagram_flowchart_agent",
+        "diagram_activity_agent",
+        "ppt_image_agent",
+    }
+    if is_image_agent and "api.deepseek.com" in lowered and "services/aigc" in lowered:
+        return (
+            "图片模型服务配置不匹配：当前把 Qwen/DashScope 图片生成接口请求发到了 DeepSeek 地址。"
+            "请给该图片智能体绑定 ai.service.image.* 的 Qwen/DashScope 图片模型配置。"
+        )
+    if is_image_agent and "404" in lowered and "services/aigc" in lowered:
+        return "图片生成接口返回 404，通常是图片模型 base-url 或模型服务商配置不正确。"
+    if is_image_agent and ("未传入图片 base url" in lowered or "未传入图片 api key" in lowered or "未传入图片模型 id" in lowered):
+        return "图片模型配置不完整，请检查图片模型的 base-url、api-key 和 model。"
+    return message or "智能体执行失败"
+
+
+def _build_stream_error_payload(
+    request: RagQueryRequest,
+    exc: Exception,
+    llm_config,
+) -> Dict[str, Any]:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    session_id = str(metadata.get("sessionId") or "")
+    if isinstance(exc, AgentExecutionError):
+        agent_name = exc.agent_name or "leader_agent"
+        intent = exc.intent
+        route_reason = exc.route_reason
+        message = exc.message
+        raw_message = exc.raw_message
+        status_code = exc.status_code
+        stage = exc.stage
+    else:
+        agent_name = normalize_agent_name(request.agentName) or "leader_agent"
+        intent = ""
+        route_reason = ""
+        message = _exception_message(exc)
+        raw_message = message
+        status_code = getattr(exc, "status_code", 500) or 500
+        stage = "error"
+    retrieval_meta = {
+        "agentName": "leader_agent" if request.agentName in {"", None, "leader_agent"} else agent_name,
+        "targetAgent": agent_name,
+        "executedAgent": agent_name,
+        "failedAgent": agent_name,
+        "intent": intent,
+        "routeReason": route_reason,
+        "executionMode": "agent_failed" if agent_name != "leader_agent" else "leader_failed",
+        "executionModeLabel": "专业智能体执行失败" if agent_name != "leader_agent" else "Leader 执行失败",
+        "failureStage": stage,
+        "failureReason": message,
+        "rawFailureReason": raw_message,
+        "modelProvider": getattr(llm_config, "provider", "") or "",
+        "model": getattr(llm_config, "model", "") or "",
+        "baseUrl": getattr(llm_config, "base_url", "") or "",
+    }
+    trace = []
+    if route_reason or intent:
+        trace.append({
+            "stage": "leader_route",
+            "detail": {
+                "intent": intent,
+                "targetAgent": agent_name,
+                "needRetrieval": False,
+                "routeReason": route_reason,
+            },
+        })
+    trace.append({
+        "stage": stage,
+        "detail": {
+            "agentName": agent_name,
+            "message": message,
+            "rawMessage": raw_message,
+            "statusCode": status_code,
+        },
+    })
+    return {
+        "sessionId": session_id,
+        "message": message,
+        "rawMessage": raw_message,
+        "statusCode": status_code,
+        "agentName": agent_name,
+        "failedAgent": agent_name,
+        "intent": intent,
+        "stage": stage,
+        "routeReason": route_reason,
+        "retrievalMeta": retrieval_meta,
+        "trace": trace,
+    }
 
 
 def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResponse:

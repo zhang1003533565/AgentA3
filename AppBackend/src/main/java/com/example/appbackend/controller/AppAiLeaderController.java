@@ -402,8 +402,12 @@ public class AppAiLeaderController {
         message.setContent(response == null || response.getAnswer() == null ? "" : response.getAnswer());
         message.setAnswerType(response == null ? "text" : response.getAnswerType());
         message.setOutputType(response == null ? "text" : response.getOutputType());
+        message.setAgentName(response == null ? LEADER_AGENT : firstNonBlank(response.getAgentName(), LEADER_AGENT));
+        message.setSearchKeyword(response == null ? "" : response.getSearchKeyword());
         message.setOutputTypesJson(writeJson(response == null ? List.of() : response.getOutputTypes()));
         message.setOutputMetaJson(writeJson(response == null ? Map.of() : response.getOutputMeta()));
+        message.setRetrievalMetaJson(writeJson(response == null ? Map.of() : response.getRetrievalMeta()));
+        message.setTraceJson(writeJson(response == null ? List.of() : response.getTrace()));
         message.setAttachmentsJson(writeJson(response == null ? List.of() : response.getAttachments()));
         messageRepository.save(message);
     }
@@ -444,8 +448,12 @@ public class AppAiLeaderController {
         item.setContent(message.getContent());
         item.setAnswerType(message.getAnswerType());
         item.setOutputType(message.getOutputType());
+        item.setAgentName(message.getAgentName());
+        item.setSearchKeyword(message.getSearchKeyword());
         item.setOutputTypes(readStringList(message.getOutputTypesJson()));
         item.setOutputMeta(readMap(message.getOutputMetaJson()));
+        item.setRetrievalMeta(readMap(message.getRetrievalMetaJson()));
+        item.setTrace(readMapList(message.getTraceJson()));
         item.setAttachments(readMapList(message.getAttachmentsJson()));
         item.setCreateTime(message.getCreateTime());
         return item;

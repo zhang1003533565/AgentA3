@@ -89,6 +89,55 @@
               </view>
             </view>
           </view>
+          <view v-if="message.role === 'assistant' && hasCallDetail(message)" class="call-detail-panel">
+            <view class="call-detail-header" @click="toggleCallDetail(message)">
+              <view class="call-detail-heading">
+                <view class="call-detail-status-dot" :class="`call-detail-status-dot--${getCallDetailStatus(message)}`"></view>
+                <view class="call-detail-title-wrap">
+                  <text class="call-detail-title">调用明细</text>
+                  <text class="call-detail-summary">{{ getCallDetailSummary(message) }}</text>
+                </view>
+              </view>
+              <text class="call-detail-toggle">{{ isCallDetailExpanded(message) ? '收起' : '展开' }}</text>
+            </view>
+            <view v-if="isCallDetailExpanded(message)" class="call-detail-body">
+              <view class="call-detail-meta">
+                <view
+                  v-for="item in getCallDetailMetaItems(message)"
+                  :key="`${message.localId || message.id}-meta-${item.label}`"
+                  class="call-detail-meta-item"
+                >
+                  <text class="call-detail-meta-label">{{ item.label }}</text>
+                  <text class="call-detail-meta-value">{{ item.value }}</text>
+                </view>
+              </view>
+              <view v-if="getCallDetailTools(message).length" class="call-detail-tools">
+                <text
+                  v-for="tool in getCallDetailTools(message)"
+                  :key="`${message.localId || message.id}-tool-${tool}`"
+                  class="call-detail-tool"
+                >{{ tool }}</text>
+              </view>
+              <view class="call-detail-steps">
+                <view
+                  v-for="(step, stepIndex) in getCallDetailSteps(message)"
+                  :key="`${message.localId || message.id}-step-${stepIndex}`"
+                  class="call-detail-step"
+                  :class="`call-detail-step--${step.status}`"
+                >
+                  <view class="call-detail-step-dot"></view>
+                  <view class="call-detail-step-body">
+                    <view class="call-detail-step-head">
+                      <text class="call-detail-step-title">{{ step.title }}</text>
+                      <text class="call-detail-step-status">{{ step.statusLabel }}</text>
+                    </view>
+                    <text v-if="step.description" class="call-detail-step-desc">{{ step.description }}</text>
+                  </view>
+                </view>
+              </view>
+              <text v-if="getCallDetailError(message)" class="call-detail-error">{{ getCallDetailError(message) }}</text>
+            </view>
+          </view>
         </view>
       </view>
       <view id="message-anchor"></view>
@@ -117,6 +166,62 @@ import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getLeaderSessionDetail, queryLeaderAgent, streamLeaderAgent } from '@/api/ai.js'
 
 const STORAGE_KEY = 'aiAssistantSessionId'
+const CALL_DETAIL_STAGE_LABELS = {
+  status: '请求已提交',
+  processing: '处理中',
+  session: '建立会话',
+  leader_plan: '意图识别与路由',
+  leader_route: '意图识别与路由',
+  retrieve: '检索资料',
+  search: '检索资料',
+  answer: '生成回答',
+  direct_agent: '执行智能体',
+  agent_answer: '执行智能体',
+  agent_failed: '执行智能体',
+  done: '完成',
+  error: '异常'
+}
+const CALL_DETAIL_STATUS_LABELS = {
+  running: '进行中',
+  completed: '已完成',
+  failed: '失败'
+}
+const AGENT_LABELS = {
+  leader_agent: 'Leader 智能体',
+  profile_summary_agent: '个人画像汇总智能体',
+  mind_map_agent: '思维导图图片提示词智能体',
+  diagram_mind_map_agent: '思维导图图片生成智能体',
+  diagram_flowchart_agent: '图表流程图智能体',
+  diagram_activity_agent: '图表活动图智能体',
+  diagram_architecture_agent: '图表架构图智能体',
+  diagram_flowchart_prompt_agent: '流程图提示词智能体',
+  diagram_activity_prompt_agent: '活动图提示词智能体',
+  architecture_prompt_agent: '架构图提示词智能体',
+  textbook_knowledge_agent: '教材知识点智能体',
+  image_agent: '图片智能体',
+  ppt_outline_agent: 'PPT 大纲智能体',
+  ppt_layout_agent: 'PPT 布局智能体',
+  ppt_review_agent: 'PPT 审查智能体',
+  ppt_image_agent: 'PPT 图片智能体',
+  ppt_to_docx_agent: 'PPT 转 DOCX 智能体',
+  meeting_summary_agent: '会议总结智能体'
+}
+const INTENT_LABELS = {
+  smalltalk: '闲聊',
+  campus_search: '校园检索',
+  schedule: '课表查询',
+  mind_map: '思维导图',
+  diagram_mind_map: '思维导图图片',
+  diagram_architecture: '架构图',
+  diagram_flowchart: '流程图',
+  diagram_activity: '活动图',
+  textbook_knowledge: '教材知识点',
+  question_bank: '题库生成',
+  ppt: 'PPT 生成',
+  image: '图片生成',
+  profile_summary: '画像汇总',
+  meeting: '会议处理'
+}
 
 export default {
   components: { NavBar },
@@ -171,7 +276,13 @@ export default {
       this.inputValue = ''
       this.sending = true
       this.appendMessage({ role: 'user', content: text })
-      const thinkingMessage = this.appendMessage({ role: 'assistant', type: 'thinking', content: '思考中' })
+      const thinkingMessage = this.appendMessage({
+        role: 'assistant',
+        type: 'thinking',
+        content: '思考中',
+        callDetail: this.createInitialCallDetail(text),
+        callDetailExpanded: false
+      })
       let streamStarted = false
       let streamTouched = false
       try {
@@ -180,17 +291,46 @@ export default {
           agentName: 'leader_agent',
           input: text
         }, {
-          onEvent: () => {
+          onEvent: (eventName, payload) => {
             streamTouched = true
+            this.updateCallDetail(thinkingMessage.localId, this.buildLiveCallDetailPatch(eventName, payload))
           },
           onSession: (payload) => {
             streamTouched = true
             this.syncSessionId(payload?.sessionId)
+            this.updateCallDetail(thinkingMessage.localId, {
+              model: payload?.model || '',
+              agentName: payload?.agentName || 'leader_agent',
+              answerType: payload?.answerType || '',
+              currentStep: 'session',
+              traceAppend: this.createLiveTraceStep('session', {
+                agentName: payload?.agentName || 'leader_agent',
+                model: payload?.model || ''
+              })
+            })
+          },
+          onSearch: (payload) => {
+            streamTouched = true
+            this.updateCallDetail(thinkingMessage.localId, {
+              searchKeyword: payload?.searchKeyword || '',
+              matchedResults: payload?.matchedResults || [],
+              retrievalMeta: payload?.retrievalMeta || {},
+              currentStep: 'retrieve',
+              traceAppend: this.createLiveTraceStep('retrieve', {
+                keyword: payload?.searchKeyword || '',
+                matchedCount: Array.isArray(payload?.matchedResults) ? payload.matchedResults.length : 0,
+                ...((payload && payload.retrievalMeta) || {})
+              })
+            })
           },
           onDelta: (content) => {
             if (!content) return
             streamTouched = true
             streamStarted = true
+            this.updateCallDetail(thinkingMessage.localId, {
+              currentStep: 'answer',
+              traceAppendOnce: this.createLiveTraceStep('answer', { streaming: true })
+            })
             this.appendMessageContent(thinkingMessage.localId, content)
           },
           onDone: (payload) => {
@@ -205,26 +345,42 @@ export default {
               outputType: payload?.outputType || payload?.answerType || 'text',
               outputTypes: payload?.outputTypes || [],
               outputMeta: payload?.outputMeta || {},
-              attachments: payload?.attachments || []
+              attachments: payload?.attachments || [],
+              agentName: payload?.agentName || current?.callDetail?.agentName || 'leader_agent',
+              searchKeyword: payload?.searchKeyword || current?.callDetail?.searchKeyword || '',
+              retrievalMeta: payload?.retrievalMeta || payload?.metadata || current?.callDetail?.retrievalMeta || {},
+              matchedResults: payload?.matchedResults || current?.callDetail?.matchedResults || [],
+              trace: payload?.trace || current?.callDetail?.trace || [],
+              callDetail: this.buildFinalCallDetail(payload, current?.callDetail, 'completed'),
+              callDetailExpanded: current?.callDetailExpanded || false
             })
           },
           onError: (payload) => {
             streamTouched = true
-            throw new Error(payload?.message || '流式请求失败')
+            const streamError = new Error(payload?.message || '流式请求失败')
+            streamError.payload = payload || {}
+            throw streamError
           }
         })
       } catch (error) {
+        const current = this.messages.find((item) => item.localId === thinkingMessage.localId)
+        const errorCallDetail = this.buildErrorCallDetail(error, current?.callDetail)
+        const errorContent = this.buildFailureContent(errorCallDetail, streamStarted || streamTouched ? '这次流式回复中断了' : '这次没有顺利完成请求')
         if (streamStarted || streamTouched) {
           this.replaceMessage(thinkingMessage.localId, {
             role: 'assistant',
-            content: `这次流式回复中断了：${error?.message || error?.msg || '请稍后再试'}`
+            content: errorContent,
+            callDetail: errorCallDetail,
+            callDetailExpanded: current?.callDetailExpanded || false
           })
         } else if (error?.fallbackToNormalRequest) {
           await this.sendMessageFallback(text, thinkingMessage.localId, error)
         } else {
           this.replaceMessage(thinkingMessage.localId, {
             role: 'assistant',
-            content: `这次没有顺利完成请求：${error?.message || error?.msg || '请稍后再试'}`
+            content: errorContent,
+            callDetail: errorCallDetail,
+            callDetailExpanded: current?.callDetailExpanded || false
           })
         }
       } finally {
@@ -247,14 +403,409 @@ export default {
           outputType: payload.outputType || payload.answerType || 'text',
           outputTypes: payload.outputTypes || [],
           outputMeta: payload.outputMeta || {},
-          attachments: payload.attachments || []
+          attachments: payload.attachments || [],
+          agentName: payload.agentName || 'leader_agent',
+          searchKeyword: payload.searchKeyword || '',
+          retrievalMeta: payload.retrievalMeta || {},
+          matchedResults: payload.matchedResults || [],
+          trace: payload.trace || [],
+          callDetail: this.buildFinalCallDetail(payload, null, 'completed'),
+          callDetailExpanded: false
         })
       } catch (error) {
+        const errorCallDetail = this.buildErrorCallDetail(error, null)
         this.replaceMessage(localId, {
           role: 'assistant',
-          content: `这次没有顺利完成请求：${error?.message || error?.msg || streamError?.message || '请稍后再试'}`
+          content: this.buildFailureContent(errorCallDetail, '这次没有顺利完成请求', streamError?.message),
+          callDetail: errorCallDetail,
+          callDetailExpanded: false
         })
       }
+    },
+    createInitialCallDetail(input) {
+      return {
+        status: 'running',
+        currentStep: 'status',
+        agentName: 'leader_agent',
+        inputPreview: this.truncateText(input, 80),
+        retrievalMeta: {},
+        matchedResults: [],
+        trace: [
+          this.createLiveTraceStep('status', {
+            stage: 'processing',
+            message: '已提交给 Leader 智能助手'
+          })
+        ]
+      }
+    },
+    createLiveTraceStep(stage, detail = {}) {
+      return {
+        stage: stage || 'status',
+        detail: {
+          ...(detail || {}),
+          live: true
+        }
+      }
+    },
+    buildLiveCallDetailPatch(eventName, payload) {
+      const stage = payload?.stage || eventName || 'status'
+      return {
+        status: 'running',
+        currentStep: stage,
+        traceAppendOnce: this.createLiveTraceStep(stage, payload || {})
+      }
+    },
+    updateCallDetail(localId, patch = {}) {
+      const index = this.messages.findIndex((item) => item.localId === localId)
+      if (index === -1) return
+      const current = this.messages[index]
+      const currentDetail = this.normalizeCallDetail(current)
+      let nextTrace = Array.isArray(currentDetail.trace) ? [...currentDetail.trace] : []
+      if (Array.isArray(patch.trace)) {
+        nextTrace = patch.trace
+      }
+      if (patch.traceAppend) {
+        nextTrace.push(patch.traceAppend)
+      }
+      if (patch.traceAppendOnce) {
+        const nextStage = String(patch.traceAppendOnce.stage || '')
+        const exists = nextTrace.some((step) => String(step?.stage || '') === nextStage)
+        if (!exists) nextTrace.push(patch.traceAppendOnce)
+      }
+      const nextDetail = {
+        ...currentDetail,
+        ...patch,
+        status: patch.status || currentDetail.status || 'running',
+        retrievalMeta: {
+          ...(currentDetail.retrievalMeta || {}),
+          ...((patch && patch.retrievalMeta) || {})
+        },
+        matchedResults: Array.isArray(patch.matchedResults) ? patch.matchedResults : currentDetail.matchedResults,
+        trace: nextTrace
+      }
+      delete nextDetail.traceAppend
+      delete nextDetail.traceAppendOnce
+      this.messages.splice(index, 1, {
+        ...current,
+        callDetail: nextDetail
+      })
+    },
+    buildFinalCallDetail(payload = {}, currentDetail = null, status = 'completed') {
+      const previous = this.normalizeCallDetail({ role: 'assistant', callDetail: currentDetail || {} })
+      const retrievalMeta = {
+        ...(previous.retrievalMeta || {}),
+        ...((payload && payload.metadata) || {}),
+        ...((payload && payload.retrievalMeta) || {})
+      }
+      const payloadTrace = Array.isArray(payload?.trace) ? payload.trace : []
+      const trace = payloadTrace.length ? payloadTrace : previous.trace
+      const detail = {
+        ...previous,
+        status,
+        currentStep: status === 'completed' ? 'done' : previous.currentStep,
+        model: payload?.model || previous.model || '',
+        answerType: payload?.answerType || previous.answerType || '',
+        outputType: payload?.outputType || previous.outputType || '',
+        ragStrategy: payload?.ragStrategy || payload?.strategy || previous.ragStrategy || '',
+        agentName: payload?.agentName || retrievalMeta.executedAgent || retrievalMeta.targetAgent || retrievalMeta.agentName || previous.agentName || 'leader_agent',
+        searchKeyword: payload?.searchKeyword || previous.searchKeyword || '',
+        retrievalMeta,
+        matchedResults: Array.isArray(payload?.matchedResults) ? payload.matchedResults : previous.matchedResults,
+        trace: this.withTerminalTrace(trace, status)
+      }
+      detail.intent = this.getTraceValue(detail.trace, 'intent') || retrievalMeta.intent || previous.intent || ''
+      return detail
+    },
+    buildErrorCallDetail(error, currentDetail = null) {
+      const previous = this.normalizeCallDetail({ role: 'assistant', type: 'thinking', callDetail: currentDetail || {} })
+      const payload = error?.payload || {}
+      const retrievalMeta = {
+        ...(previous.retrievalMeta || {}),
+        ...((payload && payload.retrievalMeta) || {})
+      }
+      const payloadTrace = Array.isArray(payload?.trace) ? payload.trace : []
+      const trace = payloadTrace.length ? payloadTrace : previous.trace
+      const message = payload?.message || error?.message || error?.msg || '请求失败'
+      const rawMessage = payload?.rawMessage || retrievalMeta.rawFailureReason || ''
+      const failedAgent = payload?.failedAgent
+        || payload?.agentName
+        || retrievalMeta.failedAgent
+        || retrievalMeta.executedAgent
+        || retrievalMeta.targetAgent
+        || previous.agentName
+        || 'leader_agent'
+      const stage = payload?.stage || retrievalMeta.failureStage || 'error'
+      return {
+        ...previous,
+        status: 'failed',
+        currentStep: stage,
+        agentName: failedAgent,
+        intent: payload?.intent || retrievalMeta.intent || previous.intent || '',
+        routeReason: payload?.routeReason || retrievalMeta.routeReason || previous.routeReason || '',
+        model: retrievalMeta.model || previous.model || '',
+        retrievalMeta,
+        error: message,
+        rawError: rawMessage,
+        trace: this.withTerminalTrace(trace, 'failed', message, {
+          stage,
+          agentName: failedAgent,
+          rawMessage,
+          statusCode: payload?.statusCode || retrievalMeta.statusCode || ''
+        })
+      }
+    },
+    buildFailureContent(detail, prefix, fallbackMessage = '') {
+      const normalized = this.normalizeCallDetail({ role: 'assistant', callDetail: detail || {} })
+      const agentLabel = this.getAgentLabel(normalized.agentName)
+      const stageLabel = this.getStageLabel(normalized.currentStep || 'error')
+      const reason = normalized.error || fallbackMessage || '请稍后再试'
+      return `${prefix}：${agentLabel} 在「${stageLabel}」阶段失败。原因：${reason}`
+    },
+    withTerminalTrace(trace, status, errorMessage = '', extraDetail = {}) {
+      const list = Array.isArray(trace) ? [...trace] : []
+      const terminalStage = status === 'failed' ? 'error' : 'done'
+      const actualStage = status === 'failed' && extraDetail?.stage ? extraDetail.stage : terminalStage
+      const exists = list.some((step) => String(step?.stage || '') === actualStage)
+      if (!exists) {
+        list.push(this.createLiveTraceStep(actualStage, errorMessage ? { message: errorMessage, ...(extraDetail || {}) } : { message: '调用流程已完成' }))
+      }
+      return list
+    },
+    hasCallDetail(message) {
+      if (!message || message.role !== 'assistant') return false
+      if (message.type === 'thinking') return true
+      if (message.callDetail && Object.keys(message.callDetail).length) return true
+      if (Array.isArray(message.trace) && message.trace.length) return true
+      if (message.retrievalMeta && Object.keys(message.retrievalMeta).length) return true
+      return Boolean(message.agentName || message.searchKeyword)
+    },
+    getMessageKey(message) {
+      return message?.localId || message?.id || ''
+    },
+    toggleCallDetail(message) {
+      const key = this.getMessageKey(message)
+      if (!key) return
+      const index = this.messages.findIndex((item) => this.getMessageKey(item) === key)
+      if (index === -1) return
+      this.messages.splice(index, 1, {
+        ...this.messages[index],
+        callDetailExpanded: !this.messages[index].callDetailExpanded
+      })
+      this.scrollToBottom()
+    },
+    isCallDetailExpanded(message) {
+      return Boolean(message?.callDetailExpanded)
+    },
+    getCallDetailStatus(message) {
+      return this.normalizeCallDetail(message).status || 'completed'
+    },
+    getCallDetailSummary(message) {
+      const detail = this.normalizeCallDetail(message)
+      const statusLabel = CALL_DETAIL_STATUS_LABELS[detail.status] || '已完成'
+      const currentLabel = this.getStageLabel(detail.currentStep || this.getLastTraceStage(detail.trace))
+      const agentLabel = this.getAgentLabel(detail.agentName)
+      if (detail.status === 'running') {
+        return `${currentLabel} · ${agentLabel}`
+      }
+      if (detail.status === 'failed') {
+        return `${statusLabel} · ${currentLabel}`
+      }
+      const intentLabel = detail.intent ? this.getIntentLabel(detail.intent) : ''
+      return `${statusLabel} · ${intentLabel || agentLabel}`
+    },
+    getCallDetailMetaItems(message) {
+      const detail = this.normalizeCallDetail(message)
+      const matchedCount = this.getMatchedCount(detail)
+      const items = [
+        { label: '状态', value: CALL_DETAIL_STATUS_LABELS[detail.status] || '已完成' },
+        { label: '意图', value: detail.intent ? this.getIntentLabel(detail.intent) : '未识别' },
+        { label: '智能体', value: this.getAgentLabel(detail.agentName) },
+        { label: '检索', value: detail.searchKeyword || this.getRetrievalLabel(detail) },
+        { label: '命中', value: `${matchedCount} 条` }
+      ]
+      if (detail.model) {
+        items.push({ label: '模型', value: this.truncateText(detail.model, 34) })
+      }
+      if (detail.status === 'failed') {
+        items.push({ label: '阶段', value: this.getStageLabel(detail.currentStep || 'error') })
+      }
+      const routeReason = detail.retrievalMeta?.routeReason
+      if (routeReason) {
+        items.push({ label: '原因', value: this.truncateText(routeReason, 42) })
+      }
+      return items
+    },
+    getCallDetailTools(message) {
+      const detail = this.normalizeCallDetail(message)
+      const tools = []
+      const trace = Array.isArray(detail.trace) ? detail.trace : []
+      if (trace.some((step) => ['leader_plan', 'leader_route'].includes(String(step?.stage || ''))) || detail.intent) {
+        tools.push('Leader 意图识别')
+      }
+      const usedRetrieval = Boolean(detail.searchKeyword)
+        || trace.some((step) => ['retrieve', 'search'].includes(String(step?.stage || '')) && !step?.detail?.skipped)
+      if (usedRetrieval) {
+        tools.push('业务/知识库检索')
+      }
+      if (detail.agentName && detail.agentName !== 'leader_agent') {
+        tools.push(this.getAgentLabel(detail.agentName))
+      } else {
+        tools.push('Leader 回答汇总')
+      }
+      return [...new Set(tools.filter(Boolean))]
+    },
+    getCallDetailSteps(message) {
+      const detail = this.normalizeCallDetail(message)
+      const trace = Array.isArray(detail.trace) && detail.trace.length
+        ? detail.trace
+        : [this.createLiveTraceStep(detail.currentStep || 'status', {})]
+      return trace.map((step, index) => {
+        const stage = String(step?.stage || 'status')
+        const isLast = index === trace.length - 1
+        const status = detail.status === 'failed' && isLast
+          ? 'failed'
+          : (detail.status === 'running' && isLast ? 'running' : 'completed')
+        return {
+          title: this.getStageLabel(stage),
+          description: this.describeCallDetailStep(stage, step?.detail || {}, detail),
+          status,
+          statusLabel: CALL_DETAIL_STATUS_LABELS[status] || '已完成'
+        }
+      })
+    },
+    getCallDetailError(message) {
+      return this.normalizeCallDetail(message).error || ''
+    },
+    normalizeCallDetail(message) {
+      const raw = message?.callDetail || {}
+      const messageTrace = Array.isArray(message?.trace) ? message.trace : []
+      const rawTrace = Array.isArray(raw.trace) ? raw.trace : []
+      const trace = rawTrace.length ? rawTrace : messageTrace
+      const retrievalMeta = {
+        ...((message && message.retrievalMeta) || {}),
+        ...((raw && raw.retrievalMeta) || {})
+      }
+      const matchedResults = Array.isArray(raw.matchedResults)
+        ? raw.matchedResults
+        : (Array.isArray(message?.matchedResults) ? message.matchedResults : [])
+      const agentName = raw.agentName
+        || message?.agentName
+        || retrievalMeta.executedAgent
+        || retrievalMeta.targetAgent
+        || retrievalMeta.agentName
+        || this.getTraceValue(trace, 'agent')
+        || this.getTraceValue(trace, 'agentName')
+        || this.getTraceValue(trace, 'targetAgent')
+        || 'leader_agent'
+      const status = raw.status || (message?.type === 'thinking' ? 'running' : (raw.error ? 'failed' : 'completed'))
+      const currentStep = raw.currentStep || this.getLastTraceStage(trace) || (status === 'running' ? 'status' : 'done')
+      return {
+        ...raw,
+        status,
+        currentStep,
+        trace,
+        retrievalMeta,
+        matchedResults,
+        agentName,
+        intent: raw.intent || retrievalMeta.intent || this.getTraceValue(trace, 'intent') || '',
+        searchKeyword: raw.searchKeyword || message?.searchKeyword || this.getTraceValue(trace, 'keyword') || '',
+        model: raw.model || message?.model || '',
+        ragStrategy: raw.ragStrategy || message?.ragStrategy || retrievalMeta.leaderRagStrategy || '',
+        answerType: raw.answerType || message?.answerType || retrievalMeta.answerType || '',
+        outputType: raw.outputType || message?.outputType || retrievalMeta.outputType || '',
+        error: raw.error || ''
+      }
+    },
+    describeCallDetailStep(stage, detail, normalized) {
+      if (stage === 'leader_plan' || stage === 'leader_route') {
+        const intent = detail.intent || normalized.intent
+        const agent = detail.targetAgent || detail.agentName || normalized.agentName
+        const needRetrieval = detail.needRetrieval === true ? '需要检索' : '不需要检索'
+        return `意图：${intent ? this.getIntentLabel(intent) : '未识别'} · 路由：${this.getAgentLabel(agent)} · ${needRetrieval}`
+      }
+      if (stage === 'retrieve' || stage === 'search') {
+        if (detail.skipped) {
+          return `跳过检索：${detail.reason || '没有检索关键词'}`
+        }
+        const keyword = detail.keyword || normalized.searchKeyword || '未提供'
+        const count = detail.matchedCount !== undefined && detail.matchedCount !== null
+          ? detail.matchedCount
+          : (detail.javaBackendCount !== undefined && detail.javaBackendCount !== null ? detail.javaBackendCount : this.getMatchedCount(normalized))
+        return `关键词：${keyword} · 命中 ${count || 0} 条`
+      }
+      if (stage === 'answer') {
+        const agent = detail.agent || detail.agentName || normalized.agentName
+        const length = detail.answerLength ? ` · 回答 ${detail.answerLength} 字` : ''
+        return `由 ${this.getAgentLabel(agent)} 生成${length}`
+      }
+      if (stage === 'direct_agent' || stage === 'agent_answer') {
+        const agent = detail.agentName || normalized.agentName
+        const length = detail.answerLength ? ` · 输出 ${detail.answerLength} 字` : ''
+        return `${this.getAgentLabel(agent)} 正在执行${length}`
+      }
+      if (stage === 'agent_failed') {
+        const agent = detail.agentName || normalized.agentName
+        const rawMessage = detail.rawMessage ? ` · 原始错误：${this.truncateText(detail.rawMessage, 88)}` : ''
+        return `${this.getAgentLabel(agent)} 执行失败：${detail.message || normalized.error || '未知错误'}${rawMessage}`
+      }
+      if (stage === 'session') {
+        const agent = detail.agentName || normalized.agentName
+        const model = detail.model || normalized.model
+        return model ? `${this.getAgentLabel(agent)} · ${model}` : this.getAgentLabel(agent)
+      }
+      if (stage === 'done') {
+        return '回答、附件和调用轨迹已返回'
+      }
+      if (stage === 'error') {
+        return detail.message || normalized.error || '调用过程中断'
+      }
+      return detail.message || (detail.stage === 'processing' ? '服务已收到请求，正在处理' : '正在处理')
+    },
+    getTraceValue(trace, key) {
+      if (!Array.isArray(trace)) return ''
+      for (const step of trace) {
+        const detail = step?.detail || {}
+        if (detail[key] !== undefined && detail[key] !== null && detail[key] !== '') {
+          return detail[key]
+        }
+      }
+      return ''
+    },
+    getLastTraceStage(trace) {
+      return Array.isArray(trace) && trace.length ? String(trace[trace.length - 1]?.stage || '') : ''
+    },
+    getStageLabel(stage) {
+      return CALL_DETAIL_STAGE_LABELS[stage] || stage || '处理中'
+    },
+    getIntentLabel(intent) {
+      return INTENT_LABELS[intent] || intent
+    },
+    getAgentLabel(agentName) {
+      if (!agentName) return 'Leader 智能体'
+      if (AGENT_LABELS[agentName]) return AGENT_LABELS[agentName]
+      if (String(agentName).startsWith('textbook_question_')) return '题库生成智能体'
+      if (String(agentName).startsWith('meeting_')) return '会议智能体'
+      return agentName
+    },
+    getMatchedCount(detail) {
+      if (Array.isArray(detail?.matchedResults) && detail.matchedResults.length) {
+        return detail.matchedResults.length
+      }
+      const meta = detail?.retrievalMeta || {}
+      const javaCount = Number(meta.javaBackendCount || 0)
+      const documentCount = Number(meta.documentCount || 0)
+      return javaCount + documentCount
+    },
+    getRetrievalLabel(detail) {
+      const meta = detail?.retrievalMeta || {}
+      if (meta.needRetrieval === false || meta.retrievalSkipped || meta.leaderAction === 'direct_answer') {
+        return '未检索'
+      }
+      return detail?.status === 'running' ? '等待中' : '无'
+    },
+    truncateText(value, maxLength = 40) {
+      const text = String(value || '')
+      return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text
     },
     replaceMessage(localId, message) {
       const index = this.messages.findIndex((item) => item.localId === localId)
@@ -866,6 +1417,216 @@ export default {
   background: #F4F7FB;
   color: #526070;
   border: 1rpx solid rgba(100, 116, 139, 0.12);
+}
+
+.call-detail-panel {
+  margin-top: 14rpx;
+  padding-top: 14rpx;
+  border-top: 1rpx solid #EEF2F7;
+}
+
+.call-detail-header {
+  min-height: 54rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.call-detail-heading {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.call-detail-status-dot {
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  background: #94A3B8;
+  flex-shrink: 0;
+}
+
+.call-detail-status-dot--running {
+  background: #2F6FE4;
+  box-shadow: 0 0 0 6rpx rgba(47, 111, 228, 0.12);
+}
+
+.call-detail-status-dot--completed {
+  background: #18A058;
+}
+
+.call-detail-status-dot--failed {
+  background: #E5484D;
+}
+
+.call-detail-title-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.call-detail-title {
+  font-size: 24rpx;
+  font-weight: 800;
+  color: #243044;
+  line-height: 1.3;
+}
+
+.call-detail-summary {
+  font-size: 21rpx;
+  line-height: 1.35;
+  color: #7B8794;
+  word-break: break-all;
+}
+
+.call-detail-toggle {
+  flex-shrink: 0;
+  font-size: 22rpx;
+  font-weight: 800;
+  color: #2F6FE4;
+}
+
+.call-detail-body {
+  margin-top: 12rpx;
+  padding: 16rpx;
+  border-radius: 18rpx;
+  background: #F7F9FD;
+  border: 1rpx solid rgba(100, 116, 139, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+}
+
+.call-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+}
+
+.call-detail-meta-item {
+  width: calc(50% - 5rpx);
+  min-height: 70rpx;
+  padding: 10rpx 12rpx;
+  border-radius: 14rpx;
+  background: #FFFFFF;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.call-detail-meta-label {
+  font-size: 20rpx;
+  color: #8A96A8;
+  line-height: 1.25;
+}
+
+.call-detail-meta-value {
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #263244;
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+.call-detail-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx;
+}
+
+.call-detail-tool {
+  padding: 6rpx 12rpx;
+  border-radius: 999rpx;
+  background: #E8F1FF;
+  color: #2F6FE4;
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.call-detail-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.call-detail-step {
+  display: flex;
+  gap: 12rpx;
+}
+
+.call-detail-step-dot {
+  width: 16rpx;
+  height: 16rpx;
+  margin-top: 8rpx;
+  border-radius: 50%;
+  background: #CBD5E1;
+  flex-shrink: 0;
+}
+
+.call-detail-step--running .call-detail-step-dot {
+  background: #2F6FE4;
+}
+
+.call-detail-step--completed .call-detail-step-dot {
+  background: #18A058;
+}
+
+.call-detail-step--failed .call-detail-step-dot {
+  background: #E5484D;
+}
+
+.call-detail-step-body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.call-detail-step-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+
+.call-detail-step-title {
+  min-width: 0;
+  flex: 1;
+  font-size: 23rpx;
+  font-weight: 800;
+  color: #253047;
+  line-height: 1.35;
+}
+
+.call-detail-step-status {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  color: #7B8794;
+  line-height: 1.35;
+}
+
+.call-detail-step-desc {
+  font-size: 21rpx;
+  line-height: 1.5;
+  color: #607086;
+  word-break: break-all;
+}
+
+.call-detail-error {
+  padding: 10rpx 12rpx;
+  border-radius: 12rpx;
+  background: #FFF1F1;
+  color: #C53030;
+  font-size: 21rpx;
+  line-height: 1.45;
+  word-break: break-all;
 }
 
 .thinking-indicator {
