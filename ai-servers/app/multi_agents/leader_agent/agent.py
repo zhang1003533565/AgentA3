@@ -10,7 +10,7 @@ from app.model_providers.factory import get_chat_model_provider
 from app.multi_agents.runtime import load_agent_prompt
 from app.services.memory_store import memory_store
 from app.utils.logger import get_logger
-from app.utils.text_utils import is_all_semester_schedule_query, is_course_count_query, is_course_teacher_query, is_schedule_intent, is_semester_schedule_query, is_smalltalk_intent
+from app.utils.text_utils import is_all_semester_schedule_query, is_course_count_query, is_course_teacher_query, is_course_time_query, is_schedule_intent, is_semester_schedule_query, is_smalltalk_intent
 
 logger = get_logger("multi_agents.leader")
 
@@ -34,6 +34,15 @@ LEADER_OUTPUT_PUSH_STRATEGIES = [
         "display_policy": "默认以文本或 Markdown 展示。",
     },
 ]
+
+CAMPUS_SERVICE_TOOL_NAMES = {
+    "java_schedule_api",
+    "java_activity_api",
+    "java_meeting_api",
+    "java_canteen_api",
+    "java_facility_api",
+    "java_secondhand_api",
+}
 
 
 @dataclass
@@ -397,9 +406,11 @@ class LeaderAgent:
             "answer_requirements": [
                 "用自然中文回答用户，不要输出 JSON。",
                 "严格按用户问题的范围回答；不要主动扩展成文档、报告、分析或完整明细。",
-                "只能基于 tool_results 里的数据整理，不要编造课程、时间、地点或数量。",
-                "当用户提到课程简称、英文缩写或不完整课程名时，由你在 tool_results 中做语义匹配；不要要求完全同名。",
-                "如果多个课程都可能匹配且无法判断，先说明候选并请用户确认，不要随便选。",
+                "前端按纯文本展示；不要使用 Markdown 标题、加粗、分隔线、代码块或表格语法。",
+                "不要在答案末尾反问用户还要哪部分；用户需要会继续问。",
+                "只能基于 tool_results 里的数据整理，不要编造课程、活动、会议、菜品、位置、物品、时间、地点或数量。",
+                "当用户提到简称、英文缩写、别名或不完整名称时，由你在 tool_results 中做语义匹配；不要要求完全同名。",
+                "如果多个结果都可能匹配且无法判断，先说明候选并请用户确认，不要随便选。",
                 "如果 tool_results 为空，要说明已调用对应系统能力但暂时没有可展示数据，并给出可能检查项。",
                 "如果 leader_planning_answer 不为空，可承接它，但最终必须给出查询结果或空结果说明。",
                 *answer_policy.get("requirements", []),
@@ -417,7 +428,24 @@ class LeaderAgent:
         parsed = parse_json_object(answer)
         if parsed and parsed.get("action") and parsed.get("intent"):
             return ""
-        return answer
+        return self._clean_tool_answer(answer, plan)
+
+    def _clean_tool_answer(self, answer: str, plan: LeaderPlan) -> str:
+        text = str(answer or "").strip()
+        if plan.tool_name not in CAMPUS_SERVICE_TOOL_NAMES:
+            return text
+        text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
+        text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
+        text = re.sub(r"`([^`]+)`", r"\1", text)
+        text = re.sub(r"^\s*[-*_]{3,}\s*$", "", text, flags=re.MULTILINE)
+        text = re.sub(
+            r"^\s*(你需要的是哪部分的具体信息.*|还需要.*吗[？?]?|是否还需要.*|如果需要.*|需要我.*|要不要.*)$",
+            "",
+            text,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
 
     def _tool_result_answer_policy(
         self,
@@ -427,6 +455,19 @@ class LeaderAgent:
     ) -> Dict[str, Any]:
         if plan.tool_name == "java_schedule_api":
             mode = self._schedule_answer_mode(input_text, tool_results)
+            if mode == "course_time":
+                return {
+                    "mode": mode,
+                    "format": "course_time_answer",
+                    "requirements": [
+                        "用户是在问某门课什么时候学/什么时候上，只回答该课程的上课时间和地点。",
+                        "你需要从 tool_results 中找出与用户原话最接近的课程；例如用户说 python，可以匹配课程名 Python程序设计。",
+                        "输出纯文本，格式必须接近：课程名：...\n学期：...\n理论课（老师）：周几 节次（周次）；地点：...\n实验课（老师）：周几 节次（周次）；地点：...",
+                        "同一类课有多个时间，用中文分号隔开；不同理论/实验/实践课分行展示。",
+                        "不要输出 Markdown 的 **、###、---；不要最后反问用户。",
+                        "不要列出无关课程。",
+                    ],
+                }
             if mode == "course_count":
                 return {
                     "mode": mode,
@@ -481,6 +522,66 @@ class LeaderAgent:
                     "不要主动补充学分、考核方式等与上课安排无关的信息，除非用户问课程详情。",
                 ],
             }
+        if plan.tool_name == "java_activity_api":
+            return {
+                "mode": "activity_query",
+                "format": "activity_list_answer",
+                "requirements": [
+                    "用户是在问校园活动、讲座、比赛或报名信息，只回答匹配到的活动内容。",
+                    "每条活动优先包含活动名、时间、地点、报名/状态；字段不存在就不要提。",
+                    "用户问最近/可报名/某类活动时，只筛选并展示相关活动，不要把所有接口字段铺开。",
+                    "结果较多时最多先展示 5 条，并说明还查到多少条。",
+                    "不要编造报名链接、名额、主办方或地点。",
+                ],
+            }
+        if plan.tool_name == "java_meeting_api":
+            return {
+                "mode": "meeting_query",
+                "format": "meeting_list_answer",
+                "requirements": [
+                    "用户是在问会议列表、我的会议、预约会议或会议状态，只回答会议安排信息。",
+                    "每条会议优先包含会议名、时间、地点/会议室、状态；字段不存在就不要提。",
+                    "会议纪要、总结、转写和成员分析不是这个工具的输出，不要把查询结果写成会议纪要。",
+                    "结果较多时最多先展示 5 条，并说明还查到多少条。",
+                    "不要编造参会人、会议链接或审批状态。",
+                ],
+            }
+        if plan.tool_name == "java_canteen_api":
+            return {
+                "mode": "canteen_query",
+                "format": "canteen_answer",
+                "requirements": [
+                    "用户是在问食堂、餐厅、档口、菜品、吃什么或餐饮优惠，只回答餐饮相关结果。",
+                    "每条结果优先包含名称、食堂/档口、价格/优惠、位置；字段不存在就不要提。",
+                    "用户问某个菜品或吃什么时，由你在 tool_results 中匹配菜品、档口或优惠，不要要求完全同名。",
+                    "结果较多时最多先展示 5 条，并说明还查到多少条。",
+                    "不要编造价格、库存、营业时间或优惠规则。",
+                ],
+            }
+        if plan.tool_name == "java_facility_api":
+            return {
+                "mode": "facility_location",
+                "format": "facility_location_answer",
+                "requirements": [
+                    "用户是在问教学楼、宿舍、操场、食堂等设施位置，只回答匹配设施的位置和必要定位信息。",
+                    "每条结果优先包含设施名、位置、楼宇/校区、类型；字段不存在就不要提。",
+                    "用户问路线或导航时，只能基于 tool_results 已有位置提示，不能编造路线。",
+                    "结果较多时最多先展示 5 条，并说明还查到多少条。",
+                    "不要输出经纬度以外的内部字段名。",
+                ],
+            }
+        if plan.tool_name == "java_secondhand_api":
+            return {
+                "mode": "secondhand_query",
+                "format": "secondhand_answer",
+                "requirements": [
+                    "用户是在问旧物、二手、闲置或转让物品，只回答匹配物品信息。",
+                    "每条结果优先包含物品名、价格、成色/状态、发布位置或时间；字段不存在就不要提。",
+                    "不要展示手机号、微信号、精确个人联系信息等敏感信息；如接口返回联系人，只提示在系统内查看。",
+                    "结果较多时最多先展示 5 条，并说明还查到多少条。",
+                    "不要编造砍价建议、交易状态或联系方式。",
+                ],
+            }
         return {
             "mode": "tool_result",
             "format": "concise_answer",
@@ -493,6 +594,8 @@ class LeaderAgent:
     def _schedule_answer_mode(self, input_text: str, tool_results: List[Dict[str, Any]]) -> str:
         text = (input_text or "").strip()
         compact = re.sub(r"\s+", "", text)
+        if is_course_time_query(text):
+            return "course_time"
         if is_course_count_query(text):
             return "course_count"
         if is_course_teacher_query(text):
@@ -572,6 +675,7 @@ def build_leader_router_user_prompt(
             "如果用户已经提供了要导出的 Markdown、普通文本或标准题库 JSON，且只要求转成文件，可以直接 call_tool: generated_export_tools。",
             "用户表达课表、活动、会议列表/状态、食堂餐饮、设施位置、旧物二手等查询意图时，你必须根据当前语义自行从 leader_callable_catalog.tools 中选择对应的 Java 后端服务工具，而不是依赖系统关键词规则或编造答案。",
             "用户问某门课的老师是谁、任课老师、授课教师、谁教某门课时，这是课程信息查询，必须优先选择 java_schedule_api，不要路由到教材知识点智能体。",
+            "用户问某门课什么时候学、什么时候上课、周几几点上时，也是课程信息查询，必须优先选择 java_schedule_api。",
             "用户问某门课本学期有几节课、几次课、多少课时或上课次数时，也是课程信息查询，必须优先选择 java_schedule_api。",
             "会议纪要/总结/转写/成员分析仍属于会议专业智能体；活动图/流程图仍属于图表智能体，不要误判为校园活动查询。",
             "路由时只能选择 leader_callable_catalog 中 enabled=true 的 agents/tools；关闭项只可在 route_reason 中说明，不允许绕过后台配置。",

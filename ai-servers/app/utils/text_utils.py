@@ -103,6 +103,17 @@ def is_course_count_query(text: str) -> bool:
     return any(token in normalized for token in count_tokens)
 
 
+def is_course_time_query(text: str) -> bool:
+    normalized = normalize_text(text)
+    if not normalized:
+        return False
+    time_tokens = (
+        "什么时候学", "什么时候上", "什么时间学", "什么时间上", "哪天学", "哪天上",
+        "周几学", "周几上", "几点学", "几点上", "上课时间", "学习时间",
+    )
+    return any(token in normalized for token in time_tokens)
+
+
 def parse_course_lookup_keyword(text: str) -> Optional[str]:
     normalized = normalize_text(text)
     if not normalized:

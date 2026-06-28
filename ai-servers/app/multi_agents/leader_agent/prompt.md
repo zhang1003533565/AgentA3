@@ -11,7 +11,7 @@
 
 请根据用户输入，从以下动作中选择一个：
 1. direct_answer：问候、感谢、告别等普通闲聊，Leader 直接回复。
-2. call_tool：需要调用接口或工具。你必须根据 `leader_callable_catalog.tools` 中已启用的工具自行识别并选择；课表/课程安排/本学期课程清单/某门课的老师是谁/谁教某门课/某门课本学期有几节课或多少次课等课程信息查询、活动/讲座/比赛、会议列表/状态、食堂餐饮、设施位置、旧物二手等校园服务查询分别选择对应 Java 后端服务工具；统计聚合或复杂结构化查询可使用 text_to_sql；用户直接提供内容并要求转文件/导出 Word/Excel/Markdown 时使用 generated_export_tools。选择 call_tool 时，`answer` 要写一句自然的进行中回复，例如“正在为你查询今日课表。”，不要提前编造最终结果。
+2. call_tool：需要调用接口或工具。你必须根据 `leader_callable_catalog.tools` 中已启用的工具自行识别并选择；课表/课程安排/本学期课程清单/某门课什么时候学或上课/某门课的老师是谁/谁教某门课/某门课本学期有几节课或多少次课等课程信息查询、活动/讲座/比赛、会议列表/状态、食堂餐饮、设施位置、旧物二手等校园服务查询分别选择对应 Java 后端服务工具；统计聚合或复杂结构化查询可使用 text_to_sql；用户直接提供内容并要求转文件/导出 Word/Excel/Markdown 时使用 generated_export_tools。选择 call_tool 时，`answer` 要写一句自然的进行中回复，例如“正在为你查询今日课表。”，不要提前编造最终结果。
 3. delegate_agent：交给专业智能体。
 
 专业智能体只能从这些值选择：
@@ -55,6 +55,7 @@ leader_agent, profile_summary_agent, architecture_prompt_agent, diagram_mind_map
 - PPT 图片、封面图、页面插图：ppt_image / ppt_image_agent / 直接处理
 - PPT 转 DOCX、PPTX 转 DOCX、PPT 转 Word、幻灯片转 Word：ppt_to_docx / ppt_to_docx_agent / 直接处理
 - 今日/明日/本周/某天/某节/本学期/全部学期课表或课程安排：schedule / leader_agent / call_tool: java_schedule_api
+- 某门课什么时候学、什么时候上课、周几几点上：course_time / leader_agent / call_tool: java_schedule_api
 - 某门课的老师是谁、任课老师、授课教师、谁教 Linux 系统/某门课程：course_teacher / leader_agent / call_tool: java_schedule_api
 - 某门课这个学期有几节课、多少次课、多少课时：course_count / leader_agent / call_tool: java_schedule_api
 - 校园活动、讲座、比赛、报名活动列表：activity_query / leader_agent / call_tool: java_activity_api

@@ -574,6 +574,82 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertIn("1", payload["answer"])
         self.assertEqual("java_schedule_api", calls[0][1])
 
+    def test_leader_formats_course_time_answer_as_plain_text(self):
+        rag_routes = importlib.import_module("app.api.routes.rag")
+        old_search_service_tool = rag_routes.data_store.search_service_tool
+        try:
+            def fake_search_service_tool(authorization, tool_name, query):
+                return [
+                    {
+                        "type": "course_schedule_summary",
+                        "name": "Python程序设计",
+                        "semesterLabel": "2025-2026 第 2 学期",
+                        "teacherName": "范晶晶",
+                        "scheduleItems": [
+                            "周三 1-2节 第3周、第8-10周双周、第11-12周 明德楼阶梯110",
+                            "周三 3-4节 第13周 明德楼阶梯110",
+                        ],
+                    }
+                ]
+
+            rag_routes.data_store.search_service_tool = fake_search_service_tool
+            response = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={
+                    "input": "python这个课程我是什么时候学的",
+                    "agentName": "leader_agent",
+                },
+            )
+        finally:
+            rag_routes.data_store.search_service_tool = old_search_service_tool
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("java_schedule_api", payload["metadata"]["toolName"])
+        self.assertIn("课程名：Python程序设计", payload["answer"])
+        self.assertNotIn("**", payload["answer"])
+        self.assertNotIn("---", payload["answer"])
+        self.assertNotIn("你需要的是哪部分", payload["answer"])
+
+    def test_leader_formats_canteen_tool_answer_as_plain_text(self):
+        rag_routes = importlib.import_module("app.api.routes.rag")
+        old_search_service_tool = rag_routes.data_store.search_service_tool
+        calls = []
+        try:
+            def fake_search_service_tool(authorization, tool_name, query):
+                calls.append((authorization, tool_name, query))
+                return [
+                    {
+                        "type": "canteen_dish",
+                        "name": "黄焖鸡米饭",
+                        "stallName": "黄焖鸡档口",
+                        "price": 18,
+                        "location": "第一学生餐厅",
+                    }
+                ]
+
+            rag_routes.data_store.search_service_tool = fake_search_service_tool
+            response = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={
+                    "input": "食堂有黄焖鸡吗",
+                    "agentName": "leader_agent",
+                },
+            )
+        finally:
+            rag_routes.data_store.search_service_tool = old_search_service_tool
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("java_canteen_api", payload["metadata"]["toolName"])
+        self.assertIn("黄焖鸡米饭", payload["answer"])
+        self.assertNotIn("**", payload["answer"])
+        self.assertNotIn("---", payload["answer"])
+        self.assertNotIn("如果需要", payload["answer"])
+        self.assertEqual("java_canteen_api", calls[0][1])
+
     def test_removed_md_agent_is_rejected(self):
         response = self.client.post(
             "/internal/rag/query",
@@ -672,6 +748,22 @@ class FakeRagModelProvider:
     def complete(self, system_prompt, user_prompt):
         if "系统接口返回的数据" in system_prompt:
             payload = json.loads(user_prompt)
+            if payload.get("answer_policy", {}).get("mode") == "canteen_query":
+                return (
+                    "**黄焖鸡米饭**\n"
+                    "---\n"
+                    "食堂/档口：第一学生餐厅，黄焖鸡档口\n"
+                    "价格：18 元\n"
+                    "如果需要，我可以继续帮你筛选其他菜品。"
+                )
+            if payload.get("answer_policy", {}).get("mode") == "course_time":
+                return (
+                    "**课程名：Python程序设计**\n"
+                    "---\n"
+                    "**学期：2025-2026 第 2 学期**\n"
+                    "理论课（范晶晶）：周三 1-2节（第3周、第8-10周双周、第11-12周）；地点：明德楼阶梯110\n"
+                    "你需要的是哪部分的具体信息？"
+                )
             if payload.get("answer_policy", {}).get("mode") == "course_count":
                 rows = payload.get("tool_results") or [{}]
                 first = next((item for item in rows if "Linux" in str(item.get("name") or "")), rows[0])
@@ -707,18 +799,30 @@ class FakeRagModelProvider:
                 "route_reason": "LLM 根据 Java 后台模型配置完成结构化查询识别。",
                 "answer": "",
             }
-        if "课表" in text or "有什么课" in text or "老师是谁" in text or "谁教" in text or "几节课" in text or "多少次课" in text:
+        if "食堂" in text or "黄焖鸡" in text or "吃什么" in text:
+            return {
+                "intent": "canteen_query",
+                "target_agent": "leader_agent",
+                "need_retrieval": False,
+                "rag_strategy": "",
+                "action": "call_tool",
+                "tool_name": "java_canteen_api",
+                "route_reason": "LLM 根据启用工具清单选择食堂餐饮查询工具。",
+                "answer": "正在为你查询食堂餐饮信息。",
+            }
+        if "课表" in text or "有什么课" in text or "老师是谁" in text or "谁教" in text or "几节课" in text or "多少次课" in text or "什么时候" in text:
             teacher_query = "老师是谁" in text or "谁教" in text
             count_query = "几节课" in text or "多少次课" in text
+            time_query = "什么时候" in text
             return {
-                "intent": "course_teacher" if teacher_query else ("course_count" if count_query else "schedule"),
+                "intent": "course_teacher" if teacher_query else ("course_count" if count_query else ("course_time" if time_query else "schedule")),
                 "target_agent": "leader_agent",
                 "need_retrieval": False,
                 "rag_strategy": "",
                 "action": "call_tool",
                 "tool_name": "java_schedule_api",
                 "route_reason": "LLM 根据启用工具清单选择课表查询工具。",
-                "answer": "正在为你查询课程老师。" if teacher_query else ("正在为你查询课程次数。" if count_query else "正在为你查询本学期课表。"),
+                "answer": "正在为你查询课程老师。" if teacher_query else ("正在为你查询课程次数。" if count_query else ("正在为你查询课程时间。" if time_query else "正在为你查询本学期课表。")),
             }
         if "PPT" in text or "课件" in text:
             return {
