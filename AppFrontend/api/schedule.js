@@ -1,16 +1,18 @@
 import { request } from '../utils/request.js'
 
-export function getCurrentSchedule() {
+export function getCurrentSchedule(params) {
   return request({
     url: '/api/browser/jwx/schedule/current',
-    method: 'GET'
+    method: 'GET',
+    data: params
   })
 }
 
-export function getAllSchedules() {
+export function getAllSchedules(params) {
   return request({
     url: '/api/schedule',
-    method: 'GET'
+    method: 'GET',
+    data: params
   })
 }
 
@@ -21,10 +23,11 @@ export function getScheduleDetail(courseId) {
   })
 }
 
-export function importScheduleAuto() {
+export function importScheduleAuto(data) {
   return request({
     url: '/api/browser/jwx/schedule/auto',
-    method: 'POST'
+    method: 'POST',
+    data
   })
 }
 

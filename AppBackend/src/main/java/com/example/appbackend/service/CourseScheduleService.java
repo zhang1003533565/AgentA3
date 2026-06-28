@@ -11,9 +11,19 @@ public interface CourseScheduleService {
     void saveSchedule(Long userId, String studentId, String rawData);
 
     /**
+     * 保存指定学期课表数据（只覆盖该学期，不影响其他学期）
+     */
+    void saveSchedule(Long userId, String studentId, String rawData, String academicYear, Integer semesterTerm, String semesterCode);
+
+    /**
      * 获取用户的课表
      */
     List<CourseSchedule> getUserSchedule(Long userId);
+
+    /**
+     * 获取用户指定学期的课表
+     */
+    List<CourseSchedule> getUserSchedule(Long userId, String academicYear, Integer semesterTerm);
 
     /**
      * 获取用户的课表（按学号）
@@ -33,12 +43,22 @@ public interface CourseScheduleService {
     List<CourseSchedule> getCurrentWeekSchedule(Long userId);
 
     /**
+     * 获取指定学期开学日期计算出的当前周课表
+     */
+    List<CourseSchedule> getCurrentWeekSchedule(Long userId, java.time.LocalDate semesterStart, String academicYear, Integer semesterTerm);
+
+    /**
      * 获取用户指定周次的课表
      * @param userId 用户 ID
      * @param week 周次（1-20）
      * @return 指定周次课表列表
      */
     List<CourseSchedule> getWeekSchedule(Long userId, int week);
+
+    /**
+     * 获取用户指定学期、指定周次课表
+     */
+    List<CourseSchedule> getWeekSchedule(Long userId, int week, String academicYear, Integer semesterTerm);
 
     /**
      * 获取课程详情

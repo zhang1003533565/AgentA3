@@ -14,8 +14,9 @@
 								<text class="week-text">第{{ currentWeek }}周</text>
 								<text class="week-caret">▼</text>
 							</view>
-							<view class="semester-info">
+							<view class="semester-info" @click="showSemesterSelector">
 								<text class="semester-text">{{ semester }}</text>
+								<text class="semester-caret">切换</text>
 							</view>
 						</view>
 					</view>
@@ -49,7 +50,7 @@
 			<view class="popup-content" @click.stop>
 				<view class="popup-item" @click="importFromJwx">
 					<text class="popup-title">教务系统导课</text>
-					<text class="popup-desc">导入至{{ semester }}</text>
+					<text class="popup-desc">导入{{ academicYear }}两个学期</text>
 				</view>
 				<view class="popup-item" @click="openImportCodePopup">
 					<text class="popup-title">分享码导入</text>
@@ -218,6 +219,26 @@ const PERIODS = [
 	{ index: 10, start: '19:25', end: '20:10' }
 ]
 
+const semesterCodeForTerm = (term) => (Number(term) === 2 ? '12' : '3')
+
+const normalizeAcademicYear = (value) => {
+	const text = String(value || '').trim()
+	if (/^\d{4}-\d{4}$/.test(text)) return text
+	if (/^\d{4}$/.test(text)) return `${text}-${Number(text) + 1}`
+	const now = new Date()
+	const year = now.getFullYear()
+	const startYear = now.getMonth() + 1 >= 8 ? year : year - 1
+	return `${startYear}-${startYear + 1}`
+}
+
+const defaultSemesterStarts = (academicYear) => {
+	const year = Number(normalizeAcademicYear(academicYear).slice(0, 4))
+	return {
+		1: `${year}-09-01`,
+		2: `${year + 1}-03-01`
+	}
+}
+
 const isWeekInRange = (weekRange, currentWeek) => {
 	if (!weekRange || !currentWeek) return false
 	const normalized = String(weekRange).replace(/\s+/g, '')
@@ -268,6 +289,11 @@ export default {
 			currentMonth: 3,
 			weekDates: [], // 存储本周每天的日期
 			semester: '2025-2026 第 1 学期',
+			academicYear: normalizeAcademicYear(),
+			semesterTerm: 1,
+			semesterCode: '3',
+			availableSemesters: [],
+			semesterStarts: defaultSemesterStarts(),
 			showImportPopup: false,
 			showImportCodePopup: false,
 			shareCodeInput: '',
@@ -281,12 +307,19 @@ export default {
 			touchStartX: 0,
 			touchStartY: 0,
 			touchMoveX: 0,
-			isSwiping: false
+			isSwiping: false,
+			hasMounted: false
 		}
 	},
 	mounted() {
+		this.hasMounted = true
 		this.loadSchedule()
 		this.calculateWeekDates()
+	},
+	onShow() {
+		if (this.hasMounted) {
+			this.loadSchedule()
+		}
 	},
 	computed: {
 		isCurrentRealWeek() {
@@ -327,12 +360,8 @@ export default {
 							const scheduleData = res.data.data
 							this.currentWeek = scheduleData.currentWeek || 1
 							this.actualCurrentWeek = scheduleData.currentWeek || 1
-							if (scheduleData.semester) {
-								this.semester = scheduleData.semester
-							}
-							if (scheduleData.semesterStart) {
-								this.semesterStart = scheduleData.semesterStart
-							}
+							this.applyScheduleMeta(scheduleData)
+							this.loadScheduleSettings(token)
 							this.loadAllSchedules(token)
 						} else {
 							this.loading = false
@@ -360,9 +389,32 @@ export default {
 				})
 			}
 		},
+		applyScheduleMeta(scheduleData = {}) {
+			this.academicYear = normalizeAcademicYear(scheduleData.academicYear || this.academicYear)
+			this.semesterTerm = Number(scheduleData.semesterTerm || this.semesterTerm || 1)
+			this.semesterCode = scheduleData.semesterCode || semesterCodeForTerm(this.semesterTerm)
+			this.semester = scheduleData.semester || `${this.academicYear} 第 ${this.semesterTerm} 学期`
+			if (scheduleData.semesterStart) {
+				this.semesterStart = scheduleData.semesterStart
+				this.semesterStarts = {
+					...this.semesterStarts,
+					[this.semesterTerm]: scheduleData.semesterStart
+				}
+			}
+		},
+		buildSemesterQuery() {
+			const params = []
+			if (this.academicYear) {
+				params.push(`academicYear=${encodeURIComponent(this.academicYear)}`)
+			}
+			if (this.semesterTerm) {
+				params.push(`semesterTerm=${encodeURIComponent(this.semesterTerm)}`)
+			}
+			return params.length ? `?${params.join('&')}` : ''
+		},
 		loadAllSchedules(token) {
 			uni.request({
-				url: `${BASE_URL}/api/schedule`,
+				url: `${BASE_URL}/api/schedule${this.buildSemesterQuery()}`,
 				method: 'GET',
 				header: {
 					'Authorization': 'Bearer ' + token
@@ -389,6 +441,77 @@ export default {
 					})
 				}
 			})
+		},
+		loadScheduleSettings(token = uni.getStorageSync('token') || '') {
+			return new Promise((resolve) => {
+				uni.request({
+					url: `${BASE_URL}/api/schedule/settings`,
+					method: 'GET',
+					header: {
+						'Authorization': 'Bearer ' + token
+					},
+					success: (res) => {
+						if (res.statusCode === 200 && res.data.code === 200) {
+							const data = res.data.data || {}
+							this.availableSemesters = this.normalizeSemesterOptions(data)
+							this.semesterStarts = this.getSemesterStartsForYear(this.academicYear)
+						}
+						resolve()
+					},
+					fail: () => resolve()
+				})
+			})
+		},
+		normalizeSemesterOptions(data = {}) {
+			const list = Array.isArray(data.semesters) ? data.semesters : []
+			const selectedYear = normalizeAcademicYear(data.academicYear || this.academicYear)
+			const byKey = new Map()
+
+			list.forEach((item) => {
+				if (!item) return
+				const academicYear = normalizeAcademicYear(item.academicYear || selectedYear)
+				const semesterTerm = Number(item.semesterTerm || 1)
+				if (semesterTerm !== 1 && semesterTerm !== 2) return
+				byKey.set(`${academicYear}-${semesterTerm}`, {
+					academicYear,
+					semesterTerm,
+					semesterCode: item.semesterCode || semesterCodeForTerm(semesterTerm),
+					semesterStart: item.semesterStart || defaultSemesterStarts(academicYear)[semesterTerm],
+					courseCount: Number(item.courseCount || 0),
+					currentWeek: Number(item.currentWeek || 1),
+					selected: Boolean(item.selected)
+				})
+			})
+
+			;[1, 2].forEach((term) => {
+				const key = `${selectedYear}-${term}`
+				if (!byKey.has(key)) {
+					byKey.set(key, {
+						academicYear: selectedYear,
+						semesterTerm: term,
+						semesterCode: semesterCodeForTerm(term),
+						semesterStart: defaultSemesterStarts(selectedYear)[term],
+						courseCount: 0,
+						currentWeek: 1,
+						selected: selectedYear === this.academicYear && term === this.semesterTerm
+					})
+				}
+			})
+
+			return Array.from(byKey.values()).sort((a, b) => {
+				if (a.academicYear !== b.academicYear) return b.academicYear.localeCompare(a.academicYear)
+				return Number(b.semesterTerm) - Number(a.semesterTerm)
+			})
+		},
+		getSemesterStartsForYear(academicYear) {
+			const year = normalizeAcademicYear(academicYear)
+			const starts = defaultSemesterStarts(year)
+			this.availableSemesters
+				.filter((item) => item.academicYear === year)
+				.forEach((item) => {
+					starts[item.semesterTerm] = item.semesterStart || starts[item.semesterTerm]
+				})
+			return starts
 		},
 
 		transformScheduleData(scheduleList) {
@@ -528,6 +651,81 @@ export default {
 				}
 			})
 		},
+		async showSemesterSelector() {
+			await this.loadScheduleSettings()
+			const options = this.availableSemesters.length
+				? this.availableSemesters
+				: [1, 2].map((term) => ({
+					academicYear: this.academicYear,
+					semesterTerm: term,
+					semesterCode: semesterCodeForTerm(term),
+					semesterStart: defaultSemesterStarts(this.academicYear)[term],
+					courseCount: 0
+				}))
+			uni.showActionSheet({
+				itemList: options.map((item) => this.formatSemesterOption(item)),
+				success: (res) => {
+					const selected = options[res.tapIndex]
+					if (selected) {
+						this.switchSemester(selected)
+					}
+				}
+			})
+		},
+		formatSemesterOption(item) {
+			const countText = Number(item.courseCount || 0) > 0 ? ` · ${item.courseCount}门课` : ''
+			return `${item.academicYear} 第${item.semesterTerm}学期${countText}`
+		},
+		switchSemester(semester) {
+			const academicYear = normalizeAcademicYear(semester.academicYear || this.academicYear)
+			const semesterTerm = Number(semester.semesterTerm || 1)
+			const starts = this.getSemesterStartsForYear(academicYear)
+			const semesterStart = semester.semesterStart || starts[semesterTerm] || defaultSemesterStarts(academicYear)[semesterTerm]
+			const token = uni.getStorageSync('token') || ''
+
+			uni.showLoading({ title: '切换中...' })
+			uni.request({
+				url: `${BASE_URL}/api/schedule/settings`,
+				method: 'PUT',
+				header: {
+					'Authorization': 'Bearer ' + token,
+					'Content-Type': 'application/json'
+				},
+				data: {
+					academicYear,
+					semesterTerm,
+					semesterStart,
+					selected: true,
+					semesters: [1, 2].map((term) => ({
+						academicYear,
+						semesterTerm: term,
+						semesterCode: semesterCodeForTerm(term),
+						semesterStart: starts[term] || defaultSemesterStarts(academicYear)[term]
+					}))
+				},
+				success: (res) => {
+					uni.hideLoading()
+					if (res.statusCode === 200 && res.data.code === 200) {
+						this.academicYear = academicYear
+						this.semesterTerm = semesterTerm
+						this.semesterCode = semesterCodeForTerm(semesterTerm)
+						this.semesterStart = semesterStart
+						this.semesterStarts = {
+							...starts,
+							[semesterTerm]: semesterStart
+						}
+						this.semester = `${academicYear} 第 ${semesterTerm} 学期`
+						this.loadSchedule()
+						return
+					}
+					uni.showToast({ title: res.data.message || '切换失败', icon: 'none' })
+				},
+				fail: () => {
+					uni.hideLoading()
+					uni.showToast({ title: '网络错误', icon: 'none' })
+				}
+			})
+		},
 		loadWeekSchedule(week) {
 			this.currentWeek = week
 			this.courses = this.transformScheduleData(this.rawSchedules)
@@ -655,7 +853,17 @@ export default {
 				url: `${BASE_URL}/api/browser/jwx/schedule/auto`,
 				method: 'POST',
 				header: {
-					'Authorization': 'Bearer ' + token
+					'Authorization': 'Bearer ' + token,
+					'Content-Type': 'application/json'
+				},
+				data: {
+					academicYear: this.academicYear,
+					selectedSemesterTerm: this.semesterTerm,
+					importBothTerms: true,
+					semesterStarts: {
+						1: this.semesterStarts[1] || defaultSemesterStarts(this.academicYear)[1],
+						2: this.semesterStarts[2] || defaultSemesterStarts(this.academicYear)[2]
+					}
 				},
 				success: (res) => {
 					uni.hideLoading()
@@ -946,11 +1154,18 @@ export default {
 .semester-info {
 	display: flex;
 	align-items: center;
+	gap: 10rpx;
+	cursor: pointer;
 }
 
 .semester-text {
 	font-size: 20rpx;
 	color: #8f97a3;
+}
+
+.semester-caret {
+	font-size: 20rpx;
+	color: #4b80ef;
 }
 
 .header-actions {

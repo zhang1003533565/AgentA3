@@ -42,8 +42,35 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
     }
 
     @Override
+    @Transactional
+    public void saveSchedule(Long userId, String studentId, String rawData, String academicYear, Integer semesterTerm, String semesterCode) {
+        courseScheduleRepository.deleteByUserIdAndSemester(userId, academicYear, semesterTerm);
+
+        List<CourseSchedule> schedules = CourseScheduleParser.parse(rawData, userId, studentId);
+        schedules.forEach(schedule -> {
+            schedule.setAcademicYear(academicYear);
+            schedule.setSemesterTerm(semesterTerm);
+            schedule.setSemesterCode(semesterCode);
+        });
+        log.info("指定学期课表解析完成，userId={}, studentId={}, academicYear={}, semesterTerm={}, 解析到有效课程数={}",
+                userId, studentId, academicYear, semesterTerm, schedules.size());
+
+        courseScheduleRepository.saveAll(schedules);
+        log.info("指定学期课表保存完成，userId={}, academicYear={}, semesterTerm={}, 保存课程数={}",
+                userId, academicYear, semesterTerm, schedules.size());
+    }
+
+    @Override
     public List<CourseSchedule> getUserSchedule(Long userId) {
         return courseScheduleRepository.findByUserId(userId);
+    }
+
+    @Override
+    public List<CourseSchedule> getUserSchedule(Long userId, String academicYear, Integer semesterTerm) {
+        if (academicYear == null || academicYear.trim().isEmpty() || semesterTerm == null) {
+            return getUserSchedule(userId);
+        }
+        return courseScheduleRepository.findByUserIdAndAcademicYearAndSemesterTerm(userId, academicYear.trim(), semesterTerm);
     }
 
     @Override
@@ -77,6 +104,19 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
     }
 
     @Override
+    public List<CourseSchedule> getCurrentWeekSchedule(Long userId, java.time.LocalDate semesterStart, String academicYear, Integer semesterTerm) {
+        int currentWeek = WeekCalculator.getCurrentWeek(semesterStart);
+        log.info("按指定学期计算当前周次，userId={}, academicYear={}, semesterTerm={}, semesterStart={}, currentWeek={}",
+                userId, academicYear, semesterTerm, semesterStart, currentWeek);
+
+        if (currentWeek <= 0) {
+            return List.of();
+        }
+
+        return getWeekSchedule(userId, currentWeek, academicYear, semesterTerm);
+    }
+
+    @Override
     public List<CourseSchedule> getWeekSchedule(Long userId, int week) {
         // 获取用户的所有课表
         List<CourseSchedule> allSchedules = courseScheduleRepository.findByUserId(userId);
@@ -91,6 +131,20 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
                 })
                 .collect(Collectors.toList());
         log.info("按周查询结果，userId={}, week={}, 命中课程数={}", userId, week, result.size());
+        return result;
+    }
+
+    @Override
+    public List<CourseSchedule> getWeekSchedule(Long userId, int week, String academicYear, Integer semesterTerm) {
+        List<CourseSchedule> allSchedules = getUserSchedule(userId, academicYear, semesterTerm);
+        log.info("按学期周次查询课表，userId={}, academicYear={}, semesterTerm={}, week={}, 学期课程数={}",
+                userId, academicYear, semesterTerm, week, allSchedules.size());
+
+        List<CourseSchedule> result = allSchedules.stream()
+                .filter(schedule -> WeekCalculator.isWeekInRange(schedule.getWeekRange(), week))
+                .collect(Collectors.toList());
+        log.info("按学期周次查询结果，userId={}, academicYear={}, semesterTerm={}, week={}, 命中课程数={}",
+                userId, academicYear, semesterTerm, week, result.size());
         return result;
     }
 
@@ -137,6 +191,9 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
             User targetUser = userRepository.findById(userId).orElse(null);
             String targetStudentId = targetUser != null ? targetUser.getPersonalNumber() : null;
             newSchedule.setStudentId(targetStudentId != null ? targetStudentId : sourceUser.getPersonalNumber());
+            newSchedule.setAcademicYear(schedule.getAcademicYear());
+            newSchedule.setSemesterTerm(schedule.getSemesterTerm());
+            newSchedule.setSemesterCode(schedule.getSemesterCode());
             newSchedule.setCourseName(schedule.getCourseName());
             newSchedule.setWeekRange(schedule.getWeekRange());
             newSchedule.setClassSessions(schedule.getClassSessions());
