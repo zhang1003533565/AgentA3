@@ -65,6 +65,7 @@ export const navigationSections = [
       { path: '/ai/agent-settings', label: '智能体设置', icon: 'setting' },
       { path: '/ai/rag/agents', label: '智能体测试', icon: 'robot' },
       { path: '/ai/question-bank', label: '题库管理', icon: 'appstore' },
+      { path: '/ai/knowledge', label: '知识库管理', icon: 'file-search' },
       { path: '/ai/profile-rules', label: '画像规则', icon: 'pie-chart' },
     ],
   },
@@ -81,6 +82,7 @@ export const moduleCards = [
   { title: '智能体设置', description: '集中维护智能体开关、默认模型和运行边界', route: '/ai/agent-settings' },
   { title: '智能体测试', description: '测试智能体调用、导入题库并维护示例输入', route: '/ai/rag/agents' },
   { title: '题库管理', description: '查看智能体导入的标准题库', route: '/ai/question-bank' },
+  { title: '知识库管理', description: '维护 MaxKB 账号、环境地址和知识库文档', route: '/ai/knowledge' },
   { title: '画像规则', description: '查看个人画像雷达图来源、更新策略和 Leader 使用边界', route: '/ai/profile-rules' },
 ]
 

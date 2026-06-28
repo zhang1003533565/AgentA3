@@ -6,6 +6,7 @@ import ActivityEditor from './pages/activity/ActivityEditor/ActivityEditor'
 import ActivityManage from './pages/activity/ActivityManage/ActivityManage'
 import Home from './pages/Home/Home'
 import QuestionBank from './pages/ai/QuestionBank/QuestionBank'
+import KnowledgeManage from './pages/ai/KnowledgeManage/KnowledgeManage'
 import ProfileRules from './pages/ai/ProfileRules/ProfileRules'
 import RagManage from './pages/ai/RagManage/RagManage'
 import AgentSettings from './pages/ai/AgentSettings/AgentSettings'
@@ -39,6 +40,7 @@ function App() {
           <Route path="/ai/rag/agents" element={<RagManage page="agents" />} />
           <Route path="/ai/agent-settings" element={<AgentSettings />} />
           <Route path="/ai/question-bank" element={<QuestionBank />} />
+          <Route path="/ai/knowledge" element={<KnowledgeManage />} />
           <Route path="/ai/profile-rules" element={<ProfileRules />} />
           {workspaceRoutes}
         </Route>
