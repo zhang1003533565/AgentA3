@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
@@ -29,6 +29,14 @@ from app.utils.sse import build_sse, chunk_answer
 router = APIRouter(prefix="/internal/rag", tags=["internal-rag"])
 logger = get_logger("api.rag")
 
+VISIBLE_GENERATION_AGENTS = {
+    "image_agent",
+    "diagram_mind_map_agent",
+    "diagram_architecture_agent",
+    "diagram_flowchart_agent",
+    "diagram_activity_agent",
+}
+
 
 class AgentExecutionError(Exception):
     def __init__(
@@ -41,6 +49,10 @@ class AgentExecutionError(Exception):
         route_reason: str = "",
         status_code: int = 500,
         raw_message: str = "",
+        model_provider: str = "",
+        model: str = "",
+        base_url: str = "",
+        model_config_prefix: str = "",
     ) -> None:
         super().__init__(message)
         self.message = message
@@ -50,6 +62,10 @@ class AgentExecutionError(Exception):
         self.route_reason = route_reason
         self.status_code = status_code
         self.raw_message = raw_message or message
+        self.model_provider = model_provider
+        self.model = model
+        self.base_url = base_url
+        self.model_config_prefix = model_config_prefix
 
 GENERATED_CONTENT_TOOLS = [
     {
@@ -398,13 +414,36 @@ async def run_rag_query_stream(
     async def event_stream():
         yield build_sse("status", {"stage": "processing"})
         token = set_active_llm_config(llm_config)
+        generation_started = False
         try:
-            response = await asyncio.to_thread(_run_rag_query_core, request, authorization or "")
+            request.input = _prepare_request_input(request)
+            requested_agent = normalize_agent_name(request.agentName)
+            if request.agentName and not requested_agent:
+                raise HTTPException(status_code=400, detail="智能体不存在")
+
+            active_agent = requested_agent or "leader_agent"
+            if active_agent == "leader_agent":
+                profile_context = _profile_context_from_request(request)
+                plan = await asyncio.to_thread(
+                    leader_agent.plan,
+                    request.input,
+                    request.ragStrategy or "",
+                    profile_context=profile_context,
+                )
+                if _should_emit_generation_start(request, plan.target_agent, plan):
+                    yield build_sse("generation_start", _build_generation_start_payload(request, plan))
+                    generation_started = True
+                response = await asyncio.to_thread(_execute_leader_plan, request, authorization or "", profile_context, plan)
+            else:
+                if _should_emit_generation_start(request, active_agent):
+                    yield build_sse("generation_start", _build_generation_start_payload(request, None, active_agent))
+                    generation_started = True
+                response = await asyncio.to_thread(_run_rag_query_core, request, authorization or "")
             metadata = response.metadata or {}
             session_id = str((request.metadata or {}).get("sessionId") or "")
             yield build_sse("session", {
                 "sessionId": session_id,
-                "model": llm_config.model,
+                "model": metadata.get("model") or getattr(llm_config, "model", "") or "",
                 "agentName": metadata.get("executedAgent") or metadata.get("targetAgent") or metadata.get("agentName") or "leader_agent",
                 "answerType": response.answerType,
             })
@@ -413,9 +452,10 @@ async def run_rag_query_stream(
                 "matchedResults": [document.model_dump() for document in response.documents],
                 "retrievalMeta": metadata,
             })
-            for chunk in chunk_answer(response.answer):
-                yield build_sse("delta", {"content": chunk})
-                await asyncio.sleep(0.035)
+            if not generation_started:
+                for chunk in chunk_answer(response.answer):
+                    yield build_sse("delta", {"content": chunk})
+                    await asyncio.sleep(0.035)
             yield build_sse("done", {
                 "sessionId": session_id,
                 "answer": response.answer,
@@ -441,7 +481,7 @@ async def run_rag_query_stream(
 
 
 def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
-    request.input = append_image_references_to_text(request.input, collect_request_image_references(request))
+    request.input = _prepare_request_input(request)
     requested_agent = normalize_agent_name(request.agentName)
     if request.agentName and not requested_agent:
         raise HTTPException(status_code=400, detail="智能体不存在")
@@ -462,6 +502,19 @@ def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQuer
 def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
     profile_context = _profile_context_from_request(request)
     plan = leader_agent.plan(request.input, request.ragStrategy or "", profile_context=profile_context)
+    return _execute_leader_plan(request, authorization, profile_context, plan)
+
+
+def _prepare_request_input(request: RagQueryRequest) -> str:
+    return append_image_references_to_text(request.input, collect_request_image_references(request))
+
+
+def _execute_leader_plan(
+    request: RagQueryRequest,
+    authorization: str,
+    profile_context: Optional[Dict[str, Any]],
+    plan,
+) -> RagQueryResponse:
     if plan.action == "direct_answer":
         return _run_leader_direct_answer(plan, profile_context=profile_context)
     if plan.action == "call_tool":
@@ -480,6 +533,84 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
     if not agent_profile.get("needRetrieval", True):
         return _run_direct_agent(request, agent_profile, leader_plan=plan)
     return _run_agent_without_local_retrieval(request, plan.target_agent, leader_plan=plan)
+
+
+def _should_emit_generation_start(request: RagQueryRequest, agent_name: Optional[str], plan=None) -> bool:
+    normalized = normalize_agent_name(agent_name)
+    if normalized not in VISIBLE_GENERATION_AGENTS:
+        return False
+    if plan is not None and getattr(plan, "action", "") != "delegate_agent":
+        return False
+    if not _is_agent_enabled(request, normalized):
+        return False
+    return get_agent_profile(normalized) is not None
+
+
+def _build_generation_start_payload(
+    request: RagQueryRequest,
+    plan=None,
+    agent_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    target_agent = normalize_agent_name(agent_name or getattr(plan, "target_agent", "")) or ""
+    profile = get_agent_profile(target_agent) or {}
+    runtime_config, config_prefix = _require_agent_runtime_config(request, target_agent, leader_plan=plan)
+    model_metadata = _agent_model_metadata(runtime_config, config_prefix)
+    session_id = str((request.metadata or {}).get("sessionId") or "")
+    intent = getattr(plan, "intent", "") or profile.get("intent") or ""
+    route_reason = getattr(plan, "route_reason", "") or profile.get("purpose") or ""
+    answer_type = _answer_type_for_agent(target_agent)
+    role = str(profile.get("role") or target_agent or "图片智能体")
+    answer = f"已识别到你要生成图片，正在调用「{role}」处理中。你可以继续提问，生成完成后我会把结果更新到这里。"
+    metadata = {
+        "agentName": "leader_agent" if plan else target_agent,
+        "targetAgent": target_agent,
+        "executedAgent": target_agent,
+        "intent": intent,
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "strategyLabel": "图片生成中",
+        "executionMode": "visible_generation",
+        "executionModeLabel": "图片生成中，允许继续对话",
+        "generationStatus": "running",
+        "generationVisible": True,
+        "answerType": answer_type,
+        "outputType": "image",
+        "outputTypes": ["image"],
+        "routeReason": route_reason,
+        **model_metadata,
+    }
+    trace = []
+    if plan:
+        trace.append(RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(plan)).model_dump())
+    trace.append({
+        "stage": "agent_answer",
+        "detail": {
+            "agentName": target_agent,
+            "generationStatus": "running",
+            "message": "图片生成任务已开始",
+            **model_metadata,
+        },
+    })
+    return {
+        "sessionId": session_id,
+        "answer": answer,
+        "answerType": answer_type,
+        "outputType": "image",
+        "outputTypes": ["image"],
+        "outputMeta": {
+            "generationStatus": "running",
+            "choicePrompt": "",
+            "followUpActions": [],
+        },
+        "attachments": [],
+        "ragStrategy": "direct_agent",
+        "agentName": target_agent,
+        "searchKeyword": "",
+        "matchedResults": [],
+        "retrievalMeta": metadata,
+        "trace": trace,
+        "model": model_metadata.get("model") or "",
+    }
 
 
 def _agent_toggles_from_request(request: RagQueryRequest) -> Dict[str, Any]:
@@ -631,16 +762,128 @@ def _output_preference_hints(profile_context: Optional[Dict[str, Any]]) -> Dict[
     return hints if isinstance(hints, dict) else {}
 
 
+def _run_specialist_agent_with_bound_model(
+    request: RagQueryRequest,
+    agent_name: str,
+    input_text: str,
+    evidence: List[Dict[str, Any]],
+    leader_plan=None,
+    chat_service=None,
+) -> Tuple[str, Dict[str, Any]]:
+    runtime_config, config_prefix = _require_agent_runtime_config(request, agent_name, leader_plan=leader_plan)
+    token = set_active_llm_config(runtime_config)
+    try:
+        answer = run_specialist_agent(agent_name, input_text, evidence, chat_service=chat_service)
+    except AgentExecutionError:
+        raise
+    except Exception as exc:
+        _raise_agent_execution_error(
+            exc,
+            agent_name,
+            leader_plan=leader_plan,
+            runtime_config=runtime_config,
+            config_prefix=config_prefix,
+        )
+    finally:
+        reset_active_llm_config(token)
+    return answer, _agent_model_metadata(runtime_config, config_prefix)
+
+
+def _require_agent_runtime_config(
+    request: RagQueryRequest,
+    agent_name: str,
+    leader_plan=None,
+):
+    normalized_agent = normalize_agent_name(agent_name) or (agent_name or "").strip()
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    configs = metadata.get("agentModelConfigs") if isinstance(metadata.get("agentModelConfigs"), dict) else {}
+    config = configs.get(normalized_agent) if isinstance(configs, dict) else None
+    display_name = _agent_display_name(normalized_agent)
+    if not isinstance(config, dict):
+        raise AgentExecutionError(
+            message=f"{display_name} 未绑定模型配置，请到后台 AI 模块 > 智能体设置为它绑定模型。",
+            agent_name=normalized_agent,
+            intent=getattr(leader_plan, "intent", "") or "",
+            stage="agent_model_config",
+            route_reason=getattr(leader_plan, "route_reason", "") or "",
+            status_code=400,
+        )
+
+    config_prefix = str(config.get("configPrefix") or "").strip()
+    provider = str(config.get("provider") or "").strip()
+    base_url = str(config.get("baseUrl") or config.get("base_url") or "").strip()
+    api_key = str(config.get("apiKey") or config.get("api_key") or "").strip()
+    model = str(config.get("model") or "").strip()
+    missing = []
+    if not provider:
+        missing.append("provider")
+    if not base_url:
+        missing.append("base-url")
+    if not api_key:
+        missing.append("api-key")
+    if not model:
+        missing.append("model")
+    if missing:
+        prefix_text = f"（{config_prefix}）" if config_prefix else ""
+        raise AgentExecutionError(
+            message=f"{display_name} 的模型配置不完整{prefix_text}：缺少 {'、'.join(missing)}。",
+            agent_name=normalized_agent,
+            intent=getattr(leader_plan, "intent", "") or "",
+            stage="agent_model_config",
+            route_reason=getattr(leader_plan, "route_reason", "") or "",
+            status_code=400,
+            model_provider=provider,
+            model=model,
+            base_url=base_url,
+            model_config_prefix=config_prefix,
+        )
+
+    runtime_config = build_llm_runtime_config(
+        provider=provider,
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+    )
+    if runtime_config is None:
+        raise AgentExecutionError(
+            message=f"{display_name} 未收到有效模型配置，请检查后台智能体设置。",
+            agent_name=normalized_agent,
+            intent=getattr(leader_plan, "intent", "") or "",
+            stage="agent_model_config",
+            route_reason=getattr(leader_plan, "route_reason", "") or "",
+            status_code=400,
+            model_config_prefix=config_prefix,
+        )
+    return runtime_config, config_prefix
+
+
+def _agent_model_metadata(runtime_config, config_prefix: str = "") -> Dict[str, Any]:
+    return {
+        "modelProvider": getattr(runtime_config, "provider", "") or "",
+        "model": getattr(runtime_config, "model", "") or "",
+        "modelBaseUrl": getattr(runtime_config, "base_url", "") or "",
+        "modelConfigPrefix": config_prefix or "",
+    }
+
+
+def _agent_display_name(agent_name: str) -> str:
+    profile = get_agent_profile(agent_name) or {}
+    return str(profile.get("role") or agent_name or "专业智能体")
+
+
 def _run_agent_without_local_retrieval(
     request: RagQueryRequest,
     active_agent: str,
     leader_plan=None,
 ) -> RagQueryResponse:
     profile_evidence = _profile_evidence_from_request(request)
-    try:
-        answer = run_specialist_agent(active_agent, request.input, profile_evidence)
-    except Exception as exc:
-        _raise_agent_execution_error(exc, active_agent, leader_plan=leader_plan)
+    answer, model_metadata = _run_specialist_agent_with_bound_model(
+        request,
+        active_agent,
+        request.input,
+        profile_evidence,
+        leader_plan=leader_plan,
+    )
     answer_type = _answer_type_for_agent(active_agent)
     trace = []
     if leader_plan:
@@ -652,6 +895,7 @@ def _run_agent_without_local_retrieval(
             "answerLength": len(answer or ""),
             "executionMode": "leader_routed_agent" if leader_plan else "direct_agent",
             "localRetrievalSkipped": True,
+            **model_metadata,
         },
     ))
     metadata = {
@@ -663,6 +907,7 @@ def _run_agent_without_local_retrieval(
         "answerType": answer_type,
         "profileContextUsed": bool(profile_evidence),
         "outputPreferenceHints": _output_preference_hints_from_request(request),
+        **model_metadata,
     }
     if leader_plan:
         metadata.update({
@@ -730,10 +975,13 @@ def _run_direct_agent(
 ) -> RagQueryResponse:
     agent_name = agent_profile["name"]
     profile_evidence = _profile_evidence_from_request(request)
-    try:
-        answer = run_specialist_agent(agent_name, request.input, profile_evidence)
-    except Exception as exc:
-        _raise_agent_execution_error(exc, agent_name, leader_plan=leader_plan)
+    answer, model_metadata = _run_specialist_agent_with_bound_model(
+        request,
+        agent_name,
+        request.input,
+        profile_evidence,
+        leader_plan=leader_plan,
+    )
     answer_type = _answer_type_for_agent(agent_name)
     metadata = {
         "agentName": "leader_agent" if leader_plan else agent_name,
@@ -748,6 +996,7 @@ def _run_direct_agent(
         "answerType": answer_type,
         "profileContextUsed": bool(profile_evidence),
         "outputPreferenceHints": _output_preference_hints_from_request(request),
+        **model_metadata,
     }
     if leader_plan:
         metadata.update({
@@ -772,7 +1021,13 @@ def _run_direct_agent(
     ))
 
 
-def _raise_agent_execution_error(exc: Exception, agent_name: str, leader_plan=None) -> None:
+def _raise_agent_execution_error(
+    exc: Exception,
+    agent_name: str,
+    leader_plan=None,
+    runtime_config=None,
+    config_prefix: str = "",
+) -> None:
     raw_message = _exception_message(exc)
     friendly_message = _friendly_agent_failure_message(raw_message, agent_name)
     raise AgentExecutionError(
@@ -782,6 +1037,10 @@ def _raise_agent_execution_error(exc: Exception, agent_name: str, leader_plan=No
         route_reason=getattr(leader_plan, "route_reason", "") or "",
         status_code=getattr(exc, "status_code", 500) or 500,
         raw_message=raw_message,
+        model_provider=getattr(runtime_config, "provider", "") or "",
+        model=getattr(runtime_config, "model", "") or "",
+        base_url=getattr(runtime_config, "base_url", "") or "",
+        model_config_prefix=config_prefix,
     ) from exc
 
 
@@ -830,6 +1089,11 @@ def _build_stream_error_payload(
         raw_message = exc.raw_message
         status_code = exc.status_code
         stage = exc.stage
+        is_specialist_failure = bool(agent_name and agent_name != "leader_agent")
+        model_provider = exc.model_provider or ("" if is_specialist_failure else getattr(llm_config, "provider", "") or "")
+        model = exc.model or ("" if is_specialist_failure else getattr(llm_config, "model", "") or "")
+        base_url = exc.base_url or ("" if is_specialist_failure else getattr(llm_config, "base_url", "") or "")
+        model_config_prefix = exc.model_config_prefix or ""
     else:
         agent_name = normalize_agent_name(request.agentName) or "leader_agent"
         intent = ""
@@ -838,6 +1102,10 @@ def _build_stream_error_payload(
         raw_message = message
         status_code = getattr(exc, "status_code", 500) or 500
         stage = "error"
+        model_provider = getattr(llm_config, "provider", "") or ""
+        model = getattr(llm_config, "model", "") or ""
+        base_url = getattr(llm_config, "base_url", "") or ""
+        model_config_prefix = ""
     retrieval_meta = {
         "agentName": "leader_agent" if request.agentName in {"", None, "leader_agent"} else agent_name,
         "targetAgent": agent_name,
@@ -850,9 +1118,10 @@ def _build_stream_error_payload(
         "failureStage": stage,
         "failureReason": message,
         "rawFailureReason": raw_message,
-        "modelProvider": getattr(llm_config, "provider", "") or "",
-        "model": getattr(llm_config, "model", "") or "",
-        "baseUrl": getattr(llm_config, "base_url", "") or "",
+        "modelProvider": model_provider,
+        "model": model,
+        "baseUrl": base_url,
+        "modelConfigPrefix": model_config_prefix,
     }
     trace = []
     if route_reason or intent:
@@ -872,6 +1141,9 @@ def _build_stream_error_payload(
             "message": message,
             "rawMessage": raw_message,
             "statusCode": status_code,
+            "modelProvider": model_provider,
+            "model": model,
+            "modelConfigPrefix": model_config_prefix,
         },
     })
     return {
@@ -884,6 +1156,9 @@ def _build_stream_error_payload(
         "intent": intent,
         "stage": stage,
         "routeReason": route_reason,
+        "modelProvider": model_provider,
+        "model": model,
+        "modelConfigPrefix": model_config_prefix,
         "retrievalMeta": retrieval_meta,
         "trace": trace,
     }

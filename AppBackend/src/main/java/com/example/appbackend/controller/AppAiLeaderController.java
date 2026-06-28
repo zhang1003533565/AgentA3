@@ -42,6 +42,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 @RestController
@@ -99,12 +100,36 @@ public class AppAiLeaderController {
         refreshSession(session, request.getInput());
 
         Map<String, Object> payload = buildLeaderPayload(request, session.getSessionId(), userId, authorization);
+        AtomicReference<AiLeaderMessage> visibleGenerationMessage = new AtomicReference<>();
         return pythonAiProxyService.streamRag(payload, authorization, (eventName, eventPayload) -> {
+            if ("generation_start".equals(eventName)) {
+                LlmChatResponse response = toChatResponse(session, eventPayload);
+                AiLeaderMessage saved = saveAssistantMessage(session, response);
+                visibleGenerationMessage.set(saved);
+                refreshSession(session, response.getAnswer());
+                return;
+            }
+            if ("error".equals(eventName) && visibleGenerationMessage.get() != null) {
+                Map<String, Object> errorResult = new HashMap<>(mapValue(eventPayload));
+                String message = firstNonBlank(stringValue(errorResult.get("message")), "图片生成失败，请稍后再试。");
+                errorResult.put("answer", "图片生成失败：" + message);
+                errorResult.put("answerType", "text");
+                errorResult.put("outputType", "text");
+                errorResult.put("outputTypes", List.of("text"));
+                updateAssistantMessage(visibleGenerationMessage.get(), toChatResponse(session, errorResult));
+                refreshSession(session, message);
+                return;
+            }
             if (!"done".equals(eventName)) {
                 return;
             }
             LlmChatResponse response = toChatResponse(session, eventPayload);
-            saveAssistantMessage(session, response);
+            AiLeaderMessage existing = visibleGenerationMessage.get();
+            if (existing == null) {
+                saveAssistantMessage(session, response);
+            } else {
+                updateAssistantMessage(existing, response);
+            }
             refreshSession(session, response.getAnswer());
             captureLeaderProfileEvidence(userId, session, request, response);
         });
@@ -395,10 +420,20 @@ public class AppAiLeaderController {
         messageRepository.save(message);
     }
 
-    private void saveAssistantMessage(AiLeaderSession session, LlmChatResponse response) {
+    private AiLeaderMessage saveAssistantMessage(AiLeaderSession session, LlmChatResponse response) {
         AiLeaderMessage message = new AiLeaderMessage();
         message.setLeaderSessionId(session.getId());
         message.setRole(AiLeaderMessage.ROLE_ASSISTANT);
+        fillAssistantMessage(message, response);
+        return messageRepository.save(message);
+    }
+
+    private AiLeaderMessage updateAssistantMessage(AiLeaderMessage message, LlmChatResponse response) {
+        fillAssistantMessage(message, response);
+        return messageRepository.save(message);
+    }
+
+    private void fillAssistantMessage(AiLeaderMessage message, LlmChatResponse response) {
         message.setContent(response == null || response.getAnswer() == null ? "" : response.getAnswer());
         message.setAnswerType(response == null ? "text" : response.getAnswerType());
         message.setOutputType(response == null ? "text" : response.getOutputType());
@@ -409,7 +444,6 @@ public class AppAiLeaderController {
         message.setRetrievalMetaJson(writeJson(response == null ? Map.of() : response.getRetrievalMeta()));
         message.setTraceJson(writeJson(response == null ? List.of() : response.getTrace()));
         message.setAttachmentsJson(writeJson(response == null ? List.of() : response.getAttachments()));
-        messageRepository.save(message);
     }
 
     private void refreshSession(AiLeaderSession session, String lastMessage) {

@@ -166,7 +166,11 @@ def _diagram_profile(agent_name: str, role: str, intent: str, purpose: str, exam
         "supportedRagStrategies": [],
         "aliases": [intent, role, role.replace("智能体", ""), agent_name, *alias_map[agent_name]],
         "exampleInput": example_input,
-        "requiredModelModalities": IMAGE_MODEL_MODALITY if agent_name in {"diagram_flowchart_agent", "diagram_activity_agent"} else TEXT_MODEL_MODALITY,
+        "requiredModelModalities": IMAGE_MODEL_MODALITY if agent_name in {
+            "diagram_flowchart_agent",
+            "diagram_activity_agent",
+            "diagram_architecture_agent",
+        } else TEXT_MODEL_MODALITY,
     }
 
 

@@ -1,10 +1,11 @@
 import json
 from typing import Any, Dict, List
 
+from fastapi import HTTPException
+
 from app.image_generation import get_qwen_image_provider
 from app.models.image_generation import ImageGenerationRequest
 from app.model_providers.runtime_config import get_active_llm_config
-from app.multi_agents.runtime import complete_agent_or_raise
 
 
 class FlowchartDiagramAgent:
@@ -20,20 +21,9 @@ class FlowchartDiagramAgent:
 
     def _prepare_prompt(self, topic: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
         normalized = (topic or "").strip()
-        # 如果输入已经是提示词智能体生成的详细描述，直接使用
-        if len(normalized) > 200:
+        if normalized:
             return normalized
-        # 否则用 LLM 增强为图片提示词
-        instruction = (
-            "请将以下流程描述转换为文生图提示词，用于生成一张专业的流程图图片。"
-            "要求输出中文提示词，包含：布局方向、节点样式、颜色方案、箭头连接、整体风格。"
-            "不需要输出 Mermaid 代码，只输出图片提示词正文。"
-            f"流程描述：{normalized}"
-        )
-        try:
-            return complete_agent_or_raise(self.name, instruction, evidence, model_provider=chat_service)
-        except Exception:
-            return f"生成一张简洁专业的流程图，展示：{normalized}。自上而下布局，蓝白配色，节点清晰，箭头明确。"
+        raise HTTPException(status_code=400, detail="图表流程图智能体缺少生成提示词，已禁止本地兜底生成。")
 
     def _call_image_api(self, prompt: str) -> str:
         active_config = get_active_llm_config()
@@ -43,6 +33,11 @@ class FlowchartDiagramAgent:
             "count": 1,
             "negativePrompt": "低清晰度、文字乱码、模糊线条、错误的文字、混乱的排版",
             "returnType": "url",
+            "chartType": "flowchart",
+            "metadata": {
+                "source": self.name,
+                "diagramType": "flowchart",
+            },
         }
         if active_config:
             payload.update({

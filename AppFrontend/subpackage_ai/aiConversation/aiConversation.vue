@@ -43,6 +43,10 @@
               >{{ getOutputTypeLabel(type) }}</text>
             </view>
             <text v-if="getDisplayText(message)" class="message-text">{{ getDisplayText(message) }}</text>
+            <view v-if="isMessageGenerating(message)" class="generation-status">
+              <view class="generation-spinner"></view>
+              <text class="generation-status__text">图片生成中</text>
+            </view>
             <view v-if="getMessageAttachments(message).length" class="attachment-list">
               <view
                 v-for="(file, fileIndex) in getMessageAttachments(message)"
@@ -231,6 +235,7 @@ export default {
       messages: [],
       inputValue: '',
       sending: false,
+      blockingRequestCount: 0,
       scrollAnchor: 'message-anchor'
     }
   },
@@ -274,7 +279,7 @@ export default {
       const text = this.inputValue.trim()
       if (!text || !this.canSend) return
       this.inputValue = ''
-      this.sending = true
+      const releaseComposer = this.createComposerRelease()
       this.appendMessage({ role: 'user', content: text })
       const thinkingMessage = this.appendMessage({
         role: 'assistant',
@@ -293,6 +298,12 @@ export default {
         }, {
           onEvent: (eventName, payload) => {
             streamTouched = true
+            if (eventName === 'generation_start') {
+              streamStarted = true
+              this.applyGenerationStart(thinkingMessage.localId, payload)
+              releaseComposer()
+              return
+            }
             this.updateCallDetail(thinkingMessage.localId, this.buildLiveCallDetailPatch(eventName, payload))
           },
           onSession: (payload) => {
@@ -335,6 +346,7 @@ export default {
           },
           onDone: (payload) => {
             streamTouched = true
+            if (!this.messages.some((item) => item.localId === thinkingMessage.localId)) return
             this.syncSessionId(payload?.sessionId)
             const finalAnswer = payload?.answer || ''
             const current = this.messages.find((item) => item.localId === thinkingMessage.localId)
@@ -363,6 +375,7 @@ export default {
           }
         })
       } catch (error) {
+        if (!this.messages.some((item) => item.localId === thinkingMessage.localId)) return
         const current = this.messages.find((item) => item.localId === thinkingMessage.localId)
         const errorCallDetail = this.buildErrorCallDetail(error, current?.callDetail)
         const errorContent = this.buildFailureContent(errorCallDetail, streamStarted || streamTouched ? '这次流式回复中断了' : '这次没有顺利完成请求')
@@ -384,8 +397,46 @@ export default {
           })
         }
       } finally {
-        this.sending = false
+        releaseComposer()
       }
+    },
+    createComposerRelease() {
+      this.blockingRequestCount += 1
+      this.sending = true
+      let released = false
+      return () => {
+        if (released) return
+        released = true
+        this.blockingRequestCount = Math.max(0, this.blockingRequestCount - 1)
+        this.sending = this.blockingRequestCount > 0
+      }
+    },
+    applyGenerationStart(localId, payload = {}) {
+      const current = this.messages.find((item) => item.localId === localId)
+      if (!current) return
+      this.syncSessionId(payload?.sessionId)
+      const callDetail = this.buildFinalCallDetail(payload, current?.callDetail, 'running')
+      callDetail.currentStep = 'agent_answer'
+      callDetail.status = 'running'
+      this.replaceMessage(localId, {
+        role: 'assistant',
+        content: payload?.answer || '已开始生成图片，你可以继续提问，生成完成后会更新到这里。',
+        answerType: payload?.answerType || 'image_generation',
+        outputType: payload?.outputType || 'image',
+        outputTypes: payload?.outputTypes || ['image'],
+        outputMeta: {
+          ...((payload && payload.outputMeta) || {}),
+          generationStatus: 'running'
+        },
+        attachments: payload?.attachments || [],
+        agentName: payload?.agentName || callDetail.agentName || 'image_agent',
+        searchKeyword: payload?.searchKeyword || '',
+        retrievalMeta: payload?.retrievalMeta || payload?.metadata || callDetail.retrievalMeta || {},
+        matchedResults: payload?.matchedResults || [],
+        trace: payload?.trace || callDetail.trace || [],
+        callDetail,
+        callDetailExpanded: current?.callDetailExpanded || false
+      })
     },
     async sendMessageFallback(text, localId, streamError) {
       try {
@@ -395,6 +446,7 @@ export default {
           input: text
         })
         const payload = res?.data || {}
+        if (!this.messages.some((item) => item.localId === localId)) return
         this.syncSessionId(payload.sessionId)
         this.replaceMessage(localId, {
           role: 'assistant',
@@ -413,6 +465,7 @@ export default {
           callDetailExpanded: false
         })
       } catch (error) {
+        if (!this.messages.some((item) => item.localId === localId)) return
         const errorCallDetail = this.buildErrorCallDetail(error, null)
         this.replaceMessage(localId, {
           role: 'assistant',
@@ -697,7 +750,8 @@ export default {
         || this.getTraceValue(trace, 'agentName')
         || this.getTraceValue(trace, 'targetAgent')
         || 'leader_agent'
-      const status = raw.status || (message?.type === 'thinking' ? 'running' : (raw.error ? 'failed' : 'completed'))
+      const generationStatus = message?.outputMeta?.generationStatus || retrievalMeta.generationStatus || raw.generationStatus || ''
+      const status = raw.status || (generationStatus === 'running' ? 'running' : (message?.type === 'thinking' ? 'running' : (raw.error ? 'failed' : 'completed')))
       const currentStep = raw.currentStep || this.getLastTraceStage(trace) || (status === 'running' ? 'status' : 'done')
       return {
         ...raw,
@@ -870,6 +924,15 @@ export default {
           this.scrollAnchor = 'message-anchor'
         })
       })
+    },
+    isMessageGenerating(message) {
+      if (!message || message.role !== 'assistant' || message.type === 'thinking') return false
+      const meta = message.outputMeta || {}
+      if (meta.generationStatus === 'running') return true
+      const detail = this.normalizeCallDetail(message)
+      if (detail.status !== 'running') return false
+      const outputType = this.normalizeOutputType(message.outputType || message.answerType || detail.outputType)
+      return outputType === 'image'
     },
     getDisplayText(message) {
       const content = String(message?.content || '')
@@ -1221,6 +1284,34 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 16rpx;
+}
+
+.generation-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 12rpx;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 10rpx 14rpx;
+  border-radius: 10rpx;
+  background: #F3F7FF;
+  color: #2F6FE4;
+}
+
+.generation-spinner {
+  width: 18rpx;
+  height: 18rpx;
+  border-radius: 50%;
+  border: 3rpx solid rgba(47, 111, 228, 0.18);
+  border-top-color: #2F6FE4;
+  animation: generation-spin 0.9s linear infinite;
+  flex-shrink: 0;
+}
+
+.generation-status__text {
+  font-size: 24rpx;
+  line-height: 1.4;
+  font-weight: 600;
 }
 
 .output-type-list {
@@ -1670,6 +1761,12 @@ export default {
   40% {
     opacity: 1;
     transform: translateY(-6rpx);
+  }
+}
+
+@keyframes generation-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 

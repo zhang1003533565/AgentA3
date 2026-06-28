@@ -599,8 +599,36 @@ public class PythonAiProxyService {
             sourceMetadata.forEach((key, value) -> metadata.put(String.valueOf(key), value));
         }
         metadata.put("agentToggles", loadAgentToggles());
+        metadata.put("agentModelConfigs", loadAgentModelConfigs());
         copy.put("metadata", metadata);
         return copy;
+    }
+
+    private Map<String, Object> loadAgentModelConfigs() {
+        Map<String, Object> configs = new HashMap<>();
+        systemConfigRepository.findByConfigKeyStartingWithAndStatus(AGENT_MODEL_BINDING_PREFIX, 1)
+                .forEach(binding -> {
+                    String key = binding.getConfigKey();
+                    if (!StringUtils.hasText(key) || !key.endsWith(".model") || key.length() <= AGENT_MODEL_BINDING_PREFIX.length()) {
+                        return;
+                    }
+                    String agentName = key.substring(
+                            AGENT_MODEL_BINDING_PREFIX.length(),
+                            key.length() - ".model".length()
+                    ).trim();
+                    String configPrefix = String.valueOf(binding.getConfigValue() == null ? "" : binding.getConfigValue()).trim();
+                    if (!StringUtils.hasText(agentName) || !StringUtils.hasText(configPrefix)) {
+                        return;
+                    }
+                    Map<String, Object> config = new HashMap<>();
+                    config.put("configPrefix", configPrefix);
+                    config.put("provider", systemConfigService.getValue(configPrefix + ".provider", ""));
+                    config.put("baseUrl", systemConfigService.getValue(configPrefix + ".base-url", ""));
+                    config.put("apiKey", systemConfigService.getValue(configPrefix + ".api-key", ""));
+                    config.put("model", systemConfigService.getValue(configPrefix + ".model", ""));
+                    configs.put(agentName, config);
+                });
+        return configs;
     }
 
     private Object withAgentEnabledState(Object source) {

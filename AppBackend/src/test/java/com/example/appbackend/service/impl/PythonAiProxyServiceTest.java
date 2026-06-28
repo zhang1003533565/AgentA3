@@ -2,7 +2,9 @@ package com.example.appbackend.service.impl;
 
 import com.example.appbackend.dto.LlmChatRequest;
 import com.example.appbackend.dto.LlmChatResponse;
+import com.example.appbackend.entity.SystemConfig;
 import com.example.appbackend.exception.BusinessException;
+import com.example.appbackend.repository.SystemConfigRepository;
 import com.example.appbackend.service.SystemConfigService;
 import com.example.appbackend.util.JwtUtil;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -19,8 +21,10 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Proxy;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -265,10 +269,87 @@ class PythonAiProxyServiceTest {
                 objectMapper,
                 jwtUtil,
                 systemConfigService,
+                newSystemConfigRepository(systemConfigService),
                 "http://localhost:" + port,
                 5,
                 1024 * 1024
         );
+    }
+
+    private SystemConfigRepository newSystemConfigRepository(SystemConfigService systemConfigService) {
+        return (SystemConfigRepository) Proxy.newProxyInstance(
+                SystemConfigRepository.class.getClassLoader(),
+                new Class<?>[]{SystemConfigRepository.class},
+                (proxy, method, args) -> {
+                    String methodName = method.getName();
+                    if ("toString".equals(methodName)) {
+                        return "TestSystemConfigRepository";
+                    }
+                    if ("hashCode".equals(methodName)) {
+                        return System.identityHashCode(proxy);
+                    }
+                    if ("equals".equals(methodName)) {
+                        return proxy == args[0];
+                    }
+                    if ("findByConfigKeyStartingWithAndStatus".equals(methodName)) {
+                        String prefix = String.valueOf(args[0]);
+                        if ("ai.agent-enabled.".equals(prefix)) {
+                            return List.of();
+                        }
+                        if ("ai.agent-bindings.".equals(prefix)) {
+                            return List.of(
+                                    systemConfig("ai.agent-bindings.leader_agent.model", systemConfigService.getValue("ai.agent-bindings.leader_agent.model", "")),
+                                    systemConfig("ai.agent-bindings.ppt_outline_agent.model", systemConfigService.getValue("ai.agent-bindings.ppt_outline_agent.model", "")),
+                                    systemConfig("ai.agent-bindings.diagram_flowchart_agent.model", systemConfigService.getValue("ai.agent-bindings.diagram_flowchart_agent.model", ""))
+                            );
+                        }
+                        return List.of();
+                    }
+                    if ("findByConfigKeyStartingWith".equals(methodName)) {
+                        return List.of();
+                    }
+                    return defaultValue(method.getReturnType());
+                }
+        );
+    }
+
+    private static SystemConfig systemConfig(String key, String value) {
+        SystemConfig config = new SystemConfig();
+        config.setConfigKey(key);
+        config.setConfigValue(value);
+        config.setStatus(1);
+        return config;
+    }
+
+    private static Object defaultValue(Class<?> returnType) {
+        if (!returnType.isPrimitive()) {
+            return null;
+        }
+        if (boolean.class.equals(returnType)) {
+            return false;
+        }
+        if (char.class.equals(returnType)) {
+            return '\0';
+        }
+        if (byte.class.equals(returnType)) {
+            return (byte) 0;
+        }
+        if (short.class.equals(returnType)) {
+            return (short) 0;
+        }
+        if (int.class.equals(returnType)) {
+            return 0;
+        }
+        if (long.class.equals(returnType)) {
+            return 0L;
+        }
+        if (float.class.equals(returnType)) {
+            return 0F;
+        }
+        if (double.class.equals(returnType)) {
+            return 0D;
+        }
+        return null;
     }
 
     private String buildJwtToken(Long userId) {

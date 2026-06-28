@@ -1,6 +1,8 @@
 import json
 from typing import Any, Dict, List, Optional
 
+from fastapi import HTTPException
+
 from app.image_generation import get_qwen_image_provider
 from app.models.image_generation import ImageGenerationRequest
 from app.model_providers.runtime_config import get_active_llm_config
@@ -58,14 +60,16 @@ class DiagramArchitectureAgent:
 
     def _compose_prompt(self, topic: str, evidence: List[Dict[str, Any]]) -> str:
         normalized_topic = (topic or "").strip()
+        if not normalized_topic:
+            raise HTTPException(status_code=400, detail="图表架构图智能体缺少生成提示词，已禁止本地兜底生成。")
         evidence_summary = self._evidence_summary(evidence)
-        base_description = normalized_topic or "系统架构图"
+        evidence_text = f"证据摘要：{evidence_summary}。" if evidence_summary else ""
         return (
             "请生成一张专业、清晰、适合汇报和系统说明场景的架构图图片。"
             "画面需要体现模块分层、服务依赖、数据流方向和主调用链，使用规整的信息图布局，避免艺术化夸张表现。"
             "如果输入中已经包含节点清单、关系清单、分层分组、布局要求、禁止事项或最终出图提示词，要严格优先遵守。"
-            f"核心材料：{base_description}。"
-            f"证据摘要：{evidence_summary or '暂无额外证据，仅按输入材料生成'}。"
+            f"核心材料：{normalized_topic}。"
+            f"{evidence_text}"
             "要求节点命名简洁、区域边界明确、箭头方向直观，突出前端、后端、AI 服务、数据层、外部依赖等已知关系；"
             "禁止补充输入里没有明确出现的组件、数据库、调用链或数据流。"
         )
