@@ -650,6 +650,68 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertNotIn("如果需要", payload["answer"])
         self.assertEqual("java_canteen_api", calls[0][1])
 
+    def test_leader_contextualizes_followup_course_count(self):
+        rag_routes = importlib.import_module("app.api.routes.rag")
+        old_search_service_tool = rag_routes.data_store.search_service_tool
+        calls = []
+        try:
+            def fake_search_service_tool(authorization, tool_name, query):
+                calls.append((authorization, tool_name, query))
+                if "上几次" in query or "几次课" in query:
+                    return [{
+                        "type": "course_schedule_summary",
+                        "name": "Python程序设计",
+                        "semesterLabel": "2025-2026 第 2 学期",
+                        "teacherName": "范晶晶",
+                        "scheduleCount": 2,
+                        "scheduleItems": [
+                            "周三 1-2节 第3周、第8-10周双周、第11-12周 明德楼阶梯110",
+                            "周五 1-2节 第7周、第8-10周双周、第11-13周 图书馆一楼公共机房4",
+                        ],
+                    }]
+                return [{
+                    "type": "course_schedule_summary",
+                    "name": "Python程序设计",
+                    "semesterLabel": "2025-2026 第 2 学期",
+                    "teacherName": "范晶晶",
+                    "scheduleItems": [
+                        "周三 1-2节 第3周、第8-10周双周、第11-12周 明德楼阶梯110",
+                    ],
+                }]
+
+            rag_routes.data_store.search_service_tool = fake_search_service_tool
+            first = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={
+                    "input": "python是什么时候学的了",
+                    "agentName": "leader_agent",
+                    "metadata": {"sessionId": "ctx-course-followup"},
+                },
+            )
+            second = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={
+                    "input": "上几次呢",
+                    "agentName": "leader_agent",
+                    "metadata": {"sessionId": "ctx-course-followup"},
+                },
+            )
+        finally:
+            rag_routes.data_store.search_service_tool = old_search_service_tool
+
+        self.assertEqual(200, first.status_code)
+        self.assertEqual(200, second.status_code)
+        payload = second.json()
+        self.assertEqual("java_schedule_api", payload["metadata"]["toolName"])
+        self.assertEqual("course_count", payload["metadata"]["intent"])
+        self.assertTrue(payload["metadata"]["conversationContextUsed"])
+        self.assertIn("Python程序设计", payload["metadata"]["contextualizedInput"])
+        self.assertIn("Python程序设计", calls[-1][2])
+        self.assertIn("Python程序设计", payload["answer"])
+        self.assertNotIn("哪门课", payload["answer"])
+
     def test_removed_md_agent_is_rejected(self):
         response = self.client.post(
             "/internal/rag/query",
@@ -810,9 +872,9 @@ class FakeRagModelProvider:
                 "route_reason": "LLM 根据启用工具清单选择食堂餐饮查询工具。",
                 "answer": "正在为你查询食堂餐饮信息。",
             }
-        if "课表" in text or "有什么课" in text or "老师是谁" in text or "谁教" in text or "几节课" in text or "多少次课" in text or "什么时候" in text:
+        if "课表" in text or "有什么课" in text or "老师是谁" in text or "谁教" in text or "几节课" in text or "几次课" in text or "上几次" in text or "多少次课" in text or "什么时候" in text:
             teacher_query = "老师是谁" in text or "谁教" in text
-            count_query = "几节课" in text or "多少次课" in text
+            count_query = "几节课" in text or "几次课" in text or "上几次" in text or "多少次课" in text
             time_query = "什么时候" in text
             return {
                 "intent": "course_teacher" if teacher_query else ("course_count" if count_query else ("course_time" if time_query else "schedule")),

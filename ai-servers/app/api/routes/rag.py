@@ -25,6 +25,7 @@ from app.rag.structured.text_to_sql import TextToSqlService
 from app.services.data_store import data_store
 from app.utils.logger import get_logger
 from app.utils.sse import build_sse, chunk_answer
+from app.utils.text_utils import build_session_token, normalize_text
 
 router = APIRouter(prefix="/internal/rag", tags=["internal-rag"])
 logger = get_logger("api.rag")
@@ -518,7 +519,9 @@ def run_rag_query(
         model=x_ai_model,
     ))
     try:
-        return _run_rag_query_core(request, authorization or "")
+        response = _run_rag_query_core(request, authorization or "")
+        _save_conversation_context(request, authorization or "", response)
+        return response
     finally:
         reset_active_llm_config(token)
 
@@ -554,12 +557,14 @@ async def run_rag_query_stream(
             if active_agent == "leader_agent":
                 profile_context = _profile_context_from_request(request)
                 callable_catalog = _build_leader_callable_catalog(request)
+                conversation_context = _apply_conversation_context(request, authorization or "")
                 plan = await asyncio.to_thread(
                     leader_agent.plan,
                     request.input,
                     request.ragStrategy or "",
                     profile_context=profile_context,
                     callable_catalog=callable_catalog,
+                    conversation_context=conversation_context,
                 )
                 if getattr(plan, "action", "") == "call_tool" and getattr(plan, "answer", ""):
                     yield build_sse("tool_start", {
@@ -596,6 +601,7 @@ async def run_rag_query_stream(
                 for chunk in chunk_answer(response.answer):
                     yield build_sse("delta", {"content": chunk})
                     await asyncio.sleep(0.035)
+            _save_conversation_context(request, authorization or "", response)
             yield build_sse("done", {
                 "sessionId": session_id,
                 "answer": response.answer,
@@ -642,17 +648,158 @@ def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQuer
 def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
     profile_context = _profile_context_from_request(request)
     callable_catalog = _build_leader_callable_catalog(request)
+    conversation_context = _apply_conversation_context(request, authorization)
     plan = leader_agent.plan(
         request.input,
         request.ragStrategy or "",
         profile_context=profile_context,
         callable_catalog=callable_catalog,
+        conversation_context=conversation_context,
     )
     return _execute_leader_plan(request, authorization, profile_context, plan)
 
 
 def _prepare_request_input(request: RagQueryRequest) -> str:
     return append_image_references_to_text(request.input, collect_request_image_references(request))
+
+
+def _apply_conversation_context(request: RagQueryRequest, authorization: str) -> Dict[str, Any]:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    request.metadata = metadata
+    session_token = _session_token_from_request(request, authorization)
+    context = leader_agent.load_context(session_token) if session_token else {}
+    bounded_context = _bounded_conversation_context(context)
+    original_input = str(metadata.get("contextOriginalInput") or request.input or "")
+    metadata["contextOriginalInput"] = original_input
+    metadata["conversationContext"] = bounded_context
+    expanded_input = _contextualize_followup_input(original_input, bounded_context)
+    if expanded_input and expanded_input != request.input:
+        metadata["conversationContextUsed"] = True
+        metadata["contextualizedInput"] = expanded_input
+        metadata["contextExpansion"] = {
+            "originalInput": original_input,
+            "contextualizedInput": expanded_input,
+            "lastSubjects": bounded_context.get("lastSubjects") or [],
+            "summaryAvailable": bool(bounded_context.get("summary")),
+        }
+        request.input = expanded_input
+    else:
+        metadata["conversationContextUsed"] = bool((bounded_context.get("turns") or []) or bounded_context.get("summary"))
+    return bounded_context
+
+
+def _bounded_conversation_context(context: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(context, dict):
+        return {}
+    turns = context.get("turns") if isinstance(context.get("turns"), list) else []
+    bounded_turns = []
+    for turn in turns[-6:]:
+        if not isinstance(turn, dict):
+            continue
+        bounded_turns.append({
+            "user": str(turn.get("user") or "")[:600],
+            "assistant": str(turn.get("assistant") or "")[:900],
+            "metadata": turn.get("metadata") if isinstance(turn.get("metadata"), dict) else {},
+            "subjects": turn.get("subjects") if isinstance(turn.get("subjects"), list) else [],
+        })
+    return {
+        "summary": str(context.get("summary") or "")[:1800],
+        "turns": bounded_turns,
+        "lastSubjects": [
+            str(item).strip()
+            for item in (context.get("lastSubjects") or [])
+            if str(item or "").strip()
+        ][:6],
+        "compressedTurnCount": int(context.get("compressedTurnCount") or 0),
+    }
+
+
+def _contextualize_followup_input(input_text: str, context: Dict[str, Any]) -> str:
+    text = str(input_text or "").strip()
+    compact = normalize_text(text)
+    if not text or not _is_contextual_followup(compact):
+        return text
+    subject = _latest_context_subject(context)
+    if not subject or normalize_text(subject) in compact:
+        return text
+    if any(token in compact for token in ("上几次", "几次课", "多少次", "几节课", "多少节", "课时")):
+        return f"{subject}本学期上几次课？"
+    if any(token in compact for token in ("老师", "教师", "谁教", "谁上")):
+        return f"{subject}的老师是谁？"
+    if any(token in compact for token in ("什么时候", "哪天", "周几", "几点", "时间")):
+        return f"{subject}什么时候上课？"
+    if any(token in compact for token in ("在哪", "哪里", "哪儿", "教室", "地点")):
+        return f"{subject}在哪里上课？"
+    return f"{subject} {text}"
+
+
+def _is_contextual_followup(compact_text: str) -> bool:
+    if not compact_text:
+        return False
+    followup_tokens = (
+        "上几次", "几次课", "多少次", "几节课", "多少节", "课时",
+        "老师呢", "教师呢", "谁教", "谁上",
+        "什么时候", "哪天", "周几", "几点", "时间呢",
+        "在哪", "哪里", "哪儿", "教室呢", "地点呢",
+        "这个呢", "它呢", "那上", "上次呢",
+    )
+    return len(compact_text) <= 18 and any(token in compact_text for token in followup_tokens)
+
+
+def _latest_context_subject(context: Dict[str, Any]) -> str:
+    for subject in context.get("lastSubjects") or []:
+        text = str(subject or "").strip()
+        if text:
+            return text
+    for turn in reversed(context.get("turns") or []):
+        if not isinstance(turn, dict):
+            continue
+        for subject in turn.get("subjects") or []:
+            text = str(subject or "").strip()
+            if text:
+                return text
+    return ""
+
+
+def _session_token_from_request(request: RagQueryRequest, authorization: str) -> str:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    session_id = str(metadata.get("sessionId") or "").strip()
+    if not session_id or not authorization:
+        return ""
+    try:
+        return build_session_token(session_id, authorization)
+    except Exception:
+        return ""
+
+
+def _context_metadata_from_request(request: RagQueryRequest) -> Dict[str, Any]:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    result: Dict[str, Any] = {
+        "conversationContextUsed": bool(metadata.get("conversationContextUsed")),
+    }
+    if metadata.get("contextualizedInput"):
+        result["contextualizedInput"] = metadata.get("contextualizedInput")
+        result["contextOriginalInput"] = metadata.get("contextOriginalInput") or ""
+    if isinstance(metadata.get("contextExpansion"), dict):
+        result["contextExpansion"] = metadata["contextExpansion"]
+    return result
+
+
+def _save_conversation_context(request: RagQueryRequest, authorization: str, response: RagQueryResponse) -> None:
+    session_token = _session_token_from_request(request, authorization)
+    if not session_token or response is None:
+        return
+    metadata = dict(response.metadata or {})
+    metadata.update({
+        "answerType": response.answerType,
+        "strategy": response.strategy,
+        "outputTypes": response.outputTypes,
+    })
+    original_input = str((request.metadata or {}).get("contextOriginalInput") or request.input or "")
+    try:
+        leader_agent.save_context(session_token, original_input, response.answer or "", metadata=metadata)
+    except Exception as exc:
+        logger.warning("leader conversation context save failed: %s", exc)
 
 
 def _execute_leader_plan(
@@ -1155,6 +1302,7 @@ def _run_agent_without_local_retrieval(
         "toolToggles": _tool_toggles_from_request(request),
         **model_metadata,
     }
+    metadata.update(_context_metadata_from_request(request))
     if leader_plan:
         metadata.update({
             "agentName": "leader_agent",
@@ -1245,6 +1393,7 @@ def _run_direct_agent(
         "toolToggles": _tool_toggles_from_request(request),
         **model_metadata,
     }
+    metadata.update(_context_metadata_from_request(request))
     if leader_plan:
         metadata.update({
             "leaderAction": leader_plan.action,
@@ -1444,6 +1593,7 @@ def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResp
         "answerType": "tool_result",
         "toolToggles": _tool_toggles_from_request(request),
     })
+    metadata.update(_context_metadata_from_request(request))
     trace = [
         RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
         RagTraceResponse(stage="generate_sql", detail={"readonly": bool(result.sql), "sql": result.sql, "error": result.error}),
@@ -1480,6 +1630,7 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
         "allowGeneratedExportTool": True,
         "toolToggles": _tool_toggles_from_request(request),
     }
+    metadata.update(_context_metadata_from_request(request))
     parsed_input = _try_parse_json_object(request.input)
     export_answer_type = "question_bank" if isinstance(parsed_input.get("questions"), list) else "markdown"
     export_result = export_generated_answer(request.input, export_answer_type, metadata)
@@ -1556,6 +1707,7 @@ def _run_disabled_tool_response(request: RagQueryRequest, tool_name: str, leader
         "answerType": "text",
         "toolToggles": _tool_toggles_from_request(request),
     }
+    metadata.update(_context_metadata_from_request(request))
     return _decorate_output_response(RagQueryResponse(
         strategy="tool_disabled",
         answer=answer,
@@ -1624,6 +1776,7 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
         "toolToggles": _tool_toggles_from_request(request),
         **retrieval_meta,
     }
+    metadata.update(_context_metadata_from_request(request))
     if summary_error:
         metadata["toolResultSummaryError"] = summary_error
     return _decorate_output_response(RagQueryResponse(

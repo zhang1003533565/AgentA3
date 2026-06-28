@@ -71,6 +71,7 @@ class LeaderAgent:
         chat_service=None,
         profile_context: Optional[Dict[str, Any]] = None,
         callable_catalog: Optional[Dict[str, Any]] = None,
+        conversation_context: Optional[Dict[str, Any]] = None,
     ) -> LeaderPlan:
         forced_plan = self._plan_for_requested_agent(requested_agent, rag_strategy)
         if forced_plan:
@@ -87,7 +88,14 @@ class LeaderAgent:
                 answer=self._callable_catalog_answer(callable_catalog),
             )
 
-        return self._plan_with_llm(input_text, rag_strategy, chat_service, profile_context=profile_context, callable_catalog=callable_catalog)
+        return self._plan_with_llm(
+            input_text,
+            rag_strategy,
+            chat_service,
+            profile_context=profile_context,
+            callable_catalog=callable_catalog,
+            conversation_context=conversation_context,
+        )
 
     def _plan_with_rules(self, input_text: str, rag_strategy: str = "") -> LeaderPlan:
         normalized = (input_text or "").strip().lower()
@@ -192,6 +200,7 @@ class LeaderAgent:
         chat_service=None,
         profile_context: Optional[Dict[str, Any]] = None,
         callable_catalog: Optional[Dict[str, Any]] = None,
+        conversation_context: Optional[Dict[str, Any]] = None,
     ) -> LeaderPlan:
         provider = chat_service or get_chat_model_provider()
         text = provider.complete(
@@ -201,6 +210,7 @@ class LeaderAgent:
                 rag_strategy,
                 profile_context=profile_context,
                 callable_catalog=callable_catalog,
+                conversation_context=conversation_context,
             ),
         )
         plan = parse_json_object(text)
@@ -362,6 +372,18 @@ class LeaderAgent:
 
     def save_memory(self, session_token: str, user_input: str, assistant_answer: str) -> None:
         memory_store.append(session_token, user_input, assistant_answer)
+
+    def load_context(self, session_token: str) -> Dict[str, Any]:
+        return memory_store.get_context(session_token)
+
+    def save_context(
+        self,
+        session_token: str,
+        user_input: str,
+        assistant_answer: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        memory_store.append_context_turn(session_token, user_input, assistant_answer, metadata=metadata or {})
 
     def answer(
         self,
@@ -653,12 +675,14 @@ def build_leader_router_user_prompt(
     rag_strategy: str,
     profile_context: Optional[Dict[str, Any]] = None,
     callable_catalog: Optional[Dict[str, Any]] = None,
+    conversation_context: Optional[Dict[str, Any]] = None,
 ) -> str:
     return json.dumps({
         "user_input": input_text or "",
         "requested_rag_strategy": rag_strategy or "",
         "allowed_rag_strategy_when_needed": rag_strategy or "",
         "profile_snapshot": profile_context or {},
+        "conversation_context": conversation_context or {},
         "leader_callable_catalog": callable_catalog or {},
         "profile_usage_policy": [
             "必须参考 profile_snapshot，但用户当前问题优先级最高。",
@@ -674,6 +698,8 @@ def build_leader_router_user_prompt(
             "用户要求 Mermaid 源文件、图表源码或后续编辑图表时，图表智能体返回 Mermaid 后会自动生成 mmd/md/zip 附件。",
             "如果用户已经提供了要导出的 Markdown、普通文本或标准题库 JSON，且只要求转成文件，可以直接 call_tool: generated_export_tools。",
             "用户表达课表、活动、会议列表/状态、食堂餐饮、设施位置、旧物二手等查询意图时，你必须根据当前语义自行从 leader_callable_catalog.tools 中选择对应的 Java 后端服务工具，而不是依赖系统关键词规则或编造答案。",
+            "如果 user_input 是追问、省略主语或短句，例如“上几次呢”“老师呢”“在哪上”“什么时候呢”“这个呢”，必须结合 conversation_context 的最近主题、最近工具和摘要恢复真实意图；上下文已能确定时不要再反问用户。",
+            "conversation_context 只用于理解本会话追问，不得当作事实来源编造答案；涉及课表、会议、食堂等业务数据仍必须调用对应启用工具。",
             "用户问某门课的老师是谁、任课老师、授课教师、谁教某门课时，这是课程信息查询，必须优先选择 java_schedule_api，不要路由到教材知识点智能体。",
             "用户问某门课什么时候学、什么时候上课、周几几点上时，也是课程信息查询，必须优先选择 java_schedule_api。",
             "用户问某门课本学期有几节课、几次课、多少课时或上课次数时，也是课程信息查询，必须优先选择 java_schedule_api。",
