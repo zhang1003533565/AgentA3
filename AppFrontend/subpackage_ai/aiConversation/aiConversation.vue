@@ -182,6 +182,8 @@ const CALL_DETAIL_STAGE_LABELS = {
   direct_agent: '执行智能体',
   agent_answer: '执行智能体',
   agent_failed: '执行智能体',
+  generate_sql: '生成查询',
+  tool_call: '调用工具',
   done: '完成',
   error: '异常'
 }
@@ -209,6 +211,16 @@ const AGENT_LABELS = {
   ppt_image_agent: 'PPT 图片智能体',
   ppt_to_docx_agent: 'PPT 转 DOCX 智能体',
   meeting_summary_agent: '会议总结智能体'
+}
+const TOOL_LABELS = {
+  text_to_sql: '结构化查询工具',
+  java_schedule_api: '课表查询工具',
+  generated_export_tools: '内容整理工具',
+  markdown_export_tool: 'Markdown 导出工具',
+  docx_export_tool: 'Word 导出工具',
+  excel_export_tool: 'Excel 导出工具',
+  content_archive_tool: '附件打包工具',
+  diagram_source_export_tool: '图表源码导出工具'
 }
 const INTENT_LABELS = {
   smalltalk: '闲聊',
@@ -679,6 +691,10 @@ export default {
       if (detail.model) {
         items.push({ label: '模型', value: this.truncateText(detail.model, 34) })
       }
+      const toolName = this.getToolNameFromDetail(detail)
+      if (toolName) {
+        items.push({ label: '工具', value: this.getToolLabel(toolName, detail.retrievalMeta?.toolDisplayName || detail.toolDisplayName) })
+      }
       if (detail.status === 'failed') {
         items.push({ label: '阶段', value: this.getStageLabel(detail.currentStep || 'error') })
       }
@@ -700,6 +716,21 @@ export default {
       if (usedRetrieval) {
         tools.push('业务/知识库检索')
       }
+      const toolNames = []
+      const detailToolName = this.getToolNameFromDetail(detail)
+      if (detailToolName) toolNames.push(detailToolName)
+      trace.forEach((step) => {
+        const stepDetail = step?.detail || {}
+        const name = stepDetail.toolName || stepDetail.tool_name
+        if (name) toolNames.push({ name, displayName: stepDetail.toolDisplayName || stepDetail.tool_display_name })
+      })
+      toolNames.forEach((tool) => {
+        if (typeof tool === 'string') {
+          tools.push(this.getToolLabel(tool))
+        } else {
+          tools.push(this.getToolLabel(tool.name, tool.displayName))
+        }
+      })
       if (detail.agentName && detail.agentName !== 'leader_agent') {
         tools.push(this.getAgentLabel(detail.agentName))
       } else {
@@ -774,7 +805,11 @@ export default {
       if (stage === 'leader_plan' || stage === 'leader_route') {
         const intent = detail.intent || normalized.intent
         const agent = detail.targetAgent || detail.agentName || normalized.agentName
+        const toolName = detail.toolName || detail.tool_name
         const needRetrieval = detail.needRetrieval === true ? '需要检索' : '不需要检索'
+        if (toolName) {
+          return `意图：${intent ? this.getIntentLabel(intent) : '未识别'} · 工具：${this.getToolLabel(toolName, detail.toolDisplayName || detail.tool_display_name)} · ${needRetrieval}`
+        }
         return `意图：${intent ? this.getIntentLabel(intent) : '未识别'} · 路由：${this.getAgentLabel(agent)} · ${needRetrieval}`
       }
       if (stage === 'retrieve' || stage === 'search') {
@@ -801,6 +836,14 @@ export default {
         const agent = detail.agentName || normalized.agentName
         const rawMessage = detail.rawMessage ? ` · 原始错误：${this.truncateText(detail.rawMessage, 88)}` : ''
         return `${this.getAgentLabel(agent)} 执行失败：${detail.message || normalized.error || '未知错误'}${rawMessage}`
+      }
+      if (stage === 'generate_sql') {
+        const toolName = detail.toolName || detail.tool_name || normalized.retrievalMeta?.toolName || 'text_to_sql'
+        return `${this.getToolLabel(toolName, detail.toolDisplayName || detail.tool_display_name || normalized.retrievalMeta?.toolDisplayName)} 正在生成只读查询`
+      }
+      if (stage === 'tool_call') {
+        const toolName = detail.toolName || detail.tool_name || normalized.retrievalMeta?.toolName
+        return `${this.getToolLabel(toolName, detail.toolDisplayName || detail.tool_display_name || normalized.retrievalMeta?.toolDisplayName)} 已执行`
       }
       if (stage === 'session') {
         const agent = detail.agentName || normalized.agentName
@@ -840,6 +883,27 @@ export default {
       if (String(agentName).startsWith('textbook_question_')) return '题库生成智能体'
       if (String(agentName).startsWith('meeting_')) return '会议智能体'
       return agentName
+    },
+    getToolLabel(toolName, displayName = '') {
+      const name = String(toolName || '').trim()
+      const display = String(displayName || '').trim()
+      if (display) return display
+      if (!name) return '工具'
+      const label = TOOL_LABELS[name]
+      return label ? `${label}（${name}）` : name
+    },
+    getToolNameFromDetail(detail) {
+      const meta = detail?.retrievalMeta || {}
+      const direct = meta.toolName || meta.tool_name || detail?.toolName || detail?.tool_name
+      if (direct) return direct
+      const trace = Array.isArray(detail?.trace) ? detail.trace : []
+      for (const step of trace) {
+        const stepDetail = step?.detail || {}
+        const name = stepDetail.toolName || stepDetail.tool_name
+        if (name) return name
+      }
+      const executedAgent = meta.executedAgent || meta.targetAgent || detail?.agentName
+      return TOOL_LABELS[executedAgent] ? executedAgent : ''
     },
     getMatchedCount(detail) {
       if (Array.isArray(detail?.matchedResults) && detail.matchedResults.length) {

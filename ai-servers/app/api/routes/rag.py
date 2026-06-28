@@ -70,6 +70,8 @@ class AgentExecutionError(Exception):
 GENERATED_CONTENT_TOOLS = [
     {
         "name": "generated_export_tools",
+        "zhName": "内容整理工具",
+        "displayName": "内容整理工具（generated_export_tools）",
         "category": "content_export",
         "purpose": "内容整理工具总开关。关闭后 Leader 不会调用导出整理能力，自动附件整理也会停止。",
         "trigger": "用户要求文件版、文档版、表格版、源码版，或智能体生成结果适合沉淀为附件。",
@@ -78,6 +80,8 @@ GENERATED_CONTENT_TOOLS = [
     },
     {
         "name": "markdown_export_tool",
+        "zhName": "Markdown 导出工具",
+        "displayName": "Markdown 导出工具（markdown_export_tool）",
         "category": "content_export",
         "purpose": "把知识点、会议纪要、PPT 大纲、题库等生成结果保存为 Markdown 阅读文件。",
         "trigger": "专业智能体返回 markdown/question_bank/mermaid，或用户要求 md/Markdown 文件版。",
@@ -86,6 +90,8 @@ GENERATED_CONTENT_TOOLS = [
     },
     {
         "name": "docx_export_tool",
+        "zhName": "Word 导出工具",
+        "displayName": "Word 导出工具（docx_export_tool）",
         "category": "content_export",
         "purpose": "把长内容整理成 Word 文档，减少会话里大段文字堆叠。",
         "trigger": "用户要求 Word/DOCX/文档版/文件版，或内容适合沉淀为资料。",
@@ -94,6 +100,8 @@ GENERATED_CONTENT_TOOLS = [
     },
     {
         "name": "excel_export_tool",
+        "zhName": "Excel 导出工具",
+        "displayName": "Excel 导出工具（excel_export_tool）",
         "category": "content_export",
         "purpose": "把题库 JSON 或知识点清单整理成 Excel 表格，方便导入、筛选和二次加工。",
         "trigger": "题库 JSON、知识清单、用户要求 Excel/表格。",
@@ -102,6 +110,8 @@ GENERATED_CONTENT_TOOLS = [
     },
     {
         "name": "content_archive_tool",
+        "zhName": "附件打包工具",
+        "displayName": "附件打包工具（content_archive_tool）",
         "category": "content_export",
         "purpose": "把同一轮生成的 md/docx/xlsx/mmd 附件打包成一个 zip，方便一次下载。",
         "trigger": "任意内容导出工具生成两个及以上附件后自动触发。",
@@ -110,6 +120,8 @@ GENERATED_CONTENT_TOOLS = [
     },
     {
         "name": "diagram_source_export_tool",
+        "zhName": "图表源码导出工具",
+        "displayName": "图表源码导出工具（diagram_source_export_tool）",
         "category": "diagram_export",
         "purpose": "保存 Mermaid/图表源码，方便后续继续编辑、复用或交给图片工具生成图解版。",
         "trigger": "answerType 为 mermaid_* 或回答中包含 Mermaid 代码块。",
@@ -121,6 +133,8 @@ GENERATED_CONTENT_TOOLS = [
 LEADER_CALLABLE_TOOLS = [
     {
         "name": "text_to_sql",
+        "zhName": "结构化查询工具",
+        "displayName": "结构化查询工具（text_to_sql）",
         "category": "structured_query",
         "purpose": "把统计、列表、数量类问题转换为只读 SQL，并返回可展示查询结果。",
         "trigger": "用户询问优惠券、食堂、菜品、课程、课表等结构化数据的统计、数量、列表或排名。",
@@ -130,6 +144,8 @@ LEADER_CALLABLE_TOOLS = [
     },
     {
         "name": "java_schedule_api",
+        "zhName": "课表查询工具",
+        "displayName": "课表查询工具（java_schedule_api）",
         "category": "java_backend",
         "purpose": "调用 Java 后端课表接口查询用户课程安排。",
         "trigger": "用户询问今天/明天/本周有什么课、几点上课、课表安排。",
@@ -139,6 +155,8 @@ LEADER_CALLABLE_TOOLS = [
     },
     {
         "name": "generated_export_tools",
+        "zhName": "内容整理工具",
+        "displayName": "内容整理工具（generated_export_tools）",
         "category": "content_export",
         "purpose": "把已有 Markdown、普通文本或标准题库 JSON 直接整理成附件。",
         "trigger": "用户已经提供要导出的内容，并明确要求文件版、文档版、表格版或打包下载。",
@@ -766,6 +784,8 @@ def _leader_callable_tool_item(tool: Dict[str, Any], request: Optional[RagQueryR
     enabled = True if request is None else _is_tool_enabled(request, name)
     return {
         **tool,
+        "zhName": tool.get("zhName") or _tool_zh_name(name),
+        "displayName": tool.get("displayName") or _tool_display_name(name),
         "enabled": enabled,
     }
 
@@ -1336,6 +1356,7 @@ def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResp
         "leaderAction": leader_plan.action,
         "leaderActionLabel": _leader_action_label(leader_plan.action),
         "toolName": leader_plan.tool_name,
+        "toolDisplayName": _tool_display_name(leader_plan.tool_name),
         "routeReason": leader_plan.route_reason,
         "strategyLabel": _strategy_label("text_to_sql"),
         "executionMode": "leader_call_tool",
@@ -1346,7 +1367,7 @@ def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResp
     trace = [
         RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
         RagTraceResponse(stage="generate_sql", detail={"readonly": bool(result.sql), "sql": result.sql, "error": result.error}),
-        RagTraceResponse(stage="tool_call", detail={"toolName": "text_to_sql", "strategy": "text_to_sql"}),
+        RagTraceResponse(stage="tool_call", detail={"toolName": "text_to_sql", "toolDisplayName": _tool_display_name("text_to_sql"), "strategy": "text_to_sql"}),
     ]
     return _decorate_output_response(RagQueryResponse(
         strategy="text_to_sql",
@@ -1369,6 +1390,7 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
         "leaderAction": leader_plan.action,
         "leaderActionLabel": _leader_action_label(leader_plan.action),
         "toolName": leader_plan.tool_name,
+        "toolDisplayName": _tool_display_name(leader_plan.tool_name),
         "routeReason": leader_plan.route_reason,
         "strategyLabel": "内容导出工具",
         "executionMode": "leader_call_tool",
@@ -1385,7 +1407,7 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
         reason = export_result.diagnostics.get("reason") if isinstance(export_result.diagnostics, dict) else ""
         if reason == "tool_disabled":
             disabled_tool = export_result.diagnostics.get("disabledTool") or "generated_export_tools"
-            raise HTTPException(status_code=403, detail=f"工具 {disabled_tool} 已在后台关闭，Leader 本次不会调用。")
+            raise HTTPException(status_code=403, detail=f"工具 {_tool_display_name(disabled_tool)} 已在后台关闭，Leader 本次不会调用。")
         if reason == "no_enabled_export_format":
             raise HTTPException(status_code=403, detail="当前没有开启可生成的附件格式，Leader 本次不会调用内容整理工具。")
         raise HTTPException(status_code=400, detail="当前内容无法导出，请提供 Markdown 文本或标准题库 JSON")
@@ -1400,7 +1422,7 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
         documents=[],
         trace=[
             RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
-            RagTraceResponse(stage="tool_call", detail={"toolName": leader_plan.tool_name, **export_result.diagnostics}),
+            RagTraceResponse(stage="tool_call", detail={"toolName": leader_plan.tool_name, "toolDisplayName": _tool_display_name(leader_plan.tool_name), **export_result.diagnostics}),
         ],
         metadata=metadata,
         attachments=export_result.attachments,
@@ -1452,6 +1474,7 @@ def _run_schedule_tool(request: RagQueryRequest, authorization: str, leader_plan
         "leaderAction": leader_plan.action,
         "leaderActionLabel": _leader_action_label(leader_plan.action),
         "toolName": leader_plan.tool_name,
+        "toolDisplayName": _tool_display_name(leader_plan.tool_name),
         "routeReason": leader_plan.route_reason,
         "strategyLabel": "Java 课表接口",
         "executionMode": "leader_call_tool",
@@ -1467,7 +1490,7 @@ def _run_schedule_tool(request: RagQueryRequest, authorization: str, leader_plan
         documents=documents,
         trace=[
             RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
-            RagTraceResponse(stage="tool_call", detail={"toolName": leader_plan.tool_name, **retrieval_meta}),
+            RagTraceResponse(stage="tool_call", detail={"toolName": leader_plan.tool_name, "toolDisplayName": _tool_display_name(leader_plan.tool_name), **retrieval_meta}),
         ],
         metadata=metadata,
     ))
@@ -1794,6 +1817,7 @@ def _leader_plan_detail(plan) -> Dict[str, Any]:
     return {
         **plan.to_dict(),
         "leaderActionLabel": _leader_action_label(plan.action),
+        "toolDisplayName": _tool_display_name(plan.tool_name) if getattr(plan, "tool_name", "") else "",
         "strategyLabel": _strategy_label(plan.rag_strategy) if plan.rag_strategy else "直接处理",
     }
 
@@ -1818,6 +1842,28 @@ def _strategy_label(strategy_name: str) -> str:
     if strategy_name in custom_labels:
         return custom_labels[strategy_name]
     return strategy_name or "直接处理"
+
+
+def _tool_zh_name(tool_name: str) -> str:
+    labels = {
+        "text_to_sql": "结构化查询工具",
+        "java_schedule_api": "课表查询工具",
+        "generated_export_tools": "内容整理工具",
+        "markdown_export_tool": "Markdown 导出工具",
+        "docx_export_tool": "Word 导出工具",
+        "excel_export_tool": "Excel 导出工具",
+        "content_archive_tool": "附件打包工具",
+        "diagram_source_export_tool": "图表源码导出工具",
+    }
+    return labels.get(str(tool_name or "").strip(), str(tool_name or "").strip())
+
+
+def _tool_display_name(tool_name: str) -> str:
+    name = str(tool_name or "").strip()
+    if not name:
+        return ""
+    zh_name = _tool_zh_name(name)
+    return f"{zh_name}（{name}）" if zh_name and zh_name != name else name
 
 
 def _answer_type_for_agent(agent_name: str) -> str:

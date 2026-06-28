@@ -311,7 +311,7 @@ class LeaderAgent:
         lines.append("Leader 可直接调用的工具：")
         for item in tools:
             status = "可用" if item.get("enabled") is not False else "已关闭"
-            lines.append(f"- {item.get('name')}（{status}）：{item.get('purpose') or ''}")
+            lines.append(f"- {self._tool_display_name(item)}（{status}）：{item.get('purpose') or ''}")
 
         if content_tools:
             enabled_content_tools = [item for item in content_tools if item.get("enabled") is not False]
@@ -319,9 +319,9 @@ class LeaderAgent:
             lines.append("")
             lines.append("内容整理子工具：")
             if enabled_content_tools:
-                lines.append("- 可用：" + "、".join(item.get("name") or "" for item in enabled_content_tools))
+                lines.append("- 可用：" + "、".join(self._tool_display_name(item) for item in enabled_content_tools))
             if disabled_content_tools:
-                lines.append("- 已关闭：" + "、".join(item.get("name") or "" for item in disabled_content_tools))
+                lines.append("- 已关闭：" + "、".join(self._tool_display_name(item) for item in disabled_content_tools))
 
         lines.append("")
         lines.append("规则：我只能调用清单里开启的项；关闭的智能体或工具不会被兜底调用。")
@@ -339,6 +339,14 @@ class LeaderAgent:
             "other": "其他",
         }
         return labels.get(category or "", category or "其他")
+
+    def _tool_display_name(self, tool: Dict[str, Any]) -> str:
+        name = str(tool.get("name") or "").strip()
+        display_name = str(tool.get("displayName") or "").strip()
+        if display_name:
+            return display_name
+        zh_name = str(tool.get("zhName") or "").strip()
+        return f"{zh_name}（{name}）" if zh_name and name else (zh_name or name)
 
     def load_memory(self, session_token: str) -> List[Dict[str, str]]:
         return memory_store.get_history(session_token)

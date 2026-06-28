@@ -18,6 +18,12 @@ import {
 import './AgentSettings.css'
 
 const { Text, Title } = Typography
+const getToolDisplayName = (tool) => {
+  if (!tool) return ''
+  if (tool.displayName) return tool.displayName
+  if (tool.zhName && tool.name) return `${tool.zhName}（${tool.name}）`
+  return tool.name || ''
+}
 
 function AgentSettings() {
   const [loading, setLoading] = useState(false)
@@ -261,7 +267,7 @@ function AgentSettings() {
       width: 260,
       render: (value, record) => (
         <Space direction="vertical" size={4}>
-          <Tag color={record.name === 'generated_export_tools' ? 'purple' : 'cyan'}>{value}</Tag>
+          <Tag color={record.name === 'generated_export_tools' ? 'purple' : 'cyan'}>{getToolDisplayName(record)}</Tag>
           <Text type="secondary">{record.category}</Text>
         </Space>
       ),
@@ -357,7 +363,7 @@ function AgentSettings() {
             <Tag color={record.enabled === false ? 'red' : 'green'}>
               {record.enabled === false ? '关闭' : '可调用'}
             </Tag>
-            <Tag color="cyan">{value}</Tag>
+            <Tag color="cyan">{getToolDisplayName(record)}</Tag>
           </Space>
           <Text type="secondary">{record.category}</Text>
         </Space>
