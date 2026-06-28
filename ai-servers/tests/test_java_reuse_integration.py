@@ -102,6 +102,7 @@ class FakeJavaHandler(BaseHTTPRequestHandler):
                 {"id": 43, "academicYear": "2025-2026", "semesterTerm": 2, "courseName": "数据结构", "teacherName": "赵老师", "location": "C301", "weekday": 1, "classSessions": "1-2节", "weekRange": "1-16周", "assessmentType": "考试", "campus": "主校区", "classCode": "CS201", "credit": 3},
                 {"id": 44, "academicYear": "2025-2026", "semesterTerm": 2, "courseName": "数据结构", "teacherName": "赵老师", "location": "C301", "weekday": 3, "classSessions": "3-4节", "weekRange": "1-16周", "assessmentType": "考试", "campus": "主校区", "classCode": "CS201", "credit": 3},
                 {"id": 45, "academicYear": "2025-2026", "semesterTerm": 2, "courseName": "操作系统", "teacherName": "孙老师", "location": "D402", "weekday": 5, "classSessions": "5-6节", "weekRange": "1-16周", "assessmentType": "考查", "campus": "主校区", "classCode": "CS301", "credit": 3},
+                {"id": 49, "academicYear": "2025-2026", "semesterTerm": 2, "courseName": "Linux系统", "teacherName": "庄老师", "location": "D403", "weekday": 2, "classSessions": "5-6节", "weekRange": "1-16周", "assessmentType": "考查", "campus": "主校区", "classCode": "LINUX101", "credit": 2},
             ]
             if "true" in qs.get("allSemesters", []):
                 records.append(
@@ -218,7 +219,7 @@ class JavaReuseIntegrationTest(unittest.TestCase):
 
     def test_search_semester_schedule_via_java_api(self):
         results = data_store.search_schedule("Bearer t", "这个学期都有什么课啊")
-        self.assertEqual(2, len(results))
+        self.assertEqual(3, len(results))
         by_name = {item.get("name"): item for item in results}
         self.assertEqual("course_schedule_summary", by_name["数据结构"].get("type"))
         self.assertEqual(2, by_name["数据结构"].get("scheduleCount"))
@@ -233,6 +234,32 @@ class JavaReuseIntegrationTest(unittest.TestCase):
         names = {item.get("name") for item in results}
         self.assertIn("大学英语", names)
         self.assertIn("数据结构", names)
+
+    def test_search_course_teacher_via_java_api(self):
+        results = data_store.search_schedule("Bearer t", "linux系统的老师是谁")
+        names = {item.get("name") for item in results}
+        self.assertIn("Linux系统", names)
+        by_name = {item.get("name"): item for item in results}
+        self.assertEqual("庄老师", by_name["Linux系统"].get("teacherName"))
+        self.assertEqual("course_schedule_summary", by_name["Linux系统"].get("type"))
+
+    def test_search_course_teacher_with_alias_via_java_api(self):
+        results = data_store.search_schedule("Bearer t", "Linux操作系统的老师是谁")
+        names = {item.get("name") for item in results}
+        self.assertIn("Linux系统", names)
+        self.assertIn("操作系统", names)
+
+    def test_search_course_keyword_via_java_api(self):
+        results = data_store.search_schedule("Bearer t", "linux")
+        names = {item.get("name") for item in results}
+        self.assertIn("Linux系统", names)
+
+    def test_search_course_count_with_short_keyword_via_java_api(self):
+        results = data_store.search_schedule("Bearer t", "linux这个学期有几节课?")
+        names = {item.get("name") for item in results}
+        self.assertIn("Linux系统", names)
+        by_name = {item.get("name"): item for item in results}
+        self.assertEqual("庄老师", by_name["Linux系统"].get("teacherName"))
 
     def test_search_date_and_session_schedule_via_java_api(self):
         results = data_store.search_schedule("Bearer t", "2026年3月4日第3节有什么课")

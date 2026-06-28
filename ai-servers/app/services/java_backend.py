@@ -15,6 +15,7 @@ from app.utils.text_utils import (
     parse_requested_session,
     parse_requested_week,
     parse_requested_weekday,
+    parse_schedule_course_keyword,
     parse_session_start,
     week_in_range,
 )
@@ -71,8 +72,10 @@ class JavaBackendRetriever:
         requested_date = parse_requested_date(input_text)
         requested_weekday = parse_requested_weekday(input_text)
         requested_session = parse_requested_session(input_text)
+        course_keyword = parse_schedule_course_keyword(input_text)
         all_semester_scope = is_all_semester_schedule_query(input_text)
         semester_scope = all_semester_scope or is_semester_schedule_query(input_text)
+        course_lookup_scope = bool(course_keyword)
 
         if requested_date is not None:
             requested_weekday = requested_date.isoweekday()
@@ -82,7 +85,7 @@ class JavaBackendRetriever:
 
         if all_semester_scope:
             payload = self._get_json("/api/schedule", authorization, params={"allSemesters": "true"})
-        elif semester_scope:
+        elif semester_scope or course_lookup_scope:
             payload = self._get_json("/api/schedule", authorization)
         elif requested_week is not None:
             payload = self._get_json(f"/api/schedule/week/{requested_week}", authorization)
@@ -101,7 +104,7 @@ class JavaBackendRetriever:
             schedules = [item for item in schedules if self._session_matches(item.get("classSessions"), requested_session)]
 
         schedules.sort(key=lambda item: ((item.get("weekday") or 99), parse_session_start(item.get("classSessions"))))
-        if semester_scope:
+        if semester_scope or course_lookup_scope:
             return self._semester_course_results(schedules, include_semester=all_semester_scope)
 
         results: List[Dict[str, Any]] = []

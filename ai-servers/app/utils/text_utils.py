@@ -39,7 +39,7 @@ def build_session_token(session_id: str, authorization: str) -> str:
 def normalize_text(text: Optional[str]) -> str:
     if not text:
         return ""
-    return re.sub(r"[\s，。！？,.!？、“”\"'：:（）()]", "", text.lower())
+    return re.sub(r"[\s，。！？,.!?？、“”\"'：:（）()]", "", text.lower())
 
 
 def sanitize_keyword(text: Optional[str]) -> str:
@@ -85,6 +85,87 @@ def is_all_semester_schedule_query(text: str) -> bool:
     semester_tokens = ("所有学期", "全部学期", "每个学期", "各个学期", "历史学期", "历年学期")
     course_tokens = ("都有什么课", "有哪些课", "有什么课程", "全部课程", "所有课程", "课程列表", "课表", "课程")
     return any(token in normalized for token in semester_tokens) and any(token in normalized for token in course_tokens)
+
+
+def is_course_teacher_query(text: str) -> bool:
+    normalized = normalize_text(text)
+    if not normalized:
+        return False
+    teacher_tokens = ("老师是谁", "教师是谁", "任课老师", "授课老师", "任课教师", "授课教师", "哪个老师", "哪位老师", "谁教", "谁上的")
+    return any(token in normalized for token in teacher_tokens)
+
+
+def is_course_count_query(text: str) -> bool:
+    normalized = normalize_text(text)
+    if not normalized:
+        return False
+    count_tokens = ("有几节课", "几节课", "多少节课", "几次课", "多少次课", "上几次", "上多少次", "课时", "多少课时")
+    return any(token in normalized for token in count_tokens)
+
+
+def parse_course_lookup_keyword(text: str) -> Optional[str]:
+    normalized = normalize_text(text)
+    if not normalized:
+        return None
+    patterns = [
+        r"(?:请问|帮我查一下|查一下|查询|想知道)?(.+?)(?:这门课|课程)?(?:的)?(?:任课老师|授课老师|任课教师|授课教师|老师|教师)是?谁",
+        r"(?:请问|帮我查一下|查一下|查询|想知道)?(.+?)(?:这门课|课程)?(?:是)?(?:哪个老师|哪位老师)",
+        r"(?:请问|帮我查一下|查一下|查询|想知道)?(.+?)(?:这门课|课程)?(?:是谁教|谁教|谁上的)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, normalized)
+        if not match:
+            continue
+        candidate = re.sub(r"^(请问|帮我查一下|查一下|查询|想知道|一下)", "", match.group(1) or "")
+        candidate = re.sub(r"(这门课|课程|课)$", "", candidate)
+        candidate = candidate.strip()
+        if candidate and candidate not in {"老师", "教师", "课程", "这门"}:
+            return candidate[:40]
+    return None
+
+
+def parse_schedule_course_keyword(text: str) -> Optional[str]:
+    teacher_keyword = parse_course_lookup_keyword(text)
+    if teacher_keyword:
+        return teacher_keyword
+
+    candidate = normalize_text(text)
+    if not candidate:
+        return None
+    cleanup_patterns = [
+        r"第\d+周",
+        r"第?\d+(?:[-到至]\d+)?节",
+        r"周[一二三四五六日天]",
+        r"星期[一二三四五六日天]",
+    ]
+    for pattern in cleanup_patterns:
+        candidate = re.sub(pattern, "", candidate)
+    noise_tokens = (
+        "请问", "帮我查一下", "查一下", "查询", "想知道", "一下",
+        "这个学期", "这学期", "本学期", "当前学期", "所有学期", "全部学期",
+        "今天", "明天", "后天", "本周", "这周",
+        "有几节课", "几节课", "多少节课", "有几节", "几节", "多少节",
+        "几次课", "多少次课", "上几次", "上多少次", "课时", "多少课时",
+        "都有什么课", "有什么课", "有哪些课", "什么课程", "有课吗",
+        "课程安排", "课程列表", "全部课程", "所有课程", "课表",
+        "这门课", "课程", "这门", "课",
+        "老师是谁", "教师是谁", "任课老师", "授课老师", "任课教师", "授课教师",
+        "哪个老师", "哪位老师", "谁教", "谁上的",
+        "什么时候上", "什么时候", "几点上", "几点", "在哪上", "在哪里上", "在哪", "哪里",
+        "地点", "教室", "上课安排", "安排",
+    )
+    for token in noise_tokens:
+        candidate = candidate.replace(token, "")
+    candidate = candidate.strip()
+    if not candidate:
+        return None
+    if candidate in {"老师", "教师", "课程", "课表", "本学期", "当前学期", "所有学期"}:
+        return None
+    if re.fullmatch(r"[a-z0-9+#._-]{2,}", candidate):
+        return candidate[:40]
+    if len(candidate) >= 2:
+        return candidate[:40]
+    return None
 
 
 def is_smalltalk_intent(text: str) -> bool:

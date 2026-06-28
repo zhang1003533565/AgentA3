@@ -10,7 +10,7 @@ from app.model_providers.factory import get_chat_model_provider
 from app.multi_agents.runtime import load_agent_prompt
 from app.services.memory_store import memory_store
 from app.utils.logger import get_logger
-from app.utils.text_utils import is_all_semester_schedule_query, is_schedule_intent, is_semester_schedule_query, is_smalltalk_intent
+from app.utils.text_utils import is_all_semester_schedule_query, is_course_count_query, is_course_teacher_query, is_schedule_intent, is_semester_schedule_query, is_smalltalk_intent
 
 logger = get_logger("multi_agents.leader")
 
@@ -398,6 +398,8 @@ class LeaderAgent:
                 "用自然中文回答用户，不要输出 JSON。",
                 "严格按用户问题的范围回答；不要主动扩展成文档、报告、分析或完整明细。",
                 "只能基于 tool_results 里的数据整理，不要编造课程、时间、地点或数量。",
+                "当用户提到课程简称、英文缩写或不完整课程名时，由你在 tool_results 中做语义匹配；不要要求完全同名。",
+                "如果多个课程都可能匹配且无法判断，先说明候选并请用户确认，不要随便选。",
                 "如果 tool_results 为空，要说明已调用对应系统能力但暂时没有可展示数据，并给出可能检查项。",
                 "如果 leader_planning_answer 不为空，可承接它，但最终必须给出查询结果或空结果说明。",
                 *answer_policy.get("requirements", []),
@@ -425,6 +427,30 @@ class LeaderAgent:
     ) -> Dict[str, Any]:
         if plan.tool_name == "java_schedule_api":
             mode = self._schedule_answer_mode(input_text, tool_results)
+            if mode == "course_count":
+                return {
+                    "mode": mode,
+                    "format": "course_count_answer",
+                    "requirements": [
+                        "用户是在问某门课本学期有几节/几次/多少课时，只回答该课程的上课次数或课时估算。",
+                        "你需要从 tool_results 中找出与用户原话最接近的课程；例如用户说 linux，可以匹配课程名 Linux系统。",
+                        "可以根据 scheduleItems、classSessions、weekRange 推算；无法精确推算时，说明按当前课表记录能看到几条上课安排。",
+                        "不要回答老师是谁，不要介绍课程知识点，不要列出无关课程。",
+                        "如果没有匹配课程，只说暂未在课表中查到这门课的上课安排。",
+                    ],
+                }
+            if mode == "course_teacher":
+                return {
+                    "mode": mode,
+                    "format": "course_teacher_answer",
+                    "requirements": [
+                        "用户是在问某门课由谁教，只回答课程名和老师姓名。",
+                        "你需要从 tool_results 中找出与用户原话最接近的课程；例如用户说 linux，可以匹配课程名 Linux系统。",
+                        "不要解释课程知识点，不要介绍 Linux/教材内容，不要展开上课时间、周次、地点或完整课表。",
+                        "如果多条记录是同一门课同一位老师，只合并回答一次。",
+                        "如果没有匹配课程，只说暂未在课表中查到这门课的任课老师。",
+                    ],
+                }
             if mode == "course_list":
                 return {
                     "mode": mode,
@@ -467,6 +493,10 @@ class LeaderAgent:
     def _schedule_answer_mode(self, input_text: str, tool_results: List[Dict[str, Any]]) -> str:
         text = (input_text or "").strip()
         compact = re.sub(r"\s+", "", text)
+        if is_course_count_query(text):
+            return "course_count"
+        if is_course_teacher_query(text):
+            return "course_teacher"
         asks_full_detail = any(token in compact for token in ("完整课表", "详细课表", "上课安排", "什么时候", "几点", "教室", "地点", "在哪", "哪儿"))
         asks_specific_slot = any(token in compact for token in ("今天", "明天", "后天", "周一", "周二", "周三", "周四", "周五", "周六", "周日", "星期", "第"))
         result_types = {str(item.get("type") or "") for item in tool_results or [] if isinstance(item, dict)}
@@ -490,7 +520,8 @@ class LeaderAgent:
         if not isinstance(tool_results, list):
             return []
         bounded_results = tool_results[:30]
-        if plan.tool_name != "java_schedule_api" or self._schedule_answer_mode(input_text, tool_results) != "course_list":
+        schedule_mode = self._schedule_answer_mode(input_text, tool_results)
+        if plan.tool_name != "java_schedule_api" or schedule_mode not in {"course_list", "course_teacher"}:
             return bounded_results
         shaped_results: List[Dict[str, Any]] = []
         for item in bounded_results:
@@ -540,6 +571,8 @@ def build_leader_router_user_prompt(
             "用户要求 Mermaid 源文件、图表源码或后续编辑图表时，图表智能体返回 Mermaid 后会自动生成 mmd/md/zip 附件。",
             "如果用户已经提供了要导出的 Markdown、普通文本或标准题库 JSON，且只要求转成文件，可以直接 call_tool: generated_export_tools。",
             "用户表达课表、活动、会议列表/状态、食堂餐饮、设施位置、旧物二手等查询意图时，你必须根据当前语义自行从 leader_callable_catalog.tools 中选择对应的 Java 后端服务工具，而不是依赖系统关键词规则或编造答案。",
+            "用户问某门课的老师是谁、任课老师、授课教师、谁教某门课时，这是课程信息查询，必须优先选择 java_schedule_api，不要路由到教材知识点智能体。",
+            "用户问某门课本学期有几节课、几次课、多少课时或上课次数时，也是课程信息查询，必须优先选择 java_schedule_api。",
             "会议纪要/总结/转写/成员分析仍属于会议专业智能体；活动图/流程图仍属于图表智能体，不要误判为校园活动查询。",
             "路由时只能选择 leader_callable_catalog 中 enabled=true 的 agents/tools；关闭项只可在 route_reason 中说明，不允许绕过后台配置。",
             "target_agent 必须来自 leader_callable_catalog.agents.name；tool_name 必须来自 leader_callable_catalog.tools.name。",

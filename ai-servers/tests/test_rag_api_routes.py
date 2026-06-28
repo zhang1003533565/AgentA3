@@ -483,6 +483,97 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("java_schedule_api", calls[0][1])
         self.assertEqual("tool_result_summary", payload["trace"][-1]["stage"])
 
+    def test_leader_routes_course_teacher_query_to_schedule_tool(self):
+        rag_routes = importlib.import_module("app.api.routes.rag")
+        old_search_service_tool = rag_routes.data_store.search_service_tool
+        calls = []
+        try:
+            def fake_search_service_tool(authorization, tool_name, query):
+                calls.append((authorization, tool_name, query))
+                return [
+                    {
+                        "type": "course_schedule_summary",
+                        "name": "操作系统",
+                        "semesterLabel": "2025-2026 第 2 学期",
+                        "teacherName": "孙老师",
+                        "scheduleItems": ["周五 5-6节 D402 1-16周"],
+                    },
+                    {
+                        "type": "course_schedule_summary",
+                        "name": "Linux系统",
+                        "semesterLabel": "2025-2026 第 2 学期",
+                        "teacherName": "庄老师",
+                        "scheduleItems": ["周二 5-6节 D403 1-16周"],
+                    },
+                ]
+
+            rag_routes.data_store.search_service_tool = fake_search_service_tool
+            response = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={
+                    "input": "Linux操作系统的老师是谁",
+                    "agentName": "leader_agent",
+                },
+            )
+        finally:
+            rag_routes.data_store.search_service_tool = old_search_service_tool
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("java_schedule_api", payload["metadata"]["toolName"])
+        self.assertEqual("service_tool_result", payload["answerType"])
+        self.assertIn("Linux系统的老师是庄老师", payload["answer"])
+        self.assertNotIn("教材知识点", payload["metadata"].get("targetAgent", ""))
+        self.assertNotIn("周二 5-6节", payload["answer"])
+        self.assertEqual("java_schedule_api", calls[0][1])
+
+    def test_leader_routes_course_count_query_to_schedule_tool(self):
+        rag_routes = importlib.import_module("app.api.routes.rag")
+        old_search_service_tool = rag_routes.data_store.search_service_tool
+        calls = []
+        try:
+            def fake_search_service_tool(authorization, tool_name, query):
+                calls.append((authorization, tool_name, query))
+                return [
+                    {
+                        "type": "course_schedule_summary",
+                        "name": "操作系统",
+                        "semesterLabel": "2025-2026 第 2 学期",
+                        "teacherName": "孙老师",
+                        "scheduleCount": 1,
+                        "scheduleItems": ["周五 5-6节 D402 1-16周"],
+                    },
+                    {
+                        "type": "course_schedule_summary",
+                        "name": "Linux系统",
+                        "semesterLabel": "2025-2026 第 2 学期",
+                        "teacherName": "庄老师",
+                        "scheduleCount": 1,
+                        "scheduleItems": ["周二 5-6节 D403 1-16周"],
+                    },
+                ]
+
+            rag_routes.data_store.search_service_tool = fake_search_service_tool
+            response = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={
+                    "input": "linux这个学期有几节课?",
+                    "agentName": "leader_agent",
+                },
+            )
+        finally:
+            rag_routes.data_store.search_service_tool = old_search_service_tool
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("java_schedule_api", payload["metadata"]["toolName"])
+        self.assertEqual("service_tool_result", payload["answerType"])
+        self.assertIn("Linux系统", payload["answer"])
+        self.assertIn("1", payload["answer"])
+        self.assertEqual("java_schedule_api", calls[0][1])
+
     def test_removed_md_agent_is_rejected(self):
         response = self.client.post(
             "/internal/rag/query",
@@ -581,6 +672,14 @@ class FakeRagModelProvider:
     def complete(self, system_prompt, user_prompt):
         if "系统接口返回的数据" in system_prompt:
             payload = json.loads(user_prompt)
+            if payload.get("answer_policy", {}).get("mode") == "course_count":
+                rows = payload.get("tool_results") or [{}]
+                first = next((item for item in rows if "Linux" in str(item.get("name") or "")), rows[0])
+                return f"{first.get('name')}本学期查到 {first.get('scheduleCount') or payload.get('tool_result_count')} 条上课安排。"
+            if payload.get("answer_policy", {}).get("mode") == "course_teacher":
+                rows = payload.get("tool_results") or [{}]
+                first = next((item for item in rows if "Linux" in str(item.get("name") or "")), rows[0])
+                return f"{first.get('name')}的老师是{first.get('teacherName')}。"
             if payload.get("answer_policy", {}).get("mode") == "course_list":
                 first = (payload.get("tool_results") or [{}])[0]
                 schedule_text = "；".join(first.get("scheduleItems") or []) if isinstance(first, dict) else ""
@@ -608,16 +707,18 @@ class FakeRagModelProvider:
                 "route_reason": "LLM 根据 Java 后台模型配置完成结构化查询识别。",
                 "answer": "",
             }
-        if "课表" in text or "有什么课" in text:
+        if "课表" in text or "有什么课" in text or "老师是谁" in text or "谁教" in text or "几节课" in text or "多少次课" in text:
+            teacher_query = "老师是谁" in text or "谁教" in text
+            count_query = "几节课" in text or "多少次课" in text
             return {
-                "intent": "schedule",
+                "intent": "course_teacher" if teacher_query else ("course_count" if count_query else "schedule"),
                 "target_agent": "leader_agent",
                 "need_retrieval": False,
                 "rag_strategy": "",
                 "action": "call_tool",
                 "tool_name": "java_schedule_api",
                 "route_reason": "LLM 根据启用工具清单选择课表查询工具。",
-                "answer": "正在为你查询本学期课表。",
+                "answer": "正在为你查询课程老师。" if teacher_query else ("正在为你查询课程次数。" if count_query else "正在为你查询本学期课表。"),
             }
         if "PPT" in text or "课件" in text:
             return {
