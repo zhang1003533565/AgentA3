@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, Card, Col, Collapse, Empty, Form, Image, Input, Row, Select, Space, Switch, Table, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Col, Collapse, Empty, Form, Image, Input, Row, Select, Space, Table, Tag, Typography, message } from 'antd'
 import { DatabaseOutlined, PlayCircleOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons'
 import { importExamQuestions } from '../../../api/examQuestion'
 import {
@@ -10,24 +10,18 @@ import {
   runRagQuery,
   saveRagAgentExampleInput,
 } from '../../../api/rag'
-import { getSystemConfigList, upsertSystemConfig } from '../../../api/systemConfig'
+import { getSystemConfigList } from '../../../api/systemConfig'
+import {
+  buildAgentModelBindings,
+  buildLlmModelOptions,
+  getAgentModelRequirementText,
+  getAgentRequiredModelModalities,
+  isAgentEnabled,
+} from '../agentConfig'
 import './RagManage.css'
 
 const { TextArea } = Input
 const { Text, Title } = Typography
-// 匹配所有 AI 服务配置（文本、图片、视频、语音）
-const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.(text|image|video|audio)(?:\.([A-Za-z0-9_-]+))?\.(provider|base-url|api-key|model)$/
-const AGENT_MODEL_BINDING_PATTERN = /^ai\.agent-bindings\.([A-Za-z0-9_-]+)\.model$/
-const AGENT_ENABLED_CONFIG_PREFIX = 'ai.agent-enabled.'
-const AI_TESTED_MODEL_PREFIXES_KEY = 'ai_tested_model_prefixes_v1'
-const AI_TESTED_MODEL_IDS_KEY = 'ai_tested_model_ids_v1'
-const MODEL_MODALITY_LABELS = {
-  text: '文本',
-  image: '图片',
-  video: '视频',
-  audio: '语音',
-  vision: '视觉理解',
-}
 
 const QUESTION_AGENT_TYPES = {
   textbook_question_single_choice_agent: 'single_choice',
@@ -45,25 +39,9 @@ const evidenceColumns = [
   { title: '内容', dataIndex: 'content', ellipsis: true },
 ]
 
-const buildAgentColumns = (onToggleAgentEnabled) => [
+const buildAgentColumns = () => [
   { title: '智能体', dataIndex: 'name', render: (value) => <Tag color="geekblue">{value}</Tag> },
-  {
-    title: '开关',
-    dataIndex: 'enabled',
-    width: 110,
-    render: (value, record) => {
-      const locked = record.name === 'leader_agent'
-      return (
-        <Switch
-          checked={locked || value !== false}
-          disabled={locked}
-          checkedChildren="开"
-          unCheckedChildren="关"
-          onChange={(checked) => onToggleAgentEnabled(record.name, checked)}
-        />
-      )
-    },
-  },
+  { title: '状态', dataIndex: 'enabled', width: 110, render: (value, record) => <Tag color={record.name === 'leader_agent' || value !== false ? 'green' : 'default'}>{record.name === 'leader_agent' || value !== false ? '启用' : '关闭'}</Tag> },
   { title: '角色', dataIndex: 'role' },
   { title: '职责', dataIndex: 'purpose' },
   {
@@ -87,6 +65,24 @@ const coverageColumns = [
   { title: '分类', dataIndex: 'category' },
   { title: '用途', dataIndex: 'purpose' },
   { title: '状态', dataIndex: 'status', render: (value) => <Tag color="green">{value}</Tag> },
+]
+
+const toolColumns = [
+  { title: '工具', dataIndex: 'name', width: 220, render: (value) => <Tag color="geekblue">{value}</Tag> },
+  { title: '分类', dataIndex: 'category', width: 150 },
+  { title: '触发场景', dataIndex: 'trigger', ellipsis: true },
+  { title: '用途', dataIndex: 'purpose', ellipsis: true },
+  {
+    title: '产物',
+    dataIndex: 'outputs',
+    width: 180,
+    render: (value = []) => (
+      <Space size={[4, 4]} wrap>
+        {value.map((item) => <Tag key={item}>{String(item).toUpperCase()}</Tag>)}
+      </Space>
+    ),
+  },
+  { title: '状态', dataIndex: 'status', width: 110, render: (value) => <Tag color="green">{value}</Tag> },
 ]
 
 const providerColumns = [
@@ -127,71 +123,6 @@ const parseMediaAnswer = (answer) => {
   return { ...value, images, videos }
 }
 
-const getTestedModelPrefixes = () => {
-  try {
-    const raw = localStorage.getItem(AI_TESTED_MODEL_PREFIXES_KEY)
-    const parsed = raw ? JSON.parse(raw) : {}
-    return new Set(Object.keys(parsed || {}))
-  } catch {
-    return new Set()
-  }
-}
-
-const getTestedModelIds = () => {
-  try {
-    const raw = localStorage.getItem(AI_TESTED_MODEL_IDS_KEY)
-    const parsed = raw ? JSON.parse(raw) : {}
-    return new Set(Object.keys(parsed || {}))
-  } catch {
-    return new Set()
-  }
-}
-
-const buildLlmModelOptions = (configRows = []) => {
-  const groups = new Map()
-  configRows.forEach((item) => {
-    const match = String(item.configKey || '').match(AI_MODEL_CONFIG_PATTERN)
-    if (!match) return
-    const [, modality, configName = 'default', field] = match
-    const configPrefix = configName === 'default' ? `ai.service.${modality}` : `ai.service.${modality}.${configName}`
-    const group = groups.get(configPrefix) || { configPrefix, modality, configs: {} }
-    group.configs[field] = item
-    groups.set(configPrefix, group)
-  })
-
-  const testedPrefixes = getTestedModelPrefixes()
-  const testedModelIds = getTestedModelIds()
-  return Array.from(groups.values())
-    .filter((group) => ['provider', 'base-url', 'api-key', 'model'].every((field) => {
-      const config = group.configs[field]
-      return config && String(config.configValue || '').trim()
-    }))
-    .filter((group) => testedPrefixes.has(group.configPrefix) || testedModelIds.has(String(group.configs.model?.configValue || '').trim()))
-    .map((group) => {
-      const modalityLabel = MODEL_MODALITY_LABELS[group.modality] || group.modality
-      const isDefault = Object.values(group.configs).some((config) => Number(config?.isDefault) === 1)
-      return {
-        value: group.configPrefix,
-        label: `[${modalityLabel}] ${group.configs.model.configValue}`,
-        modality: group.modality,
-        isDefault,
-      }
-    })
-}
-
-const buildAgentModelBindings = (configRows = []) => {
-  const bindings = {}
-  configRows.forEach((item) => {
-    const match = String(item.configKey || '').match(AGENT_MODEL_BINDING_PATTERN)
-    if (!match) return
-    const model = String(item.configValue || '').trim()
-    if (model) {
-      bindings[match[1]] = model
-    }
-  })
-  return bindings
-}
-
 const executionModeLabels = {
   leader_direct_answer: 'Leader 直接回答',
   leader_call_tool: 'Leader 调用接口',
@@ -201,24 +132,11 @@ const executionModeLabels = {
   direct_disabled_agent: '已关闭智能体未执行',
 }
 
-const getAgentRequiredModelModalities = (agent) => {
-  const modalities = Array.isArray(agent?.requiredModelModalities) ? agent.requiredModelModalities : []
-  return modalities.length ? modalities : ['text']
-}
-
-const getAgentModelRequirementText = (agent) => (
-  getAgentRequiredModelModalities(agent)
-    .map((item) => MODEL_MODALITY_LABELS[item] || item)
-    .join(' / ')
-)
-
 const updateAgentInList = (agents, updatedAgent) => (
   updatedAgent?.name
     ? agents.map((item) => (item.name === updatedAgent.name ? { ...item, ...updatedAgent } : item))
     : agents
 )
-
-const isAgentEnabled = (agent) => !agent || agent.name === 'leader_agent' || agent.enabled !== false
 
 const getExecutionLabel = (metadata = {}) => (
   metadata.executionModeLabel ||
@@ -339,8 +257,8 @@ const ragPageConfig = {
   agents: {
     sectionKey: 'agents',
     kicker: 'Agent Console',
-    title: '多智能体',
-    description: '测试专业智能体调用、默认模型绑定、示例输入和技能文件。',
+    title: '智能体测试',
+    description: '测试专业智能体调用、导入题库、维护示例输入和查看技能文件；开关和默认模型请到智能体设置页维护。',
   },
   framework: {
     sectionKey: 'framework',
@@ -414,42 +332,9 @@ function RagManage({ page = 'playground' }) {
     }
   }, [agents, getAgentExampleInput, getDefaultModelForAgent, queryForm])
 
-  const toggleAgentEnabled = useCallback(async (agentName, enabled) => {
-    if (agentName === 'leader_agent') {
-      message.warning('Leader 是总控入口，保持开启')
-      return
-    }
-    try {
-      await upsertSystemConfig({
-        configKey: `${AGENT_ENABLED_CONFIG_PREFIX}${agentName}`,
-        configValue: enabled ? '1' : '0',
-        configGroup: 'ai',
-        description: `智能体 ${agentName} 启用开关`,
-        status: 1,
-        isDefault: 0,
-      })
-      setAgents((prev) => prev.map((item) => (
-        item.name === agentName ? { ...item, enabled } : item
-      )))
-      if (!enabled) {
-        if (queryForm.getFieldValue('agentName') === agentName) {
-          queryForm.setFieldsValue({ agentName: 'leader_agent' })
-          applyAgentDefaultModel(queryForm, 'leader_agent')
-        }
-        if (agentTestForm.getFieldValue('agentName') === agentName) {
-          agentTestForm.setFieldsValue({ agentName: 'leader_agent' })
-          applyAgentDefaultModel(agentTestForm, 'leader_agent')
-        }
-      }
-      message.success(enabled ? '智能体已开启' : '智能体已关闭，Leader 路由到它时会跳过')
-    } catch (error) {
-      message.error(error.message || '智能体开关保存失败')
-    }
-  }, [agentTestForm, applyAgentDefaultModel, queryForm])
-
   const tableAgentColumns = useMemo(
-    () => buildAgentColumns(toggleAgentEnabled),
-    [toggleAgentEnabled]
+    () => buildAgentColumns(),
+    []
   )
 
   const agentOptions = useMemo(
@@ -481,29 +366,6 @@ function RagManage({ page = 'playground' }) {
       input: getAgentExampleInput(agent),
     })
   }, [agentTestForm, getAgentExampleInput, getDefaultModelForAgent])
-
-  const saveAgentModelBinding = async (agentName, modelValue) => {
-    const selectedAgentName = agentName || 'leader_agent'
-    const selectedModel = String(modelValue || '').trim()
-    if (!selectedModel) {
-      message.warning('请先选择要绑定的模型')
-      return
-    }
-    try {
-      await upsertSystemConfig({
-        configKey: `ai.agent-bindings.${selectedAgentName}.model`,
-        configValue: selectedModel,
-        configGroup: 'ai',
-        description: `智能体 ${selectedAgentName} 默认模型绑定`,
-        status: 1,
-        isDefault: 0,
-      })
-      setAgentModelBindings((prev) => ({ ...prev, [selectedAgentName]: selectedModel }))
-      message.success('已保存为该智能体默认模型')
-    } catch (error) {
-      message.error(error.message || '默认模型保存失败')
-    }
-  }
 
   const saveAgentExampleInput = async (agentName, inputValue, options = {}) => {
     const selectedAgentName = agentName || 'leader_agent'
@@ -897,30 +759,18 @@ function RagManage({ page = 'playground' }) {
                         <Form.Item
                           label="模型"
                           extra={getAgentBoundModel(getFieldValue('agentName'))
-                            ? '已绑定默认模型；更换后点击保存会更新该智能体下次默认使用的模型。'
+                            ? '已自动带入该智能体的默认模型；这里只影响本次测试。'
                             : `只显示已测试成功的${getAgentModelRequirementText(selectedAgent)}模型。`}
                         >
-                          <Space.Compact className="rag-full">
-                            <Form.Item name="llmModel" noStyle rules={[{ required: true, message: '请选择模型' }]}>
-                              <Select
-                                options={modelOptions}
-                                placeholder={modelOptions.length ? '请选择模型' : '没有匹配的已测试模型'}
-                                showSearch
-                                optionFilterProp="label"
-                                disabled={!modelOptions.length}
-                              />
-                            </Form.Item>
-                            <Button
-                              icon={<SaveOutlined />}
+                          <Form.Item name="llmModel" noStyle rules={[{ required: true, message: '请选择模型' }]}>
+                            <Select
+                              options={modelOptions}
+                              placeholder={modelOptions.length ? '请选择模型' : '没有匹配的已测试模型'}
+                              showSearch
+                              optionFilterProp="label"
                               disabled={!modelOptions.length}
-                              onClick={() => saveAgentModelBinding(
-                                getFieldValue('agentName') || 'leader_agent',
-                                queryForm.getFieldValue('llmModel'),
-                              )}
-                            >
-                              保存默认
-                            </Button>
-                          </Space.Compact>
+                            />
+                          </Form.Item>
                         </Form.Item>
                       </>
                     )
@@ -1080,10 +930,9 @@ function RagManage({ page = 'playground' }) {
                           <Form.Item
                             label="模型"
                             extra={getAgentBoundModel(getFieldValue('agentName'))
-                              ? '已绑定默认模型；更换后点击保存会更新该智能体下次默认使用的模型。'
+                              ? '已自动带入该智能体的默认模型；这里只影响本次测试。'
                               : `只显示已测试成功的${getAgentModelRequirementText(selectedAgent)}模型。`}
                           >
-                          <Space.Compact className="rag-full">
                             <Form.Item name="llmModel" noStyle rules={[{ required: true, message: '请选择模型' }]}>
                               <Select
                                 options={modelOptions}
@@ -1093,17 +942,6 @@ function RagManage({ page = 'playground' }) {
                                 disabled={!modelOptions.length}
                               />
                             </Form.Item>
-                            <Button
-                              icon={<SaveOutlined />}
-                              disabled={!modelOptions.length}
-                              onClick={() => saveAgentModelBinding(
-                                getFieldValue('agentName'),
-                                agentTestForm.getFieldValue('llmModel'),
-                              )}
-                            >
-                              保存默认
-                            </Button>
-                          </Space.Compact>
                           </Form.Item>
                         </>
                       )
@@ -1128,19 +966,12 @@ function RagManage({ page = 'playground' }) {
                     }}
                   </Form.Item>
                   <Form.Item
-                    noStyle
-                    shouldUpdate={(prev, next) => prev.agentName !== next.agentName || prev.input !== next.input}
+                    name="input"
+                    label="测试输入"
+                    extra="这里会自动读取智能体目录下的 example_input.md，编辑后可保存为下次默认示例。"
+                    rules={[{ required: true, message: '请输入测试内容' }]}
                   >
-                    {({ getFieldValue }) => (
-                      <Form.Item
-                        name="input"
-                        label="测试输入"
-                        extra="这里会自动读取智能体目录下的 example_input.md，编辑后可保存为下次默认示例。"
-                        rules={[{ required: true, message: '请输入测试内容' }]}
-                      >
-                        <TextArea rows={6} placeholder="输入一段课程内容或任务要求" />
-                      </Form.Item>
-                    )}
+                    <TextArea rows={6} placeholder="输入一段课程内容或任务要求" />
                   </Form.Item>
                   <Form.Item
                     noStyle
@@ -1353,6 +1184,15 @@ function RagManage({ page = 'playground' }) {
               columns={coverageColumns}
               dataSource={framework?.coverage || []}
               pagination={{ pageSize: 8 }}
+            />
+          </Card>
+          <Card title="工具能力" className="rag-panel-card">
+            <Table
+              rowKey="name"
+              columns={toolColumns}
+              dataSource={framework?.generatedTools || []}
+              pagination={false}
+              scroll={{ x: 980 }}
             />
           </Card>
           <div className="rag-provider-grid">

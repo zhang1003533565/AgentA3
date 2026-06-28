@@ -241,6 +241,7 @@ public class UserProfileServiceImpl implements UserProfileService {
         context.put("strongDimensions", snapshot.getStrongDimensions());
         context.put("weakDimensions", snapshot.getWeakDimensions());
         context.put("resourcePreference", snapshot.getResourcePreference());
+        context.put("outputPreferenceHints", buildOutputPreferenceHints(userId));
         context.put("updateMode", snapshot.getUpdateMode());
         context.put("lastUpdatedAt", snapshot.getLastUpdatedAt());
         context.put("dimensions", snapshot.getDimensions().stream().map(item -> {
@@ -312,6 +313,78 @@ public class UserProfileServiceImpl implements UserProfileService {
                 .max(Comparator.naturalOrder())
                 .orElse(null));
         return snapshot;
+    }
+
+    private Map<String, Object> buildOutputPreferenceHints(Long userId) {
+        List<UserProfileEvidence> recent = evidenceRepository.findByUserIdAndDimensionKeyAndCreateTimeAfter(
+                userId,
+                "resource_preference",
+                LocalDateTime.now().minusDays(90)
+        );
+        if (recent.isEmpty()) {
+            return Map.of(
+                    "preferredFormat", "",
+                    "confidenceLevel", "low",
+                    "usageRule", "没有稳定输出形式偏好时，Leader 应先询问用户要图片、文件还是文本。"
+            );
+        }
+
+        Map<String, OutputPreferenceAccumulator> accumulators = new LinkedHashMap<>();
+        accumulators.put("document", new OutputPreferenceAccumulator("document", "文件/文档"));
+        accumulators.put("image", new OutputPreferenceAccumulator("image", "图片/图解"));
+        accumulators.put("video", new OutputPreferenceAccumulator("video", "视频"));
+        accumulators.put("code", new OutputPreferenceAccumulator("code", "代码案例"));
+        accumulators.put("text", new OutputPreferenceAccumulator("text", "文本总结"));
+
+        for (UserProfileEvidence evidence : recent) {
+            String signal = String.join(" ",
+                    nullToEmpty(evidence.getEvidence()),
+                    nullToEmpty(evidence.getObjectName()),
+                    nullToEmpty(evidence.getResult()),
+                    nullToEmpty(evidence.getMetadataJson())
+            ).toLowerCase();
+            double confidence = evidence.getConfidence() == null ? 0.5 : evidence.getConfidence();
+            if (containsAny(signal, "文件", "文档", "word", "docx", "pdf", "ppt", "excel", "表格", "markdown", "md", "下载")) {
+                accumulators.get("document").add(confidence, evidence.getEvidence());
+            }
+            if (containsAny(signal, "图片", "图解", "配图", "流程图", "思维导图", "架构图", "海报", "image", "png", "jpg")) {
+                accumulators.get("image").add(confidence, evidence.getEvidence());
+            }
+            if (containsAny(signal, "视频", "video", "mp4")) {
+                accumulators.get("video").add(confidence, evidence.getEvidence());
+            }
+            if (containsAny(signal, "代码", "code", "示例代码", "案例")) {
+                accumulators.get("code").add(confidence, evidence.getEvidence());
+            }
+            if (containsAny(signal, "文本", "总结", "要点", "直接说", "文字")) {
+                accumulators.get("text").add(confidence, evidence.getEvidence());
+            }
+        }
+
+        List<Map<String, Object>> formats = accumulators.values().stream()
+                .filter(item -> item.count > 0)
+                .sorted(Comparator.comparingDouble(OutputPreferenceAccumulator::score).reversed())
+                .map(OutputPreferenceAccumulator::toMap)
+                .toList();
+        if (formats.isEmpty()) {
+            return Map.of(
+                    "preferredFormat", "",
+                    "confidenceLevel", "low",
+                    "usageRule", "近期有资源偏好证据，但没有稳定输出形式偏好；需要先询问用户。"
+            );
+        }
+
+        Map<String, Object> top = formats.get(0);
+        double avgConfidence = (double) top.get("averageConfidence");
+        int count = (int) top.get("evidenceCount");
+        String confidenceLevel = avgConfidence >= 0.76 && count >= 2 ? "high" : avgConfidence >= 0.62 ? "medium" : "low";
+        return Map.of(
+                "preferredFormat", top.get("format"),
+                "preferredFormatLabel", top.get("label"),
+                "confidenceLevel", confidenceLevel,
+                "formats", formats,
+                "usageRule", "高/中置信偏好可作为默认推送形式；回答结尾应轻量提示是否还需要另一种形式。"
+        );
     }
 
     private List<String> buildResourcePreference(List<UserProfileDTO.DimensionSnapshot> dimensions) {
@@ -706,6 +779,10 @@ public class UserProfileServiceImpl implements UserProfileService {
         return false;
     }
 
+    private String nullToEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
     private int calculateFusionDelta(UserProfileDimension dimension,
                                      UserProfileDTO.DimensionRule rule,
                                      double latestConfidence,
@@ -1016,7 +1093,7 @@ public class UserProfileServiceImpl implements UserProfileService {
 
     private static List<UserProfileDTO.AutoCaptureSource> buildAutoCaptureSources() {
         return List.of(
-                autoCaptureSource("chat", "用户明确说不会/喜欢/要备考/要项目/要图解/要代码，或 Leader 路由到课程、题库、资源类任务。",
+                autoCaptureSource("chat", "用户明确说不会/喜欢/要备考/要项目，或在图片版、文件版、文档版、图解版之间做选择。",
                         "AppAiLeaderController", List.of("learning_goal", "resource_preference", "weak_points"),
                         "基础权重 0.70，再按表达明确度、重复度、新鲜度、历史一致性融合。", "只捕捉明确表达，不从普通闲聊强行推断。"),
                 autoCaptureSource("meeting", "会议结束自动整理，或手动运行会议总结/成员分析/资源推荐智能体。",
@@ -1287,6 +1364,45 @@ public class UserProfileServiceImpl implements UserProfileService {
             map.put("finalConfidence", finalConfidence);
             map.put("formula", "sourceReliability*35% + expressionClarity*25% + repetition*20% + recency*10% + historyConsistency*10%");
             map.put("reasons", reasons);
+            return map;
+        }
+    }
+
+    private static class OutputPreferenceAccumulator {
+        private final String format;
+        private final String label;
+        private int count;
+        private double confidenceSum;
+        private final List<String> examples = new ArrayList<>();
+
+        private OutputPreferenceAccumulator(String format, String label) {
+            this.format = format;
+            this.label = label;
+        }
+
+        private void add(double confidence, String evidence) {
+            count += 1;
+            confidenceSum += confidence;
+            if (StringUtils.hasText(evidence) && examples.size() < 3) {
+                examples.add(truncate(evidence.trim(), 90));
+            }
+        }
+
+        private double score() {
+            return count * averageConfidence();
+        }
+
+        private double averageConfidence() {
+            return count <= 0 ? 0 : round2(confidenceSum / count);
+        }
+
+        private Map<String, Object> toMap() {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("format", format);
+            map.put("label", label);
+            map.put("evidenceCount", count);
+            map.put("averageConfidence", averageConfidence());
+            map.put("examples", examples);
             return map;
         }
     }

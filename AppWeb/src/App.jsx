@@ -8,6 +8,7 @@ import Home from './pages/Home/Home'
 import QuestionBank from './pages/ai/QuestionBank/QuestionBank'
 import ProfileRules from './pages/ai/ProfileRules/ProfileRules'
 import RagManage from './pages/ai/RagManage/RagManage'
+import AgentSettings from './pages/ai/AgentSettings/AgentSettings'
 import Login from './pages/Login/Login'
 import WorkspacePage from './pages/workspace/WorkspacePage'
 import './App.css'
@@ -36,6 +37,7 @@ function App() {
           <Route path="/ai/rag" element={<Navigate to="/ai/rag/agents" replace />} />
           <Route path="/ai/rag/strategy" element={<Navigate to="/ai/rag/agents" replace />} />
           <Route path="/ai/rag/agents" element={<RagManage page="agents" />} />
+          <Route path="/ai/agent-settings" element={<AgentSettings />} />
           <Route path="/ai/question-bank" element={<QuestionBank />} />
           <Route path="/ai/profile-rules" element={<ProfileRules />} />
           {workspaceRoutes}

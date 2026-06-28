@@ -110,11 +110,39 @@ confidence =
 
 | 来源 | 触发 | 影响维度 |
 | --- | --- | --- |
-| Leader 聊天 | 用户明确说不会、要备考、偏好图解/代码等 | `weak_points`、`learning_goal`、`resource_preference` |
+| Leader 聊天 | 用户明确说不会、要备考，或在文件版/图片版/文档版/图解版之间做选择 | `weak_points`、`learning_goal`、`resource_preference` |
 | 会议智能体 | 会议总结、成员分析、资源推荐生成后 | `learning_progress`、`weak_points`、`resource_preference` |
 | 答题模块 | 正确率、错题、练习提交、任务完成 | `weak_points`、`ability_performance`、`learning_progress` |
 | 点击资源 | 点击、收藏、下载同类资源多次出现 | `campus_behavior`、`resource_preference` |
 | 用户资料 | 专业、课表、成绩、明确填写变化 | `course_background`、`learning_goal` |
+
+## 输出形式选择记忆
+
+当一个任务既可以做成图片，也可以做成文件时，Leader 应按下面策略处理：
+
+1. 没有稳定偏好时，先问用户：“要图片形式还是文件形式？”
+2. 用户选择“文件版/文档版/PDF/Word/PPT/表格”时，提交 `resource_preference` 证据，`objectName` 设为 `文件/文档`。
+3. 用户选择“图片版/图解版/配图/海报”时，提交 `resource_preference` 证据，`objectName` 设为 `图片/图解`。
+4. 后端会在 `profileSnapshot.outputPreferenceHints` 中返回最近 90 天的输出偏好统计。
+5. 同类任务如果有中高置信偏好，Leader 默认按偏好推送。
+6. 如果默认推送了文件，回答结束时提示“还需要图片形式也可以继续生成”；反过来也一样。
+
+选择文件版示例：
+
+```json
+{
+  "dimensionKey": "resource_preference",
+  "sourceType": "chat",
+  "sourceId": "app-ai-1782549317335-zgris0",
+  "action": "expressed",
+  "objectType": "conversation",
+  "objectName": "文件/文档",
+  "evidence": "用户在 Leader 对话中选择文件或文档形式：要文件版。",
+  "direction": "increase",
+  "suggestedDelta": 3,
+  "evidenceTags": ["文件", "文档", "输出形式偏好"]
+}
+```
 
 ## 更新边界
 

@@ -20,7 +20,7 @@ from app.multi_agents.catalog import AGENT_ORDER, get_agent_catalog, get_agent_d
 from app.multi_agents.leader_agent.agent import leader_agent
 from app.multi_agents.question_bank_schema import review_question_bank_payload
 from app.multi_agents.runner import run_specialist_agent
-from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx
+from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx, export_generated_answer
 from app.rag.structured.text_to_sql import TextToSqlService
 from app.services.data_store import data_store
 from app.utils.logger import get_logger
@@ -28,6 +28,49 @@ from app.utils.sse import build_sse, chunk_answer
 
 router = APIRouter(prefix="/internal/rag", tags=["internal-rag"])
 logger = get_logger("api.rag")
+
+GENERATED_CONTENT_TOOLS = [
+    {
+        "name": "markdown_export_tool",
+        "category": "content_export",
+        "purpose": "把知识点、会议纪要、PPT 大纲、题库等生成结果保存为 Markdown 阅读文件。",
+        "trigger": "专业智能体返回 markdown/question_bank/mermaid，或用户要求 md/Markdown 文件版。",
+        "outputs": ["md"],
+        "status": "implemented",
+    },
+    {
+        "name": "docx_export_tool",
+        "category": "content_export",
+        "purpose": "把长内容整理成 Word 文档，减少会话里大段文字堆叠。",
+        "trigger": "用户要求 Word/DOCX/文档版/文件版，或内容适合沉淀为资料。",
+        "outputs": ["docx"],
+        "status": "implemented",
+    },
+    {
+        "name": "excel_export_tool",
+        "category": "content_export",
+        "purpose": "把题库 JSON 或知识点清单整理成 Excel 表格，方便导入、筛选和二次加工。",
+        "trigger": "题库 JSON、知识清单、用户要求 Excel/表格。",
+        "outputs": ["xlsx"],
+        "status": "implemented",
+    },
+    {
+        "name": "content_archive_tool",
+        "category": "content_export",
+        "purpose": "把同一轮生成的 md/docx/xlsx/mmd 附件打包成一个 zip，方便一次下载。",
+        "trigger": "任意内容导出工具生成两个及以上附件后自动触发。",
+        "outputs": ["zip"],
+        "status": "implemented",
+    },
+    {
+        "name": "diagram_source_export_tool",
+        "category": "diagram_export",
+        "purpose": "保存 Mermaid/图表源码，方便后续继续编辑、复用或交给图片工具生成图解版。",
+        "trigger": "answerType 为 mermaid_* 或回答中包含 Mermaid 代码块。",
+        "outputs": ["mmd", "md", "zip"],
+        "status": "implemented",
+    },
+]
 
 
 class PdfConvertRequest(BaseModel):
@@ -83,8 +126,15 @@ def get_rag_capabilities(
         },
         "documentConversion": {
             "supportedInputs": ["pdf", "pptx"],
-            "supportedOutputs": ["docx"],
+            "supportedOutputs": ["docx", "md", "xlsx", "zip", "mmd"],
             "ocr": False,
+            "generatedContentExport": {
+                "knowledge": ["md", "docx", "xlsx", "zip"],
+                "questionBank": ["md", "docx", "xlsx", "zip"],
+                "diagramSource": ["mmd", "md", "zip"],
+                "trigger": "知识点、会议纪要、PPT 大纲和题库 JSON 返回后由 AI Server 自动生成附件",
+                "tools": GENERATED_CONTENT_TOOLS,
+            },
             "imageHandling": {
                 "docx": "原生 PDF 文字会重建为 Word 文字，图片单独保留；不支持扫描件 OCR",
                 "pptxDocx": "PPTX 转 DOCX 会按幻灯片顺序重排内容，保留文本、表格和图片",
@@ -111,12 +161,33 @@ def get_rag_framework(
     _require_authorization(authorization)
     return {
         "knowledgeBaseBoundary": "第三方知识库能力由 Java 后端连接并对外代理；AI Server 只负责模型、多智能体、文件转换和工具编排。",
-        "coverage": [],
+        "coverage": [
+            {
+                "name": "generated_export_tools",
+                "category": "content_export",
+                "purpose": "把智能体生成结果自动转换为可下载附件，而不是只在会话中展示长文本。",
+                "status": "implemented",
+            },
+            {
+                "name": "question_bank_validation",
+                "category": "quality_gate",
+                "purpose": "题库智能体必须先通过严格 JSON schema 校验，不合格结果不允许导入。",
+                "status": "implemented",
+            },
+            {
+                "name": "agent_enabled_gate",
+                "category": "runtime_control",
+                "purpose": "Leader 路由到关闭的智能体时跳过执行，后台开关是运行边界。",
+                "status": "implemented",
+            },
+        ],
+        "generatedTools": GENERATED_CONTENT_TOOLS,
         "runtimeFolders": {
             "modelProviders": "app/model_providers",
             "multiAgents": "app/multi_agents",
             "langgraphWorkflow": "app/langgraph",
             "documentConversion": "app/rag/document_conversion",
+            "generatedContentExports": "AI_SERVER_EXPORT_ROOT 或系统临时目录/agent-a3-ai-exports",
             "textToSql": "app/rag/structured",
         },
         "modelProviders": [
@@ -176,6 +247,7 @@ def get_rag_framework(
             "POST /internal/rag/query",
             "POST /internal/rag/pdf/convert",
             "POST /internal/rag/ppt/convert",
+            "AUTO generated_export_tools: md/docx/xlsx/zip/mmd attachments for generated content",
             "GET /internal/rag/text-to-sql/schema",
             "POST /internal/rag/text-to-sql/execute",
         ],
@@ -364,6 +436,8 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
             return _run_text_to_sql_tool(request, plan)
         if plan.tool_name == "java_schedule_api":
             return _run_schedule_tool(request, authorization, plan)
+        if plan.tool_name == "generated_export_tools":
+            return _run_generated_export_tool(request, plan)
 
     agent_profile = get_agent_profile(plan.target_agent)
     if not agent_profile:
@@ -503,6 +577,17 @@ def _profile_evidence_from_request(request: RagQueryRequest) -> List[Dict[str, A
     }]
 
 
+def _output_preference_hints_from_request(request: RagQueryRequest) -> Dict[str, Any]:
+    return _output_preference_hints(_profile_context_from_request(request))
+
+
+def _output_preference_hints(profile_context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(profile_context, dict):
+        return {}
+    hints = profile_context.get("outputPreferenceHints")
+    return hints if isinstance(hints, dict) else {}
+
+
 def _run_agent_without_local_retrieval(
     request: RagQueryRequest,
     active_agent: str,
@@ -531,6 +616,7 @@ def _run_agent_without_local_retrieval(
         "strategyLabel": "直接执行智能体",
         "answerType": answer_type,
         "profileContextUsed": bool(profile_evidence),
+        "outputPreferenceHints": _output_preference_hints_from_request(request),
     }
     if leader_plan:
         metadata.update({
@@ -576,6 +662,7 @@ def _run_leader_direct_answer(plan, profile_context: Optional[Dict[str, Any]] = 
         "strategyLabel": "直接回答（不使用 RAG）",
         "answerType": "text",
         "profileContextUsed": bool(profile_context),
+        "outputPreferenceHints": _output_preference_hints(profile_context),
     }
     return _decorate_output_response(RagQueryResponse(
         strategy="leader_direct_answer",
@@ -611,6 +698,7 @@ def _run_direct_agent(
         "executionModeLabel": "Leader 分发给非检索智能体" if leader_plan else "专业智能体直接处理",
         "answerType": answer_type,
         "profileContextUsed": bool(profile_evidence),
+        "outputPreferenceHints": _output_preference_hints_from_request(request),
     }
     if leader_plan:
         metadata.update({
@@ -681,6 +769,48 @@ def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResp
     ))
 
 
+def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQueryResponse:
+    metadata = {
+        "agentName": "leader_agent",
+        "targetAgent": "generated_export_tools",
+        "executedAgent": "generated_export_tools",
+        "intent": leader_plan.intent,
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "leaderAction": leader_plan.action,
+        "leaderActionLabel": _leader_action_label(leader_plan.action),
+        "toolName": leader_plan.tool_name,
+        "routeReason": leader_plan.route_reason,
+        "strategyLabel": "内容导出工具",
+        "executionMode": "leader_call_tool",
+        "executionModeLabel": "Leader 调用内容导出工具",
+        "answerType": "document_export",
+        "requestedOutputType": "document",
+        "allowGeneratedExportTool": True,
+    }
+    parsed_input = _try_parse_json_object(request.input)
+    export_answer_type = "question_bank" if isinstance(parsed_input.get("questions"), list) else "markdown"
+    export_result = export_generated_answer(request.input, export_answer_type, metadata)
+    if not export_result.attachments:
+        raise HTTPException(status_code=400, detail="当前内容无法导出，请提供 Markdown 文本或标准题库 JSON")
+    metadata["generatedExports"] = export_result.diagnostics
+    metadata.pop("allowGeneratedExportTool", None)
+    formats = "、".join(item.get("ext", "").upper() for item in export_result.attachments if item.get("ext"))
+    answer = f"已按文件形式整理完成，生成附件格式：{formats or '文件'}。"
+    return _decorate_output_response(RagQueryResponse(
+        strategy="generated_export_tools",
+        answer=answer,
+        answerType="document_export",
+        documents=[],
+        trace=[
+            RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+            RagTraceResponse(stage="tool_call", detail={"toolName": leader_plan.tool_name, **export_result.diagnostics}),
+        ],
+        metadata=metadata,
+        attachments=export_result.attachments,
+    ))
+
+
 def _format_text_to_sql_answer(metadata: Dict[str, Any]) -> str:
     sql = str(metadata.get("sql") or "").strip()
     if not sql:
@@ -747,8 +877,17 @@ def _run_schedule_tool(request: RagQueryRequest, authorization: str, leader_plan
 
 
 def _decorate_output_response(response: RagQueryResponse) -> RagQueryResponse:
-    attachments = _extract_response_attachments(response.answer)
+    if response.metadata is None:
+        response.metadata = {}
+    existing_attachments = response.attachments if isinstance(response.attachments, list) else []
+    extracted_attachments = _extract_response_attachments(response.answer)
+    export_result = export_generated_answer(response.answer, response.answerType, response.metadata)
+    attachments = _merge_attachments(existing_attachments, extracted_attachments, export_result.attachments)
+    export_diagnostics = export_result.diagnostics
+    if not export_result.attachments and isinstance(response.metadata.get("generatedExports"), dict):
+        export_diagnostics = response.metadata["generatedExports"]
     output_types = _infer_output_types(response.answerType, response.metadata, attachments)
+    follow_up_actions = _follow_up_actions_for_output(response.answerType, response.metadata, output_types)
     response.attachments = attachments
     response.outputTypes = output_types
     response.outputType = output_types[0] if output_types else "text"
@@ -756,14 +895,32 @@ def _decorate_output_response(response: RagQueryResponse) -> RagQueryResponse:
         "pushStrategy": _push_strategy_for_output(response.answerType, response.metadata, output_types),
         "attachmentCount": len(attachments),
         "displayPolicy": "App 会话页优先展示结构化附件；文本中出现图片/文档链接时也会转成卡片。",
+        "generatedExports": export_diagnostics,
+        "followUpActions": follow_up_actions,
+        "choicePrompt": _choice_prompt_for_output(response.metadata, output_types, follow_up_actions),
+        "outputPreferenceHints": (response.metadata or {}).get("outputPreferenceHints") or {},
     }
-    if response.metadata is None:
-        response.metadata = {}
     response.metadata["outputType"] = response.outputType
     response.metadata["outputTypes"] = output_types
     response.metadata["attachmentCount"] = len(attachments)
     response.metadata["pushStrategy"] = response.outputMeta["pushStrategy"]
+    response.metadata["generatedExports"] = export_diagnostics
     return response
+
+
+def _merge_attachments(*groups: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    normalized: List[Dict[str, Any]] = []
+    seen = set()
+    for group in groups:
+        for item in group or []:
+            if not item:
+                continue
+            url = str(item.get("url") or "").strip()
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            normalized.append(item)
+    return normalized
 
 
 def _infer_output_types(answer_type: str, metadata: Dict[str, Any], attachments: List[Dict[str, Any]]) -> List[str]:
@@ -808,8 +965,8 @@ def _push_strategy_for_output(answer_type: str, metadata: Dict[str, Any], output
     if "document" in output_types:
         return {
             "pushType": "document",
-            "trigger": "用户要求导出、转换、下载、生成 Word/PDF/PPT/Excel 文档或上传 PPTX 转 DOCX 时触发。",
-            "agent": agent or "document_agent",
+            "trigger": "用户要求导出、转换、下载、生成 Word/PDF/PPT/Excel 文档，或知识/题库内容更适合文件阅读时触发。",
+            "agent": agent or "generated_export_tools",
             "display": "以文档卡片推送到会话页，支持点击打开；不支持打开时复制链接。",
         }
     return {
@@ -820,6 +977,71 @@ def _push_strategy_for_output(answer_type: str, metadata: Dict[str, Any], output
     }
 
 
+def _follow_up_actions_for_output(answer_type: str, metadata: Dict[str, Any], output_types: List[str]) -> List[Dict[str, Any]]:
+    metadata = metadata or {}
+    agent = str(metadata.get("executedAgent") or metadata.get("targetAgent") or "").strip()
+    hints = metadata.get("outputPreferenceHints") if isinstance(metadata.get("outputPreferenceHints"), dict) else {}
+    preferred_format = str(hints.get("preferredFormat") or "").strip()
+    confidence_level = str(hints.get("confidenceLevel") or "").strip()
+    convertible_agents = {
+        "leader_agent",
+        "textbook_knowledge_agent",
+        "meeting_summary_agent",
+        "meeting_resource_recommendation_agent",
+        "ppt_outline_agent",
+        "ppt_layout_agent",
+        "diagram_mind_map_agent",
+        "diagram_flowchart_agent",
+        "diagram_activity_agent",
+        "diagram_architecture_agent",
+    }
+
+    actions: List[Dict[str, Any]] = []
+    if "document" in output_types:
+        actions.append(_follow_up_action("再来图片版", "请在当前内容基础上，再生成图片形式或图解版。", "image", "secondary"))
+    elif "image" in output_types:
+        actions.append(_follow_up_action("生成文件版", "请在当前内容基础上，整理成文件或文档形式。", "document", "secondary"))
+    elif agent in convertible_agents or str(answer_type or "").startswith("mermaid"):
+        if preferred_format == "document" and confidence_level in {"high", "medium"}:
+            actions.append(_follow_up_action("生成文件版", "请把刚才的内容整理成文件或文档形式。", "document", "primary"))
+            actions.append(_follow_up_action("再来图片版", "请把刚才的内容再生成图片形式或图解版。", "image", "secondary"))
+        elif preferred_format == "image" and confidence_level in {"high", "medium"}:
+            actions.append(_follow_up_action("生成图片版", "请把刚才的内容生成图片形式或图解版。", "image", "primary"))
+            actions.append(_follow_up_action("再来文件版", "请把刚才的内容整理成文件或文档形式。", "document", "secondary"))
+        else:
+            actions.append(_follow_up_action("生成文件版", "请把刚才的内容整理成文件或文档形式。", "document", "primary"))
+            actions.append(_follow_up_action("生成图片版", "请把刚才的内容生成图片形式或图解版。", "image", "primary"))
+
+    return actions[:3]
+
+
+def _follow_up_action(label: str, prompt: str, output_type: str, style: str) -> Dict[str, Any]:
+    return {
+        "label": label,
+        "prompt": prompt,
+        "outputType": output_type,
+        "style": style,
+        "rememberPreference": True,
+    }
+
+
+def _choice_prompt_for_output(metadata: Dict[str, Any], output_types: List[str], follow_up_actions: List[Dict[str, Any]]) -> str:
+    if not follow_up_actions:
+        return ""
+    hints = metadata.get("outputPreferenceHints") if isinstance((metadata or {}).get("outputPreferenceHints"), dict) else {}
+    preferred_format = str(hints.get("preferredFormat") or "").strip()
+    confidence_level = str(hints.get("confidenceLevel") or "").strip()
+    if "document" in output_types:
+        return "已按文件形式推送；如果还需要图片形式，可以继续生成图片版。"
+    if "image" in output_types:
+        return "已按图片形式推送；如果还需要文件形式，可以继续生成文件版。"
+    if preferred_format == "document" and confidence_level in {"high", "medium"}:
+        return "根据你最近的选择，我会优先给文件版；也可以补一份图片版。"
+    if preferred_format == "image" and confidence_level in {"high", "medium"}:
+        return "根据你最近的选择，我会优先给图片版；也可以补一份文件版。"
+    return "这类内容可以继续做成文件版或图片版，你可以选一种。"
+
+
 def _extract_response_attachments(answer: str) -> List[Dict[str, Any]]:
     content = str(answer or "")
     attachments: List[Dict[str, Any]] = []
@@ -828,7 +1050,7 @@ def _extract_response_attachments(answer: str) -> List[Dict[str, Any]]:
         attachments.extend(_attachments_from_json_payload(parsed))
 
     markdown_pattern = re.compile(
-        r"!?\[([^\]]+)\]\(((?:https?://|/uploads/)[^\s\"'<>，。！？；、)]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv)(?:\?[^\s\"'<>，。！？；、)]*)?)\)",
+        r"!?\[([^\]]+)\]\(((?:https?://|/uploads/)[^\s\"'<>，。！？；、)]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv|md|mmd|zip)(?:\?[^\s\"'<>，。！？；、)]*)?)\)",
         re.IGNORECASE,
     )
     for match in markdown_pattern.finditer(content):
@@ -836,7 +1058,7 @@ def _extract_response_attachments(answer: str) -> List[Dict[str, Any]]:
 
     plain_text = markdown_pattern.sub("", content)
     url_pattern = re.compile(
-        r"(?:https?://|/uploads/)[^\s\"'<>，。！？；、]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv)(?:\?[^\s\"'<>，。！？；、]*)?",
+        r"(?:https?://|/uploads/)[^\s\"'<>，。！？；、]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv|md|mmd|zip)(?:\?[^\s\"'<>，。！？；、]*)?",
         re.IGNORECASE,
     )
     for match in url_pattern.finditer(plain_text):
@@ -993,6 +1215,7 @@ def _strategy_label(strategy_name: str) -> str:
         "leader_direct_answer": "Leader 直接回答",
         "direct_agent": "直接处理",
         "java_schedule_api": "Java 课表接口",
+        "generated_export_tools": "内容导出工具",
         "text_to_sql": "Text-to-SQL",
     }
     if strategy_name in custom_labels:

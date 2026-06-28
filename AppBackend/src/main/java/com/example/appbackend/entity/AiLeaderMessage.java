@@ -29,6 +29,21 @@ public class AiLeaderMessage {
     @Column(name = "answer_type", length = 40, columnDefinition = "VARCHAR(40) COMMENT '回答内容类型'")
     private String answerType;
 
+    @Column(name = "output_type", length = 40, columnDefinition = "VARCHAR(40) COMMENT '前端展示主类型'")
+    private String outputType;
+
+    @Lob
+    @Column(name = "output_types_json", columnDefinition = "LONGTEXT COMMENT '前端展示类型JSON数组'")
+    private String outputTypesJson;
+
+    @Lob
+    @Column(name = "output_meta_json", columnDefinition = "LONGTEXT COMMENT '输出展示元信息JSON'")
+    private String outputMetaJson;
+
+    @Lob
+    @Column(name = "attachments_json", columnDefinition = "LONGTEXT COMMENT '结构化附件JSON数组'")
+    private String attachmentsJson;
+
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     private LocalDateTime createTime;
 

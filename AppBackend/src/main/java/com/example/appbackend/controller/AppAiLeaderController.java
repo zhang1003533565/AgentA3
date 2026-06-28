@@ -15,6 +15,8 @@ import com.example.appbackend.repository.AiLeaderMessageRepository;
 import com.example.appbackend.repository.AiLeaderSessionRepository;
 import com.example.appbackend.service.UserProfileService;
 import com.example.appbackend.service.impl.PythonAiProxyService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -54,15 +56,18 @@ public class AppAiLeaderController {
     private final AiLeaderSessionRepository sessionRepository;
     private final AiLeaderMessageRepository messageRepository;
     private final UserProfileService userProfileService;
+    private final ObjectMapper objectMapper;
 
     public AppAiLeaderController(PythonAiProxyService pythonAiProxyService,
                                  AiLeaderSessionRepository sessionRepository,
                                  AiLeaderMessageRepository messageRepository,
-                                 UserProfileService userProfileService) {
+                                 UserProfileService userProfileService,
+                                 ObjectMapper objectMapper) {
         this.pythonAiProxyService = pythonAiProxyService;
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
         this.userProfileService = userProfileService;
+        this.objectMapper = objectMapper;
     }
 
     @PostMapping("/query")
@@ -77,7 +82,7 @@ public class AppAiLeaderController {
 
         Object ragResult = pythonAiProxyService.queryRag(payload, httpRequest.getHeader("Authorization"));
         LlmChatResponse response = toChatResponse(session, ragResult);
-        saveMessage(session, AiLeaderMessage.ROLE_ASSISTANT, response.getAnswer(), response.getAnswerType());
+        saveAssistantMessage(session, response);
         refreshSession(session, response.getAnswer());
         captureLeaderProfileEvidence(userId, session, request, response);
         return Result.success(response);
@@ -99,7 +104,7 @@ public class AppAiLeaderController {
                 return;
             }
             LlmChatResponse response = toChatResponse(session, eventPayload);
-            saveMessage(session, AiLeaderMessage.ROLE_ASSISTANT, response.getAnswer(), response.getAnswerType());
+            saveAssistantMessage(session, response);
             refreshSession(session, response.getAnswer());
             captureLeaderProfileEvidence(userId, session, request, response);
         });
@@ -219,6 +224,31 @@ public class AppAiLeaderController {
         }
         List<UserProfileDTO.EvidenceRequest> evidenceList = new ArrayList<>();
         String objectName = inferObjectName(input);
+        String chosenOutputFormat = inferChosenOutputFormat(input);
+
+        if ("document".equals(chosenOutputFormat)) {
+            evidenceList.add(buildLeaderEvidence(
+                    session,
+                    response,
+                    "resource_preference",
+                    "increase",
+                    3,
+                    "文件/文档",
+                    "用户在 Leader 对话中选择文件或文档形式：" + truncate(input, 520),
+                    List.of("文件", "文档", "输出形式偏好")
+            ));
+        } else if ("image".equals(chosenOutputFormat)) {
+            evidenceList.add(buildLeaderEvidence(
+                    session,
+                    response,
+                    "resource_preference",
+                    "increase",
+                    3,
+                    "图片/图解",
+                    "用户在 Leader 对话中选择图片或图解形式：" + truncate(input, 520),
+                    List.of("图片", "图解", "输出形式偏好")
+            ));
+        }
 
         if (containsAny(input, "不会", "不懂", "没懂", "不清楚", "薄弱", "卡住", "错题", "哪里错", "看不懂")) {
             evidenceList.add(buildLeaderEvidence(
@@ -244,7 +274,8 @@ public class AppAiLeaderController {
                     List.of(objectName, "学习目标")
             ));
         }
-        if (containsAny(input, "图解", "图片", "流程图", "思维导图", "视频", "代码", "例子", "案例", "文档", "markdown", "表格")) {
+        if (!StringUtils.hasText(chosenOutputFormat)
+                && containsAny(input, "图解", "图片", "流程图", "思维导图", "视频", "代码", "例子", "案例", "文件", "文档", "word", "pdf", "ppt", "markdown", "表格")) {
             evidenceList.add(buildLeaderEvidence(
                     session,
                     response,
@@ -313,6 +344,32 @@ public class AppAiLeaderController {
         return normalized.equals("textbook_knowledge_agent") || normalized.startsWith("textbook_question_");
     }
 
+    private String inferChosenOutputFormat(String input) {
+        if (!StringUtils.hasText(input)) {
+            return "";
+        }
+        String normalized = input.replaceAll("\\s+", "").toLowerCase();
+        boolean rejectImage = containsAny(normalized, "不要图片", "不用图片", "不是图片", "别发图片", "不需要图片");
+        boolean rejectDocument = containsAny(normalized, "不要文件", "不用文件", "不是文件", "别发文件", "不需要文件", "不要文档");
+        boolean wantsDocument = containsAny(
+                normalized,
+                "要文件", "文件形式", "文件版", "推送文件", "发文件", "生成文件",
+                "要文档", "文档形式", "文档版", "word", "docx", "pdf", "ppt", "excel", "表格", "下载版"
+        );
+        boolean wantsImage = containsAny(
+                normalized,
+                "要图片", "图片形式", "图片版", "推送图片", "发图片", "生成图片",
+                "要图解", "图解形式", "图解版", "配图", "海报", "png", "jpg"
+        );
+        if (wantsDocument && !rejectDocument && (!wantsImage || rejectImage)) {
+            return "document";
+        }
+        if (wantsImage && !rejectImage && (!wantsDocument || rejectDocument)) {
+            return "image";
+        }
+        return "";
+    }
+
     private AiLeaderSession getOrCreateSession(Long userId, String requestedSessionId, String firstInput) {
         String sessionId = StringUtils.hasText(requestedSessionId)
                 ? requestedSessionId.trim()
@@ -335,6 +392,19 @@ public class AppAiLeaderController {
         message.setRole(role);
         message.setContent(content == null ? "" : content);
         message.setAnswerType(answerType);
+        messageRepository.save(message);
+    }
+
+    private void saveAssistantMessage(AiLeaderSession session, LlmChatResponse response) {
+        AiLeaderMessage message = new AiLeaderMessage();
+        message.setLeaderSessionId(session.getId());
+        message.setRole(AiLeaderMessage.ROLE_ASSISTANT);
+        message.setContent(response == null || response.getAnswer() == null ? "" : response.getAnswer());
+        message.setAnswerType(response == null ? "text" : response.getAnswerType());
+        message.setOutputType(response == null ? "text" : response.getOutputType());
+        message.setOutputTypesJson(writeJson(response == null ? List.of() : response.getOutputTypes()));
+        message.setOutputMetaJson(writeJson(response == null ? Map.of() : response.getOutputMeta()));
+        message.setAttachmentsJson(writeJson(response == null ? List.of() : response.getAttachments()));
         messageRepository.save(message);
     }
 
@@ -373,6 +443,10 @@ public class AppAiLeaderController {
         item.setRole(message.getRole());
         item.setContent(message.getContent());
         item.setAnswerType(message.getAnswerType());
+        item.setOutputType(message.getOutputType());
+        item.setOutputTypes(readStringList(message.getOutputTypesJson()));
+        item.setOutputMeta(readMap(message.getOutputMetaJson()));
+        item.setAttachments(readMapList(message.getAttachmentsJson()));
         item.setCreateTime(message.getCreateTime());
         return item;
     }
@@ -414,6 +488,47 @@ public class AppAiLeaderController {
                     .toList();
         }
         return List.of();
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value == null ? List.of() : value);
+        } catch (Exception error) {
+            return "[]";
+        }
+    }
+
+    private List<String> readStringList(String json) {
+        if (!StringUtils.hasText(json)) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<String>>() {});
+        } catch (Exception error) {
+            return List.of();
+        }
+    }
+
+    private Map<String, Object> readMap(String json) {
+        if (!StringUtils.hasText(json)) {
+            return Map.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception error) {
+            return Map.of();
+        }
+    }
+
+    private List<Map<String, Object>> readMapList(String json) {
+        if (!StringUtils.hasText(json)) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<Map<String, Object>>>() {});
+        } catch (Exception error) {
+            return List.of();
+        }
     }
 
     private boolean containsAny(String text, String... tokens) {

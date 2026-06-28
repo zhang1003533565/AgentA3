@@ -73,6 +73,21 @@
                 </view>
               </view>
             </view>
+            <view
+              v-if="message.role === 'assistant' && (getMessageChoicePrompt(message) || getFollowUpActions(message).length)"
+              class="follow-up-panel"
+            >
+              <text v-if="getMessageChoicePrompt(message)" class="follow-up-prompt">{{ getMessageChoicePrompt(message) }}</text>
+              <view v-if="getFollowUpActions(message).length" class="follow-up-actions">
+                <view
+                  v-for="(action, actionIndex) in getFollowUpActions(message)"
+                  :key="`${message.localId || message.id}-follow-${actionIndex}`"
+                  class="follow-up-action"
+                  :class="action.style === 'secondary' ? 'follow-up-action--secondary' : 'follow-up-action--primary'"
+                  @click="handleFollowUpAction(action)"
+                >{{ action.label }}</view>
+              </view>
+            </view>
           </view>
         </view>
       </view>
@@ -433,10 +448,10 @@ export default {
       return files.filter(Boolean)
     },
     markdownAttachmentPattern() {
-      return /!?\[([^\]]+)\]\(((?:https?:\/\/|\/uploads\/)[^\s"'<>，。！？；、)]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv)(?:\?[^\s"'<>，。！？；、)]*)?)\)/gi
+      return /!?\[([^\]]+)\]\(((?:https?:\/\/|\/uploads\/)[^\s"'<>，。！？；、)]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv|md|mmd|zip)(?:\?[^\s"'<>，。！？；、)]*)?)\)/gi
     },
     attachmentUrlPattern() {
-      return /(?:https?:\/\/|\/uploads\/)[^\s"'<>，。！？；、]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv)(?:\?[^\s"'<>，。！？；、]*)?/gi
+      return /(?:https?:\/\/|\/uploads\/)[^\s"'<>，。！？；、]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv|md|mmd|zip)(?:\?[^\s"'<>，。！？；、]*)?/gi
     },
     buildAttachment(url, name, typeHint) {
       const ext = this.fileExt(name || url)
@@ -511,6 +526,22 @@ export default {
         fail: openWithUrl,
         complete: () => uni.hideLoading()
       })
+    },
+    getMessageChoicePrompt(message) {
+      return String(message?.outputMeta?.choicePrompt || '').trim()
+    },
+    getFollowUpActions(message) {
+      const actions = message?.outputMeta?.followUpActions
+      return Array.isArray(actions)
+        ? actions
+          .filter((item) => item && item.label && item.prompt)
+          .slice(0, 3)
+        : []
+    },
+    handleFollowUpAction(action) {
+      if (!action?.prompt || this.sending) return
+      this.inputValue = action.prompt
+      this.sendMessage()
     }
   }
 }
@@ -794,6 +825,47 @@ export default {
 .attachment-file__meta {
   font-size: 22rpx;
   color: #7B8794;
+}
+
+.follow-up-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+  padding-top: 4rpx;
+}
+
+.follow-up-prompt {
+  font-size: 24rpx;
+  line-height: 1.55;
+  color: #64748B;
+}
+
+.follow-up-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.follow-up-action {
+  min-height: 54rpx;
+  padding: 0 18rpx;
+  border-radius: 999rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+
+.follow-up-action--primary {
+  background: #E8F1FF;
+  color: #2F6FE4;
+}
+
+.follow-up-action--secondary {
+  background: #F4F7FB;
+  color: #526070;
+  border: 1rpx solid rgba(100, 116, 139, 0.12);
 }
 
 .thinking-indicator {
