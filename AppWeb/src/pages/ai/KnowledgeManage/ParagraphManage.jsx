@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
-  Avatar,
   Button,
   Checkbox,
   Dropdown,
@@ -17,19 +16,14 @@ import {
 } from 'antd'
 import {
   ArrowLeftOutlined,
-  BookOutlined,
   CheckOutlined,
-  CommentOutlined,
   DeleteOutlined,
   EditOutlined,
   HolderOutlined,
   PlusCircleOutlined,
   PlusOutlined,
   SearchOutlined,
-  SettingOutlined,
   ThunderboltOutlined,
-  UserOutlined,
-  AppstoreOutlined,
   MoreOutlined,
 } from '@ant-design/icons'
 import {
@@ -37,7 +31,6 @@ import {
   getMaxKbAccounts,
   getMaxKbKnowledgeDetail,
   getMaxKbParagraphs,
-  runMaxKbHitTest,
 } from '../../../api/maxkbKnowledge'
 import './ParagraphManage.css'
 
@@ -274,7 +267,6 @@ function ParagraphManage() {
   const [search, setSearch] = useState('')
   const [batchMode, setBatchMode] = useState(false)
   const [selectedKeys, setSelectedKeys] = useState([])
-  const [hitLoading, setHitLoading] = useState(false)
 
   const selectedKeySet = useMemo(() => new Set(selectedKeys), [selectedKeys])
   const checkedAll = paragraphRows.length > 0 && selectedKeys.length === paragraphRows.length
@@ -338,30 +330,6 @@ function ParagraphManage() {
     fetchParagraphs()
   }, [])
 
-  const runQuickHitTest = async () => {
-    const nextAccountId = await ensureAccountId()
-    const firstContent = paragraphRows[0]?.content || paragraphRows[0]?.text
-    if (!nextAccountId || !knowledgeId || !firstContent) {
-      message.warning('暂无可用于召回测试的分段内容')
-      return
-    }
-    setHitLoading(true)
-    try {
-      await runMaxKbHitTest(nextAccountId, {
-        knowledge_id: knowledgeId,
-        query_text: String(firstContent).slice(0, 80),
-        top_number: 5,
-        similarity: 0.6,
-        search_mode: 'blend',
-      })
-      message.success('召回测试已发送')
-    } catch (error) {
-      message.error(error.message || '召回测试失败')
-    } finally {
-      setHitLoading(false)
-    }
-  }
-
   const toggleSelect = (key) => {
     setSelectedKeys((prev) => (
       prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]
@@ -382,20 +350,6 @@ function ParagraphManage() {
 
   return (
     <div className="maxkb-paragraph-page">
-      <header className="maxkb-paragraph-topbar">
-        <div className="maxkb-paragraph-brand">
-          <div className="maxkb-paragraph-brand-mark">Z</div>
-          <strong>流光知识库</strong>
-        </div>
-        <nav className="maxkb-paragraph-topnav">
-          <Button type="primary" icon={<BookOutlined />} onClick={() => navigate('/ai/knowledge')}>知识库</Button>
-          <Button type="text" icon={<CommentOutlined />} loading={hitLoading} onClick={runQuickHitTest}>聊天测试</Button>
-          <Button type="text" icon={<AppstoreOutlined />} onClick={() => unsupportedAction('模型')}>模型</Button>
-          <Button type="text" icon={<SettingOutlined />} onClick={() => navigate('/ai/knowledge')}>系统管理</Button>
-          <Avatar className="maxkb-paragraph-avatar" icon={<UserOutlined />} />
-        </nav>
-      </header>
-
       <div className="maxkb-paragraph-titlebar">
         <div className="maxkb-paragraph-title">
           <Button type="text" icon={<ArrowLeftOutlined />} onClick={backToDocuments} />

@@ -2,9 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Avatar,
   Button,
-  Descriptions,
   Drawer,
   Dropdown,
   Empty,
@@ -25,10 +23,9 @@ import {
 } from 'antd'
 import {
   ApiOutlined,
-  AppstoreOutlined,
   ArrowLeftOutlined,
-  BookOutlined,
   CheckCircleFilled,
+  CloseCircleFilled,
   CloudUploadOutlined,
   ClusterOutlined,
   CommentOutlined,
@@ -39,6 +36,7 @@ import {
   FileTextOutlined,
   FilterOutlined,
   FontSizeOutlined,
+  LoadingOutlined,
   MoreOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -49,7 +47,6 @@ import {
   TagsOutlined,
   ThunderboltOutlined,
   UploadOutlined,
-  UserOutlined,
 } from '@ant-design/icons'
 import {
   createMaxKbAccount,
@@ -58,7 +55,6 @@ import {
   getMaxKbDocuments,
   getMaxKbEnvironments,
   getMaxKbKnowledges,
-  runMaxKbHitTest,
   testMaxKbAccount,
   updateMaxKbAccount,
   updateMaxKbAccountStatus,
@@ -76,12 +72,6 @@ const environmentColors = {
   custom: 'purple',
 }
 
-const searchModeOptions = [
-  { value: 'blend', label: '混合检索' },
-  { value: 'embedding', label: '向量检索' },
-  { value: 'keywords', label: '关键词检索' },
-]
-
 const splitStrategyOptions = [
   { value: '', label: '默认分段' },
   { value: 'llm_text', label: '大模型文本分段' },
@@ -92,7 +82,6 @@ const menuItems = [
   { key: 'document', label: '文档', icon: <FileTextOutlined /> },
   { key: 'problem', label: '问题', icon: <CommentOutlined /> },
   { key: 'termbase', label: '自定义分词', icon: <FontSizeOutlined /> },
-  { key: 'hit', label: '召回测试', icon: <ThunderboltOutlined /> },
   { key: 'setting', label: '设置', icon: <SettingOutlined /> },
 ]
 
@@ -125,16 +114,6 @@ const normalizePage = (response) => {
   }
 }
 
-const normalizeRows = (response) => {
-  const payload = unwrapMaxKbPayload(response)
-  if (Array.isArray(payload)) return payload
-  if (Array.isArray(payload?.records)) return payload.records
-  if (Array.isArray(payload?.list)) return payload.list
-  if (Array.isArray(payload?.items)) return payload.items
-  if (Array.isArray(payload?.documents)) return payload.documents
-  return payload ? [payload] : []
-}
-
 const textValue = (...values) => {
   const value = values.find((item) => item !== undefined && item !== null && item !== '')
   return value === undefined ? '-' : String(value)
@@ -153,30 +132,115 @@ const recordKey = (record) => (
   record?.id || record?.document_id || record?.paragraph_id || record?.uuid || JSON.stringify(record).slice(0, 80)
 )
 
-const statusText = (record) => {
+const maxKbTaskType = {
+  EMBEDDING: 1,
+  GENERATE_PROBLEM: 2,
+  SYNC: 3,
+  TOKENIZE: 4,
+}
+
+const maxKbState = {
+  PENDING: '0',
+  STARTED: '1',
+  SUCCESS: '2',
+  FAILURE: '3',
+  REVOKE: '4',
+  REVOKED: '5',
+  IGNORED: 'n',
+}
+
+const maxKbStartedText = {
+  [maxKbTaskType.EMBEDDING]: '索引中',
+  [maxKbTaskType.GENERATE_PROBLEM]: '生成中',
+  [maxKbTaskType.SYNC]: '同步中',
+  [maxKbTaskType.TOKENIZE]: '分词索引中',
+}
+
+const maxKbStatusPriority = [
+  maxKbState.REVOKE,
+  maxKbState.STARTED,
+  maxKbState.PENDING,
+  maxKbState.FAILURE,
+  maxKbState.REVOKED,
+  maxKbState.SUCCESS,
+]
+
+const maxKbStateText = {
+  [maxKbState.PENDING]: () => '排队中',
+  [maxKbState.STARTED]: (taskType) => maxKbStartedText[taskType] || '处理中',
+  [maxKbState.REVOKE]: () => '取消中',
+  [maxKbState.REVOKED]: () => '成功',
+  [maxKbState.FAILURE]: () => '失败',
+  [maxKbState.SUCCESS]: () => '成功',
+}
+
+const maxKbStateType = {
+  [maxKbState.SUCCESS]: 'success',
+  [maxKbState.REVOKED]: 'success',
+  [maxKbState.FAILURE]: 'error',
+  [maxKbState.REVOKE]: 'processing',
+  [maxKbState.STARTED]: 'processing',
+  [maxKbState.PENDING]: 'processing',
+}
+
+const decodeMaxKbStatus = (status) => {
+  const value = String(status ?? '').trim().toLowerCase()
+  if (!value || value === 'null' || !/^[012345n]+$/.test(value)) return null
+
+  for (const state of maxKbStatusPriority) {
+    const index = value.indexOf(state)
+    if (index > -1) {
+      const taskType = value.length - index
+      return {
+        text: maxKbStateText[state]?.(taskType) || '未知',
+        type: maxKbStateType[state] || 'unknown',
+      }
+    }
+  }
+  return { text: '未知', type: 'unknown' }
+}
+
+const getDocumentStatusInfo = (record) => {
   const raw = record?.status
+  const maxKbStatus = decodeMaxKbStatus(raw)
+  if (maxKbStatus) return maxKbStatus
+
   if (raw && typeof raw === 'object') {
     const values = Object.values(raw).map((item) => String(item?.state ?? item?.status ?? item).toLowerCase())
-    if (values.some((item) => ['failure', 'failed', 'error'].includes(item))) return '失败'
-    if (values.some((item) => ['started', 'pending', 'running', 'processing'].includes(item))) return '处理中'
-    if (values.some((item) => ['success', 'completed', 'finish', 'done'].includes(item))) return '成功'
+    if (values.some((item) => ['failure', 'failed', 'error'].includes(item))) return { text: '失败', type: 'error' }
+    if (values.some((item) => ['started', 'pending', 'running', 'processing'].includes(item))) {
+      return { text: '处理中', type: 'processing' }
+    }
+    if (values.some((item) => ['success', 'completed', 'finish', 'done'].includes(item))) return { text: '成功', type: 'success' }
   }
   const normalized = String(raw ?? '').toLowerCase()
-  if (!normalized || normalized === 'null') return '未知'
-  if (['success', 'ready', 'available', '1', 'true', 'finish', 'finished', 'completed', 'done'].includes(normalized)) return '成功'
-  if (['failed', 'failure', 'error', '0', 'false'].includes(normalized)) return '失败'
-  if (['running', 'embedding', 'pending', 'processing', 'queue', 'started'].includes(normalized)) return '处理中'
-  return String(raw)
+  if (!normalized || normalized === 'null') return { text: '未知', type: 'unknown' }
+  if (['success', 'ready', 'available', 'true', 'finish', 'finished', 'completed', 'done'].includes(normalized)) {
+    return { text: '成功', type: 'success' }
+  }
+  if (['failed', 'failure', 'error', 'false'].includes(normalized)) return { text: '失败', type: 'error' }
+  if (['running', 'embedding', 'pending', 'processing', 'queue', 'started'].includes(normalized)) {
+    return { text: '处理中', type: 'processing' }
+  }
+  return { text: String(raw), type: 'unknown' }
 }
 
 const StatusValue = ({ record }) => {
-  const value = statusText(record)
-  const isSuccess = value === '成功'
-  const isFailed = value === '失败'
+  const status = getDocumentStatusInfo(record)
+  const isSuccess = status.type === 'success'
+  const isFailed = status.type === 'error'
+  const isProcessing = status.type === 'processing'
+  let icon = <CheckCircleFilled />
+  if (isFailed) {
+    icon = <CloseCircleFilled />
+  } else if (isProcessing) {
+    icon = <LoadingOutlined />
+  }
+
   return (
-    <span className={`maxkb-status-value ${isSuccess ? 'is-success' : ''} ${isFailed ? 'is-error' : ''}`}>
-      <CheckCircleFilled />
-      {value}
+    <span className={`maxkb-status-value ${isSuccess ? 'is-success' : ''} ${isFailed ? 'is-error' : ''} ${isProcessing ? 'is-processing' : ''}`}>
+      {icon}
+      {status.text}
     </span>
   )
 }
@@ -186,7 +250,6 @@ function KnowledgeManage() {
   const [accountSearchForm] = Form.useForm()
   const [accountForm] = Form.useForm()
   const [uploadForm] = Form.useForm()
-  const [hitForm] = Form.useForm()
 
   const [environmentOptions, setEnvironmentOptions] = useState([])
   const [accounts, setAccounts] = useState([])
@@ -216,10 +279,6 @@ function KnowledgeManage() {
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploadFileList, setUploadFileList] = useState([])
   const [uploading, setUploading] = useState(false)
-
-  const [hitOpen, setHitOpen] = useState(false)
-  const [hitLoading, setHitLoading] = useState(false)
-  const [hitRows, setHitRows] = useState([])
 
   const selectedAccount = useMemo(
     () => accounts.find((item) => item.id === selectedAccountId) || null,
@@ -475,43 +534,6 @@ function KnowledgeManage() {
     setUploadOpen(true)
   }
 
-  const openHitTest = (knowledge) => {
-    const targetKnowledge = knowledge || selectedKnowledge
-    setHitOpen(true)
-    setHitRows([])
-    hitForm.setFieldsValue({
-      knowledgeId: targetKnowledge?.id,
-      queryText: '',
-      topNumber: 5,
-      similarity: 0.6,
-      searchMode: 'blend',
-    })
-  }
-
-  const runHitTest = async () => {
-    if (!selectedAccountId) {
-      message.warning('请先选择 MaxKB 账号')
-      return
-    }
-    const values = await hitForm.validateFields()
-    setHitLoading(true)
-    try {
-      const res = await runMaxKbHitTest(selectedAccountId, {
-        knowledge_id: values.knowledgeId,
-        query_text: values.queryText,
-        top_number: values.topNumber,
-        similarity: values.similarity,
-        search_mode: values.searchMode,
-      })
-      setHitRows(normalizeRows(res.data))
-      message.success('召回测试完成')
-    } catch (error) {
-      message.error(error.message || '召回测试失败')
-    } finally {
-      setHitLoading(false)
-    }
-  }
-
   const submitUpload = async () => {
     if (!selectedAccountId || !selectedKnowledge?.id) {
       message.warning('请先选择知识库')
@@ -559,6 +581,10 @@ function KnowledgeManage() {
 
   const unsupportedAction = (label) => {
     message.info(`${label} 需要 MaxKB 对应写入接口开放后才能执行`)
+  }
+
+  const backToAdmin = () => {
+    navigate('/ai/model')
   }
 
   const accountColumns = useMemo(() => [
@@ -745,24 +771,6 @@ function KnowledgeManage() {
     },
   ], [selectedAccountId, selectedKnowledge])
 
-  const hitColumns = useMemo(() => [
-    {
-      title: '内容',
-      dataIndex: 'content',
-      render: (value, record) => (
-        <Space direction="vertical" size={4}>
-          <Text>{textValue(value, record.text, record.title, record.problem_text)}</Text>
-          <Text type="secondary">{textValue(record.document_name, record.documentName, record.knowledge_name, record.knowledgeName)}</Text>
-        </Space>
-      ),
-    },
-    {
-      title: '相似度',
-      width: 120,
-      render: (_, record) => textValue(record.similarity, record.score, record.comprehensive_score),
-    },
-  ], [])
-
   const renderDocumentWorkspace = () => {
     if (!selectedAccount) {
       return (
@@ -889,47 +897,6 @@ function KnowledgeManage() {
   }
 
   const renderSecondaryPanel = () => {
-    if (activeMenu === 'hit') {
-      return (
-        <>
-          <div className="maxkb-content-title">
-            <Title level={2}>召回测试</Title>
-          </div>
-          <div className="maxkb-placeholder-card">
-            <Form form={hitForm} layout="vertical">
-              <Form.Item name="knowledgeId" label="知识库" rules={[{ required: true, message: '请选择知识库' }]}>
-                <Select showSearch optionFilterProp="label" options={knowledgeSelectOptions} placeholder="选择当前账号可访问的知识库" />
-              </Form.Item>
-              <Form.Item name="queryText" label="测试问题" rules={[{ required: true, message: '请输入测试问题' }]}>
-                <TextArea rows={3} placeholder="输入要检索的问题" />
-              </Form.Item>
-              <div className="maxkb-hit-grid">
-                <Form.Item name="topNumber" label="返回数量">
-                  <InputNumber min={1} max={20} style={{ width: '100%' }} />
-                </Form.Item>
-                <Form.Item name="similarity" label="相似度阈值">
-                  <InputNumber min={0} max={1} step={0.05} style={{ width: '100%' }} />
-                </Form.Item>
-                <Form.Item name="searchMode" label="检索模式">
-                  <Select options={searchModeOptions} />
-                </Form.Item>
-              </div>
-              <Button type="primary" loading={hitLoading} icon={<ThunderboltOutlined />} onClick={runHitTest}>运行测试</Button>
-            </Form>
-            <Table
-              rowKey={recordKey}
-              className="maxkb-hit-table"
-              columns={hitColumns}
-              dataSource={hitRows}
-              loading={hitLoading}
-              locale={{ emptyText: <Empty description="运行后显示召回结果" /> }}
-              pagination={{ pageSize: 5 }}
-            />
-          </div>
-        </>
-      )
-    }
-
     const item = menuItems.find((menu) => menu.key === activeMenu)
     return (
       <>
@@ -945,27 +912,11 @@ function KnowledgeManage() {
 
   return (
     <div className="knowledge-maxkb-page">
-      <header className="maxkb-topbar">
-        <div className="maxkb-brand">
-          <div className="maxkb-brand-mark">Z</div>
-          <div>
-            <strong>流光知识库</strong>
-          </div>
-        </div>
-        <nav className="maxkb-topnav">
-          <Button type="primary" icon={<BookOutlined />}>知识库</Button>
-          <Button type="text" icon={<CommentOutlined />} onClick={() => openHitTest()}>聊天测试</Button>
-          <Button type="text" icon={<AppstoreOutlined />} onClick={() => unsupportedAction('模型')}>模型</Button>
-          <Button type="text" icon={<SettingOutlined />} onClick={() => setAccountDrawerOpen(true)}>系统管理</Button>
-          <Avatar className="maxkb-avatar" icon={<UserOutlined />} />
-        </nav>
-      </header>
-
       <div className="maxkb-workbench">
         <aside className="maxkb-inner-sidebar">
           <div className="maxkb-knowledge-head">
             <div className="maxkb-knowledge-title">
-              <Button type="text" icon={<ArrowLeftOutlined />} className="maxkb-back-button" onClick={() => setAccountDrawerOpen(true)} />
+              <Button type="text" icon={<ArrowLeftOutlined />} className="maxkb-back-button" onClick={backToAdmin} />
               <span className="maxkb-knowledge-icon"><FileTextOutlined /></span>
               <Select
                 value={selectedKnowledge?.id}
@@ -1004,18 +955,7 @@ function KnowledgeManage() {
                 key={item.key}
                 type="button"
                 className={`maxkb-menu-item ${activeMenu === item.key ? 'is-active' : ''}`}
-                onClick={() => {
-                  setActiveMenu(item.key)
-                  if (item.key === 'hit') {
-                    hitForm.setFieldsValue({
-                      knowledgeId: selectedKnowledge?.id,
-                      queryText: '',
-                      topNumber: 5,
-                      similarity: 0.6,
-                      searchMode: 'blend',
-                    })
-                  }
-                }}
+                onClick={() => setActiveMenu(item.key)}
               >
                 {item.icon}
                 <span>{item.label}</span>
@@ -1175,51 +1115,6 @@ function KnowledgeManage() {
         </Form>
       </Modal>
 
-      <Drawer
-        title="知识库召回测试"
-        width={860}
-        open={hitOpen}
-        onClose={() => setHitOpen(false)}
-        extra={<Button type="primary" loading={hitLoading} icon={<ThunderboltOutlined />} onClick={runHitTest}>运行测试</Button>}
-      >
-        <Form form={hitForm} layout="vertical">
-          <Form.Item name="knowledgeId" label="知识库" rules={[{ required: true, message: '请选择知识库' }]}>
-            <Select showSearch optionFilterProp="label" options={knowledgeSelectOptions} placeholder="选择当前账号可访问的知识库" />
-          </Form.Item>
-          <Form.Item name="queryText" label="测试问题" rules={[{ required: true, message: '请输入测试问题' }]}>
-            <TextArea rows={3} placeholder="输入要检索的问题" />
-          </Form.Item>
-          <div className="maxkb-hit-grid">
-            <Form.Item name="topNumber" label="返回数量">
-              <InputNumber min={1} max={20} style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="similarity" label="相似度阈值">
-              <InputNumber min={0} max={1} step={0.05} style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="searchMode" label="检索模式">
-              <Select options={searchModeOptions} />
-            </Form.Item>
-          </div>
-        </Form>
-
-        <Table
-          rowKey={recordKey}
-          className="maxkb-hit-table"
-          columns={hitColumns}
-          dataSource={hitRows}
-          loading={hitLoading}
-          locale={{ emptyText: <Empty description="运行后显示召回结果" /> }}
-          pagination={{ pageSize: 5 }}
-        />
-
-        {hitRows.length ? (
-          <Descriptions className="maxkb-hit-json" column={1} size="small" bordered>
-            <Descriptions.Item label="原始结果">
-              <pre>{JSON.stringify(hitRows, null, 2)}</pre>
-            </Descriptions.Item>
-          </Descriptions>
-        ) : null}
-      </Drawer>
     </div>
   )
 }

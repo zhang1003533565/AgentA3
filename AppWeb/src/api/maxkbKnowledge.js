@@ -74,3 +74,9 @@ export const runMaxKbHitTest = (accountId, data) => request.post(
   data,
   { timeout: 60000 }
 )
+
+export const runKnowledgeAgentChat = (data) => request.post(
+  `${base}/chat`,
+  data,
+  { timeout: 120000 }
+)

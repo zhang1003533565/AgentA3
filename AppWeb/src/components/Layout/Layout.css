@@ -12,17 +12,6 @@
   padding: 22px 24px 28px;
 }
 
-.layout.layout-maxkb-mode {
-  display: block;
-  min-height: 100vh;
-  background: #f5f6f8;
-}
-
-.layout.layout-maxkb-mode .layout-body {
-  min-height: 100vh;
-  padding: 0;
-}
-
 .layout-topbar {
   display: flex;
   justify-content: space-between;

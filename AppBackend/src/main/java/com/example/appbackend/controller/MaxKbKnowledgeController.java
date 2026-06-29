@@ -1,9 +1,11 @@
 package com.example.appbackend.controller;
 
+import com.example.appbackend.dto.KnowledgeChatDTO;
 import com.example.appbackend.dto.MaxKbKnowledgeDTO;
 import com.example.appbackend.dto.PageResponse;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
+import com.example.appbackend.service.KnowledgeChatService;
 import com.example.appbackend.service.MaxKbKnowledgeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -33,9 +35,11 @@ public class MaxKbKnowledgeController {
     private static final String ROLE_ADMIN = "ADMIN";
 
     private final MaxKbKnowledgeService maxKbKnowledgeService;
+    private final KnowledgeChatService knowledgeChatService;
 
-    public MaxKbKnowledgeController(MaxKbKnowledgeService maxKbKnowledgeService) {
+    public MaxKbKnowledgeController(MaxKbKnowledgeService maxKbKnowledgeService, KnowledgeChatService knowledgeChatService) {
         this.maxKbKnowledgeService = maxKbKnowledgeService;
+        this.knowledgeChatService = knowledgeChatService;
     }
 
     @GetMapping("/environments")
@@ -188,6 +192,15 @@ public class MaxKbKnowledgeController {
             HttpServletRequest request) {
         requireAdmin(request);
         return Result.success(maxKbKnowledgeService.hitTest(accountId, body));
+    }
+
+    @PostMapping("/chat")
+    @Operation(summary = "Java 知识库智能体聊天", description = "先用 MaxKB 召回片段，再调用本系统智能体生成回答；不使用 MaxKB 模型")
+    public Result<KnowledgeChatDTO.ChatResponse> chat(
+            @Valid @RequestBody KnowledgeChatDTO.ChatRequest body,
+            HttpServletRequest request) {
+        requireAdmin(request);
+        return Result.success(knowledgeChatService.chat(body, request.getHeader("Authorization")));
     }
 
     private void requireAdmin(HttpServletRequest request) {
