@@ -2,6 +2,7 @@ package com.example.appbackend.service;
 
 import com.example.appbackend.dto.MaxKbKnowledgeDTO;
 import com.example.appbackend.dto.PageResponse;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -49,6 +50,8 @@ public interface MaxKbKnowledgeService {
     );
 
     Object listParagraphs(Long accountId, String knowledgeId, String documentId, Map<String, String> queryParams);
+
+    ResponseEntity<byte[]> proxyAsset(Long accountId, String path);
 
     Object hitTest(Long accountId, Map<String, Object> request);
 }

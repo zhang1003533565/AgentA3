@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -167,6 +168,16 @@ public class MaxKbKnowledgeController {
             HttpServletRequest request) {
         requireAdmin(request);
         return Result.success(maxKbKnowledgeService.listParagraphs(accountId, knowledgeId, documentId, queryParams));
+    }
+
+    @GetMapping("/accounts/{accountId}/assets")
+    @Operation(summary = "代理 MaxKB 文档图片资源", description = "用于渲染分段内容中的 /oss/file 图片")
+    public ResponseEntity<byte[]> proxyAsset(
+            @PathVariable Long accountId,
+            @RequestParam String path,
+            HttpServletRequest request) {
+        requireAdmin(request);
+        return maxKbKnowledgeService.proxyAsset(accountId, path);
     }
 
     @PostMapping("/accounts/{accountId}/hit-test")

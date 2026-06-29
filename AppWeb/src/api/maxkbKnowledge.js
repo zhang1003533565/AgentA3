@@ -1,6 +1,8 @@
+import axios from 'axios'
 import request from '../utils/request'
 
 const base = '/api/knowledge/maxkb'
+const apiBase = import.meta.env.VITE_API_BASE_URL || ''
 
 export const getMaxKbEnvironments = () => request.get(`${base}/environments`)
 
@@ -53,6 +55,19 @@ export const getMaxKbParagraphs = (accountId, knowledgeId, documentId, params = 
   params,
   timeout: 30000,
 })
+
+export const getMaxKbAssetUrl = (accountId, path) =>
+  `${base}/accounts/${accountId}/assets?path=${encodeURIComponent(path || '')}`
+
+export const fetchMaxKbAsset = async (accountId, path) => {
+  const token = localStorage.getItem('token')
+  const response = await axios.get(`${apiBase}${getMaxKbAssetUrl(accountId, path)}`, {
+    responseType: 'blob',
+    timeout: 30000,
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  return response.data
+}
 
 export const runMaxKbHitTest = (accountId, data) => request.post(
   `${base}/accounts/${accountId}/hit-test`,

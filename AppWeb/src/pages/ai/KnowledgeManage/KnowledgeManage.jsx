@@ -1,11 +1,12 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
-  Alert,
+  Avatar,
   Button,
-  Card,
   Descriptions,
   Drawer,
+  Dropdown,
   Empty,
   Form,
   Input,
@@ -17,20 +18,38 @@ import {
   Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
   Upload,
   message,
 } from 'antd'
 import {
   ApiOutlined,
+  AppstoreOutlined,
+  ArrowLeftOutlined,
+  BookOutlined,
+  CheckCircleFilled,
   CloudUploadOutlined,
+  ClusterOutlined,
+  CommentOutlined,
   DeleteOutlined,
+  DownloadOutlined,
   EditOutlined,
-  FileSearchOutlined,
+  ExportOutlined,
+  FileTextOutlined,
+  FilterOutlined,
+  FontSizeOutlined,
+  MoreOutlined,
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
+  SettingOutlined,
+  ShareAltOutlined,
+  StopOutlined,
+  TagsOutlined,
   ThunderboltOutlined,
+  UploadOutlined,
+  UserOutlined,
 } from '@ant-design/icons'
 import {
   createMaxKbAccount,
@@ -39,7 +58,6 @@ import {
   getMaxKbDocuments,
   getMaxKbEnvironments,
   getMaxKbKnowledges,
-  getMaxKbParagraphs,
   runMaxKbHitTest,
   testMaxKbAccount,
   updateMaxKbAccount,
@@ -69,6 +87,21 @@ const splitStrategyOptions = [
   { value: 'llm_text', label: '大模型文本分段' },
   { value: 'llm_vision', label: '大模型视觉分段' },
 ]
+
+const menuItems = [
+  { key: 'document', label: '文档', icon: <FileTextOutlined /> },
+  { key: 'problem', label: '问题', icon: <CommentOutlined /> },
+  { key: 'termbase', label: '自定义分词', icon: <FontSizeOutlined /> },
+  { key: 'hit', label: '召回测试', icon: <ThunderboltOutlined /> },
+  { key: 'setting', label: '设置', icon: <SettingOutlined /> },
+]
+
+const hitHandlingMethodText = {
+  optimization: '模型优化',
+  directly_return: '直接返回',
+  DIRECTLY_RETURN: '直接返回',
+  MODEL_OPTIMIZATION: '模型优化',
+}
 
 const unwrapMaxKbPayload = (response) => {
   let payload = response?.data ?? response
@@ -107,25 +140,51 @@ const textValue = (...values) => {
   return value === undefined ? '-' : String(value)
 }
 
-const statusTag = (value) => {
-  const normalized = String(value ?? '').toLowerCase()
-  if (!normalized || normalized === 'null') return <Tag>未知</Tag>
-  if (['success', 'ready', 'available', '1', 'true', 'finish', 'completed'].includes(normalized)) {
-    return <Tag color="green">{String(value)}</Tag>
+const compactNumber = (...values) => {
+  const value = values.find((item) => item !== undefined && item !== null && item !== '')
+  const number = Number(value)
+  if (Number.isNaN(number)) return textValue(value)
+  if (number >= 10000) return `${(number / 1000).toFixed(1)}k`
+  if (number >= 1000) return `${(number / 1000).toFixed(1)}k`
+  return number.toLocaleString()
+}
+
+const recordKey = (record) => (
+  record?.id || record?.document_id || record?.paragraph_id || record?.uuid || JSON.stringify(record).slice(0, 80)
+)
+
+const statusText = (record) => {
+  const raw = record?.status
+  if (raw && typeof raw === 'object') {
+    const values = Object.values(raw).map((item) => String(item?.state ?? item?.status ?? item).toLowerCase())
+    if (values.some((item) => ['failure', 'failed', 'error'].includes(item))) return '失败'
+    if (values.some((item) => ['started', 'pending', 'running', 'processing'].includes(item))) return '处理中'
+    if (values.some((item) => ['success', 'completed', 'finish', 'done'].includes(item))) return '成功'
   }
-  if (['failed', 'error', '0', 'false'].includes(normalized)) {
-    return <Tag color="red">{String(value)}</Tag>
-  }
-  if (['running', 'embedding', 'pending', 'processing', 'queue'].includes(normalized)) {
-    return <Tag color="gold">{String(value)}</Tag>
-  }
-  return <Tag color="blue">{String(value)}</Tag>
+  const normalized = String(raw ?? '').toLowerCase()
+  if (!normalized || normalized === 'null') return '未知'
+  if (['success', 'ready', 'available', '1', 'true', 'finish', 'finished', 'completed', 'done'].includes(normalized)) return '成功'
+  if (['failed', 'failure', 'error', '0', 'false'].includes(normalized)) return '失败'
+  if (['running', 'embedding', 'pending', 'processing', 'queue', 'started'].includes(normalized)) return '处理中'
+  return String(raw)
+}
+
+const StatusValue = ({ record }) => {
+  const value = statusText(record)
+  const isSuccess = value === '成功'
+  const isFailed = value === '失败'
+  return (
+    <span className={`maxkb-status-value ${isSuccess ? 'is-success' : ''} ${isFailed ? 'is-error' : ''}`}>
+      <CheckCircleFilled />
+      {value}
+    </span>
+  )
 }
 
 function KnowledgeManage() {
+  const navigate = useNavigate()
   const [accountSearchForm] = Form.useForm()
   const [accountForm] = Form.useForm()
-  const [knowledgeForm] = Form.useForm()
   const [uploadForm] = Form.useForm()
   const [hitForm] = Form.useForm()
 
@@ -134,6 +193,7 @@ function KnowledgeManage() {
   const [accountLoading, setAccountLoading] = useState(false)
   const [accountPagination, setAccountPagination] = useState({ current: 1, pageSize: 10, total: 0 })
   const [selectedAccountId, setSelectedAccountId] = useState(null)
+  const [accountDrawerOpen, setAccountDrawerOpen] = useState(false)
   const [accountModalOpen, setAccountModalOpen] = useState(false)
   const [editingAccount, setEditingAccount] = useState(null)
   const [savingAccount, setSavingAccount] = useState(false)
@@ -141,18 +201,17 @@ function KnowledgeManage() {
 
   const [knowledgeRows, setKnowledgeRows] = useState([])
   const [knowledgeLoading, setKnowledgeLoading] = useState(false)
-  const [knowledgePagination, setKnowledgePagination] = useState({ current: 1, pageSize: 10, total: 0 })
+  const [knowledgePagination, setKnowledgePagination] = useState({ current: 1, pageSize: 20, total: 0 })
+  const [knowledgeKeyword, setKnowledgeKeyword] = useState('')
   const [selectedKnowledge, setSelectedKnowledge] = useState(null)
 
-  const [documentsOpen, setDocumentsOpen] = useState(false)
+  const [activeMenu, setActiveMenu] = useState('document')
   const [documentRows, setDocumentRows] = useState([])
   const [documentLoading, setDocumentLoading] = useState(false)
   const [documentPagination, setDocumentPagination] = useState({ current: 1, pageSize: 10, total: 0 })
-
-  const [paragraphOpen, setParagraphOpen] = useState(false)
-  const [selectedDocument, setSelectedDocument] = useState(null)
-  const [paragraphRows, setParagraphRows] = useState([])
-  const [paragraphLoading, setParagraphLoading] = useState(false)
+  const [documentSearchType, setDocumentSearchType] = useState('name')
+  const [documentKeyword, setDocumentKeyword] = useState('')
+  const [selectedDocumentKeys, setSelectedDocumentKeys] = useState([])
 
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploadFileList, setUploadFileList] = useState([])
@@ -164,12 +223,19 @@ function KnowledgeManage() {
 
   const selectedAccount = useMemo(
     () => accounts.find((item) => item.id === selectedAccountId) || null,
-    [accounts, selectedAccountId]
+    [accounts, selectedAccountId],
   )
 
   const environmentSelectOptions = useMemo(() => (
     environmentOptions.map((item) => ({ value: item.value, label: item.label }))
   ), [environmentOptions])
+
+  const accountSelectOptions = useMemo(() => (
+    accounts.map((item) => ({
+      value: item.id,
+      label: `${item.accountName} · ${item.environmentText || item.environment}`,
+    }))
+  ), [accounts])
 
   const knowledgeSelectOptions = useMemo(() => (
     knowledgeRows.map((item) => ({
@@ -219,50 +285,27 @@ function KnowledgeManage() {
     }
   }, [accountPagination.current, accountPagination.pageSize, accountSearchForm])
 
-  const fetchKnowledges = useCallback(async (params = {}) => {
-    if (!selectedAccountId) {
-      setKnowledgeRows([])
-      setKnowledgePagination({ current: 1, pageSize: 10, total: 0 })
-      return
-    }
-    const values = knowledgeForm.getFieldsValue()
-    const current = params.current ?? knowledgePagination.current
-    const size = params.pageSize ?? knowledgePagination.pageSize
-    setKnowledgeLoading(true)
-    try {
-      const res = await getMaxKbKnowledges(selectedAccountId, {
-        page: current,
-        page_size: size,
-        name: values.name || undefined,
-      })
-      const data = normalizePage(res.data)
-      setKnowledgeRows(data.records)
-      setKnowledgePagination({
-        current: data.page || current,
-        pageSize: data.size || size,
-        total: data.total || 0,
-      })
-    } catch (error) {
-      message.error(error.message || '知识库加载失败')
-    } finally {
-      setKnowledgeLoading(false)
-    }
-  }, [knowledgeForm, knowledgePagination.current, knowledgePagination.pageSize, selectedAccountId])
-
   const fetchDocuments = useCallback(async (knowledge, params = {}) => {
     const targetKnowledge = knowledge || selectedKnowledge
-    if (!selectedAccountId || !targetKnowledge?.id) return
+    if (!selectedAccountId || !targetKnowledge?.id) {
+      setDocumentRows([])
+      setDocumentPagination({ current: 1, pageSize: documentPagination.pageSize, total: 0 })
+      return
+    }
     const current = params.current ?? documentPagination.current
     const size = params.pageSize ?? documentPagination.pageSize
+    const keyword = params.keyword ?? documentKeyword
     setDocumentLoading(true)
     try {
       const res = await getMaxKbDocuments(selectedAccountId, targetKnowledge.id, {
         page: current,
         page_size: size,
-        name: params.name,
+        task_type: 1,
+        [documentSearchType]: keyword || undefined,
       })
       const data = normalizePage(res.data)
       setDocumentRows(data.records)
+      setSelectedDocumentKeys([])
       setDocumentPagination({
         current: data.page || current,
         pageSize: data.size || size,
@@ -273,24 +316,58 @@ function KnowledgeManage() {
     } finally {
       setDocumentLoading(false)
     }
-  }, [documentPagination.current, documentPagination.pageSize, selectedAccountId, selectedKnowledge])
+  }, [documentKeyword, documentPagination.current, documentPagination.pageSize, documentSearchType, selectedAccountId, selectedKnowledge])
 
-  const fetchParagraphs = async (document) => {
-    if (!selectedAccountId || !selectedKnowledge?.id || !document?.id) return
-    setSelectedDocument(document)
-    setParagraphOpen(true)
-    setParagraphLoading(true)
-    try {
-      const res = await getMaxKbParagraphs(selectedAccountId, selectedKnowledge.id, document.id, {
-        page: 1,
-        page_size: 50,
-      })
-      setParagraphRows(normalizePage(res.data).records)
-    } catch (error) {
-      message.error(error.message || '分段加载失败')
-    } finally {
-      setParagraphLoading(false)
+  const fetchKnowledges = useCallback(async (params = {}) => {
+    if (!selectedAccountId) {
+      setKnowledgeRows([])
+      setSelectedKnowledge(null)
+      setDocumentRows([])
+      return
     }
+    const current = params.current ?? knowledgePagination.current
+    const size = params.pageSize ?? knowledgePagination.pageSize
+    setKnowledgeLoading(true)
+    try {
+      const res = await getMaxKbKnowledges(selectedAccountId, {
+        page: current,
+        page_size: size,
+        name: knowledgeKeyword || undefined,
+      })
+      const data = normalizePage(res.data)
+      const nextRows = data.records
+      const nextSelected = params.keepSelection
+        ? nextRows.find((item) => item.id === selectedKnowledge?.id) || selectedKnowledge
+        : nextRows.find((item) => item.id === selectedKnowledge?.id) || nextRows[0] || null
+      setKnowledgeRows(nextRows)
+      setKnowledgePagination({
+        current: data.page || current,
+        pageSize: data.size || size,
+        total: data.total || 0,
+      })
+      setSelectedKnowledge(nextSelected)
+      if (nextSelected) {
+        fetchDocuments(nextSelected, { current: 1, pageSize: documentPagination.pageSize, keyword: documentKeyword })
+      } else {
+        setDocumentRows([])
+      }
+    } catch (error) {
+      message.error(error.message || '知识库加载失败')
+    } finally {
+      setKnowledgeLoading(false)
+    }
+  }, [documentKeyword, documentPagination.pageSize, fetchDocuments, knowledgeKeyword, knowledgePagination.current, knowledgePagination.pageSize, selectedAccountId, selectedKnowledge])
+
+  const openParagraphPage = (document) => {
+    if (!selectedAccountId || !selectedKnowledge?.id || !document?.id) return
+    const query = new URLSearchParams({
+      from: 'workspace',
+      isShared: 'false',
+      accountId: String(selectedAccountId),
+      documentName: textValue(document.name, document.title, document.file_name, document.id),
+      knowledgeName: textValue(selectedKnowledge.name, selectedKnowledge.knowledge_name, selectedKnowledge.title, selectedKnowledge.id),
+    })
+    navigate(`/admin/paragraph/${selectedKnowledge.id}/${document.id}?${query.toString()}`)
   }
 
   useEffect(() => {
@@ -299,10 +376,12 @@ function KnowledgeManage() {
   }, [])
 
   useEffect(() => {
-    knowledgeForm.resetFields()
     setSelectedKnowledge(null)
-    setDocumentsOpen(false)
-    fetchKnowledges({ current: 1 })
+    setDocumentRows([])
+    setDocumentKeyword('')
+    if (selectedAccountId) {
+      fetchKnowledges({ current: 1 })
+    }
   }, [selectedAccountId])
 
   const openCreateAccount = () => {
@@ -378,19 +457,30 @@ function KnowledgeManage() {
     }
   }
 
-  const openDocuments = (record) => {
-    setSelectedKnowledge(record)
-    setDocumentsOpen(true)
-    setDocumentRows([])
-    setDocumentPagination({ current: 1, pageSize: 10, total: 0 })
-    fetchDocuments(record, { current: 1, pageSize: 10 })
+  const selectKnowledge = (knowledgeId) => {
+    const row = knowledgeRows.find((item) => item.id === knowledgeId)
+    setSelectedKnowledge(row || null)
+    setActiveMenu('document')
+    setDocumentPagination((prev) => ({ ...prev, current: 1 }))
+    fetchDocuments(row, { current: 1 })
+  }
+
+  const openUpload = () => {
+    if (!selectedKnowledge?.id) {
+      message.warning('请先选择知识库')
+      return
+    }
+    uploadForm.setFieldsValue({ limit: 4096, splitStrategy: '', withFilter: false })
+    setUploadFileList([])
+    setUploadOpen(true)
   }
 
   const openHitTest = (knowledge) => {
+    const targetKnowledge = knowledge || selectedKnowledge
     setHitOpen(true)
     setHitRows([])
     hitForm.setFieldsValue({
-      knowledgeId: knowledge?.id,
+      knowledgeId: targetKnowledge?.id,
       queryText: '',
       topNumber: 5,
       similarity: 0.6,
@@ -424,7 +514,7 @@ function KnowledgeManage() {
 
   const submitUpload = async () => {
     if (!selectedAccountId || !selectedKnowledge?.id) {
-      message.warning('请先打开一个知识库')
+      message.warning('请先选择知识库')
       return
     }
     if (!uploadFileList.length) {
@@ -467,6 +557,10 @@ function KnowledgeManage() {
     }
   }
 
+  const unsupportedAction = (label) => {
+    message.info(`${label} 需要 MaxKB 对应写入接口开放后才能执行`)
+  }
+
   const accountColumns = useMemo(() => [
     {
       title: '账号',
@@ -474,7 +568,7 @@ function KnowledgeManage() {
       width: 190,
       render: (value, record) => (
         <Space direction="vertical" size={2}>
-          <Button type="link" className="knowledge-link-button" onClick={() => setSelectedAccountId(record.id)}>
+          <Button type="link" className="maxkb-link-button" onClick={() => setSelectedAccountId(record.id)}>
             {value}
           </Button>
           <Text type="secondary">{record.workspaceId}</Text>
@@ -536,101 +630,117 @@ function KnowledgeManage() {
     },
   ], [testingAccountId])
 
-  const knowledgeColumns = useMemo(() => [
-    {
-      title: '知识库',
-      dataIndex: 'name',
-      render: (value, record) => (
-        <Space direction="vertical" size={2}>
-          <Text strong>{textValue(value, record.knowledge_name, record.title, record.id)}</Text>
-          <Text type="secondary">{record.id}</Text>
-        </Space>
-      ),
-    },
-    {
-      title: '类型',
-      dataIndex: 'type',
-      width: 110,
-      render: (value) => <Tag color="blue">{textValue(value)}</Tag>,
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      width: 110,
-      render: statusTag,
-    },
-    {
-      title: '文档',
-      width: 100,
-      render: (_, record) => textValue(record.document_count, record.documentCount, record.document_num, 0),
-    },
-    {
-      title: '创建人',
-      width: 140,
-      render: (_, record) => textValue(record.create_user, record.createUser, record.username),
-    },
-    {
-      title: '更新时间',
-      width: 170,
-      render: (_, record) => textValue(record.update_time, record.updateTime, record.create_time, record.createTime),
-    },
-    {
-      title: '操作',
-      width: 180,
-      fixed: 'right',
-      render: (_, record) => (
-        <Space size={6}>
-          <Button size="small" icon={<FileSearchOutlined />} onClick={() => openDocuments(record)}>
-            文档
-          </Button>
-          <Button size="small" icon={<ThunderboltOutlined />} onClick={() => openHitTest(record)}>
-            召回
-          </Button>
-        </Space>
-      ),
-    },
-  ], [selectedAccountId])
-
   const documentColumns = useMemo(() => [
     {
-      title: '文档',
+      title: '文件名称',
       dataIndex: 'name',
+      minWidth: 280,
+      ellipsis: true,
       render: (value, record) => (
-        <Space direction="vertical" size={2}>
-          <Text strong>{textValue(value, record.title, record.file_name, record.id)}</Text>
-          <Text type="secondary">{record.id}</Text>
-        </Space>
+        <button className="maxkb-file-name" type="button" onClick={() => openParagraphPage(record)}>
+          {textValue(value, record.title, record.file_name, record.id)}
+        </button>
       ),
     },
     {
-      title: '状态',
+      title: <span>文件状态 <FilterOutlined className="maxkb-header-filter" /></span>,
       dataIndex: 'status',
       width: 120,
-      render: statusTag,
+      render: (_, record) => <StatusValue record={record} />,
     },
     {
       title: '字符数',
-      width: 100,
-      render: (_, record) => textValue(record.char_length, record.charLength, record.character_count, 0),
+      width: 120,
+      align: 'right',
+      sorter: true,
+      render: (_, record) => compactNumber(record.char_length, record.charLength, record.character_count, 0),
     },
     {
-      title: '分段数',
-      width: 100,
+      title: '分段',
+      width: 120,
+      align: 'right',
+      sorter: true,
       render: (_, record) => textValue(record.paragraph_count, record.paragraphCount, record.paragraph_num, 0),
     },
     {
-      title: '更新时间',
-      width: 170,
-      render: (_, record) => textValue(record.update_time, record.updateTime, record.create_time, record.createTime),
+      title: <span>启用状态 <FilterOutlined className="maxkb-header-filter" /></span>,
+      width: 110,
+      render: (_, record) => (
+        <span className={`maxkb-active-value ${record.is_active === false ? 'is-disabled' : ''}`}>
+          {record.is_active === false ? <StopOutlined /> : <CheckCircleFilled />}
+          {record.is_active === false ? '已禁用' : '已启用'}
+        </span>
+      ),
+    },
+    {
+      title: <span>标签 <FilterOutlined className="maxkb-header-filter" /></span>,
+      width: 150,
+      render: (_, record) => (
+        <Space size={6}>
+          {record.tag_count ? (
+            <Tag icon={<TagsOutlined />} color="default">{record.tag_count}</Tag>
+          ) : null}
+          <Button className="maxkb-tag-button" size="small" icon={<PlusOutlined />} onClick={(event) => {
+            event.stopPropagation()
+            unsupportedAction('标签')
+          }}>
+            标签
+          </Button>
+        </Space>
+      ),
+    },
+    {
+      title: <span>命中处理方式 <FilterOutlined className="maxkb-header-filter" /></span>,
+      width: 165,
+      render: (_, record) => {
+        const value = textValue(record.hit_handling_method, record.hitHandlingMethod, 'optimization')
+        return hitHandlingMethodText[value] || value
+      },
+    },
+    {
+      title: '创建者',
+      width: 80,
+      ellipsis: true,
+      render: (_, record) => textValue(record.nick_name, record.creator, record.create_user, record.createUser, '系统'),
+    },
+    {
+      title: '创建时间',
+      width: 175,
+      sorter: true,
+      render: (_, record) => textValue(record.create_time, record.createTime, '-'),
     },
     {
       title: '操作',
-      width: 100,
+      width: 160,
       fixed: 'right',
       render: (_, record) => (
-        <Button size="small" icon={<FileSearchOutlined />} onClick={() => fetchParagraphs(record)}>
-          分段
-        </Button>
+        <Space size={6} onClick={(event) => event.stopPropagation()}>
+          <Switch
+            size="small"
+            checked={record.is_active !== false}
+            onChange={() => unsupportedAction('启停文档')}
+          />
+          <Tooltip title="查看分段">
+            <Button type="text" className="maxkb-icon-action" icon={<ClusterOutlined />} onClick={() => openParagraphPage(record)} />
+          </Tooltip>
+          <Tooltip title="分词索引">
+            <Button type="text" className="maxkb-icon-action" icon={<ShareAltOutlined />} onClick={() => unsupportedAction('分词索引')} />
+          </Tooltip>
+          <Dropdown
+            trigger={['click']}
+            menu={{
+              items: [
+                { key: 'setting', icon: <SettingOutlined />, label: '设置', onClick: () => unsupportedAction('文档设置') },
+                { key: 'generate', icon: <ThunderboltOutlined />, label: '生成问题', onClick: () => unsupportedAction('生成问题') },
+                { key: 'export', icon: <ExportOutlined />, label: '导出 Excel', onClick: () => unsupportedAction('导出 Excel') },
+                { key: 'download', icon: <DownloadOutlined />, label: '下载', onClick: () => unsupportedAction('下载') },
+                { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true, onClick: () => unsupportedAction('删除文档') },
+              ],
+            }}
+          >
+            <Button type="text" className="maxkb-icon-action" icon={<MoreOutlined />} />
+          </Dropdown>
+        </Space>
       ),
     },
   ], [selectedAccountId, selectedKnowledge])
@@ -653,31 +763,282 @@ function KnowledgeManage() {
     },
   ], [])
 
-  return (
-    <div className="knowledge-manage-page">
-      <section className="knowledge-manage-header">
-        <div>
-          <span className="knowledge-manage-kicker">MAXKB</span>
-          <Title level={1}>知识库管理</Title>
-          <p>维护不同环境和账号的 MaxKB 接入信息，并按账号权限管理知识库内容。</p>
+  const renderDocumentWorkspace = () => {
+    if (!selectedAccount) {
+      return (
+        <div className="maxkb-empty-stage">
+          <Empty description="请先在系统管理中添加 MaxKB 账号" />
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateAccount}>新增账号</Button>
         </div>
-        <Space wrap>
-          <Button icon={<ReloadOutlined />} onClick={() => {
-            fetchAccounts()
-            fetchKnowledges()
-          }}>
-            刷新
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateAccount}>
-            新增账号
-          </Button>
-        </Space>
-      </section>
+      )
+    }
+    if (!selectedKnowledge) {
+      return (
+        <div className="maxkb-empty-stage">
+          <Empty description="当前账号暂无可访问知识库" />
+          <Space>
+            <Input
+              allowClear
+              prefix={<SearchOutlined />}
+              value={knowledgeKeyword}
+              placeholder="按名称搜索知识库"
+              onChange={(event) => setKnowledgeKeyword(event.target.value)}
+              onPressEnter={() => fetchKnowledges({ current: 1 })}
+            />
+            <Button icon={<ReloadOutlined />} onClick={() => fetchKnowledges({ current: 1 })}>刷新</Button>
+          </Space>
+        </div>
+      )
+    }
 
-      <Card className="knowledge-manage-card" title="MaxKB 账号">
+    return (
+      <>
+        <div className="maxkb-content-title">
+          <Title level={2}>文档</Title>
+        </div>
+        <div className="maxkb-document-card">
+          <div className="maxkb-document-toolbar">
+            <Space size={12} wrap>
+              <Button type="primary" icon={<UploadOutlined />} onClick={openUpload}>上传文档</Button>
+              <Button disabled={!selectedDocumentKeys.length} onClick={() => unsupportedAction('向量化')}>向量化</Button>
+              <Button disabled={!selectedDocumentKeys.length} onClick={() => unsupportedAction('分词索引')}>分词索引</Button>
+              <Button disabled={!selectedDocumentKeys.length} onClick={() => unsupportedAction('生成问题')}>生成问题</Button>
+              <Dropdown
+                trigger={['click']}
+                menu={{
+                  items: [
+                    { key: 'setting', label: '设置', disabled: !selectedDocumentKeys.length, onClick: () => unsupportedAction('批量设置') },
+                    { key: 'move', label: '迁移', disabled: !selectedDocumentKeys.length, onClick: () => unsupportedAction('文档迁移') },
+                    { key: 'tag', label: '添加标签', disabled: !selectedDocumentKeys.length, onClick: () => unsupportedAction('添加标签') },
+                    { type: 'divider' },
+                    { key: 'export-excel', label: '导出 Excel', disabled: !selectedDocumentKeys.length, onClick: () => unsupportedAction('导出 Excel') },
+                    { key: 'export-zip', label: '导出 Zip', disabled: !selectedDocumentKeys.length, onClick: () => unsupportedAction('导出 Zip') },
+                    { type: 'divider' },
+                    { key: 'delete', label: '删除', danger: true, disabled: !selectedDocumentKeys.length, onClick: () => unsupportedAction('批量删除') },
+                  ],
+                }}
+              >
+                <Button icon={<MoreOutlined />} />
+              </Dropdown>
+            </Space>
+
+            <Space className="maxkb-search-cluster" size={12} wrap>
+              <Input.Group compact className="maxkb-complex-search">
+                <Select
+                  value={documentSearchType}
+                  onChange={setDocumentSearchType}
+                  options={[
+                    { value: 'name', label: '名称' },
+                    { value: 'create_user', label: '创建者' },
+                  ]}
+                />
+                <Input
+                  allowClear
+                  value={documentKeyword}
+                  placeholder={documentSearchType === 'name' ? '按名称搜索' : '按创建者搜索'}
+                  onChange={(event) => setDocumentKeyword(event.target.value)}
+                  onPressEnter={() => fetchDocuments(selectedKnowledge, { current: 1, keyword: documentKeyword })}
+                />
+              </Input.Group>
+              <Button onClick={() => fetchDocuments(selectedKnowledge, { current: 1, keyword: documentKeyword })}>搜索</Button>
+              <Button onClick={() => unsupportedAction('标签管理')}>标签管理</Button>
+            </Space>
+          </div>
+
+          <Table
+            rowKey={recordKey}
+            className="maxkb-document-table"
+            columns={documentColumns}
+            dataSource={documentRows}
+            loading={documentLoading}
+            bordered
+            rowSelection={{
+              selectedRowKeys: selectedDocumentKeys,
+              onChange: setSelectedDocumentKeys,
+            }}
+            locale={{ emptyText: <Empty description="暂无文档" /> }}
+            pagination={{
+              current: documentPagination.current,
+              pageSize: documentPagination.pageSize,
+              total: documentPagination.total,
+              showSizeChanger: true,
+              showTotal: (total) => `共 ${total} 条`,
+            }}
+            scroll={{ x: 1360 }}
+            onRow={(record) => ({ onDoubleClick: () => openParagraphPage(record) })}
+            onChange={(nextPagination) => {
+              fetchDocuments(selectedKnowledge, {
+                current: nextPagination.current,
+                pageSize: nextPagination.pageSize,
+                keyword: documentKeyword,
+              })
+            }}
+          />
+        </div>
+
+        {selectedDocumentKeys.length ? (
+          <div className="maxkb-selection-bar">
+            <Button onClick={() => unsupportedAction('取消向量化')}>取消向量化</Button>
+            <Button onClick={() => unsupportedAction('取消生成')}>取消生成</Button>
+            <Text type="secondary">已选择 {selectedDocumentKeys.length} 个文档</Text>
+            <Button type="link" onClick={() => setSelectedDocumentKeys([])}>清空</Button>
+          </div>
+        ) : null}
+      </>
+    )
+  }
+
+  const renderSecondaryPanel = () => {
+    if (activeMenu === 'hit') {
+      return (
+        <>
+          <div className="maxkb-content-title">
+            <Title level={2}>召回测试</Title>
+          </div>
+          <div className="maxkb-placeholder-card">
+            <Form form={hitForm} layout="vertical">
+              <Form.Item name="knowledgeId" label="知识库" rules={[{ required: true, message: '请选择知识库' }]}>
+                <Select showSearch optionFilterProp="label" options={knowledgeSelectOptions} placeholder="选择当前账号可访问的知识库" />
+              </Form.Item>
+              <Form.Item name="queryText" label="测试问题" rules={[{ required: true, message: '请输入测试问题' }]}>
+                <TextArea rows={3} placeholder="输入要检索的问题" />
+              </Form.Item>
+              <div className="maxkb-hit-grid">
+                <Form.Item name="topNumber" label="返回数量">
+                  <InputNumber min={1} max={20} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="similarity" label="相似度阈值">
+                  <InputNumber min={0} max={1} step={0.05} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="searchMode" label="检索模式">
+                  <Select options={searchModeOptions} />
+                </Form.Item>
+              </div>
+              <Button type="primary" loading={hitLoading} icon={<ThunderboltOutlined />} onClick={runHitTest}>运行测试</Button>
+            </Form>
+            <Table
+              rowKey={recordKey}
+              className="maxkb-hit-table"
+              columns={hitColumns}
+              dataSource={hitRows}
+              loading={hitLoading}
+              locale={{ emptyText: <Empty description="运行后显示召回结果" /> }}
+              pagination={{ pageSize: 5 }}
+            />
+          </div>
+        </>
+      )
+    }
+
+    const item = menuItems.find((menu) => menu.key === activeMenu)
+    return (
+      <>
+        <div className="maxkb-content-title">
+          <Title level={2}>{item?.label}</Title>
+        </div>
+        <div className="maxkb-placeholder-card">
+          <Empty description={`${item?.label || '该模块'}展示入口已按 MaxKB 保留，等后续接入对应 OpenAPI 后可继续补齐。`} />
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <div className="knowledge-maxkb-page">
+      <header className="maxkb-topbar">
+        <div className="maxkb-brand">
+          <div className="maxkb-brand-mark">Z</div>
+          <div>
+            <strong>流光知识库</strong>
+          </div>
+        </div>
+        <nav className="maxkb-topnav">
+          <Button type="primary" icon={<BookOutlined />}>知识库</Button>
+          <Button type="text" icon={<CommentOutlined />} onClick={() => openHitTest()}>聊天测试</Button>
+          <Button type="text" icon={<AppstoreOutlined />} onClick={() => unsupportedAction('模型')}>模型</Button>
+          <Button type="text" icon={<SettingOutlined />} onClick={() => setAccountDrawerOpen(true)}>系统管理</Button>
+          <Avatar className="maxkb-avatar" icon={<UserOutlined />} />
+        </nav>
+      </header>
+
+      <div className="maxkb-workbench">
+        <aside className="maxkb-inner-sidebar">
+          <div className="maxkb-knowledge-head">
+            <div className="maxkb-knowledge-title">
+              <Button type="text" icon={<ArrowLeftOutlined />} className="maxkb-back-button" onClick={() => setAccountDrawerOpen(true)} />
+              <span className="maxkb-knowledge-icon"><FileTextOutlined /></span>
+              <Select
+                value={selectedKnowledge?.id}
+                placeholder="选择知识库"
+                loading={knowledgeLoading}
+                options={knowledgeSelectOptions}
+                onChange={selectKnowledge}
+                className="maxkb-knowledge-select"
+                bordered={false}
+              />
+            </div>
+            <Select
+              value={selectedAccountId}
+              placeholder="选择 MaxKB 账号"
+              options={accountSelectOptions}
+              onChange={setSelectedAccountId}
+              className="maxkb-account-select"
+            />
+          </div>
+
+          <div className="maxkb-side-search">
+            <Input
+              allowClear
+              prefix={<SearchOutlined />}
+              value={knowledgeKeyword}
+              placeholder="搜索知识库"
+              onChange={(event) => setKnowledgeKeyword(event.target.value)}
+              onPressEnter={() => fetchKnowledges({ current: 1 })}
+            />
+            <Button icon={<ReloadOutlined />} onClick={() => fetchKnowledges({ current: 1 })} />
+          </div>
+
+          <nav className="maxkb-menu-list">
+            {menuItems.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={`maxkb-menu-item ${activeMenu === item.key ? 'is-active' : ''}`}
+                onClick={() => {
+                  setActiveMenu(item.key)
+                  if (item.key === 'hit') {
+                    hitForm.setFieldsValue({
+                      knowledgeId: selectedKnowledge?.id,
+                      queryText: '',
+                      topNumber: 5,
+                      similarity: 0.6,
+                      searchMode: 'blend',
+                    })
+                  }
+                }}
+              >
+                {item.icon}
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </nav>
+        </aside>
+
+        <main className="maxkb-main-panel">
+          {activeMenu === 'document' ? renderDocumentWorkspace() : renderSecondaryPanel()}
+        </main>
+      </div>
+
+      <Drawer
+        title="系统管理"
+        width={980}
+        open={accountDrawerOpen}
+        onClose={() => setAccountDrawerOpen(false)}
+        extra={<Button type="primary" icon={<PlusOutlined />} onClick={openCreateAccount}>新增账号</Button>}
+      >
         <Form
           form={accountSearchForm}
-          className="knowledge-manage-filter"
+          className="maxkb-account-filter"
           layout="inline"
           onFinish={() => fetchAccounts({ current: 1 })}
         >
@@ -700,9 +1061,7 @@ function KnowledgeManage() {
           </Form.Item>
           <Form.Item>
             <Space>
-              <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>
-                查询
-              </Button>
+              <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>查询</Button>
               <Button onClick={() => {
                 accountSearchForm.resetFields()
                 fetchAccounts({ current: 1 })
@@ -718,7 +1077,7 @@ function KnowledgeManage() {
           columns={accountColumns}
           dataSource={accounts}
           loading={accountLoading}
-          rowClassName={(record) => record.id === selectedAccountId ? 'knowledge-selected-row' : ''}
+          rowClassName={(record) => record.id === selectedAccountId ? 'maxkb-selected-row' : ''}
           locale={{ emptyText: <Empty description="暂无 MaxKB 账号" /> }}
           pagination={{
             current: accountPagination.current,
@@ -736,81 +1095,7 @@ function KnowledgeManage() {
             })
           }}
         />
-      </Card>
-
-      <Card
-        className="knowledge-manage-card"
-        title="知识库"
-        extra={selectedAccount ? (
-          <Space wrap>
-            <Tag color={environmentColors[selectedAccount.environment] || 'default'}>
-              {selectedAccount.environmentText || selectedAccount.environment}
-            </Tag>
-            <Text type="secondary">{selectedAccount.accountName}</Text>
-          </Space>
-        ) : null}
-      >
-        {!selectedAccount ? (
-          <Empty description="请先新增或选择一个 MaxKB 账号" />
-        ) : (
-          <>
-            <Alert
-              className="knowledge-manage-alert"
-              type="info"
-              showIcon
-              message={`当前使用 ${selectedAccount.accountName} 的 ${selectedAccount.baseUrl}`}
-            />
-            <Form
-              form={knowledgeForm}
-              className="knowledge-manage-filter"
-              layout="inline"
-              onFinish={() => fetchKnowledges({ current: 1 })}
-            >
-              <Form.Item name="name">
-                <Input allowClear prefix={<SearchOutlined />} placeholder="搜索知识库名称" />
-              </Form.Item>
-              <Form.Item>
-                <Space>
-                  <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>
-                    查询
-                  </Button>
-                  <Button onClick={() => {
-                    knowledgeForm.resetFields()
-                    fetchKnowledges({ current: 1 })
-                  }}>
-                    重置
-                  </Button>
-                  <Button icon={<ThunderboltOutlined />} onClick={() => openHitTest()}>
-                    召回测试
-                  </Button>
-                </Space>
-              </Form.Item>
-            </Form>
-
-            <Table
-              rowKey="id"
-              columns={knowledgeColumns}
-              dataSource={knowledgeRows}
-              loading={knowledgeLoading}
-              locale={{ emptyText: <Empty description="该账号暂无可访问知识库" /> }}
-              pagination={{
-                current: knowledgePagination.current,
-                pageSize: knowledgePagination.pageSize,
-                total: knowledgePagination.total,
-                showSizeChanger: true,
-                showTotal: (total) => `共 ${total} 个知识库`,
-              }}
-              scroll={{ x: 980 }}
-              onChange={(nextPagination) => {
-                fetchKnowledges({
-                  current: nextPagination.current,
-                  pageSize: nextPagination.pageSize,
-                })
-              }}
-            />
-          </>
-        )}
-      </Card>
+      </Drawer>
 
       <Modal
         title={editingAccount ? '编辑 MaxKB 账号' : '新增 MaxKB 账号'}
@@ -821,7 +1106,7 @@ function KnowledgeManage() {
         width={680}
         destroyOnHidden
       >
-        <Form form={accountForm} layout="vertical" className="knowledge-account-form">
+        <Form form={accountForm} layout="vertical" className="maxkb-account-form">
           <Form.Item name="accountName" label="账号名称" rules={[{ required: true, message: '请输入账号名称' }]}>
             <Input placeholder="例如：测试环境-教务知识库" />
           </Form.Item>
@@ -851,81 +1136,8 @@ function KnowledgeManage() {
         </Form>
       </Modal>
 
-      <Drawer
-        title={selectedKnowledge ? `文档：${textValue(selectedKnowledge.name, selectedKnowledge.title, selectedKnowledge.id)}` : '知识库文档'}
-        width={980}
-        open={documentsOpen}
-        onClose={() => setDocumentsOpen(false)}
-        extra={(
-          <Button type="primary" icon={<CloudUploadOutlined />} onClick={() => {
-            uploadForm.setFieldsValue({ limit: 4096, splitStrategy: '', withFilter: false })
-            setUploadFileList([])
-            setUploadOpen(true)
-          }}>
-            上传文档
-          </Button>
-        )}
-      >
-        <Table
-          rowKey="id"
-          columns={documentColumns}
-          dataSource={documentRows}
-          loading={documentLoading}
-          locale={{ emptyText: <Empty description="暂无文档" /> }}
-          pagination={{
-            current: documentPagination.current,
-            pageSize: documentPagination.pageSize,
-            total: documentPagination.total,
-            showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 个文档`,
-          }}
-          scroll={{ x: 860 }}
-          onChange={(nextPagination) => {
-            fetchDocuments(selectedKnowledge, {
-              current: nextPagination.current,
-              pageSize: nextPagination.pageSize,
-            })
-          }}
-        />
-      </Drawer>
-
-      <Drawer
-        title={selectedDocument ? `分段：${textValue(selectedDocument.name, selectedDocument.title, selectedDocument.id)}` : '文档分段'}
-        width={860}
-        open={paragraphOpen}
-        onClose={() => setParagraphOpen(false)}
-      >
-        <Table
-          rowKey={(record) => record.id || record.paragraph_id || JSON.stringify(record).slice(0, 80)}
-          loading={paragraphLoading}
-          dataSource={paragraphRows}
-          locale={{ emptyText: <Empty description="暂无分段" /> }}
-          pagination={{ pageSize: 10 }}
-          columns={[
-            {
-              title: '标题',
-              width: 180,
-              render: (_, record) => textValue(record.title, record.name, record.id),
-            },
-            {
-              title: '内容',
-              render: (_, record) => (
-                <div className="knowledge-paragraph-content">
-                  {textValue(record.content, record.text)}
-                </div>
-              ),
-            },
-            {
-              title: '状态',
-              width: 110,
-              render: (_, record) => statusTag(record.status),
-            },
-          ]}
-        />
-      </Drawer>
-
       <Modal
-        title="上传文档到 MaxKB"
+        title="上传文档"
         open={uploadOpen}
         onCancel={() => setUploadOpen(false)}
         onOk={submitUpload}
@@ -943,7 +1155,7 @@ function KnowledgeManage() {
             <p className="ant-upload-drag-icon"><CloudUploadOutlined /></p>
             <p className="ant-upload-text">选择或拖入要入库的文档</p>
           </Upload.Dragger>
-          <div className="knowledge-upload-grid">
+          <div className="maxkb-upload-grid">
             <Form.Item name="limit" label="分段长度">
               <InputNumber min={200} max={20000} style={{ width: '100%' }} />
             </Form.Item>
@@ -977,7 +1189,7 @@ function KnowledgeManage() {
           <Form.Item name="queryText" label="测试问题" rules={[{ required: true, message: '请输入测试问题' }]}>
             <TextArea rows={3} placeholder="输入要检索的问题" />
           </Form.Item>
-          <div className="knowledge-hit-grid">
+          <div className="maxkb-hit-grid">
             <Form.Item name="topNumber" label="返回数量">
               <InputNumber min={1} max={20} style={{ width: '100%' }} />
             </Form.Item>
@@ -991,8 +1203,8 @@ function KnowledgeManage() {
         </Form>
 
         <Table
-          rowKey={(record) => record.id || record.paragraph_id || JSON.stringify(record).slice(0, 80)}
-          className="knowledge-hit-table"
+          rowKey={recordKey}
+          className="maxkb-hit-table"
           columns={hitColumns}
           dataSource={hitRows}
           loading={hitLoading}
@@ -1001,7 +1213,7 @@ function KnowledgeManage() {
         />
 
         {hitRows.length ? (
-          <Descriptions className="knowledge-hit-json" column={1} size="small" bordered>
+          <Descriptions className="maxkb-hit-json" column={1} size="small" bordered>
             <Descriptions.Item label="原始结果">
               <pre>{JSON.stringify(hitRows, null, 2)}</pre>
             </Descriptions.Item>

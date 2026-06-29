@@ -17,6 +17,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -27,15 +28,19 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URI;
 import java.time.Duration;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
     private static final String OPEN_API_PREFIX = "/openapi/knowledge/v1";
+    private static final String DEFAULT_DOCUMENT_TASK_TYPE = "1";
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final WebClient.Builder webClientBuilder;
@@ -174,10 +179,11 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
     @Override
     public Object listDocuments(Long accountId, String knowledgeId, Map<String, String> queryParams) {
         MaxKbAccount account = getAccount(accountId, true);
+        Map<String, String> nextQueryParams = withDefaultDocumentTaskType(queryParams);
         return getObject(
                 account,
                 "/workspaces/" + account.getWorkspaceId() + "/knowledges/" + requireId(knowledgeId, "知识库 ID") + "/documents",
-                queryParams
+                nextQueryParams
         );
     }
 
@@ -219,7 +225,7 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
                 + "/knowledges/" + requireId(knowledgeId, "知识库 ID")
                 + "/documents/upload";
         try {
-            return buildMaxKbWebClient()
+            Object response = buildMaxKbWebClient()
                     .post()
                     .uri(buildUri(account, path, null))
                     .headers(headers -> applyMaxKbAuth(headers, account))
@@ -229,6 +235,7 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
                     .bodyToMono(Object.class)
                     .timeout(Duration.ofSeconds(timeoutSeconds))
                     .block();
+            return validateMaxKbResponse(response);
         } catch (WebClientResponseException error) {
             throw new BusinessException(Result.ERROR_CODE, "MaxKB 文件上传失败: " + extractRemoteMessage(error));
         } catch (BusinessException error) {
@@ -252,6 +259,43 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
     }
 
     @Override
+    public ResponseEntity<byte[]> proxyAsset(Long accountId, String path) {
+        MaxKbAccount account = getAccount(accountId, true);
+        String assetPath = normalizeAssetPath(account, path);
+        List<String> candidatePaths = buildAssetPathCandidates(assetPath);
+        String lastErrorMessage = null;
+        for (String candidatePath : candidatePaths) {
+            try {
+                ResponseEntity<byte[]> remote = buildMaxKbWebClient()
+                        .get()
+                        .uri(buildAssetUri(account, candidatePath))
+                        .headers(headers -> applyMaxKbAuth(headers, account))
+                        .retrieve()
+                        .toEntity(byte[].class)
+                        .timeout(Duration.ofSeconds(timeoutSeconds))
+                        .block();
+                if (remote == null) {
+                    lastErrorMessage = "响应为空";
+                    continue;
+                }
+                HttpHeaders headers = new HttpHeaders();
+                MediaType contentType = remote.getHeaders().getContentType();
+                headers.setContentType(contentType == null ? MediaType.APPLICATION_OCTET_STREAM : contentType);
+                headers.set(HttpHeaders.CACHE_CONTROL, "private, max-age=300");
+                return new ResponseEntity<>(remote.getBody(), headers, remote.getStatusCode());
+            } catch (WebClientResponseException error) {
+                lastErrorMessage = extractRemoteMessage(error);
+            } catch (Exception error) {
+                lastErrorMessage = error.getMessage();
+            }
+        }
+        throw new BusinessException(
+                Result.ERROR_CODE,
+                "MaxKB 图片资源加载失败: " + (lastErrorMessage == null ? "未知错误" : lastErrorMessage)
+        );
+    }
+
+    @Override
     public Object hitTest(Long accountId, Map<String, Object> request) {
         MaxKbAccount account = getAccount(accountId, true);
         return postObject(account, "/workspaces/" + account.getWorkspaceId() + "/hit-test", request);
@@ -259,7 +303,7 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
 
     private Object getObject(MaxKbAccount account, String path, Map<String, String> queryParams) {
         try {
-            return buildMaxKbWebClient()
+            Object response = buildMaxKbWebClient()
                     .get()
                     .uri(buildUri(account, path, queryParams))
                     .headers(headers -> applyMaxKbAuth(headers, account))
@@ -267,6 +311,7 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
                     .bodyToMono(Object.class)
                     .timeout(Duration.ofSeconds(timeoutSeconds))
                     .block();
+            return validateMaxKbResponse(response);
         } catch (WebClientResponseException error) {
             throw new BusinessException(Result.ERROR_CODE, "MaxKB 服务调用失败: " + extractRemoteMessage(error));
         } catch (BusinessException error) {
@@ -278,7 +323,7 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
 
     private Object postObject(MaxKbAccount account, String path, Map<String, Object> request) {
         try {
-            return buildMaxKbWebClient()
+            Object response = buildMaxKbWebClient()
                     .post()
                     .uri(buildUri(account, path, null))
                     .headers(headers -> applyMaxKbAuth(headers, account))
@@ -288,6 +333,7 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
                     .bodyToMono(Object.class)
                     .timeout(Duration.ofSeconds(timeoutSeconds))
                     .block();
+            return validateMaxKbResponse(response);
         } catch (WebClientResponseException error) {
             throw new BusinessException(Result.ERROR_CODE, "MaxKB 服务调用失败: " + extractRemoteMessage(error));
         } catch (BusinessException error) {
@@ -365,6 +411,106 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
             });
         }
         return builder.build().toUriString();
+    }
+
+    private String buildAssetUri(MaxKbAccount account, String assetPath) {
+        return UriComponentsBuilder.fromUriString(trimTrailingSlash(account.getBaseUrl()) + assetPath)
+                .build(true)
+                .toUriString();
+    }
+
+    private List<String> buildAssetPathCandidates(String assetPath) {
+        String fileId = extractOssFileId(assetPath);
+        Set<String> paths = new LinkedHashSet<>();
+        paths.add("/admin/oss/file/" + fileId);
+        paths.add("/oss/file/" + fileId);
+        paths.add(assetPath);
+        return new ArrayList<>(paths);
+    }
+
+    private String extractOssFileId(String assetPath) {
+        String pathOnly = assetPath.split("\\?", 2)[0];
+        String marker = "/oss/file/";
+        int index = pathOnly.indexOf(marker);
+        if (index < 0) {
+            marker = "/.oss/file/";
+            index = pathOnly.indexOf(marker);
+        }
+        if (index < 0) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "MaxKB 图片路径不正确");
+        }
+        String fileId = pathOnly.substring(index + marker.length());
+        int slashIndex = fileId.indexOf('/');
+        if (slashIndex >= 0) {
+            fileId = fileId.substring(0, slashIndex);
+        }
+        if (!StringUtils.hasText(fileId)) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "MaxKB 图片 ID 不能为空");
+        }
+        return fileId;
+    }
+
+    private String normalizeAssetPath(MaxKbAccount account, String path) {
+        if (!StringUtils.hasText(path)) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "MaxKB 图片路径不能为空");
+        }
+        String value = path.trim();
+        if (value.startsWith("http://") || value.startsWith("https://")) {
+            URI source = URI.create(value);
+            URI base = URI.create(trimTrailingSlash(account.getBaseUrl()));
+            if (!source.getScheme().equalsIgnoreCase(base.getScheme())
+                    || !source.getHost().equalsIgnoreCase(base.getHost())
+                    || source.getPort() != base.getPort()) {
+                throw new BusinessException(Result.BAD_REQUEST_CODE, "只允许代理当前 MaxKB 服务下的图片资源");
+            }
+            value = source.getRawPath() + (source.getRawQuery() == null ? "" : "?" + source.getRawQuery());
+        }
+        while (value.startsWith("./")) {
+            value = value.substring(1);
+        }
+        if (!value.startsWith("/")) {
+            value = "/" + value;
+        }
+        while (value.startsWith("/./")) {
+            value = value.substring(2);
+        }
+        if (!value.startsWith("/oss/file/") && !value.startsWith("/.oss/file/")) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "只允许代理 MaxKB /oss/file 或 /.oss/file 图片资源");
+        }
+        return value;
+    }
+
+    private Map<String, String> withDefaultDocumentTaskType(Map<String, String> queryParams) {
+        Map<String, String> nextQueryParams = new java.util.LinkedHashMap<>();
+        if (queryParams != null) {
+            queryParams.forEach((key, value) -> {
+                if (StringUtils.hasText(key) && StringUtils.hasText(value)) {
+                    nextQueryParams.put(key, value);
+                }
+            });
+        }
+        nextQueryParams.putIfAbsent("task_type", DEFAULT_DOCUMENT_TASK_TYPE);
+        return nextQueryParams;
+    }
+
+    private Object validateMaxKbResponse(Object response) {
+        if (response instanceof Map<?, ?> map) {
+            Object code = map.get("code");
+            if (code != null && !"200".equals(String.valueOf(code))) {
+                Object message = map.get("message");
+                if (message == null) {
+                    message = map.get("msg");
+                }
+                if (message == null) {
+                    message = map.get("detail");
+                }
+                throw new BusinessException(
+                        Result.ERROR_CODE,
+                        "MaxKB 服务调用失败: " + (message == null ? "未知错误" : message)
+                );
+            }
+        }
+        return response;
     }
 
     private MaxKbKnowledgeDTO.AccountVO toVO(MaxKbAccount account) {

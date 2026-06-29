@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.time.LocalDateTime;
@@ -145,6 +146,133 @@ class MaxKbKnowledgeServiceImplTest {
                 uri
         );
         Assertions.assertEquals("Bearer mkb_account_key", headers.getFirst(HttpHeaders.AUTHORIZATION));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void documentQueryParams_shouldDefaultTaskTypeForMaxKbOpenApi() throws Exception {
+        MaxKbKnowledgeServiceImpl service = newService(new ArrayList<>());
+        Method withDefaultDocumentTaskType = MaxKbKnowledgeServiceImpl.class.getDeclaredMethod(
+                "withDefaultDocumentTaskType",
+                Map.class
+        );
+        withDefaultDocumentTaskType.setAccessible(true);
+
+        Map<String, String> params = (Map<String, String>) withDefaultDocumentTaskType.invoke(
+                service,
+                Map.of("page", "1", "page_size", "10")
+        );
+
+        Assertions.assertEquals("1", params.get("task_type"));
+        Assertions.assertEquals("1", params.get("page"));
+    }
+
+    @Test
+    void maxKbBusinessError_shouldBeRaisedInsteadOfWrappedAsSuccess() throws Exception {
+        MaxKbKnowledgeServiceImpl service = newService(new ArrayList<>());
+        Method validateMaxKbResponse = MaxKbKnowledgeServiceImpl.class.getDeclaredMethod(
+                "validateMaxKbResponse",
+                Object.class
+        );
+        validateMaxKbResponse.setAccessible(true);
+
+        BusinessException error = Assertions.assertThrows(
+                BusinessException.class,
+                () -> {
+                    try {
+                        validateMaxKbResponse.invoke(service, Map.of(
+                                "code", 500,
+                                "message", "task type:该字段不能为 null。"
+                        ));
+                    } catch (java.lang.reflect.InvocationTargetException exception) {
+                        throw exception.getCause();
+                    }
+                }
+        );
+
+        Assertions.assertTrue(error.getMessage().contains("task type"));
+    }
+
+    @Test
+    void maxKbAssetPath_shouldOnlyAllowCurrentOssFiles() throws Exception {
+        MaxKbAccount account = account(8L, "http://maxkb.local:8080", "mkb_account_key", "ws-1", 1);
+        MaxKbKnowledgeServiceImpl service = newService(new ArrayList<>(List.of(account)));
+        Method normalizeAssetPath = MaxKbKnowledgeServiceImpl.class.getDeclaredMethod(
+                "normalizeAssetPath",
+                MaxKbAccount.class,
+                String.class
+        );
+        normalizeAssetPath.setAccessible(true);
+
+        Assertions.assertEquals(
+                "/oss/file/image-id",
+                invokeNormalizeAssetPath(normalizeAssetPath, service, account, "/oss/file/image-id")
+        );
+        Assertions.assertEquals(
+                "/oss/file/image-id",
+                invokeNormalizeAssetPath(normalizeAssetPath, service, account, "./oss/file/image-id")
+        );
+        Assertions.assertEquals(
+                "/oss/file/image-id",
+                invokeNormalizeAssetPath(normalizeAssetPath, service, account, "/./oss/file/image-id")
+        );
+        Assertions.assertEquals(
+                "/.oss/file/image-id",
+                invokeNormalizeAssetPath(normalizeAssetPath, service, account, "/.oss/file/image-id")
+        );
+        Assertions.assertEquals(
+                "/oss/file/image-id?preview=true",
+                invokeNormalizeAssetPath(normalizeAssetPath, service, account, "http://maxkb.local:8080/oss/file/image-id?preview=true")
+        );
+        Assertions.assertEquals(
+                "/oss/file/image-id?preview=true",
+                invokeNormalizeAssetPath(normalizeAssetPath, service, account, "http://maxkb.local:8080/./oss/file/image-id?preview=true")
+        );
+        Assertions.assertEquals(
+                "/.oss/file/image-id?preview=true",
+                invokeNormalizeAssetPath(normalizeAssetPath, service, account, "http://maxkb.local:8080/.oss/file/image-id?preview=true")
+        );
+        Assertions.assertThrows(
+                BusinessException.class,
+                () -> invokeNormalizeAssetPath(normalizeAssetPath, service, account, "http://evil.local/oss/file/image-id")
+        );
+        Assertions.assertThrows(
+                BusinessException.class,
+                () -> invokeNormalizeAssetPath(normalizeAssetPath, service, account, "/api/other/image-id")
+        );
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void maxKbAssetPathCandidates_shouldPreferAdminRetrievalRoute() throws Exception {
+        MaxKbKnowledgeServiceImpl service = newService(new ArrayList<>());
+        Method buildAssetPathCandidates = MaxKbKnowledgeServiceImpl.class.getDeclaredMethod(
+                "buildAssetPathCandidates",
+                String.class
+        );
+        buildAssetPathCandidates.setAccessible(true);
+
+        List<String> candidates = (List<String>) buildAssetPathCandidates.invoke(
+                service,
+                "/oss/file/019f07e9-e9f7-7cf3-b85f-693301a6cf3f"
+        );
+
+        Assertions.assertEquals("/admin/oss/file/019f07e9-e9f7-7cf3-b85f-693301a6cf3f", candidates.get(0));
+        Assertions.assertEquals("/oss/file/019f07e9-e9f7-7cf3-b85f-693301a6cf3f", candidates.get(1));
+    }
+
+    private String invokeNormalizeAssetPath(Method method,
+                                            MaxKbKnowledgeServiceImpl service,
+                                            MaxKbAccount account,
+                                            String path) throws Exception {
+        try {
+            return (String) method.invoke(service, account, path);
+        } catch (InvocationTargetException exception) {
+            if (exception.getCause() instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new RuntimeException(exception.getCause());
+        }
     }
 
     private MaxKbKnowledgeServiceImpl newService(List<MaxKbAccount> store) {
