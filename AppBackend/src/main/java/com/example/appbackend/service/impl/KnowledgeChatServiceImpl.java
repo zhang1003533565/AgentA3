@@ -4,6 +4,7 @@ import com.example.appbackend.dto.KnowledgeChatDTO;
 import com.example.appbackend.dto.LlmChatRequest;
 import com.example.appbackend.dto.LlmChatResponse;
 import com.example.appbackend.service.KnowledgeChatService;
+import com.example.appbackend.service.KnowledgeRetrievalCacheService;
 import com.example.appbackend.service.LlmService;
 import com.example.appbackend.service.MaxKbKnowledgeService;
 import org.springframework.stereotype.Service;
@@ -53,10 +54,16 @@ public class KnowledgeChatServiceImpl implements KnowledgeChatService {
 
     private final MaxKbKnowledgeService maxKbKnowledgeService;
     private final LlmService llmService;
+    private final KnowledgeRetrievalCacheService knowledgeRetrievalCacheService;
 
-    public KnowledgeChatServiceImpl(MaxKbKnowledgeService maxKbKnowledgeService, LlmService llmService) {
+    public KnowledgeChatServiceImpl(
+            MaxKbKnowledgeService maxKbKnowledgeService,
+            LlmService llmService,
+            KnowledgeRetrievalCacheService knowledgeRetrievalCacheService
+    ) {
         this.maxKbKnowledgeService = maxKbKnowledgeService;
         this.llmService = llmService;
+        this.knowledgeRetrievalCacheService = knowledgeRetrievalCacheService;
     }
 
     @Override
@@ -72,8 +79,26 @@ public class KnowledgeChatServiceImpl implements KnowledgeChatService {
         hitRequest.put("similarity", similarity);
         hitRequest.put("search_mode", searchMode);
 
-        Object retrievalRaw = maxKbKnowledgeService.hitTest(request.getAccountId(), hitRequest);
-        List<KnowledgeChatDTO.Reference> references = extractReferences(retrievalRaw, topNumber);
+        KnowledgeChatDTO.CacheLookupResult cacheLookup = knowledgeRetrievalCacheService.getOrLoad(
+                request.getAccountId(),
+                request.getKnowledgeId(),
+                request.getQuestion(),
+                searchMode,
+                topNumber,
+                similarity,
+                () -> {
+                    Object retrievalRaw = maxKbKnowledgeService.hitTest(request.getAccountId(), hitRequest);
+                    KnowledgeChatDTO.RetrievalPayload payload = new KnowledgeChatDTO.RetrievalPayload();
+                    payload.setRetrievalRaw(retrievalRaw);
+                    payload.setReferences(extractReferences(retrievalRaw, topNumber));
+                    return payload;
+                }
+        );
+        KnowledgeChatDTO.RetrievalPayload retrievalPayload = cacheLookup.getPayload();
+        Object retrievalRaw = retrievalPayload == null ? null : retrievalPayload.getRetrievalRaw();
+        List<KnowledgeChatDTO.Reference> references = retrievalPayload == null || retrievalPayload.getReferences() == null
+                ? List.of()
+                : retrievalPayload.getReferences();
 
         LlmChatRequest chatRequest = new LlmChatRequest();
         chatRequest.setSessionId(request.getSessionId());
@@ -91,10 +116,21 @@ public class KnowledgeChatServiceImpl implements KnowledgeChatService {
         response.setAnswer(llmResponse == null ? "" : llmResponse.getAnswer());
         response.setAnswerType(llmResponse == null ? "text" : llmResponse.getAnswerType());
         response.setReferences(references);
-        response.setMetadata(buildMetadata(request, chatRequest, topNumber, similarity, searchMode, references));
+        response.setRetrievalCache(buildCacheInfo(cacheLookup, retrievalPayload));
+        response.setMetadata(buildMetadata(request, chatRequest, topNumber, similarity, searchMode, references, response.getRetrievalCache()));
         response.setLlmResponse(llmResponse);
         response.setRetrievalRaw(retrievalRaw);
         return response;
+    }
+
+    @Override
+    public KnowledgeChatDTO.CacheStats getCacheStats() {
+        return knowledgeRetrievalCacheService.getStats();
+    }
+
+    @Override
+    public void clearCache() {
+        knowledgeRetrievalCacheService.clear();
     }
 
     private Map<String, Object> buildMetadata(
@@ -103,7 +139,8 @@ public class KnowledgeChatServiceImpl implements KnowledgeChatService {
             int topNumber,
             double similarity,
             String searchMode,
-            List<KnowledgeChatDTO.Reference> references
+            List<KnowledgeChatDTO.Reference> references,
+            KnowledgeChatDTO.CacheInfo cacheInfo
     ) {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("provider", "java-maxkb-agent-chat");
@@ -115,7 +152,27 @@ public class KnowledgeChatServiceImpl implements KnowledgeChatService {
         metadata.put("similarity", similarity);
         metadata.put("searchMode", searchMode);
         metadata.put("referenceCount", references.size());
+        if (cacheInfo != null) {
+            metadata.put("retrievalCacheHit", cacheInfo.getCacheHit());
+            metadata.put("retrievalCacheKey", cacheInfo.getCacheKey());
+            metadata.put("retrievalElapsedMs", cacheInfo.getRetrievalElapsedMs());
+            metadata.put("retrievalCacheExpiresAt", cacheInfo.getExpiresAt());
+        }
         return metadata;
+    }
+
+    private KnowledgeChatDTO.CacheInfo buildCacheInfo(
+            KnowledgeChatDTO.CacheLookupResult cacheLookup,
+            KnowledgeChatDTO.RetrievalPayload retrievalPayload
+    ) {
+        KnowledgeChatDTO.CacheInfo info = new KnowledgeChatDTO.CacheInfo();
+        info.setCacheHit(cacheLookup == null ? false : cacheLookup.getCacheHit());
+        info.setCacheKey(cacheLookup == null ? null : cacheLookup.getCacheKey());
+        info.setLookupElapsedMs(cacheLookup == null ? null : cacheLookup.getLookupElapsedMs());
+        info.setRetrievalElapsedMs(retrievalPayload == null ? null : retrievalPayload.getRetrievalElapsedMs());
+        info.setTtlSeconds(knowledgeRetrievalCacheService.getStats().getTtlSeconds());
+        info.setExpiresAt(cacheLookup == null ? null : cacheLookup.getExpiresAt());
+        return info;
     }
 
     private String buildAgentInput(String question, List<KnowledgeChatDTO.Reference> references) {

@@ -60,6 +60,14 @@ ai:
     base-url: ${AI_PYTHON_BASE_URL:http://localhost:8081}
     timeout-seconds: ${AI_PYTHON_TIMEOUT_SECONDS:65}
 
+knowledge:
+  maxkb:
+    timeout-seconds: ${KNOWLEDGE_MAXKB_TIMEOUT_SECONDS:30}
+    file-response-max-in-memory-bytes: ${KNOWLEDGE_MAXKB_FILE_RESPONSE_MAX_IN_MEMORY_BYTES:52428800}
+    retrieval-cache:
+      ttl-seconds: ${KNOWLEDGE_MAXKB_RETRIEVAL_CACHE_TTL_SECONDS:300}
+      max-entries: ${KNOWLEDGE_MAXKB_RETRIEVAL_CACHE_MAX_ENTRIES:500}
+
 aliyun:
   oss:
     endpoint: oss-cn-beijing.aliyuncs.com

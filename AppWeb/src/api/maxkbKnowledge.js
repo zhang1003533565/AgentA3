@@ -80,3 +80,7 @@ export const runKnowledgeAgentChat = (data) => request.post(
   data,
   { timeout: 120000 }
 )
+
+export const getKnowledgeChatCacheStats = () => request.get(`${base}/chat/cache/stats`)
+
+export const clearKnowledgeChatCache = () => request.delete(`${base}/chat/cache`)

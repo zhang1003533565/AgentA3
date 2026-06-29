@@ -6,6 +6,7 @@ import com.example.appbackend.entity.MaxKbAccount;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.MaxKbAccountRepository;
+import com.example.appbackend.service.KnowledgeRetrievalCacheService;
 import com.example.appbackend.service.MaxKbKnowledgeService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.criteria.Predicate;
@@ -46,17 +47,20 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
     private final WebClient.Builder webClientBuilder;
     private final MaxKbAccountRepository maxKbAccountRepository;
     private final ObjectMapper objectMapper;
+    private final KnowledgeRetrievalCacheService knowledgeRetrievalCacheService;
     private final long timeoutSeconds;
     private final int fileResponseMaxInMemoryBytes;
 
     public MaxKbKnowledgeServiceImpl(WebClient.Builder webClientBuilder,
                                      MaxKbAccountRepository maxKbAccountRepository,
                                      ObjectMapper objectMapper,
+                                     KnowledgeRetrievalCacheService knowledgeRetrievalCacheService,
                                      @Value("${knowledge.maxkb.timeout-seconds:30}") long timeoutSeconds,
                                      @Value("${knowledge.maxkb.file-response-max-in-memory-bytes:52428800}") int fileResponseMaxInMemoryBytes) {
         this.webClientBuilder = webClientBuilder;
         this.maxKbAccountRepository = maxKbAccountRepository;
         this.objectMapper = objectMapper;
+        this.knowledgeRetrievalCacheService = knowledgeRetrievalCacheService;
         this.timeoutSeconds = timeoutSeconds;
         this.fileResponseMaxInMemoryBytes = fileResponseMaxInMemoryBytes;
     }
@@ -137,20 +141,25 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
         account.setWorkspaceId(trim(request.getWorkspaceId()));
         account.setRemark(trimToNull(request.getRemark()));
         account.setStatus(normalizeStatus(request.getStatus()));
-        return toVO(maxKbAccountRepository.save(account));
+        MaxKbKnowledgeDTO.AccountVO vo = toVO(maxKbAccountRepository.save(account));
+        knowledgeRetrievalCacheService.invalidateAccount(accountId);
+        return vo;
     }
 
     @Override
     public void deleteAccount(Long accountId) {
         MaxKbAccount account = getAccount(accountId, false);
         maxKbAccountRepository.delete(account);
+        knowledgeRetrievalCacheService.invalidateAccount(accountId);
     }
 
     @Override
     public MaxKbKnowledgeDTO.AccountVO updateAccountStatus(Long accountId, Integer status) {
         MaxKbAccount account = getAccount(accountId, false);
         account.setStatus(normalizeStatus(status));
-        return toVO(maxKbAccountRepository.save(account));
+        MaxKbKnowledgeDTO.AccountVO vo = toVO(maxKbAccountRepository.save(account));
+        knowledgeRetrievalCacheService.invalidateAccount(accountId);
+        return vo;
     }
 
     @Override
@@ -235,7 +244,9 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
                     .bodyToMono(Object.class)
                     .timeout(Duration.ofSeconds(timeoutSeconds))
                     .block();
-            return validateMaxKbResponse(response);
+            Object validated = validateMaxKbResponse(response);
+            knowledgeRetrievalCacheService.invalidateKnowledge(accountId, knowledgeId);
+            return validated;
         } catch (WebClientResponseException error) {
             throw new BusinessException(Result.ERROR_CODE, "MaxKB 文件上传失败: " + extractRemoteMessage(error));
         } catch (BusinessException error) {

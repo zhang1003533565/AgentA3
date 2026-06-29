@@ -280,6 +280,7 @@ class MaxKbKnowledgeServiceImplTest {
                 WebClient.builder(),
                 newMaxKbAccountRepository(store),
                 new ObjectMapper(),
+                new KnowledgeRetrievalCacheServiceImpl(300, 100),
                 5,
                 1024 * 1024
         );

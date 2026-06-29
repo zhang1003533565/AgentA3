@@ -5,6 +5,8 @@ import { DatabaseOutlined, FileTextOutlined, ReloadOutlined, RobotOutlined, Send
 import { getRagAgents } from '../../../api/rag'
 import { getSystemConfigList } from '../../../api/systemConfig'
 import {
+  clearKnowledgeChatCache,
+  getKnowledgeChatCacheStats,
   getMaxKbAccounts,
   getMaxKbKnowledges,
   runKnowledgeAgentChat,
@@ -57,6 +59,20 @@ const formatScore = (value) => {
   const number = Number(value)
   if (Number.isNaN(number)) return String(value)
   return number >= 1 ? number.toFixed(2) : number.toFixed(3)
+}
+
+const formatPercent = (value) => {
+  const number = Number(value || 0)
+  if (Number.isNaN(number)) return '0.0%'
+  return `${(number * 100).toFixed(1)}%`
+}
+
+const formatCount = (value) => Number(value || 0).toLocaleString()
+
+const formatDuration = (value) => {
+  const number = Number(value || 0)
+  if (!number) return '-'
+  return `${number.toLocaleString()} ms`
 }
 
 function KnowledgeSourcePanel({ references = [] }) {
@@ -121,6 +137,7 @@ function KnowledgeChat() {
   const [bootstrapLoading, setBootstrapLoading] = useState(false)
   const [messages, setMessages] = useState([])
   const [sessionId, setSessionId] = useState('')
+  const [cacheStats, setCacheStats] = useState(null)
 
   const selectedAgentName = Form.useWatch('agentName', form)
   const selectedAgent = useMemo(
@@ -195,17 +212,28 @@ function KnowledgeChat() {
     }
   }, [form])
 
+  const loadCacheStats = useCallback(async () => {
+    try {
+      const res = await getKnowledgeChatCacheStats()
+      setCacheStats(res.data || null)
+    } catch {
+      setCacheStats(null)
+    }
+  }, [])
+
   const loadBootstrap = useCallback(async () => {
     setBootstrapLoading(true)
     try {
-      const [accountRes, agentRes, configRes] = await Promise.all([
+      const [accountRes, agentRes, configRes, cacheStatsRes] = await Promise.all([
         getMaxKbAccounts({ current: 1, size: 100, status: 1 }),
         getRagAgents(),
         getSystemConfigList({ current: 1, size: 500, prefixes: 'ai.service.,ai.agent-bindings.' }),
+        getKnowledgeChatCacheStats().catch(() => ({ data: null })),
       ])
       const accountRows = accountRes.data?.records || []
       const agentRows = agentRes.data?.agents || []
       const configRows = configRes.data?.records || []
+      setCacheStats(cacheStatsRes.data || null)
       setAccounts(accountRows)
       setAgents(agentRows)
       setAgentModelBindings(buildAgentModelBindings(configRows))
@@ -252,6 +280,16 @@ function KnowledgeChat() {
     await loadKnowledges(value)
   }
 
+  const handleClearCache = async () => {
+    try {
+      await clearKnowledgeChatCache()
+      message.success('检索缓存已清空')
+      await loadCacheStats()
+    } catch (error) {
+      message.error(error.message || '清空缓存失败')
+    }
+  }
+
   const handleSend = async () => {
     const values = await form.validateFields()
     const question = String(values.question || '').trim()
@@ -290,9 +328,11 @@ function KnowledgeChat() {
           agentName: data.agentName,
           model: data.model,
           references: data.references || [],
+          retrievalCache: data.retrievalCache || null,
           metadata: data.metadata || {},
         },
       ])
+      await loadCacheStats()
     } catch (error) {
       setMessages((prev) => [
         ...prev,
@@ -385,6 +425,33 @@ function KnowledgeChat() {
                   <InputNumber min={0} max={2} step={0.05} />
                 </Form.Item>
               </div>
+              <div className="knowledge-chat-cache-card">
+                <div className="knowledge-chat-cache-head">
+                  <span>检索缓存</span>
+                  <Tag color={Number(cacheStats?.hitRate || 0) > 0 ? 'green' : 'default'}>
+                    命中率 {formatPercent(cacheStats?.hitRate)}
+                  </Tag>
+                </div>
+                <div className="knowledge-chat-cache-grid">
+                  <div>
+                    <span>总请求</span>
+                    <strong>{formatCount(cacheStats?.requestCount)}</strong>
+                  </div>
+                  <div>
+                    <span>命中</span>
+                    <strong>{formatCount(cacheStats?.hitCount)}</strong>
+                  </div>
+                  <div>
+                    <span>条目</span>
+                    <strong>{formatCount(cacheStats?.entryCount)}</strong>
+                  </div>
+                  <div>
+                    <span>节省</span>
+                    <strong>{formatDuration(cacheStats?.estimatedSavedMillis)}</strong>
+                  </div>
+                </div>
+                <Button size="small" onClick={handleClearCache}>清空缓存</Button>
+              </div>
             </Form>
           </Card>
 
@@ -409,6 +476,11 @@ function KnowledgeChat() {
                     </Tag>
                     {item.agentName ? <Tag>{item.agentName}</Tag> : null}
                     {item.model ? <Tag color="geekblue">{item.model}</Tag> : null}
+                    {item.retrievalCache ? (
+                      <Tag color={item.retrievalCache.cacheHit ? 'green' : 'default'}>
+                        检索缓存：{item.retrievalCache.cacheHit ? '命中' : '未命中'}
+                      </Tag>
+                    ) : null}
                   </div>
                   <div className="knowledge-chat-answer">{item.content}</div>
                   {item.role === 'assistant' && !item.isError ? (

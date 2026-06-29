@@ -5,4 +5,8 @@ import com.example.appbackend.dto.KnowledgeChatDTO;
 public interface KnowledgeChatService {
 
     KnowledgeChatDTO.ChatResponse chat(KnowledgeChatDTO.ChatRequest request, String authorization);
+
+    KnowledgeChatDTO.CacheStats getCacheStats();
+
+    void clearCache();
 }

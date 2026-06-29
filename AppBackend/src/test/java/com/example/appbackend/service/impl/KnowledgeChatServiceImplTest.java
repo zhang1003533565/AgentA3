@@ -26,7 +26,11 @@ class KnowledgeChatServiceImplTest {
         AtomicReference<LlmChatRequest> llmRequestRef = new AtomicReference<>();
         MaxKbKnowledgeService maxKbKnowledgeService = new StubMaxKbKnowledgeService(hitRequestRef);
         LlmService llmService = new StubLlmService(llmRequestRef);
-        KnowledgeChatServiceImpl service = new KnowledgeChatServiceImpl(maxKbKnowledgeService, llmService);
+        KnowledgeChatServiceImpl service = new KnowledgeChatServiceImpl(
+                maxKbKnowledgeService,
+                llmService,
+                new KnowledgeRetrievalCacheServiceImpl(300, 100)
+        );
 
         KnowledgeChatDTO.ChatRequest request = new KnowledgeChatDTO.ChatRequest();
         request.setAccountId(1L);
@@ -55,6 +59,7 @@ class KnowledgeChatServiceImplTest {
         Assertions.assertEquals(1, response.getReferences().size());
         Assertions.assertEquals("课程报告.docx", response.getReferences().get(0).getDocumentName());
         Assertions.assertEquals(0.91D, response.getReferences().get(0).getSimilarity());
+        Assertions.assertFalse(response.getRetrievalCache().getCacheHit());
         Assertions.assertEquals("java-maxkb-agent-chat", response.getMetadata().get("provider"));
     }
 
@@ -83,7 +88,8 @@ class KnowledgeChatServiceImplTest {
 
         KnowledgeChatServiceImpl service = new KnowledgeChatServiceImpl(
                 new StubMaxKbKnowledgeService(hitRequestRef, wrappedResponse),
-                new StubLlmService(llmRequestRef)
+                new StubLlmService(llmRequestRef),
+                new KnowledgeRetrievalCacheServiceImpl(300, 100)
         );
 
         KnowledgeChatDTO.ChatRequest request = new KnowledgeChatDTO.ChatRequest();
@@ -98,6 +104,37 @@ class KnowledgeChatServiceImplTest {
         Assertions.assertEquals("python", response.getReferences().get(0).getKnowledgeName());
         Assertions.assertEquals(1.42D, response.getReferences().get(0).getSimilarity());
         Assertions.assertTrue(llmRequestRef.get().getInput().contains("Trigger 区域"));
+    }
+
+    @Test
+    void chat_shouldUseRetrievalCacheForSameScopedRequest() {
+        AtomicReference<Map<String, Object>> hitRequestRef = new AtomicReference<>();
+        AtomicReference<LlmChatRequest> llmRequestRef = new AtomicReference<>();
+        StubMaxKbKnowledgeService maxKbKnowledgeService = new StubMaxKbKnowledgeService(hitRequestRef);
+        KnowledgeRetrievalCacheServiceImpl cacheService = new KnowledgeRetrievalCacheServiceImpl(300, 100);
+        KnowledgeChatServiceImpl service = new KnowledgeChatServiceImpl(
+                maxKbKnowledgeService,
+                new StubLlmService(llmRequestRef),
+                cacheService
+        );
+
+        KnowledgeChatDTO.ChatRequest request = new KnowledgeChatDTO.ChatRequest();
+        request.setAccountId(1L);
+        request.setKnowledgeId("kb-1");
+        request.setQuestion("这份报告的设计目标是什么？");
+        request.setTopNumber(3);
+        request.setSimilarity(0.7D);
+        request.setSearchMode("blend");
+
+        KnowledgeChatDTO.ChatResponse first = service.chat(request, "Bearer token");
+        KnowledgeChatDTO.ChatResponse second = service.chat(request, "Bearer token");
+
+        Assertions.assertFalse(first.getRetrievalCache().getCacheHit());
+        Assertions.assertTrue(second.getRetrievalCache().getCacheHit());
+        Assertions.assertEquals(1, maxKbKnowledgeService.hitCallCount);
+        Assertions.assertEquals(2L, service.getCacheStats().getRequestCount());
+        Assertions.assertEquals(1L, service.getCacheStats().getHitCount());
+        Assertions.assertEquals(1L, service.getCacheStats().getMissCount());
     }
 
     private static class StubLlmService implements LlmService {
@@ -128,6 +165,7 @@ class KnowledgeChatServiceImplTest {
     private static class StubMaxKbKnowledgeService implements MaxKbKnowledgeService {
         private final AtomicReference<Map<String, Object>> requestRef;
         private final Object response;
+        private int hitCallCount;
 
         private StubMaxKbKnowledgeService(AtomicReference<Map<String, Object>> requestRef) {
             this.requestRef = requestRef;
@@ -148,6 +186,7 @@ class KnowledgeChatServiceImplTest {
         @Override
         public Object hitTest(Long accountId, Map<String, Object> request) {
             requestRef.set(request);
+            hitCallCount++;
             return response;
         }
 

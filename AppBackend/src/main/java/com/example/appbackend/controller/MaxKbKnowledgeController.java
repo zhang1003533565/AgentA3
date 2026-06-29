@@ -203,6 +203,21 @@ public class MaxKbKnowledgeController {
         return Result.success(knowledgeChatService.chat(body, request.getHeader("Authorization")));
     }
 
+    @GetMapping("/chat/cache/stats")
+    @Operation(summary = "知识库聊天检索缓存统计")
+    public Result<KnowledgeChatDTO.CacheStats> chatCacheStats(HttpServletRequest request) {
+        requireAdmin(request);
+        return Result.success(knowledgeChatService.getCacheStats());
+    }
+
+    @DeleteMapping("/chat/cache")
+    @Operation(summary = "清空知识库聊天检索缓存")
+    public Result<Void> clearChatCache(HttpServletRequest request) {
+        requireAdmin(request);
+        knowledgeChatService.clearCache();
+        return Result.success("缓存已清空", (Void) null);
+    }
+
     private void requireAdmin(HttpServletRequest request) {
         if (!ROLE_ADMIN.equals(request.getAttribute("role"))) {
             throw new BusinessException(Result.FORBIDDEN_CODE, "无权限操作，仅管理员可执行");

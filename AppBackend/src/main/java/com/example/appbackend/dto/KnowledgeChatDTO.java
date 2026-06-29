@@ -69,6 +69,7 @@ public class KnowledgeChatDTO {
         private String answer;
         private String answerType;
         private List<Reference> references;
+        private CacheInfo retrievalCache;
         private Map<String, Object> metadata;
         private LlmChatResponse llmResponse;
         private Object retrievalRaw;
@@ -86,5 +87,50 @@ public class KnowledgeChatDTO {
         private Double similarity;
         private String source;
         private Map<String, Object> raw;
+    }
+
+    @Data
+    @Schema(description = "MaxKB 检索缓存信息")
+    public static class CacheInfo {
+        private Boolean cacheHit;
+        private String cacheKey;
+        private Long lookupElapsedMs;
+        private Long retrievalElapsedMs;
+        private Long ttlSeconds;
+        private String expiresAt;
+    }
+
+    @Data
+    @Schema(description = "MaxKB 检索缓存统计")
+    public static class CacheStats {
+        private Boolean enabled;
+        private Long requestCount;
+        private Long hitCount;
+        private Long missCount;
+        private Double hitRate;
+        private Integer entryCount;
+        private Integer maxEntries;
+        private Long ttlSeconds;
+        private Long estimatedSavedMillis;
+        private String lastHitAt;
+        private String lastMissAt;
+    }
+
+    @Data
+    @Schema(description = "MaxKB 检索原始载荷")
+    public static class RetrievalPayload {
+        private Object retrievalRaw;
+        private List<Reference> references;
+        private Long retrievalElapsedMs;
+    }
+
+    @Data
+    @Schema(description = "MaxKB 检索缓存查找结果")
+    public static class CacheLookupResult {
+        private Boolean cacheHit;
+        private String cacheKey;
+        private RetrievalPayload payload;
+        private Long lookupElapsedMs;
+        private String expiresAt;
     }
 }
