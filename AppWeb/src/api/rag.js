@@ -12,6 +12,10 @@ export const getRagAgent = (agentName) => request.get(`${base}/agents/${agentNam
 
 export const saveRagAgentExampleInput = (agentName, input) => request.post(`${base}/agents/${agentName}/example-input`, { input })
 
+export const getAgentToolCacheStats = () => request.get(`${base}/tool-cache/stats`)
+
+export const clearAgentToolCache = () => request.delete(`${base}/tool-cache`)
+
 export const getAiModelProviders = () => request.get(`${base}/model-providers`)
 
 export const runRagQuery = (data) => request.post(`${base}/query`, data, {

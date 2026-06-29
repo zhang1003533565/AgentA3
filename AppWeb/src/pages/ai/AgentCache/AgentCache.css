@@ -1,0 +1,127 @@
+.agent-cache-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.agent-cache-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.agent-cache-head h3.ant-typography {
+  margin: 0 0 4px;
+}
+
+.agent-cache-alert {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.agent-cache-card {
+  border-radius: 10px;
+  border-color: rgba(148, 163, 184, 0.26);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
+}
+
+.agent-cache-insights {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.agent-cache-insight {
+  display: grid;
+  gap: 6px;
+  min-height: 106px;
+  padding: 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+}
+
+.agent-cache-insight span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.agent-cache-insight strong {
+  overflow: hidden;
+  color: #111827;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-cache-insight em {
+  color: #64748b;
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.agent-cache-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.agent-cache-grid div {
+  display: grid;
+  gap: 6px;
+  min-height: 78px;
+  padding: 14px;
+  border: 1px solid #edf1f7;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.agent-cache-grid span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.agent-cache-grid strong {
+  color: #111827;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.agent-cache-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-top: 14px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.agent-cache-muted {
+  color: #64748b;
+}
+
+.agent-cache-row-hit td {
+  background: #f0fdf4;
+}
+
+@media (max-width: 1100px) {
+  .agent-cache-grid,
+  .agent-cache-insights {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .agent-cache-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .agent-cache-grid,
+  .agent-cache-insights {
+    grid-template-columns: 1fr;
+  }
+}

@@ -42,8 +42,17 @@ class DataStore:
     def search_service_tool(self, authorization: str, tool_name: str, input_text: str) -> List[Dict[str, Any]]:
         return self._retriever.search_service_tool(authorization, tool_name, input_text)
 
+    def search_service_tool_with_meta(self, authorization: str, tool_name: str, input_text: str) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        return self._retriever.search_service_tool_with_meta(authorization, tool_name, input_text)
+
     def search_keyword(self, authorization: str, keyword: str) -> List[Dict[str, Any]]:
         return self._retriever.search_keyword(authorization, keyword)
+
+    def get_tool_cache_stats(self) -> Dict[str, Any]:
+        return self._retriever.tool_cache_stats()
+
+    def clear_tool_cache(self) -> Dict[str, Any]:
+        return self._retriever.clear_tool_cache()
 
 
 

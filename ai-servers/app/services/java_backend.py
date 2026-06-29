@@ -1,7 +1,13 @@
+import contextvars
+import copy
+import hashlib
 import json
+import os
 import re
 import time
+from collections import OrderedDict, deque
 from datetime import date
+from threading import RLock
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -23,22 +29,53 @@ from app.utils.text_utils import (
 
 logger = get_logger("services.java_backend")
 
+_tool_cache_events_var: contextvars.ContextVar[Optional[List[Dict[str, Any]]]] = contextvars.ContextVar(
+    "java_tool_cache_events",
+    default=None,
+)
+_tool_cache_context_var: contextvars.ContextVar[Dict[str, Any]] = contextvars.ContextVar(
+    "java_tool_cache_context",
+    default={},
+)
+
 
 class JavaBackendRetriever:
     def __init__(self) -> None:
         self.enabled = True
         self.java_base_url = "http://localhost:8080"
         self.timeout_seconds = 8
+        self.cache_enabled = self._env_bool("AI_TOOL_CACHE_ENABLED", True)
+        self.cache_ttl_seconds = self._env_int("AI_TOOL_CACHE_TTL_SECONDS", 180)
+        self.cache_max_entries = self._env_int("AI_TOOL_CACHE_MAX_ENTRIES", 1000)
+        self.cache_event_limit = self._env_int("AI_TOOL_CACHE_EVENT_LIMIT", 100)
+        self._cache_lock = RLock()
+        self._tool_cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self._cache_recent_events = deque(maxlen=max(1, self.cache_event_limit))
+        self._cache_event_seq = 0
+        self._cache_request_count = 0
+        self._cache_hit_count = 0
+        self._cache_miss_count = 0
+        self._cache_estimated_saved_ms = 0
+        self._cache_last_hit_at = ""
+        self._cache_last_miss_at = ""
+        self._cache_path_stats: Dict[str, Dict[str, Any]] = {}
 
     def _get_json(self, path: str, authorization: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if not self.enabled:
             return {}
 
         query = ""
+        normalized: Dict[str, Any] = {}
         if params:
             normalized = {k: v for k, v in params.items() if v is not None and v != ""}
             if normalized:
                 query = "?" + urlencode(normalized)
+
+        user_key = self._authorization_hash(authorization)
+        cache_key = self._cache_key(path, user_key, normalized)
+        cached_payload = self._read_cache(path, cache_key)
+        if cached_payload is not None:
+            return cached_payload
 
         url = f"{self.java_base_url}{path}{query}"
         req = Request(url, method="GET")
@@ -51,12 +88,352 @@ class JavaBackendRetriever:
                 body = resp.read().decode("utf-8")
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
                 logger.info("java api ok path=%s elapsed_ms=%s", path, elapsed_ms)
-                return json.loads(body)
+                payload = json.loads(body)
+                self._record_cache_miss(path, elapsed_ms, cache_key, normalized, user_key, payload)
+                self._write_cache(path, cache_key, payload, elapsed_ms, normalized, user_key)
+                return payload
         except Exception:
             elapsed_ms = int((time.perf_counter() - started) * 1000)
+            self._record_cache_miss(path, elapsed_ms, cache_key, normalized, user_key, None, status="error")
             logger.exception("java api failed path=%s elapsed_ms=%s disable_store=true", path, elapsed_ms)
             self.enabled = False
             return {}
+
+    def _env_bool(self, key: str, default: bool) -> bool:
+        value = str(os.getenv(key, "")).strip().lower()
+        if value in {"1", "true", "yes", "on"}:
+            return True
+        if value in {"0", "false", "no", "off"}:
+            return False
+        return default
+
+    def _env_int(self, key: str, default: int) -> int:
+        try:
+            return max(0, int(str(os.getenv(key, default)).strip()))
+        except (TypeError, ValueError):
+            return default
+
+    def _cache_available(self) -> bool:
+        return self.cache_enabled and self.cache_ttl_seconds > 0 and self.cache_max_entries > 0
+
+    def _authorization_hash(self, authorization: str) -> str:
+        return hashlib.sha256(str(authorization or "").encode("utf-8")).hexdigest()
+
+    def _cache_key(self, path: str, user_key: str, params: Dict[str, Any]) -> str:
+        payload = json.dumps(
+            {"user": user_key, "path": path, "params": params},
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _read_cache(self, path: str, cache_key: str) -> Optional[Dict[str, Any]]:
+        if not self._cache_available():
+            return None
+        started = time.perf_counter()
+        now = time.time()
+        with self._cache_lock:
+            entry = self._tool_cache.get(cache_key)
+            if not entry:
+                return None
+            if float(entry.get("expires_at") or 0) <= now:
+                self._tool_cache.pop(cache_key, None)
+                return None
+            self._tool_cache.move_to_end(cache_key)
+            payload = copy.deepcopy(entry.get("payload") or {})
+            saved_ms = int(entry.get("origin_elapsed_ms") or 0)
+            entry["hit_count"] = int(entry.get("hit_count") or 0) + 1
+            entry["last_hit_at"] = self._now_iso()
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        event = self._event_from_entry(entry, cache_hit=True, elapsed_ms=elapsed_ms, saved_ms=saved_ms, status="hit")
+        event["elapsedMs"] = elapsed_ms
+        self._record_cache_hit(event)
+        logger.info("java api cache hit path=%s saved_ms=%s", path, saved_ms)
+        return payload
+
+    def _write_cache(
+        self,
+        path: str,
+        cache_key: str,
+        payload: Dict[str, Any],
+        origin_elapsed_ms: int,
+        params: Dict[str, Any],
+        user_key: str,
+    ) -> None:
+        if not self._cache_available() or not self._is_cacheable_payload(payload):
+            return
+        now = time.time()
+        context = self._current_cache_context()
+        with self._cache_lock:
+            self._purge_expired_locked(now)
+            self._tool_cache[cache_key] = {
+                "cache_key": cache_key,
+                "cacheKey": cache_key[:12],
+                "path": path,
+                "params": copy.deepcopy(params),
+                "userKey": user_key[:12],
+                "toolName": context.get("toolName") or "",
+                "inputPreview": context.get("inputPreview") or "",
+                "inputHash": context.get("inputHash") or "",
+                "payload": copy.deepcopy(payload),
+                "dataCount": self._payload_data_count(payload),
+                "origin_elapsed_ms": max(0, int(origin_elapsed_ms or 0)),
+                "created_at": now,
+                "expires_at": now + self.cache_ttl_seconds,
+                "createdAt": self._timestamp_iso(now),
+                "expiresAt": self._timestamp_iso(now + self.cache_ttl_seconds),
+                "hit_count": 0,
+                "last_hit_at": "",
+            }
+            self._tool_cache.move_to_end(cache_key)
+            while len(self._tool_cache) > self.cache_max_entries:
+                self._tool_cache.popitem(last=False)
+
+    def _is_cacheable_payload(self, payload: Dict[str, Any]) -> bool:
+        return isinstance(payload, dict) and payload.get("code") == 200
+
+    def _purge_expired_locked(self, now: Optional[float] = None) -> None:
+        current = now if now is not None else time.time()
+        expired_keys = [
+            key for key, entry in self._tool_cache.items()
+            if float(entry.get("expires_at") or 0) <= current
+        ]
+        for key in expired_keys:
+            self._tool_cache.pop(key, None)
+
+    def _record_cache_hit(self, event: Dict[str, Any]) -> None:
+        path = str(event.get("path") or "")
+        saved_ms = int(event.get("savedMillis") or 0)
+        now_text = str(event.get("time") or self._now_iso())
+        with self._cache_lock:
+            self._cache_request_count += 1
+            self._cache_hit_count += 1
+            self._cache_estimated_saved_ms += max(0, saved_ms)
+            self._cache_last_hit_at = now_text
+            stats = self._path_stats(path)
+            stats["requestCount"] += 1
+            stats["hitCount"] += 1
+            stats["estimatedSavedMillis"] += max(0, saved_ms)
+            stats["lastHitAt"] = now_text
+        self._record_cache_event(event)
+
+    def _record_cache_miss(
+        self,
+        path: str,
+        elapsed_ms: int,
+        cache_key: str,
+        params: Dict[str, Any],
+        user_key: str,
+        payload: Optional[Dict[str, Any]],
+        status: str = "miss",
+    ) -> None:
+        event = self._build_cache_event(
+            path=path,
+            cache_key=cache_key,
+            params=params,
+            user_key=user_key,
+            cache_hit=False,
+            elapsed_ms=elapsed_ms,
+            saved_ms=0,
+            data_count=self._payload_data_count(payload) if payload else 0,
+            status=status,
+        )
+        now_text = str(event.get("time") or self._now_iso())
+        with self._cache_lock:
+            self._cache_request_count += 1
+            self._cache_miss_count += 1
+            self._cache_last_miss_at = now_text
+            stats = self._path_stats(path)
+            stats["requestCount"] += 1
+            stats["missCount"] += 1
+            stats["lastMissAt"] = now_text
+        self._record_cache_event(event)
+
+    def _path_stats(self, path: str) -> Dict[str, Any]:
+        return self._cache_path_stats.setdefault(path, {
+            "path": path,
+            "requestCount": 0,
+            "hitCount": 0,
+            "missCount": 0,
+            "estimatedSavedMillis": 0,
+            "lastHitAt": "",
+            "lastMissAt": "",
+        })
+
+    def _record_cache_event(self, event: Dict[str, Any]) -> None:
+        with self._cache_lock:
+            self._cache_event_seq += 1
+            full_event = {
+                "id": self._cache_event_seq,
+                **event,
+            }
+            self._cache_recent_events.appendleft(full_event)
+        self._append_cache_event(full_event)
+
+    def _append_cache_event(self, event: Dict[str, Any]) -> None:
+        events = _tool_cache_events_var.get()
+        if events is not None:
+            events.append(event)
+
+    def _current_cache_context(self) -> Dict[str, Any]:
+        context = _tool_cache_context_var.get() or {}
+        return context if isinstance(context, dict) else {}
+
+    def _build_cache_event(
+        self,
+        *,
+        path: str,
+        cache_key: str,
+        params: Dict[str, Any],
+        user_key: str,
+        cache_hit: bool,
+        elapsed_ms: int,
+        saved_ms: int,
+        data_count: int,
+        status: str,
+    ) -> Dict[str, Any]:
+        context = self._current_cache_context()
+        return {
+            "time": self._now_iso(),
+            "status": status,
+            "cacheHit": cache_hit,
+            "cacheKey": cache_key[:12],
+            "path": path,
+            "params": copy.deepcopy(params),
+            "query": urlencode(params) if params else "",
+            "toolName": context.get("toolName") or "",
+            "inputPreview": context.get("inputPreview") or "",
+            "inputHash": context.get("inputHash") or "",
+            "userKey": user_key[:12],
+            "elapsedMs": max(0, int(elapsed_ms or 0)),
+            "savedMillis": max(0, int(saved_ms or 0)),
+            "dataCount": max(0, int(data_count or 0)),
+        }
+
+    def _event_from_entry(self, entry: Dict[str, Any], cache_hit: bool, elapsed_ms: int, saved_ms: int, status: str) -> Dict[str, Any]:
+        return {
+            "time": self._now_iso(),
+            "status": status,
+            "cacheHit": cache_hit,
+            "cacheKey": entry.get("cacheKey") or str(entry.get("cache_key") or "")[:12],
+            "path": entry.get("path") or "",
+            "params": copy.deepcopy(entry.get("params") or {}),
+            "query": urlencode(entry.get("params") or {}) if entry.get("params") else "",
+            "toolName": entry.get("toolName") or "",
+            "inputPreview": entry.get("inputPreview") or "",
+            "inputHash": entry.get("inputHash") or "",
+            "userKey": entry.get("userKey") or "",
+            "elapsedMs": max(0, int(elapsed_ms or 0)),
+            "savedMillis": max(0, int(saved_ms or 0)),
+            "dataCount": max(0, int(entry.get("dataCount") or 0)),
+        }
+
+    def _payload_data_count(self, payload: Optional[Dict[str, Any]]) -> int:
+        if not isinstance(payload, dict):
+            return 0
+        data = payload.get("data")
+        if isinstance(data, list):
+            return len(data)
+        if isinstance(data, dict):
+            for key in ("records", "list", "items", "content", "rows"):
+                value = data.get(key)
+                if isinstance(value, list):
+                    return len(value)
+            return 1 if data else 0
+        return 1 if data is not None else 0
+
+    def _now_iso(self) -> str:
+        return self._timestamp_iso(time.time())
+
+    def _timestamp_iso(self, value: float) -> str:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(value))
+
+    def _cache_entries_snapshot(self) -> List[Dict[str, Any]]:
+        entries = []
+        for entry in self._tool_cache.values():
+            entries.append({
+                "cacheKey": entry.get("cacheKey") or "",
+                "path": entry.get("path") or "",
+                "params": copy.deepcopy(entry.get("params") or {}),
+                "query": urlencode(entry.get("params") or {}) if entry.get("params") else "",
+                "toolName": entry.get("toolName") or "",
+                "inputPreview": entry.get("inputPreview") or "",
+                "inputHash": entry.get("inputHash") or "",
+                "userKey": entry.get("userKey") or "",
+                "dataCount": int(entry.get("dataCount") or 0),
+                "originElapsedMs": int(entry.get("origin_elapsed_ms") or 0),
+                "hitCount": int(entry.get("hit_count") or 0),
+                "createdAt": entry.get("createdAt") or "",
+                "expiresAt": entry.get("expiresAt") or "",
+                "lastHitAt": entry.get("last_hit_at") or "",
+            })
+        entries.sort(key=lambda item: (item["hitCount"], item["originElapsedMs"], item["createdAt"]), reverse=True)
+        return entries[:100]
+
+    def tool_cache_stats(self) -> Dict[str, Any]:
+        with self._cache_lock:
+            self._purge_expired_locked()
+            by_path = []
+            entry_count_by_path: Dict[str, int] = {}
+            for entry in self._tool_cache.values():
+                entry_path = str(entry.get("path") or "")
+                entry_count_by_path[entry_path] = entry_count_by_path.get(entry_path, 0) + 1
+            for item in self._cache_path_stats.values():
+                request_count = int(item.get("requestCount") or 0)
+                hit_count = int(item.get("hitCount") or 0)
+                by_path.append({
+                    "path": item.get("path") or "",
+                    "requestCount": request_count,
+                    "hitCount": hit_count,
+                    "missCount": int(item.get("missCount") or 0),
+                    "hitRate": (hit_count / request_count) if request_count else 0,
+                    "entryCount": entry_count_by_path.get(str(item.get("path") or ""), 0),
+                    "estimatedSavedMillis": int(item.get("estimatedSavedMillis") or 0),
+                    "lastHitAt": item.get("lastHitAt") or "",
+                    "lastMissAt": item.get("lastMissAt") or "",
+                })
+            by_path.sort(key=lambda row: (row["requestCount"], row["hitCount"]), reverse=True)
+            request_count = int(self._cache_request_count)
+            hit_count = int(self._cache_hit_count)
+            recent_events = list(self._cache_recent_events)
+            entries = self._cache_entries_snapshot()
+            return {
+                "enabled": self._cache_available(),
+                "ttlSeconds": self.cache_ttl_seconds,
+                "maxEntries": self.cache_max_entries,
+                "eventLimit": self.cache_event_limit,
+                "entryCount": len(self._tool_cache),
+                "requestCount": request_count,
+                "hitCount": hit_count,
+                "missCount": int(self._cache_miss_count),
+                "hitRate": (hit_count / request_count) if request_count else 0,
+                "estimatedSavedMillis": int(self._cache_estimated_saved_ms),
+                "lastHitAt": self._cache_last_hit_at,
+                "lastMissAt": self._cache_last_miss_at,
+                "byPath": by_path,
+                "recentEvents": recent_events,
+                "cacheEntries": entries,
+            }
+
+    def clear_tool_cache(self) -> Dict[str, Any]:
+        with self._cache_lock:
+            cleared = len(self._tool_cache)
+            self._tool_cache.clear()
+            self._cache_request_count = 0
+            self._cache_hit_count = 0
+            self._cache_miss_count = 0
+            self._cache_estimated_saved_ms = 0
+            self._cache_last_hit_at = ""
+            self._cache_last_miss_at = ""
+            self._cache_path_stats.clear()
+            self._cache_recent_events.clear()
+            self._cache_event_seq = 0
+        return {
+            "cleared": cleared,
+            "entryCount": 0,
+            "stats": self.tool_cache_stats(),
+        }
 
     def _extract_result_data(self, payload: Dict[str, Any]) -> Any:
         if not isinstance(payload, dict):
@@ -271,6 +648,37 @@ class JavaBackendRetriever:
         if handler is None:
             return []
         return handler(authorization, input_text)
+
+    def search_service_tool_with_meta(self, authorization: str, tool_name: str, input_text: str) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        events: List[Dict[str, Any]] = []
+        input_preview = re.sub(r"\s+", " ", str(input_text or "")).strip()[:120]
+        context = {
+            "toolName": str(tool_name or "").strip(),
+            "inputPreview": input_preview,
+            "inputHash": hashlib.sha256(str(input_text or "").encode("utf-8")).hexdigest()[:12] if input_text else "",
+        }
+        event_token = _tool_cache_events_var.set(events)
+        context_token = _tool_cache_context_var.set(context)
+        try:
+            results = self.search_service_tool(authorization, tool_name, input_text)
+        finally:
+            _tool_cache_context_var.reset(context_token)
+            _tool_cache_events_var.reset(event_token)
+        request_count = len(events)
+        hit_count = sum(1 for event in events if event.get("cacheHit"))
+        miss_count = request_count - hit_count
+        tool_cache = {
+            "enabled": self._cache_available(),
+            "requestCount": request_count,
+            "hitCount": hit_count,
+            "missCount": miss_count,
+            "hitRate": (hit_count / request_count) if request_count else 0,
+            "cacheHit": request_count > 0 and hit_count == request_count,
+            "partialHit": 0 < hit_count < request_count,
+            "estimatedSavedMillis": sum(int(event.get("savedMillis") or 0) for event in events),
+            "events": events[:20],
+        }
+        return results, {"toolCache": tool_cache}
 
     def search_keyword(self, authorization: str, keyword: str) -> List[Dict[str, Any]]:
         if not self.enabled or not keyword:

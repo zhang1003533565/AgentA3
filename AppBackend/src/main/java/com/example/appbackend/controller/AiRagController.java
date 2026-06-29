@@ -6,6 +6,7 @@ import com.example.appbackend.service.impl.PythonAiProxyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -67,6 +68,18 @@ public class AiRagController {
             @RequestBody Map<String, Object> body,
             HttpServletRequest request) {
         return Result.success(pythonAiProxyService.updateRagAgentExampleInput(agentName, body, adminAuthorization(request)));
+    }
+
+    @GetMapping("/tool-cache/stats")
+    @Operation(summary = "智能体工具缓存统计")
+    public Result<Object> toolCacheStats(HttpServletRequest request) {
+        return Result.success(pythonAiProxyService.getToolCacheStats(adminAuthorization(request)));
+    }
+
+    @DeleteMapping("/tool-cache")
+    @Operation(summary = "清空智能体工具缓存")
+    public Result<Object> clearToolCache(HttpServletRequest request) {
+        return Result.success(pythonAiProxyService.clearToolCache(adminAuthorization(request)));
     }
 
     @PostMapping("/query")

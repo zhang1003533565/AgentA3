@@ -175,6 +175,8 @@ class PythonAiProxyServiceTest {
     void ragManagement_shouldProxyFrameworkAndAgentsEndpoints() throws Exception {
         AtomicReference<String> frameworkAuthRef = new AtomicReference<>();
         AtomicReference<String> agentsAuthRef = new AtomicReference<>();
+        AtomicReference<String> cacheStatsAuthRef = new AtomicReference<>();
+        AtomicReference<String> cacheClearMethodRef = new AtomicReference<>();
 
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/internal/rag/framework", exchange -> {
@@ -195,6 +197,26 @@ class PythonAiProxyServiceTest {
                     }
                     """);
         });
+        server.createContext("/internal/rag/tool-cache/stats", exchange -> {
+            cacheStatsAuthRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            writeJson(exchange, 200, """
+                    {
+                      "enabled": true,
+                      "requestCount": 2,
+                      "hitCount": 1,
+                      "hitRate": 0.5
+                    }
+                    """);
+        });
+        server.createContext("/internal/rag/tool-cache", exchange -> {
+            cacheClearMethodRef.set(exchange.getRequestMethod());
+            writeJson(exchange, 200, """
+                    {
+                      "cleared": 1,
+                      "entryCount": 0
+                    }
+                    """);
+        });
         server.start();
 
         PythonAiProxyService service = newService(server.getAddress().getPort());
@@ -202,13 +224,20 @@ class PythonAiProxyServiceTest {
 
         Object framework = service.getRagFramework("Bearer " + token);
         Object agents = service.getRagAgents("Bearer " + token);
+        Object cacheStats = service.getToolCacheStats("Bearer " + token);
+        Object cacheClear = service.clearToolCache("Bearer " + token);
 
         Assertions.assertInstanceOf(Map.class, framework);
         Assertions.assertInstanceOf(Map.class, agents);
+        Assertions.assertInstanceOf(Map.class, cacheStats);
+        Assertions.assertInstanceOf(Map.class, cacheClear);
         Assertions.assertEquals("Bearer " + token, frameworkAuthRef.get());
         Assertions.assertEquals("Bearer " + token, agentsAuthRef.get());
+        Assertions.assertEquals("Bearer " + token, cacheStatsAuthRef.get());
+        Assertions.assertEquals("DELETE", cacheClearMethodRef.get());
         Assertions.assertTrue(((Map<?, ?>) framework).containsKey("runtimeFolders"));
         Assertions.assertEquals(1, ((Number) ((Map<?, ?>) agents).get("total")).intValue());
+        Assertions.assertEquals(1, ((Number) ((Map<?, ?>) cacheStats).get("hitCount")).intValue());
     }
 
     @Test

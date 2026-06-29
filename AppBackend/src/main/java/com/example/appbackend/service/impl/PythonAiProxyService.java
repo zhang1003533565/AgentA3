@@ -110,6 +110,14 @@ public class PythonAiProxyService {
         return putRagObject("/internal/rag/agents/" + agentName + "/example-input", request, authorization);
     }
 
+    public Object getToolCacheStats(String authorization) {
+        return getRagObject("/internal/rag/tool-cache/stats", authorization);
+    }
+
+    public Object clearToolCache(String authorization) {
+        return deleteRagObject("/internal/rag/tool-cache", authorization);
+    }
+
     public Object getModelProviders(String authorization) {
         return getPythonAuthObject("/internal/models/providers", authorization, "Python 模型目录服务调用失败");
     }
@@ -427,6 +435,25 @@ public class PythonAiProxyService {
                     .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(request == null ? Map.of() : request)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python AI 服务调用失败: " + e.getMessage());
+        }
+    }
+
+    private Object deleteRagObject(String path, String authorization) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            return webClientBuilder.build()
+                    .delete()
+                    .uri(buildUri(path))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
                     .retrieve()
                     .bodyToMono(Object.class)
                     .block();

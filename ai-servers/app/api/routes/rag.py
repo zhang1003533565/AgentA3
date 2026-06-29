@@ -463,6 +463,22 @@ def save_rag_agent_example_input(
     return update_agent_example_input(agent_name, request.input)
 
 
+@router.get("/tool-cache/stats")
+def get_tool_cache_stats(
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    return data_store.get_tool_cache_stats()
+
+
+@router.delete("/tool-cache")
+def clear_tool_cache(
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Dict[str, Any]:
+    _require_authorization(authorization)
+    return data_store.clear_tool_cache()
+
+
 @router.post("/question-bank/review")
 def review_question_bank(
     request: QuestionBankReviewRequest,
@@ -1747,8 +1763,18 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
     tool_display_name = _tool_display_name(tool_name)
     planning_answer = str(getattr(leader_plan, "answer", "") or "").strip()
     answer_type = "service_tool_result"
-    results = data_store.search_service_tool(authorization, tool_name, request.input)
-    retrieval_meta = {"javaBackendCount": len(results), "documentCount": len(results)}
+    results, cache_meta = data_store.search_service_tool_with_meta(authorization, tool_name, request.input)
+    tool_cache = cache_meta.get("toolCache", {}) if isinstance(cache_meta, dict) else {}
+    retrieval_meta = {
+        "javaBackendCount": len(results),
+        "documentCount": len(results),
+        "toolCache": tool_cache,
+        "toolCacheHit": bool(tool_cache.get("cacheHit")),
+        "toolCachePartialHit": bool(tool_cache.get("partialHit")),
+        "toolCacheRequestCount": int(tool_cache.get("requestCount") or 0),
+        "toolCacheHitCount": int(tool_cache.get("hitCount") or 0),
+        "toolCacheMissCount": int(tool_cache.get("missCount") or 0),
+    }
     documents = [_tool_result_to_document(item, index) for index, item in enumerate(results, start=1)]
     summary_error = ""
     summarized_by_model = False

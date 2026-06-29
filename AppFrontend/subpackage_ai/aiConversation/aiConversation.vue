@@ -712,6 +712,10 @@ export default {
       if (toolName) {
         items.push({ label: '工具', value: this.getToolLabel(toolName, detail.retrievalMeta?.toolDisplayName || detail.toolDisplayName) })
       }
+      const toolCache = detail.retrievalMeta?.toolCache
+      if (toolCache && Number(toolCache.requestCount || 0) > 0) {
+        items.push({ label: '缓存', value: this.getToolCacheLabel(toolCache) })
+      }
       if (detail.status === 'failed') {
         items.push({ label: '阶段', value: this.getStageLabel(detail.currentStep || 'error') })
       }
@@ -720,6 +724,15 @@ export default {
         items.push({ label: '原因', value: this.truncateText(routeReason, 42) })
       }
       return items
+    },
+    getToolCacheLabel(cache) {
+      const requestCount = Number(cache?.requestCount || 0)
+      const hitCount = Number(cache?.hitCount || 0)
+      if (!requestCount) return '未使用'
+      const hitRate = requestCount ? `${((hitCount / requestCount) * 100).toFixed(1)}%` : '0.0%'
+      if (hitCount === requestCount) return `全部命中 · ${hitRate}`
+      if (hitCount > 0) return `部分命中 ${hitCount}/${requestCount} · ${hitRate}`
+      return `未命中 · ${hitRate}`
     },
     getCallDetailTools(message) {
       const detail = this.normalizeCallDetail(message)

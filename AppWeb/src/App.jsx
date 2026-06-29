@@ -12,6 +12,7 @@ import ParagraphManage from './pages/ai/KnowledgeManage/ParagraphManage'
 import ProfileRules from './pages/ai/ProfileRules/ProfileRules'
 import RagManage from './pages/ai/RagManage/RagManage'
 import AgentSettings from './pages/ai/AgentSettings/AgentSettings'
+import AgentCache from './pages/ai/AgentCache/AgentCache'
 import Login from './pages/Login/Login'
 import WorkspacePage from './pages/workspace/WorkspacePage'
 import './App.css'
@@ -41,6 +42,7 @@ function App() {
           <Route path="/ai/rag/strategy" element={<Navigate to="/ai/rag/agents" replace />} />
           <Route path="/ai/rag/agents" element={<RagManage page="agents" />} />
           <Route path="/ai/agent-settings" element={<AgentSettings />} />
+          <Route path="/ai/agent-cache" element={<AgentCache />} />
           <Route path="/ai/question-bank" element={<QuestionBank />} />
           <Route path="/ai/knowledge" element={<KnowledgeManage />} />
           <Route path="/admin/knowledge-chat" element={<KnowledgeChat />} />
