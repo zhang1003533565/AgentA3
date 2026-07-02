@@ -1,13 +1,17 @@
 package com.example.appbackend.controller;
 
+import com.example.appbackend.dto.SchedulePeriodDTO;
+import com.example.appbackend.dto.SchedulePeriodUpdateRequest;
 import com.example.appbackend.dto.ScheduleSettingsDTO;
 import com.example.appbackend.dto.ScheduleSettingsUpdateRequest;
 import com.example.appbackend.dto.ScheduleSemesterDTO;
 import com.example.appbackend.entity.CourseSchedule;
 import com.example.appbackend.entity.Result;
+import com.example.appbackend.entity.SchedulePeriodSetting;
 import com.example.appbackend.entity.ScheduleSemesterSetting;
 import com.example.appbackend.entity.User;
 import com.example.appbackend.exception.BusinessException;
+import com.example.appbackend.repository.SchedulePeriodSettingRepository;
 import com.example.appbackend.repository.ScheduleSemesterSettingRepository;
 import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.CourseScheduleService;
@@ -24,11 +28,15 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/schedule")
@@ -43,6 +51,11 @@ public class CourseScheduleController {
 
     @Autowired
     private ScheduleSemesterSettingRepository scheduleSemesterSettingRepository;
+
+    @Autowired
+    private SchedulePeriodSettingRepository schedulePeriodSettingRepository;
+
+    private static final DateTimeFormatter PERIOD_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
     private Long getCurrentUserId(HttpServletRequest request) {
         Long userId = (Long) request.getAttribute("userId");
@@ -175,16 +188,35 @@ public class CourseScheduleController {
             HttpServletRequest request,
             @Parameter(description = "分享码", required = true, example = "SCH260405A1B2")
             @RequestParam(required = false) String shareCode,
+            @RequestParam(required = false) String academicYear,
+            @RequestParam(required = false) Integer semesterTerm,
             @RequestBody(required = false) Map<String, Object> body) {
         // 支持两种传参方式：URL 参数或 JSON body
         if (shareCode == null && body != null) {
             shareCode = (String) body.get("shareCode");
         }
+        if ((academicYear == null || academicYear.trim().isEmpty()) && body != null && body.get("academicYear") != null) {
+            academicYear = String.valueOf(body.get("academicYear"));
+        }
+        if (semesterTerm == null && body != null && body.get("semesterTerm") != null) {
+            semesterTerm = parseInteger(body.get("semesterTerm"));
+        }
         if (shareCode == null || shareCode.trim().isEmpty()) {
             return Result.error(400, "分享码不能为空");
         }
+        String[] shareParts = shareCode.trim().split("#");
+        if (shareParts.length > 1) {
+            shareCode = shareParts[0];
+            if ((academicYear == null || academicYear.trim().isEmpty()) && shareParts.length > 1) {
+                academicYear = shareParts[1];
+            }
+            if (semesterTerm == null && shareParts.length > 2) {
+                semesterTerm = parseInteger(shareParts[2]);
+            }
+        }
         Long userId = getCurrentUserId(request);
-        courseScheduleService.copyScheduleByShareCode(userId, shareCode.trim());
+        SemesterSelection semester = resolveSemester(userId, academicYear, semesterTerm);
+        courseScheduleService.copyScheduleByShareCode(userId, shareCode.trim(), semester.academicYear, semester.semesterTerm);
         return Result.success();
     }
 
@@ -270,6 +302,56 @@ public class CourseScheduleController {
         return Result.success();
     }
 
+    @Operation(summary = "获取节次时间设置", description = "获取当前用户的课表节次开始/结束时间")
+    @GetMapping("/periods")
+    public Result<List<SchedulePeriodDTO>> getSchedulePeriods(HttpServletRequest request) {
+        Long userId = getCurrentUserId(request);
+        return Result.success(buildPeriodDtos(userId));
+    }
+
+    @Operation(summary = "更新节次时间设置", description = "批量保存当前用户的课表节次开始/结束时间")
+    @PutMapping("/periods")
+    @Transactional
+    public Result<List<SchedulePeriodDTO>> updateSchedulePeriods(
+            HttpServletRequest request,
+            @Valid @RequestBody SchedulePeriodUpdateRequest body) {
+        Long userId = getCurrentUserId(request);
+        Set<Integer> seenPeriodIndexes = new HashSet<>();
+
+        for (SchedulePeriodDTO item : body.getPeriods()) {
+            if (item == null) {
+                continue;
+            }
+            Integer periodIndex = item.getPeriodIndex();
+            if (periodIndex == null || periodIndex < 1 || periodIndex > 20) {
+                throw new BusinessException(400, "节次必须在 1-20 之间");
+            }
+            if (!seenPeriodIndexes.add(periodIndex)) {
+                throw new BusinessException(400, "节次不能重复");
+            }
+
+            LocalTime startTime = parsePeriodTime(item.getStartTime(), "开始时间");
+            LocalTime endTime = parsePeriodTime(item.getEndTime(), "结束时间");
+            if (!startTime.isBefore(endTime)) {
+                throw new BusinessException(400, "第 " + periodIndex + " 节的开始时间必须早于结束时间");
+            }
+
+            SchedulePeriodSetting setting = schedulePeriodSettingRepository
+                    .findByUserIdAndPeriodIndex(userId, periodIndex)
+                    .orElseGet(() -> {
+                        SchedulePeriodSetting created = new SchedulePeriodSetting();
+                        created.setUserId(userId);
+                        created.setPeriodIndex(periodIndex);
+                        return created;
+                    });
+            setting.setStartTime(startTime);
+            setting.setEndTime(endTime);
+            schedulePeriodSettingRepository.save(setting);
+        }
+
+        return Result.success(buildPeriodDtos(userId));
+    }
+
     private ScheduleSemesterSetting saveSemesterSetting(
             Long userId,
             String academicYear,
@@ -291,6 +373,81 @@ public class CourseScheduleController {
         setting.setSemesterStart(parseSemesterStart(semesterStart));
         setting.setSelectedFlag(selected);
         return scheduleSemesterSettingRepository.save(setting);
+    }
+
+    private List<SchedulePeriodDTO> buildPeriodDtos(Long userId) {
+        Map<Integer, SchedulePeriodSetting> savedByIndex = new HashMap<>();
+        for (SchedulePeriodSetting setting : schedulePeriodSettingRepository.findByUserIdOrderByPeriodIndexAsc(userId)) {
+            savedByIndex.put(setting.getPeriodIndex(), setting);
+        }
+
+        List<SchedulePeriodDTO> result = new ArrayList<>();
+        Set<Integer> defaultIndexes = new HashSet<>();
+        for (SchedulePeriodDTO defaultItem : defaultPeriodDtos()) {
+            Integer periodIndex = defaultItem.getPeriodIndex();
+            defaultIndexes.add(periodIndex);
+            SchedulePeriodSetting saved = savedByIndex.get(periodIndex);
+            result.add(saved != null ? toPeriodDto(saved) : defaultItem);
+        }
+        for (SchedulePeriodSetting saved : savedByIndex.values()) {
+            if (!defaultIndexes.contains(saved.getPeriodIndex())) {
+                result.add(toPeriodDto(saved));
+            }
+        }
+        result.sort((a, b) -> Integer.compare(a.getPeriodIndex(), b.getPeriodIndex()));
+        return result;
+    }
+
+    private SchedulePeriodDTO toPeriodDto(SchedulePeriodSetting setting) {
+        return new SchedulePeriodDTO(
+                setting.getPeriodIndex(),
+                formatPeriodTime(setting.getStartTime()),
+                formatPeriodTime(setting.getEndTime())
+        );
+    }
+
+    private List<SchedulePeriodDTO> defaultPeriodDtos() {
+        return List.of(
+                new SchedulePeriodDTO(1, "08:00", "08:45"),
+                new SchedulePeriodDTO(2, "08:55", "09:40"),
+                new SchedulePeriodDTO(3, "10:00", "10:45"),
+                new SchedulePeriodDTO(4, "10:55", "11:40"),
+                new SchedulePeriodDTO(5, "14:30", "15:15"),
+                new SchedulePeriodDTO(6, "15:25", "16:10"),
+                new SchedulePeriodDTO(7, "16:20", "17:05"),
+                new SchedulePeriodDTO(8, "17:15", "18:00"),
+                new SchedulePeriodDTO(9, "18:30", "19:15"),
+                new SchedulePeriodDTO(10, "19:25", "20:10")
+        );
+    }
+
+    private LocalTime parsePeriodTime(String value, String fieldName) {
+        if (value == null || value.trim().isEmpty()) {
+            throw new BusinessException(400, fieldName + "不能为空");
+        }
+        try {
+            return LocalTime.parse(value.trim(), PERIOD_TIME_FORMATTER);
+        } catch (Exception e) {
+            throw new BusinessException(400, fieldName + "格式必须为 HH:mm");
+        }
+    }
+
+    private String formatPeriodTime(LocalTime value) {
+        return value == null ? "" : value.format(PERIOD_TIME_FORMATTER);
+    }
+
+    private Integer parseInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private LocalDate parseSemesterStart(String semesterStart) {

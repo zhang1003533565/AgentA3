@@ -31,11 +31,37 @@ export function importScheduleAuto(data) {
   })
 }
 
-export function copyScheduleByShareCode(shareCode) {
+export function getScheduleImportProgress() {
+  return request({
+    url: '/api/browser/jwx/schedule/import-progress',
+    method: 'GET'
+  })
+}
+
+export function getSchedulePeriods() {
+  return request({
+    url: '/api/schedule/periods',
+    method: 'GET'
+  })
+}
+
+export function updateSchedulePeriods(data) {
+  return request({
+    url: '/api/schedule/periods',
+    method: 'PUT',
+    data
+  })
+}
+
+export function copyScheduleByShareCode(shareCode, semester = {}) {
   return request({
     url: '/api/schedule/copy',
     method: 'POST',
-    data: { shareCode }
+    data: {
+      shareCode,
+      academicYear: semester.academicYear,
+      semesterTerm: semester.semesterTerm
+    }
   })
 }
 

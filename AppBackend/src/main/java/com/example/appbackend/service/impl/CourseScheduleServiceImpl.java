@@ -164,6 +164,12 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
     @Override
     @Transactional
     public void copyScheduleByShareCode(Long userId, String shareCode) {
+        copyScheduleByShareCode(userId, shareCode, null, null);
+    }
+
+    @Override
+    @Transactional
+    public void copyScheduleByShareCode(Long userId, String shareCode, String academicYear, Integer semesterTerm) {
         // 1. 根据分享码查找用户
         User sourceUser = userRepository.findByShareCode(shareCode)
                 .orElseThrow(() -> new RuntimeException("分享码无效"));
@@ -173,27 +179,47 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
             throw new RuntimeException("不能复制自己的课表");
         }
 
-        // 2. 删除当前用户已有的课表数据
-        courseScheduleRepository.deleteByUserId(userId);
+        boolean scopedCopy = academicYear != null && !academicYear.trim().isEmpty() && semesterTerm != null;
+        String targetAcademicYear = scopedCopy ? academicYear.trim() : null;
+        Integer targetSemesterTerm = scopedCopy ? semesterTerm : null;
 
-        // 3. 获取分享者的课表
-        List<CourseSchedule> sourceSchedules = courseScheduleRepository.findByUserId(sourceUser.getId());
+        // 2. 获取分享者的课表
+        List<CourseSchedule> sourceSchedules = scopedCopy
+                ? courseScheduleRepository.findByUserIdAndAcademicYearAndSemesterTerm(sourceUser.getId(), targetAcademicYear, targetSemesterTerm)
+                : courseScheduleRepository.findByUserId(sourceUser.getId());
+
+        if (scopedCopy && (sourceSchedules == null || sourceSchedules.isEmpty())) {
+            List<CourseSchedule> legacySchedules = courseScheduleRepository.findByUserId(sourceUser.getId()).stream()
+                    .filter(schedule -> schedule.getAcademicYear() == null && schedule.getSemesterTerm() == null)
+                    .collect(Collectors.toList());
+            if (!legacySchedules.isEmpty()) {
+                sourceSchedules = legacySchedules;
+            }
+        }
 
         if (sourceSchedules == null || sourceSchedules.isEmpty()) {
-            throw new RuntimeException("该用户的课表为空");
+            throw new RuntimeException(scopedCopy ? "该用户本学期课表为空" : "该用户的课表为空");
         }
+
+        // 3. 只覆盖目标学期；未指定学期时保留旧行为，覆盖全部课表
+        if (scopedCopy) {
+            courseScheduleRepository.deleteByUserIdAndSemester(userId, targetAcademicYear, targetSemesterTerm);
+        } else {
+            courseScheduleRepository.deleteByUserId(userId);
+        }
+
+        User targetUser = userRepository.findById(userId).orElse(null);
+        String targetStudentId = targetUser != null ? targetUser.getPersonalNumber() : null;
+        String copiedStudentId = targetStudentId != null ? targetStudentId : sourceUser.getPersonalNumber();
 
         // 4. 复制课表数据，设置为目标用户的课表
         List<CourseSchedule> copiedSchedules = sourceSchedules.stream().map(schedule -> {
             CourseSchedule newSchedule = new CourseSchedule();
             newSchedule.setUserId(userId);
-            // 使用当前用户的 personalNumber 作为 studentId，如果没有则使用源用户的 studentId
-            User targetUser = userRepository.findById(userId).orElse(null);
-            String targetStudentId = targetUser != null ? targetUser.getPersonalNumber() : null;
-            newSchedule.setStudentId(targetStudentId != null ? targetStudentId : sourceUser.getPersonalNumber());
-            newSchedule.setAcademicYear(schedule.getAcademicYear());
-            newSchedule.setSemesterTerm(schedule.getSemesterTerm());
-            newSchedule.setSemesterCode(schedule.getSemesterCode());
+            newSchedule.setStudentId(copiedStudentId);
+            newSchedule.setAcademicYear(scopedCopy ? targetAcademicYear : schedule.getAcademicYear());
+            newSchedule.setSemesterTerm(scopedCopy ? targetSemesterTerm : schedule.getSemesterTerm());
+            newSchedule.setSemesterCode(scopedCopy ? semesterCodeForTerm(targetSemesterTerm) : schedule.getSemesterCode());
             newSchedule.setCourseName(schedule.getCourseName());
             newSchedule.setWeekRange(schedule.getWeekRange());
             newSchedule.setClassSessions(schedule.getClassSessions());
@@ -212,9 +238,14 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
             return newSchedule;
         }).collect(Collectors.toList());
 
-        System.out.println("DEBUG - 复制课表：从用户 " + sourceUser.getUsername() + " 到用户 " + userId + ", 课程数：" + copiedSchedules.size());
+        log.info("复制课表：fromUser={}, toUser={}, academicYear={}, semesterTerm={}, count={}",
+                sourceUser.getUsername(), userId, targetAcademicYear, targetSemesterTerm, copiedSchedules.size());
 
         // 5. 保存复制的课表
         courseScheduleRepository.saveAll(copiedSchedules);
+    }
+
+    private String semesterCodeForTerm(Integer semesterTerm) {
+        return Integer.valueOf(2).equals(semesterTerm) ? "12" : "3";
     }
 }

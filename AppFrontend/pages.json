@@ -199,16 +199,43 @@
 						"navigationBarTextStyle": "black"
 					}
 				},
-				{
-					"path": "scheduleSettings/scheduleSettings",
-					"style": {
-						"navigationBarTitleText": "课表设置",
-						"navigationStyle": "custom",
-						"navigationBarBackgroundColor": "#FFFFFF",
-						"navigationBarTextStyle": "black"
+					{
+						"path": "scheduleSettings/scheduleSettings",
+						"style": {
+							"navigationBarTitleText": "学期管理",
+							"navigationStyle": "custom",
+							"navigationBarBackgroundColor": "#FFFFFF",
+							"navigationBarTextStyle": "black"
+						}
+					},
+					{
+						"path": "scheduleAccountSettings/scheduleAccountSettings",
+						"style": {
+							"navigationBarTitleText": "教务账号设置",
+							"navigationStyle": "custom",
+							"navigationBarBackgroundColor": "#FFFFFF",
+							"navigationBarTextStyle": "black"
+						}
+					},
+					{
+						"path": "scheduleGeneralSettings/scheduleGeneralSettings",
+						"style": {
+							"navigationBarTitleText": "课表设置",
+							"navigationStyle": "custom",
+							"navigationBarBackgroundColor": "#FFFFFF",
+							"navigationBarTextStyle": "black"
+						}
+					},
+					{
+						"path": "schedulePeriodSettings/schedulePeriodSettings",
+						"style": {
+							"navigationBarTitleText": "节次时间设置",
+							"navigationStyle": "custom",
+							"navigationBarBackgroundColor": "#FFFFFF",
+							"navigationBarTextStyle": "black"
+						}
 					}
-				}
-			]
+				]
 		},
 		{
 			"root": "subpackage_lostfound",

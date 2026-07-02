@@ -23,12 +23,14 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
 @RequestMapping("/api/browser")
 public class PlaywrightController {
     private static final Logger log = LoggerFactory.getLogger(PlaywrightController.class);
+    private static final Map<Long, Map<String, Object>> IMPORT_PROGRESS = new ConcurrentHashMap<>();
 
     private final PlaywrightService playwrightService;
     private final CourseScheduleService courseScheduleService;
@@ -48,6 +50,36 @@ public class PlaywrightController {
         this.systemConfigService = systemConfigService;
     }
 
+    @GetMapping("/jwx/schedule/import-progress")
+    public Result<Map<String, Object>> getScheduleImportProgress(HttpServletRequest request) {
+        Long userId = (Long) request.getAttribute("userId");
+        if (userId == null) {
+            return Result.error("未登录或 Token 无效");
+        }
+        Map<String, Object> progress = IMPORT_PROGRESS.get(userId);
+        if (progress == null) {
+            progress = new HashMap<>();
+            progress.put("status", "idle");
+            progress.put("step", "prepare");
+            progress.put("message", "暂无导入任务");
+            progress.put("percent", 0);
+        }
+        return Result.success(progress);
+    }
+
+    private void updateImportProgress(Long userId, String status, String step, String message, int percent) {
+        if (userId == null) {
+            return;
+        }
+        Map<String, Object> progress = new HashMap<>();
+        progress.put("status", status);
+        progress.put("step", step);
+        progress.put("message", message);
+        progress.put("percent", percent);
+        progress.put("updatedAt", System.currentTimeMillis());
+        IMPORT_PROGRESS.put(userId, progress);
+    }
+
     /**
      * 自动获取课表（从 Token 中获取用户信息，自动爬取并保存）
      */
@@ -62,6 +94,7 @@ public class PlaywrightController {
             log.warn("课表自动导入失败：未登录或 token 无效");
             return Result.error("未登录或 Token 无效");
         }
+        updateImportProgress(userId, "running", "prepare", "正在读取教务账号配置", 5);
         log.info("课表自动导入开始，userId={}", userId);
 
         // 从数据库获取用户的教务系统账号密码
@@ -80,25 +113,30 @@ public class PlaywrightController {
         if (jwxStudentId == null || jwxStudentId.isEmpty() ||
             jwxPassword == null || jwxPassword.isEmpty()) {
             log.warn("课表自动导入失败：教务账号或密码未绑定，userId={}", userId);
+            updateImportProgress(userId, "failed", "prepare", "请先设置教务系统账号和密码", 0);
             return Result.error("请先绑定教务系统账号和密码");
         }
 
         BrowserContext context = null;
         try {
+            updateImportProgress(userId, "running", "connect", "正在连接教务系统", 15);
             boolean headless = systemConfigService.getBooleanValue("browser.headless", true);
             String defaultUrl = systemConfigService.getValue("browser.default-url", "https://jwx.hebiace.edu.cn/");
             context = playwrightService.createBrowserContext(headless);
             Page page = playwrightService.navigate(context, defaultUrl);
             page.waitForLoadState(LoadState.NETWORKIDLE);
 
+            updateImportProgress(userId, "running", "login", "正在登录教务系统账号", 30);
             Thread.sleep(500);
             playwrightService.fill(page, "#yhm", jwxStudentId);
             playwrightService.fill(page, "#mm", jwxPassword);
             playwrightService.click(page, "#dl");
             page.waitForLoadState(LoadState.NETWORKIDLE);
             Thread.sleep(2000);
+            updateImportProgress(userId, "running", "login", "登录账号成功", 42);
 
             // 点击下拉框：信息查询
+            updateImportProgress(userId, "running", "query", "正在打开个人课表查询", 52);
             playwrightService.click(page, "a.dropdown-toggle:has-text('信息查询')");
             Thread.sleep(500);
 
@@ -111,11 +149,13 @@ public class PlaywrightController {
             });
 
             if (newPage == null) {
+                updateImportProgress(userId, "failed", "query", "未能打开课表页面", 52);
                 return Result.error("未能打开课表页面");
             }
 
             newPage.waitForLoadState(LoadState.NETWORKIDLE);
             Thread.sleep(2000);
+            updateImportProgress(userId, "running", "read", "课表页面加载完成，正在读取课程", 62);
             log.info("教务系统课表页面加载完成，userId={}, currentUrl={}", userId, newPage.url());
 
             scheduleSemesterSettingRepository.clearSelectedByUserId(userId);
@@ -124,6 +164,7 @@ public class PlaywrightController {
             List<Map<String, Object>> semesterResults = new ArrayList<>();
             for (Integer semesterTerm : terms) {
                 String semesterCode = semesterCodeForTerm(semesterTerm);
+                updateImportProgress(userId, "running", "read", "正在读取第 " + semesterTerm + " 学期课表", 72);
                 Map<String, Object> payload = fetchJwxSchedulePayload(newPage, academicYearStart(academicYear), semesterCode);
                 String rawData = buildRawDataFromJwxPayload(payload);
                 LocalDate semesterStart = resolveImportSemesterStart(userId, importRequest, semesterTerm, academicYear, user.getSemesterStart());
@@ -133,6 +174,7 @@ public class PlaywrightController {
                     selectedSemesterStart = semesterStart;
                 }
 
+                updateImportProgress(userId, "running", "save", "正在保存第 " + semesterTerm + " 学期课程", 88);
                 courseScheduleService.saveSchedule(user.getId(), jwxStudentId, rawData, academicYear, semesterTerm, semesterCode);
                 var savedSchedule = courseScheduleService.getUserSchedule(user.getId(), academicYear, semesterTerm);
                 totalCount += savedSchedule.size();
@@ -159,9 +201,11 @@ public class PlaywrightController {
             result.put("semesters", semesterResults);
             result.put("message", "课表已导入，共 " + totalCount + " 门课程");
 
+            updateImportProgress(userId, "done", "done", "导入完成，共 " + totalCount + " 门课程", 100);
             return Result.success(result);
         } catch (Exception e) {
             log.error("课表自动导入异常，userId={}, message={}", userId, e.getMessage(), e);
+            updateImportProgress(userId, "failed", "failed", "导入失败：" + e.getMessage(), 0);
             return Result.error("操作失败：" + e.getMessage());
         } finally {
             playwrightService.closeBrowser(context);

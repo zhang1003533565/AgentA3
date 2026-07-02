@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>学期管理页面设计图</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #eaf3fb;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #172b49;
+    }
+
+    .canvas {
+      width: 600px;
+      height: 976px;
+      padding-top: 12px;
+      background: #eaf3fb;
+    }
+
+    .phone {
+      width: 392px;
+      height: 844px;
+      margin-left: 52px;
+      overflow: hidden;
+      border: 1px solid #bdd5e9;
+      border-radius: 14px 14px 0 0;
+      background: linear-gradient(180deg, #eaf7ff 0%, #f6fbff 52%, #f5f8fb 100%);
+      box-shadow: 0 18px 40px rgba(84, 115, 153, 0.14);
+    }
+
+    .nav {
+      height: 78px;
+      display: grid;
+      grid-template-columns: 70px 1fr 70px;
+      align-items: center;
+      padding: 0 18px;
+    }
+
+    .back {
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      font-size: 32px;
+      line-height: 1;
+      color: #111827;
+    }
+
+    .title {
+      text-align: center;
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 0;
+      color: #111827;
+    }
+
+    .content {
+      padding: 0 12px 28px;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.97);
+      border-radius: 12px;
+      box-shadow: 0 14px 32px rgba(65, 102, 153, 0.08);
+    }
+
+    .account {
+      min-height: 68px;
+      padding: 16px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .account-title,
+    .section-title {
+      display: block;
+      font-size: 16px;
+      line-height: 1.2;
+      font-weight: 800;
+      color: #162a48;
+    }
+
+    .account-desc,
+    .section-desc {
+      display: block;
+      margin-top: 7px;
+      font-size: 12px;
+      line-height: 1.2;
+      color: #6a83a1;
+    }
+
+    .account-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .status {
+      padding: 7px 12px;
+      border-radius: 999px;
+      background: #eaf8f3;
+      color: #168b6a;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .black-btn {
+      height: 32px;
+      min-width: 54px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 9px;
+      background: #1d1d1f;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 32px;
+      text-align: center;
+    }
+
+    .add-card {
+      margin-top: 14px;
+      padding: 17px 16px 14px;
+    }
+
+    .field {
+      margin-top: 14px;
+    }
+
+    .label {
+      display: block;
+      margin-bottom: 9px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #405c7e;
+    }
+
+    .year-row,
+    .form-grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .year-row {
+      grid-template-columns: 1fr 10px 1fr;
+      align-items: center;
+    }
+
+    .year-box,
+    .input-box {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      border: 1px solid #d7e8fb;
+      border-radius: 9px;
+      background: #f7fbff;
+      color: #172b49;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .year-box {
+      justify-content: center;
+    }
+
+    .year-box--end {
+      background: #f2f6fb;
+      color: #45617f;
+    }
+
+    .dash {
+      text-align: center;
+      font-size: 18px;
+      font-weight: 800;
+      color: #8395aa;
+    }
+
+    .form-grid {
+      grid-template-columns: 1fr 1fr;
+      margin-top: 14px;
+    }
+
+    .input-box {
+      padding: 0 14px;
+      font-weight: 500;
+    }
+
+    .input-box--strong {
+      font-weight: 700;
+    }
+
+    .add-btn {
+      height: 44px;
+      margin-top: 14px;
+      border-radius: 8px;
+      background: #fff1ea;
+      color: #df5732;
+      display: grid;
+      place-items: center;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .list-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 17px 4px 12px;
+    }
+
+    .list-title {
+      font-size: 17px;
+      font-weight: 800;
+      color: #162a48;
+    }
+
+    .list-count {
+      font-size: 12px;
+      color: #8495a8;
+    }
+
+    .semester-card {
+      margin-bottom: 11px;
+      padding: 16px 14px 14px;
+      border: 1px solid rgba(63, 125, 242, 0.58);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.98);
+      box-shadow: 0 16px 34px rgba(63, 125, 242, 0.10);
+    }
+
+    .semester-card--muted {
+      border-color: rgba(220, 233, 251, 0.9);
+      box-shadow: 0 14px 32px rgba(65, 102, 153, 0.08);
+    }
+
+    .semester-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .semester-name {
+      display: block;
+      font-size: 17px;
+      line-height: 1.2;
+      font-weight: 800;
+      color: #1c3150;
+    }
+
+    .semester-meta {
+      display: block;
+      margin-top: 8px;
+      font-size: 12px;
+      color: #7187a2;
+    }
+
+    .current-badge {
+      flex-shrink: 0;
+      padding: 9px 12px;
+      border-radius: 999px;
+      background: #eaf2ff;
+      color: #3f7df2;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .date-row {
+      height: 42px;
+      margin-top: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      border: 1px solid #e0edf9;
+      border-radius: 8px;
+      background: #f7fbff;
+      font-size: 13px;
+      color: #5c7088;
+    }
+
+    .date-value {
+      color: #172b49;
+      font-weight: 500;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 11px;
+    }
+
+    .ghost-btn,
+    .primary-btn {
+      height: 40px;
+      display: grid;
+      place-items: center;
+      border-radius: 9px;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .ghost-btn {
+      background: #f2f6fb;
+      color: #536b87;
+    }
+
+    .primary-btn {
+      background: #1d1d1f;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <main class="canvas">
+    <section class="phone">
+      <header class="nav">
+        <div class="back">‹</div>
+        <div class="title">学期管理</div>
+        <div></div>
+      </header>
+
+      <div class="content">
+        <section class="card account">
+          <div>
+            <span class="account-title">教务账号</span>
+            <span class="account-desc">已配置，可直接导入课表</span>
+          </div>
+          <div class="account-actions">
+            <span class="status">已设置</span>
+            <span class="black-btn">修改</span>
+          </div>
+        </section>
+
+        <section class="card add-card">
+          <span class="section-title">添加学期</span>
+          <span class="section-desc">先建学期，再选择要导入的学期</span>
+
+          <div class="field">
+            <span class="label">学年</span>
+            <div class="year-row">
+              <div class="year-box">2025</div>
+              <div class="dash">-</div>
+              <div class="year-box year-box--end">2026</div>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div>
+              <span class="label">学期</span>
+              <div class="input-box input-box--strong">第 2 学期</div>
+            </div>
+            <div>
+              <span class="label">开学日期</span>
+              <div class="input-box">2026-03-02</div>
+            </div>
+          </div>
+
+          <div class="add-btn">添加学期</div>
+        </section>
+
+        <div class="list-head">
+          <span class="list-title">学期列表</span>
+          <span class="list-count">2 个学期</span>
+        </div>
+
+        <section class="semester-card">
+          <div class="semester-top">
+            <div>
+              <span class="semester-name">2025-2026 第 2 学期</span>
+              <span class="semester-meta">27 门课 · 第 18 周</span>
+            </div>
+            <span class="current-badge">当前</span>
+          </div>
+          <div class="date-row">
+            <span>开学日期</span>
+            <span class="date-value">2026-03-02</span>
+          </div>
+          <div class="actions">
+            <div class="ghost-btn">设为当前</div>
+            <div class="primary-btn">导入此学期</div>
+          </div>
+        </section>
+
+        <section class="semester-card semester-card--muted">
+          <div class="semester-top">
+            <div>
+              <span class="semester-name">2025-2026 第 1 学期</span>
+              <span class="semester-meta">33 门课 · 第 44 周</span>
+            </div>
+          </div>
+          <div class="date-row">
+            <span>开学日期</span>
+            <span class="date-value">2025-09-01</span>
+          </div>
+          <div class="actions">
+            <div class="ghost-btn">设为当前</div>
+            <div class="primary-btn">导入此学期</div>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

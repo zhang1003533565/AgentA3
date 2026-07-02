@@ -21,21 +21,18 @@
 						</view>
 					</view>
 					<view class="header-actions">
-						<view class="utility-btn" @click="openScheduleSettings">
-							<view class="utility-gear">
-								<text class="gear-icon">⚙</text>
-							</view>
+						<view class="manage-btn" @click="openScheduleSettings">
+							<text class="manage-text">学期</text>
 						</view>
-						<view class="utility-btn" @click="shareSchedule">
+						<view class="manage-btn" @click="openScheduleGeneralSettings">
+							<text class="manage-text">设置</text>
+						</view>
+						<view class="share-btn" @click="shareSchedule">
 							<view class="utility-copy">
 								<view class="copy-back"></view>
 								<view class="copy-front"></view>
 							</view>
-						</view>
-						<view class="utility-btn" @click="showImportMenu">
-							<view class="utility-expand">
-								<text class="expand-arrow">↗</text>
-							</view>
+							<text class="share-text">分享</text>
 						</view>
 						<view class="import-btn" @click="showImportMenu">
 							<text class="import-plus">+</text>
@@ -48,13 +45,45 @@
 		<!-- 导入菜单弹窗 -->
 		<view v-if="showImportPopup" class="import-popup" @click="showImportPopup = false">
 			<view class="popup-content" @click.stop>
-				<view class="popup-item" @click="importFromJwx">
-					<text class="popup-title">教务系统导课</text>
-					<text class="popup-desc">导入{{ academicYear }}两个学期</text>
+				<view class="popup-item" @click="importCurrentSemester">
+					<text class="popup-title">导入本学期</text>
+					<text class="popup-desc">{{ academicYear }} 第{{ semesterTerm }}学期</text>
+				</view>
+				<view class="popup-item" @click="importOtherSemester">
+					<text class="popup-title">导入其他学期</text>
+					<text class="popup-desc">前往学期管理选择导入</text>
 				</view>
 				<view class="popup-item" @click="openImportCodePopup">
 					<text class="popup-title">分享码导入</text>
-					<text class="popup-desc">使用好友分享码导入课表</text>
+					<text class="popup-desc">粘贴好友的本学期分享码</text>
+				</view>
+			</view>
+		</view>
+
+		<!-- 选择导入学期弹窗 -->
+		<view v-if="showImportSemesterPopup" class="import-semester-popup" @click="showImportSemesterPopup = false">
+			<view class="import-semester-content" @click.stop>
+				<view class="popup-header">
+					<text class="popup-title-text">选择导入学期</text>
+					<text class="popup-close" @click="showImportSemesterPopup = false">×</text>
+				</view>
+				<view class="import-semester-list">
+					<view
+						v-for="item in importSemesterOptions"
+						:key="semesterOptionKey(item)"
+						class="import-semester-item"
+						:class="{ 'import-semester-item--current': item.selected }"
+						@click="selectImportSemester(item)"
+					>
+						<view class="import-semester-main">
+							<text class="import-semester-title">{{ formatSemesterOption(item) }}</text>
+							<text class="import-semester-desc">开学日期 {{ item.semesterStart || '未设置' }}</text>
+						</view>
+						<text v-if="item.selected" class="import-semester-badge">当前</text>
+					</view>
+				</view>
+				<view class="import-semester-footer">
+					<button class="manage-semester-btn" @click="openScheduleSettings">学期管理</button>
 				</view>
 			</view>
 		</view>
@@ -67,13 +96,14 @@
 					<text class="popup-close" @click="showImportCodePopup = false">×</text>
 				</view>
 				<view class="popup-body">
-					<text class="input-label">请输入好友的课表分享码</text>
+					<text class="input-label">请输入好友的本学期分享码</text>
+					<text class="input-tip">带学期信息的分享码会导入对应学期</text>
 					<input
 						class="share-code-input"
 						type="text"
 						v-model="shareCodeInput"
-						placeholder="例如：SCH260405A1B2"
-						maxlength="20"
+						placeholder="例如：SCH260405A1B2#2025-2026#2"
+						maxlength="50"
 					/>
 				</view>
 				<view class="popup-footer">
@@ -82,6 +112,14 @@
 				</view>
 			</view>
 		</view>
+
+		<import-progress
+			:visible="showImportProgress"
+			:title="importProgressTitle"
+			:message="importProgressMessage"
+			:status="importProgressStatus"
+			:steps="importProgressSteps"
+		/>
 
 		<view class="schedule-shell">
 			<!-- 星期栏 -->
@@ -202,6 +240,8 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import ImportProgress from '@/components/import-progress/import-progress.vue'
+import { getScheduleImportProgress, getSchedulePeriods } from '@/api/schedule.js'
 import { BASE_URL } from '@/utils/config.js'
 
 const PERIOD_HEIGHT = 140
@@ -218,6 +258,18 @@ const PERIODS = [
 	{ index: 9, start: '18:30', end: '19:15' },
 	{ index: 10, start: '19:25', end: '20:10' }
 ]
+
+const normalizePeriods = (periods) => {
+	const source = Array.isArray(periods) && periods.length ? periods : PERIODS
+	return source
+		.map((item, index) => ({
+			index: Number(item.index || item.periodIndex || index + 1),
+			start: item.start || item.startTime || '',
+			end: item.end || item.endTime || ''
+		}))
+		.filter((item) => item.index && item.start && item.end)
+		.sort((a, b) => a.index - b.index)
+}
 
 const semesterCodeForTerm = (term) => (Number(term) === 2 ? '12' : '3')
 
@@ -267,7 +319,7 @@ const isWeekInRange = (weekRange, currentWeek) => {
 
 export default {
 	name: 'ScheduleBoard',
-	components: { NavBar },
+	components: { NavBar, ImportProgress },
 	props: {
 		// 是否显示 Header Bar（独立页面时显示）
 		showHeader: {
@@ -280,7 +332,7 @@ export default {
 			currentWeek: 1,
 			actualCurrentWeek: 1,
 			currentWeekday: new Date().getDay() || 7,
-			periods: PERIODS,
+			periods: normalizePeriods(PERIODS),
 			periodHeight: PERIOD_HEIGHT,
 			periodGap: PERIOD_GAP,
 			rawSchedules: [],
@@ -295,7 +347,16 @@ export default {
 			availableSemesters: [],
 			semesterStarts: defaultSemesterStarts(),
 			showImportPopup: false,
+			showImportSemesterPopup: false,
+			importSemesterOptions: [],
 			showImportCodePopup: false,
+			showImportProgress: false,
+			importProgressTitle: '正在导入课表',
+			importProgressMessage: '正在准备导入',
+			importProgressStatus: 'running',
+			importProgressSteps: [],
+			importProgressPollTimer: null,
+			importProgressStartedAt: 0,
 			shareCodeInput: '',
 			semesterStart: '',
 			myShareCode: '',
@@ -313,13 +374,21 @@ export default {
 	},
 	mounted() {
 		this.hasMounted = true
+		this.loadPeriodSettings()
 		this.loadSchedule()
 		this.calculateWeekDates()
 	},
 	onShow() {
 		if (this.hasMounted) {
+			this.loadPeriodSettings()
 			this.loadSchedule()
 		}
+	},
+	onUnload() {
+		this.stopImportProgressPolling()
+	},
+	beforeDestroy() {
+		this.stopImportProgressPolling()
 	},
 	computed: {
 		isCurrentRealWeek() {
@@ -387,6 +456,16 @@ export default {
 					title: '加载失败',
 					icon: 'none'
 				})
+			}
+		},
+		async loadPeriodSettings() {
+			try {
+				const res = await getSchedulePeriods()
+				this.periods = normalizePeriods(res.data)
+			} catch (error) {
+				if (!this.periods.length) {
+					this.periods = normalizePeriods(PERIODS)
+				}
 			}
 		},
 		applyScheduleMeta(scheduleData = {}) {
@@ -676,6 +755,41 @@ export default {
 			const countText = Number(item.courseCount || 0) > 0 ? ` · ${item.courseCount}门课` : ''
 			return `${item.academicYear} 第${item.semesterTerm}学期${countText}`
 		},
+		semesterOptionKey(item) {
+			return `${normalizeAcademicYear(item?.academicYear || this.academicYear)}-${Number(item?.semesterTerm || 1)}`
+		},
+		getImportSemesterOptions() {
+			const options = this.availableSemesters.length
+				? this.availableSemesters
+				: [1, 2].map((term) => ({
+					academicYear: this.academicYear,
+					semesterTerm: term,
+					semesterCode: semesterCodeForTerm(term),
+					semesterStart: defaultSemesterStarts(this.academicYear)[term],
+					courseCount: 0,
+					selected: term === this.semesterTerm
+				}))
+			const byKey = new Map()
+			options.forEach((item) => {
+				const academicYear = normalizeAcademicYear(item.academicYear || this.academicYear)
+				const semesterTerm = Number(item.semesterTerm || 1)
+				if (semesterTerm !== 1 && semesterTerm !== 2) return
+				const key = `${academicYear}-${semesterTerm}`
+				byKey.set(key, {
+					academicYear,
+					semesterTerm,
+					semesterCode: item.semesterCode || semesterCodeForTerm(semesterTerm),
+					semesterStart: item.semesterStart || defaultSemesterStarts(academicYear)[semesterTerm],
+					courseCount: Number(item.courseCount || 0),
+					currentWeek: Number(item.currentWeek || 1),
+					selected: Boolean(item.selected) || (academicYear === this.academicYear && semesterTerm === this.semesterTerm)
+				})
+			})
+			return Array.from(byKey.values()).sort((a, b) => {
+				if (a.academicYear !== b.academicYear) return b.academicYear.localeCompare(a.academicYear)
+				return Number(b.semesterTerm) - Number(a.semesterTerm)
+			})
+		},
 		switchSemester(semester) {
 			const academicYear = normalizeAcademicYear(semester.academicYear || this.academicYear)
 			const semesterTerm = Number(semester.semesterTerm || 1)
@@ -842,12 +956,105 @@ export default {
 			if (!startPeriod || !endPeriod) return ''
 			return `${startPeriod.start}-${endPeriod.end}`
 		},
-		// 导入课表
-		importSchedule() {
-			const token = uni.getStorageSync('token') || ''
-			uni.showLoading({
-				title: '正在导入课表...'
+		createImportProgressSteps(semesterTerm) {
+			return [
+				{ key: 'connect', title: '连接教务系统', desc: '正在打开教务系统登录页', status: 'active' },
+				{ key: 'login', title: '登录教务账号', desc: '等待账号验证完成', status: 'waiting' },
+				{ key: 'query', title: '进入课表查询', desc: '打开个人课表查询页面', status: 'waiting' },
+				{ key: 'read', title: `读取第 ${semesterTerm} 学期`, desc: '获取课程、时间和教室信息', status: 'waiting' },
+				{ key: 'save', title: '保存课程数据', desc: '同步到我的课表', status: 'waiting' }
+			]
+		},
+		startImportProgress(semesterTerm) {
+			this.stopImportProgressPolling()
+			this.importProgressTitle = `导入第 ${semesterTerm} 学期课表`
+			this.importProgressMessage = '正在准备导入'
+			this.importProgressStatus = 'running'
+			this.importProgressSteps = this.createImportProgressSteps(semesterTerm)
+			this.importProgressStartedAt = Date.now()
+			this.showImportProgress = true
+			this.importProgressPollTimer = setInterval(() => {
+				this.pollImportProgress()
+			}, 900)
+			this.pollImportProgress()
+		},
+		stopImportProgressPolling() {
+			if (this.importProgressPollTimer) {
+				clearInterval(this.importProgressPollTimer)
+				this.importProgressPollTimer = null
+			}
+		},
+		async pollImportProgress() {
+			try {
+				const res = await getScheduleImportProgress()
+				this.applyImportProgress(res.data || {})
+			} catch (error) {
+				// 轮询失败不打断导入请求，保留当前展示。
+			}
+		},
+		applyImportProgress(progress) {
+			const stepOrder = ['connect', 'login', 'query', 'read', 'save']
+			const step = progress.step || 'connect'
+			const status = progress.status || 'running'
+			if (progress.updatedAt && progress.updatedAt < this.importProgressStartedAt - 1000) {
+				return
+			}
+			const activeIndex = stepOrder.includes(step) ? stepOrder.indexOf(step) : 0
+			this.importProgressMessage = progress.message || this.importProgressMessage
+			this.importProgressStatus = status === 'failed' ? 'failed' : (status === 'done' ? 'done' : 'running')
+			this.importProgressSteps = this.importProgressSteps.map((item, index) => {
+				if (status === 'done') {
+					return { ...item, status: 'done' }
+				}
+				if (status === 'failed') {
+					return {
+						...item,
+						status: index < activeIndex ? 'done' : (index === activeIndex ? 'failed' : 'waiting')
+					}
+				}
+				return {
+					...item,
+					status: index < activeIndex ? 'done' : (index === activeIndex ? 'active' : 'waiting'),
+					desc: item.key === step && progress.message ? progress.message : item.desc
+				}
 			})
+		},
+		finishImportProgress(message) {
+			this.stopImportProgressPolling()
+			this.importProgressStatus = 'done'
+			this.importProgressMessage = message
+			this.importProgressSteps = this.importProgressSteps.map((item) => ({ ...item, status: 'done' }))
+			setTimeout(() => {
+				this.showImportProgress = false
+			}, 900)
+		},
+		failImportProgress(message) {
+			this.stopImportProgressPolling()
+			this.importProgressStatus = 'failed'
+			this.importProgressMessage = message || '导入失败，请稍后重试'
+			if (!this.importProgressSteps.some((item) => item.status === 'failed')) {
+				this.importProgressSteps = this.importProgressSteps.map((item, index) => ({
+					...item,
+					status: index === 0 ? 'failed' : 'waiting'
+				}))
+			}
+			setTimeout(() => {
+				this.showImportProgress = false
+			}, 1800)
+		},
+		// 导入课表
+		importSchedule(semester = null) {
+			const target = semester || {
+				academicYear: this.academicYear,
+				semesterTerm: this.semesterTerm,
+				semesterStart: this.semesterStarts[this.semesterTerm] || this.semesterStart
+			}
+			const academicYear = normalizeAcademicYear(target.academicYear || this.academicYear)
+			const semesterTerm = Number(target.semesterTerm || this.semesterTerm || 1)
+			const defaultStarts = defaultSemesterStarts(academicYear)
+			const semesterStart = target.semesterStart || this.semesterStarts[semesterTerm] || defaultStarts[semesterTerm]
+			const token = uni.getStorageSync('token') || ''
+			this.startImportProgress(semesterTerm)
 
 			uni.request({
 				url: `${BASE_URL}/api/browser/jwx/schedule/auto`,
@@ -857,24 +1064,24 @@ export default {
 					'Content-Type': 'application/json'
 				},
 				data: {
-					academicYear: this.academicYear,
-					selectedSemesterTerm: this.semesterTerm,
-					importBothTerms: true,
+					academicYear,
+					selectedSemesterTerm: semesterTerm,
+					importBothTerms: false,
 					semesterStarts: {
-						1: this.semesterStarts[1] || defaultSemesterStarts(this.academicYear)[1],
-						2: this.semesterStarts[2] || defaultSemesterStarts(this.academicYear)[2]
+						[String(semesterTerm)]: semesterStart
 					}
 				},
 				success: (res) => {
-					uni.hideLoading()
 					if (res.statusCode === 200 && res.data.code === 200) {
 						const count = res.data.data.count || 0
 						this.loadSchedule()
+						this.finishImportProgress(`导入完成，共 ${count} 门课程`)
 						uni.showToast({
 							title: `成功导入 ${count} 门课程`,
 							icon: 'success'
 						})
 					} else {
+						this.failImportProgress(res.data.message || '导入失败')
 						uni.showToast({
 							title: res.data.message || '导入失败',
 							icon: 'none'
@@ -882,8 +1089,8 @@ export default {
 					}
 				},
 				fail: (err) => {
-					uni.hideLoading()
 					console.error('导入课表失败:', err)
+					this.failImportProgress('网络错误，导入失败')
 					uni.showToast({
 						title: '网络错误',
 						icon: 'none'
@@ -891,11 +1098,35 @@ export default {
 				}
 			})
 		},
+		selectImportSemester(item) {
+			this.showImportSemesterPopup = false
+			this.importSchedule(item)
+		},
 		// 打开分享码导入弹窗
 		openImportCodePopup() {
 			this.showImportPopup = false
 			this.showImportCodePopup = true
 			this.shareCodeInput = ''
+		},
+		buildSemesterShareCode() {
+			return `${this.myShareCode}#${this.academicYear}#${this.semesterTerm}`
+		},
+		parseSemesterShareCode(value) {
+			const text = String(value || '').trim()
+			const parts = text.split('#').map((item) => item.trim()).filter(Boolean)
+			return {
+				shareCode: parts[0] || text,
+				academicYear: parts[1] || this.academicYear,
+				semesterTerm: Number(parts[2] || this.semesterTerm || 1)
+			}
+		},
+		showShareCopiedModal(shareCode) {
+			uni.showModal({
+				title: '本学期分享码已复制',
+				content: `分享学期：${this.semester}\n分享码：${shareCode}\n\n好友粘贴后只会导入这个学期的课表。`,
+				showCancel: false,
+				confirmText: '我知道了'
+			})
 		},
 		// 确认导入分享码
 		confirmImportShareCode() {
@@ -904,6 +1135,7 @@ export default {
 				return
 			}
 
+			const parsedShare = this.parseSemesterShareCode(this.shareCodeInput)
 			const token = uni.getStorageSync('token') || ''
 			uni.showLoading({ title: '正在导入课表...' })
 
@@ -915,7 +1147,9 @@ export default {
 					'Content-Type': 'application/json'
 				},
 				data: {
-					shareCode: this.shareCodeInput.trim()
+					shareCode: parsedShare.shareCode,
+					academicYear: parsedShare.academicYear,
+					semesterTerm: parsedShare.semesterTerm
 				},
 				success: (res) => {
 					uni.hideLoading()
@@ -923,7 +1157,7 @@ export default {
 						this.showImportCodePopup = false
 						this.shareCodeInput = ''
 						this.loadSchedule()
-						uni.showToast({ title: '课表导入成功', icon: 'success' })
+						uni.showToast({ title: '本学期课表导入成功', icon: 'success' })
 					} else {
 						uni.showToast({ title: res.data.message || '导入失败', icon: 'none' })
 					}
@@ -939,15 +1173,11 @@ export default {
 		shareSchedule() {
 			// 如果已经有分享码，直接复制
 			if (this.myShareCode) {
+				const semesterShareCode = this.buildSemesterShareCode()
 				uni.setClipboardData({
-					data: this.myShareCode,
+					data: semesterShareCode,
 					success: () => {
-						uni.showModal({
-							title: '复制成功',
-							content: '课表分享码已复制到剪贴板，好友可以使用该分享码导入你的课表',
-							showCancel: false,
-							confirmText: '我知道了'
-						})
+						this.showShareCopiedModal(semesterShareCode)
 					}
 				})
 				return
@@ -969,15 +1199,11 @@ export default {
 						const userInfo = res.data.data
 						if (userInfo.shareCode) {
 							this.myShareCode = userInfo.shareCode
+							const semesterShareCode = this.buildSemesterShareCode()
 							uni.setClipboardData({
-								data: this.myShareCode,
+								data: semesterShareCode,
 								success: () => {
-									uni.showModal({
-										title: '复制成功',
-										content: `你的课表分享码是：${this.myShareCode}\n\n已复制到剪贴板，好友可以使用该分享码导入你的课表`,
-										showCancel: false,
-										confirmText: '我知道了'
-									})
+									this.showShareCopiedModal(semesterShareCode)
 								}
 							})
 						} else {
@@ -998,14 +1224,7 @@ export default {
 		showImportMenu() {
 			this.showImportPopup = true
 		},
-		openScheduleSettings() {
-			uni.navigateTo({
-				url: '/subpackage_schedule/scheduleSettings/scheduleSettings'
-			})
-		},
-		// 从教务系统导入
-		importFromJwx() {
-			this.showImportPopup = false
+		checkJwxBindThen(next) {
 			const token = uni.getStorageSync('token') || ''
 			uni.request({
 				url: `${BASE_URL}/api/browser/jwx/user/check-jwx-bind`,
@@ -1015,26 +1234,69 @@ export default {
 				},
 				success: (res) => {
 					if (res.statusCode === 200 && res.data.code === 200 && res.data.data.binded) {
-						this.importSchedule()
-					} else {
-						uni.showModal({
-							title: '提示',
-							content: '您还未绑定教务系统账号，请先绑定后再导入课表',
-							confirmText: '去绑定',
-							success: (modalRes) => {
-								if (modalRes.confirm) {
-									uni.navigateTo({
-										url: '/subpackage_schedule/scheduleSettings/scheduleSettings'
-									})
-								}
-							}
-						})
+						next()
+						return
 					}
+					uni.showModal({
+						title: '需要先设置账号',
+						content: '导入课表前需要先设置教务系统账号。设置完成后再导入本学期。',
+						confirmText: '去设置',
+						success: (modalRes) => {
+							if (modalRes.confirm) {
+								uni.navigateTo({
+									url: '/subpackage_schedule/scheduleAccountSettings/scheduleAccountSettings'
+								})
+							}
+						}
+					})
 				},
 				fail: () => {
 					uni.showToast({ title: '网络错误', icon: 'none' })
 				}
 			})
+		},
+		importCurrentSemester() {
+			this.showImportPopup = false
+			this.checkJwxBindThen(() => {
+				this.importSchedule({
+					academicYear: this.academicYear,
+					semesterTerm: this.semesterTerm,
+					semesterStart: this.semesterStarts[this.semesterTerm] || this.semesterStart
+				})
+			})
+		},
+		importOtherSemester() {
+			this.showImportPopup = false
+			uni.navigateTo({
+				url: '/subpackage_schedule/scheduleSettings/scheduleSettings?mode=import'
+			})
+		},
+		openScheduleSettings(options = {}) {
+			this.showImportPopup = false
+			this.showImportSemesterPopup = false
+			const query = options.mode ? `?mode=${options.mode}` : ''
+			uni.navigateTo({
+				url: `/subpackage_schedule/scheduleSettings/scheduleSettings${query}`
+			})
+		},
+		openScheduleGeneralSettings() {
+			this.showImportPopup = false
+			this.showImportSemesterPopup = false
+			uni.navigateTo({
+				url: '/subpackage_schedule/scheduleGeneralSettings/scheduleGeneralSettings'
+			})
+		},
+		openScheduleAccountSettings() {
+			this.showImportPopup = false
+			this.showImportSemesterPopup = false
+			uni.navigateTo({
+				url: '/subpackage_schedule/scheduleAccountSettings/scheduleAccountSettings'
+			})
+		},
+		// 从教务系统导入
+		importFromJwx() {
+			this.showImportPopup = false
+			this.importOtherSemester()
 		},
 		// 通过分享导入
 		importFromShare() {
@@ -1117,6 +1379,7 @@ export default {
 	display: flex;
 	align-items: center;
 	gap: 14rpx;
+	min-width: 0;
 }
 
 .week-info-wrapper {
@@ -1161,6 +1424,10 @@ export default {
 .semester-text {
 	font-size: 20rpx;
 	color: #8f97a3;
+	max-width: 260rpx;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .semester-caret {
@@ -1171,7 +1438,8 @@ export default {
 .header-actions {
 	display: flex;
 	align-items: center;
-	gap: 18rpx;
+	gap: 8rpx;
+	flex-shrink: 0;
 }
 
 .menu-btn {
@@ -1191,18 +1459,57 @@ export default {
 	background: #1d1d1f;
 }
 
-.utility-btn {
+.utility-btn,
+.share-btn {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 48rpx;
-	height: 48rpx;
+	height: 52rpx;
+	border-radius: 14rpx;
+	background: rgba(255, 255, 255, 0.42);
+}
+
+.utility-btn {
+	width: 52rpx;
+}
+
+.share-btn {
+	gap: 7rpx;
+	padding: 0 14rpx;
+	border: 1rpx solid rgba(29, 29, 31, 0.1);
+	box-sizing: border-box;
+}
+
+.manage-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 52rpx;
+	padding: 0 14rpx;
+	border-radius: 16rpx;
+	background: rgba(255, 255, 255, 0.7);
+	border: 1rpx solid rgba(29, 29, 31, 0.12);
+	box-sizing: border-box;
+}
+
+.manage-icon {
+	font-size: 22rpx;
+	line-height: 1;
+	color: #1d1d1f;
+}
+
+.manage-text {
+	font-size: 23rpx;
+	font-weight: 700;
+	color: #1d1d1f;
+	line-height: 1;
 }
 
 .utility-copy {
 	position: relative;
-	width: 32rpx;
-	height: 32rpx;
+	width: 28rpx;
+	height: 28rpx;
+	flex-shrink: 0;
 }
 
 .utility-gear {
@@ -1231,18 +1538,25 @@ export default {
 }
 
 .copy-back {
-	width: 22rpx;
-	height: 22rpx;
-	left: 10rpx;
+	width: 20rpx;
+	height: 20rpx;
+	left: 8rpx;
 	top: 0;
 	opacity: 0.7;
 }
 
 .copy-front {
-	width: 22rpx;
-	height: 22rpx;
+	width: 20rpx;
+	height: 20rpx;
 	left: 2rpx;
-	top: 8rpx;
+	top: 7rpx;
+}
+
+.share-text {
+	font-size: 23rpx;
+	font-weight: 700;
+	color: #1d1d1f;
+	line-height: 1;
 }
 
 .utility-expand {
@@ -1267,18 +1581,21 @@ export default {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 52rpx;
-	height: 52rpx;
+	width: 56rpx;
+	height: 56rpx;
+	padding: 0;
 	background: #1D1D1F;
-	border-radius: 12rpx;
+	border-radius: 16rpx;
+	box-sizing: border-box;
+	box-shadow: 0 8rpx 18rpx rgba(29, 29, 31, 0.18);
 }
 
 .import-plus {
 	color: #fff;
-	font-size: 40rpx;
-	font-weight: 500;
+	font-size: 34rpx;
+	font-weight: 700;
 	line-height: 1;
-	margin-top: -4rpx;
+	margin-top: -2rpx;
 }
 
 // 导入弹窗
@@ -1326,6 +1643,105 @@ export default {
 	display: block;
 	font-size: 22rpx;
 	color: #999;
+}
+
+// 选择导入学期弹窗
+.import-semester-popup {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: rgba(0, 0, 0, 0.5);
+	z-index: 1000;
+	display: flex;
+	justify-content: center;
+	align-items: flex-end;
+	padding: 28rpx;
+	box-sizing: border-box;
+}
+
+.import-semester-content {
+	width: 100%;
+	max-width: 640rpx;
+	background: #fff;
+	border-radius: 28rpx;
+	box-shadow: 0 18rpx 44rpx rgba(0, 0, 0, 0.16);
+	overflow: hidden;
+}
+
+.import-semester-list {
+	max-height: 620rpx;
+	padding: 14rpx 26rpx 8rpx;
+	box-sizing: border-box;
+}
+
+.import-semester-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 18rpx;
+	padding: 24rpx 0;
+	border-bottom: 1rpx solid #f0f2f5;
+}
+
+.import-semester-item:last-child {
+	border-bottom: none;
+}
+
+.import-semester-item--current .import-semester-title {
+	color: #3f7df2;
+}
+
+.import-semester-main {
+	flex: 1;
+	min-width: 0;
+}
+
+.import-semester-title {
+	display: block;
+	font-size: 30rpx;
+	font-weight: 700;
+	color: #222;
+	line-height: 1.35;
+}
+
+.import-semester-desc {
+	display: block;
+	margin-top: 8rpx;
+	font-size: 23rpx;
+	color: #8a96a6;
+}
+
+.import-semester-badge {
+	flex-shrink: 0;
+	padding: 10rpx 18rpx;
+	border-radius: 999rpx;
+	background: #eaf2ff;
+	color: #3f7df2;
+	font-size: 22rpx;
+	font-weight: 700;
+}
+
+.import-semester-footer {
+	padding: 18rpx 26rpx 28rpx;
+	box-sizing: border-box;
+}
+
+.manage-semester-btn {
+	width: 100%;
+	height: 78rpx;
+	border: none;
+	border-radius: 18rpx;
+	background: #f2f6fb;
+	color: #536b87;
+	font-size: 27rpx;
+	font-weight: 700;
+	line-height: 78rpx;
+}
+
+.manage-semester-btn::after {
+	border: none;
 }
 
 // 分享码导入弹窗
@@ -1380,6 +1796,13 @@ export default {
 	display: block;
 	font-size: 28rpx;
 	color: #666;
+	margin-bottom: 8rpx;
+}
+
+.input-tip {
+	display: block;
+	font-size: 22rpx;
+	color: #7d8fa5;
 	margin-bottom: 16rpx;
 }
 

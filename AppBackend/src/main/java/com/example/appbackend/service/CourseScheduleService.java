@@ -74,4 +74,9 @@ public interface CourseScheduleService {
      * @param shareCode 课表分享码
      */
     void copyScheduleByShareCode(Long userId, String shareCode);
+
+    /**
+     * 通过分享码复制他人指定学期课表
+     */
+    void copyScheduleByShareCode(Long userId, String shareCode, String academicYear, Integer semesterTerm);
 }
