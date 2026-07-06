@@ -14,9 +14,14 @@
 								<text class="week-text">第{{ currentWeek }}周</text>
 								<text class="week-caret">▼</text>
 							</view>
-							<view class="semester-info" @click="showSemesterSelector">
-								<text class="semester-text">{{ semester }}</text>
-								<text class="semester-caret">切换</text>
+							<view class="header-subline">
+								<view class="semester-info" @click="showSemesterSelector">
+									<text class="semester-text">{{ semester }}</text>
+									<text class="semester-caret">切换</text>
+								</view>
+								<view class="today-chip" @click="jumpToToday">
+									<text class="today-chip__text">今天 {{ todayDateLabel }}</text>
+								</view>
 							</view>
 						</view>
 					</view>
@@ -338,6 +343,7 @@ export default {
 			rawSchedules: [],
 			courses: [],
 			loading: false,
+			todayDate: new Date(),
 			currentMonth: 3,
 			weekDates: [], // 存储本周每天的日期
 			semester: '2025-2026 第 1 学期',
@@ -374,11 +380,13 @@ export default {
 	},
 	mounted() {
 		this.hasMounted = true
+		this.refreshTodayDate()
 		this.loadPeriodSettings()
 		this.loadSchedule()
 		this.calculateWeekDates()
 	},
 	onShow() {
+		this.refreshTodayDate()
 		if (this.hasMounted) {
 			this.loadPeriodSettings()
 			this.loadSchedule()
@@ -393,6 +401,11 @@ export default {
 	computed: {
 		isCurrentRealWeek() {
 			return this.currentWeek === this.actualCurrentWeek
+		},
+		todayDateLabel() {
+			const date = this.todayDate || new Date()
+			const weekdayNames = ['日', '一', '二', '三', '四', '五', '六']
+			return `${date.getMonth() + 1}月${date.getDate()}日 周${weekdayNames[date.getDay()]}`
 		},
 		displayCourses() {
 			const grouped = new Map()
@@ -414,6 +427,16 @@ export default {
 		}
 	},
 	methods: {
+		refreshTodayDate() {
+			this.todayDate = new Date()
+		},
+		jumpToToday() {
+			this.refreshTodayDate()
+			const targetWeek = Math.min(20, Math.max(1, Number(this.actualCurrentWeek || 1)))
+			this.loadWeekSchedule(targetWeek)
+			this.currentWeekday = this.todayDate.getDay() || 7
+			uni.showToast({ title: '已回到今天', icon: 'none' })
+		},
 		async loadSchedule() {
 			this.loading = true
 			try {
@@ -659,7 +682,8 @@ export default {
 			const startDate = new Date(this.semesterStart)
 			const startWeekday = startDate.getDay() || 7
 			const firstWeekMonday = new Date(startDate)
-			firstWeekMonday.setDate(startDate.getDate() - (startWeekday - 1))
+			const mondayOffset = (8 - startWeekday) % 7
+			firstWeekMonday.setDate(startDate.getDate() + mondayOffset)
 
 			// 计算当前周的周一，而不是直接把学期开始日当成周一
 			const weekStart = new Date(firstWeekMonday)
@@ -1422,6 +1446,7 @@ export default {
 	display: flex;
 	align-items: center;
 	gap: 14rpx;
+	flex: 1;
 	min-width: 0;
 }
 
@@ -1430,6 +1455,7 @@ export default {
 	flex-direction: column;
 	align-items: flex-start;
 	gap: 4rpx;
+	min-width: 0;
 }
 
 .week-info {
@@ -1457,16 +1483,27 @@ export default {
 	margin-top: 4rpx;
 }
 
+.header-subline {
+	display: flex;
+	align-items: center;
+	gap: 10rpx;
+	max-width: 100%;
+	flex-wrap: wrap;
+	row-gap: 6rpx;
+}
+
 .semester-info {
 	display: flex;
 	align-items: center;
 	gap: 10rpx;
+	min-width: 0;
 	cursor: pointer;
 }
 
 .semester-text {
 	font-size: 20rpx;
 	color: #8f97a3;
+	min-width: 0;
 	max-width: 260rpx;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -1474,8 +1511,36 @@ export default {
 }
 
 .semester-caret {
+	flex-shrink: 0;
 	font-size: 20rpx;
 	color: #4b80ef;
+}
+
+.today-chip {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 34rpx;
+	padding: 0 12rpx;
+	border-radius: 999rpx;
+	background: rgba(255, 255, 255, 0.62);
+	border: 1rpx solid rgba(75, 128, 239, 0.14);
+	box-sizing: border-box;
+	cursor: pointer;
+	transition: background-color 0.16s ease, transform 0.16s ease;
+}
+
+.today-chip:active {
+	background: rgba(255, 255, 255, 0.86);
+	transform: scale(0.98);
+}
+
+.today-chip__text {
+	font-size: 20rpx;
+	font-weight: 700;
+	color: #607088;
+	line-height: 1;
+	white-space: nowrap;
 }
 
 .header-actions {
