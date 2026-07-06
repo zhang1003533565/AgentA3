@@ -93,3 +93,21 @@ export function updateScheduleSettings(data) {
     data
   })
 }
+
+export function clearSemesterSchedule(semester) {
+  const academicYear = encodeURIComponent(semester.academicYear)
+  const semesterTerm = encodeURIComponent(semester.semesterTerm)
+  return request({
+    url: `/api/schedule/settings/semesters/${academicYear}/${semesterTerm}/courses`,
+    method: 'DELETE'
+  })
+}
+
+export function deleteScheduleSemester(semester) {
+  const academicYear = encodeURIComponent(semester.academicYear)
+  const semesterTerm = encodeURIComponent(semester.semesterTerm)
+  return request({
+    url: `/api/schedule/settings/semesters/${academicYear}/${semesterTerm}`,
+    method: 'DELETE'
+  })
+}

@@ -1,10 +1,12 @@
 package com.example.appbackend.service.impl;
 
+import com.example.appbackend.dto.ScheduleChangeSummary;
 import com.example.appbackend.entity.CourseSchedule;
 import com.example.appbackend.entity.User;
 import com.example.appbackend.repository.CourseScheduleRepository;
 import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.CourseScheduleService;
+import com.example.appbackend.util.CourseScheduleChangeAnalyzer;
 import com.example.appbackend.util.CourseScheduleParser;
 import com.example.appbackend.util.WeekCalculator;
 import org.slf4j.Logger;
@@ -44,20 +46,38 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
     @Override
     @Transactional
     public void saveSchedule(Long userId, String studentId, String rawData, String academicYear, Integer semesterTerm, String semesterCode) {
-        courseScheduleRepository.deleteByUserIdAndSemester(userId, academicYear, semesterTerm);
+        saveScheduleAndSummarizeChanges(userId, studentId, rawData, academicYear, semesterTerm, semesterCode);
+    }
 
+    @Override
+    @Transactional
+    public ScheduleChangeSummary saveScheduleAndSummarizeChanges(
+            Long userId,
+            String studentId,
+            String rawData,
+            String academicYear,
+            Integer semesterTerm,
+            String semesterCode) {
+        List<CourseSchedule> oldSchedules = courseScheduleRepository.findByUserIdAndAcademicYearAndSemesterTerm(
+                userId,
+                academicYear,
+                semesterTerm
+        );
         List<CourseSchedule> schedules = CourseScheduleParser.parse(rawData, userId, studentId);
         schedules.forEach(schedule -> {
             schedule.setAcademicYear(academicYear);
             schedule.setSemesterTerm(semesterTerm);
             schedule.setSemesterCode(semesterCode);
         });
+        ScheduleChangeSummary changeSummary = CourseScheduleChangeAnalyzer.compare(oldSchedules, schedules);
         log.info("指定学期课表解析完成，userId={}, studentId={}, academicYear={}, semesterTerm={}, 解析到有效课程数={}",
                 userId, studentId, academicYear, semesterTerm, schedules.size());
 
+        courseScheduleRepository.deleteByUserIdAndSemester(userId, academicYear, semesterTerm);
         courseScheduleRepository.saveAll(schedules);
         log.info("指定学期课表保存完成，userId={}, academicYear={}, semesterTerm={}, 保存课程数={}",
                 userId, academicYear, semesterTerm, schedules.size());
+        return changeSummary;
     }
 
     @Override
@@ -82,6 +102,12 @@ public class CourseScheduleServiceImpl implements CourseScheduleService {
     @Transactional
     public void deleteSchedule(Long userId) {
         courseScheduleRepository.deleteByUserId(userId);
+    }
+
+    @Override
+    @Transactional
+    public void deleteSchedule(Long userId, String academicYear, Integer semesterTerm) {
+        courseScheduleRepository.deleteByUserIdAndSemester(userId, academicYear, semesterTerm);
     }
 
     @Override

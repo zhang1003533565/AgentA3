@@ -116,7 +116,7 @@
           <view class="semester-actions">
             <button
               class="action-btn action-btn--ghost"
-              :disabled="saving || importing"
+              :disabled="actionLocked"
               @click="setCurrentSemester(item)"
             >
               设为当前
@@ -124,10 +124,26 @@
             <button
               class="action-btn action-btn--primary"
               :loading="importingKey === semesterKey(item)"
-              :disabled="saving || importing"
+              :disabled="actionLocked"
               @click="importSemester(item)"
             >
               导入此学期
+            </button>
+            <button
+              class="action-btn action-btn--warning"
+              :loading="clearingKey === semesterKey(item)"
+              :disabled="actionLocked"
+              @click="confirmClearSemester(item)"
+            >
+              清空课表
+            </button>
+            <button
+              class="action-btn action-btn--danger"
+              :loading="deletingKey === semesterKey(item)"
+              :disabled="actionLocked"
+              @click="confirmDeleteSemester(item)"
+            >
+              删除学期
             </button>
           </view>
         </view>
@@ -136,10 +152,12 @@
       <view class="tips-card">
         <text class="tips-card__title">说明</text>
         <text class="tips-card__line">导入只会覆盖所选学期，不会清空其他学期。</text>
+        <text class="tips-card__line">重新导入后，如果教务系统调整了课程，会提示新增、删除和变更内容。</text>
+        <text class="tips-card__line">清空课表会保留学期；删除学期会同时删除该学期课程。</text>
         <text class="tips-card__line">课表页顶部“切换”用于切换当前显示学期。</text>
       </view>
 
-      <button class="save-btn" :loading="saving" :disabled="importing" @click="saveSettings()">
+      <button class="save-btn" :loading="saving" :disabled="actionLocked" @click="saveSettings()">
         保存学期管理
       </button>
     </view>
@@ -159,6 +177,8 @@ import NavBar from '@/components/nav-bar/nav-bar.vue'
 import ImportProgress from '@/components/import-progress/import-progress.vue'
 import {
   checkJwxBind,
+  clearSemesterSchedule,
+  deleteScheduleSemester,
   getScheduleImportProgress,
   getScheduleSettings,
   importScheduleAuto,
@@ -196,6 +216,8 @@ export default {
       saving: false,
       importing: false,
       importingKey: '',
+      clearingKey: '',
+      deletingKey: '',
       showImportProgress: false,
       importProgressTitle: '正在导入课表',
       importProgressMessage: '正在准备导入',
@@ -230,6 +252,9 @@ export default {
     },
     selectedSemester() {
       return this.semesterList.find((item) => item.selected) || this.semesterList[0] || null
+    },
+    actionLocked() {
+      return this.saving || this.importing || Boolean(this.clearingKey) || Boolean(this.deletingKey)
     }
   },
   onShow() {
@@ -307,15 +332,11 @@ export default {
       }
 
       ;(Array.isArray(rawList) ? rawList : []).forEach(addItem)
-      addItem({
-        academicYear: selectedAcademicYear,
-        semesterTerm: selectedTerm,
-        semesterCode: semesterCodeForTerm(selectedTerm),
-        semesterStart: selectedStart,
-        selected: true
-      })
-
-      return this.sortSemesterList(Array.from(byKey.values()))
+      const sorted = this.sortSemesterList(Array.from(byKey.values()))
+      if (sorted.length && !sorted.some((item) => item.selected)) {
+        sorted[0] = { ...sorted[0], selected: true }
+      }
+      return sorted
     },
     sortSemesterList(list) {
       return [...list].sort((a, b) => {
@@ -476,6 +497,68 @@ export default {
         this.markSelected(item)
       }
     },
+    confirmClearSemester(item) {
+      if (!item) return
+      uni.showModal({
+        title: '清空课表',
+        content: `确定清空 ${this.semesterLabel(item)} 的课程吗？学期会保留，可以之后重新导入。`,
+        confirmText: '清空',
+        confirmColor: '#d95b37',
+        success: (res) => {
+          if (res.confirm) {
+            this.clearSemester(item)
+          }
+        }
+      })
+    },
+    async clearSemester(item) {
+      const key = semesterKey(item)
+      this.clearingKey = key
+      try {
+        const res = await clearSemesterSchedule({
+          academicYear: normalizeAcademicYear(item.academicYear),
+          semesterTerm: Number(item.semesterTerm || 1)
+        })
+        const removedCount = Number(res.data?.removedCount || 0)
+        uni.showToast({ title: `已清空 ${removedCount} 门课`, icon: 'success' })
+        await this.loadSettings({ silent: true })
+      } catch (error) {
+        uni.showToast({ title: error?.msg || error?.message || '清空失败', icon: 'none' })
+      } finally {
+        this.clearingKey = ''
+      }
+    },
+    confirmDeleteSemester(item) {
+      if (!item) return
+      uni.showModal({
+        title: '删除学期',
+        content: `确定删除 ${this.semesterLabel(item)} 吗？该学期的课程也会一起删除。`,
+        confirmText: '删除',
+        confirmColor: '#e5484d',
+        success: (res) => {
+          if (res.confirm) {
+            this.deleteSemester(item)
+          }
+        }
+      })
+    },
+    async deleteSemester(item) {
+      const key = semesterKey(item)
+      this.deletingKey = key
+      try {
+        const res = await deleteScheduleSemester({
+          academicYear: normalizeAcademicYear(item.academicYear),
+          semesterTerm: Number(item.semesterTerm || 1)
+        })
+        const removedCount = Number(res.data?.removedCount || 0)
+        uni.showToast({ title: removedCount ? `已删除 ${removedCount} 门课` : '学期已删除', icon: 'success' })
+        await this.loadSettings({ silent: true })
+      } catch (error) {
+        uni.showToast({ title: error?.msg || error?.message || '删除失败', icon: 'none' })
+      } finally {
+        this.deletingKey = ''
+      }
+    },
     openScheduleAccountSettings() {
       uni.navigateTo({
         url: '/subpackage_schedule/scheduleAccountSettings/scheduleAccountSettings'
@@ -604,6 +687,7 @@ export default {
         const count = res.data?.count || 0
         this.finishImportProgress(`导入完成，共 ${count} 门课`)
         uni.showToast({ title: `成功导入 ${count} 门课`, icon: 'success' })
+        this.showImportChangeSummary(res.data?.changes)
         await this.loadSettings({ silent: true })
       } catch (error) {
         this.failImportProgress(error?.msg || error?.message || '导入失败')
@@ -611,6 +695,48 @@ export default {
       } finally {
         this.importing = false
         this.importingKey = ''
+      }
+    },
+    showImportChangeSummary(changes) {
+      if (!changes || !changes.hasChanges || Number(changes.oldCount || 0) === 0) {
+        return
+      }
+
+      const lines = ['教务系统课表有更新：']
+      this.appendChangeLines(lines, '新增', changes.addedCount, changes.added)
+      this.appendChangeLines(lines, '删除', changes.removedCount, changes.removed)
+      this.appendUpdatedChangeLines(lines, changes.updatedCount, changes.updated)
+
+      uni.showModal({
+        title: '课表有更新',
+        content: lines.join('\n'),
+        showCancel: false,
+        confirmText: '知道了'
+      })
+    },
+    appendChangeLines(lines, label, count, items = []) {
+      const total = Number(count || 0)
+      if (!total) return
+      lines.push(`${label} ${total} 门`)
+      items.slice(0, 4).forEach((item) => {
+        lines.push(`- ${item.summary || item.courseName}`)
+      })
+      if (total > 4) {
+        lines.push(`- 还有 ${total - 4} 门`)
+      }
+    },
+    appendUpdatedChangeLines(lines, count, items = []) {
+      const total = Number(count || 0)
+      if (!total) return
+      lines.push(`变更 ${total} 门`)
+      items.slice(0, 4).forEach((item) => {
+        const fields = Array.isArray(item.changedFields) && item.changedFields.length
+          ? item.changedFields.join('、')
+          : '课程信息'
+        lines.push(`- ${item.summary || item.courseName}：${fields}`)
+      })
+      if (total > 4) {
+        lines.push(`- 还有 ${total - 4} 门`)
       }
     }
   }
@@ -966,17 +1092,25 @@ export default {
 }
 
 .semester-actions {
-  gap: 20rpx;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18rpx;
   margin-top: 24rpx;
 }
 
 .action-btn {
-  flex: 1;
-  height: 76rpx;
+  width: 100%;
+  height: 74rpx;
   min-width: 0;
-  border-radius: 18rpx;
-  font-size: 26rpx;
+  margin: 0;
+  padding: 0 12rpx;
+  border-radius: 16rpx;
+  box-sizing: border-box;
+  font-size: 24rpx;
   font-weight: 700;
+  line-height: normal;
+  text-align: center;
+  overflow: visible;
 }
 
 .action-btn--ghost {
@@ -987,6 +1121,16 @@ export default {
 .action-btn--primary {
   background: #1d1d1f;
   color: #fff;
+}
+
+.action-btn--warning {
+  background: #fff2eb;
+  color: #d95b37;
+}
+
+.action-btn--danger {
+  background: #fff0f0;
+  color: #e5484d;
 }
 
 .tips-card {

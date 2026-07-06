@@ -1,5 +1,6 @@
 package com.example.appbackend.service;
 
+import com.example.appbackend.dto.ScheduleChangeSummary;
 import com.example.appbackend.entity.CourseSchedule;
 import java.util.List;
 
@@ -14,6 +15,18 @@ public interface CourseScheduleService {
      * 保存指定学期课表数据（只覆盖该学期，不影响其他学期）
      */
     void saveSchedule(Long userId, String studentId, String rawData, String academicYear, Integer semesterTerm, String semesterCode);
+
+    /**
+     * 保存指定学期课表数据，并返回与原课表的变更摘要。
+     */
+    ScheduleChangeSummary saveScheduleAndSummarizeChanges(
+            Long userId,
+            String studentId,
+            String rawData,
+            String academicYear,
+            Integer semesterTerm,
+            String semesterCode
+    );
 
     /**
      * 获取用户的课表
@@ -34,6 +47,11 @@ public interface CourseScheduleService {
      * 删除用户的课表
      */
     void deleteSchedule(Long userId);
+
+    /**
+     * 删除用户指定学期课表。
+     */
+    void deleteSchedule(Long userId, String academicYear, Integer semesterTerm);
 
     /**
      * 获取用户本周的课表

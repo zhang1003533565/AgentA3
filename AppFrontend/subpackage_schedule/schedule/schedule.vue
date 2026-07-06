@@ -1042,6 +1042,48 @@ export default {
 				this.showImportProgress = false
 			}, 1800)
 		},
+		showImportChangeSummary(changes) {
+			if (!changes || !changes.hasChanges || Number(changes.oldCount || 0) === 0) {
+				return
+			}
+
+			const lines = ['教务系统课表有更新：']
+			this.appendChangeLines(lines, '新增', changes.addedCount, changes.added)
+			this.appendChangeLines(lines, '删除', changes.removedCount, changes.removed)
+			this.appendUpdatedChangeLines(lines, changes.updatedCount, changes.updated)
+
+			uni.showModal({
+				title: '课表有更新',
+				content: lines.join('\n'),
+				showCancel: false,
+				confirmText: '知道了'
+			})
+		},
+		appendChangeLines(lines, label, count, items = []) {
+			const total = Number(count || 0)
+			if (!total) return
+			lines.push(`${label} ${total} 门`)
+			items.slice(0, 4).forEach((item) => {
+				lines.push(`- ${item.summary || item.courseName}`)
+			})
+			if (total > 4) {
+				lines.push(`- 还有 ${total - 4} 门`)
+			}
+		},
+		appendUpdatedChangeLines(lines, count, items = []) {
+			const total = Number(count || 0)
+			if (!total) return
+			lines.push(`变更 ${total} 门`)
+			items.slice(0, 4).forEach((item) => {
+				const fields = Array.isArray(item.changedFields) && item.changedFields.length
+					? item.changedFields.join('、')
+					: '课程信息'
+				lines.push(`- ${item.summary || item.courseName}：${fields}`)
+			})
+			if (total > 4) {
+				lines.push(`- 还有 ${total - 4} 门`)
+			}
+		},
 		// 导入课表
 		importSchedule(semester = null) {
 			const target = semester || {
@@ -1080,6 +1122,7 @@ export default {
 							title: `成功导入 ${count} 门课程`,
 							icon: 'success'
 						})
+						this.showImportChangeSummary(res.data.data.changes)
 					} else {
 						this.failImportProgress(res.data.message || '导入失败')
 						uni.showToast({

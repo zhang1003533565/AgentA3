@@ -1,5 +1,6 @@
 package com.example.appbackend.controller;
 
+import com.example.appbackend.dto.ScheduleChangeSummary;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.entity.ScheduleSemesterSetting;
 import com.example.appbackend.entity.User;
@@ -107,8 +108,12 @@ public class PlaywrightController {
         Integer selectedSemesterTerm = normalizeSemesterTerm(importRequest == null ? null : importRequest.getSelectedSemesterTerm(), user.getSemesterStart());
         boolean importBothTerms = importRequest == null || importRequest.getImportBothTerms() == null || importRequest.getImportBothTerms();
         List<Integer> terms = importBothTerms ? List.of(1, 2) : List.of(selectedSemesterTerm);
-        log.info("读取课表绑定信息，userId={}, jwxStudentId={}, academicYear={}, terms={}, semesterStart={}",
-                userId, jwxStudentId, academicYear, terms, user.getSemesterStart());
+        log.info("读取课表绑定信息，userId={}, jwxConfigured={}, academicYear={}, terms={}, semesterStart={}",
+                userId,
+                jwxStudentId != null && !jwxStudentId.isEmpty() && jwxPassword != null && !jwxPassword.isEmpty(),
+                academicYear,
+                terms,
+                user.getSemesterStart());
 
         if (jwxStudentId == null || jwxStudentId.isEmpty() ||
             jwxPassword == null || jwxPassword.isEmpty()) {
@@ -175,7 +180,14 @@ public class PlaywrightController {
                 }
 
                 updateImportProgress(userId, "running", "save", "正在保存第 " + semesterTerm + " 学期课程", 88);
-                courseScheduleService.saveSchedule(user.getId(), jwxStudentId, rawData, academicYear, semesterTerm, semesterCode);
+                ScheduleChangeSummary changes = courseScheduleService.saveScheduleAndSummarizeChanges(
+                        user.getId(),
+                        jwxStudentId,
+                        rawData,
+                        academicYear,
+                        semesterTerm,
+                        semesterCode
+                );
                 var savedSchedule = courseScheduleService.getUserSchedule(user.getId(), academicYear, semesterTerm);
                 totalCount += savedSchedule.size();
 
@@ -185,6 +197,7 @@ public class PlaywrightController {
                 item.put("semesterCode", semesterCode);
                 item.put("semesterStart", semesterStart != null ? semesterStart.toString() : "");
                 item.put("count", savedSchedule.size());
+                item.put("changes", changes);
                 semesterResults.add(item);
                 log.info("课表学期导入完成，userId={}, academicYear={}, semesterTerm={}, count={}",
                         userId, academicYear, semesterTerm, savedSchedule.size());
@@ -199,6 +212,9 @@ public class PlaywrightController {
             result.put("academicYear", academicYear);
             result.put("count", totalCount);
             result.put("semesters", semesterResults);
+            if (semesterResults.size() == 1) {
+                result.put("changes", semesterResults.get(0).get("changes"));
+            }
             result.put("message", "课表已导入，共 " + totalCount + " 门课程");
 
             updateImportProgress(userId, "done", "done", "导入完成，共 " + totalCount + " 门课程", 100);

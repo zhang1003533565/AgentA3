@@ -20,4 +20,12 @@ public interface ScheduleSemesterSettingRepository extends JpaRepository<Schedul
     @Modifying
     @Query("UPDATE ScheduleSemesterSetting s SET s.selectedFlag = false WHERE s.userId = :userId")
     void clearSelectedByUserId(@Param("userId") Long userId);
+
+    @Modifying
+    @Query("DELETE FROM ScheduleSemesterSetting s WHERE s.userId = :userId AND s.academicYear = :academicYear AND s.semesterTerm = :semesterTerm")
+    void deleteByUserIdAndAcademicYearAndSemesterTerm(
+            @Param("userId") Long userId,
+            @Param("academicYear") String academicYear,
+            @Param("semesterTerm") Integer semesterTerm
+    );
 }

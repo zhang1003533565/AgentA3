@@ -49,6 +49,7 @@
       <view class="tips-card">
         <text class="tips-card__title">说明</text>
         <text class="tips-card__line">账号只用于登录教务系统抓取课表。</text>
+        <text class="tips-card__line">学号和密码会加密保存到数据库。</text>
         <text class="tips-card__line">学年、学期和开学日期请在学期管理中维护。</text>
       </view>
 

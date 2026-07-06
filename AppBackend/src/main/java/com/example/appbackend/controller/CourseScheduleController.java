@@ -302,6 +302,69 @@ public class CourseScheduleController {
         return Result.success();
     }
 
+    @Operation(summary = "清空指定学期课表", description = "只删除指定学期的课程数据，保留学期设置")
+    @DeleteMapping("/settings/semesters/{academicYear}/{semesterTerm}/courses")
+    @Transactional
+    public Result<Map<String, Object>> clearSemesterCourses(
+            HttpServletRequest request,
+            @PathVariable String academicYear,
+            @PathVariable Integer semesterTerm) {
+        Long userId = getCurrentUserId(request);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(404, "用户不存在"));
+        String normalizedAcademicYear = normalizeAcademicYear(academicYear, user.getSemesterStart());
+        Integer normalizedSemesterTerm = requireSemesterTerm(semesterTerm);
+        int removedCount = courseScheduleService
+                .getUserSchedule(userId, normalizedAcademicYear, normalizedSemesterTerm)
+                .size();
+
+        courseScheduleService.deleteSchedule(userId, normalizedAcademicYear, normalizedSemesterTerm);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("removedCount", removedCount);
+        return Result.success(result);
+    }
+
+    @Operation(summary = "删除指定学期", description = "删除指定学期设置，并同时删除该学期课程数据")
+    @DeleteMapping("/settings/semesters/{academicYear}/{semesterTerm}")
+    @Transactional
+    public Result<Map<String, Object>> deleteSemester(
+            HttpServletRequest request,
+            @PathVariable String academicYear,
+            @PathVariable Integer semesterTerm) {
+        Long userId = getCurrentUserId(request);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(404, "用户不存在"));
+        String normalizedAcademicYear = normalizeAcademicYear(academicYear, user.getSemesterStart());
+        Integer normalizedSemesterTerm = requireSemesterTerm(semesterTerm);
+        ScheduleSemesterSetting setting = scheduleSemesterSettingRepository
+                .findByUserIdAndAcademicYearAndSemesterTerm(userId, normalizedAcademicYear, normalizedSemesterTerm)
+                .orElse(null);
+        boolean deletedSelected = setting != null && Boolean.TRUE.equals(setting.getSelectedFlag());
+        int removedCount = courseScheduleService
+                .getUserSchedule(userId, normalizedAcademicYear, normalizedSemesterTerm)
+                .size();
+
+        courseScheduleService.deleteSchedule(userId, normalizedAcademicYear, normalizedSemesterTerm);
+        if (setting != null) {
+            scheduleSemesterSettingRepository.delete(setting);
+        } else {
+            scheduleSemesterSettingRepository.deleteByUserIdAndAcademicYearAndSemesterTerm(
+                    userId,
+                    normalizedAcademicYear,
+                    normalizedSemesterTerm
+            );
+        }
+        if (deletedSelected) {
+            selectFallbackSemesterAfterDelete(userId, user);
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("removedCount", removedCount);
+        result.put("deletedSelected", deletedSelected);
+        return Result.success(result);
+    }
+
     @Operation(summary = "获取节次时间设置", description = "获取当前用户的课表节次开始/结束时间")
     @GetMapping("/periods")
     public Result<List<SchedulePeriodDTO>> getSchedulePeriods(HttpServletRequest request) {
@@ -470,16 +533,8 @@ public class CourseScheduleController {
             hasSelected = hasSelected || selectedFlag;
             items.add(toSemesterDto(setting, selectedFlag));
         }
-        if (!hasSelected) {
-            items.add(new ScheduleSemesterDTO(
-                    selected.academicYear,
-                    selected.semesterTerm,
-                    selected.semesterCode,
-                    selected.semesterStart != null ? selected.semesterStart.toString() : "",
-                    true,
-                    WeekCalculator.getCurrentWeek(selected.semesterStart),
-                    courseScheduleService.getUserSchedule(userId, selected.academicYear, selected.semesterTerm).stream().count()
-            ));
+        if (!items.isEmpty() && !hasSelected) {
+            items.get(0).setSelected(true);
         }
         return items;
     }
@@ -543,6 +598,29 @@ public class CourseScheduleController {
         LocalDate date = fallbackDate != null ? fallbackDate : LocalDate.now();
         int month = date.getMonthValue();
         return month >= 2 && month <= 7 ? 2 : 1;
+    }
+
+    private Integer requireSemesterTerm(Integer semesterTerm) {
+        if (semesterTerm == null || (semesterTerm != 1 && semesterTerm != 2)) {
+            throw new BusinessException(400, "学期必须是 1 或 2");
+        }
+        return semesterTerm;
+    }
+
+    private void selectFallbackSemesterAfterDelete(Long userId, User user) {
+        List<ScheduleSemesterSetting> remaining = scheduleSemesterSettingRepository.findByUserIdOrderByAcademicYearDescSemesterTermDesc(userId);
+        if (remaining.isEmpty()) {
+            user.setSemesterStart(null);
+            userRepository.save(user);
+            return;
+        }
+
+        ScheduleSemesterSetting next = remaining.get(0);
+        scheduleSemesterSettingRepository.clearSelectedByUserId(userId);
+        next.setSelectedFlag(true);
+        scheduleSemesterSettingRepository.save(next);
+        user.setSemesterStart(next.getSemesterStart());
+        userRepository.save(user);
     }
 
     private String semesterCodeForTerm(Integer semesterTerm) {
