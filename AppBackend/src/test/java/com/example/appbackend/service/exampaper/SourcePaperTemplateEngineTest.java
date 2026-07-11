@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -98,6 +99,55 @@ class SourcePaperTemplateEngineTest {
                 "%information% %information%", "%information%", "x", 2));
     }
 
+    @Test
+    void appliesNonDefaultTitleSizeOnlyInsideLockedTitleStructure() throws Exception {
+        PaperLayoutConfig layout = new PaperLayoutConfig();
+        layout.setTitleFontSize(62);
+        String document = text(entries(engine.generate(paper(), DownloadContent.PAPER, layout)), "word/document.xml");
+        int title = document.indexOf("源码版式测试");
+        String titleParagraph = document.substring(document.lastIndexOf("<w:p ", title), document.indexOf("</w:p>", title));
+        assertEquals(2, occurrences(titleParagraph, "<w:sz w:val=\"62\"/>"));
+        assertEquals(2, occurrences(titleParagraph, "<w:szCs w:val=\"62\"/>"));
+        assertFalse(titleParagraph.contains("w:val=\"50\""));
+    }
+
+    @Test
+    void rejectsAnyHeaderTokenMultiplicityDrift() throws Exception {
+        String header1 = new String(resource("exam-paper-template/head/header1.xml"), StandardCharsets.UTF_8);
+        String header2 = new String(resource("exam-paper-template/head/header2.xml"), StandardCharsets.UTF_8);
+        assertDoesNotThrow(() -> SourcePaperTemplateEngine.verifyHeaderTemplateContract(header1, header2));
+        assertThrows(IllegalArgumentException.class, () -> SourcePaperTemplateEngine.verifyHeaderTemplateContract(
+                header1 + "%h1LineTop%", header2));
+        assertThrows(IllegalArgumentException.class, () -> SourcePaperTemplateEngine.verifyHeaderTemplateContract(
+                header1, header2.replaceFirst("%information%", "")));
+        assertThrows(IllegalArgumentException.class, () -> SourcePaperTemplateEngine.verifyHeaderTemplateContract(
+                header1 + "%information%", header2));
+    }
+
+    @Test
+    void verifierRejectsMalformedSettingsAndFixedRelationshipDrift() throws Exception {
+        byte[] valid = engine.generate(paper(), DownloadContent.PAPER, new PaperLayoutConfig());
+        assertThrows(IllegalArgumentException.class, () -> SourcePaperPackageVerifier.verify(
+                replaceEntry(valid, "word/settings.xml", "<w:settings>".getBytes(StandardCharsets.UTF_8))));
+        assertThrows(IllegalArgumentException.class, () -> SourcePaperPackageVerifier.verify(replaceEntry(valid,
+                "word/settings.xml", ("<w:settings xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">"
+                        + "</w:settings>").getBytes(StandardCharsets.UTF_8))));
+        Map<String, byte[]> parts = entries(valid);
+        String relationships = text(parts, "word/_rels/document.xml.rels");
+        assertThrows(IllegalArgumentException.class, () -> SourcePaperPackageVerifier.verify(replaceEntry(valid,
+                "word/_rels/document.xml.rels", relationships.replace("Target=\"header1.xml\"", "Target=\"headerX.xml\"")
+                        .getBytes(StandardCharsets.UTF_8))));
+        assertThrows(IllegalArgumentException.class, () -> SourcePaperPackageVerifier.verify(replaceEntry(valid,
+                "word/_rels/document.xml.rels", relationships.replace(
+                                "relationships/footer\" Target=\"footer1.xml\"",
+                                "relationships/header\" Target=\"footer1.xml\"")
+                        .getBytes(StandardCharsets.UTF_8))));
+        String document = text(parts, "word/document.xml");
+        assertThrows(IllegalArgumentException.class, () -> SourcePaperPackageVerifier.verify(replaceEntry(valid,
+                "word/document.xml", document.replace("r:id=\"rId8\"", "r:id=\"rId13\"")
+                        .getBytes(StandardCharsets.UTF_8))));
+    }
+
     private PaperVO paper() {
         PaperVO paper = new PaperVO();
         paper.setTitle("源码版式测试");
@@ -146,5 +196,24 @@ class SourcePaperTemplateEngineTest {
         } catch (Exception exception) {
             throw new IllegalStateException(exception);
         }
+    }
+
+    private static byte[] replaceEntry(byte[] source, String target, byte[] replacement) throws Exception {
+        try (ZipInputStream input = new ZipInputStream(new ByteArrayInputStream(source));
+             java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+             ZipOutputStream output = new ZipOutputStream(bytes)) {
+            ZipEntry entry;
+            while ((entry = input.getNextEntry()) != null) {
+                output.putNextEntry(new ZipEntry(entry.getName()));
+                if (!entry.isDirectory()) output.write(entry.getName().equals(target) ? replacement : input.readAllBytes());
+                output.closeEntry();
+            }
+            output.finish();
+            return bytes.toByteArray();
+        }
+    }
+
+    private static int occurrences(String value, String token) {
+        return (value.length() - value.replace(token, "").length()) / token.length();
     }
 }

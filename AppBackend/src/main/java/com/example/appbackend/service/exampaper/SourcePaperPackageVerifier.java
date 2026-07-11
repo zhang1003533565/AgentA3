@@ -3,6 +3,7 @@ package com.example.appbackend.service.exampaper;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
+import org.xml.sax.helpers.DefaultHandler;
 
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -23,6 +24,12 @@ public final class SourcePaperPackageVerifier {
             "[Content_Types].xml", "_rels/.rels", "word/document.xml", "word/_rels/document.xml.rels",
             "word/header1.xml", "word/header2.xml", "word/footer1.xml", "word/footer2.xml",
             "word/settings.xml", "word/styles.xml", "word/numbering.xml");
+    private static final String REL_BASE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/";
+    private static final Map<String, RelationshipContract> FIXED_RELATIONSHIPS = Map.of(
+            "rId8", new RelationshipContract(REL_BASE + "header", "header1.xml", "headerReference"),
+            "rId9", new RelationshipContract(REL_BASE + "header", "header2.xml", "headerReference"),
+            "rId10", new RelationshipContract(REL_BASE + "footer", "footer1.xml", "footerReference"),
+            "rId11", new RelationshipContract(REL_BASE + "footer", "footer2.xml", "footerReference"));
 
     private SourcePaperPackageVerifier() {}
 
@@ -37,22 +44,30 @@ public final class SourcePaperPackageVerifier {
         parse(entries.get("word/header2.xml"), "word/header2.xml");
         parse(entries.get("word/footer1.xml"), "word/footer1.xml");
         parse(entries.get("word/footer2.xml"), "word/footer2.xml");
-        String settings = new String(entries.get("word/settings.xml"), java.nio.charset.StandardCharsets.UTF_8);
-        if (!settings.contains("w:evenAndOddHeaders")) throw new IllegalArgumentException("settings 缺少 evenAndOddHeaders");
+        Document settings = parse(entries.get("word/settings.xml"), "word/settings.xml");
+        NodeList evenOdd = settings.getElementsByTagNameNS(
+                "http://schemas.openxmlformats.org/wordprocessingml/2006/main", "evenAndOddHeaders");
+        if (evenOdd.getLength() != 1) throw new IllegalArgumentException("settings 必须且只能包含一个 evenAndOddHeaders");
 
-        Map<String, String> targets = new HashMap<>();
+        Map<String, RelationshipDefinition> definitions = new HashMap<>();
         NodeList relations = relationships.getElementsByTagNameNS(
                 "http://schemas.openxmlformats.org/package/2006/relationships", "Relationship");
         for (int index = 0; index < relations.getLength(); index++) {
             Element relation = (Element) relations.item(index);
-            targets.put(relation.getAttribute("Id"), relation.getAttribute("Target"));
+            definitions.put(relation.getAttribute("Id"), new RelationshipDefinition(
+                    relation.getAttribute("Type"), relation.getAttribute("Target")));
         }
-        NodeList references = document.getElementsByTagNameNS(
-                "http://schemas.openxmlformats.org/wordprocessingml/2006/main", "headerReference");
-        validateReferences(references, targets, entries);
-        references = document.getElementsByTagNameNS(
-                "http://schemas.openxmlformats.org/wordprocessingml/2006/main", "footerReference");
-        validateReferences(references, targets, entries);
+        for (Map.Entry<String, RelationshipContract> fixed : FIXED_RELATIONSHIPS.entrySet()) {
+            RelationshipDefinition actual = definitions.get(fixed.getKey());
+            RelationshipContract expected = fixed.getValue();
+            if (actual == null || !actual.type().equals(expected.type()) || !actual.target().equals(expected.target())) {
+                throw new IllegalArgumentException("固定关系偏离源码: " + fixed.getKey());
+            }
+            requireReference(document, expected.referenceElement(), fixed.getKey());
+            if (!entries.containsKey("word/" + expected.target())) {
+                throw new IllegalArgumentException("固定关系目标缺失: " + expected.target());
+            }
+        }
     }
 
     public static void verifyPreservedParts(byte[] source, byte[] generated) {
@@ -66,17 +81,17 @@ public final class SourcePaperPackageVerifier {
         }
     }
 
-    private static void validateReferences(NodeList references, Map<String, String> targets,
-                                           Map<String, byte[]> entries) {
+    private static void requireReference(Document document, String elementName, String expectedId) {
+        NodeList references = document.getElementsByTagNameNS(
+                "http://schemas.openxmlformats.org/wordprocessingml/2006/main", elementName);
+        int found = 0;
         for (int index = 0; index < references.getLength(); index++) {
             Element reference = (Element) references.item(index);
             String id = reference.getAttributeNS(
                     "http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
-            String target = targets.get(id);
-            if (target == null || !entries.containsKey("word/" + target)) {
-                throw new IllegalArgumentException("无效页眉页脚关系: " + id);
-            }
+            if (expectedId.equals(id)) found++;
         }
+        if (found != 1) throw new IllegalArgumentException("固定页眉页脚引用缺失或重复: " + expectedId);
     }
 
     private static Map<String, byte[]> entries(byte[] docx) {
@@ -101,7 +116,9 @@ public final class SourcePaperPackageVerifier {
             factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
             factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
             factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
-            return factory.newDocumentBuilder().parse(new ByteArrayInputStream(xml));
+            var builder = factory.newDocumentBuilder();
+            builder.setErrorHandler(new DefaultHandler());
+            return builder.parse(new ByteArrayInputStream(xml));
         } catch (Exception exception) {
             throw new IllegalArgumentException("OOXML 部件格式无效: " + name, exception);
         }
@@ -114,4 +131,8 @@ public final class SourcePaperPackageVerifier {
             throw new IllegalStateException(exception);
         }
     }
+
+    private record RelationshipContract(String type, String target, String referenceElement) {}
+
+    private record RelationshipDefinition(String type, String target) {}
 }

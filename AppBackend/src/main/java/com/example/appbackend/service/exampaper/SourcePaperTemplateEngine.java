@@ -27,6 +27,23 @@ public final class SourcePaperTemplateEngine {
     static final String HEADER1_TEMPLATE = "exam-paper-template/head/header1.xml";
     static final String HEADER2_TEMPLATE = "exam-paper-template/head/header2.xml";
     private static final Pattern UNRESOLVED_TOKEN = Pattern.compile("%[^%]+%");
+    private static final Map<String, Integer> HEADER1_TOKEN_COUNTS = Map.ofEntries(
+            Map.entry("%h1LineHeight%", 3), Map.entry("%h1LineTop%", 1), Map.entry("%h1LineWidth%", 1),
+            Map.entry("%h1MarginLeftIn%", 3), Map.entry("%h1MarginLeftInside%", 1),
+            Map.entry("%h1MarginLeftOutside%", 1), Map.entry("%h1wordAbout1%", 1),
+            Map.entry("%h1wordAbout2%", 1), Map.entry("%h1wordAbout3%", 1),
+            Map.entry("%h1wordAbout4%", 1), Map.entry("%h1wordAbout5%", 1),
+            Map.entry("%h1wordUpAndDown1%", 1), Map.entry("%h1wordUpAndDown2%", 1),
+            Map.entry("%h1wordUpAndDown3%", 1), Map.entry("%h1wordUpAndDown4%", 1),
+            Map.entry("%h1wordUpAndDown5%", 1), Map.entry("%information%", 0));
+    private static final Map<String, Integer> HEADER2_TOKEN_COUNTS = Map.ofEntries(
+            Map.entry("%h2LineHeight%", 3), Map.entry("%h2LineTop%", 1), Map.entry("%h2LineWidth%", 1),
+            Map.entry("%h2wordAbout1%", 1), Map.entry("%h2wordAbout2%", 1),
+            Map.entry("%h2wordAbout3%", 1), Map.entry("%h2wordAbout4%", 1),
+            Map.entry("%h2wordAbout5%", 1), Map.entry("%h2wordUpAndDown1%", 1),
+            Map.entry("%h2wordUpAndDown2%", 1), Map.entry("%h2wordUpAndDown3%", 1),
+            Map.entry("%h2wordUpAndDown4%", 1), Map.entry("%h2wordUpAndDown5%", 1),
+            Map.entry("%information%", 2));
 
     private final SourcePaperLayoutResolver layoutResolver;
     private final SourcePaperXmlRenderer renderer;
@@ -47,6 +64,7 @@ public final class SourcePaperTemplateEngine {
         ResolvedPageLayout resolved = layoutResolver.resolve(layout);
 
         String document = resourceText(DOCUMENT_TEMPLATE);
+        document = applyTitleFontSize(document, layout.getTitleFontSize());
         Map<String, String> replacements = new LinkedHashMap<>();
         replacements.put("%TITLE%", escapeXml(paper.getTitle()));
         replacements.put("%SUBTITLE%", renderer.renderSubtitle(paper, layout));
@@ -62,8 +80,11 @@ public final class SourcePaperTemplateEngine {
             document = replaceRequired(document, replacement.getKey(), replacement.getValue(), 1);
         }
 
-        String header1 = replaceHeader(resourceText(HEADER1_TEMPLATE), layoutResolver.bindingTokens(layout), "h1");
-        String header2 = replaceHeader(resourceText(HEADER2_TEMPLATE), layoutResolver.bindingTokens(layout), "h2");
+        String header1Template = resourceText(HEADER1_TEMPLATE);
+        String header2Template = resourceText(HEADER2_TEMPLATE);
+        verifyHeaderTemplateContract(header1Template, header2Template);
+        String header1 = replaceHeader(header1Template, layoutResolver.bindingTokens(layout), HEADER1_TOKEN_COUNTS);
+        String header2 = replaceHeader(header2Template, layoutResolver.bindingTokens(layout), HEADER2_TOKEN_COUNTS);
         requireResolved("word/document.xml", document);
         requireResolved("word/header1.xml", header1);
         requireResolved("word/header2.xml", header2);
@@ -80,20 +101,61 @@ public final class SourcePaperTemplateEngine {
         return generated;
     }
 
-    private String replaceHeader(String template, BindingLayoutTokens tokens, String prefix) {
+    private String replaceHeader(String template, BindingLayoutTokens tokens, Map<String, Integer> contract) {
         String result = template;
-        for (Map.Entry<String, String> token : tokens.values().entrySet()) {
-            boolean relevant = token.getKey().equals("%information%") || token.getKey().startsWith("%" + prefix);
-            if (relevant) {
-                int expected = occurrences(template, token.getKey());
-                if (expected > 0) result = replaceRequired(result, token.getKey(), escapeHeaderValue(token), expected);
+        for (Map.Entry<String, Integer> expected : contract.entrySet()) {
+            if (expected.getValue() > 0) {
+                String value = tokens.values().get(expected.getKey());
+                if (value == null) throw new IllegalArgumentException("缺少页眉替换值: " + expected.getKey());
+                result = replaceRequired(result, expected.getKey(),
+                        expected.getKey().equals("%information%") ? escapeXml(value) : value,
+                        expected.getValue());
             }
         }
         return result;
     }
 
-    private String escapeHeaderValue(Map.Entry<String, String> token) {
-        return token.getKey().equals("%information%") ? escapeXml(token.getValue()) : token.getValue();
+    static void verifyHeaderTemplateContract(String header1, String header2) {
+        verifyTokenCounts("header1.xml", header1, HEADER1_TOKEN_COUNTS);
+        verifyTokenCounts("header2.xml", header2, HEADER2_TOKEN_COUNTS);
+    }
+
+    private static void verifyTokenCounts(String name, String template, Map<String, Integer> contract) {
+        for (Map.Entry<String, Integer> expected : contract.entrySet()) {
+            int actual = occurrences(template, expected.getKey());
+            if (actual != expected.getValue()) {
+                throw new IllegalArgumentException(name + " 占位符 " + expected.getKey()
+                        + " 期望 " + expected.getValue() + " 个，实际 " + actual + " 个");
+            }
+        }
+        java.util.regex.Matcher matcher = UNRESOLVED_TOKEN.matcher(template);
+        while (matcher.find()) {
+            if (!contract.containsKey(matcher.group())) {
+                throw new IllegalArgumentException(name + " 存在契约外占位符: " + matcher.group());
+            }
+        }
+    }
+
+    private static String applyTitleFontSize(String document, int fontSize) {
+        int titleToken = document.indexOf("%TITLE%");
+        if (titleToken < 0 || document.indexOf("%TITLE%", titleToken + 1) >= 0) {
+            throw new IllegalArgumentException("模板标题插槽数量无效");
+        }
+        int paragraphStart = document.lastIndexOf("<w:p ", titleToken);
+        int paragraphEnd = document.indexOf("</w:p>", titleToken);
+        if (paragraphStart < 0 || paragraphEnd < 0) throw new IllegalArgumentException("模板标题段落结构无效");
+        paragraphEnd += "</w:p>".length();
+        String titleParagraph = document.substring(paragraphStart, paragraphEnd);
+        if (!titleParagraph.contains("<w:rFonts w:eastAsia=\"黑体\"/>")
+                || !titleParagraph.contains("<w:rFonts w:eastAsia=\"黑体\" w:hint=\"eastAsia\"/>")
+                || occurrences(titleParagraph, "<w:sz w:val=\"50\"/>") != 2
+                || occurrences(titleParagraph, "<w:szCs w:val=\"50\"/>") != 2) {
+            throw new IllegalArgumentException("模板标题字号结构偏离权威源码");
+        }
+        String resized = titleParagraph.replace("<w:sz w:val=\"50\"/>",
+                        "<w:sz w:val=\"" + fontSize + "\"/>")
+                .replace("<w:szCs w:val=\"50\"/>", "<w:szCs w:val=\"" + fontSize + "\"/>");
+        return document.substring(0, paragraphStart) + resized + document.substring(paragraphEnd);
     }
 
     static String replaceRequired(String source, String token, String replacement, int expectedCount) {
