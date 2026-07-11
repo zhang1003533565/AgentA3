@@ -22,9 +22,7 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 
 public class ExamPaperDocumentGenerator {
@@ -48,9 +46,9 @@ public class ExamPaperDocumentGenerator {
             configureLayout(document, paper);
             writeHeader(document, paper, content);
             int number = 1;
-            for (Map.Entry<String, List<QuestionSnapshotVO>> section : groupQuestions(paper.getQuestions()).entrySet()) {
-                writeSectionHeading(document, section.getKey());
-                for (QuestionSnapshotVO question : section.getValue()) {
+            for (QuestionSection section : groupQuestions(paper.getQuestions())) {
+                writeSectionHeading(document, section.heading());
+                for (QuestionSnapshotVO question : section.questions()) {
                     writeQuestion(document, question, number++);
                     if (content == DownloadContent.ANSWER) {
                         writeAnswer(document, question);
@@ -108,15 +106,22 @@ public class ExamPaperDocumentGenerator {
         }
     }
 
-    private Map<String, List<QuestionSnapshotVO>> groupQuestions(List<QuestionSnapshotVO> questions) {
-        Map<String, List<QuestionSnapshotVO>> groups = new LinkedHashMap<>();
-        if (questions == null) return groups;
-        questions.stream()
+    private List<QuestionSection> groupQuestions(List<QuestionSnapshotVO> questions) {
+        List<QuestionSection> sections = new ArrayList<>();
+        if (questions == null) return sections;
+        List<QuestionSnapshotVO> ordered = questions.stream()
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(QuestionSnapshotVO::getSortOrder,
                         Comparator.nullsLast(Comparator.naturalOrder())))
-                .forEach(question -> groups.computeIfAbsent(typeName(question.getType()), ignored -> new ArrayList<>()).add(question));
-        return groups;
+                .toList();
+        for (QuestionSnapshotVO question : ordered) {
+            String heading = typeName(question.getType());
+            if (sections.isEmpty() || !sections.getLast().heading().equals(heading)) {
+                sections.add(new QuestionSection(heading, new ArrayList<>()));
+            }
+            sections.getLast().questions().add(question);
+        }
+        return sections;
     }
 
     private void writeSectionHeading(XWPFDocument document, String heading) {
@@ -135,29 +140,43 @@ public class ExamPaperDocumentGenerator {
             addParagraph(document, safeFileText(question.getBodyJson()));
             return;
         }
-        writeOptions(document, body);
-        writeReadableBody(document, body);
+        boolean rendered = writeOptions(document, body);
+        rendered = writeReadableBody(document, body) || rendered;
+        if (!rendered) addParagraph(document, pretty(body));
     }
 
-    private void writeOptions(XWPFDocument document, JsonNode body) {
+    private boolean writeOptions(XWPFDocument document, JsonNode body) {
         JsonNode options = body.path("options");
-        if (!options.isArray()) return;
+        if (!options.isArray()) return false;
+        boolean rendered = false;
         for (JsonNode option : options) {
             String key = option.path("key").asText("");
             String value = option.path("text").asText("");
-            if (!key.isBlank() || !value.isBlank()) addParagraph(document, key + ". " + value);
+            if (!key.isBlank() || !value.isBlank()) {
+                addParagraph(document, key + ". " + value);
+                rendered = true;
+            }
         }
+        return rendered;
     }
 
-    private void writeReadableBody(XWPFDocument document, JsonNode body) {
+    private boolean writeReadableBody(XWPFDocument document, JsonNode body) {
+        boolean rendered = false;
         for (String key : List.of("statement", "text", "material", "task", "description", "inputFormat", "outputFormat")) {
             JsonNode value = body.get(key);
-            if (value != null && value.isValueNode() && !value.asText().isBlank()) addParagraph(document, value.asText());
+            if (value != null && value.isValueNode() && !value.asText().isBlank()) {
+                addParagraph(document, value.asText());
+                rendered = true;
+            }
         }
         for (String key : List.of("requirements", "constraints", "items", "leftItems", "rightItems", "subQuestions", "examples")) {
             JsonNode value = body.get(key);
-            if (value != null && !value.isEmpty()) addParagraph(document, pretty(value));
+            if (value != null && !value.isEmpty()) {
+                addParagraph(document, pretty(value));
+                rendered = true;
+            }
         }
+        return rendered;
     }
 
     private void writeAnswer(XWPFDocument document, QuestionSnapshotVO question) {
@@ -252,5 +271,8 @@ public class ExamPaperDocumentGenerator {
     private void addParagraph(XWPFDocument document, String text) {
         if (text == null || text.isBlank()) return;
         document.createParagraph().createRun().setText(safeFileText(text));
+    }
+
+    private record QuestionSection(String heading, List<QuestionSnapshotVO> questions) {
     }
 }

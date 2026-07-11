@@ -43,8 +43,42 @@ class ExamPaperDocumentGeneratorTest {
         assertTrue(text.contains("第二道题"));
         assertTrue(text.contains("第三道题"));
         assertFalse(text.contains("标准答案"));
+        assertFalse(text.contains("参考答案"));
         assertFalse(text.contains("因为甲正确"));
         assertFalse(text.contains("参考内容"));
+    }
+
+    @Test
+    void preservesGlobalOrderWhenQuestionTypesAreInterleaved() throws Exception {
+        PaperVO paper = paper(PageSize.A4, Orientation.PORTRAIT, 1);
+        paper.setQuestions(List.of(
+                question(1, "single_choice", "A一", "{\"options\":[{\"key\":\"A\",\"text\":\"甲\"}]}", "{}", null),
+                question(2, "true_false", "B二", "{\"statement\":\"判断\"}", "{}", null),
+                question(3, "single_choice", "A三", "{\"options\":[{\"key\":\"B\",\"text\":\"乙\"}]}", "{}", null)
+        ));
+
+        String text = text(new ExamPaperDocumentGenerator().generate(paper, DownloadContent.PAPER));
+
+        int first = text.indexOf("1. A一");
+        int second = text.indexOf("2. B二");
+        int third = text.indexOf("3. A三");
+        assertTrue(first >= 0 && first < second && second < third, text);
+        assertEquals(2, occurrences(text, "单项选择题"));
+        assertEquals(1, occurrences(text, "判断题"));
+    }
+
+    @Test
+    void fallsBackToPrettyJsonWhenValidBodyHasNoKnownRenderableFields() throws Exception {
+        PaperVO paper = paper(PageSize.A4, Orientation.PORTRAIT, 1);
+        paper.setQuestions(List.of(
+                question(1, "custom", "未知正文", "{\"diagram\":{\"label\":\"示意图\"},\"values\":[1,2]}", "{}", null)
+        ));
+
+        String text = text(new ExamPaperDocumentGenerator().generate(paper, DownloadContent.PAPER));
+
+        assertTrue(text.contains("\"diagram\""));
+        assertTrue(text.contains("\"示意图\""));
+        assertTrue(text.contains("\"values\""));
     }
 
     @Test
@@ -97,6 +131,10 @@ class ExamPaperDocumentGeneratorTest {
             assertEquals(BigInteger.valueOf(expectedHeight), section.getPgSz().getH());
             if (orientation == Orientation.LANDSCAPE) {
                 assertEquals("landscape", section.getPgSz().getOrient().toString());
+            } else {
+                assertTrue(!section.getPgSz().isSetOrient()
+                                || "portrait".equals(section.getPgSz().getOrient().toString()),
+                        "portrait 页面应省略方向或明确标记 portrait");
             }
             CTColumns cols = section.getCols();
             assertEquals(BigInteger.valueOf(columns), cols.getNum());
@@ -149,5 +187,9 @@ class ExamPaperDocumentGeneratorTest {
         try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(bytes))) {
             return document.getParagraphs().stream().map(XWPFParagraph::getText).collect(joining("\n"));
         }
+    }
+
+    private static int occurrences(String text, String fragment) {
+        return (text.length() - text.replace(fragment, "").length()) / fragment.length();
     }
 }
