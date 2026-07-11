@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -95,7 +96,8 @@ public final class SourcePaperXmlRenderer {
                 } else if (isJudgment(question.getType())) {
                     xml.append(choiceQuestion(questionNumber, question, layout.getBodyFontSize(), true));
                 } else if (isSubjective(question.getType())) {
-                    xml.append(essayQuestion(questionNumber, question, layout.getBodyFontSize()));
+                    xml.append(essayQuestion(questionNumber, question, layout.getBodyFontSize(),
+                            isStructuredSubjective(question.getType())));
                 } else {
                     xml.append(fallbackQuestion(questionNumber, question, layout.getBodyFontSize()));
                 }
@@ -136,7 +138,9 @@ public final class SourcePaperXmlRenderer {
     private String choiceQuestion(int number, QuestionSnapshotVO question, int fontSize, boolean judgment) {
         StringBuilder xml = new StringBuilder(paragraph(number + "．" + cleanHtml(question.getStem()) + "(" + plainScore(question) + "分)",
                 false, fontSize, "left", 80, 0));
-        List<Option> options = judgment ? List.of(new Option("A", "正确"), new Option("B", "错误")) : options(question.getBodyJson());
+        List<Option> options = judgment
+                ? List.of(new Option("A", "A", "正确"), new Option("B", "B", "错误"))
+                : options(question.getBodyJson());
         if (!options.isEmpty()) {
             int maxLength = options.stream().mapToInt(option -> cleanHtml(option.text()).length()).max().orElse(0);
             if (judgment || (maxLength < 15 && options.size() <= 4)) {
@@ -150,9 +154,13 @@ public final class SourcePaperXmlRenderer {
         return xml.toString();
     }
 
-    private String essayQuestion(int number, QuestionSnapshotVO question, int fontSize) {
+    private String essayQuestion(int number, QuestionSnapshotVO question, int fontSize, boolean includeStructuredBody) {
         StringBuilder xml = new StringBuilder(paragraph(number + "．[简答题]" + cleanHtml(question.getStem()) + "(" + plainScore(question) + "分)",
                 false, fontSize, "left", 200, 0));
+        if (includeStructuredBody) {
+            String body = completeStructuredBody(question.getBodyJson());
+            if (!body.isBlank()) xml.append(paragraph(body, false, fontSize, "left", 80, 0));
+        }
         for (int index = 0; index < SOURCE_ESSAY_LINES; index++) {
             xml.append("<w:p><w:pPr><w:spacing w:after=\"120\"/></w:pPr></w:p>");
         }
@@ -174,10 +182,9 @@ public final class SourcePaperXmlRenderer {
         List<Option> options = new ArrayList<>();
         int index = 0;
         for (JsonNode option : body.path("options")) {
-            String key = option.path("key").asText("");
-            if (key.isBlank()) key = String.valueOf((char) ('A' + index));
+            String originalKey = option.path("key").asText("");
             String text = option.path("text").asText("");
-            options.add(new Option(key, text));
+            options.add(new Option(String.valueOf((char) ('A' + index)), originalKey, text));
             index++;
         }
         return options;
@@ -196,14 +203,23 @@ public final class SourcePaperXmlRenderer {
         return pretty(node);
     }
 
+    private String completeStructuredBody(String json) {
+        JsonNode node = readJson(json);
+        if (node == null) return cleanHtml(json);
+        if (node.isNull() || node.isEmpty()) return "";
+        // Pretty JSON deliberately preserves every nested field (including material subQuestions)
+        // while paragraph XML escaping makes the complete recursive structure safe for OOXML.
+        return pretty(node);
+    }
+
     private String answerText(QuestionSnapshotVO question) {
         JsonNode answer = readJson(question.getAnswerJson());
         if (answer == null) return cleanHtml(question.getAnswerJson());
         if (answer.isNull() || answer.isEmpty()) return "";
-        if (answer.has("correctOption")) return cleanHtml(answer.path("correctOption").asText());
+        if (answer.has("correctOption")) return mapAnswerKey(question, answer.path("correctOption").asText());
         if (answer.path("correctOptions").isArray()) {
             List<String> options = new ArrayList<>();
-            answer.path("correctOptions").forEach(item -> options.add(cleanHtml(item.asText())));
+            answer.path("correctOptions").forEach(item -> options.add(mapAnswerKey(question, item.asText())));
             return String.join(",", options);
         }
         if (answer.has("correct") && answer.path("correct").isBoolean()) return answer.path("correct").asBoolean() ? "正确" : "错误";
@@ -211,6 +227,13 @@ public final class SourcePaperXmlRenderer {
             if (answer.has(key)) return cleanHtml(answer.path(key).asText());
         }
         return pretty(answer);
+    }
+
+    private String mapAnswerKey(QuestionSnapshotVO question, String originalKey) {
+        for (Option option : options(question.getBodyJson())) {
+            if (Objects.equals(option.originalKey(), originalKey)) return option.label();
+        }
+        return cleanHtml(originalKey);
     }
 
     private JsonNode readJson(String value) {
@@ -288,7 +311,7 @@ public final class SourcePaperXmlRenderer {
     }
 
     private String optionText(Option option) {
-        return cleanHtml(option.key()) + ". " + cleanHtml(option.text());
+        return option.label() + ". " + cleanHtml(option.text());
     }
 
     private String plainScore(QuestionSnapshotVO question) {
@@ -308,7 +331,12 @@ public final class SourcePaperXmlRenderer {
                 .replace("&amp;", "&").replace("&quot;", "\"");
         Matcher matcher = NUMERIC_ENTITY.matcher(clean);
         StringBuffer decoded = new StringBuffer();
-        while (matcher.find()) matcher.appendReplacement(decoded, Matcher.quoteReplacement(String.valueOf((char) Integer.parseInt(matcher.group(1)))));
+        while (matcher.find()) {
+            // JavaScript String.fromCharCode applies ToUint16; BigInteger keeps that behavior safe
+            // even when the decimal entity is far beyond Number/long range.
+            int codeUnit = new BigInteger(matcher.group(1)).and(BigInteger.valueOf(0xffffL)).intValue();
+            matcher.appendReplacement(decoded, Matcher.quoteReplacement(String.valueOf((char) codeUnit)));
+        }
         matcher.appendTail(decoded);
         return NEWLINES.matcher(decoded).replaceAll(" ").trim();
     }
@@ -358,6 +386,13 @@ public final class SourcePaperXmlRenderer {
         };
     }
 
+    private boolean isStructuredSubjective(String type) {
+        return switch (normalizedType(type)) {
+            case "material_analysis", "calculation", "proof", "programming", "operation" -> true;
+            default -> false;
+        };
+    }
+
     private String typeName(String type) {
         return switch (normalizedType(type)) {
             case "single_choice", "single", "1" -> "单项选择题";
@@ -379,7 +414,7 @@ public final class SourcePaperXmlRenderer {
         };
     }
 
-    private record Option(String key, String text) {}
+    private record Option(String label, String originalKey, String text) {}
 
     private record SectionKey(Integer sectionOrder, String type) {}
 

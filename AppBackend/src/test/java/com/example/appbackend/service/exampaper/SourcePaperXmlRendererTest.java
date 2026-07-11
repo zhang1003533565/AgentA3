@@ -58,6 +58,40 @@ class SourcePaperXmlRendererTest {
     }
 
     @Test
+    void labelsOptionsByArrayPositionAndMapsOriginalAnswerKeysToThoseLabels() throws Exception {
+        PaperVO paper = paper(List.of(
+                question(1, 1, "single_choice", "乱序键", "{\"options\":[{\"key\":\"X\",\"text\":\"甲\"},{\"key\":\"Q\",\"text\":\"乙\"}]}", "{\"correctOption\":\"Q\"}"),
+                question(2, 2, "multiple_choice", "非标准键", "{\"options\":[{\"key\":\"left\",\"text\":\"丙\"},{\"key\":\"right\",\"text\":\"丁\"}]}", "{\"correctOptions\":[\"right\",\"left\"]}")
+        ));
+
+        String questions = renderer.renderQuestions(paper, layout());
+        assertTrue(questions.contains("A. 甲        B. 乙"));
+        assertTrue(questions.contains("A. 丙        B. 丁"));
+        assertFalse(questions.contains("X. 甲"));
+
+        String answers = renderer.renderAnswers(paper, layout());
+        assertTrue(answers.contains("1．答案:B"));
+        assertTrue(answers.contains("2．答案:B,A"));
+    }
+
+    @Test
+    void preservesCompleteStructuredBodiesForComplexSubjectiveTypes() throws Exception {
+        PaperVO paper = paper(List.of(
+                question(1, 1, "material_analysis", "阅读材料", "{\"material\":\"背景材料\",\"subQuestions\":[{\"stem\":\"子问题一\",\"requirements\":[\"要点甲\",\"要点乙\"]}]}", "{}"),
+                question(2, 2, "programming", "编写程序", "{\"description\":\"求和\",\"inputFormat\":\"两个整数\",\"outputFormat\":\"一个整数\",\"examples\":[{\"input\":\"1 2\",\"output\":\"3\"}]}", "{}")
+        ));
+
+        String xml = renderer.renderQuestions(paper, layout());
+        String text = parse(xml).getDocumentElement().getTextContent();
+        for (String expected : List.of("背景材料", "subQuestions", "子问题一", "要点甲", "要点乙",
+                "求和", "两个整数", "一个整数", "examples", "1 2", "3")) {
+            assertTrue(text.contains(expected), expected + " must be retained in rendered body");
+        }
+        assertTrue(xml.contains("[简答题]阅读材料"));
+        assertTrue(xml.contains("[简答题]编写程序"));
+    }
+
+    @Test
     void rendersEssayBlankLinesChineseSectionsAndAnswerPageBreak() throws Exception {
         PaperVO paper = paper(List.of(
                 question(1, 1, "single_choice", "选择", options("甲", "乙"), "{\"correctOption\":\"A\"}"),
@@ -105,6 +139,15 @@ class SourcePaperXmlRendererTest {
     }
 
     @Test
+    void decodesHugeNumericEntitiesWithoutOverflowLikeJavascriptFromCharCode() throws Exception {
+        PaperVO paper = paper(List.of(question(1, 1, "custom", "实体 &#999999999999999999999999999999999999999999999999999999; 结束", "{}", "{}")));
+
+        String xml = assertDoesNotThrow(() -> renderer.renderQuestions(paper, layout()));
+        parse(xml);
+        assertFalse(xml.contains("&#999999999999999999999999999999999999999999999999999999;"));
+    }
+
+    @Test
     void rendersSubtitleAndExactResolvedPageSettingsAsParseableFragments() throws Exception {
         PaperVO paper = paper(List.of());
         paper.setSubtitle("全卷 <100> & 60分钟");
@@ -113,6 +156,7 @@ class SourcePaperXmlRendererTest {
 
         String subtitle = renderer.renderSubtitle(paper, config);
         parse(subtitle);
+        // 可配置标题/副标题/正文字号是产品明确要求迁移的源码配置能力。
         assertTrue(subtitle.contains("w:sz w:val=\"24\""));
         assertTrue(subtitle.contains("全卷 &lt;100&gt; &amp; 60分钟"));
 
