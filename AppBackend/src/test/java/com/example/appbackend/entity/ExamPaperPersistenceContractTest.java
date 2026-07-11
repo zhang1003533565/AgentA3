@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -28,6 +29,27 @@ class ExamPaperPersistenceContractTest {
         assertNotNull(ExamPaper.class.getDeclaredField("pageSize"));
         assertNotNull(ExamPaper.class.getDeclaredField("orientation"));
         assertNotNull(ExamPaper.class.getDeclaredField("columnsCount"));
+        Map<String, Class<?>> layoutFields = Map.ofEntries(
+                Map.entry("renderMode", ExamPaperDTO.PaperRenderMode.class),
+                Map.entry("marginPreset", ExamPaperDTO.MarginPreset.class),
+                Map.entry("customMarginTop", Integer.class),
+                Map.entry("customMarginRight", Integer.class),
+                Map.entry("customMarginBottom", Integer.class),
+                Map.entry("customMarginLeft", Integer.class),
+                Map.entry("columnSpace", Integer.class),
+                Map.entry("hasBindingLine", Boolean.class),
+                Map.entry("titleFontSize", Integer.class),
+                Map.entry("subtitleFontSize", Integer.class),
+                Map.entry("bodyFontSize", Integer.class));
+        for (var entry : layoutFields.entrySet()) {
+            Field field = ExamPaper.class.getDeclaredField(entry.getKey());
+            assertEquals(entry.getValue(), field.getType());
+            Column column = field.getAnnotation(Column.class);
+            assertNotNull(column);
+            if (!entry.getKey().startsWith("customMargin")) {
+                assertTrue(!column.nullable(), entry.getKey() + " must be non-null");
+            }
+        }
         assertNotNull(ExamPaperQuestion.class.getDeclaredField("bodyJson"));
         assertNotNull(ExamPaperQuestion.class.getDeclaredField("answerJson"));
         assertNotNull(ExamPaperQuestion.class.getDeclaredField("sortOrder"));
@@ -70,7 +92,8 @@ class ExamPaperPersistenceContractTest {
         assertEquals(160, title.getAnnotation(Size.class).max());
 
         assertMinMax(ExamPaperDTO.CreateRequest.class.getDeclaredField("durationMinutes"), 1, 1440);
-        assertMinMax(ExamPaperDTO.CreateRequest.class.getDeclaredField("columnsCount"), 1, 2);
+        Field layout = ExamPaperDTO.CreateRequest.class.getDeclaredField("layout");
+        assertNotNull(layout.getAnnotation(NotNull.class));
 
         Field questions = ExamPaperDTO.CreateRequest.class.getDeclaredField("questions");
         assertNotNull(questions.getAnnotation(NotEmpty.class));
@@ -83,8 +106,10 @@ class ExamPaperPersistenceContractTest {
         assertNotNull(sortOrder.getAnnotation(NotNull.class));
         assertEquals(1, sortOrder.getAnnotation(Min.class).value());
 
-        Field columnsCount = ExamPaperDTO.CreateRequest.class.getDeclaredField("columnsCount");
+        Field columnsCount = ExamPaperDTO.PaperLayoutRequest.class.getDeclaredField("columnsCount");
         assertNotNull(columnsCount.getAnnotation(NotNull.class));
+
+        assertNotNull(ExamPaperDTO.PaperVO.class.getDeclaredField("layout"));
     }
 
     private void assertLongText(String fieldName) throws Exception {

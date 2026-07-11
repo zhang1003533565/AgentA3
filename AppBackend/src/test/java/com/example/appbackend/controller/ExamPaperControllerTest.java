@@ -31,7 +31,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ExamPaperControllerTest {
 
     private static final String CREATE_REQUEST = """
-            {"title":"期末考试","pageSize":"A4","orientation":"PORTRAIT","columnsCount":1,
+            {"title":"期末考试","layout":{"renderMode":"TEMPLATE","pageSize":"A4","orientation":"PORTRAIT",
+             "marginPreset":"NORMAL","columnsCount":1,"columnSpace":425,"hasBindingLine":false,
+             "titleFontSize":50,"subtitleFontSize":24,"bodyFontSize":21},
              "selectionMode":"MANUAL","questions":[{"questionId":3,"score":5,"sortOrder":1}]}
             """;
     private static final String PREVIEW_REQUEST = """

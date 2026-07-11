@@ -3,7 +3,10 @@ package com.example.appbackend.service.impl;
 import com.example.appbackend.dto.ExamPaperDTO.CreateRequest;
 import com.example.appbackend.dto.ExamPaperDTO.DownloadContent;
 import com.example.appbackend.dto.ExamPaperDTO.Orientation;
+import com.example.appbackend.dto.ExamPaperDTO.MarginPreset;
 import com.example.appbackend.dto.ExamPaperDTO.PageSize;
+import com.example.appbackend.dto.ExamPaperDTO.PaperLayoutRequest;
+import com.example.appbackend.dto.ExamPaperDTO.PaperRenderMode;
 import com.example.appbackend.dto.ExamPaperDTO.QuestionSnapshotVO;
 import com.example.appbackend.dto.ExamPaperDTO.RandomPreviewRequest;
 import com.example.appbackend.dto.ExamPaperDTO.RandomRule;
@@ -226,6 +229,85 @@ class ExamPaperServiceImplTest {
     }
 
     @Test
+    void createPersistsAnImmutableCompleteLayoutSnapshotAndReturnsIt() {
+        CreateRequest request = createRequest(selected(1L, "5.00", 1));
+        PaperLayoutRequest layout = request.getLayout();
+        layout.setRenderMode(PaperRenderMode.TEMPLATE);
+        layout.setPageSize(PageSize.B4);
+        layout.setOrientation(Orientation.LANDSCAPE);
+        layout.setMarginPreset(MarginPreset.CUSTOM);
+        layout.setCustomMarginTop(101);
+        layout.setCustomMarginRight(202);
+        layout.setCustomMarginBottom(303);
+        layout.setCustomMarginLeft(404);
+        layout.setColumnsCount(2);
+        layout.setColumnSpace(505);
+        layout.setHasBindingLine(false);
+        layout.setHeaderInfo("保存的密封线信息");
+        layout.setTitleFontSize(46);
+        layout.setSubtitleFontSize(22);
+        layout.setBodyFontSize(19);
+        when(questionRepository.findAllById(List.of(1L))).thenReturn(List.of(question(1L)));
+        when(paperRepository.save(any())).thenAnswer(invocation -> {
+            ExamPaper paper = invocation.getArgument(0);
+            paper.setId(88L);
+            return paper;
+        });
+        when(paperQuestionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var result = service.create(request, 9L);
+        layout.setHeaderInfo("请求创建后被修改");
+        layout.setColumnSpace(999);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(ExamPaper.class);
+        verify(paperRepository).save(captor.capture());
+        ExamPaper saved = captor.getValue();
+        assertEquals(PaperRenderMode.TEMPLATE, saved.getRenderMode());
+        assertEquals(MarginPreset.CUSTOM, saved.getMarginPreset());
+        assertEquals(List.of(101, 202, 303, 404), List.of(saved.getCustomMarginTop(),
+                saved.getCustomMarginRight(), saved.getCustomMarginBottom(), saved.getCustomMarginLeft()));
+        assertEquals(505, saved.getColumnSpace());
+        assertEquals(false, saved.getHasBindingLine());
+        assertEquals("保存的密封线信息", saved.getHeaderInfo());
+        assertEquals(List.of(46, 22, 19), List.of(saved.getTitleFontSize(),
+                saved.getSubtitleFontSize(), saved.getBodyFontSize()));
+        assertEquals("保存的密封线信息", result.getLayout().getHeaderInfo());
+        assertEquals(505, result.getLayout().getColumnSpace());
+    }
+
+    @Test
+    void createRejectsCustomPresetWithoutAllMarginsBeforeRepositoryAccess() {
+        CreateRequest request = createRequest(selected(1L, "5.00", 1));
+        request.getLayout().setMarginPreset(MarginPreset.CUSTOM);
+        request.getLayout().setCustomMarginTop(100);
+
+        BusinessException error = assertThrows(BusinessException.class, () -> service.create(request, 9L));
+
+        assertEquals(Result.BAD_REQUEST_CODE, error.getCode());
+        verifyNoInteractions(questionRepository, paperRepository, paperQuestionRepository);
+    }
+
+    @Test
+    void detailReturnsSavedLayoutIncludingSimpleHistoricalMode() {
+        ExamPaper paper = paper(3L, 10L, "历史试卷");
+        paper.setRenderMode(PaperRenderMode.SIMPLE);
+        paper.setMarginPreset(MarginPreset.NORMAL);
+        paper.setColumnSpace(0);
+        paper.setHasBindingLine(false);
+        paper.setTitleFontSize(36);
+        paper.setSubtitleFontSize(18);
+        paper.setBodyFontSize(16);
+        when(paperRepository.findById(3L)).thenReturn(Optional.of(paper));
+        when(paperQuestionRepository.findByPaperIdOrderBySortOrderAscIdAsc(3L)).thenReturn(List.of());
+
+        var result = service.detail(3L, 10L);
+
+        assertEquals(PaperRenderMode.SIMPLE, result.getLayout().getRenderMode());
+        assertEquals(MarginPreset.NORMAL, result.getLayout().getMarginPreset());
+        assertEquals(0, result.getLayout().getColumnSpace());
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void createAssignsSharedSectionOrderByTypeFirstAppearance() {
         CreateRequest request = createRequest(
@@ -342,9 +424,18 @@ class ExamPaperServiceImplTest {
     private CreateRequest createRequest(SelectedQuestion... questions) {
         CreateRequest request = new CreateRequest();
         request.setTitle("paper");
-        request.setPageSize(PageSize.A4);
-        request.setOrientation(Orientation.PORTRAIT);
-        request.setColumnsCount(1);
+        PaperLayoutRequest layout = new PaperLayoutRequest();
+        layout.setRenderMode(PaperRenderMode.TEMPLATE);
+        layout.setPageSize(PageSize.A4);
+        layout.setOrientation(Orientation.PORTRAIT);
+        layout.setMarginPreset(MarginPreset.NORMAL);
+        layout.setColumnsCount(1);
+        layout.setColumnSpace(425);
+        layout.setHasBindingLine(false);
+        layout.setTitleFontSize(50);
+        layout.setSubtitleFontSize(24);
+        layout.setBodyFontSize(21);
+        request.setLayout(layout);
         request.setSelectionMode(SelectionMode.MANUAL);
         request.setQuestions(List.of(questions));
         return request;
@@ -379,6 +470,9 @@ class ExamPaperServiceImplTest {
         paper.setCreatedBy(createdBy);
         paper.setTitle(title);
         paper.setStatus(1);
+        paper.setPageSize(PageSize.A4);
+        paper.setOrientation(Orientation.PORTRAIT);
+        paper.setColumnsCount(1);
         return paper;
     }
 }

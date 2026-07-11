@@ -3,6 +3,8 @@ package com.example.appbackend.service.impl;
 import com.example.appbackend.dto.ExamPaperDTO.CreateRequest;
 import com.example.appbackend.dto.ExamPaperDTO.DownloadContent;
 import com.example.appbackend.dto.ExamPaperDTO.PaperLayoutConfig;
+import com.example.appbackend.dto.ExamPaperDTO.PaperLayoutRequest;
+import com.example.appbackend.dto.ExamPaperDTO.MarginPreset;
 import com.example.appbackend.dto.ExamPaperDTO.PaperVO;
 import com.example.appbackend.dto.ExamPaperDTO.QuestionSnapshotVO;
 import com.example.appbackend.dto.ExamPaperDTO.RandomPreviewRequest;
@@ -158,6 +160,7 @@ public class ExamPaperServiceImpl implements ExamPaperService {
     @Override
     @Transactional
     public PaperVO create(CreateRequest request, Long userId) {
+        validateLayout(request.getLayout());
         validateUniqueSelections(request.getQuestions());
         List<Long> questionIds = request.getQuestions().stream()
                 .map(SelectedQuestion::getQuestionId)
@@ -185,10 +188,7 @@ public class ExamPaperServiceImpl implements ExamPaperService {
         paper.setSubtitle(request.getSubtitle());
         paper.setDurationMinutes(request.getDurationMinutes());
         paper.setPrecautions(request.getPrecautions());
-        paper.setHeaderInfo(request.getHeaderInfo());
-        paper.setPageSize(request.getPageSize());
-        paper.setOrientation(request.getOrientation());
-        paper.setColumnsCount(request.getColumnsCount());
+        copyLayout(request.getLayout(), paper);
         paper.setSelectionMode(request.getSelectionMode());
         paper.setQuestionCount(selections.size());
         paper.setTotalScore(totalScore);
@@ -245,18 +245,38 @@ public class ExamPaperServiceImpl implements ExamPaperService {
             // Compatibility seam for existing service unit tests; production always uses the dispatcher.
             bytes = documentGenerator.generate(paper, content);
         } else {
-            bytes = documentDispatcher.generate(paper, content, transitionalLayout(paper));
+            bytes = documentDispatcher.generate(paper, content, paper.getLayout());
         }
         return new DownloadFile(paper.getTitle(), bytes);
     }
 
-    private PaperLayoutConfig transitionalLayout(PaperVO paper) {
-        PaperLayoutConfig layout = new PaperLayoutConfig();
-        if (paper.getPageSize() != null) layout.setPageSize(paper.getPageSize());
-        if (paper.getOrientation() != null) layout.setOrientation(paper.getOrientation());
-        if (paper.getColumnsCount() != null) layout.setColumnsCount(paper.getColumnsCount());
-        if (paper.getHeaderInfo() != null) layout.setHeaderInfo(paper.getHeaderInfo());
-        return layout;
+    private void validateLayout(PaperLayoutRequest layout) {
+        if (layout == null) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "页面格式不能为空");
+        }
+        if (layout.getMarginPreset() == MarginPreset.CUSTOM
+                && (layout.getCustomMarginTop() == null || layout.getCustomMarginRight() == null
+                || layout.getCustomMarginBottom() == null || layout.getCustomMarginLeft() == null)) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "自定义页边距必须完整填写");
+        }
+    }
+
+    private void copyLayout(PaperLayoutRequest layout, ExamPaper paper) {
+        paper.setRenderMode(layout.getRenderMode());
+        paper.setPageSize(layout.getPageSize());
+        paper.setOrientation(layout.getOrientation());
+        paper.setMarginPreset(layout.getMarginPreset());
+        paper.setCustomMarginTop(layout.getCustomMarginTop());
+        paper.setCustomMarginRight(layout.getCustomMarginRight());
+        paper.setCustomMarginBottom(layout.getCustomMarginBottom());
+        paper.setCustomMarginLeft(layout.getCustomMarginLeft());
+        paper.setColumnsCount(layout.getColumnsCount());
+        paper.setColumnSpace(layout.getColumnSpace());
+        paper.setHasBindingLine(layout.getHasBindingLine());
+        paper.setHeaderInfo(layout.getHeaderInfo());
+        paper.setTitleFontSize(layout.getTitleFontSize());
+        paper.setSubtitleFontSize(layout.getSubtitleFontSize());
+        paper.setBodyFontSize(layout.getBodyFontSize());
     }
 
     private void validateUniqueSelections(List<SelectedQuestion> selections) {
@@ -300,6 +320,7 @@ public class ExamPaperServiceImpl implements ExamPaperService {
         vo.setPageSize(paper.getPageSize());
         vo.setOrientation(paper.getOrientation());
         vo.setColumnsCount(paper.getColumnsCount());
+        vo.setLayout(toLayout(paper));
         vo.setSelectionMode(paper.getSelectionMode());
         vo.setQuestionCount(paper.getQuestionCount());
         vo.setTotalScore(paper.getTotalScore());
@@ -308,6 +329,27 @@ public class ExamPaperServiceImpl implements ExamPaperService {
             vo.setQuestions(snapshots.stream().map(this::snapshotVO).toList());
         }
         return vo;
+    }
+
+    private PaperLayoutConfig toLayout(ExamPaper paper) {
+        PaperLayoutConfig layout = new PaperLayoutConfig();
+        layout.setRenderMode(Objects.requireNonNullElse(paper.getRenderMode(),
+                com.example.appbackend.dto.ExamPaperDTO.PaperRenderMode.SIMPLE));
+        if (paper.getPageSize() != null) layout.setPageSize(paper.getPageSize());
+        if (paper.getOrientation() != null) layout.setOrientation(paper.getOrientation());
+        layout.setMarginPreset(Objects.requireNonNullElse(paper.getMarginPreset(), MarginPreset.NORMAL));
+        layout.setCustomMarginTop(paper.getCustomMarginTop());
+        layout.setCustomMarginRight(paper.getCustomMarginRight());
+        layout.setCustomMarginBottom(paper.getCustomMarginBottom());
+        layout.setCustomMarginLeft(paper.getCustomMarginLeft());
+        if (paper.getColumnsCount() != null) layout.setColumnsCount(paper.getColumnsCount());
+        layout.setColumnSpace(Objects.requireNonNullElse(paper.getColumnSpace(), 425));
+        layout.setHasBindingLine(Objects.requireNonNullElse(paper.getHasBindingLine(), false));
+        layout.setHeaderInfo(paper.getHeaderInfo());
+        layout.setTitleFontSize(Objects.requireNonNullElse(paper.getTitleFontSize(), 50));
+        layout.setSubtitleFontSize(Objects.requireNonNullElse(paper.getSubtitleFontSize(), 24));
+        layout.setBodyFontSize(Objects.requireNonNullElse(paper.getBodyFontSize(), 21));
+        return layout;
     }
 
     private QuestionSnapshotVO snapshotVO(ExamPaperQuestion snapshot) {

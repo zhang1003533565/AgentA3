@@ -2,6 +2,8 @@ package com.example.appbackend.entity;
 
 import com.example.appbackend.dto.ExamPaperDTO.Orientation;
 import com.example.appbackend.dto.ExamPaperDTO.PageSize;
+import com.example.appbackend.dto.ExamPaperDTO.MarginPreset;
+import com.example.appbackend.dto.ExamPaperDTO.PaperRenderMode;
 import com.example.appbackend.dto.ExamPaperDTO.SelectionMode;
 import jakarta.persistence.*;
 import lombok.Data;
@@ -48,6 +50,45 @@ public class ExamPaper {
     @Column(name = "columns_count", nullable = false)
     private Integer columnsCount;
 
+    /** Defaults in the DDL preserve pre-migration papers as the legacy renderer. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "render_mode", nullable = false, length = 20,
+            columnDefinition = "VARCHAR(20) NOT NULL DEFAULT 'SIMPLE'")
+    private PaperRenderMode renderMode = PaperRenderMode.SIMPLE;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "margin_preset", nullable = false, length = 20,
+            columnDefinition = "VARCHAR(20) NOT NULL DEFAULT 'NORMAL'")
+    private MarginPreset marginPreset = MarginPreset.NORMAL;
+
+    @Column(name = "custom_margin_top")
+    private Integer customMarginTop;
+
+    @Column(name = "custom_margin_right")
+    private Integer customMarginRight;
+
+    @Column(name = "custom_margin_bottom")
+    private Integer customMarginBottom;
+
+    @Column(name = "custom_margin_left")
+    private Integer customMarginLeft;
+
+    @Column(name = "column_space", nullable = false, columnDefinition = "INT NOT NULL DEFAULT 425")
+    private Integer columnSpace = 425;
+
+    @Column(name = "has_binding_line", nullable = false,
+            columnDefinition = "BIT NOT NULL DEFAULT 0")
+    private Boolean hasBindingLine = false;
+
+    @Column(name = "title_font_size", nullable = false, columnDefinition = "INT NOT NULL DEFAULT 50")
+    private Integer titleFontSize = 50;
+
+    @Column(name = "subtitle_font_size", nullable = false, columnDefinition = "INT NOT NULL DEFAULT 24")
+    private Integer subtitleFontSize = 24;
+
+    @Column(name = "body_font_size", nullable = false, columnDefinition = "INT NOT NULL DEFAULT 21")
+    private Integer bodyFontSize = 21;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "selection_mode", nullable = false, length = 20)
     private SelectionMode selectionMode;
@@ -82,5 +123,16 @@ public class ExamPaper {
     @PreUpdate
     protected void onUpdate() {
         updateTime = LocalDateTime.now();
+    }
+
+    @PostLoad
+    protected void applyHistoricalLayoutDefaults() {
+        if (renderMode == null) renderMode = PaperRenderMode.SIMPLE;
+        if (marginPreset == null) marginPreset = MarginPreset.NORMAL;
+        if (columnSpace == null) columnSpace = 425;
+        if (hasBindingLine == null) hasBindingLine = false;
+        if (titleFontSize == null) titleFontSize = 50;
+        if (subtitleFontSize == null) subtitleFontSize = 24;
+        if (bodyFontSize == null) bodyFontSize = 21;
     }
 }

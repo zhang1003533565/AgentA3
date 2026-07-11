@@ -27,21 +27,71 @@ public final class ExamPaperDTO {
 
     @Data
     public static class PaperLayoutConfig {
+        @NotNull
         private PaperRenderMode renderMode = PaperRenderMode.TEMPLATE;
+        @NotNull
         private PageSize pageSize = PageSize.A3;
+        @NotNull
         private Orientation orientation = Orientation.LANDSCAPE;
+        @NotNull
         private MarginPreset marginPreset = MarginPreset.BINDING;
+        @Min(0) @Max(7200)
         private Integer customMarginTop;
+        @Min(0) @Max(7200)
         private Integer customMarginRight;
+        @Min(0) @Max(7200)
         private Integer customMarginBottom;
+        @Min(0) @Max(7200)
         private Integer customMarginLeft;
+        @NotNull @Min(1) @Max(2)
         private Integer columnsCount = 2;
+        @NotNull @Min(0) @Max(2880)
         private Integer columnSpace = 425;
+        @NotNull
         private Boolean hasBindingLine = true;
+        @Size(max = 300)
         private String headerInfo = "煤矿___________    部门___________   岗位___________    姓名___________";
+        @NotNull @Min(10) @Max(120)
         private Integer titleFontSize = 50;
+        @NotNull @Min(10) @Max(72)
         private Integer subtitleFontSize = 24;
+        @NotNull @Min(10) @Max(72)
         private Integer bodyFontSize = 21;
+    }
+
+    /** API layout contract shared by create and the preview endpoint added in Task 6. */
+    @Data
+    public static class PaperLayoutRequest {
+        @NotNull
+        private PaperRenderMode renderMode;
+        @NotNull
+        private PageSize pageSize;
+        @NotNull
+        private Orientation orientation;
+        @NotNull
+        private MarginPreset marginPreset;
+        @Min(0) @Max(7200)
+        private Integer customMarginTop;
+        @Min(0) @Max(7200)
+        private Integer customMarginRight;
+        @Min(0) @Max(7200)
+        private Integer customMarginBottom;
+        @Min(0) @Max(7200)
+        private Integer customMarginLeft;
+        @NotNull @Min(1) @Max(2)
+        private Integer columnsCount;
+        @NotNull @Min(0) @Max(2880)
+        private Integer columnSpace;
+        @NotNull
+        private Boolean hasBindingLine;
+        @Size(max = 300)
+        private String headerInfo;
+        @NotNull @Min(10) @Max(120)
+        private Integer titleFontSize;
+        @NotNull @Min(10) @Max(72)
+        private Integer subtitleFontSize;
+        @NotNull @Min(10) @Max(72)
+        private Integer bodyFontSize;
     }
 
     @Data
@@ -60,19 +110,9 @@ public final class ExamPaperDTO {
         @Size(max = 2000)
         private String precautions;
 
-        @Size(max = 300)
-        private String headerInfo;
-
+        @Valid
         @NotNull
-        private PageSize pageSize;
-
-        @NotNull
-        private Orientation orientation;
-
-        @Min(1)
-        @Max(2)
-        @NotNull
-        private Integer columnsCount;
+        private PaperLayoutRequest layout;
 
         @NotNull
         private SelectionMode selectionMode;
@@ -126,6 +166,7 @@ public final class ExamPaperDTO {
         private PageSize pageSize;
         private Orientation orientation;
         private Integer columnsCount;
+        private PaperLayoutConfig layout;
         private SelectionMode selectionMode;
         private Integer questionCount;
         private BigDecimal totalScore;
