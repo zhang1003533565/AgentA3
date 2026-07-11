@@ -12,6 +12,7 @@ import com.example.appbackend.service.exampaper.ExamPaperDocumentDispatcher;
 import com.example.appbackend.service.exampaper.LibreOfficePreviewConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import jakarta.annotation.PostConstruct;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -52,6 +53,7 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
         this.questionRepository = questionRepository;
         this.dispatcher = dispatcher;
         this.root = root.toAbsolutePath().normalize();
+        validateLifecycle(ttl);
         this.ttl = ttl;
         this.clock = clock;
         this.converter = new LibreOfficePreviewConverter(sofficePath, timeout, this.root);
@@ -64,6 +66,7 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
         this.dispatcher = dispatcher;
         this.converter = converter;
         this.root = root.toAbsolutePath().normalize();
+        validateLifecycle(ttl);
         this.ttl = ttl;
         this.clock = clock;
     }
@@ -83,7 +86,13 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
         byte[] docx = dispatcher.generate(paper, DownloadContent.PAPER, layout);
         String token = UUID.randomUUID().toString();
         Path directory = root.resolve(Long.toString(userId)).resolve(token);
-        LibreOfficePreviewConverter.ConversionResult converted = converter.convert(docx, directory);
+        LibreOfficePreviewConverter.ConversionResult converted;
+        try {
+            converted = converter.convert(docx, directory);
+        } catch (RuntimeException exception) {
+            try { converter.deleteRecursively(directory); } catch (RuntimeException ignored) { }
+            throw exception;
+        }
         Path storedPdf = directory.resolve(token + ".pdf");
         try {
             Files.createDirectories(directory);
@@ -93,8 +102,8 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
             throw new BusinessException(Result.ERROR_CODE, "无法保存试卷预览");
         }
         Instant expiresAt = clock.instant().plus(ttl);
-        String configHash = hash(layout.toString());
-        String questionHash = hash(paper.getQuestions().toString());
+        String configHash = hash(configurationCanonical(request, layout));
+        String questionHash = hash(questionCanonical(paper.getQuestions()));
         previews.put(token, new Metadata(userId, storedPdf, expiresAt,
                 configHash, questionHash, converted.pageCount(), paper.getTitle()));
         return new PreviewResponse(token, "/api/exam/papers/preview/" + token,
@@ -129,6 +138,41 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
                 converter.deleteRecursively(metadata.path.getParent());
             }
         });
+        cleanupOrphans(now);
+    }
+
+    @PostConstruct
+    public void initialize() {
+        converter.initializeRoot();
+        cleanupExpired();
+    }
+
+    private void cleanupOrphans(Instant now) {
+        if (!Files.isDirectory(root, java.nio.file.LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(root)) return;
+        try (var users = Files.list(root)) {
+            users.filter(path -> Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                    && !Files.isSymbolicLink(path) && path.getFileName().toString().matches("[1-9][0-9]*"))
+                    .forEach(user -> {
+                        try (var tokens = Files.list(user)) {
+                            tokens.filter(path -> Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                                            && !Files.isSymbolicLink(path) && isUuid(path.getFileName().toString()))
+                                    .forEach(path -> {
+                                        String token = path.getFileName().toString();
+                                        try {
+                                            Instant modified = Files.getLastModifiedTime(path,
+                                                    java.nio.file.LinkOption.NOFOLLOW_LINKS).toInstant();
+                                            if (!previews.containsKey(token) && !modified.plus(ttl).isAfter(now))
+                                                converter.deleteRecursively(path);
+                                        } catch (Exception ignored) { }
+                                    });
+                        } catch (Exception ignored) { }
+                    });
+        } catch (Exception ignored) { }
+    }
+
+    private boolean isUuid(String value) {
+        try { return UUID.fromString(value).toString().equals(value); }
+        catch (IllegalArgumentException exception) { return false; }
     }
 
     private Metadata owned(String token, Long userId) {
@@ -199,6 +243,40 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
         } catch (Exception impossible) { throw new IllegalStateException(impossible); }
+    }
+
+    private String configurationCanonical(CreateRequest request, PaperLayoutConfig layout) {
+        StringBuilder out = new StringBuilder("preview-config-v1");
+        append(out, request.getTitle()); append(out, request.getSubtitle());
+        append(out, request.getDurationMinutes()); append(out, request.getPrecautions());
+        append(out, layout.getRenderMode()); append(out, layout.getPageSize()); append(out, layout.getOrientation());
+        append(out, layout.getMarginPreset()); append(out, layout.getCustomMarginTop());
+        append(out, layout.getCustomMarginRight()); append(out, layout.getCustomMarginBottom());
+        append(out, layout.getCustomMarginLeft()); append(out, layout.getColumnsCount());
+        append(out, layout.getColumnSpace()); append(out, layout.getHasBindingLine()); append(out, layout.getHeaderInfo());
+        append(out, layout.getTitleFontSize()); append(out, layout.getSubtitleFontSize()); append(out, layout.getBodyFontSize());
+        return out.toString();
+    }
+
+    private String questionCanonical(List<QuestionSnapshotVO> questions) {
+        StringBuilder out = new StringBuilder("preview-questions-v1");
+        for (QuestionSnapshotVO q : questions) {
+            append(out, q.getQuestionId()); append(out, q.getSortOrder()); append(out, q.getSectionOrder());
+            append(out, q.getScore() == null ? null : q.getScore().stripTrailingZeros().toPlainString());
+            append(out, q.getType()); append(out, q.getStem()); append(out, q.getBodyJson());
+            append(out, q.getAnswerJson()); append(out, q.getAnalysis()); append(out, q.getScoringJson());
+        }
+        return out.toString();
+    }
+
+    private void append(StringBuilder out, Object value) {
+        String text = value == null ? "" : String.valueOf(value);
+        out.append('|').append(text.length()).append(':').append(text);
+    }
+
+    private void validateLifecycle(Duration ttl) {
+        if (ttl == null || ttl.isZero() || ttl.isNegative() || ttl.compareTo(Duration.ofHours(24)) > 0)
+            throw new IllegalArgumentException("预览 TTL 必须在 0 到 24 小时之间");
     }
 
     private record Metadata(Long userId, Path path, Instant expiresAt, String configurationHash,

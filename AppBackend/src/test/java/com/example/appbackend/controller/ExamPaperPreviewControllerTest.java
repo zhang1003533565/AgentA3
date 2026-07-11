@@ -7,6 +7,12 @@ import com.example.appbackend.service.ExamPaperPreviewService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
+import org.springframework.test.web.servlet.MockMvc;
+import com.example.appbackend.exception.GlobalExceptionHandler;
+import com.example.appbackend.exception.BusinessException;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import java.time.Instant;
 
@@ -35,5 +41,16 @@ class ExamPaperPreviewControllerTest {
         assertEquals("t", new ExamPaperPreviewController(service).create(create, request).getData().getToken());
         new ExamPaperPreviewController(service).delete("t", request);
         verify(service).deletePreview("t", 9L);
+    }
+
+    @Test
+    void lifecycleErrorsKeepHttpAuthenticationAndAuthorizationStatuses() throws Exception {
+        ExamPaperPreviewService service = mock(ExamPaperPreviewService.class);
+        MockMvc mvc = standaloneSetup(new ExamPaperPreviewController(service))
+                .setControllerAdvice(new GlobalExceptionHandler()).build();
+        mvc.perform(get("/api/exam/papers/preview/token")).andExpect(status().isUnauthorized());
+        doThrow(new BusinessException(403, "无权访问")).when(service).getPreview("token", 7L);
+        mvc.perform(get("/api/exam/papers/preview/token").requestAttr("userId", 7L))
+                .andExpect(status().isForbidden());
     }
 }
