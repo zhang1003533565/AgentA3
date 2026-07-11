@@ -1,6 +1,7 @@
 package com.example.appbackend.service.impl;
 
 import com.example.appbackend.dto.ExamPaperDTO.CreateRequest;
+import com.example.appbackend.dto.ExamPaperDTO.DownloadContent;
 import com.example.appbackend.dto.ExamPaperDTO.Orientation;
 import com.example.appbackend.dto.ExamPaperDTO.PageSize;
 import com.example.appbackend.dto.ExamPaperDTO.QuestionSnapshotVO;
@@ -16,6 +17,7 @@ import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.ExamPaperQuestionRepository;
 import com.example.appbackend.repository.ExamPaperRepository;
 import com.example.appbackend.repository.ExamQuestionRepository;
+import com.example.appbackend.service.ExamPaperDocumentGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -45,6 +48,8 @@ class ExamPaperServiceImplTest {
     private ExamPaperQuestionRepository paperQuestionRepository;
     @Mock
     private RandomGenerator randomGenerator;
+    @Mock
+    private ExamPaperDocumentGenerator documentGenerator;
 
     private ExamPaperServiceImpl service;
 
@@ -54,7 +59,8 @@ class ExamPaperServiceImplTest {
                 questionRepository,
                 paperRepository,
                 paperQuestionRepository,
-                randomGenerator);
+                randomGenerator,
+                documentGenerator);
     }
 
     @Test
@@ -233,6 +239,48 @@ class ExamPaperServiceImplTest {
         verify(paperQuestionRepository, never()).findByPaperIdOrderBySortOrderAscIdAsc(any());
     }
 
+    @Test
+    void downloadDoesNotGenerateWhenCreatorCheckRejectsAccess() {
+        ExamPaper paper = paper(3L, 10L, "期末考试");
+        when(paperRepository.findById(3L)).thenReturn(Optional.of(paper));
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.download(3L, 11L, DownloadContent.PAPER));
+
+        assertEquals(Result.FORBIDDEN_CODE, error.getCode());
+        verifyNoInteractions(documentGenerator);
+        verify(paperQuestionRepository, never()).findByPaperIdOrderBySortOrderAscIdAsc(any());
+    }
+
+    @Test
+    void downloadGeneratesFromAuthorizedDetailSnapshotWithoutPersisting() {
+        ExamPaper paper = paper(3L, 10L, "期末考试");
+        ExamPaperQuestion snapshot = new ExamPaperQuestion();
+        snapshot.setId(30L);
+        snapshot.setPaperId(3L);
+        snapshot.setQuestionId(8L);
+        snapshot.setSortOrder(1);
+        snapshot.setScore(new BigDecimal("5.00"));
+        snapshot.setStem("快照题干");
+        when(paperRepository.findById(3L)).thenReturn(Optional.of(paper));
+        when(paperQuestionRepository.findByPaperIdOrderBySortOrderAscIdAsc(3L))
+                .thenReturn(List.of(snapshot));
+        when(documentGenerator.generate(any(), org.mockito.ArgumentMatchers.eq(DownloadContent.ANSWER)))
+                .thenReturn(new byte[]{1, 2, 3});
+
+        var file = service.download(3L, 10L, DownloadContent.ANSWER);
+
+        assertEquals("期末考试", file.title());
+        assertEquals(3, file.bytes().length);
+        var paperCaptor = org.mockito.ArgumentCaptor.forClass(
+                com.example.appbackend.dto.ExamPaperDTO.PaperVO.class);
+        verify(documentGenerator).generate(paperCaptor.capture(),
+                org.mockito.ArgumentMatchers.eq(DownloadContent.ANSWER));
+        assertEquals("快照题干", paperCaptor.getValue().getQuestions().getFirst().getStem());
+        verify(paperRepository, never()).save(any());
+        verify(paperQuestionRepository, never()).saveAll(any());
+    }
+
     private RandomPreviewRequest preview(String type, String difficulty, int quantity) {
         RandomPreviewRequest request = new RandomPreviewRequest();
         request.setRules(List.of(rule(type, difficulty, quantity)));
@@ -279,5 +327,14 @@ class ExamPaperServiceImplTest {
         question.setRawQuestionJson("{\"id\":\"q" + id + "\"}");
         question.setStatus(1);
         return question;
+    }
+
+    private ExamPaper paper(Long id, Long createdBy, String title) {
+        ExamPaper paper = new ExamPaper();
+        paper.setId(id);
+        paper.setCreatedBy(createdBy);
+        paper.setTitle(title);
+        paper.setStatus(1);
+        return paper;
     }
 }

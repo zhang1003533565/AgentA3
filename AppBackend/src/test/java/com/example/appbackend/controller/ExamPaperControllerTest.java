@@ -6,7 +6,6 @@ import com.example.appbackend.dto.ExamPaperDTO.PaperVO;
 import com.example.appbackend.exception.GlobalExceptionHandler;
 import com.example.appbackend.service.ExamPaperService;
 import com.example.appbackend.service.ExamPaperService.DownloadFile;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
@@ -20,6 +19,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -29,6 +29,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class ExamPaperControllerTest {
+
+    private static final String CREATE_REQUEST = """
+            {"title":"期末考试","pageSize":"A4","orientation":"PORTRAIT","columnsCount":1,
+             "selectionMode":"MANUAL","questions":[{"questionId":3,"score":5,"sortOrder":1}]}
+            """;
+    private static final String PREVIEW_REQUEST = """
+            {"rules":[{"type":"single_choice","difficulty":"easy","quantity":1}]}
+            """;
 
     private ExamPaperService service;
     private MockMvc mockMvc;
@@ -52,15 +60,11 @@ class ExamPaperControllerTest {
     @Test
     void createDelegatesWithAuthenticatedUserId() throws Exception {
         when(service.create(any(CreateRequest.class), any())).thenReturn(new PaperVO());
-        String request = """
-                {"title":"期末考试","pageSize":"A4","orientation":"PORTRAIT","columnsCount":1,
-                 "selectionMode":"MANUAL","questions":[{"questionId":3,"score":5,"sortOrder":1}]}
-                """;
 
         mockMvc.perform(post("/api/exam/papers")
                         .requestAttr("userId", 42L)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(request))
+                        .content(CREATE_REQUEST))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200));
 
@@ -95,6 +99,19 @@ class ExamPaperControllerTest {
                         .param("content", "questions"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void missingDownloadContentReturnsBusinessBadRequestWithoutCallingService() throws Exception {
+        mockMvc.perform(get("/api/exam/papers/7/download")
+                        .requestAttr("userId", 42L))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.msg").value("content 仅支持 paper 或 answer"));
+
+        verifyNoInteractions(service);
     }
 
     @Test
@@ -103,5 +120,58 @@ class ExamPaperControllerTest {
                         .param("content", "questions"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value(401));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void randomPreviewAndCreateRequireAuthentication() throws Exception {
+        mockMvc.perform(post("/api/exam/papers/random-preview")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(PREVIEW_REQUEST))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/exam/papers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CREATE_REQUEST))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void listRequiresAuthenticationAndDelegatesAuthenticatedUserId() throws Exception {
+        mockMvc.perform(get("/api/exam/papers"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/exam/papers")
+                        .requestAttr("userId", 42L)
+                        .param("current", "2")
+                        .param("size", "20"))
+                .andExpect(status().isOk());
+
+        verify(service).list(2, 20, 42L);
+    }
+
+    @Test
+    void detailDelegatesAuthenticatedUserId() throws Exception {
+        mockMvc.perform(get("/api/exam/papers/7")
+                        .requestAttr("userId", 42L))
+                .andExpect(status().isOk());
+
+        verify(service).detail(7L, 42L);
+    }
+
+    @Test
+    void answerDownloadIsCaseInsensitive() throws Exception {
+        when(service.download(7L, 42L, DownloadContent.ANSWER))
+                .thenReturn(new DownloadFile("期末考试", new byte[]{1}));
+
+        mockMvc.perform(get("/api/exam/papers/7/download")
+                        .requestAttr("userId", 42L)
+                        .param("content", "aNsWeR"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, containsString("attachment")));
+
+        verify(service).download(7L, 42L, DownloadContent.ANSWER);
     }
 }

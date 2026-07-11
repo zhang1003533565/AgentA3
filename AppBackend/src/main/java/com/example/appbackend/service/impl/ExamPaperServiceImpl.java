@@ -42,23 +42,26 @@ public class ExamPaperServiceImpl implements ExamPaperService {
     private final ExamPaperRepository paperRepository;
     private final ExamPaperQuestionRepository paperQuestionRepository;
     private final RandomGenerator randomGenerator;
-    private final ExamPaperDocumentGenerator documentGenerator = new ExamPaperDocumentGenerator();
+    private final ExamPaperDocumentGenerator documentGenerator;
 
     @Autowired
     public ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
                                 ExamPaperRepository paperRepository,
                                 ExamPaperQuestionRepository paperQuestionRepository) {
-        this(questionRepository, paperRepository, paperQuestionRepository, RandomGenerator.getDefault());
+        this(questionRepository, paperRepository, paperQuestionRepository,
+                RandomGenerator.getDefault(), new ExamPaperDocumentGenerator());
     }
 
     ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
                          ExamPaperRepository paperRepository,
                          ExamPaperQuestionRepository paperQuestionRepository,
-                         RandomGenerator randomGenerator) {
+                         RandomGenerator randomGenerator,
+                         ExamPaperDocumentGenerator documentGenerator) {
         this.questionRepository = questionRepository;
         this.paperRepository = paperRepository;
         this.paperQuestionRepository = paperQuestionRepository;
         this.randomGenerator = randomGenerator;
+        this.documentGenerator = documentGenerator;
     }
 
     @Override

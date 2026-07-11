@@ -67,7 +67,7 @@ public class ExamPaperController {
 
     @GetMapping("/{id}/download")
     public ResponseEntity<byte[]> download(@PathVariable Long id,
-                                           @RequestParam String content,
+                                           @RequestParam(required = false) String content,
                                            HttpServletRequest httpRequest) {
         Long userId = getUserId(httpRequest);
         DownloadContent downloadContent = parseContent(content);
