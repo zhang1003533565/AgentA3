@@ -1,6 +1,7 @@
 package com.example.appbackend.service.impl;
 
 import com.example.appbackend.dto.ExamPaperDTO.CreateRequest;
+import com.example.appbackend.dto.ExamPaperDTO.DownloadContent;
 import com.example.appbackend.dto.ExamPaperDTO.PaperVO;
 import com.example.appbackend.dto.ExamPaperDTO.QuestionSnapshotVO;
 import com.example.appbackend.dto.ExamPaperDTO.RandomPreviewRequest;
@@ -16,6 +17,7 @@ import com.example.appbackend.repository.ExamPaperQuestionRepository;
 import com.example.appbackend.repository.ExamPaperRepository;
 import com.example.appbackend.repository.ExamQuestionRepository;
 import com.example.appbackend.service.ExamPaperService;
+import com.example.appbackend.service.ExamPaperDocumentGenerator;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +42,7 @@ public class ExamPaperServiceImpl implements ExamPaperService {
     private final ExamPaperRepository paperRepository;
     private final ExamPaperQuestionRepository paperQuestionRepository;
     private final RandomGenerator randomGenerator;
+    private final ExamPaperDocumentGenerator documentGenerator = new ExamPaperDocumentGenerator();
 
     @Autowired
     public ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
@@ -203,6 +206,13 @@ public class ExamPaperServiceImpl implements ExamPaperService {
             throw new BusinessException(Result.FORBIDDEN_CODE, "无权访问该试卷");
         }
         return toVO(paper, paperQuestionRepository.findByPaperIdOrderBySortOrderAscIdAsc(id));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public DownloadFile download(Long id, Long userId, DownloadContent content) {
+        PaperVO paper = detail(id, userId);
+        return new DownloadFile(paper.getTitle(), documentGenerator.generate(paper, content));
     }
 
     private void validateUniqueSelections(List<SelectedQuestion> selections) {
