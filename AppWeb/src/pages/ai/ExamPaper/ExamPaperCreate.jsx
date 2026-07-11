@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
@@ -72,6 +72,7 @@ function ExamPaperCreate({ onCreated }) {
   const [submitting, setSubmitting] = useState(false)
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 })
   const [manualSelection, setManualSelection] = useState(() => new Map())
+  const questionRequestId = useRef(0)
   const selectionMode = Form.useWatch('selectionMode', form) || initialValues.selectionMode
 
   const selectedIds = useMemo(
@@ -84,6 +85,7 @@ function ExamPaperCreate({ onCreated }) {
   )
 
   const fetchQuestions = async (overrides = {}) => {
+    const requestId = ++questionRequestId.current
     const filters = questionForm.getFieldsValue()
     const current = overrides.current ?? pagination.current
     const size = overrides.pageSize ?? pagination.pageSize
@@ -97,16 +99,20 @@ function ExamPaperCreate({ onCreated }) {
         difficulty: filters.difficulty || undefined,
       })
       const data = response.data || {}
-      setQuestionRows(data.records || [])
-      setPagination({
-        current: data.page ?? data.current ?? current,
-        pageSize: data.size ?? size,
-        total: data.total ?? 0,
-      })
+      if (requestId === questionRequestId.current) {
+        setQuestionRows(data.records || [])
+        setPagination({
+          current: data.page ?? data.current ?? current,
+          pageSize: data.size ?? size,
+          total: data.total ?? 0,
+        })
+      }
     } catch (error) {
-      message.error(error.message || '题库列表加载失败')
+      if (requestId === questionRequestId.current && !error.showMessage) {
+        message.error(error.message || '题库列表加载失败')
+      }
     } finally {
-      setQuestionLoading(false)
+      if (requestId === questionRequestId.current) setQuestionLoading(false)
     }
   }
 

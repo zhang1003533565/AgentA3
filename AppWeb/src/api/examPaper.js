@@ -3,18 +3,35 @@ import request from '../utils/request'
 
 const base = '/api/exam/papers'
 
-export const randomPreviewExamPaper = (data) => request.post(`${base}/random-preview`, data)
+export const randomPreviewExamPaper = (data) => request.post(`${base}/random-preview`, data, {
+  skipGlobalErrorMessage: true,
+})
 
-export const createExamPaper = (data) => request.post(base, data)
+export const createExamPaper = (data) => request.post(base, data, {
+  skipGlobalErrorMessage: true,
+})
 
 export const getExamPaperList = (params = {}) => request.get(base, {
+  skipGlobalErrorMessage: true,
   params: {
     current: params.current ?? params.page ?? 1,
     size: params.size ?? params.pageSize ?? 10,
   },
 })
 
-export const getExamPaperDetail = (id) => request.get(`${base}/${id}`)
+export const getExamPaperDetail = (id) => request.get(`${base}/${id}`, {
+  skipGlobalErrorMessage: true,
+})
+
+const safeFilename = (value, fallback) => {
+  const unescaped = String(value || '')
+    .replace(/\\([\\"])/g, '$1')
+    .replace(/[\r\n]/g, '')
+    .split(/[\\/]/)
+    .pop()
+    ?.trim()
+  return unescaped || fallback
+}
 
 const decodeFilename = (disposition, fallback) => {
   if (!disposition) return fallback
@@ -22,14 +39,27 @@ const decodeFilename = (disposition, fallback) => {
   const encoded = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i)?.[1]
   if (encoded) {
     try {
-      return decodeURIComponent(encoded.replace(/^['"]|['"]$/g, ''))
+      return safeFilename(decodeURIComponent(encoded.replace(/^['"]|['"]$/g, '')), fallback)
     } catch {
       // Fall through to the plain filename parameter.
     }
   }
 
-  const plain = disposition.match(/filename\s*=\s*(?:"([^"]+)"|([^;]+))/i)
-  return (plain?.[1] || plain?.[2])?.trim() || fallback
+  const plain = disposition.match(/filename\s*=\s*(?:"((?:\\.|[^"])*)"|([^;]+))/i)
+  return safeFilename(plain?.[1] || plain?.[2], fallback)
+}
+
+const normalizeBlobError = async (error) => {
+  const blob = error.response?.data
+  const contentType = error.response?.headers?.['content-type'] || blob?.type || ''
+  if (blob instanceof Blob && /(?:application|text)\/(?:[\w.+-]*\+)?json/i.test(contentType)) {
+    try {
+      error.response.data = JSON.parse(await blob.text())
+    } catch {
+      // Keep the original Blob when the response body is not valid JSON.
+    }
+  }
+  throw error
 }
 
 export const downloadExamPaper = async (id, content) => {
@@ -39,8 +69,9 @@ export const downloadExamPaper = async (id, content) => {
     method: 'get',
     params: { content },
     responseType: 'blob',
+    skipGlobalErrorMessage: true,
     adapter: async (config) => {
-      const rawResponse = await defaultAdapter(config)
+      const rawResponse = await defaultAdapter(config).catch(normalizeBlobError)
       return {
         ...rawResponse,
         data: {
