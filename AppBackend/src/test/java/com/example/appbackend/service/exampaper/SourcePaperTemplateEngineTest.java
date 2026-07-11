@@ -174,6 +174,27 @@ class SourcePaperTemplateEngineTest {
                 valid, "word/document.xml", withoutOneReference.getBytes(StandardCharsets.UTF_8))));
     }
 
+    @Test
+    void verifierRejectsExtraAndCrossKindHeaderFooterReferences() throws Exception {
+        byte[] valid = engine.generate(paper(), DownloadContent.PAPER, new PaperLayoutConfig());
+        String document = text(entries(valid), "word/document.xml");
+        String defaultHeader = "<w:headerReference w:type=\"default\" r:id=\"rId8\"/>";
+        String defaultFooter = "<w:footerReference w:type=\"default\" r:id=\"rId10\"/>";
+
+        assertThrows(IllegalArgumentException.class, () -> SourcePaperPackageVerifier.verify(replaceEntry(valid,
+                "word/document.xml", document.replace(defaultHeader,
+                                defaultHeader + "<w:headerReference w:type=\"default\" r:id=\"rId13\"/>")
+                        .getBytes(StandardCharsets.UTF_8))));
+        assertThrows(IllegalArgumentException.class, () -> SourcePaperPackageVerifier.verify(replaceEntry(valid,
+                "word/document.xml", document.replace(defaultHeader,
+                                "<w:headerReference w:type=\"default\" r:id=\"rId10\"/>")
+                        .getBytes(StandardCharsets.UTF_8))));
+        assertThrows(IllegalArgumentException.class, () -> SourcePaperPackageVerifier.verify(replaceEntry(valid,
+                "word/document.xml", document.replace(defaultFooter,
+                                "<w:footerReference w:type=\"default\" r:id=\"rId8\"/>")
+                        .getBytes(StandardCharsets.UTF_8))));
+    }
+
     private PaperVO paper() {
         PaperVO paper = new PaperVO();
         paper.setTitle("源码版式测试");
