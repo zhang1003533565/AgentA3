@@ -93,7 +93,7 @@ class ExamPaperPersistenceContractTest {
 
         assertMinMax(ExamPaperDTO.CreateRequest.class.getDeclaredField("durationMinutes"), 1, 1440);
         Field layout = ExamPaperDTO.CreateRequest.class.getDeclaredField("layout");
-        assertNotNull(layout.getAnnotation(NotNull.class));
+        assertNotNull(layout.getAnnotation(jakarta.validation.Valid.class));
 
         Field questions = ExamPaperDTO.CreateRequest.class.getDeclaredField("questions");
         assertNotNull(questions.getAnnotation(NotEmpty.class));

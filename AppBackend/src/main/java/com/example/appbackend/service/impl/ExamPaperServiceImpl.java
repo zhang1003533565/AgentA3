@@ -58,7 +58,7 @@ public class ExamPaperServiceImpl implements ExamPaperService {
                 RandomGenerator.getDefault(), new ExamPaperDocumentDispatcher());
     }
 
-    private ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
+    ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
                                  ExamPaperRepository paperRepository,
                                  ExamPaperQuestionRepository paperQuestionRepository,
                                  RandomGenerator randomGenerator,
@@ -160,7 +160,8 @@ public class ExamPaperServiceImpl implements ExamPaperService {
     @Override
     @Transactional
     public PaperVO create(CreateRequest request, Long userId) {
-        validateLayout(request.getLayout());
+        PaperLayoutRequest layout = normalizeLayout(request);
+        validateLayout(layout);
         validateUniqueSelections(request.getQuestions());
         List<Long> questionIds = request.getQuestions().stream()
                 .map(SelectedQuestion::getQuestionId)
@@ -188,7 +189,7 @@ public class ExamPaperServiceImpl implements ExamPaperService {
         paper.setSubtitle(request.getSubtitle());
         paper.setDurationMinutes(request.getDurationMinutes());
         paper.setPrecautions(request.getPrecautions());
-        copyLayout(request.getLayout(), paper);
+        copyLayout(layout, paper);
         paper.setSelectionMode(request.getSelectionMode());
         paper.setQuestionCount(selections.size());
         paper.setTotalScore(totalScore);
@@ -259,6 +260,36 @@ public class ExamPaperServiceImpl implements ExamPaperService {
                 || layout.getCustomMarginBottom() == null || layout.getCustomMarginLeft() == null)) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "自定义页边距必须完整填写");
         }
+        if (layout.getRenderMode() == null || layout.getPageSize() == null
+                || layout.getOrientation() == null || layout.getMarginPreset() == null
+                || layout.getColumnsCount() == null || layout.getColumnSpace() == null
+                || layout.getHasBindingLine() == null || layout.getTitleFontSize() == null
+                || layout.getSubtitleFontSize() == null || layout.getBodyFontSize() == null) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "页面格式参数不完整");
+        }
+    }
+
+    private PaperLayoutRequest normalizeLayout(CreateRequest request) {
+        if (request.getLayout() != null) {
+            return request.getLayout();
+        }
+        if (request.getPageSize() == null || request.getOrientation() == null
+                || request.getColumnsCount() == null) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "页面格式参数不完整");
+        }
+        PaperLayoutRequest legacy = new PaperLayoutRequest();
+        legacy.setRenderMode(com.example.appbackend.dto.ExamPaperDTO.PaperRenderMode.SIMPLE);
+        legacy.setPageSize(request.getPageSize());
+        legacy.setOrientation(request.getOrientation());
+        legacy.setMarginPreset(MarginPreset.NORMAL);
+        legacy.setColumnsCount(request.getColumnsCount());
+        legacy.setColumnSpace(425);
+        legacy.setHasBindingLine(false);
+        legacy.setHeaderInfo(request.getHeaderInfo());
+        legacy.setTitleFontSize(50);
+        legacy.setSubtitleFontSize(24);
+        legacy.setBodyFontSize(21);
+        return legacy;
     }
 
     private void copyLayout(PaperLayoutRequest layout, ExamPaper paper) {

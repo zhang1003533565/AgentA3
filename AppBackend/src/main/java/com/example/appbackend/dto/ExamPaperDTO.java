@@ -111,8 +111,15 @@ public final class ExamPaperDTO {
         private String precautions;
 
         @Valid
-        @NotNull
         private PaperLayoutRequest layout;
+
+        /** Transitional flat fields used by the current frontend until Task 7. */
+        @Size(max = 300)
+        private String headerInfo;
+        private PageSize pageSize;
+        private Orientation orientation;
+        @Min(1) @Max(2)
+        private Integer columnsCount;
 
         @NotNull
         private SelectionMode selectionMode;

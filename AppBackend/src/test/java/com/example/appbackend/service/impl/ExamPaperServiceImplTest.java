@@ -21,6 +21,7 @@ import com.example.appbackend.repository.ExamPaperQuestionRepository;
 import com.example.appbackend.repository.ExamPaperRepository;
 import com.example.appbackend.repository.ExamQuestionRepository;
 import com.example.appbackend.service.ExamPaperDocumentGenerator;
+import com.example.appbackend.service.exampaper.ExamPaperDocumentDispatcher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -54,6 +55,8 @@ class ExamPaperServiceImplTest {
     private RandomGenerator randomGenerator;
     @Mock
     private ExamPaperDocumentGenerator documentGenerator;
+    @Mock
+    private ExamPaperDocumentDispatcher documentDispatcher;
 
     private ExamPaperServiceImpl service;
 
@@ -288,6 +291,53 @@ class ExamPaperServiceImplTest {
     }
 
     @Test
+    void createNormalizesLegacyFlatLayoutAsSimpleWithoutBreakingCurrentFrontend() {
+        CreateRequest request = new CreateRequest();
+        request.setTitle("legacy");
+        request.setHeaderInfo("旧密封线");
+        request.setPageSize(PageSize.A4);
+        request.setOrientation(Orientation.PORTRAIT);
+        request.setColumnsCount(1);
+        request.setSelectionMode(SelectionMode.MANUAL);
+        request.setQuestions(List.of(selected(1L, "5.00", 1)));
+        when(questionRepository.findAllById(List.of(1L))).thenReturn(List.of(question(1L)));
+        when(paperRepository.save(any())).thenAnswer(invocation -> {
+            ExamPaper paper = invocation.getArgument(0);
+            paper.setId(88L);
+            return paper;
+        });
+        when(paperQuestionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.create(request, 9L);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(ExamPaper.class);
+        verify(paperRepository).save(captor.capture());
+        ExamPaper saved = captor.getValue();
+        assertEquals(PaperRenderMode.SIMPLE, saved.getRenderMode());
+        assertEquals(MarginPreset.NORMAL, saved.getMarginPreset());
+        assertEquals(false, saved.getHasBindingLine());
+        assertEquals(425, saved.getColumnSpace());
+        assertEquals("旧密封线", saved.getHeaderInfo());
+        assertEquals(List.of(50, 24, 21), List.of(saved.getTitleFontSize(),
+                saved.getSubtitleFontSize(), saved.getBodyFontSize()));
+    }
+
+    @Test
+    void createRejectsIncompleteLegacyFlatLayoutBeforeRepositoryAccess() {
+        CreateRequest request = new CreateRequest();
+        request.setTitle("legacy incomplete");
+        request.setPageSize(PageSize.A4);
+        request.setOrientation(Orientation.PORTRAIT);
+        request.setSelectionMode(SelectionMode.MANUAL);
+        request.setQuestions(List.of(selected(1L, "5.00", 1)));
+
+        BusinessException error = assertThrows(BusinessException.class, () -> service.create(request, 9L));
+
+        assertEquals(Result.BAD_REQUEST_CODE, error.getCode());
+        verifyNoInteractions(questionRepository, paperRepository, paperQuestionRepository);
+    }
+
+    @Test
     void detailReturnsSavedLayoutIncludingSimpleHistoricalMode() {
         ExamPaper paper = paper(3L, 10L, "历史试卷");
         paper.setRenderMode(PaperRenderMode.SIMPLE);
@@ -405,6 +455,51 @@ class ExamPaperServiceImplTest {
         assertEquals("快照题干", paperCaptor.getValue().getQuestions().getFirst().getStem());
         verify(paperRepository, never()).save(any());
         verify(paperQuestionRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void downloadDispatchesEverySavedNonDefaultLayoutValue() {
+        ExamPaper paper = paper(3L, 10L, "保存布局");
+        paper.setRenderMode(PaperRenderMode.TEMPLATE);
+        paper.setPageSize(PageSize.B4);
+        paper.setOrientation(Orientation.LANDSCAPE);
+        paper.setMarginPreset(MarginPreset.CUSTOM);
+        paper.setCustomMarginTop(101);
+        paper.setCustomMarginRight(202);
+        paper.setCustomMarginBottom(303);
+        paper.setCustomMarginLeft(404);
+        paper.setColumnsCount(2);
+        paper.setColumnSpace(567);
+        paper.setHasBindingLine(true);
+        paper.setHeaderInfo("数据库密封线");
+        paper.setTitleFontSize(47);
+        paper.setSubtitleFontSize(23);
+        paper.setBodyFontSize(19);
+        when(paperRepository.findById(3L)).thenReturn(Optional.of(paper));
+        when(paperQuestionRepository.findByPaperIdOrderBySortOrderAscIdAsc(3L)).thenReturn(List.of());
+        when(documentDispatcher.generate(any(), any(), any())).thenReturn(new byte[]{9});
+        ExamPaperServiceImpl dispatcherService = new ExamPaperServiceImpl(questionRepository, paperRepository,
+                paperQuestionRepository, randomGenerator, documentDispatcher);
+
+        dispatcherService.download(3L, 10L, DownloadContent.PAPER);
+
+        var layoutCaptor = org.mockito.ArgumentCaptor.forClass(
+                com.example.appbackend.dto.ExamPaperDTO.PaperLayoutConfig.class);
+        verify(documentDispatcher).generate(any(),
+                org.mockito.ArgumentMatchers.eq(DownloadContent.PAPER), layoutCaptor.capture());
+        var layout = layoutCaptor.getValue();
+        assertEquals(PaperRenderMode.TEMPLATE, layout.getRenderMode());
+        assertEquals(PageSize.B4, layout.getPageSize());
+        assertEquals(Orientation.LANDSCAPE, layout.getOrientation());
+        assertEquals(MarginPreset.CUSTOM, layout.getMarginPreset());
+        assertEquals(List.of(101, 202, 303, 404), List.of(layout.getCustomMarginTop(),
+                layout.getCustomMarginRight(), layout.getCustomMarginBottom(), layout.getCustomMarginLeft()));
+        assertEquals(2, layout.getColumnsCount());
+        assertEquals(567, layout.getColumnSpace());
+        assertEquals(true, layout.getHasBindingLine());
+        assertEquals("数据库密封线", layout.getHeaderInfo());
+        assertEquals(List.of(47, 23, 19), List.of(layout.getTitleFontSize(),
+                layout.getSubtitleFontSize(), layout.getBodyFontSize()));
     }
 
     private RandomPreviewRequest preview(String type, String difficulty, int quantity) {

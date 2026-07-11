@@ -39,6 +39,11 @@ class ExamPaperControllerTest {
     private static final String PREVIEW_REQUEST = """
             {"rules":[{"type":"single_choice","difficulty":"easy","quantity":1}]}
             """;
+    private static final String LEGACY_CREATE_REQUEST = """
+            {"title":"旧版页面","headerInfo":"旧密封线","pageSize":"A4","orientation":"PORTRAIT",
+             "columnsCount":1,"selectionMode":"MANUAL",
+             "questions":[{"questionId":3,"score":5,"sortOrder":1}]}
+            """;
 
     private ExamPaperService service;
     private MockMvc mockMvc;
@@ -69,6 +74,19 @@ class ExamPaperControllerTest {
                         .content(CREATE_REQUEST))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200));
+
+        verify(service).create(any(CreateRequest.class), org.mockito.ArgumentMatchers.eq(42L));
+    }
+
+    @Test
+    void legacyFlatLayoutPayloadRemainsAcceptedUntilFrontendMigration() throws Exception {
+        when(service.create(any(CreateRequest.class), any())).thenReturn(new PaperVO());
+
+        mockMvc.perform(post("/api/exam/papers")
+                        .requestAttr("userId", 42L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(LEGACY_CREATE_REQUEST))
+                .andExpect(status().isOk());
 
         verify(service).create(any(CreateRequest.class), org.mockito.ArgumentMatchers.eq(42L));
     }
