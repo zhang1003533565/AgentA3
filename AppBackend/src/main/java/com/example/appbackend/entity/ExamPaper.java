@@ -13,7 +13,8 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "exam_paper", indexes = {
         @Index(name = "idx_exam_paper_created_by", columnList = "created_by"),
-        @Index(name = "idx_exam_paper_create_time", columnList = "create_time")
+        @Index(name = "idx_exam_paper_create_time", columnList = "create_time"),
+        @Index(name = "idx_exam_paper_creator_status_time", columnList = "created_by,status,create_time")
 })
 public class ExamPaper {
 
