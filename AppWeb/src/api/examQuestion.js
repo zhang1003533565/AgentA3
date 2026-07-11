@@ -2,8 +2,9 @@ import request from '../utils/request'
 
 const base = '/api/exam/questions'
 
-export const getExamQuestionList = (params = {}) =>
+export const getExamQuestionList = (params = {}, requestOptions = {}) =>
   request({
+    ...requestOptions,
     url: base,
     method: 'get',
     params: {

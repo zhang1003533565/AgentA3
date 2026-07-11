@@ -97,6 +97,8 @@ function ExamPaperCreate({ onCreated }) {
         keyword: filters.keyword || undefined,
         type: filters.type || undefined,
         difficulty: filters.difficulty || undefined,
+      }, {
+        skipGlobalErrorMessage: true,
       })
       const data = response.data || {}
       if (requestId === questionRequestId.current) {
@@ -108,7 +110,7 @@ function ExamPaperCreate({ onCreated }) {
         })
       }
     } catch (error) {
-      if (requestId === questionRequestId.current && !error.showMessage) {
+      if (requestId === questionRequestId.current) {
         message.error(error.message || '题库列表加载失败')
       }
     } finally {
