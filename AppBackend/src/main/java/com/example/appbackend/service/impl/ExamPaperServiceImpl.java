@@ -60,19 +60,39 @@ public class ExamPaperServiceImpl implements ExamPaperService {
 
     @Override
     public PaperVO randomPreview(RandomPreviewRequest request) {
-        List<QuestionSnapshotVO> selected = new ArrayList<>();
-        Set<Long> selectedIds = new HashSet<>();
-        for (RandomRule rule : request.getRules()) {
+        List<List<ExamQuestion>> candidatesByRule = new ArrayList<>();
+        List<RuleSlot> slots = new ArrayList<>();
+        for (int ruleIndex = 0; ruleIndex < request.getRules().size(); ruleIndex++) {
+            RandomRule rule = request.getRules().get(ruleIndex);
             List<ExamQuestion> candidates = new ArrayList<>(
-                    questionRepository.findActiveCandidates(rule.getType(), rule.getDifficulty()).stream()
-                            .filter(question -> !selectedIds.contains(question.getId()))
-                            .toList());
+                    questionRepository.findActiveCandidates(rule.getType(), rule.getDifficulty()));
             if (candidates.size() < rule.getQuantity()) {
                 throw new BusinessException(Result.BAD_REQUEST_CODE, "符合条件的题目数量不足");
             }
             shuffle(candidates);
-            for (ExamQuestion question : candidates.subList(0, rule.getQuantity())) {
-                selectedIds.add(question.getId());
+            candidatesByRule.add(candidates);
+            for (int slotIndex = 0; slotIndex < rule.getQuantity(); slotIndex++) {
+                slots.add(new RuleSlot(ruleIndex, slotIndex));
+            }
+        }
+
+        slots.sort(Comparator
+                .comparingInt((RuleSlot slot) -> candidatesByRule.get(slot.ruleIndex()).size())
+                .thenComparingInt(RuleSlot::ruleIndex)
+                .thenComparingInt(RuleSlot::slotIndex));
+        Map<Long, RuleSlot> questionAssignments = new HashMap<>();
+        Map<RuleSlot, ExamQuestion> slotAssignments = new HashMap<>();
+        for (RuleSlot slot : slots) {
+            if (!assign(slot, candidatesByRule, questionAssignments, slotAssignments, new HashSet<>())) {
+                throw new BusinessException(Result.BAD_REQUEST_CODE, "符合条件的题目数量不足");
+            }
+        }
+
+        List<QuestionSnapshotVO> selected = new ArrayList<>();
+        for (int ruleIndex = 0; ruleIndex < request.getRules().size(); ruleIndex++) {
+            int quantity = request.getRules().get(ruleIndex).getQuantity();
+            for (int slotIndex = 0; slotIndex < quantity; slotIndex++) {
+                ExamQuestion question = slotAssignments.get(new RuleSlot(ruleIndex, slotIndex));
                 QuestionSnapshotVO candidate = candidateVO(question);
                 candidate.setSortOrder(selected.size() + 1);
                 selected.add(candidate);
@@ -85,6 +105,30 @@ public class ExamPaperServiceImpl implements ExamPaperService {
                 .map(QuestionSnapshotVO::getScore)
                 .reduce(BigDecimal.ZERO, BigDecimal::add));
         return result;
+    }
+
+    private boolean assign(RuleSlot slot,
+                           List<List<ExamQuestion>> candidatesByRule,
+                           Map<Long, RuleSlot> questionAssignments,
+                           Map<RuleSlot, ExamQuestion> slotAssignments,
+                           Set<Long> visitedQuestionIds) {
+        for (ExamQuestion candidate : candidatesByRule.get(slot.ruleIndex())) {
+            if (!visitedQuestionIds.add(candidate.getId())) {
+                continue;
+            }
+            RuleSlot occupiedSlot = questionAssignments.get(candidate.getId());
+            if (occupiedSlot == null
+                    || assign(occupiedSlot, candidatesByRule, questionAssignments,
+                    slotAssignments, visitedQuestionIds)) {
+                questionAssignments.put(candidate.getId(), slot);
+                slotAssignments.put(slot, candidate);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private record RuleSlot(int ruleIndex, int slotIndex) {
     }
 
     @Override
@@ -203,7 +247,6 @@ public class ExamPaperServiceImpl implements ExamPaperService {
         vo.setSelectionMode(paper.getSelectionMode());
         vo.setQuestionCount(paper.getQuestionCount());
         vo.setTotalScore(paper.getTotalScore());
-        vo.setCreatedBy(paper.getCreatedBy());
         vo.setCreateTime(paper.getCreateTime());
         if (snapshots != null) {
             vo.setQuestions(snapshots.stream().map(this::snapshotVO).toList());

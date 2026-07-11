@@ -102,6 +102,31 @@ class ExamPaperServiceImplTest {
     }
 
     @Test
+    void randomPreviewFindsFeasibleAllocationWhenBroadRulePrecedesNarrowRule() {
+        ExamQuestion easy = question(1L);
+        ExamQuestion hard = question(2L);
+        hard.setDifficulty("hard");
+        when(questionRepository.findActiveCandidates("single_choice", null))
+                .thenReturn(List.of(easy, hard));
+        when(questionRepository.findActiveCandidates("single_choice", "easy"))
+                .thenReturn(List.of(easy));
+        when(randomGenerator.nextInt(2)).thenReturn(1);
+        RandomPreviewRequest request = new RandomPreviewRequest();
+        request.setRules(List.of(
+                rule("single_choice", null, 1),
+                rule("single_choice", "easy", 1)));
+
+        var result = service.randomPreview(request);
+
+        assertEquals(List.of(2L, 1L), result.getQuestions().stream()
+                .map(QuestionSnapshotVO::getQuestionId)
+                .toList());
+        assertEquals(List.of(1, 2), result.getQuestions().stream()
+                .map(QuestionSnapshotVO::getSortOrder)
+                .toList());
+    }
+
+    @Test
     void createRejectsDuplicateQuestionIdsBeforeLoadingQuestions() {
         CreateRequest request = createRequest(
                 selected(1L, "5.00", 1),
