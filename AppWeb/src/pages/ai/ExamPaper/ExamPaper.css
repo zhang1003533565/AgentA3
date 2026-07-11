@@ -11,8 +11,17 @@
 .exam-paper-rule-difficulty, .exam-paper-filter-select { width: 140px; }
 .exam-paper-submit { display: flex; justify-content: flex-end; padding-bottom: 24px; }
 .exam-paper-filter { gap: 8px; margin-bottom: 18px; }
+.exam-paper-history-heading { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.exam-paper-history-heading h3 { margin: 0 0 4px; color: #1b2f32; font-family: Georgia, 'Times New Roman', serif; }
+.exam-paper-detail { width: 100%; }
 @media (max-width: 768px) {
   .exam-paper-hero { padding: 22px; }
+  .exam-paper-rules > .ant-space-item > .ant-space { display: flex; flex-direction: column; align-items: stretch; width: 100%; }
+  .exam-paper-rule-type, .exam-paper-rule-difficulty { width: 100%; }
   .exam-paper-filter { display: flex; flex-direction: column; align-items: stretch; }
-  .exam-paper-filter .ant-form-item, .exam-paper-filter-select { width: 100%; margin-right: 0; }
+  .exam-paper-filter .ant-form-item, .exam-paper-filter-select, .exam-paper-filter .ant-btn { width: 100%; margin-right: 0; }
+  .exam-paper-card .ant-table-wrapper { overflow-x: auto; }
+  .exam-paper-submit, .exam-paper-submit .ant-btn { width: 100%; }
+  .exam-paper-actions { display: flex; flex-direction: column; align-items: stretch; width: 100%; }
+  .exam-paper-actions .ant-btn { width: 100%; }
 }

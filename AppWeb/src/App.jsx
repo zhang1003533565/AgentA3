@@ -6,6 +6,7 @@ import ActivityEditor from './pages/activity/ActivityEditor/ActivityEditor'
 import ActivityManage from './pages/activity/ActivityManage/ActivityManage'
 import Home from './pages/Home/Home'
 import QuestionBank from './pages/ai/QuestionBank/QuestionBank'
+import ExamPaper from './pages/ai/ExamPaper/ExamPaper'
 import KnowledgeChat from './pages/ai/KnowledgeChat/KnowledgeChat'
 import KnowledgeManage from './pages/ai/KnowledgeManage/KnowledgeManage'
 import ParagraphManage from './pages/ai/KnowledgeManage/ParagraphManage'
@@ -44,6 +45,7 @@ function App() {
           <Route path="/ai/agent-settings" element={<AgentSettings />} />
           <Route path="/ai/agent-cache" element={<AgentCache />} />
           <Route path="/ai/question-bank" element={<QuestionBank />} />
+          <Route path="/ai/exam-papers" element={<ExamPaper />} />
           <Route path="/ai/knowledge" element={<KnowledgeManage />} />
           <Route path="/admin/knowledge-chat" element={<KnowledgeChat />} />
           <Route path="/ai/knowledge/paragraph/:knowledgeId/:documentId" element={<ParagraphManage />} />
