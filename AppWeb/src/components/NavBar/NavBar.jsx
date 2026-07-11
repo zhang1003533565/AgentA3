@@ -11,6 +11,7 @@ import {
   CompassOutlined,
   DashboardOutlined,
   EnvironmentOutlined,
+  FileTextOutlined,
   FileSearchOutlined,
   FundOutlined,
   GiftOutlined,
@@ -65,6 +66,7 @@ const iconMap = {
   'line-chart': <LineChartOutlined />,
   shopping: <ShoppingOutlined />,
   'file-search': <FileSearchOutlined />,
+  'file-text': <FileTextOutlined />,
   appstore: <AppstoreOutlined />,
   warning: <WarningOutlined />,
   gift: <GiftOutlined />,
@@ -101,6 +103,8 @@ function NavBar({ mobileOpen, onClose }) {
   const [openSections, setOpenSections] = useState(defaultOpen)
 
   useEffect(() => {
+    // Keep a section open when navigation activates one of its children.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setOpenSections((prev) => ({
       ...prev,
       ...defaultOpen,

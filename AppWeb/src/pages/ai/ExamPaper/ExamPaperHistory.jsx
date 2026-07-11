@@ -22,6 +22,7 @@ function ExamPaperHistory({ refreshKey = 0 }) {
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
   const [downloadKeys, setDownloadKeys] = useState(() => new Set())
+  const downloadKeysRef = useRef(new Set())
   const listRequestId = useRef(0)
   const detailRequestId = useRef(0)
 
@@ -72,18 +73,16 @@ function ExamPaperHistory({ refreshKey = 0 }) {
 
   const handleDownload = async (record, content) => {
     const key = `${record.id}:${content}`
-    if (downloadKeys.has(key)) return
-    setDownloadKeys((current) => new Set(current).add(key))
+    if (downloadKeysRef.current.has(key)) return
+    downloadKeysRef.current.add(key)
+    setDownloadKeys(new Set(downloadKeysRef.current))
     try {
       await downloadExamPaper(record.id, content)
     } catch (error) {
       message.error(error.message || (content === 'answer' ? '答案下载失败' : '试卷下载失败'))
     } finally {
-      setDownloadKeys((current) => {
-        const next = new Set(current)
-        next.delete(key)
-        return next
-      })
+      downloadKeysRef.current.delete(key)
+      setDownloadKeys(new Set(downloadKeysRef.current))
     }
   }
 
@@ -140,7 +139,7 @@ function ExamPaperHistory({ refreshKey = 0 }) {
 
       <Drawer
         title="试卷详情"
-        width={920}
+        width="min(920px, 100vw)"
         open={detailOpen}
         loading={detailLoading}
         onClose={() => {
