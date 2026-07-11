@@ -148,6 +148,32 @@ class SourcePaperTemplateEngineTest {
                         .getBytes(StandardCharsets.UTF_8))));
     }
 
+    @Test
+    void bindingDisabledKeepsFixedDefinitionsButRemovesAllFourDocumentReferences() throws Exception {
+        PaperLayoutConfig layout = new PaperLayoutConfig();
+        layout.setHasBindingLine(false);
+        byte[] generated = engine.generate(paper(), DownloadContent.PAPER, layout);
+        Map<String, byte[]> parts = entries(generated);
+        String document = text(parts, "word/document.xml");
+        String relationships = text(parts, "word/_rels/document.xml.rels");
+        for (String id : java.util.List.of("rId8", "rId9", "rId10", "rId11")) {
+            assertFalse(document.contains("r:id=\"" + id + "\""));
+            assertTrue(relationships.contains("Id=\"" + id + "\""));
+        }
+        assertDoesNotThrow(() -> SourcePaperPackageVerifier.verify(generated));
+    }
+
+    @Test
+    void verifierRejectsMixedAllPresentOrAllAbsentReferenceState() throws Exception {
+        byte[] valid = engine.generate(paper(), DownloadContent.PAPER, new PaperLayoutConfig());
+        Map<String, byte[]> parts = entries(valid);
+        String document = text(parts, "word/document.xml");
+        String withoutOneReference = document.replace(
+                "<w:headerReference w:type=\"default\" r:id=\"rId8\"/>", "");
+        assertThrows(IllegalArgumentException.class, () -> SourcePaperPackageVerifier.verify(replaceEntry(
+                valid, "word/document.xml", withoutOneReference.getBytes(StandardCharsets.UTF_8))));
+    }
+
     private PaperVO paper() {
         PaperVO paper = new PaperVO();
         paper.setTitle("源码版式测试");

@@ -57,16 +57,22 @@ public final class SourcePaperPackageVerifier {
             definitions.put(relation.getAttribute("Id"), new RelationshipDefinition(
                     relation.getAttribute("Type"), relation.getAttribute("Target")));
         }
+        Map<String, Integer> referenceCounts = new HashMap<>();
         for (Map.Entry<String, RelationshipContract> fixed : FIXED_RELATIONSHIPS.entrySet()) {
             RelationshipDefinition actual = definitions.get(fixed.getKey());
             RelationshipContract expected = fixed.getValue();
             if (actual == null || !actual.type().equals(expected.type()) || !actual.target().equals(expected.target())) {
                 throw new IllegalArgumentException("固定关系偏离源码: " + fixed.getKey());
             }
-            requireReference(document, expected.referenceElement(), fixed.getKey());
+            referenceCounts.put(fixed.getKey(), countReferences(document, expected.referenceElement(), fixed.getKey()));
             if (!entries.containsKey("word/" + expected.target())) {
                 throw new IllegalArgumentException("固定关系目标缺失: " + expected.target());
             }
+        }
+        boolean allPresent = referenceCounts.values().stream().allMatch(count -> count == 1);
+        boolean allAbsent = referenceCounts.values().stream().allMatch(count -> count == 0);
+        if (!allPresent && !allAbsent) {
+            throw new IllegalArgumentException("页眉页脚引用必须四个完整存在或四个完整缺省");
         }
     }
 
@@ -81,7 +87,7 @@ public final class SourcePaperPackageVerifier {
         }
     }
 
-    private static void requireReference(Document document, String elementName, String expectedId) {
+    private static int countReferences(Document document, String elementName, String expectedId) {
         NodeList references = document.getElementsByTagNameNS(
                 "http://schemas.openxmlformats.org/wordprocessingml/2006/main", elementName);
         int found = 0;
@@ -91,7 +97,8 @@ public final class SourcePaperPackageVerifier {
                     "http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
             if (expectedId.equals(id)) found++;
         }
-        if (found != 1) throw new IllegalArgumentException("固定页眉页脚引用缺失或重复: " + expectedId);
+        if (found > 1) throw new IllegalArgumentException("固定页眉页脚引用重复: " + expectedId);
+        return found;
     }
 
     private static Map<String, byte[]> entries(byte[] docx) {
