@@ -7,7 +7,13 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
+
 public interface ExamQuestionRepository extends JpaRepository<ExamQuestion, Long> {
+
+    @Query("SELECT q FROM ExamQuestion q WHERE q.status = 1 AND q.type = :type AND (:difficulty IS NULL OR q.difficulty = :difficulty)")
+    List<ExamQuestion> findActiveCandidates(@Param("type") String type,
+                                            @Param("difficulty") String difficulty);
 
     @Query("""
             SELECT q FROM ExamQuestion q
