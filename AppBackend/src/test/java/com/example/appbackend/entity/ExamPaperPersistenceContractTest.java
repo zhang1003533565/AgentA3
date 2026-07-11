@@ -5,6 +5,11 @@ import com.example.appbackend.repository.ExamPaperQuestionRepository;
 import jakarta.persistence.Column;
 import jakarta.persistence.Table;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import org.junit.jupiter.api.Test;
 
@@ -35,11 +40,16 @@ class ExamPaperPersistenceContractTest {
         assertTrue(Arrays.stream(table.uniqueConstraints())
                 .map(constraint -> List.of(constraint.columnNames()))
                 .anyMatch(columns -> columns.equals(List.of("paper_id", "sort_order"))));
+        assertTrue(Arrays.stream(table.uniqueConstraints())
+                .map(constraint -> List.of(constraint.columnNames()))
+                .anyMatch(columns -> columns.equals(List.of("paper_id", "question_id"))));
 
         assertLongText("bodyJson");
         assertLongText("answerJson");
         assertLongText("scoringJson");
 
+        assertNotNull(ExamPaperQuestionRepository.class.getMethod(
+                "findByPaperIdOrderBySortOrderAsc", Long.class));
         assertNotNull(ExamPaperQuestionRepository.class.getMethod(
                 "findByPaperIdOrderBySortOrderAscIdAsc", Long.class));
     }
@@ -57,11 +67,30 @@ class ExamPaperPersistenceContractTest {
         Field title = ExamPaperDTO.CreateRequest.class.getDeclaredField("title");
         assertNotNull(title.getAnnotation(NotBlank.class));
         assertEquals(160, title.getAnnotation(Size.class).max());
+
+        assertMinMax(ExamPaperDTO.CreateRequest.class.getDeclaredField("durationMinutes"), 1, 1440);
+        assertMinMax(ExamPaperDTO.CreateRequest.class.getDeclaredField("columnsCount"), 1, 2);
+
+        Field questions = ExamPaperDTO.CreateRequest.class.getDeclaredField("questions");
+        assertNotNull(questions.getAnnotation(NotEmpty.class));
+
+        Field score = ExamPaperDTO.SelectedQuestion.class.getDeclaredField("score");
+        assertNotNull(score.getAnnotation(NotNull.class));
+        assertEquals("0.01", score.getAnnotation(DecimalMin.class).value());
+
+        Field sortOrder = ExamPaperDTO.SelectedQuestion.class.getDeclaredField("sortOrder");
+        assertNotNull(sortOrder.getAnnotation(NotNull.class));
+        assertEquals(1, sortOrder.getAnnotation(Min.class).value());
     }
 
     private void assertLongText(String fieldName) throws Exception {
         Column column = ExamPaperQuestion.class.getDeclaredField(fieldName).getAnnotation(Column.class);
         assertNotNull(column);
         assertTrue(column.columnDefinition().startsWith("LONGTEXT"));
+    }
+
+    private void assertMinMax(Field field, long min, long max) {
+        assertEquals(min, field.getAnnotation(Min.class).value());
+        assertEquals(max, field.getAnnotation(Max.class).value());
     }
 }
