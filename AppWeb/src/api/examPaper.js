@@ -16,6 +16,7 @@ export const getExamPaperList = (params = {}) => request.get(base, {
   params: {
     current: params.current ?? params.page ?? 1,
     size: params.size ?? params.pageSize ?? 10,
+    keyword: params.keyword?.trim() || undefined,
   },
 })
 

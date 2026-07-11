@@ -49,22 +49,58 @@ class ExamPaperDocumentGeneratorTest {
     }
 
     @Test
-    void preservesGlobalOrderWhenQuestionTypesAreInterleaved() throws Exception {
+    void groupsInterleavedTypesByStableSectionOrderWithCountsAndScores() throws Exception {
         PaperVO paper = paper(PageSize.A4, Orientation.PORTRAIT, 1);
         paper.setQuestions(List.of(
-                question(1, "single_choice", "A一", "{\"options\":[{\"key\":\"A\",\"text\":\"甲\"}]}", "{}", null),
-                question(2, "true_false", "B二", "{\"statement\":\"判断\"}", "{}", null),
-                question(3, "single_choice", "A三", "{\"options\":[{\"key\":\"B\",\"text\":\"乙\"}]}", "{}", null)
+                question(1, 1, "single_choice", "A一", "{\"options\":[{\"key\":\"A\",\"text\":\"甲\"}]}", "{}", null),
+                question(2, 2, "true_false", "B二", "{\"statement\":\"判断\"}", "{}", null),
+                question(3, 1, "single_choice", "A三", "{\"options\":[{\"key\":\"B\",\"text\":\"乙\"}]}", "{}", null)
         ));
 
         String text = text(new ExamPaperDocumentGenerator().generate(paper, DownloadContent.PAPER));
 
         int first = text.indexOf("1. A一");
-        int second = text.indexOf("2. B二");
-        int third = text.indexOf("3. A三");
+        int second = text.indexOf("2. A三");
+        int third = text.indexOf("3. B二");
         assertTrue(first >= 0 && first < second && second < third, text);
-        assertEquals(2, occurrences(text, "单项选择题"));
+        assertTrue(text.contains("单项选择题（共2题，10分）"), text);
+        assertTrue(text.contains("判断题（共1题，5分）"), text);
+        assertEquals(1, occurrences(text, "单项选择题"));
         assertEquals(1, occurrences(text, "判断题"));
+    }
+
+    @Test
+    void paperAndAnswerKeepTheSameGroupedQuestionNumbers() throws Exception {
+        PaperVO paper = paper(PageSize.A4, Orientation.PORTRAIT, 1);
+        paper.setQuestions(List.of(
+                question(1, 1, "single_choice", "A一", "{}", "{\"correctOption\":\"A\"}", null),
+                question(2, 2, "true_false", "B二", "{}", "{\"correct\":true}", null),
+                question(3, 1, "single_choice", "A三", "{}", "{\"correctOption\":\"B\"}", null)
+        ));
+
+        String paperText = text(new ExamPaperDocumentGenerator().generate(paper, DownloadContent.PAPER));
+        String answerText = text(new ExamPaperDocumentGenerator().generate(paper, DownloadContent.ANSWER));
+
+        for (String numberedStem : List.of("1. A一", "2. A三", "3. B二")) {
+            assertTrue(paperText.contains(numberedStem), paperText);
+            assertTrue(answerText.contains(numberedStem), answerText);
+        }
+    }
+
+    @Test
+    void doesNotRenderEmptyObjectArrayOrNullBodies() throws Exception {
+        PaperVO paper = paper(PageSize.A4, Orientation.PORTRAIT, 1);
+        paper.setQuestions(List.of(
+                question(1, 1, "short_answer", "空对象", "{}", "{}", null),
+                question(2, 1, "short_answer", "空数组", "[]", "{}", null),
+                question(3, 1, "short_answer", "空值", "null", "{}", null)
+        ));
+
+        String text = text(new ExamPaperDocumentGenerator().generate(paper, DownloadContent.PAPER));
+
+        assertFalse(text.contains("{}"), text);
+        assertFalse(text.contains("[]"), text);
+        assertFalse(text.lines().anyMatch("null"::equals), text);
     }
 
     @Test
@@ -171,9 +207,13 @@ class ExamPaperDocumentGeneratorTest {
     }
 
     private static QuestionSnapshotVO question(int order, String type, String stem, String body, String answer, String analysis) {
+        return question(order, order, type, stem, body, answer, analysis);
+    }
+
+    private static QuestionSnapshotVO question(int order, int sectionOrder, String type, String stem, String body, String answer, String analysis) {
         QuestionSnapshotVO question = new QuestionSnapshotVO();
         question.setSortOrder(order);
-        question.setSectionOrder(order);
+        question.setSectionOrder(sectionOrder);
         question.setScore(new BigDecimal("5"));
         question.setType(type);
         question.setStem(stem);

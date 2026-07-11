@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { DownloadOutlined, EyeOutlined } from '@ant-design/icons'
-import { Button, Card, Descriptions, Drawer, Empty, Space, Table, Tag, Typography, message } from 'antd'
+import { Button, Card, Descriptions, Drawer, Empty, Input, Space, Table, Tag, Typography, message } from 'antd'
 import { downloadExamPaper, getExamPaperDetail, getExamPaperList } from '../../../api/examPaper'
 
 const { Text, Title } = Typography
@@ -18,6 +18,7 @@ function ExamPaperHistory({ refreshKey = 0 }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 })
+  const [keyword, setKeyword] = useState('')
   const [detail, setDetail] = useState(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -26,11 +27,11 @@ function ExamPaperHistory({ refreshKey = 0 }) {
   const listRequestId = useRef(0)
   const detailRequestId = useRef(0)
 
-  const fetchPapers = async (current = 1, pageSize = pagination.pageSize) => {
+  const fetchPapers = async (current = 1, pageSize = pagination.pageSize, titleKeyword = keyword) => {
     const requestId = ++listRequestId.current
     setLoading(true)
     try {
-      const response = await getExamPaperList({ current, size: pageSize })
+      const response = await getExamPaperList({ current, size: pageSize, keyword: titleKeyword })
       const data = response.data || {}
       if (requestId !== listRequestId.current) return
       setRows(data.records || [])
@@ -125,6 +126,23 @@ function ExamPaperHistory({ refreshKey = 0 }) {
     <Card className="exam-paper-card exam-paper-history">
       <div className="exam-paper-history-heading">
         <div><Title level={3}>生成历史</Title><Text type="secondary">仅展示当前账号创建的试卷，可查看保存时的题目快照并再次下载。</Text></div>
+        <Space>
+          <Input.Search
+            allowClear
+            value={keyword}
+            placeholder="按试卷标题搜索"
+            onChange={(event) => setKeyword(event.target.value)}
+            onSearch={(value) => {
+              const nextKeyword = value.trim()
+              setKeyword(nextKeyword)
+              fetchPapers(1, pagination.pageSize, nextKeyword)
+            }}
+          />
+          <Button onClick={() => {
+            setKeyword('')
+            fetchPapers(1, pagination.pageSize, '')
+          }}>重置</Button>
+        </Space>
       </div>
       <Table
         rowKey="id"
@@ -133,7 +151,7 @@ function ExamPaperHistory({ refreshKey = 0 }) {
         loading={loading}
         locale={{ emptyText: <Empty description="暂无已生成试卷" /> }}
         pagination={{ ...pagination, showSizeChanger: true, showTotal: (total) => `共 ${total} 份试卷` }}
-        onChange={(next) => fetchPapers(next.current, next.pageSize)}
+        onChange={(next) => fetchPapers(next.current, next.pageSize, keyword)}
         scroll={{ x: 1180 }}
       />
 

@@ -56,8 +56,9 @@ public class ExamPaperController {
     @GetMapping
     public Result<PageResponse<PaperVO>> list(@RequestParam(defaultValue = "1") Integer current,
                                                @RequestParam(defaultValue = "10") Integer size,
+                                               @RequestParam(required = false) String keyword,
                                                HttpServletRequest httpRequest) {
-        return Result.success(examPaperService.list(current, size, getUserId(httpRequest)));
+        return Result.success(examPaperService.list(current, size, keyword, getUserId(httpRequest)));
     }
 
     @GetMapping("/{id}")
@@ -72,7 +73,7 @@ public class ExamPaperController {
         Long userId = getUserId(httpRequest);
         DownloadContent downloadContent = parseContent(content);
         DownloadFile file = examPaperService.download(id, userId, downloadContent);
-        String filename = sanitizeFilename(file.title())
+        String filename = sanitizeFilename(file.title()) + "-" + id
                 + (downloadContent == DownloadContent.ANSWER ? "-答案.docx" : "-试卷.docx");
         ContentDisposition disposition = ContentDisposition.attachment()
                 .filename(filename, StandardCharsets.UTF_8)

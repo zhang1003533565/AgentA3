@@ -30,6 +30,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -178,8 +179,11 @@ public class ExamPaperServiceImpl implements ExamPaperService {
         paper = paperRepository.save(paper);
 
         List<ExamPaperQuestion> snapshots = new ArrayList<>();
+        Map<String, Integer> sectionOrders = new LinkedHashMap<>();
         for (SelectedQuestion selection : selections) {
-            snapshots.add(snapshot(paper.getId(), selection, questionsById.get(selection.getQuestionId())));
+            ExamQuestion question = questionsById.get(selection.getQuestionId());
+            int sectionOrder = sectionOrders.computeIfAbsent(question.getType(), ignored -> sectionOrders.size() + 1);
+            snapshots.add(snapshot(paper.getId(), selection, question, sectionOrder));
         }
         paperQuestionRepository.saveAll(snapshots);
         return toVO(paper, snapshots);
@@ -187,11 +191,15 @@ public class ExamPaperServiceImpl implements ExamPaperService {
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<PaperVO> list(Integer current, Integer size, Long userId) {
+    public PageResponse<PaperVO> list(Integer current, Integer size, String keyword, Long userId) {
         int pageNumber = current == null || current < 1 ? 1 : current;
         int pageSize = size == null || size < 1 ? 10 : Math.min(size, 100);
-        Page<ExamPaper> page = paperRepository.findByCreatedByAndStatusOrderByCreateTimeDesc(
-                userId, 1, PageRequest.of(pageNumber - 1, pageSize));
+        PageRequest pageable = PageRequest.of(pageNumber - 1, pageSize);
+        String titleKeyword = keyword == null ? "" : keyword.trim();
+        Page<ExamPaper> page = titleKeyword.isEmpty()
+                ? paperRepository.findByCreatedByAndStatusOrderByCreateTimeDesc(userId, 1, pageable)
+                : paperRepository.findByCreatedByAndStatusAndTitleContainingOrderByCreateTimeDesc(
+                        userId, 1, titleKeyword, pageable);
         return new PageResponse<>(
                 page.getContent().stream().map(paper -> toVO(paper, null)).toList(),
                 page.getTotalElements(),
@@ -231,11 +239,13 @@ public class ExamPaperServiceImpl implements ExamPaperService {
         }
     }
 
-    private ExamPaperQuestion snapshot(Long paperId, SelectedQuestion selection, ExamQuestion question) {
+    private ExamPaperQuestion snapshot(Long paperId, SelectedQuestion selection, ExamQuestion question,
+                                       int sectionOrder) {
         ExamPaperQuestion snapshot = new ExamPaperQuestion();
         snapshot.setPaperId(paperId);
         snapshot.setQuestionId(question.getId());
         snapshot.setSortOrder(selection.getSortOrder());
+        snapshot.setSectionOrder(sectionOrder);
         snapshot.setScore(selection.getScore());
         snapshot.setType(question.getType());
         snapshot.setStem(question.getStem());

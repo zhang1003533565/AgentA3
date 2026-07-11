@@ -72,6 +72,19 @@ class ExamPaperControllerTest {
     }
 
     @Test
+    void createWithoutColumnsCountReturnsBadRequestWithoutCallingService() throws Exception {
+        String request = CREATE_REQUEST.replace("\"columnsCount\":1,", "");
+
+        mockMvc.perform(post("/api/exam/papers")
+                        .requestAttr("userId", 42L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
     void downloadReturnsDocxHeadersAndSanitizedUtf8Filename() throws Exception {
         byte[] docx = "docx".getBytes(StandardCharsets.UTF_8);
         when(service.download(7L, 42L, DownloadContent.PAPER))
@@ -85,6 +98,7 @@ class ExamPaperControllerTest {
                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
                 .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, containsString("attachment")))
                 .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, containsString("UTF-8''")))
+                .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, containsString("7")))
                 .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION,
                         org.hamcrest.Matchers.not(containsString("%0D"))))
                 .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION,
@@ -146,10 +160,11 @@ class ExamPaperControllerTest {
         mockMvc.perform(get("/api/exam/papers")
                         .requestAttr("userId", 42L)
                         .param("current", "2")
-                        .param("size", "20"))
+                        .param("size", "20")
+                        .param("keyword", "期末"))
                 .andExpect(status().isOk());
 
-        verify(service).list(2, 20, 42L);
+        verify(service).list(2, 20, "期末", 42L);
     }
 
     @Test

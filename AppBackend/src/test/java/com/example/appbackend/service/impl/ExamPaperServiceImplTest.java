@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -220,7 +221,50 @@ class ExamPaperServiceImplTest {
         assertEquals("original answer", savedSnapshots.get(0).getAnswerJson());
         assertEquals(new BigDecimal("5.00"), savedSnapshots.get(0).getScore());
         assertEquals(1, savedSnapshots.get(0).getSortOrder());
+        assertEquals(List.of(1, 1), savedSnapshots.stream().map(ExamPaperQuestion::getSectionOrder).toList());
         assertEquals(new BigDecimal("12.50"), result.getTotalScore());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void createAssignsSharedSectionOrderByTypeFirstAppearance() {
+        CreateRequest request = createRequest(
+                selected(1L, "5.00", 1),
+                selected(2L, "5.00", 2),
+                selected(3L, "5.00", 3));
+        ExamQuestion first = question(1L);
+        ExamQuestion second = question(2L);
+        second.setType("true_false");
+        ExamQuestion third = question(3L);
+        when(questionRepository.findAllById(List.of(1L, 2L, 3L))).thenReturn(List.of(first, second, third));
+        when(paperRepository.save(any())).thenAnswer(invocation -> {
+            ExamPaper paper = invocation.getArgument(0);
+            paper.setId(88L);
+            return paper;
+        });
+        when(paperQuestionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.create(request, 9L);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(Iterable.class);
+        verify(paperQuestionRepository).saveAll(captor.capture());
+        List<ExamPaperQuestion> snapshots = new java.util.ArrayList<>();
+        captor.getValue().forEach(item -> snapshots.add((ExamPaperQuestion) item));
+        assertEquals(List.of(1, 2, 1), snapshots.stream().map(ExamPaperQuestion::getSectionOrder).toList());
+    }
+
+    @Test
+    void listFiltersByCreatorStatusAndTitleKeyword() {
+        when(paperRepository.findByCreatedByAndStatusAndTitleContainingOrderByCreateTimeDesc(
+                org.mockito.ArgumentMatchers.eq(9L), org.mockito.ArgumentMatchers.eq(1),
+                org.mockito.ArgumentMatchers.eq("期末"), any()))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        service.list(2, 20, "期末", 9L);
+
+        verify(paperRepository).findByCreatedByAndStatusAndTitleContainingOrderByCreateTimeDesc(
+                org.mockito.ArgumentMatchers.eq(9L), org.mockito.ArgumentMatchers.eq(1),
+                org.mockito.ArgumentMatchers.eq("期末"), any());
     }
 
     @Test

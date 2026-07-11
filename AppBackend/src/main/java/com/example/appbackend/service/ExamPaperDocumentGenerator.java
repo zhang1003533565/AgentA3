@@ -23,6 +23,8 @@ import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 
 public class ExamPaperDocumentGenerator {
@@ -47,7 +49,7 @@ public class ExamPaperDocumentGenerator {
             writeHeader(document, paper, content);
             int number = 1;
             for (QuestionSection section : groupQuestions(paper.getQuestions())) {
-                writeSectionHeading(document, section.heading());
+                writeSectionHeading(document, section);
                 for (QuestionSnapshotVO question : section.questions()) {
                     writeQuestion(document, question, number++);
                     if (content == DownloadContent.ANSWER) {
@@ -107,29 +109,37 @@ public class ExamPaperDocumentGenerator {
     }
 
     private List<QuestionSection> groupQuestions(List<QuestionSnapshotVO> questions) {
-        List<QuestionSection> sections = new ArrayList<>();
-        if (questions == null) return sections;
+        if (questions == null) return List.of();
         List<QuestionSnapshotVO> ordered = questions.stream()
                 .filter(Objects::nonNull)
-                .sorted(Comparator.comparing(QuestionSnapshotVO::getSortOrder,
-                        Comparator.nullsLast(Comparator.naturalOrder())))
+                .sorted(Comparator
+                        .comparing(QuestionSnapshotVO::getSectionOrder,
+                                Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(QuestionSnapshotVO::getSortOrder,
+                                Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
+        Map<SectionKey, List<QuestionSnapshotVO>> grouped = new LinkedHashMap<>();
         for (QuestionSnapshotVO question : ordered) {
-            String heading = typeName(question.getType());
-            if (sections.isEmpty() || !sections.getLast().heading().equals(heading)) {
-                sections.add(new QuestionSection(heading, new ArrayList<>()));
-            }
-            sections.getLast().questions().add(question);
+            grouped.computeIfAbsent(new SectionKey(question.getSectionOrder(), question.getType()),
+                    ignored -> new ArrayList<>()).add(question);
         }
-        return sections;
+        return grouped.entrySet().stream()
+                .map(entry -> new QuestionSection(typeName(entry.getKey().type()), entry.getValue()))
+                .toList();
     }
 
-    private void writeSectionHeading(XWPFDocument document, String heading) {
+    private void writeSectionHeading(XWPFDocument document, QuestionSection section) {
         XWPFParagraph paragraph = document.createParagraph();
         XWPFRun run = paragraph.createRun();
         run.setBold(true);
         run.setFontSize(13);
-        run.setText(heading);
+        String score = section.questions().stream()
+                .map(QuestionSnapshotVO::getScore)
+                .filter(Objects::nonNull)
+                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add)
+                .stripTrailingZeros()
+                .toPlainString();
+        run.setText(section.heading() + "（共" + section.questions().size() + "题，" + score + "分）");
     }
 
     private void writeQuestion(XWPFDocument document, QuestionSnapshotVO question, int number) {
@@ -140,6 +150,7 @@ public class ExamPaperDocumentGenerator {
             addParagraph(document, safeFileText(question.getBodyJson()));
             return;
         }
+        if (body.isNull() || body.isEmpty()) return;
         boolean rendered = writeOptions(document, body);
         rendered = writeReadableBody(document, body) || rendered;
         if (!rendered) addParagraph(document, pretty(body));
@@ -274,5 +285,8 @@ public class ExamPaperDocumentGenerator {
     }
 
     private record QuestionSection(String heading, List<QuestionSnapshotVO> questions) {
+    }
+
+    private record SectionKey(Integer order, String type) {
     }
 }

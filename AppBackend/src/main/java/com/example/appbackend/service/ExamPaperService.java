@@ -12,7 +12,7 @@ public interface ExamPaperService {
 
     PaperVO create(CreateRequest request, Long userId);
 
-    PageResponse<PaperVO> list(Integer current, Integer size, Long userId);
+    PageResponse<PaperVO> list(Integer current, Integer size, String keyword, Long userId);
 
     PaperVO detail(Long id, Long userId);
 

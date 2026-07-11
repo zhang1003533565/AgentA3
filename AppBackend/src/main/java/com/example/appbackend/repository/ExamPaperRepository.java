@@ -8,4 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface ExamPaperRepository extends JpaRepository<ExamPaper, Long> {
 
     Page<ExamPaper> findByCreatedByAndStatusOrderByCreateTimeDesc(Long createdBy, Integer status, Pageable pageable);
+
+    Page<ExamPaper> findByCreatedByAndStatusAndTitleContainingOrderByCreateTimeDesc(
+            Long createdBy, Integer status, String title, Pageable pageable);
 }

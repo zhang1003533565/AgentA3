@@ -58,7 +58,7 @@ public class ExamPaper {
     @Column(name = "total_score", nullable = false, precision = 10, scale = 2)
     private BigDecimal totalScore;
 
-    @Column(name = "created_by")
+    @Column(name = "created_by", nullable = false)
     private Long createdBy;
 
     @Column(nullable = false)

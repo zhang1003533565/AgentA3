@@ -48,6 +48,7 @@ public final class ExamPaperDTO {
 
         @Min(1)
         @Max(2)
+        @NotNull
         private Integer columnsCount;
 
         @NotNull
@@ -105,7 +106,6 @@ public final class ExamPaperDTO {
         private SelectionMode selectionMode;
         private Integer questionCount;
         private BigDecimal totalScore;
-        private Long createdBy;
         private LocalDateTime createTime;
         private List<QuestionSnapshotVO> questions;
     }

@@ -31,6 +31,7 @@ class ExamPaperPersistenceContractTest {
         assertNotNull(ExamPaperQuestion.class.getDeclaredField("bodyJson"));
         assertNotNull(ExamPaperQuestion.class.getDeclaredField("answerJson"));
         assertNotNull(ExamPaperQuestion.class.getDeclaredField("sortOrder"));
+        assertTrue(!ExamPaper.class.getDeclaredField("createdBy").getAnnotation(Column.class).nullable());
     }
 
     @Test
@@ -81,6 +82,9 @@ class ExamPaperPersistenceContractTest {
         Field sortOrder = ExamPaperDTO.SelectedQuestion.class.getDeclaredField("sortOrder");
         assertNotNull(sortOrder.getAnnotation(NotNull.class));
         assertEquals(1, sortOrder.getAnnotation(Min.class).value());
+
+        Field columnsCount = ExamPaperDTO.CreateRequest.class.getDeclaredField("columnsCount");
+        assertNotNull(columnsCount.getAnnotation(NotNull.class));
     }
 
     private void assertLongText(String fieldName) throws Exception {
