@@ -1,0 +1,150 @@
+package com.example.appbackend.service.exampaper;
+
+import com.example.appbackend.dto.ExamPaperDTO.DownloadContent;
+import com.example.appbackend.dto.ExamPaperDTO.PaperLayoutConfig;
+import com.example.appbackend.dto.ExamPaperDTO.PaperRenderMode;
+import com.example.appbackend.dto.ExamPaperDTO.PaperVO;
+import com.example.appbackend.dto.ExamPaperDTO.QuestionSnapshotVO;
+import com.example.appbackend.service.ExamPaperDocumentGenerator;
+import org.junit.jupiter.api.Test;
+
+import java.io.ByteArrayInputStream;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class SourcePaperTemplateEngineTest {
+
+    private final SourcePaperTemplateEngine engine = new SourcePaperTemplateEngine();
+
+    @Test
+    void generatesSourceFaithfulPackageAndPreservesOpaqueParts() throws Exception {
+        PaperLayoutConfig layout = new PaperLayoutConfig();
+        layout.setHeaderInfo("矿井甲    姓名________");
+        byte[] generated = engine.generate(paper(), DownloadContent.PAPER, layout);
+        Map<String, byte[]> entries = entries(generated);
+
+        SourcePaperPackageVerifier.verify(generated);
+        String document = text(entries, "word/document.xml");
+        String header1 = text(entries, "word/header1.xml");
+        String header2 = text(entries, "word/header2.xml");
+        String settings = text(entries, "word/settings.xml");
+        assertFalse(document.matches("(?s).*%[^%]+%.*"));
+        assertFalse(header1.matches("(?s).*%[^%]+%.*"));
+        assertFalse(header2.matches("(?s).*%[^%]+%.*"));
+        assertTrue(document.contains("w:w=\"23814\" w:h=\"16840\" w:orient=\"landscape\""));
+        assertTrue(document.contains("w:left=\"2500\""));
+        assertTrue(document.contains("w:num=\"2\" w:space=\"425\" w:sep=\"1\""));
+        assertTrue(document.contains("w:type=\"default\" r:id=\"rId8\""));
+        assertTrue(document.contains("w:type=\"even\" r:id=\"rId9\""));
+        assertTrue(settings.contains("w:evenAndOddHeaders"));
+        assertFalse(header1.contains("矿井甲"), "权威 header1.xml 没有 information 插槽");
+        assertTrue(header2.contains("矿井甲"));
+
+        Map<String, byte[]> source = entries(resource("exam-paper-template/static/document.docx"));
+        for (String name : source.keySet()) {
+            if (!SourcePaperPackageVerifier.MUTABLE_PARTS.contains(name)) {
+                assertEquals(sha256(source.get(name)), sha256(entries.get(name)), name);
+            }
+        }
+    }
+
+    @Test
+    void separatesPaperAndAnswerContentWithoutChangingPackageFurniture() throws Exception {
+        PaperLayoutConfig layout = new PaperLayoutConfig();
+        Map<String, byte[]> paper = entries(engine.generate(paper(), DownloadContent.PAPER, layout));
+        Map<String, byte[]> answer = entries(engine.generate(paper(), DownloadContent.ANSWER, layout));
+
+        String paperXml = text(paper, "word/document.xml");
+        String answerXml = text(answer, "word/document.xml");
+        assertFalse(paperXml.contains("答案解析"));
+        assertTrue(answerXml.contains("答案解析"));
+        assertTrue(answerXml.contains("答案:A"));
+        for (String name : paper.keySet()) {
+            if (!name.equals("word/document.xml")) {
+                assertArrayEquals(paper.get(name), answer.get(name), name);
+            }
+        }
+    }
+
+    @Test
+    void dispatcherKeepsSimpleModeAndRoutesTemplateMode() {
+        ExamPaperDocumentDispatcher dispatcher = new ExamPaperDocumentDispatcher(
+                new ExamPaperDocumentGenerator(), engine);
+        PaperLayoutConfig simple = new PaperLayoutConfig();
+        simple.setRenderMode(PaperRenderMode.SIMPLE);
+        PaperLayoutConfig template = new PaperLayoutConfig();
+
+        byte[] simpleBytes = dispatcher.generate(paper(), DownloadContent.PAPER, simple);
+        byte[] templateBytes = dispatcher.generate(paper(), DownloadContent.PAPER, template);
+
+        assertNotEquals(sha256(simpleBytes), sha256(templateBytes));
+        assertDoesNotThrow(() -> SourcePaperPackageVerifier.verify(templateBytes));
+    }
+
+    @Test
+    void rejectsTemplateWithMissingOrUnexpectedPlaceholderCounts() {
+        assertThrows(IllegalArgumentException.class,
+                () -> SourcePaperTemplateEngine.replaceRequired("before", "%TITLE%", "x", 1));
+        assertThrows(IllegalArgumentException.class,
+                () -> SourcePaperTemplateEngine.replaceRequired("%TITLE% %TITLE%", "%TITLE%", "x", 1));
+        assertEquals("x x", SourcePaperTemplateEngine.replaceRequired(
+                "%information% %information%", "%information%", "x", 2));
+    }
+
+    private PaperVO paper() {
+        PaperVO paper = new PaperVO();
+        paper.setTitle("源码版式测试");
+        paper.setSubtitle("(全卷满分: 5分，考试时间: 60分钟)");
+        paper.setPrecautions("请认真作答");
+        paper.setHeaderInfo("矿井甲    姓名________");
+        paper.setTotalScore(new BigDecimal("5"));
+        QuestionSnapshotVO question = new QuestionSnapshotVO();
+        question.setSortOrder(1);
+        question.setSectionOrder(1);
+        question.setType("single_choice");
+        question.setStem("1&lt;2 是否成立？");
+        question.setScore(new BigDecimal("5"));
+        question.setBodyJson("{\"options\":[{\"key\":\"A\",\"text\":\"是\"},{\"key\":\"B\",\"text\":\"否\"}]}");
+        question.setAnswerJson("{\"correctOption\":\"A\"}");
+        paper.setQuestions(java.util.List.of(question));
+        return paper;
+    }
+
+    private static byte[] resource(String name) throws Exception {
+        try (var input = SourcePaperTemplateEngineTest.class.getClassLoader().getResourceAsStream(name)) {
+            assertNotNull(input, name);
+            return input.readAllBytes();
+        }
+    }
+
+    private static Map<String, byte[]> entries(byte[] bytes) throws Exception {
+        Map<String, byte[]> result = new HashMap<>();
+        try (ZipInputStream input = new ZipInputStream(new ByteArrayInputStream(bytes))) {
+            ZipEntry entry;
+            while ((entry = input.getNextEntry()) != null) {
+                if (!entry.isDirectory()) result.put(entry.getName(), input.readAllBytes());
+            }
+        }
+        return result;
+    }
+
+    private static String text(Map<String, byte[]> entries, String name) {
+        assertNotNull(entries.get(name), name);
+        return new String(entries.get(name), StandardCharsets.UTF_8);
+    }
+
+    private static String sha256(byte[] bytes) {
+        try {
+            return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (Exception exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+}

@@ -2,6 +2,7 @@ package com.example.appbackend.service.impl;
 
 import com.example.appbackend.dto.ExamPaperDTO.CreateRequest;
 import com.example.appbackend.dto.ExamPaperDTO.DownloadContent;
+import com.example.appbackend.dto.ExamPaperDTO.PaperLayoutConfig;
 import com.example.appbackend.dto.ExamPaperDTO.PaperVO;
 import com.example.appbackend.dto.ExamPaperDTO.QuestionSnapshotVO;
 import com.example.appbackend.dto.ExamPaperDTO.RandomPreviewRequest;
@@ -18,6 +19,7 @@ import com.example.appbackend.repository.ExamPaperRepository;
 import com.example.appbackend.repository.ExamQuestionRepository;
 import com.example.appbackend.service.ExamPaperService;
 import com.example.appbackend.service.ExamPaperDocumentGenerator;
+import com.example.appbackend.service.exampaper.ExamPaperDocumentDispatcher;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,13 +46,27 @@ public class ExamPaperServiceImpl implements ExamPaperService {
     private final ExamPaperQuestionRepository paperQuestionRepository;
     private final RandomGenerator randomGenerator;
     private final ExamPaperDocumentGenerator documentGenerator;
+    private final ExamPaperDocumentDispatcher documentDispatcher;
 
     @Autowired
     public ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
                                 ExamPaperRepository paperRepository,
                                 ExamPaperQuestionRepository paperQuestionRepository) {
         this(questionRepository, paperRepository, paperQuestionRepository,
-                RandomGenerator.getDefault(), new ExamPaperDocumentGenerator());
+                RandomGenerator.getDefault(), new ExamPaperDocumentDispatcher());
+    }
+
+    private ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
+                                 ExamPaperRepository paperRepository,
+                                 ExamPaperQuestionRepository paperQuestionRepository,
+                                 RandomGenerator randomGenerator,
+                                 ExamPaperDocumentDispatcher documentDispatcher) {
+        this.questionRepository = questionRepository;
+        this.paperRepository = paperRepository;
+        this.paperQuestionRepository = paperQuestionRepository;
+        this.randomGenerator = randomGenerator;
+        this.documentGenerator = null;
+        this.documentDispatcher = documentDispatcher;
     }
 
     ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
@@ -63,6 +79,7 @@ public class ExamPaperServiceImpl implements ExamPaperService {
         this.paperQuestionRepository = paperQuestionRepository;
         this.randomGenerator = randomGenerator;
         this.documentGenerator = documentGenerator;
+        this.documentDispatcher = null;
     }
 
     @Override
@@ -223,7 +240,23 @@ public class ExamPaperServiceImpl implements ExamPaperService {
     @Transactional(readOnly = true)
     public DownloadFile download(Long id, Long userId, DownloadContent content) {
         PaperVO paper = detail(id, userId);
-        return new DownloadFile(paper.getTitle(), documentGenerator.generate(paper, content));
+        byte[] bytes;
+        if (documentDispatcher == null) {
+            // Compatibility seam for existing service unit tests; production always uses the dispatcher.
+            bytes = documentGenerator.generate(paper, content);
+        } else {
+            bytes = documentDispatcher.generate(paper, content, transitionalLayout(paper));
+        }
+        return new DownloadFile(paper.getTitle(), bytes);
+    }
+
+    private PaperLayoutConfig transitionalLayout(PaperVO paper) {
+        PaperLayoutConfig layout = new PaperLayoutConfig();
+        if (paper.getPageSize() != null) layout.setPageSize(paper.getPageSize());
+        if (paper.getOrientation() != null) layout.setOrientation(paper.getOrientation());
+        if (paper.getColumnsCount() != null) layout.setColumnsCount(paper.getColumnsCount());
+        if (paper.getHeaderInfo() != null) layout.setHeaderInfo(paper.getHeaderInfo());
+        return layout;
     }
 
     private void validateUniqueSelections(List<SelectedQuestion> selections) {
