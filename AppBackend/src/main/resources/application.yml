@@ -84,6 +84,14 @@ browser:
   headless: true  # 可视化浏览器，调试用
   default-url: https://jwx.hebiace.edu.cn/
 
+exam-paper:
+  preview:
+    soffice-path: ${EXAM_PAPER_PREVIEW_SOFFICE_PATH:soffice}
+    timeout-seconds: ${EXAM_PAPER_PREVIEW_TIMEOUT_SECONDS:30}
+    root: ${EXAM_PAPER_PREVIEW_ROOT:${java.io.tmpdir}/agent-a3-exam-preview}
+    ttl-minutes: ${EXAM_PAPER_PREVIEW_TTL_MINUTES:30}
+    cleanup-interval-ms: ${EXAM_PAPER_PREVIEW_CLEANUP_INTERVAL_MS:60000}
+
 springdoc:
   api-docs:
     version: openapi_3_0
