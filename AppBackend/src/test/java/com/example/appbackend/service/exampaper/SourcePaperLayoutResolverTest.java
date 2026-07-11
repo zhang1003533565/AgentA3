@@ -11,6 +11,8 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.stream.Stream;
 
+import static java.util.Map.entry;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class SourcePaperLayoutResolverTest {
@@ -121,30 +123,86 @@ class SourcePaperLayoutResolverTest {
 
         var tokens = resolver.bindingTokens(config);
 
+        var expected = java.util.Map.ofEntries(
+                entry("%h1LineHeight%", "842pt"),
+                entry("%h2LineHeight%", "842pt"),
+                entry("%h1LineWidth%", "53pt"),
+                entry("%h2LineWidth%", "53pt"),
+                entry("%h1LineTop%", "558pt"),
+                entry("%h2LineTop%", "558pt"),
+                entry("%h1MarginLeftIn%", "-99pt"),
+                entry("%h1MarginLeftInside%", "-46pt"),
+                entry("%h1MarginLeftOutside%", "-125pt"),
+                entry("%h1wordUpAndDown1%", "-584200"),
+                entry("%h1wordAbout1%", "-546100"),
+                entry("%h1wordUpAndDown2%", "-1257300"),
+                entry("%h1wordAbout2%", "-546100"),
+                entry("%h1wordUpAndDown3%", "-1257300"),
+                entry("%h1wordAbout3%", "-546100"),
+                entry("%h1wordUpAndDown4%", "-1257300"),
+                entry("%h1wordAbout4%", "9422000"),
+                entry("%h1wordUpAndDown5%", "-1587500"),
+                entry("%h1wordAbout5%", "-546100"),
+                entry("%h2wordUpAndDown1%", "13143100"),
+                entry("%h2wordAbout1%", "-546100"),
+                entry("%h2wordUpAndDown2%", "13473300"),
+                entry("%h2wordAbout2%", "-546100"),
+                entry("%h2wordUpAndDown3%", "13473300"),
+                entry("%h2wordAbout3%", "-546100"),
+                entry("%h2wordUpAndDown4%", "13473300"),
+                entry("%h2wordAbout4%", "9422000"),
+                entry("%h2wordUpAndDown5%", "14146400"),
+                entry("%h2wordAbout5%", "-546100"),
+                entry("%information%", "矿井____ 姓名____")
+        );
+        assertAll(expected.entrySet().stream()
+                .map(item -> () -> assertEquals(item.getValue(), tokens.values().get(item.getKey()), item.getKey())));
+        assertEquals(30, tokens.values().size());
+    }
+
+    @ParameterizedTest
+    @MethodSource("bindingTokenPageHeights")
+    void bindingTokenHeightUsesSourcePageHeightRulesForEveryPaperAndOrientation(
+            PageSize pageSize,
+            Orientation orientation,
+            String lineHeight,
+            String lineTop,
+            String h1BottomCoordinate,
+            String h2FirstCoordinate,
+            String h2LastCoordinate
+    ) {
+        PaperLayoutConfig config = defaults();
+        config.setPageSize(pageSize);
+        config.setOrientation(orientation);
+
+        var values = resolver.bindingTokens(config).values();
+
         assertAll(
-                () -> assertEquals("842pt", tokens.values().get("%h1LineHeight%")),
-                () -> assertEquals("558pt", tokens.values().get("%h1LineTop%")),
-                () -> assertEquals("53pt", tokens.values().get("%h2LineWidth%")),
-                () -> assertEquals("-99pt", tokens.values().get("%h1MarginLeftIn%")),
-                () -> assertEquals("-46pt", tokens.values().get("%h1MarginLeftInside%")),
-                () -> assertEquals("-125pt", tokens.values().get("%h1MarginLeftOutside%")),
-                () -> assertEquals("9422000", tokens.values().get("%h1wordAbout4%")),
-                () -> assertEquals("13143100", tokens.values().get("%h2wordUpAndDown1%")),
-                () -> assertEquals("14146400", tokens.values().get("%h2wordUpAndDown5%")),
-                () -> assertEquals("矿井____ 姓名____", tokens.values().get("%information%")),
-                () -> assertEquals(30, tokens.values().size())
+                () -> assertEquals(lineHeight, values.get("%h1LineHeight%")),
+                () -> assertEquals(lineHeight, values.get("%h2LineHeight%")),
+                () -> assertEquals(lineTop, values.get("%h1LineTop%")),
+                () -> assertEquals(lineTop, values.get("%h2LineTop%")),
+                () -> assertEquals(h1BottomCoordinate, values.get("%h1wordAbout4%")),
+                () -> assertEquals(h2FirstCoordinate, values.get("%h2wordUpAndDown1%")),
+                () -> assertEquals(h2LastCoordinate, values.get("%h2wordUpAndDown5%"))
         );
     }
 
-    @Test
-    void bindingTokenHeightUsesSourcePageHeightRulesForEveryPaperAndOrientation() {
-        PaperLayoutConfig config = defaults();
-        config.setPageSize(PageSize.B4);
-        config.setOrientation(Orientation.LANDSCAPE);
-        assertEquals("595pt", resolver.bindingTokens(config).values().get("%h1LineHeight%"));
-
-        config.setOrientation(Orientation.PORTRAIT);
-        assertEquals("842pt", resolver.bindingTokens(config).values().get("%h1LineHeight%"));
+    static Stream<Arguments> bindingTokenPageHeights() {
+        return Stream.of(
+                Arguments.of(PageSize.A3, Orientation.LANDSCAPE,
+                        "842pt", "558pt", "9422000", "13143100", "14146400"),
+                Arguments.of(PageSize.A3, Orientation.PORTRAIT,
+                        "1191pt", "907pt", "13850000", "17571100", "18574400"),
+                Arguments.of(PageSize.A4, Orientation.LANDSCAPE,
+                        "595pt", "312pt", "6290000", "10011100", "11014400"),
+                Arguments.of(PageSize.A4, Orientation.PORTRAIT,
+                        "842pt", "558pt", "9422000", "13143100", "14146400"),
+                Arguments.of(PageSize.B4, Orientation.LANDSCAPE,
+                        "595pt", "312pt", "6290000", "10011100", "11014400"),
+                Arguments.of(PageSize.B4, Orientation.PORTRAIT,
+                        "842pt", "558pt", "9422000", "13143100", "14146400")
+        );
     }
 
     @Test
