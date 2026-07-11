@@ -17,9 +17,32 @@ public final class ExamPaperDTO {
 
     public enum Orientation { PORTRAIT, LANDSCAPE }
 
+    public enum PaperRenderMode { TEMPLATE, SIMPLE }
+
+    public enum MarginPreset { NORMAL, NARROW, WIDE, BINDING, CUSTOM }
+
     public enum SelectionMode { RANDOM, MANUAL }
 
     public enum DownloadContent { PAPER, ANSWER }
+
+    @Data
+    public static class PaperLayoutConfig {
+        private PaperRenderMode renderMode = PaperRenderMode.TEMPLATE;
+        private PageSize pageSize = PageSize.A3;
+        private Orientation orientation = Orientation.LANDSCAPE;
+        private MarginPreset marginPreset = MarginPreset.BINDING;
+        private Integer customMarginTop;
+        private Integer customMarginRight;
+        private Integer customMarginBottom;
+        private Integer customMarginLeft;
+        private Integer columnsCount = 2;
+        private Integer columnSpace = 425;
+        private Boolean hasBindingLine = true;
+        private String headerInfo = "煤矿___________    部门___________   岗位___________    姓名___________";
+        private Integer titleFontSize = 50;
+        private Integer subtitleFontSize = 24;
+        private Integer bodyFontSize = 21;
+    }
 
     @Data
     public static class CreateRequest {
