@@ -5,6 +5,7 @@ import {
   QUESTION_GENERATION_AGENT_PREFIX,
   QUESTION_TYPE_OPTIONS,
   buildQuestionGenerationAgentMappings,
+  resolveQuestionGenerationAgentStatus,
 } from './agentConfig.js'
 
 test('exports the question generation agent prefix and five question types', () => {
@@ -28,5 +29,17 @@ test('builds question type mappings from enabled non-empty config rows', () => {
   ]), {
     single_choice: 'agent_a',
     multiple_choice: 'agent_b',
+  })
+})
+
+test('marks a mapping to an absent agent as missing and ignores its orphan model binding', () => {
+  assert.deepEqual(resolveQuestionGenerationAgentStatus(
+    'removed_agent',
+    [{ name: 'available_agent', enabled: true }],
+    { removed_agent: 'ai.service.text.orphan' },
+  ), {
+    exists: false,
+    enabled: null,
+    boundModel: '',
   })
 })

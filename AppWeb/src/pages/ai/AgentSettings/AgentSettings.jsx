@@ -17,6 +17,7 @@ import {
   isAgentEnabled,
   isToolEnabled,
   MODEL_MODALITY_LABELS,
+  resolveQuestionGenerationAgentStatus,
 } from '../agentConfig'
 import './AgentSettings.css'
 
@@ -460,12 +461,11 @@ function AgentSettings() {
 
   const questionAgentRows = useMemo(() => QUESTION_TYPE_OPTIONS.map((questionType) => {
     const agentName = draftQuestionAgentMappings[questionType.value] || ''
-    const agent = agents.find((item) => item.name === agentName)
+    const status = resolveQuestionGenerationAgentStatus(agentName, agents, agentModelBindings)
     return {
       ...questionType,
       agentName,
-      enabled: agent ? isAgentEnabled(agent) : null,
-      boundModel: agentName ? agentModelBindings[agentName] || '' : '',
+      ...status,
       changed: agentName !== (questionAgentMappings[questionType.value] || ''),
     }
   }), [agentModelBindings, agents, draftQuestionAgentMappings, questionAgentMappings])
@@ -497,7 +497,9 @@ function AgentSettings() {
       dataIndex: 'enabled',
       width: 120,
       render: (enabled, record) => record.agentName ? (
-        <Tag color={enabled === false ? 'red' : 'green'}>{enabled === false ? '已关闭' : '已启用'}</Tag>
+        record.exists
+          ? <Tag color={enabled === false ? 'red' : 'green'}>{enabled === false ? '已关闭' : '已启用'}</Tag>
+          : <Tag color="red">智能体不存在</Tag>
       ) : <Text type="secondary">未映射</Text>,
     },
     {
@@ -505,7 +507,9 @@ function AgentSettings() {
       dataIndex: 'boundModel',
       width: 220,
       render: (boundModel, record) => record.agentName ? (
-        boundModel ? <Tag color="geekblue">{boundModel}</Tag> : <Tag color="orange">未绑定</Tag>
+        record.exists
+          ? boundModel ? <Tag color="geekblue">{boundModel}</Tag> : <Tag color="orange">未绑定</Tag>
+          : <Tag color="orange">智能体不存在，绑定无效</Tag>
       ) : <Text type="secondary">-</Text>,
     },
     {

@@ -36,6 +36,18 @@ export const buildQuestionGenerationAgentMappings = (configRows = []) => {
   return mappings
 }
 
+export const resolveQuestionGenerationAgentStatus = (agentName, agents = [], bindings = {}) => {
+  const agent = agents.find((item) => item.name === agentName)
+  if (!agent) {
+    return { exists: false, enabled: null, boundModel: '' }
+  }
+  return {
+    exists: true,
+    enabled: isAgentEnabled(agent),
+    boundModel: agentName ? bindings[agentName] || '' : '',
+  }
+}
+
 export const getTestedModelPrefixes = () => {
   try {
     const raw = localStorage.getItem(AI_TESTED_MODEL_PREFIXES_KEY)

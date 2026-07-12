@@ -26,3 +26,21 @@
 - 未修改题目生成页面。
 - 未新增依赖。
 - 保留工作区中 Task 4 报告的既有未提交修改，不纳入本任务提交。
+
+## 审查修复：孤儿智能体映射
+
+- 新增纯函数 `resolveQuestionGenerationAgentStatus`，以实时 `agents` 清单为权威判断映射是否仍然存在。
+- 映射指向已删除智能体时，启用状态明确显示红色“智能体不存在”，不再误显示绿色“已启用”。
+- 同一情况下模型列显示橙色“智能体不存在，绑定无效”，并忽略残留的孤儿 binding。
+- 保存、草稿比较及由 `getRagAgents()` 动态生成下拉选项的逻辑保持不变。
+
+### 审查修复 TDD 证据
+
+- RED：先新增孤儿映射测试；`node --test src/pages/ai/agentConfig.test.js` 因缺少 `resolveQuestionGenerationAgentStatus` 导出而失败。
+- GREEN：最小实现状态解析与两列渲染后，定向测试 3/3 通过。
+
+### 审查修复验证
+
+- 全部前端 Node 测试：15/15 通过。
+- scoped ESLint（`agentConfig.js`、`agentConfig.test.js`、`AgentSettings.jsx`）：通过。
+- `npm run build`：通过；仅保留既有的大 chunk 警告。
