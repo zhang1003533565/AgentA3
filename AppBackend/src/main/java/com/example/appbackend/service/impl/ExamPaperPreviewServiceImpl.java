@@ -34,6 +34,7 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
     private final LibreOfficePreviewConverter converter;
     private final Path root;
     private final Duration ttl;
+    private final Duration cleanupInterval;
     private final Clock clock;
     private final Map<String, Metadata> previews = new ConcurrentHashMap<>();
 
@@ -42,19 +43,29 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
             @Value("${exam-paper.preview.soffice-path:soffice}") String sofficePath,
             @Value("${exam-paper.preview.timeout-seconds:30}") long timeoutSeconds,
             @Value("${exam-paper.preview.root:${java.io.tmpdir}/agent-a3-exam-preview}") String root,
-            @Value("${exam-paper.preview.ttl-minutes:30}") long ttlMinutes) {
+            @Value("${exam-paper.preview.ttl-minutes:30}") long ttlMinutes,
+            @Value("${exam-paper.preview.cleanup-interval-ms:60000}") long cleanupIntervalMs) {
         this(questionRepository, new ExamPaperDocumentDispatcher(), Path.of(root),
-                Duration.ofMinutes(ttlMinutes), Clock.systemUTC(), sofficePath, Duration.ofSeconds(timeoutSeconds));
+                Duration.ofMinutes(ttlMinutes), Clock.systemUTC(), sofficePath, Duration.ofSeconds(timeoutSeconds),
+                Duration.ofMillis(cleanupIntervalMs));
     }
 
     ExamPaperPreviewServiceImpl(ExamQuestionRepository questionRepository,
             ExamPaperDocumentDispatcher dispatcher, Path root, Duration ttl, Clock clock,
             String sofficePath, Duration timeout) {
+        this(questionRepository, dispatcher, root, ttl, clock, sofficePath, timeout, Duration.ofMinutes(1));
+    }
+
+    ExamPaperPreviewServiceImpl(ExamQuestionRepository questionRepository,
+            ExamPaperDocumentDispatcher dispatcher, Path root, Duration ttl, Clock clock,
+            String sofficePath, Duration timeout, Duration cleanupInterval) {
         this.questionRepository = questionRepository;
         this.dispatcher = dispatcher;
         this.root = root.toAbsolutePath().normalize();
         validateLifecycle(ttl);
         this.ttl = ttl;
+        validateCleanupInterval(cleanupInterval);
+        this.cleanupInterval = cleanupInterval;
         this.clock = clock;
         this.converter = new LibreOfficePreviewConverter(sofficePath, timeout, this.root);
     }
@@ -68,6 +79,7 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
         this.root = root.toAbsolutePath().normalize();
         validateLifecycle(ttl);
         this.ttl = ttl;
+        this.cleanupInterval = Duration.ofMinutes(1);
         this.clock = clock;
     }
 
@@ -148,6 +160,7 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
     }
 
     private void cleanupOrphans(Instant now) {
+        converter.requireOwnershipMarker();
         if (!Files.isDirectory(root, java.nio.file.LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(root)) return;
         try (var users = Files.list(root)) {
             users.filter(path -> Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)
@@ -277,6 +290,12 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
     private void validateLifecycle(Duration ttl) {
         if (ttl == null || ttl.isZero() || ttl.isNegative() || ttl.compareTo(Duration.ofHours(24)) > 0)
             throw new IllegalArgumentException("预览 TTL 必须在 0 到 24 小时之间");
+    }
+
+    private void validateCleanupInterval(Duration interval) {
+        if (interval == null || interval.isZero() || interval.isNegative()
+                || interval.compareTo(Duration.ofHours(1)) > 0)
+            throw new IllegalArgumentException("预览清理间隔必须在 0 到 1 小时之间");
     }
 
     private record Metadata(Long userId, Path path, Instant expiresAt, String configurationHash,

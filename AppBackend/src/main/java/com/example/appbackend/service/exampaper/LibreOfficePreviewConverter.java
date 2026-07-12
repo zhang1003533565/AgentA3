@@ -9,10 +9,13 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.time.Duration;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 public class LibreOfficePreviewConverter {
+    static final String OWNER_MARKER = ".agent-a3-exam-preview-owner";
+    static final String OWNER_CONTENT = "AgentA3 exam preview root v1\n";
     private final String sofficePath;
     private final Duration timeout;
     private final Path previewRoot;
@@ -31,10 +34,28 @@ public class LibreOfficePreviewConverter {
 
     public final void initializeRoot() {
         try {
+            Path filesystemRoot = previewRoot.getRoot().toRealPath();
+            Path systemTmp = Path.of(System.getProperty("java.io.tmpdir")).toRealPath();
+            if (previewRoot.equals(filesystemRoot) || (Files.exists(previewRoot) && previewRoot.toRealPath().equals(systemTmp))
+                    || previewRoot.equals(Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize()))
+                throw new IllegalArgumentException("预览根目录必须是专用子目录，不能使用文件系统根目录或系统临时目录本身");
+            boolean existed = Files.exists(previewRoot, LinkOption.NOFOLLOW_LINKS);
             Files.createDirectories(previewRoot);
             if (Files.isSymbolicLink(previewRoot) || !Files.isDirectory(previewRoot, LinkOption.NOFOLLOW_LINKS))
                 throw new IllegalArgumentException("预览根目录不能是符号链接或普通文件");
             previewRoot.toRealPath(LinkOption.NOFOLLOW_LINKS);
+            Path marker = previewRoot.resolve(OWNER_MARKER);
+            if (Files.exists(marker, LinkOption.NOFOLLOW_LINKS)) {
+                if (Files.isSymbolicLink(marker) || !Files.isRegularFile(marker, LinkOption.NOFOLLOW_LINKS)
+                        || !Files.readString(marker).equals(OWNER_CONTENT))
+                    throw new IllegalArgumentException("预览根目录所有权标记无效");
+            } else {
+                try (var entries = Files.list(previewRoot)) {
+                    if (existed && entries.findAny().isPresent())
+                        throw new IllegalArgumentException("拒绝接管非空且无所有权标记的预览根目录");
+                }
+                Files.writeString(marker, OWNER_CONTENT, StandardOpenOption.CREATE_NEW);
+            }
         } catch (IOException exception) {
             throw new IllegalArgumentException("无法创建预览根目录", exception);
         }
@@ -86,22 +107,44 @@ public class LibreOfficePreviewConverter {
     }
 
     private void terminate(Process process) {
-        try {
-            process.descendants().forEach(handle -> { if (handle.isAlive()) handle.destroyForcibly(); });
-        } catch (RuntimeException ignored) {
-            // Some restricted runtimes deny process-tree enumeration; the direct process is still forcibly killed.
-        }
+        DescendantSnapshot first = snapshotDescendants(process);
         process.destroyForcibly();
+        first.handles().forEach(handle -> { if (handle.isAlive()) handle.destroyForcibly(); });
+        awaitTermination(process, first.handles());
+        DescendantSnapshot second = snapshotDescendants(process);
+        second.handles().forEach(handle -> { if (handle.isAlive()) handle.destroyForcibly(); });
+        awaitTermination(process, second.handles());
+    }
+
+    private DescendantSnapshot snapshotDescendants(Process process) {
         try {
-            if (!process.waitFor(5, TimeUnit.SECONDS) || process.isAlive())
-                throw new BusinessException(Result.ERROR_CODE, "试卷预览转换进程无法终止");
+            return new DescendantSnapshot(new ArrayList<>(process.descendants().toList()), true);
+        } catch (RuntimeException denied) {
+            return new DescendantSnapshot(List.of(), false);
+        }
+    }
+
+    private void awaitTermination(Process process, List<ProcessHandle> descendants) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        try {
+            long remaining = Math.max(1, deadline - System.nanoTime());
+            process.waitFor(remaining, TimeUnit.NANOSECONDS);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new BusinessException(Result.ERROR_CODE, "等待预览转换进程终止时被中断");
         }
+        while (System.nanoTime() < deadline && descendants.stream().anyMatch(ProcessHandle::isAlive)) {
+            try { Thread.sleep(10); } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new BusinessException(Result.ERROR_CODE, "等待预览转换子进程终止时被中断");
+            }
+        }
+        if (process.isAlive() || descendants.stream().anyMatch(ProcessHandle::isAlive))
+            throw new BusinessException(Result.ERROR_CODE, "试卷预览转换进程树无法终止");
     }
 
     public Path createSafeDirectory(Path target) {
+        requireOwnershipMarker();
         Path normalized = normalizedDescendant(target);
         Path current = previewRoot;
         try {
@@ -125,6 +168,7 @@ public class LibreOfficePreviewConverter {
     }
 
     public void deleteRecursively(Path target) {
+        requireOwnershipMarker();
         if (target == null || !Files.exists(target, LinkOption.NOFOLLOW_LINKS)) return;
         Path normalized = normalizedDescendant(target);
         if (containsSymlink(normalized)) throw new IllegalArgumentException("拒绝清理包含符号链接的预览路径");
@@ -149,9 +193,21 @@ public class LibreOfficePreviewConverter {
         return normalized;
     }
 
+    public void requireOwnershipMarker() {
+        Path marker = previewRoot.resolve(OWNER_MARKER);
+        try {
+            if (Files.isSymbolicLink(marker) || !Files.isRegularFile(marker, LinkOption.NOFOLLOW_LINKS)
+                    || !Files.readString(marker).equals(OWNER_CONTENT))
+                throw new IllegalStateException("预览根目录所有权标记不存在或无效");
+        } catch (IOException exception) {
+            throw new IllegalStateException("无法验证预览根目录所有权标记", exception);
+        }
+    }
+
     private void deleteFile(Path path) {
         try { Files.deleteIfExists(path); } catch (IOException ignored) { }
     }
 
     public record ConversionResult(byte[] bytes, int pageCount) { }
+    private record DescendantSnapshot(List<ProcessHandle> handles, boolean enumerated) { }
 }

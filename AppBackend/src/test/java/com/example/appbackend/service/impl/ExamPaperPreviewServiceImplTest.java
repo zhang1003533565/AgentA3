@@ -102,11 +102,24 @@ class ExamPaperPreviewServiceImplTest {
         ExamQuestionRepository questions = mock(ExamQuestionRepository.class);
         ExamPaperDocumentDispatcher dispatcher = mock(ExamPaperDocumentDispatcher.class);
         var service = service(questions, dispatcher, Duration.ofSeconds(1), Clock.fixed(Instant.ofEpochSecond(10), ZoneOffset.UTC));
-        Path orphan = root.resolve("8").resolve(UUID.randomUUID().toString()); Files.createDirectories(orphan);
+        Path previewRoot = root.resolve("preview");
+        Path orphan = previewRoot.resolve("8").resolve(UUID.randomUUID().toString()); Files.createDirectories(orphan);
         Files.setLastModifiedTime(orphan, java.nio.file.attribute.FileTime.from(Instant.EPOCH));
-        Path unrelated = root.resolve("8").resolve("not-a-token"); Files.createDirectories(unrelated);
+        Path unrelated = previewRoot.resolve("8").resolve("not-a-token"); Files.createDirectories(unrelated);
         service.cleanupExpired();
         assertFalse(Files.exists(orphan)); assertTrue(Files.exists(unrelated));
+    }
+
+    @Test
+    void validatesProductionCleanupIntervalBounds() {
+        ExamQuestionRepository questions = mock(ExamQuestionRepository.class);
+        ExamPaperDocumentDispatcher dispatcher = mock(ExamPaperDocumentDispatcher.class);
+        assertThrows(IllegalArgumentException.class, () -> new ExamPaperPreviewServiceImpl(questions, dispatcher,
+                root.resolve("zero"), Duration.ofMinutes(30), Clock.systemUTC(), "x", Duration.ofSeconds(1), Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> new ExamPaperPreviewServiceImpl(questions, dispatcher,
+                root.resolve("wide"), Duration.ofMinutes(30), Clock.systemUTC(), "x", Duration.ofSeconds(1), Duration.ofHours(2)));
+        assertDoesNotThrow(() -> new ExamPaperPreviewServiceImpl(questions, dispatcher,
+                root.resolve("valid"), Duration.ofMinutes(30), Clock.systemUTC(), "x", Duration.ofSeconds(1), Duration.ofMinutes(1)));
     }
 
     private ExamPaperPreviewServiceImpl service(ExamQuestionRepository questions,
@@ -125,7 +138,7 @@ class ExamPaperPreviewServiceImplTest {
                 cp '%s' "$out/$base.pdf"
                 """.formatted(fixture));
         executable.toFile().setExecutable(true);
-        return new ExamPaperPreviewServiceImpl(questions, dispatcher, root, ttl, clock,
+        return new ExamPaperPreviewServiceImpl(questions, dispatcher, root.resolve("preview"), ttl, clock,
                 executable.toString(), Duration.ofSeconds(2));
     }
 
