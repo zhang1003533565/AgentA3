@@ -2,7 +2,9 @@ package com.example.appbackend.entity;
 
 import com.example.appbackend.dto.ExamPaperDTO;
 import com.example.appbackend.repository.ExamPaperQuestionRepository;
+import com.example.appbackend.repository.ExamPaperRepository;
 import jakarta.persistence.Column;
+import jakarta.persistence.PostLoad;
 import jakarta.persistence.Table;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.DecimalMin;
@@ -14,6 +16,8 @@ import jakarta.validation.constraints.Size;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -21,8 +25,42 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class ExamPaperPersistenceContractTest {
+
+    @Test
+    void publishingFieldsKeepBackwardCompatibleDatabaseContract() throws Exception {
+        Field publishedField = ExamPaper.class.getDeclaredField("published");
+        Column publishedColumn = publishedField.getAnnotation(Column.class);
+        assertNotNull(publishedColumn);
+        assertEquals("published", publishedColumn.name());
+        assertFalse(publishedColumn.nullable());
+        assertEquals("BIT NOT NULL DEFAULT 0", publishedColumn.columnDefinition());
+
+        Field publishTimeField = ExamPaper.class.getDeclaredField("publishTime");
+        Column publishTimeColumn = publishTimeField.getAnnotation(Column.class);
+        assertNotNull(publishTimeColumn);
+        assertEquals("publish_time", publishTimeColumn.name());
+        assertTrue(publishTimeColumn.nullable());
+        assertEquals("", publishTimeColumn.columnDefinition());
+
+        ExamPaper historicalPaper = new ExamPaper();
+        historicalPaper.setPublished(null);
+        Method postLoad = ExamPaper.class.getDeclaredMethod("applyHistoricalLayoutDefaults");
+        assertNotNull(postLoad.getAnnotation(PostLoad.class));
+        postLoad.setAccessible(true);
+        postLoad.invoke(historicalPaper);
+        assertFalse(historicalPaper.getPublished());
+    }
+
+    @Test
+    void repositoryExposesActivePaperDerivedQueryContract() throws Exception {
+        Method method = ExamPaperRepository.class.getMethod("findByIdAndStatus", Long.class, Integer.class);
+        assertEquals(java.util.Optional.class, method.getReturnType());
+        ParameterizedType returnType = (ParameterizedType) method.getGenericReturnType();
+        assertEquals(ExamPaper.class, returnType.getActualTypeArguments()[0]);
+    }
 
     @Test
     void paperContractContainsStableSnapshotAndLayoutFields() throws Exception {

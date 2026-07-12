@@ -105,7 +105,7 @@ public class ExamPaper {
     @Column(nullable = false)
     private Integer status = 1;
 
-    @Column(nullable = false, columnDefinition = "BIT NOT NULL DEFAULT 0")
+    @Column(name = "published", nullable = false, columnDefinition = "BIT NOT NULL DEFAULT 0")
     private Boolean published = false;
 
     @Column(name = "publish_time")

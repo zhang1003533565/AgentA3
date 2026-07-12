@@ -464,6 +464,22 @@ class ExamPaperServiceImplTest {
     }
 
     @Test
+    void publishAndUnpublishRejectMissingOrInactivePaper() {
+        when(paperRepository.findByIdAndStatus(3L, 1)).thenReturn(Optional.empty());
+
+        BusinessException publishError = assertThrows(BusinessException.class,
+                () -> service.publish(3L, 10L));
+        BusinessException unpublishError = assertThrows(BusinessException.class,
+                () -> service.unpublish(3L, 10L));
+
+        assertEquals(Result.NOT_FOUND_CODE, publishError.getCode());
+        assertEquals("试卷不存在", publishError.getMessage());
+        assertEquals(Result.NOT_FOUND_CODE, unpublishError.getCode());
+        assertEquals("试卷不存在", unpublishError.getMessage());
+        verify(paperRepository, never()).save(any());
+    }
+
+    @Test
     void publishRejectsEmptyPaper() {
         ExamPaper paper = publishablePaper(3L, 10L);
         paper.setQuestionCount(0);
@@ -484,6 +500,25 @@ class ExamPaperServiceImplTest {
         BusinessException error = assertThrows(BusinessException.class, () -> service.publish(3L, 10L));
 
         assertEquals(Result.BAD_REQUEST_CODE, error.getCode());
+        verify(paperRepository, never()).save(any());
+    }
+
+    @Test
+    void publishRejectsNullAndNegativeDuration() {
+        ExamPaper paper = publishablePaper(3L, 10L);
+        when(paperRepository.findByIdAndStatus(3L, 1)).thenReturn(Optional.of(paper));
+
+        paper.setDurationMinutes(null);
+        BusinessException nullError = assertThrows(BusinessException.class,
+                () -> service.publish(3L, 10L));
+        paper.setDurationMinutes(-1);
+        BusinessException negativeError = assertThrows(BusinessException.class,
+                () -> service.publish(3L, 10L));
+
+        assertEquals(Result.BAD_REQUEST_CODE, nullError.getCode());
+        assertEquals("考试时长必须为正数", nullError.getMessage());
+        assertEquals(Result.BAD_REQUEST_CODE, negativeError.getCode());
+        assertEquals("考试时长必须为正数", negativeError.getMessage());
         verify(paperRepository, never()).save(any());
     }
 

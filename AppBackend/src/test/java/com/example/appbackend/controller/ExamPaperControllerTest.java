@@ -222,6 +222,33 @@ class ExamPaperControllerTest {
     }
 
     @Test
+    void unpublishRejectsNonAdminWithoutCallingService() throws Exception {
+        mockMvc.perform(post("/api/exam/papers/7/unpublish")
+                        .requestAttr("userId", 42L)
+                        .requestAttr("role", "TEACHER"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void publishAndUnpublishAuthenticateBeforeCheckingAdminRole() throws Exception {
+        mockMvc.perform(post("/api/exam/papers/7/publish")
+                        .requestAttr("role", "ADMIN"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(401))
+                .andExpect(jsonPath("$.msg").value("请先登录"));
+        mockMvc.perform(post("/api/exam/papers/7/unpublish")
+                        .requestAttr("role", "ADMIN"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(401))
+                .andExpect(jsonPath("$.msg").value("请先登录"));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
     void publishDelegatesForAdminCreator() throws Exception {
         when(service.publish(7L, 42L)).thenReturn(new PaperVO());
 
