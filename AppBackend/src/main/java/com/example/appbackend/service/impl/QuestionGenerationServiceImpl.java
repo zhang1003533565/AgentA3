@@ -92,10 +92,10 @@ public class QuestionGenerationServiceImpl implements QuestionGenerationService 
         try {
             importRequest = objectMapper.readValue(answer, ExamQuestionDTO.ImportRequest.class);
         } catch (JsonProcessingException exception) {
-            response.setValid(false);
-            response.setIssues(List.of("智能体输出不是合法的题库 JSON"));
-            response.setGeneratedCount(0);
-            return response;
+            return invalidJsonResponse(response);
+        }
+        if (importRequest == null) {
+            return invalidJsonResponse(response);
         }
 
         importRequest.setSourceAgent(option.getAgentName());
@@ -118,6 +118,13 @@ public class QuestionGenerationServiceImpl implements QuestionGenerationService 
         response.setIssues(issues);
         response.setWarnings(review.getWarnings() == null ? List.of() : review.getWarnings());
         response.setValid(Boolean.TRUE.equals(review.getValid()) && issues.isEmpty());
+        return response;
+    }
+
+    private GenerationResponse invalidJsonResponse(GenerationResponse response) {
+        response.setValid(false);
+        response.setIssues(List.of("智能体输出不是合法的题库 JSON"));
+        response.setGeneratedCount(0);
         return response;
     }
 

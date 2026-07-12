@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.mock.web.MockMultipartFile;
 
 import java.util.HashMap;
 import java.util.List;
@@ -174,6 +175,19 @@ class QuestionGenerationServiceImplTest {
     }
 
     @Test
+    void literalNullJsonCannotBeImportedAndDoesNotReachReview() {
+        availableAgent();
+        when(pythonAiProxyService.queryQuestionGeneration(any(), any())).thenReturn("null");
+
+        GenerationResponse response = service().generate(command(null, null), AUTHORIZATION);
+
+        assertThat(response.getValid()).isFalse();
+        assertThat(response.getIssues()).containsExactly("智能体输出不是合法的题库 JSON");
+        assertThat(response.getGeneratedCount()).isZero();
+        verify(examQuestionService, never()).review(any(), any());
+    }
+
+    @Test
     void zeroQuestionsKeepsMissingInfoAndCannotBeImported() {
         availableAgent();
         stubReview(true, List.of());
@@ -198,7 +212,37 @@ class QuestionGenerationServiceImplTest {
 
         assertThat(response.getValid()).isFalse();
         assertThat(response.getIssues()).anyMatch(issue -> issue.contains("type 必须是 single_choice"));
-        verify(examQuestionService).review(any(), eq("single_choice"));
+        ArgumentCaptor<ExamQuestionDTO.ImportRequest> request =
+                ArgumentCaptor.forClass(ExamQuestionDTO.ImportRequest.class);
+        verify(examQuestionService).review(request.capture(), eq("single_choice"));
+        assertThat(request.getValue().getQuestions()).hasSize(2);
+        assertThat(request.getValue().getQuestions())
+                .extracting(question -> question.get("type"))
+                .containsExactly("single_choice", "true_false");
+    }
+
+    @Test
+    void forwardsDocxTxtAndTextSourcesUnchangedToMaterialParser() {
+        availableAgent();
+        stubReview(true, List.of());
+        when(pythonAiProxyService.queryQuestionGeneration(any(), any()))
+                .thenReturn(json(List.of(question("single_choice", "medium")), List.of()));
+        MockMultipartFile docx = new MockMultipartFile(
+                "file", "lesson.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                new byte[]{1, 2, 3});
+        MockMultipartFile txt = new MockMultipartFile(
+                "file", "lesson.txt", "text/plain", "文本内容".getBytes());
+
+        service().generate(new GenerationCommand(
+                "docx", docx, "docx-fallback", "single_choice", null, null, null), AUTHORIZATION);
+        service().generate(new GenerationCommand(
+                "txt", txt, "txt-fallback", "single_choice", null, null, null), AUTHORIZATION);
+        service().generate(new GenerationCommand(
+                "text", null, "直接文本", "single_choice", null, null, null), AUTHORIZATION);
+
+        verify(materialParser).parse("docx", docx, "docx-fallback");
+        verify(materialParser).parse("txt", txt, "txt-fallback");
+        verify(materialParser).parse("text", null, "直接文本");
     }
 
     @Test

@@ -329,6 +329,65 @@ class PythonAiProxyServiceTest {
     }
 
     @Test
+    void queryQuestionGeneration_shouldExtractAnswerAndOmitNullMaximum() throws Exception {
+        AtomicReference<String> requestBodyRef = new AtomicReference<>();
+        startQuestionGenerationServer(exchange -> {
+            requestBodyRef.set(readBody(exchange));
+            writeJson(exchange, 200, "{\"answer\":\"{\\\"questions\\\":[]}\"}");
+        });
+
+        String answer = newService(server.getAddress().getPort()).queryQuestionGeneration(
+                new PythonAiProxyService.QuestionGenerationPayload(
+                        "choice_agent", "依据材料出题", null, "hard"),
+                "Bearer " + buildJwtToken(2010L));
+
+        Assertions.assertEquals("{\"questions\":[]}", answer);
+        JsonNode request = new ObjectMapper().readTree(requestBodyRef.get());
+        Assertions.assertEquals("choice_agent", request.path("agentName").asText());
+        Assertions.assertEquals("依据材料出题", request.path("input").asText());
+        Assertions.assertEquals("hard", request.path("difficulty").asText());
+        Assertions.assertTrue(request.path("maxQuestions").isMissingNode());
+    }
+
+    @Test
+    void queryQuestionGeneration_shouldAcceptJsonStringResponse() throws Exception {
+        startQuestionGenerationServer(exchange -> writeJson(exchange, 200, "\"{\\\"questions\\\":[]}\""));
+
+        String answer = newService(server.getAddress().getPort()).queryQuestionGeneration(
+                new PythonAiProxyService.QuestionGenerationPayload(
+                        "choice_agent", "依据材料出题", 2, null),
+                "Bearer " + buildJwtToken(2011L));
+
+        Assertions.assertEquals("{\"questions\":[]}", answer);
+    }
+
+    @Test
+    void queryQuestionGeneration_shouldRejectMissingAnswerWithStableError() throws Exception {
+        startQuestionGenerationServer(exchange -> writeJson(exchange, 200, "{\"documents\":[]}"));
+
+        BusinessException error = Assertions.assertThrows(BusinessException.class, () ->
+                newService(server.getAddress().getPort()).queryQuestionGeneration(
+                        new PythonAiProxyService.QuestionGenerationPayload(
+                                "choice_agent", "依据材料出题", 2, null),
+                        "Bearer " + buildJwtToken(2012L)));
+
+        Assertions.assertEquals("Python AI 服务未返回题库生成答案", error.getMessage());
+    }
+
+    @Test
+    void queryQuestionGeneration_shouldRejectNonStringAnswerWithStableError() throws Exception {
+        startQuestionGenerationServer(exchange -> writeJson(exchange, 200, "{\"answer\":{\"questions\":[]}}"));
+
+        BusinessException error = Assertions.assertThrows(BusinessException.class, () ->
+                newService(server.getAddress().getPort()).queryQuestionGeneration(
+                        new PythonAiProxyService.QuestionGenerationPayload(
+                                "choice_agent", "依据材料出题", 2, null),
+                        "Bearer " + buildJwtToken(2013L)));
+
+        Assertions.assertEquals("Python AI 服务未返回题库生成答案", error.getMessage());
+    }
+
+    @Test
     void streamChat_shouldConsumeSseFromPythonEndpoint() throws Exception {
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/internal/chat/stream", new StreamingHandler());
@@ -401,6 +460,12 @@ class PythonAiProxyServiceTest {
     private void startAgentsServer(String responseJson) throws IOException {
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/internal/rag/agents", exchange -> writeJson(exchange, 200, responseJson));
+        server.start();
+    }
+
+    private void startQuestionGenerationServer(HttpHandler handler) throws IOException {
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/rag/query", handler);
         server.start();
     }
 
