@@ -8,6 +8,7 @@ import {
   SearchOutlined,
 } from '@ant-design/icons'
 import {
+  Alert,
   Button,
   Card,
   Col,
@@ -37,6 +38,7 @@ import { getExamQuestionList } from '../../../api/examQuestion'
 import ExamPaperFormatPanel from './ExamPaperFormatPanel'
 import ExamPaperPreview from './ExamPaperPreview'
 import {
+  DEFAULT_RANDOM_RULES,
   SOURCE_LAYOUT_DEFAULTS,
   buildExamPaperRequest,
   createPreviewSignature,
@@ -66,7 +68,7 @@ const difficultyOptions = [
 const initialValues = {
   durationMinutes: 60,
   selectionMode: 'manual',
-  rules: [{ type: 'single_choice', quantity: 5 }],
+  rules: DEFAULT_RANDOM_RULES.map((rule) => ({ ...rule })),
   layout: { ...SOURCE_LAYOUT_DEFAULTS },
 }
 
@@ -84,6 +86,7 @@ function ExamPaperCreate({ onCreated }) {
   const [questionRows, setQuestionRows] = useState([])
   const [questionLoading, setQuestionLoading] = useState(false)
   const [randomLoading, setRandomLoading] = useState(false)
+  const [randomError, setRandomError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState(null)
@@ -207,6 +210,7 @@ function ExamPaperCreate({ onCreated }) {
     }
 
     setRandomLoading(true)
+    setRandomError(null)
     try {
       const response = await randomPreviewExamPaper({
         rules: rules.rules.map((rule) => ({
@@ -218,7 +222,9 @@ function ExamPaperCreate({ onCreated }) {
       mergeQuestions(response.data?.questions || response.data || [])
       message.success('随机选题结果已合并')
     } catch (error) {
-      message.error(error.message || '随机选题失败')
+      const errorMessage = error.message || '随机选题失败'
+      setRandomError(errorMessage)
+      message.error(errorMessage)
     } finally {
       setRandomLoading(false)
     }
@@ -453,6 +459,7 @@ function ExamPaperCreate({ onCreated }) {
                   <Button icon={<PlusOutlined />} onClick={() => add({ type: 'single_choice', quantity: 1 })}>添加规则</Button>
                   <Button type="primary" icon={<ReloadOutlined />} loading={randomLoading} onClick={handleRandomPreview}>随机选题</Button>
                 </Space>
+                {randomError && <Alert type="error" showIcon message="随机选题失败" description={randomError} closable onClose={() => setRandomError(null)} />}
               </Space>
             )}
           </Form.List>

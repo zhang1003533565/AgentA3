@@ -16,6 +16,8 @@ export const SOURCE_LAYOUT_DEFAULTS = Object.freeze({
   bodyFontSize: 21,
 })
 
+export const DEFAULT_RANDOM_RULES = Object.freeze([{ type: 'single_choice', quantity: 1 }])
+
 export const shouldAcceptPreviewGeneration = ({
   generation,
   currentGeneration,

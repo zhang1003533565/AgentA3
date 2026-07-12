@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   SOURCE_LAYOUT_DEFAULTS,
+  DEFAULT_RANDOM_RULES,
   buildExamPaperRequest,
   createPreviewSignature,
   createPreviewProof,
@@ -16,6 +17,10 @@ test('表单校验失败时返回用户可见的首个错误', () => {
     errorFields: [{ errors: ['请输入试卷标题'] }],
   }), '请输入试卷标题')
   assert.equal(getValidationErrorMessage({}), '请检查试卷信息和页面格式')
+})
+
+test('随机选题默认只请求一道题，避免小题库首次操作必然失败', () => {
+  assert.deepEqual(DEFAULT_RANDOM_RULES, [{ type: 'single_choice', quantity: 1 }])
 })
 
 test('源码默认值保持 A3 横向装订双栏和 425 栏距', () => {

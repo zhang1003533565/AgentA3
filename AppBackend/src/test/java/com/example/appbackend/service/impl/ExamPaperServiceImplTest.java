@@ -90,8 +90,9 @@ class ExamPaperServiceImplTest {
         when(questionRepository.findActiveCandidates("single_choice", "easy"))
                 .thenReturn(List.of(question(1L)));
 
-        assertThrows(BusinessException.class,
+        BusinessException error = assertThrows(BusinessException.class,
                 () -> service.randomPreview(preview("single_choice", "easy", 2)));
+        assertEquals("单选题（简单）当前可用 1 道，请求 2 道，请减少数量或调整条件", error.getMessage());
     }
 
     @Test

@@ -124,7 +124,7 @@ public class ExamPaperServiceImpl implements ExamPaperService {
             List<ExamQuestion> candidates = new ArrayList<>(
                     questionRepository.findActiveCandidates(rule.getType(), rule.getDifficulty()));
             if (candidates.size() < rule.getQuantity()) {
-                throw new BusinessException(Result.BAD_REQUEST_CODE, "符合条件的题目数量不足");
+                throw new BusinessException(Result.BAD_REQUEST_CODE, insufficientCandidatesMessage(rule, candidates.size()));
             }
             shuffle(candidates);
             candidatesByRule.add(candidates);
@@ -162,6 +162,23 @@ public class ExamPaperServiceImpl implements ExamPaperService {
                 .map(QuestionSnapshotVO::getScore)
                 .reduce(BigDecimal.ZERO, BigDecimal::add));
         return result;
+    }
+
+    private String insufficientCandidatesMessage(RandomRule rule, int available) {
+        Map<String, String> typeLabels = Map.ofEntries(
+                Map.entry("single_choice", "单选题"), Map.entry("multiple_choice", "多选题"),
+                Map.entry("true_false", "判断题"), Map.entry("fill_blank", "填空题"),
+                Map.entry("short_answer", "简答题"), Map.entry("essay", "论述题"),
+                Map.entry("material_analysis", "材料分析题"), Map.entry("calculation", "计算题"),
+                Map.entry("proof", "证明题"), Map.entry("programming", "编程题"),
+                Map.entry("operation", "操作题"), Map.entry("matching", "匹配题"),
+                Map.entry("ordering", "排序题"), Map.entry("cloze", "完形填空"));
+        Map<String, String> difficultyLabels = Map.of("easy", "简单", "medium", "中等", "hard", "困难");
+        String type = typeLabels.getOrDefault(rule.getType(), rule.getType());
+        String difficulty = rule.getDifficulty() == null || rule.getDifficulty().isBlank()
+                ? "不限难度" : difficultyLabels.getOrDefault(rule.getDifficulty(), rule.getDifficulty());
+        return type + "（" + difficulty + "）当前可用 " + available + " 道，请求 "
+                + rule.getQuantity() + " 道，请减少数量或调整条件";
     }
 
     private boolean assign(RuleSlot slot,
