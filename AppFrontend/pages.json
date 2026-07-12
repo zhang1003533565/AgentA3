@@ -697,6 +697,31 @@
 					}
 				}
 			]
+		},
+		{
+			"root": "subpackage_exam",
+			"pages": [
+				{
+					"path": "paperList/paperList",
+					"style": { "navigationBarTitleText": "我的试卷", "navigationStyle": "custom" }
+				},
+				{
+					"path": "paperDetail/paperDetail",
+					"style": { "navigationBarTitleText": "试卷详情", "navigationStyle": "custom" }
+				},
+				{
+					"path": "attempt/attempt",
+					"style": { "navigationBarTitleText": "在线答题", "navigationStyle": "custom" }
+				},
+				{
+					"path": "attemptHistory/attemptHistory",
+					"style": { "navigationBarTitleText": "答题历史", "navigationStyle": "custom" }
+				},
+				{
+					"path": "attemptResult/attemptResult",
+					"style": { "navigationBarTitleText": "答题结果", "navigationStyle": "custom" }
+				}
+			]
 		}
 	],
 	"preloadRule": {

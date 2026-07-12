@@ -55,6 +55,14 @@
           </view>
           <text class="cell-arrow">›</text>
         </view>
+        <view class="cell-divider"></view>
+        <view class="cell" @click="goToExamPapers">
+          <view class="cell-left">
+            <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/clipboard.svg" mode="aspectFit" /></view>
+            <text class="cell-label">我的试卷</text>
+          </view>
+          <text class="cell-arrow">›</text>
+        </view>
       </view>
       <!-- 12px 灰色隔离条 -->
       <view class="gap-bar"></view>
@@ -157,6 +165,9 @@ export default {
     },
     goToProfileRadar() {
       uni.navigateTo({ url: '/subpackage_ai/profileRadar/profileRadar' })
+    },
+    goToExamPapers() {
+      uni.navigateTo({ url: '/subpackage_exam/paperList/paperList' })
     },
     goToChangePassword() {
       uni.navigateTo({ url: '/pages/changePassword/changePassword' })
