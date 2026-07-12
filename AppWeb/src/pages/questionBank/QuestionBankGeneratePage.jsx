@@ -12,10 +12,13 @@ import { QUESTION_BANK_ROUTES } from './questionBankRoutes'
 import {
   buildGenerationFormData,
   buildImportPayload,
+  canEditQuestions,
   canImportQuestions,
+  invalidateReviewGeneration,
   normalizeQuestionForEditor,
   removeQuestionAndRenumber,
   serializeEditedQuestion,
+  updateFillBlankAnswers,
 } from './questionGenerationState'
 import './QuestionBankGeneratePage.css'
 
@@ -33,7 +36,33 @@ const DIFFICULTIES = [
 const listValue = (value) => Array.isArray(value) ? value.join('\n') : ''
 const splitLines = (value) => value.split('\n').map((item) => item.trim()).filter(Boolean)
 
-function QuestionEditor({ question, index, onChange, onDelete }) {
+function JsonDraftField({ label, value, requireArray = false, disabled, onChange, onInvalidate }) {
+  const serializedValue = JSON.stringify(value, null, 2)
+  const [draftValue, setDraftValue] = useState(serializedValue)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    setDraftValue(serializedValue)
+    setError('')
+  }, [serializedValue])
+
+  const updateDraft = (nextValue) => {
+    setDraftValue(nextValue)
+    onInvalidate()
+    try {
+      const parsed = JSON.parse(nextValue)
+      if (requireArray && !Array.isArray(parsed)) throw new Error('必须是 JSON 数组')
+      setError('')
+      onChange(parsed)
+    } catch (parseError) {
+      setError(parseError.message === '必须是 JSON 数组' ? parseError.message : '必须是有效 JSON')
+    }
+  }
+
+  return <label className={`qbg-field${error ? ' qbg-field--error' : ''}`}><span>{label}</span><TextArea disabled={disabled} status={error ? 'error' : undefined} value={draftValue} autoSize={{ minRows: 3 }} onChange={(event) => updateDraft(event.target.value)} />{error && <Text type="danger">{error}</Text>}</label>
+}
+
+function QuestionEditor({ question, index, disabled, onChange, onDelete, onInvalidate }) {
   const patch = (changes) => onChange(index, { ...question, ...changes })
   const patchBody = (changes) => patch({ body: { ...question.body, ...changes } })
   const patchAnswer = (changes) => patch({ answer: { ...question.answer, ...changes } })
@@ -47,12 +76,13 @@ function QuestionEditor({ question, index, onChange, onDelete }) {
     <Card
       className="qbg-question-card"
       title={`第 ${question.displayNumber ?? index + 1} 题 · ${TYPE_LABELS[question.type] ?? question.type}`}
-      extra={<Button danger type="text" icon={<DeleteOutlined />} onClick={() => onDelete(index)}>删除</Button>}
+      extra={<Button danger disabled={disabled} type="text" icon={<DeleteOutlined />} onClick={() => onDelete(index)}>删除</Button>}
     >
+      <fieldset className="qbg-editor-fieldset" disabled={disabled}>
       <div className="qbg-editor-grid">
         <label className="qbg-field qbg-field--wide"><span>题干</span><TextArea value={question.stem} autoSize={{ minRows: 2 }} onChange={(event) => patch({ stem: event.target.value })} /></label>
-        <label className="qbg-field"><span>分值</span><InputNumber min={0} value={question.score} onChange={(score) => patch({ score })} /></label>
-        <label className="qbg-field"><span>难度</span><Select allowClear value={question.difficulty} options={DIFFICULTIES} onChange={(difficulty) => patch({ difficulty })} /></label>
+        <label className="qbg-field"><span>分值</span><InputNumber disabled={disabled} min={0.01} value={question.score} onChange={(score) => patch({ score })} /></label>
+        <label className="qbg-field"><span>难度</span><Select disabled={disabled} value={question.difficulty} options={DIFFICULTIES} onChange={(difficulty) => patch({ difficulty })} /></label>
         <label className="qbg-field"><span>知识点（每行一个）</span><TextArea value={listValue(question.knowledgePoints)} onChange={(event) => patch({ knowledgePoints: splitLines(event.target.value) })} /></label>
         <label className="qbg-field"><span>标签（每行一个）</span><TextArea value={listValue(question.tags)} onChange={(event) => patch({ tags: splitLines(event.target.value) })} /></label>
       </div>
@@ -60,12 +90,12 @@ function QuestionEditor({ question, index, onChange, onDelete }) {
       {(question.type === 'single_choice' || question.type === 'multiple_choice') && (
         <div className="qbg-options-editor">
           <Text strong>选项与正确答案</Text>
-          {options.map((option, optionIndex) => (
+          {question.type === 'single_choice' ? <Radio.Group disabled={disabled} value={question.answer?.correctOption} onChange={(event) => patchAnswer({ correctOption: event.target.value })}>{options.map((option, optionIndex) => (
+            <Space key={option.key ?? optionIndex} className="qbg-option-row" align="start"><Radio value={option.key}>{option.key}</Radio><Input value={option.text} onChange={(event) => updateOption(optionIndex, event.target.value)} /></Space>
+          ))}</Radio.Group> : options.map((option, optionIndex) => (
             <Space key={option.key ?? optionIndex} className="qbg-option-row" align="start">
-              {question.type === 'single_choice' ? (
-                <Radio checked={question.answer?.correctOption === option.key} onChange={() => patchAnswer({ correctOption: option.key })}>{option.key}</Radio>
-              ) : (
-                <Checkbox
+              <Checkbox
+                  disabled={disabled}
                   checked={(question.answer?.correctOptions ?? []).includes(option.key)}
                   onChange={(event) => {
                     const selected = new Set(question.answer?.correctOptions ?? [])
@@ -73,7 +103,6 @@ function QuestionEditor({ question, index, onChange, onDelete }) {
                     patchAnswer({ correctOptions: [...selected] })
                   }}
                 >{option.key}</Checkbox>
-              )}
               <Input value={option.text} onChange={(event) => updateOption(optionIndex, event.target.value)} />
             </Space>
           ))}
@@ -92,8 +121,8 @@ function QuestionEditor({ question, index, onChange, onDelete }) {
           <label className="qbg-field"><span>带空格的题文</span><TextArea value={question.body?.text} onChange={(event) => patchBody({ text: event.target.value })} /></label>
           <Text strong>空格与可接受答案</Text>
           {(question.body?.blanks ?? []).map((blank, blankIndex) => {
-            const answerBlank = (question.answer?.blanks ?? [])[blankIndex] ?? { id: blank.id, answers: [] }
-            return <Space key={blank.id ?? blankIndex} className="qbg-option-row" align="start"><Input value={blank.placeholder} placeholder="空格提示" onChange={(event) => patchBody({ blanks: question.body.blanks.map((item, current) => current === blankIndex ? { ...item, placeholder: event.target.value } : item) })} /><Input value={(answerBlank.answers ?? []).join(' / ')} placeholder="多个答案用 / 分隔" onChange={(event) => patchAnswer({ blanks: (question.answer?.blanks ?? []).map((item, current) => current === blankIndex ? { ...item, answers: event.target.value.split('/').map((value) => value.trim()).filter(Boolean) } : item) })} /></Space>
+            const answerBlank = (question.answer?.blanks ?? []).find((item) => item.id === blank.id) ?? { id: blank.id, answers: [] }
+            return <Space key={blank.id ?? blankIndex} className="qbg-option-row" align="start"><Input value={blank.placeholder} placeholder="空格提示" onChange={(event) => patchBody({ blanks: question.body.blanks.map((item, current) => current === blankIndex ? { ...item, placeholder: event.target.value } : item) })} /><Input value={(answerBlank.answers ?? []).join(' / ')} placeholder="多个答案用 / 分隔" onChange={(event) => patchAnswer({ blanks: updateFillBlankAnswers(question.answer?.blanks, blank.id, event.target.value.split('/').map((value) => value.trim()).filter(Boolean)) })} /></Space>
           })}
         </div>
       )}
@@ -107,11 +136,12 @@ function QuestionEditor({ question, index, onChange, onDelete }) {
 
       <label className="qbg-field qbg-field--wide"><span>解析</span><TextArea value={question.analysis} autoSize={{ minRows: 2 }} onChange={(event) => patch({ analysis: event.target.value })} /></label>
       <div className="qbg-editor-grid">
-        <label className="qbg-field"><span>评分规则（JSON）</span><TextArea defaultValue={JSON.stringify(question.scoring, null, 2)} autoSize={{ minRows: 3 }} onBlur={(event) => { try { patch({ scoring: JSON.parse(event.target.value) }) } catch { message.warning('评分规则必须是有效 JSON') } }} /></label>
-        <label className="qbg-field"><span>来源依据（JSON 数组）</span><TextArea defaultValue={JSON.stringify(question.sourceBasis, null, 2)} autoSize={{ minRows: 3 }} onBlur={(event) => { try { const value = JSON.parse(event.target.value); if (!Array.isArray(value)) throw new Error(); patch({ sourceBasis: value }) } catch { message.warning('来源依据必须是有效 JSON 数组') } }} /></label>
+        <JsonDraftField label="评分规则（JSON）" value={question.scoring} disabled={disabled} onInvalidate={onInvalidate} onChange={(scoring) => patch({ scoring })} />
+        <JsonDraftField label="来源依据（JSON 数组）" value={question.sourceBasis} requireArray disabled={disabled} onInvalidate={onInvalidate} onChange={(sourceBasis) => patch({ sourceBasis })} />
       </div>
       <Text type="secondary">来源 ID：{question.id ?? question.sourceQuestionId ?? '-'}
       </Text>
+      </fieldset>
     </Card>
   )
 }
@@ -123,6 +153,7 @@ export default function QuestionBankGeneratePage() {
   const [fileList, setFileList] = useState([])
   const [options, setOptions] = useState([])
   const [optionsLoading, setOptionsLoading] = useState(true)
+  const [optionsError, setOptionsError] = useState('')
   const [generating, setGenerating] = useState(false)
   const [draft, setDraft] = useState(null)
   const [questions, setQuestions] = useState([])
@@ -142,13 +173,26 @@ export default function QuestionBankGeneratePage() {
     reviewSequence.current += 1
   }, [])
 
-  useEffect(() => {
-    let active = true
-    getQuestionGenerationOptions().then((response) => {
-      if (active) setOptions(response.data?.questionTypes ?? [])
-    }).catch(() => {}).finally(() => { if (active) setOptionsLoading(false) })
-    return () => { active = false }
+  const loadOptions = useCallback(async () => {
+    setOptionsLoading(true)
+    setOptionsError('')
+    try {
+      const response = await getQuestionGenerationOptions()
+      if (!mounted.current) return
+      setOptions(response.data?.questionTypes ?? [])
+    } catch {
+      if (mounted.current) {
+        setOptions([])
+        setOptionsError('题型选项加载失败，当前无法安全生成题目。')
+      }
+    } finally {
+      if (mounted.current) setOptionsLoading(false)
+    }
   }, [])
+
+  useEffect(() => {
+    loadOptions()
+  }, [loadOptions])
 
   useEffect(() => {
     if (!draft || revision === 0) return undefined
@@ -197,12 +241,16 @@ export default function QuestionBankGeneratePage() {
   }
 
   const handleGenerate = async (values) => {
-    if (generationLock.current) return
+    if (generationLock.current || importing || importResult || optionsError || optionsLoading) return
     generationLock.current = true
+    reviewSequence.current = invalidateReviewGeneration(reviewSequence.current)
+    setReview(null)
+    setReviewing(false)
     setGenerating(true)
     try {
       const response = await generateQuestions(buildGenerationFormData(values, fileList[0]?.originFileObj))
       const nextDraft = response.data
+      reviewSequence.current = invalidateReviewGeneration(reviewSequence.current)
       setDraft(nextDraft)
       setQuestions((nextDraft.questions ?? []).map((question, index) => ({ ...normalizeQuestionForEditor(question), displayNumber: index + 1 })))
       setReview({ valid: nextDraft.valid, issues: nextDraft.issues ?? [], warnings: nextDraft.warnings ?? [] })
@@ -216,19 +264,22 @@ export default function QuestionBankGeneratePage() {
   }
 
   const updateQuestion = (index, question) => {
+    if (!canEditQuestions({ importing, completed: Boolean(importResult) })) return
     setQuestions((current) => current.map((item, currentIndex) => currentIndex === index ? serializeEditedQuestion(question) : item))
     setReview(null)
     setRevision((value) => value + 1)
   }
 
   const deleteQuestion = (index) => {
+    if (!canEditQuestions({ importing, completed: Boolean(importResult) })) return
     setQuestions((current) => removeQuestionAndRenumber(current, index))
     setReview(null)
     setRevision((value) => value + 1)
   }
 
   const handleImport = async () => {
-    if (importLock.current || !canImportQuestions(review, questions)) return
+    const status = { importing, completed: Boolean(importResult) }
+    if (importLock.current || !canImportQuestions(review, questions, status)) return
     importLock.current = true
     setImporting(true)
     try {
@@ -243,11 +294,14 @@ export default function QuestionBankGeneratePage() {
 
   const selectedOption = options.find((option) => option.type === selectedQuestionType)
   const displayedReview = review ?? { valid: false, issues: [], warnings: [] }
+  const editStatus = { importing, completed: Boolean(importResult) }
+  const editingEnabled = canEditQuestions(editStatus)
 
   return (
     <div className="qbg-page">
       <section className="qbg-hero"><span>QUESTION GENERATOR</span><Title level={1}>题库智能生成</Title><Paragraph>从文本或课程文件生成题目，逐题编辑并复审后导入题库。</Paragraph></section>
-      <Card title="1. 选择来源与生成参数" className="qbg-panel">
+      {!importResult && <Card title="1. 选择来源与生成参数" className="qbg-panel">
+        {optionsError && <Alert className="qbg-options-error" type="error" showIcon message={optionsError} action={<Button size="small" onClick={loadOptions} loading={optionsLoading}>重试</Button>} />}
         <Spin spinning={optionsLoading}>
           <Form form={form} layout="vertical" initialValues={{ sourceType: 'text' }} onFinish={handleGenerate}>
             <Form.Item name="sourceType" label="来源类型"><Segmented block value={sourceType} options={[{ value: 'text', label: '粘贴文本' }, { value: 'docx', label: 'DOCX 文件' }, { value: 'txt', label: 'TXT 文件' }]} onChange={changeSourceType} /></Form.Item>
@@ -259,19 +313,19 @@ export default function QuestionBankGeneratePage() {
               <Form.Item name="sourceTitle" label="来源标题"><Input maxLength={160} placeholder="可选" /></Form.Item>
             </div>
             {selectedOption && <Alert type={selectedOption.available ? 'info' : 'warning'} showIcon message={selectedOption.available ? `执行智能体：${selectedOption.agentRole || selectedOption.agentName}` : selectedOption.unavailableReason} />}
-            <Button className="qbg-primary" type="primary" htmlType="submit" loading={generating} disabled={generating || (sourceType !== 'text' && fileList.length !== 1)}>生成题目</Button>
+            <Button className="qbg-primary" type="primary" htmlType="submit" loading={generating} disabled={optionsLoading || Boolean(optionsError) || generating || importing || (sourceType !== 'text' && fileList.length !== 1)}>生成题目</Button>
           </Form>
         </Spin>
-      </Card>
+      </Card>}
 
-      {draft && <Card title="2. 预览、编辑与复审" className="qbg-panel" extra={<Tag color="blue">来源智能体：{draft.agentName}</Tag>}>
+      {draft && !importResult && <Card title="2. 预览、编辑与复审" className="qbg-panel" extra={<Tag color="blue">来源智能体：{draft.agentName}</Tag>}>
         <div className="qbg-stats"><Statistic title="生成题数" value={questions.length} /><Statistic title="题型" value={TYPE_LABELS[draft.questionType] ?? draft.questionType} /><Statistic title="来源" value={draft.sourceTitle || draft.originalFilename || '-'} /></div>
         {!!draft.missingInfo?.length && <Alert showIcon type="info" message="缺失信息" description={<List size="small" dataSource={draft.missingInfo} renderItem={(item) => <List.Item>{item}</List.Item>} />} />}
         {!!displayedReview.issues?.length && <Alert showIcon type="error" message="必须修复的问题" description={displayedReview.issues.join('；')} />}
         {!!displayedReview.warnings?.length && <Alert showIcon type="warning" message="建议检查" description={displayedReview.warnings.join('；')} />}
         <Divider />
-        {questions.length ? questions.map((question, index) => <QuestionEditor key={`${question.id ?? question.sourceQuestionId ?? 'question'}-${index}`} question={question} index={index} onChange={updateQuestion} onDelete={deleteQuestion} />) : <Empty description="当前没有可导入的题目" />}
-        <div className="qbg-review-actions"><Text type="secondary">{reviewing ? '正在复审编辑结果…' : displayedReview.valid ? '已通过复审' : '未通过复审'}</Text><Button type="primary" loading={importing} disabled={reviewing || importing || !canImportQuestions(review, questions)} onClick={handleImport}>导入题库</Button></div>
+        {questions.length ? questions.map((question, index) => <QuestionEditor key={`${question.id ?? question.sourceQuestionId ?? 'question'}-${index}`} question={question} index={index} disabled={!editingEnabled} onChange={updateQuestion} onDelete={deleteQuestion} onInvalidate={() => setReview(null)} />) : <Empty description="当前没有可导入的题目" />}
+        <div className="qbg-review-actions"><Text type="secondary">{reviewing ? '正在复审编辑结果…' : displayedReview.valid ? '已通过复审' : '未通过复审'}</Text><Button type="primary" loading={importing} disabled={reviewing || !canImportQuestions(review, questions, editStatus)} onClick={handleImport}>导入题库</Button></div>
       </Card>}
 
       {importResult && <Card title="3. 导入完成" className="qbg-panel qbg-success"><Alert showIcon type="success" message={`成功导入 ${importResult.importedCount ?? questions.length} 道题`} /><Space><Button type="primary" onClick={() => navigate(QUESTION_BANK_ROUTES.questions)}>查看题库</Button><Button onClick={resetGeneration}>继续生成</Button></Space></Card>}

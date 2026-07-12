@@ -3,10 +3,13 @@ import test from 'node:test'
 import {
   buildGenerationFormData,
   buildImportPayload,
+  canEditQuestions,
   canImportQuestions,
+  invalidateReviewGeneration,
   normalizeQuestionForEditor,
   removeQuestionAndRenumber,
   serializeEditedQuestion,
+  updateFillBlankAnswers,
 } from './questionGenerationState.js'
 
 const entries = (formData) => Object.fromEntries(formData.entries())
@@ -165,4 +168,48 @@ test('警告不阻断已通过复审的导入', () => {
 
 test('零题时即使 review valid=true 也禁止导入', () => {
   assert.equal(canImportQuestions({ valid: true, issues: [], warnings: [] }, []), false)
+})
+
+test('填空答案按 blank id 更新而不是按数组下标更新', () => {
+  const answers = [
+    { id: 'blank-b', answers: ['乙'] },
+    { id: 'blank-a', answers: ['甲'] },
+  ]
+
+  assert.deepEqual(updateFillBlankAnswers(answers, 'blank-a', ['新答案']), [
+    { id: 'blank-b', answers: ['乙'] },
+    { id: 'blank-a', answers: ['新答案'] },
+  ])
+})
+
+test('填空答案缺少对应 blank id 时补建记录', () => {
+  assert.deepEqual(updateFillBlankAnswers([{ id: 'blank-a', answers: ['甲'] }], 'blank-b', ['乙']), [
+    { id: 'blank-a', answers: ['甲'] },
+    { id: 'blank-b', answers: ['乙'] },
+  ])
+})
+
+test('review issues 非空时即使 valid=true 也禁止导入且 warnings 不阻断', () => {
+  const questions = [{ id: 'q-1' }]
+  assert.equal(canImportQuestions({ valid: true, issues: ['题干缺失'], warnings: [] }, questions), false)
+  assert.equal(canImportQuestions({ valid: true, issues: [], warnings: ['建议补充解析'] }, questions), true)
+})
+
+test('导入中和导入完成状态冻结编辑并禁止再次导入', () => {
+  const review = { valid: true, issues: [], warnings: [] }
+  const questions = [{ id: 'q-1' }]
+
+  assert.equal(canEditQuestions({ importing: true, completed: false }), false)
+  assert.equal(canEditQuestions({ importing: false, completed: true }), false)
+  assert.equal(canEditQuestions({ importing: false, completed: false }), true)
+  assert.equal(canImportQuestions(review, questions, { importing: true, completed: false }), false)
+  assert.equal(canImportQuestions(review, questions, { importing: false, completed: true }), false)
+})
+
+test('重新生成开始和成功都推进复审代数使旧请求失效', () => {
+  const started = invalidateReviewGeneration(7)
+  const succeeded = invalidateReviewGeneration(started)
+
+  assert.equal(started, 8)
+  assert.equal(succeeded, 9)
 })

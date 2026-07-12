@@ -40,6 +40,24 @@ export const removeQuestionAndRenumber = (questions, removedIndex) => questions
   .filter((_, index) => index !== removedIndex)
   .map((question, index) => ({ ...question, displayNumber: index + 1 }))
 
-export const canImportQuestions = (review, questions) => (
-  Boolean(review?.valid) && Array.isArray(questions) && questions.length > 0
+export const updateFillBlankAnswers = (answerBlanks, blankId, answers) => {
+  const current = Array.isArray(answerBlanks) ? answerBlanks : []
+  const found = current.some((blank) => blank.id === blankId)
+  if (!found) return [...current, { id: blankId, answers }]
+  return current.map((blank) => blank.id === blankId ? { ...blank, answers } : blank)
+}
+
+export const invalidateReviewGeneration = (generation) => generation + 1
+
+export const canEditQuestions = ({ importing = false, completed = false } = {}) => (
+  !importing && !completed
+)
+
+export const canImportQuestions = (review, questions, status) => (
+  canEditQuestions(status)
+  && Boolean(review?.valid)
+  && Array.isArray(review?.issues)
+  && review.issues.length === 0
+  && Array.isArray(questions)
+  && questions.length > 0
 )

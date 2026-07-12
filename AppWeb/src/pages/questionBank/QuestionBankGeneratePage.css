@@ -8,11 +8,16 @@
 .qbg-upload-icon { color: #1677ff; font-size: 36px; }
 .qbg-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 18px; }
 .qbg-panel .ant-alert + .ant-alert { margin-top: 12px; }
+.qbg-options-error { margin-bottom: 16px; }
 .qbg-question-card { margin-bottom: 16px; background: #fbfcff; }
+.qbg-editor-fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.qbg-editor-fieldset:disabled { opacity: .68; }
 .qbg-field { display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; }
 .qbg-field > span { color: rgba(0, 0, 0, .65); font-size: 13px; }
+.qbg-field--error > span { color: #ff4d4f; }
 .qbg-field--wide { grid-column: 1 / -1; }
 .qbg-options-editor { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.qbg-options-editor .ant-radio-group { display: flex; flex-direction: column; gap: 10px; }
 .qbg-option-row { display: grid; grid-template-columns: 80px minmax(0, 1fr); width: 100%; }
 .qbg-review-actions { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-top: 18px; }
 .qbg-success .ant-alert { margin-bottom: 16px; }

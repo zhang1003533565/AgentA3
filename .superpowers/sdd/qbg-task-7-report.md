@@ -23,3 +23,21 @@
 - `node --test`：29/29 通过。
 - `npx eslint src/pages/questionBank/QuestionBankGeneratePage.jsx src/pages/questionBank/questionGenerationState.js src/api/questionGeneration.js`：通过。
 - `npm run build`：通过；仅有既有的 chunk size 警告。
+
+## 审查修复
+
+- 填空题答案改为按 `body.blanks[].id` 查找和更新 `answer.blanks`，缺失记录自动补建，不再依赖数组下标一致。
+- 导入门禁显式要求 `review.valid=true`、`issues` 为数组且为空、题目非空；`warnings` 不阻断，并增加 `importing/completed` 状态门禁。
+- 重新生成开始与成功均推进复审代数，旧复审响应无法覆盖新生成草稿。
+- 导入期间冻结逐题编辑和删除；导入完成后隐藏第二阶段，只保留查看题库和继续生成动作。
+- options 加载失败改为持久错误 Alert 和重试按钮；加载成功前禁止生成。
+- 单选题答案使用受控 `Radio.Group`；题目分值最小值严格大于 0，题目难度不可清空。
+- `scoring` 与 `sourceBasis` 使用受控 JSON 草稿和字段级错误；任何文本变化立即使旧复审失效，只有解析成功（且 `sourceBasis` 为数组）才更新待导入题目并触发复审。
+
+## 审查修复 TDD 与验证
+
+- RED：新增纯函数测试后，因 `canEditQuestions` 等导出不存在而按预期失败。
+- GREEN：定向状态测试 19/19 通过。
+- 全量 Node 测试 34/34 通过。
+- scoped ESLint 通过。
+- Vite production build 通过；仅有既有 chunk size 警告。
