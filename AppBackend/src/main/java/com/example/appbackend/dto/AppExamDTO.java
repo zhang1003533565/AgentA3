@@ -56,6 +56,7 @@ public final class AppExamDTO {
         private ExamPaperAttempt.Status status;
         private LocalDateTime startedAt;
         private LocalDateTime deadlineAt;
+        private LocalDateTime serverNow;
         private LocalDateTime submittedAt;
         private Integer answeredCount;
         private Integer questionCount;

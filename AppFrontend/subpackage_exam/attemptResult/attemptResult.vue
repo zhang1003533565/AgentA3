@@ -35,7 +35,7 @@ export default {
       catch (error) { this.result = null; this.errorMessage = error?.msg || error?.message || '请稍后重试' }
     },
     statusText(status) { return status === 'AUTO_SUBMITTED' ? '超时交卷' : '已交卷' },
-    judgeText(question) { if (question.correct === true) return `正确 +${question.score ?? 0}`; if (question.correct === false) return '错误'; return '简答题' },
+    judgeText(question) { if (question.correct === true) return `正确 +${question.maxScore ?? 0}`; if (question.correct === false) return '错误'; return '简答题' },
     answerText(json) {
       if (!json) return '未作答'
       try {

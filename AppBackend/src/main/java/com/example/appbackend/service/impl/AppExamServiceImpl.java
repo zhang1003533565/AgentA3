@@ -56,17 +56,20 @@ public class AppExamServiceImpl implements AppExamService {
         PageRequest pageable = PageRequest.of(page, size);
         String normalizedKeyword = keyword == null ? "" : keyword.trim();
         Page<ExamPaper> papers = normalizedKeyword.isEmpty()
-                ? paperRepository.findByPublishedTrueAndStatusOrderByPublishTimeDesc(1, pageable)
-                : paperRepository.findByPublishedTrueAndStatusAndTitleContainingOrderByPublishTimeDesc(
-                        1, normalizedKeyword, pageable);
+                ? paperRepository.findAppVisible(1, userId, pageable)
+                : paperRepository.findAppVisibleByTitle(1, userId, normalizedKeyword, pageable);
         return papers.map(paper -> toSummary(paper, userId));
     }
 
     @Override
     @Transactional(readOnly = true)
     public AppExamDTO.PaperDetail paperDetail(Long paperId, Long userId) {
-        ExamPaper paper = paperRepository.findByIdAndStatusAndPublishedTrue(paperId, 1)
-                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "试卷不存在或已下架"));
+        ExamPaper paper = paperRepository.findByIdAndStatus(paperId, 1)
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "试卷不存在"));
+        if (!Boolean.TRUE.equals(paper.getPublished())
+                && !attemptRepository.existsByPaperIdAndUserId(paperId, userId)) {
+            throw new BusinessException(Result.NOT_FOUND_CODE, "试卷不存在或已下架");
+        }
         AppExamDTO.PaperDetail detail = new AppExamDTO.PaperDetail();
         copySummary(toSummary(paper, userId), detail);
         detail.setPrecautions(paper.getPrecautions());
@@ -80,7 +83,7 @@ public class AppExamServiceImpl implements AppExamService {
                 .findByPaperIdAndUserIdAndActiveMarker(paperId, userId, 1)
                 .orElse(null);
         if (active != null && active.getDeadlineAt().isAfter(now)) {
-            return toAttemptDetail(active);
+            return toAttemptDetail(active, now);
         }
 
         ExamPaper paper = paperRepository.findByIdAndStatusForUpdate(paperId, 1)
@@ -88,7 +91,7 @@ public class AppExamServiceImpl implements AppExamService {
         active = attemptRepository.findByPaperIdAndUserIdAndActiveMarker(paperId, userId, 1)
                 .orElse(null);
         if (active != null && active.getDeadlineAt().isAfter(now)) {
-            return toAttemptDetail(active);
+            return toAttemptDetail(active, now);
         }
         if (active != null) {
             autoSubmit(active, now);
@@ -107,7 +110,7 @@ public class AppExamServiceImpl implements AppExamService {
         created.setDeadlineAt(now.plusMinutes(paper.getDurationMinutes()));
         created.setQuestionCount(paper.getQuestionCount());
         created = attemptRepository.save(created);
-        return toAttemptDetail(created);
+        return toAttemptDetail(created, now);
     }
 
     @Override
@@ -119,14 +122,14 @@ public class AppExamServiceImpl implements AppExamService {
                 && !attempt.getDeadlineAt().isAfter(now)) {
             autoSubmit(attempt, now);
         }
-        return toAttemptDetail(attempt);
+        return toAttemptDetail(attempt, now);
     }
 
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = BusinessException.class)
     public AppExamDTO.SavedAnswer saveAnswer(Long attemptId, Long paperQuestionId, Long userId,
                                              AppExamDTO.SaveAnswerRequest request, LocalDateTime now) {
-        ExamPaperAttempt attempt = ownedAttempt(attemptId, userId);
+        ExamPaperAttempt attempt = ownedAttemptForUpdate(attemptId, userId);
         if (attempt.getStatus() != ExamPaperAttempt.Status.IN_PROGRESS) {
             throw new BusinessException(409, "答题已结束");
         }
@@ -176,7 +179,7 @@ public class AppExamServiceImpl implements AppExamService {
     @Override
     @Transactional
     public AppExamDTO.AttemptResult submit(Long attemptId, Long userId, LocalDateTime now) {
-        ExamPaperAttempt attempt = ownedAttempt(attemptId, userId);
+        ExamPaperAttempt attempt = ownedAttemptForUpdate(attemptId, userId);
         if (attempt.getStatus() == ExamPaperAttempt.Status.IN_PROGRESS) {
             ExamPaperAttempt.Status target = attempt.getDeadlineAt().isAfter(now)
                     ? ExamPaperAttempt.Status.SUBMITTED : ExamPaperAttempt.Status.AUTO_SUBMITTED;
@@ -222,7 +225,7 @@ public class AppExamServiceImpl implements AppExamService {
         return attemptRepository.countByPaperIdAndUserIdAndStatusIn(paperId, userId, COMPLETED_STATUSES);
     }
 
-    private AppExamDTO.AttemptDetail toAttemptDetail(ExamPaperAttempt attempt) {
+    private AppExamDTO.AttemptDetail toAttemptDetail(ExamPaperAttempt attempt, LocalDateTime serverNow) {
         List<ExamPaperQuestion> questions = paperQuestionRepository
                 .findByPaperIdOrderBySortOrderAscIdAsc(attempt.getPaperId());
         Map<Long, ExamPaperAttemptAnswer> answers = answerRepository.findByAttemptId(attempt.getId()).stream()
@@ -235,6 +238,7 @@ public class AppExamServiceImpl implements AppExamService {
         detail.setStatus(attempt.getStatus());
         detail.setStartedAt(attempt.getStartedAt());
         detail.setDeadlineAt(attempt.getDeadlineAt());
+        detail.setServerNow(serverNow);
         detail.setSubmittedAt(attempt.getSubmittedAt());
         detail.setAnsweredCount(attempt.getAnsweredCount());
         detail.setQuestionCount(attempt.getQuestionCount());
@@ -270,6 +274,11 @@ public class AppExamServiceImpl implements AppExamService {
 
     private ExamPaperAttempt ownedAttempt(Long attemptId, Long userId) {
         return attemptRepository.findByIdAndUserId(attemptId, userId)
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "答题记录不存在"));
+    }
+
+    private ExamPaperAttempt ownedAttemptForUpdate(Long attemptId, Long userId) {
+        return attemptRepository.findByIdAndUserIdForUpdate(attemptId, userId)
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "答题记录不存在"));
     }
 

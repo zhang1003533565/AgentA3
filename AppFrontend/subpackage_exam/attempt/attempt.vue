@@ -250,7 +250,7 @@ export default {
     },
     async persistAnswer(question, force = false) {
       const local = this.answerState(question.id)
-      if (local.saved || local.status === 'saving' || this.submitting) return
+      if (local.saved || local.status === 'saving' || (this.submitting && !force)) return
       const sentJson = local.answerJson
       const sentVersion = local.version
       this.$set(this.answers, question.id, { ...local, timer: null, status: 'saving' })
@@ -358,7 +358,7 @@ export default {
       this.submitting = true
       this.stopTimers()
       try {
-        if (!expired) await this.flushPendingAnswers(true)
+        await this.flushPendingAnswers(true)
         await submitExamAttempt(this.attemptId)
         if (expired) uni.showToast({ title: '考试时间已到，已自动交卷', icon: 'none' })
         this.goToResult()

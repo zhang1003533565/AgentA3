@@ -12,6 +12,7 @@ import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.ExamPaperQuestionRepository;
 import com.example.appbackend.repository.ExamPaperRepository;
+import com.example.appbackend.repository.ExamPaperAttemptRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -19,36 +20,44 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class AppExamPdfService {
     private final ExamPaperRepository paperRepository;
     private final ExamPaperQuestionRepository questionRepository;
+    private final ExamPaperAttemptRepository attemptRepository;
     private final ExamPaperDocumentDispatcher dispatcher;
     private final LibreOfficePreviewConverter converter;
     private final Path workRoot;
+    private final ConcurrentHashMap<Long, CachedPdf> cache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Instant> lastConversion = new ConcurrentHashMap<>();
 
     @Autowired
     public AppExamPdfService(ExamPaperRepository paperRepository,
             ExamPaperQuestionRepository questionRepository,
+            ExamPaperAttemptRepository attemptRepository,
             @Value("${exam-paper.preview.soffice-path:soffice}") String sofficePath,
             @Value("${exam-paper.preview.timeout-seconds:30}") long timeoutSeconds,
             @Value("${exam-paper.app-pdf.root:${java.io.tmpdir}/agent-a3-app-exam-pdf}") String root) {
-        this(paperRepository, questionRepository, new ExamPaperDocumentDispatcher(),
+        this(paperRepository, questionRepository, attemptRepository, new ExamPaperDocumentDispatcher(),
                 new LibreOfficePreviewConverter(sofficePath, Duration.ofSeconds(timeoutSeconds), Path.of(root)),
                 Path.of(root));
     }
 
     AppExamPdfService(ExamPaperRepository paperRepository,
             ExamPaperQuestionRepository questionRepository,
+            ExamPaperAttemptRepository attemptRepository,
             ExamPaperDocumentDispatcher dispatcher,
             LibreOfficePreviewConverter converter,
             Path workRoot) {
         this.paperRepository = paperRepository;
         this.questionRepository = questionRepository;
+        this.attemptRepository = attemptRepository;
         this.dispatcher = dispatcher;
         this.converter = converter;
         this.workRoot = workRoot.toAbsolutePath().normalize();
@@ -59,8 +68,20 @@ public class AppExamPdfService {
         if (userId == null) {
             throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
         }
-        ExamPaper paper = paperRepository.findByIdAndStatusAndPublishedTrue(paperId, 1)
-                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "试卷不存在或已下架"));
+        ExamPaper paper = paperRepository.findByIdAndStatus(paperId, 1)
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "试卷不存在"));
+        if (!Boolean.TRUE.equals(paper.getPublished())
+                && !attemptRepository.existsByPaperIdAndUserId(paperId, userId)) {
+            throw new BusinessException(Result.NOT_FOUND_CODE, "试卷不存在或已下架");
+        }
+        CachedPdf cached = cache.get(paperId);
+        if (cached != null) return new PdfFile(paper.getTitle(), cached.bytes());
+        Instant now = Instant.now();
+        String rateKey = userId + ":" + paperId;
+        Instant previous = lastConversion.put(rateKey, now);
+        if (previous != null && previous.plusSeconds(10).isAfter(now)) {
+            throw new BusinessException(429, "PDF 生成过于频繁，请稍后重试");
+        }
         List<ExamPaperQuestion> questions = questionRepository.findByPaperIdOrderBySortOrderAscIdAsc(paperId);
         if (questions.isEmpty()) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "试卷没有题目");
@@ -70,6 +91,7 @@ public class AppExamPdfService {
         Path directory = workRoot.resolve(Long.toString(userId)).resolve(UUID.randomUUID().toString());
         try {
             LibreOfficePreviewConverter.ConversionResult converted = converter.convert(docx, directory);
+            cache.put(paperId, new CachedPdf(converted.bytes()));
             return new PdfFile(paper.getTitle(), converted.bytes());
         } finally {
             converter.deleteRecursively(directory);
@@ -132,4 +154,5 @@ public class AppExamPdfService {
     }
 
     public record PdfFile(String title, byte[] bytes) { }
+    private record CachedPdf(byte[] bytes) { }
 }

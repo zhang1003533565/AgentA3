@@ -26,6 +26,27 @@ public interface ExamPaperRepository extends JpaRepository<ExamPaper, Long> {
     Page<ExamPaper> findByPublishedTrueAndStatusAndTitleContainingOrderByPublishTimeDesc(
             Integer status, String title, Pageable pageable);
 
+    @Query("""
+            select paper from ExamPaper paper
+            where paper.status = :status
+              and (paper.published = true or exists (
+                  select attempt.id from ExamPaperAttempt attempt
+                  where attempt.paperId = paper.id and attempt.userId = :userId))
+            order by paper.publishTime desc, paper.createTime desc
+            """)
+    Page<ExamPaper> findAppVisible(@Param("status") Integer status, @Param("userId") Long userId, Pageable pageable);
+
+    @Query("""
+            select paper from ExamPaper paper
+            where paper.status = :status and paper.title like concat('%', :title, '%')
+              and (paper.published = true or exists (
+                  select attempt.id from ExamPaperAttempt attempt
+                  where attempt.paperId = paper.id and attempt.userId = :userId))
+            order by paper.publishTime desc, paper.createTime desc
+            """)
+    Page<ExamPaper> findAppVisibleByTitle(@Param("status") Integer status, @Param("userId") Long userId,
+                                         @Param("title") String title, Pageable pageable);
+
     Page<ExamPaper> findByCreatedByAndStatusOrderByCreateTimeDesc(Long createdBy, Integer status, Pageable pageable);
 
     Page<ExamPaper> findByCreatedByAndStatusAndTitleContainingOrderByCreateTimeDesc(

@@ -50,7 +50,7 @@ class AppExamServiceImplTest {
     void listPublishedUsesOnlyActivePublishedPapersAndAddsUserAttemptState() {
         ExamPaper paper = paper(true);
         ExamPaperAttempt active = attempt(41L, ExamPaperAttempt.Status.IN_PROGRESS);
-        when(paperRepository.findByPublishedTrueAndStatusOrderByPublishTimeDesc(eq(1), any()))
+        when(paperRepository.findAppVisible(eq(1), eq(9L), any()))
                 .thenReturn(new PageImpl<>(List.of(paper)));
         when(attemptRepository.countByPaperIdAndUserIdAndStatusIn(7L, 9L, completedStatuses()))
                 .thenReturn(2L);
@@ -62,25 +62,24 @@ class AppExamServiceImplTest {
         assertEquals(1, result.getTotalElements());
         assertEquals(2, result.getContent().getFirst().getAttemptCount());
         assertEquals(41L, result.getContent().getFirst().getInProgressAttemptId());
-        verify(paperRepository, never()).findByPublishedTrueAndStatusAndTitleContainingOrderByPublishTimeDesc(
-                anyInt(), anyString(), any());
+        verify(paperRepository, never()).findAppVisibleByTitle(anyInt(), anyLong(), anyString(), any());
     }
 
     @Test
     void listPublishedAppliesTrimmedKeyword() {
-        when(paperRepository.findByPublishedTrueAndStatusAndTitleContainingOrderByPublishTimeDesc(
-                eq(1), eq("期末"), any())).thenReturn(new PageImpl<>(List.of()));
+        when(paperRepository.findAppVisibleByTitle(
+                eq(1), eq(9L), eq("期末"), any())).thenReturn(new PageImpl<>(List.of()));
 
         service.listPublished(9L, 1, 10, "  期末  ");
 
-        verify(paperRepository).findByPublishedTrueAndStatusAndTitleContainingOrderByPublishTimeDesc(
-                eq(1), eq("期末"), eq(PageRequest.of(1, 10)));
+        verify(paperRepository).findAppVisibleByTitle(
+                eq(1), eq(9L), eq("期末"), eq(PageRequest.of(1, 10)));
     }
 
     @Test
     void paperDetailReturnsMetadataWithoutQuestionAnswers() {
         ExamPaper paper = paper(true);
-        when(paperRepository.findByIdAndStatusAndPublishedTrue(7L, 1)).thenReturn(Optional.of(paper));
+        when(paperRepository.findByIdAndStatus(7L, 1)).thenReturn(Optional.of(paper));
         when(attemptRepository.countByPaperIdAndUserIdAndStatusIn(7L, 9L, completedStatuses())).thenReturn(1L);
         when(attemptRepository.findByPaperIdAndUserIdAndActiveMarker(7L, 9L, 1)).thenReturn(Optional.empty());
 
@@ -218,12 +217,12 @@ class AppExamServiceImplTest {
     void saveAnswerChecksOwnershipQuestionMembershipAndVersion() {
         LocalDateTime now = LocalDateTime.of(2026, 7, 12, 10, 0);
         AppExamDTO.SaveAnswerRequest request = saveRequest("{\"selectedOption\":\"B\"}", 0L);
-        when(attemptRepository.findByIdAndUserId(41L, 9L)).thenReturn(Optional.empty());
+        when(attemptRepository.findByIdAndUserIdForUpdate(41L, 9L)).thenReturn(Optional.empty());
         assertThrows(BusinessException.class, () -> service.saveAnswer(41L, 101L, 9L, request, now));
 
         ExamPaperAttempt owned = attempt(41L, ExamPaperAttempt.Status.IN_PROGRESS);
         owned.setDeadlineAt(now.plusMinutes(5));
-        when(attemptRepository.findByIdAndUserId(41L, 9L)).thenReturn(Optional.of(owned));
+        when(attemptRepository.findByIdAndUserIdForUpdate(41L, 9L)).thenReturn(Optional.of(owned));
         when(paperQuestionRepository.findByIdAndPaperId(101L, 7L)).thenReturn(Optional.empty());
         assertThrows(BusinessException.class, () -> service.saveAnswer(41L, 101L, 9L, request, now));
 
@@ -240,7 +239,7 @@ class AppExamServiceImplTest {
         LocalDateTime now = LocalDateTime.of(2026, 7, 12, 10, 0);
         ExamPaperAttempt owned = attempt(41L, ExamPaperAttempt.Status.IN_PROGRESS);
         owned.setDeadlineAt(now.plusMinutes(5));
-        when(attemptRepository.findByIdAndUserId(41L, 9L)).thenReturn(Optional.of(owned));
+        when(attemptRepository.findByIdAndUserIdForUpdate(41L, 9L)).thenReturn(Optional.of(owned));
         when(paperQuestionRepository.findByIdAndPaperId(101L, 7L)).thenReturn(Optional.of(question()));
 
         assertThrows(BusinessException.class, () -> service.saveAnswer(
@@ -258,7 +257,7 @@ class AppExamServiceImplTest {
         LocalDateTime now = LocalDateTime.of(2026, 7, 12, 10, 0);
         ExamPaperAttempt owned = attempt(41L, ExamPaperAttempt.Status.IN_PROGRESS);
         owned.setDeadlineAt(now.plusMinutes(5));
-        when(attemptRepository.findByIdAndUserId(41L, 9L)).thenReturn(Optional.of(owned));
+        when(attemptRepository.findByIdAndUserIdForUpdate(41L, 9L)).thenReturn(Optional.of(owned));
         when(paperQuestionRepository.findByIdAndPaperId(101L, 7L)).thenReturn(Optional.of(question()));
         when(answerRepository.findByAttemptIdAndPaperQuestionId(41L, 101L)).thenReturn(Optional.empty());
         when(answerRepository.saveAndFlush(any())).thenAnswer(invocation -> {
@@ -281,7 +280,7 @@ class AppExamServiceImplTest {
         LocalDateTime now = LocalDateTime.of(2026, 7, 12, 10, 0);
         ExamPaperAttempt owned = attempt(41L, ExamPaperAttempt.Status.IN_PROGRESS);
         owned.setDeadlineAt(now.plusMinutes(5));
-        when(attemptRepository.findByIdAndUserId(41L, 9L)).thenReturn(Optional.of(owned));
+        when(attemptRepository.findByIdAndUserIdForUpdate(41L, 9L)).thenReturn(Optional.of(owned));
         when(paperQuestionRepository.findByIdAndPaperId(101L, 7L)).thenReturn(Optional.of(question()));
 
         assertThrows(BusinessException.class, () -> service.saveAnswer(
@@ -303,7 +302,7 @@ class AppExamServiceImplTest {
         ExamPaperQuestion single = question(101L, "single_choice", new BigDecimal("2"),
                 "{\"correctOption\":\"B\"}");
         ExamPaperAttemptAnswer answer = savedAnswer(101L, "{\"selectedOption\":\"B\"}", 1L, true);
-        when(attemptRepository.findByIdAndUserId(41L, 9L)).thenReturn(Optional.of(expired));
+        when(attemptRepository.findByIdAndUserIdForUpdate(41L, 9L)).thenReturn(Optional.of(expired));
         when(paperQuestionRepository.findByPaperIdOrderBySortOrderAscIdAsc(7L)).thenReturn(List.of(single));
         when(answerRepository.findByAttemptId(41L)).thenReturn(List.of(answer));
 
@@ -334,7 +333,7 @@ class AppExamServiceImplTest {
                 savedAnswer(103L, "{\"value\":false}", 1L, true),
                 savedAnswer(104L, "{\"blanks\":[{\"id\":\"b2\",\"value\":\" 栈底 \"},{\"id\":\"b1\",\"value\":\"栈顶\"}]}", 1L, true),
                 savedAnswer(105L, "{\"text\":\"我的说明\"}", 1L, true));
-        when(attemptRepository.findByIdAndUserId(41L, 9L)).thenReturn(Optional.of(active));
+        when(attemptRepository.findByIdAndUserIdForUpdate(41L, 9L)).thenReturn(Optional.of(active));
         when(paperQuestionRepository.findByPaperIdOrderBySortOrderAscIdAsc(7L)).thenReturn(questions);
         when(answerRepository.findByAttemptId(41L)).thenReturn(answers);
 
@@ -356,6 +355,7 @@ class AppExamServiceImplTest {
         submitted.setObjectiveScore(new BigDecimal("5"));
         submitted.setObjectiveTotalScore(new BigDecimal("6"));
         when(attemptRepository.findByIdAndUserId(41L, 9L)).thenReturn(Optional.of(submitted));
+        when(attemptRepository.findByIdAndUserIdForUpdate(41L, 9L)).thenReturn(Optional.of(submitted));
         when(paperQuestionRepository.findByPaperIdOrderBySortOrderAscIdAsc(7L)).thenReturn(List.of());
         when(answerRepository.findByAttemptId(41L)).thenReturn(List.of());
 

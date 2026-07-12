@@ -10,6 +10,7 @@ import com.example.appbackend.entity.ExamPaperQuestion;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.ExamPaperQuestionRepository;
 import com.example.appbackend.repository.ExamPaperRepository;
+import com.example.appbackend.repository.ExamPaperAttemptRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,6 +31,7 @@ import static org.mockito.Mockito.*;
 class AppExamPdfServiceTest {
     @Mock ExamPaperRepository paperRepository;
     @Mock ExamPaperQuestionRepository questionRepository;
+    @Mock ExamPaperAttemptRepository attemptRepository;
     @Mock ExamPaperDocumentDispatcher dispatcher;
     @Mock LibreOfficePreviewConverter converter;
 
@@ -37,7 +39,7 @@ class AppExamPdfServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new AppExamPdfService(paperRepository, questionRepository, dispatcher, converter,
+        service = new AppExamPdfService(paperRepository, questionRepository, attemptRepository, dispatcher, converter,
                 Path.of(System.getProperty("java.io.tmpdir"), "app-exam-pdf-test"));
     }
 
@@ -45,7 +47,7 @@ class AppExamPdfServiceTest {
     void publishedPaperUsesPersistedSnapshotAndAlwaysGeneratesBlankPdf() {
         ExamPaper paper = paper();
         ExamPaperQuestion snapshot = question();
-        when(paperRepository.findByIdAndStatusAndPublishedTrue(7L, 1)).thenReturn(Optional.of(paper));
+        when(paperRepository.findByIdAndStatus(7L, 1)).thenReturn(Optional.of(paper));
         when(questionRepository.findByPaperIdOrderBySortOrderAscIdAsc(7L)).thenReturn(List.of(snapshot));
         when(dispatcher.generate(any(), eq(DownloadContent.PAPER), any())).thenReturn(new byte[]{1, 2});
         when(converter.convert(any(), any())).thenReturn(
@@ -64,13 +66,13 @@ class AppExamPdfServiceTest {
 
     @Test
     void unavailableOrUnpublishedPaperIsInvisibleAndDoesNotGenerate() {
-        when(paperRepository.findByIdAndStatusAndPublishedTrue(7L, 1)).thenReturn(Optional.empty());
+        when(paperRepository.findByIdAndStatus(7L, 1)).thenReturn(Optional.empty());
 
         BusinessException error = assertThrows(BusinessException.class,
                 () -> service.downloadBlankPaper(7L, 9L));
 
         assertEquals(404, error.getCode());
-        verifyNoInteractions(questionRepository, dispatcher, converter);
+        verifyNoInteractions(questionRepository, attemptRepository, dispatcher, converter);
     }
 
     @Test
@@ -78,12 +80,12 @@ class AppExamPdfServiceTest {
         BusinessException error = assertThrows(BusinessException.class,
                 () -> service.downloadBlankPaper(7L, null));
         assertEquals(401, error.getCode());
-        verifyNoInteractions(paperRepository, questionRepository, dispatcher, converter);
+        verifyNoInteractions(paperRepository, questionRepository, attemptRepository, dispatcher, converter);
     }
 
     @Test
     void emptyPublishedPaperIsRejectedBeforeDocumentGeneration() {
-        when(paperRepository.findByIdAndStatusAndPublishedTrue(7L, 1)).thenReturn(Optional.of(paper()));
+        when(paperRepository.findByIdAndStatus(7L, 1)).thenReturn(Optional.of(paper()));
         when(questionRepository.findByPaperIdOrderBySortOrderAscIdAsc(7L)).thenReturn(List.of());
 
         BusinessException error = assertThrows(BusinessException.class,

@@ -42,7 +42,7 @@ export default {
       if (this.paper.inProgressAttemptId) { this.openAttempt(this.paper.inProgressAttemptId); return }
       this.starting = true
       try { const res = await startExamAttempt(this.paperId); this.openAttempt(res?.data?.id) }
-      catch (error) {} finally { this.starting = false }
+      catch (error) { uni.showToast({ title: error?.msg || error?.message || '开始答题失败', icon: 'none' }) } finally { this.starting = false }
     },
     openAttempt(attemptId) {
       if (!attemptId) return
