@@ -4,10 +4,11 @@ import test from 'node:test'
 import { portalGroups } from '../../data/portalData.js'
 import { QUESTION_BANK_ROUTES } from './questionBankRoutes.js'
 
-test('题库管理独立分组包含三个固定顺序入口', () => {
+test('题库管理独立分组包含四个固定顺序入口', () => {
   const group = portalGroups.find((item) => item.label === '题库管理')
   assert.deepEqual(group.items.map(({ label, path }) => ({ label, path })), [
     { label: '题库', path: QUESTION_BANK_ROUTES.questions },
+    { label: '题库生成', path: QUESTION_BANK_ROUTES.generate },
     { label: '试卷生成', path: QUESTION_BANK_ROUTES.createPaper },
     { label: '生成的试卷', path: QUESTION_BANK_ROUTES.paperHistory },
   ])
@@ -19,6 +20,7 @@ test('应用接入题库独立页面并兼容旧路由', async () => {
   const appSource = await readFile(new URL('../../App.jsx', import.meta.url), 'utf8')
 
   assert.match(appSource, /QUESTION_BANK_ROUTES\.questions/)
+  assert.match(appSource, /QUESTION_BANK_ROUTES\.generate/)
   assert.match(appSource, /QUESTION_BANK_ROUTES\.createPaper/)
   assert.match(appSource, /QUESTION_BANK_ROUTES\.paperHistory/)
   assert.match(

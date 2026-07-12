@@ -64,6 +64,7 @@ export const portalGroups = [
     label: '题库管理',
     items: [
       { path: QUESTION_BANK_ROUTES.questions, label: '题库', icon: 'appstore' },
+      { path: QUESTION_BANK_ROUTES.generate, label: '题库生成', icon: 'robot' },
       { path: QUESTION_BANK_ROUTES.createPaper, label: '试卷生成', icon: 'file-text' },
       { path: QUESTION_BANK_ROUTES.paperHistory, label: '生成的试卷', icon: 'file-search' },
     ],

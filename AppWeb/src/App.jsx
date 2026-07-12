@@ -16,6 +16,7 @@ import AgentCache from './pages/ai/AgentCache/AgentCache'
 import Login from './pages/Login/Login'
 import ExamPaperCreatePage from './pages/questionBank/ExamPaperCreatePage'
 import ExamPaperHistoryPage from './pages/questionBank/ExamPaperHistoryPage'
+import QuestionBankGeneratePage from './pages/questionBank/QuestionBankGeneratePage'
 import { QUESTION_BANK_ROUTES } from './pages/questionBank/questionBankRoutes'
 import WorkspacePage from './pages/workspace/WorkspacePage'
 import './App.css'
@@ -47,6 +48,7 @@ function App() {
           <Route path="/ai/agent-settings" element={<AgentSettings />} />
           <Route path="/ai/agent-cache" element={<AgentCache />} />
           <Route path={QUESTION_BANK_ROUTES.questions} element={<QuestionBank />} />
+          <Route path={QUESTION_BANK_ROUTES.generate} element={<QuestionBankGeneratePage />} />
           <Route path={QUESTION_BANK_ROUTES.createPaper} element={<ExamPaperCreatePage />} />
           <Route path={QUESTION_BANK_ROUTES.paperHistory} element={<ExamPaperHistoryPage />} />
           <Route path="/ai/question-bank" element={<Navigate to={QUESTION_BANK_ROUTES.questions} replace />} />
