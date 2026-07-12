@@ -61,6 +61,21 @@ test('预览签名对对象字段顺序稳定但会响应题目顺序和分值�
   assert.notEqual(first, changedScore)
 })
 
+test('预览签名忽略不影响最终试卷的随机规则临时状态', () => {
+  const values = {
+    title: '安全考试',
+    durationMinutes: 60,
+    selectionMode: 'random',
+    layout: { ...SOURCE_LAYOUT_DEFAULTS },
+  }
+  const questions = [{ questionId: 1, score: 10 }]
+
+  assert.equal(
+    createPreviewSignature(values, questions),
+    createPreviewSignature({ ...values, rules: [{ type: 'single_choice', quantity: 99 }] }, questions),
+  )
+})
+
 test('预览请求不携带 proof，确认请求仅携带服务端返回的 proof 字段', () => {
   const request = buildExamPaperRequest({
     title: '  安全考试  ',

@@ -38,7 +38,14 @@ const stableValue = (value) => {
 }
 
 export const createPreviewSignature = (values, questions) => JSON.stringify(stableValue({
-  form: values,
+  form: {
+    title: values.title?.trim() || '',
+    subtitle: values.subtitle?.trim() || null,
+    durationMinutes: values.durationMinutes,
+    precautions: values.precautions?.trim() || null,
+    layout: values.layout,
+    selectionMode: values.selectionMode?.toUpperCase() || null,
+  },
   questions: questions.map(({ questionId, score }, index) => ({
     questionId: Number(questionId),
     score: Number(score),
