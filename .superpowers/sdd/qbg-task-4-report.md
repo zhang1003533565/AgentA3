@@ -49,3 +49,18 @@ Result: 49 tests, 0 failures, 0 errors, 0 skipped.
 - The `Authorization` header is handed unchanged to both service methods.
 - The controller contains no logger and does not write authorization data.
 - No frontend files or unrelated production files were changed.
+
+## Review Fixes
+
+- Preserved compatibility with the frontend's legacy `sourceType=file`, but normalized it at the HTTP boundary from the uploaded filename extension to the concrete parser type `txt` or `docx`; unsupported extensions are rejected with HTTP 400.
+- Direct `sourceType=txt` and `sourceType=docx` requests are accepted only when the uploaded filename extension matches. The service never receives `sourceType=file`.
+- Added controller-side material validation: blank text, missing files, empty files, unsupported extensions, and declared-type/extension mismatches return HTTP 400 before service interaction.
+- Restricted difficulty to blank, `easy`, `medium`, or `hard`; blank is normalized to null and invalid values return HTTP 400 before service interaction.
+- Trimmed `sourceTitle` before constructing the command and rejected titles longer than 160 characters after trimming.
+- Expanded the real MockMvc command-capture suite from 7 to 14 tests, including concrete TXT/DOCX source types and the legacy file compatibility path.
+
+### Review TDD Evidence
+
+The expanded controller suite first failed in 8 tests against the reviewed implementation: it exposed `file` reaching the service, missing material validation, unsupported/mismatched extensions being accepted, unrestricted difficulty, and untrimmed/unbounded titles. After the boundary fix, the controller suite passed 14/14.
+
+The final Task 1-4 combination passed 56 tests with 0 failures, 0 errors, and 0 skipped.
