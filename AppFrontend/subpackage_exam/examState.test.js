@@ -54,6 +54,45 @@ test('retryDelay follows the bounded 1, 2 and 5 second schedule', async () => {
   assert.equal(retryDelay(3), null)
 })
 
+test('formatRemainingTime keeps countdown stable beyond one hour', async () => {
+  const { formatRemainingTime } = await state
+  assert.equal(formatRemainingTime(0), '00:00')
+  assert.equal(formatRemainingTime(65), '01:05')
+  assert.equal(formatRemainingTime(3661), '61:01')
+})
+
+test('parseAnswer restores all five controls and tolerates empty persisted JSON', async () => {
+  const { parseAnswer } = await state
+  assert.equal(parseAnswer('single_choice', '{"selectedOption":"B"}'), 'B')
+  assert.deepEqual(parseAnswer('multiple_choice', '{"selectedOptions":["C","A"]}'), ['C', 'A'])
+  assert.equal(parseAnswer('true_false', '{"value":false}'), false)
+  assert.deepEqual(parseAnswer('fill_blank', '{"blanks":[{"id":"b1","value":"甲"}]}'), [
+    { id: 'b1', value: '甲' }
+  ])
+  assert.equal(parseAnswer('short_answer', '{"text":"说明"}'), '说明')
+  assert.equal(parseAnswer('single_choice', ''), '')
+  assert.deepEqual(parseAnswer('fill_blank', 'bad-json', [{ id: 'b1' }]), [{ id: 'b1', value: '' }])
+})
+
+test('attempt page wires five controls, autosave retry, deadline and submit flows', () => {
+  const page = readFileSync(join(__dirname, 'attempt/attempt.vue'), 'utf8')
+  for (const type of ['single_choice', 'multiple_choice', 'true_false', 'fill_blank', 'short_answer']) {
+    assert.ok(page.includes(type), `missing question type ${type}`)
+  }
+  for (const api of ['getExamAttempt', 'saveExamAnswer', 'submitExamAttempt']) {
+    assert.match(page, new RegExp(`\\b${api}\\b`))
+  }
+  assert.match(page, /normalizeAnswer/)
+  assert.match(page, /mergeSavedAnswer/)
+  assert.match(page, /retryDelay/)
+  assert.match(page, /remainingSeconds/)
+  assert.match(page, /setInterval/)
+  assert.match(page, /500/)
+  assert.match(page, /uni\.showModal/)
+  assert.match(page, /attemptResult\/attemptResult/)
+  assert.match(page, /onUnload/)
+})
+
 test('pages.json registers the exam subpackage and mine exposes the entry', () => {
   const pages = JSON.parse(readFileSync(join(__dirname, '../pages.json'), 'utf8'))
   const examPackage = pages.subPackages.find((item) => item.root === 'subpackage_exam')

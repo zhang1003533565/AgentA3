@@ -7,6 +7,39 @@ export function remainingSeconds(deadlineAt, serverNow) {
   return Math.max(0, Math.ceil((deadline - now) / 1000))
 }
 
+export function formatRemainingTime(seconds) {
+  const safe = Math.max(0, Math.floor(Number(seconds) || 0))
+  const minutes = Math.floor(safe / 60)
+  const remainder = safe % 60
+  return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+}
+
+export function parseAnswer(type, answerJson, fallbackBlanks = []) {
+  let answer = {}
+  try {
+    answer = answerJson ? JSON.parse(answerJson) : {}
+  } catch (_) {
+    answer = {}
+  }
+  switch (type) {
+    case 'single_choice':
+      return cleanText(answer.selectedOption)
+    case 'multiple_choice':
+      return Array.isArray(answer.selectedOptions) ? answer.selectedOptions.map(cleanText).filter(Boolean) : []
+    case 'true_false':
+      return typeof answer.value === 'boolean' ? answer.value : null
+    case 'fill_blank': {
+      const blanks = Array.isArray(answer.blanks) && answer.blanks.length ? answer.blanks : fallbackBlanks
+      return blanks.map((blank) => ({ id: cleanText(blank && blank.id), value: cleanText(blank && blank.value) }))
+        .filter((blank) => blank.id)
+    }
+    case 'short_answer':
+      return cleanText(answer.text)
+    default:
+      return ''
+  }
+}
+
 export function normalizeAnswer(type, value) {
   switch (type) {
     case 'single_choice':
