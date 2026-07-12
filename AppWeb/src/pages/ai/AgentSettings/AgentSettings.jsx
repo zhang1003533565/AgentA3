@@ -5,8 +5,11 @@ import { getRagAgents } from '../../../api/rag'
 import { getSystemConfigList, upsertSystemConfig } from '../../../api/systemConfig'
 import {
   AGENT_ENABLED_CONFIG_PREFIX,
+  QUESTION_GENERATION_AGENT_PREFIX,
+  QUESTION_TYPE_OPTIONS,
   TOOL_ENABLED_CONFIG_PREFIX,
   buildAgentModelBindings,
+  buildQuestionGenerationAgentMappings,
   buildToolToggles,
   buildLlmModelOptions,
   getAgentModelRequirementText,
@@ -44,6 +47,8 @@ function AgentSettings() {
   const [llmModelOptions, setLlmModelOptions] = useState([])
   const [agentModelBindings, setAgentModelBindings] = useState({})
   const [draftBindings, setDraftBindings] = useState({})
+  const [questionAgentMappings, setQuestionAgentMappings] = useState({})
+  const [draftQuestionAgentMappings, setDraftQuestionAgentMappings] = useState({})
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -53,12 +58,13 @@ function AgentSettings() {
         getSystemConfigList({
           current: 1,
           size: 500,
-          prefixes: 'ai.service.,ai.agent-bindings.,ai.agent-enabled.,ai.tool-enabled.',
+          prefixes: 'ai.service.,ai.agent-bindings.,ai.agent-enabled.,ai.tool-enabled.,ai.question-generation.agent.',
         }),
       ])
       const configRows = configRes.data?.records || []
       const nextBindings = buildAgentModelBindings(configRows)
       const nextToolToggles = buildToolToggles(configRows)
+      const nextQuestionAgentMappings = buildQuestionGenerationAgentMappings(configRows)
       setAgents(agentRes.data?.agents || [])
       setTools((agentRes.data?.generatedTools || []).map((tool) => {
         const hasConfiguredValue = Object.prototype.hasOwnProperty.call(nextToolToggles, tool.name)
@@ -77,6 +83,8 @@ function AgentSettings() {
       setLlmModelOptions(buildLlmModelOptions(configRows))
       setAgentModelBindings(nextBindings)
       setDraftBindings(nextBindings)
+      setQuestionAgentMappings(nextQuestionAgentMappings)
+      setDraftQuestionAgentMappings(nextQuestionAgentMappings)
     } catch (error) {
       message.error(error.message || '加载智能体设置失败')
     } finally {
@@ -168,6 +176,31 @@ function AgentSettings() {
       setSavingKey('')
     }
   }, [])
+
+  const saveQuestionAgentMapping = useCallback(async (type, label) => {
+    const agentName = String(draftQuestionAgentMappings[type] || '').trim()
+    if (!agentName) {
+      message.warning('请先选择题库生成智能体')
+      return
+    }
+    setSavingKey(`question-agent:${type}`)
+    try {
+      await upsertSystemConfig({
+        configKey: `${QUESTION_GENERATION_AGENT_PREFIX}${type}`,
+        configValue: agentName,
+        configGroup: 'ai',
+        description: `${label}题库生成智能体`,
+        status: 1,
+        isDefault: 0,
+      })
+      setQuestionAgentMappings((prev) => ({ ...prev, [type]: agentName }))
+      message.success(`${label}生成智能体已保存`)
+    } catch (error) {
+      message.error(error.message || '题型智能体映射保存失败')
+    } finally {
+      setSavingKey('')
+    }
+  }, [draftQuestionAgentMappings])
 
   const configuredAgents = useMemo(() => agents.map((agent) => {
     const enabled = isAgentEnabled(agent)
@@ -420,6 +453,78 @@ function AgentSettings() {
     },
   ], [saveToolEnabled, savingKey])
 
+  const questionAgentOptions = useMemo(() => agents.map((agent) => ({
+    value: agent.name,
+    label: agent.role ? `${agent.role}（${agent.name}）` : agent.name,
+  })), [agents])
+
+  const questionAgentRows = useMemo(() => QUESTION_TYPE_OPTIONS.map((questionType) => {
+    const agentName = draftQuestionAgentMappings[questionType.value] || ''
+    const agent = agents.find((item) => item.name === agentName)
+    return {
+      ...questionType,
+      agentName,
+      enabled: agent ? isAgentEnabled(agent) : null,
+      boundModel: agentName ? agentModelBindings[agentName] || '' : '',
+      changed: agentName !== (questionAgentMappings[questionType.value] || ''),
+    }
+  }), [agentModelBindings, agents, draftQuestionAgentMappings, questionAgentMappings])
+
+  const questionAgentColumns = useMemo(() => [
+    {
+      title: '题型',
+      dataIndex: 'label',
+      width: 120,
+      render: (label) => <Tag color="blue">{label}</Tag>,
+    },
+    {
+      title: '生成智能体',
+      dataIndex: 'agentName',
+      render: (agentName, record) => (
+        <Select
+          className="agent-settings-question-select"
+          value={agentName || undefined}
+          options={questionAgentOptions}
+          placeholder="选择智能体"
+          showSearch
+          optionFilterProp="label"
+          onChange={(value) => setDraftQuestionAgentMappings((prev) => ({ ...prev, [record.value]: value }))}
+        />
+      ),
+    },
+    {
+      title: '启用状态',
+      dataIndex: 'enabled',
+      width: 120,
+      render: (enabled, record) => record.agentName ? (
+        <Tag color={enabled === false ? 'red' : 'green'}>{enabled === false ? '已关闭' : '已启用'}</Tag>
+      ) : <Text type="secondary">未映射</Text>,
+    },
+    {
+      title: '模型绑定',
+      dataIndex: 'boundModel',
+      width: 220,
+      render: (boundModel, record) => record.agentName ? (
+        boundModel ? <Tag color="geekblue">{boundModel}</Tag> : <Tag color="orange">未绑定</Tag>
+      ) : <Text type="secondary">-</Text>,
+    },
+    {
+      title: '操作',
+      dataIndex: 'value',
+      width: 110,
+      render: (type, record) => (
+        <Button
+          icon={<SaveOutlined />}
+          disabled={!record.agentName || !record.changed}
+          loading={savingKey === `question-agent:${type}`}
+          onClick={() => saveQuestionAgentMapping(type, record.label)}
+        >
+          保存
+        </Button>
+      ),
+    },
+  ], [questionAgentOptions, saveQuestionAgentMapping, savingKey])
+
   const disabledAgentCount = configuredAgents.filter((item) => item.enabled === false).length
   const disabledToolCount = allConfiguredTools.filter((item) => item.enabled === false).length
   const boundCount = configuredAgents.filter((item) => item.boundModel).length
@@ -525,6 +630,23 @@ function AgentSettings() {
         ) : (
           <Empty description="暂无智能体配置" />
         )}
+      </Card>
+
+      <Card
+        className="agent-settings-card"
+        title={<Space><SettingOutlined />题库生成智能体映射</Space>}
+      >
+        <Text className="agent-settings-card-description" type="secondary">
+          为每种题型选择生成智能体。选项来自当前智能体清单，每种题型独立保存。
+        </Text>
+        <Table
+          rowKey="value"
+          loading={loading}
+          columns={questionAgentColumns}
+          dataSource={questionAgentRows}
+          pagination={false}
+          scroll={{ x: 820 }}
+        />
       </Card>
 
       <Card

@@ -2,6 +2,7 @@ export const AI_MODEL_CONFIG_PATTERN = /^ai\.service\.(text|image|video|audio)(?
 export const AGENT_MODEL_BINDING_PATTERN = /^ai\.agent-bindings\.([A-Za-z0-9_-]+)\.model$/
 export const AGENT_ENABLED_CONFIG_PREFIX = 'ai.agent-enabled.'
 export const TOOL_ENABLED_CONFIG_PREFIX = 'ai.tool-enabled.'
+export const QUESTION_GENERATION_AGENT_PREFIX = 'ai.question-generation.agent.'
 export const AI_TESTED_MODEL_PREFIXES_KEY = 'ai_tested_model_prefixes_v1'
 export const AI_TESTED_MODEL_IDS_KEY = 'ai_tested_model_ids_v1'
 
@@ -11,6 +12,28 @@ export const MODEL_MODALITY_LABELS = {
   video: '视频',
   audio: '语音',
   vision: '视觉理解',
+}
+
+export const QUESTION_TYPE_OPTIONS = [
+  { value: 'single_choice', label: '单选题' },
+  { value: 'multiple_choice', label: '多选题' },
+  { value: 'true_false', label: '判断题' },
+  { value: 'fill_blank', label: '填空题' },
+  { value: 'short_answer', label: '简答题' },
+]
+
+export const buildQuestionGenerationAgentMappings = (configRows = []) => {
+  const mappings = {}
+  configRows.forEach((item) => {
+    const key = String(item.configKey || '')
+    if (!key.startsWith(QUESTION_GENERATION_AGENT_PREFIX) || Number(item.status) === 0) return
+    const type = key.slice(QUESTION_GENERATION_AGENT_PREFIX.length).trim()
+    const agentName = String(item.configValue || '').trim()
+    if (type && agentName) {
+      mappings[type] = agentName
+    }
+  })
+  return mappings
 }
 
 export const getTestedModelPrefixes = () => {

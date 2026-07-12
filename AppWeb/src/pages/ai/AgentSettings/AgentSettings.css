@@ -109,6 +109,16 @@
   width: 100%;
 }
 
+.agent-settings-card-description {
+  display: block;
+  margin-bottom: 14px;
+}
+
+.agent-settings-question-select {
+  width: 100%;
+  min-width: 260px;
+}
+
 @media (max-width: 960px) {
   .agent-settings-hero {
     flex-direction: column;
