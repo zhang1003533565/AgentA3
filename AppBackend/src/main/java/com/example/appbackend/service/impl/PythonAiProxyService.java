@@ -52,6 +52,13 @@ public class PythonAiProxyService {
     public record AgentDescriptor(String name, String role, boolean enabled, String modelBinding) {
     }
 
+    public record QuestionGenerationPayload(
+            String agentName,
+            String input,
+            Integer maxQuestions,
+            String difficulty) {
+    }
+
     public PythonAiProxyService(WebClient.Builder webClientBuilder,
                                 ObjectMapper objectMapper,
                                 JwtUtil jwtUtil,
@@ -131,6 +138,26 @@ public class PythonAiProxyService {
             ));
         }
         return catalog;
+    }
+
+    public String queryQuestionGeneration(QuestionGenerationPayload payload, String authorization) {
+        Map<String, Object> request = new HashMap<>();
+        request.put("agentName", payload.agentName());
+        request.put("input", payload.input());
+        if (payload.maxQuestions() != null) {
+            request.put("maxQuestions", payload.maxQuestions());
+        }
+        if (StringUtils.hasText(payload.difficulty())) {
+            request.put("difficulty", payload.difficulty());
+        }
+        Object response = queryRag(request, authorization);
+        if (response instanceof Map<?, ?> responseMap && responseMap.get("answer") instanceof String answer) {
+            return answer;
+        }
+        if (response instanceof String answer) {
+            return answer;
+        }
+        throw new BusinessException(Result.ERROR_CODE, "Python AI 服务未返回题库生成答案");
     }
 
     private Map<String, String> loadActiveAgentModelBindings() {
