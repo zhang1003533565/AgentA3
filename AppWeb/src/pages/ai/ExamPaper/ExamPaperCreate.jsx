@@ -40,6 +40,7 @@ import {
   SOURCE_LAYOUT_DEFAULTS,
   buildExamPaperRequest,
   createPreviewSignature,
+  shouldAcceptPreviewGeneration,
 } from './examPaperPreviewState'
 
 const { Text } = Typography
@@ -91,6 +92,10 @@ function ExamPaperCreate({ onCreated }) {
   const [manualSelection, setManualSelection] = useState(() => new Map())
   const questionRequestId = useRef(0)
   const previewRef = useRef(null)
+  const selectedQuestionsRef = useRef([])
+  const mountedRef = useRef(true)
+  const previewGenerationRef = useRef(0)
+  const previewAbortRef = useRef(null)
   const selectionMode = Form.useWatch('selectionMode', form) || initialValues.selectionMode
 
   const selectedIds = useMemo(
@@ -106,14 +111,32 @@ function ExamPaperCreate({ onCreated }) {
     previewRef.current = preview
   }, [preview])
 
-  useEffect(() => () => {
-    const current = previewRef.current
-    if (current?.blobUrl) URL.revokeObjectURL(current.blobUrl)
-    if (current?.token) deleteExamPaperPreview(current.token).catch(() => {})
+  useEffect(() => {
+    selectedQuestionsRef.current = selectedQuestions
+  }, [selectedQuestions])
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      previewGenerationRef.current += 1
+      previewAbortRef.current?.abort()
+      const current = previewRef.current
+      if (current?.blobUrl) URL.revokeObjectURL(current.blobUrl)
+      if (current?.token) deleteExamPaperPreview(current.token).catch(() => {})
+    }
   }, [])
 
+  const cancelPendingPreview = () => {
+    previewGenerationRef.current += 1
+    previewAbortRef.current?.abort()
+    previewAbortRef.current = null
+  }
+
   const invalidatePreview = () => {
-    if (previewRef.current) setPreviewDirty(true)
+    cancelPendingPreview()
+    setPreviewLoading(false)
+    setPreviewDirty(true)
   }
 
   const fetchQuestions = async (overrides = {}) => {
@@ -254,31 +277,64 @@ function ExamPaperCreate({ onCreated }) {
     if (!paper) return
     const signature = createPreviewSignature(paper.values, selectedQuestions)
     let pendingToken = null
+    let pendingBlobUrl = null
+    cancelPendingPreview()
+    const generation = previewGenerationRef.current
+    const controller = new AbortController()
+    previewAbortRef.current = controller
+    const isCurrent = () => shouldAcceptPreviewGeneration({
+      generation,
+      currentGeneration: previewGenerationRef.current,
+      mounted: mountedRef.current,
+      requestedSignature: signature,
+      currentSignature: createPreviewSignature(form.getFieldsValue(true), selectedQuestionsRef.current),
+    })
 
     setPreviewLoading(true)
     setPreviewError(null)
     try {
       await clearCurrentPreview()
-      const response = await createExamPaperPreview(paper.request)
+      if (!isCurrent()) return
+      const response = await createExamPaperPreview(paper.request, { signal: controller.signal })
       const session = response.data
       pendingToken = session.token
-      const pdfBlob = await getExamPaperPreviewPdf(session.token)
+      if (!isCurrent()) {
+        await deleteExamPaperPreview(pendingToken).catch(() => {})
+        pendingToken = null
+        return
+      }
+      const pdfBlob = await getExamPaperPreviewPdf(session.token, { signal: controller.signal })
+      pendingBlobUrl = URL.createObjectURL(pdfBlob)
+      if (!isCurrent()) {
+        URL.revokeObjectURL(pendingBlobUrl)
+        pendingBlobUrl = null
+        await deleteExamPaperPreview(pendingToken).catch(() => {})
+        pendingToken = null
+        return
+      }
       const nextPreview = {
         ...session,
-        blobUrl: URL.createObjectURL(pdfBlob),
+        blobUrl: pendingBlobUrl,
         signature,
       }
       previewRef.current = nextPreview
       pendingToken = null
+      pendingBlobUrl = null
       setPreview(nextPreview)
       setPreviewDirty(false)
       setCurrentStep(2)
     } catch (error) {
       if (pendingToken) deleteExamPaperPreview(pendingToken).catch(() => {})
-      setPreviewError(error)
-      setPreviewDirty(true)
+      if (pendingBlobUrl) URL.revokeObjectURL(pendingBlobUrl)
+      if (generation === previewGenerationRef.current && mountedRef.current) {
+        setPreviewError(error)
+        setPreviewDirty(true)
+      }
     } finally {
-      setPreviewLoading(false)
+      if (generation === previewGenerationRef.current && mountedRef.current) {
+        previewAbortRef.current = null
+        setPreviewLoading(false)
+      }
     }
   }
 
@@ -423,7 +479,13 @@ function ExamPaperCreate({ onCreated }) {
           </Col>
         </Row>
         <div className="exam-paper-submit exam-paper-submit-between">
-          <Button size="large" onClick={() => setCurrentStep(1)}>返回调整格式</Button>
+          <Space wrap>
+            <Button size="large" onClick={() => {
+              invalidatePreview()
+              setCurrentStep(0)
+            }}>返回修改题目</Button>
+            <Button size="large" onClick={() => setCurrentStep(1)}>返回调整格式</Button>
+          </Space>
           <Button type="primary" size="large" loading={submitting} disabled={!preview || previewDirty} onClick={handleSubmit}>确认生成并保存</Button>
         </div>
         </>}

@@ -5,7 +5,9 @@ import {
   SOURCE_LAYOUT_DEFAULTS,
   buildExamPaperRequest,
   createPreviewSignature,
+  shouldAcceptPreviewGeneration,
 } from './examPaperPreviewState.js'
+import { PREVIEW_REQUEST_TIMEOUT } from '../../../api/examPaperPreviewConfig.js'
 
 test('源码默认值保持 A3 横向装订双栏和 425 栏距', () => {
   assert.deepEqual(SOURCE_LAYOUT_DEFAULTS, {
@@ -64,4 +66,16 @@ test('预览和确认共用完整嵌套 layout 请求且不携带 preview token'
   assert.equal(request.questions[0].sortOrder, 1)
   assert.equal('previewToken' in request, false)
   assert.equal('pageSize' in request, false)
+})
+
+test('预览请求超时大于后端 30 秒转换上限', () => {
+  assert.ok(PREVIEW_REQUEST_TIMEOUT >= 60_000)
+})
+
+test('仅当前、已挂载且签名仍匹配的 generation 可以落地', () => {
+  const base = { generation: 3, currentGeneration: 3, mounted: true, requestedSignature: 'same', currentSignature: 'same' }
+  assert.equal(shouldAcceptPreviewGeneration(base), true)
+  assert.equal(shouldAcceptPreviewGeneration({ ...base, currentGeneration: 4 }), false)
+  assert.equal(shouldAcceptPreviewGeneration({ ...base, mounted: false }), false)
+  assert.equal(shouldAcceptPreviewGeneration({ ...base, currentSignature: 'changed' }), false)
 })

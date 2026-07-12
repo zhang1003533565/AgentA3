@@ -16,6 +16,14 @@ export const SOURCE_LAYOUT_DEFAULTS = Object.freeze({
   bodyFontSize: 21,
 })
 
+export const shouldAcceptPreviewGeneration = ({
+  generation,
+  currentGeneration,
+  mounted,
+  requestedSignature,
+  currentSignature,
+}) => mounted && generation === currentGeneration && requestedSignature === currentSignature
+
 const stableValue = (value) => {
   if (Array.isArray(value)) return value.map(stableValue)
   if (value && typeof value === 'object') {

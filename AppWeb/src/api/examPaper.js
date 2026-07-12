@@ -1,5 +1,6 @@
 import axios from 'axios'
 import request from '../utils/request'
+import { PREVIEW_REQUEST_TIMEOUT } from './examPaperPreviewConfig'
 
 const base = '/api/exam/papers'
 
@@ -11,12 +12,16 @@ export const createExamPaper = (data) => request.post(base, data, {
   skipGlobalErrorMessage: true,
 })
 
-export const createExamPaperPreview = (data) => request.post(`${base}/preview`, data, {
+export const createExamPaperPreview = (data, config = {}) => request.post(`${base}/preview`, data, {
+  ...config,
   skipGlobalErrorMessage: true,
+  timeout: Math.max(config.timeout || 0, PREVIEW_REQUEST_TIMEOUT),
 })
 
-export const deleteExamPaperPreview = (token) => request.delete(`${base}/preview/${encodeURIComponent(token)}`, {
+export const deleteExamPaperPreview = (token, config = {}) => request.delete(`${base}/preview/${encodeURIComponent(token)}`, {
+  ...config,
   skipGlobalErrorMessage: true,
+  timeout: Math.max(config.timeout || 0, PREVIEW_REQUEST_TIMEOUT),
 })
 
 export const getExamPaperList = (params = {}) => request.get(base, {
@@ -71,13 +76,15 @@ const normalizeBlobError = async (error) => {
   throw error
 }
 
-export const getExamPaperPreviewPdf = async (token) => {
+export const getExamPaperPreviewPdf = async (token, config = {}) => {
   const defaultAdapter = axios.getAdapter(request.defaults.adapter)
   const response = await request({
     url: `${base}/preview/${encodeURIComponent(token)}`,
     method: 'get',
     responseType: 'blob',
+    ...config,
     skipGlobalErrorMessage: true,
+    timeout: Math.max(config.timeout || 0, PREVIEW_REQUEST_TIMEOUT),
     adapter: async (config) => {
       const rawResponse = await defaultAdapter(config).catch(normalizeBlobError)
       return {
