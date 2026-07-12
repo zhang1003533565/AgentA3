@@ -280,8 +280,7 @@ function ExamPaperCreate({ onCreated }) {
     let pendingBlobUrl = null
     cancelPendingPreview()
     const generation = previewGenerationRef.current
-    const controller = new AbortController()
-    previewAbortRef.current = controller
+    let controller = null
     const isCurrent = () => shouldAcceptPreviewGeneration({
       generation,
       currentGeneration: previewGenerationRef.current,
@@ -295,7 +294,9 @@ function ExamPaperCreate({ onCreated }) {
     try {
       await clearCurrentPreview()
       if (!isCurrent()) return
-      const response = await createExamPaperPreview(paper.request, { signal: controller.signal })
+      // Do not abort POST: once the server starts conversion we must receive its token
+      // so a stale generation can explicitly DELETE the temporary preview.
+      const response = await createExamPaperPreview(paper.request)
       const session = response.data
       pendingToken = session.token
       if (!isCurrent()) {
@@ -303,6 +304,8 @@ function ExamPaperCreate({ onCreated }) {
         pendingToken = null
         return
       }
+      controller = new AbortController()
+      previewAbortRef.current = controller
       const pdfBlob = await getExamPaperPreviewPdf(session.token, { signal: controller.signal })
       pendingBlobUrl = URL.createObjectURL(pdfBlob)
       if (!isCurrent()) {

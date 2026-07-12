@@ -7,7 +7,7 @@ import {
   createPreviewSignature,
   shouldAcceptPreviewGeneration,
 } from './examPaperPreviewState.js'
-import { PREVIEW_REQUEST_TIMEOUT } from '../../../api/examPaperPreviewConfig.js'
+import { PREVIEW_CREATE_IS_ABORTABLE, PREVIEW_REQUEST_TIMEOUT } from '../../../api/examPaperPreviewConfig.js'
 
 test('源码默认值保持 A3 横向装订双栏和 425 栏距', () => {
   assert.deepEqual(SOURCE_LAYOUT_DEFAULTS, {
@@ -68,8 +68,9 @@ test('预览和确认共用完整嵌套 layout 请求且不携带 preview token'
   assert.equal('pageSize' in request, false)
 })
 
-test('预览请求超时大于后端 30 秒转换上限', () => {
-  assert.ok(PREVIEW_REQUEST_TIMEOUT >= 60_000)
+test('预览请求超时覆盖后端 10 分钟转换上限且创建请求不可取消', () => {
+  assert.ok(PREVIEW_REQUEST_TIMEOUT > 600_000)
+  assert.equal(PREVIEW_CREATE_IS_ABORTABLE, false)
 })
 
 test('仅当前、已挂载且签名仍匹配的 generation 可以落地', () => {

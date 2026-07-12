@@ -12,11 +12,15 @@ export const createExamPaper = (data) => request.post(base, data, {
   skipGlobalErrorMessage: true,
 })
 
-export const createExamPaperPreview = (data, config = {}) => request.post(`${base}/preview`, data, {
-  ...config,
-  skipGlobalErrorMessage: true,
-  timeout: Math.max(config.timeout || 0, PREVIEW_REQUEST_TIMEOUT),
-})
+export const createExamPaperPreview = (data, config = {}) => {
+  const nonAbortableConfig = { ...config }
+  delete nonAbortableConfig.signal
+  return request.post(`${base}/preview`, data, {
+    ...nonAbortableConfig,
+    skipGlobalErrorMessage: true,
+    timeout: Math.max(config.timeout || 0, PREVIEW_REQUEST_TIMEOUT),
+  })
+}
 
 export const deleteExamPaperPreview = (token, config = {}) => request.delete(`${base}/preview/${encodeURIComponent(token)}`, {
   ...config,
