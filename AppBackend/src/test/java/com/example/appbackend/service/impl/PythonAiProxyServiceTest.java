@@ -241,6 +241,94 @@ class PythonAiProxyServiceTest {
     }
 
     @Test
+    void questionGenerationCatalog_shouldParseAgentsAndActiveModelBindings() throws Exception {
+        startAgentsServer("""
+                {"agents":[{"name":"choice_agent","role":"选择题专家"}]}
+                """);
+        SystemConfigRepository repository = repositoryWith(
+                List.of(),
+                List.of(systemConfig("ai.agent-bindings.choice_agent.model", " ai.service.text.choice "))
+        );
+
+        Map<String, PythonAiProxyService.AgentDescriptor> catalog = newService(
+                server.getAddress().getPort(), new TestSystemConfigService(), repository)
+                .getQuestionGenerationAgentCatalog("Bearer " + buildJwtToken(2001L));
+
+        Assertions.assertEquals(
+                new PythonAiProxyService.AgentDescriptor(
+                        "choice_agent", "选择题专家", true, "ai.service.text.choice"),
+                catalog.get("choice_agent")
+        );
+    }
+
+    @Test
+    void questionGenerationCatalog_shouldMergeDisabledAgentToggle() throws Exception {
+        startAgentsServer("""
+                {"agents":[{"name":"choice_agent","role":"选择题专家","enabled":true}]}
+                """);
+        SystemConfigRepository repository = repositoryWith(
+                List.of(systemConfig("ai.agent-enabled.choice_agent", "false")),
+                List.of(systemConfig("ai.agent-bindings.choice_agent.model", "ai.service.text.choice"))
+        );
+
+        PythonAiProxyService.AgentDescriptor descriptor = newService(
+                server.getAddress().getPort(), new TestSystemConfigService(), repository)
+                .getQuestionGenerationAgentCatalog("Bearer " + buildJwtToken(2002L))
+                .get("choice_agent");
+
+        Assertions.assertFalse(descriptor.enabled());
+    }
+
+    @Test
+    void questionGenerationCatalog_shouldIgnoreInactiveModelBinding() throws Exception {
+        startAgentsServer("""
+                {"agents":[{"name":"choice_agent","role":"选择题专家"}]}
+                """);
+        SystemConfig inactive = systemConfig("ai.agent-bindings.choice_agent.model", "ai.service.text.choice");
+        inactive.setStatus(0);
+
+        PythonAiProxyService.AgentDescriptor descriptor = newService(
+                server.getAddress().getPort(), new TestSystemConfigService(),
+                repositoryWith(List.of(), List.of(inactive)))
+                .getQuestionGenerationAgentCatalog("Bearer " + buildJwtToken(2003L))
+                .get("choice_agent");
+
+        Assertions.assertNull(descriptor.modelBinding());
+    }
+
+    @Test
+    void questionGenerationCatalog_shouldTreatBlankModelBindingAsMissing() throws Exception {
+        startAgentsServer("""
+                {"agents":[{"name":"choice_agent","role":"选择题专家"}]}
+                """);
+
+        PythonAiProxyService.AgentDescriptor descriptor = newService(
+                server.getAddress().getPort(), new TestSystemConfigService(),
+                repositoryWith(List.of(), List.of(systemConfig(
+                        "ai.agent-bindings.choice_agent.model", "   "))))
+                .getQuestionGenerationAgentCatalog("Bearer " + buildJwtToken(2004L))
+                .get("choice_agent");
+
+        Assertions.assertNull(descriptor.modelBinding());
+    }
+
+    @Test
+    void questionGenerationCatalog_shouldReturnEmptyCatalogForMalformedOrMissingAgents() throws Exception {
+        startAgentsServer("{\"agents\":{\"name\":\"not-a-list\"}}");
+        PythonAiProxyService service = newService(server.getAddress().getPort());
+
+        Assertions.assertTrue(service.getQuestionGenerationAgentCatalog(
+                "Bearer " + buildJwtToken(2005L)).isEmpty());
+
+        server.stop(0);
+        server = null;
+        startAgentsServer("{\"total\":0}");
+
+        Assertions.assertTrue(newService(server.getAddress().getPort())
+                .getQuestionGenerationAgentCatalog("Bearer " + buildJwtToken(2006L)).isEmpty());
+    }
+
+    @Test
     void streamChat_shouldConsumeSseFromPythonEndpoint() throws Exception {
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/internal/chat/stream", new StreamingHandler());
@@ -291,6 +379,11 @@ class PythonAiProxyServiceTest {
     }
 
     private PythonAiProxyService newService(int port, SystemConfigService systemConfigService) {
+        return newService(port, systemConfigService, newSystemConfigRepository(systemConfigService));
+    }
+
+    private PythonAiProxyService newService(int port, SystemConfigService systemConfigService,
+                                             SystemConfigRepository systemConfigRepository) {
         ObjectMapper objectMapper = new ObjectMapper();
         JwtUtil jwtUtil = new JwtUtil(systemConfigService);
         return new PythonAiProxyService(
@@ -298,10 +391,44 @@ class PythonAiProxyServiceTest {
                 objectMapper,
                 jwtUtil,
                 systemConfigService,
-                newSystemConfigRepository(systemConfigService),
+                systemConfigRepository,
                 "http://localhost:" + port,
                 5,
                 1024 * 1024
+        );
+    }
+
+    private void startAgentsServer(String responseJson) throws IOException {
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/rag/agents", exchange -> writeJson(exchange, 200, responseJson));
+        server.start();
+    }
+
+    private SystemConfigRepository repositoryWith(List<SystemConfig> agentToggles,
+                                                  List<SystemConfig> modelBindings) {
+        return (SystemConfigRepository) Proxy.newProxyInstance(
+                SystemConfigRepository.class.getClassLoader(),
+                new Class<?>[]{SystemConfigRepository.class},
+                (proxy, method, args) -> {
+                    if ("findByConfigKeyStartingWithAndStatus".equals(method.getName())) {
+                        String prefix = String.valueOf(args[0]);
+                        int status = (Integer) args[1];
+                        List<SystemConfig> source = "ai.agent-enabled.".equals(prefix)
+                                ? agentToggles
+                                : "ai.agent-bindings.".equals(prefix) ? modelBindings : List.of();
+                        return source.stream().filter(config -> Integer.valueOf(status).equals(config.getStatus())).toList();
+                    }
+                    if ("toString".equals(method.getName())) {
+                        return "QuestionGenerationCatalogRepository";
+                    }
+                    if ("hashCode".equals(method.getName())) {
+                        return System.identityHashCode(proxy);
+                    }
+                    if ("equals".equals(method.getName())) {
+                        return proxy == args[0];
+                    }
+                    return defaultValue(method.getReturnType());
+                }
         );
     }
 

@@ -110,6 +110,7 @@ public class PythonAiProxyService {
         if (!(source instanceof Map<?, ?> sourceMap) || !(sourceMap.get("agents") instanceof List<?> agents)) {
             return Map.of();
         }
+        Map<String, String> modelBindings = loadActiveAgentModelBindings();
         Map<String, AgentDescriptor> catalog = new HashMap<>();
         for (Object agent : agents) {
             if (!(agent instanceof Map<?, ?> agentMap)) {
@@ -121,8 +122,7 @@ public class PythonAiProxyService {
             }
             String role = nullableText(agentMap.get("role"));
             boolean enabled = !Boolean.FALSE.equals(agentMap.get("enabled"));
-            String modelBinding = systemConfigService.getValue(
-                    AGENT_MODEL_BINDING_PREFIX + name + ".model", "");
+            String modelBinding = modelBindings.get(name);
             catalog.put(name, new AgentDescriptor(
                     name,
                     StringUtils.hasText(role) ? role : null,
@@ -131,6 +131,25 @@ public class PythonAiProxyService {
             ));
         }
         return catalog;
+    }
+
+    private Map<String, String> loadActiveAgentModelBindings() {
+        Map<String, String> bindings = new HashMap<>();
+        systemConfigRepository.findByConfigKeyStartingWithAndStatus(AGENT_MODEL_BINDING_PREFIX, 1)
+                .forEach(binding -> {
+                    String key = binding.getConfigKey();
+                    if (!StringUtils.hasText(key) || !key.endsWith(".model")
+                            || key.length() <= AGENT_MODEL_BINDING_PREFIX.length() + ".model".length()) {
+                        return;
+                    }
+                    String agentName = key.substring(
+                            AGENT_MODEL_BINDING_PREFIX.length(), key.length() - ".model".length()).trim();
+                    String modelBinding = nullableText(binding.getConfigValue());
+                    if (StringUtils.hasText(agentName) && StringUtils.hasText(modelBinding)) {
+                        bindings.put(agentName, modelBinding);
+                    }
+                });
+        return bindings;
     }
 
     private String nullableText(Object value) {
