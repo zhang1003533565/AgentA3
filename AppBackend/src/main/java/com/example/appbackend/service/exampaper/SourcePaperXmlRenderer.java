@@ -26,6 +26,7 @@ public final class SourcePaperXmlRenderer {
     private static final Pattern HTML_TAG = Pattern.compile("<[^>]*>");
     private static final Pattern NUMERIC_ENTITY = Pattern.compile("&#(\\d+);");
     private static final Pattern NEWLINES = Pattern.compile("\\n+");
+    private static final Pattern BLANK_PLACEHOLDER = Pattern.compile("\\{\\{blank_[^}]+}}");
     private static final int SOURCE_ESSAY_LINES = 12;
     private final ObjectMapper objectMapper;
 
@@ -95,6 +96,8 @@ public final class SourcePaperXmlRenderer {
                     xml.append(choiceQuestion(questionNumber, question, layout.getBodyFontSize(), false));
                 } else if (isJudgment(question.getType())) {
                     xml.append(choiceQuestion(questionNumber, question, layout.getBodyFontSize(), true));
+                } else if (isFillBlank(question.getType())) {
+                    xml.append(fillBlankQuestion(questionNumber, question, layout.getBodyFontSize()));
                 } else if (isSubjective(question.getType())) {
                     xml.append(essayQuestion(questionNumber, question, layout.getBodyFontSize(),
                             isStructuredSubjective(question.getType())));
@@ -176,6 +179,13 @@ public final class SourcePaperXmlRenderer {
         return xml.toString();
     }
 
+    private String fillBlankQuestion(int number, QuestionSnapshotVO question, int fontSize) {
+        String stem = BLANK_PLACEHOLDER.matcher(cleanHtml(question.getStem())).replaceAll("________");
+        return paragraph(number + "．" + stem + "(" + plainScore(question) + "分)",
+                false, fontSize, "left", 80, 0)
+                + "<w:p><w:pPr><w:spacing w:after=\"80\"/></w:pPr></w:p>";
+    }
+
     private List<Option> options(String json) {
         JsonNode body = readJson(json);
         if (body == null || !body.path("options").isArray()) return List.of();
@@ -223,6 +233,14 @@ public final class SourcePaperXmlRenderer {
             return String.join(",", options);
         }
         if (answer.has("correct") && answer.path("correct").isBoolean()) return answer.path("correct").asBoolean() ? "正确" : "错误";
+        if (answer.path("blanks").isArray()) {
+            List<String> blanks = new ArrayList<>();
+            for (JsonNode blank : answer.path("blanks")) {
+                JsonNode accepted = blank.path("answers");
+                if (accepted.isArray() && !accepted.isEmpty()) blanks.add(cleanHtml(accepted.get(0).asText()));
+            }
+            return String.join("；", blanks);
+        }
         for (String key : List.of("referenceAnswer", "finalAnswer", "conclusion", "expectedResult")) {
             if (answer.has(key)) return cleanHtml(answer.path(key).asText());
         }
@@ -377,6 +395,10 @@ public final class SourcePaperXmlRenderer {
         String normalized = normalizedType(type);
         return normalized.equals("true_false") || normalized.equals("judge") || normalized.equals("judgment")
                 || normalized.equals("3") || normalized.equals("4");
+    }
+
+    private boolean isFillBlank(String type) {
+        return normalizedType(type).equals("fill_blank");
     }
 
     private boolean isSubjective(String type) {

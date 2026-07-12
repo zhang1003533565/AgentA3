@@ -7,12 +7,18 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 
 import java.io.IOException;
 import java.io.File;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.nio.file.*;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 
 public class LibreOfficePreviewConverter {
     static final String OWNER_MARKER = ".agent-a3-exam-preview-owner";
@@ -62,6 +68,36 @@ public class LibreOfficePreviewConverter {
                 Path.of(home, ".cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice"));
     }
 
+    static byte[] substituteCjkFontsForPreview(byte[] docx) {
+        try (ZipInputStream input = new ZipInputStream(new ByteArrayInputStream(docx));
+             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+             ZipOutputStream output = new ZipOutputStream(bytes)) {
+            ZipEntry entry;
+            while ((entry = input.getNextEntry()) != null) {
+                ZipEntry copy = new ZipEntry(entry.getName());
+                if (entry.getTime() >= 0) copy.setTime(entry.getTime());
+                output.putNextEntry(copy);
+                byte[] content = input.readAllBytes();
+                if (entry.getName().startsWith("word/") && entry.getName().endsWith(".xml")) {
+                    String xml = new String(content, StandardCharsets.UTF_8)
+                            .replace("=\"宋体\"", "=\"Songti SC\"")
+                            .replace("=\"SimSun\"", "=\"Songti SC\"")
+                            .replace("=\"黑体\"", "=\"Heiti SC\"")
+                            .replace("=\"SimHei\"", "=\"Heiti SC\"")
+                            .replace("=\"微软雅黑\"", "=\"PingFang SC\"")
+                            .replace("=\"Microsoft YaHei\"", "=\"PingFang SC\"");
+                    content = xml.getBytes(StandardCharsets.UTF_8);
+                }
+                output.write(content);
+                output.closeEntry();
+            }
+            output.finish();
+            return bytes.toByteArray();
+        } catch (IOException exception) {
+            throw new BusinessException(Result.ERROR_CODE, "试卷预览文档字体适配失败");
+        }
+    }
+
     public final void initializeRoot() {
         try {
             Path filesystemRoot = previewRoot.getRoot().toRealPath();
@@ -100,7 +136,8 @@ public class LibreOfficePreviewConverter {
         Process process = null;
         try {
             createSafeDirectory(profile);
-            Files.write(input, docx, StandardOpenOption.CREATE_NEW);
+            installPreviewCjkFont(profile);
+            Files.write(input, substituteCjkFontsForPreview(docx), StandardOpenOption.CREATE_NEW);
             List<String> command = List.of(sofficePath, "--headless",
                     "-env:UserInstallation=" + profile.toUri(), "--convert-to", "pdf",
                     "--outdir", safeWork.toString(), input.toString());
@@ -134,6 +171,28 @@ public class LibreOfficePreviewConverter {
             deleteFile(input);
             deleteFile(output);
         }
+    }
+
+    private void installPreviewCjkFont(Path profile) throws IOException {
+        String commandName = Path.of(sofficePath).getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+        if (!commandName.equals("soffice") && !commandName.equals("soffice.exe")) return;
+        Path source = previewCjkFontCandidates().stream()
+                .filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
+                .findFirst().orElse(null);
+        if (source == null) return;
+        Path fontDirectory = profile.resolve("user/fonts");
+        Files.createDirectories(fontDirectory);
+        Files.copy(source, fontDirectory.resolve(source.getFileName()), StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    private static List<Path> previewCjkFontCandidates() {
+        return List.of(
+                Path.of("/System/Library/Fonts/Hiragino Sans GB.ttc"),
+                Path.of("/System/Library/Fonts/Supplemental/Songti.ttc"),
+                Path.of("/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),
+                Path.of("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+                Path.of("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
+                Path.of("/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc"));
     }
 
     private void terminate(Process process) {

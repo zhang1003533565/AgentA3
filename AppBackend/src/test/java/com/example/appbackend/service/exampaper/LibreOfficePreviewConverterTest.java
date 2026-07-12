@@ -10,6 +10,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -25,6 +30,29 @@ class LibreOfficePreviewConverterTest {
                 "soffice", List.of(root.resolve("missing"), fallback)));
         assertEquals(root.resolve("explicit-soffice").toString(), LibreOfficePreviewConverter.resolveSofficePath(
                 root.resolve("explicit-soffice").toString(), List.of(fallback)));
+    }
+
+    @Test
+    void substitutesMissingSourceFontsOnlyInsidePreviewPackageAttributes() throws Exception {
+        ByteArrayOutputStream source = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(source)) {
+            zip.putNextEntry(new ZipEntry("word/document.xml"));
+            zip.write("<w:rFonts w:eastAsia=\"宋体\"/><w:t>题目提到宋体和黑体</w:t>".getBytes());
+            zip.closeEntry();
+            zip.putNextEntry(new ZipEntry("word/media/image1.png"));
+            zip.write(new byte[]{1, 2, 3});
+            zip.closeEntry();
+        }
+
+        byte[] converted = LibreOfficePreviewConverter.substituteCjkFontsForPreview(source.toByteArray());
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(converted))) {
+            assertEquals("word/document.xml", zip.getNextEntry().getName());
+            String xml = new String(zip.readAllBytes());
+            assertTrue(xml.contains("w:eastAsia=\"Songti SC\""));
+            assertTrue(xml.contains("<w:t>题目提到宋体和黑体</w:t>"));
+            assertEquals("word/media/image1.png", zip.getNextEntry().getName());
+            assertArrayEquals(new byte[]{1, 2, 3}, zip.readAllBytes());
+        }
     }
 
     @Test

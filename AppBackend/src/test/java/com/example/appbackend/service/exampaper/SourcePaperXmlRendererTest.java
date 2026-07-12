@@ -75,6 +75,23 @@ class SourcePaperXmlRendererTest {
     }
 
     @Test
+    void rendersFillBlankPlaceholdersAsAnswerLinesWithoutRepeatingBodyText() throws Exception {
+        PaperVO paper = paper(List.of(question(1, 1, "fill_blank",
+                "栈的操作端称为{{blank_1}}，非操作端称为{{blank_2}}。",
+                "{\"text\":\"栈的操作端称为{{blank_1}}，非操作端称为{{blank_2}}。\",\"blanks\":[{\"id\":\"blank_1\"},{\"id\":\"blank_2\"}]}",
+                "{\"blanks\":[{\"id\":\"blank_1\",\"answers\":[\"栈顶\"]},{\"id\":\"blank_2\",\"answers\":[\"栈底\"]}]}")));
+
+        String questions = renderer.renderQuestions(paper, layout());
+        String questionText = parse(questions).getDocumentElement().getTextContent();
+        assertFalse(questionText.contains("{{blank_"));
+        assertTrue(questionText.contains("栈的操作端称为________，非操作端称为________。"));
+        assertEquals(1, occurrences(questionText, "栈的操作端称为"));
+
+        String answers = renderer.renderAnswers(paper, layout());
+        assertTrue(parse(answers).getDocumentElement().getTextContent().contains("1．答案:栈顶；栈底"));
+    }
+
+    @Test
     void preservesCompleteStructuredBodiesForComplexSubjectiveTypes() throws Exception {
         PaperVO paper = paper(List.of(
                 question(1, 1, "material_analysis", "阅读材料", "{\"material\":\"背景材料\",\"subQuestions\":[{\"stem\":\"子问题一\",\"requirements\":[\"要点甲\",\"要点乙\"]}]}", "{}"),
