@@ -1,12 +1,14 @@
 package com.example.appbackend.entity;
 
 import com.example.appbackend.dto.AppExamDTO;
+import com.example.appbackend.repository.ExamPaperAttemptRepository;
 import jakarta.persistence.Column;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.jpa.repository.Query;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -14,6 +16,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -61,7 +64,7 @@ class AppExamPersistenceContractTest {
         Table table = ExamPaperAttemptAnswer.class.getAnnotation(Table.class);
         assertEquals("exam_paper_attempt_answer", table.name());
         assertUnique(table, "attempt_id", "paper_question_id");
-        assertTrue(Arrays.stream(table.indexes())
+        assertFalse(Arrays.stream(table.indexes())
                 .anyMatch(index -> index.columnList().equals("attempt_id")));
 
         assertColumn(ExamPaperAttemptAnswer.class, "attemptId", "attempt_id", false);
@@ -115,6 +118,50 @@ class AppExamPersistenceContractTest {
         inProgress.setActiveMarker(null);
         onCreate.invoke(inProgress);
         assertEquals(1, inProgress.getActiveMarker());
+
+        Method onUpdate = ExamPaperAttempt.class.getDeclaredMethod("onUpdate");
+        onUpdate.setAccessible(true);
+
+        inProgress.setStatus(ExamPaperAttempt.Status.SUBMITTED);
+        onUpdate.invoke(inProgress);
+        assertNull(inProgress.getActiveMarker());
+
+        inProgress.setStatus(ExamPaperAttempt.Status.AUTO_SUBMITTED);
+        onUpdate.invoke(inProgress);
+        assertNull(inProgress.getActiveMarker());
+
+        inProgress.setStatus(ExamPaperAttempt.Status.IN_PROGRESS);
+        onUpdate.invoke(inProgress);
+        assertEquals(1, inProgress.getActiveMarker());
+    }
+
+    @Test
+    void attemptRepositoryExposesOnlyExplicitActiveAndCompletedQueries() throws Exception {
+        Method active = ExamPaperAttemptRepository.class.getMethod(
+                "findByPaperIdAndUserIdAndActiveMarker", Long.class, Long.class, Integer.class);
+        assertEquals(Optional.class, active.getReturnType());
+
+        Method history = ExamPaperAttemptRepository.class.getMethod(
+                "findHistoryByPaperIdAndUserId", Long.class, Long.class);
+        assertEquals(List.class, history.getReturnType());
+        String historyQuery = history.getAnnotation(Query.class).value();
+        assertTrue(historyQuery.contains("Status.SUBMITTED"));
+        assertTrue(historyQuery.contains("Status.AUTO_SUBMITTED"));
+        assertTrue(historyQuery.contains("order by attempt.submittedAt desc"));
+
+        Method completedCount = ExamPaperAttemptRepository.class.getMethod(
+                "countCompletedByPaperIdAndUserId", Long.class, Long.class);
+        assertEquals(long.class, completedCount.getReturnType());
+        String completedCountQuery = completedCount.getAnnotation(Query.class).value();
+        assertTrue(completedCountQuery.contains("Status.SUBMITTED"));
+        assertTrue(completedCountQuery.contains("Status.AUTO_SUBMITTED"));
+
+        assertThrows(NoSuchMethodException.class, () -> ExamPaperAttemptRepository.class.getMethod(
+                "findByPaperIdAndUserIdAndStatus", Long.class, Long.class, ExamPaperAttempt.Status.class));
+        assertThrows(NoSuchMethodException.class, () -> ExamPaperAttemptRepository.class.getMethod(
+                "findByPaperIdAndUserIdOrderByAttemptNoDesc", Long.class, Long.class));
+        assertThrows(NoSuchMethodException.class, () -> ExamPaperAttemptRepository.class.getMethod(
+                "countByPaperIdAndUserId", Long.class, Long.class));
     }
 
     private Column assertColumn(Class<?> type, String fieldName, String columnName, boolean nullable) throws Exception {
