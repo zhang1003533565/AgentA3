@@ -8,6 +8,7 @@ import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.XWPFTableCell;
 import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -31,6 +32,7 @@ public class QuestionGenerationMaterialParser {
     private final long maxZipTotalBytes;
     private final int maxZipEntries;
 
+    @Autowired
     public QuestionGenerationMaterialParser(
             @Value("${exam.question-generation.max-file-bytes:10485760}") long maxFileBytes,
             @Value("${exam.question-generation.max-text-characters:200000}") int maxTextCharacters,

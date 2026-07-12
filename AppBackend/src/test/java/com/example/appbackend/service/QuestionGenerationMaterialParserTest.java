@@ -4,6 +4,7 @@ import com.example.appbackend.dto.QuestionGenerationDTO.ParsedMaterial;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.mock.web.MockMultipartFile;
 
 import java.io.ByteArrayOutputStream;
@@ -18,6 +19,16 @@ class QuestionGenerationMaterialParserTest {
     private static final long MAX_FILE_BYTES = 10 * 1024 * 1024;
     private final QuestionGenerationMaterialParser parser =
             new QuestionGenerationMaterialParser(MAX_FILE_BYTES, 200_000);
+
+    @Test
+    void springCanInstantiateParserWithConfiguredLimits() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.register(QuestionGenerationMaterialParser.class);
+            context.refresh();
+
+            assertThat(context.getBean(QuestionGenerationMaterialParser.class)).isNotNull();
+        }
+    }
 
     @Test
     void parsesUtf8TxtAndRemovesBom() {
