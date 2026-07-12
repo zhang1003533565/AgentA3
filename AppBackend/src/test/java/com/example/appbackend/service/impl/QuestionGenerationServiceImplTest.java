@@ -52,6 +52,7 @@ class QuestionGenerationServiceImplTest {
     void returnsFiveQuestionTypesAndMarksValidMappingAvailable() {
         map("single_choice", "choice_agent");
         catalog(Map.of("choice_agent", descriptor("choice_agent", "选择题专家", true, "ai.service.text.choice")));
+        testedModel("ai.service.text.choice");
 
         OptionsResponse response = service().getOptions(AUTHORIZATION);
 
@@ -64,8 +65,22 @@ class QuestionGenerationServiceImplTest {
     }
 
     @Test
+    void modelBecomesUnavailableWhenPersistedConfigurationChangesAfterTest() {
+        map("single_choice", "choice_agent");
+        catalog(Map.of("choice_agent", descriptor("choice_agent", "选择题专家", true, "ai.service.text.choice")));
+        testedModel("ai.service.text.choice");
+        config.put("ai.service.text.choice.model", "changed-model");
+
+        QuestionTypeOption option = option(service().getOptions(AUTHORIZATION), "single_choice");
+
+        assertThat(option.getAvailable()).isFalse();
+        assertThat(option.getUnavailableReason()).contains("配置已修改");
+    }
+
+    @Test
     void marksMissingMappingUnavailableWithoutFallingBackToAnotherAgent() {
         catalog(Map.of("some_agent", descriptor("some_agent", "任意专家", true, "ai.service.text.some")));
+        testedModel("ai.service.text.some");
 
         QuestionTypeOption option = option(service().getOptions(AUTHORIZATION), "multiple_choice");
 
@@ -260,6 +275,30 @@ class QuestionGenerationServiceImplTest {
         assertThat(response.getIssues()).anyMatch(issue -> issue.contains("超过最大题量 1"));
     }
 
+    @Test
+    void generatedImportUsesServerMetadataAndConsumesProofOnce() {
+        QuestionGenerationServiceImpl service = service();
+        availableAgent();
+        when(pythonAiProxyService.queryQuestionGeneration(any(), any()))
+                .thenReturn(json(List.of(question("single_choice", "easy")), List.of()));
+        stubReview(true, List.of());
+        GenerationResponse generated = service.generate(command(null, null), AUTHORIZATION);
+        var request = new com.example.appbackend.dto.QuestionGenerationDTO.GeneratedImportRequest();
+        request.setProof(generated.getProof());
+        request.setQuestions(generated.getQuestions());
+        ExamQuestionDTO.ImportResponse imported = new ExamQuestionDTO.ImportResponse();
+        when(examQuestionService.importQuestions(any(), eq("single_choice"), eq(9L))).thenReturn(imported);
+
+        service.importGenerated(request, 9L);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(ExamQuestionDTO.ImportRequest.class);
+        verify(examQuestionService).importQuestions(captor.capture(), eq("single_choice"), eq(9L));
+        assertThat(captor.getValue().getSourceAgent()).isEqualTo("configured_agent");
+        assertThat(captor.getValue().getSourceTitle()).isEqualTo("课程第一章");
+        assertThat(captor.getValue().getSourceScene()).isEqualTo("question_generation");
+        assertThatThrownBy(() -> service.importGenerated(request, 9L)).hasMessageContaining("已使用");
+    }
+
     private QuestionGenerationServiceImpl service() {
         return new QuestionGenerationServiceImpl(systemConfigService, pythonAiProxyService,
                 materialParser, examQuestionService, objectMapper);
@@ -272,7 +311,8 @@ class QuestionGenerationServiceImplTest {
 
     private void availableAgent() {
         map("single_choice", "configured_agent");
-        catalog(Map.of("configured_agent", descriptor("configured_agent", "选择题专家", true, "model")));
+        catalog(Map.of("configured_agent", descriptor("configured_agent", "选择题专家", true, "ai.service.text.configured")));
+        testedModel("ai.service.text.configured");
     }
 
     private ExamQuestionDTO.ReviewResponse stubReview(boolean valid, List<String> issues) {
@@ -317,6 +357,15 @@ class QuestionGenerationServiceImplTest {
 
     private void catalog(Map<String, PythonAiProxyService.AgentDescriptor> catalog) {
         when(pythonAiProxyService.getQuestionGenerationAgentCatalog(AUTHORIZATION)).thenReturn(catalog);
+    }
+
+    private void testedModel(String prefix) {
+        config.put(prefix + ".provider", "openai");
+        config.put(prefix + ".base-url", "https://example.test/v1");
+        config.put(prefix + ".api-key", "secret");
+        config.put(prefix + ".model", "model-1");
+        config.put(prefix + ".tested-fingerprint", QuestionGenerationServiceImpl.fingerprint(
+                "openai", "https://example.test/v1", "secret", "model-1"));
     }
 
     private PythonAiProxyService.AgentDescriptor descriptor(String name, String role, boolean enabled, String modelBinding) {

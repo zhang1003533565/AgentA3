@@ -25,11 +25,9 @@ export const buildGenerationFormData = (values, file) => {
 }
 
 export const buildImportPayload = (draft, questions) => ({
+  proof: draft.proof,
   questions,
   missingInfo: draft.missingInfo ?? [],
-  sourceAgent: draft.agentName,
-  sourceTitle: draft.sourceTitle,
-  sourceScene: 'question_generation',
 })
 
 export const normalizeQuestionForEditor = (question) => structuredClone(question)

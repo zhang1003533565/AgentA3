@@ -22,6 +22,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -51,6 +52,13 @@ class QuestionGenerationControllerTest {
                         .param("text", "课程材料")
                         .param("questionType", "single_choice")
                         .requestAttr("role", "USER"))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/exam/question-generation/import")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"proof\":\"proof\",\"questions\":[]}")
+                        .requestAttr("role", "USER")
+                        .requestAttr("userId", 1L))
                 .andExpect(status().isForbidden());
 
         verifyNoInteractions(service);

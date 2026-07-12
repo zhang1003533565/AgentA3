@@ -233,6 +233,9 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
         upsertAiModelConfig(configPrefix + ".base-url", baseUrl, modalityLabel + "模型服务地址");
         upsertAiModelConfig(configPrefix + ".api-key", apiKey, modalityLabel + "模型服务密钥");
         upsertAiModelConfig(configPrefix + ".model", model, modalityLabel + "模型 ID");
+        upsertAiModelConfig(configPrefix + ".tested-fingerprint",
+                QuestionGenerationServiceImpl.fingerprint(provider, baseUrl, apiKey, model),
+                modalityLabel + "模型服务端测试配置指纹");
     }
 
     private void upsertAiModelConfig(String key, String value, String description) {

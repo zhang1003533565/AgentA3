@@ -5,6 +5,8 @@ import lombok.Data;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 public final class QuestionGenerationDTO {
 
@@ -24,6 +26,7 @@ public final class QuestionGenerationDTO {
         private String type;
         private String agentName;
         private String agentRole;
+        private String model;
         private Boolean available;
         private String unavailableReason;
     }
@@ -33,6 +36,10 @@ public final class QuestionGenerationDTO {
         private String questionType;
         private String agentName;
         private String agentRole;
+        private String model;
+        private Integer materialCharacters;
+        private String materialSummary;
+        private String proof;
         private String sourceTitle;
         private String originalFilename;
         private Integer maxQuestions;
@@ -42,5 +49,14 @@ public final class QuestionGenerationDTO {
         private Boolean valid;
         private List<String> issues = new ArrayList<>();
         private List<String> warnings = new ArrayList<>();
+    }
+
+    @Data
+    public static class GeneratedImportRequest {
+        @NotBlank
+        private String proof;
+        @NotNull
+        private List<Map<String, Object>> questions;
+        private List<String> missingInfo = new ArrayList<>();
     }
 }

@@ -52,6 +52,9 @@ public class ExamQuestionController {
             @Valid @RequestBody ExamQuestionDTO.ImportRequest request,
             @RequestParam(required = false) String expectedType,
             HttpServletRequest httpRequest) {
+        if ("question_generation".equals(request.getSourceScene())) {
+            throw new BusinessException(Result.FORBIDDEN_CODE, "智能生成题目必须使用管理员专用导入接口");
+        }
         return Result.success("导入成功", examQuestionService.importQuestions(request, expectedType, getUserId(httpRequest)));
     }
 

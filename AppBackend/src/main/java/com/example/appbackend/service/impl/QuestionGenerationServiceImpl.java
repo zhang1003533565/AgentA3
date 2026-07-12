@@ -5,6 +5,7 @@ import com.example.appbackend.dto.QuestionGenerationDTO.GenerationResponse;
 import com.example.appbackend.dto.QuestionGenerationDTO.OptionsResponse;
 import com.example.appbackend.dto.QuestionGenerationDTO.ParsedMaterial;
 import com.example.appbackend.dto.QuestionGenerationDTO.QuestionTypeOption;
+import com.example.appbackend.dto.QuestionGenerationDTO.GeneratedImportRequest;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.service.ExamQuestionService;
@@ -19,9 +20,16 @@ import org.springframework.util.StringUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.time.Instant;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class QuestionGenerationServiceImpl implements QuestionGenerationService {
+    private static final Logger log = LoggerFactory.getLogger(QuestionGenerationServiceImpl.class);
+    private static final long PROOF_TTL_SECONDS = 15 * 60;
 
     private static final String MAPPING_PREFIX = "ai.question-generation.agent.";
     private static final List<String> QUESTION_TYPES = List.of(
@@ -32,6 +40,7 @@ public class QuestionGenerationServiceImpl implements QuestionGenerationService 
     private final QuestionGenerationMaterialParser materialParser;
     private final ExamQuestionService examQuestionService;
     private final ObjectMapper objectMapper;
+    private final Map<String, GenerationProof> proofs = new ConcurrentHashMap<>();
 
     public QuestionGenerationServiceImpl(SystemConfigService systemConfigService,
                                          PythonAiProxyService pythonAiProxyService,
@@ -58,6 +67,7 @@ public class QuestionGenerationServiceImpl implements QuestionGenerationService 
 
     @Override
     public GenerationResponse generate(GenerationCommand command, String authorization) {
+        long started = System.nanoTime();
         if (command == null) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "生成命令不能为空");
         }
@@ -118,7 +128,33 @@ public class QuestionGenerationServiceImpl implements QuestionGenerationService 
         response.setIssues(issues);
         response.setWarnings(review.getWarnings() == null ? List.of() : review.getWarnings());
         response.setValid(Boolean.TRUE.equals(review.getValid()) && issues.isEmpty());
+        String proof = UUID.randomUUID().toString();
+        proofs.put(proof, new GenerationProof(command.questionType(), option.getAgentName(), sourceTitle,
+                Instant.now().plusSeconds(PROOF_TTL_SECONDS)));
+        response.setProof(proof);
+        response.setModel(option.getModel());
+        response.setMaterialCharacters(material.text().length());
+        response.setMaterialSummary(material.text().length() + " 字符；已安全解析文本内容");
+        log.info("question_generation type={} agent={} model={} chars={} max={} actual={} durationMs={} status={}",
+                command.questionType(), option.getAgentName(), option.getModel(), material.text().length(),
+                command.maxQuestions(), questions.size(), (System.nanoTime() - started) / 1_000_000,
+                response.getValid() ? "valid" : "invalid");
         return response;
+    }
+
+    @Override
+    public ExamQuestionDTO.ImportResponse importGenerated(GeneratedImportRequest request, Long userId) {
+        GenerationProof proof = proofs.remove(request.getProof());
+        if (proof == null || proof.expiresAt().isBefore(Instant.now())) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "生成凭证无效、已过期或已使用");
+        }
+        ExamQuestionDTO.ImportRequest trusted = new ExamQuestionDTO.ImportRequest();
+        trusted.setQuestions(request.getQuestions());
+        trusted.setMissingInfo(request.getMissingInfo());
+        trusted.setSourceAgent(proof.agentName());
+        trusted.setSourceTitle(proof.sourceTitle());
+        trusted.setSourceScene("question_generation");
+        return examQuestionService.importQuestions(trusted, proof.questionType(), userId);
     }
 
     private GenerationResponse invalidJsonResponse(GenerationResponse response) {
@@ -178,6 +214,11 @@ public class QuestionGenerationServiceImpl implements QuestionGenerationService 
             unavailable(option, "配置的智能体未绑定已测试模型");
         } else {
             option.setAgentRole(descriptor.role());
+            if (!isTestedModel(descriptor.modelBinding())) {
+                unavailable(option, "配置的智能体模型未通过服务端测试或配置已修改");
+                return option;
+            }
+            option.setModel(systemConfigService.getValue(descriptor.modelBinding() + ".model", "").trim());
             option.setAvailable(true);
             option.setUnavailableReason(null);
         }
@@ -188,4 +229,29 @@ public class QuestionGenerationServiceImpl implements QuestionGenerationService 
         option.setAvailable(false);
         option.setUnavailableReason(reason);
     }
+
+    private boolean isTestedModel(String prefix) {
+        if (!StringUtils.hasText(prefix)) return false;
+        String provider = systemConfigService.getValue(prefix + ".provider", "").trim();
+        String baseUrl = systemConfigService.getValue(prefix + ".base-url", "").trim();
+        String apiKey = systemConfigService.getValue(prefix + ".api-key", "").trim();
+        String model = systemConfigService.getValue(prefix + ".model", "").trim();
+        if (!StringUtils.hasText(provider) || !StringUtils.hasText(baseUrl)
+                || !StringUtils.hasText(apiKey) || !StringUtils.hasText(model)) return false;
+        return fingerprint(provider, baseUrl, apiKey, model)
+                .equals(systemConfigService.getValue(prefix + ".tested-fingerprint", ""));
+    }
+
+    public static String fingerprint(String provider, String baseUrl, String apiKey, String model) {
+        try {
+            var digest = java.security.MessageDigest.getInstance("SHA-256");
+            return java.util.HexFormat.of().formatHex(digest.digest(
+                    String.join("\u0000", provider, baseUrl, apiKey, model)
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private record GenerationProof(String questionType, String agentName, String sourceTitle, Instant expiresAt) {}
 }

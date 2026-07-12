@@ -96,6 +96,9 @@ exam:
   question-generation:
     max-file-bytes: 10485760
     max-text-characters: 200000
+    max-zip-entry-bytes: 16777216
+    max-zip-total-bytes: 52428800
+    max-zip-entries: 2000
 
 springdoc:
   api-docs:

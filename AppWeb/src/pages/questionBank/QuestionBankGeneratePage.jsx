@@ -6,8 +6,8 @@ import {
   Typography, Upload,
 } from 'antd'
 import { DeleteOutlined, InboxOutlined } from '@ant-design/icons'
-import { getQuestionGenerationOptions, generateQuestions } from '../../api/questionGeneration'
-import { importExamQuestions, reviewExamQuestions } from '../../api/examQuestion'
+import { getQuestionGenerationOptions, generateQuestions, importGeneratedQuestions } from '../../api/questionGeneration'
+import { reviewExamQuestions } from '../../api/examQuestion'
 import { QUESTION_BANK_ROUTES } from './questionBankRoutes'
 import {
   buildGenerationFormData,
@@ -321,7 +321,7 @@ export default function QuestionBankGeneratePage() {
     importLock.current = true
     setImporting(true)
     try {
-      const response = await importExamQuestions(buildImportPayload(draft, questions), draft.questionType)
+      const response = await importGeneratedQuestions(buildImportPayload(draft, questions))
       setImportResult(response.data)
       message.success(`已导入 ${response.data?.importedCount ?? questions.length} 道题`)
     } finally {
@@ -344,7 +344,7 @@ export default function QuestionBankGeneratePage() {
         <Spin spinning={optionsLoading}>
           <Form form={form} layout="vertical" initialValues={{ sourceType: 'text' }} onFinish={handleGenerate}>
             <Form.Item name="sourceType" label="来源类型"><Segmented block value={sourceType} options={[{ value: 'text', label: '粘贴文本' }, { value: 'docx', label: 'DOCX 文件' }, { value: 'txt', label: 'TXT 文件' }]} onChange={changeSourceType} /></Form.Item>
-            {sourceType === 'text' ? <Form.Item name="text" label="课程材料" rules={[{ required: true, whitespace: true, message: '请输入课程材料' }]}><TextArea rows={8} maxLength={200000} showCount /></Form.Item> : <Form.Item label="课程文件" required><Upload.Dragger accept={`.${sourceType}`} maxCount={1} fileList={fileList} beforeUpload={() => false} onChange={changeFile} onRemove={() => { setFileList([]); return true }}><InboxOutlined className="qbg-upload-icon" /><p>点击或拖拽一个 {sourceType.toUpperCase()} 文件，选择后不会自动上传</p></Upload.Dragger></Form.Item>}
+            {sourceType === 'text' ? <Form.Item name="text" label="课程材料" rules={[{ required: true, whitespace: true, message: '请输入课程材料' }]}><TextArea rows={8} maxLength={200000} showCount /></Form.Item> : <Form.Item label="课程文件" required><Upload.Dragger accept={`.${sourceType}`} maxCount={1} fileList={fileList} beforeUpload={() => false} onChange={changeFile} onRemove={() => { setFileList([]); return true }}><InboxOutlined className="qbg-upload-icon" /><p>点击或拖拽一个 {sourceType.toUpperCase()} 文件，选择后不会自动上传</p>{sourceType === 'docx' && <p>DOCX 提取标题、正文和表格，不识别图片</p>}</Upload.Dragger></Form.Item>}
             <div className="qbg-form-grid">
               <Form.Item name="questionType" label="题型" rules={[{ required: true, message: '请选择题型' }]}><Select placeholder="选择可用题型" options={options.map((option) => ({ value: option.type, disabled: !option.available, label: option.available ? (TYPE_LABELS[option.type] ?? option.type) : `${TYPE_LABELS[option.type] ?? option.type}（${option.unavailableReason || '当前不可用'}）` }))} /></Form.Item>
               <Form.Item name="maxQuestions" label="最大题量"><InputNumber min={1} precision={0} placeholder="留空由智能体决定" /></Form.Item>
@@ -358,7 +358,7 @@ export default function QuestionBankGeneratePage() {
       </Card>}
 
       {draft && !importResult && <Card title="2. 预览、编辑与复审" className="qbg-panel" extra={<Tag color="blue">来源智能体：{draft.agentName}</Tag>}>
-        <div className="qbg-stats"><Statistic title="生成题数" value={questions.length} /><Statistic title="题型" value={TYPE_LABELS[draft.questionType] ?? draft.questionType} /><Statistic title="来源" value={draft.sourceTitle || draft.originalFilename || '-'} /></div>
+        <div className="qbg-stats"><Statistic title="生成题数" value={questions.length} /><Statistic title="题型" value={TYPE_LABELS[draft.questionType] ?? draft.questionType} /><Statistic title="模型" value={draft.model || '-'} /><Statistic title="材料字符" value={draft.materialCharacters ?? '-'} /><Statistic title="来源" value={draft.sourceTitle || draft.originalFilename || '-'} /></div>
         {!!draft.missingInfo?.length && <Alert showIcon type="info" message="缺失信息" description={<List size="small" dataSource={draft.missingInfo} renderItem={(item) => <List.Item>{item}</List.Item>} />} />}
         {!!displayedReview.issues?.length && <Alert showIcon type="error" message="必须修复的问题" description={displayedReview.issues.join('；')} />}
         {!!displayedReview.warnings?.length && <Alert showIcon type="warning" message="建议检查" description={displayedReview.warnings.join('；')} />}

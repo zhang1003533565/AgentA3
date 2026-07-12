@@ -68,6 +68,32 @@ class QuestionGenerationMaterialParserTest {
     }
 
     @Test
+    void rejectsDocxZipEntryLargerThanConfiguredLimitBeforePoiParsing() throws Exception {
+        QuestionGenerationMaterialParser limited = new QuestionGenerationMaterialParser(
+                MAX_FILE_BYTES, 200_000, 100, 1024, 20);
+        MockMultipartFile file = docx("课程.docx", document ->
+                document.createParagraph().createRun().setText("x".repeat(500)));
+
+        assertThatThrownBy(() -> limited.parse("docx", file, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("ZIP 条目");
+    }
+
+    @Test
+    void stopsDocxTextExtractionAsSoonAsCharacterLimitIsExceeded() throws Exception {
+        QuestionGenerationMaterialParser limited = new QuestionGenerationMaterialParser(
+                MAX_FILE_BYTES, 10, 1024 * 1024, 2 * 1024 * 1024, 2000);
+        MockMultipartFile file = docx("课程.docx", document -> {
+            document.createParagraph().createRun().setText("12345678901");
+            document.createParagraph().createRun().setText("不应继续累积");
+        });
+
+        assertThatThrownBy(() -> limited.parse("docx", file, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("10");
+    }
+
+    @Test
     void parsesDocxParagraphsAndTablesInDocumentOrder() throws Exception {
         MockMultipartFile file = docx("课程.docx", document -> {
             document.createParagraph().createRun().setText("第一章");

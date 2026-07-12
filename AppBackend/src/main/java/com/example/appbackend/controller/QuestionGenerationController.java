@@ -2,6 +2,10 @@ package com.example.appbackend.controller;
 
 import com.example.appbackend.dto.QuestionGenerationDTO.GenerationResponse;
 import com.example.appbackend.dto.QuestionGenerationDTO.OptionsResponse;
+import com.example.appbackend.dto.QuestionGenerationDTO.GeneratedImportRequest;
+import com.example.appbackend.dto.ExamQuestionDTO;
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.RequestBody;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.service.QuestionGenerationService;
@@ -61,6 +65,16 @@ public class QuestionGenerationController {
                 normalizedDifficulty, normalizedSourceTitle);
         return Result.success(questionGenerationService.generate(
                 command, request.getHeader("Authorization")));
+    }
+
+    @PostMapping("/import")
+    public Result<ExamQuestionDTO.ImportResponse> importGenerated(
+            @Valid @RequestBody GeneratedImportRequest importRequest,
+            HttpServletRequest request) {
+        requireAdmin(request);
+        Object userId = request.getAttribute("userId");
+        if (!(userId instanceof Long id)) throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
+        return Result.success("导入成功", questionGenerationService.importGenerated(importRequest, id));
     }
 
     private void requireAdmin(HttpServletRequest request) {

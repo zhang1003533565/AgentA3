@@ -122,8 +122,9 @@ for (const sample of questionCases) {
   })
 }
 
-test('导入来源只信任后端草稿且来源场景固定', () => {
+test('生成导入只发送一次性 proof 与编辑后题目，不发送可伪造来源元数据', () => {
   const draft = {
+    proof: 'server-proof',
     agentName: 'backend-agent',
     sourceTitle: '后端解析标题',
     missingInfo: ['缺少章节'],
@@ -140,11 +141,9 @@ test('导入来源只信任后端草稿且来源场景固定', () => {
   }]
 
   assert.deepEqual(buildImportPayload(draft, questions), {
+    proof: 'server-proof',
     questions,
     missingInfo: ['缺少章节'],
-    sourceAgent: 'backend-agent',
-    sourceTitle: '后端解析标题',
-    sourceScene: 'question_generation',
   })
 })
 
