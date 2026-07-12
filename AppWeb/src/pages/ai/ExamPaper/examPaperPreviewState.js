@@ -50,6 +50,11 @@ export const createPreviewProof = (preview) => preview ? ({
   questionHash: preview.questionHash,
 }) : undefined
 
+export const getValidationErrorMessage = (error) => (
+  error?.errorFields?.flatMap((field) => field.errors || []).find(Boolean)
+  || '请检查试卷信息和页面格式'
+)
+
 export const buildExamPaperRequest = (values, questions, previewProof) => ({
   title: values.title.trim(),
   subtitle: values.subtitle?.trim() || null,

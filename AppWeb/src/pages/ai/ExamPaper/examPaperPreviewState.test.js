@@ -6,9 +6,17 @@ import {
   buildExamPaperRequest,
   createPreviewSignature,
   createPreviewProof,
+  getValidationErrorMessage,
   shouldAcceptPreviewGeneration,
 } from './examPaperPreviewState.js'
 import { PREVIEW_CREATE_IS_ABORTABLE, PREVIEW_REQUEST_TIMEOUT } from '../../../api/examPaperPreviewConfig.js'
+
+test('表单校验失败时返回用户可见的首个错误', () => {
+  assert.equal(getValidationErrorMessage({
+    errorFields: [{ errors: ['请输入试卷标题'] }],
+  }), '请输入试卷标题')
+  assert.equal(getValidationErrorMessage({}), '请检查试卷信息和页面格式')
+})
 
 test('源码默认值保持 A3 横向装订双栏和 425 栏距', () => {
   assert.deepEqual(SOURCE_LAYOUT_DEFAULTS, {

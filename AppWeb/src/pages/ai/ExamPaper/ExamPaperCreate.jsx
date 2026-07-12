@@ -41,6 +41,7 @@ import {
   buildExamPaperRequest,
   createPreviewSignature,
   createPreviewProof,
+  getValidationErrorMessage,
   shouldAcceptPreviewGeneration,
 } from './examPaperPreviewState'
 
@@ -245,7 +246,8 @@ function ExamPaperCreate({ onCreated }) {
     let values
     try {
       values = await form.validateFields()
-    } catch {
+    } catch (error) {
+      message.error(getValidationErrorMessage(error))
       return null
     }
     if (!selectedQuestions.length) {
