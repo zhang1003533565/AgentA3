@@ -22,6 +22,14 @@ public interface ExamPaperAttemptRepository extends JpaRepository<ExamPaperAttem
     Optional<ExamPaperAttempt> findByPaperIdAndUserIdAndActiveMarker(
             Long paperId, Long userId, Integer activeMarker);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select attempt from ExamPaperAttempt attempt
+            where attempt.paperId = :paperId and attempt.userId = :userId and attempt.activeMarker = :activeMarker
+            """)
+    Optional<ExamPaperAttempt> findActiveForUpdate(@Param("paperId") Long paperId,
+            @Param("userId") Long userId, @Param("activeMarker") Integer activeMarker);
+
     List<ExamPaperAttempt> findByPaperIdAndUserIdAndStatusInOrderBySubmittedAtDesc(
             Long paperId, Long userId, Collection<ExamPaperAttempt.Status> statuses);
 

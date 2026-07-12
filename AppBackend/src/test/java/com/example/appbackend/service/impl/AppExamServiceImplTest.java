@@ -148,6 +148,7 @@ class AppExamServiceImplTest {
         expired.setDeadlineAt(now.minusSeconds(1));
         when(attemptRepository.findByPaperIdAndUserIdAndActiveMarker(7L, 9L, 1))
                 .thenReturn(Optional.of(expired));
+        when(attemptRepository.findActiveForUpdate(7L, 9L, 1)).thenReturn(Optional.of(expired));
         when(paperRepository.findByIdAndStatusForUpdate(7L, 1)).thenReturn(Optional.of(paper(true)));
         when(attemptRepository.findMaxAttemptNoByPaperIdAndUserId(7L, 9L)).thenReturn(1);
         when(attemptRepository.save(any())).thenAnswer(invocation -> {
@@ -175,7 +176,8 @@ class AppExamServiceImplTest {
         ExamPaperAttempt winner = attempt(88L, ExamPaperAttempt.Status.IN_PROGRESS);
         winner.setDeadlineAt(now.plusMinutes(30));
         when(attemptRepository.findByPaperIdAndUserIdAndActiveMarker(7L, 9L, 1))
-                .thenReturn(Optional.empty(), Optional.of(winner));
+                .thenReturn(Optional.empty());
+        when(attemptRepository.findActiveForUpdate(7L, 9L, 1)).thenReturn(Optional.of(winner));
         when(paperRepository.findByIdAndStatusForUpdate(7L, 1)).thenReturn(Optional.of(paper(true)));
         when(paperQuestionRepository.findByPaperIdOrderBySortOrderAscIdAsc(7L)).thenReturn(List.of(question()));
         when(answerRepository.findByAttemptId(88L)).thenReturn(List.of());
@@ -183,7 +185,8 @@ class AppExamServiceImplTest {
         AppExamDTO.AttemptDetail result = service.startOrResume(7L, 9L, now);
 
         assertEquals(88L, result.getId());
-        verify(attemptRepository, times(2)).findByPaperIdAndUserIdAndActiveMarker(7L, 9L, 1);
+        verify(attemptRepository).findByPaperIdAndUserIdAndActiveMarker(7L, 9L, 1);
+        verify(attemptRepository).findActiveForUpdate(7L, 9L, 1);
         verify(attemptRepository, never()).save(any());
     }
 

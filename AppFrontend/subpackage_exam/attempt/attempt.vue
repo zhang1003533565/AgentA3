@@ -358,7 +358,11 @@ export default {
       this.submitting = true
       this.stopTimers()
       try {
-        await this.flushPendingAnswers(true)
+        if (expired) {
+          try { await this.flushPendingAnswers(true) } catch (_) { /* 后端可能已按截止时间自动交卷 */ }
+        } else {
+          await this.flushPendingAnswers(true)
+        }
         await submitExamAttempt(this.attemptId)
         if (expired) uni.showToast({ title: '考试时间已到，已自动交卷', icon: 'none' })
         this.goToResult()

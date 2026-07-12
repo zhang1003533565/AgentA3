@@ -88,7 +88,7 @@ public class AppExamServiceImpl implements AppExamService {
 
         ExamPaper paper = paperRepository.findByIdAndStatusForUpdate(paperId, 1)
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "试卷不存在"));
-        active = attemptRepository.findByPaperIdAndUserIdAndActiveMarker(paperId, userId, 1)
+        active = attemptRepository.findActiveForUpdate(paperId, userId, 1)
                 .orElse(null);
         if (active != null && active.getDeadlineAt().isAfter(now)) {
             return toAttemptDetail(active, now);
@@ -120,7 +120,11 @@ public class AppExamServiceImpl implements AppExamService {
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "答题记录不存在"));
         if (attempt.getStatus() == ExamPaperAttempt.Status.IN_PROGRESS
                 && !attempt.getDeadlineAt().isAfter(now)) {
-            autoSubmit(attempt, now);
+            attempt = ownedAttemptForUpdate(attemptId, userId);
+            if (attempt.getStatus() == ExamPaperAttempt.Status.IN_PROGRESS
+                    && !attempt.getDeadlineAt().isAfter(now)) {
+                autoSubmit(attempt, now);
+            }
         }
         return toAttemptDetail(attempt, now);
     }
