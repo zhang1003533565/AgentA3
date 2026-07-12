@@ -3,7 +3,9 @@ import test from 'node:test'
 import {
   buildGenerationFormData,
   buildImportPayload,
+  canImportQuestions,
   normalizeQuestionForEditor,
+  removeQuestionAndRenumber,
   serializeEditedQuestion,
 } from './questionGenerationState.js'
 
@@ -137,4 +139,30 @@ test('导入来源只信任后端草稿且来源场景固定', () => {
     sourceTitle: '后端解析标题',
     sourceScene: 'question_generation',
   })
+})
+
+test('删除题目后重新编号但不改来源 ID', () => {
+  const questions = [
+    { id: 'source-1', sourceQuestionId: 'legacy-1', displayNumber: 1, stem: '第一题' },
+    { id: 'source-2', sourceQuestionId: 'legacy-2', displayNumber: 2, stem: '第二题' },
+    { id: 'source-3', sourceQuestionId: 'legacy-3', displayNumber: 3, stem: '第三题' },
+  ]
+
+  assert.deepEqual(removeQuestionAndRenumber(questions, 1), [
+    { id: 'source-1', sourceQuestionId: 'legacy-1', displayNumber: 1, stem: '第一题' },
+    { id: 'source-3', sourceQuestionId: 'legacy-3', displayNumber: 2, stem: '第三题' },
+  ])
+  assert.equal(questions[2].displayNumber, 3)
+})
+
+test('review valid=false 时禁止导入', () => {
+  assert.equal(canImportQuestions({ valid: false, issues: ['题干缺失'] }, [{ id: 'q-1' }]), false)
+})
+
+test('警告不阻断已通过复审的导入', () => {
+  assert.equal(canImportQuestions({ valid: true, issues: [], warnings: ['建议补充解析'] }, [{ id: 'q-1' }]), true)
+})
+
+test('零题时即使 review valid=true 也禁止导入', () => {
+  assert.equal(canImportQuestions({ valid: true, issues: [], warnings: [] }, []), false)
 })

@@ -35,3 +35,11 @@ export const buildImportPayload = (draft, questions) => ({
 export const normalizeQuestionForEditor = (question) => structuredClone(question)
 
 export const serializeEditedQuestion = (question) => structuredClone(question)
+
+export const removeQuestionAndRenumber = (questions, removedIndex) => questions
+  .filter((_, index) => index !== removedIndex)
+  .map((question, index) => ({ ...question, displayNumber: index + 1 }))
+
+export const canImportQuestions = (review, questions) => (
+  Boolean(review?.valid) && Array.isArray(questions) && questions.length > 0
+)
