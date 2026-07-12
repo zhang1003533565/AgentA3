@@ -202,26 +202,42 @@ function ExamPaperCreate({ onCreated }) {
   }
 
   const handleRandomPreview = async () => {
+    console.info('[ExamPaper][RandomSelect] button clicked')
     let rules
     try {
       rules = await form.validateFields(['rules'])
-    } catch {
+      console.info('[ExamPaper][RandomSelect] validation passed', rules)
+    } catch (error) {
+      console.error('[ExamPaper][RandomSelect] validation failed', error)
       return
     }
 
     setRandomLoading(true)
     setRandomError(null)
+    const requestPayload = {
+      rules: rules.rules.map((rule) => ({
+        type: rule.type,
+        difficulty: rule.difficulty || null,
+        quantity: rule.quantity,
+      })),
+    }
     try {
-      const response = await randomPreviewExamPaper({
-        rules: rules.rules.map((rule) => ({
-          type: rule.type,
-          difficulty: rule.difficulty || null,
-          quantity: rule.quantity,
-        })),
-      })
-      mergeQuestions(response.data?.questions || response.data || [])
-      message.success('随机选题结果已合并')
+      console.info('[ExamPaper][RandomSelect] request started', requestPayload)
+      const response = await randomPreviewExamPaper(requestPayload)
+      console.info('[ExamPaper][RandomSelect] request succeeded', response)
+      const generatedQuestions = response.data?.questions || response.data || []
+      const requestedQuantity = requestPayload.rules.reduce((sum, rule) => sum + Number(rule.quantity || 0), 0)
+      mergeQuestions(generatedQuestions)
+      if (generatedQuestions.length < requestedQuantity) {
+        message.warning(`题库数量不足，已按实际可用数量生成 ${generatedQuestions.length} 道`)
+      } else {
+        message.success('随机选题结果已合并')
+      }
     } catch (error) {
+      console.error('[ExamPaper][RandomSelect] request failed', {
+        request: requestPayload,
+        error,
+      })
       const errorMessage = error.message || '随机选题失败'
       setRandomError(errorMessage)
       message.error(errorMessage)

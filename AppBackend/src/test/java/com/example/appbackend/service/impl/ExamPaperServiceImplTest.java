@@ -86,13 +86,14 @@ class ExamPaperServiceImplTest {
     }
 
     @Test
-    void randomPreviewRejectsInsufficientCandidates() {
+    void randomPreviewUsesAllAvailableCandidatesWhenRequestedQuantityIsInsufficient() {
         when(questionRepository.findActiveCandidates("single_choice", "easy"))
                 .thenReturn(List.of(question(1L)));
 
-        BusinessException error = assertThrows(BusinessException.class,
-                () -> service.randomPreview(preview("single_choice", "easy", 2)));
-        assertEquals("单选题（简单）当前可用 1 道，请求 2 道，请减少数量或调整条件", error.getMessage());
+        var result = service.randomPreview(preview("single_choice", "easy", 2));
+
+        assertEquals(1, result.getQuestionCount());
+        assertEquals(List.of(1L), result.getQuestions().stream().map(QuestionSnapshotVO::getQuestionId).toList());
     }
 
     @Test
