@@ -115,6 +115,46 @@ class QuestionGenerationMaterialParserTest {
                 .hasMessageContaining(".doc");
     }
 
+    @Test
+    void rejectsPdfFilesDeclaredAsDocx() throws Exception {
+        MockMultipartFile file = docx("课程.pdf", document ->
+                document.createParagraph().createRun().setText("第一章"));
+
+        assertThatThrownBy(() -> parser.parse("docx", file, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(".docx");
+    }
+
+    @Test
+    void rejectsPptxFilesDeclaredAsDocx() throws Exception {
+        MockMultipartFile file = docx("课程.pptx", document ->
+                document.createParagraph().createRun().setText("第一章"));
+
+        assertThatThrownBy(() -> parser.parse("docx", file, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(".docx");
+    }
+
+    @Test
+    void rejectsDocxExtensionDeclaredAsTxt() {
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "课程.docx", "text/plain", "第一章".getBytes(StandardCharsets.UTF_8));
+
+        assertThatThrownBy(() -> parser.parse("txt", file, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(".txt");
+    }
+
+    @Test
+    void rejectsTxtExtensionDeclaredAsDocx() throws Exception {
+        MockMultipartFile file = docx("课程.txt", document ->
+                document.createParagraph().createRun().setText("第一章"));
+
+        assertThatThrownBy(() -> parser.parse("docx", file, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(".docx");
+    }
+
     private MockMultipartFile docx(String filename, Consumer<XWPFDocument> writer) throws Exception {
         try (XWPFDocument document = new XWPFDocument();
              ByteArrayOutputStream output = new ByteArrayOutputStream()) {

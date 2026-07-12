@@ -46,7 +46,7 @@ public class QuestionGenerationMaterialParser {
 
     private ParsedMaterial parseTxt(MultipartFile file) {
         validateFile(file);
-        rejectLegacyDoc(file.getOriginalFilename());
+        validateFileExtension(file.getOriginalFilename(), ".txt");
         try {
             var decoder = StandardCharsets.UTF_8.newDecoder()
                     .onMalformedInput(CodingErrorAction.REPORT)
@@ -65,7 +65,7 @@ public class QuestionGenerationMaterialParser {
 
     private ParsedMaterial parseDocx(MultipartFile file) {
         validateFile(file);
-        rejectLegacyDoc(file.getOriginalFilename());
+        validateFileExtension(file.getOriginalFilename(), ".docx");
         List<String> parts = new ArrayList<>();
         try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(file.getBytes()))) {
             for (IBodyElement element : document.getBodyElements()) {
@@ -115,9 +115,13 @@ public class QuestionGenerationMaterialParser {
         }
     }
 
-    private void rejectLegacyDoc(String filename) {
-        if (filename != null && filename.toLowerCase(Locale.ROOT).endsWith(".doc")) {
+    private void validateFileExtension(String filename, String expectedExtension) {
+        String normalizedFilename = filename == null ? "" : filename.toLowerCase(Locale.ROOT);
+        if (normalizedFilename.endsWith(".doc")) {
             throw new IllegalArgumentException("不支持旧版 .doc 文件，请转换为 .docx");
+        }
+        if (!normalizedFilename.endsWith(expectedExtension)) {
+            throw new IllegalArgumentException("材料文件扩展名必须为 " + expectedExtension);
         }
     }
 
