@@ -1,18 +1,23 @@
 package com.example.appbackend.service;
 
 import com.example.appbackend.dto.ExamPaperDTO.DownloadContent;
-import com.example.appbackend.dto.ExamPaperDTO.Orientation;
-import com.example.appbackend.dto.ExamPaperDTO.PageSize;
+import com.example.appbackend.dto.ExamPaperDTO.PaperLayoutConfig;
 import com.example.appbackend.dto.ExamPaperDTO.PaperVO;
 import com.example.appbackend.dto.ExamPaperDTO.QuestionSnapshotVO;
+import com.example.appbackend.service.exampaper.SourcePaperLayoutResolver;
+import com.example.appbackend.service.exampaper.SourcePaperLayoutResolver.ResolvedPageLayout;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.poi.xwpf.usermodel.ParagraphAlignment;
+import org.apache.poi.wp.usermodel.HeaderFooterType;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFHeader;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTColumns;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTDocGrid;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTPageMar;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTPageSz;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTSectPr;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.STPageOrientation;
@@ -29,31 +34,50 @@ import java.util.Objects;
 
 public class ExamPaperDocumentGenerator {
 
-    private static final BigInteger COLUMN_SPACE = BigInteger.valueOf(425);
     private final ObjectMapper objectMapper;
+    private final SourcePaperLayoutResolver layoutResolver;
 
     public ExamPaperDocumentGenerator() {
-        this(new ObjectMapper());
+        this(new ObjectMapper(), new SourcePaperLayoutResolver());
     }
 
     ExamPaperDocumentGenerator(ObjectMapper objectMapper) {
+        this(objectMapper, new SourcePaperLayoutResolver());
+    }
+
+    ExamPaperDocumentGenerator(ObjectMapper objectMapper, SourcePaperLayoutResolver layoutResolver) {
         this.objectMapper = Objects.requireNonNull(objectMapper);
+        this.layoutResolver = Objects.requireNonNull(layoutResolver);
     }
 
     public byte[] generate(PaperVO paper, DownloadContent content) {
+        PaperLayoutConfig legacy = new PaperLayoutConfig();
+        if (paper != null) {
+            if (paper.getPageSize() != null) legacy.setPageSize(paper.getPageSize());
+            if (paper.getOrientation() != null) legacy.setOrientation(paper.getOrientation());
+            if (paper.getColumnsCount() != null) legacy.setColumnsCount(paper.getColumnsCount());
+            if (paper.getHeaderInfo() != null) legacy.setHeaderInfo(paper.getHeaderInfo());
+        }
+        return generate(paper, content, legacy);
+    }
+
+    public byte[] generate(PaperVO paper, DownloadContent content, PaperLayoutConfig layout) {
         Objects.requireNonNull(paper, "paper");
         Objects.requireNonNull(content, "content");
+        Objects.requireNonNull(layout, "layout");
         try (XWPFDocument document = new XWPFDocument();
              ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-            configureLayout(document, paper);
-            writeHeader(document, paper, content);
+            ResolvedPageLayout resolved = layoutResolver.resolve(layout);
+            configureLayout(document, resolved);
+            writeBindingHeader(document, layout);
+            writeHeader(document, paper, content, layout);
             int number = 1;
             for (QuestionSection section : groupQuestions(paper.getQuestions())) {
-                writeSectionHeading(document, section);
+                writeSectionHeading(document, section, layout.getBodyFontSize());
                 for (QuestionSnapshotVO question : section.questions()) {
-                    writeQuestion(document, question, number++);
+                    writeQuestion(document, question, number++, layout.getBodyFontSize());
                     if (content == DownloadContent.ANSWER) {
-                        writeAnswer(document, question);
+                        writeAnswer(document, question, layout.getBodyFontSize());
                     }
                 }
             }
@@ -64,47 +88,55 @@ public class ExamPaperDocumentGenerator {
         }
     }
 
-    private void configureLayout(XWPFDocument document, PaperVO paper) {
-        long[] dimensions = dimensions(paper.getPageSize());
-        boolean landscape = paper.getOrientation() == Orientation.LANDSCAPE;
+    private void configureLayout(XWPFDocument document, ResolvedPageLayout layout) {
         CTSectPr section = document.getDocument().getBody().addNewSectPr();
         CTPageSz page = section.addNewPgSz();
-        page.setW(BigInteger.valueOf(landscape ? dimensions[1] : dimensions[0]));
-        page.setH(BigInteger.valueOf(landscape ? dimensions[0] : dimensions[1]));
-        if (landscape) {
-            page.setOrient(STPageOrientation.LANDSCAPE);
-        }
-        int count = Integer.valueOf(2).equals(paper.getColumnsCount()) ? 2 : 1;
+        page.setW(BigInteger.valueOf(layout.pageWidth()));
+        page.setH(BigInteger.valueOf(layout.pageHeight()));
+        page.setOrient(layout.orientation().name().equals("LANDSCAPE")
+                ? STPageOrientation.LANDSCAPE : STPageOrientation.PORTRAIT);
+        CTPageMar margins = section.addNewPgMar();
+        margins.setTop(BigInteger.valueOf(layout.marginTop()));
+        margins.setRight(BigInteger.valueOf(layout.marginRight()));
+        margins.setBottom(BigInteger.valueOf(layout.marginBottom()));
+        margins.setLeft(BigInteger.valueOf(layout.marginLeft()));
+        margins.setHeader(BigInteger.valueOf(layout.header()));
+        margins.setFooter(BigInteger.valueOf(layout.footer()));
+        margins.setGutter(BigInteger.valueOf(layout.gutter()));
         CTColumns columns = section.addNewCols();
-        columns.setNum(BigInteger.valueOf(count));
-        columns.setSpace(COLUMN_SPACE);
-        columns.setSep(count == 2);
+        columns.setNum(BigInteger.valueOf(layout.columnsCount()));
+        columns.setSpace(BigInteger.valueOf(layout.columnSpace()));
+        columns.setSep(layout.columnSeparator());
+        CTDocGrid grid = section.addNewDocGrid();
+        grid.setLinePitch(BigInteger.valueOf(layout.documentGridLinePitch()));
     }
 
-    private long[] dimensions(PageSize pageSize) {
-        return switch (pageSize == null ? PageSize.A4 : pageSize) {
-            case A3 -> new long[]{16838, 23811};
-            case A4 -> new long[]{11906, 16838};
-            case B4 -> new long[]{14173, 20013};
-        };
+    private void writeBindingHeader(XWPFDocument document, PaperLayoutConfig layout) {
+        if (!Boolean.TRUE.equals(layout.getHasBindingLine())) return;
+        XWPFHeader header = document.createHeader(HeaderFooterType.DEFAULT);
+        XWPFParagraph paragraph = header.createParagraph();
+        paragraph.setAlignment(ParagraphAlignment.CENTER);
+        XWPFRun run = paragraph.createRun();
+        setHalfPointFontSize(run, layout.getBodyFontSize());
+        run.setText("装订线    " + safeFileText(layout.getHeaderInfo()));
     }
 
-    private void writeHeader(XWPFDocument document, PaperVO paper, DownloadContent content) {
+    private void writeHeader(XWPFDocument document, PaperVO paper, DownloadContent content,
+                             PaperLayoutConfig layout) {
         XWPFParagraph title = document.createParagraph();
         title.setAlignment(ParagraphAlignment.CENTER);
         XWPFRun titleRun = title.createRun();
         titleRun.setBold(true);
-        titleRun.setFontSize(18);
+        setHalfPointFontSize(titleRun, layout.getTitleFontSize());
         titleRun.setText(safeFileText(paper.getTitle()));
-        addCentered(document, paper.getSubtitle());
-        addParagraph(document, paper.getHeaderInfo());
+        addCentered(document, paper.getSubtitle(), layout.getSubtitleFontSize());
         List<String> facts = new ArrayList<>();
         if (paper.getDurationMinutes() != null) facts.add("考试时间：" + paper.getDurationMinutes() + " 分钟");
         if (paper.getTotalScore() != null) facts.add("总分：" + paper.getTotalScore().stripTrailingZeros().toPlainString() + " 分");
         if (content == DownloadContent.ANSWER) facts.add("参考答案");
-        addParagraph(document, String.join("    ", facts));
+        addParagraph(document, String.join("    ", facts), layout.getBodyFontSize());
         if (paper.getPrecautions() != null && !paper.getPrecautions().isBlank()) {
-            addParagraph(document, "注意事项：" + safeFileText(paper.getPrecautions()));
+            addParagraph(document, "注意事项：" + safeFileText(paper.getPrecautions()), layout.getBodyFontSize());
         }
     }
 
@@ -128,11 +160,11 @@ public class ExamPaperDocumentGenerator {
                 .toList();
     }
 
-    private void writeSectionHeading(XWPFDocument document, QuestionSection section) {
+    private void writeSectionHeading(XWPFDocument document, QuestionSection section, int fontSize) {
         XWPFParagraph paragraph = document.createParagraph();
         XWPFRun run = paragraph.createRun();
         run.setBold(true);
-        run.setFontSize(13);
+        setHalfPointFontSize(run, fontSize);
         String score = section.questions().stream()
                 .map(QuestionSnapshotVO::getScore)
                 .filter(Objects::nonNull)
@@ -142,21 +174,21 @@ public class ExamPaperDocumentGenerator {
         run.setText(section.heading() + "（共" + section.questions().size() + "题，" + score + "分）");
     }
 
-    private void writeQuestion(XWPFDocument document, QuestionSnapshotVO question, int number) {
+    private void writeQuestion(XWPFDocument document, QuestionSnapshotVO question, int number, int fontSize) {
         String score = question.getScore() == null ? "" : "（" + question.getScore().stripTrailingZeros().toPlainString() + " 分）";
-        addParagraph(document, number + ". " + safeFileText(question.getStem()) + score);
+        addParagraph(document, number + ". " + safeFileText(question.getStem()) + score, fontSize);
         JsonNode body = readJson(question.getBodyJson());
         if (body == null) {
-            addParagraph(document, safeFileText(question.getBodyJson()));
+            addParagraph(document, safeFileText(question.getBodyJson()), fontSize);
             return;
         }
         if (body.isNull() || body.isEmpty()) return;
-        boolean rendered = writeOptions(document, body);
-        rendered = writeReadableBody(document, body) || rendered;
-        if (!rendered) addParagraph(document, pretty(body));
+        boolean rendered = writeOptions(document, body, fontSize);
+        rendered = writeReadableBody(document, body, fontSize) || rendered;
+        if (!rendered) addParagraph(document, pretty(body), fontSize);
     }
 
-    private boolean writeOptions(XWPFDocument document, JsonNode body) {
+    private boolean writeOptions(XWPFDocument document, JsonNode body, int fontSize) {
         JsonNode options = body.path("options");
         if (!options.isArray()) return false;
         boolean rendered = false;
@@ -164,33 +196,33 @@ public class ExamPaperDocumentGenerator {
             String key = option.path("key").asText("");
             String value = option.path("text").asText("");
             if (!key.isBlank() || !value.isBlank()) {
-                addParagraph(document, key + ". " + value);
+                addParagraph(document, key + ". " + value, fontSize);
                 rendered = true;
             }
         }
         return rendered;
     }
 
-    private boolean writeReadableBody(XWPFDocument document, JsonNode body) {
+    private boolean writeReadableBody(XWPFDocument document, JsonNode body, int fontSize) {
         boolean rendered = false;
         for (String key : List.of("statement", "text", "material", "task", "description", "inputFormat", "outputFormat")) {
             JsonNode value = body.get(key);
             if (value != null && value.isValueNode() && !value.asText().isBlank()) {
-                addParagraph(document, value.asText());
+                addParagraph(document, value.asText(), fontSize);
                 rendered = true;
             }
         }
         for (String key : List.of("requirements", "constraints", "items", "leftItems", "rightItems", "subQuestions", "examples")) {
             JsonNode value = body.get(key);
             if (value != null && !value.isEmpty()) {
-                addParagraph(document, pretty(value));
+                addParagraph(document, pretty(value), fontSize);
                 rendered = true;
             }
         }
         return rendered;
     }
 
-    private void writeAnswer(XWPFDocument document, QuestionSnapshotVO question) {
+    private void writeAnswer(XWPFDocument document, QuestionSnapshotVO question, int fontSize) {
         JsonNode answer = readJson(question.getAnswerJson());
         String text;
         if (answer == null) {
@@ -214,9 +246,9 @@ public class ExamPaperDocumentGenerator {
         } else {
             text = pretty(answer);
         }
-        addParagraph(document, "标准答案：" + text);
+        addParagraph(document, "标准答案：" + text, fontSize);
         if (question.getAnalysis() != null && !question.getAnalysis().isBlank()) {
-            addParagraph(document, "解析：" + safeFileText(question.getAnalysis()));
+            addParagraph(document, "解析：" + safeFileText(question.getAnalysis()), fontSize);
         }
     }
 
@@ -272,16 +304,26 @@ public class ExamPaperDocumentGenerator {
         };
     }
 
-    private void addCentered(XWPFDocument document, String text) {
+    private void addCentered(XWPFDocument document, String text, int fontSize) {
         if (text == null || text.isBlank()) return;
         XWPFParagraph paragraph = document.createParagraph();
         paragraph.setAlignment(ParagraphAlignment.CENTER);
-        paragraph.createRun().setText(safeFileText(text));
+        XWPFRun run = paragraph.createRun();
+        setHalfPointFontSize(run, fontSize);
+        run.setText(safeFileText(text));
     }
 
-    private void addParagraph(XWPFDocument document, String text) {
+    private void addParagraph(XWPFDocument document, String text, int fontSize) {
         if (text == null || text.isBlank()) return;
-        document.createParagraph().createRun().setText(safeFileText(text));
+        XWPFRun run = document.createParagraph().createRun();
+        setHalfPointFontSize(run, fontSize);
+        run.setText(safeFileText(text));
+    }
+
+    private void setHalfPointFontSize(XWPFRun run, int halfPoints) {
+        var properties = run.getCTR().isSetRPr() ? run.getCTR().getRPr() : run.getCTR().addNewRPr();
+        properties.addNewSz().setVal(BigInteger.valueOf(halfPoints));
+        properties.addNewSzCs().setVal(BigInteger.valueOf(halfPoints));
     }
 
     private record QuestionSection(String heading, List<QuestionSnapshotVO> questions) {

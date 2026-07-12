@@ -44,7 +44,13 @@ export const createPreviewSignature = (values, questions) => JSON.stringify(stab
   })),
 }))
 
-export const buildExamPaperRequest = (values, questions) => ({
+export const createPreviewProof = (preview) => preview ? ({
+  token: preview.token,
+  configurationHash: preview.configurationHash,
+  questionHash: preview.questionHash,
+}) : undefined
+
+export const buildExamPaperRequest = (values, questions, previewProof) => ({
   title: values.title.trim(),
   subtitle: values.subtitle?.trim() || null,
   durationMinutes: values.durationMinutes,
@@ -56,4 +62,5 @@ export const buildExamPaperRequest = (values, questions) => ({
     score: Number(question.score),
     sortOrder: index + 1,
   })),
+  ...(previewProof ? { previewProof } : {}),
 })

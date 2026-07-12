@@ -10,6 +10,9 @@ import com.example.appbackend.repository.ExamQuestionRepository;
 import com.example.appbackend.service.ExamPaperPreviewService;
 import com.example.appbackend.service.exampaper.ExamPaperDocumentDispatcher;
 import com.example.appbackend.service.exampaper.LibreOfficePreviewConverter;
+import com.example.appbackend.service.exampaper.ExamPaperFingerprint;
+import com.example.appbackend.service.exampaper.ExamPaperFingerprint.FingerprintQuestion;
+import com.example.appbackend.service.exampaper.ExamPaperFingerprint.Fingerprints;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import jakarta.annotation.PostConstruct;
@@ -17,10 +20,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -94,7 +95,8 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
         loaded.stream().filter(q -> Integer.valueOf(1).equals(q.getStatus())).forEach(q -> byId.put(q.getId(), q));
         if (byId.size() != ids.size()) throw new BusinessException(Result.BAD_REQUEST_CODE, "题目不存在或已停用");
 
-        PaperVO paper = transientPaper(request, layout, byId);
+        List<FingerprintQuestion> snapshot = ExamPaperFingerprint.snapshot(request.getQuestions(), byId);
+        PaperVO paper = transientPaper(request, layout, snapshot);
         byte[] docx = dispatcher.generate(paper, DownloadContent.PAPER, layout);
         String token = UUID.randomUUID().toString();
         Path directory = root.resolve(Long.toString(userId)).resolve(token);
@@ -114,8 +116,9 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
             throw new BusinessException(Result.ERROR_CODE, "无法保存试卷预览");
         }
         Instant expiresAt = clock.instant().plus(ttl);
-        String configHash = hash(configurationCanonical(request, layout));
-        String questionHash = hash(questionCanonical(paper.getQuestions()));
+        Fingerprints fingerprints = ExamPaperFingerprint.compute(request, layout, snapshot);
+        String configHash = fingerprints.configurationHash();
+        String questionHash = fingerprints.questionHash();
         previews.put(token, new Metadata(userId, storedPdf, expiresAt,
                 configHash, questionHash, converted.pageCount(), paper.getTitle()));
         return new PreviewResponse(token, "/api/exam/papers/preview/" + token,
@@ -139,6 +142,26 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
     public void deletePreview(String token, Long userId) {
         Metadata metadata = owned(token, userId);
         previews.remove(token, metadata);
+        converter.deleteRecursively(metadata.path.getParent());
+    }
+
+    @Override
+    public void validateAndConsumeProof(PreviewProof proof, Long userId, Fingerprints fingerprints) {
+        if (proof == null) throw new BusinessException(409, "模板试卷必须先生成有效预览");
+        Metadata metadata = previews.get(proof.getToken());
+        if (metadata == null || !metadata.expiresAt.isAfter(clock.instant())) {
+            if (metadata != null && previews.remove(proof.getToken(), metadata))
+                converter.deleteRecursively(metadata.path.getParent());
+            throw new BusinessException(409, "试卷预览证明不存在或已过期，请重新预览");
+        }
+        if (!Objects.equals(metadata.userId, userId)) throw new BusinessException(Result.FORBIDDEN_CODE, "无权使用该试卷预览证明");
+        boolean matches = Objects.equals(metadata.configurationHash, proof.getConfigurationHash())
+                && Objects.equals(metadata.questionHash, proof.getQuestionHash())
+                && Objects.equals(metadata.configurationHash, fingerprints.configurationHash())
+                && Objects.equals(metadata.questionHash, fingerprints.questionHash());
+        if (!matches) throw new BusinessException(409, "试卷内容或页面格式已变化，请重新预览");
+        if (!previews.remove(proof.getToken(), metadata))
+            throw new BusinessException(409, "试卷预览证明已被使用，请重新预览");
         converter.deleteRecursively(metadata.path.getParent());
     }
 
@@ -212,16 +235,7 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
                 || source.getCustomMarginRight() == null || source.getCustomMarginBottom() == null
                 || source.getCustomMarginLeft() == null))
             throw new BusinessException(Result.BAD_REQUEST_CODE, "自定义页边距必须完整填写");
-        PaperLayoutConfig target = new PaperLayoutConfig();
-        target.setRenderMode(source.getRenderMode()); target.setPageSize(source.getPageSize());
-        target.setOrientation(source.getOrientation()); target.setMarginPreset(source.getMarginPreset());
-        target.setCustomMarginTop(source.getCustomMarginTop()); target.setCustomMarginRight(source.getCustomMarginRight());
-        target.setCustomMarginBottom(source.getCustomMarginBottom()); target.setCustomMarginLeft(source.getCustomMarginLeft());
-        target.setColumnsCount(source.getColumnsCount()); target.setColumnSpace(source.getColumnSpace());
-        target.setHasBindingLine(source.getHasBindingLine()); target.setHeaderInfo(source.getHeaderInfo());
-        target.setTitleFontSize(source.getTitleFontSize()); target.setSubtitleFontSize(source.getSubtitleFontSize());
-        target.setBodyFontSize(source.getBodyFontSize());
-        return target;
+        return ExamPaperFingerprint.layout(source);
     }
 
     private void validateSelections(List<SelectedQuestion> selections) {
@@ -233,58 +247,21 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
         }
     }
 
-    private PaperVO transientPaper(CreateRequest request, PaperLayoutConfig layout, Map<Long, ExamQuestion> questions) {
+    private PaperVO transientPaper(CreateRequest request, PaperLayoutConfig layout, List<FingerprintQuestion> questions) {
         PaperVO paper = new PaperVO(); paper.setTitle(request.getTitle()); paper.setSubtitle(request.getSubtitle());
         paper.setDurationMinutes(request.getDurationMinutes()); paper.setPrecautions(request.getPrecautions());
         paper.setLayout(layout); paper.setHeaderInfo(layout.getHeaderInfo()); paper.setPageSize(layout.getPageSize());
         paper.setOrientation(layout.getOrientation()); paper.setColumnsCount(layout.getColumnsCount());
         paper.setSelectionMode(request.getSelectionMode());
-        Map<String,Integer> sections = new LinkedHashMap<>(); List<QuestionSnapshotVO> snapshots = new ArrayList<>();
-        request.getQuestions().stream().sorted(Comparator.comparing(SelectedQuestion::getSortOrder)).forEach(selection -> {
-            ExamQuestion q = questions.get(selection.getQuestionId()); QuestionSnapshotVO vo = new QuestionSnapshotVO();
-            vo.setQuestionId(q.getId()); vo.setSortOrder(selection.getSortOrder());
-            vo.setSectionOrder(sections.computeIfAbsent(q.getType(), ignored -> sections.size() + 1));
-            vo.setScore(selection.getScore()); vo.setType(q.getType()); vo.setStem(q.getStem()); vo.setBodyJson(q.getBodyJson());
-            vo.setAnswerJson(q.getAnswerJson()); vo.setAnalysis(q.getAnalysis()); vo.setScoringJson(q.getScoringJson()); snapshots.add(vo);
-        });
+        List<QuestionSnapshotVO> snapshots = questions.stream().map(q -> {
+            QuestionSnapshotVO vo = new QuestionSnapshotVO(); vo.setQuestionId(q.questionId()); vo.setSortOrder(q.sortOrder());
+            vo.setSectionOrder(q.sectionOrder()); vo.setScore(q.score()); vo.setType(q.type()); vo.setStem(q.stem());
+            vo.setBodyJson(q.bodyJson()); vo.setAnswerJson(q.answerJson()); vo.setAnalysis(q.analysis());
+            vo.setScoringJson(q.scoringJson()); return vo;
+        }).toList();
         paper.setQuestions(snapshots); paper.setQuestionCount(snapshots.size());
         paper.setTotalScore(snapshots.stream().map(QuestionSnapshotVO::getScore).reduce(BigDecimal.ZERO, BigDecimal::add));
         return paper;
-    }
-
-    private String hash(String value) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (Exception impossible) { throw new IllegalStateException(impossible); }
-    }
-
-    private String configurationCanonical(CreateRequest request, PaperLayoutConfig layout) {
-        StringBuilder out = new StringBuilder("preview-config-v1");
-        append(out, request.getTitle()); append(out, request.getSubtitle());
-        append(out, request.getDurationMinutes()); append(out, request.getPrecautions());
-        append(out, layout.getRenderMode()); append(out, layout.getPageSize()); append(out, layout.getOrientation());
-        append(out, layout.getMarginPreset()); append(out, layout.getCustomMarginTop());
-        append(out, layout.getCustomMarginRight()); append(out, layout.getCustomMarginBottom());
-        append(out, layout.getCustomMarginLeft()); append(out, layout.getColumnsCount());
-        append(out, layout.getColumnSpace()); append(out, layout.getHasBindingLine()); append(out, layout.getHeaderInfo());
-        append(out, layout.getTitleFontSize()); append(out, layout.getSubtitleFontSize()); append(out, layout.getBodyFontSize());
-        return out.toString();
-    }
-
-    private String questionCanonical(List<QuestionSnapshotVO> questions) {
-        StringBuilder out = new StringBuilder("preview-questions-v1");
-        for (QuestionSnapshotVO q : questions) {
-            append(out, q.getQuestionId()); append(out, q.getSortOrder()); append(out, q.getSectionOrder());
-            append(out, q.getScore() == null ? null : q.getScore().stripTrailingZeros().toPlainString());
-            append(out, q.getType()); append(out, q.getStem()); append(out, q.getBodyJson());
-            append(out, q.getAnswerJson()); append(out, q.getAnalysis()); append(out, q.getScoringJson());
-        }
-        return out.toString();
-    }
-
-    private void append(StringBuilder out, Object value) {
-        String text = value == null ? "" : String.valueOf(value);
-        out.append('|').append(text.length()).append(':').append(text);
     }
 
     private void validateLifecycle(Duration ttl) {

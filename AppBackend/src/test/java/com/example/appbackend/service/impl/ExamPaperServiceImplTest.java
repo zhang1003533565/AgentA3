@@ -21,6 +21,8 @@ import com.example.appbackend.repository.ExamPaperQuestionRepository;
 import com.example.appbackend.repository.ExamPaperRepository;
 import com.example.appbackend.repository.ExamQuestionRepository;
 import com.example.appbackend.service.ExamPaperDocumentGenerator;
+import com.example.appbackend.service.ExamPaperPreviewService;
+import com.example.appbackend.dto.ExamPaperDTO.PreviewProof;
 import com.example.appbackend.service.exampaper.ExamPaperDocumentDispatcher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,6 +43,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 @ExtendWith(MockitoExtension.class)
 class ExamPaperServiceImplTest {
@@ -57,17 +60,15 @@ class ExamPaperServiceImplTest {
     private ExamPaperDocumentGenerator documentGenerator;
     @Mock
     private ExamPaperDocumentDispatcher documentDispatcher;
+    @Mock
+    private ExamPaperPreviewService previewService;
 
     private ExamPaperServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new ExamPaperServiceImpl(
-                questionRepository,
-                paperRepository,
-                paperQuestionRepository,
-                randomGenerator,
-                documentGenerator);
+        service = new ExamPaperServiceImpl(questionRepository, paperRepository, paperQuestionRepository,
+                randomGenerator, documentGenerator, previewService);
     }
 
     @Test
@@ -149,6 +150,27 @@ class ExamPaperServiceImplTest {
 
         verify(questionRepository, never()).findAllById(any());
         verify(paperRepository, never()).save(any());
+    }
+
+    @Test
+    void templateCreateRequiresProofBeforePersistence() {
+        CreateRequest request = createRequest(selected(1L, "5.00", 1));
+        request.setPreviewProof(null);
+        when(questionRepository.findAllById(List.of(1L))).thenReturn(List.of(question(1L)));
+        BusinessException error = assertThrows(BusinessException.class, () -> service.create(request, 9L));
+        assertEquals(409, error.getCode());
+        verify(paperRepository, never()).save(any());
+    }
+
+    @Test
+    void proofMismatchStopsAllPersistence() {
+        CreateRequest request = createRequest(selected(1L, "5.00", 1));
+        when(questionRepository.findAllById(List.of(1L))).thenReturn(List.of(question(1L)));
+        doThrow(new BusinessException(409, "内容变化")).when(previewService)
+                .validateAndConsumeProof(any(), org.mockito.ArgumentMatchers.eq(9L), any());
+        assertEquals(409, assertThrows(BusinessException.class, () -> service.create(request, 9L)).getCode());
+        verify(paperRepository, never()).save(any());
+        verify(paperQuestionRepository, never()).saveAll(any());
     }
 
     @Test
@@ -533,6 +555,8 @@ class ExamPaperServiceImplTest {
         request.setLayout(layout);
         request.setSelectionMode(SelectionMode.MANUAL);
         request.setQuestions(List.of(questions));
+        PreviewProof proof = new PreviewProof(); proof.setToken("token");
+        proof.setConfigurationHash("config"); proof.setQuestionHash("questions"); request.setPreviewProof(proof);
         return request;
     }
 

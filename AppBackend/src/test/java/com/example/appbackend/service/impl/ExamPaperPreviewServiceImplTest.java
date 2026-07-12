@@ -6,6 +6,7 @@ import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.ExamQuestionRepository;
 import com.example.appbackend.service.exampaper.ExamPaperDocumentDispatcher;
 import com.example.appbackend.service.exampaper.LibreOfficePreviewConverter;
+import com.example.appbackend.service.exampaper.ExamPaperFingerprint;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -98,6 +99,39 @@ class ExamPaperPreviewServiceImplTest {
     }
 
     @Test
+    void proofRecomputesAndConsumesTokenPreventingReplay() throws Exception {
+        ExamQuestionRepository questions = mock(ExamQuestionRepository.class);
+        ExamPaperDocumentDispatcher dispatcher = mock(ExamPaperDocumentDispatcher.class);
+        when(questions.findAllById(anyList())).thenReturn(List.of(question()));
+        when(dispatcher.generate(any(), any(), any())).thenReturn(new byte[]{1});
+        var service = service(questions, dispatcher, Duration.ofMinutes(30), Clock.systemUTC());
+        CreateRequest request = request(); var response = service.createPreview(request, 8L);
+        PreviewProof proof = proof(response);
+        service.validateAndConsumeProof(proof, 8L, fingerprints(request, question()));
+        assertEquals(409, assertThrows(BusinessException.class,
+                () -> service.validateAndConsumeProof(proof, 8L, fingerprints(request, question()))).getCode());
+    }
+
+    @Test
+    void proofRejectsChangedConfigurationQuestionContentAndDifferentCreator() throws Exception {
+        ExamQuestionRepository questions = mock(ExamQuestionRepository.class);
+        ExamPaperDocumentDispatcher dispatcher = mock(ExamPaperDocumentDispatcher.class);
+        when(questions.findAllById(anyList())).thenReturn(List.of(question()));
+        when(dispatcher.generate(any(), any(), any())).thenReturn(new byte[]{1});
+        var service = service(questions, dispatcher, Duration.ofMinutes(30), Clock.systemUTC());
+        CreateRequest request = request(); var configPreview = service.createPreview(request, 8L);
+        CreateRequest changedConfig = request(); changedConfig.setTitle("changed");
+        assertEquals(409, assertThrows(BusinessException.class, () -> service.validateAndConsumeProof(
+                proof(configPreview), 8L, fingerprints(changedConfig, question()))).getCode());
+        var questionPreview = service.createPreview(request, 8L);
+        ExamQuestion changedQuestion = question(); changedQuestion.setStem("题库内容变化");
+        assertEquals(409, assertThrows(BusinessException.class, () -> service.validateAndConsumeProof(
+                proof(questionPreview), 8L, fingerprints(request, changedQuestion))).getCode());
+        assertEquals(403, assertThrows(BusinessException.class, () -> service.validateAndConsumeProof(
+                proof(questionPreview), 9L, fingerprints(request, question()))).getCode());
+    }
+
+    @Test
     void cleanupRemovesOnlyOldUuidOrphans() throws Exception {
         ExamQuestionRepository questions = mock(ExamQuestionRepository.class);
         ExamPaperDocumentDispatcher dispatcher = mock(ExamPaperDocumentDispatcher.class);
@@ -146,6 +180,18 @@ class ExamPaperPreviewServiceImplTest {
         ExamQuestion q = new ExamQuestion(); q.setId(3L); q.setStatus(1); q.setType("单选题");
         q.setStem("题干"); q.setBodyJson("{\"options\":[\"A\",\"B\"]}"); q.setAnswerJson("\"A\"");
         return q;
+    }
+
+    private PreviewProof proof(com.example.appbackend.dto.ExamPaperPreviewDTO.PreviewResponse response) {
+        PreviewProof proof = new PreviewProof(); proof.setToken(response.getToken());
+        proof.setConfigurationHash(response.getConfigurationHash()); proof.setQuestionHash(response.getQuestionHash()); return proof;
+    }
+
+    private ExamPaperFingerprint.Fingerprints fingerprints(CreateRequest request, ExamQuestion question) {
+        var byId = java.util.Map.of(question.getId(), question);
+        var layout = ExamPaperFingerprint.layout(request.getLayout());
+        return ExamPaperFingerprint.compute(request, layout,
+                ExamPaperFingerprint.snapshot(request.getQuestions(), byId));
     }
 
     private CreateRequest request() {

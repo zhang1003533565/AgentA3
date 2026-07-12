@@ -40,6 +40,7 @@ import {
   SOURCE_LAYOUT_DEFAULTS,
   buildExamPaperRequest,
   createPreviewSignature,
+  createPreviewProof,
   shouldAcceptPreviewGeneration,
 } from './examPaperPreviewState'
 
@@ -352,7 +353,10 @@ function ExamPaperCreate({ onCreated }) {
 
     setSubmitting(true)
     try {
-      const response = await createExamPaper(paper.request)
+      const response = await createExamPaper({
+        ...paper.request,
+        previewProof: createPreviewProof(preview),
+      })
       message.success('试卷创建成功')
       await clearCurrentPreview()
       onCreated?.(response.data)

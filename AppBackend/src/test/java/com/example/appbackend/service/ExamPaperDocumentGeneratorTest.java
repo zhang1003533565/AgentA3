@@ -1,8 +1,10 @@
 package com.example.appbackend.service;
 
 import com.example.appbackend.dto.ExamPaperDTO.DownloadContent;
+import com.example.appbackend.dto.ExamPaperDTO.MarginPreset;
 import com.example.appbackend.dto.ExamPaperDTO.Orientation;
 import com.example.appbackend.dto.ExamPaperDTO.PageSize;
+import com.example.appbackend.dto.ExamPaperDTO.PaperLayoutConfig;
 import com.example.appbackend.dto.ExamPaperDTO.PaperVO;
 import com.example.appbackend.dto.ExamPaperDTO.QuestionSnapshotVO;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
@@ -179,13 +181,67 @@ class ExamPaperDocumentGeneratorTest {
         }
     }
 
+    @Test
+    void appliesCompleteNonDefaultSimpleLayoutAndAllThreeFontSizes() throws Exception {
+        PaperLayoutConfig layout = new PaperLayoutConfig();
+        layout.setPageSize(PageSize.B4);
+        layout.setOrientation(Orientation.LANDSCAPE);
+        layout.setMarginPreset(MarginPreset.CUSTOM);
+        layout.setCustomMarginTop(601);
+        layout.setCustomMarginRight(602);
+        layout.setCustomMarginBottom(603);
+        layout.setCustomMarginLeft(604);
+        layout.setColumnsCount(2);
+        layout.setColumnSpace(777);
+        layout.setTitleFontSize(64);
+        layout.setSubtitleFontSize(30);
+        layout.setBodyFontSize(23);
+        layout.setHasBindingLine(false);
+
+        byte[] bytes = new ExamPaperDocumentGenerator().generate(
+                paper(PageSize.A4, Orientation.PORTRAIT, 1), DownloadContent.PAPER, layout);
+        try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(bytes))) {
+            CTSectPr section = document.getDocument().getBody().getSectPr();
+            assertEquals(BigInteger.valueOf(20639), section.getPgSz().getW());
+            assertEquals(BigInteger.valueOf(14572), section.getPgSz().getH());
+            assertEquals("landscape", section.getPgSz().getOrient().toString());
+            assertEquals("601", section.getPgMar().getTop().toString());
+            assertEquals("602", section.getPgMar().getRight().toString());
+            assertEquals("603", section.getPgMar().getBottom().toString());
+            assertEquals("604", section.getPgMar().getLeft().toString());
+            assertEquals(BigInteger.valueOf(777), section.getCols().getSpace());
+            assertEquals(BigInteger.valueOf(312), section.getDocGrid().getLinePitch());
+            assertTrue(document.getHeaderList().isEmpty());
+            assertEquals("64", document.getParagraphs().get(0).getRuns().get(0)
+                    .getCTR().getRPr().getSzArray(0).getVal().toString());
+            assertEquals("30", document.getParagraphs().get(1).getRuns().get(0)
+                    .getCTR().getRPr().getSzArray(0).getVal().toString());
+            assertTrue(document.getParagraphs().stream().skip(2).flatMap(p -> p.getRuns().stream())
+                    .allMatch(run -> run.getCTR().getRPr().getSzArray(0).getVal().toString().equals("23")));
+        }
+    }
+
+    @Test
+    void bindingEnabledCreatesExplicitSimpleHeaderWithConfiguredInformation() throws Exception {
+        PaperLayoutConfig layout = new PaperLayoutConfig();
+        layout.setHasBindingLine(true);
+        layout.setHeaderInfo("矿井甲  姓名________");
+        byte[] bytes = new ExamPaperDocumentGenerator().generate(
+                paper(PageSize.A4, Orientation.PORTRAIT, 1), DownloadContent.PAPER, layout);
+        try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(bytes))) {
+            assertEquals(1, document.getHeaderList().size());
+            assertTrue(document.getHeaderList().getFirst().getText().contains("装订线"));
+            assertTrue(document.getHeaderList().getFirst().getText().contains("矿井甲"));
+        }
+    }
+
     private static Stream<Arguments> layouts() {
         return Stream.of(PageSize.values()).flatMap(size -> Stream.of(Orientation.values()).flatMap(orientation ->
                 Stream.of(1, 2).map(columns -> {
                     long[] dimensions = switch (size) {
-                        case A3 -> new long[]{16838, 23811};
-                        case A4 -> new long[]{11906, 16838};
-                        case B4 -> new long[]{14173, 20013};
+                        case A3 -> new long[]{16840, 23814};
+                        case A4 -> new long[]{11907, 16840};
+                        case B4 -> new long[]{14572, 20639};
                     };
                     return Arguments.of(size, orientation, columns, dimensions[0], dimensions[1]);
                 })));

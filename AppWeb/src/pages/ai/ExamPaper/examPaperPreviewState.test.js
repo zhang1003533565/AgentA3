@@ -5,6 +5,7 @@ import {
   SOURCE_LAYOUT_DEFAULTS,
   buildExamPaperRequest,
   createPreviewSignature,
+  createPreviewProof,
   shouldAcceptPreviewGeneration,
 } from './examPaperPreviewState.js'
 import { PREVIEW_CREATE_IS_ABORTABLE, PREVIEW_REQUEST_TIMEOUT } from '../../../api/examPaperPreviewConfig.js'
@@ -47,7 +48,7 @@ test('预览签名对对象字段顺序稳定但会响应题目顺序和分值�
   assert.notEqual(first, changedScore)
 })
 
-test('预览和确认共用完整嵌套 layout 请求且不携带 preview token', () => {
+test('预览请求不携带 proof，确认请求仅携带服务端返回的 proof 字段', () => {
   const request = buildExamPaperRequest({
     title: '  安全考试  ',
     subtitle: '  A 卷 ',
@@ -66,6 +67,12 @@ test('预览和确认共用完整嵌套 layout 请求且不携带 preview token'
   assert.equal(request.questions[0].sortOrder, 1)
   assert.equal('previewToken' in request, false)
   assert.equal('pageSize' in request, false)
+  assert.equal('previewProof' in request, false)
+  const proof = createPreviewProof({ token: 't', configurationHash: 'c', questionHash: 'q', blobUrl: 'blob:x' })
+  const confirmed = buildExamPaperRequest({
+    title: '安全考试', selectionMode: 'manual', layout: SOURCE_LAYOUT_DEFAULTS,
+  }, [{ questionId: 9, score: 3 }], proof)
+  assert.deepEqual(confirmed.previewProof, { token: 't', configurationHash: 'c', questionHash: 'q' })
 })
 
 test('预览请求超时覆盖后端 10 分钟转换上限且创建请求不可取消', () => {

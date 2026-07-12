@@ -22,6 +22,8 @@ import com.example.appbackend.repository.ExamQuestionRepository;
 import com.example.appbackend.service.ExamPaperService;
 import com.example.appbackend.service.ExamPaperDocumentGenerator;
 import com.example.appbackend.service.exampaper.ExamPaperDocumentDispatcher;
+import com.example.appbackend.service.exampaper.ExamPaperFingerprint;
+import com.example.appbackend.service.ExamPaperPreviewService;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,8 +51,8 @@ public class ExamPaperServiceImpl implements ExamPaperService {
     private final RandomGenerator randomGenerator;
     private final ExamPaperDocumentGenerator documentGenerator;
     private final ExamPaperDocumentDispatcher documentDispatcher;
+    private final ExamPaperPreviewService previewService;
 
-    @Autowired
     public ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
                                 ExamPaperRepository paperRepository,
                                 ExamPaperQuestionRepository paperQuestionRepository) {
@@ -58,17 +60,36 @@ public class ExamPaperServiceImpl implements ExamPaperService {
                 RandomGenerator.getDefault(), new ExamPaperDocumentDispatcher());
     }
 
+    @Autowired
+    public ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
+                                ExamPaperRepository paperRepository,
+                                ExamPaperQuestionRepository paperQuestionRepository,
+                                ExamPaperPreviewService previewService) {
+        this(questionRepository, paperRepository, paperQuestionRepository,
+                RandomGenerator.getDefault(), new ExamPaperDocumentDispatcher(), previewService);
+    }
+
     ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
                                  ExamPaperRepository paperRepository,
                                  ExamPaperQuestionRepository paperQuestionRepository,
                                  RandomGenerator randomGenerator,
                                  ExamPaperDocumentDispatcher documentDispatcher) {
+        this(questionRepository, paperRepository, paperQuestionRepository, randomGenerator, documentDispatcher, null);
+    }
+
+    ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
+                         ExamPaperRepository paperRepository,
+                         ExamPaperQuestionRepository paperQuestionRepository,
+                         RandomGenerator randomGenerator,
+                         ExamPaperDocumentDispatcher documentDispatcher,
+                         ExamPaperPreviewService previewService) {
         this.questionRepository = questionRepository;
         this.paperRepository = paperRepository;
         this.paperQuestionRepository = paperQuestionRepository;
         this.randomGenerator = randomGenerator;
         this.documentGenerator = null;
         this.documentDispatcher = documentDispatcher;
+        this.previewService = previewService;
     }
 
     ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
@@ -76,12 +97,22 @@ public class ExamPaperServiceImpl implements ExamPaperService {
                          ExamPaperQuestionRepository paperQuestionRepository,
                          RandomGenerator randomGenerator,
                          ExamPaperDocumentGenerator documentGenerator) {
+        this(questionRepository, paperRepository, paperQuestionRepository, randomGenerator, documentGenerator, null);
+    }
+
+    ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
+                         ExamPaperRepository paperRepository,
+                         ExamPaperQuestionRepository paperQuestionRepository,
+                         RandomGenerator randomGenerator,
+                         ExamPaperDocumentGenerator documentGenerator,
+                         ExamPaperPreviewService previewService) {
         this.questionRepository = questionRepository;
         this.paperRepository = paperRepository;
         this.paperQuestionRepository = paperQuestionRepository;
         this.randomGenerator = randomGenerator;
         this.documentGenerator = documentGenerator;
         this.documentDispatcher = null;
+        this.previewService = previewService;
     }
 
     @Override
@@ -180,6 +211,16 @@ public class ExamPaperServiceImpl implements ExamPaperService {
         List<SelectedQuestion> selections = request.getQuestions().stream()
                 .sorted(Comparator.comparing(SelectedQuestion::getSortOrder))
                 .toList();
+        var fingerprintQuestions = ExamPaperFingerprint.snapshot(selections, questionsById);
+        PaperLayoutConfig layoutConfig = ExamPaperFingerprint.layout(layout);
+        if (layout.getRenderMode() == com.example.appbackend.dto.ExamPaperDTO.PaperRenderMode.TEMPLATE) {
+            if (request.getPreviewProof() == null)
+                throw new BusinessException(409, "模板试卷必须先生成有效预览");
+            if (previewService == null)
+                throw new BusinessException(409, "预览证明校验服务不可用");
+            previewService.validateAndConsumeProof(request.getPreviewProof(), userId,
+                    ExamPaperFingerprint.compute(request, layoutConfig, fingerprintQuestions));
+        }
         BigDecimal totalScore = selections.stream()
                 .map(SelectedQuestion::getScore)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);

@@ -26,7 +26,7 @@ public final class ExamPaperDocumentDispatcher {
     public byte[] generate(PaperVO paper, DownloadContent content, PaperLayoutConfig layout) {
         Objects.requireNonNull(layout, "layout");
         if (layout.getRenderMode() == PaperRenderMode.SIMPLE) {
-            return simpleGenerator.generate(paper, content);
+            return simpleGenerator.generate(paper, content, layout);
         }
         return templateEngine.generate(paper, content, layout);
     }

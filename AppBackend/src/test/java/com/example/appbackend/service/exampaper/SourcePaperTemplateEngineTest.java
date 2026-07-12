@@ -1,11 +1,15 @@
 package com.example.appbackend.service.exampaper;
 
 import com.example.appbackend.dto.ExamPaperDTO.DownloadContent;
+import com.example.appbackend.dto.ExamPaperDTO.MarginPreset;
+import com.example.appbackend.dto.ExamPaperDTO.Orientation;
+import com.example.appbackend.dto.ExamPaperDTO.PageSize;
 import com.example.appbackend.dto.ExamPaperDTO.PaperLayoutConfig;
 import com.example.appbackend.dto.ExamPaperDTO.PaperRenderMode;
 import com.example.appbackend.dto.ExamPaperDTO.PaperVO;
 import com.example.appbackend.dto.ExamPaperDTO.QuestionSnapshotVO;
 import com.example.appbackend.service.ExamPaperDocumentGenerator;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -75,17 +79,34 @@ class SourcePaperTemplateEngineTest {
     }
 
     @Test
-    void dispatcherKeepsSimpleModeAndRoutesTemplateMode() {
+    void dispatcherKeepsSimpleModeAndRoutesTemplateMode() throws Exception {
         ExamPaperDocumentDispatcher dispatcher = new ExamPaperDocumentDispatcher(
                 new ExamPaperDocumentGenerator(), engine);
         PaperLayoutConfig simple = new PaperLayoutConfig();
         simple.setRenderMode(PaperRenderMode.SIMPLE);
+        simple.setPageSize(PageSize.B4);
+        simple.setOrientation(Orientation.LANDSCAPE);
+        simple.setMarginPreset(MarginPreset.CUSTOM);
+        simple.setCustomMarginTop(701);
+        simple.setCustomMarginRight(702);
+        simple.setCustomMarginBottom(703);
+        simple.setCustomMarginLeft(704);
+        simple.setColumnSpace(733);
+        simple.setHasBindingLine(false);
         PaperLayoutConfig template = new PaperLayoutConfig();
 
         byte[] simpleBytes = dispatcher.generate(paper(), DownloadContent.PAPER, simple);
         byte[] templateBytes = dispatcher.generate(paper(), DownloadContent.PAPER, template);
 
         assertNotEquals(sha256(simpleBytes), sha256(templateBytes));
+        try (XWPFDocument simpleDocument = new XWPFDocument(new ByteArrayInputStream(simpleBytes))) {
+            var section = simpleDocument.getDocument().getBody().getSectPr();
+            assertEquals("20639", section.getPgSz().getW().toString());
+            assertEquals("14572", section.getPgSz().getH().toString());
+            assertEquals("701", section.getPgMar().getTop().toString());
+            assertEquals("733", section.getCols().getSpace().toString());
+            assertTrue(simpleDocument.getHeaderList().isEmpty());
+        }
         assertDoesNotThrow(() -> SourcePaperPackageVerifier.verify(templateBytes));
     }
 

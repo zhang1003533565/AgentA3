@@ -127,6 +127,16 @@ public final class ExamPaperDTO {
         @Valid
         @NotEmpty
         private List<SelectedQuestion> questions;
+
+        @Valid
+        private PreviewProof previewProof;
+    }
+
+    @Data
+    public static class PreviewProof {
+        @NotBlank private String token;
+        @NotBlank private String configurationHash;
+        @NotBlank private String questionHash;
     }
 
     @Data
