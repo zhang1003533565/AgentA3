@@ -31,6 +31,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -275,6 +276,36 @@ public class ExamPaperServiceImpl implements ExamPaperService {
     }
 
     @Override
+    @Transactional
+    public PaperVO publish(Long id, Long adminUserId) {
+        ExamPaper paper = ownedActivePaper(id, adminUserId);
+        if (Boolean.TRUE.equals(paper.getPublished())) {
+            return toVO(paper, null);
+        }
+        if (paper.getQuestionCount() == null || paper.getQuestionCount() <= 0) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "空试卷不能发布");
+        }
+        if (paper.getDurationMinutes() == null || paper.getDurationMinutes() <= 0) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "考试时长必须为正数");
+        }
+        paper.setPublished(true);
+        paper.setPublishTime(LocalDateTime.now());
+        return toVO(paperRepository.save(paper), null);
+    }
+
+    @Override
+    @Transactional
+    public PaperVO unpublish(Long id, Long adminUserId) {
+        ExamPaper paper = ownedActivePaper(id, adminUserId);
+        if (!Boolean.TRUE.equals(paper.getPublished())) {
+            return toVO(paper, null);
+        }
+        paper.setPublished(false);
+        paper.setPublishTime(null);
+        return toVO(paperRepository.save(paper), null);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public DownloadFile download(Long id, Long userId, DownloadContent content) {
         PaperVO paper = detail(id, userId);
@@ -286,6 +317,15 @@ public class ExamPaperServiceImpl implements ExamPaperService {
             bytes = documentDispatcher.generate(paper, content, paper.getLayout());
         }
         return new DownloadFile(paper.getTitle(), bytes);
+    }
+
+    private ExamPaper ownedActivePaper(Long id, Long userId) {
+        ExamPaper paper = paperRepository.findByIdAndStatus(id, 1)
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "试卷不存在"));
+        if (!Objects.equals(paper.getCreatedBy(), userId)) {
+            throw new BusinessException(Result.FORBIDDEN_CODE, "无权访问该试卷");
+        }
+        return paper;
     }
 
     private void validateLayout(PaperLayoutRequest layout) {
@@ -392,6 +432,8 @@ public class ExamPaperServiceImpl implements ExamPaperService {
         vo.setSelectionMode(paper.getSelectionMode());
         vo.setQuestionCount(paper.getQuestionCount());
         vo.setTotalScore(paper.getTotalScore());
+        vo.setPublished(Boolean.TRUE.equals(paper.getPublished()));
+        vo.setPublishTime(paper.getPublishTime());
         vo.setCreateTime(paper.getCreateTime());
         if (snapshots != null) {
             vo.setQuestions(snapshots.stream().map(this::snapshotVO).toList());

@@ -30,6 +30,7 @@ import java.util.Locale;
 @RequestMapping("/api/exam/papers")
 public class ExamPaperController {
 
+    private static final String ROLE_ADMIN = "ADMIN";
     private static final MediaType DOCX_MEDIA_TYPE = MediaType.parseMediaType(
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
     private static final String ILLEGAL_FILENAME_CHARACTERS = "[\\\\/:*?\"<>|\\r\\n]";
@@ -64,6 +65,16 @@ public class ExamPaperController {
     @GetMapping("/{id}")
     public Result<PaperVO> detail(@PathVariable Long id, HttpServletRequest httpRequest) {
         return Result.success(examPaperService.detail(id, getUserId(httpRequest)));
+    }
+
+    @PostMapping("/{id}/publish")
+    public Result<PaperVO> publish(@PathVariable Long id, HttpServletRequest httpRequest) {
+        return Result.success("发布成功", examPaperService.publish(id, getAdminUserId(httpRequest)));
+    }
+
+    @PostMapping("/{id}/unpublish")
+    public Result<PaperVO> unpublish(@PathVariable Long id, HttpServletRequest httpRequest) {
+        return Result.success("取消发布成功", examPaperService.unpublish(id, getAdminUserId(httpRequest)));
     }
 
     @GetMapping("/{id}/download")
@@ -106,5 +117,13 @@ public class ExamPaperController {
             throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
         }
         return (Long) userId;
+    }
+
+    private Long getAdminUserId(HttpServletRequest request) {
+        Long userId = getUserId(request);
+        if (!ROLE_ADMIN.equals(request.getAttribute("role"))) {
+            throw new BusinessException(Result.FORBIDDEN_CODE, "仅管理员可发布试卷");
+        }
+        return userId;
     }
 }

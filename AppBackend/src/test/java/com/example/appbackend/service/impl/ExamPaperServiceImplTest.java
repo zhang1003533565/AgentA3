@@ -32,12 +32,17 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.random.RandomGenerator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -364,6 +369,9 @@ class ExamPaperServiceImplTest {
     @Test
     void detailReturnsSavedLayoutIncludingSimpleHistoricalMode() {
         ExamPaper paper = paper(3L, 10L, "历史试卷");
+        LocalDateTime publishTime = LocalDateTime.of(2026, 7, 12, 10, 0);
+        paper.setPublished(true);
+        paper.setPublishTime(publishTime);
         paper.setRenderMode(PaperRenderMode.SIMPLE);
         paper.setMarginPreset(MarginPreset.NORMAL);
         paper.setColumnSpace(0);
@@ -379,6 +387,8 @@ class ExamPaperServiceImplTest {
         assertEquals(PaperRenderMode.SIMPLE, result.getLayout().getRenderMode());
         assertEquals(MarginPreset.NORMAL, result.getLayout().getMarginPreset());
         assertEquals(0, result.getLayout().getColumnSpace());
+        assertTrue(result.getPublished());
+        assertEquals(publishTime, result.getPublishTime());
     }
 
     @Test
@@ -411,16 +421,19 @@ class ExamPaperServiceImplTest {
 
     @Test
     void listFiltersByCreatorStatusAndTitleKeyword() {
+        ExamPaper publishedPaper = paper(3L, 9L, "期末考试");
+        publishedPaper.setPublished(true);
         when(paperRepository.findByCreatedByAndStatusAndTitleContainingOrderByCreateTimeDesc(
                 org.mockito.ArgumentMatchers.eq(9L), org.mockito.ArgumentMatchers.eq(1),
                 org.mockito.ArgumentMatchers.eq("期末"), any()))
-                .thenReturn(new PageImpl<>(List.of()));
+                .thenReturn(new PageImpl<>(List.of(publishedPaper)));
 
-        service.list(2, 20, "期末", 9L);
+        var result = service.list(2, 20, "期末", 9L);
 
         verify(paperRepository).findByCreatedByAndStatusAndTitleContainingOrderByCreateTimeDesc(
                 org.mockito.ArgumentMatchers.eq(9L), org.mockito.ArgumentMatchers.eq(1),
                 org.mockito.ArgumentMatchers.eq("期末"), any());
+        assertTrue(result.getRecords().getFirst().getPublished());
     }
 
     @Test
@@ -437,6 +450,85 @@ class ExamPaperServiceImplTest {
         assertEquals(Result.FORBIDDEN_CODE, error.getCode());
         assertEquals("无权访问该试卷", error.getMessage());
         verify(paperQuestionRepository, never()).findByPaperIdOrderBySortOrderAscIdAsc(any());
+    }
+
+    @Test
+    void publishRejectsPaperOwnedByDifferentAdmin() {
+        ExamPaper paper = publishablePaper(3L, 10L);
+        when(paperRepository.findByIdAndStatus(3L, 1)).thenReturn(Optional.of(paper));
+
+        BusinessException error = assertThrows(BusinessException.class, () -> service.publish(3L, 11L));
+
+        assertEquals(Result.FORBIDDEN_CODE, error.getCode());
+        verify(paperRepository, never()).save(any());
+    }
+
+    @Test
+    void publishRejectsEmptyPaper() {
+        ExamPaper paper = publishablePaper(3L, 10L);
+        paper.setQuestionCount(0);
+        when(paperRepository.findByIdAndStatus(3L, 1)).thenReturn(Optional.of(paper));
+
+        BusinessException error = assertThrows(BusinessException.class, () -> service.publish(3L, 10L));
+
+        assertEquals(Result.BAD_REQUEST_CODE, error.getCode());
+        verify(paperRepository, never()).save(any());
+    }
+
+    @Test
+    void publishRejectsPaperWithoutPositiveDuration() {
+        ExamPaper paper = publishablePaper(3L, 10L);
+        paper.setDurationMinutes(0);
+        when(paperRepository.findByIdAndStatus(3L, 1)).thenReturn(Optional.of(paper));
+
+        BusinessException error = assertThrows(BusinessException.class, () -> service.publish(3L, 10L));
+
+        assertEquals(Result.BAD_REQUEST_CODE, error.getCode());
+        verify(paperRepository, never()).save(any());
+    }
+
+    @Test
+    void publishSetsPublishedStateAndTimeVisibleInVo() {
+        ExamPaper paper = publishablePaper(3L, 10L);
+        when(paperRepository.findByIdAndStatus(3L, 1)).thenReturn(Optional.of(paper));
+        when(paperRepository.save(paper)).thenReturn(paper);
+
+        var result = service.publish(3L, 10L);
+
+        assertTrue(paper.getPublished());
+        assertNotNull(paper.getPublishTime());
+        assertTrue(result.getPublished());
+        assertEquals(paper.getPublishTime(), result.getPublishTime());
+    }
+
+    @Test
+    void repeatedPublishIsIdempotentAndKeepsOriginalTime() {
+        ExamPaper paper = publishablePaper(3L, 10L);
+        LocalDateTime originalTime = LocalDateTime.of(2026, 7, 12, 10, 0);
+        paper.setPublished(true);
+        paper.setPublishTime(originalTime);
+        when(paperRepository.findByIdAndStatus(3L, 1)).thenReturn(Optional.of(paper));
+
+        var result = service.publish(3L, 10L);
+
+        assertEquals(originalTime, result.getPublishTime());
+        verify(paperRepository, never()).save(any());
+    }
+
+    @Test
+    void unpublishClearsPublishedStateAndTimeAndIsIdempotent() {
+        ExamPaper paper = publishablePaper(3L, 10L);
+        paper.setPublished(true);
+        paper.setPublishTime(LocalDateTime.of(2026, 7, 12, 10, 0));
+        when(paperRepository.findByIdAndStatus(3L, 1)).thenReturn(Optional.of(paper));
+        when(paperRepository.save(paper)).thenReturn(paper);
+
+        var unpublished = service.unpublish(3L, 10L);
+
+        assertFalse(unpublished.getPublished());
+        assertNull(unpublished.getPublishTime());
+        service.unpublish(3L, 10L);
+        verify(paperRepository).save(paper);
     }
 
     @Test
@@ -594,6 +686,14 @@ class ExamPaperServiceImplTest {
         paper.setPageSize(PageSize.A4);
         paper.setOrientation(Orientation.PORTRAIT);
         paper.setColumnsCount(1);
+        return paper;
+    }
+
+    private ExamPaper publishablePaper(Long id, Long createdBy) {
+        ExamPaper paper = paper(id, createdBy, "App 考试");
+        paper.setQuestionCount(10);
+        paper.setDurationMinutes(60);
+        paper.setPublished(false);
         return paper;
     }
 }

@@ -16,6 +16,10 @@ public interface ExamPaperService {
 
     PaperVO detail(Long id, Long userId);
 
+    PaperVO publish(Long id, Long adminUserId);
+
+    PaperVO unpublish(Long id, Long adminUserId);
+
     DownloadFile download(Long id, Long userId, DownloadContent content);
 
     record DownloadFile(String title, byte[] bytes) {

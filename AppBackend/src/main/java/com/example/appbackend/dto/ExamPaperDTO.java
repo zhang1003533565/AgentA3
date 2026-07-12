@@ -187,6 +187,8 @@ public final class ExamPaperDTO {
         private SelectionMode selectionMode;
         private Integer questionCount;
         private BigDecimal totalScore;
+        private Boolean published;
+        private LocalDateTime publishTime;
         private LocalDateTime createTime;
         private List<QuestionSnapshotVO> questions;
     }

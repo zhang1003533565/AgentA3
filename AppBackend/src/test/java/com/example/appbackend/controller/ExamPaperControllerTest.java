@@ -209,4 +209,39 @@ class ExamPaperControllerTest {
 
         verify(service).download(7L, 42L, DownloadContent.ANSWER);
     }
+
+    @Test
+    void publishRejectsNonAdminWithoutCallingService() throws Exception {
+        mockMvc.perform(post("/api/exam/papers/7/publish")
+                        .requestAttr("userId", 42L)
+                        .requestAttr("role", "TEACHER"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void publishDelegatesForAdminCreator() throws Exception {
+        when(service.publish(7L, 42L)).thenReturn(new PaperVO());
+
+        mockMvc.perform(post("/api/exam/papers/7/publish")
+                        .requestAttr("userId", 42L)
+                        .requestAttr("role", "ADMIN"))
+                .andExpect(status().isOk());
+
+        verify(service).publish(7L, 42L);
+    }
+
+    @Test
+    void unpublishDelegatesForAdminCreator() throws Exception {
+        when(service.unpublish(7L, 42L)).thenReturn(new PaperVO());
+
+        mockMvc.perform(post("/api/exam/papers/7/unpublish")
+                        .requestAttr("userId", 42L)
+                        .requestAttr("role", "ADMIN"))
+                .andExpect(status().isOk());
+
+        verify(service).unpublish(7L, 42L);
+    }
 }

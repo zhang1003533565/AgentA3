@@ -105,6 +105,12 @@ public class ExamPaper {
     @Column(nullable = false)
     private Integer status = 1;
 
+    @Column(nullable = false, columnDefinition = "BIT NOT NULL DEFAULT 0")
+    private Boolean published = false;
+
+    @Column(name = "publish_time")
+    private LocalDateTime publishTime;
+
     @Column(name = "create_time")
     private LocalDateTime createTime;
 
@@ -117,6 +123,9 @@ public class ExamPaper {
         updateTime = LocalDateTime.now();
         if (status == null) {
             status = 1;
+        }
+        if (published == null) {
+            published = false;
         }
     }
 
@@ -134,5 +143,6 @@ public class ExamPaper {
         if (titleFontSize == null) titleFontSize = 50;
         if (subtitleFontSize == null) subtitleFontSize = 24;
         if (bodyFontSize == null) bodyFontSize = 21;
+        if (published == null) published = false;
     }
 }
