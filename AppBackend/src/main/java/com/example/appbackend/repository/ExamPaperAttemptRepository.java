@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,28 +14,16 @@ public interface ExamPaperAttemptRepository extends JpaRepository<ExamPaperAttem
     Optional<ExamPaperAttempt> findByPaperIdAndUserIdAndActiveMarker(
             Long paperId, Long userId, Integer activeMarker);
 
-    @Query("""
-            select attempt from ExamPaperAttempt attempt
-            where attempt.paperId = :paperId
-              and attempt.userId = :userId
-              and attempt.status in (
-                  com.example.appbackend.entity.ExamPaperAttempt.Status.SUBMITTED,
-                  com.example.appbackend.entity.ExamPaperAttempt.Status.AUTO_SUBMITTED
-              )
-            order by attempt.submittedAt desc
-            """)
-    List<ExamPaperAttempt> findHistoryByPaperIdAndUserId(
-            @Param("paperId") Long paperId, @Param("userId") Long userId);
+    List<ExamPaperAttempt> findByPaperIdAndUserIdAndStatusInOrderBySubmittedAtDesc(
+            Long paperId, Long userId, Collection<ExamPaperAttempt.Status> statuses);
+
+    long countByPaperIdAndUserIdAndStatusIn(
+            Long paperId, Long userId, Collection<ExamPaperAttempt.Status> statuses);
 
     @Query("""
-            select count(attempt) from ExamPaperAttempt attempt
-            where attempt.paperId = :paperId
-              and attempt.userId = :userId
-              and attempt.status in (
-                  com.example.appbackend.entity.ExamPaperAttempt.Status.SUBMITTED,
-                  com.example.appbackend.entity.ExamPaperAttempt.Status.AUTO_SUBMITTED
-              )
+            select coalesce(max(attempt.attemptNo), 0) from ExamPaperAttempt attempt
+            where attempt.paperId = :paperId and attempt.userId = :userId
             """)
-    long countCompletedByPaperIdAndUserId(
+    int findMaxAttemptNoByPaperIdAndUserId(
             @Param("paperId") Long paperId, @Param("userId") Long userId);
 }

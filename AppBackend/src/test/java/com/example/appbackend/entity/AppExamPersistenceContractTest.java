@@ -15,6 +15,7 @@ import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -142,19 +143,14 @@ class AppExamPersistenceContractTest {
         assertEquals(Optional.class, active.getReturnType());
 
         Method history = ExamPaperAttemptRepository.class.getMethod(
-                "findHistoryByPaperIdAndUserId", Long.class, Long.class);
+                "findByPaperIdAndUserIdAndStatusInOrderBySubmittedAtDesc",
+                Long.class, Long.class, Collection.class);
         assertEquals(List.class, history.getReturnType());
-        String historyQuery = history.getAnnotation(Query.class).value();
-        assertTrue(historyQuery.contains("Status.SUBMITTED"));
-        assertTrue(historyQuery.contains("Status.AUTO_SUBMITTED"));
-        assertTrue(historyQuery.contains("order by attempt.submittedAt desc"));
+        assertNull(history.getAnnotation(Query.class));
 
         Method completedCount = ExamPaperAttemptRepository.class.getMethod(
-                "countCompletedByPaperIdAndUserId", Long.class, Long.class);
+                "countByPaperIdAndUserIdAndStatusIn", Long.class, Long.class, Collection.class);
         assertEquals(long.class, completedCount.getReturnType());
-        String completedCountQuery = completedCount.getAnnotation(Query.class).value();
-        assertTrue(completedCountQuery.contains("Status.SUBMITTED"));
-        assertTrue(completedCountQuery.contains("Status.AUTO_SUBMITTED"));
 
         assertThrows(NoSuchMethodException.class, () -> ExamPaperAttemptRepository.class.getMethod(
                 "findByPaperIdAndUserIdAndStatus", Long.class, Long.class, ExamPaperAttempt.Status.class));
