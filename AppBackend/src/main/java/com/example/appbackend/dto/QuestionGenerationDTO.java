@@ -15,6 +15,20 @@ public final class QuestionGenerationDTO {
     }
 
     @Data
+    public static class OptionsResponse {
+        private List<QuestionTypeOption> questionTypes = new ArrayList<>();
+    }
+
+    @Data
+    public static class QuestionTypeOption {
+        private String type;
+        private String agentName;
+        private String agentRole;
+        private Boolean available;
+        private String unavailableReason;
+    }
+
+    @Data
     public static class GenerationResponse {
         private String questionType;
         private String agentName;

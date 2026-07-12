@@ -49,6 +49,9 @@ public class PythonAiProxyService {
     private final long timeoutSeconds;
     private final int fileResponseMaxInMemoryBytes;
 
+    public record AgentDescriptor(String name, String role, boolean enabled, String modelBinding) {
+    }
+
     public PythonAiProxyService(WebClient.Builder webClientBuilder,
                                 ObjectMapper objectMapper,
                                 JwtUtil jwtUtil,
@@ -100,6 +103,38 @@ public class PythonAiProxyService {
 
     public Object getRagAgents(String authorization) {
         return withAgentEnabledState(getRagObject("/internal/rag/agents", authorization));
+    }
+
+    public Map<String, AgentDescriptor> getQuestionGenerationAgentCatalog(String authorization) {
+        Object source = withAgentEnabledState(getRagObject("/internal/rag/agents", authorization));
+        if (!(source instanceof Map<?, ?> sourceMap) || !(sourceMap.get("agents") instanceof List<?> agents)) {
+            return Map.of();
+        }
+        Map<String, AgentDescriptor> catalog = new HashMap<>();
+        for (Object agent : agents) {
+            if (!(agent instanceof Map<?, ?> agentMap)) {
+                continue;
+            }
+            String name = nullableText(agentMap.get("name"));
+            if (!StringUtils.hasText(name)) {
+                continue;
+            }
+            String role = nullableText(agentMap.get("role"));
+            boolean enabled = !Boolean.FALSE.equals(agentMap.get("enabled"));
+            String modelBinding = systemConfigService.getValue(
+                    AGENT_MODEL_BINDING_PREFIX + name + ".model", "");
+            catalog.put(name, new AgentDescriptor(
+                    name,
+                    StringUtils.hasText(role) ? role : null,
+                    enabled,
+                    StringUtils.hasText(modelBinding) ? modelBinding.trim() : null
+            ));
+        }
+        return catalog;
+    }
+
+    private String nullableText(Object value) {
+        return value == null ? null : String.valueOf(value).trim();
     }
 
     public Object getRagAgent(String agentName, String authorization) {
