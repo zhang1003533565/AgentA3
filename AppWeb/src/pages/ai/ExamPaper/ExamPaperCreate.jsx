@@ -269,17 +269,24 @@ function ExamPaperCreate({ onCreated }) {
     try {
       values = await form.validateFields()
     } catch (error) {
+      console.error('[ExamPaper][Validation] form validation failed', error)
       message.error(getValidationErrorMessage(error))
       return null
     }
     if (!selectedQuestions.length) {
+      console.error('[ExamPaper][Validation] no selected questions')
       message.error('请至少选择一道题目')
       return null
     }
     if (selectedQuestions.some((question) => !Number.isFinite(Number(question.score)) || Number(question.score) <= 0)) {
+      console.error('[ExamPaper][Validation] invalid question score', selectedQuestions)
       message.error('每道题的分值必须大于 0')
       return null
     }
+    console.info('[ExamPaper][Validation] paper validation passed', {
+      values,
+      questionCount: selectedQuestions.length,
+    })
     return { values, request: buildExamPaperRequest(values, selectedQuestions) }
   }
 
@@ -298,33 +305,50 @@ function ExamPaperCreate({ onCreated }) {
   }
 
   const handleGeneratePreview = async () => {
+    console.info('[ExamPaper][Preview] button clicked')
     const paper = await validatePaper()
-    if (!paper) return
+    if (!paper) {
+      console.error('[ExamPaper][Preview] stopped before request: validation failed')
+      return
+    }
     const signature = createPreviewSignature(paper.values, selectedQuestions)
     let pendingToken = null
     let pendingBlobUrl = null
     cancelPendingPreview()
     const generation = previewGenerationRef.current
     let controller = null
-    const isCurrent = () => shouldAcceptPreviewGeneration({
+    const previewState = () => ({
       generation,
       currentGeneration: previewGenerationRef.current,
       mounted: mountedRef.current,
       requestedSignature: signature,
       currentSignature: createPreviewSignature(form.getFieldsValue(true), selectedQuestionsRef.current),
     })
+    const isCurrent = () => shouldAcceptPreviewGeneration(previewState())
+
+    console.info('[ExamPaper][Preview] validation passed; preparing request', {
+      generation,
+      request: paper.request,
+      state: previewState(),
+    })
 
     setPreviewLoading(true)
     setPreviewError(null)
     try {
       await clearCurrentPreview()
-      if (!isCurrent()) return
+      if (!isCurrent()) {
+        console.error('[ExamPaper][Preview] stopped before request: preview state became stale', previewState())
+        return
+      }
       // Do not abort POST: once the server starts conversion we must receive its token
       // so a stale generation can explicitly DELETE the temporary preview.
+      console.info('[ExamPaper][Preview] POST /api/exam/papers/preview started', paper.request)
       const response = await createExamPaperPreview(paper.request)
+      console.info('[ExamPaper][Preview] preview session created', response)
       const session = response.data
       pendingToken = session.token
       if (!isCurrent()) {
+        console.warn('[ExamPaper][Preview] session discarded: preview state became stale', previewState())
         await deleteExamPaperPreview(pendingToken).catch(() => {})
         pendingToken = null
         return
@@ -332,8 +356,14 @@ function ExamPaperCreate({ onCreated }) {
       controller = new AbortController()
       previewAbortRef.current = controller
       const pdfBlob = await getExamPaperPreviewPdf(session.token, { signal: controller.signal })
+      console.info('[ExamPaper][Preview] preview PDF downloaded', {
+        token: session.token,
+        size: pdfBlob.size,
+        type: pdfBlob.type,
+      })
       pendingBlobUrl = URL.createObjectURL(pdfBlob)
       if (!isCurrent()) {
+        console.warn('[ExamPaper][Preview] PDF discarded: preview state became stale', previewState())
         URL.revokeObjectURL(pendingBlobUrl)
         pendingBlobUrl = null
         await deleteExamPaperPreview(pendingToken).catch(() => {})
@@ -351,7 +381,12 @@ function ExamPaperCreate({ onCreated }) {
       setPreview(nextPreview)
       setPreviewDirty(false)
       setCurrentStep(2)
+      console.info('[ExamPaper][Preview] preview displayed', {
+        token: nextPreview.token,
+        pageCount: nextPreview.pageCount,
+      })
     } catch (error) {
+      console.error('[ExamPaper][Preview] request failed', error)
       if (pendingToken) deleteExamPaperPreview(pendingToken).catch(() => {})
       if (pendingBlobUrl) URL.revokeObjectURL(pendingBlobUrl)
       if (generation === previewGenerationRef.current && mountedRef.current) {
@@ -359,6 +394,7 @@ function ExamPaperCreate({ onCreated }) {
         setPreviewDirty(true)
       }
     } finally {
+      console.info('[ExamPaper][Preview] flow finished', previewState())
       if (generation === previewGenerationRef.current && mountedRef.current) {
         previewAbortRef.current = null
         setPreviewLoading(false)
