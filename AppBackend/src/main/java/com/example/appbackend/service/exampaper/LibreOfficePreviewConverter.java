@@ -6,6 +6,7 @@ import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 
 import java.io.IOException;
+import java.io.File;
 import java.nio.file.*;
 import java.time.Duration;
 import java.util.List;
@@ -26,10 +27,39 @@ public class LibreOfficePreviewConverter {
             throw new IllegalArgumentException("预览转换超时必须在 0 到 10 分钟之间");
         Path normalized = previewRoot.toAbsolutePath().normalize();
         if (normalized.getParent() == null) throw new IllegalArgumentException("预览根目录必须是专用子目录");
-        this.sofficePath = sofficePath;
+        this.sofficePath = resolveSofficePath(sofficePath, defaultSofficeCandidates());
         this.timeout = timeout;
         this.previewRoot = normalized;
         initializeRoot();
+    }
+
+    static String resolveSofficePath(String configured, List<Path> fallbackCandidates) {
+        Path configuredPath = Path.of(configured);
+        if (configuredPath.isAbsolute() || configured.contains("/") || configured.contains("\\")) {
+            return configured;
+        }
+        String pathValue = System.getenv("PATH");
+        if (pathValue != null) {
+            for (String directory : pathValue.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
+                if (directory.isBlank()) continue;
+                Path candidate = Path.of(directory).resolve(configured);
+                if (Files.isRegularFile(candidate) && Files.isExecutable(candidate)) return candidate.toString();
+            }
+        }
+        for (Path candidate : fallbackCandidates) {
+            if (Files.isRegularFile(candidate) && Files.isExecutable(candidate)) return candidate.toString();
+        }
+        return configured;
+    }
+
+    private static List<Path> defaultSofficeCandidates() {
+        String home = System.getProperty("user.home", "");
+        return List.of(
+                Path.of("/Applications/LibreOffice.app/Contents/MacOS/soffice"),
+                Path.of("/opt/homebrew/bin/soffice"),
+                Path.of("/usr/local/bin/soffice"),
+                Path.of("/usr/bin/soffice"),
+                Path.of(home, ".cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice"));
     }
 
     public final void initializeRoot() {

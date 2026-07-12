@@ -9,12 +9,23 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class LibreOfficePreviewConverterTest {
     @TempDir Path root;
+
+    @Test
+    void resolvesBareSofficeCommandFromAvailableFallback() throws Exception {
+        Path fallback = executable("soffice", "#!/bin/sh\nexit 0\n");
+
+        assertEquals(fallback.toString(), LibreOfficePreviewConverter.resolveSofficePath(
+                "soffice", List.of(root.resolve("missing"), fallback)));
+        assertEquals(root.resolve("explicit-soffice").toString(), LibreOfficePreviewConverter.resolveSofficePath(
+                root.resolve("explicit-soffice").toString(), List.of(fallback)));
+    }
 
     @Test
     void convertsWithArgumentSafeFakeExecutableAndValidatesPdf() throws Exception {
