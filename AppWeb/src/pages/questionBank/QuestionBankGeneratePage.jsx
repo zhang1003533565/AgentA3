@@ -14,11 +14,14 @@ import {
   buildImportPayload,
   canEditQuestions,
   canImportQuestions,
+  clearJsonEditorErrorsForQuestion,
   invalidateReviewGeneration,
+  isQuestionTypeAvailable,
   normalizeQuestionForEditor,
   removeQuestionAndRenumber,
   serializeEditedQuestion,
   updateFillBlankAnswers,
+  updateJsonEditorErrors,
 } from './questionGenerationState'
 import './QuestionBankGeneratePage.css'
 
@@ -36,7 +39,7 @@ const DIFFICULTIES = [
 const listValue = (value) => Array.isArray(value) ? value.join('\n') : ''
 const splitLines = (value) => value.split('\n').map((item) => item.trim()).filter(Boolean)
 
-function JsonDraftField({ label, value, requireArray = false, disabled, onChange, onInvalidate }) {
+function JsonDraftField({ label, value, errorKey, requireArray = false, disabled, onChange, onInvalidate, onErrorChange }) {
   const serializedValue = JSON.stringify(value, null, 2)
   const [draftValue, setDraftValue] = useState(serializedValue)
   const [error, setError] = useState('')
@@ -44,7 +47,10 @@ function JsonDraftField({ label, value, requireArray = false, disabled, onChange
   useEffect(() => {
     setDraftValue(serializedValue)
     setError('')
-  }, [serializedValue])
+    onErrorChange(errorKey, false)
+  }, [errorKey, onErrorChange, serializedValue])
+
+  useEffect(() => () => onErrorChange(errorKey, false), [errorKey, onErrorChange])
 
   const updateDraft = (nextValue) => {
     setDraftValue(nextValue)
@@ -53,16 +59,18 @@ function JsonDraftField({ label, value, requireArray = false, disabled, onChange
       const parsed = JSON.parse(nextValue)
       if (requireArray && !Array.isArray(parsed)) throw new Error('必须是 JSON 数组')
       setError('')
+      onErrorChange(errorKey, false)
       onChange(parsed)
     } catch (parseError) {
       setError(parseError.message === '必须是 JSON 数组' ? parseError.message : '必须是有效 JSON')
+      onErrorChange(errorKey, true)
     }
   }
 
   return <label className={`qbg-field${error ? ' qbg-field--error' : ''}`}><span>{label}</span><TextArea disabled={disabled} status={error ? 'error' : undefined} value={draftValue} autoSize={{ minRows: 3 }} onChange={(event) => updateDraft(event.target.value)} />{error && <Text type="danger">{error}</Text>}</label>
 }
 
-function QuestionEditor({ question, index, disabled, onChange, onDelete, onInvalidate }) {
+function QuestionEditor({ question, index, editorKey, disabled, onChange, onDelete, onInvalidate, onJsonErrorChange }) {
   const patch = (changes) => onChange(index, { ...question, ...changes })
   const patchBody = (changes) => patch({ body: { ...question.body, ...changes } })
   const patchAnswer = (changes) => patch({ answer: { ...question.answer, ...changes } })
@@ -136,8 +144,8 @@ function QuestionEditor({ question, index, disabled, onChange, onDelete, onInval
 
       <label className="qbg-field qbg-field--wide"><span>解析</span><TextArea value={question.analysis} autoSize={{ minRows: 2 }} onChange={(event) => patch({ analysis: event.target.value })} /></label>
       <div className="qbg-editor-grid">
-        <JsonDraftField label="评分规则（JSON）" value={question.scoring} disabled={disabled} onInvalidate={onInvalidate} onChange={(scoring) => patch({ scoring })} />
-        <JsonDraftField label="来源依据（JSON 数组）" value={question.sourceBasis} requireArray disabled={disabled} onInvalidate={onInvalidate} onChange={(sourceBasis) => patch({ sourceBasis })} />
+        <JsonDraftField label="评分规则（JSON）" value={question.scoring} errorKey={`${editorKey}:scoring`} disabled={disabled} onInvalidate={onInvalidate} onErrorChange={onJsonErrorChange} onChange={(scoring) => patch({ scoring })} />
+        <JsonDraftField label="来源依据（JSON 数组）" value={question.sourceBasis} errorKey={`${editorKey}:sourceBasis`} requireArray disabled={disabled} onInvalidate={onInvalidate} onErrorChange={onJsonErrorChange} onChange={(sourceBasis) => patch({ sourceBasis })} />
       </div>
       <Text type="secondary">来源 ID：{question.id ?? question.sourceQuestionId ?? '-'}
       </Text>
@@ -159,6 +167,7 @@ export default function QuestionBankGeneratePage() {
   const [questions, setQuestions] = useState([])
   const [review, setReview] = useState(null)
   const [reviewing, setReviewing] = useState(false)
+  const [jsonEditorErrors, setJsonEditorErrors] = useState(() => new Set())
   const [revision, setRevision] = useState(0)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState(null)
@@ -173,22 +182,41 @@ export default function QuestionBankGeneratePage() {
     reviewSequence.current += 1
   }, [])
 
+  const invalidateReview = useCallback(() => {
+    reviewSequence.current = invalidateReviewGeneration(reviewSequence.current)
+    setReview(null)
+    setReviewing(false)
+  }, [])
+
+  const changeJsonEditorError = useCallback((errorKey, hasError) => {
+    setJsonEditorErrors((current) => {
+      const next = updateJsonEditorErrors(current, errorKey, hasError)
+      return next.size === current.size && [...next].every((key) => current.has(key)) ? current : next
+    })
+  }, [])
+
   const loadOptions = useCallback(async () => {
     setOptionsLoading(true)
     setOptionsError('')
     try {
       const response = await getQuestionGenerationOptions()
       if (!mounted.current) return
-      setOptions(response.data?.questionTypes ?? [])
+      const nextOptions = response.data?.questionTypes ?? []
+      setOptions(nextOptions)
+      const currentQuestionType = form.getFieldValue('questionType')
+      if (currentQuestionType && !isQuestionTypeAvailable(nextOptions, currentQuestionType)) {
+        form.setFieldValue('questionType', undefined)
+      }
     } catch {
       if (mounted.current) {
         setOptions([])
+        form.setFieldValue('questionType', undefined)
         setOptionsError('题型选项加载失败，当前无法安全生成题目。')
       }
     } finally {
       if (mounted.current) setOptionsLoading(false)
     }
-  }, [])
+  }, [form])
 
   useEffect(() => {
     loadOptions()
@@ -217,6 +245,7 @@ export default function QuestionBankGeneratePage() {
     setQuestions([])
     setReview(null)
     setRevision(0)
+    setJsonEditorErrors(new Set())
     setImportResult(null)
   }, [])
 
@@ -242,10 +271,16 @@ export default function QuestionBankGeneratePage() {
 
   const handleGenerate = async (values) => {
     if (generationLock.current || importing || importResult || optionsError || optionsLoading) return
+    if (!isQuestionTypeAvailable(options, values.questionType)) {
+      form.setFieldValue('questionType', undefined)
+      message.error('所选题型当前不可用，请重新选择')
+      return
+    }
     generationLock.current = true
     reviewSequence.current = invalidateReviewGeneration(reviewSequence.current)
     setReview(null)
     setReviewing(false)
+    setJsonEditorErrors(new Set())
     setGenerating(true)
     try {
       const response = await generateQuestions(buildGenerationFormData(values, fileList[0]?.originFileObj))
@@ -255,6 +290,7 @@ export default function QuestionBankGeneratePage() {
       setQuestions((nextDraft.questions ?? []).map((question, index) => ({ ...normalizeQuestionForEditor(question), displayNumber: index + 1 })))
       setReview({ valid: nextDraft.valid, issues: nextDraft.issues ?? [], warnings: nextDraft.warnings ?? [] })
       setRevision(0)
+      setJsonEditorErrors(new Set())
       setImportResult(null)
       message.success(`已生成 ${nextDraft.generatedCount ?? nextDraft.questions?.length ?? 0} 道题`)
     } finally {
@@ -272,6 +308,8 @@ export default function QuestionBankGeneratePage() {
 
   const deleteQuestion = (index) => {
     if (!canEditQuestions({ importing, completed: Boolean(importResult) })) return
+    const editorKey = questions[index]?.id ?? questions[index]?.sourceQuestionId ?? `question-${index}`
+    setJsonEditorErrors((current) => clearJsonEditorErrorsForQuestion(current, editorKey))
     setQuestions((current) => removeQuestionAndRenumber(current, index))
     setReview(null)
     setRevision((value) => value + 1)
@@ -279,7 +317,7 @@ export default function QuestionBankGeneratePage() {
 
   const handleImport = async () => {
     const status = { importing, completed: Boolean(importResult) }
-    if (importLock.current || !canImportQuestions(review, questions, status)) return
+    if (importLock.current || !canImportQuestions(review, questions, status, jsonEditorErrors.size)) return
     importLock.current = true
     setImporting(true)
     try {
@@ -296,6 +334,7 @@ export default function QuestionBankGeneratePage() {
   const displayedReview = review ?? { valid: false, issues: [], warnings: [] }
   const editStatus = { importing, completed: Boolean(importResult) }
   const editingEnabled = canEditQuestions(editStatus)
+  const selectedQuestionTypeAvailable = isQuestionTypeAvailable(options, selectedQuestionType)
 
   return (
     <div className="qbg-page">
@@ -313,7 +352,7 @@ export default function QuestionBankGeneratePage() {
               <Form.Item name="sourceTitle" label="来源标题"><Input maxLength={160} placeholder="可选" /></Form.Item>
             </div>
             {selectedOption && <Alert type={selectedOption.available ? 'info' : 'warning'} showIcon message={selectedOption.available ? `执行智能体：${selectedOption.agentRole || selectedOption.agentName}` : selectedOption.unavailableReason} />}
-            <Button className="qbg-primary" type="primary" htmlType="submit" loading={generating} disabled={optionsLoading || Boolean(optionsError) || generating || importing || (sourceType !== 'text' && fileList.length !== 1)}>生成题目</Button>
+            <Button className="qbg-primary" type="primary" htmlType="submit" loading={generating} disabled={optionsLoading || Boolean(optionsError) || !selectedQuestionTypeAvailable || generating || importing || (sourceType !== 'text' && fileList.length !== 1)}>生成题目</Button>
           </Form>
         </Spin>
       </Card>}
@@ -324,8 +363,11 @@ export default function QuestionBankGeneratePage() {
         {!!displayedReview.issues?.length && <Alert showIcon type="error" message="必须修复的问题" description={displayedReview.issues.join('；')} />}
         {!!displayedReview.warnings?.length && <Alert showIcon type="warning" message="建议检查" description={displayedReview.warnings.join('；')} />}
         <Divider />
-        {questions.length ? questions.map((question, index) => <QuestionEditor key={`${question.id ?? question.sourceQuestionId ?? 'question'}-${index}`} question={question} index={index} disabled={!editingEnabled} onChange={updateQuestion} onDelete={deleteQuestion} onInvalidate={() => setReview(null)} />) : <Empty description="当前没有可导入的题目" />}
-        <div className="qbg-review-actions"><Text type="secondary">{reviewing ? '正在复审编辑结果…' : displayedReview.valid ? '已通过复审' : '未通过复审'}</Text><Button type="primary" loading={importing} disabled={reviewing || !canImportQuestions(review, questions, editStatus)} onClick={handleImport}>导入题库</Button></div>
+        {questions.length ? questions.map((question, index) => {
+          const editorKey = question.id ?? question.sourceQuestionId ?? `question-${index}`
+          return <QuestionEditor key={`${editorKey}-${index}`} question={question} index={index} editorKey={editorKey} disabled={!editingEnabled} onChange={updateQuestion} onDelete={deleteQuestion} onInvalidate={invalidateReview} onJsonErrorChange={changeJsonEditorError} />
+        }) : <Empty description="当前没有可导入的题目" />}
+        <div className="qbg-review-actions"><Text type="secondary">{reviewing ? '正在复审编辑结果…' : displayedReview.valid ? '已通过复审' : '未通过复审'}</Text><Button type="primary" loading={importing} disabled={reviewing || !canImportQuestions(review, questions, editStatus, jsonEditorErrors.size)} onClick={handleImport}>导入题库</Button></div>
       </Card>}
 
       {importResult && <Card title="3. 导入完成" className="qbg-panel qbg-success"><Alert showIcon type="success" message={`成功导入 ${importResult.importedCount ?? questions.length} 道题`} /><Space><Button type="primary" onClick={() => navigate(QUESTION_BANK_ROUTES.questions)}>查看题库</Button><Button onClick={resetGeneration}>继续生成</Button></Space></Card>}

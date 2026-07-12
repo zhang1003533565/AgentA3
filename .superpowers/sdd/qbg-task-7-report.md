@@ -41,3 +41,15 @@
 - 全量 Node 测试 34/34 通过。
 - scoped ESLint 通过。
 - Vite production build 通过；仅有既有 chunk size 警告。
+
+## 最终复审补强（2026-07-12）
+
+- `canImportQuestions` 新增 `jsonInvalidCount` 门禁：即使 review `valid=true` 且 `issues=[]`，任一 JSON 编辑器仍报错时也禁止导入。
+- 父组件按 `题目键:字段` 维护 JSON 错误集合。文本每次变化在解析前立即推进复审代数；无效 JSON 加键，修正后删键，字段卸载、题目删除、重新生成和整体重置都会清理相应键，避免永久阻断。
+- JSON 文本变化推进复审代数并清除 reviewing 状态，已发出的旧复审请求不能用迟到响应重新放行导入。
+- options 刷新后若当前题型不存在或 `available !== true`，立即清空表单选择；加载失败同样清空。生成按钮仅在当前题型可用时启用，`handleGenerate` 在调用接口前用同一纯函数二次校验，失败时明确提示且不发送请求。
+- TDD RED：新增题型可用性与 JSON 错误集合测试时分别因 helper 尚未导出而失败；GREEN 后状态测试 24/24 通过。
+- 全量 Node 测试：39/39 通过。
+- 本任务 scoped ESLint：通过。
+- 仓库级 `npm run lint`：被既有范围外 33 errors / 13 warnings 阻断，涉及 Home、Activity、Workspace 等未改文件；本任务文件无新增 lint 问题。
+- Vite production build：通过；仅有既有 chunk size 警告。

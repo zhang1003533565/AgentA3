@@ -1,14 +1,18 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import {
   buildGenerationFormData,
   buildImportPayload,
   canEditQuestions,
   canImportQuestions,
+  clearJsonEditorErrorsForQuestion,
+  isQuestionTypeAvailable,
   invalidateReviewGeneration,
   normalizeQuestionForEditor,
   removeQuestionAndRenumber,
   serializeEditedQuestion,
+  updateJsonEditorErrors,
   updateFillBlankAnswers,
 } from './questionGenerationState.js'
 
@@ -166,6 +170,14 @@ test('警告不阻断已通过复审的导入', () => {
   assert.equal(canImportQuestions({ valid: true, issues: [], warnings: ['建议补充解析'] }, [{ id: 'q-1' }]), true)
 })
 
+test('review 有效且 issues 为空时编辑器 JSON 错误仍禁止导入', () => {
+  const review = { valid: true, issues: [], warnings: [] }
+  const questions = [{ id: 'q-1' }]
+
+  assert.equal(canImportQuestions(review, questions, undefined, 1), false)
+  assert.equal(canImportQuestions(review, questions, undefined, 0), true)
+})
+
 test('零题时即使 review valid=true 也禁止导入', () => {
   assert.equal(canImportQuestions({ valid: true, issues: [], warnings: [] }, []), false)
 })
@@ -212,4 +224,44 @@ test('重新生成开始和成功都推进复审代数使旧请求失效', () =>
 
   assert.equal(started, 8)
   assert.equal(succeeded, 9)
+})
+
+test('只有 options 中存在且 available=true 的题型可生成', () => {
+  const options = [
+    { type: 'single_choice', available: true },
+    { type: 'short_answer', available: false },
+  ]
+
+  assert.equal(isQuestionTypeAvailable(options, 'single_choice'), true)
+  assert.equal(isQuestionTypeAvailable(options, 'short_answer'), false)
+  assert.equal(isQuestionTypeAvailable(options, 'missing'), false)
+  assert.equal(isQuestionTypeAvailable(undefined, 'single_choice'), false)
+})
+
+test('JSON 编辑错误按题目字段增加、修正后清除且不影响其他字段', () => {
+  const initial = new Set()
+  const invalid = updateJsonEditorErrors(initial, 'q-1:scoring', true)
+  const twoInvalid = updateJsonEditorErrors(invalid, 'q-1:sourceBasis', true)
+  const corrected = updateJsonEditorErrors(twoInvalid, 'q-1:scoring', false)
+
+  assert.deepEqual([...invalid], ['q-1:scoring'])
+  assert.deepEqual([...twoInvalid], ['q-1:scoring', 'q-1:sourceBasis'])
+  assert.deepEqual([...corrected], ['q-1:sourceBasis'])
+  assert.equal(initial.size, 0)
+})
+
+test('删除题目只清理该题 JSON 编辑错误', () => {
+  const errors = new Set(['q-1:scoring', 'q-1:sourceBasis', 'q-2:scoring'])
+
+  assert.deepEqual([...clearJsonEditorErrorsForQuestion(errors, 'q-1')], ['q-2:scoring'])
+})
+
+test('页面在解析 JSON 前立即失效复审且生成请求前二次校验题型可用性', async () => {
+  const source = await readFile(new URL('./QuestionBankGeneratePage.jsx', import.meta.url), 'utf8')
+  const updateDraft = source.slice(source.indexOf('const updateDraft'), source.indexOf('return <label'))
+  const handleGenerate = source.slice(source.indexOf('const handleGenerate'), source.indexOf('const updateQuestion'))
+
+  assert.ok(updateDraft.indexOf('onInvalidate()') < updateDraft.indexOf('JSON.parse(nextValue)'))
+  assert.ok(handleGenerate.indexOf('isQuestionTypeAvailable(options, values.questionType)') < handleGenerate.indexOf('generateQuestions('))
+  assert.match(handleGenerate, /message\.error\('所选题型当前不可用，请重新选择'\)/)
 })

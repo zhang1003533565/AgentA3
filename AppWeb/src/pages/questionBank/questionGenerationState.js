@@ -53,8 +53,25 @@ export const canEditQuestions = ({ importing = false, completed = false } = {}) 
   !importing && !completed
 )
 
-export const canImportQuestions = (review, questions, status) => (
+export const isQuestionTypeAvailable = (options, questionType) => (
+  Array.isArray(options)
+  && options.some((option) => option.type === questionType && option.available === true)
+)
+
+export const updateJsonEditorErrors = (errors, errorKey, hasError) => {
+  const next = new Set(errors)
+  if (hasError) next.add(errorKey)
+  else next.delete(errorKey)
+  return next
+}
+
+export const clearJsonEditorErrorsForQuestion = (errors, questionKey) => (
+  new Set([...errors].filter((errorKey) => !errorKey.startsWith(`${questionKey}:`)))
+)
+
+export const canImportQuestions = (review, questions, status, jsonInvalidCount = 0) => (
   canEditQuestions(status)
+  && jsonInvalidCount === 0
   && Boolean(review?.valid)
   && Array.isArray(review?.issues)
   && review.issues.length === 0
