@@ -167,6 +167,12 @@ class QuestionGenerationControllerTest {
     }
 
     @Test
+    void filenameWithTrailingWhitespaceReturnsBadRequestWithoutCallingService() throws Exception {
+        assertInvalidFileMaterial("txt",
+                new MockMultipartFile("file", "course.txt ", "text/plain", new byte[]{1}));
+    }
+
+    @Test
     void invalidDifficultyReturnsBadRequestWithoutCallingService() throws Exception {
         assertInvalidRequest("difficulty", "advanced");
         setUp();

@@ -106,7 +106,7 @@ public class QuestionGenerationController {
         if (filename == null) {
             return "";
         }
-        String normalized = filename.trim().toLowerCase(Locale.ROOT);
+        String normalized = filename.toLowerCase(Locale.ROOT);
         int separator = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'));
         int dot = normalized.lastIndexOf('.');
         return dot > separator && dot < normalized.length() - 1 ? normalized.substring(dot + 1) : "";

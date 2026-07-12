@@ -64,3 +64,11 @@ Result: 49 tests, 0 failures, 0 errors, 0 skipped.
 The expanded controller suite first failed in 8 tests against the reviewed implementation: it exposed `file` reaching the service, missing material validation, unsupported/mismatched extensions being accepted, unrestricted difficulty, and untrimmed/unbounded titles. After the boundary fix, the controller suite passed 14/14.
 
 The final Task 1-4 combination passed 56 tests with 0 failures, 0 errors, and 0 skipped.
+
+## Final Review Fix: Filename Whitespace Consistency
+
+- Added a MockMvc regression for `course.txt ` that requires HTTP 400 and no interaction with `QuestionGenerationService`.
+- RED: the focused test failed with `Status expected:<400> but was:<200>`, proving the controller accepted a filename that `QuestionGenerationMaterialParser` would reject.
+- Removed controller-side filename trimming before case-insensitive extension extraction. Uppercase extensions remain accepted, while trailing whitespace is no longer hidden from validation.
+- GREEN: `QuestionGenerationControllerTest` passed 15 tests with 0 failures and 0 errors.
+- Task 1-4 combination passed 57 tests with 0 failures and 0 errors using the explicit Byte Buddy Java agent; the combined test requires local loopback sockets for `PythonAiProxyServiceTest`.
