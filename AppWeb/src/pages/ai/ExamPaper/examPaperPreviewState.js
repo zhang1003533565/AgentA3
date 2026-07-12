@@ -22,9 +22,7 @@ export const shouldAcceptPreviewGeneration = ({
   generation,
   currentGeneration,
   mounted,
-  requestedSignature,
-  currentSignature,
-}) => mounted && generation === currentGeneration && requestedSignature === currentSignature
+}) => mounted && generation === currentGeneration
 
 const stableValue = (value) => {
   if (Array.isArray(value)) return value.map(stableValue)

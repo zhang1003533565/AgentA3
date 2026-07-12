@@ -108,10 +108,10 @@ test('预览请求超时覆盖后端 10 分钟转换上限且创建请求不可�
   assert.equal(PREVIEW_CREATE_IS_ABORTABLE, false)
 })
 
-test('仅当前、已挂载且签名仍匹配的 generation 可以落地', () => {
+test('预览异步流程以变更代数和挂载状态为准，不受等价表单签名差异误拦截', () => {
   const base = { generation: 3, currentGeneration: 3, mounted: true, requestedSignature: 'same', currentSignature: 'same' }
   assert.equal(shouldAcceptPreviewGeneration(base), true)
   assert.equal(shouldAcceptPreviewGeneration({ ...base, currentGeneration: 4 }), false)
   assert.equal(shouldAcceptPreviewGeneration({ ...base, mounted: false }), false)
-  assert.equal(shouldAcceptPreviewGeneration({ ...base, currentSignature: 'changed' }), false)
+  assert.equal(shouldAcceptPreviewGeneration({ ...base, currentSignature: 'equivalent-but-different-snapshot' }), true)
 })
