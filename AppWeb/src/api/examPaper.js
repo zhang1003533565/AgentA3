@@ -41,6 +41,14 @@ export const getExamPaperDetail = (id) => request.get(`${base}/${id}`, {
   skipGlobalErrorMessage: true,
 })
 
+export const publishExamPaper = (id) => request.post(`${base}/${id}/publish`, null, {
+  skipGlobalErrorMessage: true,
+})
+
+export const unpublishExamPaper = (id) => request.post(`${base}/${id}/unpublish`, null, {
+  skipGlobalErrorMessage: true,
+})
+
 const safeFilename = (value, fallback) => {
   const unescaped = String(value || '')
     .replace(/\\([\\"])/g, '$1')
