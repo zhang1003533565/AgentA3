@@ -11,6 +11,14 @@ export const createExamPaper = (data) => request.post(base, data, {
   skipGlobalErrorMessage: true,
 })
 
+export const createExamPaperPreview = (data) => request.post(`${base}/preview`, data, {
+  skipGlobalErrorMessage: true,
+})
+
+export const deleteExamPaperPreview = (token) => request.delete(`${base}/preview/${encodeURIComponent(token)}`, {
+  skipGlobalErrorMessage: true,
+})
+
 export const getExamPaperList = (params = {}) => request.get(base, {
   skipGlobalErrorMessage: true,
   params: {
@@ -61,6 +69,24 @@ const normalizeBlobError = async (error) => {
     }
   }
   throw error
+}
+
+export const getExamPaperPreviewPdf = async (token) => {
+  const defaultAdapter = axios.getAdapter(request.defaults.adapter)
+  const response = await request({
+    url: `${base}/preview/${encodeURIComponent(token)}`,
+    method: 'get',
+    responseType: 'blob',
+    skipGlobalErrorMessage: true,
+    adapter: async (config) => {
+      const rawResponse = await defaultAdapter(config).catch(normalizeBlobError)
+      return {
+        ...rawResponse,
+        data: { code: 200, data: rawResponse.data },
+      }
+    },
+  })
+  return response.data
 }
 
 export const downloadExamPaper = async (id, content) => {

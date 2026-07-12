@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
@@ -20,15 +20,29 @@ import {
   Row,
   Select,
   Space,
+  Steps,
   Table,
   Tag,
   Typography,
   message,
 } from 'antd'
-import { createExamPaper, randomPreviewExamPaper } from '../../../api/examPaper'
+import {
+  createExamPaper,
+  createExamPaperPreview,
+  deleteExamPaperPreview,
+  getExamPaperPreviewPdf,
+  randomPreviewExamPaper,
+} from '../../../api/examPaper'
 import { getExamQuestionList } from '../../../api/examQuestion'
+import ExamPaperFormatPanel from './ExamPaperFormatPanel'
+import ExamPaperPreview from './ExamPaperPreview'
+import {
+  SOURCE_LAYOUT_DEFAULTS,
+  buildExamPaperRequest,
+  createPreviewSignature,
+} from './examPaperPreviewState'
 
-const { Text, Title } = Typography
+const { Text } = Typography
 const { TextArea } = Input
 
 const questionTypeOptions = [
@@ -47,12 +61,10 @@ const difficultyOptions = [
 ]
 
 const initialValues = {
-  pageSize: 'A4',
-  orientation: 'portrait',
-  columnsCount: 1,
   durationMinutes: 60,
   selectionMode: 'manual',
   rules: [{ type: 'single_choice', quantity: 5 }],
+  layout: { ...SOURCE_LAYOUT_DEFAULTS },
 }
 
 const normalizeQuestion = (question) => ({
@@ -70,9 +82,15 @@ function ExamPaperCreate({ onCreated }) {
   const [questionLoading, setQuestionLoading] = useState(false)
   const [randomLoading, setRandomLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState(null)
+  const [preview, setPreview] = useState(null)
+  const [previewDirty, setPreviewDirty] = useState(false)
+  const [currentStep, setCurrentStep] = useState(0)
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 })
   const [manualSelection, setManualSelection] = useState(() => new Map())
   const questionRequestId = useRef(0)
+  const previewRef = useRef(null)
   const selectionMode = Form.useWatch('selectionMode', form) || initialValues.selectionMode
 
   const selectedIds = useMemo(
@@ -83,6 +101,20 @@ function ExamPaperCreate({ onCreated }) {
     () => selectedQuestions.reduce((sum, question) => sum + Number(question.score || 0), 0),
     [selectedQuestions],
   )
+
+  useEffect(() => {
+    previewRef.current = preview
+  }, [preview])
+
+  useEffect(() => () => {
+    const current = previewRef.current
+    if (current?.blobUrl) URL.revokeObjectURL(current.blobUrl)
+    if (current?.token) deleteExamPaperPreview(current.token).catch(() => {})
+  }, [])
+
+  const invalidatePreview = () => {
+    if (previewRef.current) setPreviewDirty(true)
+  }
 
   const fetchQuestions = async (overrides = {}) => {
     const requestId = ++questionRequestId.current
@@ -125,6 +157,7 @@ function ExamPaperCreate({ onCreated }) {
   }
 
   const mergeQuestions = (questions) => {
+    invalidatePreview()
     setSelectedQuestions((current) => {
       const merged = new Map(current.map((question) => [question.questionId, question]))
       questions.map(normalizeQuestion).forEach((question) => {
@@ -167,12 +200,14 @@ function ExamPaperCreate({ onCreated }) {
   }
 
   const updateScore = (questionId, score) => {
+    invalidatePreview()
     setSelectedQuestions((current) => current.map((question) => (
       question.questionId === questionId ? { ...question, score } : question
     )))
   }
 
   const moveQuestion = (index, offset) => {
+    invalidatePreview()
     setSelectedQuestions((current) => {
       const target = index + offset
       if (target < 0 || target >= current.length) return current
@@ -182,41 +217,85 @@ function ExamPaperCreate({ onCreated }) {
     })
   }
 
-  const handleSubmit = async () => {
+  const validatePaper = async () => {
     let values
     try {
       values = await form.validateFields()
     } catch {
-      return
+      return null
     }
     if (!selectedQuestions.length) {
       message.error('请至少选择一道题目')
-      return
+      return null
     }
     if (selectedQuestions.some((question) => !Number.isFinite(Number(question.score)) || Number(question.score) <= 0)) {
       message.error('每道题的分值必须大于 0')
+      return null
+    }
+    return { values, request: buildExamPaperRequest(values, selectedQuestions) }
+  }
+
+  const clearCurrentPreview = async () => {
+    const current = previewRef.current
+    previewRef.current = null
+    setPreview(null)
+    if (current?.blobUrl) URL.revokeObjectURL(current.blobUrl)
+    if (current?.token) {
+      try {
+        await deleteExamPaperPreview(current.token)
+      } catch {
+        // Best-effort cleanup: the server may already have expired the token.
+      }
+    }
+  }
+
+  const handleGeneratePreview = async () => {
+    const paper = await validatePaper()
+    if (!paper) return
+    const signature = createPreviewSignature(paper.values, selectedQuestions)
+    let pendingToken = null
+
+    setPreviewLoading(true)
+    setPreviewError(null)
+    try {
+      await clearCurrentPreview()
+      const response = await createExamPaperPreview(paper.request)
+      const session = response.data
+      pendingToken = session.token
+      const pdfBlob = await getExamPaperPreviewPdf(session.token)
+      const nextPreview = {
+        ...session,
+        blobUrl: URL.createObjectURL(pdfBlob),
+        signature,
+      }
+      previewRef.current = nextPreview
+      pendingToken = null
+      setPreview(nextPreview)
+      setPreviewDirty(false)
+      setCurrentStep(2)
+    } catch (error) {
+      if (pendingToken) deleteExamPaperPreview(pendingToken).catch(() => {})
+      setPreviewError(error)
+      setPreviewDirty(true)
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  const handleSubmit = async () => {
+    const paper = await validatePaper()
+    if (!paper) return
+    const currentSignature = createPreviewSignature(paper.values, selectedQuestions)
+    if (!preview || previewDirty || preview.signature !== currentSignature) {
+      message.warning('页面或题目已变化，请重新生成预览')
       return
     }
 
     setSubmitting(true)
     try {
-      const response = await createExamPaper({
-        title: values.title.trim(),
-        subtitle: values.subtitle?.trim() || null,
-        durationMinutes: values.durationMinutes,
-        precautions: values.precautions?.trim() || null,
-        headerInfo: values.headerInfo?.trim() || null,
-        pageSize: values.pageSize,
-        orientation: values.orientation.toUpperCase(),
-        columnsCount: values.columnsCount,
-        selectionMode: values.selectionMode.toUpperCase(),
-        questions: selectedQuestions.map((question, index) => ({
-          questionId: question.questionId,
-          score: question.score,
-          sortOrder: index + 1,
-        })),
-      })
+      const response = await createExamPaper(paper.request)
       message.success('试卷创建成功')
+      await clearCurrentPreview()
       onCreated?.(response.data)
     } catch (error) {
       message.error(error.message || '试卷创建失败')
@@ -241,7 +320,10 @@ function ExamPaperCreate({ onCreated }) {
         <Space size={2}>
           <Button type="text" icon={<ArrowUpOutlined />} disabled={index === 0} onClick={() => moveQuestion(index, -1)} />
           <Button type="text" icon={<ArrowDownOutlined />} disabled={index === selectedQuestions.length - 1} onClick={() => moveQuestion(index, 1)} />
-          <Button type="text" danger icon={<DeleteOutlined />} onClick={() => setSelectedQuestions((current) => current.filter((item) => item.questionId !== record.questionId))} />
+          <Button type="text" danger icon={<DeleteOutlined />} onClick={() => {
+            invalidatePreview()
+            setSelectedQuestions((current) => current.filter((item) => item.questionId !== record.questionId))
+          }} />
         </Space>
       ),
     },
@@ -254,17 +336,34 @@ function ExamPaperCreate({ onCreated }) {
     { title: '难度', dataIndex: 'difficulty', width: 90 },
   ]
 
+  const goToFormat = async () => {
+    const paper = await validatePaper()
+    if (paper) setCurrentStep(1)
+  }
+
+  const restoreSourceDefaults = () => {
+    form.setFieldValue('layout', { ...SOURCE_LAYOUT_DEFAULTS })
+    invalidatePreview()
+  }
+
   return (
-    <Form form={form} layout="vertical" initialValues={initialValues} className="exam-paper-create">
+    <Form
+      form={form}
+      layout="vertical"
+      initialValues={initialValues}
+      className="exam-paper-create"
+      onValuesChange={invalidatePreview}
+    >
+      <Card className="exam-paper-card exam-paper-steps-card">
+        <Steps current={currentStep} items={[{ title: '试卷信息与选题' }, { title: '页面格式' }, { title: '预览与确认' }]} />
+      </Card>
+
+      <div className={currentStep === 0 ? '' : 'exam-paper-step-hidden'} aria-hidden={currentStep !== 0}>
       <Card title="试卷信息" className="exam-paper-card">
         <Row gutter={16}>
           <Col xs={24} lg={12}><Form.Item name="title" label="标题" rules={[{ required: true, whitespace: true, message: '请输入试卷标题' }]}><Input maxLength={160} showCount /></Form.Item></Col>
           <Col xs={24} lg={12}><Form.Item name="subtitle" label="副标题"><Input maxLength={200} showCount /></Form.Item></Col>
           <Col xs={24} sm={12} lg={6}><Form.Item name="durationMinutes" label="考试时长（分钟）" rules={[{ required: true, message: '请输入考试时长' }]}><InputNumber min={1} max={1440} precision={0} className="exam-paper-number" /></Form.Item></Col>
-          <Col xs={24} sm={12} lg={6}><Form.Item name="pageSize" label="纸张"><Select options={['A3', 'A4', 'B4'].map((value) => ({ value, label: value }))} /></Form.Item></Col>
-          <Col xs={24} sm={12} lg={6}><Form.Item name="orientation" label="方向"><Select options={[{ value: 'portrait', label: '纵向' }, { value: 'landscape', label: '横向' }]} /></Form.Item></Col>
-          <Col xs={24} sm={12} lg={6}><Form.Item name="columnsCount" label="栏数"><Select options={[{ value: 1, label: '单栏' }, { value: 2, label: '双栏' }]} /></Form.Item></Col>
-          <Col span={24}><Form.Item name="headerInfo" label="页眉信息"><Input maxLength={300} showCount /></Form.Item></Col>
           <Col span={24}><Form.Item name="precautions" label="注意事项"><TextArea rows={3} maxLength={2000} showCount /></Form.Item></Col>
         </Row>
       </Card>
@@ -302,7 +401,33 @@ function ExamPaperCreate({ onCreated }) {
         <Table rowKey="questionId" columns={selectedColumns} dataSource={selectedQuestions} pagination={false} locale={{ emptyText: <Empty description="尚未选择题目" /> }} scroll={{ x: 760 }} />
       </Card>
 
-      <div className="exam-paper-submit"><Button type="primary" size="large" loading={submitting} onClick={handleSubmit}>创建试卷</Button></div>
+      <div className="exam-paper-submit"><Button type="primary" size="large" onClick={goToFormat}>下一步：页面格式</Button></div>
+      </div>
+
+      <div className={currentStep === 1 ? '' : 'exam-paper-step-hidden'} aria-hidden={currentStep !== 1}>
+        {currentStep === 1 && <>
+        <ExamPaperFormatPanel form={form} onRestoreDefaults={restoreSourceDefaults} />
+        <div className="exam-paper-submit exam-paper-submit-between">
+          <Button size="large" onClick={() => setCurrentStep(0)}>上一步</Button>
+          <Button type="primary" size="large" loading={previewLoading} onClick={handleGeneratePreview}>生成真实预览</Button>
+        </div>
+        </>}
+      </div>
+
+      <div className={currentStep === 2 ? '' : 'exam-paper-step-hidden'} aria-hidden={currentStep !== 2}>
+        {currentStep === 2 && <>
+        <Row gutter={[18, 18]} align="top">
+          <Col xs={24} xl={9}><ExamPaperFormatPanel form={form} onRestoreDefaults={restoreSourceDefaults} /></Col>
+          <Col xs={24} xl={15}>
+            <ExamPaperPreview preview={preview} loading={previewLoading} error={previewError} dirty={previewDirty} onRefresh={handleGeneratePreview} />
+          </Col>
+        </Row>
+        <div className="exam-paper-submit exam-paper-submit-between">
+          <Button size="large" onClick={() => setCurrentStep(1)}>返回调整格式</Button>
+          <Button type="primary" size="large" loading={submitting} disabled={!preview || previewDirty} onClick={handleSubmit}>确认生成并保存</Button>
+        </div>
+        </>}
+      </div>
 
       <Drawer title="从题库选择" width={920} open={drawerOpen} onClose={() => setDrawerOpen(false)} extra={<Button type="primary" disabled={!manualSelection.size} onClick={addManualQuestions}>加入试卷（{manualSelection.size}）</Button>}>
         <Form form={questionForm} layout="inline" className="exam-paper-filter" onFinish={() => fetchQuestions({ current: 1 })}>
