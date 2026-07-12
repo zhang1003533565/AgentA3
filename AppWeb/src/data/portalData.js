@@ -1,4 +1,6 @@
-export const navigationSections = [
+import { QUESTION_BANK_ROUTES } from '../pages/questionBank/questionBankRoutes.js'
+
+export const portalGroups = [
   {
     label: '总览',
     items: [
@@ -59,20 +61,28 @@ export const navigationSections = [
     ],
   },
   {
+    label: '题库管理',
+    items: [
+      { path: QUESTION_BANK_ROUTES.questions, label: '题库', icon: 'appstore' },
+      { path: QUESTION_BANK_ROUTES.createPaper, label: '试卷生成', icon: 'file-text' },
+      { path: QUESTION_BANK_ROUTES.paperHistory, label: '生成的试卷', icon: 'file-search' },
+    ],
+  },
+  {
     label: 'AI 模块',
     items: [
       { path: '/ai/model', label: '模型配置', icon: 'robot', pageKey: 'system-config' },
       { path: '/ai/agent-settings', label: '智能体设置', icon: 'setting' },
       { path: '/ai/rag/agents', label: '智能体测试', icon: 'robot' },
       { path: '/ai/agent-cache', label: '缓存监控', icon: 'line-chart' },
-      { path: '/ai/question-bank', label: '题库管理', icon: 'appstore' },
-      { path: '/ai/exam-papers', label: '试卷生成', icon: 'file-text' },
       { path: '/ai/knowledge', label: '知识库管理', icon: 'file-search' },
       { path: '/admin/knowledge-chat', label: '知识库聊天', icon: 'message' },
       { path: '/ai/profile-rules', label: '画像规则', icon: 'pie-chart' },
     ],
   },
 ]
+
+export const navigationSections = portalGroups
 
 export const moduleCards = [
   { title: '校园活动', description: '活动发布、分类与基础报名管理', route: '/activity/manage' },
@@ -85,8 +95,8 @@ export const moduleCards = [
   { title: '智能体设置', description: '集中维护智能体开关、默认模型和运行边界', route: '/ai/agent-settings' },
   { title: '智能体测试', description: '测试智能体调用、导入题库并维护示例输入', route: '/ai/rag/agents' },
   { title: '缓存监控', description: '查看普通智能体工具缓存命中率和接口明细', route: '/ai/agent-cache' },
-  { title: '题库管理', description: '查看智能体导入的标准题库', route: '/ai/question-bank' },
-  { title: '试卷生成', description: '从现有题库随机或手工组卷并下载 Word 试卷', route: '/ai/exam-papers' },
+  { title: '题库管理', description: '查看智能体导入的标准题库', route: QUESTION_BANK_ROUTES.questions },
+  { title: '试卷生成', description: '从现有题库随机或手工组卷并下载 Word 试卷', route: QUESTION_BANK_ROUTES.createPaper },
   { title: '知识库管理', description: '维护 MaxKB 账号、环境地址和知识库文档', route: '/ai/knowledge' },
   { title: '知识库聊天', description: '选择 MaxKB 知识库后用 Java 智能体测试问答和召回片段', route: '/admin/knowledge-chat' },
   { title: '画像规则', description: '查看个人画像雷达图来源、更新策略和 Leader 使用边界', route: '/ai/profile-rules' },
