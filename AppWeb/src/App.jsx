@@ -6,7 +6,6 @@ import ActivityEditor from './pages/activity/ActivityEditor/ActivityEditor'
 import ActivityManage from './pages/activity/ActivityManage/ActivityManage'
 import Home from './pages/Home/Home'
 import QuestionBank from './pages/ai/QuestionBank/QuestionBank'
-import ExamPaper from './pages/ai/ExamPaper/ExamPaper'
 import KnowledgeChat from './pages/ai/KnowledgeChat/KnowledgeChat'
 import KnowledgeManage from './pages/ai/KnowledgeManage/KnowledgeManage'
 import ParagraphManage from './pages/ai/KnowledgeManage/ParagraphManage'
@@ -15,6 +14,9 @@ import RagManage from './pages/ai/RagManage/RagManage'
 import AgentSettings from './pages/ai/AgentSettings/AgentSettings'
 import AgentCache from './pages/ai/AgentCache/AgentCache'
 import Login from './pages/Login/Login'
+import ExamPaperCreatePage from './pages/questionBank/ExamPaperCreatePage'
+import ExamPaperHistoryPage from './pages/questionBank/ExamPaperHistoryPage'
+import { QUESTION_BANK_ROUTES } from './pages/questionBank/questionBankRoutes'
 import WorkspacePage from './pages/workspace/WorkspacePage'
 import './App.css'
 
@@ -44,8 +46,11 @@ function App() {
           <Route path="/ai/rag/agents" element={<RagManage page="agents" />} />
           <Route path="/ai/agent-settings" element={<AgentSettings />} />
           <Route path="/ai/agent-cache" element={<AgentCache />} />
-          <Route path="/ai/question-bank" element={<QuestionBank />} />
-          <Route path="/ai/exam-papers" element={<ExamPaper />} />
+          <Route path={QUESTION_BANK_ROUTES.questions} element={<QuestionBank />} />
+          <Route path={QUESTION_BANK_ROUTES.createPaper} element={<ExamPaperCreatePage />} />
+          <Route path={QUESTION_BANK_ROUTES.paperHistory} element={<ExamPaperHistoryPage />} />
+          <Route path="/ai/question-bank" element={<Navigate to={QUESTION_BANK_ROUTES.questions} replace />} />
+          <Route path="/ai/exam-papers" element={<Navigate to={QUESTION_BANK_ROUTES.createPaper} replace />} />
           <Route path="/ai/knowledge" element={<KnowledgeManage />} />
           <Route path="/admin/knowledge-chat" element={<KnowledgeChat />} />
           <Route path="/ai/knowledge/paragraph/:knowledgeId/:documentId" element={<ParagraphManage />} />
