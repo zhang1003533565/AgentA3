@@ -44,3 +44,13 @@
 - 全部前端 Node 测试：15/15 通过。
 - scoped ESLint（`agentConfig.js`、`agentConfig.test.js`、`AgentSettings.jsx`）：通过。
 - `npm run build`：通过；仅保留既有的大 chunk 警告。
+
+## 最终只读复审
+
+- Issues：无。
+- `resolveQuestionGenerationAgentStatus` 仅在映射名称存在于实时 `agents` 清单时返回 `exists: true`；映射到已删除智能体时返回 `enabled: null` 且清空 `boundModel`，因此残留 binding 不再被视为有效。
+- UI 的启用状态与模型绑定列均先依据 `record.exists` 分支：孤儿映射分别显示“智能体不存在”和“智能体不存在，绑定无效”，不会回退为绿色“已启用”或展示残留模型。
+- 下拉选项继续完全来自实时 `agents`，孤儿值仍可见以便管理员识别异常；选择现存智能体后会产生变更并可独立保存，没有破坏原有草稿比较和保存逻辑。
+- 新纯函数保持无副作用，回归测试覆盖了“智能体缺失但仍有 binding”的关键场景。
+- 本次按要求仅做静态复审，未运行测试；此前执行结果保留在本报告的验证章节。
+- 结论：**Approved**。架构状态：**CLEAR**。

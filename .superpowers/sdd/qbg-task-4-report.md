@@ -72,3 +72,12 @@ The final Task 1-4 combination passed 56 tests with 0 failures, 0 errors, and 0 
 - Removed controller-side filename trimming before case-insensitive extension extraction. Uppercase extensions remain accepted, while trailing whitespace is no longer hidden from validation.
 - GREEN: `QuestionGenerationControllerTest` passed 15 tests with 0 failures and 0 errors.
 - Task 1-4 combination passed 57 tests with 0 failures and 0 errors using the explicit Byte Buddy Java agent; the combined test requires local loopback sockets for `PythonAiProxyServiceTest`.
+
+## Final Read-only Re-review 2
+
+- Issues: none.
+- The controller now derives the extension from the untrimmed filename (`QuestionGenerationController.java:105-112`), so `course.txt ` is rejected before service interaction (`QuestionGenerationController.java:95-98`) exactly as the parser would reject it (`QuestionGenerationMaterialParser.java:118-125`).
+- The regression test covers the trailing-whitespace filename and verifies HTTP 400 plus zero service interaction (`QuestionGenerationControllerTest.java:169-173`, `QuestionGenerationControllerTest.java:259-270`).
+- Rechecked the earlier Task 4 boundaries: exact administrator gating, unchanged Authorization forwarding, text/file presence checks, legacy `file` normalization to concrete `txt`/`docx`, declared-type/extension agreement, question type and positive maximum validation, difficulty normalization, and trimmed/bounded source titles.
+- Verification for this re-review was static only by instruction; no tests were run. The committed report records the prior focused 15/15 and combined 57/57 executions.
+- Verdict: **Approved**. Architectural status: **CLEAR**.
