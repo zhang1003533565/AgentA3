@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -37,20 +38,46 @@ class SourcePaperVisualFixtureTest {
                 new ExamPaperDocumentGenerator(), template);
 
         Map<String, PaperLayoutConfig> cases = matrix();
+        List<String> manifest = new ArrayList<>();
         for (Map.Entry<String, PaperLayoutConfig> item : cases.entrySet()) {
             byte[] bytes = template.generate(paper, DownloadContent.PAPER, item.getValue());
             SourcePaperPackageVerifier.verify(bytes);
             Files.write(output.resolve(item.getKey() + "-paper.docx"), bytes);
+            manifest.add(manifest(item.getKey() + "-paper.docx", item.getValue(), false, 1, 4));
         }
         PaperLayoutConfig sourceDefault = cases.get("template-a3-landscape-binding-2col");
         byte[] answer = template.generate(paper, DownloadContent.ANSWER, sourceDefault);
         SourcePaperPackageVerifier.verify(answer);
         Files.write(output.resolve("template-a3-landscape-binding-2col-answer.docx"), answer);
+        manifest.add(manifest("template-a3-landscape-binding-2col-answer.docx", sourceDefault, true, 1, 4));
+
+        String soffice = System.getProperty("exam.visual.soffice");
+        String previewRoot = System.getProperty("exam.visual.previewRoot");
+        if (soffice != null && previewRoot != null) {
+            var converted = new LibreOfficePreviewConverter(soffice, Duration.ofMinutes(2), Path.of(previewRoot))
+                    .convert(Files.readAllBytes(output.resolve("template-a3-landscape-binding-2col-paper.docx")),
+                            Path.of(previewRoot).resolve("visual/default"));
+            Files.write(output.resolve("template-a3-landscape-binding-2col-paper.preview.pdf"), converted.bytes());
+        }
 
         PaperLayoutConfig simple = new PaperLayoutConfig();
         simple.setRenderMode(PaperRenderMode.SIMPLE);
         Files.write(output.resolve("simple-a4-portrait-paper.docx"),
                 dispatcher.generate(paper, DownloadContent.PAPER, simple));
+        Files.writeString(output.resolve("manifest.json"), "[\n" + String.join(",\n", manifest) + "\n]\n");
+    }
+
+    private static String manifest(String file, PaperLayoutConfig layout, boolean answer,
+                                   int scoreTables, int graderTables) {
+        SourcePaperLayoutResolver.ResolvedPageLayout page = new SourcePaperLayoutResolver().resolve(layout);
+        return "  {\"file\":\"" + file + "\",\"pageSize\":\"" + layout.getPageSize()
+                + "\",\"orientation\":\"" + layout.getOrientation() + "\",\"width\":" + page.pageWidth()
+                + ",\"height\":" + page.pageHeight() + ",\"top\":" + page.marginTop() + ",\"right\":" + page.marginRight()
+                + ",\"bottom\":" + page.marginBottom() + ",\"left\":" + page.marginLeft() + ",\"columns\":"
+                + layout.getColumnsCount() + ",\"space\":" + layout.getColumnSpace() + ",\"binding\":"
+                + layout.getHasBindingLine() + ",\"docGrid\":" + page.documentGridLinePitch()
+                + ",\"answer\":" + answer + ",\"scoreTables\":"
+                + scoreTables + ",\"graderTables\":" + graderTables + "}";
     }
 
     private static Map<String, PaperLayoutConfig> matrix() {
