@@ -92,6 +92,11 @@ exam-paper:
     ttl-minutes: ${EXAM_PAPER_PREVIEW_TTL_MINUTES:30}
     cleanup-interval-ms: ${EXAM_PAPER_PREVIEW_CLEANUP_INTERVAL_MS:60000}
 
+exam:
+  question-generation:
+    max-file-bytes: 10485760
+    max-text-characters: 200000
+
 springdoc:
   api-docs:
     version: openapi_3_0
