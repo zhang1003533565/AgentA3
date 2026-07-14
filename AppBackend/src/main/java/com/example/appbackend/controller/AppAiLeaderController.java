@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 @RestController
@@ -88,7 +89,7 @@ public class AppAiLeaderController {
         Object ragResult = pythonAiProxyService.queryRag(payload, httpRequest.getHeader("Authorization"));
         LlmChatResponse response = toChatResponse(session, ragResult);
         AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(
-                response, mapValue(ragResult));
+                response, mapValue(ragResult), request.getInput());
         saveAssistantMessage(userId, session, response, envelope);
         refreshSession(session, response.getAnswer());
         captureLeaderProfileEvidence(userId, session, request, response);
@@ -107,46 +108,64 @@ public class AppAiLeaderController {
 
         Map<String, Object> payload = buildLeaderPayload(request, session.getSessionId(), userId, authorization);
         AtomicReference<AiLeaderMessage> visibleGenerationMessage = new AtomicReference<>();
+        AtomicReference<LlmChatResponse> completedResponse = new AtomicReference<>();
+        AtomicBoolean completed = new AtomicBoolean(false);
+        Object streamStateLock = new Object();
         return pythonAiProxyService.streamRag(payload, authorization, (eventName, eventPayload) -> {
-            if ("generation_start".equals(eventName)) {
+            synchronized (streamStateLock) {
+                if ("generation_start".equals(eventName)) {
+                    if (completed.get()) {
+                        assistantEnvelopeService.overwriteSsePayload(eventPayload, completedResponse.get());
+                        return;
+                    }
+                    LlmChatResponse response = toChatResponse(session, eventPayload);
+                    AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(
+                            response, mapValue(eventPayload), request.getInput());
+                    AiLeaderMessage existing = visibleGenerationMessage.get();
+                    AiLeaderMessage saved = existing == null
+                            ? saveAssistantMessage(userId, session, response, envelope)
+                            : updateAssistantMessage(userId, session, existing, response, envelope);
+                    visibleGenerationMessage.set(saved);
+                    assistantEnvelopeService.overwriteSsePayload(eventPayload, response);
+                    refreshSession(session, response.getAnswer());
+                    return;
+                }
+                if ("error".equals(eventName) && visibleGenerationMessage.get() != null) {
+                    Map<String, Object> errorResult = new HashMap<>(mapValue(eventPayload));
+                    String message = firstNonBlank(stringValue(errorResult.get("message")), "图片生成失败，请稍后再试。");
+                    errorResult.put("answer", "图片生成失败：" + message);
+                    errorResult.put("answerType", "text");
+                    errorResult.put("outputType", "text");
+                    errorResult.put("outputTypes", List.of("text"));
+                    LlmChatResponse response = toChatResponse(session, errorResult);
+                    AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(
+                            response, errorResult, request.getInput());
+                    updateAssistantMessage(userId, session, visibleGenerationMessage.get(), response, envelope);
+                    refreshSession(session, message);
+                    return;
+                }
+                if (!"done".equals(eventName)) {
+                    return;
+                }
+                if (!completed.compareAndSet(false, true)) {
+                    assistantEnvelopeService.overwriteSsePayload(eventPayload, completedResponse.get());
+                    return;
+                }
                 LlmChatResponse response = toChatResponse(session, eventPayload);
                 AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(
-                        response, mapValue(eventPayload));
-                AiLeaderMessage saved = saveAssistantMessage(userId, session, response, envelope);
-                visibleGenerationMessage.set(saved);
+                        response, mapValue(eventPayload), request.getInput());
+                AiLeaderMessage existing = visibleGenerationMessage.get();
+                if (existing == null) {
+                    AiLeaderMessage saved = saveAssistantMessage(userId, session, response, envelope);
+                    visibleGenerationMessage.set(saved);
+                } else {
+                    updateAssistantMessage(userId, session, existing, response, envelope);
+                }
+                completedResponse.set(response);
                 assistantEnvelopeService.overwriteSsePayload(eventPayload, response);
                 refreshSession(session, response.getAnswer());
-                return;
+                captureLeaderProfileEvidence(userId, session, request, response);
             }
-            if ("error".equals(eventName) && visibleGenerationMessage.get() != null) {
-                Map<String, Object> errorResult = new HashMap<>(mapValue(eventPayload));
-                String message = firstNonBlank(stringValue(errorResult.get("message")), "图片生成失败，请稍后再试。");
-                errorResult.put("answer", "图片生成失败：" + message);
-                errorResult.put("answerType", "text");
-                errorResult.put("outputType", "text");
-                errorResult.put("outputTypes", List.of("text"));
-                LlmChatResponse response = toChatResponse(session, errorResult);
-                AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(response, errorResult);
-                updateAssistantMessage(userId, session, visibleGenerationMessage.get(), response, envelope);
-                refreshSession(session, message);
-                return;
-            }
-            if (!"done".equals(eventName)) {
-                return;
-            }
-            LlmChatResponse response = toChatResponse(session, eventPayload);
-            AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(
-                    response, mapValue(eventPayload));
-            AiLeaderMessage existing = visibleGenerationMessage.get();
-            if (existing == null) {
-                AiLeaderMessage saved = saveAssistantMessage(userId, session, response, envelope);
-                visibleGenerationMessage.set(saved);
-            } else {
-                updateAssistantMessage(userId, session, existing, response, envelope);
-            }
-            assistantEnvelopeService.overwriteSsePayload(eventPayload, response);
-            refreshSession(session, response.getAnswer());
-            captureLeaderProfileEvidence(userId, session, request, response);
         });
     }
 
@@ -177,9 +196,15 @@ public class AppAiLeaderController {
                 .orElseThrow(() -> new BusinessException(404, "会话不存在"));
         AiLeaderSessionDetail detail = new AiLeaderSessionDetail();
         detail.setSession(toSessionItem(session));
-        detail.setMessages(messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(session.getId()).stream()
-                .map(this::toMessageItem)
-                .collect(Collectors.toList()));
+        List<AiLeaderMessageItem> items = new ArrayList<>();
+        String latestUserInput = null;
+        for (AiLeaderMessage message : messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(session.getId())) {
+            if (AiLeaderMessage.ROLE_USER.equals(message.getRole())) {
+                latestUserInput = message.getContent();
+            }
+            items.add(toMessageItem(message, latestUserInput));
+        }
+        detail.setMessages(items);
         return Result.success(detail);
     }
 
@@ -481,7 +506,7 @@ public class AppAiLeaderController {
         return item;
     }
 
-    private AiLeaderMessageItem toMessageItem(AiLeaderMessage message) {
+    private AiLeaderMessageItem toMessageItem(AiLeaderMessage message, String expectedQuery) {
         AiLeaderMessageItem item = new AiLeaderMessageItem();
         item.setId(message.getId());
         item.setRole(message.getRole());
@@ -494,7 +519,9 @@ public class AppAiLeaderController {
         item.setOutputMeta(readMap(message.getOutputMetaJson()));
         item.setRetrievalMeta(readMap(message.getRetrievalMetaJson()));
         item.setTrace(readMapList(message.getTraceJson()));
-        assistantEnvelopeService.restoreEnvelope(message, item);
+        if (AiLeaderMessage.ROLE_ASSISTANT.equals(message.getRole())) {
+            assistantEnvelopeService.restoreEnvelope(message, item, expectedQuery);
+        }
         item.setCreateTime(message.getCreateTime());
         return item;
     }

@@ -101,7 +101,7 @@ class AppAiLeaderControllerTest {
         });
 
         AssistantEnvelopeService assistantEnvelopeService = new AssistantEnvelopeService(
-                messageRepository, exportRepository, objectMapper);
+                messageRepository, exportRepository, objectMapper, "cdn.example.edu");
 
         controller = new AppAiLeaderController(
                 pythonAiProxyService,
@@ -196,6 +196,8 @@ class AppAiLeaderControllerTest {
                 controller.sessionDetail("session-1", authenticatedRequest()).getData());
         assertThat(validHistory.path("messages").path(0).path("resources").path(0).path("messageId").asLong())
                 .isEqualTo(101L);
+        assertThat(validHistory.path("messages").path(0).path("resources").path(0).path("availability").asText())
+                .isEqualTo("active");
         assertThat(validHistory.path("messages").path(0).path("evidenceChain").path("evidenceState").asText())
                 .isEqualTo("available");
 
@@ -310,6 +312,317 @@ class AppAiLeaderControllerTest {
         assertThat(restored.toString()).doesNotContain("localhost", "/generated/");
     }
 
+    @Test
+    void authenticatedExternalResourceAndSecretEvidenceStepFailClosed() throws Exception {
+        Map<String, Object> raw = validGeneratedResponse();
+        raw.put("attachments", List.of());
+        Map<String, Object> resource = resource(raw);
+        resource.put("storageKey", "");
+        resource.put("url", "https://attacker.example/collect?token=steal");
+        resource.put("authScope", "session_owner");
+        resource.put("actions", List.of(Map.of(
+                "type", "download", "label", "下载", "target", "resource", "requiresAuth", true)));
+        Map<String, Object> chain = evidenceChain(raw);
+        chain.put("steps", List.of(Map.of(
+                "stage", "tool_result",
+                "detail", Map.of("internalCapability", "chain-secret", "endpoint", "http://localhost:8081/internal"))));
+        refreshChainIntegrity(chain);
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(raw);
+
+        Result<LlmChatResponse> result = controller.query(request(), authenticatedRequest());
+        JsonNode response = objectMapper.valueToTree(result.getData());
+        String serialized = objectMapper.writeValueAsString(result.getData());
+
+        assertThat(response.path("resources")).isEmpty();
+        assertThat(response.path("evidenceChain").path("evidenceState").asText())
+                .isEqualTo("generation_failed");
+        assertThat(serialized).doesNotContain(
+                "attacker.example", "token=steal", "chain-secret", "internalCapability", "localhost");
+        assertThat(savedMessages.stream()
+                .filter(item -> AiLeaderMessage.ROLE_ASSISTANT.equals(item.getRole()))
+                .findFirst().orElseThrow().getEvidenceChainJson())
+                .doesNotContain("chain-secret", "localhost");
+    }
+
+    @Test
+    void publicExternalResourceRequiresApprovedHostAndNoAuthAction() throws Exception {
+        Map<String, Object> raw = validGeneratedResponse();
+        raw.put("attachments", List.of());
+        Map<String, Object> resource = resource(raw);
+        resource.put("storageKey", "");
+        resource.put("url", "https://cdn.example.edu/reading.pdf");
+        resource.put("authScope", "public");
+        resource.put("actions", List.of(Map.of(
+                "type", "download", "label", "下载", "target", "resource", "requiresAuth", false)));
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(raw);
+
+        JsonNode response = objectMapper.valueToTree(
+                controller.query(request(), authenticatedRequest()).getData());
+
+        assertThat(response.path("resources").path(0).path("url").asText())
+                .isEqualTo("https://cdn.example.edu/reading.pdf");
+        assertThat(response.path("resources").path(0).path("actions").path(0).path("requiresAuth").asBoolean())
+                .isFalse();
+    }
+
+    @Test
+    void publicExternalResourceRejectsUserInfoNonStandardPortsAndSecretQueries() throws Exception {
+        for (String unsafeUrl : List.of(
+                "https://user:password@cdn.example.edu/reading.pdf",
+                "https://cdn.example.edu:444/reading.pdf",
+                "https://cdn.example.edu/reading.pdf?token=secret")) {
+            Map<String, Object> raw = validGeneratedResponse();
+            raw.put("attachments", List.of());
+            Map<String, Object> resource = resource(raw);
+            resource.put("storageKey", "");
+            resource.put("url", unsafeUrl);
+            resource.put("authScope", "public");
+            resource.put("actions", List.of(Map.of(
+                    "type", "download", "label", "下载", "target", "resource", "requiresAuth", false)));
+            when(pythonAiProxyService.queryRag(any(), any())).thenReturn(raw);
+
+            JsonNode response = objectMapper.valueToTree(
+                    controller.query(request(), authenticatedRequest()).getData());
+
+            assertThat(response.path("resources"))
+                    .as("unsafe public URL must fail closed: %s", unsafeUrl)
+                    .isEmpty();
+        }
+    }
+
+    @Test
+    void incompatiblePayloadAndStructuredTextValuesAreRejectedInsteadOfStringified() throws Exception {
+        Map<String, Object> raw = validGeneratedResponse();
+        raw.put("attachments", List.of());
+        Map<String, Object> resource = resource(raw);
+        resource.put("kind", "course");
+        resource.put("deliveryType", "business_card");
+        resource.put("payload", Map.of("type", "file", "format", "docx", "size", 12,
+                "digest", "sha256:" + "a".repeat(64)));
+        resource.put("title", Map.of("internalCapability", "typed-secret"));
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(raw);
+
+        Result<LlmChatResponse> result = controller.query(request(), authenticatedRequest());
+        JsonNode response = objectMapper.valueToTree(result.getData());
+
+        assertThat(response.path("resources")).isEmpty();
+        assertThat(objectMapper.writeValueAsString(result.getData()))
+                .doesNotContain("typed-secret", "internalCapability");
+    }
+
+    @Test
+    void generatedManifestRejectsStructuredOptionalTextFields() throws Exception {
+        Map<String, Object> raw = validGeneratedResponse();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> attachment = new LinkedHashMap<>(
+                (Map<String, Object>) ((List<?>) raw.get("attachments")).getFirst());
+        attachment.put("title", Map.of("internalCapability", "typed-secret"));
+        raw.put("attachments", List.of(attachment));
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(raw);
+
+        Result<LlmChatResponse> result = controller.query(request(), authenticatedRequest());
+        JsonNode response = objectMapper.valueToTree(result.getData());
+
+        assertThat(response.path("resources").path(0).path("url").asText()).isEmpty();
+        assertThat(response.path("resources").path(0).path("availability").asText()).isEqualTo("unavailable");
+        assertThat(objectMapper.writeValueAsString(result.getData())).doesNotContain("typed-secret");
+        verify(exportRepository, times(0)).save(any());
+    }
+
+    @Test
+    void repeatedGenerationStartAndDoneAreIdempotent() throws Exception {
+        when(pythonAiProxyService.streamRag(any(), any(), any())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            BiConsumer<String, Object> consumer = invocation.getArgument(2);
+            consumer.accept("generation_start", validGeneratedResponse());
+            consumer.accept("generation_start", validGeneratedResponse());
+            consumer.accept("done", validGeneratedResponse());
+            consumer.accept("done", validGeneratedResponse());
+            return new SseEmitter();
+        });
+        controller.queryStream(request(), "Bearer test-token", authenticatedRequest());
+
+        assertThat(savedMessages.stream().filter(item -> AiLeaderMessage.ROLE_ASSISTANT.equals(item.getRole())))
+                .hasSize(1);
+        verify(exportRepository, times(1)).save(any());
+        verify(userProfileService, times(1)).addEvidence(anyLong(), any());
+    }
+
+    @Test
+    void changedManifestBindingOnDoneCannotReuseTheExistingDownloadUrl() throws Exception {
+        AtomicReference<Map<String, Object>> done = new AtomicReference<>();
+        when(pythonAiProxyService.streamRag(any(), any(), any())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            BiConsumer<String, Object> consumer = invocation.getArgument(2);
+            consumer.accept("generation_start", validGeneratedResponse());
+            Map<String, Object> changed = validGeneratedResponse();
+            resource(changed).put("id", "res_changed");
+            evidenceChain(changed).put("resourceLinks", List.of(Map.of(
+                    "resourceId", "res_changed", "evidenceIds", List.of())));
+            refreshChainIntegrity(evidenceChain(changed));
+            done.set(changed);
+            consumer.accept("done", changed);
+            return new SseEmitter();
+        });
+
+        controller.queryStream(request(), "Bearer test-token", authenticatedRequest());
+
+        JsonNode donePayload = objectMapper.valueToTree(done.get());
+        assertThat(savedExport.get().getResourceId()).isEqualTo("res_doc");
+        assertThat(donePayload.path("resources").path(0).path("url").asText()).isEmpty();
+        assertThat(donePayload.path("resources").path(0).path("availability").asText())
+                .isEqualTo("unavailable");
+        verify(exportRepository, times(1)).save(any());
+    }
+
+    @Test
+    void malformedSiblingJsonForcesMalformedEvidenceState() throws Exception {
+        Map<String, Object> raw = validGeneratedResponse();
+        raw.put("attachments", List.of());
+        raw.put("resources", List.of());
+        Map<String, Object> chain = evidenceChain(raw);
+        chain.put("status", "model_only");
+        chain.put("sources", List.of());
+        chain.put("resourceLinks", List.of());
+        refreshChainIntegrity(chain);
+        AiLeaderMessage message = new AiLeaderMessage();
+        message.setId(79L);
+        message.setLeaderSessionId(9L);
+        message.setRole(AiLeaderMessage.ROLE_ASSISTANT);
+        message.setContent("正文保留");
+        message.setMatchedResultsJson("[]");
+        message.setResourcesJson("{malformed");
+        message.setAttachmentsJson("[]");
+        message.setEvidenceChainJson(objectMapper.writeValueAsString(chain));
+        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(9L)).thenReturn(List.of(message));
+
+        JsonNode history = objectMapper.valueToTree(
+                controller.sessionDetail("session-1", authenticatedRequest()).getData());
+
+        assertThat(history.path("messages").path(0).path("evidenceChain").path("evidenceState").asText())
+                .isEqualTo("malformed");
+        assertThat(history.path("messages").path(0).path("content").asText()).isEqualTo("正文保留");
+    }
+
+    @Test
+    void evidenceSourcesAreTrimmedRatherThanDiscardingTheEnvelope() throws Exception {
+        Map<String, Object> raw = groundedResponse(21, 801);
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(raw);
+
+        JsonNode response = objectMapper.valueToTree(
+                controller.query(request(), authenticatedRequest()).getData());
+
+        assertThat(response.path("resources")).hasSize(1);
+        assertThat(response.path("evidenceChain").path("evidenceState").asText()).isEqualTo("available");
+        assertThat(response.path("evidenceChain").path("sources")).hasSize(20);
+        assertThat(response.path("evidenceChain").path("sources").path(0).path("excerpt").asText()).hasSize(800);
+        assertThat(response.path("evidenceChain").path("truncated").asBoolean()).isTrue();
+        assertThat(response.path("resources").path(0).path("evidenceIds")).hasSize(20);
+    }
+
+    @Test
+    void oversizedEnvelopeIsDeterministicallyTrimmedBelowTheByteLimit() throws Exception {
+        Map<String, Object> raw = oversizedContentResponse(30);
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(raw);
+
+        Result<LlmChatResponse> result = controller.query(request(), authenticatedRequest());
+        JsonNode response = objectMapper.valueToTree(result.getData());
+        int envelopeBytes = objectMapper.writeValueAsBytes(Map.of(
+                "resources", result.getData().getResources(),
+                "evidenceChain", result.getData().getEvidenceChain())).length;
+
+        assertThat(response.path("resources").size()).isBetween(1, 30);
+        assertThat(response.path("evidenceChain").path("evidenceState").asText()).isEqualTo("available");
+        assertThat(response.path("evidenceChain").path("truncated").asBoolean()).isTrue();
+        assertThat(envelopeBytes).isLessThanOrEqualTo(256 * 1024);
+    }
+
+    @Test
+    void answerDigestMustBindLiveAndHistoricalMessageContent() throws Exception {
+        Map<String, Object> raw = validGeneratedResponse();
+        evidenceChain(raw).put("answerDigest", sha256Text("另一份回答"));
+        refreshChainIntegrity(evidenceChain(raw));
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(raw);
+
+        JsonNode live = objectMapper.valueToTree(controller.query(request(), authenticatedRequest()).getData());
+        assertThat(live.path("evidenceChain").path("evidenceState").asText()).isEqualTo("integrity_failed");
+
+        Map<String, Object> valid = validGeneratedResponse();
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(valid);
+        controller.query(request(), authenticatedRequest());
+        AiLeaderMessage latest = savedMessages.getLast();
+        latest.setContent("被篡改的历史正文");
+        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(9L)).thenReturn(List.of(latest));
+        JsonNode history = objectMapper.valueToTree(
+                controller.sessionDetail("session-1", authenticatedRequest()).getData());
+        assertThat(history.path("messages").path(0).path("evidenceChain").path("evidenceState").asText())
+                .isEqualTo("integrity_failed");
+    }
+
+    @Test
+    void nonAvailableEvidenceStateSurvivesPersistenceAndHistoryRestore() throws Exception {
+        Map<String, Object> raw = validGeneratedResponse();
+        evidenceChain(raw).put("steps", List.of(Map.of(
+                "stage", "tool_result",
+                "detail", Map.of("internalCapability", "secret-capability"))));
+        refreshChainIntegrity(evidenceChain(raw));
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(raw);
+
+        JsonNode live = objectMapper.valueToTree(controller.query(request(), authenticatedRequest()).getData());
+        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(9L))
+                .thenReturn(new ArrayList<>(savedMessages));
+        JsonNode history = objectMapper.valueToTree(
+                controller.sessionDetail("session-1", authenticatedRequest()).getData());
+        JsonNode historicalAssistant = history.path("messages").path(history.path("messages").size() - 1);
+
+        assertThat(live.path("evidenceChain").path("evidenceState").asText()).isEqualTo("generation_failed");
+        assertThat(historicalAssistant.path("evidenceChain").path("evidenceState").asText())
+                .isEqualTo("generation_failed");
+        assertThat(historicalAssistant.path("content").asText()).isEqualTo("资料已生成");
+    }
+
+    @Test
+    void canonicalDigestsAndTimesRequireLowercasePrefixedUtcForm() throws Exception {
+        Map<String, Object> raw = validGeneratedResponse();
+        Map<String, Object> chain = evidenceChain(raw);
+        chain.put("queryDigest", "B".repeat(64));
+        chain.put("generatedAt", "2026-07-14T20:00:00+08:00");
+        refreshChainIntegrity(chain);
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(raw);
+
+        JsonNode response = objectMapper.valueToTree(
+                controller.query(request(), authenticatedRequest()).getData());
+
+        assertThat(response.path("evidenceChain").path("evidenceState").asText())
+                .isEqualTo("integrity_failed");
+    }
+
+    @Test
+    void evidenceAndResourceFieldsRejectJsonTypeCoercionAndNonUtcResourceTimes() throws Exception {
+        Map<String, Object> typedEvidence = groundedResponse(1, 20);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> source = new LinkedHashMap<>(
+                (Map<String, Object>) ((List<?>) evidenceChain(typedEvidence).get("sources")).getFirst());
+        source.put("title", Map.of("internalCapability", "typed-secret"));
+        evidenceChain(typedEvidence).put("sources", List.of(source));
+        refreshChainIntegrity(evidenceChain(typedEvidence));
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(typedEvidence);
+
+        Result<LlmChatResponse> typedResult = controller.query(request(), authenticatedRequest());
+        JsonNode typedResponse = objectMapper.valueToTree(typedResult.getData());
+        assertThat(typedResponse.path("evidenceChain").path("evidenceState").asText())
+                .isEqualTo("generation_failed");
+        assertThat(objectMapper.writeValueAsString(typedResult.getData())).doesNotContain("typed-secret");
+
+        Map<String, Object> offsetResource = validGeneratedResponse();
+        resource(offsetResource).put("createdAt", "2026-07-14T20:00:00+08:00");
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(offsetResource);
+
+        JsonNode offsetResponse = objectMapper.valueToTree(
+                controller.query(request(), authenticatedRequest()).getData());
+        assertThat(offsetResponse.path("resources")).isEmpty();
+    }
+
     private LlmChatRequest request() {
         LlmChatRequest request = new LlmChatRequest();
         request.setSessionId("session-1");
@@ -359,8 +672,8 @@ class AppAiLeaderControllerTest {
         chain.put("status", "model_only");
         chain.put("generatedAt", "2026-07-14T12:00:00Z");
         chain.put("evidenceState", "available");
-        chain.put("queryDigest", "sha256:" + "b".repeat(64));
-        chain.put("answerDigest", "sha256:" + "c".repeat(64));
+        chain.put("queryDigest", sha256Text("导出复习资料"));
+        chain.put("answerDigest", sha256Text("资料已生成"));
         chain.put("sources", List.of());
         chain.put("steps", List.of(Map.of("stage", "generation", "detail", Map.of())));
         chain.put("resourceLinks", List.of(Map.of("resourceId", "res_doc", "evidenceIds", List.of())));
@@ -405,6 +718,105 @@ class AppAiLeaderControllerTest {
         Object canonical = canonicalize(value);
         byte[] bytes = objectMapper.writeValueAsString(canonical).getBytes(StandardCharsets.UTF_8);
         return "sha256:" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+    }
+
+    private String sha256Text(String value) throws Exception {
+        return "sha256:" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(value.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private void refreshChainIntegrity(Map<String, Object> chain) throws Exception {
+        chain.remove("integrity");
+        chain.put("integrity", Map.of(
+                "algorithm", "SHA-256",
+                "digest", canonicalDigest(chain),
+                "scope", "canonical-json-without-integrity",
+                "signed", false));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> resource(Map<String, Object> response) {
+        return (Map<String, Object>) ((List<?>) response.get("resources")).getFirst();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> evidenceChain(Map<String, Object> response) {
+        return (Map<String, Object>) response.get("evidenceChain");
+    }
+
+    private Map<String, Object> groundedResponse(int sourceCount, int excerptLength) throws Exception {
+        Map<String, Object> raw = validGeneratedResponse();
+        raw.put("attachments", List.of());
+        List<Map<String, Object>> sources = new ArrayList<>();
+        List<String> evidenceIds = new ArrayList<>();
+        for (int index = 0; index < sourceCount; index++) {
+            String evidenceId = "ev_" + index;
+            evidenceIds.add(evidenceId);
+            sources.add(Map.of(
+                    "evidenceId", evidenceId,
+                    "sourceType", "knowledge_base",
+                    "sourceId", "source_" + index,
+                    "title", "来源 " + index,
+                    "excerpt", "证".repeat(excerptLength),
+                    "retrievedAt", "2026-07-14T12:00:00Z",
+                    "contentDigest", sha256Text("来源 " + index),
+                    "accessScope", "request_user"));
+        }
+        Map<String, Object> resource = resource(raw);
+        resource.put("storageKey", "");
+        resource.put("kind", "explanation");
+        resource.put("deliveryType", "content");
+        resource.put("groundingStatus", "grounded");
+        resource.put("evidenceIds", evidenceIds);
+        resource.put("authScope", "request_user");
+        resource.put("integrity", null);
+        resource.put("payload", Map.of("type", "content", "content", "资料已生成", "language", "text"));
+        resource.put("actions", List.of());
+        Map<String, Object> chain = evidenceChain(raw);
+        chain.put("status", "grounded");
+        chain.put("sources", sources);
+        chain.put("resourceLinks", List.of(Map.of("resourceId", "res_doc", "evidenceIds", evidenceIds)));
+        refreshChainIntegrity(chain);
+        return raw;
+    }
+
+    private Map<String, Object> oversizedContentResponse(int count) throws Exception {
+        Map<String, Object> raw = validGeneratedResponse();
+        raw.put("attachments", List.of());
+        List<Map<String, Object>> resources = new ArrayList<>();
+        List<Map<String, Object>> links = new ArrayList<>();
+        for (int index = 0; index < count; index++) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("schemaVersion", "assistant-resource-v1");
+            item.put("id", "res_content_" + index);
+            item.put("messageId", null);
+            item.put("kind", "explanation");
+            item.put("deliveryType", "content");
+            item.put("groundingStatus", "model_only");
+            item.put("title", "内容 " + index);
+            item.put("summary", "摘要 ".repeat(80));
+            item.put("mimeType", "text/plain");
+            item.put("storageKey", "");
+            item.put("url", "");
+            item.put("previewUrl", "");
+            item.put("sourceType", "response_content");
+            item.put("sourceId", "assistant_answer");
+            item.put("evidenceIds", List.of());
+            item.put("actions", List.of());
+            item.put("authScope", "request_user");
+            item.put("createdAt", "2026-07-14T12:00:00Z");
+            item.put("expiresAt", null);
+            item.put("integrity", null);
+            item.put("payload", Map.of("type", "content", "content", "内".repeat(12_000), "language", "text"));
+            item.put("metadata", Map.of());
+            resources.add(item);
+            links.add(Map.of("resourceId", item.get("id"), "evidenceIds", List.of()));
+        }
+        raw.put("resources", resources);
+        Map<String, Object> chain = evidenceChain(raw);
+        chain.put("resourceLinks", links);
+        refreshChainIntegrity(chain);
+        return raw;
     }
 
     private Object canonicalize(Object value) {

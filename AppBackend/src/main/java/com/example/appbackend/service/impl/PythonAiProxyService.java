@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
+import java.util.regex.Pattern;
 
 @Service
 public class PythonAiProxyService {
@@ -39,6 +40,7 @@ public class PythonAiProxyService {
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
     private static final String AGENT_ENABLED_PREFIX = "ai.agent-enabled.";
     private static final String TOOL_ENABLED_PREFIX = "ai.tool-enabled.";
+    private static final Pattern SAFE_SSE_EVENT_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_-]{0,39}");
 
     private final WebClient.Builder webClientBuilder;
     private final ObjectMapper objectMapper;
@@ -422,27 +424,25 @@ public class PythonAiProxyService {
     private void relaySseEvent(ServerSentEvent<String> sourceEvent,
                                SseEmitter emitter,
                                BiConsumer<String, Object> eventConsumer) {
-        String eventName = sourceEvent.event();
-        if (!StringUtils.hasText(eventName)) {
-            eventName = "message";
-        }
+        String eventName = safeSseEventName(sourceEvent.event());
         String rawData = sourceEvent.data();
         Object payload = parsePayload(rawData);
         if (eventConsumer != null) {
             eventConsumer.accept(eventName, payload);
         }
 
-        if (log.isDebugEnabled()) {
-            log.debug("relay sse event event={} data={}", eventName, rawData);
-        } else {
-            log.info("relay sse event event={}", eventName);
-        }
+        log.info("relay sse event event={}", eventName);
 
         try {
             emitter.send(SseEmitter.event().name(eventName).data(payload, MediaType.APPLICATION_JSON));
         } catch (Exception e) {
             throw new RuntimeException("SSE 事件透传失败: " + e.getMessage(), e);
         }
+    }
+
+    static String safeSseEventName(String value) {
+        return StringUtils.hasText(value) && SAFE_SSE_EVENT_NAME.matcher(value).matches()
+                ? value : "message";
     }
 
     private void validateAuthorization(String authorization) {

@@ -9,6 +9,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.Data;
+import lombok.ToString;
 
 import java.time.Instant;
 
@@ -61,6 +62,7 @@ public class AiLeaderGeneratedExport {
     private String sha256;
 
     @Column(name = "python_capability", nullable = false, length = 200)
+    @ToString.Exclude
     private String pythonCapability;
 
     @Column(name = "created_at", nullable = false)

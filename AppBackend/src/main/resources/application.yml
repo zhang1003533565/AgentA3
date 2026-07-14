@@ -59,6 +59,8 @@ ai:
   python:
     base-url: ${AI_PYTHON_BASE_URL:http://localhost:8081}
     timeout-seconds: ${AI_PYTHON_TIMEOUT_SECONDS:65}
+  assistant:
+    public-resource-hosts: ${AI_ASSISTANT_PUBLIC_RESOURCE_HOSTS:}
 
 knowledge:
   maxkb:

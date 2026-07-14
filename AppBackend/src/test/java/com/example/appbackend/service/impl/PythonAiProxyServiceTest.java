@@ -417,6 +417,14 @@ class PythonAiProxyServiceTest {
     }
 
     @Test
+    void sseEventNamesRejectLogInjectionAndPayloadFragments() {
+        Assertions.assertEquals("generation_start", PythonAiProxyService.safeSseEventName("generation_start"));
+        Assertions.assertEquals("message", PythonAiProxyService.safeSseEventName(
+                "done\ndata: {\"internalCapability\":\"secret-capability\"}"));
+        Assertions.assertEquals("message", PythonAiProxyService.safeSseEventName(""));
+    }
+
+    @Test
     void chat_shouldFailFastWhenAiConfigMissing() {
         PythonAiProxyService service = newService(65535, new MissingApiKeySystemConfigService());
         String token = buildJwtToken(1005L);
