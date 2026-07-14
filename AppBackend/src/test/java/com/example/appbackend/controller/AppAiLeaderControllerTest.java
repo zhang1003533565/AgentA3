@@ -6,6 +6,7 @@ import com.example.appbackend.entity.AiLeaderMessage;
 import com.example.appbackend.entity.AiLeaderSession;
 import com.example.appbackend.entity.AiLeaderGeneratedExport;
 import com.example.appbackend.entity.Result;
+import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.AiLeaderMessageRepository;
 import com.example.appbackend.repository.AiLeaderSessionRepository;
 import com.example.appbackend.repository.AiLeaderGeneratedExportRepository;
@@ -17,11 +18,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -36,7 +41,9 @@ import java.util.function.BiConsumer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -107,10 +114,156 @@ class AppAiLeaderControllerTest {
                 pythonAiProxyService,
                 sessionRepository,
                 messageRepository,
+                exportRepository,
                 userProfileService,
                 objectMapper,
                 assistantEnvelopeService
         );
+    }
+
+    @Test
+    void downloadExportRejectsForeignSessionWithoutProxy() {
+        BusinessException error = org.junit.jupiter.api.Assertions.assertThrows(
+                BusinessException.class,
+                () -> controller.downloadExport("foreign-session", 701L, "export.bin", authenticatedRequest())
+        );
+
+        assertThat(error.getCode()).isEqualTo(404);
+        verify(pythonAiProxyService, never()).downloadGeneratedExport(any(), any());
+    }
+
+    @Test
+    void downloadExportRejectsForeignMessageWithoutProxy() {
+        BusinessException error = org.junit.jupiter.api.Assertions.assertThrows(
+                BusinessException.class,
+                () -> controller.downloadExport("session-1", 702L, "export.bin", authenticatedRequest())
+        );
+
+        assertThat(error.getCode()).isEqualTo(404);
+        verify(exportRepository).findByUserIdAndLeaderSessionIdAndMessageIdAndStorageKeyAndStatus(
+                42L, 9L, 702L, "export.bin", AiLeaderGeneratedExport.STATUS_ACTIVE);
+        verify(pythonAiProxyService, never()).downloadGeneratedExport(any(), any());
+    }
+
+    @Test
+    void downloadExportRejectsUnboundStorageKeyWithoutProxy() {
+        BusinessException error = org.junit.jupiter.api.Assertions.assertThrows(
+                BusinessException.class,
+                () -> controller.downloadExport("session-1", 703L, "unbound.bin", authenticatedRequest())
+        );
+
+        assertThat(error.getCode()).isEqualTo(404);
+        verify(exportRepository).findByUserIdAndLeaderSessionIdAndMessageIdAndStorageKeyAndStatus(
+                42L, 9L, 703L, "unbound.bin", AiLeaderGeneratedExport.STATUS_ACTIVE);
+        verify(pythonAiProxyService, never()).downloadGeneratedExport(any(), any());
+    }
+
+    @Test
+    void downloadExportQueriesOnlyActiveOwnerBoundManifest() throws Exception {
+        byte[] bytes = "verified export".getBytes(StandardCharsets.UTF_8);
+        AiLeaderGeneratedExport manifest = downloadManifest(704L, "bound.bin", bytes);
+        stubDownload(manifest, bytes, MediaType.APPLICATION_OCTET_STREAM);
+
+        controller.downloadExport("session-1", 704L, "bound.bin", authenticatedRequest());
+
+        verify(exportRepository).findByUserIdAndLeaderSessionIdAndMessageIdAndStorageKeyAndStatus(
+                42L, 9L, 704L, "bound.bin", AiLeaderGeneratedExport.STATUS_ACTIVE);
+    }
+
+    @Test
+    void downloadExportUsesPersistedCapabilityAndManifestContentType() throws Exception {
+        byte[] bytes = new byte[]{0, 1, -1, 2, 3};
+        AiLeaderGeneratedExport manifest = downloadManifest(705L, "verified.bin", bytes);
+        manifest.setMimeType("text/plain");
+        stubDownload(manifest, bytes, MediaType.APPLICATION_PDF);
+
+        ResponseEntity<byte[]> response = controller.downloadExport(
+                "session-1", 705L, "verified.bin", authenticatedRequest());
+
+        assertThat(response.getBody()).containsExactly(bytes);
+        assertThat(response.getHeaders().getContentType()).isEqualTo(MediaType.TEXT_PLAIN);
+        assertThat(response.getHeaders().getContentLength()).isEqualTo(bytes.length);
+        assertThat(response.getHeaders().getCacheControl()).isEqualTo("private, no-store");
+        assertThat(response.getHeaders().getFirst("X-Content-Type-Options")).isEqualTo("nosniff");
+        verify(pythonAiProxyService).downloadGeneratedExport("verified.bin", "persisted-capability");
+        verify(pythonAiProxyService, never()).downloadGeneratedExport(any(), eq("Bearer test-token"));
+    }
+
+    @Test
+    void downloadExportSanitizesManifestFilenameDisposition() throws Exception {
+        byte[] bytes = "safe".getBytes(StandardCharsets.UTF_8);
+        AiLeaderGeneratedExport manifest = downloadManifest(706L, "safe.bin", bytes);
+        manifest.setFileName("../复习\\资料\"\r\nX-Injected: yes.docx");
+        stubDownload(manifest, bytes, MediaType.APPLICATION_OCTET_STREAM);
+
+        ResponseEntity<byte[]> response = controller.downloadExport(
+                "session-1", 706L, "safe.bin", authenticatedRequest());
+
+        String header = response.getHeaders().getFirst("Content-Disposition");
+        assertThat(header).isNotBlank().doesNotContain("\r", "\n", "../", "\\");
+        String filename = ContentDisposition.parse(header).getFilename();
+        assertThat(filename).contains("复习").doesNotContain("/", "\\", "\r", "\n", ":", "\"");
+    }
+
+    @Test
+    void downloadExportReturnsGoneForExpiredManifestWithoutProxy() throws Exception {
+        byte[] bytes = "expired".getBytes(StandardCharsets.UTF_8);
+        AiLeaderGeneratedExport manifest = downloadManifest(707L, "expired.bin", bytes);
+        manifest.setExpiresAt(Instant.now().minusSeconds(1));
+        when(exportRepository.findByUserIdAndLeaderSessionIdAndMessageIdAndStorageKeyAndStatus(
+                42L, 9L, 707L, "expired.bin", AiLeaderGeneratedExport.STATUS_ACTIVE))
+                .thenReturn(Optional.of(manifest));
+
+        BusinessException error = org.junit.jupiter.api.Assertions.assertThrows(
+                BusinessException.class,
+                () -> controller.downloadExport("session-1", 707L, "expired.bin", authenticatedRequest())
+        );
+
+        assertThat(error.getCode()).isEqualTo(410);
+        verify(pythonAiProxyService, never()).downloadGeneratedExport(any(), any());
+    }
+
+    @Test
+    void downloadExportRejectsSizeMismatchBeforeReturningBody() throws Exception {
+        byte[] expected = "expected".getBytes(StandardCharsets.UTF_8);
+        AiLeaderGeneratedExport manifest = downloadManifest(708L, "size.bin", expected);
+        byte[] actual = "short".getBytes(StandardCharsets.UTF_8);
+        stubDownload(manifest, actual, MediaType.APPLICATION_OCTET_STREAM);
+
+        BusinessException error = org.junit.jupiter.api.Assertions.assertThrows(
+                BusinessException.class,
+                () -> controller.downloadExport("session-1", 708L, "size.bin", authenticatedRequest())
+        );
+
+        assertThat(error.getCode()).isEqualTo(409);
+    }
+
+    @Test
+    void downloadExportRejectsDigestMismatchBeforeReturningBody() throws Exception {
+        byte[] expected = "content-a".getBytes(StandardCharsets.UTF_8);
+        AiLeaderGeneratedExport manifest = downloadManifest(709L, "digest.bin", expected);
+        byte[] actual = "content-b".getBytes(StandardCharsets.UTF_8);
+        stubDownload(manifest, actual, MediaType.APPLICATION_OCTET_STREAM);
+
+        BusinessException error = org.junit.jupiter.api.Assertions.assertThrows(
+                BusinessException.class,
+                () -> controller.downloadExport("session-1", 709L, "digest.bin", authenticatedRequest())
+        );
+
+        assertThat(error.getCode()).isEqualTo(409);
+    }
+
+    @Test
+    void downloadExportFallsBackToSafeMimeType() throws Exception {
+        byte[] bytes = "mime".getBytes(StandardCharsets.UTF_8);
+        AiLeaderGeneratedExport manifest = downloadManifest(710L, "mime.bin", bytes);
+        manifest.setMimeType("not a valid mime");
+        stubDownload(manifest, bytes, null);
+
+        ResponseEntity<byte[]> response = controller.downloadExport(
+                "session-1", 710L, "mime.bin", authenticatedRequest());
+
+        assertThat(response.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_OCTET_STREAM);
     }
 
     @Test
@@ -621,6 +774,37 @@ class AppAiLeaderControllerTest {
         JsonNode offsetResponse = objectMapper.valueToTree(
                 controller.query(request(), authenticatedRequest()).getData());
         assertThat(offsetResponse.path("resources")).isEmpty();
+    }
+
+    private AiLeaderGeneratedExport downloadManifest(Long messageId, String storageKey, byte[] bytes) throws Exception {
+        AiLeaderGeneratedExport manifest = new AiLeaderGeneratedExport();
+        manifest.setUserId(42L);
+        manifest.setLeaderSessionId(9L);
+        manifest.setMessageId(messageId);
+        manifest.setResourceId("res-download-" + messageId);
+        manifest.setStorageKey(storageKey);
+        manifest.setFileName("复习资料.bin");
+        manifest.setMimeType(MediaType.APPLICATION_OCTET_STREAM_VALUE);
+        manifest.setSize((long) bytes.length);
+        manifest.setSha256(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)));
+        manifest.setPythonCapability("persisted-capability");
+        manifest.setCreatedAt(Instant.now().minusSeconds(60));
+        manifest.setExpiresAt(Instant.now().plusSeconds(3600));
+        manifest.setStatus(AiLeaderGeneratedExport.STATUS_ACTIVE);
+        return manifest;
+    }
+
+    private void stubDownload(AiLeaderGeneratedExport manifest, byte[] bytes, MediaType contentType) {
+        when(exportRepository.findByUserIdAndLeaderSessionIdAndMessageIdAndStorageKeyAndStatus(
+                manifest.getUserId(),
+                manifest.getLeaderSessionId(),
+                manifest.getMessageId(),
+                manifest.getStorageKey(),
+                AiLeaderGeneratedExport.STATUS_ACTIVE
+        )).thenReturn(Optional.of(manifest));
+        when(pythonAiProxyService.downloadGeneratedExport(
+                manifest.getStorageKey(), manifest.getPythonCapability()))
+                .thenReturn(new PythonAiProxyService.GeneratedExportResponse(bytes, contentType, bytes.length));
     }
 
     private LlmChatRequest request() {

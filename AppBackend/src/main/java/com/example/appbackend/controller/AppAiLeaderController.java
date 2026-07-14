@@ -7,10 +7,12 @@ import com.example.appbackend.dto.LlmChatRequest;
 import com.example.appbackend.dto.LlmChatResponse;
 import com.example.appbackend.dto.PageResponse;
 import com.example.appbackend.dto.UserProfileDTO;
+import com.example.appbackend.entity.AiLeaderGeneratedExport;
 import com.example.appbackend.entity.AiLeaderMessage;
 import com.example.appbackend.entity.AiLeaderSession;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
+import com.example.appbackend.repository.AiLeaderGeneratedExportRepository;
 import com.example.appbackend.repository.AiLeaderMessageRepository;
 import com.example.appbackend.repository.AiLeaderSessionRepository;
 import com.example.appbackend.service.UserProfileService;
@@ -24,7 +26,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -38,7 +43,12 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,6 +68,7 @@ public class AppAiLeaderController {
     private final PythonAiProxyService pythonAiProxyService;
     private final AiLeaderSessionRepository sessionRepository;
     private final AiLeaderMessageRepository messageRepository;
+    private final AiLeaderGeneratedExportRepository exportRepository;
     private final UserProfileService userProfileService;
     private final ObjectMapper objectMapper;
     private final AssistantEnvelopeService assistantEnvelopeService;
@@ -65,12 +76,14 @@ public class AppAiLeaderController {
     public AppAiLeaderController(PythonAiProxyService pythonAiProxyService,
                                  AiLeaderSessionRepository sessionRepository,
                                  AiLeaderMessageRepository messageRepository,
+                                 AiLeaderGeneratedExportRepository exportRepository,
                                  UserProfileService userProfileService,
                                  ObjectMapper objectMapper,
                                  AssistantEnvelopeService assistantEnvelopeService) {
         this.pythonAiProxyService = pythonAiProxyService;
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
+        this.exportRepository = exportRepository;
         this.userProfileService = userProfileService;
         this.objectMapper = objectMapper;
         this.assistantEnvelopeService = assistantEnvelopeService;
@@ -208,6 +221,50 @@ public class AppAiLeaderController {
         return Result.success(detail);
     }
 
+    @GetMapping("/sessions/{sessionId}/messages/{messageId}/exports/{storageKey}")
+    @Operation(summary = "下载 App Leader 生成文件")
+    public ResponseEntity<byte[]> downloadExport(@PathVariable String sessionId,
+                                                 @PathVariable Long messageId,
+                                                 @PathVariable String storageKey,
+                                                 HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        AiLeaderSession session = sessionRepository.findByUserIdAndSessionId(userId, sessionId)
+                .orElseThrow(() -> new BusinessException(404, "导出文件不存在"));
+        AiLeaderGeneratedExport manifest = exportRepository
+                .findByUserIdAndLeaderSessionIdAndMessageIdAndStorageKeyAndStatus(
+                        userId,
+                        session.getId(),
+                        messageId,
+                        storageKey,
+                        AiLeaderGeneratedExport.STATUS_ACTIVE
+                )
+                .orElseThrow(() -> new BusinessException(404, "导出文件不存在"));
+        if (manifest.getExpiresAt() == null || !manifest.getExpiresAt().isAfter(Instant.now())) {
+            throw new BusinessException(410, "导出文件已过期");
+        }
+
+        PythonAiProxyService.GeneratedExportResponse exported = pythonAiProxyService
+                .downloadGeneratedExport(manifest.getStorageKey(), manifest.getPythonCapability());
+        byte[] bytes = exported == null || exported.bytes() == null ? new byte[0] : exported.bytes();
+        if (manifest.getSize() == null
+                || manifest.getSize() != (long) bytes.length
+                || !sha256Hex(bytes).equals(manifest.getSha256())) {
+            throw new BusinessException(409, "导出文件完整性校验失败");
+        }
+
+        String disposition = ContentDisposition.attachment()
+                .filename(safeDownloadFileName(manifest.getFileName(), manifest.getStorageKey()), StandardCharsets.UTF_8)
+                .build()
+                .toString();
+        return ResponseEntity.ok()
+                .contentType(safeContentType(manifest.getMimeType()))
+                .contentLength(bytes.length)
+                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
+                .header("X-Content-Type-Options", "nosniff")
+                .body(bytes);
+    }
+
     @SuppressWarnings("unchecked")
     private LlmChatResponse toChatResponse(AiLeaderSession session, Object ragResult) {
         Map<String, Object> result = ragResult instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
@@ -256,6 +313,45 @@ public class AppAiLeaderController {
             throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
         }
         return (Long) userId;
+    }
+
+    private MediaType safeContentType(String manifestType) {
+        try {
+            MediaType parsed = MediaType.parseMediaType(manifestType);
+            return isConcreteMediaType(parsed) ? parsed : MediaType.APPLICATION_OCTET_STREAM;
+        } catch (IllegalArgumentException ignored) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+    }
+
+    private boolean isConcreteMediaType(MediaType mediaType) {
+        return mediaType != null && !mediaType.isWildcardType() && !mediaType.isWildcardSubtype();
+    }
+
+    private String safeDownloadFileName(String fileName, String storageKey) {
+        String source = StringUtils.hasText(fileName) ? fileName : storageKey;
+        if (!StringUtils.hasText(source)) {
+            return "download";
+        }
+        StringBuilder sanitized = new StringBuilder(source.length());
+        String reserved = "\\/:*?\"<>|";
+        for (int index = 0; index < source.length(); index++) {
+            char value = source.charAt(index);
+            sanitized.append(Character.isISOControl(value) || reserved.indexOf(value) >= 0 ? '_' : value);
+        }
+        String result = sanitized.toString().trim();
+        while (result.contains("..")) {
+            result = result.replace("..", "_");
+        }
+        return StringUtils.hasText(result) ? result : "download";
+    }
+
+    private String sha256Hex(byte[] bytes) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
     }
 
     private Map<String, Object> buildLeaderPayload(LlmChatRequest request, String sessionId, Long userId, String authorization) {

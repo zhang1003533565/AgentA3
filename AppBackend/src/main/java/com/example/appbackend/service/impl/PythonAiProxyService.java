@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
@@ -22,7 +23,10 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.web.util.UriUtils;
+import reactor.core.publisher.Mono;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -59,6 +63,12 @@ public class PythonAiProxyService {
             String input,
             Integer maxQuestions,
             String difficulty) {
+    }
+
+    public record GeneratedExportResponse(
+            byte[] bytes,
+            MediaType contentType,
+            long declaredLength) {
     }
 
     public PythonAiProxyService(WebClient.Builder webClientBuilder,
@@ -104,6 +114,50 @@ public class PythonAiProxyService {
 
     public Object getRagCapabilities(String authorization) {
         return getRagObject("/internal/rag/capabilities", authorization);
+    }
+
+    public GeneratedExportResponse downloadGeneratedExport(String storageKey, String pythonCapability) {
+        if (!StringUtils.hasText(storageKey) || !StringUtils.hasText(pythonCapability)) {
+            throw new BusinessException(Result.ERROR_CODE, "导出文件读取凭据无效");
+        }
+        String encodedStorageKey = UriUtils.encodePathSegment(storageKey, StandardCharsets.UTF_8);
+        try {
+            return buildFileResponseWebClient()
+                    .get()
+                    .uri(buildUri("/internal/rag/exports/" + encodedStorageKey))
+                    .header("X-AI-Export-Capability", pythonCapability)
+                    .accept(MediaType.APPLICATION_OCTET_STREAM)
+                    .exchangeToMono(response -> {
+                        int status = response.statusCode().value();
+                        if (status < 200 || status >= 300) {
+                            return response.releaseBody()
+                                    .then(Mono.error(exportDownloadException(status)));
+                        }
+                        long declaredLength = response.headers().contentLength().orElse(-1L);
+                        if (declaredLength > fileResponseMaxInMemoryBytes) {
+                            return response.releaseBody()
+                                    .then(Mono.error(new BusinessException(413, "导出文件超过允许大小")));
+                        }
+                        MediaType contentType = response.headers().contentType().orElse(null);
+                        return response.bodyToMono(byte[].class)
+                                .defaultIfEmpty(new byte[0])
+                                .map(bytes -> {
+                                    if (bytes.length > fileResponseMaxInMemoryBytes) {
+                                        throw new BusinessException(413, "导出文件超过允许大小");
+                                    }
+                                    return new GeneratedExportResponse(bytes, contentType, declaredLength);
+                                });
+                    })
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            if (hasCause(e, DataBufferLimitException.class)) {
+                throw new BusinessException(413, "导出文件超过允许大小");
+            }
+            throw new BusinessException(502, "Python 导出文件读取失败");
+        }
     }
 
     public Object getRagFramework(String authorization) {
@@ -654,6 +708,27 @@ public class PythonAiProxyService {
         return webClientBuilder.clone()
                 .exchangeStrategies(strategies)
                 .build();
+    }
+
+    private BusinessException exportDownloadException(int status) {
+        return switch (status) {
+            case 404 -> new BusinessException(404, "导出文件不存在");
+            case 409 -> new BusinessException(409, "导出文件完整性校验失败");
+            case 410 -> new BusinessException(410, "导出文件已过期");
+            case 413 -> new BusinessException(413, "导出文件超过允许大小");
+            default -> new BusinessException(502, "Python 导出文件读取失败");
+        };
+    }
+
+    private boolean hasCause(Throwable error, Class<? extends Throwable> type) {
+        Throwable current = error;
+        while (current != null) {
+            if (type.isInstance(current)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private void applyPythonHeaders(HttpHeaders headers, String authorization, Long userId, String requestedModel) {

@@ -425,6 +425,97 @@ class PythonAiProxyServiceTest {
     }
 
     @Test
+    void generatedExportDownloadSendsOnlyPersistedCapabilityAndReturnsBinaryHeaders() throws Exception {
+        byte[] payload = new byte[]{0, -1, 1, 2, 0, 127};
+        AtomicReference<String> pathRef = new AtomicReference<>();
+        AtomicReference<String> capabilityRef = new AtomicReference<>();
+        AtomicReference<String> authorizationRef = new AtomicReference<>();
+        AtomicReference<String> userIdRef = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/rag/exports/export.bin", exchange -> {
+            pathRef.set(exchange.getRequestURI().getRawPath());
+            capabilityRef.set(exchange.getRequestHeaders().getFirst("X-AI-Export-Capability"));
+            authorizationRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            userIdRef.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
+            exchange.getResponseHeaders().set("Content-Type", MediaType.APPLICATION_PDF_VALUE);
+            exchange.getResponseHeaders().set("Content-Disposition", "attachment; filename=upstream-secret.bin");
+            exchange.sendResponseHeaders(200, payload.length);
+            exchange.getResponseBody().write(payload);
+            exchange.close();
+        });
+        server.start();
+
+        PythonAiProxyService.GeneratedExportResponse response = newService(server.getAddress().getPort())
+                .downloadGeneratedExport("export.bin", "persisted-capability");
+
+        Assertions.assertArrayEquals(payload, response.bytes());
+        Assertions.assertEquals(MediaType.APPLICATION_PDF, response.contentType());
+        Assertions.assertEquals(payload.length, response.declaredLength());
+        Assertions.assertEquals("/internal/rag/exports/export.bin", pathRef.get());
+        Assertions.assertEquals("persisted-capability", capabilityRef.get());
+        Assertions.assertNull(authorizationRef.get());
+        Assertions.assertNull(userIdRef.get());
+    }
+
+    @Test
+    void generatedExportDownloadRejectsDeclaredLengthAboveConfiguredMaximum() throws Exception {
+        byte[] payload = "oversized".getBytes(StandardCharsets.UTF_8);
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/rag/exports/declared.bin", exchange -> {
+            exchange.sendResponseHeaders(200, payload.length);
+            exchange.getResponseBody().write(payload);
+            exchange.close();
+        });
+        server.start();
+
+        BusinessException error = Assertions.assertThrows(
+                BusinessException.class,
+                () -> newService(server.getAddress().getPort(), 4)
+                        .downloadGeneratedExport("declared.bin", "capability")
+        );
+
+        Assertions.assertEquals(413, error.getCode());
+    }
+
+    @Test
+    void generatedExportDownloadRejectsChunkedBodyAboveConfiguredMaximum() throws Exception {
+        byte[] payload = "chunked-body".getBytes(StandardCharsets.UTF_8);
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/rag/exports/chunked.bin", exchange -> {
+            exchange.sendResponseHeaders(200, 0);
+            exchange.getResponseBody().write(payload);
+            exchange.close();
+        });
+        server.start();
+
+        BusinessException error = Assertions.assertThrows(
+                BusinessException.class,
+                () -> newService(server.getAddress().getPort(), 4)
+                        .downloadGeneratedExport("chunked.bin", "capability")
+        );
+
+        Assertions.assertEquals(413, error.getCode());
+    }
+
+    @Test
+    void generatedExportDownloadPreservesUpstreamGone() throws Exception {
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/rag/exports/gone.bin", exchange -> {
+            exchange.sendResponseHeaders(410, -1);
+            exchange.close();
+        });
+        server.start();
+
+        BusinessException error = Assertions.assertThrows(
+                BusinessException.class,
+                () -> newService(server.getAddress().getPort())
+                        .downloadGeneratedExport("gone.bin", "capability")
+        );
+
+        Assertions.assertEquals(410, error.getCode());
+    }
+
+    @Test
     void chat_shouldFailFastWhenAiConfigMissing() {
         PythonAiProxyService service = newService(65535, new MissingApiKeySystemConfigService());
         String token = buildJwtToken(1005L);
@@ -445,12 +536,23 @@ class PythonAiProxyServiceTest {
         return newService(port, new TestSystemConfigService());
     }
 
+    private PythonAiProxyService newService(int port, int maxBytes) {
+        return newService(port, new TestSystemConfigService(),
+                newSystemConfigRepository(new TestSystemConfigService()), maxBytes);
+    }
+
     private PythonAiProxyService newService(int port, SystemConfigService systemConfigService) {
         return newService(port, systemConfigService, newSystemConfigRepository(systemConfigService));
     }
 
     private PythonAiProxyService newService(int port, SystemConfigService systemConfigService,
                                              SystemConfigRepository systemConfigRepository) {
+        return newService(port, systemConfigService, systemConfigRepository, 1024 * 1024);
+    }
+
+    private PythonAiProxyService newService(int port, SystemConfigService systemConfigService,
+                                             SystemConfigRepository systemConfigRepository,
+                                             int maxBytes) {
         ObjectMapper objectMapper = new ObjectMapper();
         JwtUtil jwtUtil = new JwtUtil(systemConfigService);
         return new PythonAiProxyService(
@@ -461,7 +563,7 @@ class PythonAiProxyServiceTest {
                 systemConfigRepository,
                 "http://localhost:" + port,
                 5,
-                1024 * 1024
+                maxBytes
         );
     }
 
