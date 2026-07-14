@@ -22,6 +22,7 @@ from app.multi_agents.question_bank_schema import review_question_bank_payload
 from app.multi_agents.runner import run_specialist_agent
 from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx, export_generated_answer
 from app.rag.structured.text_to_sql import TextToSqlService
+from app.services.assistant_resource_builder import finalize_assistant_response
 from app.services.data_store import data_store
 from app.utils.logger import get_logger
 from app.utils.sse import build_sse, chunk_answer
@@ -535,7 +536,7 @@ def run_rag_query(
         model=x_ai_model,
     ))
     try:
-        response = _run_rag_query_core(request, authorization or "")
+        response = _finalize_rag_response(request, _run_rag_query_core(request, authorization or ""))
         _save_conversation_context(request, authorization or "", response)
         return response
     finally:
@@ -600,6 +601,7 @@ async def run_rag_query_stream(
                     yield build_sse("generation_start", _build_generation_start_payload(request, None, active_agent))
                     generation_started = True
                 response = await asyncio.to_thread(_run_rag_query_core, request, authorization or "")
+            response = _finalize_rag_response(request, response)
             metadata = response.metadata or {}
             session_id = str((request.metadata or {}).get("sessionId") or "")
             yield build_sse("session", {
@@ -626,6 +628,8 @@ async def run_rag_query_stream(
                 "outputTypes": response.outputTypes,
                 "outputMeta": response.outputMeta,
                 "attachments": response.attachments,
+                "resources": response.resources,
+                "evidenceChain": response.evidenceChain,
                 "ragStrategy": response.strategy,
                 "agentName": metadata.get("executedAgent") or metadata.get("targetAgent") or metadata.get("agentName") or "leader_agent",
                 "searchKeyword": request.keyword or "",
@@ -659,6 +663,28 @@ def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQuer
         return _run_direct_agent(request, agent_profile)
 
     return _run_agent_without_local_retrieval(request, active_agent)
+
+
+def _finalize_rag_response(request: RagQueryRequest, response: RagQueryResponse) -> RagQueryResponse:
+    request_metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    response_metadata = response.metadata if isinstance(response.metadata, dict) else {}
+    return finalize_assistant_response(
+        response,
+        request_context={
+            "requestId": request_metadata.get("requestId"),
+            "query": request_metadata.get("contextOriginalInput") or request.input or "",
+            "agent": response_metadata.get("executedAgent")
+            or response_metadata.get("targetAgent")
+            or response_metadata.get("agentName")
+            or request.agentName
+            or "leader_agent",
+            "model": response_metadata.get("model") or "",
+            "profileContextUsed": bool(
+                response_metadata.get("profileContextUsed") or request_metadata.get("profileSnapshot")
+            ),
+            "conversationContextUsed": bool(request_metadata.get("conversationContextUsed")),
+        },
+    )
 
 
 def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
@@ -826,12 +852,40 @@ def _save_conversation_context(request: RagQueryRequest, authorization: str, res
         "answerType": response.answerType,
         "strategy": response.strategy,
         "outputTypes": response.outputTypes,
+        "resources": [
+            {
+                "id": str(resource.get("id") or "")[:80],
+                "kind": str(resource.get("kind") or "")[:64],
+                "deliveryType": str(resource.get("deliveryType") or "")[:64],
+                "groundingStatus": str(resource.get("groundingStatus") or "")[:32],
+                "title": str(resource.get("title") or "")[:160],
+            }
+            for resource in (response.resources or [])[:20]
+            if isinstance(resource, dict)
+        ],
+        "evidenceChain": _safe_evidence_context_summary(response.evidenceChain),
     })
     original_input = str((request.metadata or {}).get("contextOriginalInput") or request.input or "")
     try:
         leader_agent.save_context(session_token, original_input, response.answer or "", metadata=metadata)
     except Exception as exc:
         logger.warning("leader conversation context save failed: %s", exc)
+
+
+def _safe_evidence_context_summary(evidence_chain: Dict[str, Any]) -> Dict[str, Any]:
+    chain = evidence_chain if isinstance(evidence_chain, dict) else {}
+    generation = chain.get("generation") if isinstance(chain.get("generation"), dict) else {}
+    return {
+        "chainId": str(chain.get("chainId") or "")[:80],
+        "status": str(chain.get("status") or "")[:32],
+        "evidenceState": str(chain.get("evidenceState") or "")[:32],
+        "sourceCount": len(chain.get("sources") or []) if isinstance(chain.get("sources"), list) else 0,
+        "generation": {
+            "agent": str(generation.get("agent") or "")[:64],
+            "answerType": str(generation.get("answerType") or "")[:64],
+            "profileContextUsed": bool(generation.get("profileContextUsed")),
+        },
+    }
 
 
 def _execute_leader_plan(
