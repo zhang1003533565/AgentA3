@@ -235,17 +235,27 @@ test('resource URL safety stays available when the platform has no WHATWG URL gl
   }
 })
 
-test('download options attach local Bearer tokens only to authenticated Java resources', async () => {
+test('download options attach local Bearer tokens only to exact assistant export routes', async () => {
   const { buildAssistantDownloadOptions } = await helper
+  const exportUrl = '/api/ai/leader/sessions/session%2Fa/messages/42/exports/report%20final.pdf'
   assert.deepEqual(buildAssistantDownloadOptions({
-    url: '/api/ai/leader/file', authScope: 'session_owner'
+    url: exportUrl, authScope: 'session_owner'
   }, { baseUrl: 'http://localhost:8080', token: 'secret-token' }), {
-    url: 'http://localhost:8080/api/ai/leader/file',
+    url: `http://localhost:8080${exportUrl}`,
     header: { Authorization: 'Bearer secret-token' }
   })
   assert.equal(buildAssistantDownloadOptions({
-    url: '/api/ai/leader/file', authScope: 'session_owner'
+    url: exportUrl, authScope: 'session_owner'
   }, { baseUrl: 'http://localhost:8080', token: '' }), null)
+  for (const unexpectedApiUrl of [
+    '/api/ai/leader/file',
+    '/api/profile/radar/my',
+    '/api/ai/leader/sessions/s/messages/42/exports/file.pdf?redirect=1'
+  ]) {
+    assert.equal(buildAssistantDownloadOptions({
+      url: unexpectedApiUrl, authScope: 'session_owner'
+    }, { baseUrl: 'http://localhost:8080', token: 'must-not-send' }), null)
+  }
   assert.deepEqual(buildAssistantDownloadOptions({
     url: 'https://cdn.example.edu/public.pdf', authScope: 'public'
   }, {
@@ -385,8 +395,13 @@ test('downloadAssistantResource infers auth only for API strings and rejects non
   }
   try {
     const api = await loadAiApi({ buildAssistantDownloadOptions, token: 'secret-token' })
-    await api.downloadAssistantResource('/api/ai/leader/file')
+    await api.downloadAssistantResource('/api/ai/leader/sessions/s/messages/42/exports/file.pdf')
     assert.deepEqual(calls.at(-1).header, { Authorization: 'Bearer secret-token' })
+
+    await assert.rejects(
+      api.downloadAssistantResource('/api/profile/radar/my'),
+      /资源地址无效/
+    )
 
     await api.downloadAssistantResource('/uploads/public.png')
     assert.deepEqual(calls.at(-1).header, {})

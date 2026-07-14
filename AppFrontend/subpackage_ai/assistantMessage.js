@@ -467,13 +467,15 @@ export function buildAssistantDownloadOptions(resource, options = {}) {
   const url = resolveAssistantResourceUrl(rawUrl, options)
   if (!url) return null
   const localApi = rawUrl.startsWith('/api/')
-  const protectedResource = localApi || textValue(source.authScope) === 'session_owner'
+  const authenticatedExport = /^\/api\/ai\/leader\/sessions\/[^/?#]+\/messages\/[^/?#]+\/exports\/[^/?#]+$/.test(rawUrl)
+  if (localApi && !authenticatedExport) return null
+  const protectedResource = authenticatedExport || textValue(source.authScope) === 'session_owner'
   const token = textValue(options.token)
   if (protectedResource && !token) return null
-  if (protectedResource && !localApi) return null
+  if (protectedResource && !authenticatedExport) return null
   return {
     url,
-    header: localApi ? { Authorization: `Bearer ${token}` } : {}
+    header: authenticatedExport ? { Authorization: `Bearer ${token}` } : {}
   }
 }
 
