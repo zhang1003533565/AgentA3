@@ -177,13 +177,61 @@ test('business routes are local allowlists and ambiguous kinds never guess a rou
     '/subpackage_community/communityDetail/communityDetail?id=7')
   assert.equal(resolveBusinessResourceRoute({ kind: 'secondhand', payload: { businessId: '二手 8' } }),
     '/subpackage_lostfound/lostfoundDetail/lostfoundDetail?id=%E4%BA%8C%E6%89%8B%208')
-  for (const kind of ['dining', 'facility', 'meeting', 'unknown']) {
+  assert.equal(resolveBusinessResourceRoute({ kind: 'meeting', payload: { businessId: 'meeting/9' } }),
+    '/subpackage_meeting/meetingDetail/meetingDetail?sessionId=meeting%2F9')
+  for (const kind of ['dining', 'facility', 'unknown']) {
     assert.equal(resolveBusinessResourceRoute({
       kind,
       payload: { businessId: '1', route: '/pages/unsafe' },
       metadata: { route: 'javascript:alert(1)' }
     }), null)
   }
+})
+
+test('business actions preserve unsupported safe routes as explicit disabled actions', async () => {
+  const { normalizeResourceActions } = await helper
+  const meeting = normalizeResourceActions({
+    kind: 'meeting',
+    deliveryType: 'business_card',
+    payload: { businessId: 'meeting-1' },
+    actions: [{ type: 'open_resource', label: '打开' }]
+  })
+  assert.equal(meeting.length, 1)
+  assert.equal(meeting[0].route,
+    '/subpackage_meeting/meetingDetail/meetingDetail?sessionId=meeting-1')
+  assert.equal(meeting[0].disabled, undefined)
+
+  for (const kind of ['dining', 'facility']) {
+    const actions = normalizeResourceActions({
+      kind,
+      deliveryType: 'business_card',
+      payload: { businessId: `${kind}-1` },
+      actions: [{ type: 'open_resource', label: '打开' }]
+    })
+    assert.equal(actions.length, 1)
+    assert.equal(actions[0].type, 'open_resource')
+    assert.equal(actions[0].disabled, true)
+    assert.equal(actions[0].unavailable, true)
+    assert.equal(actions[0].disabledReason, '暂无安全可用的详情页')
+    assert.equal(actions[0].route, undefined)
+  }
+})
+
+test('prompt-less follow-up actions derive a bounded prompt from the server resource title', async () => {
+  const { normalizeResourceActions } = await helper
+  const title = `东区\n食堂 ${'特'.repeat(160)}`
+  const actions = normalizeResourceActions({
+    kind: 'dining',
+    deliveryType: 'business_card',
+    title,
+    actions: [{ type: 'follow_up', label: '继续了解' }]
+  })
+
+  assert.equal(actions.length, 1)
+  assert.equal(actions[0].type, 'follow_up')
+  assert.match(actions[0].prompt, /^请继续介绍「东区 食堂 特+」$/)
+  assert.ok(actions[0].prompt.length <= 88)
+  assert.doesNotMatch(actions[0].prompt, /[\r\n]/)
 })
 
 test('resource URLs accept Java relative paths and only approved HTTPS hosts', async () => {

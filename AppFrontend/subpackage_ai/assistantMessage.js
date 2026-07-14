@@ -18,6 +18,7 @@ const RENDERERS = new Set([
 ])
 const MESSAGE_ARRAY_FIELDS = new Set(['matchedResults', 'trace', 'attachments', 'resources'])
 const MESSAGE_OBJECT_FIELDS = new Set(['retrievalMeta', 'evidenceChain'])
+const DEFAULT_FOLLOW_UP_TITLE_MAX_LENGTH = 80
 
 function legacyMarkdownAttachmentPattern() {
   return /!?\[([^\]]+)\]\(((?:https?:\/\/|\/uploads\/)[^\s"'<>，。！？；、)]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv|md|mmd|zip)(?:\?[^\s"'<>，。！？；、)]*)?)\)/gi
@@ -208,6 +209,16 @@ function resourceIdentities(resource) {
   return result
 }
 
+function defaultFollowUpPrompt(resource) {
+  const title = textValue(objectValue(resource).title)
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/[「」]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, DEFAULT_FOLLOW_UP_TITLE_MAX_LENGTH)
+  return title ? `请继续介绍「${title}」` : ''
+}
+
 export function resolveBusinessResourceRoute(resource) {
   const source = objectValue(resource)
   const payload = objectValue(source.payload)
@@ -217,6 +228,7 @@ export function resolveBusinessResourceRoute(resource) {
   const routes = {
     course: `/subpackage_schedule/scheduleDetail/scheduleDetail?id=${encodedId}`,
     activity: `/subpackage_community/communityDetail/communityDetail?id=${encodedId}`,
+    meeting: `/subpackage_meeting/meetingDetail/meetingDetail?sessionId=${encodedId}`,
     secondhand: `/subpackage_lostfound/lostfoundDetail/lostfoundDetail?id=${encodedId}`
   }
   return routes[textValue(source.kind).toLowerCase()] || null
@@ -241,11 +253,16 @@ export function normalizeResourceActions(resource) {
     }
     if (type === 'open_resource' && inferDeliveryType(source) === 'business_card') {
       const route = resolveBusinessResourceRoute(source)
-      if (!route) continue
-      normalized.route = route
+      if (route) {
+        normalized.route = route
+      } else {
+        normalized.disabled = true
+        normalized.unavailable = true
+        normalized.disabledReason = '暂无安全可用的详情页'
+      }
     }
     if (type === 'follow_up') {
-      const prompt = firstText(action.prompt, action.value)
+      const prompt = firstText(action.prompt, action.value, defaultFollowUpPrompt(source))
       if (prompt) normalized.prompt = prompt.slice(0, 1000)
     }
     result.push(normalized)

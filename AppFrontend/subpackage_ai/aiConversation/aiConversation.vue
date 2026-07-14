@@ -47,33 +47,78 @@
               <view class="generation-spinner"></view>
               <text class="generation-status__text">图片生成中</text>
             </view>
-            <view v-if="getMessageAttachments(message).length" class="attachment-list">
+            <view v-if="getMessageResources(message).length" class="resource-list">
               <view
-                v-for="(file, fileIndex) in getMessageAttachments(message)"
-                :key="`${message.localId || message.id}-file-${fileIndex}`"
-                class="attachment-item"
-                :class="`attachment-item--${file.type}`"
+                v-for="resource in getMessageResources(message)"
+                :key="`${message.localId || message.id}-${resource.key}`"
+                class="resource-card"
+                :class="[`resource-card--${resource.renderer}`, { 'resource-card--unavailable': resource.unavailable }]"
               >
+                <view class="resource-card__header">
+                  <view class="resource-card__icon" :class="`resource-card__icon--${resource.renderer}`">
+                    {{ getResourceIcon(resource) }}
+                  </view>
+                  <view class="resource-card__heading">
+                    <text class="resource-card__title">{{ resource.title }}</text>
+                    <view class="resource-card__tags">
+                      <text class="resource-card__kind">{{ getResourceKindLabel(resource) }}</text>
+                      <text
+                        class="resource-card__grounding"
+                        :class="`resource-card__grounding--${resource.groundingStatus}`"
+                      >{{ getGroundingLabel(resource.groundingStatus) }}</text>
+                    </view>
+                  </view>
+                </view>
+                <text v-if="resource.summary" class="resource-card__summary">{{ resource.summary }}</text>
+                <text
+                  v-if="resource.renderer === 'content' && resource.payload.content"
+                  class="resource-card__content"
+                >{{ resource.payload.content }}</text>
+                <view v-if="resource.renderer === 'business_card'" class="resource-card__business">
+                  <view
+                    v-for="field in getBusinessResourceFields(resource)"
+                    :key="`${resource.key}-${field.label}`"
+                    class="resource-card__business-field"
+                  >
+                    <text class="resource-card__business-label">{{ field.label }}</text>
+                    <text class="resource-card__business-value">{{ field.value }}</text>
+                  </view>
+                </view>
                 <image
-                  v-if="file.type === 'image'"
-                  class="attachment-image"
-                  :src="file.url"
+                  v-if="resource.renderer === 'image' && getResourceDisplayPath(resource)"
+                  class="resource-card__image"
+                  :src="getResourceDisplayPath(resource)"
                   mode="aspectFill"
-                  @click="previewAttachmentImage(file, message)"
+                  @click="previewResourceImage(resource, message)"
                 />
                 <video
-                  v-else-if="file.type === 'video'"
-                  class="attachment-video"
-                  :src="file.url"
+                  v-else-if="resource.renderer === 'video' && getResourceDisplayPath(resource)"
+                  class="resource-card__video"
+                  :src="getResourceDisplayPath(resource)"
                   controls
                   object-fit="contain"
+                  @play="reportResourceInteraction(resource, message, 'preview')"
                 ></video>
-                <view v-else class="attachment-file" @click="openAttachment(file)">
-                  <view class="attachment-file__icon" :class="`attachment-file__icon--${file.type}`">{{ file.extLabel }}</view>
-                  <view class="attachment-file__body">
-                    <text class="attachment-file__name">{{ file.name }}</text>
-                    <text class="attachment-file__meta">{{ file.typeLabel }} · 点击打开</text>
-                  </view>
+                <view
+                  v-else-if="resource.renderer === 'audio' && getResourceDisplayPath(resource)"
+                  class="resource-card__audio"
+                  @click="toggleResourceAudio(resource, message)"
+                >
+                  <text class="resource-card__audio-icon">{{ isResourceAudioPlaying(resource) ? '停' : '播' }}</text>
+                  <text class="resource-card__audio-label">{{ isResourceAudioPlaying(resource) ? '停止播放' : '播放音频' }}</text>
+                </view>
+                <text v-if="resource.unavailable" class="resource-card__unavailable">旧资源链接已失效，无法继续打开</text>
+                <view v-if="getResourceActions(resource).length" class="resource-card__actions">
+                  <view
+                    v-for="action in getResourceActions(resource)"
+                    :key="`${resource.key}-${action.type}`"
+                    class="resource-card__action"
+                    :class="{
+                      'resource-card__action--loading': isResourceLoading(resource),
+                      'resource-card__action--disabled': action.disabled
+                    }"
+                    @click="handleResourceAction(resource, action, message)"
+                  >{{ action.disabled ? `${action.label}（暂不可用）` : isResourceLoading(resource) ? '处理中' : action.label }}</view>
                 </view>
               </view>
             </view>
@@ -90,6 +135,38 @@
                   :class="action.style === 'secondary' ? 'follow-up-action--secondary' : 'follow-up-action--primary'"
                   @click="handleFollowUpAction(action)"
                 >{{ action.label }}</view>
+              </view>
+            </view>
+            <view
+              v-if="message.role === 'assistant'"
+              class="evidence-panel"
+              :class="`evidence-panel--${getEvidenceSummary(message).state}`"
+            >
+              <view class="evidence-panel__header" @click="toggleEvidence(message)">
+                <view class="evidence-panel__heading">
+                  <text class="evidence-panel__title">来源与依据</text>
+                  <text class="evidence-panel__summary">{{ getEvidenceSummary(message).label }}</text>
+                  <text class="evidence-panel__meta">
+                    {{ getEvidenceAgentLabel(message) }} · {{ getEvidenceGeneratedAtLabel(message) }}
+                  </text>
+                </view>
+                <text v-if="getEvidenceSources(message).length" class="evidence-panel__toggle">
+                  {{ isEvidenceExpanded(message) ? '收起' : '查看来源' }}
+                </text>
+              </view>
+              <view v-if="isEvidenceExpanded(message)" class="evidence-panel__sources">
+                <view
+                  v-for="source in getEvidenceSources(message)"
+                  :key="source.evidenceId"
+                  class="evidence-source"
+                >
+                  <view class="evidence-source__header">
+                    <text class="evidence-source__title">{{ source.title || '未命名来源' }}</text>
+                    <text class="evidence-source__type">{{ getEvidenceSourceLabel(source.sourceType) }}</text>
+                  </view>
+                  <text v-if="source.excerpt" class="evidence-source__excerpt">{{ source.excerpt }}</text>
+                  <text v-if="source.retrievedAt" class="evidence-source__time">检索时间：{{ source.retrievedAt }}</text>
+                </view>
               </view>
             </view>
           </view>
@@ -167,7 +244,24 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getLeaderSessionDetail, queryLeaderAgent, streamLeaderAgent } from '@/api/ai.js'
+import { ASSISTANT_PUBLIC_RESOURCE_HOSTS, BASE_URL } from '@/utils/config.js'
+import {
+  downloadAssistantResource,
+  getLeaderSessionDetail,
+  queryLeaderAgent,
+  streamLeaderAgent,
+  submitAssistantResourceInteraction
+} from '@/api/ai.js'
+import {
+  buildResourceInteractionRequest,
+  countAssistantHits,
+  mergeAssistantMessage,
+  normalizeAssistantResources,
+  normalizeResourceActions,
+  resolveAssistantResourceUrl,
+  resolveBusinessResourceRoute,
+  summarizeEvidenceChain
+} from '@/subpackage_ai/assistantMessage.js'
 
 const STORAGE_KEY = 'aiAssistantSessionId'
 const CALL_DETAIL_STAGE_LABELS = {
@@ -245,6 +339,73 @@ const INTENT_LABELS = {
   profile_summary: '画像汇总',
   meeting: '会议处理'
 }
+const RESOURCE_KIND_LABELS = {
+  explanation: '知识讲解',
+  mind_map: '思维导图',
+  diagram: '图表',
+  exercise: '练习题',
+  code_example: '代码案例',
+  extended_reading: '延伸阅读',
+  image: '图片',
+  video: '视频',
+  audio: '音频',
+  document: '文档',
+  presentation: '演示文稿',
+  spreadsheet: '表格',
+  bundle: '资料包',
+  course: '课程',
+  activity: '活动',
+  meeting: '会议',
+  dining: '餐饮',
+  facility: '校园设施',
+  secondhand: '二手物品'
+}
+const RESOURCE_ICON_LABELS = {
+  image: '图',
+  video: '影',
+  audio: '音',
+  document: '文',
+  presentation: '演',
+  spreadsheet: '表',
+  bundle: '包',
+  content: '答',
+  business_card: '校',
+  generic: '资'
+}
+const BUSINESS_FIELD_LABELS = {
+  teacherName: '教师',
+  weekday: '星期',
+  startSection: '开始节次',
+  endSection: '结束节次',
+  classroom: '教室',
+  weekText: '周次',
+  category: '分类',
+  startTime: '开始时间',
+  endTime: '结束时间',
+  location: '地点',
+  status: '状态',
+  openingHours: '营业时间',
+  rating: '评分',
+  priceRange: '价格区间',
+  longitude: '经度',
+  latitude: '纬度',
+  price: '价格',
+  condition: '成色',
+  createdAt: '发布时间'
+}
+const EVIDENCE_SOURCE_LABELS = {
+  java_backend: '校园业务数据',
+  knowledge_document: '知识文档',
+  document: '知识文档',
+  conversation_history: '历史会话',
+  profile_context: '个人画像'
+}
+const RESOURCE_INTERACTION_BY_ACTION = {
+  open_resource: 'open',
+  download: 'download',
+  preview: 'preview',
+  follow_up: 'follow_up'
+}
 
 export default {
   components: { NavBar },
@@ -255,7 +416,16 @@ export default {
       inputValue: '',
       sending: false,
       blockingRequestCount: 0,
-      scrollAnchor: 'message-anchor'
+      scrollAnchor: 'message-anchor',
+      resourceLocalPaths: {},
+      resourceLoading: {},
+      reportedInteractions: {},
+      audioContext: null,
+      activeAudioKey: '',
+      viewEpoch: 0,
+      localRevision: 0,
+      historyRequestGeneration: 0,
+      resourceContextGeneration: 0
     }
   },
   computed: {
@@ -270,19 +440,42 @@ export default {
     }
     this.loadDetail()
   },
+  onUnload() {
+    this.advanceViewEpoch()
+    this.disposeAudio()
+  },
   methods: {
     async loadDetail() {
       if (!this.sessionId) return
+      const requestedSessionId = this.sessionId
+      const requestGeneration = ++this.historyRequestGeneration
+      const viewEpoch = this.viewEpoch
+      const localRevision = this.localRevision
+      this.resetResourceState()
       try {
-        const res = await getLeaderSessionDetail(this.sessionId)
+        const res = await getLeaderSessionDetail(requestedSessionId)
+        if (this.sessionId !== requestedSessionId
+          || requestGeneration !== this.historyRequestGeneration
+          || viewEpoch !== this.viewEpoch
+          || localRevision !== this.localRevision) return
         const data = res?.data || {}
-        this.messages = (data.messages || []).map((item) => ({
-          ...item,
-          localId: `${item.role}-${item.id}`
-        }))
+        this.messages = (data.messages || []).map((item) => {
+          const merged = mergeAssistantMessage({}, item)
+          return {
+            ...merged,
+            localId: `${item.role}-${item.id}`
+          }
+        })
+        this.markLocalMutation()
         this.scrollToBottom()
       } catch (error) {
-        this.messages = []
+        if (this.sessionId === requestedSessionId
+          && requestGeneration === this.historyRequestGeneration
+          && viewEpoch === this.viewEpoch
+          && localRevision === this.localRevision) {
+          this.messages = []
+          this.markLocalMutation()
+        }
       }
     },
     appendMessage(message) {
@@ -291,6 +484,7 @@ export default {
         ...message
       }
       this.messages.push(item)
+      this.markLocalMutation()
       this.scrollToBottom()
       return item
     },
@@ -307,15 +501,19 @@ export default {
         callDetail: this.createInitialCallDetail(text),
         callDetailExpanded: false
       })
+      const requestContext = this.captureViewContext({ localId: thinkingMessage.localId })
+      const isRequestCurrent = () => this.isViewContextCurrent(requestContext, true)
       let streamStarted = false
       let streamTouched = false
+      let authoritativeTerminalHandled = false
       try {
         await streamLeaderAgent({
-          sessionId: this.sessionId,
+          sessionId: requestContext.sessionId,
           agentName: 'leader_agent',
           input: text
         }, {
           onEvent: (eventName, payload) => {
+            if (!isRequestCurrent()) return
             streamTouched = true
             if (eventName === 'generation_start') {
               streamStarted = true
@@ -336,6 +534,7 @@ export default {
             this.updateCallDetail(thinkingMessage.localId, this.buildLiveCallDetailPatch(eventName, payload))
           },
           onSession: (payload) => {
+            if (!isRequestCurrent()) return
             streamTouched = true
             this.syncSessionId(payload?.sessionId)
             this.updateCallDetail(thinkingMessage.localId, {
@@ -350,21 +549,26 @@ export default {
             })
           },
           onSearch: (payload) => {
+            if (!isRequestCurrent()) return
             streamTouched = true
+            const hasMatchedResults = Object.prototype.hasOwnProperty.call(payload || {}, 'matchedResults')
+              && Array.isArray(payload?.matchedResults)
+            const matchedResultsPatch = hasMatchedResults ? { matchedResults: payload.matchedResults } : {}
+            const retrievalMeta = payload?.retrievalMeta || {}
             this.updateCallDetail(thinkingMessage.localId, {
               searchKeyword: payload?.searchKeyword || '',
-              matchedResults: payload?.matchedResults || [],
-              retrievalMeta: payload?.retrievalMeta || {},
+              ...matchedResultsPatch,
+              retrievalMeta,
               currentStep: 'retrieve',
               traceAppend: this.createLiveTraceStep('retrieve', {
                 keyword: payload?.searchKeyword || '',
-                matchedCount: Array.isArray(payload?.matchedResults) ? payload.matchedResults.length : 0,
-                ...((payload && payload.retrievalMeta) || {})
+                matchedCount: countAssistantHits({ ...matchedResultsPatch, retrievalMeta }),
+                ...retrievalMeta
               })
             })
           },
           onDelta: (content) => {
-            if (!content) return
+            if (!content || !isRequestCurrent()) return
             streamTouched = true
             streamStarted = true
             this.updateCallDetail(thinkingMessage.localId, {
@@ -374,37 +578,64 @@ export default {
             this.appendMessageContent(thinkingMessage.localId, content)
           },
           onDone: (payload) => {
+            if (!isRequestCurrent()) return
             streamTouched = true
-            if (!this.messages.some((item) => item.localId === thinkingMessage.localId)) return
             this.syncSessionId(payload?.sessionId)
             const finalAnswer = payload?.answer || ''
             const current = this.messages.find((item) => item.localId === thinkingMessage.localId)
-            this.replaceMessage(thinkingMessage.localId, {
+            const merged = mergeAssistantMessage(current, {
+              ...(payload || {}),
+              ...(Array.isArray(payload?.resources) && payload.resources.length === 0
+                && !Object.prototype.hasOwnProperty.call(payload || {}, 'attachments')
+                  ? { attachments: [] }
+                  : {}),
               role: 'assistant',
+              type: '',
               content: finalAnswer || current?.content || 'Leader 这次没有返回可用答案，请换一种问法再试。',
               answerType: payload?.answerType || 'text',
               outputType: payload?.outputType || payload?.answerType || 'text',
-              outputTypes: payload?.outputTypes || [],
-              outputMeta: payload?.outputMeta || {},
-              attachments: payload?.attachments || [],
               agentName: payload?.agentName || current?.callDetail?.agentName || 'leader_agent',
               searchKeyword: payload?.searchKeyword || current?.callDetail?.searchKeyword || '',
-              retrievalMeta: payload?.retrievalMeta || payload?.metadata || current?.callDetail?.retrievalMeta || {},
-              matchedResults: payload?.matchedResults || current?.callDetail?.matchedResults || [],
-              trace: payload?.trace || current?.callDetail?.trace || [],
               callDetail: this.buildFinalCallDetail(payload, current?.callDetail, 'completed'),
-              callDetailExpanded: current?.callDetailExpanded || false
+              callDetailExpanded: current?.callDetailExpanded || false,
+              evidenceExpanded: current?.evidenceExpanded || false
             })
+            this.replaceMessage(thinkingMessage.localId, merged)
           },
           onError: (payload) => {
+            if (!isRequestCurrent()) return
             streamTouched = true
+            if (typeof payload?.answer === 'string' && payload.answer) {
+              streamStarted = true
+              this.syncSessionId(payload?.sessionId)
+              const current = this.messages.find((item) => item.localId === thinkingMessage.localId)
+              const merged = mergeAssistantMessage(current, {
+                ...(payload || {}),
+                ...(Array.isArray(payload?.resources) && payload.resources.length === 0
+                  && !Object.prototype.hasOwnProperty.call(payload || {}, 'attachments')
+                    ? { attachments: [] }
+                    : {}),
+                role: 'assistant',
+                type: '',
+                content: payload.answer,
+                answerType: payload?.answerType || 'text',
+                outputType: payload?.outputType || payload?.answerType || 'text',
+                agentName: payload?.agentName || current?.callDetail?.agentName || 'leader_agent',
+                callDetail: this.buildFinalCallDetail(payload, current?.callDetail, 'failed'),
+                callDetailExpanded: current?.callDetailExpanded || false,
+                evidenceExpanded: current?.evidenceExpanded || false
+              })
+              this.replaceMessage(thinkingMessage.localId, merged)
+              authoritativeTerminalHandled = true
+              return
+            }
             const streamError = new Error(payload?.message || '流式请求失败')
             streamError.payload = payload || {}
             throw streamError
           }
         })
       } catch (error) {
-        if (!this.messages.some((item) => item.localId === thinkingMessage.localId)) return
+        if (!isRequestCurrent() || authoritativeTerminalHandled) return
         const current = this.messages.find((item) => item.localId === thinkingMessage.localId)
         const errorCallDetail = this.buildErrorCallDetail(error, current?.callDetail)
         const errorContent = this.buildFailureContent(errorCallDetail, streamStarted || streamTouched ? '这次流式回复中断了' : '这次没有顺利完成请求')
@@ -416,7 +647,7 @@ export default {
             callDetailExpanded: current?.callDetailExpanded || false
           })
         } else if (error?.fallbackToNormalRequest) {
-          await this.sendMessageFallback(text, thinkingMessage.localId, error)
+          await this.sendMessageFallback(text, thinkingMessage.localId, error, requestContext)
         } else {
           this.replaceMessage(thinkingMessage.localId, {
             role: 'assistant',
@@ -447,8 +678,10 @@ export default {
       const callDetail = this.buildFinalCallDetail(payload, current?.callDetail, 'running')
       callDetail.currentStep = 'agent_answer'
       callDetail.status = 'running'
-      this.replaceMessage(localId, {
+      const merged = mergeAssistantMessage(current, {
+        ...(payload || {}),
         role: 'assistant',
+        type: '',
         content: payload?.answer || '已开始生成图片，你可以继续提问，生成完成后会更新到这里。',
         answerType: payload?.answerType || 'image_generation',
         outputType: payload?.outputType || 'image',
@@ -457,44 +690,44 @@ export default {
           ...((payload && payload.outputMeta) || {}),
           generationStatus: 'running'
         },
-        attachments: payload?.attachments || [],
         agentName: payload?.agentName || callDetail.agentName || 'image_agent',
         searchKeyword: payload?.searchKeyword || '',
-        retrievalMeta: payload?.retrievalMeta || payload?.metadata || callDetail.retrievalMeta || {},
-        matchedResults: payload?.matchedResults || [],
-        trace: payload?.trace || callDetail.trace || [],
         callDetail,
         callDetailExpanded: current?.callDetailExpanded || false
       })
+      this.replaceMessage(localId, merged)
     },
-    async sendMessageFallback(text, localId, streamError) {
+    async sendMessageFallback(text, localId, streamError, requestContext) {
+      if (!this.isViewContextCurrent(requestContext, true)) return
       try {
         const res = await queryLeaderAgent({
-          sessionId: this.sessionId,
+          sessionId: requestContext.sessionId,
           agentName: 'leader_agent',
           input: text
         })
+        if (!this.isViewContextCurrent(requestContext, true)) return
         const payload = res?.data || {}
-        if (!this.messages.some((item) => item.localId === localId)) return
         this.syncSessionId(payload.sessionId)
-        this.replaceMessage(localId, {
+        const current = this.messages.find((item) => item.localId === localId)
+        const merged = mergeAssistantMessage(current, {
+          ...(payload || {}),
+          ...(Array.isArray(payload?.resources) && payload.resources.length === 0
+            && !Object.prototype.hasOwnProperty.call(payload || {}, 'attachments')
+              ? { attachments: [] }
+              : {}),
           role: 'assistant',
+          type: '',
           content: payload.answer || 'Leader 这次没有返回可用答案，请换一种问法再试。',
           answerType: payload.answerType || 'text',
           outputType: payload.outputType || payload.answerType || 'text',
-          outputTypes: payload.outputTypes || [],
-          outputMeta: payload.outputMeta || {},
-          attachments: payload.attachments || [],
           agentName: payload.agentName || 'leader_agent',
           searchKeyword: payload.searchKeyword || '',
-          retrievalMeta: payload.retrievalMeta || {},
-          matchedResults: payload.matchedResults || [],
-          trace: payload.trace || [],
           callDetail: this.buildFinalCallDetail(payload, null, 'completed'),
           callDetailExpanded: false
         })
+        this.replaceMessage(localId, merged)
       } catch (error) {
-        if (!this.messages.some((item) => item.localId === localId)) return
+        if (!this.isViewContextCurrent(requestContext, true)) return
         const errorCallDetail = this.buildErrorCallDetail(error, null)
         this.replaceMessage(localId, {
           role: 'assistant',
@@ -511,7 +744,6 @@ export default {
         agentName: 'leader_agent',
         inputPreview: this.truncateText(input, 80),
         retrievalMeta: {},
-        matchedResults: [],
         trace: [
           this.createLiveTraceStep('status', {
             stage: 'processing',
@@ -562,8 +794,14 @@ export default {
           ...(currentDetail.retrievalMeta || {}),
           ...((patch && patch.retrievalMeta) || {})
         },
-        matchedResults: Array.isArray(patch.matchedResults) ? patch.matchedResults : currentDetail.matchedResults,
         trace: nextTrace
+      }
+      if (Object.prototype.hasOwnProperty.call(patch || {}, 'matchedResults') && Array.isArray(patch.matchedResults)) {
+        nextDetail.matchedResults = patch.matchedResults
+      } else if (Array.isArray(currentDetail.matchedResults)) {
+        nextDetail.matchedResults = currentDetail.matchedResults
+      } else {
+        delete nextDetail.matchedResults
       }
       delete nextDetail.traceAppend
       delete nextDetail.traceAppendOnce
@@ -571,6 +809,7 @@ export default {
         ...current,
         callDetail: nextDetail
       })
+      this.markLocalMutation()
     },
     buildFinalCallDetail(payload = {}, currentDetail = null, status = 'completed') {
       const previous = this.normalizeCallDetail({ role: 'assistant', callDetail: currentDetail || {} })
@@ -592,8 +831,14 @@ export default {
         agentName: payload?.agentName || retrievalMeta.executedAgent || retrievalMeta.targetAgent || retrievalMeta.agentName || previous.agentName || 'leader_agent',
         searchKeyword: payload?.searchKeyword || previous.searchKeyword || '',
         retrievalMeta,
-        matchedResults: Array.isArray(payload?.matchedResults) ? payload.matchedResults : previous.matchedResults,
         trace: this.withTerminalTrace(trace, status)
+      }
+      if (Object.prototype.hasOwnProperty.call(payload || {}, 'matchedResults') && Array.isArray(payload.matchedResults)) {
+        detail.matchedResults = payload.matchedResults
+      } else if (Array.isArray(previous.matchedResults)) {
+        detail.matchedResults = previous.matchedResults
+      } else {
+        delete detail.matchedResults
       }
       detail.intent = this.getTraceValue(detail.trace, 'intent') || retrievalMeta.intent || previous.intent || ''
       return detail
@@ -790,6 +1035,15 @@ export default {
     getCallDetailError(message) {
       return this.normalizeCallDetail(message).error || ''
     },
+    getExplicitMatchedResults(message, raw) {
+      if (Object.prototype.hasOwnProperty.call(raw || {}, 'matchedResults') && Array.isArray(raw?.matchedResults)) {
+        return raw.matchedResults
+      }
+      if (Object.prototype.hasOwnProperty.call(message || {}, 'matchedResults') && Array.isArray(message?.matchedResults)) {
+        return message.matchedResults
+      }
+      return undefined
+    },
     normalizeCallDetail(message) {
       const raw = message?.callDetail || {}
       const messageTrace = Array.isArray(message?.trace) ? message.trace : []
@@ -799,9 +1053,7 @@ export default {
         ...((message && message.retrievalMeta) || {}),
         ...((raw && raw.retrievalMeta) || {})
       }
-      const matchedResults = Array.isArray(raw.matchedResults)
-        ? raw.matchedResults
-        : (Array.isArray(message?.matchedResults) ? message.matchedResults : [])
+      const matchedResults = this.getExplicitMatchedResults(message, raw)
       const agentName = raw.agentName
         || message?.agentName
         || retrievalMeta.executedAgent
@@ -814,7 +1066,7 @@ export default {
       const generationStatus = message?.outputMeta?.generationStatus || retrievalMeta.generationStatus || raw.generationStatus || ''
       const status = raw.status || (generationStatus === 'running' ? 'running' : (message?.type === 'thinking' ? 'running' : (raw.error ? 'failed' : 'completed')))
       const currentStep = raw.currentStep || this.getLastTraceStage(trace) || (status === 'running' ? 'status' : 'done')
-      return {
+      const normalized = {
         ...raw,
         status,
         currentStep,
@@ -830,6 +1082,8 @@ export default {
         outputType: raw.outputType || message?.outputType || retrievalMeta.outputType || '',
         error: raw.error || ''
       }
+      if (matchedResults === undefined) delete normalized.matchedResults
+      return normalized
     },
     describeCallDetailStep(stage, detail, normalized) {
       if (stage === 'leader_plan' || stage === 'leader_route') {
@@ -948,13 +1202,10 @@ export default {
       return TOOL_LABELS[executedAgent] ? executedAgent : ''
     },
     getMatchedCount(detail) {
-      if (Array.isArray(detail?.matchedResults) && detail.matchedResults.length) {
-        return detail.matchedResults.length
+      if (Array.isArray(detail?.matchedResults)) {
+        return countAssistantHits({ matchedResults: detail.matchedResults })
       }
-      const meta = detail?.retrievalMeta || {}
-      const javaCount = Number(meta.javaBackendCount || 0)
-      const documentCount = Number(meta.documentCount || 0)
-      return javaCount + documentCount
+      return countAssistantHits({ retrievalMeta: detail?.retrievalMeta || {} })
     },
     getRetrievalLabel(detail) {
       const meta = detail?.retrievalMeta || {}
@@ -978,6 +1229,7 @@ export default {
         localId,
         ...message
       })
+      this.markLocalMutation()
       this.scrollToBottom()
     },
     appendMessageContent(localId, content) {
@@ -989,12 +1241,14 @@ export default {
         type: '',
         content: `${current.type === 'thinking' ? '' : current.content || ''}${content}`
       })
+      this.markLocalMutation()
       this.scrollToBottom()
     },
     removeThinkingMessages() {
       const nextMessages = this.messages.filter((item) => item.type !== 'thinking')
       if (nextMessages.length === this.messages.length) return
       this.messages = nextMessages
+      this.markLocalMutation()
       this.scrollToBottom()
     },
     syncSessionId(sessionId) {
@@ -1007,11 +1261,54 @@ export default {
     },
     startNewConversation() {
       if (this.sending) return
+      this.advanceViewEpoch()
       this.sessionId = ''
       this.messages = []
+      this.markLocalMutation()
       this.inputValue = ''
+      this.resetResourceState()
       uni.removeStorageSync(STORAGE_KEY)
       this.scrollToBottom()
+    },
+    resetResourceState() {
+      this.disposeAudio()
+      this.resourceLocalPaths = {}
+      this.resourceLoading = {}
+      this.reportedInteractions = {}
+      uni.hideLoading?.()
+    },
+    markLocalMutation() {
+      this.localRevision += 1
+    },
+    advanceViewEpoch() {
+      this.viewEpoch += 1
+      this.historyRequestGeneration += 1
+    },
+    captureViewContext(extra = {}) {
+      return {
+        sessionId: this.sessionId,
+        viewEpoch: this.viewEpoch,
+        ...extra
+      }
+    },
+    isViewContextCurrent(context, requireMessage = false) {
+      if (!context || context.viewEpoch !== this.viewEpoch) return false
+      if (!requireMessage || !context.localId) return true
+      return this.messages.some((item) => item.localId === context.localId)
+    },
+    captureResourceContext(resource, message = null) {
+      this.resourceContextGeneration += 1
+      return this.captureViewContext({
+        messageId: resource?.messageId ?? message?.messageId ?? message?.id,
+        resourceId: resource?.id,
+        resourceKey: resource?.key,
+        resourceToken: `${this.viewEpoch}:${this.resourceContextGeneration}`
+      })
+    },
+    isResourceContextCurrent(context) {
+      return Boolean(context)
+        && context.viewEpoch === this.viewEpoch
+        && context.sessionId === this.sessionId
     },
     handleInputConfirm() {
       this.sendMessage()
@@ -1044,16 +1341,14 @@ export default {
       const content = String(message?.content || '')
       try {
         const parsed = JSON.parse(content)
-        if (parsed && Array.isArray(parsed.images)) {
-          return String(parsed.message || '').trim()
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          if (typeof parsed.message === 'string') return parsed.message.trim()
+          if (normalizeAssistantResources(message).length) return ''
         }
       } catch (error) {
-        // Non-JSON responses continue through normal text cleanup.
+        // Plain text remains the readable answer; legacy resources render below via the shared helper.
       }
-      return content
-        .replace(this.markdownAttachmentPattern(), '')
-        .replace(this.attachmentUrlPattern(), '')
-        .trim()
+      return content.trim()
     },
     getOutputTypeTags(message) {
       const rawTypes = []
@@ -1067,10 +1362,11 @@ export default {
       return [...new Set(normalized)]
     },
     detectMessageType(message) {
-      const attachments = this.getMessageAttachments(message)
-      if (attachments.some((item) => item.type === 'image')) return 'image'
-      if (attachments.some((item) => item.type === 'video')) return 'video'
-      if (attachments.some((item) => ['pdf', 'docx', 'ppt', 'excel', 'file'].includes(item.type))) return 'document'
+      const resources = this.getMessageResources(message)
+      if (resources.some((item) => item.renderer === 'image')) return 'image'
+      if (resources.some((item) => item.renderer === 'video')) return 'video'
+      if (resources.some((item) => ['document', 'presentation', 'spreadsheet', 'bundle'].includes(item.renderer))) return 'document'
+      if (resources.some((item) => item.kind === 'diagram' || item.kind === 'mind_map')) return 'diagram'
       const content = String(message?.content || '')
       if (this.containsFormula(content)) return 'formula'
       if ((message?.answerType || '').includes('document')) return 'document'
@@ -1104,148 +1400,286 @@ export default {
       }
       return labels[type] || '文本'
     },
-    getMessageAttachments(message) {
-      const structured = this.normalizeAttachments(message?.attachments || message?.files || message?.fileList || [])
-      const parsed = this.extractAttachmentsFromText(message?.content || '')
-      const seen = new Set()
-      return [...structured, ...parsed].filter((file) => {
-        if (!file.url || seen.has(file.url)) return false
-        seen.add(file.url)
-        return true
-      })
+    getMessageResources(message) {
+      return normalizeAssistantResources(message)
     },
-    normalizeAttachments(value) {
-      const list = Array.isArray(value) ? value : []
-      return list.map((item) => this.normalizeAttachment(item)).filter(Boolean)
+    getResourceActions(resource) {
+      return normalizeResourceActions(resource)
     },
-    normalizeAttachment(item) {
-      if (!item) return null
-      const url = String(item.url || item.fileUrl || item.path || item.href || '').trim()
-      if (!url) return null
-      const name = String(item.name || item.fileName || this.fileNameFromUrl(url)).trim()
-      return this.buildAttachment(url, name, item.type || item.fileType || item.mimeType)
+    getResourceIcon(resource) {
+      return RESOURCE_ICON_LABELS[resource?.renderer] || RESOURCE_ICON_LABELS.generic
     },
-    extractAttachmentsFromText(text) {
-      const content = String(text || '')
-      const files = []
-      try {
-        const parsed = JSON.parse(content)
-        if (Array.isArray(parsed?.images)) {
-          parsed.images.forEach((item) => {
-            const value = typeof item === 'string' ? { url: item, type: 'image' } : { ...item, type: item?.type || 'image' }
-            files.push(this.normalizeAttachment(value))
-          })
-        }
-        ;['documents', 'files', 'attachments'].forEach((key) => {
-          if (Array.isArray(parsed?.[key])) {
-            parsed[key].forEach((item) => files.push(this.normalizeAttachment(item)))
-          }
-        })
-        ;[
-          ['imageUrl', 'image'],
-          ['image_url', 'image'],
-          ['documentUrl', 'document'],
-          ['document_url', 'document'],
-          ['fileUrl', 'file'],
-          ['file_url', 'file'],
-          ['url', parsed?.type || '']
-        ].forEach(([key, type]) => {
-          if (parsed?.[key]) {
-            files.push(this.normalizeAttachment({ ...parsed, url: parsed[key], type }))
-          }
-        })
-      } catch (error) {
-        // Plain text responses are inspected below.
-      }
-      const markdownPattern = this.markdownAttachmentPattern()
-      let match
-      while ((match = markdownPattern.exec(content)) !== null) {
-        files.push(this.buildAttachment(match[2], match[1] || this.fileNameFromUrl(match[2]), ''))
-      }
-      const plainText = content.replace(this.markdownAttachmentPattern(), '')
-      const matches = plainText.match(this.attachmentUrlPattern()) || []
-      files.push(...matches.map((url) => this.buildAttachment(url, this.fileNameFromUrl(url), '')))
-      return files.filter(Boolean)
+    getResourceKindLabel(resource) {
+      return RESOURCE_KIND_LABELS[resource?.kind] || '资源'
     },
-    markdownAttachmentPattern() {
-      return /!?\[([^\]]+)\]\(((?:https?:\/\/|\/uploads\/)[^\s"'<>，。！？；、)]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv|md|mmd|zip)(?:\?[^\s"'<>，。！？；、)]*)?)\)/gi
-    },
-    attachmentUrlPattern() {
-      return /(?:https?:\/\/|\/uploads\/)[^\s"'<>，。！？；、]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv|md|mmd|zip)(?:\?[^\s"'<>，。！？；、]*)?/gi
-    },
-    buildAttachment(url, name, typeHint) {
-      const ext = this.fileExt(name || url)
-      const hinted = String(typeHint || '').toLowerCase()
-      let type = 'file'
-      if (hinted.includes('image') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(ext)) type = 'image'
-      else if (hinted.includes('video') || ['mp4', 'mov', 'm4v', 'webm', 'ogg'].includes(ext)) type = 'video'
-      else if (['pdf'].includes(ext)) type = 'pdf'
-      else if (['doc', 'docx'].includes(ext)) type = 'docx'
-      else if (['ppt', 'pptx'].includes(ext)) type = 'ppt'
-      else if (['xls', 'xlsx', 'csv'].includes(ext)) type = 'excel'
-      else if (hinted.includes('document')) type = 'file'
-      if (!['image', 'video', 'pdf', 'docx', 'ppt', 'excel', 'file'].includes(type)) return null
-      if (type === 'file' && !ext) return null
-      return {
-        url,
-        name: name || this.fileNameFromUrl(url),
-        type,
-        extLabel: (ext || type).toUpperCase(),
-        typeLabel: this.attachmentTypeLabel(type)
-      }
-    },
-    fileNameFromUrl(url) {
-      const clean = String(url || '').split('?')[0]
-      const name = decodeURIComponent(clean.substring(clean.lastIndexOf('/') + 1) || '文件')
-      return name || '文件'
-    },
-    fileExt(value) {
-      const clean = String(value || '').split('?')[0].toLowerCase()
-      const index = clean.lastIndexOf('.')
-      return index >= 0 ? clean.slice(index + 1) : ''
-    },
-    attachmentTypeLabel(type) {
+    getGroundingLabel(status) {
       const labels = {
-        image: '图片',
-        video: '视频',
-        pdf: 'PDF',
-        docx: 'Word 文档',
-        ppt: 'PPT 演示文稿',
-        excel: '表格文件',
-        file: '文档'
+        grounded: '有来源',
+        context_only: '上下文生成',
+        model_only: '模型生成'
       }
-      return labels[type] || '文件'
+      return labels[status] || labels.model_only
     },
-    previewAttachmentImage(file, message) {
-      const urls = this.getMessageAttachments(message).filter((item) => item.type === 'image').map((item) => item.url)
-      uni.previewImage({ urls, current: file.url })
+    getBusinessResourceFields(resource) {
+      const payload = resource?.payload || {}
+      const hidden = new Set(['type', 'businessId', 'title', 'name', 'courseName', 'imageUrl'])
+      return Object.entries(payload)
+        .filter(([key, value]) => !hidden.has(key) && BUSINESS_FIELD_LABELS[key] && value !== '' && value !== null && value !== undefined)
+        .slice(0, 8)
+        .map(([key, value]) => ({ label: BUSINESS_FIELD_LABELS[key], value: String(value) }))
     },
-    openAttachment(file) {
-      if (!file?.url) return
-      const openWithUrl = () => {
-        uni.setClipboardData({
-          data: file.url,
-          success: () => uni.showToast({ title: '文件链接已复制', icon: 'none' })
+    getResourceLocalPath(resource) {
+      return this.resourceLocalPaths[resource?.key] || ''
+    },
+    getResourceDisplayPath(resource) {
+      const localPath = this.getResourceLocalPath(resource)
+      if (localPath) return localPath
+      if (resource?.authScope !== 'public') return ''
+      const candidates = [resource?.previewUrl, resource?.url]
+      for (const value of candidates) {
+        const rawUrl = String(value || '').trim()
+        if (!rawUrl || rawUrl.startsWith('/api/')) continue
+        const resolved = resolveAssistantResourceUrl(rawUrl, {
+          baseUrl: BASE_URL,
+          approvedHosts: ASSISTANT_PUBLIC_RESOURCE_HOSTS
         })
+        if (resolved) return resolved
       }
-      if (typeof uni.downloadFile !== 'function' || typeof uni.openDocument !== 'function') {
-        openWithUrl()
+      return ''
+    },
+    isResourceLoading(resource) {
+      return Boolean(this.resourceLoading[resource?.key])
+    },
+    setResourceLoading(resource, loading, owner = null) {
+      if (!resource?.key) return false
+      const next = { ...this.resourceLoading }
+      const ownerToken = owner?.resourceToken || owner
+      if (loading) {
+        next[resource.key] = ownerToken || true
+      } else {
+        if (ownerToken && next[resource.key] !== ownerToken) return false
+        delete next[resource.key]
+      }
+      this.resourceLoading = next
+      return true
+    },
+    rememberResourceLocalPath(resource, filePath) {
+      if (!resource?.key || !filePath) return
+      this.resourceLocalPaths = {
+        ...this.resourceLocalPaths,
+        [resource.key]: filePath
+      }
+    },
+    previewResourceImage(resource, message = null) {
+      const actionContext = this.captureResourceContext(resource, message)
+      const current = this.getResourceDisplayPath(resource)
+      if (!current || !this.isResourceContextCurrent(actionContext)) return
+      uni.previewImage({ urls: [current], current })
+      this.reportResourceInteraction(resource, message, 'preview', actionContext)
+    },
+    isResourceAudioPlaying(resource) {
+      return Boolean(resource?.key) && this.activeAudioKey === resource.key
+    },
+    toggleResourceAudio(resource, message = null, resourceContext = null) {
+      const actionContext = resourceContext || this.captureResourceContext(resource, message)
+      if (!resource?.key || !this.isResourceContextCurrent(actionContext)) return
+      if (this.isResourceAudioPlaying(resource)) {
+        this.disposeAudio()
         return
       }
-      uni.showLoading({ title: '打开中...' })
-      uni.downloadFile({
-        url: file.url,
-        success: (res) => {
-          const filePath = res.tempFilePath
-          uni.openDocument({
-            filePath,
-            showMenu: true,
-            fail: openWithUrl
-          })
-        },
-        fail: openWithUrl,
-        complete: () => uni.hideLoading()
+      const source = this.getResourceDisplayPath(resource)
+      if (!source || typeof uni.createInnerAudioContext !== 'function') {
+        uni.showToast({ title: '当前环境无法播放音频', icon: 'none' })
+        return
+      }
+      this.disposeAudio()
+      const context = uni.createInnerAudioContext()
+      this.audioContext = context
+      this.activeAudioKey = resource.key
+      context.src = source
+      context.onEnded?.(() => {
+        if (this.audioContext === context && this.isResourceContextCurrent(actionContext)) {
+          this.disposeAudio()
+        }
       })
+      context.onError?.(() => {
+        if (this.audioContext !== context || !this.isResourceContextCurrent(actionContext)) return
+        this.disposeAudio()
+        uni.showToast({ title: '音频播放失败', icon: 'none' })
+      })
+      context.play()
+      if (message) this.reportResourceInteraction(resource, message, 'preview', actionContext)
+    },
+    disposeAudio() {
+      const context = this.audioContext
+      this.audioContext = null
+      this.activeAudioKey = ''
+      if (!context) return
+      try {
+        context.stop?.()
+        context.destroy?.()
+      } catch (error) {
+        // The native audio context may already be disposed during page teardown.
+      }
+    },
+    async handleResourceAction(resource, action, message) {
+      if (!resource || !action || resource.unavailable || action.disabled || action.unavailable
+        || this.isResourceLoading(resource)) return
+      const actionContext = this.captureResourceContext(resource, message)
+      if (!this.isResourceContextCurrent(actionContext)) return
+      if (action.type === 'follow_up') {
+        if (!action.prompt || this.sending) return
+        this.reportResourceInteraction(resource, message, action.type, actionContext)
+        this.inputValue = action.prompt
+        this.sendMessage()
+        return
+      }
+      if (action.type === 'open_resource' && resource.renderer === 'business_card') {
+        const route = resolveBusinessResourceRoute(resource)
+        if (!route) {
+          uni.showToast({ title: '该资源暂无可打开页面', icon: 'none' })
+          return
+        }
+        uni.navigateTo({
+          url: route,
+          success: () => {
+            if (this.isResourceContextCurrent(actionContext)) {
+              this.reportResourceInteraction(resource, message, action.type, actionContext)
+            }
+          }
+        })
+        return
+      }
+      if (!resource.url && !resource.previewUrl) {
+        uni.showToast({ title: '资源暂不可用', icon: 'none' })
+        return
+      }
+      this.setResourceLoading(resource, true, actionContext)
+      uni.showLoading({ title: action.type === 'download' ? '下载中...' : '打开中...' })
+      try {
+        const filePath = await downloadAssistantResource(resource, {
+          approvedHosts: ASSISTANT_PUBLIC_RESOURCE_HOSTS
+        })
+        if (!this.isResourceContextCurrent(actionContext)) return
+        this.rememberResourceLocalPath(resource, filePath)
+        this.openDownloadedResource(resource, filePath, action.type, actionContext)
+        this.reportResourceInteraction(resource, message, action.type, actionContext)
+      } catch (error) {
+        if (!this.isResourceContextCurrent(actionContext)) return
+        uni.showToast({ title: error?.message || '资源打开失败', icon: 'none' })
+      } finally {
+        if (this.isResourceContextCurrent(actionContext)
+          && this.setResourceLoading(resource, false, actionContext)) {
+          uni.hideLoading()
+        }
+      }
+    },
+    openDownloadedResource(resource, filePath, actionType = 'preview', resourceContext = null) {
+      const actionContext = resourceContext || this.captureResourceContext(resource)
+      if (!this.isResourceContextCurrent(actionContext)) return
+      if (resource.renderer === 'image') {
+        uni.previewImage({ urls: [filePath], current: filePath })
+        return
+      }
+      if (resource.renderer === 'video') {
+        uni.showToast({ title: '视频已加载，可在卡片中播放', icon: 'none' })
+        return
+      }
+      if (resource.renderer === 'audio') {
+        if (actionType === 'download' && typeof uni.saveFile === 'function') {
+          uni.saveFile({
+            tempFilePath: filePath,
+            success: ({ savedFilePath }) => {
+              if (!this.isResourceContextCurrent(actionContext)) return
+              this.rememberResourceLocalPath(resource, savedFilePath || filePath)
+              uni.showToast({ title: '音频已保存，可在卡片中播放', icon: 'none' })
+            },
+            fail: () => {
+              if (this.isResourceContextCurrent(actionContext)) {
+                uni.showToast({ title: '音频已临时保存，可在卡片中播放', icon: 'none' })
+              }
+            }
+          })
+          return
+        }
+        this.toggleResourceAudio(resource, null, actionContext)
+        return
+      }
+      if (typeof uni.openDocument === 'function') {
+        uni.openDocument({
+          filePath,
+          showMenu: true,
+          fail: () => {
+            if (this.isResourceContextCurrent(actionContext)) {
+              uni.showToast({ title: '文件已下载，当前环境无法预览', icon: 'none' })
+            }
+          }
+        })
+        return
+      }
+      uni.showToast({ title: '文件已下载', icon: 'none' })
+    },
+    reportResourceInteraction(resource, message, actionType, resourceContext = null) {
+      const actionContext = resourceContext || this.captureResourceContext(resource, message)
+      if (!this.isResourceContextCurrent(actionContext)) return
+      const interaction = RESOURCE_INTERACTION_BY_ACTION[actionType]
+      const sessionId = actionContext.sessionId
+      const messageId = actionContext.messageId
+        ?? resource?.messageId ?? message?.messageId ?? message?.id
+      const request = buildResourceInteractionRequest(sessionId, messageId, resource?.id, interaction)
+      if (!request || this.reportedInteractions[request.dedupeKey]) return
+      this.reportedInteractions = {
+        ...this.reportedInteractions,
+        [request.dedupeKey]: actionContext.resourceToken
+      }
+      void submitAssistantResourceInteraction(sessionId, messageId, resource.id, interaction).catch((error) => {
+        if (!this.isResourceContextCurrent(actionContext)
+          || this.reportedInteractions[request.dedupeKey] !== actionContext.resourceToken) return
+        const next = { ...this.reportedInteractions }
+        delete next[request.dedupeKey]
+        this.reportedInteractions = next
+        console.warn('[assistant-resource-interaction]', {
+          sessionId: this.truncateText(sessionId, 80),
+          messageId: this.truncateText(messageId, 80),
+          resourceId: this.truncateText(resource.id, 80),
+          action: interaction,
+          status: Number(error?.statusCode || error?.status || 0) || 'failed'
+        })
+      })
+    },
+    getEvidenceSummary(message) {
+      return summarizeEvidenceChain(message?.evidenceChain)
+    },
+    getEvidenceAgentLabel(message) {
+      const agent = this.getEvidenceSummary(message).agent
+      return agent ? this.getAgentLabel(agent) : '智能体未记录'
+    },
+    getEvidenceGeneratedAtLabel(message) {
+      return this.getEvidenceSummary(message).generatedAt || '生成时间未记录'
+    },
+    getEvidenceSources(message) {
+      const summary = this.getEvidenceSummary(message)
+      if (!summary.trusted) return []
+      return Array.isArray(message?.evidenceChain?.sources)
+        ? message.evidenceChain.sources.slice(0, 20)
+        : []
+    },
+    getEvidenceSourceLabel(sourceType) {
+      return EVIDENCE_SOURCE_LABELS[sourceType] || '来源记录'
+    },
+    toggleEvidence(message) {
+      if (!this.getEvidenceSources(message).length) return
+      const key = this.getMessageKey(message)
+      const index = this.messages.findIndex((item) => this.getMessageKey(item) === key)
+      if (index === -1) return
+      this.messages.splice(index, 1, {
+        ...this.messages[index],
+        evidenceExpanded: !this.messages[index].evidenceExpanded
+      })
+      this.scrollToBottom()
+    },
+    isEvidenceExpanded(message) {
+      return Boolean(message?.evidenceExpanded) && this.getEvidenceSources(message).length > 0
     },
     getMessageChoicePrompt(message) {
       return String(message?.outputMeta?.choicePrompt || '').trim()
@@ -1472,52 +1906,43 @@ export default {
   color: #2F6FE4;
 }
 
-.attachment-list {
+.resource-list {
   display: flex;
   flex-direction: column;
   gap: 14rpx;
 }
 
-.attachment-item {
+.resource-card {
   width: 100%;
+  padding: 18rpx;
+  border-radius: 18rpx;
+  background: #F7F9FD;
+  border: 1rpx solid rgba(100, 116, 139, 0.14);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
 }
 
-.attachment-image {
-  width: 420rpx;
-  max-width: 100%;
-  height: 260rpx;
-  border-radius: 18rpx;
-  background: #EEF2F7;
-  display: block;
+.resource-card--business_card {
+  background: linear-gradient(145deg, #F5F9FF, #FFFFFF);
+  border-color: rgba(47, 111, 228, 0.18);
 }
 
-.attachment-video {
-  width: 460rpx;
-  max-width: 100%;
-  height: 280rpx;
-  border-radius: 18rpx;
-  background: #111827;
-  overflow: hidden;
+.resource-card--unavailable {
+  opacity: 0.72;
 }
 
-.attachment-file {
-  width: 460rpx;
-  max-width: 100%;
-  min-height: 104rpx;
-  border-radius: 18rpx;
-  background: #F6F8FC;
-  border: 1rpx solid rgba(100, 116, 139, 0.12);
+.resource-card__header {
   display: flex;
   align-items: center;
-  gap: 18rpx;
-  padding: 18rpx;
-  box-sizing: border-box;
+  gap: 14rpx;
 }
 
-.attachment-file__icon {
-  width: 72rpx;
-  height: 72rpx;
-  border-radius: 16rpx;
+.resource-card__icon {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 15rpx;
   background: #E8F1FF;
   color: #2F6FE4;
   display: flex;
@@ -1528,51 +1953,176 @@ export default {
   flex-shrink: 0;
 }
 
-.attachment-file__icon--pdf {
-  background: #FFF1F1;
-  color: #E5484D;
-}
-
-.attachment-file__icon--docx {
-  background: #EAF2FF;
-  color: #2563EB;
-}
-
-.attachment-file__icon--ppt {
-  background: #FFF3E8;
-  color: #EA580C;
-}
-
-.attachment-file__icon--excel {
-  background: #EAF8EF;
+.resource-card__icon--business_card {
+  background: #E8F7EF;
   color: #16865B;
 }
 
-.attachment-file__icon--file {
-  background: #F1F5F9;
-  color: #475569;
+.resource-card__icon--video,
+.resource-card__icon--audio {
+  background: #F0E8FF;
+  color: #6D3FD1;
 }
 
-.attachment-file__body {
+.resource-card__heading {
   min-width: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 8rpx;
+  gap: 6rpx;
 }
 
-.attachment-file__name {
+.resource-card__title {
   font-size: 26rpx;
-  font-weight: 700;
+  font-weight: 800;
   color: #1F2937;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-all;
 }
 
-.attachment-file__meta {
+.resource-card__tags,
+.resource-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx;
+}
+
+.resource-card__kind,
+.resource-card__grounding {
+  padding: 4rpx 10rpx;
+  border-radius: 999rpx;
+  background: #EAF2FF;
+  color: #2F6FE4;
+  font-size: 19rpx;
+  font-weight: 700;
+}
+
+.resource-card__grounding--context_only {
+  background: #FFF3DF;
+  color: #A45B00;
+}
+
+.resource-card__grounding--model_only {
+  background: #F1F5F9;
+  color: #64748B;
+}
+
+.resource-card__summary,
+.resource-card__content {
   font-size: 22rpx;
-  color: #7B8794;
+  line-height: 1.55;
+  color: #607086;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.resource-card__content {
+  max-height: 240rpx;
+  overflow: hidden;
+  color: #344256;
+}
+
+.resource-card__business {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+}
+
+.resource-card__business-field {
+  width: calc(50% - 5rpx);
+  display: flex;
+  flex-direction: column;
+  gap: 3rpx;
+  padding: 10rpx 12rpx;
+  border-radius: 12rpx;
+  background: rgba(255, 255, 255, 0.86);
+  box-sizing: border-box;
+}
+
+.resource-card__business-label {
+  font-size: 19rpx;
+  color: #8A96A8;
+}
+
+.resource-card__business-value {
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #263244;
+  word-break: break-all;
+}
+
+.resource-card__image,
+.resource-card__video {
+  width: 100%;
+  height: 260rpx;
+  border-radius: 16rpx;
+  background: #E8EDF4;
+  overflow: hidden;
+}
+
+.resource-card__video {
+  background: #111827;
+}
+
+.resource-card__audio {
+  min-height: 82rpx;
+  padding: 14rpx 18rpx;
+  border-radius: 16rpx;
+  background: #F0E8FF;
+  color: #6D3FD1;
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+
+.resource-card__audio-icon {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  background: #6D3FD1;
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 19rpx;
+  font-weight: 800;
+}
+
+.resource-card__audio-label {
+  font-size: 23rpx;
+  font-weight: 800;
+}
+
+.resource-card__unavailable {
+  padding: 10rpx 12rpx;
+  border-radius: 10rpx;
+  background: #FFF3E8;
+  color: #A45B00;
+  font-size: 21rpx;
+}
+
+.resource-card__action {
+  min-height: 50rpx;
+  padding: 0 18rpx;
+  border-radius: 999rpx;
+  background: #E8F1FF;
+  color: #2F6FE4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22rpx;
+  font-weight: 800;
+}
+
+.resource-card__action--loading {
+  opacity: 0.55;
+}
+
+.resource-card__action--disabled {
+  opacity: 0.58;
+  pointer-events: none;
 }
 
 .follow-up-panel {
@@ -1614,6 +2164,110 @@ export default {
   background: #F4F7FB;
   color: #526070;
   border: 1rpx solid rgba(100, 116, 139, 0.12);
+}
+
+.evidence-panel {
+  padding: 14rpx 16rpx;
+  border-radius: 16rpx;
+  background: #F7F9FD;
+  border: 1rpx solid rgba(100, 116, 139, 0.12);
+}
+
+.evidence-panel--available {
+  background: #F3FAF6;
+  border-color: rgba(24, 160, 88, 0.16);
+}
+
+.evidence-panel--malformed,
+.evidence-panel--integrity_failed,
+.evidence-panel--generation_failed {
+  background: #FFF5F5;
+  border-color: rgba(229, 72, 77, 0.18);
+}
+
+.evidence-panel__header,
+.evidence-source__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14rpx;
+}
+
+.evidence-panel__heading {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.evidence-panel__title {
+  font-size: 23rpx;
+  font-weight: 800;
+  color: #263244;
+}
+
+.evidence-panel__summary {
+  font-size: 20rpx;
+  line-height: 1.4;
+  color: #68768A;
+}
+
+.evidence-panel__meta {
+  font-size: 19rpx;
+  line-height: 1.4;
+  color: #8A96A8;
+  word-break: break-all;
+}
+
+.evidence-panel__toggle {
+  flex-shrink: 0;
+  font-size: 21rpx;
+  font-weight: 800;
+  color: #2F6FE4;
+}
+
+.evidence-panel__sources {
+  margin-top: 12rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+
+.evidence-source {
+  padding: 12rpx;
+  border-radius: 12rpx;
+  background: rgba(255, 255, 255, 0.88);
+  display: flex;
+  flex-direction: column;
+  gap: 7rpx;
+}
+
+.evidence-source__title {
+  min-width: 0;
+  flex: 1;
+  font-size: 22rpx;
+  font-weight: 800;
+  color: #283548;
+  word-break: break-all;
+}
+
+.evidence-source__type {
+  flex-shrink: 0;
+  font-size: 19rpx;
+  color: #2F6FE4;
+}
+
+.evidence-source__excerpt,
+.evidence-source__time {
+  font-size: 20rpx;
+  line-height: 1.5;
+  color: #607086;
+  word-break: break-all;
+}
+
+.evidence-source__time {
+  color: #8A96A8;
 }
 
 .call-detail-panel {

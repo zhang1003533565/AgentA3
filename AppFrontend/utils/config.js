@@ -4,6 +4,9 @@
 // export const BASE_URL = 'http://192.168.4.142:8080'
 // export const BASE_URL = 'http://192.168.4.2:8080'
 export const BASE_URL = 'http://localhost:8080'
+// Keep this list aligned with AppBackend's AI_ASSISTANT_PUBLIC_RESOURCE_HOSTS.
+// Empty is intentionally fail-closed: only same-origin /uploads and owned exports remain usable.
+export const ASSISTANT_PUBLIC_RESOURCE_HOSTS = []
 // export const BASE_URL = 'http://192.168.43.6:8080'
 // export const BASE_URL = 'http://192.168.4.2:8080'
 export const MAP_PROVIDER = 'amap'
