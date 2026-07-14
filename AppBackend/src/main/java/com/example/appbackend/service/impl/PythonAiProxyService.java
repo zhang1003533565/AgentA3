@@ -31,10 +31,10 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.BiConsumer;
 import java.util.regex.Pattern;
 
 @Service
@@ -69,6 +69,11 @@ public class PythonAiProxyService {
             byte[] bytes,
             MediaType contentType,
             long declaredLength) {
+    }
+
+    @FunctionalInterface
+    public interface SseEventHandler {
+        boolean handle(String eventName, Object eventPayload);
     }
 
     public PythonAiProxyService(WebClient.Builder webClientBuilder,
@@ -274,7 +279,7 @@ public class PythonAiProxyService {
 
     public SseEmitter streamRag(Map<String, Object> request,
                                 String authorization,
-                                BiConsumer<String, Object> eventConsumer) {
+                                SseEventHandler eventHandler) {
         String requestedModel = resolveRequestedModel(request);
         if (!StringUtils.hasText(requestedModel)) {
             throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
@@ -285,7 +290,7 @@ public class PythonAiProxyService {
                 sanitized,
                 authorization,
                 requestedModel,
-                eventConsumer
+                eventHandler
         );
     }
 
@@ -423,18 +428,18 @@ public class PythonAiProxyService {
         validateAuthorization(authorization);
         String token = normalizeBearerToken(authorization);
         Long userId = extractUserId(token);
-        return streamPythonObject(path, request, authorization, userId, requestedModel, (BiConsumer<String, Object>) null);
+        return streamPythonObject(path, request, authorization, userId, requestedModel, (SseEventHandler) null);
     }
 
     private SseEmitter streamPythonObject(String path,
                                          Object request,
                                          String authorization,
                                          String requestedModel,
-                                         BiConsumer<String, Object> eventConsumer) {
+                                         SseEventHandler eventHandler) {
         validateAuthorization(authorization);
         String token = normalizeBearerToken(authorization);
         Long userId = extractUserId(token);
-        return streamPythonObject(path, request, authorization, userId, requestedModel, eventConsumer);
+        return streamPythonObject(path, request, authorization, userId, requestedModel, eventHandler);
     }
 
     private SseEmitter streamPythonObject(String path,
@@ -442,7 +447,7 @@ public class PythonAiProxyService {
                                          String authorization,
                                          Long userId,
                                          String requestedModel,
-                                         BiConsumer<String, Object> eventConsumer) {
+                                         SseEventHandler eventHandler) {
         SseEmitter emitter = new SseEmitter(0L);
         CompletableFuture.runAsync(() -> {
             try {
@@ -457,17 +462,31 @@ public class PythonAiProxyService {
                         .retrieve()
                         .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
                         .timeout(Duration.ofSeconds(timeoutSeconds))
-                        .doOnNext(event -> relaySseEvent(event, emitter, eventConsumer))
+                        .doOnNext(event -> relaySseEvent(event, emitter, eventHandler))
                         .blockLast();
                 log.info("python stream relay completed path={}", path);
                 emitter.complete();
             } catch (Exception e) {
-                log.error("python stream relay failed path={}", path, e);
-                try {
-                    emitter.send(SseEmitter.event()
-                            .name("error")
-                            .data(Map.of("message", "Python AI 流式服务异常: " + e.getMessage()), MediaType.APPLICATION_JSON));
-                } catch (Exception ignored) {
+                log.error("python stream relay failed path={} errorType={}", path, e.getClass().getSimpleName());
+                Map<String, Object> failure = new LinkedHashMap<>();
+                failure.put("message", "Python AI 流式服务暂时不可用，请稍后再试。");
+                boolean relay = eventHandler == null;
+                if (eventHandler != null) {
+                    try {
+                        relay = eventHandler.handle("error", failure);
+                    } catch (Exception handlerError) {
+                        log.error("python stream failure handler rejected errorType={}",
+                                handlerError.getClass().getSimpleName());
+                        relay = false;
+                    }
+                }
+                if (relay) {
+                    try {
+                        emitter.send(SseEmitter.event()
+                                .name("error")
+                                .data(failure, MediaType.APPLICATION_JSON));
+                    } catch (Exception ignored) {
+                    }
                 }
                 emitter.completeWithError(e);
             }
@@ -475,14 +494,14 @@ public class PythonAiProxyService {
         return emitter;
     }
 
-    private void relaySseEvent(ServerSentEvent<String> sourceEvent,
-                               SseEmitter emitter,
-                               BiConsumer<String, Object> eventConsumer) {
+    void relaySseEvent(ServerSentEvent<String> sourceEvent,
+                       SseEmitter emitter,
+                       SseEventHandler eventHandler) {
         String eventName = safeSseEventName(sourceEvent.event());
         String rawData = sourceEvent.data();
         Object payload = parsePayload(rawData);
-        if (eventConsumer != null) {
-            eventConsumer.accept(eventName, payload);
+        if (eventHandler != null && !eventHandler.handle(eventName, payload)) {
+            return;
         }
 
         log.info("relay sse event event={}", eventName);

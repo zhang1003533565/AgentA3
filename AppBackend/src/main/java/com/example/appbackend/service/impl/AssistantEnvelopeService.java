@@ -29,6 +29,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.util.UriUtils;
 import org.springframework.beans.factory.annotation.Value;
 
+import java.net.InetAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -58,9 +59,21 @@ public class AssistantEnvelopeService {
     private static final int MAX_EXCERPT_CHARS = 800;
     private static final int MAX_ENVELOPE_BYTES = 256 * 1024;
     private static final int MAX_RAW_ENVELOPE_BYTES = 2 * 1024 * 1024;
+    private static final int MAX_CAPABILITY_LENGTH = 2_048;
+    private static final int MAX_CAPABILITY_COUNT = 64;
+    private static final int MAX_INTERNAL_REFERENCE_SCAN_LENGTH = 32 * 1_024;
+    private static final String SAFE_UNAVAILABLE_ANSWER = "内容暂不可用。";
     private static final Pattern IDENTIFIER = Pattern.compile("[A-Za-z0-9:_-]{1,160}");
     private static final Pattern SHA256 = Pattern.compile("(?:sha256:)?[0-9a-f]{64}");
     private static final Pattern EVIDENCE_DIGEST = Pattern.compile("sha256:[0-9a-f]{64}");
+    private static final Pattern RESERVED_IPV4_REFERENCE = Pattern.compile(
+            "(?i)(?<![0-9])(?:127\\.|169\\.254(?:\\.|(?![0-9]))|0\\.0\\.0\\.0(?![0-9])|"
+                    + "10\\.|192\\.168\\.|172\\.(?:1[6-9]|2[0-9]|3[01])\\.)");
+    private static final Pattern RESERVED_IPV6_REFERENCE = Pattern.compile(
+            "(?i)(?:\\[::1\\]|(?<![0-9a-f])::1(?![0-9a-f])|"
+                    + "\\[?fe[89ab][0-9a-f]:[0-9a-f:]+\\]?|"
+                    + "\\[?f[cd][0-9a-f]{2}:[0-9a-f:]+\\]?)");
+    private static final Pattern BRACKETED_IP_LITERAL = Pattern.compile("\\[([0-9A-Fa-f:.]+)]");
     private static final Pattern STORAGE_KEY = Pattern.compile(
             "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.[a-z0-9]{1,16}");
     private static final Set<String> RESOURCE_KINDS = Set.of(
@@ -104,12 +117,22 @@ public class AssistantEnvelopeService {
     private static final Set<String> ACTION_TYPES = Set.of("open_resource", "download", "preview", "follow_up");
     private static final Set<String> EVIDENCE_STATES = Set.of(
             "available", "legacy_missing", "malformed", "integrity_failed", "generation_failed");
+    private static final Set<String> INTERNAL_CAPABILITY_KEYS = Set.of(
+            "internalcapability", "pythoncapability", "exportcapability", "capability");
     private static final Set<String> SAFE_METADATA_KEYS = Set.of(
             "source", "sourceId", "sourceType", "sourceVersion", "retrievedAt", "title", "type", "kind",
             "time", "location", "route", "status", "legacy", "serverGenerated");
     private static final Set<String> SAFE_STEP_DETAIL_KEYS = Set.of(
             "agentName", "targetAgent", "toolName", "toolDisplayName", "routeReason", "intent",
             "resultCount", "documentCount", "strategy", "summarizedByModel");
+    private static final Set<String> DEFAULT_SSE_FIELDS = Set.of(
+            "message", "status", "stage", "progress");
+    private static final Map<String, Set<String>> SSE_EVENT_FIELDS = Map.of(
+            "status", Set.of("message", "status", "stage", "progress", "agentName"),
+            "tool_start", Set.of("message", "status", "stage", "agentName", "toolName", "toolDisplayName"),
+            "session", Set.of("message", "status", "sessionId"),
+            "search", Set.of("message", "status", "query", "keyword", "resultCount", "documentCount"),
+            "delta", Set.of("content", "delta", "answer", "index", "status"));
     private static final Set<String> FORBIDDEN_KEYS = Set.of(
             "userid", "sellerid", "phone", "contact", "memberlist", "participants", "transcript", "token",
             "raw", "authorization", "apikey", "capability", "profile");
@@ -137,25 +160,53 @@ public class AssistantEnvelopeService {
         this.allowedPublicHosts = parseAllowedHosts(allowedPublicHosts);
     }
 
-    public record PreparedEnvelope(List<Map<String, Object>> internalAttachments) {
+    public record PreparedEnvelope(List<Map<String, Object>> internalAttachments,
+                                   Set<String> internalCapabilities) {
+        @Override
+        public String toString() {
+            return "PreparedEnvelope[internalAttachments=<redacted>]";
+        }
+    }
+
+    public record CapabilityScan(Set<String> values, boolean malformed) {
     }
 
     public PreparedEnvelope prepareLiveResponse(LlmChatResponse response,
                                                 Map<String, Object> rawResult,
                                                 String expectedQuery) {
-        response.setOutputMeta(sanitizeGenericMap(response.getOutputMeta(), 0));
-        response.setRetrievalMeta(sanitizeGenericMap(response.getRetrievalMeta(), 0));
-        response.setTrace(sanitizeTrace(response.getTrace()));
+        return prepareLiveResponse(response, rawResult, expectedQuery, Set.of());
+    }
+
+    public PreparedEnvelope prepareLiveResponse(LlmChatResponse response,
+                                                Map<String, Object> rawResult,
+                                                String expectedQuery,
+                                                Set<String> knownCapabilities) {
+        CapabilityScan capabilityScan = scanInternalCapabilities(rawResult);
+        CapabilityScan mergedCapabilities = mergeInternalCapabilities(
+                knownCapabilities, capabilityScan.values());
+        if (capabilityScan.malformed() || mergedCapabilities.malformed()) {
+            failClosedResponse(response, expectedQuery);
+            return new PreparedEnvelope(List.of(), Set.of());
+        }
+        Set<String> capabilities = mergedCapabilities.values();
+        sanitizeResponseScalars(response, capabilities);
+        response.setOutputMeta(withoutCapabilityValues(sanitizeGenericMap(response.getOutputMeta(), 0), capabilities));
+        response.setRetrievalMeta(withoutCapabilityValues(sanitizeGenericMap(response.getRetrievalMeta(), 0), capabilities));
+        response.setTrace(withoutCapabilityMaps(sanitizeTrace(response.getTrace()), capabilities));
         Object matched = rawResult.containsKey("documents") ? rawResult.get("documents") : rawResult.get("matchedResults");
-        response.setMatchedResults(sanitizeMatchedResults(matched));
+        response.setMatchedResults(withoutCapabilityMaps(sanitizeMatchedResults(matched), capabilities));
         List<Map<String, Object>> internalAttachments = mapList(rawResult.get("attachments"));
-        response.setAttachments(sanitizeAttachments(internalAttachments));
+        response.setAttachments(sanitizeAttachments(internalAttachments, capabilities));
         Object rawResources = rawResult.get("resources");
-        List<AssistantResourceDTO> resources = sanitizeResources(rawResources, false);
+        List<AssistantResourceDTO> resources = sanitizeResources(rawResources, false, capabilities);
         boolean resourcesTruncated = mapList(rawResources).size() > MAX_RESOURCES;
         AssistantEvidenceChainDTO chain = validateEvidence(
                 rawResult.get("evidenceChain"), resources, "generation_failed",
-                response.getAnswer(), expectedQuery, resourcesTruncated);
+                response.getAnswer(), expectedQuery, resourcesTruncated, capabilities);
+        if (containsCapability(objectMapper.convertValue(
+                chain, new TypeReference<Map<String, Object>>() { }), capabilities)) {
+            chain = stateChain("generation_failed", chain.isTruncated());
+        }
         if (!"available".equals(chain.getEvidenceState())) {
             downgradeUntrustedGrounding(resources);
             chain = sealFailureChain(chain, resources, response, expectedQuery);
@@ -163,7 +214,121 @@ public class AssistantEnvelopeService {
         fitEnvelope(resources, chain);
         response.setResources(resources);
         response.setEvidenceChain(chain);
-        return new PreparedEnvelope(copyMapList(internalAttachments));
+        return new PreparedEnvelope(copyMapList(internalAttachments), capabilities);
+    }
+
+    public CapabilityScan scanInternalCapabilities(Object rawValue) {
+        Set<String> capabilities = new LinkedHashSet<>();
+        boolean malformed = collectInternalCapabilities(rawValue, 0, capabilities);
+        return new CapabilityScan(Set.copyOf(capabilities), malformed);
+    }
+
+    public Set<String> internalCapabilities(Map<String, Object> rawResult) {
+        CapabilityScan scan = scanInternalCapabilities(rawResult);
+        return scan.malformed() ? Set.of() : scan.values();
+    }
+
+    public CapabilityScan mergeInternalCapabilities(Set<String> existing, Set<String> discovered) {
+        Set<String> merged = new LinkedHashSet<>();
+        if (existing != null) {
+            merged.addAll(existing);
+        }
+        if (discovered != null) {
+            merged.addAll(discovered);
+        }
+        boolean malformed = merged.size() > MAX_CAPABILITY_COUNT
+                || merged.stream().anyMatch(value -> !StringUtils.hasText(value)
+                || value.length() > MAX_CAPABILITY_LENGTH);
+        return new CapabilityScan(malformed ? Set.of() : Set.copyOf(merged), malformed);
+    }
+
+    private boolean collectInternalCapabilities(Object value,
+                                                int depth,
+                                                Set<String> capabilities) {
+        if (value == null) {
+            return false;
+        }
+        if (depth > 32) {
+            return true;
+        }
+        if (value instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                String normalizedKey = String.valueOf(entry.getKey())
+                        .replaceAll("[^A-Za-z0-9]", "")
+                        .toLowerCase(Locale.ROOT);
+                Object item = entry.getValue();
+                if (INTERNAL_CAPABILITY_KEYS.contains(normalizedKey)) {
+                    if (!(item instanceof String capability)
+                            || !StringUtils.hasText(capability)
+                            || capability.length() > MAX_CAPABILITY_LENGTH) {
+                        return true;
+                    }
+                    capabilities.add(capability);
+                    if (capabilities.size() > MAX_CAPABILITY_COUNT) {
+                        return true;
+                    }
+                }
+                if (collectInternalCapabilities(item, depth + 1, capabilities)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (value instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                if (collectInternalCapabilities(item, depth + 1, capabilities)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void failClosedResponse(LlmChatResponse response, String expectedQuery) {
+        response.setSessionToken(null);
+        response.setModel("");
+        response.setRagStrategy("");
+        response.setAgentName("leader_agent");
+        response.setSearchKeyword("");
+        response.setMatchedResults(List.of());
+        response.setRetrievalMeta(Map.of());
+        response.setTrace(List.of());
+        response.setAnswer(SAFE_UNAVAILABLE_ANSWER);
+        response.setAnswerType("text");
+        response.setOutputType("text");
+        response.setOutputTypes(List.of("text"));
+        response.setOutputMeta(Map.of());
+        response.setAttachments(List.of());
+        response.setResources(List.of());
+        AssistantEvidenceChainDTO chain = sealFailureChain(
+                stateChain("generation_failed", false), List.of(), response, expectedQuery);
+        response.setEvidenceChain(chain);
+    }
+
+    public void sanitizeSseEventPayload(String eventName,
+                                        Object eventPayload,
+                                        Set<String> internalCapabilities) {
+        if (!(eventPayload instanceof Map<?, ?> source)) {
+            return;
+        }
+        Set<String> allowed = SSE_EVENT_FIELDS.getOrDefault(eventName, DEFAULT_SSE_FIELDS);
+        Map<String, Object> safe = new LinkedHashMap<>();
+        for (String key : allowed) {
+            Object value = source.get(key);
+            if (value instanceof Number number && finite(number)) {
+                safe.put(key, value);
+            } else if (value instanceof Boolean) {
+                safe.put(key, value);
+            } else if (value instanceof String text
+                    && text.length() <= 1_000
+                    && !unsafePublicText(text, internalCapabilities)) {
+                safe.put(key, text);
+            }
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> target = (Map<String, Object>) source;
+        target.clear();
+        target.putAll(safe);
     }
 
     @Transactional
@@ -171,7 +336,16 @@ public class AssistantEnvelopeService {
                                                    AiLeaderSession session,
                                                    LlmChatResponse response,
                                                    List<Map<String, Object>> internalAttachments,
+                                                   Set<String> knownCapabilities,
                                                    AiLeaderMessage existing) {
+        CapabilityScan capabilityScan = scanInternalCapabilities(
+                internalAttachments == null ? List.of() : internalAttachments);
+        CapabilityScan mergedCapabilities = mergeInternalCapabilities(
+                knownCapabilities, capabilityScan.values());
+        if (capabilityScan.malformed() || mergedCapabilities.malformed()) {
+            throw new IllegalStateException("assistant capability manifest validation failed");
+        }
+        assertPublicResponseSafe(response, mergedCapabilities.values());
         AiLeaderMessage message = existing == null ? new AiLeaderMessage() : existing;
         if (existing == null) {
             message.setLeaderSessionId(session.getId());
@@ -185,13 +359,23 @@ public class AssistantEnvelopeService {
         }
         response.setMessageId(message.getId());
         bindGeneratedExports(userId, session, message, response, internalAttachments);
+        assertPublicResponseSafe(response, mergedCapabilities.values());
         fillMessage(message, response);
         return messageRepository.save(message);
+    }
+
+    private void assertPublicResponseSafe(LlmChatResponse response, Set<String> capabilities) {
+        Map<String, Object> publicResponse = objectMapper.convertValue(
+                response, new TypeReference<Map<String, Object>>() { });
+        if (containsCapability(publicResponse, capabilities) || containsInternalUrl(publicResponse)) {
+            throw new IllegalStateException("assistant public response safety validation failed");
+        }
     }
 
     public void restoreEnvelope(AiLeaderMessage message,
                                 AiLeaderMessageItem item,
                                 String expectedQuery) {
+        sanitizeHistoryItem(item);
         FieldRead<List<Map<String, Object>>> matched = readMatchedResults(message);
         FieldRead<List<AssistantResourceDTO>> resourceRead = readResources(message);
         FieldRead<List<Map<String, Object>>> attachments = readAttachments(message);
@@ -209,18 +393,31 @@ public class AssistantEnvelopeService {
         item.setAttachments(attachments.value());
     }
 
+    private void sanitizeHistoryItem(AiLeaderMessageItem item) {
+        item.setContent(safePublicText(item.getContent(), SAFE_UNAVAILABLE_ANSWER, Set.of()));
+        item.setAnswerType(safeEvidenceText(item.getAnswerType(), "text", Set.of()));
+        item.setOutputType(safeEvidenceText(item.getOutputType(), "text", Set.of()));
+        item.setAgentName(safeEvidenceText(item.getAgentName(), "leader_agent", Set.of()));
+        item.setSearchKeyword(safePublicText(item.getSearchKeyword(), "", Set.of()));
+        item.setOutputTypes(item.getOutputTypes() == null ? List.of() : item.getOutputTypes().stream()
+                .map(value -> safePublicText(value, "", Set.of()))
+                .filter(StringUtils::hasText)
+                .toList());
+        item.setOutputMeta(withoutCapabilityValues(item.getOutputMeta(), Set.of()));
+        item.setRetrievalMeta(withoutCapabilityValues(item.getRetrievalMeta(), Set.of()));
+        item.setTrace(withoutCapabilityMaps(item.getTrace(), Set.of()));
+    }
+
     public void overwriteSsePayload(Object eventPayload, LlmChatResponse response) {
         if (response == null || !(eventPayload instanceof Map<?, ?> source)) {
             return;
         }
         @SuppressWarnings("unchecked")
         Map<String, Object> target = (Map<String, Object>) source;
-        target.put("messageId", response.getMessageId());
-        target.put("sessionId", response.getSessionId());
-        target.put("matchedResults", response.getMatchedResults());
-        target.put("attachments", response.getAttachments());
-        target.put("resources", response.getResources());
-        target.put("evidenceChain", response.getEvidenceChain());
+        Map<String, Object> replacement = objectMapper.convertValue(
+                response, new TypeReference<Map<String, Object>>() { });
+        target.clear();
+        target.putAll(replacement);
     }
 
     private void bindGeneratedExports(Long userId,
@@ -228,6 +425,8 @@ public class AssistantEnvelopeService {
                                       AiLeaderMessage message,
                                       LlmChatResponse response,
                                       List<Map<String, Object>> internalAttachments) {
+        Set<String> capabilities = internalCapabilities(Map.of(
+                "attachments", internalAttachments == null ? List.of() : internalAttachments));
         List<AssistantResourceDTO> resources = response.getResources() == null
                 ? new ArrayList<>() : new ArrayList<>(response.getResources());
         Map<String, List<AssistantResourceDTO>> resourcesByStorage = new HashMap<>();
@@ -297,7 +496,7 @@ public class AssistantEnvelopeService {
         }
         response.setResources(resources);
 
-        List<Map<String, Object>> attachments = sanitizeAttachments(internalAttachments);
+        List<Map<String, Object>> attachments = sanitizeAttachments(internalAttachments, capabilities);
         for (Map<String, Object> attachment : attachments) {
             String storageKey = text(attachment.get("storageKey"), 300);
             if (downloadUrls.containsKey(storageKey)) {
@@ -337,6 +536,10 @@ public class AssistantEnvelopeService {
         Instant expiresAt = strictUtcInstant(attachment.get("expiresAt"));
         if (!STORAGE_KEY.matcher(storageKey).matches()
                 || !StringUtils.hasText(capability)
+                || containsCapability(fileName, Set.of(capability))
+                || containsCapability(mimeType, Set.of(capability))
+                || isInternalReference(fileName)
+                || isInternalReference(mimeType)
                 || !SHA256.matcher(digest).matches()
                 || size == null
                 || !StringUtils.hasText(fileName)
@@ -436,7 +639,7 @@ public class AssistantEnvelopeService {
             return new FieldRead<>(List.of(), true);
         }
         List<Map<String, Object>> raw = mapList(objectMapper.convertValue(node, Object.class));
-        List<Map<String, Object>> sanitized = sanitizeMatchedResults(raw);
+        List<Map<String, Object>> sanitized = withoutCapabilityMaps(sanitizeMatchedResults(raw), Set.of());
         boolean malformed = raw.size() != node.size() || sanitized.size() != Math.min(raw.size(), MAX_MATCHED_RESULTS);
         if (malformed) {
             logMalformedField(message.getId(), "matchedResults", "typedValidation");
@@ -470,11 +673,19 @@ public class AssistantEnvelopeService {
             return stateChain("legacy_missing", false);
         }
         JsonNode node = readJson(message.getId(), "evidenceChain", message.getEvidenceChainJson());
-        if (node == null || !node.isObject()) {
+        if (node == null) {
             return stateChain("malformed", false);
         }
-        return validateEvidence(node, resources, "integrity_failed",
-                message.getContent(), expectedQuery, false);
+        if (!node.isObject()) {
+            logMalformedField(message.getId(), "evidenceChain", "rootType");
+            return stateChain("malformed", false);
+        }
+        EvidenceValidation validation = validateEvidenceResult(node, resources, "malformed",
+                message.getContent(), expectedQuery, false, Set.of());
+        if (validation.failure() == EvidenceFailure.TYPED_VALIDATION) {
+            logMalformedField(message.getId(), "evidenceChain", "typedValidation");
+        }
+        return validation.chain();
     }
 
     private FieldRead<List<Map<String, Object>>> readAttachments(AiLeaderMessage message) {
@@ -546,11 +757,20 @@ public class AssistantEnvelopeService {
     }
 
     private List<AssistantResourceDTO> sanitizeResources(Object value, boolean persisted) {
+        return sanitizeResources(value, persisted, Set.of());
+    }
+
+    private List<AssistantResourceDTO> sanitizeResources(Object value,
+                                                          boolean persisted,
+                                                          Set<String> capabilities) {
         List<AssistantResourceDTO> result = new ArrayList<>();
         Set<String> ids = new HashSet<>();
         for (Map<String, Object> raw : mapList(value)) {
             if (result.size() >= MAX_RESOURCES) {
                 break;
+            }
+            if (containsCapability(raw, capabilities) || unsafeResourceInternalText(raw, persisted)) {
+                continue;
             }
             Optional<AssistantResourceDTO> parsed = sanitizeResource(raw, persisted);
             if (parsed.isPresent() && ids.add(parsed.get().getId())) {
@@ -558,6 +778,19 @@ public class AssistantEnvelopeService {
             }
         }
         return result;
+    }
+
+    private boolean unsafeResourceInternalText(Map<String, Object> raw, boolean persisted) {
+        if (!containsInternalUrl(raw)) {
+            return false;
+        }
+        if (!persisted) {
+            return true;
+        }
+        Map<String, Object> withoutLegacyUrls = new LinkedHashMap<>(raw);
+        withoutLegacyUrls.remove("url");
+        withoutLegacyUrls.remove("previewUrl");
+        return containsInternalUrl(withoutLegacyUrls);
     }
 
     private Optional<AssistantResourceDTO> sanitizeResource(Map<String, Object> raw, boolean persisted) {
@@ -668,7 +901,7 @@ public class AssistantEnvelopeService {
         resource.setPayload(payload.get());
         resource.setMetadata(safeMetadata(mapValue(raw.get("metadata"))));
         resource.setAvailability(StringUtils.hasText(availability) ? availability : null);
-        if (isLegacyInternalUrl(raw.get("url")) || isLegacyInternalUrl(raw.get("previewUrl"))) {
+        if (isInternalReference(raw.get("url")) || isInternalReference(raw.get("previewUrl"))) {
             markLegacyUnavailable(resource);
         }
         return Optional.of(resource);
@@ -795,19 +1028,43 @@ public class AssistantEnvelopeService {
                 && payloadDigest.equals(integrity.getDigest());
     }
 
+    private enum EvidenceFailure {
+        NONE,
+        TYPED_VALIDATION,
+        INTEGRITY
+    }
+
+    private record EvidenceValidation(AssistantEvidenceChainDTO chain, EvidenceFailure failure) {
+    }
+
     private AssistantEvidenceChainDTO validateEvidence(Object value,
                                                         List<AssistantResourceDTO> resources,
                                                         String invalidState,
                                                         String expectedAnswer,
                                                         String expectedQuery,
-                                                        boolean resourcesTruncated) {
+                                                        boolean resourcesTruncated,
+                                                        Set<String> capabilities) {
+        return validateEvidenceResult(value, resources, invalidState, expectedAnswer, expectedQuery,
+                resourcesTruncated, capabilities).chain();
+    }
+
+    private EvidenceValidation validateEvidenceResult(Object value,
+                                                       List<AssistantResourceDTO> resources,
+                                                       String invalidState,
+                                                       String expectedAnswer,
+                                                       String expectedQuery,
+                                                       boolean resourcesTruncated,
+                                                       Set<String> capabilities) {
         JsonNode node = value instanceof JsonNode jsonNode ? jsonNode : objectMapper.valueToTree(value);
         if (node == null || !node.isObject()) {
-            return stateChain(invalidState, false);
+            return typedEvidenceFailure(invalidState, false);
         }
         try {
             if (objectMapper.writeValueAsBytes(node).length > MAX_RAW_ENVELOPE_BYTES) {
-                return stateChain(invalidState, true);
+                return typedEvidenceFailure(invalidState, true);
+            }
+            if (!validEvidenceNodeTypes(node)) {
+                return typedEvidenceFailure(invalidState, false);
             }
             JsonNode integrityNode = node.path("integrity");
             String expectedDigest = integrityNode.path("digest").asText("");
@@ -815,49 +1072,50 @@ public class AssistantEnvelopeService {
                     || !"SHA-256".equals(integrityNode.path("algorithm").asText())
                     || !"canonical-json-without-integrity".equals(integrityNode.path("scope").asText())
                     || integrityNode.path("signed").asBoolean(true)
-                    || !EVIDENCE_DIGEST.matcher(expectedDigest).matches()
-                    || !expectedDigest.equals(canonicalEvidenceDigest(node))) {
-                return stateChain("integrity_failed", false);
-            }
-            if (!validEvidenceNodeTypes(node)) {
-                return stateChain(invalidState, false);
+                    || !EVIDENCE_DIGEST.matcher(expectedDigest).matches()) {
+                return typedEvidenceFailure(invalidState, false);
             }
             AssistantEvidenceChainDTO chain = objectMapper.treeToValue(node, AssistantEvidenceChainDTO.class);
             if (!validDigest(chain.getQueryDigest())
                     || !validDigest(chain.getAnswerDigest())
                     || !utcTimestamp(chain.getGeneratedAt())) {
-                return stateChain("integrity_failed", false);
+                return typedEvidenceFailure(invalidState, false);
             }
             if (!GROUNDING_STATUSES.contains(chain.getStatus())
                     || !EVIDENCE_STATES.contains(chain.getEvidenceState())
                     || !IDENTIFIER.matcher(defaultText(chain.getChainId(), "")).matches()
                     || !IDENTIFIER.matcher(defaultText(chain.getRequestId(), "")).matches()
                     || chain.getGeneration() == null
-                    || !validGeneration(chain)
+                    || !validGeneration(chain, capabilities)
                     || chain.getSources() == null
                     || chain.getSteps() == null
                     || chain.getResourceLinks() == null
-                    || !validSources(chain.getSources())
-                    || !validSteps(chain.getSteps())
+                    || !validSources(chain.getSources(), capabilities)
+                    || !validSteps(chain.getSteps(), capabilities)
                     || !validResourceLinks(
                     resources, chain.getResourceLinks(), chain.getSources(), resourcesTruncated)) {
-                return stateChain(invalidState, false);
+                return typedEvidenceFailure(invalidState, false);
+            }
+            if (!expectedDigest.equals(canonicalEvidenceDigest(node))) {
+                return integrityEvidenceFailure(false);
             }
             if (!chain.getAnswerDigest().equals(sha256Text(expectedAnswer))) {
-                return stateChain("integrity_failed", false);
+                return integrityEvidenceFailure(false);
             }
             if (expectedQuery != null && !chain.getQueryDigest().equals(sha256Text(expectedQuery))) {
-                return stateChain("integrity_failed", false);
+                return integrityEvidenceFailure(false);
             }
             if (!"available".equals(chain.getEvidenceState())) {
-                return "model_only".equals(chain.getStatus())
+                AssistantEvidenceChainDTO result = "model_only".equals(chain.getStatus())
                         && chain.getSources().isEmpty()
                         && chain.getSteps().isEmpty()
                         ? chain : stateChain(invalidState, false);
+                return new EvidenceValidation(result,
+                        result == chain ? EvidenceFailure.NONE : EvidenceFailure.TYPED_VALIDATION);
             }
             boolean hasSources = !chain.getSources().isEmpty();
             if ("grounded".equals(chain.getStatus()) != hasSources) {
-                return stateChain(invalidState, false);
+                return typedEvidenceFailure(invalidState, false);
             }
             boolean truncated = resourcesTruncated || chain.getSources().size() > MAX_SOURCES
                     || chain.getSteps().size() > 20
@@ -876,13 +1134,21 @@ public class AssistantEnvelopeService {
             rebuildResourceLinks(chain, resources);
             chain.setTruncated(chain.isTruncated() || truncated);
             refreshEvidenceIntegrity(chain);
-            return chain;
+            return new EvidenceValidation(chain, EvidenceFailure.NONE);
         } catch (Exception error) {
-            return stateChain(invalidState, false);
+            return typedEvidenceFailure(invalidState, false);
         }
     }
 
-    private boolean validSources(List<AssistantEvidenceSource> sources) {
+    private EvidenceValidation typedEvidenceFailure(String state, boolean truncated) {
+        return new EvidenceValidation(stateChain(state, truncated), EvidenceFailure.TYPED_VALIDATION);
+    }
+
+    private EvidenceValidation integrityEvidenceFailure(boolean truncated) {
+        return new EvidenceValidation(stateChain("integrity_failed", truncated), EvidenceFailure.INTEGRITY);
+    }
+
+    private boolean validSources(List<AssistantEvidenceSource> sources, Set<String> capabilities) {
         if (sources.size() > 200) {
             return false;
         }
@@ -903,6 +1169,15 @@ public class AssistantEnvelopeService {
                     || !utcTimestamp(source.getRetrievedAt())
                     || !boundedText(source.getSourceVersion(), 128)
                     || !boundedText(source.getAccessScope(), 80)
+                    || unsafePublicText(source.getEvidenceId(), capabilities)
+                    || unsafePublicText(source.getSourceType(), capabilities)
+                    || unsafePublicText(source.getSourceId(), capabilities)
+                    || unsafePublicText(source.getTitle(), capabilities)
+                    || unsafePublicText(source.getExcerpt(), capabilities)
+                    || unsafePublicText(source.getSourceVersion(), capabilities)
+                    || unsafePublicText(source.getAccessScope(), capabilities)
+                    || containsCapability(source.getMetadata(), capabilities)
+                    || metadataHasUnsafePublicText(source.getMetadata(), capabilities)
                     || !safeMetadata(source.getMetadata()).equals(source.getMetadata() == null ? Map.of() : source.getMetadata())) {
                 return false;
             }
@@ -910,12 +1185,24 @@ public class AssistantEnvelopeService {
         return true;
     }
 
-    private boolean validGeneration(AssistantEvidenceChainDTO chain) {
+    private boolean metadataHasUnsafePublicText(Map<String, Object> metadata, Set<String> capabilities) {
+        if (metadata == null) {
+            return false;
+        }
+        return metadata.entrySet().stream().anyMatch(entry ->
+                forbidden(entry.getKey())
+                        || entry.getValue() instanceof String text && unsafePublicText(text, capabilities));
+    }
+
+    private boolean validGeneration(AssistantEvidenceChainDTO chain, Set<String> capabilities) {
         return StringUtils.hasText(chain.getGeneration().getAgent())
                 && StringUtils.hasText(chain.getGeneration().getAnswerType())
                 && boundedText(chain.getGeneration().getAgent(), 64)
                 && boundedText(chain.getGeneration().getModel(), 128)
-                && boundedText(chain.getGeneration().getAnswerType(), 64);
+                && boundedText(chain.getGeneration().getAnswerType(), 64)
+                && !unsafePublicText(chain.getGeneration().getAgent(), capabilities)
+                && !unsafePublicText(chain.getGeneration().getModel(), capabilities)
+                && !unsafePublicText(chain.getGeneration().getAnswerType(), capabilities);
     }
 
     private boolean validEvidenceNodeTypes(JsonNode node) {
@@ -993,12 +1280,14 @@ public class AssistantEnvelopeService {
         return true;
     }
 
-    private boolean validSteps(List<AssistantEvidenceStep> steps) {
+    private boolean validSteps(List<AssistantEvidenceStep> steps, Set<String> capabilities) {
         if (steps.size() > 100) {
             return false;
         }
         for (AssistantEvidenceStep step : steps) {
-            if (step == null || !IDENTIFIER.matcher(defaultText(step.getStage(), "")).matches()) {
+            if (step == null
+                    || !IDENTIFIER.matcher(defaultText(step.getStage(), "")).matches()
+                    || unsafePublicText(step.getStage(), capabilities)) {
                 return false;
             }
             Map<String, Object> detail = step.getDetail() == null ? Map.of() : step.getDetail();
@@ -1014,7 +1303,7 @@ public class AssistantEnvelopeService {
                     return false;
                 }
                 if (item instanceof String text
-                        && (text.length() > 300 || isLegacyInternalUrl(text) || forbiddenText(text))) {
+                        && (text.length() > 300 || unsafePublicText(text, capabilities))) {
                     return false;
                 }
             }
@@ -1164,6 +1453,10 @@ public class AssistantEnvelopeService {
     }
 
     private List<Map<String, Object>> sanitizeAttachments(Object value) {
+        return sanitizeAttachments(value, Set.of());
+    }
+
+    private List<Map<String, Object>> sanitizeAttachments(Object value, Set<String> capabilities) {
         List<Map<String, Object>> result = new ArrayList<>();
         Set<String> allowed = Set.of(
                 "name", "fileName", "title", "type", "ext", "mimeType", "toolName", "formatLabel",
@@ -1205,12 +1498,14 @@ public class AssistantEnvelopeService {
                     putText(safe, key, item, Set.of("name", "fileName", "title").contains(key) ? 240 : 300);
                 }
             }
-            if (isLegacyInternalUrl(raw.get("url")) || isLegacyInternalUrl(raw.get("previewUrl"))) {
+            if (isInternalReference(raw.get("url")) || isInternalReference(raw.get("previewUrl"))) {
                 safe.remove("url");
                 safe.remove("previewUrl");
                 safe.put("status", "legacy_unavailable");
             }
-            if (!safe.isEmpty()) {
+            if (!safe.isEmpty()
+                    && !containsCapability(safe, capabilities)
+                    && !containsInternalUrl(safe)) {
                 result.add(safe);
             }
         }
@@ -1219,7 +1514,7 @@ public class AssistantEnvelopeService {
 
     private boolean invalidAttachmentUrl(Object value, Object storageKeyValue) {
         String raw = text(value, 1_000);
-        if (!StringUtils.hasText(raw) || isLegacyInternalUrl(raw)) {
+        if (!StringUtils.hasText(raw) || isInternalReference(raw)) {
             return false;
         }
         String safe = safeUrl(raw);
@@ -1291,6 +1586,101 @@ public class AssistantEnvelopeService {
             }
         }
         return safe;
+    }
+
+    private void sanitizeResponseScalars(LlmChatResponse response, Set<String> capabilities) {
+        if (response == null) {
+            return;
+        }
+        response.setSessionId(safePublicText(response.getSessionId(), null, capabilities));
+        response.setSessionToken(safePublicText(response.getSessionToken(), null, capabilities));
+        response.setModel(safeEvidenceText(response.getModel(), "", capabilities));
+        response.setRagStrategy(safeEvidenceText(response.getRagStrategy(), "", capabilities));
+        response.setAgentName(safeEvidenceText(response.getAgentName(), "leader_agent", capabilities));
+        response.setSearchKeyword(safePublicText(response.getSearchKeyword(), "", capabilities));
+        response.setAnswer(safePublicText(response.getAnswer(), SAFE_UNAVAILABLE_ANSWER, capabilities));
+        response.setAnswerType(safeEvidenceText(response.getAnswerType(), "text", capabilities));
+        response.setOutputType(safeEvidenceText(response.getOutputType(), "text", capabilities));
+        if (response.getOutputTypes() != null) {
+            response.setOutputTypes(response.getOutputTypes().stream()
+                    .map(value -> safePublicText(value, "", capabilities))
+                    .filter(StringUtils::hasText)
+                    .toList());
+        }
+    }
+
+    private String safePublicText(String value, String fallback, Set<String> capabilities) {
+        String sanitized = redactCapabilities(value, capabilities);
+        return isInternalReference(sanitized) ? fallback : defaultText(sanitized, fallback);
+    }
+
+    private String safeEvidenceText(String value, String fallback, Set<String> capabilities) {
+        String sanitized = redactCapabilities(value, capabilities);
+        return unsafePublicText(sanitized, Set.of()) ? fallback : defaultText(sanitized, fallback);
+    }
+
+    private String redactCapabilities(String value, Set<String> capabilities) {
+        if (value == null || capabilities.isEmpty()) {
+            return value;
+        }
+        String sanitized = value;
+        for (String capability : capabilities) {
+            sanitized = sanitized.replace(capability, "");
+        }
+        return sanitized;
+    }
+
+    private List<Map<String, Object>> withoutCapabilityMaps(List<Map<String, Object>> values,
+                                                             Set<String> capabilities) {
+        if (values == null || values.isEmpty()) {
+            return values == null ? List.of() : values;
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map<String, Object> value : values) {
+            Map<String, Object> sanitized = withoutCapabilityValues(value, capabilities);
+            if (!sanitized.isEmpty()) {
+                result.add(sanitized);
+            }
+        }
+        return result;
+    }
+
+    private Map<String, Object> withoutCapabilityValues(Map<String, Object> values,
+                                                         Set<String> capabilities) {
+        if (values == null || values.isEmpty()) {
+            return values == null ? Map.of() : values;
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : values.entrySet()) {
+            if (containsCapability(entry.getKey(), capabilities) || isInternalReference(entry.getKey())) {
+                continue;
+            }
+            Object sanitized = withoutCapabilityValue(entry.getValue(), capabilities);
+            if (sanitized != null) {
+                result.put(entry.getKey(), sanitized);
+            }
+        }
+        return result;
+    }
+
+    private Object withoutCapabilityValue(Object value, Set<String> capabilities) {
+        if (value instanceof String text) {
+            return containsCapability(text, capabilities) || isInternalReference(text) ? null : text;
+        }
+        if (value instanceof Map<?, ?>) {
+            return withoutCapabilityValues(mapValue(value), capabilities);
+        }
+        if (value instanceof List<?> list) {
+            List<Object> safe = new ArrayList<>();
+            for (Object item : list) {
+                Object sanitized = withoutCapabilityValue(item, capabilities);
+                if (sanitized != null) {
+                    safe.add(sanitized);
+                }
+            }
+            return safe;
+        }
+        return value;
     }
 
     private Object sanitizeGenericValue(String key, Object value, int depth) {
@@ -1413,23 +1803,50 @@ public class AssistantEnvelopeService {
         }
     }
 
-    private boolean isLegacyInternalUrl(Object value) {
-        String url = text(value, 1_000);
-        if (!StringUtils.hasText(url)) {
+    private boolean isInternalReference(Object value) {
+        if (value == null
+                || value instanceof Map<?, ?>
+                || value instanceof Iterable<?>
+                || value.getClass().isArray()) {
             return false;
         }
-        String lower = url.toLowerCase(Locale.ROOT);
-        return lower.contains("localhost")
-                || lower.contains("127.0.0.1")
+        String reference = String.valueOf(value).trim();
+        if (!StringUtils.hasText(reference)) {
+            return false;
+        }
+        if (reference.length() > MAX_INTERNAL_REFERENCE_SCAN_LENGTH) {
+            return true;
+        }
+        String lower = reference.trim().toLowerCase(Locale.ROOT);
+        if (lower.equals("/internal")
+                || lower.startsWith("/internal/")
+                || lower.contains("/internal/")
+                || lower.contains("/internal?")
+                || lower.contains("/internal#")
                 || lower.contains("/generated/")
-                || lower.matches("https?://10\\..*")
-                || lower.matches("https?://192\\.168\\..*")
-                || lower.matches("https?://172\\.(1[6-9]|2[0-9]|3[01])\\..*");
+                || lower.contains("localhost")
+                || lower.contains(".internal")
+                || lower.contains(".local")
+                || RESERVED_IPV4_REFERENCE.matcher(lower).find()
+                || RESERVED_IPV6_REFERENCE.matcher(lower).find()) {
+            return true;
+        }
+        var bracketedIpLiterals = BRACKETED_IP_LITERAL.matcher(lower);
+        while (bracketedIpLiterals.find()) {
+            if (isInternalHost(bracketedIpLiterals.group(1))) {
+                return true;
+            }
+        }
+        try {
+            return isInternalHost(URI.create(reference.trim()).getHost());
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private String safeUrl(Object value) {
         String url = text(value, 1_000);
-        if (!StringUtils.hasText(url)) {
+        if (!StringUtils.hasText(url) || isInternalReference(url)) {
             return "";
         }
         if (url.startsWith("/") && !url.startsWith("//")) {
@@ -1457,19 +1874,7 @@ public class AssistantEnvelopeService {
                     || uri.getRawFragment() != null
                     || !host.contains(".")
                     || host.endsWith(".")
-                    || host.equals("localhost")
-                    || host.endsWith(".local")
-                    || host.endsWith(".internal")
-                    || host.startsWith("127.")
-                    || host.startsWith("10.")
-                    || host.startsWith("192.168.")
-                    || host.startsWith("169.254.")
-                    || host.equals("0.0.0.0")
-                    || host.equals("::1")
-                    || host.startsWith("fe80:")
-                    || host.startsWith("fc")
-                    || host.startsWith("fd")
-                    || private172(host)
+                    || isInternalHost(host)
                     || !allowedPublicHost(host)
                     || secretQuery(uri.getRawQuery())) {
                 return "";
@@ -1489,7 +1894,7 @@ public class AssistantEnvelopeService {
                                       String previewUrl,
                                       List<AssistantResourceAction> actions) {
         boolean hasRawUrl = StringUtils.hasText(rawUrl) || StringUtils.hasText(rawPreviewUrl);
-        if (persisted && (isLegacyInternalUrl(rawUrl) || isLegacyInternalUrl(rawPreviewUrl))) {
+        if (persisted && (isInternalReference(rawUrl) || isInternalReference(rawPreviewUrl))) {
             return true;
         }
         if (!hasRawUrl) {
@@ -1549,6 +1954,64 @@ public class AssistantEnvelopeService {
             return false;
         } catch (Exception ignored) {
             return true;
+        }
+    }
+
+    private boolean isInternalHost(String rawHost) {
+        if (!StringUtils.hasText(rawHost)) {
+            return false;
+        }
+        String host = rawHost.trim().toLowerCase(Locale.ROOT);
+        if (host.startsWith("[") && host.endsWith("]")) {
+            host = host.substring(1, host.length() - 1);
+        }
+        if (host.equals("localhost")
+                || host.endsWith(".localhost")
+                || host.endsWith(".local")
+                || host.endsWith(".internal")
+                || host.equals("0.0.0.0")
+                || host.equals("127")
+                || host.startsWith("127.")
+                || host.equals("10")
+                || host.startsWith("10.")
+                || host.equals("169.254")
+                || host.startsWith("169.254.")
+                || host.equals("192.168")
+                || host.startsWith("192.168.")
+                || private172(host)
+                || host.equals("::1")) {
+            return true;
+        }
+        if (isInternalIpLiteral(host)) {
+            return true;
+        }
+        int separator = host.indexOf(':');
+        if (separator <= 0) {
+            return false;
+        }
+        try {
+            int firstHextet = Integer.parseInt(host.substring(0, separator), 16);
+            return firstHextet >= 0xfe80 && firstHextet <= 0xfebf
+                    || firstHextet >= 0xfc00 && firstHextet <= 0xfdff;
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
+    }
+
+    private boolean isInternalIpLiteral(String host) {
+        if (!host.contains(":") || !host.matches("[0-9a-f:.]+")) {
+            return false;
+        }
+        try {
+            InetAddress address = InetAddress.getByName(host);
+            byte[] bytes = address.getAddress();
+            return address.isAnyLocalAddress()
+                    || address.isLoopbackAddress()
+                    || address.isLinkLocalAddress()
+                    || address.isSiteLocalAddress()
+                    || bytes.length == 16 && (bytes[0] & 0xfe) == 0xfc;
+        } catch (Exception ignored) {
+            return false;
         }
     }
 
@@ -1621,6 +2084,57 @@ public class AssistantEnvelopeService {
     private boolean forbiddenText(String value) {
         String normalized = value == null ? "" : value.replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
         return FORBIDDEN_KEYS.stream().anyMatch(normalized::contains);
+    }
+
+    private boolean unsafePublicText(String value, Set<String> capabilities) {
+        return StringUtils.hasText(value)
+                && (isInternalReference(value)
+                || forbiddenText(value)
+                || containsCapability(value, capabilities));
+    }
+
+    private boolean containsCapability(Object value, Set<String> capabilities) {
+        if (value == null || capabilities == null || capabilities.isEmpty()) {
+            return false;
+        }
+        if (value instanceof String text) {
+            return capabilities.stream().anyMatch(text::contains);
+        }
+        if (value instanceof Map<?, ?> map) {
+            return map.entrySet().stream().anyMatch(entry ->
+                    containsCapability(String.valueOf(entry.getKey()), capabilities)
+                            || containsCapability(entry.getValue(), capabilities));
+        }
+        if (value instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                if (containsCapability(item, capabilities)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean containsInternalUrl(Object value) {
+        if (value == null) {
+            return false;
+        }
+        if (value instanceof String text) {
+            return isInternalReference(text);
+        }
+        if (value instanceof Map<?, ?> map) {
+            return map.entrySet().stream().anyMatch(entry ->
+                    containsInternalUrl(String.valueOf(entry.getKey()))
+                            || containsInternalUrl(entry.getValue()));
+        }
+        if (value instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                if (containsInternalUrl(item)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private String truncateText(String value, int maxLength) {

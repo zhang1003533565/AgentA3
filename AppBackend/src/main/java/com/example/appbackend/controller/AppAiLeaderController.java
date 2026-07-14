@@ -50,8 +50,11 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -64,6 +67,8 @@ public class AppAiLeaderController {
 
     private static final Logger log = LoggerFactory.getLogger(AppAiLeaderController.class);
     private static final String LEADER_AGENT = "leader_agent";
+    private static final String SAFE_STREAM_FAILURE_MESSAGE = "资源生成失败，请稍后再试。";
+    private static final Set<String> STRUCTURED_PAYLOAD_EVENTS = Set.of("generation_start", "error", "done");
 
     private final PythonAiProxyService pythonAiProxyService;
     private final AiLeaderSessionRepository sessionRepository;
@@ -121,19 +126,40 @@ public class AppAiLeaderController {
 
         Map<String, Object> payload = buildLeaderPayload(request, session.getSessionId(), userId, authorization);
         AtomicReference<AiLeaderMessage> visibleGenerationMessage = new AtomicReference<>();
-        AtomicReference<LlmChatResponse> completedResponse = new AtomicReference<>();
         AtomicBoolean completed = new AtomicBoolean(false);
+        AtomicBoolean poisoned = new AtomicBoolean(false);
+        Set<String> internalCapabilities = new LinkedHashSet<>();
         Object streamStateLock = new Object();
         return pythonAiProxyService.streamRag(payload, authorization, (eventName, eventPayload) -> {
             synchronized (streamStateLock) {
+                if (poisoned.get()) {
+                    return false;
+                }
+                AssistantEnvelopeService.CapabilityScan capabilityScan =
+                        assistantEnvelopeService.scanInternalCapabilities(eventPayload);
+                if (capabilityScan.malformed()) {
+                    poisoned.set(true);
+                    return false;
+                }
+                AssistantEnvelopeService.CapabilityScan cumulativeCapabilities =
+                        assistantEnvelopeService.mergeInternalCapabilities(
+                                internalCapabilities, capabilityScan.values());
+                if (cumulativeCapabilities.malformed()) {
+                    poisoned.set(true);
+                    return false;
+                }
+                internalCapabilities.clear();
+                internalCapabilities.addAll(cumulativeCapabilities.values());
+                if (STRUCTURED_PAYLOAD_EVENTS.contains(eventName) && !(eventPayload instanceof Map<?, ?>)) {
+                    return false;
+                }
+                if (completed.get()) {
+                    return false;
+                }
                 if ("generation_start".equals(eventName)) {
-                    if (completed.get()) {
-                        assistantEnvelopeService.overwriteSsePayload(eventPayload, completedResponse.get());
-                        return;
-                    }
                     LlmChatResponse response = toChatResponse(session, eventPayload);
                     AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(
-                            response, mapValue(eventPayload), request.getInput());
+                            response, mapValue(eventPayload), request.getInput(), Set.copyOf(internalCapabilities));
                     AiLeaderMessage existing = visibleGenerationMessage.get();
                     AiLeaderMessage saved = existing == null
                             ? saveAssistantMessage(userId, session, response, envelope)
@@ -141,32 +167,38 @@ public class AppAiLeaderController {
                     visibleGenerationMessage.set(saved);
                     assistantEnvelopeService.overwriteSsePayload(eventPayload, response);
                     refreshSession(session, response.getAnswer());
-                    return;
+                    return true;
                 }
-                if ("error".equals(eventName) && visibleGenerationMessage.get() != null) {
-                    Map<String, Object> errorResult = new HashMap<>(mapValue(eventPayload));
-                    String message = firstNonBlank(stringValue(errorResult.get("message")), "图片生成失败，请稍后再试。");
-                    errorResult.put("answer", "图片生成失败：" + message);
+                if ("error".equals(eventName)) {
+                    Map<String, Object> errorResult = new LinkedHashMap<>();
+                    errorResult.put("answer", SAFE_STREAM_FAILURE_MESSAGE);
                     errorResult.put("answerType", "text");
                     errorResult.put("outputType", "text");
                     errorResult.put("outputTypes", List.of("text"));
                     LlmChatResponse response = toChatResponse(session, errorResult);
                     AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(
-                            response, errorResult, request.getInput());
-                    updateAssistantMessage(userId, session, visibleGenerationMessage.get(), response, envelope);
-                    refreshSession(session, message);
-                    return;
+                            response, errorResult, request.getInput(), Set.copyOf(internalCapabilities));
+                    AiLeaderMessage existing = visibleGenerationMessage.get();
+                    AiLeaderMessage saved = existing == null
+                            ? saveAssistantMessage(userId, session, response, envelope)
+                            : updateAssistantMessage(userId, session, existing, response, envelope);
+                    visibleGenerationMessage.set(saved);
+                    completed.set(true);
+                    assistantEnvelopeService.overwriteSsePayload(eventPayload, response);
+                    refreshSession(session, SAFE_STREAM_FAILURE_MESSAGE);
+                    return true;
                 }
                 if (!"done".equals(eventName)) {
-                    return;
-                }
-                if (!completed.compareAndSet(false, true)) {
-                    assistantEnvelopeService.overwriteSsePayload(eventPayload, completedResponse.get());
-                    return;
+                    if (!(eventPayload instanceof Map<?, ?>)) {
+                        return false;
+                    }
+                    assistantEnvelopeService.sanitizeSseEventPayload(
+                            eventName, eventPayload, Set.copyOf(internalCapabilities));
+                    return true;
                 }
                 LlmChatResponse response = toChatResponse(session, eventPayload);
                 AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(
-                        response, mapValue(eventPayload), request.getInput());
+                        response, mapValue(eventPayload), request.getInput(), Set.copyOf(internalCapabilities));
                 AiLeaderMessage existing = visibleGenerationMessage.get();
                 if (existing == null) {
                     AiLeaderMessage saved = saveAssistantMessage(userId, session, response, envelope);
@@ -174,10 +206,11 @@ public class AppAiLeaderController {
                 } else {
                     updateAssistantMessage(userId, session, existing, response, envelope);
                 }
-                completedResponse.set(response);
+                completed.set(true);
                 assistantEnvelopeService.overwriteSsePayload(eventPayload, response);
                 refreshSession(session, response.getAnswer());
                 captureLeaderProfileEvidence(userId, session, request, response);
+                return true;
             }
         });
     }
@@ -561,7 +594,7 @@ public class AppAiLeaderController {
                                                  LlmChatResponse response,
                                                  AssistantEnvelopeService.PreparedEnvelope envelope) {
         return assistantEnvelopeService.persistAssistantMessage(
-                userId, session, response, envelope.internalAttachments(), null);
+                userId, session, response, envelope.internalAttachments(), envelope.internalCapabilities(), null);
     }
 
     private AiLeaderMessage updateAssistantMessage(Long userId,
@@ -570,7 +603,7 @@ public class AppAiLeaderController {
                                                    LlmChatResponse response,
                                                    AssistantEnvelopeService.PreparedEnvelope envelope) {
         return assistantEnvelopeService.persistAssistantMessage(
-                userId, session, response, envelope.internalAttachments(), message);
+                userId, session, response, envelope.internalAttachments(), envelope.internalCapabilities(), message);
     }
 
     private void refreshSession(AiLeaderSession session, String lastMessage) {

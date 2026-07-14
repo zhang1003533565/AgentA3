@@ -16,6 +16,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -29,6 +30,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 
 class PythonAiProxyServiceTest {
 
@@ -422,6 +424,33 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("message", PythonAiProxyService.safeSseEventName(
                 "done\ndata: {\"internalCapability\":\"secret-capability\"}"));
         Assertions.assertEquals("message", PythonAiProxyService.safeSseEventName(""));
+    }
+
+    @Test
+    void sseHandlerCanSuppressObjectStringNumberAndArrayEventsBeforeTheyReachTheEmitter() {
+        PythonAiProxyService service = newService(6553);
+        AtomicInteger sends = new AtomicInteger();
+        SseEmitter emitter = new SseEmitter() {
+            @Override
+            public synchronized void send(SseEventBuilder builder) {
+                sends.incrementAndGet();
+            }
+        };
+
+        for (String rawPayload : List.of(
+                "{\"message\":\"late raw error\"}",
+                "\"secret-capability\"",
+                "42",
+                "[\"secret-capability\"]")) {
+            service.relaySseEvent(
+                    ServerSentEvent.<String>builder(rawPayload)
+                            .event("error")
+                            .build(),
+                    emitter,
+                    (eventName, eventPayload) -> false);
+        }
+
+        Assertions.assertEquals(0, sends.get());
     }
 
     @Test

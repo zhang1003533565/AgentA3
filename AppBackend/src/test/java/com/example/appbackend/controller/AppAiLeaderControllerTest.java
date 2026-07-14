@@ -16,6 +16,8 @@ import com.example.appbackend.service.impl.PythonAiProxyService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ContentDisposition;
@@ -36,7 +38,8 @@ import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BiConsumer;
+
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -314,13 +317,15 @@ class AppAiLeaderControllerTest {
         AtomicReference<Map<String, Object>> done = new AtomicReference<>();
         when(pythonAiProxyService.streamRag(any(), any(), any())).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
-            BiConsumer<String, Object> consumer = invocation.getArgument(2);
+            PythonAiProxyService.SseEventHandler consumer = invocation.getArgument(2);
             Map<String, Object> first = validGeneratedResponse();
             Map<String, Object> last = validGeneratedResponse();
+            first.put("rawDebug", Map.of("internalCapability", "secret-capability"));
+            last.put("rawDebug", Map.of("endpoint", "http://localhost:8081/internal"));
             generationStart.set(first);
             done.set(last);
-            consumer.accept("generation_start", first);
-            consumer.accept("done", last);
+            consumer.handle("generation_start", first);
+            consumer.handle("done", last);
             return new SseEmitter();
         });
 
@@ -331,6 +336,8 @@ class AppAiLeaderControllerTest {
         assertThat(objectMapper.writeValueAsString(done.get()))
                 .contains("/sessions/session-1/messages/101/exports/")
                 .doesNotContain("secret-capability", "internalCapability", "localhost");
+        assertThat(generationStart.get()).doesNotContainKey("rawDebug");
+        assertThat(done.get()).doesNotContainKey("rawDebug");
         assertThat(savedMessages.stream().filter(item -> AiLeaderMessage.ROLE_ASSISTANT.equals(item.getRole())))
                 .hasSize(1);
         verify(exportRepository, times(1)).save(any());
@@ -586,11 +593,11 @@ class AppAiLeaderControllerTest {
     void repeatedGenerationStartAndDoneAreIdempotent() throws Exception {
         when(pythonAiProxyService.streamRag(any(), any(), any())).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
-            BiConsumer<String, Object> consumer = invocation.getArgument(2);
-            consumer.accept("generation_start", validGeneratedResponse());
-            consumer.accept("generation_start", validGeneratedResponse());
-            consumer.accept("done", validGeneratedResponse());
-            consumer.accept("done", validGeneratedResponse());
+            PythonAiProxyService.SseEventHandler consumer = invocation.getArgument(2);
+            consumer.handle("generation_start", validGeneratedResponse());
+            consumer.handle("generation_start", validGeneratedResponse());
+            consumer.handle("done", validGeneratedResponse());
+            consumer.handle("done", validGeneratedResponse());
             return new SseEmitter();
         });
         controller.queryStream(request(), "Bearer test-token", authenticatedRequest());
@@ -606,15 +613,15 @@ class AppAiLeaderControllerTest {
         AtomicReference<Map<String, Object>> done = new AtomicReference<>();
         when(pythonAiProxyService.streamRag(any(), any(), any())).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
-            BiConsumer<String, Object> consumer = invocation.getArgument(2);
-            consumer.accept("generation_start", validGeneratedResponse());
+            PythonAiProxyService.SseEventHandler consumer = invocation.getArgument(2);
+            consumer.handle("generation_start", validGeneratedResponse());
             Map<String, Object> changed = validGeneratedResponse();
             resource(changed).put("id", "res_changed");
             evidenceChain(changed).put("resourceLinks", List.of(Map.of(
                     "resourceId", "res_changed", "evidenceIds", List.of())));
             refreshChainIntegrity(evidenceChain(changed));
             done.set(changed);
-            consumer.accept("done", changed);
+            consumer.handle("done", changed);
             return new SseEmitter();
         });
 
@@ -747,7 +754,7 @@ class AppAiLeaderControllerTest {
                 controller.query(request(), authenticatedRequest()).getData());
 
         assertThat(response.path("evidenceChain").path("evidenceState").asText())
-                .isEqualTo("integrity_failed");
+                .isEqualTo("generation_failed");
     }
 
     @Test
@@ -774,6 +781,417 @@ class AppAiLeaderControllerTest {
         JsonNode offsetResponse = objectMapper.valueToTree(
                 controller.query(request(), authenticatedRequest()).getData());
         assertThat(offsetResponse.path("resources")).isEmpty();
+    }
+
+    @Test
+    void evidencePublicStringsRejectInternalUrlsForbiddenTermsAndActualCapabilities() throws Exception {
+        Map<String, Object> sourceLeak = groundedResponse(1, 20);
+        Map<String, Object> source = new LinkedHashMap<>(evidenceSources(sourceLeak).getFirst());
+        source.put("title", "secret-capability");
+        source.put("excerpt", "http://localhost:8081/internal/exports");
+        evidenceChain(sourceLeak).put("sources", List.of(source));
+        sourceLeak.put("attachments", validGeneratedResponse().get("attachments"));
+        refreshChainIntegrity(evidenceChain(sourceLeak));
+
+        Map<String, Object> generationLeak = validGeneratedResponse();
+        Map<String, Object> generation = new LinkedHashMap<>(generation(generationLeak));
+        generation.put("model", "secret-capability");
+        generation.put("agent", "http://localhost:8081/internal/leader");
+        evidenceChain(generationLeak).put("generation", generation);
+        refreshChainIntegrity(evidenceChain(generationLeak));
+
+        Map<String, Object> stepLeak = validGeneratedResponse();
+        evidenceChain(stepLeak).put("steps", List.of(Map.of(
+                "stage", "authorization",
+                "detail", Map.of("routeReason", "http://localhost:8081/internal?token=hidden"))));
+        refreshChainIntegrity(evidenceChain(stepLeak));
+
+        for (Map<String, Object> raw : List.of(sourceLeak, generationLeak, stepLeak)) {
+            when(pythonAiProxyService.queryRag(any(), any())).thenReturn(raw);
+
+            Result<LlmChatResponse> result = controller.query(request(), authenticatedRequest());
+            String serialized = objectMapper.writeValueAsString(result.getData());
+            AiLeaderMessage assistant = savedMessages.getLast();
+
+            assertThat(result.getData().getEvidenceChain().getEvidenceState()).isEqualTo("generation_failed");
+            assertThat(serialized).doesNotContain(
+                    "secret-capability", "localhost", "/internal/", "token=hidden", "authorization");
+            assertThat(assistant.getEvidenceChainJson()).doesNotContain(
+                    "secret-capability", "localhost", "/internal/", "token=hidden", "authorization");
+        }
+    }
+
+    @Test
+    void actualAttachmentCapabilityCannotLeakThroughAnswerOrResourceFields() throws Exception {
+        Map<String, Object> raw = validGeneratedResponse();
+        raw.put("answer", "资料已生成 secret-capability");
+        resource(raw).put("title", "secret-capability");
+        evidenceChain(raw).put("answerDigest", sha256Text(String.valueOf(raw.get("answer"))));
+        refreshChainIntegrity(evidenceChain(raw));
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(raw);
+
+        Result<LlmChatResponse> result = controller.query(request(), authenticatedRequest());
+        AiLeaderMessage assistant = savedMessages.getLast();
+
+        assertThat(objectMapper.writeValueAsString(result.getData())).doesNotContain("secret-capability");
+        assertThat(assistant.getContent()).doesNotContain("secret-capability");
+        assertThat(assistant.getResourcesJson()).doesNotContain("secret-capability");
+        assertThat(assistant.getEvidenceChainJson()).doesNotContain("secret-capability");
+    }
+
+    @Test
+    void syncTopLevelTextFieldsRejectInternalUrlsBeforeResponseAndPersistence() throws Exception {
+        Map<String, Object> raw = validGeneratedResponse();
+        raw.put("answer", "http://localhost:8081/internal/exports/private.docx");
+        raw.put("searchKeyword", "http://127.0.0.1:8081/generated/private.docx");
+        raw.put("outputTypes", List.of("text", "http://192.168.1.10/internal"));
+        evidenceChain(raw).put("answerDigest", sha256Text(String.valueOf(raw.get("answer"))));
+        refreshChainIntegrity(evidenceChain(raw));
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(raw);
+
+        Result<LlmChatResponse> result = controller.query(request(), authenticatedRequest());
+        AiLeaderMessage assistant = savedMessages.getLast();
+        String publicResponse = objectMapper.writeValueAsString(result.getData());
+
+        assertThat(publicResponse).doesNotContain("localhost", "127.0.0.1", "192.168.1.10", "/internal/", "/generated/");
+        assertThat(assistant.getContent()).doesNotContain("localhost", "/internal/");
+        assertThat(assistant.getSearchKeyword()).doesNotContain("127.0.0.1", "/generated/");
+        assertThat(assistant.getOutputTypesJson()).doesNotContain("192.168.1.10", "/internal/");
+    }
+
+    @Test
+    void statusBeforeGenerationStartDiscoversRootCapabilityBeforeAllowlistSanitization() throws Exception {
+        AtomicReference<PythonAiProxyService.SseEventHandler> handlerRef = captureStreamHandler();
+        controller.queryStream(request(), "Bearer test-token", authenticatedRequest());
+        Map<String, Object> earlyStatus = new LinkedHashMap<>();
+        earlyStatus.put("internalCapability", "opaque-A7-value");
+        earlyStatus.put("message", "opaque-A7-value");
+        earlyStatus.put("status", "running");
+
+        handlerRef.get().handle("status", earlyStatus);
+
+        assertThat(earlyStatus).containsExactlyEntriesOf(Map.of("status", "running"));
+        assertThat(objectMapper.valueToTree(earlyStatus).toString()).doesNotContain("opaque-A7-value");
+
+        Map<String, Object> oversizedCapability = new LinkedHashMap<>();
+        oversizedCapability.put("internalCapability", "x".repeat(2_049));
+        oversizedCapability.put("message", "still running");
+        assertThat(handlerRef.get().handle("status", oversizedCapability)).isFalse();
+        assertThat(handlerRef.get().handle("done", validGeneratedResponse())).isFalse();
+        assertThat(savedMessages.stream().filter(item -> AiLeaderMessage.ROLE_ASSISTANT.equals(item.getRole())))
+                .isEmpty();
+    }
+
+    @Test
+    void oversizedCapabilityFailsClosedForSynchronousEnvelope() throws Exception {
+        Map<String, Object> raw = validGeneratedResponse();
+        String oversized = "opaque".repeat(400);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> attachment = new LinkedHashMap<>(
+                (Map<String, Object>) ((List<?>) raw.get("attachments")).getFirst());
+        attachment.put("internalCapability", oversized);
+        raw.put("attachments", List.of(attachment));
+        raw.put("answer", oversized);
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(raw);
+
+        Result<LlmChatResponse> result = controller.query(request(), authenticatedRequest());
+        AiLeaderMessage assistant = savedMessages.getLast();
+
+        assertThat(objectMapper.writeValueAsString(result.getData())).doesNotContain(oversized);
+        assertThat(assistant.getContent()).doesNotContain(oversized);
+        assertThat(result.getData().getResources()).isEmpty();
+        assertThat(result.getData().getEvidenceChain().getEvidenceState()).isEqualTo("generation_failed");
+    }
+
+    @Test
+    void streamCarriesEarlyRootAndNestedCapabilitiesIntoDoneEnvelopeAndPersistence() throws Exception {
+        AtomicReference<PythonAiProxyService.SseEventHandler> handlerRef = captureStreamHandler();
+        controller.queryStream(request(), "Bearer test-token", authenticatedRequest());
+        PythonAiProxyService.SseEventHandler handler = handlerRef.get();
+        Map<String, Object> earlyStatus = new LinkedHashMap<>();
+        earlyStatus.put("internalCapability", "opaque-A7-value");
+        earlyStatus.put("metadata", Map.of("internalCapability", "nested-B9-value"));
+        earlyStatus.put("status", "running");
+        assertThat(handler.handle("status", earlyStatus)).isTrue();
+
+        Map<String, Object> done = validGeneratedResponse();
+        done.put("attachments", List.of());
+        done.put("answer", "opaque-A7-value nested-B9-value");
+        evidenceChain(done).put("answerDigest", sha256Text(String.valueOf(done.get("answer"))));
+        refreshChainIntegrity(evidenceChain(done));
+
+        assertThat(handler.handle("done", done)).isTrue();
+
+        AiLeaderMessage assistant = savedMessages.stream()
+                .filter(item -> AiLeaderMessage.ROLE_ASSISTANT.equals(item.getRole())).findFirst().orElseThrow();
+        assertThat(objectMapper.writeValueAsString(done))
+                .doesNotContain("opaque-A7-value", "nested-B9-value", "internalCapability");
+        assertThat(assistant.getContent()).doesNotContain("opaque-A7-value", "nested-B9-value");
+        assertThat(assistant.getEvidenceChainJson()).doesNotContain("opaque-A7-value", "nested-B9-value");
+    }
+
+    @Test
+    void allInternalRouteAndReservedAddressFormsAreRejectedFromPublicText() throws Exception {
+        for (String unsafe : List.of(
+                "/internal/rag/exports/key",
+                "safe-prefix".repeat(120) + "/internal/rag/exports/key",
+                "http://127.0.0.2/private",
+                "http://169.254.169.254/latest/meta-data",
+                "http://0.0.0.0/private",
+                "http://python.internal/private",
+                "http://printer.local/private",
+                "http://[::1]/private",
+                "http://[0:0:0:0:0:0:0:1]/private",
+                "http://[::ffff:127.0.0.1]/private",
+                "http://[::ffff:7f00:1]/private",
+                "http://[fe80::1]/private",
+                "http://[fc00::1]/private",
+                "http://[fd00::1]/private")) {
+            Map<String, Object> raw = validGeneratedResponse();
+            raw.put("answer", unsafe);
+            raw.put("searchKeyword", unsafe);
+            raw.put("outputTypes", List.of("text", unsafe));
+            evidenceChain(raw).put("answerDigest", sha256Text(unsafe));
+            refreshChainIntegrity(evidenceChain(raw));
+            when(pythonAiProxyService.queryRag(any(), any())).thenReturn(raw);
+
+            Result<LlmChatResponse> result = controller.query(request(), authenticatedRequest());
+            AiLeaderMessage assistant = savedMessages.getLast();
+
+            assertThat(objectMapper.writeValueAsString(result.getData()))
+                    .as("unsafe internal form must not be public: %s", unsafe)
+                    .doesNotContain(unsafe);
+            assertThat(result.getData().getAnswer()).isEqualTo("内容暂不可用。");
+            assertThat(result.getData().getSearchKeyword()).isEmpty();
+            assertThat(result.getData().getOutputTypes()).containsExactly("text");
+            assertThat(assistant.getContent()).isEqualTo("内容暂不可用。");
+            assertThat(assistant.getSearchKeyword()).isEmpty();
+            assertThat(objectMapper.readValue(assistant.getOutputTypesJson(), List.class))
+                    .containsExactly("text");
+        }
+    }
+
+    @Test
+    void internalAddressClassifierAlsoProtectsEvidenceSseAndDonePayloads() throws Exception {
+        Map<String, Object> raw = groundedResponse(1, 20);
+        Map<String, Object> source = new LinkedHashMap<>(evidenceSources(raw).getFirst());
+        source.put("title", "/internal/rag/source");
+        evidenceChain(raw).put("sources", List.of(source));
+        Map<String, Object> generation = new LinkedHashMap<>(generation(raw));
+        generation.put("model", "http://169.254.169.254/model");
+        evidenceChain(raw).put("generation", generation);
+        evidenceChain(raw).put("steps", List.of(Map.of(
+                "stage", "generation",
+                "detail", Map.of("routeReason", "http://[::1]/internal-step"))));
+        refreshChainIntegrity(evidenceChain(raw));
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(raw);
+
+        Result<LlmChatResponse> sync = controller.query(request(), authenticatedRequest());
+        assertThat(sync.getData().getEvidenceChain().getEvidenceState()).isEqualTo("generation_failed");
+        assertThat(objectMapper.writeValueAsString(sync.getData()))
+                .doesNotContain("/internal/rag/source", "169.254.169.254", "[::1]");
+
+        AtomicReference<PythonAiProxyService.SseEventHandler> handlerRef = captureStreamHandler();
+        controller.queryStream(request(), "Bearer test-token", authenticatedRequest());
+        Map<String, Object> status = new LinkedHashMap<>(Map.of(
+                "status", "running", "message", "http://service.internal/progress"));
+        assertThat(handlerRef.get().handle("status", status)).isTrue();
+        assertThat(status).containsExactlyEntriesOf(Map.of("status", "running"));
+
+        Map<String, Object> done = validGeneratedResponse();
+        done.put("answer", "/internal/rag/final");
+        evidenceChain(done).put("answerDigest", sha256Text(String.valueOf(done.get("answer"))));
+        refreshChainIntegrity(evidenceChain(done));
+        assertThat(handlerRef.get().handle("done", done)).isTrue();
+        assertThat(objectMapper.writeValueAsString(done)).doesNotContain("/internal/rag/final");
+        assertThat(savedMessages.getLast().getContent()).doesNotContain("/internal/rag/final");
+    }
+
+    @Test
+    void historyTypedEvidenceFailureIsMalformedAndLogsFieldIdentity() throws Exception {
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(validGeneratedResponse());
+        controller.query(request(), authenticatedRequest());
+        AiLeaderMessage assistant = savedMessages.getLast();
+        ObjectNode chain = (ObjectNode) objectMapper.readTree(assistant.getEvidenceChainJson());
+        ((ObjectNode) chain.path("generation")).put("profileContextUsed", "false");
+        chain.remove("integrity");
+        chain.set("integrity", objectMapper.valueToTree(Map.of(
+                "algorithm", "SHA-256",
+                "digest", canonicalDigest(objectMapper.convertValue(chain, Map.class)),
+                "scope", "canonical-json-without-integrity",
+                "signed", false)));
+        assistant.setEvidenceChainJson(objectMapper.writeValueAsString(chain));
+        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(9L)).thenReturn(List.of(assistant));
+
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(AssistantEnvelopeService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            JsonNode history = objectMapper.valueToTree(
+                    controller.sessionDetail("session-1", authenticatedRequest()).getData());
+
+            assertThat(history.path("messages").path(0).path("evidenceChain").path("evidenceState").asText())
+                    .isEqualTo("malformed");
+            assertThat(appender.list).extracting(ILoggingEvent::getFormattedMessage)
+                    .anyMatch(message -> message.contains("messageId=101")
+                            && message.contains("field=evidenceChain")
+                            && message.contains("errorType=typedValidation"));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    void streamReplacesTerminalPayloadsAndSanitizesNonTerminalEvents() throws Exception {
+        AtomicReference<PythonAiProxyService.SseEventHandler> handlerRef = captureStreamHandler();
+        controller.queryStream(request(), "Bearer test-token", authenticatedRequest());
+        PythonAiProxyService.SseEventHandler handler = handlerRef.get();
+
+        Map<String, Object> start = validGeneratedResponse();
+        start.put("rogue", "secret-capability");
+        handler.handle("generation_start", start);
+        assertThat(start).doesNotContainKey("rogue");
+        assertThat(objectMapper.writeValueAsString(start))
+                .doesNotContain("secret-capability", "internalCapability", "localhost");
+
+        Map<String, Object> status = new LinkedHashMap<>();
+        status.put("status", "running");
+        status.put("message", "secret-capability");
+        status.put("internalCapability", "secret-capability");
+        status.put("endpoint", "http://localhost:8081/internal");
+        status.put("unexpected", Map.of("token", "hidden"));
+        handler.handle("status", status);
+
+        assertThat(status.keySet()).containsOnly("status");
+        assertThat(objectMapper.writeValueAsString(status))
+                .doesNotContain("secret-capability", "internalCapability", "localhost", "unexpected", "hidden");
+
+        Map<String, Map<String, Object>> eventPayloads = new LinkedHashMap<>();
+        eventPayloads.put("tool_start", new LinkedHashMap<>(Map.of(
+                "toolName", "document_export", "message", "正在生成", "rogue", "secret-capability")));
+        eventPayloads.put("session", new LinkedHashMap<>(Map.of(
+                "sessionId", "session-1", "status", "active", "rogue", "secret-capability")));
+        eventPayloads.put("search", new LinkedHashMap<>(Map.of(
+                "query", "课程资料", "resultCount", 2, "rogue", "secret-capability")));
+        eventPayloads.put("delta", new LinkedHashMap<>(Map.of(
+                "delta", "安全增量", "index", 1, "rogue", "secret-capability")));
+        eventPayloads.put("custom_event", new LinkedHashMap<>(Map.of(
+                "message", "安全摘要", "stage", "custom", "rogue", "secret-capability")));
+        for (Map.Entry<String, Map<String, Object>> event : eventPayloads.entrySet()) {
+            assertThat(handler.handle(event.getKey(), event.getValue())).isTrue();
+            assertThat(event.getValue()).doesNotContainKey("rogue");
+            assertThat(objectMapper.writeValueAsString(event.getValue())).doesNotContain("secret-capability");
+        }
+    }
+
+    @Test
+    void streamStartThenErrorUsesOneSafeTerminalEnvelopeForLiveAndHistory() throws Exception {
+        AtomicReference<PythonAiProxyService.SseEventHandler> handlerRef = captureStreamHandler();
+        controller.queryStream(request(), "Bearer test-token", authenticatedRequest());
+        PythonAiProxyService.SseEventHandler handler = handlerRef.get();
+        Map<String, Object> start = validGeneratedResponse();
+        handler.handle("generation_start", start);
+        Map<String, Object> error = new LinkedHashMap<>(Map.of(
+                "message", "python raw secret-capability",
+                "internalCapability", "secret-capability",
+                "endpoint", "http://localhost:8081/internal"));
+
+        handler.handle("error", error);
+
+        AiLeaderMessage assistant = savedMessages.stream()
+                .filter(item -> AiLeaderMessage.ROLE_ASSISTANT.equals(item.getRole())).findFirst().orElseThrow();
+        JsonNode live = objectMapper.valueToTree(error);
+        JsonNode persistedEvidence = objectMapper.readTree(assistant.getEvidenceChainJson());
+        assertThat(live.path("messageId").asLong()).isEqualTo(start.get("messageId"));
+        assertThat(live.path("answer").asText()).isEqualTo(assistant.getContent());
+        assertThat(live.path("resources")).hasSize(0);
+        assertThat(live.path("evidenceChain").path("evidenceState").asText()).isEqualTo("generation_failed");
+        assertThat(live.path("evidenceChain")).isEqualTo(persistedEvidence);
+        assertThat(live.toString()).doesNotContain("python raw", "secret-capability", "localhost", "internalCapability");
+        verify(userProfileService, never()).addEvidence(anyLong(), any());
+    }
+
+    @Test
+    void nonObjectStartErrorAndDonePayloadsAreSuppressedWithoutChangingLiveHistoryState() throws Exception {
+        AtomicReference<PythonAiProxyService.SseEventHandler> handlerRef = captureStreamHandler();
+        controller.queryStream(request(), "Bearer test-token", authenticatedRequest());
+        PythonAiProxyService.SseEventHandler handler = handlerRef.get();
+
+        assertThat(handler.handle("generation_start", 42)).isFalse();
+        assertThat(savedMessages.stream().filter(item -> AiLeaderMessage.ROLE_ASSISTANT.equals(item.getRole())))
+                .isEmpty();
+
+        Map<String, Object> start = validGeneratedResponse();
+        assertThat(handler.handle("generation_start", start)).isTrue();
+        AiLeaderMessage assistant = savedMessages.stream()
+                .filter(item -> AiLeaderMessage.ROLE_ASSISTANT.equals(item.getRole())).findFirst().orElseThrow();
+        String startContent = assistant.getContent();
+        String startEvidence = assistant.getEvidenceChainJson();
+
+        assertThat(handler.handle("error", "secret-capability")).isFalse();
+        assertThat(handler.handle("done", List.of("secret-capability"))).isFalse();
+
+        assertThat(assistant.getContent()).isEqualTo(startContent);
+        assertThat(assistant.getEvidenceChainJson()).isEqualTo(startEvidence);
+        verify(userProfileService, never()).addEvidence(anyLong(), any());
+    }
+
+    @Test
+    void streamTerminalStateSuppressesDoneErrorAndErrorDoneSecondSideEffects() throws Exception {
+        AtomicReference<PythonAiProxyService.SseEventHandler> firstHandlerRef = captureStreamHandler();
+        controller.queryStream(request(), "Bearer test-token", authenticatedRequest());
+        PythonAiProxyService.SseEventHandler firstHandler = firstHandlerRef.get();
+        firstHandler.handle("generation_start", validGeneratedResponse());
+        firstHandler.handle("done", validGeneratedResponse());
+        AiLeaderMessage firstAssistant = savedMessages.stream()
+                .filter(item -> AiLeaderMessage.ROLE_ASSISTANT.equals(item.getRole())).findFirst().orElseThrow();
+        String completedJson = firstAssistant.getEvidenceChainJson();
+        assertThat(firstHandler.handle("error", new LinkedHashMap<>(Map.of("message", "late raw failure"))))
+                .isFalse();
+
+        assertThat(firstAssistant.getContent()).isEqualTo("资料已生成");
+        assertThat(firstAssistant.getEvidenceChainJson()).isEqualTo(completedJson);
+        verify(userProfileService, times(1)).addEvidence(anyLong(), any());
+
+        savedMessages.clear();
+        AtomicReference<PythonAiProxyService.SseEventHandler> secondHandlerRef = captureStreamHandler();
+        controller.queryStream(request(), "Bearer test-token", authenticatedRequest());
+        PythonAiProxyService.SseEventHandler secondHandler = secondHandlerRef.get();
+        secondHandler.handle("generation_start", validGeneratedResponse());
+        Map<String, Object> safeError = new LinkedHashMap<>(Map.of("message", "first raw failure"));
+        secondHandler.handle("error", safeError);
+        AiLeaderMessage secondAssistant = savedMessages.stream()
+                .filter(item -> AiLeaderMessage.ROLE_ASSISTANT.equals(item.getRole())).findFirst().orElseThrow();
+        String failureAnswer = secondAssistant.getContent();
+        String failureEvidence = secondAssistant.getEvidenceChainJson();
+        assertThat(secondHandler.handle("done", validGeneratedResponse())).isFalse();
+
+        assertThat(secondAssistant.getContent()).isEqualTo(failureAnswer);
+        assertThat(secondAssistant.getEvidenceChainJson()).isEqualTo(failureEvidence);
+        verify(userProfileService, times(1)).addEvidence(anyLong(), any());
+    }
+
+    @SuppressWarnings("unchecked")
+    private AtomicReference<PythonAiProxyService.SseEventHandler> captureStreamHandler() {
+        AtomicReference<PythonAiProxyService.SseEventHandler> handlerRef = new AtomicReference<>();
+        when(pythonAiProxyService.streamRag(any(), any(), any())).thenAnswer(invocation -> {
+            handlerRef.set(invocation.getArgument(2));
+            return new SseEmitter();
+        });
+        return handlerRef;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> evidenceSources(Map<String, Object> response) {
+        return (List<Map<String, Object>>) evidenceChain(response).get("sources");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> generation(Map<String, Object> response) {
+        return (Map<String, Object>) evidenceChain(response).get("generation");
     }
 
     private AiLeaderGeneratedExport downloadManifest(Long messageId, String storageKey, byte[] bytes) throws Exception {
