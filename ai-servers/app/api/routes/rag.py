@@ -5,7 +5,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Header, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.models.schemas import (
@@ -251,22 +251,30 @@ class QuestionBankReviewRequest(BaseModel):
     expectedType: Optional[str] = Field(default=None, max_length=64)
 
 
-@router.get("/exports/{storage_key}", response_class=FileResponse)
+@router.get("/exports/{storage_key}")
 def download_generated_export(
     storage_key: str,
     export_capability: Optional[str] = Header(default=None, alias="X-AI-Export-Capability"),
-) -> FileResponse:
+) -> StreamingResponse:
     try:
         export_file = open_generated_export(storage_key, export_capability)
     except GeneratedExportAccessError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-    return FileResponse(
-        path=export_file.path,
+    def verified_chunks():
+        try:
+            for chunk in iter(lambda: export_file.stream.read(1024 * 1024), b""):
+                yield chunk
+        finally:
+            export_file.stream.close()
+
+    return StreamingResponse(
+        verified_chunks(),
         media_type=export_file.mime_type,
-        filename=export_file.storage_key,
         headers={
             "X-AI-Export-SHA256": export_file.sha256,
             "Cache-Control": "private, no-store",
+            "Content-Length": str(export_file.size),
+            "Content-Disposition": f'attachment; filename="{export_file.storage_key}"',
         },
     )
 
@@ -2021,10 +2029,12 @@ def _merge_attachments(*groups: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         for item in group or []:
             if not item:
                 continue
+            storage_key = str(item.get("storageKey") or "").strip()
             url = str(item.get("url") or "").strip()
-            if not url or url in seen:
+            identity = ("storageKey", storage_key) if storage_key else (("url", url) if url else None)
+            if identity is None or identity in seen:
                 continue
-            seen.add(url)
+            seen.add(identity)
             normalized.append(item)
     return normalized
 

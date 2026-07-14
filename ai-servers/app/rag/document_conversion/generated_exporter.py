@@ -5,19 +5,21 @@ import mimetypes
 import os
 import re
 import secrets
+import stat
 import tempfile
 import uuid
 import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Set
+from typing import Any, BinaryIO, Dict, List, Mapping, Optional, Set
 from xml.sax.saxutils import escape
 
 from docx import Document
 
 DEFAULT_EXPORT_TTL_HOURS = 168.0
 DEFAULT_EXPORT_MAX_BYTES = 1024 * 1024 * 1024
+DEFAULT_EXPORT_STAGING_GRACE_SECONDS = 300.0
 EXPORT_URL_PATH = "/uploads/ai-exports"
 
 
@@ -50,6 +52,10 @@ def _positive_number_setting(name: str, default: float) -> float:
 EXPORT_ROOT = _resolve_export_root()
 EXPORT_TTL_HOURS = _positive_number_setting("AI_EXPORT_TTL_HOURS", DEFAULT_EXPORT_TTL_HOURS)
 EXPORT_MAX_BYTES = int(_positive_number_setting("AI_EXPORT_MAX_BYTES", DEFAULT_EXPORT_MAX_BYTES))
+EXPORT_STAGING_GRACE_SECONDS = _positive_number_setting(
+    "AI_EXPORT_STAGING_GRACE_SECONDS",
+    DEFAULT_EXPORT_STAGING_GRACE_SECONDS,
+)
 
 _STORAGE_KEY_PATTERN = re.compile(
     r"^(?P<uuid>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
@@ -122,7 +128,7 @@ class GeneratedExportResult:
 
 @dataclass(frozen=True)
 class GeneratedExportFile:
-    path: Path
+    stream: BinaryIO
     storage_key: str
     mime_type: str
     sha256: str
@@ -704,11 +710,17 @@ def cleanup_generated_exports(
     now: Optional[datetime] = None,
     max_bytes: Optional[int] = None,
     preserve_storage_keys: Optional[Set[str]] = None,
+    staging_grace_seconds: Optional[float] = None,
 ) -> None:
     export_root = Path(root or EXPORT_ROOT).resolve()
     export_root.mkdir(parents=True, exist_ok=True)
     current_time = _as_utc(now or datetime.now(timezone.utc))
     capacity = EXPORT_MAX_BYTES if max_bytes is None else max(0, int(max_bytes))
+    staging_grace = (
+        EXPORT_STAGING_GRACE_SECONDS
+        if staging_grace_seconds is None
+        else max(0.0, float(staging_grace_seconds))
+    )
     preserved = set(preserve_storage_keys or set())
     payloads: Dict[str, Path] = {}
     manifests: Dict[str, Path] = {}
@@ -728,13 +740,17 @@ def cleanup_generated_exports(
             manifests[storage_key] = entry
         elif _is_valid_storage_key(entry.name):
             payloads[entry.name] = entry
-        else:
+        elif _is_older_than_grace(entry, current_time, staging_grace):
             _safe_unlink(entry)
 
     complete_pairs = set(payloads) & set(manifests)
     for storage_key in (set(payloads) | set(manifests)) - complete_pairs:
-        _safe_unlink(payloads.get(storage_key))
-        _safe_unlink(manifests.get(storage_key))
+        payload_path = payloads.get(storage_key)
+        manifest_path = manifests.get(storage_key)
+        if payload_path is not None and _is_older_than_grace(payload_path, current_time, staging_grace):
+            _safe_unlink(payload_path)
+        if manifest_path is not None and _is_older_than_grace(manifest_path, current_time, staging_grace):
+            _safe_unlink(manifest_path)
 
     retained = []
     for storage_key in complete_pairs:
@@ -790,11 +806,8 @@ def open_generated_export(
     payload_path = export_root / normalized_key
     manifest_path = _manifest_path(payload_path)
     if (
-        not payload_path.is_file()
-        or not manifest_path.is_file()
-        or payload_path.is_symlink()
+        not manifest_path.is_file()
         or manifest_path.is_symlink()
-        or payload_path.resolve().parent != export_root
         or manifest_path.resolve().parent != export_root
     ):
         raise GeneratedExportAccessError(404, "generated export not found")
@@ -812,13 +825,38 @@ def open_generated_export(
         _delete_export_pair(export_root, normalized_key)
         raise GeneratedExportAccessError(410, "generated export expired")
 
-    actual_size = payload_path.stat().st_size
-    actual_sha256 = _sha256_file(payload_path)
-    if actual_size != manifest["size"] or not hmac.compare_digest(actual_sha256, manifest["sha256"]):
-        raise GeneratedExportAccessError(409, "generated export integrity check failed")
+    open_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        open_flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(payload_path, open_flags)
+    except OSError as exc:
+        raise GeneratedExportAccessError(404, "generated export not found") from exc
+    try:
+        stream = os.fdopen(descriptor, "rb")
+    except Exception:
+        os.close(descriptor)
+        raise
+    try:
+        file_status = os.fstat(stream.fileno())
+        if not stat.S_ISREG(file_status.st_mode):
+            raise GeneratedExportAccessError(404, "generated export not found")
+        actual_sha256 = _sha256_stream(stream)
+        if file_status.st_size != manifest["size"] or not hmac.compare_digest(actual_sha256, manifest["sha256"]):
+            raise GeneratedExportAccessError(409, "generated export integrity check failed")
+        stream.seek(0)
+    except GeneratedExportAccessError:
+        stream.close()
+        raise
+    except OSError as exc:
+        stream.close()
+        raise GeneratedExportAccessError(409, "generated export integrity check failed") from exc
+    except Exception:
+        stream.close()
+        raise
 
     return GeneratedExportFile(
-        path=payload_path,
+        stream=stream,
         storage_key=normalized_key,
         mime_type=manifest["mimeType"],
         sha256=manifest["sha256"],
@@ -900,10 +938,14 @@ def _as_utc(value: datetime) -> datetime:
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
     with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
+        return _sha256_stream(stream)
+
+
+def _sha256_stream(stream: BinaryIO) -> str:
+    digest = hashlib.sha256()
+    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        digest.update(chunk)
     return digest.hexdigest()
 
 
@@ -920,6 +962,14 @@ def _safe_unlink(path: Optional[Path]) -> None:
         path.unlink(missing_ok=True)
     except OSError:
         pass
+
+
+def _is_older_than_grace(path: Path, now: datetime, grace_seconds: float) -> bool:
+    try:
+        modified_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    except OSError:
+        return True
+    return modified_at <= now - timedelta(seconds=grace_seconds)
 
 
 def _parse_json_object(content: str) -> Dict[str, Any]:
@@ -1076,6 +1126,7 @@ def _slugify(value: str) -> str:
 __all__ = [
     "EXPORT_MAX_BYTES",
     "EXPORT_ROOT",
+    "EXPORT_STAGING_GRACE_SECONDS",
     "EXPORT_TTL_HOURS",
     "EXPORT_URL_PATH",
     "GeneratedExportAccessError",

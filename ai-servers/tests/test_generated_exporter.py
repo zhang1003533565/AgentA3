@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import tempfile
 import unittest
 import uuid
@@ -146,6 +147,9 @@ class GeneratedExporterTest(unittest.TestCase):
             orphan_payload.write_text("orphan", encoding="utf-8")
             orphan_sidecar = root / f"{uuid.uuid4()}.txt.meta.json"
             orphan_sidecar.write_text("{}", encoding="utf-8")
+            stale_orphan_time = (now - timedelta(seconds=301)).timestamp()
+            os.utime(orphan_payload, (stale_orphan_time, stale_orphan_time))
+            os.utime(orphan_sidecar, (stale_orphan_time, stale_orphan_time))
 
             generated_exporter.cleanup_generated_exports(
                 root=root,
@@ -175,6 +179,66 @@ class GeneratedExporterTest(unittest.TestCase):
             self.assertFalse((root / f"{second['storageKey']}.meta.json").exists())
             self.assertTrue((root / third["storageKey"]).exists())
             self.assertTrue((root / f"{third['storageKey']}.meta.json").exists())
+
+    def test_cleanup_preserves_fresh_staging_and_only_removes_stale_orphans(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            generated_exporter.EXPORT_ROOT = root
+            generated_exporter.EXPORT_TTL_HOURS = 168
+            generated_exporter.EXPORT_MAX_BYTES = 1024 * 1024
+            now = datetime.now(timezone.utc)
+            stale_time = (now - timedelta(seconds=301)).timestamp()
+            fresh_time = (now - timedelta(seconds=299)).timestamp()
+
+            fresh_temp = root / ".fresh-payload.tmp"
+            stale_temp = root / ".stale-payload.tmp"
+            fresh_payload = root / f"{uuid.uuid4()}.md"
+            stale_payload = root / f"{uuid.uuid4()}.md"
+            for path, content, modified_at in (
+                (fresh_temp, "fresh-temp", fresh_time),
+                (stale_temp, "stale-temp", stale_time),
+                (fresh_payload, "fresh-payload", fresh_time),
+                (stale_payload, "stale-payload", stale_time),
+            ):
+                path.write_text(content, encoding="utf-8")
+                os.utime(path, (modified_at, modified_at))
+
+            generated_exporter.cleanup_generated_exports(
+                root=root,
+                now=now,
+                max_bytes=1024 * 1024,
+                staging_grace_seconds=300,
+            )
+
+            self.assertTrue(fresh_temp.exists())
+            self.assertTrue(fresh_payload.exists())
+            self.assertFalse(stale_temp.exists())
+            self.assertFalse(stale_payload.exists())
+
+    def test_capacity_counts_only_committed_payload_sidecar_pairs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            generated_exporter.EXPORT_ROOT = root
+            generated_exporter.EXPORT_TTL_HOURS = 168
+            generated_exporter.EXPORT_MAX_BYTES = 1024 * 1024
+            committed = generated_exporter.export_generated_answer(
+                "# 已提交\n\n- 内容",
+                "markdown",
+                self._markdown_metadata(),
+            ).attachments[0]
+            fresh_unpaired = root / f"{uuid.uuid4()}.md"
+            fresh_unpaired.write_bytes(b"x" * (committed["size"] + 4096))
+
+            generated_exporter.cleanup_generated_exports(
+                root=root,
+                now=datetime.now(timezone.utc),
+                max_bytes=committed["size"],
+                staging_grace_seconds=300,
+            )
+
+            self.assertTrue((root / committed["storageKey"]).exists())
+            self.assertTrue((root / f"{committed['storageKey']}.meta.json").exists())
+            self.assertTrue(fresh_unpaired.exists())
 
     def test_question_bank_exports_markdown_docx_and_xlsx(self):
         with tempfile.TemporaryDirectory() as temp_dir:

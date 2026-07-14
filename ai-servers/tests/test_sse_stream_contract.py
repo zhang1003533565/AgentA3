@@ -1,5 +1,6 @@
 import json
 import unittest
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -11,6 +12,92 @@ import app.api.routes.rag as rag_route
 
 
 class SseStreamContractTest(unittest.TestCase):
+    def test_merge_attachments_prefers_storage_key_and_uses_url_as_fallback(self):
+        generated = {
+            "storageKey": "11111111-1111-4111-8111-111111111111.md",
+            "internalCapability": "capability-1",
+            "serverGenerated": True,
+        }
+        duplicate_storage_key = {
+            **generated,
+            "url": "/ignored-because-storage-key-is-the-identity",
+            "internalCapability": "capability-2",
+        }
+        legacy = {"url": "https://cdn.example.edu/file.pdf", "name": "file.pdf"}
+        duplicate_url = {"url": legacy["url"], "name": "duplicate.pdf"}
+
+        merged = rag_route._merge_attachments(
+            [generated, legacy],
+            [duplicate_storage_key, duplicate_url, {"name": "missing-identity"}],
+        )
+
+        self.assertEqual([generated, legacy], merged)
+
+    def test_server_generated_attachment_reaches_sync_and_sse_done_payload(self):
+        client = TestClient(app)
+        attachment = {
+            "name": "22222222-2222-4222-8222-222222222222.md",
+            "storageKey": "22222222-2222-4222-8222-222222222222.md",
+            "serverGenerated": True,
+            "internalCapability": "internal-capability",
+            "sha256": "a" * 64,
+            "size": 18,
+            "createdAt": "2026-07-14T10:00:00Z",
+            "expiresAt": "2026-07-21T10:00:00Z",
+            "mimeType": "text/markdown",
+            "type": "file",
+            "ext": "md",
+        }
+        original_run_rag_core = rag_route._run_rag_query_core
+        original_export_generated_answer = rag_route.export_generated_answer
+        try:
+            rag_route.export_generated_answer = lambda *args, **kwargs: SimpleNamespace(
+                attachments=[dict(attachment)],
+                diagnostics={"skipped": False},
+            )
+            rag_route._run_rag_query_core = lambda request, authorization: rag_route._decorate_output_response(
+                RagQueryResponse(
+                    strategy="direct_agent",
+                    answer="# 导出内容",
+                    answerType="markdown",
+                    metadata={"executedAgent": "textbook_knowledge_agent"},
+                )
+            )
+            request_payload = {"input": "导出内容", "agentName": "textbook_knowledge_agent"}
+
+            sync_response = client.post(
+                "/internal/rag/query",
+                headers={"Authorization": "Bearer test-token"},
+                json=request_payload,
+            )
+            self.assertEqual(200, sync_response.status_code)
+            sync_attachment = sync_response.json()["attachments"][0]
+            self.assertEqual(attachment["storageKey"], sync_attachment["storageKey"])
+            self.assertEqual(attachment["internalCapability"], sync_attachment["internalCapability"])
+
+            with client.stream(
+                "POST",
+                "/internal/rag/query/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json=request_payload,
+            ) as response:
+                self.assertEqual(200, response.status_code)
+                payload = "".join(response.iter_text())
+
+            done_data = None
+            for event in payload.split("\n\n"):
+                if event.startswith("event: done\n"):
+                    data_line = next(line for line in event.splitlines() if line.startswith("data: "))
+                    done_data = json.loads(data_line.removeprefix("data: "))
+                    break
+            self.assertIsNotNone(done_data)
+            stream_attachment = done_data["attachments"][0]
+            self.assertEqual(attachment["storageKey"], stream_attachment["storageKey"])
+            self.assertEqual(attachment["internalCapability"], stream_attachment["internalCapability"])
+        finally:
+            rag_route._run_rag_query_core = original_run_rag_core
+            rag_route.export_generated_answer = original_export_generated_answer
+
     def test_build_sse_uses_real_newlines(self):
         event = build_sse("status", {"stage": "processing"})
         self.assertIn("event: status\n", event)

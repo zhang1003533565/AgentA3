@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+import app.api.routes.rag as rag_route
 from app.rag.document_conversion import generated_exporter
 
 
@@ -161,6 +162,30 @@ print(record.sha256)
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == attachment["sha256"]
+
+
+def test_download_stream_uses_verified_descriptor_after_path_replacement_and_closes_it(export_root):
+    attachment = _create_export()
+    payload_path = export_root / attachment["storageKey"]
+    verified_bytes = payload_path.read_bytes()
+    export_file = generated_exporter.open_generated_export(
+        attachment["storageKey"],
+        attachment["internalCapability"],
+    )
+    verified_stream = export_file.stream
+    payload_path.unlink()
+    payload_path.write_bytes(b"replacement-must-not-be-served")
+
+    with patch.object(rag_route, "open_generated_export", return_value=export_file):
+        response = TestClient(app).get(
+            f"/internal/rag/exports/{attachment['storageKey']}",
+            headers={"X-AI-Export-Capability": attachment["internalCapability"]},
+        )
+
+    assert response.status_code == 200
+    assert response.content == verified_bytes
+    assert response.content != payload_path.read_bytes()
+    assert verified_stream.closed
 
 
 def test_production_import_fails_fast_without_explicit_export_root():
