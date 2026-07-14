@@ -344,6 +344,10 @@ def test_integrity_digest_verifies_and_detects_rewrites():
         "http://[fe80::1]/private.png",
         "https://user:password@cdn.example.edu/private.png",
         "https://user@cdn.example.edu/private.png",
+        "http://rag-service:8000/x",
+        "http://python/x",
+        "/internal/rag/x",
+        "//internal-host/x",
     ],
 )
 def test_public_envelope_strips_private_or_credentialed_urls(unsafe_url):
@@ -356,11 +360,20 @@ def test_public_envelope_strips_private_or_credentialed_urls(unsafe_url):
 
 
 def test_public_envelope_keeps_public_http_urls_and_filters_business_card_urls():
-    public_url = "https://cdn.example.edu/public.png"
-    attachment_bundle = build_bundle(
-        answer="",
-        attachments=[{"name": "public.png", "type": "image", "url": public_url}],
+    allowed_urls = (
+        "/api/ai/resources/public.png",
+        "/uploads/public.png",
+        "https://cdn.example.edu/public.png",
+        "http://8.8.8.8/public.png",
+        "http://[2606:4700:4700::1111]/public.png",
     )
+    for public_url in allowed_urls:
+        attachment_bundle = build_bundle(
+            answer="",
+            attachments=[{"name": "public.png", "type": "image", "url": public_url}],
+        )
+        assert attachment_bundle["resources"][0]["url"] == public_url
+
     dining_item = copy.deepcopy(BUSINESS_CASES["dining"][0])
     dining_item["imageUrl"] = "http://menu.internal/private.png"
     business_bundle = build_bundle(
@@ -372,7 +385,6 @@ def test_public_envelope_keeps_public_http_urls_and_filters_business_card_urls()
         }]
     )
 
-    assert attachment_bundle["resources"][0]["url"] == public_url
     dining_card = next(item for item in business_bundle["resources"] if item["kind"] == "dining")
     assert "imageUrl" not in dining_card["payload"]
 

@@ -514,7 +514,10 @@ def _request_id(raw, query_digest, answer_digest):
 def _safe_url(value, *, relative):
     value = _text(value, 1_000)
     if relative and value.startswith("/") and not value.startswith("//"):
-        return value
+        parsed_relative = urlparse(value)
+        allowed_path = parsed_relative.path.startswith(("/api/", "/uploads/"))
+        safe_segments = all(segment not in {".", ".."} for segment in parsed_relative.path.split("/"))
+        return value if allowed_path and safe_segments and "\\" not in value else ""
     try:
         parsed = urlparse(value)
         host = (parsed.hostname or "").lower().rstrip(".")
@@ -528,19 +531,21 @@ def _safe_url(value, *, relative):
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
-        return "" if _ambiguous_numeric_host(host) else value
+        return value if not _ambiguous_numeric_host(host) and _is_fqdn(host) else ""
     if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
         address = address.ipv4_mapped
-    if address.is_loopback or address.is_unspecified or address.is_link_local:
-        return ""
-    if isinstance(address, ipaddress.IPv4Address):
-        private_networks = (
-            ipaddress.ip_network("10.0.0.0/8"),
-            ipaddress.ip_network("172.16.0.0/12"),
-            ipaddress.ip_network("192.168.0.0/16"),
-        )
-        return "" if any(address in network for network in private_networks) else value
-    return "" if address in ipaddress.ip_network("fc00::/7") else value
+    return value if address.is_global else ""
+
+
+def _is_fqdn(host):
+    try:
+        ascii_host = host.encode("idna").decode("ascii")
+    except UnicodeError:
+        return False
+    if "." not in ascii_host or len(ascii_host) > 253:
+        return False
+    label_pattern = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", re.IGNORECASE)
+    return all(label_pattern.fullmatch(label) for label in ascii_host.split("."))
 
 
 def _ambiguous_numeric_host(host):
