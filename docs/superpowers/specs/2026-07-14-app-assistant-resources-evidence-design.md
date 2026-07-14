@@ -88,7 +88,7 @@ FastAPI AI 服务
 | `facility` | 校园设施/地图工具 | `business_card` |
 | `secondhand` | 二手交易工具 | `business_card` |
 
-资源动作 `ActionType` 与行为证据 `InteractionType` 分开。V1 动作只允许 `open_resource / download / preview / follow_up`；行为证据允许 `view / open / download / preview / follow_up / dismiss`。业务卡页面地址由 APP 根据 `kind + businessId` 本地白名单映射，不执行模型给出的任意 scheme/route。外部链接仅允许 HTTPS 和配置化批准域名。注册、加入、认领、联系、收藏等改变业务状态的动作必须继续走各业务模块自己的授权接口，不在资源卡里直接绕过确认。
+资源动作 `ActionType` 与行为证据 `InteractionType` 分开。V1 动作只允许 `open_resource / download / preview / follow_up`；行为证据允许 `view / open / download / preview / follow_up / dismiss`。业务卡页面地址由 APP 根据 `kind + businessId` 本地白名单映射，不执行模型给出的任意 scheme/route；只有存在唯一、安全详情页的 `course / activity / meeting / secondhand` 才发布 `open_resource`，`dining / facility` 因业务 ID 可能对应不同实体而发布 `follow_up`，历史遗留的不可路由打开动作必须显式标记为不可用而不能静默删除。外部链接仅允许 HTTPS 和配置化批准域名。注册、加入、认领、联系、收藏等改变业务状态的动作必须继续走各业务模块自己的授权接口，不在资源卡里直接绕过确认。
 
 ## 方案比较
 

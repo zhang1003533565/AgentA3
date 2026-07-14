@@ -25,6 +25,7 @@ BUSINESS_CARD_FIELDS: Dict[str, Tuple[str, ...]] = {
     "facility": ("businessId", "name", "category", "location", "openingHours", "status", "longitude", "latitude"),
     "secondhand": ("businessId", "title", "category", "price", "condition", "status", "createdAt", "imageUrl"),
 }
+_APP_DETAIL_RESOURCE_KINDS = {"course", "activity", "meeting", "secondhand"}
 
 _KIND_ALIASES = {
     "course": "course", "course_schedule": "course", "course_schedule_summary": "course",
@@ -253,13 +254,18 @@ def _business_resource(kind: str, item: Mapping[str, Any], evidence_id: str, gen
     if not business_id:
         return None
     title = _text(payload.get("courseName") or payload.get("title") or payload.get("name") or kind, 240)
+    action = (
+        {"type": "open_resource", "label": "打开", "target": "resource", "requiresAuth": True}
+        if kind in _APP_DETAIL_RESOURCE_KINDS
+        else {"type": "follow_up", "label": "继续了解", "target": "resource", "requiresAuth": True}
+    )
     return _resource(
         resource_id="res_" + _hex_digest({"kind": kind, "businessId": business_id, "evidenceIds": [evidence_id]})[:24],
         kind=kind, delivery_type="business_card", status="grounded", title=title,
         summary=_business_summary(kind, payload), payload=payload, evidence_ids=[evidence_id],
         generated_at=generated_at, mime_type="application/json", source_type="java_backend",
         source_id=f"{kind}:{business_id}", auth_scope="request_user",
-        actions=[{"type": "open_resource", "label": "打开", "target": "resource", "requiresAuth": True}],
+        actions=[action],
     )
 
 

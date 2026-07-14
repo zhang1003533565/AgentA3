@@ -203,6 +203,34 @@ def test_business_cards_use_exact_allowlist_and_strip_pii(kind):
         assert forbidden not in serialized
 
 
+@pytest.mark.parametrize(
+    ("kind", "expected_action"),
+    [
+        ("course", "open_resource"),
+        ("activity", "open_resource"),
+        ("meeting", "open_resource"),
+        ("dining", "follow_up"),
+        ("facility", "follow_up"),
+        ("secondhand", "open_resource"),
+    ],
+)
+def test_business_cards_only_offer_open_when_the_app_has_a_detail_route(kind, expected_action):
+    allowed_values, _ = BUSINESS_CASES[kind]
+    bundle = build_bundle(
+        documents=[
+            {
+                "id": f"{kind}:route-contract",
+                "content": f"{kind} factual result",
+                "source": "java_backend",
+                "metadata": {"kind": kind, "item": allowed_values},
+            }
+        ]
+    )
+
+    card = next(resource for resource in bundle["resources"] if resource["kind"] == kind)
+    assert [action["type"] for action in card["actions"]] == [expected_action]
+
+
 def test_source_digests_and_ids_are_deterministic_and_metadata_is_safe():
     document = {
         "id": "doc-9",
