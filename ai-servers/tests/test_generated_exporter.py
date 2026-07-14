@@ -1,13 +1,181 @@
+import hashlib
 import json
 import tempfile
 import unittest
+import uuid
 import zipfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from app.rag.document_conversion import generated_exporter
 
 
 class GeneratedExporterTest(unittest.TestCase):
+    def setUp(self):
+        self.original_root = generated_exporter.EXPORT_ROOT
+        self.original_ttl_hours = getattr(generated_exporter, "EXPORT_TTL_HOURS", None)
+        self.original_max_bytes = getattr(generated_exporter, "EXPORT_MAX_BYTES", None)
+
+    def tearDown(self):
+        generated_exporter.EXPORT_ROOT = self.original_root
+        if self.original_ttl_hours is not None:
+            generated_exporter.EXPORT_TTL_HOURS = self.original_ttl_hours
+        if self.original_max_bytes is not None:
+            generated_exporter.EXPORT_MAX_BYTES = self.original_max_bytes
+
+    @staticmethod
+    def _markdown_metadata():
+        return {
+            "executedAgent": "textbook_knowledge_agent",
+            "toolToggles": {
+                "docx_export_tool": False,
+                "excel_export_tool": False,
+                "content_archive_tool": False,
+            },
+        }
+
+    @staticmethod
+    def _read_manifest(root: Path, storage_key: str):
+        return json.loads((root / f"{storage_key}.meta.json").read_text(encoding="utf-8"))
+
+    def test_default_root_is_repository_local_and_production_requires_explicit_root(self):
+        expected = Path(generated_exporter.__file__).resolve().parents[3] / "data" / "ai-exports"
+
+        self.assertEqual(expected.resolve(), generated_exporter._resolve_export_root({}))
+        with self.assertRaisesRegex(RuntimeError, "AI_EXPORT_ROOT"):
+            generated_exporter._resolve_export_root({"AI_ENV": "production"})
+        self.assertEqual(
+            Path("/srv/shared/ai-exports"),
+            generated_exporter._resolve_export_root({
+                "AI_ENV": "prod",
+                "AI_EXPORT_ROOT": "/srv/shared/ai-exports",
+            }),
+        )
+
+    def test_export_uses_full_uuid_storage_key_and_atomic_digest_sidecar(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            generated_exporter.EXPORT_ROOT = root
+            generated_exporter.EXPORT_TTL_HOURS = 168
+            generated_exporter.EXPORT_MAX_BYTES = 1024 * 1024
+            destinations = []
+            real_replace = generated_exporter.os.replace
+
+            def record_replace(source, destination):
+                destinations.append(Path(destination).name)
+                return real_replace(source, destination)
+
+            with patch.object(generated_exporter.os, "replace", side_effect=record_replace):
+                result = generated_exporter.export_generated_answer(
+                    "# 栈与队列\n\n- 栈：后进先出",
+                    "markdown",
+                    self._markdown_metadata(),
+                )
+
+            self.assertEqual(1, len(result.attachments))
+            attachment = result.attachments[0]
+            required_fields = {
+                "storageKey",
+                "serverGenerated",
+                "internalCapability",
+                "sha256",
+                "size",
+                "createdAt",
+                "expiresAt",
+            }
+            self.assertTrue(required_fields.issubset(attachment))
+            self.assertTrue(attachment["serverGenerated"])
+            self.assertNotIn("url", attachment)
+            storage_key = attachment["storageKey"]
+            self.assertEqual(storage_key, attachment["name"])
+            self.assertEqual(str(uuid.UUID(Path(storage_key).stem)), Path(storage_key).stem)
+
+            payload_path = root / storage_key
+            sidecar_path = root / f"{storage_key}.meta.json"
+            self.assertTrue(payload_path.is_file())
+            self.assertTrue(sidecar_path.is_file())
+            self.assertLess(destinations.index(storage_key), destinations.index(sidecar_path.name))
+            self.assertFalse(any(".tmp" in item.name for item in root.iterdir()))
+
+            manifest = self._read_manifest(root, storage_key)
+            self.assertEqual(
+                {"capabilityDigest", "sha256", "size", "mimeType", "createdAt", "expiresAt"},
+                set(manifest),
+            )
+            self.assertNotIn(attachment["internalCapability"], sidecar_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                hashlib.sha256(attachment["internalCapability"].encode("utf-8")).hexdigest(),
+                manifest["capabilityDigest"],
+            )
+            self.assertEqual(hashlib.sha256(payload_path.read_bytes()).hexdigest(), manifest["sha256"])
+            self.assertEqual(payload_path.stat().st_size, manifest["size"])
+            self.assertEqual(manifest["sha256"], attachment["sha256"])
+            self.assertEqual(manifest["size"], attachment["size"])
+            created_at = datetime.fromisoformat(manifest["createdAt"].replace("Z", "+00:00"))
+            expires_at = datetime.fromisoformat(manifest["expiresAt"].replace("Z", "+00:00"))
+            self.assertEqual(timedelta(hours=168), expires_at - created_at)
+
+    def test_cleanup_removes_orphans_expired_pairs_and_oldest_pair_over_capacity(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            generated_exporter.EXPORT_ROOT = root
+            generated_exporter.EXPORT_TTL_HOURS = 168
+            generated_exporter.EXPORT_MAX_BYTES = 1024 * 1024
+
+            first = generated_exporter.export_generated_answer(
+                "# 第一份\n\n- 旧内容",
+                "markdown",
+                self._markdown_metadata(),
+            ).attachments[0]
+            second = generated_exporter.export_generated_answer(
+                "# 第二份\n\n- 新内容更多一些",
+                "markdown",
+                self._markdown_metadata(),
+            ).attachments[0]
+
+            now = datetime.now(timezone.utc)
+            first_manifest = self._read_manifest(root, first["storageKey"])
+            first_manifest["createdAt"] = (now - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
+            first_manifest["expiresAt"] = (now - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+            (root / f"{first['storageKey']}.meta.json").write_text(
+                json.dumps(first_manifest), encoding="utf-8"
+            )
+
+            orphan_payload = root / f"{uuid.uuid4()}.txt"
+            orphan_payload.write_text("orphan", encoding="utf-8")
+            orphan_sidecar = root / f"{uuid.uuid4()}.txt.meta.json"
+            orphan_sidecar.write_text("{}", encoding="utf-8")
+
+            generated_exporter.cleanup_generated_exports(
+                root=root,
+                now=now,
+                max_bytes=1024 * 1024,
+            )
+
+            self.assertFalse((root / first["storageKey"]).exists())
+            self.assertFalse((root / f"{first['storageKey']}.meta.json").exists())
+            self.assertFalse(orphan_payload.exists())
+            self.assertFalse(orphan_sidecar.exists())
+            self.assertTrue((root / second["storageKey"]).exists())
+
+            third = generated_exporter.export_generated_answer(
+                "# 第三份\n\n- 最新内容",
+                "markdown",
+                self._markdown_metadata(),
+            ).attachments[0]
+            capacity = third["size"]
+            generated_exporter.cleanup_generated_exports(
+                root=root,
+                now=now,
+                max_bytes=capacity,
+            )
+
+            self.assertFalse((root / second["storageKey"]).exists())
+            self.assertFalse((root / f"{second['storageKey']}.meta.json").exists())
+            self.assertTrue((root / third["storageKey"]).exists())
+            self.assertTrue((root / f"{third['storageKey']}.meta.json").exists())
+
     def test_question_bank_exports_markdown_docx_and_xlsx(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             generated_exporter.EXPORT_ROOT = Path(temp_dir)

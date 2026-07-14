@@ -24,6 +24,7 @@ AppFrontend/unpackage/
 
 # Docker runtime data
 ai-servers/.rag-data/
+ai-servers/data/ai-exports/
 
 # OS
 .DS_Store

@@ -5,7 +5,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Header, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.models.schemas import (
@@ -21,6 +21,7 @@ from app.multi_agents.leader_agent.agent import leader_agent
 from app.multi_agents.question_bank_schema import review_question_bank_payload
 from app.multi_agents.runner import run_specialist_agent
 from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx, export_generated_answer
+from app.rag.document_conversion.generated_exporter import GeneratedExportAccessError, open_generated_export
 from app.rag.structured.text_to_sql import TextToSqlService
 from app.services.assistant_resource_builder import finalize_assistant_response
 from app.services.data_store import data_store
@@ -250,6 +251,26 @@ class QuestionBankReviewRequest(BaseModel):
     expectedType: Optional[str] = Field(default=None, max_length=64)
 
 
+@router.get("/exports/{storage_key}", response_class=FileResponse)
+def download_generated_export(
+    storage_key: str,
+    export_capability: Optional[str] = Header(default=None, alias="X-AI-Export-Capability"),
+) -> FileResponse:
+    try:
+        export_file = open_generated_export(storage_key, export_capability)
+    except GeneratedExportAccessError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return FileResponse(
+        path=export_file.path,
+        media_type=export_file.mime_type,
+        filename=export_file.storage_key,
+        headers={
+            "X-AI-Export-SHA256": export_file.sha256,
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
 def _llm_header_audit_fields(
     provider: Optional[str],
     base_url: Optional[str],
@@ -362,7 +383,7 @@ def get_rag_framework(
             "multiAgents": "app/multi_agents",
             "langgraphWorkflow": "app/langgraph",
             "documentConversion": "app/rag/document_conversion",
-            "generatedContentExports": "AI_SERVER_EXPORT_ROOT 或系统临时目录/agent-a3-ai-exports",
+            "generatedContentExports": "AI_EXPORT_ROOT 或开发默认目录 data/ai-exports",
             "textToSql": "app/rag/structured",
         },
         "modelProviders": [

@@ -1,21 +1,76 @@
+import hashlib
+import hmac
 import json
+import mimetypes
 import os
 import re
+import secrets
 import tempfile
 import uuid
 import zipfile
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from urllib.parse import quote
+from typing import Any, Dict, List, Mapping, Optional, Set
 from xml.sax.saxutils import escape
 
 from docx import Document
 
-EXPORT_ROOT = Path(os.getenv("AI_SERVER_EXPORT_ROOT") or (Path(tempfile.gettempdir()) / "agent-a3-ai-exports")).resolve()
+DEFAULT_EXPORT_TTL_HOURS = 168.0
+DEFAULT_EXPORT_MAX_BYTES = 1024 * 1024 * 1024
 EXPORT_URL_PATH = "/uploads/ai-exports"
-PUBLIC_BASE_URL = os.getenv("AI_SERVER_PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
+
+
+def _resolve_export_root(environment: Optional[Mapping[str, str]] = None) -> Path:
+    values = os.environ if environment is None else environment
+    configured_root = str(values.get("AI_EXPORT_ROOT") or "").strip()
+    deployment_environment = str(values.get("AI_ENV") or "").strip().lower()
+    if deployment_environment in {"prod", "production"} and not configured_root:
+        raise RuntimeError(
+            "AI_EXPORT_ROOT must be explicitly configured to a persistent shared export store in production"
+        )
+    if configured_root:
+        return Path(configured_root).expanduser().resolve()
+    return (Path(__file__).resolve().parents[3] / "data" / "ai-exports").resolve()
+
+
+def _positive_number_setting(name: str, default: float) -> float:
+    raw_value = str(os.getenv(name) or "").strip()
+    if not raw_value:
+        return default
+    try:
+        value = float(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a positive number") from exc
+    if value <= 0:
+        raise RuntimeError(f"{name} must be a positive number")
+    return value
+
+
+EXPORT_ROOT = _resolve_export_root()
+EXPORT_TTL_HOURS = _positive_number_setting("AI_EXPORT_TTL_HOURS", DEFAULT_EXPORT_TTL_HOURS)
+EXPORT_MAX_BYTES = int(_positive_number_setting("AI_EXPORT_MAX_BYTES", DEFAULT_EXPORT_MAX_BYTES))
+
+_STORAGE_KEY_PATTERN = re.compile(
+    r"^(?P<uuid>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+    r"\.(?P<extension>[a-z0-9]{1,16})$"
+)
+_MANIFEST_SUFFIX = ".meta.json"
+_MANIFEST_FIELDS = {
+    "capabilityDigest",
+    "sha256",
+    "size",
+    "mimeType",
+    "createdAt",
+    "expiresAt",
+}
+_MIME_TYPES = {
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "zip": "application/zip",
+    "md": "text/markdown",
+    "mmd": "text/plain",
+}
 
 EXPORTABLE_MARKDOWN_ANSWER_TYPES = {
     "markdown",
@@ -65,7 +120,26 @@ class GeneratedExportResult:
     diagnostics: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class GeneratedExportFile:
+    path: Path
+    storage_key: str
+    mime_type: str
+    sha256: str
+    size: int
+    created_at: str
+    expires_at: str
+
+
+class GeneratedExportAccessError(Exception):
+    def __init__(self, status_code: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
 def export_generated_answer(answer: str, answer_type: str, metadata: Optional[Dict[str, Any]] = None) -> GeneratedExportResult:
+    cleanup_generated_exports()
     metadata = metadata or {}
     agent = str(metadata.get("executedAgent") or metadata.get("targetAgent") or metadata.get("agentName") or "").strip()
     normalized_type = str(answer_type or metadata.get("answerType") or "").strip()
@@ -85,13 +159,13 @@ def export_generated_answer(answer: str, answer_type: str, metadata: Optional[Di
         payload = _parse_json_object(content)
         if not payload or not isinstance(payload.get("questions"), list):
             return GeneratedExportResult(diagnostics={"skipped": True, "reason": "invalid_question_bank_json"})
-        return _export_question_bank(payload, metadata)
+        return _finalize_export_batch(_export_question_bank(payload, metadata))
 
     if normalized_type in EXPORTABLE_DIAGRAM_ANSWER_TYPES or _extract_mermaid_code(content):
-        return _export_diagram_source(content, metadata)
+        return _finalize_export_batch(_export_diagram_source(content, metadata))
 
     if _should_export_markdown(normalized_type, agent, metadata, content):
-        return _export_markdown_content(content, metadata)
+        return _finalize_export_batch(_export_markdown_content(content, metadata))
 
     return GeneratedExportResult(diagnostics={"skipped": True, "reason": "not_exportable_answer_type"})
 
@@ -266,7 +340,7 @@ def _export_diagram_source(content: str, metadata: Dict[str, Any]) -> GeneratedE
 
 def _write_text_file(slug: str, ext: str, content: str) -> Path:
     path = _new_export_path(slug, ext)
-    path.write_text(content, encoding="utf-8")
+    _atomic_write_payload(path, lambda temporary_path: temporary_path.write_text(content, encoding="utf-8"))
     return path
 
 
@@ -299,7 +373,7 @@ def _write_markdown_docx(slug: str, title: str, content: str) -> Path:
             doc.add_paragraph(_clean_inline_markdown(re.sub(r"^\d+[.)]\s+", "", stripped)), style="List Number")
             continue
         doc.add_paragraph(_clean_inline_markdown(stripped))
-    doc.save(path)
+    _atomic_write_payload(path, doc.save)
     return path
 
 
@@ -336,7 +410,7 @@ def _write_question_bank_docx(slug: str, title: str, payload: Dict[str, Any]) ->
         tags = _join_values(question.get("tags"))
         if tags:
             doc.add_paragraph(f"标签：{tags}")
-    doc.save(path)
+    _atomic_write_payload(path, doc.save)
     return path
 
 
@@ -375,22 +449,28 @@ def _write_xlsx(slug: str, sheet_name: str, rows: List[List[Any]]) -> Path:
   <cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>"""
-    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("[Content_Types].xml", content_types)
-        archive.writestr("_rels/.rels", root_rels)
-        archive.writestr("xl/workbook.xml", workbook_xml)
-        archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
-        archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
-        archive.writestr("xl/styles.xml", styles)
+    def write_workbook(temporary_path: Path) -> None:
+        with zipfile.ZipFile(temporary_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("[Content_Types].xml", content_types)
+            archive.writestr("_rels/.rels", root_rels)
+            archive.writestr("xl/workbook.xml", workbook_xml)
+            archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
+            archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+            archive.writestr("xl/styles.xml", styles)
+
+    _atomic_write_payload(path, write_workbook)
     return path
 
 
 def _write_archive(slug: str, paths: List[Path]) -> Path:
     path = _new_export_path(f"{slug}-bundle", "zip")
-    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for item in paths:
-            if item and item.exists():
-                archive.write(item, arcname=item.name)
+    def write_archive(temporary_path: Path) -> None:
+        with zipfile.ZipFile(temporary_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for item in paths:
+                if item and item.exists():
+                    archive.write(item, arcname=item.name)
+
+    _atomic_write_payload(path, write_archive)
     return path
 
 
@@ -505,26 +585,341 @@ def _markdown_rows(content: str) -> List[List[Any]]:
 def _attachment_for_file(path: Path, tool_name: str, format_label: str) -> Dict[str, Any]:
     ext = path.suffix.lower().lstrip(".")
     attachment_type = "docx" if ext == "docx" else "excel" if ext == "xlsx" else "file"
+    export_metadata = _commit_export_manifest(path)
     return {
-        "url": _public_url(path),
         "name": path.name,
+        "fileName": path.name,
         "type": attachment_type,
         "ext": ext,
+        "mimeType": export_metadata["mimeType"],
         "toolName": tool_name,
         "formatLabel": format_label,
         "source": "generated_content_export",
+        "storageKey": path.name,
+        "serverGenerated": True,
+        "internalCapability": export_metadata["internalCapability"],
+        "sha256": export_metadata["sha256"],
+        "size": export_metadata["size"],
+        "createdAt": export_metadata["createdAt"],
+        "expiresAt": export_metadata["expiresAt"],
     }
 
 
 def _new_export_path(slug: str, ext: str) -> Path:
     EXPORT_ROOT.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    filename = f"{timestamp}-{uuid.uuid4().hex[:8]}-{_slugify(slug)}.{ext}"
+    del slug
+    normalized_extension = re.sub(r"[^a-z0-9]", "", str(ext or "").lower())[:16]
+    if not normalized_extension:
+        raise ValueError("generated export extension is required")
+    filename = f"{uuid.uuid4()}.{normalized_extension}"
     return EXPORT_ROOT / filename
 
 
-def _public_url(path: Path) -> str:
-    return f"{PUBLIC_BASE_URL}{EXPORT_URL_PATH}/{quote(path.name)}"
+def _atomic_write_payload(path: Path, writer: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    os.close(descriptor)
+    temporary_path = Path(temporary_name)
+    try:
+        writer(temporary_path)
+        with temporary_path.open("rb") as stream:
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        _safe_unlink(temporary_path)
+
+
+def _atomic_write_json(path: Path, value: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(value, stream, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, path)
+    except Exception:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        raise
+    finally:
+        _safe_unlink(temporary_path)
+
+
+def _commit_export_manifest(path: Path) -> Dict[str, Any]:
+    size = path.stat().st_size
+    if size > EXPORT_MAX_BYTES:
+        _safe_unlink(path)
+        raise RuntimeError("generated export exceeds AI_EXPORT_MAX_BYTES")
+    capability = secrets.token_urlsafe(32)
+    created_at = datetime.now(timezone.utc)
+    expires_at = created_at + timedelta(hours=EXPORT_TTL_HOURS)
+    extension = path.suffix.lower().lstrip(".")
+    mime_type = _MIME_TYPES.get(extension) or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    manifest = {
+        "capabilityDigest": hashlib.sha256(capability.encode("utf-8")).hexdigest(),
+        "sha256": _sha256_file(path),
+        "size": size,
+        "mimeType": mime_type,
+        "createdAt": _format_utc(created_at),
+        "expiresAt": _format_utc(expires_at),
+    }
+    _atomic_write_json(_manifest_path(path), manifest)
+    return {**manifest, "internalCapability": capability}
+
+
+def _finalize_export_batch(result: GeneratedExportResult) -> GeneratedExportResult:
+    storage_keys = {
+        str(attachment.get("storageKey") or "")
+        for attachment in result.attachments
+        if attachment.get("storageKey")
+    }
+    generated_size = sum(
+        int(attachment.get("size") or 0)
+        for attachment in result.attachments
+        if attachment.get("storageKey") in storage_keys
+    )
+    if generated_size > EXPORT_MAX_BYTES:
+        for storage_key in storage_keys:
+            _delete_export_pair(EXPORT_ROOT, storage_key)
+        raise RuntimeError("generated export batch exceeds AI_EXPORT_MAX_BYTES")
+    cleanup_generated_exports(preserve_storage_keys=storage_keys)
+    return result
+
+
+def cleanup_generated_exports(
+    *,
+    root: Optional[Path] = None,
+    now: Optional[datetime] = None,
+    max_bytes: Optional[int] = None,
+    preserve_storage_keys: Optional[Set[str]] = None,
+) -> None:
+    export_root = Path(root or EXPORT_ROOT).resolve()
+    export_root.mkdir(parents=True, exist_ok=True)
+    current_time = _as_utc(now or datetime.now(timezone.utc))
+    capacity = EXPORT_MAX_BYTES if max_bytes is None else max(0, int(max_bytes))
+    preserved = set(preserve_storage_keys or set())
+    payloads: Dict[str, Path] = {}
+    manifests: Dict[str, Path] = {}
+
+    try:
+        entries = list(export_root.iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        if entry.is_symlink():
+            _safe_unlink(entry)
+            continue
+        if not entry.is_file():
+            continue
+        storage_key = _storage_key_from_manifest_name(entry.name)
+        if storage_key:
+            manifests[storage_key] = entry
+        elif _is_valid_storage_key(entry.name):
+            payloads[entry.name] = entry
+        else:
+            _safe_unlink(entry)
+
+    complete_pairs = set(payloads) & set(manifests)
+    for storage_key in (set(payloads) | set(manifests)) - complete_pairs:
+        _safe_unlink(payloads.get(storage_key))
+        _safe_unlink(manifests.get(storage_key))
+
+    retained = []
+    for storage_key in complete_pairs:
+        payload_path = payloads[storage_key]
+        manifest_path = manifests[storage_key]
+        try:
+            manifest = _load_manifest(manifest_path)
+            expires_at = _parse_utc(manifest["expiresAt"])
+            created_at = _parse_utc(manifest["createdAt"])
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            try:
+                created_at = datetime.fromtimestamp(payload_path.stat().st_mtime, tz=timezone.utc)
+            except OSError:
+                _delete_export_pair(export_root, storage_key)
+                continue
+            expires_at = None
+        if expires_at is not None and expires_at <= current_time and storage_key not in preserved:
+            _delete_export_pair(export_root, storage_key)
+            continue
+        try:
+            size = payload_path.stat().st_size
+        except OSError:
+            _delete_export_pair(export_root, storage_key)
+            continue
+        retained.append((created_at, storage_key, size))
+
+    total_size = sum(item[2] for item in retained)
+    for _, storage_key, size in sorted(retained, key=lambda item: (item[0], item[1])):
+        if total_size <= capacity:
+            break
+        if storage_key in preserved:
+            continue
+        _delete_export_pair(export_root, storage_key)
+        total_size -= size
+
+
+def open_generated_export(
+    storage_key: str,
+    capability: Optional[str],
+    *,
+    root: Optional[Path] = None,
+    now: Optional[datetime] = None,
+) -> GeneratedExportFile:
+    export_root = Path(root or EXPORT_ROOT).resolve()
+    normalized_key = str(storage_key or "")
+    if not _is_valid_storage_key(normalized_key):
+        raise GeneratedExportAccessError(404, "generated export not found")
+    cleanup_generated_exports(
+        root=export_root,
+        now=now,
+        preserve_storage_keys={normalized_key},
+    )
+    payload_path = export_root / normalized_key
+    manifest_path = _manifest_path(payload_path)
+    if (
+        not payload_path.is_file()
+        or not manifest_path.is_file()
+        or payload_path.is_symlink()
+        or manifest_path.is_symlink()
+        or payload_path.resolve().parent != export_root
+        or manifest_path.resolve().parent != export_root
+    ):
+        raise GeneratedExportAccessError(404, "generated export not found")
+    try:
+        manifest = _load_manifest(manifest_path)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise GeneratedExportAccessError(409, "generated export metadata failed validation") from exc
+
+    presented_digest = hashlib.sha256(str(capability or "").encode("utf-8")).hexdigest()
+    if not hmac.compare_digest(presented_digest, manifest["capabilityDigest"]):
+        raise GeneratedExportAccessError(403, "generated export capability rejected")
+
+    current_time = _as_utc(now or datetime.now(timezone.utc))
+    if _parse_utc(manifest["expiresAt"]) <= current_time:
+        _delete_export_pair(export_root, normalized_key)
+        raise GeneratedExportAccessError(410, "generated export expired")
+
+    actual_size = payload_path.stat().st_size
+    actual_sha256 = _sha256_file(payload_path)
+    if actual_size != manifest["size"] or not hmac.compare_digest(actual_sha256, manifest["sha256"]):
+        raise GeneratedExportAccessError(409, "generated export integrity check failed")
+
+    return GeneratedExportFile(
+        path=payload_path,
+        storage_key=normalized_key,
+        mime_type=manifest["mimeType"],
+        sha256=manifest["sha256"],
+        size=manifest["size"],
+        created_at=manifest["createdAt"],
+        expires_at=manifest["expiresAt"],
+    )
+
+
+def _manifest_path(payload_path: Path) -> Path:
+    return payload_path.with_name(f"{payload_path.name}{_MANIFEST_SUFFIX}")
+
+
+def _storage_key_from_manifest_name(name: str) -> str:
+    if not str(name or "").endswith(_MANIFEST_SUFFIX):
+        return ""
+    storage_key = name[:-len(_MANIFEST_SUFFIX)]
+    return storage_key if _is_valid_storage_key(storage_key) else ""
+
+
+def _is_valid_storage_key(storage_key: str) -> bool:
+    match = _STORAGE_KEY_PATTERN.fullmatch(str(storage_key or ""))
+    if not match:
+        return False
+    try:
+        return str(uuid.UUID(match.group("uuid"))) == match.group("uuid")
+    except ValueError:
+        return False
+
+
+def _load_manifest(path: Path) -> Dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict) or set(value) != _MANIFEST_FIELDS:
+        raise ValueError("invalid generated export manifest fields")
+    capability_digest = str(value.get("capabilityDigest") or "")
+    sha256 = str(value.get("sha256") or "")
+    mime_type = str(value.get("mimeType") or "").strip()
+    size = value.get("size")
+    if not re.fullmatch(r"[0-9a-f]{64}", capability_digest):
+        raise ValueError("invalid generated export capability digest")
+    if not re.fullmatch(r"[0-9a-f]{64}", sha256):
+        raise ValueError("invalid generated export digest")
+    if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+        raise ValueError("invalid generated export size")
+    if not re.fullmatch(r"[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+", mime_type):
+        raise ValueError("invalid generated export MIME type")
+    created_at = _format_utc(_parse_utc(value.get("createdAt")))
+    expires_at = _format_utc(_parse_utc(value.get("expiresAt")))
+    if _parse_utc(expires_at) <= _parse_utc(created_at):
+        raise ValueError("invalid generated export expiry")
+    return {
+        "capabilityDigest": capability_digest,
+        "sha256": sha256,
+        "size": size,
+        "mimeType": mime_type,
+        "createdAt": created_at,
+        "expiresAt": expires_at,
+    }
+
+
+def _parse_utc(value: Any) -> datetime:
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("UTC timestamp is required")
+    parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise ValueError("UTC timestamp must include timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+def _format_utc(value: datetime) -> str:
+    return _as_utc(value).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _delete_export_pair(root: Path, storage_key: str) -> None:
+    payload_path = Path(root) / storage_key
+    _safe_unlink(payload_path)
+    _safe_unlink(_manifest_path(payload_path))
+
+
+def _safe_unlink(path: Optional[Path]) -> None:
+    if path is None:
+        return
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def _parse_json_object(content: str) -> Dict[str, Any]:
@@ -679,8 +1074,14 @@ def _slugify(value: str) -> str:
 
 
 __all__ = [
+    "EXPORT_MAX_BYTES",
     "EXPORT_ROOT",
+    "EXPORT_TTL_HOURS",
     "EXPORT_URL_PATH",
+    "GeneratedExportAccessError",
+    "GeneratedExportFile",
     "GeneratedExportResult",
+    "cleanup_generated_exports",
     "export_generated_answer",
+    "open_generated_export",
 ]
