@@ -322,7 +322,7 @@ function legacyAttachmentResource(attachment, messageId) {
   }, { legacy: true, messageId })
 }
 
-function legacyAttachments(message) {
+function legacyAttachments(message, includeTextFallback) {
   const source = objectValue(message)
   const values = []
   for (const field of ['attachments', 'files', 'fileList']) {
@@ -330,7 +330,9 @@ function legacyAttachments(message) {
       for (const item of source[field]) values.push(legacyAttachmentCandidate(item))
     }
   }
-  values.push(...extractLegacyAttachmentsFromText(source.content))
+  if (includeTextFallback) {
+    values.push(...extractLegacyAttachmentsFromText(source.content))
+  }
   return values.filter(Boolean)
 }
 
@@ -351,7 +353,7 @@ export function normalizeAssistantResources(message) {
     seen.add(keyIdentity)
     for (const identity of identities) seen.add(identity)
   }
-  for (const attachment of legacyAttachments(source)) {
+  for (const attachment of legacyAttachments(source, result.length === 0)) {
     const identities = resourceIdentities(attachment)
     if (identities.some((identity) => seen.has(identity))) continue
     const normalized = legacyAttachmentResource(attachment, messageId)

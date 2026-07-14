@@ -142,9 +142,8 @@ test('legacy fallback preserves structured aliases plus JSON, Markdown and bare 
     }],
     content: '[旧讲义](/uploads/old.docx) 和 [补充](/uploads/supplement.pdf)'
   })
-  assert.equal(canonicalWins.length, 2)
+  assert.equal(canonicalWins.length, 1)
   assert.equal(canonicalWins[0].id, 'res_doc')
-  assert.equal(canonicalWins[1].url, '/uploads/supplement.pdf')
   assert.ok(json.every((item) => item.legacy))
 })
 
