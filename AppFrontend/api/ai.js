@@ -1,6 +1,11 @@
 import { request } from '@/utils/request.js'
 import { BASE_URL } from '@/utils/config.js'
 import { getToken } from '@/utils/storage.js'
+import { buildAssistantDownloadOptions } from '../subpackage_ai/assistantMessage.js'
+
+const ASSISTANT_RESOURCE_INTERACTIONS = new Set([
+  'view', 'open', 'download', 'preview', 'follow_up', 'dismiss'
+])
 
 export function writeWithAi(data) {
   return request({
@@ -76,6 +81,49 @@ export function submitProfileEvidence(data) {
     url: '/api/profile/evidence',
     method: 'POST',
     data
+  })
+}
+
+export function submitAssistantResourceInteraction(sessionId, messageId, resourceId, action) {
+  action = String(action || '').trim().toLowerCase()
+  if (!String(sessionId || '').trim() || !String(messageId || '').trim()
+    || !String(resourceId || '').trim() || !ASSISTANT_RESOURCE_INTERACTIONS.has(action)) {
+    return Promise.reject(new Error('资源互动参数无效'))
+  }
+  return request({
+    url: `/api/ai/leader/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/resources/${encodeURIComponent(resourceId)}/interactions`,
+    method: 'POST',
+    data: { action }
+  })
+}
+
+export function downloadAssistantResource(resourceOrUrl, options = {}) {
+  const resource = typeof resourceOrUrl === 'string'
+    ? { url: resourceOrUrl, authScope: 'session_owner' }
+    : (resourceOrUrl || {})
+  const token = getToken()
+  const downloadOptions = buildAssistantDownloadOptions(resource, {
+    baseUrl: BASE_URL,
+    token,
+    approvedHosts: options.approvedHosts || []
+  })
+  if (!downloadOptions) {
+    return Promise.reject(new Error('资源地址无效或登录状态已失效'))
+  }
+  return new Promise((resolve, reject) => {
+    uni.downloadFile({
+      url: downloadOptions.url,
+      header: downloadOptions.header,
+      ...(options.timeout ? { timeout: options.timeout } : {}),
+      success: (response) => {
+        if (response.statusCode >= 200 && response.statusCode < 300 && response.tempFilePath) {
+          resolve(response.tempFilePath)
+          return
+        }
+        reject(new Error(`资源下载失败: ${response.statusCode || 'unknown'}`))
+      },
+      fail: reject
+    })
   })
 }
 
