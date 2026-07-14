@@ -51,6 +51,25 @@ class MaxKbKnowledgeServiceImplTest {
     }
 
     @Test
+    void createAccount_shouldStripMaxKbOpenApiPathFromBaseUrl() {
+        List<MaxKbAccount> store = new ArrayList<>();
+        MaxKbKnowledgeServiceImpl service = newService(store);
+
+        MaxKbKnowledgeDTO.AccountCreateRequest request = new MaxKbKnowledgeDTO.AccountCreateRequest();
+        request.setAccountName("MaxKB");
+        request.setBaseUrl("http://116.62.22.253:8080/openapi/knowledge/v1/workspaces/default/");
+        request.setEnvironment("custom");
+        request.setApiKey("mkb_1234567890abcdef");
+        request.setWorkspaceId("default");
+        request.setStatus(1);
+
+        MaxKbKnowledgeDTO.AccountVO response = service.createAccount(request);
+
+        Assertions.assertEquals("http://116.62.22.253:8080", response.getBaseUrl());
+        Assertions.assertEquals("http://116.62.22.253:8080", store.get(0).getBaseUrl());
+    }
+
+    @Test
     void updateAccount_shouldKeepOldApiKeyWhenRequestApiKeyBlank() {
         MaxKbAccount account = account(3L, "http://maxkb.old", "mkb_old_key", "ws-old", 1);
         List<MaxKbAccount> store = new ArrayList<>(List.of(account));
@@ -146,6 +165,35 @@ class MaxKbKnowledgeServiceImplTest {
                 uri
         );
         Assertions.assertEquals("Bearer mkb_account_key", headers.getFirst(HttpHeaders.AUTHORIZATION));
+    }
+
+    @Test
+    void internalRequestHelpers_shouldNormalizeLegacyOpenApiBaseUrlBeforeAppendingPath() throws Exception {
+        MaxKbAccount account = account(
+                7L,
+                "http://116.62.22.253:8080/openapi/knowledge/v1/workspaces/default",
+                "mkb_account_key",
+                "default",
+                1
+        );
+        MaxKbKnowledgeServiceImpl service = newService(new ArrayList<>(List.of(account)));
+
+        Method buildUri = MaxKbKnowledgeServiceImpl.class.getDeclaredMethod(
+                "buildUri",
+                MaxKbAccount.class,
+                String.class,
+                Map.class
+        );
+        buildUri.setAccessible(true);
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("current_page", "1");
+        query.put("page_size", "20");
+        String uri = (String) buildUri.invoke(service, account, "/workspaces/default/knowledges", query);
+
+        Assertions.assertEquals(
+                "http://116.62.22.253:8080/openapi/knowledge/v1/workspaces/default/knowledges?current_page=1&page_size=20",
+                uri
+        );
     }
 
     @Test

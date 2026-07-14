@@ -120,7 +120,7 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
     public MaxKbKnowledgeDTO.AccountVO createAccount(MaxKbKnowledgeDTO.AccountCreateRequest request) {
         MaxKbAccount account = new MaxKbAccount();
         account.setAccountName(trim(request.getAccountName()));
-        account.setBaseUrl(trimTrailingSlash(request.getBaseUrl()));
+        account.setBaseUrl(normalizeMaxKbBaseUrl(request.getBaseUrl()));
         account.setEnvironment(normalizeEnvironment(request.getEnvironment()));
         account.setApiKey(trim(request.getApiKey()));
         account.setWorkspaceId(trim(request.getWorkspaceId()));
@@ -133,7 +133,7 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
     public MaxKbKnowledgeDTO.AccountVO updateAccount(Long accountId, MaxKbKnowledgeDTO.AccountUpdateRequest request) {
         MaxKbAccount account = getAccount(accountId, false);
         account.setAccountName(trim(request.getAccountName()));
-        account.setBaseUrl(trimTrailingSlash(request.getBaseUrl()));
+        account.setBaseUrl(normalizeMaxKbBaseUrl(request.getBaseUrl()));
         account.setEnvironment(normalizeEnvironment(request.getEnvironment()));
         if (StringUtils.hasText(request.getApiKey())) {
             account.setApiKey(trim(request.getApiKey()));
@@ -413,7 +413,7 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
     }
 
     private String buildUri(MaxKbAccount account, String path, Map<String, String> queryParams) {
-        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(trimTrailingSlash(account.getBaseUrl()) + OPEN_API_PREFIX + path);
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(normalizeMaxKbBaseUrl(account.getBaseUrl()) + OPEN_API_PREFIX + path);
         if (queryParams != null) {
             queryParams.forEach((key, value) -> {
                 if (StringUtils.hasText(key) && StringUtils.hasText(value)) {
@@ -425,7 +425,7 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
     }
 
     private String buildAssetUri(MaxKbAccount account, String assetPath) {
-        return UriComponentsBuilder.fromUriString(trimTrailingSlash(account.getBaseUrl()) + assetPath)
+        return UriComponentsBuilder.fromUriString(normalizeMaxKbBaseUrl(account.getBaseUrl()) + assetPath)
                 .build(true)
                 .toUriString();
     }
@@ -468,7 +468,7 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
         String value = path.trim();
         if (value.startsWith("http://") || value.startsWith("https://")) {
             URI source = URI.create(value);
-            URI base = URI.create(trimTrailingSlash(account.getBaseUrl()));
+            URI base = URI.create(normalizeMaxKbBaseUrl(account.getBaseUrl()));
             if (!source.getScheme().equalsIgnoreCase(base.getScheme())
                     || !source.getHost().equalsIgnoreCase(base.getHost())
                     || source.getPort() != base.getPort()) {
@@ -613,5 +613,14 @@ public class MaxKbKnowledgeServiceImpl implements MaxKbKnowledgeService {
     private String trimTrailingSlash(String value) {
         String trimmed = trim(value);
         return trimmed.replaceAll("/+$", "");
+    }
+
+    private String normalizeMaxKbBaseUrl(String value) {
+        String trimmed = trimTrailingSlash(value);
+        int openApiIndex = trimmed.indexOf(OPEN_API_PREFIX);
+        if (openApiIndex >= 0) {
+            return trimTrailingSlash(trimmed.substring(0, openApiIndex));
+        }
+        return trimmed;
     }
 }
