@@ -76,39 +76,12 @@ public class AssistantEnvelopeService {
     private static final Pattern BRACKETED_IP_LITERAL = Pattern.compile("\\[([0-9A-Fa-f:.]+)]");
     private static final Pattern STORAGE_KEY = Pattern.compile(
             "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.[a-z0-9]{1,16}");
-    private static final Set<String> RESOURCE_KINDS = Set.of(
-            "explanation", "mind_map", "diagram", "exercise", "code_example", "extended_reading",
-            "image", "video", "audio", "document", "presentation", "spreadsheet", "bundle",
-            "course", "activity", "meeting", "dining", "facility", "secondhand");
-    private static final Set<String> DELIVERY_TYPES = Set.of(
-            "content", "image", "video", "audio", "document", "presentation", "spreadsheet",
-            "bundle", "business_card");
     private static final Set<String> BUSINESS_KINDS = Set.of(
             "course", "activity", "meeting", "dining", "facility", "secondhand");
     private static final Set<String> FILE_DELIVERIES = Set.of(
             "image", "video", "audio", "document", "presentation", "spreadsheet", "bundle");
     private static final Set<String> CONTENT_KINDS = Set.of(
             "explanation", "mind_map", "diagram", "exercise", "code_example", "extended_reading");
-    private static final Map<String, Set<String>> KIND_DELIVERIES = Map.ofEntries(
-            Map.entry("explanation", Set.of("content", "document", "presentation")),
-            Map.entry("mind_map", Set.of("content", "image", "document")),
-            Map.entry("diagram", Set.of("content", "image", "document")),
-            Map.entry("exercise", Set.of("content", "document", "spreadsheet")),
-            Map.entry("code_example", Set.of("content", "document", "bundle")),
-            Map.entry("extended_reading", Set.of("content", "document")),
-            Map.entry("image", Set.of("image")),
-            Map.entry("video", Set.of("video")),
-            Map.entry("audio", Set.of("audio")),
-            Map.entry("document", Set.of("document")),
-            Map.entry("presentation", Set.of("presentation")),
-            Map.entry("spreadsheet", Set.of("spreadsheet")),
-            Map.entry("bundle", Set.of("bundle")),
-            Map.entry("course", Set.of("business_card")),
-            Map.entry("activity", Set.of("business_card")),
-            Map.entry("meeting", Set.of("business_card")),
-            Map.entry("dining", Set.of("business_card")),
-            Map.entry("facility", Set.of("business_card")),
-            Map.entry("secondhand", Set.of("business_card")));
     private static final Set<String> BUSINESS_NUMBER_FIELDS = Set.of(
             "weekday", "startSection", "endSection", "rating", "price", "longitude", "latitude");
     private static final Set<String> AVAILABILITY_STATES = Set.of(
@@ -805,11 +778,8 @@ public class AssistantEnvelopeService {
         String kind = text(raw.get("kind"), 40);
         String deliveryType = text(raw.get("deliveryType"), 40);
         String groundingStatus = text(raw.get("groundingStatus"), 40);
-        if (!"assistant-resource-v1".equals(schemaVersion)
-                || !IDENTIFIER.matcher(id).matches()
-                || !RESOURCE_KINDS.contains(kind)
-                || !DELIVERY_TYPES.contains(deliveryType)
-                || !KIND_DELIVERIES.getOrDefault(kind, Set.of()).contains(deliveryType)
+        String title = text(raw.get("title"), AssistantResourceContract.MAX_TITLE_LENGTH);
+        if (!AssistantResourceContract.isValidCore(schemaVersion, id, kind, deliveryType, title)
                 || !GROUNDING_STATUSES.contains(groundingStatus)) {
             return Optional.empty();
         }
@@ -884,7 +854,7 @@ public class AssistantEnvelopeService {
         resource.setKind(kind);
         resource.setDeliveryType(deliveryType);
         resource.setGroundingStatus(groundingStatus);
-        resource.setTitle(text(raw.get("title"), 240));
+        resource.setTitle(title);
         resource.setSummary(text(raw.get("summary"), 400));
         resource.setMimeType(text(raw.get("mimeType"), 160));
         resource.setStorageKey(storageKey);

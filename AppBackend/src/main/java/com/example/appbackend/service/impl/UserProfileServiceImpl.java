@@ -54,6 +54,7 @@ public class UserProfileServiceImpl implements UserProfileService {
             Map.entry("user_statement", 0.70),
             Map.entry("click", 0.55),
             Map.entry("resource", 0.55),
+            Map.entry("assistant_resource", 0.55),
             Map.entry("favorite", 0.55),
             Map.entry("download", 0.55),
             Map.entry("navigation", 0.55),
@@ -622,25 +623,28 @@ public class UserProfileServiceImpl implements UserProfileService {
                     nullToEmpty(evidence.getMetadataJson())
             ).toLowerCase();
             double confidence = evidence.getConfidence() == null ? 0.5 : evidence.getConfidence();
+            int preferencePolarity = outputPreferencePolarity(evidence);
+            int preferenceWeight = Math.max(1, Math.min(3,
+                    (int) Math.abs((long) (evidence.getSuggestedDelta() == null ? 0 : evidence.getSuggestedDelta()))));
             if (containsAny(signal, "文件", "文档", "word", "docx", "pdf", "ppt", "excel", "表格", "markdown", "md", "下载")) {
-                accumulators.get("document").add(confidence, evidence.getEvidence());
+                accumulators.get("document").add(confidence, evidence.getEvidence(), preferencePolarity, preferenceWeight);
             }
             if (containsAny(signal, "图片", "图解", "配图", "流程图", "思维导图", "架构图", "海报", "image", "png", "jpg")) {
-                accumulators.get("image").add(confidence, evidence.getEvidence());
+                accumulators.get("image").add(confidence, evidence.getEvidence(), preferencePolarity, preferenceWeight);
             }
             if (containsAny(signal, "视频", "video", "mp4")) {
-                accumulators.get("video").add(confidence, evidence.getEvidence());
+                accumulators.get("video").add(confidence, evidence.getEvidence(), preferencePolarity, preferenceWeight);
             }
             if (containsAny(signal, "代码", "code", "示例代码", "案例")) {
-                accumulators.get("code").add(confidence, evidence.getEvidence());
+                accumulators.get("code").add(confidence, evidence.getEvidence(), preferencePolarity, preferenceWeight);
             }
             if (containsAny(signal, "文本", "总结", "要点", "直接说", "文字")) {
-                accumulators.get("text").add(confidence, evidence.getEvidence());
+                accumulators.get("text").add(confidence, evidence.getEvidence(), preferencePolarity, preferenceWeight);
             }
         }
 
         List<Map<String, Object>> formats = accumulators.values().stream()
-                .filter(item -> item.count > 0)
+                .filter(item -> item.count > 0 && item.score() > 0)
                 .sorted(Comparator.comparingDouble(OutputPreferenceAccumulator::score).reversed())
                 .map(OutputPreferenceAccumulator::toMap)
                 .toList();
@@ -663,6 +667,18 @@ public class UserProfileServiceImpl implements UserProfileService {
                 "formats", formats,
                 "usageRule", "高/中置信偏好可作为默认推送形式；回答结尾应轻量提示是否还需要另一种形式。"
         );
+    }
+
+    private int outputPreferencePolarity(UserProfileEvidence evidence) {
+        int delta = evidence.getSuggestedDelta() == null ? 0 : evidence.getSuggestedDelta();
+        if (delta < 0) {
+            return -1;
+        }
+        if (delta > 0) {
+            return 1;
+        }
+        String direction = normalize(evidence.getDirection());
+        return containsAny(direction, "weakness", "negative", "decrease", "下降", "薄弱", "退步") ? -1 : 1;
     }
 
     private List<String> buildResourcePreference(List<UserProfileDTO.DimensionSnapshot> dimensions) {
@@ -1002,7 +1018,7 @@ public class UserProfileServiceImpl implements UserProfileService {
             case "chat", "app_ai_assistant", "user_statement" -> "expressed";
             case "meeting", "meeting_summary", "member_analysis" -> "analyzed";
             case "exam", "question_result", "wrong_question" -> "answered";
-            case "click", "resource", "favorite", "download" -> "interacted";
+            case "click", "resource", "assistant_resource", "favorite", "download" -> "interacted";
             case "profile", "profile_form", "user_profile" -> "declared";
             default -> "observed";
         };
@@ -1016,7 +1032,7 @@ public class UserProfileServiceImpl implements UserProfileService {
             case "chat", "app_ai_assistant", "user_statement", "leader_route" -> "conversation";
             case "meeting", "meeting_summary", "member_analysis" -> "meeting";
             case "exam", "question_result", "wrong_question" -> "question";
-            case "click", "resource", "favorite", "download" -> "resource";
+            case "click", "resource", "assistant_resource", "favorite", "download" -> "resource";
             case "schedule", "course", "grade" -> "course";
             default -> "profile_evidence";
         };
@@ -1159,6 +1175,7 @@ public class UserProfileServiceImpl implements UserProfileService {
             case "meeting" -> "会议总结";
             case "exam" -> "做题记录";
             case "click" -> "资源点击";
+            case "assistant_resource" -> "助手资源互动";
             case "profile" -> "用户资料";
             default -> StringUtils.hasText(sourceType) ? sourceType : "未知来源";
         };
@@ -1713,7 +1730,9 @@ public class UserProfileServiceImpl implements UserProfileService {
         private final String format;
         private final String label;
         private int count;
+        private int negativeCount;
         private double confidenceSum;
+        private double netScore;
         private final List<String> examples = new ArrayList<>();
 
         private OutputPreferenceAccumulator(String format, String label) {
@@ -1721,16 +1740,22 @@ public class UserProfileServiceImpl implements UserProfileService {
             this.label = label;
         }
 
-        private void add(double confidence, String evidence) {
+        private void add(double confidence, String evidence, int polarity, int weight) {
+            double boundedConfidence = Math.max(0, Math.min(1, confidence));
+            netScore += polarity * boundedConfidence * Math.max(1, weight);
+            if (polarity < 0) {
+                negativeCount += 1;
+                return;
+            }
             count += 1;
-            confidenceSum += confidence;
+            confidenceSum += boundedConfidence;
             if (StringUtils.hasText(evidence) && examples.size() < 3) {
                 examples.add(truncate(evidence.trim(), 90));
             }
         }
 
         private double score() {
-            return count * averageConfidence();
+            return netScore;
         }
 
         private double averageConfidence() {
@@ -1742,7 +1767,9 @@ public class UserProfileServiceImpl implements UserProfileService {
             map.put("format", format);
             map.put("label", label);
             map.put("evidenceCount", count);
+            map.put("negativeEvidenceCount", negativeCount);
             map.put("averageConfidence", averageConfidence());
+            map.put("netScore", round2(netScore));
             map.put("examples", examples);
             return map;
         }

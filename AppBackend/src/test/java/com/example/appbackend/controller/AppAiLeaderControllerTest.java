@@ -411,6 +411,32 @@ class AppAiLeaderControllerTest {
     }
 
     @Test
+    void resourceTitlesUseTheSharedCanonicalPersistenceContract() throws Exception {
+        Map<String, Object> unsafe = validGeneratedResponse();
+        resource(unsafe).put("title", "第一行\n第二行");
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(unsafe);
+
+        JsonNode rejected = objectMapper.valueToTree(
+                controller.query(request(), authenticatedRequest()).getData());
+
+        assertThat(rejected.path("resources")).isEmpty();
+        assertThat(rejected.path("evidenceChain").path("evidenceState").asText())
+                .isEqualTo("generation_failed");
+
+        String maxTitle = "资".repeat(240);
+        Map<String, Object> canonical = validGeneratedResponse();
+        resource(canonical).put("title", maxTitle);
+        when(pythonAiProxyService.queryRag(any(), any())).thenReturn(canonical);
+
+        JsonNode accepted = objectMapper.valueToTree(
+                controller.query(request(), authenticatedRequest()).getData());
+
+        assertThat(accepted.path("resources")).hasSize(1);
+        assertThat(accepted.path("resources").path(0).path("title").asText())
+                .isEqualTo(maxTitle);
+    }
+
+    @Test
     void matchedResultsAreCappedAndRecursivelyStripSensitiveMetadata() throws Exception {
         Map<String, Object> raw = validGeneratedResponse();
         List<Map<String, Object>> documents = new ArrayList<>();
