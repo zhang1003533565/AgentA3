@@ -16,6 +16,16 @@ const RENDERERS = new Set([
   'image', 'video', 'audio', 'document', 'presentation', 'spreadsheet', 'bundle',
   'content', 'business_card'
 ])
+const MESSAGE_ARRAY_FIELDS = new Set(['matchedResults', 'trace', 'attachments', 'resources'])
+const MESSAGE_OBJECT_FIELDS = new Set(['retrievalMeta', 'evidenceChain'])
+
+function legacyMarkdownAttachmentPattern() {
+  return /!?\[([^\]]+)\]\(((?:https?:\/\/|\/uploads\/)[^\s"'<>，。！？；、)]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv|md|mmd|zip)(?:\?[^\s"'<>，。！？；、)]*)?)\)/gi
+}
+
+function legacyAttachmentUrlPattern() {
+  return /(?:https?:\/\/|\/uploads\/)[^\s"'<>，。！？；、]+?\.(?:png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|ogg|pdf|docx?|pptx?|xlsx?|csv|md|mmd|zip)(?:\?[^\s"'<>，。！？；、]*)?/gi
+}
 
 function objectValue(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -33,6 +43,15 @@ function firstText(...values) {
   for (const value of values) {
     const text = textValue(value)
     if (text) return text
+  }
+  return ''
+}
+
+function firstUrl(...values) {
+  for (const value of values) {
+    if (typeof value !== 'string') continue
+    const url = value.trim()
+    if (url) return url
   }
   return ''
 }
@@ -78,6 +97,7 @@ function inferDeliveryType(resource) {
 }
 
 function resourceUnavailable(resource) {
+  if (resource.unavailable === true) return true
   const metadata = objectValue(resource.metadata)
   return [resource.status, resource.availability, metadata.status, metadata.availability]
     .some((value) => textValue(value).toLowerCase() === 'legacy_unavailable')
@@ -85,6 +105,85 @@ function resourceUnavailable(resource) {
 
 function stableLegacyIdentity(resource) {
   return firstText(resource.storageKey, resource.url, resource.previewUrl, resource.fileName, resource.name, resource.title)
+}
+
+function unavailableLegacyFingerprint(resource) {
+  if (!resourceUnavailable(resource)) return ''
+  const title = firstText(resource.title, resource.fileName, resource.name)
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+  const deliveryType = inferDeliveryType(resource) || 'document'
+  return title ? `${deliveryType}:${title}` : ''
+}
+
+function fileNameFromUrl(url) {
+  const clean = textValue(url).split(/[?#]/)[0]
+  const encodedName = clean.slice(clean.lastIndexOf('/') + 1) || '文件'
+  try {
+    return decodeURIComponent(encodedName) || '文件'
+  } catch {
+    return encodedName || '文件'
+  }
+}
+
+function legacyAttachmentCandidate(value, forcedType = '') {
+  if (typeof value === 'string') {
+    return { url: value.trim(), name: fileNameFromUrl(value), type: forcedType }
+  }
+  const source = objectValue(value)
+  const url = firstUrl(source.url, source.fileUrl, source.file_url, source.path, source.href)
+  if (!url && !firstText(source.storageKey, source.fileName, source.name, source.title)) return null
+  return {
+    ...source,
+    url,
+    name: firstText(source.name, source.fileName, fileNameFromUrl(url)),
+    type: firstText(source.type, source.fileType, forcedType),
+    mimeType: textValue(source.mimeType)
+  }
+}
+
+function extractLegacyAttachmentsFromText(value) {
+  const content = typeof value === 'string' ? value : ''
+  if (!content) return []
+  const result = []
+  try {
+    const parsed = JSON.parse(content)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      if (Array.isArray(parsed.images)) {
+        for (const item of parsed.images) result.push(legacyAttachmentCandidate(item, 'image'))
+      }
+      for (const field of ['documents', 'files', 'attachments']) {
+        if (!Array.isArray(parsed[field])) continue
+        for (const item of parsed[field]) result.push(legacyAttachmentCandidate(item))
+      }
+      for (const [field, type] of [
+        ['imageUrl', 'image'], ['image_url', 'image'],
+        ['documentUrl', 'document'], ['document_url', 'document'],
+        ['fileUrl', 'file'], ['file_url', 'file'], ['url', textValue(parsed.type)]
+      ]) {
+        if (typeof parsed[field] !== 'string' || !parsed[field].trim()) continue
+        result.push(legacyAttachmentCandidate({
+          url: parsed[field],
+          name: firstText(parsed.name, parsed.fileName, parsed.title),
+          type,
+          mimeType: parsed.mimeType
+        }))
+      }
+    }
+  } catch {
+    // Old plain-text responses are inspected by the conservative patterns below.
+  }
+
+  const markdownPattern = legacyMarkdownAttachmentPattern()
+  let match
+  while ((match = markdownPattern.exec(content)) !== null) {
+    result.push(legacyAttachmentCandidate({ url: match[2], name: match[1] }))
+  }
+  const plainText = content.replace(legacyMarkdownAttachmentPattern(), '')
+  for (const url of plainText.match(legacyAttachmentUrlPattern()) || []) {
+    result.push(legacyAttachmentCandidate(url))
+  }
+  return result.filter(Boolean)
 }
 
 function stableKey(value) {
@@ -198,26 +297,28 @@ export function normalizeAssistantResource(resource, options = {}) {
 
 function legacyAttachmentResource(attachment, messageId) {
   const source = objectValue(attachment)
-  const deliveryType = inferDeliveryType(source) || 'document'
-  const unavailable = resourceUnavailable(source)
-  const fallbackActions = unavailable || !firstText(source.url, source.previewUrl)
+  const url = firstUrl(source.url, source.fileUrl, source.file_url, source.path, source.href)
+  const canonicalSource = { ...source, url }
+  const deliveryType = inferDeliveryType(canonicalSource) || 'document'
+  const unavailable = resourceUnavailable(canonicalSource)
+  const fallbackActions = unavailable || !firstText(url, source.previewUrl)
     ? []
     : [{
         type: ['image', 'video', 'audio'].includes(deliveryType) ? 'preview' : 'download',
         label: ['image', 'video', 'audio'].includes(deliveryType) ? '预览' : '下载',
         target: 'resource',
-        requiresAuth: textValue(source.url).startsWith('/api/')
+        requiresAuth: url.startsWith('/api/')
       }]
   return normalizeAssistantResource({
-    ...source,
-    kind: firstText(source.kind, deliveryType),
+    ...canonicalSource,
+    kind: firstText(canonicalSource.kind, deliveryType),
     deliveryType,
-    title: firstText(source.title, source.fileName, source.name, '附件'),
-    payload: Object.keys(objectValue(source.payload)).length
-      ? source.payload
-      : { type: 'file', format: extensionOf(source) || 'file' },
-    actions: Array.isArray(source.actions) ? source.actions : fallbackActions,
-    status: unavailable ? 'legacy_unavailable' : source.status
+    title: firstText(canonicalSource.title, canonicalSource.fileName, canonicalSource.name, fileNameFromUrl(url), '附件'),
+    payload: Object.keys(objectValue(canonicalSource.payload)).length
+      ? canonicalSource.payload
+      : { type: 'file', format: extensionOf(canonicalSource) || 'file' },
+    actions: Array.isArray(canonicalSource.actions) ? canonicalSource.actions : fallbackActions,
+    status: unavailable ? 'legacy_unavailable' : canonicalSource.status
   }, { legacy: true, messageId })
 }
 
@@ -225,9 +326,12 @@ function legacyAttachments(message) {
   const source = objectValue(message)
   const values = []
   for (const field of ['attachments', 'files', 'fileList']) {
-    if (Array.isArray(source[field])) values.push(...source[field])
+    if (Array.isArray(source[field])) {
+      for (const item of source[field]) values.push(legacyAttachmentCandidate(item))
+    }
   }
-  return values.filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+  values.push(...extractLegacyAttachmentsFromText(source.content))
+  return values.filter(Boolean)
 }
 
 export function normalizeAssistantResources(message) {
@@ -235,6 +339,7 @@ export function normalizeAssistantResources(message) {
   const messageId = messageIdentity(source)
   const result = []
   const seen = new Set()
+  const weakLegacyKeyCounts = new Map()
   for (const rawResource of Array.isArray(source.resources) ? source.resources : []) {
     if (!rawResource || typeof rawResource !== 'object' || Array.isArray(rawResource)) continue
     const identities = resourceIdentities(rawResource)
@@ -251,8 +356,21 @@ export function normalizeAssistantResources(message) {
     if (identities.some((identity) => seen.has(identity))) continue
     const normalized = legacyAttachmentResource(attachment, messageId)
     if (!stableLegacyIdentity(attachment)) continue
-    const keyIdentity = `key:${normalized.key}`
-    if (seen.has(keyIdentity)) continue
+    if (!identities.length && normalized.unavailable) {
+      const fingerprint = unavailableLegacyFingerprint(normalized)
+      if (fingerprint && result.some((item) => unavailableLegacyFingerprint(item) === fingerprint)) continue
+    }
+    let keyIdentity = `key:${normalized.key}`
+    if (!identities.length) {
+      const duplicateCount = weakLegacyKeyCounts.get(normalized.key) || 0
+      weakLegacyKeyCounts.set(normalized.key, duplicateCount + 1)
+      if (duplicateCount > 0) {
+        normalized.key = `${normalized.key}:duplicate:${duplicateCount + 1}`
+        keyIdentity = `key:${normalized.key}`
+      }
+    } else if (seen.has(keyIdentity)) {
+      continue
+    }
     result.push(normalized)
     seen.add(keyIdentity)
     for (const identity of identities) seen.add(identity)
@@ -263,38 +381,83 @@ export function normalizeAssistantResources(message) {
 function hasTraversal(value) {
   try {
     const decoded = decodeURIComponent(value)
-    return decoded.includes('\\') || decoded.split(/[/?#]/).some((segment) => segment === '.' || segment === '..')
+    return /[\u0000-\u001f\u007f\\]/.test(decoded)
+      || decoded.split(/[/?#]/).some((segment) => segment === '.' || segment === '..')
   } catch {
     return true
   }
 }
 
+function validHostname(value) {
+  const hostname = textValue(value).toLowerCase()
+  if (!hostname || hostname.length > 253) return false
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) {
+    return hostname.split('.').every((part) => Number(part) <= 255)
+  }
+  return hostname.split('.').every((label) => label.length > 0 && label.length <= 63
+    && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))
+}
+
+function parseAbsoluteHttpUrl(value) {
+  const raw = textValue(value)
+  const match = raw.match(/^(https?):\/\/([^/?#]+)([^?#]*)(\?[^#]*)?(#.*)?$/i)
+  if (!match) return null
+  const protocol = match[1].toLowerCase()
+  const authority = match[2]
+  if (!authority || authority.includes('@')) return null
+
+  let hostname = authority
+  let port = ''
+  if (authority.startsWith('[')) {
+    const end = authority.indexOf(']')
+    if (end < 2) return null
+    hostname = authority.slice(1, end).toLowerCase()
+    const rest = authority.slice(end + 1)
+    if (rest) {
+      if (!/^:\d+$/.test(rest)) return null
+      port = rest.slice(1)
+    }
+    if (!hostname.includes(':') || !/^[0-9a-f:.]+$/i.test(hostname)) return null
+  } else {
+    const colon = authority.lastIndexOf(':')
+    if (colon >= 0) {
+      if (authority.indexOf(':') !== colon) return null
+      hostname = authority.slice(0, colon).toLowerCase()
+      port = authority.slice(colon + 1)
+    } else {
+      hostname = hostname.toLowerCase()
+    }
+    if (!validHostname(hostname)) return null
+  }
+  if (port && (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535)) return null
+  return {
+    protocol,
+    hostname,
+    port,
+    path: match[3] || '',
+    query: match[4] || '',
+    fragment: match[5] || '',
+    href: raw
+  }
+}
+
 export function resolveAssistantResourceUrl(value, options = {}) {
   const raw = textValue(value)
-  if (!raw || /[\u0000-\u001f\u007f\\]/.test(raw) || raw.startsWith('//') || hasTraversal(raw)) return ''
+  if (!raw || /[\s\u0000-\u001f\u007f\\]/.test(raw) || raw.startsWith('//') || hasTraversal(raw)) return ''
   if (raw.startsWith('/')) {
     if (!raw.startsWith('/api/') && !raw.startsWith('/uploads/')) return ''
     const baseUrl = textValue(options.baseUrl).replace(/\/+$/, '')
     if (!baseUrl) return ''
-    try {
-      const base = new URL(baseUrl)
-      if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password) return ''
-    } catch {
-      return ''
-    }
+    const base = parseAbsoluteHttpUrl(baseUrl)
+    if (!base || base.path || base.query || base.fragment) return ''
     return `${baseUrl}${raw}`
   }
-  let parsed
-  try {
-    parsed = new URL(raw)
-  } catch {
-    return ''
-  }
-  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || (parsed.port && parsed.port !== '443')) return ''
+  const parsed = parseAbsoluteHttpUrl(raw)
+  if (!parsed || parsed.protocol !== 'https' || (parsed.port && parsed.port !== '443')) return ''
   const approvedHosts = Array.isArray(options.approvedHosts)
     ? options.approvedHosts.map((host) => textValue(host).toLowerCase()).filter(Boolean)
     : []
-  return approvedHosts.includes(parsed.hostname.toLowerCase()) ? parsed.href : ''
+  return approvedHosts.includes(parsed.hostname) ? parsed.href : ''
 }
 
 export function buildAssistantDownloadOptions(resource, options = {}) {
@@ -315,14 +478,34 @@ export function buildAssistantDownloadOptions(resource, options = {}) {
 }
 
 export function summarizeEvidenceChain(evidenceChain) {
-  const chain = objectValue(evidenceChain)
+  if (evidenceChain === null || evidenceChain === undefined) {
+    return {
+      state: 'legacy_missing',
+      status: 'model_only',
+      label: '旧消息未记录来源',
+      sourceCount: 0,
+      agent: '',
+      generatedAt: '',
+      trusted: false
+    }
+  }
+  const rootValid = evidenceChain && typeof evidenceChain === 'object' && !Array.isArray(evidenceChain)
+  const chain = rootValid ? evidenceChain : {}
   const stateCandidate = textValue(chain.evidenceState)
-  const state = EVIDENCE_STATES.has(stateCandidate)
-    ? stateCandidate
-    : (Object.keys(chain).length ? 'malformed' : 'legacy_missing')
   const statusCandidate = textValue(chain.status)
   const status = GROUNDING_STATES.has(statusCandidate) ? statusCandidate : 'model_only'
-  const sourceCount = Array.isArray(chain.sources) ? chain.sources.length : 0
+  const sourcesValid = Array.isArray(chain.sources)
+    && chain.sources.every((source) => source && typeof source === 'object' && !Array.isArray(source)
+      && textValue(source.evidenceId))
+  const sourceCount = sourcesValid ? chain.sources.length : 0
+  const groundingConsistent = GROUNDING_STATES.has(statusCandidate)
+    && (statusCandidate === 'grounded' ? sourceCount > 0 : sourceCount === 0)
+  const structureValid = rootValid
+    && Object.keys(chain).length > 0
+    && EVIDENCE_STATES.has(stateCandidate)
+    && sourcesValid
+    && groundingConsistent
+  const state = structureValid ? stateCandidate : 'malformed'
   const labels = {
     legacy_missing: '旧消息未记录来源',
     malformed: '来源数据格式异常',
@@ -345,7 +528,7 @@ export function summarizeEvidenceChain(evidenceChain) {
     sourceCount,
     agent: textValue(generation.agent),
     generatedAt: textValue(chain.generatedAt),
-    trusted: state === 'available'
+    trusted: structureValid && state === 'available'
   }
 }
 
@@ -379,14 +562,8 @@ export function countAssistantHits(message) {
 function preferCollection(previous, incoming, key) {
   if (!own(incoming, key)) return previous[key]
   const next = incoming[key]
-  if (Array.isArray(next)) {
-    return next.length || !Array.isArray(previous[key]) || !previous[key].length ? next : previous[key]
-  }
-  if (next && typeof next === 'object') {
-    return Object.keys(next).length || !objectValue(previous[key]) || !Object.keys(objectValue(previous[key])).length
-      ? next
-      : previous[key]
-  }
+  if (MESSAGE_ARRAY_FIELDS.has(key) && Array.isArray(next)) return next
+  if (MESSAGE_OBJECT_FIELDS.has(key) && next && typeof next === 'object' && !Array.isArray(next)) return next
   return previous[key]
 }
 

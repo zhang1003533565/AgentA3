@@ -99,7 +99,7 @@ export function submitAssistantResourceInteraction(sessionId, messageId, resourc
 
 export function downloadAssistantResource(resourceOrUrl, options = {}) {
   const resource = typeof resourceOrUrl === 'string'
-    ? { url: resourceOrUrl, authScope: 'session_owner' }
+    ? { url: resourceOrUrl, authScope: resourceOrUrl.trim().startsWith('/api/') ? 'session_owner' : 'public' }
     : (resourceOrUrl || {})
   const token = getToken()
   const downloadOptions = buildAssistantDownloadOptions(resource, {
