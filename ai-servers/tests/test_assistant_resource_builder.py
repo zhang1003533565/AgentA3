@@ -1,8 +1,10 @@
 import copy
+import hashlib
 import json
 
 import pytest
 
+from app.services import assistant_resource_builder as resource_builder
 from app.services.assistant_resource_builder import (
     BUSINESS_CARD_FIELDS,
     MAX_ENVELOPE_BYTES,
@@ -318,3 +320,85 @@ def test_integrity_digest_verifies_and_detects_rewrites():
     tampered = copy.deepcopy(chain)
     tampered["sources"][0]["excerpt"] = "被改写"
     assert verify_evidence_integrity(tampered) is False
+
+
+@pytest.mark.parametrize(
+    "unsafe_url",
+    [
+        "http://localhost/private.png",
+        "http://localhost.:8000/private.png",
+        "http://service.local/private.png",
+        "http://service.internal/private.png",
+        "http://service.localhost/private.png",
+        "http://127.0.0.1/private.png",
+        "http://0.0.0.0/private.png",
+        "http://169.254.169.254/private.png",
+        "http://10.0.0.1/private.png",
+        "http://172.16.0.1/private.png",
+        "http://172.31.255.255/private.png",
+        "http://192.168.0.1/private.png",
+        "http://[::1]/private.png",
+        "http://[::]/private.png",
+        "http://[fc00::1]/private.png",
+        "http://[fd12::1]/private.png",
+        "http://[fe80::1]/private.png",
+        "https://user:password@cdn.example.edu/private.png",
+        "https://user@cdn.example.edu/private.png",
+    ],
+)
+def test_public_envelope_strips_private_or_credentialed_urls(unsafe_url):
+    bundle = build_bundle(
+        answer="",
+        attachments=[{"name": "private.png", "type": "image", "url": unsafe_url}],
+    )
+
+    assert bundle["resources"][0]["url"] == ""
+
+
+def test_public_envelope_keeps_public_http_urls_and_filters_business_card_urls():
+    public_url = "https://cdn.example.edu/public.png"
+    attachment_bundle = build_bundle(
+        answer="",
+        attachments=[{"name": "public.png", "type": "image", "url": public_url}],
+    )
+    dining_item = copy.deepcopy(BUSINESS_CASES["dining"][0])
+    dining_item["imageUrl"] = "http://menu.internal/private.png"
+    business_bundle = build_bundle(
+        documents=[{
+            "id": "dining:3",
+            "content": "食堂公开信息",
+            "source": "java_backend",
+            "metadata": {"kind": "dining", "item": dining_item},
+        }]
+    )
+
+    assert attachment_bundle["resources"][0]["url"] == public_url
+    dining_card = next(item for item in business_bundle["resources"] if item["kind"] == "dining")
+    assert "imageUrl" not in dining_card["payload"]
+
+
+def test_bundle_integrity_rejects_resource_side_link_tampering():
+    bundle = build_bundle(
+        documents=[{"id": "doc-1", "content": "可信事实", "source": "knowledge_base"}]
+    )
+
+    assert resource_builder.verify_assistant_resource_bundle(bundle) is True
+    bundle["resources"][0]["evidenceIds"] = ["ev_tampered"]
+    assert verify_evidence_integrity(bundle["evidenceChain"]) is True
+    assert resource_builder.verify_assistant_resource_bundle(bundle) is False
+
+
+def test_bundle_integrity_rejects_chain_side_link_tampering_after_valid_digest():
+    bundle = build_bundle(
+        documents=[{"id": "doc-1", "content": "可信事实", "source": "knowledge_base"}]
+    )
+    chain = bundle["evidenceChain"]
+    chain["resourceLinks"][0]["evidenceIds"] = ["ev_tampered"]
+    unsigned_chain = copy.deepcopy(chain)
+    unsigned_chain.pop("integrity")
+    chain["integrity"]["digest"] = "sha256:" + hashlib.sha256(
+        resource_builder.canonical_json(unsigned_chain).encode("utf-8")
+    ).hexdigest()
+
+    assert verify_evidence_integrity(chain) is True
+    assert resource_builder.verify_assistant_resource_bundle(bundle) is False

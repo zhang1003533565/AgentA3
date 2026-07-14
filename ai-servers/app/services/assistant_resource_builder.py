@@ -1,5 +1,6 @@
 import copy
 import hashlib
+import ipaddress
 import json
 import math
 import re
@@ -174,6 +175,21 @@ def verify_evidence_integrity(chain: Mapping[str, Any]) -> bool:
     unsigned = copy.deepcopy(dict(chain))
     unsigned.pop("integrity", None)
     return bool(re.fullmatch(r"sha256:[0-9a-f]{64}", expected)) and expected == _digest_value(unsigned)
+
+
+def verify_assistant_resource_bundle(bundle: Mapping[str, Any]) -> bool:
+    if not isinstance(bundle, Mapping):
+        return False
+    chain = bundle.get("evidenceChain")
+    if not isinstance(chain, Mapping) or not verify_evidence_integrity(chain):
+        return False
+    resources = bundle.get("resources")
+    resource_links = chain.get("resourceLinks")
+    if not isinstance(resources, list) or not isinstance(resource_links, list):
+        return False
+    resource_map = _evidence_link_map(resources, "id")
+    chain_map = _evidence_link_map(resource_links, "resourceId")
+    return resource_map is not None and chain_map is not None and resource_map == chain_map
 
 
 def canonical_json(value: Any) -> str:
@@ -499,8 +515,57 @@ def _safe_url(value, *, relative):
     value = _text(value, 1_000)
     if relative and value.startswith("/") and not value.startswith("//"):
         return value
-    parsed = urlparse(value)
-    return value if parsed.scheme.lower() in {"http", "https"} and parsed.netloc and not parsed.username else ""
+    try:
+        parsed = urlparse(value)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        parsed.port
+    except ValueError:
+        return ""
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc or "@" in parsed.netloc:
+        return ""
+    if not host or host == "localhost" or host.endswith((".local", ".internal", ".localhost")):
+        return ""
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return "" if _ambiguous_numeric_host(host) else value
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    if address.is_loopback or address.is_unspecified or address.is_link_local:
+        return ""
+    if isinstance(address, ipaddress.IPv4Address):
+        private_networks = (
+            ipaddress.ip_network("10.0.0.0/8"),
+            ipaddress.ip_network("172.16.0.0/12"),
+            ipaddress.ip_network("192.168.0.0/16"),
+        )
+        return "" if any(address in network for network in private_networks) else value
+    return "" if address in ipaddress.ip_network("fc00::/7") else value
+
+
+def _ambiguous_numeric_host(host):
+    return bool(
+        re.fullmatch(r"[0-9.]+", host)
+        or re.fullmatch(r"0x[0-9a-f]+", host)
+        or re.fullmatch(r"0x[0-9a-f]+(?:\.(?:0x[0-9a-f]+|[0-9]+))+", host)
+    )
+
+
+def _evidence_link_map(items, id_key):
+    result = {}
+    for item in items:
+        if not isinstance(item, Mapping):
+            return None
+        item_id = item.get(id_key)
+        evidence_ids = item.get("evidenceIds")
+        if not isinstance(item_id, str) or not item_id or item_id in result:
+            return None
+        if not isinstance(evidence_ids, list) or any(not isinstance(value, str) or not value for value in evidence_ids):
+            return None
+        if len(evidence_ids) != len(set(evidence_ids)):
+            return None
+        result[item_id] = evidence_ids
+    return result
 
 
 def _normalize_digest(value):
