@@ -14,6 +14,7 @@ import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.AiLeaderMessageRepository;
 import com.example.appbackend.repository.AiLeaderSessionRepository;
 import com.example.appbackend.service.UserProfileService;
+import com.example.appbackend.service.impl.AssistantEnvelopeService;
 import com.example.appbackend.service.impl.PythonAiProxyService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -58,17 +59,20 @@ public class AppAiLeaderController {
     private final AiLeaderMessageRepository messageRepository;
     private final UserProfileService userProfileService;
     private final ObjectMapper objectMapper;
+    private final AssistantEnvelopeService assistantEnvelopeService;
 
     public AppAiLeaderController(PythonAiProxyService pythonAiProxyService,
                                  AiLeaderSessionRepository sessionRepository,
                                  AiLeaderMessageRepository messageRepository,
                                  UserProfileService userProfileService,
-                                 ObjectMapper objectMapper) {
+                                 ObjectMapper objectMapper,
+                                 AssistantEnvelopeService assistantEnvelopeService) {
         this.pythonAiProxyService = pythonAiProxyService;
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
         this.userProfileService = userProfileService;
         this.objectMapper = objectMapper;
+        this.assistantEnvelopeService = assistantEnvelopeService;
     }
 
     @PostMapping("/query")
@@ -83,7 +87,9 @@ public class AppAiLeaderController {
 
         Object ragResult = pythonAiProxyService.queryRag(payload, httpRequest.getHeader("Authorization"));
         LlmChatResponse response = toChatResponse(session, ragResult);
-        saveAssistantMessage(session, response);
+        AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(
+                response, mapValue(ragResult));
+        saveAssistantMessage(userId, session, response, envelope);
         refreshSession(session, response.getAnswer());
         captureLeaderProfileEvidence(userId, session, request, response);
         return Result.success(response);
@@ -104,8 +110,11 @@ public class AppAiLeaderController {
         return pythonAiProxyService.streamRag(payload, authorization, (eventName, eventPayload) -> {
             if ("generation_start".equals(eventName)) {
                 LlmChatResponse response = toChatResponse(session, eventPayload);
-                AiLeaderMessage saved = saveAssistantMessage(session, response);
+                AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(
+                        response, mapValue(eventPayload));
+                AiLeaderMessage saved = saveAssistantMessage(userId, session, response, envelope);
                 visibleGenerationMessage.set(saved);
+                assistantEnvelopeService.overwriteSsePayload(eventPayload, response);
                 refreshSession(session, response.getAnswer());
                 return;
             }
@@ -116,7 +125,9 @@ public class AppAiLeaderController {
                 errorResult.put("answerType", "text");
                 errorResult.put("outputType", "text");
                 errorResult.put("outputTypes", List.of("text"));
-                updateAssistantMessage(visibleGenerationMessage.get(), toChatResponse(session, errorResult));
+                LlmChatResponse response = toChatResponse(session, errorResult);
+                AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(response, errorResult);
+                updateAssistantMessage(userId, session, visibleGenerationMessage.get(), response, envelope);
                 refreshSession(session, message);
                 return;
             }
@@ -124,12 +135,16 @@ public class AppAiLeaderController {
                 return;
             }
             LlmChatResponse response = toChatResponse(session, eventPayload);
+            AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(
+                    response, mapValue(eventPayload));
             AiLeaderMessage existing = visibleGenerationMessage.get();
             if (existing == null) {
-                saveAssistantMessage(session, response);
+                AiLeaderMessage saved = saveAssistantMessage(userId, session, response, envelope);
+                visibleGenerationMessage.set(saved);
             } else {
-                updateAssistantMessage(existing, response);
+                updateAssistantMessage(userId, session, existing, response, envelope);
             }
+            assistantEnvelopeService.overwriteSsePayload(eventPayload, response);
             refreshSession(session, response.getAnswer());
             captureLeaderProfileEvidence(userId, session, request, response);
         });
@@ -420,30 +435,21 @@ public class AppAiLeaderController {
         messageRepository.save(message);
     }
 
-    private AiLeaderMessage saveAssistantMessage(AiLeaderSession session, LlmChatResponse response) {
-        AiLeaderMessage message = new AiLeaderMessage();
-        message.setLeaderSessionId(session.getId());
-        message.setRole(AiLeaderMessage.ROLE_ASSISTANT);
-        fillAssistantMessage(message, response);
-        return messageRepository.save(message);
+    private AiLeaderMessage saveAssistantMessage(Long userId,
+                                                 AiLeaderSession session,
+                                                 LlmChatResponse response,
+                                                 AssistantEnvelopeService.PreparedEnvelope envelope) {
+        return assistantEnvelopeService.persistAssistantMessage(
+                userId, session, response, envelope.internalAttachments(), null);
     }
 
-    private AiLeaderMessage updateAssistantMessage(AiLeaderMessage message, LlmChatResponse response) {
-        fillAssistantMessage(message, response);
-        return messageRepository.save(message);
-    }
-
-    private void fillAssistantMessage(AiLeaderMessage message, LlmChatResponse response) {
-        message.setContent(response == null || response.getAnswer() == null ? "" : response.getAnswer());
-        message.setAnswerType(response == null ? "text" : response.getAnswerType());
-        message.setOutputType(response == null ? "text" : response.getOutputType());
-        message.setAgentName(response == null ? LEADER_AGENT : firstNonBlank(response.getAgentName(), LEADER_AGENT));
-        message.setSearchKeyword(response == null ? "" : response.getSearchKeyword());
-        message.setOutputTypesJson(writeJson(response == null ? List.of() : response.getOutputTypes()));
-        message.setOutputMetaJson(writeJson(response == null ? Map.of() : response.getOutputMeta()));
-        message.setRetrievalMetaJson(writeJson(response == null ? Map.of() : response.getRetrievalMeta()));
-        message.setTraceJson(writeJson(response == null ? List.of() : response.getTrace()));
-        message.setAttachmentsJson(writeJson(response == null ? List.of() : response.getAttachments()));
+    private AiLeaderMessage updateAssistantMessage(Long userId,
+                                                   AiLeaderSession session,
+                                                   AiLeaderMessage message,
+                                                   LlmChatResponse response,
+                                                   AssistantEnvelopeService.PreparedEnvelope envelope) {
+        return assistantEnvelopeService.persistAssistantMessage(
+                userId, session, response, envelope.internalAttachments(), message);
     }
 
     private void refreshSession(AiLeaderSession session, String lastMessage) {
@@ -488,7 +494,7 @@ public class AppAiLeaderController {
         item.setOutputMeta(readMap(message.getOutputMetaJson()));
         item.setRetrievalMeta(readMap(message.getRetrievalMetaJson()));
         item.setTrace(readMapList(message.getTraceJson()));
-        item.setAttachments(readMapList(message.getAttachmentsJson()));
+        assistantEnvelopeService.restoreEnvelope(message, item);
         item.setCreateTime(message.getCreateTime());
         return item;
     }
@@ -530,14 +536,6 @@ public class AppAiLeaderController {
                     .toList();
         }
         return List.of();
-    }
-
-    private String writeJson(Object value) {
-        try {
-            return objectMapper.writeValueAsString(value == null ? List.of() : value);
-        } catch (Exception error) {
-            return "[]";
-        }
     }
 
     private List<String> readStringList(String json) {

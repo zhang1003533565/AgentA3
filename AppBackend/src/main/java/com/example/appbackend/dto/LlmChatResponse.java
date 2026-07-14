@@ -14,6 +14,9 @@ import java.util.Map;
 @Schema(description = "LLM 对话响应")
 public class LlmChatResponse {
 
+    @Schema(description = "已持久化的助手消息 ID")
+    private Long messageId;
+
     @Schema(description = "会话 ID")
     private String sessionId;
 
@@ -58,4 +61,10 @@ public class LlmChatResponse {
 
     @Schema(description = "结构化附件列表，包含图片、视频、PDF、Word、PPT 等")
     private List<Map<String, Object>> attachments;
+
+    @Schema(description = "统一助手资源列表")
+    private List<AssistantResourceDTO> resources;
+
+    @Schema(description = "回答来源与生成证据链")
+    private AssistantEvidenceChainDTO evidenceChain;
 }

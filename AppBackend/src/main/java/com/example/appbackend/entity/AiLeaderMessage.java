@@ -58,6 +58,18 @@ public class AiLeaderMessage {
     @Column(name = "attachments_json", columnDefinition = "LONGTEXT COMMENT '结构化附件JSON数组'")
     private String attachmentsJson;
 
+    @Lob
+    @Column(name = "matched_results_json", columnDefinition = "LONGTEXT COMMENT '经净化的候选来源JSON数组'")
+    private String matchedResultsJson;
+
+    @Lob
+    @Column(name = "resources_json", columnDefinition = "LONGTEXT COMMENT '统一助手资源JSON数组'")
+    private String resourcesJson;
+
+    @Lob
+    @Column(name = "evidence_chain_json", columnDefinition = "LONGTEXT COMMENT '回答来源与生成证据链JSON'")
+    private String evidenceChainJson;
+
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     private LocalDateTime createTime;
 
