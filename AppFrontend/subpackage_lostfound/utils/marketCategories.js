@@ -126,3 +126,11 @@ export function getMarketCategoryLabel(item = {}, mode = 'card') {
   const display = getMarketCategoryDisplay(item)
   return mode === 'full' ? display.fullLabel : display.cardLabel
 }
+
+export function getMarketSubcategoryLabel(categoryId, subcategoryId) {
+  if (!categoryId || !subcategoryId) return ''
+  const parent = MARKET_CATEGORIES.find(c => String(c.id) === String(categoryId))
+  if (!parent || !Array.isArray(parent.children)) return ''
+  const child = parent.children.find(c => String(c.id) === String(subcategoryId))
+  return child ? child.name : ''
+}
