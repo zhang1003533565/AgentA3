@@ -43,7 +43,7 @@
         </view>
 
         <scroll-view scroll-y class="chat-body" :scroll-into-view="scrollBottom" scroll-with-animation>
-          <view v-for="m in chatMessages" :key="m.id" :id="'msg-' + m.id">
+          <view v-for="m in chatMessages" :key="m.id" :id="'msg-' + m.id" :class="{ 'last-msg': m === chatMessages[chatMessages.length - 1] }">
             <view v-if="m.type === 'sys'" class="system-msg">
               <view v-if="cardActions(m).length" class="trade-event-card" :class="tradeCardClass(m)">
                 <view class="trade-card-top">
@@ -1122,8 +1122,12 @@ export default {
 
 .chat-body {
   height: calc(100vh - 350rpx);
-  padding: 28rpx 0 48rpx;
+  padding: 28rpx 0 16rpx;
   box-sizing: border-box;
+}
+
+.last-msg {
+  margin-bottom: 40rpx;
 }
 
 .system-msg,
