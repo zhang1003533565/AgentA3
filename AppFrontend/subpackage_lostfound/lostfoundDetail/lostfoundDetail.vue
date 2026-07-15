@@ -5,6 +5,7 @@
         <nav-bar title="商品详情" :fixed="true" :placeholder="true" />
 
         <scroll-view scroll-y class="page-body">
+          <view class="hero-wrap">
           <swiper
             v-if="item.images.length"
             class="hero"
@@ -21,6 +22,7 @@
           <view v-if="item.images.length > 1" class="counter">
             {{ imageIndex + 1 }}/{{ item.images.length }}
           </view>
+          </view>
 
           <view class="card main-card">
             <view class="price-row">
@@ -32,29 +34,19 @@
               <text>{{ categoryText }}</text>
               <text>{{ conditionText }}</text>
             </view>
+            <view class="pickup-row" @click="contactSeller">
+              <view class="pickup-main">
+                <text class="pickup-icon">📍</text>
+                <text class="pickup-label">取货地点：</text>
+                <text class="pickup-value">校内 · {{ pickupText }}</text>
+              </view>
+              <text class="pickup-arrow">›</text>
+            </view>
           </view>
 
           <view class="card">
             <view class="card-title">商品描述</view>
             <view class="description">{{ item.description || '卖家暂未填写详细描述' }}</view>
-          </view>
-
-          <view class="card">
-            <view class="card-title">交易地点</view>
-            <view class="info-list">
-              <view class="info-row">
-                <text class="info-label">校区</text>
-                <text class="info-value">{{ item.campusName || '校内' }}</text>
-              </view>
-              <view class="info-row">
-                <text class="info-label">交易区域</text>
-                <text class="info-value">{{ item.tradeLocation || item.location || '校内自提' }}</text>
-              </view>
-              <view class="info-row">
-                <text class="info-label">取货点</text>
-                <text class="info-value">{{ item.pickupPoint || item.location || '待卖家确认' }}</text>
-              </view>
-            </view>
           </view>
 
           <view class="card stats-card">
@@ -78,16 +70,24 @@
               <view class="seller-name">{{ item.sellerName || '校园用户' }}</view>
               <view class="seller-time">{{ formatTime(item.createTime) }}发布</view>
             </view>
+            <view class="seller-action">查看主页 ›</view>
+          </view>
+
+          <view class="safety-card">
+            <view class="shield-icon">◇</view>
+            <view class="safety-copy">
+              <view class="safety-title">交易提醒</view>
+              <view class="safety-desc">建议当面交易，沟通后再交换联系方式，注意财产安全</view>
+            </view>
+            <text class="safety-arrow">›</text>
           </view>
         </scroll-view>
 
         <view class="bottom-bar">
-          <button class="icon-action" :class="{ active: item.isFavorited }" :disabled="favoriting" @click="toggleFavorite">
-            {{ item.isFavorited ? '已收藏' : '收藏' }}
+          <button class="contact-button" @click="contactSeller">
+            <view class="chat-outline"></view>
+            <text>联系卖家</text>
           </button>
-          <button class="bottom-btn secondary" @click="contactSeller">联系卖家</button>
-          <button v-if="isAvailable" class="bottom-btn" :loading="reserving" :disabled="reserving" @click="reserveItem">确认交易意向</button>
-          <button v-else class="bottom-btn disabled" disabled>{{ tradeStateText }}</button>
         </view>
       </view>
     </view>
@@ -96,7 +96,7 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { createOrGetChatSession, favoriteSecondhandItem, getSecondhandItemDetail, reserveSecondhandItem, unfavoriteSecondhandItem } from '@/api/secondhand'
+import { createOrGetChatSession, getSecondhandItemDetail } from '@/api/secondhand'
 import { getMarketCategoryLabel, getMarketSubcategoryLabel } from '../utils/marketCategories'
 
 const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
@@ -145,9 +145,7 @@ export default {
     return {
       itemId: null,
       item: normalizeItem(),
-      imageIndex: 0,
-      favoriting: false,
-      reserving: false
+      imageIndex: 0
     }
   },
   computed: {
@@ -178,14 +176,8 @@ export default {
     sellerInitial() {
       return (this.item.sellerName || '校').slice(0, 1)
     },
-    isAvailable() {
-      return Number(this.item.status) === 2
-    },
-    tradeStateText() {
-      if (Number(this.item.status) === 5) return '沟通中'
-      if (Number(this.item.status) === 3) return '已完成'
-      if (Number(this.item.status) === 4) return '已下架'
-      return this.statusText
+    pickupText() {
+      return this.item.pickupPoint || this.item.location || '待卖家确认'
     }
   },
   async onLoad(options) {
@@ -239,26 +231,6 @@ export default {
         current: src
       })
     },
-    async toggleFavorite() {
-      if (!this.item.id || this.favoriting) return
-      try {
-        this.favoriting = true
-        if (this.item.isFavorited) {
-          await unfavoriteSecondhandItem(this.item.id)
-          this.item.isFavorited = false
-          uni.showToast({ title: '已取消收藏', icon: 'none' })
-        } else {
-          await favoriteSecondhandItem(this.item.id)
-          this.item.isFavorited = true
-          uni.showToast({ title: '已收藏', icon: 'success' })
-        }
-      } catch (e) {
-        console.error('收藏操作失败', e)
-        uni.showToast({ title: '操作失败', icon: 'none' })
-      } finally {
-        this.favoriting = false
-      }
-    },
     async contactSeller() {
       if (!this.item.id) return
       try {
@@ -269,21 +241,6 @@ export default {
       } catch (e) {
         console.error('创建聊天失败', e)
         uni.showToast({ title: '暂时无法联系卖家', icon: 'none' })
-      }
-    },
-    async reserveItem() {
-      if (!this.item.id || this.reserving) return
-      try {
-        this.reserving = true
-        await reserveSecondhandItem(this.item.id)
-        uni.showToast({ title: '已发送交易意向，等待对方确认', icon: 'success' })
-        await this.loadItem()
-        await this.contactSeller()
-      } catch (e) {
-        console.error('确认交易意向失败', e)
-        uni.showToast({ title: e?.data?.msg || e?.msg || '操作失败', icon: 'none' })
-      } finally {
-        this.reserving = false
       }
     },
     formatTime(value) {
@@ -306,7 +263,7 @@ export default {
 .screen {
   width: 100%;
   min-height: 100vh;
-  background: #f0f5fa;
+  background: #eef4f8;
 }
 
 .container {
@@ -314,25 +271,31 @@ export default {
   max-width: 430px;
   min-height: 100vh;
   margin: 0 auto;
-  padding: 0 16rpx;
+  padding: 0 20rpx;
   box-sizing: border-box;
-  background: #e8f0f8;
+  background: #eef4f8;
   position: relative;
 }
 
 .page-body {
   height: calc(100vh - 176rpx);
-  padding-bottom: 148rpx;
+  padding: 22rpx 0 156rpx;
   box-sizing: border-box;
+}
+
+.hero-wrap {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  position: relative;
+  overflow: hidden;
+  border-radius: 22rpx;
+  background: linear-gradient(135deg, #dbe7f0, #f3f7fa);
+  box-shadow: 0 8rpx 22rpx rgba(31, 48, 64, 0.08);
 }
 
 .hero {
   width: 100%;
-  height: 560rpx;
-  border-radius: 0 0 24rpx 24rpx;
-  overflow: hidden;
-  background: linear-gradient(135deg, rgba(123, 168, 212, 0.35), rgba(92, 138, 184, 0.35));
-  position: relative;
+  height: 100%;
 }
 
 .hero-img {
@@ -341,163 +304,207 @@ export default {
 }
 
 .hero-empty {
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 144rpx;
+  font-size: 150rpx;
 }
 
 .counter {
   position: absolute;
-  top: 520rpx;
-  right: 40rpx;
-  padding: 8rpx 18rpx;
+  right: 22rpx;
+  bottom: 22rpx;
+  min-width: 72rpx;
+  padding: 9rpx 18rpx;
   border-radius: 999rpx;
-  background: rgba(0, 0, 0, 0.58);
+  background: rgba(26, 32, 40, 0.62);
   color: #fff;
-  font-size: 22rpx;
+  font-size: 23rpx;
+  font-weight: 800;
+  text-align: center;
+  box-sizing: border-box;
 }
 
-.card {
-  margin: 24rpx 0;
+.card,
+.safety-card {
+  margin-top: 22rpx;
   padding: 28rpx;
-  border-radius: 20rpx;
+  border-radius: 22rpx;
   background: #fff;
-  box-shadow: 0 6rpx 18rpx rgba(43, 68, 94, 0.08);
+  box-shadow: 0 8rpx 24rpx rgba(31, 48, 64, 0.08);
+  border: 1rpx solid rgba(106, 126, 145, 0.08);
+  box-sizing: border-box;
 }
 
 .main-card {
-  margin-top: 28rpx;
+  padding-bottom: 0;
+  overflow: hidden;
 }
 
 .price-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 20rpx;
+  gap: 24rpx;
 }
 
 .price {
-  color: #f26a42;
-  font-size: 52rpx;
+  color: #ea6948;
+  font-size: 56rpx;
   font-weight: 900;
   line-height: 1;
+  letter-spacing: 0;
 }
 
 .price text {
+  margin-right: 2rpx;
   font-size: 30rpx;
+  font-weight: 900;
 }
 
 .status {
   flex-shrink: 0;
-  padding: 10rpx 20rpx;
+  padding: 12rpx 24rpx;
   border-radius: 999rpx;
-  font-size: 24rpx;
-  font-weight: 700;
+  font-size: 25rpx;
+  font-weight: 900;
 }
 
 .is-online {
-  background: rgba(75, 154, 104, 0.14);
+  background: #dff1e8;
   color: #2f8a58;
 }
 
 .is-pending {
-  background: rgba(242, 144, 64, 0.16);
-  color: #c46b17;
+  background: #fff0dd;
+  color: #bd711d;
 }
 
 .is-sold,
 .is-offline {
-  background: rgba(84, 99, 116, 0.14);
-  color: #546374;
+  background: #edf1f5;
+  color: #667584;
 }
 
 .title {
-  margin-top: 20rpx;
-  color: #172331;
+  margin-top: 22rpx;
+  color: #111c2b;
   font-size: 36rpx;
-  font-weight: 800;
-  line-height: 1.4;
+  font-weight: 900;
+  line-height: 1.35;
+  letter-spacing: 0;
 }
 
 .meta-row {
   display: flex;
   gap: 16rpx;
   flex-wrap: wrap;
-  margin-top: 18rpx;
+  margin-top: 22rpx;
+  padding-bottom: 28rpx;
 }
 
 .meta-row text {
-  padding: 8rpx 16rpx;
+  padding: 9rpx 18rpx;
   border-radius: 999rpx;
   background: #edf4fb;
-  color: #5c7894;
-  font-size: 22rpx;
+  color: #5f7c96;
+  font-size: 23rpx;
+  font-weight: 800;
+}
+
+.pickup-row {
+  margin: 0 -28rpx;
+  padding: 24rpx 28rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+  border-top: 1rpx solid #edf2f6;
+}
+
+.pickup-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  color: #172331;
+  font-size: 27rpx;
   font-weight: 700;
+}
+
+.pickup-icon {
+  margin-right: 10rpx;
+  font-size: 29rpx;
+}
+
+.pickup-label {
+  flex-shrink: 0;
+  color: #26384a;
+}
+
+.pickup-value {
+  min-width: 0;
+  color: #26384a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pickup-arrow,
+.safety-arrow {
+  flex-shrink: 0;
+  color: #7c8b9a;
+  font-size: 42rpx;
+  line-height: 1;
 }
 
 .card-title {
   margin-bottom: 18rpx;
-  color: #172331;
-  font-size: 28rpx;
-  font-weight: 800;
+  color: #111c2b;
+  font-size: 30rpx;
+  font-weight: 900;
 }
 
 .description {
-  color: #546374;
-  font-size: 28rpx;
+  color: #3f4e5f;
+  font-size: 27rpx;
   line-height: 1.7;
   white-space: pre-wrap;
-}
-
-.info-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24rpx;
-  padding: 16rpx 0;
-  border-bottom: 1rpx solid rgba(84, 99, 116, 0.1);
-}
-
-.info-row:last-child {
-  border-bottom: 0;
-}
-
-.info-label {
-  color: #7d8c9c;
-  font-size: 26rpx;
-}
-
-.info-value {
-  flex: 1;
-  color: #172331;
-  font-size: 26rpx;
-  font-weight: 700;
-  text-align: right;
 }
 
 .stats-card {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 16rpx;
+  gap: 0;
+  padding: 24rpx 0;
 }
 
 .stat {
+  min-height: 92rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 8rpx;
+  border-right: 1rpx solid #edf2f6;
+}
+
+.stat:last-child {
+  border-right: 0;
 }
 
 .stat-num {
-  color: #172331;
-  font-size: 32rpx;
+  color: #111c2b;
+  font-size: 33rpx;
   font-weight: 900;
 }
 
 .stat-label {
-  color: #7d8c9c;
-  font-size: 22rpx;
+  color: #6f7f8f;
+  font-size: 23rpx;
+  font-weight: 700;
 }
 
 .seller-card {
@@ -510,25 +517,85 @@ export default {
   width: 88rpx;
   height: 88rpx;
   border-radius: 50%;
-  background: linear-gradient(135deg, #7ba8d4, #5c8ab8);
+  background: linear-gradient(135deg, #82aee0, #5f8fc4);
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 34rpx;
-  font-weight: 800;
+  font-weight: 900;
+}
+
+.seller-info {
+  flex: 1;
+  min-width: 0;
 }
 
 .seller-name {
-  color: #172331;
-  font-size: 28rpx;
-  font-weight: 800;
+  color: #111c2b;
+  font-size: 30rpx;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .seller-time {
-  margin-top: 6rpx;
-  color: #7d8c9c;
-  font-size: 22rpx;
+  margin-top: 8rpx;
+  color: #788898;
+  font-size: 23rpx;
+  font-weight: 600;
+}
+
+.seller-action {
+  flex-shrink: 0;
+  padding: 12rpx 20rpx;
+  border-radius: 999rpx;
+  border: 1rpx solid #d8e3ec;
+  color: #526579;
+  font-size: 23rpx;
+  font-weight: 800;
+}
+
+.safety-card {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  background: linear-gradient(135deg, #f7fbff, #eaf2fa);
+}
+
+.shield-icon {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 14rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2rpx solid #253548;
+  color: #253548;
+  font-size: 24rpx;
+  font-weight: 900;
+}
+
+.safety-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.safety-title {
+  color: #172331;
+  font-size: 28rpx;
+  font-weight: 900;
+}
+
+.safety-desc {
+  margin-top: 8rpx;
+  color: #607284;
+  font-size: 23rpx;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .bottom-bar {
@@ -538,76 +605,52 @@ export default {
   width: 100%;
   max-width: 430px;
   transform: translateX(-50%);
+  padding: 22rpx 32rpx 42rpx;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.94);
+  border-top: 1rpx solid rgba(132, 151, 168, 0.18);
+  box-shadow: 0 -8rpx 28rpx rgba(31, 48, 64, 0.08);
+}
+
+.contact-button {
+  width: 100%;
+  height: 88rpx;
+  border-radius: 28rpx;
+  background: #8ea6ba;
+  color: #fff;
   display: flex;
   align-items: center;
-  gap: 20rpx;
-  padding: 22rpx 32rpx 48rpx;
-  box-sizing: border-box;
-  background: rgba(232, 240, 248, 0.96);
-  border-top: 1rpx solid rgba(84, 99, 116, 0.12);
+  justify-content: center;
+  gap: 14rpx;
+  font-size: 30rpx;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 10rpx 22rpx rgba(85, 112, 136, 0.22);
 }
 
-.bottom-status {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6rpx;
-}
-
-.bottom-status text:first-child {
-  color: #172331;
-  font-size: 26rpx;
-  font-weight: 800;
-}
-
-.bottom-status text:last-child {
-  color: #7d8c9c;
-  font-size: 22rpx;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bottom-btn {
-  width: 280rpx;
-  height: 80rpx;
-  border-radius: 22rpx;
-  background: #b7c7d7;
-  color: #fff;
-  font-size: 26rpx;
-  font-weight: 800;
-}
-
-.bottom-btn::after {
+.contact-button::after {
   border: none;
 }
 
-.icon-action {
-  min-width: 128rpx;
-  height: 76rpx;
-  border-radius: 20rpx;
-  background: #ffffff;
-  color: #5c7894;
-  font-size: 24rpx;
-  font-weight: 800;
-  border: 2rpx solid #d7e4ef;
+.chat-outline {
+  width: 34rpx;
+  height: 28rpx;
+  border: 4rpx solid #fff;
+  border-radius: 8rpx;
+  position: relative;
+  box-sizing: border-box;
 }
 
-.icon-action.active {
-  color: #d56b55;
-  border-color: #f1b7a9;
-  background: #fff5f2;
-}
-
-.bottom-btn.secondary {
-  background: #ffffff;
-  color: #5c7894;
-  border: 2rpx solid #d7e4ef;
-}
-
-.bottom-btn.disabled {
-  background: #bac6d2;
-  color: #ffffff;
+.chat-outline::after {
+  content: '';
+  position: absolute;
+  left: 6rpx;
+  bottom: -10rpx;
+  width: 12rpx;
+  height: 12rpx;
+  border-left: 4rpx solid #fff;
+  border-bottom: 4rpx solid #fff;
+  transform: rotate(-18deg);
+  background: transparent;
 }
 </style>
