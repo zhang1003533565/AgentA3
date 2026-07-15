@@ -4,7 +4,7 @@
       <view class="container">
         <nav-bar title="商品详情" :fixed="true" :placeholder="true" />
 
-        <scroll-view scroll-y class="page-body" :style="{ height: pageBodyHeight + 'px' }">
+        <scroll-view scroll-y class="page-body" :show-scrollbar="false" :style="{ height: pageBodyHeight + 'px' }">
           <view class="hero-wrap">
           <swiper
             v-if="item.images.length"
@@ -96,7 +96,7 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { createOrGetChatSession, getSecondhandItemDetail } from '@/api/secondhand'
+import { getSecondhandItemDetail } from '@/api/secondhand'
 import { getMarketCategoryLabel, getMarketSubcategoryLabel } from '../utils/marketCategories'
 
 const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
@@ -250,15 +250,7 @@ export default {
     },
     async contactSeller() {
       if (!this.item.id) return
-      try {
-        const res = await createOrGetChatSession(this.item.id)
-        const sessionId = res?.data?.sessionId || res?.data?.id
-        const query = sessionId ? `sessionId=${sessionId}` : `itemId=${this.item.id}`
-        uni.navigateTo({ url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?${query}` })
-      } catch (e) {
-        console.error('创建聊天失败', e)
-        uni.showToast({ title: '暂时无法联系卖家', icon: 'none' })
-      }
+      uni.navigateTo({ url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?itemId=${this.item.id}` })
     },
     formatTime(value) {
       if (!value) return ''
