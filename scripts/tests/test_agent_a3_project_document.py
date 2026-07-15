@@ -516,5 +516,157 @@ class SourceContentTest(unittest.TestCase):
                 self.assertNotIn(value, text)
 
 
+class DetailedFunctionsAndCoreTechnologiesSourceTest(unittest.TestCase):
+    SOURCE_DIR = Path("docs/project-document/source")
+    FUNCTION_SOURCE = "04-detailed-functions.md"
+    TECHNOLOGY_SOURCE = "05-core-technologies.md"
+
+    def _read_source(self, name: str) -> str:
+        path = self.SOURCE_DIR / name
+        self.assertTrue(path.is_file(), f"missing reviewed source: {path}")
+        return path.read_text(encoding="utf-8")
+
+    @staticmethod
+    def _numbered_sections(text: str, prefix: str) -> list[str]:
+        pattern = rf"(?m)^## [^\n]*\b{prefix}-\d{{2}}\b[^\n]*$"
+        matches = list(re.finditer(pattern, text))
+        return [
+            text[match.start() : matches[index + 1].start()]
+            if index + 1 < len(matches)
+            else text[match.start() :]
+            for index, match in enumerate(matches)
+        ]
+
+    def test_chapter_sources_exist_and_use_supported_markdown(self):
+        expected_chapters = {
+            self.FUNCTION_SOURCE: "第四章 详细功能设计",
+            self.TECHNOLOGY_SOURCE: "第五章 核心技术设计",
+        }
+        for name, chapter in expected_chapters.items():
+            with self.subTest(name=name):
+                text = self._read_source(name)
+                blocks = parse_markdown(text, source_name=name)
+                self.assertTrue(blocks)
+                self.assertEqual(
+                    [block.text for block in blocks if block.kind == "section_break"],
+                    [chapter],
+                )
+
+    def test_detailed_functions_have_exact_unique_ids_and_atomic_contracts(self):
+        text = self._read_source(self.FUNCTION_SOURCE)
+        function_ids = re.findall(
+            r"(?m)^## [^\n]*\b(FUNC-\d{2})\b[^\n]*$", text
+        )
+        self.assertEqual(function_ids, [f"FUNC-{index:02d}" for index in range(1, 12)])
+        self.assertEqual(
+            re.findall(r"(?<![A-Z0-9-])FUNC-\d{2}(?![A-Z0-9-])", text),
+            function_ids,
+        )
+
+        required_labels = (
+            "**目标**：",
+            "**参与者**：",
+            "**触发条件**：",
+            "**前置条件**：",
+            "**主流程**：",
+            "**替代流程**：",
+            "**异常流程**：",
+            "**后置条件**：",
+            "**业务规则**：",
+            "**涉及接口**：",
+            "**数据实体**：",
+            "**验收条件**：",
+            "**测试编号**：",
+        )
+        sections = self._numbered_sections(text, "FUNC")
+        self.assertEqual(len(sections), 11)
+        for function_id, section in zip(function_ids, sections):
+            for label in required_labels:
+                with self.subTest(function_id=function_id, label=label):
+                    self.assertIn(label, section)
+            self.assertRegex(section, rf"FT-{function_id}-[A-Z0-9-]+")
+
+    def test_core_technologies_have_evidence_limits_and_figure_directives(self):
+        text = self._read_source(self.TECHNOLOGY_SOURCE)
+        technology_ids = re.findall(
+            r"(?m)^## [^\n]*\b(TECH-\d{2})\b[^\n]*$", text
+        )
+        self.assertEqual(technology_ids, [f"TECH-{index:02d}" for index in range(1, 9)])
+        self.assertEqual(
+            re.findall(r"(?<![A-Z0-9-])TECH-\d{2}(?![A-Z0-9-])", text),
+            technology_ids,
+        )
+
+        evidence_ids = {
+            row.id
+            for row in extract_evidence_rows(
+                Path("docs/project-document/evidence-index.md")
+            )
+        }
+        sections = self._numbered_sections(text, "TECH")
+        self.assertEqual(len(sections), 8)
+        for technology_id, section in zip(technology_ids, sections):
+            with self.subTest(technology_id=technology_id):
+                self.assertEqual(
+                    section.count(
+                        '<!-- CALLOUT type="evidence" title="证据映射" -->'
+                    ),
+                    1,
+                )
+                self.assertEqual(section.count("<!-- END_CALLOUT -->"), 1)
+                self.assertIn("**失败与降级**：", section)
+                self.assertIn("**已知限制**：", section)
+                self.assertRegex(
+                    section,
+                    r'<!-- FIGURE src="images/tech-[^"]+\.png" '
+                    r'caption="[^"]+" width_cm="15\.5" -->',
+                )
+                mapped_ids = set(re.findall(r"\bEV-\d{3}\b", section))
+                self.assertTrue(mapped_ids, f"{technology_id} has no evidence mapping")
+                self.assertTrue(mapped_ids <= evidence_ids)
+
+    def test_current_fact_boundaries_are_explicit(self):
+        functions = self._read_source(self.FUNCTION_SOURCE)
+        technologies = self._read_source(self.TECHNOLOGY_SOURCE)
+        combined = f"{functions}\n{technologies}"
+
+        required_facts = (
+            "当前 App 登录入口允许 STUDENT 与 TEACHER；当前 Web 登录入口允许 ADMIN 与 MERCHANT。",
+            "试卷创建、列表、详情与预览只校验登录，只有发布和取消发布执行 ADMIN 校验",
+            "MaxKB 仅执行 hit-test 检索",
+            "系统 LLM/agent 生成最终回答",
+            "Python 会反向调用 Java，并转发原始 Authorization",
+            "Redis 不可用时退化为进程内存",
+            "30 个专业智能体实现包",
+            "candidate",
+            "applied",
+            "考试结果尚未自动回写七维画像",
+            "讯飞（Xfyun）实时 ASR WebSocket",
+            "顺序执行",
+            "不构成零幻觉证明",
+            "七个题目智能体实现包",
+            "当前 Web 与考试业务链路只暴露五类题型",
+            "一次性预览证明",
+            "客观题自动评分",
+            "不对简答题执行自动评分",
+        )
+        for fact in required_facts:
+            with self.subTest(fact=fact):
+                self.assertIn(fact, combined)
+
+        banned_claims = (
+            "30 个智能体同时自主协商",
+            "会议具备完整 RTC",
+            "会议具备 TTS",
+            "资源信封保证零幻觉",
+            "已实现简答题自动评分",
+            "考试结果已经自动更新七维画像",
+            "所有智能体回答均经过 RAG",
+        )
+        for claim in banned_claims:
+            with self.subTest(claim=claim):
+                self.assertNotIn(claim, combined)
+
+
 if __name__ == "__main__":
     unittest.main()
