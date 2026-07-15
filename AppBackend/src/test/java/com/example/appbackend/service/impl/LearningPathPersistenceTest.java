@@ -16,8 +16,10 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -30,8 +32,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @DataJpaTest(showSql = false)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -45,6 +49,7 @@ class LearningPathPersistenceTest {
     private final LearningPathRepository pathRepository;
     private final LearningPathItemRepository itemRepository;
     private final LearningKnowledgeMasteryRepository masteryRepository;
+    private final PlatformTransactionManager transactionManager;
     private Long userId;
 
     @Autowired
@@ -52,12 +57,14 @@ class LearningPathPersistenceTest {
                                 UserRepository userRepository,
                                 LearningPathRepository pathRepository,
                                 LearningPathItemRepository itemRepository,
-                                LearningKnowledgeMasteryRepository masteryRepository) {
+                                LearningKnowledgeMasteryRepository masteryRepository,
+                                PlatformTransactionManager transactionManager) {
         this.service = service;
         this.userRepository = userRepository;
         this.pathRepository = pathRepository;
         this.itemRepository = itemRepository;
         this.masteryRepository = masteryRepository;
+        this.transactionManager = transactionManager;
     }
 
     @BeforeEach
@@ -130,6 +137,54 @@ class LearningPathPersistenceTest {
                 .sorted(Comparator.comparing(LearningPath::getVersionNo))
                 .map(LearningPath::getVersionNo)
                 .toList());
+    }
+
+    @Test
+    void feedbackContextHoldsTheUserLockUntilTheOuterExamTransactionCompletes()
+            throws Exception {
+        service.replaceActivePath(userId, draft("初始学习路径"));
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch feedbackLocked = new CountDownLatch(1);
+        CountDownLatch releaseFeedback = new CountDownLatch(1);
+        CountDownLatch replacementStarted = new CountDownLatch(1);
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        try {
+            Future<LearningPathDTO.HomeView> feedback = executor.submit(() -> transaction.execute(status -> {
+                LearningPathDTO.HomeView home = service.getHomeForFeedback(userId, "python");
+                feedbackLocked.countDown();
+                try {
+                    if (!releaseFeedback.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("Feedback lock was not released");
+                    }
+                } catch (InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(error);
+                }
+                return home;
+            }));
+            if (!feedbackLocked.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Feedback transaction did not acquire the user lock");
+            }
+            Future<LearningPathDTO.PathView> replacement = executor.submit(() -> transaction.execute(status -> {
+                replacementStarted.countDown();
+                return service.replaceActivePath(userId, draft("并发路径生成"));
+            }));
+            if (!replacementStarted.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Replacement transaction did not start");
+            }
+
+            assertThrows(TimeoutException.class,
+                    () -> replacement.get(250, TimeUnit.MILLISECONDS));
+            releaseFeedback.countDown();
+
+            assertEquals(1, feedback.get(5, TimeUnit.SECONDS).getActivePath().getVersion());
+            assertEquals(2, replacement.get(5, TimeUnit.SECONDS).getVersion());
+            assertEquals(1, pathRepository.countByUserIdAndCourseKeyAndStatus(
+                    userId, "python", "active"));
+        } finally {
+            releaseFeedback.countDown();
+            executor.shutdownNow();
+        }
     }
 
     private LearningPathDTO.AssessmentObservation observation(

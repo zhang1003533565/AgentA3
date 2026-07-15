@@ -70,6 +70,14 @@ public class LearningPathServiceImpl implements LearningPathService {
     }
 
     @Override
+    @Transactional
+    public LearningPathDTO.HomeView getHomeForFeedback(Long userId, String courseKey) {
+        validateUserAndCourse(userId, courseKey);
+        lockUser(userId);
+        return getHome(userId, courseKey);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public LearningPathDTO.PathView getActivePath(Long userId, String courseKey) {
         validateUserAndCourse(userId, courseKey);

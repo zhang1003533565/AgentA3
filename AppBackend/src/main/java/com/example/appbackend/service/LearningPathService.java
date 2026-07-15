@@ -6,6 +6,12 @@ public interface LearningPathService {
 
     LearningPathDTO.HomeView getHome(Long userId, String courseKey);
 
+    /**
+     * Acquires the same per-user write lock used by assessment and path replacement,
+     * then returns the feedback baseline inside the caller's transaction.
+     */
+    LearningPathDTO.HomeView getHomeForFeedback(Long userId, String courseKey);
+
     LearningPathDTO.PathView getActivePath(Long userId, String courseKey);
 
     LearningPathDTO.PathView replaceActivePath(Long userId, LearningPathDTO.PathDraft draft);

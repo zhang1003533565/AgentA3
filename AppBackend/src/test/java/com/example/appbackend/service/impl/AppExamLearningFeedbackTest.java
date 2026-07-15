@@ -19,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -31,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -93,7 +95,7 @@ class AppExamLearningFeedbackTest {
                 .thenReturn(paperQuestions);
         when(answerRepository.findByAttemptId(41L)).thenReturn(answers);
         when(examQuestionRepository.findAllById(any())).thenReturn(sourceQuestions);
-        when(learningPathService.getHome(9L, "python")).thenReturn(home);
+        when(learningPathService.getHomeForFeedback(9L, "python")).thenReturn(home);
         when(learningPathService.applyAssessment(any())).thenReturn(current);
         when(learningPathService.replaceActivePath(anyLong(), any())).thenReturn(path(72L, 2));
         when(userProfileService.addEvidence(anyLong(), any())).thenAnswer(invocation -> {
@@ -150,6 +152,10 @@ class AppExamLearningFeedbackTest {
         verify(learningPathService, times(1)).replaceActivePath(anyLong(), any());
         verify(userProfileService, times(3)).addEvidence(anyLong(), any());
         verify(attemptRepository, times(1)).save(attempt);
+        InOrder feedbackOrder = inOrder(learningPathService);
+        feedbackOrder.verify(learningPathService).getHomeForFeedback(9L, "python");
+        feedbackOrder.verify(learningPathService).applyAssessment(any());
+        feedbackOrder.verify(learningPathService).replaceActivePath(anyLong(), any());
     }
 
     @Test
@@ -175,7 +181,7 @@ class AppExamLearningFeedbackTest {
 
         assertThat(result.getLearningUpdate()).isNull();
         assertThat(attempt.getLearningUpdateJson()).isNull();
-        verify(learningPathService, never()).getHome(anyLong(), any());
+        verify(learningPathService, never()).getHomeForFeedback(anyLong(), any());
         verify(learningPathService, never()).applyAssessment(any());
         verify(learningPathService, never()).replaceActivePath(anyLong(), any());
         verify(userProfileService, never()).addEvidence(anyLong(), any());
@@ -205,7 +211,7 @@ class AppExamLearningFeedbackTest {
                 .thenReturn(paperQuestions);
         when(answerRepository.findByAttemptId(41L)).thenReturn(answers);
         when(examQuestionRepository.findAllById(any())).thenReturn(sourceQuestions);
-        when(learningPathService.getHome(9L, "python")).thenReturn(emptyHome);
+        when(learningPathService.getHomeForFeedback(9L, "python")).thenReturn(emptyHome);
         when(learningPathService.applyAssessment(any())).thenReturn(current);
         when(userProfileService.addEvidence(anyLong(), any())).thenAnswer(invocation -> {
             UserProfileDTO.EvidenceRequest request = invocation.getArgument(1);
@@ -228,6 +234,103 @@ class AppExamLearningFeedbackTest {
         assertThat(result.getLearningUpdate().getWeakKnowledgePoints())
                 .containsExactly("python.control.conditions");
         assertThat(result.getLearningUpdate().getReplanned()).isFalse();
+        verify(learningPathService, never()).replaceActivePath(anyLong(), any());
+    }
+
+    @Test
+    void missingWeakPointsAreAddedAndLongMasteryDigestIsBoundedDeterministically() {
+        LocalDateTime now = LocalDateTime.of(2026, 7, 15, 11, 40);
+        ExamPaperAttempt attempt = attempt();
+        ExamPaperQuestion paperQuestion = paperQuestion(
+                101L, 501L, "single_choice", "{\"correctOption\":\"B\"}");
+        ExamPaperAttemptAnswer answer = answer(101L, "{\"selectedOption\":\"A\"}");
+        String firstKey = "python.topic." + "a".repeat(90);
+        String secondKey = "python.topic." + "b".repeat(90);
+        ExamQuestion source = sourceQuestion(
+                501L,
+                "hard",
+                "[\"" + firstKey + "\",\"" + secondKey + "\"]");
+        LearningPathDTO.HomeView home = new LearningPathDTO.HomeView();
+        home.setUserId(9L);
+        home.setCourseKey("python");
+        home.setActivePath(path(71L, 1));
+        home.setMastery(List.of());
+
+        when(attemptRepository.findByIdAndUserIdForUpdate(41L, 9L)).thenReturn(Optional.of(attempt));
+        when(paperQuestionRepository.findByPaperIdOrderBySortOrderAscIdAsc(7L))
+                .thenReturn(List.of(paperQuestion));
+        when(answerRepository.findByAttemptId(41L)).thenReturn(List.of(answer));
+        when(examQuestionRepository.findAllById(any())).thenReturn(List.of(source));
+        when(learningPathService.getHomeForFeedback(9L, "python")).thenReturn(home);
+        when(learningPathService.applyAssessment(any())).thenAnswer(invocation -> {
+            LearningPathDTO.AssessmentObservation observation = invocation.getArgument(0);
+            return mastery(observation.getKnowledgePointKey(), "0.00", "weak");
+        });
+        when(learningPathService.replaceActivePath(anyLong(), any())).thenReturn(path(72L, 2));
+        when(userProfileService.addEvidence(anyLong(), any())).thenReturn(candidateEvidence());
+        when(attemptRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AppExamDTO.AttemptResult result = service.submit(41L, 9L, now);
+
+        ArgumentCaptor<LearningPathDTO.PathDraft> draftCaptor =
+                ArgumentCaptor.forClass(LearningPathDTO.PathDraft.class);
+        verify(learningPathService).replaceActivePath(org.mockito.ArgumentMatchers.eq(9L), draftCaptor.capture());
+        LearningPathDTO.PathDraft draft = draftCaptor.getValue();
+        assertThat(draft.getMasteryDigest()).hasSizeLessThanOrEqualTo(128)
+                .matches(".*#[0-9a-f]{12}$");
+        assertThat(draft.getItems()).hasSize(3);
+        assertThat(draft.getItems()).extracting(LearningPathDTO.PathItemDraft::getKnowledgePoint)
+                .contains(firstKey, secondKey);
+        assertThat(draft.getItems().stream()
+                .filter(item -> List.of(firstKey, secondKey).contains(item.getKnowledgePoint())))
+                .allSatisfy(item -> {
+                    assertThat(item.getItemKey()).startsWith("exam-review-").hasSizeLessThanOrEqualTo(120);
+                    assertThat(item.getStatus()).isEqualTo("needs_review");
+                    assertThat(item.getSequenceNo()).isLessThanOrEqualTo(2);
+                });
+        assertThat(result.getLearningUpdate().getReplanned()).isTrue();
+        assertThat(result.getLearningUpdate().getPathVersionAfter()).isEqualTo(2);
+        assertThat(result.getLearningUpdate().getChangedNodes())
+                .filteredOn(change -> change.getStatusBefore() == null)
+                .hasSize(2);
+    }
+
+    @Test
+    void alreadyPrioritizedWeakNodeDoesNotCreateAFalsePathVersion() {
+        LocalDateTime now = LocalDateTime.of(2026, 7, 15, 11, 50);
+        ExamPaperAttempt attempt = attempt();
+        ExamPaperQuestion paperQuestion = paperQuestion(
+                101L, 501L, "single_choice", "{\"correctOption\":\"B\"}");
+        ExamPaperAttemptAnswer answer = answer(101L, "{\"selectedOption\":\"A\"}");
+        ExamQuestion source = sourceQuestion(
+                501L, "hard", "[\"python.lists.slicing\"]");
+        LearningPathDTO.PathView path = path(71L, 1);
+        path.getItems().getFirst().setStatus("needs_review");
+        path.getItems().getFirst().setRationale(
+                "按基础路径学习；考试反馈：该知识点需要优先巩固");
+        LearningPathDTO.HomeView home = new LearningPathDTO.HomeView();
+        home.setUserId(9L);
+        home.setCourseKey("python");
+        home.setActivePath(path);
+        home.setMastery(List.of());
+
+        when(attemptRepository.findByIdAndUserIdForUpdate(41L, 9L)).thenReturn(Optional.of(attempt));
+        when(paperQuestionRepository.findByPaperIdOrderBySortOrderAscIdAsc(7L))
+                .thenReturn(List.of(paperQuestion));
+        when(answerRepository.findByAttemptId(41L)).thenReturn(List.of(answer));
+        when(examQuestionRepository.findAllById(any())).thenReturn(List.of(source));
+        when(learningPathService.getHomeForFeedback(9L, "python")).thenReturn(home);
+        when(learningPathService.applyAssessment(any()))
+                .thenReturn(mastery("python.lists.slicing", "0.00", "weak"));
+        when(userProfileService.addEvidence(anyLong(), any())).thenReturn(candidateEvidence());
+        when(attemptRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AppExamDTO.AttemptResult result = service.submit(41L, 9L, now);
+
+        assertThat(result.getLearningUpdate().getReplanned()).isFalse();
+        assertThat(result.getLearningUpdate().getPathVersionBefore()).isEqualTo(1);
+        assertThat(result.getLearningUpdate().getPathVersionAfter()).isEqualTo(1);
+        assertThat(result.getLearningUpdate().getChangedNodes()).isEmpty();
         verify(learningPathService, never()).replaceActivePath(anyLong(), any());
     }
 
@@ -297,6 +400,13 @@ class AppExamLearningFeedbackTest {
         mastery.setStatus(status);
         mastery.setAttemptCount(1);
         return mastery;
+    }
+
+    private UserProfileDTO.EvidenceResponse candidateEvidence() {
+        UserProfileDTO.EvidenceResponse response = new UserProfileDTO.EvidenceResponse();
+        response.setStatus("candidate");
+        response.setAccepted(false);
+        return response;
     }
 
     private LearningPathDTO.PathView path(Long id, int version) {

@@ -30,11 +30,14 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -540,7 +543,8 @@ public class AppExamServiceImpl implements AppExamService {
         }
         if (assessments.isEmpty()) return null;
 
-        LearningPathDTO.HomeView homeBefore = learningPathService.getHome(attempt.getUserId(), PYTHON);
+        LearningPathDTO.HomeView homeBefore = learningPathService.getHomeForFeedback(
+                attempt.getUserId(), PYTHON);
         LearningPathDTO.PathView pathBefore = homeBefore == null ? null : homeBefore.getActivePath();
         Map<String, LearningPathDTO.MasteryView> masteryBefore = homeBefore == null
                 || homeBefore.getMastery() == null
@@ -778,11 +782,53 @@ public class AppExamServiceImpl implements AppExamService {
 
         List<LearningPathDTO.PathItemDraft> itemDrafts = new ArrayList<>();
         List<AppExamDTO.PathChange> changes = new ArrayList<>();
-        for (int index = 0; index < ordered.size(); index++) {
-            LearningPathDTO.PathItemView source = ordered.get(index);
-            int nextSequence = index + 1;
+        Set<String> existingKnowledgePoints = ordered.stream()
+                .map(LearningPathDTO.PathItemView::getKnowledgePoint)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Set<String> usedItemKeys = ordered.stream()
+                .map(LearningPathDTO.PathItemView::getItemKey)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        int nextSequence = 1;
+        for (String missingKnowledgePoint : weakKnowledgePoints.stream()
+                .filter(point -> !existingKnowledgePoints.contains(point))
+                .toList()) {
+            LearningPathDTO.PathItemDraft added = new LearningPathDTO.PathItemDraft();
+            added.setItemKey(uniqueReviewItemKey(missingKnowledgePoint, usedItemKeys));
+            added.setKnowledgePoint(missingKnowledgePoint);
+            added.setObjective("巩固考试薄弱知识点 " + missingKnowledgePoint);
+            added.setTargetMastery(new BigDecimal("80.00"));
+            added.setPriority(1);
+            added.setSequenceNo(nextSequence);
+            added.setResourceKinds(List.of("knowledge_note", "practice_set"));
+            added.setResourceIds(List.of());
+            added.setStatus("needs_review");
+            added.setDeliveryStatus("pending");
+            added.setSourceMessageId(pathBefore.getSourceMessageId());
+            added.setScheduledAt(now);
+            added.setRationale("考试反馈：路径中缺少该薄弱知识点，已新增优先复习节点");
+            itemDrafts.add(added);
+
+            AppExamDTO.PathChange change = new AppExamDTO.PathChange();
+            change.setItemKey(added.getItemKey());
+            change.setKnowledgePoint(missingKnowledgePoint);
+            change.setSequenceBefore(null);
+            change.setSequenceAfter(nextSequence);
+            change.setStatusBefore(null);
+            change.setStatusAfter("needs_review");
+            change.setReason("客观题答错且原路径缺少该知识点，新增优先复习节点");
+            changes.add(change);
+            nextSequence++;
+        }
+
+        for (LearningPathDTO.PathItemView source : ordered) {
+            int sourceNextSequence = nextSequence++;
             boolean needsReview = weak.contains(source.getKnowledgePoint());
             String nextStatus = needsReview ? "needs_review" : source.getStatus();
+            String nextRationale = needsReview
+                    ? appendRationale(source.getRationale(), "考试反馈：该知识点需要优先巩固")
+                    : source.getRationale();
 
             LearningPathDTO.PathItemDraft draft = new LearningPathDTO.PathItemDraft();
             draft.setItemKey(source.getItemKey());
@@ -790,24 +836,25 @@ public class AppExamServiceImpl implements AppExamService {
             draft.setObjective(source.getObjective());
             draft.setTargetMastery(source.getTargetMastery());
             draft.setPriority(source.getPriority());
-            draft.setSequenceNo(nextSequence);
+            draft.setSequenceNo(sourceNextSequence);
             draft.setResourceKinds(source.getResourceKinds());
             draft.setResourceIds(source.getResourceIds());
             draft.setStatus(nextStatus);
             draft.setDeliveryStatus(source.getDeliveryStatus());
             draft.setSourceMessageId(source.getSourceMessageId());
             draft.setScheduledAt(source.getScheduledAt());
-            draft.setRationale(needsReview
-                    ? appendRationale(source.getRationale(), "考试反馈：该知识点需要优先巩固")
-                    : source.getRationale());
+            draft.setRationale(nextRationale);
             itemDrafts.add(draft);
 
-            if (needsReview || !Objects.equals(source.getSequenceNo(), nextSequence)) {
+            boolean changed = !Objects.equals(source.getSequenceNo(), sourceNextSequence)
+                    || !Objects.equals(source.getStatus(), nextStatus)
+                    || !Objects.equals(source.getRationale(), nextRationale);
+            if (changed) {
                 AppExamDTO.PathChange change = new AppExamDTO.PathChange();
                 change.setItemKey(source.getItemKey());
                 change.setKnowledgePoint(source.getKnowledgePoint());
                 change.setSequenceBefore(source.getSequenceNo());
-                change.setSequenceAfter(nextSequence);
+                change.setSequenceAfter(sourceNextSequence);
                 change.setStatusBefore(source.getStatus());
                 change.setStatusAfter(nextStatus);
                 change.setReason(needsReview ? "客观题答错，提升为优先复习节点" : "随薄弱节点重新排序");
@@ -815,12 +862,21 @@ public class AppExamServiceImpl implements AppExamService {
             }
         }
 
+        if (changes.isEmpty()) {
+            return new ReplanResult(
+                    false,
+                    "薄弱节点已处于优先复习状态，学习路径未发生变化",
+                    pathBefore,
+                    List.of());
+        }
+
         LearningPathDTO.PathDraft draft = new LearningPathDTO.PathDraft();
         draft.setCourseKey(PYTHON);
         draft.setGoal(pathBefore.getGoal());
         draft.setProfileDigest(pathBefore.getProfileDigest());
-        draft.setMasteryDigest("考试 " + attempt.getId() + " 反馈薄弱点："
-                + String.join("、", weakKnowledgePoints));
+        draft.setMasteryDigest(boundedDigest(
+                "考试 " + attempt.getId() + " 反馈薄弱点：" + String.join("、", weakKnowledgePoints),
+                128));
         draft.setSourceMessageId(pathBefore.getSourceMessageId());
         draft.setGeneratedAt(now);
         draft.setNextReplanAt(pathBefore.getNextReplanAt());
@@ -859,7 +915,34 @@ public class AppExamServiceImpl implements AppExamService {
     }
 
     private String appendRationale(String existing, String feedback) {
-        return existing == null || existing.isBlank() ? feedback : existing + "；" + feedback;
+        if (existing == null || existing.isBlank()) return feedback;
+        return existing.contains(feedback) ? existing : existing + "；" + feedback;
+    }
+
+    private String uniqueReviewItemKey(String knowledgePoint, Set<String> usedItemKeys) {
+        String base = "exam-review-" + sha256(knowledgePoint);
+        String candidate = base;
+        int suffix = 2;
+        while (!usedItemKeys.add(candidate)) {
+            candidate = base + "-" + suffix++;
+        }
+        return candidate;
+    }
+
+    private String boundedDigest(String value, int maxLength) {
+        if (value.length() <= maxLength) return value;
+        String suffix = "…#" + sha256(value).substring(0, 12);
+        return value.substring(0, maxLength - suffix.length()) + suffix;
+    }
+
+    private String sha256(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 unavailable", error);
+        }
     }
 
     private String limit(String value, int maxLength) {
