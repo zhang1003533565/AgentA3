@@ -56,3 +56,21 @@ test('attempt result displays objective score and post-submit answer details', (
   assert.match(source, /scoringJson/)
   assert.match(source, /加载失败/)
 })
+
+test('exam generator reads the standard response envelope', () => {
+  const source = page('../subpackage_ai/examGenerate/examGenerate.vue')
+  assert.match(source, /const answer = res\?\.data\?\.answer \|\| ''/)
+  assert.doesNotMatch(source, /const answer = res\?\.answer \|\| ''/)
+})
+
+test('attempt result renders optional learning feedback and opens the adjusted path', () => {
+  const source = page('attemptResult/attemptResult.vue')
+  for (const field of [
+    'learningUpdate', 'weakKnowledgePoints', 'evidenceStatus', 'pathVersionBefore',
+    'pathVersionAfter', 'changedNodes', 'nextRecommendation'
+  ]) {
+    assert.match(source, new RegExp(`\\b${field}\\b`))
+  }
+  assert.match(source, /\/subpackage_learning\/learningPath\/learningPath/)
+  assert.match(source, /查看调整后的学习路径/)
+})

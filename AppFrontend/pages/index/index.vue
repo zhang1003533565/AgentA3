@@ -127,6 +127,10 @@
 								<text class="ai-card-btn-text">立即体验</text>
 								<view class="btn-arrow">→</view>
 							</view>
+							<view class="python-learning-btn" @click="navigate('/subpackage_learning/pythonHome/pythonHome')">
+								<text class="python-learning-btn__title">Python 个性化学习</text>
+								<text class="python-learning-btn__arrow">→</text>
+							</view>
 						</view>
 						<view class="ai-card-visual">
 							<view class="ai-scene">
@@ -873,6 +877,29 @@ export default {
 	font-size: 20rpx;
 	color: #FFFFFF;
 	font-weight: 700;
+}
+
+.python-learning-btn {
+	align-self: flex-start;
+	display: flex;
+	align-items: center;
+	gap: 10rpx;
+	margin-top: 4rpx;
+	padding: 10rpx 18rpx;
+	border: 1rpx solid rgba(255, 255, 255, 0.38);
+	border-radius: 24rpx;
+	background: rgba(255, 255, 255, 0.12);
+}
+
+.python-learning-btn__title {
+	font-size: 21rpx;
+	font-weight: 650;
+	color: rgba(255, 255, 255, 0.96);
+}
+
+.python-learning-btn__arrow {
+	font-size: 22rpx;
+	color: #FFD700;
 }
 
 .ai-card-visual {

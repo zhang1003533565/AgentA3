@@ -55,18 +55,11 @@
 									class="ai-output-type-tag"
 								>{{ getOutputTypeLabel(type) }}</text>
 							</view>
-							<view
-								v-for="(line, lineIndex) in formatAnswerLines(getDisplayContent(message))"
-								:key="`${message.localId || message.id}-line-${lineIndex}`"
-								class="ai-message-line"
-								:class="{
-									'ai-message-line--bullet': line.type === 'bullet',
-									'ai-message-line--empty': line.type === 'empty'
-								}"
-							>
-								<text v-if="line.type === 'bullet'" class="ai-message-line__dot"></text>
-								<text class="ai-message-line__text">{{ line.text }}</text>
-							</view>
+							<safe-markdown
+								v-if="getDisplayContent(message)"
+								class="ai-message-markdown"
+								:content="getDisplayContent(message)"
+							/>
 
 							<view v-if="getMessageResources(message).length" class="ai-resource-list">
 								<view
@@ -85,10 +78,11 @@
 										</view>
 									</view>
 									<text v-if="resource.summary" class="ai-resource-card__summary">{{ resource.summary }}</text>
-									<text
+									<safe-markdown
 										v-if="resource.renderer === 'content' && resource.payload.content"
 										class="ai-resource-card__content"
-									>{{ resource.payload.content }}</text>
+										:content="resource.payload.content"
+									/>
 									<view v-if="resource.renderer === 'business_card'" class="ai-resource-card__business">
 										<text
 											v-for="field in getBusinessResourceFields(resource)"
@@ -221,6 +215,7 @@
 </template>
 
 <script>
+import SafeMarkdown from '@/components/safe-markdown/safe-markdown.vue'
 import { ASSISTANT_PUBLIC_RESOURCE_HOSTS, BASE_URL } from '@/utils/config.js'
 import {
 	downloadAssistantResource,
@@ -280,6 +275,7 @@ const RESOURCE_INTERACTION_BY_ACTION = {
 }
 
 export default {
+	components: { SafeMarkdown },
 	data() {
 		return {
 			panelVisible: false,
@@ -577,15 +573,6 @@ export default {
 				this.$nextTick(() => {
 					this.scrollAnchor = 'ai-message-anchor'
 				})
-			})
-		},
-		formatAnswerLines(content) {
-			const normalized = String(content || '').replace(/\*\*(.*?)\*\*/g, '$1')
-			if (!normalized) return []
-			return normalized.split('\n').map(line => line.trim()).map((line) => {
-				if (!line) return { type: 'empty', text: '' }
-				if (line.startsWith('- ')) return { type: 'bullet', text: line.slice(2).trim() }
-				return { type: 'text', text: line }
 			})
 		},
 		getDisplayContent(message) {

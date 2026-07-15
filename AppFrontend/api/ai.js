@@ -4,7 +4,7 @@ import { getToken } from '@/utils/storage.js'
 import { buildAssistantDownloadOptions } from '../subpackage_ai/assistantMessage.js'
 
 const ASSISTANT_RESOURCE_INTERACTIONS = new Set([
-  'view', 'open', 'download', 'preview', 'follow_up', 'dismiss'
+  'view', 'open', 'download', 'preview', 'follow_up', 'dismiss', 'complete'
 ])
 
 export function writeWithAi(data) {
@@ -258,7 +258,7 @@ export async function streamLlmChat(data, handlers = {}) {
   return streamSse('/api/llm/chat/stream', data, handlers, '当前运行环境暂不支持流式总结')
 }
 
-async function streamSse(url, data, handlers = {}, unsupportedMessage = '当前运行环境暂不支持流式响应') {
+export async function streamSse(url, data, handlers = {}, unsupportedMessage = '当前运行环境暂不支持流式响应') {
   if (typeof fetch !== 'function') {
     const error = new Error(unsupportedMessage)
     error.fallbackToNormalRequest = true

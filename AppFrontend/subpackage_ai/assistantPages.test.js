@@ -40,6 +40,7 @@ async function loadConversationComponent(overrides = {}) {
   const helper = await helperModule
   const dependencies = {
     NavBar: {},
+    SafeMarkdown: {},
     ASSISTANT_PUBLIC_RESOURCE_HOSTS: [],
     BASE_URL: 'http://localhost:8080',
     downloadAssistantResource: async () => '/tmp/resource.bin',
@@ -63,6 +64,23 @@ async function loadConversationComponent(overrides = {}) {
   const factory = new Function(...Object.keys(dependencies), executable)
   return factory(...Object.values(dependencies))
 }
+
+test('assistant surfaces reuse safe markdown and full conversation accepts a prefilled intent', async () => {
+  const full = page('aiConversation/aiConversation.vue')
+  const floating = page('../components/ai-float-assistant/ai-float-assistant.vue')
+  for (const source of [full, floating]) {
+    assert.match(source, /SafeMarkdown/)
+    assert.match(source, /<safe-markdown/)
+    assert.doesNotMatch(source, /v-html/)
+  }
+  assert.doesNotMatch(floating, /formatAnswerLines\(getDisplayContent\(message\)\)/)
+
+  const component = await loadConversationComponent()
+  installUni()
+  const vm = instantiate(component)
+  component.onLoad.call(vm, { prefill: encodeURIComponent('为我生成 Python 列表切片练习') })
+  assert.equal(vm.inputValue, '为我生成 Python 列表切片练习')
+})
 
 function instantiate(component) {
   const vm = {

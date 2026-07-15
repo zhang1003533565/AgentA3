@@ -21,7 +21,7 @@
             <!-- 右侧上下两个小卡片 -->
             <view class="hero-side">
               <!-- 右上：AI视频 -->
-              <view class="hero-small hero-video">
+              <view class="hero-small hero-video" @tap="handleToolTap({ name: 'AI视频', desc: '轻松生成视频' })">
                 <view class="hero-small-text">
                   <text class="hero-small-title">AI视频</text>
                   <text class="hero-small-subtitle">轻松生成视频</text>
@@ -29,7 +29,7 @@
                 <image class="hero-small-icon" src="/static/icons/ai create/ai video.png" mode="aspectFit"></image>
               </view>
               <!-- 右下：AIPPT -->
-              <view class="hero-small hero-ppt">
+              <view class="hero-small hero-ppt" @tap="handleToolTap({ name: 'AIPPT', desc: '智能PPT神器' })">
                 <view class="hero-small-text">
                   <text class="hero-small-title">AIPPT</text>
                   <text class="hero-small-subtitle">智能PPT神器</text>
@@ -97,6 +97,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { resolveAiToolDestination } from '@/subpackage_learning/aiToolRoutes.js'
 
 // 响应式数据
 const activeTab = ref(0)
@@ -122,7 +123,8 @@ const toolCategories = {
     { name: '活动图', desc: '业务流程活动图', icon: '/static/icons/ai create/summary.png', themeColor: '#48DBFB', lightColor: 'rgba(72, 219, 251, 0.35)' },
     { name: '架构图', desc: '系统架构可视化', icon: '/static/icons/ai create/plan.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
     { name: '流程图', desc: '逻辑流程一键绘制', icon: '/static/icons/ai create/video-convert.png', themeColor: '#1DD1A1', lightColor: 'rgba(29, 209, 161, 0.35)' },
-    { name: '复习资料', desc: '智能整理复习重点', icon: '/static/icons/ai create/review.png', themeColor: '#FECA57', lightColor: 'rgba(254, 202, 87, 0.35)' }
+    { name: '复习资料', desc: '智能整理复习重点', icon: '/static/icons/ai create/review.png', themeColor: '#FECA57', lightColor: 'rgba(254, 202, 87, 0.35)' },
+    { name: 'Python代码实验', desc: '生成可运行代码与测试', icon: '/static/icons/ai create/course.png', themeColor: '#2563EB', lightColor: 'rgba(37, 99, 235, 0.35)' }
   ],
   format: [
     { name: 'PPT转PDF', desc: '一键PPT转PDF', icon: '/static/icons/ai create/ppt-pdf.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
@@ -184,69 +186,12 @@ const switchTab = (index) => {
 }
 
 const goToSmartWriting = () => {
-  uni.navigateTo({
-    url: '/subpackage_ai/smartWriting/smartWriting'
-  })
-}
-
-const goToImageGenerate = () => {
-  uni.navigateTo({
-    url: '/subpackage_ai/imageGenerate/imageGenerate'
-  })
-}
-
-const goToAiConversation = () => {
-  uni.navigateTo({
-    url: '/subpackage_ai/aiConversation/aiConversation'
-  })
+  handleToolTap({ name: '智能写作', desc: 'Deepseek赋能' })
 }
 
 const handleToolTap = (tool) => {
-  const name = tool?.name || ''
-  if (name.includes('AI对话')) {
-    goToAiConversation()
-    return
-  }
-  if (name.includes('AI玩图') || name.includes('文生图')) {
-    goToImageGenerate()
-    return
-  }
-  if (name.includes('试卷生成') || name.includes('学科出题')) {
-    uni.navigateTo({
-      url: '/subpackage_ai/examGenerate/examGenerate'
-    })
-    return
-  }
-  if (name.includes('PPT生成') || name.includes('AIPPT')) {
-    uni.navigateTo({
-      url: '/subpackage_ai/pptGenerate/pptGenerate'
-    })
-    return
-  }
-  if (name.includes('思维导图')) {
-    uni.navigateTo({
-      url: '/subpackage_ai/mindmapGenerate/mindmapGenerate'
-    })
-    return
-  }
-  if (name.includes('活动图')) {
-    uni.navigateTo({
-      url: '/subpackage_ai/activityGenerate/activityGenerate'
-    })
-    return
-  }
-  if (name.includes('架构图')) {
-    uni.navigateTo({
-      url: '/subpackage_ai/architectureGenerate/architectureGenerate'
-    })
-    return
-  }
-  if (name.includes('流程图')) {
-    uni.navigateTo({
-      url: '/subpackage_ai/flowchartGenerate/flowchartGenerate'
-    })
-    return
-  }
+  const destination = resolveAiToolDestination(tool)
+  uni.navigateTo({ url: destination })
 }
 </script>
 

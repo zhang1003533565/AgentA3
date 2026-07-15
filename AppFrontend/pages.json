@@ -722,6 +722,27 @@
 					"style": { "navigationBarTitleText": "答题结果", "navigationStyle": "custom" }
 				}
 			]
+		},
+		{
+			"root": "subpackage_learning",
+			"pages": [
+				{
+					"path": "pythonHome/pythonHome",
+					"style": { "navigationBarTitleText": "Python 个性化学习", "navigationStyle": "custom", "enablePullDownRefresh": true }
+				},
+				{
+					"path": "resourceGenerate/resourceGenerate",
+					"style": { "navigationBarTitleText": "个性化资源包", "navigationStyle": "custom" }
+				},
+				{
+					"path": "learningPath/learningPath",
+					"style": { "navigationBarTitleText": "Python 学习路径", "navigationStyle": "custom", "enablePullDownRefresh": true }
+				},
+				{
+					"path": "recommendations/recommendations",
+					"style": { "navigationBarTitleText": "Python 精准推荐", "navigationStyle": "custom", "enablePullDownRefresh": true }
+				}
+			]
 		}
 	],
 	"preloadRule": {
@@ -741,7 +762,8 @@
 				"subpackage_community",
 				"subpackage_ai",
 				"subpackage_meeting",
-				"subpackage_notice"
+				"subpackage_notice",
+				"subpackage_learning"
 			]
 		}
 	},
