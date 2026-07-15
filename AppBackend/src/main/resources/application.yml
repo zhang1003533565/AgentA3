@@ -30,6 +30,13 @@ spring:
     multipart:
       max-file-size: 200MB
       max-request-size: 200MB
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:2s}
+      timeout: ${REDIS_COMMAND_TIMEOUT:2s}
 
 jwt:
   secret: ${JWT_SECRET}
@@ -59,6 +66,8 @@ ai:
   python:
     base-url: ${AI_PYTHON_BASE_URL:http://localhost:8081}
     timeout-seconds: ${AI_PYTHON_TIMEOUT_SECONDS:65}
+    file-response-max-in-memory-bytes: ${AI_PYTHON_FILE_RESPONSE_MAX_IN_MEMORY_BYTES:52428800}
+    internal-token: ${AI_INTERNAL_TOKEN:}
   assistant:
     public-resource-hosts: ${AI_ASSISTANT_PUBLIC_RESOURCE_HOSTS:}
 

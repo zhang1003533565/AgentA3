@@ -218,8 +218,10 @@ class LearningPathServiceImplTest {
 
         assertEquals("viewed", service.recordResourceInteraction(
                 7L, item.getId(), interaction("view")).getDeliveryStatus());
-        assertEquals("opened", service.recordResourceInteraction(
-                7L, item.getId(), interaction("open")).getDeliveryStatus());
+        LearningPathDTO.PathItemView opened = service.recordResourceInteraction(
+                7L, item.getId(), interaction("open"));
+        assertEquals("opened", opened.getDeliveryStatus());
+        assertEquals("in_progress", opened.getStatus());
         BusinessException error = assertThrows(BusinessException.class,
                 () -> service.recordResourceInteraction(
                         7L, item.getId(), interaction("download")));

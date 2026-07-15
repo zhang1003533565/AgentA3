@@ -179,6 +179,9 @@ public class LearningPathServiceImpl implements LearningPathService {
                 item.setDeliveredAt(now);
             }
             case "open" -> {
+                if (!"completed".equals(item.getStatus())) {
+                    item.setStatus("in_progress");
+                }
                 item.setDeliveryStatus("opened");
                 item.setDeliveredAt(now);
             }

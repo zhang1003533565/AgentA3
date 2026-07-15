@@ -4,13 +4,24 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public final class LearningPathDTO {
+    public static final Set<String> PYTHON_PROFILE_QUESTION_IDS = Set.of(
+            "python_goal",
+            "python_level",
+            "python_weak_topic",
+            "python_resource_preference",
+            "python_weekly_time"
+    );
+
     private LearningPathDTO() {
     }
 
@@ -20,6 +31,66 @@ public final class LearningPathDTO {
         private String courseKey;
         private PathView activePath;
         private List<MasteryView> mastery;
+        private UserProfileDTO.RadarSnapshot profile;
+        private Integer profileCompleteness;
+        private List<String> answeredQuestionIds;
+        private List<PathItemView> todayTasks;
+        private List<Recommendation> recommendations;
+    }
+
+    @Data
+    public static class GenerateRequest {
+        @NotBlank
+        private String courseKey;
+        @NotBlank
+        @Size(max = 500)
+        private String topic;
+        private String intent;
+        @Size(max = 6)
+        private List<String> requestedResourceTypes;
+        private Long pathItemId;
+    }
+
+    @Data
+    public static class WorkflowError {
+        private String message;
+        private Boolean retryable;
+    }
+
+    @Data
+    public static class WorkflowView {
+        private String workflowId;
+        private String courseKey;
+        private String topic;
+        private String intent;
+        private String status;
+        private String stage;
+        private Integer progress;
+        private String message;
+        private String activeAgentName;
+        private String activeResourceType;
+        private Map<String, AssistantResourceDTO> resources;
+        private Map<String, WorkflowError> errors;
+        private PathView path;
+        private Long messageId;
+        private LocalDateTime startedAt;
+        private LocalDateTime updatedAt;
+    }
+
+    @Data
+    public static class ProfileAnswerRequest {
+        @NotBlank
+        private String questionId;
+        @NotBlank
+        @Size(max = 500)
+        private String answer;
+    }
+
+    @Data
+    public static class ProfileAnswerResult {
+        private UserProfileDTO.RadarSnapshot profile;
+        private List<String> answeredQuestionIds;
+        private Integer profileCompleteness;
     }
 
     @Data

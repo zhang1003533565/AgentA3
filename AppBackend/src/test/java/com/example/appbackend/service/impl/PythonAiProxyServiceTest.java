@@ -121,6 +121,7 @@ class PythonAiProxyServiceTest {
     void ragQuery_shouldProxyRequestToPythonRagEndpoint() throws Exception {
         AtomicReference<String> authRef = new AtomicReference<>();
         AtomicReference<String> userIdRef = new AtomicReference<>();
+        AtomicReference<String> internalTokenRef = new AtomicReference<>();
         AtomicReference<String> aiModelRef = new AtomicReference<>();
         AtomicReference<String> requestBodyRef = new AtomicReference<>();
 
@@ -128,6 +129,7 @@ class PythonAiProxyServiceTest {
         server.createContext("/internal/rag/query", exchange -> {
             authRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
             userIdRef.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
+            internalTokenRef.set(exchange.getRequestHeaders().getFirst("X-AI-Internal-Token"));
             aiModelRef.set(exchange.getRequestHeaders().getFirst("X-AI-Model"));
             requestBodyRef.set(readBody(exchange));
 
@@ -163,6 +165,7 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("已生成只读 SQL", responseMap.get("answer"));
         Assertions.assertEquals("Bearer " + token, authRef.get());
         Assertions.assertEquals("1003", userIdRef.get());
+        Assertions.assertEquals("test-internal-token", internalTokenRef.get());
         Assertions.assertEquals("test-model", aiModelRef.get());
 
         ObjectMapper mapper = new ObjectMapper();
@@ -419,6 +422,58 @@ class PythonAiProxyServiceTest {
     }
 
     @Test
+    void learningStreamSendsInternalTokenAndRelaysNamedEventsImmediately() throws Exception {
+        AtomicReference<String> internalToken = new AtomicReference<>();
+        AtomicReference<String> model = new AtomicReference<>();
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        CountDownLatch requestArrived = new CountDownLatch(1);
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/rag/query/stream", exchange -> {
+            internalToken.set(exchange.getRequestHeaders().getFirst("X-AI-Internal-Token"));
+            model.set(exchange.getRequestHeaders().getFirst("X-AI-Model"));
+            requestBody.set(readBody(exchange));
+            requestArrived.countDown();
+            exchange.getResponseHeaders().set(
+                    "Content-Type", MediaType.TEXT_EVENT_STREAM_VALUE + ";charset=UTF-8");
+            exchange.sendResponseHeaders(200, 0);
+            exchange.getResponseBody().write(("""
+                    event: accepted
+                    data: {"workflowId":"wf-1","stage":"accepted","progress":0}
+
+                    event: done
+                    data: {"workflowId":"wf-1","stage":"done","progress":100,"status":"completed"}
+
+                    """).getBytes(StandardCharsets.UTF_8));
+            exchange.getResponseBody().flush();
+            exchange.close();
+        });
+        server.start();
+
+        List<String> events = new java.util.concurrent.CopyOnWriteArrayList<>();
+        SseEmitter emitter = newService(server.getAddress().getPort()).streamLearningWorkflow(
+                Map.of("input", "列表切片", "llmModel", "client-controlled-model"),
+                "Bearer " + buildJwtToken(1010L),
+                (name, payload) -> {
+                    events.add(name);
+                    return false;
+                });
+
+        Assertions.assertTrue(requestArrived.await(2, TimeUnit.SECONDS));
+        for (int attempt = 0; attempt < 20 && events.size() < 2; attempt++) {
+            TimeUnit.MILLISECONDS.sleep(25);
+        }
+        Assertions.assertEquals("test-internal-token", internalToken.get());
+        Assertions.assertEquals("test-model", model.get());
+        JsonNode body = new ObjectMapper().readTree(requestBody.get());
+        Assertions.assertEquals("列表切片", body.path("input").asText());
+        Assertions.assertTrue(body.path("llmModel").isMissingNode());
+        Assertions.assertTrue(body.path("agentToggles").isMissingNode());
+        Assertions.assertTrue(body.path("toolToggles").isMissingNode());
+        Assertions.assertEquals(List.of("accepted", "done"), events);
+        emitter.complete();
+    }
+
+    @Test
     void sseEventNamesRejectLogInjectionAndPayloadFragments() {
         Assertions.assertEquals("generation_start", PythonAiProxyService.safeSseEventName("generation_start"));
         Assertions.assertEquals("message", PythonAiProxyService.safeSseEventName(
@@ -592,7 +647,8 @@ class PythonAiProxyServiceTest {
                 systemConfigRepository,
                 "http://localhost:" + port,
                 5,
-                maxBytes
+                maxBytes,
+                "test-internal-token"
         );
     }
 
