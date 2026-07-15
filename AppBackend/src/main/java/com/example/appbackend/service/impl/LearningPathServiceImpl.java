@@ -10,9 +10,11 @@ import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.LearningKnowledgeMasteryRepository;
 import com.example.appbackend.repository.LearningPathItemRepository;
 import com.example.appbackend.repository.LearningPathRepository;
+import com.example.appbackend.repository.UserRepository;
 import com.example.appbackend.service.LearningPathService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,8 +28,8 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 
 @Service
 public class LearningPathServiceImpl implements LearningPathService {
@@ -36,15 +38,18 @@ public class LearningPathServiceImpl implements LearningPathService {
     private final LearningPathRepository pathRepository;
     private final LearningPathItemRepository itemRepository;
     private final LearningKnowledgeMasteryRepository masteryRepository;
+    private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
 
     public LearningPathServiceImpl(LearningPathRepository pathRepository,
                                    LearningPathItemRepository itemRepository,
                                    LearningKnowledgeMasteryRepository masteryRepository,
+                                   UserRepository userRepository,
                                    ObjectMapper objectMapper) {
         this.pathRepository = pathRepository;
         this.itemRepository = itemRepository;
         this.masteryRepository = masteryRepository;
+        this.userRepository = userRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -79,6 +84,7 @@ public class LearningPathServiceImpl implements LearningPathService {
             Long userId, LearningPathDTO.PathDraft draft) {
         validateUserAndCourse(userId, draft == null ? null : draft.getCourseKey());
         validateDraft(draft);
+        lockUser(userId);
 
         LearningPath latest = pathRepository
                 .findTopByUserIdAndCourseKeyOrderByVersionNoDesc(userId, draft.getCourseKey())
@@ -146,14 +152,20 @@ public class LearningPathServiceImpl implements LearningPathService {
                 .orElseThrow(() -> new BusinessException(
                         Result.NOT_FOUND_CODE, "学习路径节点不存在"));
         LocalDateTime now = LocalDateTime.now();
-        item.setDeliveredAt(now);
         switch (action) {
-            case "view" -> item.setDeliveryStatus("viewed");
-            case "open" -> item.setDeliveryStatus("opened");
+            case "view" -> {
+                item.setDeliveryStatus("viewed");
+                item.setDeliveredAt(now);
+            }
+            case "open" -> {
+                item.setDeliveryStatus("opened");
+                item.setDeliveredAt(now);
+            }
             case "dismiss" -> item.setDeliveryStatus("dismissed");
             case "complete" -> {
                 item.setStatus("completed");
                 item.setDeliveryStatus("completed");
+                item.setDeliveredAt(now);
                 item.setCompletedAt(now);
             }
             default -> throw new IllegalStateException("Unreachable interaction action");
@@ -174,19 +186,28 @@ public class LearningPathServiceImpl implements LearningPathService {
                 || observation.getCorrect() == null) {
             throw badRequest("掌握度观察参数无效");
         }
+        String knowledgePointKey = observation.getKnowledgePointKey().trim();
+        lockUser(observation.getUserId());
 
         LearningKnowledgeMastery mastery = masteryRepository
                 .findByUserIdAndCourseKeyAndKnowledgePointKey(
                         observation.getUserId(), observation.getCourseKey(),
-                        observation.getKnowledgePointKey())
-                .orElseGet(() -> newMastery(observation));
-        if (Objects.equals(mastery.getLastAttemptId(), observation.getAttemptId())) {
+                        knowledgePointKey)
+                .orElseGet(() -> newMastery(observation, knowledgePointKey));
+        TreeSet<Long> appliedAttemptIds = readAppliedAttemptIds(mastery);
+        if (!appliedAttemptIds.add(observation.getAttemptId())) {
+            String canonicalReceipts = canonicalAttemptIds(appliedAttemptIds);
+            if (!canonicalReceipts.equals(mastery.getAppliedAttemptIdsJson())) {
+                mastery.setAppliedAttemptIdsJson(canonicalReceipts);
+                mastery = masteryRepository.save(mastery);
+            }
             return toMasteryView(mastery);
         }
 
         int attempts = value(mastery.getAttemptCount()) + 1;
         boolean correct = Boolean.TRUE.equals(observation.getCorrect());
         mastery.setLastAttemptId(observation.getAttemptId());
+        mastery.setAppliedAttemptIdsJson(canonicalAttemptIds(appliedAttemptIds));
         mastery.setAttemptCount(attempts);
         mastery.setCorrectCount(value(mastery.getCorrectCount()) + (correct ? 1 : 0));
         mastery.setWrongCount(value(mastery.getWrongCount()) + (correct ? 0 : 1));
@@ -203,16 +224,18 @@ public class LearningPathServiceImpl implements LearningPathService {
     }
 
     private LearningKnowledgeMastery newMastery(
-            LearningPathDTO.AssessmentObservation observation) {
+            LearningPathDTO.AssessmentObservation observation,
+            String knowledgePointKey) {
         LearningKnowledgeMastery mastery = new LearningKnowledgeMastery();
         mastery.setUserId(observation.getUserId());
         mastery.setCourseKey(observation.getCourseKey());
-        mastery.setKnowledgePointKey(observation.getKnowledgePointKey().trim());
+        mastery.setKnowledgePointKey(knowledgePointKey);
         mastery.setKnowledgePointName(StringUtils.hasText(observation.getKnowledgePointName())
                 ? observation.getKnowledgePointName().trim() : null);
         mastery.setAttemptCount(0);
         mastery.setCorrectCount(0);
         mastery.setWrongCount(0);
+        mastery.setAppliedAttemptIdsJson("[]");
         mastery.setScore(BigDecimal.ZERO.setScale(2));
         mastery.setConfidence(BigDecimal.ZERO.setScale(4));
         mastery.setStatus("new");
@@ -280,6 +303,12 @@ public class LearningPathServiceImpl implements LearningPathService {
         }
     }
 
+    private void lockUser(Long userId) {
+        userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new BusinessException(
+                        Result.NOT_FOUND_CODE, "用户不存在"));
+    }
+
     private String canonicalJson(List<String> values) {
         List<String> canonical = values == null ? List.of() : values.stream()
                 .filter(StringUtils::hasText)
@@ -340,6 +369,39 @@ public class LearningPathServiceImpl implements LearningPathService {
             return objectMapper.readValue(json, new TypeReference<List<String>>() { });
         } catch (JsonProcessingException error) {
             throw new IllegalStateException("Stored learning path resources are malformed", error);
+        }
+    }
+
+    private TreeSet<Long> readAppliedAttemptIds(LearningKnowledgeMastery mastery) {
+        TreeSet<Long> attemptIds = new TreeSet<>();
+        String json = mastery.getAppliedAttemptIdsJson();
+        if (StringUtils.hasText(json)) {
+            try {
+                JsonNode root = objectMapper.readTree(json);
+                if (root == null || !root.isArray()) {
+                    throw new IllegalStateException("Stored assessment receipts are malformed");
+                }
+                for (JsonNode item : root) {
+                    if (!item.isIntegralNumber() || !item.canConvertToLong()) {
+                        throw new IllegalStateException("Stored assessment receipts are malformed");
+                    }
+                    attemptIds.add(item.longValue());
+                }
+            } catch (JsonProcessingException error) {
+                throw new IllegalStateException("Stored assessment receipts are malformed", error);
+            }
+        }
+        if (mastery.getLastAttemptId() != null) {
+            attemptIds.add(mastery.getLastAttemptId());
+        }
+        return attemptIds;
+    }
+
+    private String canonicalAttemptIds(Set<Long> attemptIds) {
+        try {
+            return objectMapper.writeValueAsString(new TreeSet<>(attemptIds));
+        } catch (JsonProcessingException error) {
+            throw new IllegalStateException("Unable to serialize assessment receipts", error);
         }
     }
 

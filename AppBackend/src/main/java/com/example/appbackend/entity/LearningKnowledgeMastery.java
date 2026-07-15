@@ -7,6 +7,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
+import jakarta.persistence.Lob;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -47,6 +48,11 @@ public class LearningKnowledgeMastery {
     @Column(name = "last_attempt_id")
     private Long lastAttemptId;
 
+    @Lob
+    @Column(name = "applied_attempt_ids_json", nullable = false,
+            columnDefinition = "LONGTEXT NOT NULL")
+    private String appliedAttemptIdsJson = "[]";
+
     @Column(name = "attempt_count", nullable = false, columnDefinition = "INT NOT NULL DEFAULT 0")
     private Integer attemptCount = 0;
 
@@ -80,6 +86,7 @@ public class LearningKnowledgeMastery {
         if (attemptCount == null) attemptCount = 0;
         if (correctCount == null) correctCount = 0;
         if (wrongCount == null) wrongCount = 0;
+        if (appliedAttemptIdsJson == null) appliedAttemptIdsJson = "[]";
         if (score == null) score = BigDecimal.ZERO.setScale(2);
         if (confidence == null) confidence = BigDecimal.ZERO.setScale(4);
         if (status == null) status = "new";

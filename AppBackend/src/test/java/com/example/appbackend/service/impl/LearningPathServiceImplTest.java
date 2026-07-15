@@ -5,10 +5,12 @@ import com.example.appbackend.domain.LearningStatuses;
 import com.example.appbackend.entity.LearningKnowledgeMastery;
 import com.example.appbackend.entity.LearningPath;
 import com.example.appbackend.entity.LearningPathItem;
+import com.example.appbackend.entity.User;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.LearningKnowledgeMasteryRepository;
 import com.example.appbackend.repository.LearningPathItemRepository;
 import com.example.appbackend.repository.LearningPathRepository;
+import com.example.appbackend.repository.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +37,7 @@ class LearningPathServiceImplTest {
     private LearningPathRepository repository;
     private LearningPathItemRepository itemRepository;
     private LearningKnowledgeMasteryRepository masteryRepository;
+    private UserRepository userRepository;
     private LearningPathServiceImpl service;
     private List<LearningPath> paths;
     private List<LearningPathItem> items;
@@ -42,6 +45,7 @@ class LearningPathServiceImplTest {
     private PathRepositoryHandler pathStore;
     private ItemRepositoryHandler itemStore;
     private MasteryRepositoryHandler masteryStore;
+    private UserRepositoryHandler userStore;
 
     @BeforeEach
     void setUp() {
@@ -51,11 +55,14 @@ class LearningPathServiceImplTest {
         pathStore = new PathRepositoryHandler(paths);
         itemStore = new ItemRepositoryHandler(items, paths);
         masteryStore = new MasteryRepositoryHandler(masteries);
+        userStore = new UserRepositoryHandler();
         repository = pathStore.proxy();
         itemRepository = itemStore.proxy();
         masteryRepository = masteryStore.proxy();
+        userRepository = userStore.proxy();
         service = new LearningPathServiceImpl(
-                repository, itemRepository, masteryRepository, new ObjectMapper());
+                repository, itemRepository, masteryRepository, userRepository,
+                new ObjectMapper());
     }
 
     @Test
@@ -97,6 +104,35 @@ class LearningPathServiceImplTest {
                         7L, "python", "python.lists.slicing")
                 .orElseThrow()
                 .getAttemptCount());
+    }
+
+    @Test
+    void replayedOlderAssessmentRemainsIdempotentAfterANewerAttempt() {
+        service.applyAssessment(observation(
+                7L, 99L, "python.lists.slicing", false, "medium"));
+        service.applyAssessment(observation(
+                7L, 100L, "python.lists.slicing", true, "hard"));
+
+        LearningPathDTO.MasteryView replayed = service.applyAssessment(observation(
+                7L, 99L, "python.lists.slicing", false, "medium"));
+
+        assertEquals(2, replayed.getAttemptCount());
+        assertEquals(1, replayed.getCorrectCount());
+        assertEquals(1, replayed.getWrongCount());
+        assertEquals(new BigDecimal("40.00"), replayed.getScore());
+    }
+
+    @Test
+    void knowledgePointKeyIsTrimmedBeforeLookupAndPersistence() {
+        service.applyAssessment(observation(
+                7L, 101L, "python.lists.slicing", false, "medium"));
+
+        LearningPathDTO.MasteryView updated = service.applyAssessment(observation(
+                7L, 102L, "  python.lists.slicing  ", true, "hard"));
+
+        assertEquals(1, masteries.size());
+        assertEquals("python.lists.slicing", updated.getKnowledgePointKey());
+        assertEquals(2, updated.getAttemptCount());
     }
 
     @Test
@@ -164,13 +200,15 @@ class LearningPathServiceImplTest {
     @Test
     void dismissInteractionChangesDeliveryOnly() {
         LearningPathItem item = ownedReadyItem();
+        LocalDateTime deliveredAt = LocalDateTime.of(2026, 7, 15, 9, 30);
+        item.setDeliveredAt(deliveredAt);
 
         LearningPathDTO.PathItemView result = service.recordResourceInteraction(
                 7L, item.getId(), interaction("dismiss"));
 
         assertEquals("ready", result.getStatus());
         assertEquals("dismissed", result.getDeliveryStatus());
-        assertNotNull(result.getDeliveredAt());
+        assertEquals(deliveredAt, result.getDeliveredAt());
         assertNull(result.getCompletedAt());
     }
 
@@ -527,6 +565,26 @@ class LearningPathServiceImplTest {
                 masteries.add(mastery);
             }
             return mastery;
+        }
+    }
+
+    private static final class UserRepositoryHandler
+            extends RepositoryHandler<UserRepository> {
+
+        private UserRepositoryHandler() {
+            super(UserRepository.class);
+        }
+
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) {
+            if ("findByIdForUpdate".equals(method.getName())) {
+                User user = new User();
+                user.setId((Long) args[0]);
+                user.setUsername("learning-test-user");
+                user.setPassword("test-only-password");
+                return Optional.of(user);
+            }
+            return objectMethod(proxy, method, args);
         }
     }
 }
