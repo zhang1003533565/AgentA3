@@ -256,6 +256,7 @@
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import {
+  cancelTradeRecord,
   completeTradeRecord,
   confirmTradeRecord,
   createOrGetChatSession,
