@@ -277,7 +277,7 @@ export default {
 }
 
 .page-body {
-  height: calc(100vh - 176rpx);
+  height: calc(100vh - 176rpx - 120rpx);
   padding: 22rpx 0 0;
   box-sizing: border-box;
 }
@@ -335,10 +335,6 @@ export default {
   box-shadow: 0 8rpx 24rpx rgba(31, 48, 64, 0.08);
   border: 1rpx solid rgba(106, 126, 145, 0.08);
   box-sizing: border-box;
-}
-
-.safety-card {
-  margin-bottom: 120rpx;
 }
 
 .main-card {
