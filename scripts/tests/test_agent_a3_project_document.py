@@ -369,16 +369,16 @@ class SourceContentTest(unittest.TestCase):
                 "部分实现（partial）",
             ),
             "FR-020": (
-                "管理员（当前）；教师（目标）",
-                "部分实现（partial）",
+                "管理员、商户（当前可进入）；教师（目标）",
+                "当前限制（known-limit）",
             ),
             "FR-021": (
-                "管理员（当前）；教师（目标）",
-                "部分实现（partial）",
+                "管理员、商户（当前可进入）；教师（目标）",
+                "当前限制（known-limit）",
             ),
             "FR-024": (
-                "管理员（当前）；教师（目标）",
-                "部分实现（partial）",
+                "管理员、商户（当前可登录）；教师（目标）",
+                "当前限制（known-limit）",
             ),
         }
         for requirement_id, (actor, status_prefix) in expected_rows.items():
@@ -393,6 +393,49 @@ class SourceContentTest(unittest.TestCase):
         for requirement_id in ("FR-018", "FR-019"):
             with self.subTest(requirement_id=requirement_id):
                 self.assertIn("ADMIN", " ".join(self._requirement_row(requirement_id)))
+
+    def test_second_review_boundaries_are_explicit(self):
+        requirements = self._read_source("02-requirements.md")
+        design = self._read_source("03-overall-design.md")
+
+        paper_auth_fact = (
+            "当前 Web 路由与导航未按角色过滤；试卷创建、列表、详情与预览"
+            "只校验登录，只有发布和取消发布执行 ADMIN 校验。"
+        )
+        self.assertIn(paper_auth_fact, requirements)
+        self.assertIn(paper_auth_fact, design)
+        merchant_row = next(
+            line
+            for line in requirements.splitlines()
+            if line.startswith("| MERCHANT |")
+        )
+        self.assertIn("当前授权缺口", merchant_row)
+        self.assertIn("未来加固", merchant_row)
+
+        retrieval_fact = (
+            "MaxKB 仅执行 hit-test 检索；Java 提取引用并组装 grounded context；"
+            "系统 LLM/agent 生成最终回答，Java 再组合 citations 响应。"
+        )
+        self.assertIn(retrieval_fact, requirements)
+        self.assertIn(retrieval_fact, design)
+
+        python_boundary_terms = (
+            "Python 会反向调用 Java，并转发原始 Authorization",
+            "Java base URL 当前固定为 `http://localhost:8080`",
+            "Python 记忆服务直接尝试 `redis://localhost:6379/0`",
+            "Redis 不可用时退化为进程内存",
+            "本地默认地址尚未环境配置",
+        )
+        for term in python_boundary_terms:
+            with self.subTest(term=term):
+                self.assertIn(term, design)
+
+        cancellation_fact = (
+            "服务端取消接口属于设计要求；当前客户端 AbortController 仅中止本地 fetch，"
+            "不能证明存在 REST 取消端点。"
+        )
+        self.assertIn(cancellation_fact, requirements)
+        self.assertIn(cancellation_fact, design)
 
     def test_overall_design_names_components_flows_and_deployment_boundary(self):
         text = self._read_source("03-overall-design.md")
