@@ -278,7 +278,7 @@ export default {
 
 .page-body {
   height: calc(100vh - 176rpx);
-  padding: 22rpx 0 120rpx;
+  padding: 22rpx 0 0;
   box-sizing: border-box;
 }
 
@@ -612,7 +612,7 @@ export default {
   width: 100%;
   max-width: 430px;
   transform: translateX(-50%);
-  padding: 12rpx 32rpx calc(12rpx + env(safe-area-inset-bottom));
+  padding: 32rpx 32rpx calc(12rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
   background: #fff;
   border-top: 1rpx solid rgba(132, 151, 168, 0.14);
