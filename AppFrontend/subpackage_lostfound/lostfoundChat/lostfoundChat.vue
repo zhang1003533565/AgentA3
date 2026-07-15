@@ -162,12 +162,60 @@
         <view v-if="contactVisible" class="contact-mask" @click="closeContactDialog">
           <view class="contact-dialog" @click.stop>
             <view class="dialog-title">发送联系方式</view>
-            <input v-model="contactForm.wechat" class="contact-input" placeholder="微信" />
-            <input v-model="contactForm.phone" class="contact-input" placeholder="手机号" type="number" />
-            <input v-model="contactForm.other" class="contact-input" placeholder="其他联系方式" />
+            <view class="contact-tabs">
+              <view class="contact-tab" :class="{ active: contactMode === 'template' }" @click="contactMode = 'template'">快捷模板</view>
+              <view class="contact-tab" :class="{ active: contactMode === 'custom' }" @click="startCustomContact">自定义发送</view>
+            </view>
+
+            <view v-if="contactMode === 'template'" class="template-panel">
+              <view v-if="contactTemplates.length" class="template-list">
+                <view
+                  v-for="(tpl, index) in contactTemplates"
+                  :key="tpl.id"
+                  class="template-item"
+                  :class="{ selected: selectedTemplateIndex === index }"
+                  @click="selectContactTemplate(index)"
+                >
+                  <view class="template-name">{{ tpl.name || '校园交易联系方式' }}</view>
+                  <view class="template-summary">{{ contactSummary(tpl) }}</view>
+                </view>
+              </view>
+              <view v-else class="empty-template">暂无模板，可先创建自定义联系方式。</view>
+
+              <view v-if="selectedContactTemplate" class="contact-preview">
+                <view class="preview-title">发送预览</view>
+                <view v-for="item in contactPreviewItems(selectedContactTemplate)" :key="item.label + item.value" class="preview-row">
+                  <text class="preview-label">{{ item.label }}</text>
+                  <text class="preview-value">{{ item.value }}</text>
+                </view>
+              </view>
+
+              <view class="template-actions">
+                <button class="dialog-btn ghost" @click="startCustomContact">新建模板</button>
+                <button v-if="selectedContactTemplate" class="dialog-btn ghost" @click="editContactTemplate">编辑</button>
+                <button v-if="selectedContactTemplate" class="dialog-btn ghost danger" @click="deleteContactTemplate">删除</button>
+              </view>
+            </view>
+
+            <view v-else class="custom-panel">
+              <input v-model="contactForm.name" class="contact-input" placeholder="模板名称（例如：校园交易联系方式）" />
+              <input v-model="contactForm.wechat" class="contact-input" placeholder="微信" />
+              <input v-model="contactForm.phone" class="contact-input" placeholder="手机号" type="number" />
+              <input v-model="contactForm.other" class="contact-input" placeholder="其他联系方式" />
+              <input v-model="contactForm.remark" class="contact-input" placeholder="备注" />
+              <view v-if="contactPreviewItems(contactForm).length" class="contact-preview">
+                <view class="preview-title">发送预览</view>
+                <view v-for="item in contactPreviewItems(contactForm)" :key="item.label + item.value" class="preview-row">
+                  <text class="preview-label">{{ item.label }}</text>
+                  <text class="preview-value">{{ item.value }}</text>
+                </view>
+              </view>
+              <button class="save-template-btn" @click="saveContactTemplate">保存为模板</button>
+            </view>
+
             <view class="dialog-actions">
               <button class="dialog-btn ghost" @click="closeContactDialog">取消</button>
-              <button class="dialog-btn primary" @click="submitContactInfo">发送</button>
+              <button class="dialog-btn primary" @click="confirmSendContact">确认发送</button>
             </view>
           </view>
         </view>
@@ -265,7 +313,11 @@ export default {
       acting: false,
       uploadingImage: false,
       contactVisible: false,
-      contactForm: { wechat: '', phone: '', other: '' },
+      contactMode: 'template',
+      contactForm: { id: null, name: '校园交易联系方式', wechat: '', phone: '', other: '', remark: '' },
+      contactTemplates: [],
+      selectedTemplateIndex: 0,
+      editingTemplateIndex: null,
       savedContact: null,
       contactVisibility: {},
       morePanelVisible: false
@@ -299,6 +351,9 @@ export default {
     canShareContact() {
       return !!(this.tradeInfo && this.tradeInfo.status === 'TRADING' && !this.hasContactShare)
     },
+    selectedContactTemplate() {
+      return this.contactTemplates[this.selectedTemplateIndex] || null
+    },
     tradeActionButtons() {
       if (!this.curChat) return []
       const itemStatus = Number(this.curChat.itemStatus)
@@ -313,6 +368,7 @@ export default {
         const actions = []
         if (!this.hasContactShare) actions.push({ type: 'shareContact', label: '发送联系方式' })
         if (this.tradeInfo.isSeller) actions.push({ type: 'complete', label: '标记交易完成' })
+        actions.push({ type: 'cancel', label: '取消交易' })
         return actions
       }
       return []
@@ -583,43 +639,31 @@ export default {
         uni.showToast({ title: '已发送联系方式', icon: 'none' })
         return
       }
-      if (this.savedContact && this.hasContactContent(this.savedContact)) {
-        await this.sendSavedContact()
-        return
-      }
+      this.contactMode = this.contactTemplates.length ? 'template' : 'custom'
       this.contactVisible = true
     },
     closeContactDialog() {
       this.contactVisible = false
     },
-    async submitContactInfo() {
+    async confirmSendContact() {
       try {
         if (this.hasContactShare) {
           uni.showToast({ title: '已发送联系方式', icon: 'none' })
           return
         }
-        const parts = []
-        const wechat = this.contactForm.wechat.trim()
-        const phone = this.contactForm.phone.trim()
-        const other = this.contactForm.other.trim()
-        if (wechat) parts.push(`微信：${wechat}`)
-        if (phone) parts.push(`手机号：${phone}`)
-        if (other) parts.push(`其他：${other}`)
-        if (!parts.length) {
+        const contact = this.contactMode === 'template' ? this.selectedContactTemplate : this.normalizeContactForm()
+        if (!this.hasContactContent(contact)) {
           uni.showToast({ title: '请至少填写一种联系方式', icon: 'none' })
           return
         }
-        this.savedContact = { wechat, phone, other }
-        uni.setStorageSync('marketContactInfo', this.savedContact)
         await sendChatMessage({
           sessionId: Number(this.sessionId),
-          content: parts.join('\n'),
+          content: this.buildContactContent(contact),
           messageType: 4
         })
         uni.showToast({ title: '已发送', icon: 'success' })
         this.contactVisible = false
         this.morePanelVisible = false
-        this.contactForm = { wechat: '', phone: '', other: '' }
         await this.loadMessages()
       } catch (e) {
         console.error('发送联系方式失败', e)
@@ -628,27 +672,36 @@ export default {
     },
     loadSavedContact() {
       try {
-        const contact = uni.getStorageSync('marketContactInfo')
-        if (contact && typeof contact === 'object') {
-          this.savedContact = {
-            wechat: contact.wechat || '',
-            phone: contact.phone || '',
-            other: contact.other || ''
-          }
-          this.contactForm = { ...this.savedContact }
+        const templates = uni.getStorageSync('marketContactTemplates')
+        this.contactTemplates = Array.isArray(templates) ? templates : []
+        const legacy = uni.getStorageSync('marketContactInfo')
+        if (!this.contactTemplates.length && legacy && typeof legacy === 'object' && this.hasContactContent(legacy)) {
+          this.contactTemplates = [{
+            id: Date.now(),
+            name: '校园交易联系方式',
+            wechat: legacy.wechat || '',
+            phone: legacy.phone || '',
+            other: legacy.other || '',
+            remark: legacy.remark || ''
+          }]
+          this.saveContactTemplates()
         }
+        this.savedContact = this.contactTemplates[0] || null
+        this.selectedTemplateIndex = 0
       } catch (e) {
+        this.contactTemplates = []
         this.savedContact = null
       }
     },
     hasContactContent(contact) {
-      return !!(contact && (contact.wechat || contact.phone || contact.other))
+      return !!(contact && (contact.wechat || contact.phone || contact.other || contact.remark))
     },
     buildContactContent(contact) {
       const parts = []
       if (contact.wechat) parts.push(`微信：${contact.wechat}`)
       if (contact.phone) parts.push(`手机号：${contact.phone}`)
       if (contact.other) parts.push(`其他：${contact.other}`)
+      if (contact.remark) parts.push(`备注：${contact.remark}`)
       return parts.join('\n')
     },
     async sendMyContact() {
@@ -656,31 +709,72 @@ export default {
         uni.showToast({ title: this.hasContactShare ? '已发送联系方式' : '确认交易后才能发送联系方式', icon: 'none' })
         return
       }
-      if (!this.savedContact || !this.hasContactContent(this.savedContact)) {
-        this.contactForm = { wechat: '', phone: '', other: '' }
-        this.contactVisible = true
-        return
-      }
-      await this.sendSavedContact()
+      this.contactMode = this.contactTemplates.length ? 'template' : 'custom'
+      this.contactVisible = true
     },
-    async sendSavedContact() {
-      if (!this.canShareContact) {
-        uni.showToast({ title: this.hasContactShare ? '已发送联系方式' : '确认交易后才能发送联系方式', icon: 'none' })
+    normalizeContactForm() {
+      return {
+        id: this.contactForm.id,
+        name: (this.contactForm.name || '校园交易联系方式').trim(),
+        wechat: (this.contactForm.wechat || '').trim(),
+        phone: (this.contactForm.phone || '').trim(),
+        other: (this.contactForm.other || '').trim(),
+        remark: (this.contactForm.remark || '').trim()
+      }
+    },
+    saveContactTemplates() {
+      uni.setStorageSync('marketContactTemplates', this.contactTemplates)
+      this.savedContact = this.contactTemplates[0] || null
+    },
+    saveContactTemplate() {
+      const contact = this.normalizeContactForm()
+      if (!this.hasContactContent(contact)) {
+        uni.showToast({ title: '请至少填写一种联系方式', icon: 'none' })
         return
       }
-      try {
-        await sendChatMessage({
-          sessionId: Number(this.sessionId),
-          content: this.buildContactContent(this.savedContact),
-          messageType: 4
-        })
-        this.morePanelVisible = false
-        uni.showToast({ title: '已发送', icon: 'success' })
-        await this.loadMessages()
-      } catch (e) {
-        console.error('发送联系方式失败', e)
-        uni.showToast({ title: e?.data?.msg || e?.msg || '发送失败', icon: 'none' })
+      if (this.editingTemplateIndex !== null && this.editingTemplateIndex >= 0) {
+        this.contactTemplates.splice(this.editingTemplateIndex, 1, { ...contact, id: contact.id || Date.now() })
+        this.selectedTemplateIndex = this.editingTemplateIndex
+      } else {
+        this.contactTemplates.push({ ...contact, id: Date.now() })
+        this.selectedTemplateIndex = this.contactTemplates.length - 1
       }
+      this.saveContactTemplates()
+      this.editingTemplateIndex = null
+      this.contactMode = 'template'
+      uni.showToast({ title: '模板已保存', icon: 'success' })
+    },
+    selectContactTemplate(index) {
+      this.selectedTemplateIndex = index
+    },
+    startCustomContact() {
+      this.contactMode = 'custom'
+      this.editingTemplateIndex = null
+      this.contactForm = { id: null, name: '校园交易联系方式', wechat: '', phone: '', other: '', remark: '' }
+    },
+    editContactTemplate() {
+      const tpl = this.selectedContactTemplate
+      if (!tpl) return
+      this.editingTemplateIndex = this.selectedTemplateIndex
+      this.contactForm = { ...tpl }
+      this.contactMode = 'custom'
+    },
+    deleteContactTemplate() {
+      if (!this.selectedContactTemplate) return
+      this.contactTemplates.splice(this.selectedTemplateIndex, 1)
+      this.selectedTemplateIndex = Math.max(0, this.selectedTemplateIndex - 1)
+      this.saveContactTemplates()
+      uni.showToast({ title: '模板已删除', icon: 'none' })
+    },
+    contactPreviewItems(contact) {
+      return this.buildContactContent(contact).split('\n').filter(Boolean).map((line) => {
+        const parts = line.split('：')
+        return { label: parts.shift(), value: parts.join('：') }
+      })
+    },
+    contactSummary(contact) {
+      const items = this.contactPreviewItems(contact)
+      return items.slice(0, 2).map((item) => `${item.label}：${item.value}`).join(' / ') || '未填写联系方式'
     },
     tradeActionTitle(action) {
       const map = {
@@ -1655,10 +1749,12 @@ export default {
 
 .contact-dialog {
   width: 620rpx;
+  max-height: 82vh;
   padding: 30rpx;
   border-radius: 24rpx;
   background: #fff;
   box-sizing: border-box;
+  overflow-y: auto;
 }
 
 .dialog-title {
@@ -1676,6 +1772,133 @@ export default {
   background: #f2f6fa;
   font-size: 27rpx;
   box-sizing: border-box;
+}
+
+.contact-tabs {
+  display: flex;
+  gap: 12rpx;
+  margin-bottom: 20rpx;
+  padding: 8rpx;
+  border-radius: 18rpx;
+  background: #f2f6fa;
+}
+
+.contact-tab {
+  flex: 1;
+  height: 58rpx;
+  border-radius: 14rpx;
+  color: #65788c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24rpx;
+  font-weight: 900;
+}
+
+.contact-tab.active {
+  background: #fff;
+  color: #172331;
+  box-shadow: 0 3rpx 10rpx rgba(43, 68, 94, 0.08);
+}
+
+.template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+  margin-bottom: 16rpx;
+}
+
+.template-item {
+  padding: 18rpx;
+  border-radius: 18rpx;
+  border: 1rpx solid rgba(101, 120, 140, 0.14);
+  background: #fff;
+}
+
+.template-item.selected {
+  border-color: rgba(92, 138, 184, 0.55);
+  background: #f6f9fc;
+}
+
+.template-name {
+  color: #172331;
+  font-size: 26rpx;
+  font-weight: 900;
+}
+
+.template-summary,
+.empty-template {
+  margin-top: 8rpx;
+  color: #7d8c9c;
+  font-size: 22rpx;
+  line-height: 1.45;
+}
+
+.contact-preview {
+  margin: 16rpx 0;
+  padding: 18rpx;
+  border-radius: 18rpx;
+  background: #f6f9fc;
+}
+
+.preview-title {
+  color: #172331;
+  font-size: 24rpx;
+  font-weight: 900;
+  margin-bottom: 10rpx;
+}
+
+.preview-row {
+  display: flex;
+  gap: 16rpx;
+  padding: 8rpx 0;
+}
+
+.preview-label {
+  width: 120rpx;
+  color: #7d8c9c;
+  font-size: 22rpx;
+  flex-shrink: 0;
+}
+
+.preview-value {
+  color: #172331;
+  font-size: 23rpx;
+  font-weight: 800;
+  word-break: break-all;
+}
+
+.template-actions {
+  display: flex;
+  gap: 12rpx;
+  margin-bottom: 16rpx;
+}
+
+.template-actions .dialog-btn {
+  height: 60rpx;
+  border-radius: 16rpx;
+  font-size: 23rpx;
+  line-height: 60rpx;
+}
+
+.dialog-btn.danger {
+  color: #a65f5f;
+}
+
+.save-template-btn {
+  width: 100%;
+  height: 66rpx;
+  margin: 4rpx 0 16rpx;
+  border-radius: 18rpx;
+  background: #f2f6fa;
+  color: #5c7894;
+  font-size: 25rpx;
+  font-weight: 900;
+  line-height: 66rpx;
+}
+
+.save-template-btn::after {
+  border: none;
 }
 
 .dialog-actions {

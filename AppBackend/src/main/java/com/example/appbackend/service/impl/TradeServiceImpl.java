@@ -104,7 +104,7 @@ public class TradeServiceImpl implements TradeService {
         }
         tradeRecord.setStatus(TradeStatus.COMPLETED);
         tradeRecord = tradeRecordRepository.save(tradeRecord);
-        createTradeMessage(tradeRecord, currentUserId, "该商品交易已完成");
+        createTradeMessage(tradeRecord, currentUserId, "卖家已标记该商品交易完成");
         return toVO(tradeRecord, currentUserId);
     }
 
