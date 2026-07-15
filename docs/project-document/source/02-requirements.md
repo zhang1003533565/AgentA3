@@ -9,20 +9,20 @@
 
 ## 2.2 用户角色
 
-当前角色基线由 Java 角色实体和初始化数据支撑。角色矩阵描述主要使用边界，不等于每个接口的完整授权清单；接口级权限仍应以实际控制器和安全配置为准。
+当前角色基线由 Java 角色实体和初始化数据支撑。当前 App 登录入口允许 STUDENT 与 TEACHER；当前 Web 登录入口允许 ADMIN 与 MERCHANT。产品入口权限不等同于具体接口权限：MaxKB 和 AI 题目生成控制器还会执行 ADMIN 校验，MERCHANT 虽可登录 Web，也不因此获得 AI 治理权限。教师使用 Web 教学治理、学生或教师直接使用 MaxKB 问答属于设计目标，须在增加明确授权与验收后才能转为现状能力。
 
-| 角色代码 | 中文角色 | 核心诉求 | 主要权限边界 | 当前依据 |
+| 角色代码 | 中文角色 | 当前产品入口 | 当前已授权范围 | 设计目标 |
 |---|---|---|---|---|
-| ADMIN | 管理员 | 管理用户、角色、模型、智能体、知识库与系统配置 | 负责治理和配置，不替代教师确认教学内容 | `AppBackend/01_roles.sql`；`AppBackend/src/main/java/com/example/appbackend/entity/Role.java` |
-| TEACHER | 教师 | 管理知识、题目、试卷、会议和教学资源 | 可生产与审核教学内容，不直接改写画像规则 | `AppBackend/01_roles.sql`；Web 管理端与 Java 教学接口 |
-| STUDENT | 学生 | 使用学习助手、会议、资源和在线考试 | 访问本人获授权的数据与学习交互 | `AppFrontend/pages.json`；移动端学习分包 |
-| MERCHANT | 商户 | 使用与经营相关的校园服务能力 | 不默认获得教学管理、画像治理或 AI 配置权限 | `AppBackend/01_roles.sql`；角色持久化基线 |
+| ADMIN | 管理员 | Web | 使用后台治理入口；可调用 ADMIN-only 的 MaxKB 与 AI 题目生成控制器 | 继续承担系统治理，并为后续细分教学权限提供配置基础 |
+| TEACHER | 教师 | App | 使用已授权的学习、会议与资源相关交互；当前不能通过 Web 登录 | 后续在独立权限与审计完成后开放知识库、题库和试卷治理 |
+| STUDENT | 学生 | App | 使用本人获授权的学习助手、会议、资源和在线考试交互 | 后续可通过受控学习入口使用面向学生的知识问答，不开放后台治理 |
+| MERCHANT | 商户 | Web | 使用商户业务入口，不具备 MaxKB、题目生成或 AI 治理权限 | 保持商户域与教学及 AI 治理域隔离 |
 
 ## 2.3 业务痛点
 
 | ID | 痛点 | 影响 | 需求响应 |
 |---|---|---|---|
-| BP-001 | 校园服务与学习入口分散 | 用户在多个页面和流程间切换，学习上下文难以连续 | 通过移动端统一入口和 Web 教学管理形成角色化访问 |
+| BP-001 | 校园服务与学习入口分散 | 用户在多个页面和流程间切换，学习上下文难以连续 | 通过 App 学习入口和 Web 业务后台形成与当前角色白名单一致的访问边界 |
 | BP-002 | 通用 AI 缺少持续学习背景 | 相同问题容易得到同质化回答，难以解释个性化依据 | 使用七维画像、证据候选池和 Leader 路由提供受控上下文 |
 | BP-003 | 对话、研讨与资源互动信号分散 | 教师难以观察学习过程，画像更新容易依赖主观判断 | 将来源、置信度、状态和应用结果保存为可审计证据 |
 | BP-004 | 生成内容来源与完整性不清 | 使用者难以判断内容依据、可下载性和适用范围 | 资源信封记录来源、grounding、integrity 与导出登记 |
@@ -47,8 +47,8 @@
 
 | ID | 参与者（actor） | 触发条件（trigger） | 系统行为（system behavior） | 验收证据（acceptance evidence） | 当前状态（current status） |
 |---|---|---|---|---|---|
-| FR-001 | 管理员、教师、学生、商户 | 用户进入受保护业务或管理员维护角色 | 系统应以持久化角色基线识别四类用户，并把角色作为业务访问控制依据 | 核对 `AppBackend/01_roles.sql` 与 `AppBackend/src/main/java/com/example/appbackend/entity/Role.java` 中的角色代码和 `sys_role` 映射 | 已实现（implemented） |
-| FR-002 | 学生、商户 | 用户从移动端进入校园或学习服务 | 系统应通过 uni-app 页面与分包提供校园服务、AI、会议和考试等角色化入口 | 核对 `AppFrontend/pages.json`、`AppFrontend/package.json` 及对应页面路由可达性 | 已实现（implemented） |
+| FR-001 | 管理员、教师、学生、商户 | 用户进入 App、Web 或受保护业务 | 系统应识别四类持久化角色，并在登录时执行 App 仅 STUDENT 或 TEACHER、Web 仅 ADMIN 或 MERCHANT 的当前入口白名单 | 核对 `AppBackend/01_roles.sql`、`Role.java` 与 `AppBackend/src/main/java/com/example/appbackend/service/impl/UserServiceImpl.java` 的 `applogin`、`weblogin` 分支 | 已实现（implemented） |
+| FR-002 | 学生、教师 | STUDENT 或 TEACHER 从 App 登录并进入校园或学习服务 | 系统应通过 uni-app 页面与分包提供校园服务、AI、会议和考试等已授权入口，并拒绝 ADMIN 或 MERCHANT 通过 App 登录 | 核对 `UserServiceImpl.java` 的 App 角色校验、`AppFrontend/pages.json` 与 `AppFrontend/package.json` | 已实现（implemented） |
 | FR-003 | 学生、教师 | 用户向 AI 助手提交具有明确意图的任务 | Leader 应识别任务意图、选择目标专业智能体，并由运行器按契约执行 | 核对 `ai-servers/app/multi_agents/leader_agent/agent.py`、`ai-servers/app/multi_agents/runner.py` 和路由测试记录 | 已实现（implemented） |
 | FR-004 | 学生、教师 | 用户发起需要增量反馈的 AI 请求 | 系统应以 SSE 向客户端传递可识别的增量事件、完成事件和错误事件，并允许客户端处理连接中断 | 留存 Java 与移动端流式接口测试、`AppFrontend/subpackage_ai/assistantMessage.test.js` 及断线场景记录 | 部分实现（partial），尚缺生产网络端到端验证 |
 | FR-005 | 学生、教师 | 用户查看个性化学习状态或业务规则读取画像 | 系统应读取七维画像的分数、置信度、趋势和证据计数，并以可解释结构展示 | 核对 `AppBackend/src/main/java/com/example/appbackend/service/impl/UserProfileServiceImpl.java` 与 `AppBackend/src/main/java/com/example/appbackend/entity/UserProfileDimension.java` | 已实现（implemented） |
@@ -58,19 +58,19 @@
 | FR-009 | 教师、学生 | 教师创建会议并管理参与过程 | 系统应保存会议会话、参与者、转写记录和智能体分析结果，并保持记录之间的业务关联 | 核对 `MeetingSession.java`、`MeetingParticipant.java`、`MeetingRecord.java` 与 `MeetingAgentResult.java` | 已实现（implemented） |
 | FR-010 | 教师、学生 | 会议开始并上传可识别音频 | 系统应通过 WebSocket 接入讯飞 ASR，转发实时文本事件并保存可用转写 | 核对 `MeetingAsrWebSocketConfig.java`、`MeetingAsrWebSocketHandler.java`，并留存真实外部服务联调记录 | 部分实现（partial），外部服务稳定性仍需部署验证 |
 | FR-011 | 教师 | 会议结束且存在可处理转写 | 系统应按需执行转写整理、总结、成员分析和资源推荐，并保存会后结果 | 核对 `AppBackend/src/main/java/com/example/appbackend/service/impl/MeetingServiceImpl.java` 与 `ai-servers/app/multi_agents/catalog.py`，补充完整场景测试 | 部分实现（partial），端到端覆盖有限 |
-| FR-012 | 管理员、教师 | 用户维护 MaxKB 账号或知识库 | Java 服务应提供受权限控制的账号与知识库管理能力，并对外部异常作出可诊断反馈 | 核对 `MaxKbKnowledgeController.java`、`MaxKbKnowledgeServiceImpl.java` 及异常场景记录 | 已实现（implemented） |
-| FR-013 | 学生、教师 | 用户选择知识库并发起资料问题 | Java 服务应调用 MaxKB 完成知识问答，处理回答与引用结果，并向调用方返回明确异常 | 核对 `KnowledgeChatServiceImpl.java` 与 `KnowledgeChatServiceImplTest.java` 的正常和异常用例 | 已实现（implemented） |
-| FR-014 | 学生、教师 | 问题进入知识库问答链路 | 系统应展示可用引用或资料不足提示，并把 RAG 的适用范围限定在明确知识库链路 | 核对知识问答结果结构、引用处理测试和 `docs/project-document/evidence-index.md` 中的范围说明 | 已实现（implemented），不外推至其他智能体回答 |
+| FR-012 | 管理员 | ADMIN 在 Web 后台维护 MaxKB 账号或知识库 | Java 服务应在每个 MaxKB 管理入口执行 ADMIN 校验，并对外部异常作出可诊断反馈 | 核对 `AppBackend/src/main/java/com/example/appbackend/controller/MaxKbKnowledgeController.java` 的 `requireAdmin` 与 `MaxKbKnowledgeServiceImpl.java` | 已实现（implemented） |
+| FR-013 | 管理员（当前）；学生、教师（目标） | 当前由 ADMIN 在 Web 端选择知识库并发起问答；目标角色在后续获得明确授权 | 当前控制器应只接受 ADMIN 并处理 MaxKB 回答、引用和异常；设计目标是在独立鉴权与审计完成后向 STUDENT、TEACHER 提供受控问答入口 | 核对 `MaxKbKnowledgeController.java` 的 `/chat` 与 `requireAdmin`、`KnowledgeChatServiceImpl.java` 和 `KnowledgeChatServiceImplTest.java` | 部分实现（partial）：ADMIN 问答链路已实现，STUDENT 与 TEACHER 当前未获控制器授权 |
+| FR-014 | 管理员（当前）；学生、教师（目标） | 已授权角色的问题进入知识库问答链路 | 当前 ADMIN 问答应展示可用引用或资料不足提示，并限定 RAG 适用范围；面向 STUDENT、TEACHER 的展示与拒答验收属于后续授权范围 | 核对 `MaxKbKnowledgeController.java` 的 ADMIN 校验、知识问答结果结构、引用处理测试和 `docs/project-document/evidence-index.md` | 部分实现（partial）：问答与引用机制已实现，目标角色覆盖尚未实现 |
 | FR-015 | 学生、教师 | 智能体生成可交付学习资源 | 系统应构建包含资源类型、来源、grounding 和 integrity 信息的结构化资源信封 | 核对 `ai-servers/app/services/assistant_resource_builder.py` 与 `ai-servers/tests/test_assistant_resource_builder.py` | 已实现（implemented） |
 | FR-016 | 学生 | 用户点击、收藏或下载 AI 资源 | 系统应记录资源标识、互动类型和必要上下文，形成可持久化的互动记录 | 核对 `AppAiLeaderResourceController.java` 与 `AiLeaderResourceInteraction.java`，执行互动持久化验证 | 已实现（implemented） |
 | FR-017 | 学生、教师 | 用户对已生成且允许导出的资源发起下载 | 系统应执行资源导出、登记和下载校验，拒绝未登记或不符合约束的请求 | 核对 `generated_exporter.py`、`test_generated_exporter.py` 与 `test_generated_export_download.py` | 已实现（implemented），资源媒介取决于可用生成链路 |
-| FR-018 | 教师、管理员 | 用户选择受支持题型、数量和生成材料后发起出题 | Java 接口应调用 AI 生成当前接入的五类题型，并将结果交给结构化校验流程 | 核对 `QuestionGenerationController.java` 与 `QuestionGenerationControllerTest.java` 的题型和请求边界 | 已实现（implemented） |
-| FR-019 | 教师、管理员 | AI 返回题目候选结果 | 系统应按题型 JSON 规范解析、校验并持久化题干、选项或空位、答案与解析，异常数据不得静默入库 | 核对 `docs/exam-question-json-spec.md`、`QuestionGenerationMaterialParserTest.java` 与 `QuestionGenerationServiceImplTest.java` | 已实现（implemented） |
-| FR-020 | 教师、管理员 | 用户从题库选择手工或随机规则组卷 | 系统应按请求组装试卷，校验题目与版式输入，并生成可下载文档 | 核对 `ExamPaperController.java`、`ExamPaperServiceImplTest.java` 与 `ExamPaperDocumentGeneratorTest.java` | 已实现（implemented） |
-| FR-021 | 教师、管理员 | 用户使用模板模式创建最终试卷 | 系统应先生成真实预览，再校验一次性预览确认结果，防止未经确认的内容直接创建最终试卷 | 核对 `ExamPaperPreviewControllerTest.java` 与 `ExamPaperPreviewServiceImplTest.java` 的预览证明和失效场景 | 已实现（implemented） |
+| FR-018 | 管理员（当前）；教师（目标） | 当前由 ADMIN 选择题型、数量和生成材料；目标教师在获得 Web 与接口授权后发起出题 | 当前 Java 接口应先执行 ADMIN 校验，再调用 AI 生成五类题型并进入结构化校验；教师出题属于待授权设计 | 核对 `AppBackend/src/main/java/com/example/appbackend/controller/QuestionGenerationController.java` 的 `requireAdmin` 与 `QuestionGenerationControllerTest.java` | 部分实现（partial）：ADMIN 生成链路已实现，TEACHER 当前不能登录 Web 且未获该控制器授权 |
+| FR-019 | 管理员（当前）；教师（目标） | AI 向已授权的题目生成调用方返回候选结果 | 当前 ADMIN 可按题型 JSON 规范解析、校验并导入题干、选项或空位、答案与解析；教师导入需先补齐授权 | 核对 `QuestionGenerationController.java` 的 `/import` 与 ADMIN 校验、`docs/exam-question-json-spec.md` 和服务测试 | 部分实现（partial）：结构校验与 ADMIN 导入已实现，TEACHER 覆盖尚未实现 |
+| FR-020 | 管理员（当前）；教师（目标） | 当前 ADMIN 从 Web 题库选择手工或随机规则；目标教师获得 Web 治理权限 | 系统应按请求组装试卷，校验题目与版式输入并生成文档；教师端入口与授权作为独立验收项 | 核对 `ExamPaperController.java`、`ExamPaperServiceImplTest.java`、`ExamPaperDocumentGeneratorTest.java` 与 Web 登录角色校验 | 部分实现（partial）：组卷能力已实现，TEACHER Web 产品入口尚未开放 |
+| FR-021 | 管理员（当前）；教师（目标） | 当前 ADMIN 使用模板模式创建最终试卷；目标教师获得 Web 治理权限 | 系统应先生成真实预览并校验一次性确认结果；教师端需复用同一确认边界并另行通过权限验收 | 核对 `ExamPaperPreviewControllerTest.java`、`ExamPaperPreviewServiceImplTest.java` 与 `UserServiceImpl.java` 的 Web 登录白名单 | 部分实现（partial）：预览确认能力已实现，TEACHER Web 产品入口尚未开放 |
 | FR-022 | 学生 | 学生开始在线考试、持续作答或提交 | 系统应保存考试尝试与答案快照，支持自动保存、交卷和客观题评分，并处理版本与到期状态 | 核对 `ExamPaperAttempt.java`、`ExamPaperAttemptAnswer.java`、`AppExamServiceImplTest.java` 与 `AppFrontend/subpackage_exam/examState.test.js` | 已实现（implemented） |
 | FR-023 | 教师、学生 | 试卷包含主观题或需要将考试结果用于画像 | 系统应将客观题自动评分与主观题人工处理分开，并在引入画像前经过证据协议和可审计映射 | 验收需包含主观题人工状态、画像证据候选记录、冲突处理和回归测试 | 当前限制（known-limit），主观题可靠自动评分与考试画像回写尚未接通 |
-| FR-024 | 管理员、教师 | 用户通过 Web 管理教学与 AI 相关配置 | React/Vite 管理端应提供知识库、题库、试卷、模型与智能体等治理入口，并通过 Java 接口持久化受支持配置 | 核对 `AppWeb/package.json`、`AppWeb/src/main.jsx`、题库与试卷页面状态测试，并执行角色权限验收 | 部分实现（partial），关键页面有测试但缺少完整生产端到端验证 |
+| FR-024 | 管理员（当前）；教师（目标） | 当前 ADMIN 通过 Web 管理教学与 AI 配置；目标教师获得细分治理权限 | React/Vite 当前应向 ADMIN 提供受支持的知识库、题库、试卷、模型与智能体治理；MERCHANT 仅使用商户业务，TEACHER Web 治理需后续授权 | 核对 `UserServiceImpl.java` 的 Web 登录白名单、`AppWeb/src/main.jsx`、MaxKB 与题目生成控制器权限和页面状态测试 | 部分实现（partial）：ADMIN 治理入口已实现，TEACHER Web 治理与细分权限尚未实现 |
 
 ## 2.6 非功能需求
 
@@ -83,7 +83,7 @@
 | NFR-005 | 运维人员、管理员 | 部署环境需要配置数据库、模型或外部服务 | 系统应通过环境变量或受控密钥服务注入凭据，支持轮换并避免凭据进入仓库和成品 | 配置扫描、环境变量清单、轮换演练和提交历史审查 | 后续规划（planned），当前需继续完成环境变量化与轮换治理 |
 | NFR-006 | 运维人员、会议用户 | 客户端建立会议 ASR WebSocket | 服务应限制允许来源、连接频率和消息规模，并记录安全审计事件 | Origin 白名单、限流、鉴权、异常帧与审计日志测试 | 后续规划（planned），当前 WebSocket 安全边界待强化 |
 | NFR-007 | AI 开发成员 | 新增专业智能体或调整模型模态 | 系统应通过 Catalog 维护角色、输入输出、别名与模态契约，使新增能力不破坏现有路由接口 | `ai-servers/app/multi_agents/catalog.py` 的目录校验与路由回归测试 | 已实现（implemented），Catalog 当前登记 30 个实现包 |
-| NFR-008 | 学生、教师、管理员 | 用户在移动端或现代桌面浏览器使用系统 | 核心状态和操作应在目标端正确呈现，构建产物不出现阻断性错误 | uni-app 页面状态测试、React/Vite 构建、浏览器检查和真机清单 | 部分实现（partial），关键状态有测试但真机与完整兼容验证未完成 |
+| NFR-008 | 学生、教师、管理员、商户 | 用户通过其当前获准的 App 或 Web 产品入口使用系统 | 核心状态和操作应在目标端正确呈现，且角色不得越过 App 与 Web 登录白名单 | uni-app 页面状态测试、React/Vite 构建、`UserServiceImpl.java` 登录分支、浏览器检查和真机清单 | 部分实现（partial），关键状态有测试但真机与完整兼容验证未完成 |
 | NFR-009 | 开发与运维成员 | 跨 Java、Python 和外部服务排查请求 | 系统应提供相关标识、结构化日志、健康检查和关键链路指标，且日志不得记录凭据与隐私正文 | 日志字段审查、跨服务关联演练、健康检查和脱敏测试 | 后续规划（planned），生产监控与审计体系仍需补齐 |
 | NFR-010 | 验收人员、运维人员 | 进行容量、延迟、稳定性或安全验收 | 系统应在固定环境、固定数据集和明确脚本下报告实测结果、样本范围与失败条件，不使用推测值 | 性能脚本、原始报告、环境说明、渗透测试和生产端到端记录 | 当前限制（known-limit），尚无可对外承诺的 QPS、P95、准确率或可用性结论 |
 

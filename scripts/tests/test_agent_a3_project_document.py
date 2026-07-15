@@ -258,6 +258,16 @@ class SourceContentTest(unittest.TestCase):
     def _combined_source(self) -> str:
         return "\n".join(self._read_source(name) for name in self.SOURCE_NAMES)
 
+    def _requirement_row(self, requirement_id: str) -> tuple[str, ...]:
+        text = self._read_source("02-requirements.md")
+        prefix = f"| {requirement_id} |"
+        line = next(
+            (candidate for candidate in text.splitlines() if candidate.startswith(prefix)),
+            None,
+        )
+        self.assertIsNotNone(line, f"missing requirement row: {requirement_id}")
+        return tuple(cell.strip() for cell in line.strip().strip("|").split("|"))
+
     def test_frontmatter_uses_exact_titles_and_document_governance(self):
         text = self._read_source("00-frontmatter.md")
         required_text = (
@@ -318,6 +328,71 @@ class SourceContentTest(unittest.TestCase):
             "基础知识库问答 | AgentA3 |"
         )
         self.assertEqual(text.count(capability_header), 1)
+
+    def test_current_entry_and_admin_only_permissions_are_explicit(self):
+        requirements = self._read_source("02-requirements.md")
+        design = self._read_source("03-overall-design.md")
+
+        for role_row in (
+            "| ADMIN | 管理员 | Web |",
+            "| TEACHER | 教师 | App |",
+            "| STUDENT | 学生 | App |",
+            "| MERCHANT | 商户 | Web |",
+        ):
+            with self.subTest(role_row=role_row):
+                self.assertIn(role_row, requirements)
+
+        entry_fact = (
+            "当前 App 登录入口允许 STUDENT 与 TEACHER；"
+            "当前 Web 登录入口允许 ADMIN 与 MERCHANT。"
+        )
+        self.assertIn(entry_fact, requirements)
+        self.assertIn(entry_fact, design)
+
+        expected_rows = {
+            "FR-002": ("学生、教师", "已实现（implemented）"),
+            "FR-012": ("管理员", "已实现（implemented）"),
+            "FR-013": (
+                "管理员（当前）；学生、教师（目标）",
+                "部分实现（partial）",
+            ),
+            "FR-014": (
+                "管理员（当前）；学生、教师（目标）",
+                "部分实现（partial）",
+            ),
+            "FR-018": (
+                "管理员（当前）；教师（目标）",
+                "部分实现（partial）",
+            ),
+            "FR-019": (
+                "管理员（当前）；教师（目标）",
+                "部分实现（partial）",
+            ),
+            "FR-020": (
+                "管理员（当前）；教师（目标）",
+                "部分实现（partial）",
+            ),
+            "FR-021": (
+                "管理员（当前）；教师（目标）",
+                "部分实现（partial）",
+            ),
+            "FR-024": (
+                "管理员（当前）；教师（目标）",
+                "部分实现（partial）",
+            ),
+        }
+        for requirement_id, (actor, status_prefix) in expected_rows.items():
+            with self.subTest(requirement_id=requirement_id):
+                row = self._requirement_row(requirement_id)
+                self.assertEqual(row[1], actor)
+                self.assertTrue(row[5].startswith(status_prefix), row[5])
+
+        for requirement_id in ("FR-012", "FR-013", "FR-014"):
+            with self.subTest(requirement_id=requirement_id):
+                self.assertIn("ADMIN", " ".join(self._requirement_row(requirement_id)))
+        for requirement_id in ("FR-018", "FR-019"):
+            with self.subTest(requirement_id=requirement_id):
+                self.assertIn("ADMIN", " ".join(self._requirement_row(requirement_id)))
 
     def test_overall_design_names_components_flows_and_deployment_boundary(self):
         text = self._read_source("03-overall-design.md")
