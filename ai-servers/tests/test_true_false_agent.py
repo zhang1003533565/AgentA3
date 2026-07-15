@@ -21,32 +21,18 @@ class TrueFalseQuestionAgentTest(unittest.TestCase):
         provider = FakeTrueFalseProvider(json.dumps({
             "questions": [
                 {
-                    "id": "TF1",
-                    "type": "true_false",
-                    "stem": "列表是 Python 中的可变序列类型。",
-                    "score": 2,
-                    "difficulty": "easy",
-                    "knowledgePoints": ["列表"],
-                    "tags": ["Python"],
+                    "id": "TF1", "type": "true_false", "stem": "列表是 Python 中的可变序列类型。",
+                    "score": 2, "difficulty": "easy", "knowledgePoints": ["列表"], "tags": ["Python"],
                     "body": {"statement": "列表是 Python 中的可变序列类型。"},
-                    "answer": {"correct": True},
-                    "analysis": "列表创建后可以增删改元素。",
-                    "scoring": {"mode": "exact", "rubrics": []},
-                    "sourceBasis": ["列表是可变序列"],
+                    "answer": {"correct": True}, "analysis": "列表创建后可以增删改元素。",
+                    "scoring": {"mode": "exact", "rubrics": []}, "sourceBasis": ["列表是可变序列"],
                 },
                 {
-                    "id": "TF2",
-                    "type": "true_false",
-                    "stem": "字典的键可以是列表类型。",
-                    "score": 2,
-                    "difficulty": "easy",
-                    "knowledgePoints": ["字典"],
-                    "tags": ["Python"],
+                    "id": "TF2", "type": "true_false", "stem": "字典的键可以是列表类型。",
+                    "score": 2, "difficulty": "easy", "knowledgePoints": ["字典"], "tags": ["Python"],
                     "body": {"statement": "字典的键可以是列表类型。"},
-                    "answer": {"correct": False},
-                    "analysis": "列表是可变类型，不能作为字典键。",
-                    "scoring": {"mode": "exact", "rubrics": []},
-                    "sourceBasis": ["字典键必须可哈希"],
+                    "answer": {"correct": False}, "analysis": "列表是可变类型，不能作为字典键。",
+                    "scoring": {"mode": "exact", "rubrics": []}, "sourceBasis": ["字典键必须可哈希"],
                 },
             ],
             "missingInfo": [],
@@ -68,11 +54,14 @@ class TrueFalseQuestionAgentTest(unittest.TestCase):
         provider = FakeTrueFalseProvider(json.dumps({
             "questions": [
                 {
-                    "statement": "列表是可变序列。",
-                    "answer": "正确",
-                    "explanation": "列表可以修改。",
+                    "id": "TF1", "type": "true_false", "stem": "列表是可变序列。",
+                    "score": 2, "difficulty": "easy", "knowledgePoints": ["列表"], "tags": ["Python"],
+                    "body": {"statement": "列表是可变序列。"},
+                    "answer": {"correct": "正确"}, "analysis": "列表可以修改。",
+                    "scoring": {"mode": "exact", "rubrics": []}, "sourceBasis": ["列表是可变序列"],
                 }
-            ]
+            ],
+            "missingInfo": [],
         }, ensure_ascii=False))
 
         with self.assertRaises(HTTPException):

@@ -4,11 +4,17 @@ from typing import Any, Dict, List, Optional
 from app.image_generation import get_qwen_image_provider
 from app.models.image_generation import ImageGenerationRequest
 from app.model_providers.runtime_config import get_active_llm_config
+from app.multi_agents.diagram_common import DiagramMermaidAgent
 
 
-class DiagramMindMapAgent:
+class DiagramMindMapAgent(DiagramMermaidAgent):
     """思维导图图片生成智能体 - 接收提示词并生成实际的思维导图图片"""
-    name = "diagram_mind_map_agent"
+
+    def __init__(self) -> None:
+        super().__init__("diagram_mind_map_agent", ("mindmap",))
+
+    def build_mind_map(self, topic, evidence, chat_service=None):
+        return self.build_diagram(topic, evidence, chat_service=chat_service)
 
     def generate_mind_map_image(
         self,

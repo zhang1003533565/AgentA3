@@ -11,7 +11,7 @@ from app.main import app
 from app.model_providers import factory as model_provider_factory
 from app.model_providers.multimodal import build_multimodal_human_content, extract_image_references
 from app.model_providers.runtime_config import LlmRuntimeConfig
-from app.multi_agents.catalog import AGENT_ORDER
+from app.multi_agents.catalog import AGENT_ORDER, LEADER_CALLABLE_AGENT_ORDER
 from app.multi_agents.ppt_layout_agent.agent import normalize_ppt_layout_answer
 from app.multi_agents.ppt_outline_agent.agent import normalize_ppt_outline_answer
 
@@ -62,6 +62,16 @@ class RagApiRoutesTest(unittest.TestCase):
             "X-AI-Api-Key": "test-key",
             "X-AI-Model": "test-model",
         }
+        self.agent_model_configs = {
+            item["name"]: {
+                "configPrefix": f"ai.agent.{item['name']}",
+                "provider": "deepseek",
+                "baseUrl": "https://llm.test/v1",
+                "apiKey": "test-key",
+                "model": "test-model",
+            }
+            for item in ({"name": name} for name in LEADER_CALLABLE_AGENT_ORDER)
+        }
         self._patched_modules = []
         self._patched_image_modules = []
         self._patch_model_providers()
@@ -110,6 +120,16 @@ class RagApiRoutesTest(unittest.TestCase):
             module = importlib.import_module(module_name)
             self._patched_image_modules.append((module, module.get_qwen_image_provider))
             module.get_qwen_image_provider = lambda: FakeImageProvider()
+
+    def _install_service_tool_stub(self, rag_routes, stub):
+        old = rag_routes.data_store.search_service_tool_with_meta
+        rag_routes.data_store.search_service_tool_with_meta = (
+            lambda authorization, tool_name, query: (
+                stub(authorization, tool_name, query),
+                {"toolCache": {}},
+            )
+        )
+        return old
 
     def test_removed_strategy_routes_return_404(self):
         response = self.client.get("/internal/rag/strategies", headers=self.headers)
@@ -187,11 +207,18 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
-        self.assertTrue(
-            {"generated_export_tools", "question_bank_validation", "agent_enabled_gate"}.issubset(
-                {item["name"] for item in payload["coverage"]}
-            )
+        coverage = {item["name"]: item for item in payload["coverage"]}
+        self.assertGreaterEqual(
+            set(coverage),
+            {
+                "generated_export_tools",
+                "question_bank_validation",
+                "agent_enabled_gate",
+                "campus_service_tools",
+                "profile_summary_agent",
+            },
         )
+        self.assertTrue(all(item["status"] == "implemented" for item in coverage.values()))
         self.assertNotIn("strategies", payload["runtimeFolders"])
         self.assertIn("app/rag/document_conversion", payload["runtimeFolders"]["documentConversion"])
         self.assertIn("app/rag/structured", payload["runtimeFolders"]["textToSql"])
@@ -391,6 +418,7 @@ class RagApiRoutesTest(unittest.TestCase):
             json={
                 "input": "数据结构中的栈与队列",
                 "agentName": "ppt_outline_agent",
+                "metadata": {"agentModelConfigs": self.agent_model_configs},
             },
         )
 
@@ -468,6 +496,7 @@ class RagApiRoutesTest(unittest.TestCase):
             json={
                 "input": "帮我把数据结构中的栈与队列整理成 PPT 大纲",
                 "agentName": "leader_agent",
+                "metadata": {"agentModelConfigs": self.agent_model_configs},
             },
         )
 
@@ -512,19 +541,19 @@ class RagApiRoutesTest(unittest.TestCase):
         leader_module = importlib.import_module("app.multi_agents.leader_agent.agent")
         provider = RecordingLeaderProvider()
         old_get_chat_model_provider = leader_module.get_chat_model_provider
-        old_search_service_tool = rag_routes.data_store.search_service_tool
+        old_search_service_tool = rag_routes.data_store.search_service_tool_with_meta
         try:
             leader_module.get_chat_model_provider = lambda: provider
-            rag_routes.data_store.search_service_tool = lambda *_args: [
-                {
-                    "type": "course_schedule_summary",
-                    "name": "Python程序设计",
-                    "semesterLabel": "2025-2026 第 2 学期",
-                    "teacherName": "范老师",
-                    "scheduleCount": 1,
-                    "scheduleItems": ["周三 1-2节 A101 1-16周"],
-                }
-            ]
+            rag_routes.data_store.search_service_tool_with_meta = lambda *_args: ([
+                    {
+                        "type": "course_schedule_summary",
+                        "name": "Python程序设计",
+                        "semesterLabel": "2025-2026 第 2 学期",
+                        "teacherName": "范老师",
+                        "scheduleCount": 1,
+                        "scheduleItems": ["周三 1-2节 A101 1-16周"],
+                    }
+                ], {"toolCache": {}})
             schedule_response = self.client.post(
                 "/internal/rag/query",
                 headers=self.headers,
@@ -560,7 +589,7 @@ class RagApiRoutesTest(unittest.TestCase):
             )
         finally:
             leader_module.get_chat_model_provider = old_get_chat_model_provider
-            rag_routes.data_store.search_service_tool = old_search_service_tool
+            rag_routes.data_store.search_service_tool_with_meta = old_search_service_tool
 
         self.assertEqual(200, schedule_response.status_code)
         self.assertEqual("java_schedule_api", schedule_response.json()["metadata"]["toolName"])
@@ -626,7 +655,7 @@ class RagApiRoutesTest(unittest.TestCase):
 
     def test_leader_service_tool_result_is_summarized_by_model(self):
         rag_routes = importlib.import_module("app.api.routes.rag")
-        old_search_service_tool = rag_routes.data_store.search_service_tool
+        old_search_service_tool = rag_routes.data_store.search_service_tool_with_meta
         calls = []
         try:
             def fake_search_service_tool(authorization, tool_name, query):
@@ -640,7 +669,7 @@ class RagApiRoutesTest(unittest.TestCase):
                     "scheduleItems": ["周一 1-2节 A101 1-16周"],
                 }]
 
-            rag_routes.data_store.search_service_tool = fake_search_service_tool
+            self._install_service_tool_stub(rag_routes, fake_search_service_tool)
             response = self.client.post(
                 "/internal/rag/query",
                 headers=self.headers,
@@ -650,7 +679,7 @@ class RagApiRoutesTest(unittest.TestCase):
                 },
             )
         finally:
-            rag_routes.data_store.search_service_tool = old_search_service_tool
+            rag_routes.data_store.search_service_tool_with_meta = old_search_service_tool
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
@@ -669,7 +698,7 @@ class RagApiRoutesTest(unittest.TestCase):
 
     def test_leader_routes_course_teacher_query_to_schedule_tool(self):
         rag_routes = importlib.import_module("app.api.routes.rag")
-        old_search_service_tool = rag_routes.data_store.search_service_tool
+        old_search_service_tool = rag_routes.data_store.search_service_tool_with_meta
         calls = []
         try:
             def fake_search_service_tool(authorization, tool_name, query):
@@ -691,7 +720,7 @@ class RagApiRoutesTest(unittest.TestCase):
                     },
                 ]
 
-            rag_routes.data_store.search_service_tool = fake_search_service_tool
+            self._install_service_tool_stub(rag_routes, fake_search_service_tool)
             response = self.client.post(
                 "/internal/rag/query",
                 headers=self.headers,
@@ -701,7 +730,7 @@ class RagApiRoutesTest(unittest.TestCase):
                 },
             )
         finally:
-            rag_routes.data_store.search_service_tool = old_search_service_tool
+            rag_routes.data_store.search_service_tool_with_meta = old_search_service_tool
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
@@ -714,7 +743,7 @@ class RagApiRoutesTest(unittest.TestCase):
 
     def test_leader_routes_course_count_query_to_schedule_tool(self):
         rag_routes = importlib.import_module("app.api.routes.rag")
-        old_search_service_tool = rag_routes.data_store.search_service_tool
+        old_search_service_tool = rag_routes.data_store.search_service_tool_with_meta
         calls = []
         try:
             def fake_search_service_tool(authorization, tool_name, query):
@@ -738,7 +767,7 @@ class RagApiRoutesTest(unittest.TestCase):
                     },
                 ]
 
-            rag_routes.data_store.search_service_tool = fake_search_service_tool
+            self._install_service_tool_stub(rag_routes, fake_search_service_tool)
             response = self.client.post(
                 "/internal/rag/query",
                 headers=self.headers,
@@ -748,7 +777,7 @@ class RagApiRoutesTest(unittest.TestCase):
                 },
             )
         finally:
-            rag_routes.data_store.search_service_tool = old_search_service_tool
+            rag_routes.data_store.search_service_tool_with_meta = old_search_service_tool
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
@@ -760,7 +789,7 @@ class RagApiRoutesTest(unittest.TestCase):
 
     def test_leader_formats_course_time_answer_as_plain_text(self):
         rag_routes = importlib.import_module("app.api.routes.rag")
-        old_search_service_tool = rag_routes.data_store.search_service_tool
+        old_search_service_tool = rag_routes.data_store.search_service_tool_with_meta
         try:
             def fake_search_service_tool(authorization, tool_name, query):
                 return [
@@ -776,7 +805,7 @@ class RagApiRoutesTest(unittest.TestCase):
                     }
                 ]
 
-            rag_routes.data_store.search_service_tool = fake_search_service_tool
+            self._install_service_tool_stub(rag_routes, fake_search_service_tool)
             response = self.client.post(
                 "/internal/rag/query",
                 headers=self.headers,
@@ -786,7 +815,7 @@ class RagApiRoutesTest(unittest.TestCase):
                 },
             )
         finally:
-            rag_routes.data_store.search_service_tool = old_search_service_tool
+            rag_routes.data_store.search_service_tool_with_meta = old_search_service_tool
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
@@ -798,7 +827,7 @@ class RagApiRoutesTest(unittest.TestCase):
 
     def test_leader_formats_canteen_tool_answer_as_plain_text(self):
         rag_routes = importlib.import_module("app.api.routes.rag")
-        old_search_service_tool = rag_routes.data_store.search_service_tool
+        old_search_service_tool = rag_routes.data_store.search_service_tool_with_meta
         calls = []
         try:
             def fake_search_service_tool(authorization, tool_name, query):
@@ -813,7 +842,7 @@ class RagApiRoutesTest(unittest.TestCase):
                     }
                 ]
 
-            rag_routes.data_store.search_service_tool = fake_search_service_tool
+            self._install_service_tool_stub(rag_routes, fake_search_service_tool)
             response = self.client.post(
                 "/internal/rag/query",
                 headers=self.headers,
@@ -823,7 +852,7 @@ class RagApiRoutesTest(unittest.TestCase):
                 },
             )
         finally:
-            rag_routes.data_store.search_service_tool = old_search_service_tool
+            rag_routes.data_store.search_service_tool_with_meta = old_search_service_tool
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
@@ -836,7 +865,7 @@ class RagApiRoutesTest(unittest.TestCase):
 
     def test_leader_contextualizes_followup_course_count(self):
         rag_routes = importlib.import_module("app.api.routes.rag")
-        old_search_service_tool = rag_routes.data_store.search_service_tool
+        old_search_service_tool = rag_routes.data_store.search_service_tool_with_meta
         calls = []
         try:
             def fake_search_service_tool(authorization, tool_name, query):
@@ -863,7 +892,7 @@ class RagApiRoutesTest(unittest.TestCase):
                     ],
                 }]
 
-            rag_routes.data_store.search_service_tool = fake_search_service_tool
+            self._install_service_tool_stub(rag_routes, fake_search_service_tool)
             first = self.client.post(
                 "/internal/rag/query",
                 headers=self.headers,
@@ -883,7 +912,7 @@ class RagApiRoutesTest(unittest.TestCase):
                 },
             )
         finally:
-            rag_routes.data_store.search_service_tool = old_search_service_tool
+            rag_routes.data_store.search_service_tool_with_meta = old_search_service_tool
 
         self.assertEqual(200, first.status_code)
         self.assertEqual(200, second.status_code)
@@ -898,7 +927,7 @@ class RagApiRoutesTest(unittest.TestCase):
 
     def test_leader_does_not_override_explicit_no_class_intent_with_context_subject(self):
         rag_routes = importlib.import_module("app.api.routes.rag")
-        old_search_service_tool = rag_routes.data_store.search_service_tool
+        old_search_service_tool = rag_routes.data_store.search_service_tool_with_meta
         calls = []
         session_id = "ctx-no-class-intent"
         try:
@@ -914,7 +943,7 @@ class RagApiRoutesTest(unittest.TestCase):
                     "scheduleItems": ["周一 1-2节 明德楼阶梯110"],
                 }]
 
-            rag_routes.data_store.search_service_tool = fake_search_service_tool
+            self._install_service_tool_stub(rag_routes, fake_search_service_tool)
             first = self.client.post(
                 "/internal/rag/query",
                 headers=self.headers,
@@ -934,7 +963,7 @@ class RagApiRoutesTest(unittest.TestCase):
                 },
             )
         finally:
-            rag_routes.data_store.search_service_tool = old_search_service_tool
+            rag_routes.data_store.search_service_tool_with_meta = old_search_service_tool
 
         self.assertEqual(200, first.status_code)
         self.assertEqual(200, second.status_code)
@@ -1001,6 +1030,7 @@ class RagApiRoutesTest(unittest.TestCase):
                     json={
                         "input": example["input"],
                         "agentName": example["agentName"],
+                        "metadata": {"agentModelConfigs": self.agent_model_configs},
                     },
                 )
 
@@ -1053,6 +1083,60 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertNotIn("讲解目标", normalized)
         self.assertNotIn("页面内容建议", normalized)
         self.assertNotIn("课堂互动建议", normalized)
+
+def _fake_question_payload(question_type):
+    question = {
+        "id": f"{question_type}-1",
+        "type": question_type,
+        "stem": "数据结构测试题",
+        "score": 4,
+        "difficulty": "easy",
+        "knowledgePoints": ["栈"],
+        "tags": ["数据结构"],
+        "body": {},
+        "answer": {},
+        "analysis": "依据测试材料生成。",
+        "scoring": {"mode": "exact", "rubrics": []},
+        "sourceBasis": ["测试材料"],
+    }
+    if question_type == "single_choice":
+        question["body"] = {"options": [{"key": "A", "text": "后进先出"}, {"key": "B", "text": "先进先出"}]}
+        question["answer"] = {"correctOption": "A"}
+    elif question_type == "multiple_choice":
+        question["body"] = {"options": [{"key": "A", "text": "栈顶入栈"}, {"key": "B", "text": "栈顶出栈"}]}
+        question["answer"] = {"correctOptions": ["A", "B"]}
+    elif question_type == "true_false":
+        question["body"] = {"statement": "栈遵循后进先出原则。"}
+        question["answer"] = {"correct": True}
+    elif question_type == "fill_blank":
+        question["body"] = {"text": "栈遵循{{blank_1}}原则。", "blanks": [{"id": "blank_1", "score": 4}]}
+        question["answer"] = {"blanks": [{"id": "blank_1", "answers": ["后进先出", "LIFO"]}]}
+        question["scoring"] = {"mode": "blank", "rubrics": [{"criterion": "blank_1 正确", "score": 4}]}
+    elif question_type == "short_answer":
+        question["body"] = {"answerLengthHint": "50字以内"}
+        question["answer"] = {"referenceAnswer": "栈遵循后进先出原则。", "answerPoints": ["说明后进先出"]}
+        question["scoring"] = {"mode": "rubric", "rubrics": [{"criterion": "说明后进先出", "score": 4}]}
+    elif question_type == "calculation":
+        question["answer"] = {"finalAnswer": "3", "steps": ["模拟三次入栈"]}
+        question["scoring"] = {"mode": "step", "rubrics": [{"criterion": "过程与结果正确", "score": 4}]}
+    elif question_type == "programming":
+        question["body"] = {
+            "title": "括号匹配",
+            "description": "判断圆括号字符串是否匹配。",
+            "language": "Python",
+            "inputFormat": "一行字符串",
+            "outputFormat": "true 或 false",
+            "constraints": ["长度不超过 1000"],
+            "examples": [{"input": "()", "output": "true"}],
+        }
+        question["answer"] = {
+            "solutionOutline": ["使用栈匹配左右括号"],
+            "referenceSolution": "def ok(text):\n    return text == '()'",
+            "testCases": [{"input": "()", "expectedOutput": "true", "hidden": False}],
+        }
+        question["scoring"] = {"mode": "program", "rubrics": [{"criterion": "通过测试", "score": 4}]}
+    return {"questions": [question], "missingInfo": []}
+
 
 class FakeRagModelProvider:
     def complete(self, system_prompt, user_prompt):
@@ -1166,82 +1250,28 @@ class FakeRagModelProvider:
         }
 
     def _specialist_answer(self, system_prompt):
-        question_agent_labels = (
-            "单选题智能体",
-            "填空题智能体",
-            "判断题智能体",
-            "多选题智能体",
-            "简答题智能体",
-            "计算题智能体",
-            "编程题智能体",
-        )
-        if any(label in system_prompt for label in question_agent_labels):
-            return json.dumps({
-                "questions": [],
-                "missingInfo": ["测试夹具未提供题库证据"],
-            }, ensure_ascii=False)
-        if "思维导图智能体" in system_prompt:
+        if "diagram_mind_map_agent" in system_prompt or "思维导图智能体" in system_prompt:
             return "```mermaid\nmindmap\n  root((测试思维导图))\n```"
+        if "diagram_flowchart_agent" in system_prompt:
+            return "```mermaid\nflowchart TD\n  Start([开始]) --> End([结束])\n```"
+        if "diagram_activity_agent" in system_prompt:
+            return "```mermaid\nflowchart TD\n  Start([开始]) --> Task[执行任务] --> End([结束])\n```"
+        if "diagram_architecture_agent" in system_prompt:
+            return "```mermaid\nflowchart LR\n  Web[Web] --> API[API]\n```"
         if "教材知识点智能体" in system_prompt:
             return "## 教材知识点\n- 基于 LLM 整理教材知识点"
-        if "判断题智能体" in system_prompt:
-            return json.dumps({
-                "questions": [{
-                    "statement": "栈遵循后进先出原则。",
-                    "answer": True,
-                    "explanation": "栈的基本特征是 LIFO。",
-                }],
-            }, ensure_ascii=False)
-        if "简答题智能体" in system_prompt:
-            return json.dumps({
-                "questions": [{
-                    "id": "sa-1",
-                    "question": "简述栈和队列的区别。",
-                    "knowledgePoints": ["栈", "队列"],
-                    "difficulty": "easy",
-                    "answerPoints": [{
-                        "point": "栈是后进先出结构，队列是先进先出结构。",
-                        "sourceBasis": ["测试材料"],
-                    }],
-                    "scoringRubric": [{
-                        "criterion": "说明两种线性结构的出入顺序差异",
-                        "score": 5,
-                    }],
-                    "totalScore": 5,
-                    "sourceBasis": ["测试材料"],
-                }],
-                "missingInfo": [],
-            }, ensure_ascii=False)
-        if "编程题智能体" in system_prompt:
-            return json.dumps({
-                "questions": [{
-                    "id": "pg-1",
-                    "title": "括号匹配",
-                    "knowledgePoints": ["栈"],
-                    "difficulty": "easy",
-                    "language": "Python",
-                    "description": "判断只包含圆括号的字符串是否匹配。",
-                    "inputFormat": "一行括号字符串",
-                    "outputFormat": "true 或 false",
-                    "constraints": ["字符串长度不超过 1000"],
-                    "examples": [{
-                        "input": "()",
-                        "output": "true",
-                        "explanation": "左右括号成对匹配。",
-                    }],
-                    "testCases": [{
-                        "input": "()",
-                        "expectedOutput": "true",
-                        "hidden": False,
-                    }],
-                    "solutionOutline": ["使用栈保存左括号，遇到右括号时弹栈匹配。"],
-                    "referenceSolution": "def ok(s):\n    st = []\n    for ch in s:\n        if ch == '(':\n            st.append(ch)\n        elif ch == ')':\n            if not st:\n                return False\n            st.pop()\n    return not st",
-                    "sourceBasis": ["测试材料"],
-                }],
-                "missingInfo": [],
-            }, ensure_ascii=False)
-        if "选择题智能体" in system_prompt or "填空题智能体" in system_prompt or "多选题智能体" in system_prompt or "计算题智能体" in system_prompt:
-            return json.dumps({"questions": [{"question": "测试题", "answer": "A", "explanation": "测试解析"}]}, ensure_ascii=False)
+        question_markers = {
+            "单选题智能体": "single_choice",
+            "多选题智能体": "multiple_choice",
+            "判断题智能体": "true_false",
+            "填空题智能体": "fill_blank",
+            "简答题智能体": "short_answer",
+            "计算题智能体": "calculation",
+            "编程题智能体": "programming",
+        }
+        for marker, question_type in question_markers.items():
+            if marker in system_prompt:
+                return json.dumps(_fake_question_payload(question_type), ensure_ascii=False)
         if "会议总控智能体" in system_prompt:
             return "## 会议总控\n- 当前状态：进行中"
         if "语音转写智能体" in system_prompt:

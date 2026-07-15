@@ -6,12 +6,14 @@ from fastapi import HTTPException
 from app.image_generation import get_qwen_image_provider
 from app.models.image_generation import ImageGenerationRequest
 from app.model_providers.runtime_config import get_active_llm_config
+from app.multi_agents.diagram_common import DiagramMermaidAgent
 
 
-class DiagramArchitectureAgent:
+class DiagramArchitectureAgent(DiagramMermaidAgent):
     """架构图图片生成智能体 - 接收架构材料并生成实际架构图图片"""
 
-    name = "diagram_architecture_agent"
+    def __init__(self) -> None:
+        super().__init__("diagram_architecture_agent", ("flowchart", "graph", "architecture-beta"))
 
     def generate_images(
         self,
