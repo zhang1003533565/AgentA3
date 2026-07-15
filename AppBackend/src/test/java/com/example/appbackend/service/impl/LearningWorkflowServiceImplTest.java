@@ -23,13 +23,23 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -376,7 +386,7 @@ class LearningWorkflowServiceImplTest {
                         "resource-code-2", "code_example", "列表切片实操", "code_lab") + "]");
         when(sessionRepository.findByUserIdAndSessionId(42L, "learning-" + workflowId))
                 .thenReturn(Optional.of(persistedSession));
-        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(10L))
+        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAscIdAsc(10L))
                 .thenReturn(List.of(userMessage, partialMessage, recoveredMessage));
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         doAnswer(invocation -> {
@@ -561,6 +571,193 @@ class LearningWorkflowServiceImplTest {
     }
 
     @Test
+    void concurrentRetriesOfDifferentResourcesAllowOnlyOneWorkflowMutation()
+            throws Exception {
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        CoordinatedRedisClient redis = new CoordinatedRedisClient();
+        RedisLearningWorkflowStateStore redisStateStore =
+                new RedisLearningWorkflowStateStore(redis, mapper);
+        String workflowId = "wf-detached-concurrent";
+        redisStateStore.save(retryablePartialState(mapper, workflowId));
+        redis.coordinateNextReads(2);
+        LearningWorkflowServiceImpl detachedService = new LearningWorkflowServiceImpl(
+                proxy,
+                redisStateStore,
+                pathService,
+                profileService,
+                knowledgeService,
+                evidenceRepository,
+                sessionRepository,
+                messageRepository,
+                envelopeService,
+                mapper
+        );
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Object> codeRetry = executor.submit(() -> retryOutcome(
+                    detachedService, workflowId, "code_lab"));
+            Future<Object> practiceRetry = executor.submit(() -> retryOutcome(
+                    detachedService, workflowId, "practice_set"));
+
+            List<Object> outcomes = List.of(
+                    codeRetry.get(5, TimeUnit.SECONDS),
+                    practiceRetry.get(5, TimeUnit.SECONDS));
+            long successes = outcomes.stream()
+                    .filter(LearningPathDTO.WorkflowView.class::isInstance)
+                    .count();
+            List<BusinessException> conflicts = outcomes.stream()
+                    .filter(BusinessException.class::isInstance)
+                    .map(BusinessException.class::cast)
+                    .toList();
+
+            assertThat(successes).isEqualTo(1L);
+            assertThat(conflicts).singleElement()
+                    .extracting(BusinessException::getCode)
+                    .isEqualTo(409);
+            assertThat(redis.readCount()).isGreaterThanOrEqualTo(3);
+            LearningWorkflowStateStore.WorkflowState persisted = redisStateStore
+                    .find(workflowId).orElseThrow();
+            assertThat(persisted.getView().getResources())
+                    .containsOnlyKeys("knowledge_note");
+            assertThat(persisted.getView().getErrors())
+                    .containsOnlyKeys("code_lab", "practice_set");
+            assertThat(persisted.getView().getActiveResourceType())
+                    .isIn("code_lab", "practice_set");
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void retryStateWriteFailureKeepsTheDistributedClaim() {
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        CoordinatedRedisClient redis = new CoordinatedRedisClient();
+        RedisLearningWorkflowStateStore redisStateStore =
+                new RedisLearningWorkflowStateStore(redis, mapper);
+        String workflowId = "wf-state-write-failure";
+        redisStateStore.save(retryablePartialState(mapper, workflowId));
+        LearningWorkflowServiceImpl detachedService = new LearningWorkflowServiceImpl(
+                proxy,
+                redisStateStore,
+                pathService,
+                profileService,
+                knowledgeService,
+                evidenceRepository,
+                sessionRepository,
+                messageRepository,
+                envelopeService,
+                mapper
+        );
+        detachedService.retryResource(
+                42L, workflowId, "code_lab", "Bearer student-token");
+        PythonAiProxyService.SseEventHandler retryHandler = eventHandler.get();
+        redis.failNextSet();
+        Map<String, Object> transportError = event(workflowId, 70);
+        transportError.put("message", "Python 流式传输中断");
+
+        assertThrows(IllegalStateException.class,
+                () -> retryHandler.handle("error", transportError));
+
+        assertThat(redis.hasClaim(workflowId)).isTrue();
+    }
+
+    @Test
+    void expiredLeaseCanBeReclaimedAndRejectsTheLatePreviousCallback() {
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        CoordinatedRedisClient redis = new CoordinatedRedisClient();
+        RedisLearningWorkflowStateStore redisStateStore =
+                new RedisLearningWorkflowStateStore(redis, mapper);
+        String workflowId = "wf-expired-retry-lease";
+        redisStateStore.save(retryablePartialState(mapper, workflowId));
+        List<PythonAiProxyService.SseEventHandler> handlers = new ArrayList<>();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            handlers.add(invocation.getArgument(2));
+            return new SseEmitter();
+        }).when(proxy).streamLearningWorkflow(anyMap(), anyString(), any());
+        LearningWorkflowServiceImpl detachedService = new LearningWorkflowServiceImpl(
+                proxy,
+                redisStateStore,
+                pathService,
+                profileService,
+                knowledgeService,
+                evidenceRepository,
+                sessionRepository,
+                messageRepository,
+                envelopeService,
+                mapper
+        );
+
+        detachedService.retryResource(
+                42L, workflowId, "code_lab", "Bearer student-token");
+        redis.expireClaim(workflowId);
+        detachedService.retryResource(
+                42L, workflowId, "practice_set", "Bearer student-token");
+        assertThat(handlers).hasSize(2);
+
+        Map<String, Object> lateDone = event(workflowId, 100);
+        lateDone.put("status", "completed");
+        lateDone.put("answer", "迟到的代码实操结果");
+        lateDone.put("resources", List.of(resource(
+                "late-code", "code_example", "迟到代码", "code_lab")));
+        lateDone.put("failedResources", List.of());
+        lateDone.put("pathDraft", pathDraft("迟到路径"));
+        org.mockito.Mockito.clearInvocations(envelopeService, pathService);
+
+        assertThat(handlers.getFirst().handle("done", lateDone)).isFalse();
+
+        verify(envelopeService, never()).reserveAssistantMessage(any(), any());
+        LearningWorkflowStateStore.WorkflowState current = redisStateStore
+                .find(workflowId).orElseThrow();
+        assertThat(current.getView().getStage()).isEqualTo("retrying");
+        assertThat(current.getView().getActiveResourceType()).isEqualTo("practice_set");
+        assertThat(current.getView().getResources()).containsOnlyKeys("knowledge_note");
+        assertThat(current.getView().getErrors())
+                .containsOnlyKeys("code_lab", "practice_set");
+    }
+
+    @Test
+    void retryOfReconstructedWorkflowUsesHistoricalPathInsteadOfCurrentActivePath() {
+        String workflowId = "wf-historical-path";
+        AiLeaderSession persistedSession = session(10L, "learning-" + workflowId);
+        AiLeaderMessage userMessage = persistedMessage(
+                1L, AiLeaderMessage.ROLE_USER, "列表切片", "{}", "[]");
+        AiLeaderMessage partialMessage = persistedMessage(
+                88L,
+                AiLeaderMessage.ROLE_ASSISTANT,
+                "讲义已生成，代码实操待重试",
+                "{\"status\":\"partial\",\"intent\":\"resource_package\","
+                        + "\"failedResourceTypes\":[\"code_lab\"],"
+                        + "\"pathId\":71,\"pathVersion\":2,\"pathSourceMessageId\":88}",
+                "[]");
+        LearningPathDTO.PathView historicalPath = home().getActivePath();
+        historicalPath.setId(71L);
+        historicalPath.setVersion(2);
+        historicalPath.setSourceMessageId(88L);
+        LearningPathDTO.HomeView currentHome = home();
+        currentHome.getActivePath().setId(72L);
+        currentHome.getActivePath().setVersion(3);
+        currentHome.getActivePath().setSourceMessageId(99L);
+        when(sessionRepository.findByUserIdAndSessionId(
+                42L, "learning-" + workflowId)).thenReturn(Optional.of(persistedSession));
+        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAscIdAsc(10L))
+                .thenReturn(List.of(userMessage, partialMessage));
+        org.mockito.Mockito.doReturn(historicalPath)
+                .when(pathService).getPathSnapshot(42L, 71L, 2, 88L);
+        when(pathService.getHome(42L, "python")).thenReturn(currentHome);
+
+        LearningPathDTO.WorkflowView reconstructed = service.getWorkflow(42L, workflowId);
+        assertThat(reconstructed.getPath().getId()).isEqualTo(71L);
+
+        service.retryResource(42L, workflowId, "code_lab", "Bearer student-token");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> metadata = (Map<String, Object>) pythonRequest.get().get("metadata");
+        assertThat(metadata.get("pathSnapshot"))
+                .isInstanceOfSatisfying(LearningPathDTO.PathView.class,
+                        path -> assertThat(path.getId()).isEqualTo(71L));
+    }
+
+    @Test
     void pathDraftIsValidatedBeforeAnyAssistantMessageIsReserved() {
         service.start(42L, generateRequest(), "Bearer student-token");
         String workflowId = stateStore.only().getWorkflowId();
@@ -611,7 +808,7 @@ class LearningWorkflowServiceImplTest {
         AiLeaderSession persistedSession = session(10L, "learning-" + workflowId);
         when(sessionRepository.findByUserIdAndSessionId(42L, "learning-" + workflowId))
                 .thenReturn(Optional.of(persistedSession));
-        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(10L))
+        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAscIdAsc(10L))
                 .thenReturn(List.of(persistedMessage(
                         1L, AiLeaderMessage.ROLE_USER, "列表切片", "{}", "[]")));
         stateStore.clear();
@@ -800,6 +997,150 @@ class LearningWorkflowServiceImplTest {
         return session;
     }
 
+    private LearningWorkflowStateStore.WorkflowState retryablePartialState(
+            ObjectMapper mapper, String workflowId) {
+        LearningPathDTO.WorkflowView view = new LearningPathDTO.WorkflowView();
+        view.setWorkflowId(workflowId);
+        view.setCourseKey("python");
+        view.setTopic("列表切片");
+        view.setIntent("resource_package");
+        view.setStatus("partial");
+        view.setStage("partial");
+        view.setProgress(100);
+        view.setResources(Map.of(
+                "knowledge_note",
+                mapper.convertValue(resource(
+                        "resource-note-1", "explanation", "列表切片讲义", "knowledge_note"),
+                        AssistantResourceDTO.class)));
+        view.setErrors(Map.of(
+                "code_lab", retryableError("代码实操失败"),
+                "practice_set", retryableError("练习题生成失败")));
+        view.setPath(home().getActivePath());
+        LearningWorkflowStateStore.WorkflowState state =
+                new LearningWorkflowStateStore.WorkflowState();
+        state.setWorkflowId(workflowId);
+        state.setOwnerUserId(42L);
+        state.setView(view);
+        state.setContext(Map.of());
+        state.setSessionDatabaseId(10L);
+        state.setLastProgress(100);
+        state.setTerminal(true);
+        return state;
+    }
+
+    private LearningPathDTO.WorkflowError retryableError(String message) {
+        LearningPathDTO.WorkflowError error = new LearningPathDTO.WorkflowError();
+        error.setMessage(message);
+        error.setRetryable(true);
+        return error;
+    }
+
+    private Object retryOutcome(
+            LearningWorkflowServiceImpl target, String workflowId, String resourceType) {
+        try {
+            return target.retryResource(
+                    42L, workflowId, resourceType, "Bearer student-token");
+        } catch (BusinessException error) {
+            return error;
+        }
+    }
+
+    private static final class CoordinatedRedisClient
+            implements RedisLearningWorkflowStateStore.RedisClient {
+        private final Map<String, String> values = new ConcurrentHashMap<>();
+        private final Map<String, String> claims = new ConcurrentHashMap<>();
+        private final AtomicBoolean failNextSet = new AtomicBoolean();
+        private final AtomicInteger reads = new AtomicInteger();
+        private volatile CountDownLatch coordinatedReads = new CountDownLatch(0);
+
+        private void coordinateNextReads(int readers) {
+            coordinatedReads = new CountDownLatch(readers);
+        }
+
+        @Override
+        public void set(String key, String value, Duration ttl) throws IOException {
+            if (failNextSet.compareAndSet(true, false)) {
+                throw new IOException("state write unavailable");
+            }
+            values.put(key, value);
+        }
+
+        @Override
+        public String get(String key) throws IOException {
+            if (key.startsWith("learning:workflow:retry:")) {
+                return claims.get(key);
+            }
+            reads.incrementAndGet();
+            CountDownLatch latch = coordinatedReads;
+            if (latch.getCount() > 0) {
+                latch.countDown();
+                try {
+                    if (!latch.await(5, TimeUnit.SECONDS)) {
+                        throw new IOException("concurrent reads did not arrive");
+                    }
+                } catch (InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("concurrent read interrupted", error);
+                }
+            }
+            return values.get(key);
+        }
+
+        @Override
+        public boolean setIfAbsent(String key, String value, Duration ttl) {
+            return claims.putIfAbsent(key, value) == null;
+        }
+
+        @Override
+        public boolean compareAndExpire(
+                String key, String expectedValue, Duration ttl) {
+            return expectedValue.equals(claims.get(key));
+        }
+
+        @Override
+        public synchronized boolean writeStateIfClaimOwner(
+                String stateKey,
+                String stateValue,
+                Duration stateTtl,
+                String claimKey,
+                String claimToken,
+                Duration claimTtl,
+                boolean releaseClaim) throws IOException {
+            if (!claimToken.equals(claims.get(claimKey))) {
+                return false;
+            }
+            if (failNextSet.compareAndSet(true, false)) {
+                throw new IOException("state write unavailable");
+            }
+            values.put(stateKey, stateValue);
+            if (releaseClaim) {
+                claims.remove(claimKey, claimToken);
+            }
+            return true;
+        }
+
+        @Override
+        public boolean compareAndDelete(String key, String expectedValue) {
+            return claims.remove(key, expectedValue);
+        }
+
+        private void failNextSet() {
+            failNextSet.set(true);
+        }
+
+        private void expireClaim(String workflowId) {
+            claims.remove("learning:workflow:retry:" + workflowId);
+        }
+
+        private boolean hasClaim(String workflowId) {
+            return claims.containsKey("learning:workflow:retry:" + workflowId);
+        }
+
+        private int readCount() {
+            return reads.get();
+        }
+    }
+
     private static final class InMemoryStateStore implements LearningWorkflowStateStore {
         private final Map<String, WorkflowState> states = new LinkedHashMap<>();
         private final Map<String, String> retryClaims = new LinkedHashMap<>();
@@ -815,8 +1156,13 @@ class LearningWorkflowServiceImplTest {
         }
 
         @Override
+        public Optional<WorkflowState> findAuthoritatively(String workflowId) {
+            return find(workflowId);
+        }
+
+        @Override
         public synchronized Optional<String> claimRetry(String workflowId, String resourceType) {
-            String key = workflowId + ":" + resourceType;
+            String key = workflowId;
             if (retryClaims.containsKey(key)) {
                 return Optional.empty();
             }
@@ -826,9 +1172,44 @@ class LearningWorkflowServiceImplTest {
         }
 
         @Override
+        public synchronized boolean isRetryClaimOwner(
+                String workflowId, String resourceType, String claimToken) {
+            return claimToken != null && claimToken.equals(retryClaims.get(workflowId));
+        }
+
+        @Override
+        public synchronized boolean renewRetryClaim(
+                String workflowId, String resourceType, String claimToken) {
+            return isRetryClaimOwner(workflowId, resourceType, claimToken);
+        }
+
+        @Override
+        public synchronized boolean saveRetryState(
+                WorkflowState state, String resourceType, String claimToken) {
+            if (!isRetryClaimOwner(
+                    state.getWorkflowId(), resourceType, claimToken)) {
+                return false;
+            }
+            save(state);
+            return true;
+        }
+
+        @Override
+        public synchronized boolean completeRetryState(
+                WorkflowState state, String resourceType, String claimToken) {
+            if (!isRetryClaimOwner(
+                    state.getWorkflowId(), resourceType, claimToken)) {
+                return false;
+            }
+            save(state);
+            retryClaims.remove(state.getWorkflowId(), claimToken);
+            return true;
+        }
+
+        @Override
         public synchronized void releaseRetryClaim(
                 String workflowId, String resourceType, String claimToken) {
-            retryClaims.remove(workflowId + ":" + resourceType, claimToken);
+            retryClaims.remove(workflowId, claimToken);
         }
 
         private WorkflowState only() {

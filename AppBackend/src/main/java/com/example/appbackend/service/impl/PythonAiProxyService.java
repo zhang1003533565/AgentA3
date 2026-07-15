@@ -41,7 +41,6 @@ import java.util.regex.Pattern;
 public class PythonAiProxyService {
     private static final Logger log = LoggerFactory.getLogger(PythonAiProxyService.class);
     private static final String DEFAULT_AGENT_NAME = "leader_agent";
-    private static final String INTERNAL_TOKEN_HEADER = "X-AI-Internal-Token";
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
     private static final String AGENT_ENABLED_PREFIX = "ai.agent-enabled.";
     private static final String TOOL_ENABLED_PREFIX = "ai.tool-enabled.";
@@ -53,7 +52,6 @@ public class PythonAiProxyService {
     private final SystemConfigService systemConfigService;
     private final SystemConfigRepository systemConfigRepository;
     private final String pythonBaseUrl;
-    private final String internalToken;
     private final long timeoutSeconds;
     private final int fileResponseMaxInMemoryBytes;
     private final String internalToken;
@@ -85,7 +83,6 @@ public class PythonAiProxyService {
                                 SystemConfigService systemConfigService,
                                 SystemConfigRepository systemConfigRepository,
                                 @Value("${ai.python.base-url:http://localhost:8081}") String pythonBaseUrl,
-                                @Value("${ai.python.internal-token:}") String internalToken,
                                 @Value("${ai.python.timeout-seconds:65}") long timeoutSeconds,
                                 @Value("${ai.python.file-response-max-in-memory-bytes:52428800}") int fileResponseMaxInMemoryBytes,
                                 @Value("${ai.python.internal-token:}") String internalToken) {
@@ -95,7 +92,6 @@ public class PythonAiProxyService {
         this.systemConfigService = systemConfigService;
         this.systemConfigRepository = systemConfigRepository;
         this.pythonBaseUrl = pythonBaseUrl;
-        this.internalToken = internalToken == null ? "" : internalToken.trim();
         this.timeoutSeconds = timeoutSeconds;
         this.fileResponseMaxInMemoryBytes = fileResponseMaxInMemoryBytes;
         this.internalToken = internalToken == null ? "" : internalToken.trim();
@@ -137,7 +133,6 @@ public class PythonAiProxyService {
             return buildFileResponseWebClient()
                     .get()
                     .uri(buildUri("/internal/rag/exports/" + encodedStorageKey))
-                    .headers(this::applyInternalTokenHeader)
                     .header("X-AI-Export-Capability", pythonCapability)
                     .headers(this::applyInternalToken)
                     .accept(MediaType.APPLICATION_OCTET_STREAM)
@@ -790,7 +785,6 @@ public class PythonAiProxyService {
     }
 
     private void applyPythonAuthHeaders(HttpHeaders headers, String authorization, Long userId) {
-        applyInternalTokenHeader(headers);
         headers.set(HttpHeaders.AUTHORIZATION, authorization);
         headers.set("X-User-Id", userId.toString());
         applyInternalToken(headers);
@@ -799,12 +793,6 @@ public class PythonAiProxyService {
     private void applyInternalToken(HttpHeaders headers) {
         if (StringUtils.hasText(internalToken)) {
             headers.set("X-AI-Internal-Token", internalToken);
-        }
-    }
-
-    private void applyInternalTokenHeader(HttpHeaders headers) {
-        if (StringUtils.hasText(internalToken)) {
-            headers.set(INTERNAL_TOKEN_HEADER, internalToken);
         }
     }
 

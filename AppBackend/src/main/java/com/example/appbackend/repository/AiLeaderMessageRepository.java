@@ -8,7 +8,7 @@ import java.util.Optional;
 
 public interface AiLeaderMessageRepository extends JpaRepository<AiLeaderMessage, Long> {
 
-    List<AiLeaderMessage> findByLeaderSessionIdOrderByCreateTimeAsc(Long leaderSessionId);
+    List<AiLeaderMessage> findByLeaderSessionIdOrderByCreateTimeAscIdAsc(Long leaderSessionId);
 
     long countByLeaderSessionId(Long leaderSessionId);
 

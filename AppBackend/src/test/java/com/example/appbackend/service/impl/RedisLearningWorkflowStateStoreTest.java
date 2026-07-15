@@ -16,17 +16,18 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RedisLearningWorkflowStateStoreTest {
@@ -93,6 +94,24 @@ class RedisLearningWorkflowStateStoreTest {
     }
 
     @Test
+    void authoritativeReadNeverReturnsTheProcessFallback() throws Exception {
+        RedisLearningWorkflowStateStore.RedisClient redis = mock(
+                RedisLearningWorkflowStateStore.RedisClient.class);
+        doThrow(new IOException("redis unavailable"))
+                .when(redis).set(any(), any(), any(Duration.class));
+        when(redis.get(eq("learning:workflow:wf-authoritative")))
+                .thenThrow(new IOException("redis unavailable"));
+        RedisLearningWorkflowStateStore store = new RedisLearningWorkflowStateStore(
+                redis, new ObjectMapper().findAndRegisterModules());
+        store.save(state("wf-authoritative", 42L));
+
+        assertThat(store.find("wf-authoritative")).isPresent();
+        assertThatThrownBy(() -> store.findAuthoritatively("wf-authoritative"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("authoritative state unavailable");
+    }
+
+    @Test
     void successfulRedisWritesDoNotCreateAnUnboundedShadowCopy() throws Exception {
         RedisLearningWorkflowStateStore.RedisClient redis = mock(
                 RedisLearningWorkflowStateStore.RedisClient.class);
@@ -141,43 +160,76 @@ class RedisLearningWorkflowStateStoreTest {
                 redis, new ObjectMapper().findAndRegisterModules());
 
         Optional<String> first = store.claimRetry("wf-claim", "code_lab");
-        Optional<String> second = store.claimRetry("wf-claim", "code_lab");
+        Optional<String> second = store.claimRetry("wf-claim", "practice_set");
 
         assertThat(first).isPresent();
         assertThat(second).isEmpty();
         store.releaseRetryClaim("wf-claim", "code_lab", first.orElseThrow());
-        org.mockito.Mockito.verify(redis).compareAndDelete(
-                "learning:workflow:retry:wf-claim:code_lab", first.orElseThrow());
+        verify(redis, times(2)).setIfAbsent(
+                eq("learning:workflow:retry:wf-claim"), any(), eq(Duration.ofMinutes(10)));
+        verify(redis).compareAndDelete(
+                "learning:workflow:retry:wf-claim", first.orElseThrow());
     }
 
     @Test
-    void fallbackRetryClaimAllowsOnlyOneConcurrentWinner() throws Exception {
+    void redisOutageFailsClosedForRetryClaimsAcrossServiceInstances() throws Exception {
         RedisLearningWorkflowStateStore.RedisClient redis = mock(
                 RedisLearningWorkflowStateStore.RedisClient.class);
         when(redis.setIfAbsent(any(), any(), any(Duration.class)))
                 .thenThrow(new IOException("redis unavailable"));
+        RedisLearningWorkflowStateStore firstInstance = new RedisLearningWorkflowStateStore(
+                redis, new ObjectMapper().findAndRegisterModules());
+        RedisLearningWorkflowStateStore secondInstance = new RedisLearningWorkflowStateStore(
+                redis, new ObjectMapper().findAndRegisterModules());
+
+        assertThat(firstInstance.claimRetry("wf-concurrent", "code_lab")).isEmpty();
+        assertThat(secondInstance.claimRetry("wf-concurrent", "practice_set")).isEmpty();
+    }
+
+    @Test
+    void retryStateWritesRenewOrReleaseOnlyInsideTheTokenFencedOperation()
+            throws Exception {
+        RedisLearningWorkflowStateStore.RedisClient redis = mock(
+                RedisLearningWorkflowStateStore.RedisClient.class);
+        when(redis.get("learning:workflow:retry:wf-fenced"))
+                .thenReturn("claim-token");
+        when(redis.compareAndExpire(
+                "learning:workflow:retry:wf-fenced",
+                "claim-token",
+                Duration.ofMinutes(10)))
+                .thenReturn(true);
+        when(redis.writeStateIfClaimOwner(
+                eq("learning:workflow:wf-fenced"),
+                any(),
+                eq(Duration.ofHours(24)),
+                eq("learning:workflow:retry:wf-fenced"),
+                eq("claim-token"),
+                eq(Duration.ofMinutes(10)),
+                eq(false)))
+                .thenReturn(true);
+        when(redis.writeStateIfClaimOwner(
+                eq("learning:workflow:wf-fenced"),
+                any(),
+                eq(Duration.ofHours(24)),
+                eq("learning:workflow:retry:wf-fenced"),
+                eq("claim-token"),
+                eq(Duration.ofMinutes(10)),
+                eq(true)))
+                .thenReturn(true);
         RedisLearningWorkflowStateStore store = new RedisLearningWorkflowStateStore(
                 redis, new ObjectMapper().findAndRegisterModules());
-        CountDownLatch start = new CountDownLatch(1);
-        var executor = Executors.newFixedThreadPool(8);
-        List<Future<Optional<String>>> claims = new java.util.ArrayList<>();
-        for (int index = 0; index < 32; index++) {
-            claims.add(executor.submit(() -> {
-                start.await();
-                return store.claimRetry("wf-concurrent", "code_lab");
-            }));
-        }
+        LearningWorkflowStateStore.WorkflowState state = state("wf-fenced", 42L);
 
-        start.countDown();
-        long winners = 0;
-        for (Future<Optional<String>> claim : claims) {
-            if (claim.get().isPresent()) {
-                winners++;
-            }
-        }
-        executor.shutdownNow();
+        assertThat(store.isRetryClaimOwner(
+                "wf-fenced", "code_lab", "claim-token")).isTrue();
+        assertThat(store.renewRetryClaim(
+                "wf-fenced", "code_lab", "claim-token")).isTrue();
+        assertThat(store.saveRetryState(
+                state, "code_lab", "claim-token")).isTrue();
+        assertThat(store.completeRetryState(
+                state, "code_lab", "claim-token")).isTrue();
 
-        assertThat(winners).isEqualTo(1L);
+        verify(redis, never()).compareAndDelete(any(), any());
     }
 
     @Test

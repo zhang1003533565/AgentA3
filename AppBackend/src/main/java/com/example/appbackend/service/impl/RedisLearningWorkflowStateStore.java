@@ -43,7 +43,6 @@ public class RedisLearningWorkflowStateStore implements LearningWorkflowStateSto
     private final int fallbackMaxEntries;
     private final Object fallbackLock = new Object();
     private final ConcurrentHashMap<String, CacheEntry> fallback = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, RetryClaim> fallbackRetryClaims = new ConcurrentHashMap<>();
 
     @Autowired
     public RedisLearningWorkflowStateStore(
@@ -127,11 +126,32 @@ public class RedisLearningWorkflowStateStore implements LearningWorkflowStateSto
     }
 
     @Override
+    public Optional<WorkflowState> findAuthoritatively(String workflowId) {
+        if (!StringUtils.hasText(workflowId)) {
+            return Optional.empty();
+        }
+        String normalized = workflowId.trim();
+        try {
+            String json = redisClient.get(key(normalized));
+            if (!StringUtils.hasText(json)) {
+                fallback.remove(normalized);
+                return Optional.empty();
+            }
+            return Optional.of(canonicalMapper.readValue(json, WorkflowState.class));
+        } catch (Exception error) {
+            log.warn("learning workflow authoritative redis read unavailable workflowId={} errorType={}",
+                    normalized, error.getClass().getSimpleName());
+            throw new IllegalStateException(
+                    "learning workflow authoritative state unavailable", error);
+        }
+    }
+
+    @Override
     public Optional<String> claimRetry(String workflowId, String resourceType) {
         if (!StringUtils.hasText(workflowId) || !StringUtils.hasText(resourceType)) {
             return Optional.empty();
         }
-        String claimKey = retryKey(workflowId.trim(), resourceType.trim());
+        String claimKey = retryKey(workflowId.trim());
         String token = UUID.randomUUID().toString();
         try {
             return redisClient.setIfAbsent(claimKey, token, RETRY_CLAIM_TTL)
@@ -139,8 +159,51 @@ public class RedisLearningWorkflowStateStore implements LearningWorkflowStateSto
         } catch (Exception error) {
             log.warn("learning workflow redis retry claim unavailable workflowId={} resourceType={} errorType={}",
                     workflowId, resourceType, error.getClass().getSimpleName());
-            return claimFallbackRetry(claimKey, token);
+            return Optional.empty();
         }
+    }
+
+    @Override
+    public boolean isRetryClaimOwner(
+            String workflowId, String resourceType, String claimToken) {
+        if (!validRetryClaimArguments(workflowId, resourceType, claimToken)) {
+            return false;
+        }
+        try {
+            return claimToken.equals(redisClient.get(retryKey(workflowId.trim())));
+        } catch (Exception error) {
+            log.warn("learning workflow redis retry ownership unavailable workflowId={} resourceType={} errorType={}",
+                    workflowId, resourceType, error.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    @Override
+    public boolean renewRetryClaim(
+            String workflowId, String resourceType, String claimToken) {
+        if (!validRetryClaimArguments(workflowId, resourceType, claimToken)) {
+            return false;
+        }
+        try {
+            return redisClient.compareAndExpire(
+                    retryKey(workflowId.trim()), claimToken, RETRY_CLAIM_TTL);
+        } catch (Exception error) {
+            log.warn("learning workflow redis retry renewal unavailable workflowId={} resourceType={} errorType={}",
+                    workflowId, resourceType, error.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    @Override
+    public boolean saveRetryState(
+            WorkflowState state, String resourceType, String claimToken) {
+        return writeRetryState(state, resourceType, claimToken, false);
+    }
+
+    @Override
+    public boolean completeRetryState(
+            WorkflowState state, String resourceType, String claimToken) {
+        return writeRetryState(state, resourceType, claimToken, true);
     }
 
     @Override
@@ -149,16 +212,52 @@ public class RedisLearningWorkflowStateStore implements LearningWorkflowStateSto
                 || !StringUtils.hasText(claimToken)) {
             return;
         }
-        String claimKey = retryKey(workflowId.trim(), resourceType.trim());
+        String claimKey = retryKey(workflowId.trim());
         try {
             redisClient.compareAndDelete(claimKey, claimToken);
         } catch (Exception error) {
             log.warn("learning workflow redis retry release unavailable workflowId={} resourceType={} errorType={}",
                     workflowId, resourceType, error.getClass().getSimpleName());
-        } finally {
-            fallbackRetryClaims.computeIfPresent(claimKey,
-                    (ignored, claim) -> claim.token().equals(claimToken) ? null : claim);
         }
+    }
+
+    private boolean writeRetryState(
+            WorkflowState state,
+            String resourceType,
+            String claimToken,
+            boolean releaseClaim) {
+        if (state == null || !StringUtils.hasText(state.getWorkflowId())
+                || !validRetryClaimArguments(
+                state.getWorkflowId(), resourceType, claimToken)) {
+            return false;
+        }
+        String workflowId = state.getWorkflowId().trim();
+        try {
+            boolean written = redisClient.writeStateIfClaimOwner(
+                    key(workflowId),
+                    canonicalMapper.writeValueAsString(state),
+                    TTL,
+                    retryKey(workflowId),
+                    claimToken,
+                    RETRY_CLAIM_TTL,
+                    releaseClaim);
+            if (written) {
+                fallback.remove(workflowId);
+            }
+            return written;
+        } catch (Exception error) {
+            log.warn("learning workflow fenced redis save unavailable workflowId={} resourceType={} terminal={} errorType={}",
+                    workflowId, resourceType, releaseClaim,
+                    error.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    private boolean validRetryClaimArguments(
+            String workflowId, String resourceType, String claimToken) {
+        return StringUtils.hasText(workflowId)
+                && StringUtils.hasText(resourceType)
+                && StringUtils.hasText(claimToken);
     }
 
     int fallbackSize() {
@@ -174,25 +273,9 @@ public class RedisLearningWorkflowStateStore implements LearningWorkflowStateSto
         }
     }
 
-    private Optional<String> claimFallbackRetry(String claimKey, String token) {
-        synchronized (fallbackLock) {
-            evictFallbackEntries();
-            RetryClaim existing = fallbackRetryClaims.get(claimKey);
-            if (existing != null && existing.expiresAt().isAfter(clock.instant())) {
-                return Optional.empty();
-            }
-            fallbackRetryClaims.put(claimKey,
-                    new RetryClaim(token, clock.instant().plus(RETRY_CLAIM_TTL)));
-            trimOldest(fallbackRetryClaims, fallbackMaxEntries);
-            return fallbackRetryClaims.containsKey(claimKey)
-                    ? Optional.of(token) : Optional.empty();
-        }
-    }
-
     private void evictFallbackEntries() {
         Instant now = clock.instant();
         fallback.entrySet().removeIf(entry -> !entry.getValue().expiresAt().isAfter(now));
-        fallbackRetryClaims.entrySet().removeIf(entry -> !entry.getValue().expiresAt().isAfter(now));
     }
 
     private <T extends ExpiringEntry> void trimOldest(
@@ -208,8 +291,8 @@ public class RedisLearningWorkflowStateStore implements LearningWorkflowStateSto
         return KEY_PREFIX + workflowId;
     }
 
-    private String retryKey(String workflowId, String resourceType) {
-        return RETRY_KEY_PREFIX + workflowId + ":" + resourceType;
+    private String retryKey(String workflowId) {
+        return RETRY_KEY_PREFIX + workflowId;
     }
 
     private interface ExpiringEntry {
@@ -219,15 +302,24 @@ public class RedisLearningWorkflowStateStore implements LearningWorkflowStateSto
     private record CacheEntry(WorkflowState state, Instant expiresAt) implements ExpiringEntry {
     }
 
-    private record RetryClaim(String token, Instant expiresAt) implements ExpiringEntry {
-    }
-
     interface RedisClient {
         void set(String key, String value, Duration ttl) throws IOException;
 
         String get(String key) throws IOException;
 
         boolean setIfAbsent(String key, String value, Duration ttl) throws IOException;
+
+        boolean compareAndExpire(
+                String key, String expectedValue, Duration ttl) throws IOException;
+
+        boolean writeStateIfClaimOwner(
+                String stateKey,
+                String stateValue,
+                Duration stateTtl,
+                String claimKey,
+                String claimToken,
+                Duration claimTtl,
+                boolean releaseClaim) throws IOException;
 
         boolean compareAndDelete(String key, String expectedValue) throws IOException;
     }
@@ -305,6 +397,50 @@ public class RedisLearningWorkflowStateStore implements LearningWorkflowStateSto
                 return true;
             }
             throw new IOException("Redis SET NX 响应类型无效");
+        }
+
+        @Override
+        public boolean compareAndExpire(
+                String key, String expectedValue, Duration ttl) throws IOException {
+            if (!StringUtils.hasText(key) || !StringUtils.hasText(expectedValue)
+                    || ttl == null || ttl.isZero() || ttl.isNegative()) {
+                return false;
+            }
+            String script = "if redis.call('get', KEYS[1]) == ARGV[1] "
+                    + "then return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end";
+            Object response = execute(List.of(
+                    "EVAL", script, "1", key, expectedValue,
+                    Long.toString(ttl.toSeconds())));
+            return response instanceof Number number && number.longValue() == 1L;
+        }
+
+        @Override
+        public boolean writeStateIfClaimOwner(
+                String stateKey,
+                String stateValue,
+                Duration stateTtl,
+                String claimKey,
+                String claimToken,
+                Duration claimTtl,
+                boolean releaseClaim) throws IOException {
+            if (!StringUtils.hasText(stateKey) || stateValue == null
+                    || stateTtl == null || stateTtl.isZero() || stateTtl.isNegative()
+                    || !StringUtils.hasText(claimKey) || !StringUtils.hasText(claimToken)
+                    || claimTtl == null || claimTtl.isZero() || claimTtl.isNegative()) {
+                return false;
+            }
+            String script = "if redis.call('get', KEYS[2]) ~= ARGV[3] then return 0 end "
+                    + "redis.call('set', KEYS[1], ARGV[1], 'EX', ARGV[2]) "
+                    + "if ARGV[5] == '1' then redis.call('del', KEYS[2]) "
+                    + "else redis.call('expire', KEYS[2], ARGV[4]) end return 1";
+            Object response = execute(List.of(
+                    "EVAL", script, "2", stateKey, claimKey,
+                    stateValue,
+                    Long.toString(stateTtl.toSeconds()),
+                    claimToken,
+                    Long.toString(claimTtl.toSeconds()),
+                    releaseClaim ? "1" : "0"));
+            return response instanceof Number number && number.longValue() == 1L;
         }
 
         @Override

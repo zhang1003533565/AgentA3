@@ -341,23 +341,41 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
         if (!RESOURCE_TYPES.contains(resourceType)) {
             throw badRequest("不支持的学习资源类型");
         }
-        LearningWorkflowStateStore.WorkflowState state = stateStore.find(workflowId.trim())
+        String normalizedWorkflowId = workflowId.trim();
+        LearningWorkflowStateStore.WorkflowState observedState = stateStore.find(normalizedWorkflowId)
                 .orElseThrow(() -> notFound("学习工作流不存在"));
-        requireOwner(state, userId);
-        synchronized (state) {
-            if (committedResource(state.getView(), resourceType)) {
-                return copyView(state.getView());
+        requireOwner(observedState, userId);
+        synchronized (observedState) {
+            if (committedResource(observedState.getView(), resourceType)) {
+                return copyView(observedState.getView());
             }
-            validateRetryEligibility(state, resourceType);
+            validateRetryCandidate(observedState, resourceType);
         }
-        String claimToken = stateStore.claimRetry(workflowId.trim(), resourceType)
+        String claimToken = stateStore.claimRetry(normalizedWorkflowId, resourceType)
                 .orElseThrow(() -> conflict("该学习资源正在重试，请勿重复提交"));
+        boolean fencedWriteAttempted = false;
         try {
+            LearningWorkflowStateStore.WorkflowState state = stateStore
+                    .findAuthoritatively(normalizedWorkflowId)
+                    .orElseThrow(() -> notFound("学习工作流不存在"));
+            requireOwner(state, userId);
             Map<String, Object> pythonRequest;
             synchronized (state) {
                 if (committedResource(state.getView(), resourceType)) {
-                    stateStore.releaseRetryClaim(workflowId.trim(), resourceType, claimToken);
+                    stateStore.releaseRetryClaim(
+                            normalizedWorkflowId, resourceType, claimToken);
                     return copyView(state.getView());
+                }
+                if (hasRetryLeaseContext(state)) {
+                    String previousResourceType = retryResourceType(state);
+                    String previousClaimToken = retryClaimToken(state);
+                    if (stateStore.isRetryClaimOwner(
+                            normalizedWorkflowId,
+                            previousResourceType,
+                            previousClaimToken)) {
+                        throw conflict("该学习资源正在重试，请勿重复提交");
+                    }
+                    restoreRetryAfterFailure(state, null);
                 }
                 validateRetryEligibility(state, resourceType);
                 pythonRequest = retryPythonRequest(
@@ -365,9 +383,6 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
                 Map<String, Object> metadata = mapValue(pythonRequest.get("metadata"));
                 metadata.put("requestedResourceTypes", List.of(resourceType));
                 pythonRequest.put("metadata", metadata);
-            }
-            synchronized (state) {
-                validateRetryEligibility(state, resourceType);
                 state.setLastProgress(0);
                 state.setTerminal(false);
                 state.getView().setStatus("partial");
@@ -379,19 +394,19 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
                 context.put(RETRY_RESOURCE_CONTEXT, resourceType);
                 context.put(RETRY_CLAIM_CONTEXT, claimToken);
                 state.setContext(context);
-                stateStore.save(state);
+                fencedWriteAttempted = true;
+                if (!stateStore.saveRetryState(state, resourceType, claimToken)) {
+                    throw new IllegalStateException(
+                            "learning workflow retry state persistence failed");
+                }
             }
             startPythonStream(state, pythonRequest, authorization);
             return copyView(state.getView());
         } catch (RuntimeException error) {
-            synchronized (state) {
-                if (resourceType.equals(retryResourceType(state))
-                        && claimToken.equals(retryClaimToken(state))) {
-                    restoreRetryAfterFailure(state, "学习资源重试未启动，请稍后再试。");
-                    stateStore.save(state);
-                }
+            if (!fencedWriteAttempted) {
+                stateStore.releaseRetryClaim(
+                        normalizedWorkflowId, resourceType, claimToken);
             }
-            stateStore.releaseRetryClaim(workflowId.trim(), resourceType, claimToken);
             throw error;
         }
     }
@@ -412,10 +427,13 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
                 String claimToken = retryClaimToken(state);
                 synchronized (state) {
                     restoreRetryAfterFailure(state, "学习资源重试未启动，请稍后再试。");
-                    stateStore.save(state);
+                    if (!stateStore.completeRetryState(
+                            state, retryResourceType, claimToken)) {
+                        throw new IllegalStateException(
+                                "learning workflow retry failure state persistence failed",
+                                error);
+                    }
                 }
-                stateStore.releaseRetryClaim(
-                        state.getWorkflowId(), retryResourceType, claimToken);
                 return dependencyUnavailableEmitter(state.getView());
             }
             markDependencyUnavailable(state);
@@ -434,6 +452,13 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
         Map<String, Object> payload = (Map<String, Object>) raw;
         synchronized (state) {
             if (Boolean.TRUE.equals(state.getTerminal())) {
+                return false;
+            }
+            String retryResourceType = retryResourceType(state);
+            String retryClaimToken = retryClaimToken(state);
+            if (StringUtils.hasText(retryResourceType)
+                    && !stateStore.renewRetryClaim(
+                    state.getWorkflowId(), retryResourceType, retryClaimToken)) {
                 return false;
             }
             String suppliedWorkflowId = text(payload.get("workflowId"), 80);
@@ -463,45 +488,67 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
             }
             payload.put("progress", progress);
             state.setLastProgress(progress);
-            String retryResourceType = retryResourceType(state);
-            String retryClaimToken = retryClaimToken(state);
             if ("error".equals(eventName) && StringUtils.hasText(retryResourceType)) {
                 restoreRetryAfterFailure(state,
                         firstNonBlank(text(payload.get("message"), 1_000),
                                 "学习资源重试中断，请稍后再试。"));
                 replacePayload(payload, state.getView());
-                stateStore.releaseRetryClaim(
-                        state.getWorkflowId(), retryResourceType, retryClaimToken);
-                stateStore.save(state);
+                if (!stateStore.completeRetryState(
+                        state, retryResourceType, retryClaimToken)) {
+                    throw new IllegalStateException(
+                            "learning workflow retry error state persistence failed");
+                }
                 return true;
             }
             if ("done".equals(eventName)) {
+                if (StringUtils.hasText(retryResourceType)
+                        && !stateStore.renewRetryClaim(
+                        state.getWorkflowId(), retryResourceType, retryClaimToken)) {
+                    return false;
+                }
                 try {
                     completeWorkflow(state, payload, Set.copyOf(internalCapabilities));
                 } catch (RuntimeException error) {
                     if (StringUtils.hasText(retryResourceType)) {
                         restoreRetryAfterFailure(
                                 state, "学习资源重试提交失败，请稍后再试。");
-                        stateStore.releaseRetryClaim(
-                                state.getWorkflowId(), retryResourceType, retryClaimToken);
                     } else {
                         markCompletionFailure(state);
                     }
                     replacePayload(payload, state.getView());
-                    stateStore.save(state);
+                    if (StringUtils.hasText(retryResourceType)) {
+                        if (!stateStore.completeRetryState(
+                                state, retryResourceType, retryClaimToken)) {
+                            throw new IllegalStateException(
+                                    "learning workflow retry completion failure state persistence failed",
+                                    error);
+                        }
+                    } else {
+                        stateStore.save(state);
+                    }
                     throw error;
                 }
-                stateStore.releaseRetryClaim(
-                        state.getWorkflowId(), retryResourceType, retryClaimToken);
                 replacePayload(payload, state.getView());
                 state.setTerminal(true);
-                stateStore.save(state);
+                if (StringUtils.hasText(retryResourceType)) {
+                    if (!stateStore.completeRetryState(
+                            state, retryResourceType, retryClaimToken)) {
+                        throw new IllegalStateException(
+                                "learning workflow retry completion state persistence failed");
+                    }
+                } else {
+                    stateStore.save(state);
+                }
                 return true;
             }
 
             if (StringUtils.hasText(retryResourceType)) {
                 updateRetryProgressState(state.getView(), eventName, payload, progress);
-                stateStore.save(state);
+                if (!stateStore.saveRetryState(
+                        state, retryResourceType, retryClaimToken)) {
+                    throw new IllegalStateException(
+                            "learning workflow retry progress state persistence failed");
+                }
                 return true;
             }
             updateProgressState(state.getView(), eventName, payload, progress);
@@ -840,7 +887,7 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
                         userId, SESSION_PREFIX + workflowId)
                 .orElseThrow(() -> notFound("学习工作流不存在"));
         List<AiLeaderMessage> messages = messageRepository
-                .findByLeaderSessionIdOrderByCreateTimeAsc(session.getId());
+                .findByLeaderSessionIdOrderByCreateTimeAscIdAsc(session.getId());
         List<AiLeaderMessage> assistantMessages = messages.stream()
                 .filter(item -> AiLeaderMessage.ROLE_ASSISTANT.equals(item.getRole()))
                 .toList();
@@ -1337,6 +1384,25 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
                 && (view.getErrors() == null || !view.getErrors().containsKey(resourceType));
     }
 
+    private void validateRetryCandidate(
+            LearningWorkflowStateStore.WorkflowState state, String resourceType) {
+        if (hasRetryLeaseContext(state)) {
+            validateRetryableResource(state, resourceType);
+            return;
+        }
+        validateRetryEligibility(state, resourceType);
+    }
+
+    private boolean hasRetryLeaseContext(LearningWorkflowStateStore.WorkflowState state) {
+        LearningPathDTO.WorkflowView view = state == null ? null : state.getView();
+        return !Boolean.TRUE.equals(state == null ? null : state.getTerminal())
+                && view != null
+                && "partial".equals(view.getStatus())
+                && "retrying".equals(view.getStage())
+                && StringUtils.hasText(retryResourceType(state))
+                && StringUtils.hasText(retryClaimToken(state));
+    }
+
     private void validateRetryEligibility(
             LearningWorkflowStateStore.WorkflowState state, String resourceType) {
         LearningPathDTO.WorkflowView view = state.getView();
@@ -1346,6 +1412,12 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
                 || "retrying".equals(view.getStage())) {
             throw conflict("学习工作流尚未进入可重试的部分完成状态");
         }
+        validateRetryableResource(state, resourceType);
+    }
+
+    private void validateRetryableResource(
+            LearningWorkflowStateStore.WorkflowState state, String resourceType) {
+        LearningPathDTO.WorkflowView view = state.getView();
         LearningPathDTO.WorkflowError error = view.getErrors() == null
                 ? null : view.getErrors().get(resourceType);
         if (error == null || !Boolean.TRUE.equals(error.getRetryable())) {
@@ -1459,7 +1531,11 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
         LearningPathDTO.HomeView home = learningPathService.getHome(userId, PYTHON);
         List<LearningPathDTO.MasteryView> mastery = home == null || home.getMastery() == null
                 ? List.of() : home.getMastery();
-        LearningPathDTO.PathView activePath = home == null ? null : home.getActivePath();
+        LearningPathDTO.PathView workflowPath = state.getView() == null
+                ? null : state.getView().getPath();
+        LearningPathDTO.PathView activePath = workflowPath != null
+                ? workflowPath
+                : home == null ? null : home.getActivePath();
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("courseKey", PYTHON);
         metadata.put("workflowId", state.getWorkflowId());
