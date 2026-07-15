@@ -24,6 +24,7 @@ from .styles import (
     MONO_FONT,
     PRIMARY,
     RISK,
+    USABLE_PAGE_WIDTH_DXA,
     WARNING,
     add_numbering_instance,
     add_toc_field,
@@ -182,12 +183,17 @@ class _DocumentBuilder:
 
         self.repository_root = _find_repository_root(
             self.source_dir, self.evidence_path, self.asset_dir
-        )
-        generated = {
-            path.name: path.resolve()
-            for path in self.asset_dir.resolve().glob("*.png")
-            if path.is_file()
-        }
+        ).resolve()
+        asset_root = self.asset_dir.resolve()
+        generated: dict[str, Path] = {}
+        for path in self.asset_dir.glob("*.png"):
+            if not path.is_file():
+                continue
+            generated[path.name] = _resolve_within(
+                path,
+                asset_root,
+                error_message=f"generated asset escapes asset directory: {path.name}",
+            )
         missing_generated = sorted(_EXPECTED_GENERATED_IMAGES - generated.keys())
         if missing_generated:
             raise ValueError(
@@ -223,14 +229,17 @@ class _DocumentBuilder:
         name = normalized.name
         generated_name = _FIGURE_ALIASES.get(name, name)
         candidate = generated.get(generated_name)
-        if candidate is None and name in _DESIGN_IMAGES:
-            candidate = (self.repository_root / _DESIGN_IMAGES[name]).resolve()
-            try:
-                candidate.relative_to(self.repository_root.resolve())
-            except ValueError as exc:
-                raise ValueError(
-                    f"repository-relative figure path required: {source}"
-                ) from exc
+        if candidate is None:
+            repository_relative = _DESIGN_IMAGES.get(name, Path(*normalized.parts))
+            repository_candidate = self.repository_root / repository_relative
+            if repository_candidate.is_file():
+                candidate = _resolve_within(
+                    repository_candidate,
+                    self.repository_root,
+                    error_message=(
+                        f"repository-relative figure path escapes repository: {source}"
+                    ),
+                )
         if candidate is None or not candidate.is_file():
             raise ValueError(f"missing figure asset: {source}")
         return candidate
@@ -370,11 +379,12 @@ class _DocumentBuilder:
         table = self.document.add_table(
             rows=len(block.rows), cols=len(block.rows[0])
         )
-        configure_table(table)
-        widths = _table_column_widths(block.rows, total_cm=16.6)
+        widths = _table_column_widths(
+            block.rows, total_dxa=USABLE_PAGE_WIDTH_DXA
+        )
+        configure_table(table, widths)
         for row_index, (row, source_row) in enumerate(zip(table.rows, block.rows)):
-            for column_index, (cell, text) in enumerate(zip(row.cells, source_row)):
-                cell.width = Cm(widths[column_index])
+            for cell, text in zip(row.cells, source_row):
                 paragraph = cell.paragraphs[0]
                 paragraph.clear()
                 self._add_inline_text(paragraph, text)
@@ -510,14 +520,31 @@ def _find_repository_root(*paths: Path) -> Path:
 
 
 def _table_column_widths(
-    rows: tuple[tuple[str, ...], ...], *, total_cm: float
-) -> list[float]:
+    rows: tuple[tuple[str, ...], ...], *, total_dxa: int
+) -> tuple[int, ...]:
     weights = []
     for column in range(len(rows[0])):
         longest = max(len(row[column]) for row in rows)
         weights.append(max(6, min(longest, 28)))
     total_weight = sum(weights)
-    return [total_cm * weight / total_weight for weight in weights]
+    widths = [total_dxa * weight // total_weight for weight in weights]
+    remainders = [total_dxa * weight % total_weight for weight in weights]
+    missing = total_dxa - sum(widths)
+    order = sorted(
+        range(len(widths)), key=lambda index: (-remainders[index], index)
+    )
+    for index in order[:missing]:
+        widths[index] += 1
+    return tuple(widths)
+
+
+def _resolve_within(path: Path, boundary: Path, *, error_message: str) -> Path:
+    resolved = path.resolve(strict=True)
+    try:
+        resolved.relative_to(boundary.resolve(strict=True))
+    except ValueError as exc:
+        raise ValueError(error_message) from exc
+    return resolved
 
 
 def _set_run_fonts(

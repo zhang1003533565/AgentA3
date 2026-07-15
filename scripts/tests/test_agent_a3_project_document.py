@@ -1,8 +1,11 @@
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from hashlib import sha256
 import re
+from shutil import copy2
 from tempfile import TemporaryDirectory
 import unittest
+from urllib.parse import unquote
+from xml.etree import ElementTree
 from zipfile import ZipFile
 
 from PIL import Image
@@ -16,6 +19,59 @@ from scripts.agent_a3_document.source_loader import (
     load_source,
     parse_markdown,
 )
+
+
+_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+_WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_WINDOWS_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
+def _relationship_violations(parts: dict[str, bytes]) -> list[tuple[str, str, str]]:
+    violations: list[tuple[str, str, str]] = []
+    for part_name, data in parts.items():
+        if not part_name.endswith(".rels"):
+            continue
+        root = ElementTree.fromstring(data)
+        for relationship in root.findall(f"{{{_RELATIONSHIPS_NS}}}Relationship"):
+            target = relationship.get("Target", "")
+            target_mode = relationship.get("TargetMode", "")
+            if target_mode.casefold() == "external":
+                violations.append((part_name, target, "external relationship"))
+            if _is_local_or_escaping_target(part_name, target):
+                violations.append((part_name, target, "local or escaping target"))
+    return violations
+
+
+def _is_local_or_escaping_target(relationship_part: str, target: str) -> bool:
+    decoded = unquote(target).strip()
+    lowered = decoded.casefold()
+    if (
+        lowered.startswith("file:")
+        or decoded.startswith("/")
+        or decoded.startswith("\\\\")
+        or _WINDOWS_ABSOLUTE_RE.match(decoded)
+    ):
+        return True
+
+    normalized = decoded.replace("\\", "/")
+    relationship_path = PurePosixPath(relationship_part)
+    if relationship_part == "_rels/.rels":
+        stack: list[str] = []
+    elif relationship_path.parent.name == "_rels":
+        stack = list(relationship_path.parent.parent.parts)
+    else:
+        stack = list(relationship_path.parent.parts)
+
+    for part in PurePosixPath(normalized).parts:
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            if not stack:
+                return True
+            stack.pop()
+        else:
+            stack.append(part)
+    return False
 
 
 def _write_sources(root: Path, first_body: str) -> None:
@@ -1071,6 +1127,131 @@ class ProjectDocumentDocxContractTest(unittest.TestCase):
         self.assertEqual(heading_one.font.size.pt, 15.0)
         self.assertEqual(str(heading_one.font.color.rgb), "0F766E")
 
+    def test_cover_has_no_references_and_each_footer_has_one_centered_page_field(self):
+        word = {"w": _WORD_NS}
+        document_root = ElementTree.fromstring(self.parts["word/document.xml"])
+        section_properties = document_root.findall(".//w:sectPr", word)
+        self.assertEqual(len(section_properties), 12)
+        self.assertFalse(section_properties[0].findall("w:headerReference", word))
+        self.assertFalse(section_properties[0].findall("w:footerReference", word))
+
+        relationship_root = ElementTree.fromstring(
+            self.parts["word/_rels/document.xml.rels"]
+        )
+        targets_by_id = {
+            relationship.get("Id"): relationship.get("Target")
+            for relationship in relationship_root.findall(
+                f"{{{_RELATIONSHIPS_NS}}}Relationship"
+            )
+        }
+        footer_targets: list[str] = []
+        for section_index, section in enumerate(section_properties[1:], start=1):
+            references = section.findall("w:footerReference", word)
+            self.assertEqual(len(references), 1, f"section {section_index}")
+            relationship_id = references[0].get(qn("r:id"))
+            target = targets_by_id[relationship_id]
+            footer_targets.append(target)
+
+            footer_root = ElementTree.fromstring(self.parts[f"word/{target}"])
+            page_paragraphs = [
+                paragraph
+                for paragraph in footer_root.findall("w:p", word)
+                if [
+                    node
+                    for node in paragraph.findall(".//w:instrText", word)
+                    if (node.text or "").strip() == "PAGE"
+                ]
+            ]
+            self.assertEqual(len(page_paragraphs), 1, target)
+            page_fields = [
+                node
+                for node in page_paragraphs[0].findall(".//w:instrText", word)
+                if (node.text or "").strip() == "PAGE"
+            ]
+            self.assertEqual(len(page_fields), 1, target)
+            justification = page_paragraphs[0].find("w:pPr/w:jc", word)
+            self.assertIsNotNone(justification, target)
+            self.assertEqual(justification.get(qn("w:val")), "center", target)
+
+        self.assertEqual(len(set(footer_targets)), 11)
+
+    def test_every_table_has_consistent_fixed_dxa_geometry(self):
+        word = {"w": _WORD_NS}
+        usable_width_dxa = round(16.6 * 1440 / 2.54)
+        document_root = ElementTree.fromstring(self.parts["word/document.xml"])
+        tables = document_root.findall(".//w:tbl", word)
+        self.assertEqual(len(tables), 52)
+
+        for table_index, table in enumerate(tables, start=1):
+            table_width = table.find("w:tblPr/w:tblW", word)
+            table_indent = table.find("w:tblPr/w:tblInd", word)
+            table_layout = table.find("w:tblPr/w:tblLayout", word)
+            self.assertIsNotNone(table_width, table_index)
+            self.assertEqual(table_width.get(qn("w:type")), "dxa", table_index)
+            self.assertEqual(
+                int(table_width.get(qn("w:w"))), usable_width_dxa, table_index
+            )
+            self.assertIsNotNone(table_indent, table_index)
+            self.assertEqual(table_indent.get(qn("w:type")), "dxa", table_index)
+            self.assertEqual(table_indent.get(qn("w:w")), "0", table_index)
+            self.assertIsNotNone(table_layout, table_index)
+            self.assertEqual(table_layout.get(qn("w:type")), "fixed", table_index)
+
+            grid_widths = [
+                int(column.get(qn("w:w")))
+                for column in table.findall("w:tblGrid/w:gridCol", word)
+            ]
+            self.assertTrue(grid_widths, table_index)
+            self.assertEqual(sum(grid_widths), usable_width_dxa, table_index)
+            for row_index, row in enumerate(table.findall("w:tr", word), start=1):
+                row_properties = row.find("w:trPr", word)
+                grid_before = (
+                    row_properties.find("w:gridBefore", word)
+                    if row_properties is not None
+                    else None
+                )
+                grid_after = (
+                    row_properties.find("w:gridAfter", word)
+                    if row_properties is not None
+                    else None
+                )
+                grid_index = int(grid_before.get(qn("w:val"))) if grid_before else 0
+                for cell_index, cell in enumerate(row.findall("w:tc", word), start=1):
+                    span_element = cell.find("w:tcPr/w:gridSpan", word)
+                    span = int(span_element.get(qn("w:val"))) if span_element else 1
+                    cell_width = cell.find("w:tcPr/w:tcW", word)
+                    self.assertIsNotNone(
+                        cell_width, f"table {table_index} row {row_index} cell {cell_index}"
+                    )
+                    self.assertEqual(cell_width.get(qn("w:type")), "dxa")
+                    self.assertEqual(
+                        int(cell_width.get(qn("w:w"))),
+                        sum(grid_widths[grid_index : grid_index + span]),
+                        f"table {table_index} row {row_index} cell {cell_index}",
+                    )
+                    grid_index += span
+                grid_index += int(grid_after.get(qn("w:val"))) if grid_after else 0
+                self.assertEqual(grid_index, len(grid_widths), table_index)
+
+    def test_merged_cells_receive_the_sum_of_their_grid_columns(self):
+        from scripts.agent_a3_document.styles import configure_table
+
+        document = Document()
+        table = document.add_table(rows=1, cols=3)
+        table.cell(0, 0).merge(table.cell(0, 1))
+        configure_table(table, (3000, 3000, 3411))
+        word = {"w": _WORD_NS}
+        grid_widths = [
+            int(column.get(qn("w:w")))
+            for column in table._tbl.findall("w:tblGrid/w:gridCol", word)
+        ]
+        cell_widths = [
+            int(cell.find("w:tcPr/w:tcW", word).get(qn("w:w")))
+            for cell in table._tbl.findall("w:tr/w:tc", word)
+        ]
+        self.assertEqual(grid_widths, [3000, 3000, 3411])
+        self.assertEqual(cell_widths, [6000, 3411])
+
     def test_tables_media_and_relationships_are_self_contained(self):
         self.assertGreaterEqual(len(self.document.tables), 20)
         for table_index, table in enumerate(self.document.tables, start=1):
@@ -1099,17 +1280,36 @@ class ProjectDocumentDocxContractTest(unittest.TestCase):
         self.assertEqual(len(generated_hashes), 11)
         self.assertLessEqual(generated_hashes | design_hashes, embedded_hashes)
 
-        relationship_parts = {
-            name: data.decode("utf-8")
-            for name, data in self.parts.items()
-            if name.endswith(".rels")
-        }
-        local_external = re.compile(
-            r'TargetMode="External"[^>]+Target="(?:file:|/|[A-Za-z]:|\\\\)'
+        self.assertEqual(_relationship_violations(self.parts), [])
+
+    def test_relationship_audit_is_attribute_order_independent_and_blocks_local_paths(self):
+        targets = (
+            "https://example.invalid/image.png",
+            "file:///tmp/image.png",
+            "/tmp/image.png",
+            "C:/temp/image.png",
+            r"\\server\share\image.png",
+            "//server/share/image.png",
+            "../../file.png",
         )
-        for name, xml in relationship_parts.items():
-            with self.subTest(relationship=name):
-                self.assertIsNone(local_external.search(xml))
+        relationships = "".join(
+            (
+                f'<Relationship Id="rId{index}" Target="{target}" '
+                'TargetMode="External" Type="fixture"/>'
+                if index <= 2
+                else f'<Relationship Id="rId{index}" Target="{target}" Type="fixture"/>'
+            )
+            for index, target in enumerate(targets, start=1)
+        )
+        fixture = {
+            "word/_rels/document.xml.rels": (
+                f'<Relationships xmlns="{_RELATIONSHIPS_NS}">'
+                f"{relationships}</Relationships>"
+            ).encode("utf-8")
+        }
+        violations = _relationship_violations(fixture)
+        violated_targets = {target for _part, target, _reason in violations}
+        self.assertEqual(violated_targets, set(targets))
 
     def test_toc_page_fields_numbering_and_chapter_captions_are_native(self):
         settings = self.parts["word/settings.xml"].decode("utf-8")
@@ -1169,6 +1369,76 @@ class ProjectDocumentDocxContractTest(unittest.TestCase):
                         output,
                     )
                 self.assertFalse(output.exists())
+
+    def test_generated_asset_symlink_cannot_escape_asset_directory(self):
+        from scripts.agent_a3_document.docx_builder import build_document
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            asset_dir = root / "assets"
+            asset_dir.mkdir()
+            victim = "system-context.png"
+            outside = root / "outside.png"
+            copy2(self.ASSET_DIR / victim, outside)
+            for source in self.ASSET_DIR.glob("*.png"):
+                if source.name != victim:
+                    copy2(source, asset_dir / source.name)
+            try:
+                (asset_dir / victim).symlink_to(outside)
+            except (NotImplementedError, OSError) as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+
+            output = root / "result.docx"
+            with self.assertRaisesRegex(
+                ValueError, r"generated asset escapes asset directory"
+            ):
+                build_document(
+                    self.SOURCE_DIR,
+                    self.EVIDENCE_PATH,
+                    asset_dir,
+                    output,
+                )
+            self.assertFalse(output.exists())
+
+    def test_repository_design_symlink_cannot_escape_repository(self):
+        from scripts.agent_a3_document.docx_builder import build_document
+
+        with TemporaryDirectory() as repo_tmp, TemporaryDirectory() as outside_tmp:
+            repository = Path(repo_tmp)
+            (repository / ".git").mkdir()
+            source_dir = repository / "docs/project-document/source"
+            asset_dir = repository / "docs/project-document/assets/generated"
+            design_dir = repository / "docs/designs/profile-radar"
+            source_dir.mkdir(parents=True)
+            asset_dir.mkdir(parents=True)
+            design_dir.mkdir(parents=True)
+            directive = (
+                '<!-- FIGURE src="images/profile-radar-design.png" '
+                'caption="界面设计稿" width_cm="15.5" -->\n'
+            )
+            _write_sources(source_dir, directive)
+            for source in self.ASSET_DIR.glob("*.png"):
+                copy2(source, asset_dir / source.name)
+
+            outside = Path(outside_tmp) / "profile-radar-design.png"
+            copy2(self.DESIGN_IMAGES[0], outside)
+            link = design_dir / "profile-radar-design.png"
+            try:
+                link.symlink_to(outside)
+            except (NotImplementedError, OSError) as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+
+            output = repository / "result.docx"
+            with self.assertRaisesRegex(
+                ValueError, r"repository-relative figure path escapes repository"
+            ):
+                build_document(
+                    source_dir,
+                    self.EVIDENCE_PATH,
+                    asset_dir,
+                    output,
+                )
+            self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":

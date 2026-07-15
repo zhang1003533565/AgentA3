@@ -26,6 +26,7 @@ LIGHT_HEADER = "E8F3F1"
 LIGHT_GRAY = "F2F4F5"
 WARNING = "B7791F"
 RISK = "B42318"
+USABLE_PAGE_WIDTH_DXA = round(16.6 * 1440 / 2.54)
 
 
 @dataclass(frozen=True)
@@ -174,11 +175,35 @@ def apply_list_numbering(paragraph, *, num_id: int, level: int) -> None:
     num_pr.extend((ilvl, num))
 
 
-def configure_table(table) -> None:
+def configure_table(table, column_widths_dxa: tuple[int, ...]) -> None:
     """Apply fixed layout, borders, repeating header, and cell margins."""
 
+    if not column_widths_dxa or any(width <= 0 for width in column_widths_dxa):
+        raise ValueError("table column widths must be positive")
     table.autofit = False
     tbl_pr = table._tbl.tblPr
+    table_width = tbl_pr.find(qn("w:tblW"))
+    if table_width is None:
+        table_width = OxmlElement("w:tblW")
+        _insert_before_first(
+            tbl_pr,
+            table_width,
+            ("w:tblInd", "w:tblBorders", "w:tblLayout", "w:tblLook"),
+        )
+    table_width.set(qn("w:type"), "dxa")
+    table_width.set(qn("w:w"), str(sum(column_widths_dxa)))
+
+    table_indent = tbl_pr.find(qn("w:tblInd"))
+    if table_indent is None:
+        table_indent = OxmlElement("w:tblInd")
+        _insert_before_first(
+            tbl_pr,
+            table_indent,
+            ("w:tblBorders", "w:tblLayout", "w:tblLook"),
+        )
+    table_indent.set(qn("w:type"), "dxa")
+    table_indent.set(qn("w:w"), "0")
+
     layout = tbl_pr.find(qn("w:tblLayout"))
     if layout is None:
         layout = OxmlElement("w:tblLayout")
@@ -205,6 +230,15 @@ def configure_table(table) -> None:
         borders.append(element)
     _insert_before_first(tbl_pr, borders, ("w:tblLayout", "w:tblCellMar", "w:tblLook"))
 
+    table_grid = table._tbl.tblGrid
+    for column in list(table_grid.findall(qn("w:gridCol"))):
+        table_grid.remove(column)
+    for width in column_widths_dxa:
+        column = OxmlElement("w:gridCol")
+        column.set(qn("w:w"), str(width))
+        table_grid.append(column)
+    _set_table_cell_widths(table, column_widths_dxa)
+
     if table.rows:
         tr_pr = table.rows[0]._tr.get_or_add_trPr()
         if tr_pr.find(qn("w:tblHeader")) is None:
@@ -223,6 +257,42 @@ def configure_table(table) -> None:
                 paragraph.paragraph_format.first_line_indent = None
                 paragraph.paragraph_format.space_after = Pt(1.5)
                 paragraph.paragraph_format.line_spacing = 1.15
+
+
+def _set_table_cell_widths(table, column_widths_dxa: tuple[int, ...]) -> None:
+    for row_index, table_row in enumerate(table._tbl.findall(qn("w:tr")), start=1):
+        row_properties = table_row.find(qn("w:trPr"))
+        grid_before = (
+            row_properties.find(qn("w:gridBefore"))
+            if row_properties is not None
+            else None
+        )
+        grid_after = (
+            row_properties.find(qn("w:gridAfter"))
+            if row_properties is not None
+            else None
+        )
+        grid_index = int(grid_before.get(qn("w:val"))) if grid_before is not None else 0
+        for cell_index, table_cell in enumerate(
+            table_row.findall(qn("w:tc")), start=1
+        ):
+            cell_properties = table_cell.get_or_add_tcPr()
+            grid_span = cell_properties.find(qn("w:gridSpan"))
+            span = int(grid_span.get(qn("w:val"))) if grid_span is not None else 1
+            if span < 1 or grid_index + span > len(column_widths_dxa):
+                raise ValueError(
+                    f"table row {row_index} cell {cell_index} has invalid grid span"
+                )
+            cell_width = cell_properties.get_or_add_tcW()
+            cell_width.set(qn("w:type"), "dxa")
+            cell_width.set(
+                qn("w:w"), str(sum(column_widths_dxa[grid_index : grid_index + span]))
+            )
+            grid_index += span
+        if grid_after is not None:
+            grid_index += int(grid_after.get(qn("w:val")))
+        if grid_index != len(column_widths_dxa):
+            raise ValueError(f"table row {row_index} does not cover the table grid")
 
 
 def shade_paragraph(paragraph, fill: str, *, border_color: str | None = None) -> None:
