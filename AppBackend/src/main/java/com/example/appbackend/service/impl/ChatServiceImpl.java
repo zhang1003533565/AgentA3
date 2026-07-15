@@ -222,6 +222,9 @@ public class ChatServiceImpl implements ChatService {
         tradeRecordRepository.findByItemIdAndBuyerIdAndStatusIn(session.getItemId(), session.getBuyerId(),
                 Collections.singletonList(TradeRecord.TradeStatus.TRADING))
                 .orElseThrow(() -> new BusinessException(400, "双方确认线下交易后才能发送联系方式"));
+        if (messageRepository.existsBySessionIdAndMessageType(session.getId(), 4)) {
+            throw new BusinessException(400, "已发送联系方式");
+        }
     }
 
     private String resolveTradeAction(ChatMessage message) {

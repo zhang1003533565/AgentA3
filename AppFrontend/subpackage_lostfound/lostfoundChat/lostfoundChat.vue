@@ -20,19 +20,17 @@
         <scroll-view scroll-y class="chat-body" :scroll-into-view="scrollBottom" scroll-with-animation>
           <view v-for="m in chatMessages" :key="m.id" :id="'msg-' + m.id">
             <view v-if="m.type === 'sys'" class="system-msg">
-              <view v-if="m.tradeAction" class="trade-event-card" :class="tradeCardClass(m)">
+              <view v-if="cardActions(m).length" class="trade-event-card" :class="tradeCardClass(m)">
                 <view class="trade-card-top">
                   <text class="trade-actor-tag">{{ tradeActorLabel(m) }}</text>
                   <text class="trade-time">{{ formatClock(m.time) }}</text>
                 </view>
-                <view class="trade-card-main">
-                  <view class="trade-icon">{{ tradeActionIcon(m.tradeAction) }}</view>
-                  <view class="trade-copy">
-                    <view class="trade-event-title">{{ tradeActionTitle(m.tradeAction) }}</view>
-                    <view class="trade-event-desc">{{ tradeActionDesc(m) }}</view>
-                  </view>
+                <view class="trade-card-headline">
+                  <view class="trade-icon" :class="tradeIconClass(m.tradeAction)"></view>
+                  <view class="trade-event-title">{{ tradeActionTitle(m.tradeAction) }}</view>
                 </view>
-                <view v-if="cardActions(m).length" class="trade-card-actions">
+                <view class="trade-event-desc">{{ tradeActionDesc(m) }}</view>
+                <view class="trade-card-actions">
                   <button
                     v-for="action in cardActions(m)"
                     :key="action.type"
@@ -45,13 +43,12 @@
                   </button>
                 </view>
               </view>
-              <text v-else>{{ m.content }}</text>
-              <view v-if="systemStatusMeta(m)" class="system-status-card" :class="systemStatusClass(m)">
-                <view class="system-status-icon">{{ systemStatusMeta(m).icon }}</view>
-                <view class="system-status-title">{{ systemStatusMeta(m).title }}</view>
-                <view class="system-status-desc">{{ systemStatusMeta(m).desc }}</view>
-                <view class="system-status-time">{{ formatClock(m.time) }}</view>
+              <view v-else-if="systemLineText(m)" class="system-line">
+                <view class="system-line-icon" :class="systemLineIconClass(m)"></view>
+                <text class="system-line-text">{{ systemLineText(m) }}</text>
+                <text class="system-line-time">{{ formatClock(m.time) }}</text>
               </view>
+              <text v-else>{{ m.content }}</text>
             </view>
 
             <view v-else-if="m.type === 'contact'" class="contact-msg">
@@ -60,25 +57,22 @@
                   <text class="trade-actor-tag">{{ tradeActorLabel(m) }}</text>
                   <text class="trade-time">{{ formatClock(m.time) }}</text>
                 </view>
-                <view class="trade-card-main">
-                  <view class="trade-icon">☎</view>
-                  <view class="trade-copy">
-                    <view class="contact-title">联系方式</view>
-                    <view v-for="item in contactItems(m.content)" :key="item.label + item.value" class="contact-row">
-                      <view class="contact-row-main">
-                        <view class="contact-label">{{ item.label }}</view>
-                        <view class="contact-value">{{ item.value }}</view>
-                      </view>
-                      <button class="copy-btn" @click.stop="copyContact(item)">复制</button>
+                <view class="trade-card-headline">
+                  <view class="trade-icon icon-contact"></view>
+                  <view class="contact-title">联系方式</view>
+                </view>
+                <view class="contact-list">
+                  <view v-for="item in contactItems(m.content)" :key="item.label + item.value" class="contact-row">
+                    <view class="contact-row-main">
+                      <view class="contact-label">{{ item.label }}</view>
+                      <view class="contact-value">{{ item.value }}</view>
                     </view>
+                    <button class="copy-btn" @click.stop="copyContact(item)">
+                      <text class="copy-icon"></text>
+                      <text>复制</text>
+                    </button>
                   </view>
                 </view>
-              </view>
-              <view v-if="systemStatusMeta(m)" class="system-status-card" :class="systemStatusClass(m)">
-                <view class="system-status-icon">{{ systemStatusMeta(m).icon }}</view>
-                <view class="system-status-title">{{ systemStatusMeta(m).title }}</view>
-                <view class="system-status-desc">{{ systemStatusMeta(m).desc }}</view>
-                <view class="system-status-time">{{ formatClock(m.time) }}</view>
               </view>
             </view>
 
@@ -106,22 +100,20 @@
             </view>
           </view>
 
-          <view v-if="standaloneTradeCard" id="trade-action-card" class="system-msg">
-            <view class="trade-event-card action-card" :class="standaloneTradeCard.cardClass">
+          <view v-for="card in standaloneTradeCards" :key="card.type" :id="'trade-action-card-' + card.type" class="system-msg">
+            <view class="trade-event-card action-card" :class="card.cardClass">
               <view class="trade-card-top">
-                <text class="trade-actor-tag">{{ standaloneTradeCard.tag }}</text>
-                <text class="trade-time">{{ standaloneTradeCard.time }}</text>
+                <text class="trade-actor-tag">{{ card.tag }}</text>
+                <text class="trade-time">{{ card.time }}</text>
               </view>
-              <view class="trade-card-main">
-                <view class="trade-icon">{{ standaloneTradeCard.icon }}</view>
-                <view class="trade-copy">
-                  <view class="trade-event-title">{{ standaloneTradeCard.title }}</view>
-                  <view class="trade-event-desc">{{ standaloneTradeCard.desc }}</view>
-                </view>
+              <view class="trade-card-headline">
+                <view class="trade-icon" :class="card.iconClass"></view>
+                <view class="trade-event-title">{{ card.title }}</view>
               </view>
+              <view class="trade-event-desc">{{ card.desc }}</view>
               <view class="trade-card-actions">
                 <button
-                  v-for="action in standaloneTradeCard.actions"
+                  v-for="action in card.actions"
                   :key="action.type"
                   class="trade-card-btn"
                   :class="action.type"
@@ -136,8 +128,18 @@
         </scroll-view>
 
         <view class="chat-footer-new">
+          <view v-if="morePanelVisible" class="more-panel">
+            <view class="more-action" @click="sendImage">
+              <view class="more-icon image-icon"></view>
+              <text>图片</text>
+            </view>
+            <view class="more-action" :class="{ disabled: !canShareContact }" @click="sendMyContact">
+              <view class="more-icon contact-icon"></view>
+              <text>{{ savedContact ? '发送我的联系方式' : '我的联系方式' }}</text>
+            </view>
+          </view>
           <view class="chat-input-bar">
-            <view class="chat-image-btn" @click="sendImage">
+            <view class="chat-image-btn" @click="toggleMorePanel">
               <text>＋</text>
             </view>
             <input v-model="messageInput" class="chat-input-new" placeholder="输入消息..." @confirm="sendMsg" />
@@ -253,7 +255,9 @@ export default {
       acting: false,
       uploadingImage: false,
       contactVisible: false,
-      contactForm: { wechat: '', phone: '', other: '' }
+      contactForm: { wechat: '', phone: '', other: '' },
+      savedContact: null,
+      morePanelVisible: false
     }
   },
   computed: {
@@ -278,6 +282,12 @@ export default {
     tradeStatusText() {
       return this.tradeInfo ? (TRADE_TEXT[this.tradeInfo.status] || this.tradeInfo.statusText || '') : ''
     },
+    hasContactShare() {
+      return this.messages.some((message) => message.tradeAction === 'CONTACT_SHARE')
+    },
+    canShareContact() {
+      return !!(this.tradeInfo && this.tradeInfo.status === 'TRADING' && !this.hasContactShare)
+    },
     tradeActionButtons() {
       if (!this.curChat) return []
       const itemStatus = Number(this.curChat.itemStatus)
@@ -289,55 +299,76 @@ export default {
         return this.tradeInfo.isSeller ? [{ type: 'confirm', label: '确认交易' }] : []
       }
       if (this.tradeInfo.status === 'TRADING') {
-        const actions = [{ type: 'shareContact', label: '发送联系方式' }]
+        const actions = []
+        if (!this.hasContactShare) actions.push({ type: 'shareContact', label: '发送联系方式' })
         if (this.tradeInfo.isSeller) actions.push({ type: 'complete', label: '标记交易完成' })
         return actions
       }
       return []
     },
-    standaloneTradeCard() {
+    standaloneTradeCards() {
       const actions = this.tradeActionButtons
-      if (!actions.length) return null
+      if (!actions.length) return []
       const hasHostCard = this.messages.some((message) => {
         if (this.tradeInfo?.status === 'WAIT_CONFIRM') return message.tradeAction === 'TRADE_INTENT'
-        if (this.tradeInfo?.status === 'TRADING') return message.tradeAction === 'TRADE_CONFIRM'
         return false
       })
-      if (hasHostCard) return null
+      if (hasHostCard) return []
       if (!this.tradeInfo) {
-        return {
+        return [{
+          type: 'intent',
           tag: '我发起',
           time: '',
-          icon: '◌',
+          iconClass: 'icon-intent',
           title: '购买意向',
           desc: '对这个商品感兴趣，可以先向卖家表达购买意向。',
           cardClass: 'mine-card intent-card',
           actions
-        }
+        }]
       }
       if (this.tradeInfo.status === 'WAIT_CONFIRM') {
-        return {
+        return [{
+          type: 'confirm',
           tag: '对方发起',
           time: '',
-          icon: '◌',
+          iconClass: 'icon-intent',
           title: '购买意向',
           desc: '买家希望购买该商品，请确认是否进入线下交易沟通。',
           cardClass: 'other-card intent-card',
           actions
-        }
+        }]
       }
       if (this.tradeInfo.status === 'TRADING') {
-        return {
-          tag: '系统通知',
-          time: '',
-          icon: '✓',
-          title: '已确认交易',
-          desc: '双方已进入交易中，可以交换联系方式并约定线下交易。',
-          cardClass: 'system-card confirm-card',
-          actions
+        const cards = []
+        const contactAction = actions.find((action) => action.type === 'shareContact')
+        if (contactAction) {
+          cards.push({
+            type: 'contact',
+            tag: '可选辅助',
+            time: '',
+            iconClass: 'icon-contact',
+            title: '发送联系方式',
+            desc: '可选择发送微信、手机号或其他联系方式，便于线下沟通。',
+            cardClass: 'system-card contact-share-card',
+            actions: [contactAction]
+          })
         }
+        const completeAction = actions.find((action) => action.type === 'complete')
+        if (completeAction) {
+          cards.push({
+            type: 'complete',
+            tag: '卖家操作',
+            time: '',
+            iconClass: 'icon-done',
+            title: '交易完成',
+            desc: '线下交易完成后，由卖家标记该商品交易完成。',
+            cardClass: 'system-card done-card',
+            actions: [completeAction]
+          })
+        }
+        return cards
       }
-      return null
+      return []
     }
   },
   async onLoad(options) {
@@ -349,6 +380,7 @@ export default {
   methods: {
     async initChat() {
       try {
+        this.loadSavedContact()
         if (!this.sessionId && this.itemId) {
           const sessionRes = await createOrGetChatSession(this.itemId, this.targetUserId)
           this.sessionId = sessionRes?.data?.sessionId
@@ -446,6 +478,7 @@ export default {
     async sendImage() {
       if (!this.sessionId || this.uploadingImage) return
       try {
+        this.morePanelVisible = false
         const chooseRes = await new Promise((resolve, reject) => {
           uni.chooseImage({
             count: 1,
@@ -479,6 +512,9 @@ export default {
     previewImage(url) {
       if (!url) return
       uni.previewImage({ urls: [url], current: url })
+    },
+    toggleMorePanel() {
+      this.morePanelVisible = !this.morePanelVisible
     },
     async runTradeAction(type) {
       if (this.acting) return
@@ -532,6 +568,14 @@ export default {
         uni.showToast({ title: '双方确认线下交易后才能发送联系方式', icon: 'none' })
         return
       }
+      if (this.hasContactShare) {
+        uni.showToast({ title: '已发送联系方式', icon: 'none' })
+        return
+      }
+      if (this.savedContact && this.hasContactContent(this.savedContact)) {
+        await this.sendSavedContact()
+        return
+      }
       this.contactVisible = true
     },
     closeContactDialog() {
@@ -539,6 +583,10 @@ export default {
     },
     async submitContactInfo() {
       try {
+        if (this.hasContactShare) {
+          uni.showToast({ title: '已发送联系方式', icon: 'none' })
+          return
+        }
         const parts = []
         const wechat = this.contactForm.wechat.trim()
         const phone = this.contactForm.phone.trim()
@@ -550,6 +598,8 @@ export default {
           uni.showToast({ title: '请至少填写一种联系方式', icon: 'none' })
           return
         }
+        this.savedContact = { wechat, phone, other }
+        uni.setStorageSync('marketContactInfo', this.savedContact)
         await sendChatMessage({
           sessionId: Number(this.sessionId),
           content: parts.join('\n'),
@@ -557,7 +607,64 @@ export default {
         })
         uni.showToast({ title: '已发送', icon: 'success' })
         this.contactVisible = false
+        this.morePanelVisible = false
         this.contactForm = { wechat: '', phone: '', other: '' }
+        await this.loadMessages()
+      } catch (e) {
+        console.error('发送联系方式失败', e)
+        uni.showToast({ title: e?.data?.msg || e?.msg || '发送失败', icon: 'none' })
+      }
+    },
+    loadSavedContact() {
+      try {
+        const contact = uni.getStorageSync('marketContactInfo')
+        if (contact && typeof contact === 'object') {
+          this.savedContact = {
+            wechat: contact.wechat || '',
+            phone: contact.phone || '',
+            other: contact.other || ''
+          }
+          this.contactForm = { ...this.savedContact }
+        }
+      } catch (e) {
+        this.savedContact = null
+      }
+    },
+    hasContactContent(contact) {
+      return !!(contact && (contact.wechat || contact.phone || contact.other))
+    },
+    buildContactContent(contact) {
+      const parts = []
+      if (contact.wechat) parts.push(`微信：${contact.wechat}`)
+      if (contact.phone) parts.push(`手机号：${contact.phone}`)
+      if (contact.other) parts.push(`其他：${contact.other}`)
+      return parts.join('\n')
+    },
+    async sendMyContact() {
+      if (!this.canShareContact) {
+        uni.showToast({ title: this.hasContactShare ? '已发送联系方式' : '确认交易后才能发送联系方式', icon: 'none' })
+        return
+      }
+      if (!this.savedContact || !this.hasContactContent(this.savedContact)) {
+        this.contactForm = { wechat: '', phone: '', other: '' }
+        this.contactVisible = true
+        return
+      }
+      await this.sendSavedContact()
+    },
+    async sendSavedContact() {
+      if (!this.canShareContact) {
+        uni.showToast({ title: this.hasContactShare ? '已发送联系方式' : '确认交易后才能发送联系方式', icon: 'none' })
+        return
+      }
+      try {
+        await sendChatMessage({
+          sessionId: Number(this.sessionId),
+          content: this.buildContactContent(this.savedContact),
+          messageType: 4
+        })
+        this.morePanelVisible = false
+        uni.showToast({ title: '已发送', icon: 'success' })
         await this.loadMessages()
       } catch (e) {
         console.error('发送联系方式失败', e)
@@ -577,20 +684,20 @@ export default {
       const mine = !!message.isMine
       const map = {
         TRADE_INTENT: mine ? '你表达了购买意向，等待卖家确认。' : '买家希望购买该商品，请确认是否进入线下交易沟通。',
-        TRADE_CONFIRM: mine ? '你已确认线下交易，双方可继续沟通时间地点。' : '对方已确认与你交易，双方可继续沟通线下交易。',
+        TRADE_CONFIRM: '双方已进入交易阶段，可交换联系方式并约定交易地点。',
         TRADE_COMPLETE: mine ? '你已标记该商品交易完成。' : '该商品交易已完成。',
         TRADE_CANCEL: '交易已取消。'
       }
       return map[message.tradeAction] || message.content
     },
-    tradeActionIcon(action) {
+    tradeIconClass(action) {
       const map = {
-        TRADE_INTENT: '◌',
-        TRADE_CONFIRM: '✓',
-        TRADE_COMPLETE: '✓',
-        TRADE_CANCEL: '×'
+        TRADE_INTENT: 'icon-intent',
+        TRADE_CONFIRM: 'icon-confirm',
+        TRADE_COMPLETE: 'icon-done',
+        TRADE_CANCEL: 'icon-cancel'
       }
-      return map[action] || 'i'
+      return map[action] || 'icon-info'
     },
     tradeActorLabel(message) {
       if (message.tradeAction === 'CONTACT_SHARE') return message.isMine ? '我发送' : '对方发送'
@@ -614,55 +721,21 @@ export default {
       if (message.tradeAction === 'TRADE_INTENT' && this.tradeInfo.status === 'WAIT_CONFIRM' && this.tradeInfo.isSeller) {
         return [{ type: 'confirm', label: '确认交易' }]
       }
-      if (message.tradeAction === 'TRADE_CONFIRM' && this.tradeInfo.status === 'TRADING') {
-        const actions = [{ type: 'shareContact', label: '发送联系方式' }]
-        if (this.tradeInfo.isSeller) actions.push({ type: 'complete', label: '标记交易完成' })
-        return actions
-      }
+
       return []
     },
-    systemStatusMeta(message) {
-      if (message.type === 'contact') {
-        return {
-          icon: '☎',
-          title: message.isMine ? '你已发送联系方式' : '对方已发送联系方式',
-          desc: '可以通过卡片中的方式继续约定线下交易。'
-        }
-      }
+    systemLineText(message) {
       const mine = !!message.isMine
       const map = {
-        TRADE_INTENT: {
-          icon: '◌',
-          title: mine ? '购买意向已发送' : '收到购买意向',
-          desc: mine ? '等待对方确认后即可进入线下交易沟通。' : '对方希望购买该商品，请在卡片中确认。'
-        },
-        TRADE_CONFIRM: {
-          icon: '✓',
-          title: mine ? '你已确认交易' : '对方已确认与你交易',
-          desc: '双方已进入交易中，可交换联系方式并约定时间地点。'
-        },
-        TRADE_COMPLETE: {
-          icon: '✓',
-          title: '交易完成',
-          desc: '该商品交易已完成。'
-        },
-        TRADE_CANCEL: {
-          icon: '×',
-          title: '交易取消',
-          desc: '本次交易沟通已取消。'
-        }
+        TRADE_INTENT: mine ? '你表达了购买意向' : '买家表达了购买意向',
+        TRADE_CONFIRM: mine ? '你已确认线下交易' : '对方已确认与你交易',
+        TRADE_COMPLETE: '商品交易已完成',
+        TRADE_CANCEL: '交易已取消'
       }
-      return map[message.tradeAction] || null
+      return map[message.tradeAction] || ''
     },
-    systemStatusClass(message) {
-      const map = {
-        TRADE_INTENT: 'status-intent',
-        TRADE_CONFIRM: 'status-confirm',
-        CONTACT_SHARE: 'status-contact',
-        TRADE_COMPLETE: 'status-done',
-        TRADE_CANCEL: 'status-cancel'
-      }
-      return map[message.tradeAction] || (message.type === 'contact' ? 'status-contact' : '')
+    systemLineIconClass(message) {
+      return this.tradeIconClass(message.tradeAction)
     },
     contactItems(content) {
       return String(content || '').split(/\n/).filter(Boolean).map((line) => {
@@ -889,10 +962,10 @@ export default {
   font-size: 20rpx;
 }
 
-.trade-card-main {
+.trade-card-headline {
   display: flex;
-  gap: 18rpx;
-  align-items: flex-start;
+  align-items: center;
+  gap: 16rpx;
 }
 
 .trade-icon {
@@ -932,6 +1005,182 @@ export default {
   color: #65788c;
 }
 
+
+.trade-icon::before,
+.trade-icon::after,
+.system-line-icon::before,
+.system-line-icon::after {
+  content: '';
+  position: absolute;
+  box-sizing: border-box;
+}
+
+.trade-icon,
+.system-line-icon {
+  position: relative;
+}
+
+.icon-intent::before {
+  left: 17rpx;
+  top: 22rpx;
+  width: 28rpx;
+  height: 24rpx;
+  border: 3rpx solid currentColor;
+  border-radius: 5rpx;
+}
+
+.icon-intent::after {
+  left: 23rpx;
+  top: 14rpx;
+  width: 16rpx;
+  height: 14rpx;
+  border: 3rpx solid currentColor;
+  border-bottom: 0;
+  border-radius: 14rpx 14rpx 0 0;
+}
+
+.system-line-icon.icon-intent::before {
+  left: 5rpx;
+  top: 10rpx;
+  width: 18rpx;
+  height: 14rpx;
+  border-width: 2rpx;
+  border-radius: 4rpx;
+}
+
+.system-line-icon.icon-intent::after {
+  left: 9rpx;
+  top: 5rpx;
+  width: 10rpx;
+  height: 8rpx;
+  border-width: 2rpx;
+}
+
+.icon-confirm::before,
+.icon-done::before {
+  left: 18rpx;
+  top: 15rpx;
+  width: 26rpx;
+  height: 30rpx;
+  border: 3rpx solid currentColor;
+  border-radius: 9rpx 9rpx 12rpx 12rpx;
+}
+
+.icon-confirm::after,
+.icon-done::after {
+  left: 26rpx;
+  top: 26rpx;
+  width: 15rpx;
+  height: 8rpx;
+  border-left: 3rpx solid currentColor;
+  border-bottom: 3rpx solid currentColor;
+  transform: rotate(-45deg);
+}
+
+.system-line-icon.icon-confirm::before,
+.system-line-icon.icon-done::before {
+  left: 6rpx;
+  top: 3rpx;
+  width: 16rpx;
+  height: 20rpx;
+  border-width: 2rpx;
+  border-radius: 6rpx 6rpx 8rpx 8rpx;
+}
+
+.system-line-icon.icon-confirm::after,
+.system-line-icon.icon-done::after {
+  left: 11rpx;
+  top: 11rpx;
+  width: 9rpx;
+  height: 5rpx;
+  border-left-width: 2rpx;
+  border-bottom-width: 2rpx;
+}
+
+.icon-contact::before {
+  left: 18rpx;
+  top: 15rpx;
+  width: 26rpx;
+  height: 34rpx;
+  border: 3rpx solid currentColor;
+  border-radius: 16rpx;
+  transform: rotate(-22deg);
+}
+
+.icon-contact::after {
+  left: 26rpx;
+  top: 20rpx;
+  width: 10rpx;
+  height: 24rpx;
+  border-top: 3rpx solid currentColor;
+  border-bottom: 3rpx solid currentColor;
+  transform: rotate(-22deg);
+}
+
+.system-line-icon.icon-contact::before {
+  left: 7rpx;
+  top: 3rpx;
+  width: 14rpx;
+  height: 21rpx;
+  border-width: 2rpx;
+  border-radius: 10rpx;
+  transform: rotate(-22deg);
+}
+
+.system-line-icon.icon-contact::after {
+  left: 11rpx;
+  top: 6rpx;
+  width: 6rpx;
+  height: 15rpx;
+  border-top-width: 2rpx;
+  border-bottom-width: 2rpx;
+  transform: rotate(-22deg);
+}
+
+.icon-cancel::before,
+.icon-cancel::after {
+  left: 30rpx;
+  top: 17rpx;
+  width: 3rpx;
+  height: 28rpx;
+  background: currentColor;
+  border-radius: 999rpx;
+}
+
+.icon-cancel::before {
+  transform: rotate(45deg);
+}
+
+.icon-cancel::after {
+  transform: rotate(-45deg);
+}
+
+.system-line-icon.icon-cancel::before,
+.system-line-icon.icon-cancel::after {
+  left: 13rpx;
+  top: 5rpx;
+  width: 2rpx;
+  height: 18rpx;
+  background: currentColor;
+  border-radius: 999rpx;
+}
+
+.icon-info::before {
+  left: 27rpx;
+  top: 24rpx;
+  width: 8rpx;
+  height: 20rpx;
+  border-left: 3rpx solid currentColor;
+}
+
+.icon-info::after {
+  left: 26rpx;
+  top: 17rpx;
+  width: 6rpx;
+  height: 6rpx;
+  border-radius: 50%;
+  background: currentColor;
+}
 .trade-copy {
   flex: 1;
   min-width: 0;
@@ -944,12 +1193,15 @@ export default {
   font-weight: 900;
 }
 
-.trade-event-desc,
-.contact-line {
-  margin-top: 10rpx;
+.trade-event-desc {
+  margin-top: 14rpx;
   color: #65788c;
   font-size: 23rpx;
   line-height: 1.55;
+}
+
+.contact-list {
+  margin-top: 12rpx;
 }
 
 .trade-card-actions {
@@ -1000,10 +1252,13 @@ export default {
   display: flex;
   align-items: center;
   gap: 16rpx;
-  margin-top: 16rpx;
-  padding: 16rpx;
-  border-radius: 16rpx;
-  background: #f6f9fc;
+  padding: 18rpx 0;
+  border-bottom: 1rpx solid rgba(101, 120, 140, 0.14);
+}
+
+.contact-row:last-child {
+  border-bottom: none;
+  padding-bottom: 4rpx;
 }
 
 .contact-row-main {
@@ -1013,96 +1268,104 @@ export default {
 
 .contact-label {
   color: #7d8c9c;
-  font-size: 21rpx;
+  font-size: 22rpx;
   font-weight: 800;
 }
 
 .contact-value {
-  margin-top: 6rpx;
+  margin-top: 8rpx;
   color: #172331;
-  font-size: 26rpx;
-  font-weight: 800;
+  font-size: 30rpx;
+  font-weight: 900;
   word-break: break-all;
 }
 
 .copy-btn {
-  width: 92rpx;
-  height: 48rpx;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6rpx;
+  min-width: 104rpx;
+  height: 50rpx;
   margin: 0;
-  padding: 0;
+  padding: 0 16rpx;
   border-radius: 999rpx;
-  background: #edf7f1;
+  background: transparent;
+  border: 1rpx solid rgba(79, 138, 105, 0.34);
   color: #4f8a69;
   font-size: 22rpx;
   font-weight: 900;
-  line-height: 48rpx;
+  line-height: 50rpx;
   flex-shrink: 0;
+}
+
+.copy-icon {
+  position: relative;
+  width: 20rpx;
+  height: 20rpx;
+  flex-shrink: 0;
+}
+
+.copy-icon::before,
+.copy-icon::after {
+  content: '';
+  position: absolute;
+  width: 12rpx;
+  height: 12rpx;
+  border: 2rpx solid currentColor;
+  border-radius: 3rpx;
+  box-sizing: border-box;
+}
+
+.copy-icon::before {
+  left: 2rpx;
+  top: 5rpx;
+}
+
+.copy-icon::after {
+  left: 6rpx;
+  top: 1rpx;
+  background: #fff;
 }
 
 .copy-btn::after {
   border: none;
 }
 
-.system-status-card {
-  width: 470rpx;
-  margin-top: 14rpx;
-  padding: 20rpx 22rpx;
-  border-radius: 22rpx;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 4rpx 14rpx rgba(43, 68, 94, 0.06);
-  text-align: center;
+.system-line {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 620rpx;
+  padding: 10rpx 18rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 3rpx 10rpx rgba(43, 68, 94, 0.05);
+  color: #546374;
   box-sizing: border-box;
 }
 
-.system-status-icon {
-  width: 54rpx;
-  height: 54rpx;
-  margin: 0 auto 10rpx;
-  border-radius: 18rpx;
-  background: #edf4fb;
-  color: #5c7894;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 30rpx;
-  font-weight: 900;
+.system-line-icon {
+  position: relative;
+  width: 28rpx;
+  height: 28rpx;
+  margin-right: 10rpx;
+  flex-shrink: 0;
+  color: #1f2a36;
 }
 
-.system-status-title {
-  color: #172331;
-  font-size: 24rpx;
-  font-weight: 900;
+.system-line-text {
+  font-size: 22rpx;
+  line-height: 1.35;
+  color: #546374;
 }
 
-.system-status-desc {
-  margin-top: 8rpx;
-  color: #65788c;
-  font-size: 21rpx;
-  line-height: 1.45;
-}
-
-.system-status-time {
-  margin-top: 10rpx;
-  color: #9aa9b8;
+.system-line-time {
+  margin-left: 12rpx;
   font-size: 19rpx;
+  color: #9aa9b8;
+  flex-shrink: 0;
 }
-
-.status-confirm .system-status-icon {
-  background: #fbf1e6;
-  color: #b87535;
-}
-
-.status-contact .system-status-icon,
-.status-done .system-status-icon {
-  background: #edf7f1;
-  color: #4f8a69;
-}
-
-.status-cancel .system-status-icon {
-  background: #f2f6fa;
-  color: #65788c;
-}
-
 .msg {
   margin-bottom: 32rpx;
   display: flex;
@@ -1196,6 +1459,88 @@ export default {
   z-index: 10;
 }
 
+.more-panel {
+  display: flex;
+  gap: 18rpx;
+  margin-bottom: 14rpx;
+  padding: 18rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 6rpx 18rpx rgba(43, 68, 94, 0.08);
+}
+
+.more-action {
+  width: 152rpx;
+  height: 120rpx;
+  border-radius: 18rpx;
+  background: #f6f9fc;
+  color: #172331;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  font-size: 22rpx;
+  font-weight: 800;
+}
+
+.more-action.disabled {
+  color: #9aa9b8;
+  opacity: 0.62;
+}
+
+.more-icon {
+  position: relative;
+  width: 38rpx;
+  height: 38rpx;
+  color: #1f2a36;
+}
+
+.more-icon::before,
+.more-icon::after {
+  content: '';
+  position: absolute;
+  box-sizing: border-box;
+}
+
+.image-icon::before {
+  left: 4rpx;
+  top: 7rpx;
+  width: 30rpx;
+  height: 24rpx;
+  border: 3rpx solid currentColor;
+  border-radius: 6rpx;
+}
+
+.image-icon::after {
+  left: 10rpx;
+  top: 20rpx;
+  width: 20rpx;
+  height: 10rpx;
+  border-left: 3rpx solid currentColor;
+  border-bottom: 3rpx solid currentColor;
+  transform: skew(-28deg);
+}
+
+.contact-icon::before {
+  left: 10rpx;
+  top: 5rpx;
+  width: 18rpx;
+  height: 28rpx;
+  border: 3rpx solid currentColor;
+  border-radius: 12rpx;
+  transform: rotate(-22deg);
+}
+
+.contact-icon::after {
+  left: 15rpx;
+  top: 10rpx;
+  width: 8rpx;
+  height: 18rpx;
+  border-top: 3rpx solid currentColor;
+  border-bottom: 3rpx solid currentColor;
+  transform: rotate(-22deg);
+}
 
 .chat-input-bar {
   display: flex;

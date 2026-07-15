@@ -14,6 +14,8 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
 
     void deleteBySessionId(Long sessionId);
 
+    boolean existsBySessionIdAndMessageType(Long sessionId, Integer messageType);
+
     Page<ChatMessage> findBySessionIdOrderByCreateTimeDesc(Long sessionId, Pageable pageable);
 
     @Modifying
