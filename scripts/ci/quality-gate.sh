@@ -69,11 +69,13 @@ if [[ "${#app_tests[@]}" -eq 0 ]]; then
 fi
 node --test "${app_tests[@]}"
 
-echo "[5/6] Submission knowledge and factual-evaluation contracts"
+echo "[5/6] Submission knowledge, factual-evaluation and load-test contracts"
 "$python_exec" scripts/knowledge/test_validate_python_course.py
 "$python_exec" scripts/eval/test_run_factual_eval.py
+"$python_exec" scripts/eval/test_run_load.py
 "$python_exec" scripts/knowledge/validate_python_course.py
 "$python_exec" scripts/eval/run_factual_eval.py --validate-only
+"$python_exec" scripts/eval/run_load.py --validate-only
 
 echo "[6/6] Docker Compose submission manifest"
 docker compose --env-file deploy/.env.example -f deploy/compose.submission.yml config --quiet

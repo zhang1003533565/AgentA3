@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "status": "not_run",
+  "passed": null,
+  "reason": "missing LOAD_ENDPOINT or LOAD_TOKEN; no live request was attempted",
+  "attemptedAt": null,
+  "plan": {
+    "totalRequests": 50,
+    "concurrency": 5,
+    "goldSha256": "d4e87e688c98b9ea85b9579cf6bab0bc029742370fe52ceb56698476a96e9b7d"
+  },
+  "thresholds": {
+    "minSuccessRate": 0.95,
+    "maxErrorRate": 0.05,
+    "maxP95LatencyMs": 60000
+  },
+  "metrics": {
+    "throughputRps": null,
+    "successRate": null,
+    "errorRate": null,
+    "p50LatencyMs": null,
+    "p95LatencyMs": null,
+    "p99LatencyMs": null,
+    "maxLatencyMs": null
+  },
+  "statusCounts": {},
+  "requests": []
+}
