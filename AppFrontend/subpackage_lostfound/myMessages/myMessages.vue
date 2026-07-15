@@ -17,7 +17,7 @@
             <view class="notify-icon">交</view>
             <view class="notify-body">
               <view class="notify-name">交易通知</view>
-              <view class="notify-desc">查看拍下、确认、完成和取消交易的系统消息</view>
+              <view class="notify-desc">查看购买意向、交易确认、联系方式和完成消息</view>
             </view>
             <view v-if="tradeUnread" class="msbadge">{{ tradeUnread }}</view>
           </view>

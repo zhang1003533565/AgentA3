@@ -105,7 +105,11 @@ public class ChatServiceImpl implements ChatService {
         msg.setSessionId(req.getSessionId());
         msg.setSenderId(senderId);
         msg.setContent(req.getContent());
-        msg.setMessageType(normalizeUserMessageType(req.getMessageType()));
+        Integer messageType = normalizeUserMessageType(req.getMessageType());
+        if (Integer.valueOf(4).equals(messageType)) {
+            ensureContactShareAllowed(session);
+        }
+        msg.setMessageType(messageType);
         msg = messageRepository.save(msg);
 
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
@@ -191,7 +195,7 @@ public class ChatServiceImpl implements ChatService {
     public void markTradeNotificationRead(Long id, Long userId) {
         ChatMessage message = messageRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(404, "交易通知不存在"));
-        if (!Integer.valueOf(0).equals(message.getMessageType())) {
+        if (!Integer.valueOf(0).equals(message.getMessageType()) && !Integer.valueOf(4).equals(message.getMessageType())) {
             throw new BusinessException(400, "不是交易通知");
         }
         if (message.getSession() == null ||
@@ -208,10 +212,28 @@ public class ChatServiceImpl implements ChatService {
 
     private Integer normalizeUserMessageType(Integer messageType) {
         if (messageType == null) return 1;
-        if (messageType < 1 || messageType > 3) {
-            throw new BusinessException(400, "普通聊天消息类型只能是1-文本、2-图片、3-位置");
+        if (messageType < 1 || messageType > 4) {
+            throw new BusinessException(400, "普通聊天消息类型只能是1-文本、2-图片、3-位置、4-联系方式");
         }
         return messageType;
+    }
+
+    private void ensureContactShareAllowed(ChatSession session) {
+        tradeRecordRepository.findByItemIdAndBuyerIdAndStatusIn(session.getItemId(), session.getBuyerId(),
+                Collections.singletonList(TradeRecord.TradeStatus.TRADING))
+                .orElseThrow(() -> new BusinessException(400, "双方确认线下交易后才能发送联系方式"));
+    }
+
+    private String resolveTradeAction(ChatMessage message) {
+        if (message == null) return null;
+        if (Integer.valueOf(4).equals(message.getMessageType())) return "CONTACT_SHARE";
+        if (!Integer.valueOf(0).equals(message.getMessageType())) return null;
+        String content = message.getContent();
+        if ("你表达了购买意向，等待对方确认".equals(content)) return "TRADE_INTENT";
+        if ("双方已确认线下交易，建议尽快约定时间地点".equals(content)) return "TRADE_CONFIRM";
+        if ("该商品交易已完成".equals(content)) return "TRADE_COMPLETE";
+        if ("交易已取消".equals(content)) return "TRADE_CANCEL";
+        return null;
     }
 
     private ChatDTO.SessionVO toSessionVO(ChatSession s, Long currentUserId) {
@@ -287,6 +309,7 @@ public class ChatServiceImpl implements ChatService {
         vo.setSenderId(m.getSenderId());
         vo.setContent(m.getContent());
         vo.setMessageType(m.getMessageType());
+        vo.setTradeAction(resolveTradeAction(m));
         vo.setIsRead(!m.getSenderId().equals(currentUserId) && Boolean.FALSE.equals(m.getIsRead()));
         vo.setIsMine(m.getSenderId().equals(currentUserId));
         vo.setCreateTime(m.getCreateTime() != null ? m.getCreateTime().format(FMT) : null);
@@ -302,6 +325,7 @@ public class ChatServiceImpl implements ChatService {
         vo.setId(message.getId());
         vo.setSessionId(message.getSessionId());
         vo.setContent(message.getContent());
+        vo.setTradeAction(resolveTradeAction(message));
         vo.setCreateTime(message.getCreateTime() != null ? message.getCreateTime().format(FMT) : null);
         vo.setIsRead(message.getSenderId().equals(currentUserId) || Boolean.TRUE.equals(message.getIsRead()));
 

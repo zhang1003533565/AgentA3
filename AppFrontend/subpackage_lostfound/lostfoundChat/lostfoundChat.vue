@@ -14,26 +14,26 @@
               <text class="item-status">{{ itemStatusText }}</text>
               <text v-if="tradeInfo" class="trade-status">{{ tradeStatusText }}</text>
             </view>
-            <view v-if="tradeActionButtons.length" class="trade-actions" @click.stop>
-              <button
-                v-for="action in tradeActionButtons"
-                :key="action.type"
-                class="trade-btn"
-                :class="action.type"
-                :disabled="acting"
-                @click="runTradeAction(action.type)"
-              >
-                {{ action.label }}
-              </button>
-            </view>
           </view>
         </view>
 
         <scroll-view scroll-y class="chat-body" :scroll-into-view="scrollBottom" scroll-with-animation>
           <view v-for="m in chatMessages" :key="m.id" :id="'msg-' + m.id">
             <view v-if="m.type === 'sys'" class="system-msg">
-              <text>{{ m.content }}</text>
+              <view v-if="m.tradeAction" class="trade-event-card">
+                <view class="trade-event-title">{{ tradeActionTitle(m.tradeAction) }}</view>
+                <view class="trade-event-desc">{{ tradeActionDesc(m.tradeAction, m.content) }}</view>
+              </view>
+              <text v-else>{{ m.content }}</text>
             </view>
+
+            <view v-else-if="m.type === 'contact'" class="contact-msg">
+              <view class="contact-card">
+                <view class="contact-title">联系方式</view>
+                <view v-for="line in contactLines(m.content)" :key="line" class="contact-line">{{ line }}</view>
+              </view>
+            </view>
+
             <view v-else class="msg" :class="m.type">
               <view v-if="m.type === 's'" class="msg-content-s">
                 <view class="msg-bubble-group">
@@ -60,6 +60,18 @@
         </scroll-view>
 
         <view class="chat-footer-new">
+          <view v-if="tradeActionButtons.length" class="quick-actions">
+            <button
+              v-for="action in tradeActionButtons"
+              :key="action.type"
+              class="quick-action-btn"
+              :class="action.type"
+              :disabled="acting"
+              @click="runTradeAction(action.type)"
+            >
+              {{ action.label }}
+            </button>
+          </view>
           <view class="chat-input-bar">
             <view class="chat-image-btn" @click="sendImage">
               <text>＋</text>
@@ -67,6 +79,19 @@
             <input v-model="messageInput" class="chat-input-new" placeholder="输入消息..." @confirm="sendMsg" />
             <view class="chat-send-btn" @click="sendMsg">
               <text>➤</text>
+            </view>
+          </view>
+        </view>
+
+        <view v-if="contactVisible" class="contact-mask" @click="closeContactDialog">
+          <view class="contact-dialog" @click.stop>
+            <view class="dialog-title">发送联系方式</view>
+            <input v-model="contactForm.wechat" class="contact-input" placeholder="微信" />
+            <input v-model="contactForm.phone" class="contact-input" placeholder="手机号" type="number" />
+            <input v-model="contactForm.other" class="contact-input" placeholder="其他联系方式" />
+            <view class="dialog-actions">
+              <button class="dialog-btn ghost" @click="closeContactDialog">取消</button>
+              <button class="dialog-btn primary" @click="submitContactInfo">发送</button>
             </view>
           </view>
         </view>
@@ -78,13 +103,13 @@
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import {
-  cancelTradeRecord,
   completeTradeRecord,
   confirmTradeRecord,
   createOrGetChatSession,
   getChatMessages,
   getChatSessions,
   getTradeRecords,
+  reserveSecondhandItem,
   sendChatMessage
 } from '@/api/secondhand'
 import { getUploadErrorMessage, uploadImage } from '@/utils/upload'
@@ -114,6 +139,17 @@ function normalizeMessage(item) {
     return {
       id: item.id,
       type: 'sys',
+      tradeAction: item.tradeAction || '',
+      content: item.content,
+      time: item.createTime || ''
+    }
+  }
+  if (Number(item.messageType) === 4) {
+    return {
+      id: item.id,
+      type: 'contact',
+      messageType: 4,
+      tradeAction: item.tradeAction || 'CONTACT_SHARE',
       content: item.content,
       time: item.createTime || ''
     }
@@ -128,8 +164,8 @@ function normalizeMessage(item) {
 }
 
 const TRADE_TEXT = {
-  WAIT_CONFIRM: '等待对方确认交易意向',
-  TRADING: '双方已确认，等待线下交易',
+  WAIT_CONFIRM: '购买意向待确认',
+  TRADING: '双方已确认线下交易',
   COMPLETED: '交易已完成',
   CANCELLED: '交易已取消'
 }
@@ -149,7 +185,9 @@ export default {
       messageInput: '',
       scrollBottom: '',
       acting: false,
-      uploadingImage: false
+      uploadingImage: false,
+      contactVisible: false,
+      contactForm: { wechat: '', phone: '', other: '' }
     }
   },
   computed: {
@@ -166,7 +204,7 @@ export default {
       if (this.curChat?.itemStatusText) return this.curChat.itemStatusText
       const status = Number(this.curChat?.itemStatus)
       if (status === 2) return '出售中'
-      if (status === 5) return '沟通中'
+      if (status === 5) return '交易中'
       if (status === 3) return '已完成'
       if (status === 4) return '已下架'
       return ''
@@ -175,16 +213,19 @@ export default {
       return this.tradeInfo ? (TRADE_TEXT[this.tradeInfo.status] || this.tradeInfo.statusText || '') : ''
     },
     tradeActionButtons() {
-      if (!this.tradeInfo) return []
+      if (!this.curChat) return []
+      const itemStatus = Number(this.curChat.itemStatus)
+      if (!this.tradeInfo) {
+        if (!this.curChat.isSeller && itemStatus === 2) return [{ type: 'intent', label: '我想购买' }]
+        return []
+      }
       if (this.tradeInfo.status === 'WAIT_CONFIRM') {
         return this.tradeInfo.isSeller ? [{ type: 'confirm', label: '确认交易' }] : []
       }
-	      if (this.tradeInfo.status === 'TRADING') {
-	        return [
-	          { type: 'shareContact', label: '发送联系方式' },
-	          { type: 'complete', label: '完成交易' },
-	          { type: 'cancel', label: '取消交易' }
-	        ]
+      if (this.tradeInfo.status === 'TRADING') {
+        const actions = [{ type: 'shareContact', label: '发送联系方式' }]
+        if (this.tradeInfo.isSeller) actions.push({ type: 'complete', label: '标记交易完成' })
+        return actions
       }
       return []
     }
@@ -327,21 +368,22 @@ export default {
     },
     previewImage(url) {
       if (!url) return
-      uni.previewImage({
-        urls: [url],
-        current: url
-      })
+      uni.previewImage({ urls: [url], current: url })
     },
     async runTradeAction(type) {
-      if (!this.tradeInfo || !this.tradeInfo.id || this.acting) return
+      if (this.acting) return
+      if (type === 'intent') {
+        await this.expressPurchaseIntent()
+        return
+      }
       if (type === 'shareContact') {
         await this.sendContactInfo()
         return
       }
+      if (!this.tradeInfo || !this.tradeInfo.id) return
       const actions = {
         confirm: confirmTradeRecord,
-        complete: completeTradeRecord,
-        cancel: cancelTradeRecord
+        complete: completeTradeRecord
       }
       const action = actions[type]
       if (!action) return
@@ -354,41 +396,88 @@ export default {
         await this.loadMessages()
       } catch (e) {
         console.error('交易操作失败', e)
-        uni.showToast({ title: '操作失败', icon: 'none' })
+        uni.showToast({ title: e?.data?.msg || e?.msg || '操作失败', icon: 'none' })
+      } finally {
+        this.acting = false
+      }
+    },
+    async expressPurchaseIntent() {
+      if (!this.curChat || !this.curChat.itemId || this.acting) return
+      try {
+        this.acting = true
+        await reserveSecondhandItem(this.curChat.itemId)
+        uni.showToast({ title: '购买意向已发送', icon: 'success' })
+        await this.loadSession()
+        await this.loadTradeInfo()
+        await this.loadMessages()
+      } catch (e) {
+        console.error('发送购买意向失败', e)
+        uni.showToast({ title: e?.data?.msg || e?.msg || '发送失败', icon: 'none' })
       } finally {
         this.acting = false
       }
     },
     async sendContactInfo() {
+      if (!this.tradeInfo || this.tradeInfo.status !== 'TRADING') {
+        uni.showToast({ title: '双方确认线下交易后才能发送联系方式', icon: 'none' })
+        return
+      }
+      this.contactVisible = true
+    },
+    closeContactDialog() {
+      this.contactVisible = false
+    },
+    async submitContactInfo() {
       try {
-        const info = uni.getStorageSync('userInfo')
-        const parsed = typeof info === 'string' ? JSON.parse(info) : (info || {})
-        const phone = parsed.phone || parsed.mobile || ''
-        const wechat = parsed.wechat || parsed.wechatId || ''
         const parts = []
-        if (wechat) parts.push(`微信: ${wechat}`)
-        if (phone) parts.push(`手机: ${phone}`)
+        const wechat = this.contactForm.wechat.trim()
+        const phone = this.contactForm.phone.trim()
+        const other = this.contactForm.other.trim()
+        if (wechat) parts.push(`微信：${wechat}`)
+        if (phone) parts.push(`手机号：${phone}`)
+        if (other) parts.push(`其他：${other}`)
         if (!parts.length) {
-          uni.showToast({ title: '请先在个人资料中设置联系方式', icon: 'none' })
+          uni.showToast({ title: '请至少填写一种联系方式', icon: 'none' })
           return
         }
         await sendChatMessage({
-          sessionId: this.sessionId,
+          sessionId: Number(this.sessionId),
           content: parts.join('\n'),
           messageType: 4
         })
         uni.showToast({ title: '已发送', icon: 'success' })
+        this.contactVisible = false
+        this.contactForm = { wechat: '', phone: '', other: '' }
         await this.loadMessages()
       } catch (e) {
         console.error('发送联系方式失败', e)
-        uni.showToast({ title: '发送失败', icon: 'none' })
+        uni.showToast({ title: e?.data?.msg || e?.msg || '发送失败', icon: 'none' })
       }
+    },
+    tradeActionTitle(action) {
+      const map = {
+        TRADE_INTENT: '购买意向',
+        TRADE_CONFIRM: '已确认交易',
+        TRADE_COMPLETE: '交易完成',
+        TRADE_CANCEL: '交易取消'
+      }
+      return map[action] || '交易状态'
+    },
+    tradeActionDesc(action, content) {
+      const map = {
+        TRADE_INTENT: '你表达了购买意向，等待对方确认',
+        TRADE_CONFIRM: '双方已确认线下交易，建议尽快约定时间地点',
+        TRADE_COMPLETE: '该商品交易已完成',
+        TRADE_CANCEL: '交易已取消'
+      }
+      return map[action] || content
+    },
+    contactLines(content) {
+      return String(content || '').split(/\n/).filter(Boolean)
     },
     goProduct() {
       if (!this.curChat || !this.curChat.itemId) return
-      uni.navigateTo({
-        url: `/subpackage_lostfound/lostfoundDetail/lostfoundDetail?id=${this.curChat.itemId}`
-      })
+      uni.navigateTo({ url: `/subpackage_lostfound/lostfoundDetail/lostfoundDetail?id=${this.curChat.itemId}` })
     }
   }
 }
@@ -480,56 +569,24 @@ export default {
 }
 
 .trade-status {
-  background: rgba(242, 144, 64, 0.14);
-  color: #c46b17;
-}
-
-.trade-actions {
-  display: flex;
-  gap: 12rpx;
-  margin-top: 12rpx;
-}
-
-.trade-btn {
-  height: 48rpx;
-  margin: 0;
-  padding: 0 18rpx;
-  border-radius: 999rpx;
-  background: #f1f6fa;
-  color: #5c7894;
-  font-size: 21rpx;
-  font-weight: 800;
-  line-height: 48rpx;
-}
-
-.trade-btn.confirm,
-.trade-btn.complete {
-  background: #e9f3ed;
-  color: #2f8a58;
-}
-
-.trade-btn.cancel {
-  background: #f6eeee;
-  color: #b45a5a;
-}
-
-.trade-btn::after {
-  border: none;
+  background: rgba(92, 138, 184, 0.14);
+  color: #4f7599;
 }
 
 .chat-body {
   height: calc(100vh - 350rpx);
-  padding: 28rpx 0 0;
+  padding: 28rpx 0 170rpx;
   box-sizing: border-box;
 }
 
-.system-msg {
+.system-msg,
+.contact-msg {
   display: flex;
   justify-content: center;
   margin-bottom: 28rpx;
 }
 
-.system-msg text {
+.system-msg > text {
   max-width: 560rpx;
   padding: 10rpx 20rpx;
   border-radius: 999rpx;
@@ -537,6 +594,32 @@ export default {
   color: #7d8c9c;
   font-size: 22rpx;
   line-height: 1.45;
+}
+
+.trade-event-card,
+.contact-card {
+  width: 560rpx;
+  padding: 22rpx 24rpx;
+  border-radius: 20rpx;
+  background: #fff;
+  box-shadow: 0 4rpx 16rpx rgba(43, 68, 94, 0.08);
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.trade-event-title,
+.contact-title {
+  color: #172331;
+  font-size: 27rpx;
+  font-weight: 900;
+}
+
+.trade-event-desc,
+.contact-line {
+  margin-top: 10rpx;
+  color: #65788c;
+  font-size: 23rpx;
+  line-height: 1.5;
 }
 
 .msg {
@@ -622,19 +705,54 @@ export default {
 .chat-footer-new {
   position: fixed;
   bottom: 0;
-  left: 0;
-  right: 0;
+  left: 50%;
+  width: 100%;
+  max-width: 430px;
+  transform: translateX(-50%);
   background: rgba(232, 240, 248, 0.98);
-  padding: 16rpx 32rpx 24rpx;
-  border-top: none;
+  padding: 14rpx 32rpx 24rpx;
+  box-sizing: border-box;
   z-index: 10;
+}
+
+.quick-actions {
+  display: flex;
+  justify-content: center;
+  gap: 14rpx;
+  margin-bottom: 14rpx;
+  flex-wrap: wrap;
+}
+
+.quick-action-btn {
+  height: 56rpx;
+  margin: 0;
+  padding: 0 26rpx;
+  border-radius: 999rpx;
+  background: #fff;
+  color: #5c7894;
+  border: 1rpx solid #d7e4ef;
+  font-size: 23rpx;
+  font-weight: 800;
+  line-height: 56rpx;
+}
+
+.quick-action-btn.intent,
+.quick-action-btn.confirm,
+.quick-action-btn.complete {
+  background: #7ba8d4;
+  color: #fff;
+  border-color: #7ba8d4;
+}
+
+.quick-action-btn::after {
+  border: none;
 }
 
 .chat-input-bar {
   display: flex;
   align-items: center;
   gap: 16rpx;
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.86);
   border-radius: 999rpx;
   padding: 8rpx 8rpx 8rpx 24rpx;
 }
@@ -671,5 +789,69 @@ export default {
   justify-content: center;
   font-size: 28rpx;
   flex-shrink: 0;
+}
+
+.contact-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17, 28, 43, 0.28);
+}
+
+.contact-dialog {
+  width: 620rpx;
+  padding: 30rpx;
+  border-radius: 24rpx;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.dialog-title {
+  color: #172331;
+  font-size: 31rpx;
+  font-weight: 900;
+  margin-bottom: 22rpx;
+}
+
+.contact-input {
+  height: 78rpx;
+  margin-bottom: 16rpx;
+  padding: 0 22rpx;
+  border-radius: 18rpx;
+  background: #f2f6fa;
+  font-size: 27rpx;
+  box-sizing: border-box;
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 8rpx;
+}
+
+.dialog-btn {
+  flex: 1;
+  height: 76rpx;
+  border-radius: 20rpx;
+  font-size: 27rpx;
+  font-weight: 900;
+  line-height: 76rpx;
+}
+
+.dialog-btn::after {
+  border: none;
+}
+
+.dialog-btn.ghost {
+  background: #f2f6fa;
+  color: #5c7894;
+}
+
+.dialog-btn.primary {
+  background: #7ba8d4;
+  color: #fff;
 }
 </style>

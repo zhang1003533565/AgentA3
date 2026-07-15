@@ -393,7 +393,7 @@ export default {
       return this.isPurchaseRecord(item)
     },
     statusActionText(item) {
-      if (!this.isCurrentUserPublisher(item)) return '查看订单'
+      if (!this.isCurrentUserPublisher(item)) return '查看交易'
       if (item.status === 'online') return '下架'
       if (item.status === 'offline') return '上架'
       if (item.status === 'reserved') return '取消交易'
@@ -415,7 +415,7 @@ export default {
       uni.showToast({ title: '功能开发中', icon: 'none' })
     },
     openOrder() {
-      uni.showToast({ title: '订单功能开发中', icon: 'none' })
+      uni.showToast({ title: '请在聊天中查看交易沟通', icon: 'none' })
     },
     async cancelTrade(item) {
       if (!item.tradeId) {

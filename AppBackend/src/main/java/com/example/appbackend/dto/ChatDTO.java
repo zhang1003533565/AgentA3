@@ -42,6 +42,7 @@ public class ChatDTO {
         private String senderAvatar;
         private String content;
         private Integer messageType;
+        private String tradeAction;
         private Boolean isRead;
         private Boolean isMine;
         private String createTime;
@@ -59,7 +60,7 @@ public class ChatDTO {
         @Schema(description = "消息内容", example = "您好，请问还在吗？")
         private String content;
 
-        @Schema(description = "消息类型：1-文本 2-图片 3-位置，默认1")
+        @Schema(description = "消息类型：1-文本 2-图片 3-位置 4-联系方式，默认1")
         private Integer messageType = 1;
     }
 
@@ -108,6 +109,7 @@ public class ChatDTO {
         private Long tradeId;
         private String tradeStatus;
         private String tradeStatusText;
+        private String tradeAction;
         private String content;
         private String createTime;
         private Boolean isRead;
