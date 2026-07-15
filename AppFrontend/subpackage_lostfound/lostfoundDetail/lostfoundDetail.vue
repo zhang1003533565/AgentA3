@@ -279,7 +279,7 @@ export default {
 
 .page-body {
   height: calc(100vh - 176rpx);
-  padding: 22rpx 0 0;
+  padding: 22rpx 0 120rpx;
   box-sizing: border-box;
 }
 
