@@ -273,7 +273,7 @@ export default {
   margin: 0 auto;
   padding: 0;
   box-sizing: border-box;
-  background: #f5f5f5;
+  background: #fff;
   position: relative;
 }
 
