@@ -329,6 +329,7 @@ export default {
 .card,
 .safety-card {
   margin-top: 22rpx;
+  margin-bottom: 128rpx;
   padding: 28rpx;
   border-radius: 22rpx;
   background: #fff;
