@@ -1,5 +1,8 @@
 package com.example.appbackend.service.impl;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.example.appbackend.dto.KnowledgeChatDTO;
 import com.example.appbackend.dto.LearningKnowledgeDTO;
 import com.example.appbackend.exception.BusinessException;
@@ -7,6 +10,7 @@ import com.example.appbackend.service.KnowledgeChatService;
 import com.example.appbackend.service.SystemConfigService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -15,8 +19,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CourseKnowledgeServiceImplTest {
+    private static final String INTERNAL_FAILURE =
+            "knowledgeId=kb-private apiKey=sk-private raw={retrievalRaw=private-payload}";
+    private static final String SAFE_FAILURE_MESSAGE = "课程知识检索暂时不可用";
 
     private RecordingKnowledgeChatService knowledgeChatService;
     private StubSystemConfigService systemConfigService;
@@ -43,6 +51,7 @@ class CourseKnowledgeServiceImplTest {
         internalReference.setRaw(Map.of("apiKey", "must-not-leak", "retrievalRaw", "must-not-leak"));
         KnowledgeChatDTO.RetrievalResult retrieval = new KnowledgeChatDTO.RetrievalResult();
         retrieval.setReferences(List.of(internalReference));
+        retrieval.setRetrievalRaw(Map.of("apiKey", "must-not-leak", "retrievalRaw", "must-not-leak"));
         knowledgeChatService.result = retrieval;
 
         LearningKnowledgeDTO.RetrieveRequest request = new LearningKnowledgeDTO.RetrieveRequest();
@@ -110,15 +119,71 @@ class CourseKnowledgeServiceImplTest {
         assertEquals(0, knowledgeChatService.retrieveCalls);
     }
 
+    @Test
+    void retrieveReplacesDownstreamBusinessExceptionWithFixedSafeFailure() {
+        knowledgeChatService.failure = new BusinessException(500, INTERNAL_FAILURE);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.retrieve(pythonRequest()));
+
+        assertEquals(502, error.getCode());
+        assertEquals(SAFE_FAILURE_MESSAGE, error.getMessage());
+        assertFalse(error.getMessage().contains("knowledgeId"));
+        assertFalse(error.getMessage().contains("apiKey"));
+        assertFalse(error.getMessage().contains("raw"));
+    }
+
+    @Test
+    void retrieveLogsOnlySafeTypeAndCorrelationForUnexpectedFailure() {
+        Logger logger = (Logger) LoggerFactory.getLogger(CourseKnowledgeServiceImpl.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        knowledgeChatService.failure = new IllegalStateException(INTERNAL_FAILURE);
+
+        try {
+            BusinessException error = assertThrows(BusinessException.class,
+                    () -> service.retrieve(pythonRequest()));
+
+            assertEquals(502, error.getCode());
+            assertEquals(SAFE_FAILURE_MESSAGE, error.getMessage());
+            String logs = appender.list.stream()
+                    .map(ILoggingEvent::getFormattedMessage)
+                    .reduce("", (left, right) -> left + "\n" + right);
+            assertTrue(logs.contains("requestId="));
+            assertTrue(logs.contains("exceptionType=java.lang.IllegalStateException"));
+            assertFalse(logs.contains("knowledgeId"));
+            assertFalse(logs.contains("kb-private"));
+            assertFalse(logs.contains("apiKey"));
+            assertFalse(logs.contains("sk-private"));
+            assertFalse(logs.contains("retrievalRaw"));
+            assertFalse(logs.contains("private-payload"));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    private LearningKnowledgeDTO.RetrieveRequest pythonRequest() {
+        LearningKnowledgeDTO.RetrieveRequest request = new LearningKnowledgeDTO.RetrieveRequest();
+        request.setCourseKey("python");
+        request.setQuery("列表切片如何工作");
+        return request;
+    }
+
     private static class RecordingKnowledgeChatService implements KnowledgeChatService {
         private KnowledgeChatDTO.RetrievalResult result;
         private KnowledgeChatDTO.RetrievalRequest lastRequest;
+        private RuntimeException failure;
         private int retrieveCalls;
 
         @Override
         public KnowledgeChatDTO.RetrievalResult retrieve(KnowledgeChatDTO.RetrievalRequest request) {
             lastRequest = request;
             retrieveCalls++;
+            if (failure != null) {
+                throw failure;
+            }
             return result;
         }
 

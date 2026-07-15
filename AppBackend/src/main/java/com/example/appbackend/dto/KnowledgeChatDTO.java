@@ -1,5 +1,6 @@
 package com.example.appbackend.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -31,6 +32,10 @@ public class KnowledgeChatDTO {
     public static class RetrievalResult {
         private List<Reference> references;
         private CacheInfo retrievalCache;
+
+        @JsonIgnore
+        @Schema(hidden = true)
+        private Object retrievalRaw;
     }
 
     @Data

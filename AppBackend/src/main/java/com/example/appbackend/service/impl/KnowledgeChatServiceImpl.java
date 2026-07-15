@@ -102,6 +102,7 @@ public class KnowledgeChatServiceImpl implements KnowledgeChatService {
         KnowledgeChatDTO.RetrievalResult result = new KnowledgeChatDTO.RetrievalResult();
         result.setReferences(references);
         result.setRetrievalCache(buildCacheInfo(cacheLookup, retrievalPayload));
+        result.setRetrievalRaw(retrievalPayload == null ? null : retrievalPayload.getRetrievalRaw());
         return result;
     }
 
@@ -142,6 +143,7 @@ public class KnowledgeChatServiceImpl implements KnowledgeChatService {
         response.setRetrievalCache(retrievalResult.getRetrievalCache());
         response.setMetadata(buildMetadata(request, chatRequest, topNumber, similarity, searchMode, references, response.getRetrievalCache()));
         response.setLlmResponse(llmResponse);
+        response.setRetrievalRaw(retrievalResult.getRetrievalRaw());
         return response;
     }
 

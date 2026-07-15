@@ -24,7 +24,7 @@ class KnowledgeChatServiceImplTest {
     void chat_shouldRetrieveFromMaxKbThenCallOwnAgent() {
         AtomicReference<Map<String, Object>> hitRequestRef = new AtomicReference<>();
         AtomicReference<LlmChatRequest> llmRequestRef = new AtomicReference<>();
-        MaxKbKnowledgeService maxKbKnowledgeService = new StubMaxKbKnowledgeService(hitRequestRef);
+        StubMaxKbKnowledgeService maxKbKnowledgeService = new StubMaxKbKnowledgeService(hitRequestRef);
         LlmService llmService = new StubLlmService(llmRequestRef);
         KnowledgeChatServiceImpl service = new KnowledgeChatServiceImpl(
                 maxKbKnowledgeService,
@@ -61,6 +61,7 @@ class KnowledgeChatServiceImplTest {
         Assertions.assertEquals(0.91D, response.getReferences().get(0).getSimilarity());
         Assertions.assertFalse(response.getRetrievalCache().getCacheHit());
         Assertions.assertEquals("java-maxkb-agent-chat", response.getMetadata().get("provider"));
+        Assertions.assertSame(maxKbKnowledgeService.response, response.getRetrievalRaw());
     }
 
     @Test
@@ -104,6 +105,7 @@ class KnowledgeChatServiceImplTest {
         Assertions.assertEquals("python", response.getReferences().get(0).getKnowledgeName());
         Assertions.assertEquals(1.42D, response.getReferences().get(0).getSimilarity());
         Assertions.assertTrue(llmRequestRef.get().getInput().contains("Trigger 区域"));
+        Assertions.assertSame(wrappedResponse, response.getRetrievalRaw());
     }
 
     @Test
