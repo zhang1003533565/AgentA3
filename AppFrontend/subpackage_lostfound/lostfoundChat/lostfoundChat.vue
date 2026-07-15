@@ -364,7 +364,10 @@ export default {
         return []
       }
       if (this.tradeInfo.status === 'WAIT_CONFIRM') {
-        return this.tradeInfo.isSeller ? [{ type: 'confirm', label: '确认交易' }] : []
+        const actions = []
+        if (this.tradeInfo.isSeller) actions.push({ type: 'confirm', label: '确认交易' })
+        actions.push({ type: 'cancel', label: '取消交易' })
+        return actions
       }
       if (this.tradeInfo.status === 'TRADING') {
         const actions = []
@@ -1412,13 +1415,12 @@ export default {
 .eye-toggle::before {
   content: '';
   position: absolute;
-  top: 17rpx;
+  top: 16rpx;
   left: 10rpx;
   width: 32rpx;
-  height: 18rpx;
+  height: 20rpx;
   border: 3rpx solid currentColor;
   border-radius: 50%;
-  transform: rotate(-7deg);
   box-sizing: border-box;
 }
 
@@ -1436,10 +1438,10 @@ export default {
 
 .eye-slash {
   position: absolute;
-  top: 12rpx;
+  top: 11rpx;
   left: 25rpx;
   width: 3rpx;
-  height: 30rpx;
+  height: 32rpx;
   border-radius: 999rpx;
   background: currentColor;
   transform: rotate(45deg);
