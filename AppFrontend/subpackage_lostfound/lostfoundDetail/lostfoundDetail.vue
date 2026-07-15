@@ -86,7 +86,7 @@
             {{ item.isFavorited ? '已收藏' : '收藏' }}
           </button>
           <button class="bottom-btn secondary" @click="contactSeller">联系卖家</button>
-          <button v-if="isAvailable" class="bottom-btn" :loading="reserving" :disabled="reserving" @click="reserveItem">拍下</button>
+          <button v-if="isAvailable" class="bottom-btn" :loading="reserving" :disabled="reserving" @click="reserveItem">确认交易意向</button>
           <button v-else class="bottom-btn disabled" disabled>{{ tradeStateText }}</button>
         </view>
       </view>
@@ -156,10 +156,10 @@ export default {
       return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 2) : '--'
     },
     statusText() {
-      if (this.item.status === 5) return '交易中'
-      if (this.item.status === 3) return '已售出'
+      if (this.item.status === 5) return '沟通中'
+      if (this.item.status === 3) return '已完成'
       if (this.item.status === 4) return '已下架'
-      return '在售'
+      return '出售中'
     },
     statusClass() {
       if (this.item.status === 5) return 'is-pending'
@@ -182,8 +182,8 @@ export default {
       return Number(this.item.status) === 2
     },
     tradeStateText() {
-      if (Number(this.item.status) === 5) return '交易中'
-      if (Number(this.item.status) === 3) return '已售出'
+      if (Number(this.item.status) === 5) return '沟通中'
+      if (Number(this.item.status) === 3) return '已完成'
       if (Number(this.item.status) === 4) return '已下架'
       return this.statusText
     }
@@ -276,12 +276,12 @@ export default {
       try {
         this.reserving = true
         await reserveSecondhandItem(this.item.id)
-        uni.showToast({ title: '已拍下，等待卖家确认', icon: 'success' })
+        uni.showToast({ title: '已发送交易意向，等待对方确认', icon: 'success' })
         await this.loadItem()
         await this.contactSeller()
       } catch (e) {
-        console.error('拍下商品失败', e)
-        uni.showToast({ title: e?.data?.msg || e?.msg || '拍下失败', icon: 'none' })
+        console.error('确认交易意向失败', e)
+        uni.showToast({ title: e?.data?.msg || e?.msg || '操作失败', icon: 'none' })
       } finally {
         this.reserving = false
       }

@@ -128,10 +128,10 @@ function normalizeMessage(item) {
 }
 
 const TRADE_TEXT = {
-  WAIT_CONFIRM: '等待卖家确认',
-  TRADING: '交易中',
-  COMPLETED: '交易完成',
-  CANCELLED: '交易取消'
+  WAIT_CONFIRM: '等待对方确认交易意向',
+  TRADING: '双方已确认，等待线下交易',
+  COMPLETED: '交易已完成',
+  CANCELLED: '交易已取消'
 }
 
 export default {
@@ -165,9 +165,9 @@ export default {
     itemStatusText() {
       if (this.curChat?.itemStatusText) return this.curChat.itemStatusText
       const status = Number(this.curChat?.itemStatus)
-      if (status === 2) return '在售'
-      if (status === 5) return '交易中'
-      if (status === 3) return '已售出'
+      if (status === 2) return '出售中'
+      if (status === 5) return '沟通中'
+      if (status === 3) return '已完成'
       if (status === 4) return '已下架'
       return ''
     },
@@ -179,11 +179,12 @@ export default {
       if (this.tradeInfo.status === 'WAIT_CONFIRM') {
         return this.tradeInfo.isSeller ? [{ type: 'confirm', label: '确认交易' }] : []
       }
-      if (this.tradeInfo.status === 'TRADING') {
-        return [
-          { type: 'complete', label: '完成交易' },
-          { type: 'cancel', label: '取消交易' }
-        ]
+	      if (this.tradeInfo.status === 'TRADING') {
+	        return [
+	          { type: 'shareContact', label: '发送联系方式' },
+	          { type: 'complete', label: '完成交易' },
+	          { type: 'cancel', label: '取消交易' }
+	        ]
       }
       return []
     }
@@ -333,6 +334,10 @@ export default {
     },
     async runTradeAction(type) {
       if (!this.tradeInfo || !this.tradeInfo.id || this.acting) return
+      if (type === 'shareContact') {
+        await this.sendContactInfo()
+        return
+      }
       const actions = {
         confirm: confirmTradeRecord,
         complete: completeTradeRecord,
@@ -352,6 +357,31 @@ export default {
         uni.showToast({ title: '操作失败', icon: 'none' })
       } finally {
         this.acting = false
+      }
+    },
+    async sendContactInfo() {
+      try {
+        const info = uni.getStorageSync('userInfo')
+        const parsed = typeof info === 'string' ? JSON.parse(info) : (info || {})
+        const phone = parsed.phone || parsed.mobile || ''
+        const wechat = parsed.wechat || parsed.wechatId || ''
+        const parts = []
+        if (wechat) parts.push(`微信: ${wechat}`)
+        if (phone) parts.push(`手机: ${phone}`)
+        if (!parts.length) {
+          uni.showToast({ title: '请先在个人资料中设置联系方式', icon: 'none' })
+          return
+        }
+        await sendChatMessage({
+          sessionId: this.sessionId,
+          content: parts.join('\n'),
+          messageType: 4
+        })
+        uni.showToast({ title: '已发送', icon: 'success' })
+        await this.loadMessages()
+      } catch (e) {
+        console.error('发送联系方式失败', e)
+        uni.showToast({ title: '发送失败', icon: 'none' })
       }
     },
     goProduct() {

@@ -43,7 +43,7 @@ export default {
       }
     },
     statusText(status) {
-      const map = { WAIT_CONFIRM: '待卖家确认', TRADING: '交易中', COMPLETED: '已完成', CANCELLED: '已取消' }
+      const map = { WAIT_CONFIRM: '等待对方确认', TRADING: '双方已确认', COMPLETED: '已完成', CANCELLED: '已取消' }
       return map[status] || '交易记录'
     },
     async openChat(record) {

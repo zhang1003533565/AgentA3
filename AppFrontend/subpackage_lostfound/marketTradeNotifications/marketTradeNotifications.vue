@@ -44,8 +44,8 @@ import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vu
 import { getTradeNotifications, markTradeNotificationRead } from '@/api/secondhand'
 
 const STATUS_TEXT = {
-  WAIT_CONFIRM: '待确认',
-  TRADING: '交易中',
+  WAIT_CONFIRM: '等待对方确认',
+  TRADING: '双方已确认',
   COMPLETED: '已完成',
   CANCELLED: '已取消'
 }

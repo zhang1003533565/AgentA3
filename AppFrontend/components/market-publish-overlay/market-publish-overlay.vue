@@ -224,7 +224,7 @@ export default {
       if (this.priceMode === 'free') return '免费赠送'
       if (this.priceMode === 'face') return '见面再聊'
       if (this.priceMode === 'negotiable') return '先写一个心理价'
-      return '输入价格'
+      return '线下参考价'
     }
   },
   mounted() {

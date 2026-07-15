@@ -137,7 +137,7 @@ function normalizeItem(item) {
     originalPrice: item.originalPrice || item.original_price || null,
     type: 'sell',
     status: item.status === 2 ? 'online' : item.status === 5 ? 'reserved' : item.status === 4 ? 'offline' : 'sold',
-    statusText: item.statusText || (item.status === 2 ? '在售' : item.status === 5 ? '交易中' : item.status === 3 ? '已售出' : '已下架'),
+    statusText: item.statusText || (item.status === 2 ? '出售中' : item.status === 5 ? '沟通中' : item.status === 3 ? '已完成' : '已下架'),
     images: Array.isArray(item.images) ? item.images : [],
     userId: item.userId || sellerId,
     sellerId,
