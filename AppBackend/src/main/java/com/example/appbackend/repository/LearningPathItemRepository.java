@@ -16,6 +16,14 @@ public interface LearningPathItemRepository extends JpaRepository<LearningPathIt
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
+            select item from LearningPathItem item
+            where item.pathId = :pathId
+            order by item.sequenceNo asc, item.id asc
+            """)
+    List<LearningPathItem> findByPathIdForUpdate(@Param("pathId") Long pathId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
             select item from LearningPathItem item, LearningPath path
             where item.id = :itemId
               and path.id = item.pathId

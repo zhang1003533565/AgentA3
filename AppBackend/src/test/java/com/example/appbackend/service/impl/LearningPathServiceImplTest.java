@@ -447,7 +447,13 @@ class LearningPathServiceImplTest {
                         .filter(path -> args[0].equals(path.getUserId()))
                         .filter(path -> args[1].equals(path.getCourseKey()))
                         .max(Comparator.comparing(LearningPath::getVersionNo));
-                case "findByUserIdAndCourseKeyAndStatus" -> paths.stream()
+                case "findLatestForUpdate" -> paths.stream()
+                        .filter(path -> args[0].equals(path.getUserId()))
+                        .filter(path -> args[1].equals(path.getCourseKey()))
+                        .sorted(Comparator.comparing(LearningPath::getVersionNo).reversed())
+                        .limit(1)
+                        .toList();
+                case "findByUserIdAndCourseKeyAndStatus", "findActiveForUpdate" -> paths.stream()
                         .filter(path -> args[0].equals(path.getUserId()))
                         .filter(path -> args[1].equals(path.getCourseKey()))
                         .filter(path -> args[2].equals(path.getStatus()))
@@ -495,7 +501,7 @@ class LearningPathServiceImplTest {
             return switch (method.getName()) {
                 case "saveAll" -> saveAll(args[0]);
                 case "save" -> save((LearningPathItem) args[0]);
-                case "findByPathIdOrderBySequenceNoAscIdAsc" -> items.stream()
+                case "findByPathIdOrderBySequenceNoAscIdAsc", "findByPathIdForUpdate" -> items.stream()
                         .filter(item -> args[0].equals(item.getPathId()))
                         .sorted(Comparator.comparing(LearningPathItem::getSequenceNo)
                                 .thenComparing(LearningPathItem::getId))
@@ -544,12 +550,12 @@ class LearningPathServiceImplTest {
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) {
             return switch (method.getName()) {
-                case "findByUserIdAndCourseKeyAndKnowledgePointKey" -> masteries.stream()
+                case "findByUserIdAndCourseKeyAndKnowledgePointKey", "findOneForUpdate" -> masteries.stream()
                         .filter(mastery -> args[0].equals(mastery.getUserId()))
                         .filter(mastery -> args[1].equals(mastery.getCourseKey()))
                         .filter(mastery -> args[2].equals(mastery.getKnowledgePointKey()))
                         .findFirst();
-                case "findByUserIdAndCourseKeyOrderByKnowledgePointKeyAsc" -> masteries.stream()
+                case "findByUserIdAndCourseKeyOrderByKnowledgePointKeyAsc", "findByUserIdAndCourseKeyForUpdate" -> masteries.stream()
                         .filter(mastery -> args[0].equals(mastery.getUserId()))
                         .filter(mastery -> args[1].equals(mastery.getCourseKey()))
                         .sorted(Comparator.comparing(LearningKnowledgeMastery::getKnowledgePointKey))

@@ -5,22 +5,29 @@ import com.example.appbackend.dto.LearningPathDTO;
 import com.example.appbackend.entity.LearningKnowledgeMastery;
 import com.example.appbackend.entity.LearningPath;
 import com.example.appbackend.entity.User;
+import com.example.appbackend.repository.ExamQuestionRepository;
 import com.example.appbackend.repository.LearningKnowledgeMasteryRepository;
 import com.example.appbackend.repository.LearningPathItemRepository;
 import com.example.appbackend.repository.LearningPathRepository;
 import com.example.appbackend.repository.UserRepository;
+import jakarta.persistence.LockModeType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -35,6 +42,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @DataJpaTest(showSql = false)
@@ -49,6 +57,7 @@ class LearningPathPersistenceTest {
     private final LearningPathRepository pathRepository;
     private final LearningPathItemRepository itemRepository;
     private final LearningKnowledgeMasteryRepository masteryRepository;
+    private final ExamQuestionRepository questionRepository;
     private final PlatformTransactionManager transactionManager;
     private Long userId;
 
@@ -58,12 +67,14 @@ class LearningPathPersistenceTest {
                                 LearningPathRepository pathRepository,
                                 LearningPathItemRepository itemRepository,
                                 LearningKnowledgeMasteryRepository masteryRepository,
+                                ExamQuestionRepository questionRepository,
                                 PlatformTransactionManager transactionManager) {
         this.service = service;
         this.userRepository = userRepository;
         this.pathRepository = pathRepository;
         this.itemRepository = itemRepository;
         this.masteryRepository = masteryRepository;
+        this.questionRepository = questionRepository;
         this.transactionManager = transactionManager;
     }
 
@@ -72,6 +83,7 @@ class LearningPathPersistenceTest {
         itemRepository.deleteAll();
         pathRepository.deleteAll();
         masteryRepository.deleteAll();
+        questionRepository.deleteAll();
         userRepository.deleteAll();
 
         User user = new User();
@@ -187,6 +199,82 @@ class LearningPathPersistenceTest {
         }
     }
 
+    @Test
+    void feedbackAfterAnOlderRepeatableReadSnapshotSeesTheCommittedReplacement()
+            throws Exception {
+        assertEquals(1, service.replaceActivePath(
+                userId, draft("初始学习路径")).getVersion());
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch snapshotEstablished = new CountDownLatch(1);
+        CountDownLatch replacementPrepared = new CountDownLatch(1);
+        CountDownLatch feedbackAttempted = new CountDownLatch(1);
+        CountDownLatch releaseReplacement = new CountDownLatch(1);
+        TransactionTemplate feedbackTransaction = new TransactionTemplate(transactionManager);
+        feedbackTransaction.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        TransactionTemplate replacementTransaction = new TransactionTemplate(transactionManager);
+        try {
+            Future<FeedbackVersions> feedback = executor.submit(() ->
+                    feedbackTransaction.execute(status -> {
+                        questionRepository.count();
+                        snapshotEstablished.countDown();
+                        await(replacementPrepared, "Replacement transaction did not prepare v2");
+                        feedbackAttempted.countDown();
+
+                        LearningPathDTO.HomeView current = service.getHomeForFeedback(userId, "python");
+                        LearningPathDTO.PathView generated = service.replaceActivePath(
+                                userId, draft("考试反馈路径"));
+                        return new FeedbackVersions(
+                                current.getActivePath().getVersion(), generated.getVersion());
+                    }));
+            await(snapshotEstablished, "Exam transaction did not establish its old snapshot");
+
+            Future<LearningPathDTO.PathView> replacement = executor.submit(() ->
+                    replacementTransaction.execute(status -> {
+                        LearningPathDTO.PathView prepared = service.replaceActivePath(
+                                userId, draft("并发生成路径"));
+                        replacementPrepared.countDown();
+                        await(releaseReplacement, "Replacement transaction was not released");
+                        return prepared;
+                    }));
+            await(replacementPrepared, "Replacement transaction did not acquire the user lock");
+            await(feedbackAttempted, "Feedback transaction did not start waiting for the user lock");
+
+            assertThrows(TimeoutException.class,
+                    () -> feedback.get(250, TimeUnit.MILLISECONDS));
+            releaseReplacement.countDown();
+
+            assertEquals(2, replacement.get(5, TimeUnit.SECONDS).getVersion());
+            FeedbackVersions versions = feedback.get(5, TimeUnit.SECONDS);
+            assertEquals(2, versions.baselineVersion());
+            assertEquals(3, versions.generatedVersion());
+            assertEquals(List.of(1, 2, 3), pathRepository.findAll().stream()
+                    .filter(path -> userId.equals(path.getUserId()))
+                    .sorted(Comparator.comparing(LearningPath::getVersionNo))
+                    .map(LearningPath::getVersionNo)
+                    .toList());
+            assertEquals(1, pathRepository.countByUserIdAndCourseKeyAndStatus(
+                    userId, "python", "active"));
+        } finally {
+            releaseReplacement.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void feedbackAndMutationRepositoriesDeclarePessimisticCurrentReads()
+            throws Exception {
+        assertPessimisticCurrentRead(LearningPathRepository.class.getMethod(
+                "findActiveForUpdate", Long.class, String.class, String.class));
+        assertPessimisticCurrentRead(LearningPathRepository.class.getMethod(
+                "findLatestForUpdate", Long.class, String.class, Pageable.class));
+        assertPessimisticCurrentRead(LearningPathItemRepository.class.getMethod(
+                "findByPathIdForUpdate", Long.class));
+        assertPessimisticCurrentRead(LearningKnowledgeMasteryRepository.class.getMethod(
+                "findByUserIdAndCourseKeyForUpdate", Long.class, String.class));
+        assertPessimisticCurrentRead(LearningKnowledgeMasteryRepository.class.getMethod(
+                "findOneForUpdate", Long.class, String.class, String.class));
+    }
+
     private LearningPathDTO.AssessmentObservation observation(
             Long attemptId, String knowledgePointKey, boolean correct) {
         LearningPathDTO.AssessmentObservation observation =
@@ -223,6 +311,27 @@ class LearningPathPersistenceTest {
         draft.setGeneratedAt(LocalDateTime.of(2026, 7, 15, 8, 0));
         draft.setItems(List.of(item));
         return draft;
+    }
+
+    private void assertPessimisticCurrentRead(Method method) {
+        Lock lock = method.getAnnotation(Lock.class);
+        assertNotNull(lock, method.getName());
+        assertEquals(LockModeType.PESSIMISTIC_WRITE, lock.value(), method.getName());
+        assertNotNull(method.getAnnotation(Query.class), method.getName());
+    }
+
+    private void await(CountDownLatch latch, String failureMessage) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException(failureMessage);
+            }
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(error);
+        }
+    }
+
+    private record FeedbackVersions(int baselineVersion, int generatedVersion) {
     }
 
     private <T> List<T> runConcurrently(List<Callable<T>> tasks) throws Exception {

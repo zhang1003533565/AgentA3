@@ -16,6 +16,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -74,7 +75,19 @@ public class LearningPathServiceImpl implements LearningPathService {
     public LearningPathDTO.HomeView getHomeForFeedback(Long userId, String courseKey) {
         validateUserAndCourse(userId, courseKey);
         lockUser(userId);
-        return getHome(userId, courseKey);
+        LearningPathDTO.HomeView home = new LearningPathDTO.HomeView();
+        home.setUserId(userId);
+        home.setCourseKey(courseKey);
+        home.setActivePath(pathRepository.findActiveForUpdate(
+                        userId, courseKey, "active")
+                .map(this::toPathViewForUpdate)
+                .orElse(null));
+        home.setMastery(masteryRepository.findByUserIdAndCourseKeyForUpdate(
+                        userId, courseKey)
+                .stream()
+                .map(this::toMasteryView)
+                .toList());
+        return home;
     }
 
     @Override
@@ -94,11 +107,11 @@ public class LearningPathServiceImpl implements LearningPathService {
         validateDraft(draft);
         lockUser(userId);
 
-        LearningPath latest = pathRepository
-                .findTopByUserIdAndCourseKeyOrderByVersionNoDesc(userId, draft.getCourseKey())
-                .orElse(null);
+        List<LearningPath> latestRows = pathRepository.findLatestForUpdate(
+                userId, draft.getCourseKey(), PageRequest.of(0, 1));
+        LearningPath latest = latestRows.isEmpty() ? null : latestRows.getFirst();
         int nextVersion = latest == null ? 1 : latest.getVersionNo() + 1;
-        pathRepository.findByUserIdAndCourseKeyAndStatus(
+        pathRepository.findActiveForUpdate(
                         userId, draft.getCourseKey(), "active")
                 .ifPresent(active -> {
                     active.setStatus("archived");
@@ -198,7 +211,7 @@ public class LearningPathServiceImpl implements LearningPathService {
         lockUser(observation.getUserId());
 
         LearningKnowledgeMastery mastery = masteryRepository
-                .findByUserIdAndCourseKeyAndKnowledgePointKey(
+                .findOneForUpdate(
                         observation.getUserId(), observation.getCourseKey(),
                         knowledgePointKey)
                 .orElseGet(() -> newMastery(observation, knowledgePointKey));
@@ -332,6 +345,16 @@ public class LearningPathServiceImpl implements LearningPathService {
     }
 
     private LearningPathDTO.PathView toPathView(LearningPath path) {
+        return toPathView(path, itemRepository.findByPathIdOrderBySequenceNoAscIdAsc(
+                path.getId()));
+    }
+
+    private LearningPathDTO.PathView toPathViewForUpdate(LearningPath path) {
+        return toPathView(path, itemRepository.findByPathIdForUpdate(path.getId()));
+    }
+
+    private LearningPathDTO.PathView toPathView(
+            LearningPath path, List<LearningPathItem> pathItems) {
         LearningPathDTO.PathView view = new LearningPathDTO.PathView();
         view.setId(path.getId());
         view.setUserId(path.getUserId());
@@ -344,8 +367,7 @@ public class LearningPathServiceImpl implements LearningPathService {
         view.setSourceMessageId(path.getSourceMessageId());
         view.setGeneratedAt(path.getGeneratedAt());
         view.setNextReplanAt(path.getNextReplanAt());
-        view.setItems(itemRepository.findByPathIdOrderBySequenceNoAscIdAsc(path.getId())
-                .stream().map(this::toPathItemView).toList());
+        view.setItems(pathItems.stream().map(this::toPathItemView).toList());
         return view;
     }
 
