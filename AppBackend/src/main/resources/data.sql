@@ -451,14 +451,71 @@ CREATE TABLE IF NOT EXISTS secondhand_item (
     original_price DECIMAL(10,2) COMMENT '原价',
     `condition` INT COMMENT '新旧程度: 1-全新 2-几乎全新 3-轻微使用痕迹 4-明显使用痕迹 5-仅限零件',
     location VARCHAR(200) COMMENT '期望交易地点',
+    campus_id VARCHAR(50) COMMENT '校区ID',
+    campus_name VARCHAR(50) COMMENT '校区名称',
+    trade_location VARCHAR(100) COMMENT '交易区域',
+    pickup_point VARCHAR(200) COMMENT '自提点',
     view_count INT DEFAULT 0 COMMENT '浏览量',
     favorite_count INT DEFAULT 0 COMMENT '收藏数',
-    status INT NOT NULL DEFAULT 2 COMMENT '状态: 2-在售 3-已售出 4-已下架',
+    inquiry_count INT DEFAULT 0 COMMENT '咨询次数',
+    heat_score INT DEFAULT 0 COMMENT '热度分 = 浏览*1 + 收藏*3 + 咨询*5',
+    status INT NOT NULL DEFAULT 2 COMMENT '状态: 2-在售 3-已售出 4-已下架 5-交易中',
     create_time DATETIME COMMENT '创建时间',
     update_time DATETIME COMMENT '更新时间',
     FOREIGN KEY (user_id) REFERENCES sys_user(id),
     FOREIGN KEY (category_id) REFERENCES secondhand_category(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='二手物品表';
+
+-- 旧库迁移：为 secondhand_item 添加校区/热度字段（列不存在时自动补列）
+SET @si_db := DATABASE();
+SET @si_sql := (SELECT IF(COUNT(*) > 0,
+    'SELECT 1',
+    'ALTER TABLE secondhand_item ADD COLUMN campus_id VARCHAR(50) COMMENT ''校区ID'' AFTER location')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @si_db AND TABLE_NAME = 'secondhand_item' AND COLUMN_NAME = 'campus_id');
+PREPARE si_stmt FROM @si_sql;
+EXECUTE si_stmt;
+DEALLOCATE PREPARE si_stmt;
+SET @si_sql := (SELECT IF(COUNT(*) > 0,
+    'SELECT 1',
+    'ALTER TABLE secondhand_item ADD COLUMN campus_name VARCHAR(50) COMMENT ''校区名称'' AFTER campus_id')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @si_db AND TABLE_NAME = 'secondhand_item' AND COLUMN_NAME = 'campus_name');
+PREPARE si_stmt FROM @si_sql;
+EXECUTE si_stmt;
+DEALLOCATE PREPARE si_stmt;
+SET @si_sql := (SELECT IF(COUNT(*) > 0,
+    'SELECT 1',
+    'ALTER TABLE secondhand_item ADD COLUMN trade_location VARCHAR(100) COMMENT ''交易区域'' AFTER campus_name')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @si_db AND TABLE_NAME = 'secondhand_item' AND COLUMN_NAME = 'trade_location');
+PREPARE si_stmt FROM @si_sql;
+EXECUTE si_stmt;
+DEALLOCATE PREPARE si_stmt;
+SET @si_sql := (SELECT IF(COUNT(*) > 0,
+    'SELECT 1',
+    'ALTER TABLE secondhand_item ADD COLUMN pickup_point VARCHAR(200) COMMENT ''自提点'' AFTER trade_location')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @si_db AND TABLE_NAME = 'secondhand_item' AND COLUMN_NAME = 'pickup_point');
+PREPARE si_stmt FROM @si_sql;
+EXECUTE si_stmt;
+DEALLOCATE PREPARE si_stmt;
+SET @si_sql := (SELECT IF(COUNT(*) > 0,
+    'SELECT 1',
+    'ALTER TABLE secondhand_item ADD COLUMN inquiry_count INT DEFAULT 0 COMMENT ''咨询次数'' AFTER favorite_count')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @si_db AND TABLE_NAME = 'secondhand_item' AND COLUMN_NAME = 'inquiry_count');
+PREPARE si_stmt FROM @si_sql;
+EXECUTE si_stmt;
+DEALLOCATE PREPARE si_stmt;
+SET @si_sql := (SELECT IF(COUNT(*) > 0,
+    'SELECT 1',
+    'ALTER TABLE secondhand_item ADD COLUMN heat_score INT DEFAULT 0 COMMENT ''热度分'' AFTER inquiry_count')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @si_db AND TABLE_NAME = 'secondhand_item' AND COLUMN_NAME = 'heat_score');
+PREPARE si_stmt FROM @si_sql;
+EXECUTE si_stmt;
+DEALLOCATE PREPARE si_stmt;
 
 -- 物品收藏表
 CREATE TABLE IF NOT EXISTS secondhand_favorite (

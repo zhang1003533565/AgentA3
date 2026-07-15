@@ -2,33 +2,62 @@
   <view class="page-root">
     <view class="screen">
       <view class="container">
-        <nav-bar title="我发布的" :fixed="true" :placeholder="true" />
-        
-        <scroll-view scroll-y class="page-body">
-          <view v-if="myItems.length === 0" class="empty">
-            <view class="empty-i">📦</view>
-            <view class="empty-t">还没有发布过</view>
+        <nav-bar title="我的发布" :fixed="true" :placeholder="true" />
+
+        <scroll-view scroll-y class="page-body" refresher-enabled :refresher-triggered="refreshing" @refresherrefresh="refresh">
+          <view class="summary">
+            <view>
+              <text class="summary-num">{{ items.length }}</text>
+              <text class="summary-label">件商品</text>
+            </view>
+            <button class="publish-btn" @click="goPublish">发布商品</button>
           </view>
-          <view v-for="item in myItems" :key="item.id" class="micard">
-            <view class="miimg" @click="goToDetail(item.id)">
-              <text v-if="item.type === 'want'">🔍</text>
-              <image v-else-if="item.images && item.images.length" :src="item.images[0]" mode="aspectFill" />
+
+          <view v-if="!loading && items.length === 0" class="empty">
+            <view class="empty-icon">📦</view>
+            <view class="empty-title">还没有发布商品</view>
+            <view class="empty-sub">发布后的校园市集商品会显示在这里</view>
+          </view>
+
+          <view v-for="item in items" :key="item.id" class="item-card">
+            <view class="cover" @click="goDetail(item.id)">
+              <image v-if="item.images.length" :src="item.images[0]" mode="aspectFill" />
               <text v-else>{{ emoji(item.id) }}</text>
             </view>
-            <view class="mibody">
-              <view class="miname">{{ item.name }}</view>
-              <view v-if="item.type === 'sell'" class="miprice">
-                <small>¥</small>{{ item.price }}
+            <view class="body">
+              <view class="title-row">
+                <view class="title">{{ item.title || '未命名商品' }}</view>
+                <view class="status" :class="statusClass(item.status)">{{ statusText(item.status) }}</view>
               </view>
-              <view class="mitime">{{ fmt(item.ctime) }}发布</view>
+              <view class="price">¥{{ priceText(item.price) }}</view>
+              <view class="meta">
+                <text>{{ item.campusName || '校内' }}</text>
+                <text>{{ item.pickupPoint || item.tradeLocation || item.location || '校内自提' }}</text>
+              </view>
+              <view class="metrics">
+                <text>热度 {{ item.heatScore || 0 }}</text>
+                <text>咨询 {{ item.inquiryCount || 0 }}</text>
+                <text>{{ formatTime(item.createTime) }}</text>
+              </view>
+              <view class="actions">
+                <button class="ghost" @click="goDetail(item.id)">查看</button>
+                <button
+                  v-if="canOffline(item.status)"
+                  class="ghost"
+                  @click="setOffline(item.id)"
+                >
+                  下架
+                </button>
+                <button
+                  v-else-if="canOnline(item.status)"
+                  class="ghost primary"
+                  @click="setOnline(item.id)"
+                >
+                  上架
+                </button>
+                <button v-else class="ghost disabled" disabled>不可操作</button>
+              </view>
             </view>
-            <button
-              class="micard-btn"
-              :style="{ borderColor: item.status === 'online' ? '#5C8AB8' : '#6FBF73', color: item.status === 'online' ? '#5C8AB8' : '#6FBF73' }"
-              @click="toggleStatus(item.id)"
-            >
-              {{ item.status === 'online' ? '下架' : '上架' }}
-            </button>
           </view>
         </scroll-view>
       </view>
@@ -42,20 +71,20 @@ import { getMySecondhandItems, offlineSecondhandItem, onlineSecondhandItem } fro
 
 const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
 
-function formatTimestamp(value) {
-  if (!value) return ''
-  return value.replace('T', ' ')
-}
-
-function normalizeItem(item) {
+function normalizeItem(raw = {}) {
   return {
-    id: item.id,
-    name: item.title,
-    price: item.price,
-    type: 'sell',
-    status: item.status === 2 ? 'online' : item.status === 4 ? 'offline' : 'sold',
-    images: Array.isArray(item.images) ? item.images : [],
-    ctime: formatTimestamp(item.createTime)
+    id: raw.id,
+    title: raw.title || raw.name || '',
+    price: raw.price,
+    images: Array.isArray(raw.images) ? raw.images : [],
+    status: Number(raw.status ?? 0),
+    campusName: raw.campusName || '',
+    tradeLocation: raw.tradeLocation || '',
+    pickupPoint: raw.pickupPoint || '',
+    location: raw.location || '',
+    heatScore: Number(raw.heatScore || 0),
+    inquiryCount: Number(raw.inquiryCount || 0),
+    createTime: raw.createTime || raw.ctime || ''
   }
 }
 
@@ -65,13 +94,9 @@ export default {
   },
   data() {
     return {
-      items: [],
-      loading: false
-    }
-  },
-  computed: {
-    myItems() {
-      return this.items
+      loading: false,
+      refreshing: false,
+      items: []
     }
   },
   async onLoad() {
@@ -81,179 +106,294 @@ export default {
     await this.loadItems()
   },
   methods: {
+    async refresh() {
+      this.refreshing = true
+      await this.loadItems()
+      this.refreshing = false
+    },
     async loadItems() {
       try {
         this.loading = true
         const res = await getMySecondhandItems({ current: 1, size: 100 })
-        this.items = Array.isArray(res?.data?.records) ? res.data.records.map(normalizeItem) : []
+        const records = Array.isArray(res?.data?.records) ? res.data.records : Array.isArray(res?.data) ? res.data : []
+        this.items = records.map(normalizeItem)
       } catch (e) {
-        console.error('加载数据失败', e)
+        console.error('加载我的发布失败', e)
+        uni.showToast({ title: '加载失败', icon: 'none' })
       } finally {
         this.loading = false
       }
     },
+    statusText(status) {
+      if (Number(status) === 5) return '交易中'
+      if (Number(status) === 3) return '已售出'
+      if (Number(status) === 4) return '已下架'
+      return '在售'
+    },
+    statusClass(status) {
+      if (Number(status) === 5) return 'is-pending'
+      if (Number(status) === 3) return 'is-sold'
+      if (Number(status) === 4) return 'is-offline'
+      return 'is-online'
+    },
+    canOffline(status) {
+      return [0, 1, 2].includes(Number(status))
+    },
+    canOnline(status) {
+      return Number(status) === 4
+    },
+    priceText(value) {
+      const price = Number(value)
+      return Number.isFinite(price) ? price.toFixed(price % 1 === 0 ? 0 : 2) : '--'
+    },
     emoji(id) {
-      return EMOJIS[id % EMOJIS.length]
+      return EMOJIS[(Number(id) || 0) % EMOJIS.length]
     },
-    fmt(ts) {
-      const time = typeof ts === 'string' ? new Date(ts.replace(/-/g, '/')).getTime() : ts
-      const d = new Date(time)
-      const now = new Date()
-      const diff = now - d
+    formatTime(value) {
+      if (!value) return ''
+      const time = typeof value === 'string' ? new Date(value.replace(/-/g, '/')).getTime() : value
+      const diff = Date.now() - time
+      if (!Number.isFinite(diff)) return ''
       if (diff < 60000) return '刚刚'
-      if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
-      if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
-      return `${d.getMonth() + 1}/${d.getDate()}`
+      if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`
+      if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`
+      const date = new Date(time)
+      return `${date.getMonth() + 1}/${date.getDate()}`
     },
-    async toggleStatus(id) {
-      const item = this.items.find(i => i.id === id)
-      if (!item) return
-      try {
-        if (item.status === 'online') {
-          await offlineSecondhandItem(id)
-          uni.showToast({ title: '已下架', icon: 'none' })
-        } else if (item.status === 'offline') {
-          await onlineSecondhandItem(id)
-          uni.showToast({ title: '已上架', icon: 'none' })
-        } else {
-          uni.showToast({ title: '已售出商品不能重新操作', icon: 'none' })
-          return
-        }
-        await this.loadItems()
-      } catch (error) {
-        console.error('更新状态失败', error)
-      }
-    },
-    goToDetail(id) {
+    goDetail(id) {
       uni.navigateTo({
         url: `/subpackage_lostfound/lostfoundDetail/lostfoundDetail?id=${id}`
       })
+    },
+    goPublish() {
+      uni.navigateTo({
+        url: '/subpackage_lostfound/lostfoundPublish/lostfoundPublish'
+      })
+    },
+    async setOffline(id) {
+      try {
+        await offlineSecondhandItem(id)
+        uni.showToast({ title: '已下架', icon: 'none' })
+        await this.loadItems()
+      } catch (e) {
+        console.error('下架失败', e)
+        uni.showToast({ title: '操作失败', icon: 'none' })
+      }
+    },
+    async setOnline(id) {
+      try {
+        await onlineSecondhandItem(id)
+        uni.showToast({ title: '已上架', icon: 'none' })
+        await this.loadItems()
+      } catch (e) {
+        console.error('上架失败', e)
+        uni.showToast({ title: '操作失败', icon: 'none' })
+      }
     }
   }
 }
 </script>
 
-<style lang="scss">
-.page-root {
-  width: 100%;
-  min-height: 100vh;
-  background: #F0F5FA;
-}
-
+<style scoped>
+.page-root,
 .screen {
   width: 100%;
-  background: #F0F5FA;
   min-height: 100vh;
+  background: #f0f5fa;
 }
 
 .container {
   width: 100%;
   max-width: 430px;
+  min-height: 100vh;
   margin: 0 auto;
-  box-sizing: border-box;
   padding: 0 16rpx;
-  background: #E8F0F8;
-  min-height: 100vh;
-  position: relative;
-}
-
-.page {
-  width: 100%;
-  min-height: 100vh;
   box-sizing: border-box;
+  background: #e8f0f8;
 }
 
 .page-body {
-  flex: 1;
-  overflow-y: auto;
+  height: calc(100vh - 88rpx);
+  padding: 24rpx 0 56rpx;
+  box-sizing: border-box;
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24rpx;
+  padding: 28rpx;
+  border-radius: 20rpx;
+  background: #fff;
+  box-shadow: 0 6rpx 18rpx rgba(43, 68, 94, 0.08);
+}
+
+.summary-num {
+  color: #172331;
+  font-size: 44rpx;
+  font-weight: 900;
+}
+
+.summary-label {
+  margin-left: 10rpx;
+  color: #7d8c9c;
+  font-size: 24rpx;
+}
+
+.publish-btn {
+  height: 64rpx;
+  padding: 0 24rpx;
+  border-radius: 18rpx;
+  background: #5c8ab8;
+  color: #fff;
+  font-size: 24rpx;
+  font-weight: 800;
+}
+
+.publish-btn::after,
+.ghost::after {
+  border: none;
 }
 
 .empty {
-  padding: 120rpx 0;
+  padding: 120rpx 32rpx;
   text-align: center;
+  color: #8a99a8;
 }
 
-.empty-i {
+.empty-icon {
   font-size: 80rpx;
-  margin-bottom: 24rpx;
 }
 
-.empty-t {
-  font-size: 28rpx;
-  color: #9ab0c0;
+.empty-title {
+  margin-top: 18rpx;
+  color: #172331;
+  font-size: 30rpx;
+  font-weight: 800;
 }
 
-.micard {
+.empty-sub {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+}
+
+.item-card {
   display: flex;
-  align-items: center;
-  gap: 24rpx;
-  padding: 24rpx;
-  background: #fff;
-  border-radius: 20rpx;
+  gap: 20rpx;
   margin-bottom: 20rpx;
-  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+  padding: 22rpx;
+  border-radius: 20rpx;
+  background: #fff;
+  box-shadow: 0 6rpx 18rpx rgba(43, 68, 94, 0.08);
 }
 
-.miimg {
-  width: 120rpx;
-  height: 120rpx;
-  border-radius: 16rpx;
-  background: linear-gradient(135deg, rgba(123, 168, 212, 0.35), rgba(92, 138, 184, 0.35));
+.cover {
+  width: 144rpx;
+  height: 144rpx;
+  border-radius: 18rpx;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, rgba(123, 168, 212, 0.3), rgba(92, 138, 184, 0.3));
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 48rpx;
-  overflow: hidden;
-  flex-shrink: 0;
+  font-size: 52rpx;
 }
 
-.miimg image {
+.cover image {
   width: 100%;
   height: 100%;
 }
 
-.mibody {
+.body {
   flex: 1;
   min-width: 0;
 }
 
-.miname {
+.title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12rpx;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  color: #172331;
   font-size: 28rpx;
-  font-weight: 600;
-  color: #2c3e50;
-  margin-bottom: 8rpx;
+  font-weight: 800;
+  line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.miprice {
-  font-size: 32rpx;
-  font-weight: 800;
-  color: #5C8AB8;
-  margin-bottom: 4rpx;
-}
-
-.miprice small {
-  font-size: 22rpx;
-  font-weight: 600;
-}
-
-.mitime {
-  font-size: 22rpx;
-  color: #9ab0c0;
-}
-
-.micard-btn {
-  padding: 12rpx 24rpx;
+.status {
+  flex-shrink: 0;
+  padding: 6rpx 12rpx;
   border-radius: 999rpx;
-  font-size: 24rpx;
-  font-weight: 600;
-  background: transparent;
-  border: 2rpx solid;
+  font-size: 20rpx;
+  font-weight: 800;
 }
 
-.micard-btn::after {
-  border: none;
+.is-online {
+  background: rgba(75, 154, 104, 0.14);
+  color: #2f8a58;
+}
+
+.is-pending {
+  background: rgba(242, 144, 64, 0.16);
+  color: #c46b17;
+}
+
+.is-sold,
+.is-offline {
+  background: rgba(84, 99, 116, 0.14);
+  color: #546374;
+}
+
+.price {
+  margin-top: 10rpx;
+  color: #f26a42;
+  font-size: 32rpx;
+  font-weight: 900;
+}
+
+.meta,
+.metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 8rpx;
+  color: #7d8c9c;
+  font-size: 21rpx;
+}
+
+.actions {
+  display: flex;
+  gap: 12rpx;
+  margin-top: 16rpx;
+}
+
+.ghost {
+  height: 52rpx;
+  margin: 0;
+  padding: 0 20rpx;
+  border-radius: 999rpx;
+  background: #f1f6fa;
+  color: #5c7894;
+  font-size: 22rpx;
+  font-weight: 800;
+  line-height: 52rpx;
+}
+
+.ghost.primary {
+  background: #e9f3ed;
+  color: #2f8a58;
+}
+
+.ghost.disabled {
+  color: #a4b0bb;
 }
 </style>

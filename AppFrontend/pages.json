@@ -293,6 +293,15 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
 					}
+				},
+				{
+					"path": "marketTradeNotifications/marketTradeNotifications",
+					"style": {
+						"navigationBarTitleText": "交易通知",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
 				}
 			]
 		},
