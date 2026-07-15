@@ -70,6 +70,9 @@ ai:
     internal-token: ${AI_INTERNAL_TOKEN:}
   assistant:
     public-resource-hosts: ${AI_ASSISTANT_PUBLIC_RESOURCE_HOSTS:}
+  learning:
+    workflow:
+      fallback-max-entries: ${AI_LEARNING_WORKFLOW_FALLBACK_MAX_ENTRIES:1024}
 
 knowledge:
   maxkb:

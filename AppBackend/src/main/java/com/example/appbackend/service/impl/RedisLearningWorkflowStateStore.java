@@ -18,22 +18,32 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class RedisLearningWorkflowStateStore implements LearningWorkflowStateStore {
     private static final Logger log = LoggerFactory.getLogger(RedisLearningWorkflowStateStore.class);
     private static final String KEY_PREFIX = "learning:workflow:";
+    private static final String RETRY_KEY_PREFIX = KEY_PREFIX + "retry:";
     private static final Duration TTL = Duration.ofHours(24);
+    private static final Duration RETRY_CLAIM_TTL = Duration.ofMinutes(10);
+    private static final int DEFAULT_FALLBACK_MAX_ENTRIES = 1_024;
 
     private final RedisClient redisClient;
     private final ObjectMapper canonicalMapper;
+    private final Clock clock;
+    private final int fallbackMaxEntries;
+    private final Object fallbackLock = new Object();
     private final ConcurrentHashMap<String, CacheEntry> fallback = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, RetryClaim> fallbackRetryClaims = new ConcurrentHashMap<>();
 
     @Autowired
     public RedisLearningWorkflowStateStore(
@@ -43,13 +53,27 @@ public class RedisLearningWorkflowStateStore implements LearningWorkflowStateSto
             @Value("${spring.data.redis.password:}") String password,
             @Value("${spring.data.redis.database:0}") int database,
             @Value("${spring.data.redis.connect-timeout:2s}") Duration connectTimeout,
-            @Value("${spring.data.redis.timeout:2s}") Duration commandTimeout) {
+            @Value("${spring.data.redis.timeout:2s}") Duration commandTimeout,
+            @Value("${ai.learning.workflow.fallback-max-entries:1024}") int fallbackMaxEntries) {
         this(new RespRedisClient(host, port, password, database,
-                connectTimeout, commandTimeout), objectMapper);
+                connectTimeout, commandTimeout), objectMapper,
+                Clock.systemUTC(), fallbackMaxEntries);
     }
 
     RedisLearningWorkflowStateStore(RedisClient redisClient, ObjectMapper objectMapper) {
+        this(redisClient, objectMapper, Clock.systemUTC(), DEFAULT_FALLBACK_MAX_ENTRIES);
+    }
+
+    RedisLearningWorkflowStateStore(RedisClient redisClient,
+                                    ObjectMapper objectMapper,
+                                    Clock clock,
+                                    int fallbackMaxEntries) {
+        if (fallbackMaxEntries < 1) {
+            throw new IllegalArgumentException("学习工作流降级缓存容量无效");
+        }
         this.redisClient = redisClient;
+        this.clock = clock;
+        this.fallbackMaxEntries = fallbackMaxEntries;
         this.canonicalMapper = objectMapper.copy()
                 .configure(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY, true)
                 .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true);
@@ -61,13 +85,13 @@ public class RedisLearningWorkflowStateStore implements LearningWorkflowStateSto
             throw new IllegalArgumentException("学习工作流状态无效");
         }
         String workflowId = state.getWorkflowId().trim();
-        Instant expiresAt = Instant.now().plus(TTL);
-        fallback.put(workflowId, new CacheEntry(state, expiresAt));
         try {
             redisClient.set(key(workflowId), canonicalMapper.writeValueAsString(state), TTL);
+            fallback.remove(workflowId);
         } catch (Exception error) {
             log.warn("learning workflow redis save unavailable workflowId={} errorType={}",
                     workflowId, error.getClass().getSimpleName());
+            putFallback(workflowId, state);
         }
     }
 
@@ -77,13 +101,16 @@ public class RedisLearningWorkflowStateStore implements LearningWorkflowStateSto
             return Optional.empty();
         }
         String normalized = workflowId.trim();
+        evictFallbackEntries();
         try {
             String json = redisClient.get(key(normalized));
             if (StringUtils.hasText(json)) {
                 WorkflowState restored = canonicalMapper.readValue(json, WorkflowState.class);
-                fallback.put(normalized, new CacheEntry(restored, Instant.now().plus(TTL)));
+                putFallback(normalized, restored);
                 return Optional.of(restored);
             }
+            fallback.remove(normalized);
+            return Optional.empty();
         } catch (Exception error) {
             log.warn("learning workflow redis read unavailable workflowId={} errorType={}",
                     normalized, error.getClass().getSimpleName());
@@ -92,28 +119,121 @@ public class RedisLearningWorkflowStateStore implements LearningWorkflowStateSto
         if (cached == null) {
             return Optional.empty();
         }
-        if (!cached.expiresAt().isAfter(Instant.now())) {
+        if (!cached.expiresAt().isAfter(clock.instant())) {
             fallback.remove(normalized, cached);
             return Optional.empty();
         }
         return Optional.of(cached.state());
     }
 
+    @Override
+    public Optional<String> claimRetry(String workflowId, String resourceType) {
+        if (!StringUtils.hasText(workflowId) || !StringUtils.hasText(resourceType)) {
+            return Optional.empty();
+        }
+        String claimKey = retryKey(workflowId.trim(), resourceType.trim());
+        String token = UUID.randomUUID().toString();
+        try {
+            return redisClient.setIfAbsent(claimKey, token, RETRY_CLAIM_TTL)
+                    ? Optional.of(token) : Optional.empty();
+        } catch (Exception error) {
+            log.warn("learning workflow redis retry claim unavailable workflowId={} resourceType={} errorType={}",
+                    workflowId, resourceType, error.getClass().getSimpleName());
+            return claimFallbackRetry(claimKey, token);
+        }
+    }
+
+    @Override
+    public void releaseRetryClaim(String workflowId, String resourceType, String claimToken) {
+        if (!StringUtils.hasText(workflowId) || !StringUtils.hasText(resourceType)
+                || !StringUtils.hasText(claimToken)) {
+            return;
+        }
+        String claimKey = retryKey(workflowId.trim(), resourceType.trim());
+        try {
+            redisClient.compareAndDelete(claimKey, claimToken);
+        } catch (Exception error) {
+            log.warn("learning workflow redis retry release unavailable workflowId={} resourceType={} errorType={}",
+                    workflowId, resourceType, error.getClass().getSimpleName());
+        } finally {
+            fallbackRetryClaims.computeIfPresent(claimKey,
+                    (ignored, claim) -> claim.token().equals(claimToken) ? null : claim);
+        }
+    }
+
+    int fallbackSize() {
+        evictFallbackEntries();
+        return fallback.size();
+    }
+
+    private void putFallback(String workflowId, WorkflowState state) {
+        synchronized (fallbackLock) {
+            evictFallbackEntries();
+            fallback.put(workflowId, new CacheEntry(state, clock.instant().plus(TTL)));
+            trimOldest(fallback, fallbackMaxEntries);
+        }
+    }
+
+    private Optional<String> claimFallbackRetry(String claimKey, String token) {
+        synchronized (fallbackLock) {
+            evictFallbackEntries();
+            RetryClaim existing = fallbackRetryClaims.get(claimKey);
+            if (existing != null && existing.expiresAt().isAfter(clock.instant())) {
+                return Optional.empty();
+            }
+            fallbackRetryClaims.put(claimKey,
+                    new RetryClaim(token, clock.instant().plus(RETRY_CLAIM_TTL)));
+            trimOldest(fallbackRetryClaims, fallbackMaxEntries);
+            return fallbackRetryClaims.containsKey(claimKey)
+                    ? Optional.of(token) : Optional.empty();
+        }
+    }
+
+    private void evictFallbackEntries() {
+        Instant now = clock.instant();
+        fallback.entrySet().removeIf(entry -> !entry.getValue().expiresAt().isAfter(now));
+        fallbackRetryClaims.entrySet().removeIf(entry -> !entry.getValue().expiresAt().isAfter(now));
+    }
+
+    private <T extends ExpiringEntry> void trimOldest(
+            ConcurrentHashMap<String, T> entries, int maximum) {
+        while (entries.size() > maximum) {
+            entries.entrySet().stream()
+                    .min(Comparator.comparing(entry -> entry.getValue().expiresAt()))
+                    .ifPresent(entry -> entries.remove(entry.getKey(), entry.getValue()));
+        }
+    }
+
     private String key(String workflowId) {
         return KEY_PREFIX + workflowId;
     }
 
-    private record CacheEntry(WorkflowState state, Instant expiresAt) {
+    private String retryKey(String workflowId, String resourceType) {
+        return RETRY_KEY_PREFIX + workflowId + ":" + resourceType;
+    }
+
+    private interface ExpiringEntry {
+        Instant expiresAt();
+    }
+
+    private record CacheEntry(WorkflowState state, Instant expiresAt) implements ExpiringEntry {
+    }
+
+    private record RetryClaim(String token, Instant expiresAt) implements ExpiringEntry {
     }
 
     interface RedisClient {
         void set(String key, String value, Duration ttl) throws IOException;
 
         String get(String key) throws IOException;
+
+        boolean setIfAbsent(String key, String value, Duration ttl) throws IOException;
+
+        boolean compareAndDelete(String key, String expectedValue) throws IOException;
     }
 
     /**
-     * Minimal RESP2 client for GET and SET EX. A short-lived socket keeps this adapter
+     * Minimal RESP2 client for GET, SET EX/NX and token-checked EVAL release. A short-lived socket keeps this adapter
      * dependency-free and isolated from the application's Spring Boot/Spring Data versions.
      */
     static final class RespRedisClient implements RedisClient {
@@ -168,6 +288,35 @@ public class RedisLearningWorkflowStateStore implements LearningWorkflowStateSto
                 return (String) response;
             }
             throw new IOException("Redis GET 响应类型无效");
+        }
+
+        @Override
+        public boolean setIfAbsent(String key, String value, Duration ttl) throws IOException {
+            if (!StringUtils.hasText(key) || !StringUtils.hasText(value) || ttl == null
+                    || ttl.isZero() || ttl.isNegative()) {
+                throw new IllegalArgumentException("Redis 原子占用参数无效");
+            }
+            Object response = execute(List.of(
+                    "SET", key, value, "NX", "EX", Long.toString(ttl.toSeconds())));
+            if (response == null) {
+                return false;
+            }
+            if ("OK".equals(response)) {
+                return true;
+            }
+            throw new IOException("Redis SET NX 响应类型无效");
+        }
+
+        @Override
+        public boolean compareAndDelete(String key, String expectedValue) throws IOException {
+            if (!StringUtils.hasText(key) || !StringUtils.hasText(expectedValue)) {
+                return false;
+            }
+            String script = "if redis.call('get', KEYS[1]) == ARGV[1] "
+                    + "then return redis.call('del', KEYS[1]) else return 0 end";
+            Object response = execute(List.of(
+                    "EVAL", script, "1", key, expectedValue));
+            return response instanceof Number number && number.longValue() == 1L;
         }
 
         private Object execute(List<String> command) throws IOException {

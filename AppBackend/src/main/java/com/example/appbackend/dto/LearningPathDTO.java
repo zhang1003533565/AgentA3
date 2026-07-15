@@ -48,7 +48,6 @@ public final class LearningPathDTO {
         private String intent;
         @Size(max = 6)
         private List<String> requestedResourceTypes;
-        private Long pathItemId;
     }
 
     @Data

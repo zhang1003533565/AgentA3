@@ -42,6 +42,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -107,6 +108,13 @@ class LearningWorkflowServiceImplTest {
         when(envelopeService.mergeInternalCapabilities(any(), any()))
                 .thenAnswer(invocation -> new AssistantEnvelopeService.CapabilityScan(
                         invocation.getArgument(1), false));
+        when(envelopeService.sanitizeLearningText(
+                any(), org.mockito.ArgumentMatchers.anyInt(), anyString(), any()))
+                .thenAnswer(invocation -> {
+                    Object value = invocation.getArgument(0);
+                    String fallback = invocation.getArgument(2);
+                    return value == null ? fallback : String.valueOf(value).trim();
+                });
         when(envelopeService.prepareLiveResponse(any(), anyMap(), anyString(), any()))
                 .thenAnswer(invocation -> {
                     LlmChatResponse response = invocation.getArgument(0);
@@ -130,20 +138,31 @@ class LearningWorkflowServiceImplTest {
                     response.setResources(resources);
                     return new AssistantEnvelopeService.PreparedEnvelope(List.of(), java.util.Set.of());
                 });
+        AtomicLong reservedMessageIds = new AtomicLong(88L);
+        when(envelopeService.reserveAssistantMessage(any(), any())).thenAnswer(invocation -> {
+            AiLeaderMessage message = new AiLeaderMessage();
+            message.setId(reservedMessageIds.getAndIncrement());
+            return message;
+        });
         when(envelopeService.persistAssistantMessage(anyLong(), any(), any(), any(), any(), any()))
-                .thenAnswer(invocation -> {
-                    AiLeaderMessage message = new AiLeaderMessage();
-                    message.setId(88L);
-                    return message;
-                });
+                .thenAnswer(invocation -> invocation.getArgument(5));
         when(pathService.replaceActivePath(anyLong(), any())).thenAnswer(invocation -> {
             LearningPathDTO.PathDraft draft = invocation.getArgument(1);
             LearningPathDTO.PathView view = new LearningPathDTO.PathView();
             view.setId(71L);
             view.setVersion(2);
             view.setCourseKey(draft.getCourseKey());
+            view.setSourceMessageId(draft.getSourceMessageId());
             return view;
         });
+        when(pathService.getPathSnapshot(anyLong(), anyLong(), any(), anyLong()))
+                .thenAnswer(invocation -> {
+                    LearningPathDTO.PathView view = stateStore.only().getView().getPath();
+                    return view;
+                });
+        when(pathService.appendResourcesToPath(
+                anyLong(), anyLong(), any(), anyLong(), any(), anyLong()))
+                .thenAnswer(invocation -> stateStore.only().getView().getPath());
 
         service = new LearningWorkflowServiceImpl(
                 proxy,
@@ -296,7 +315,10 @@ class LearningWorkflowServiceImplTest {
                 org.mockito.ArgumentMatchers.eq(42L), any(), responseCaptor.capture(), any(), any(), any());
         assertThat(responseCaptor.getValue().getOutputMeta())
                 .containsEntry("status", "partial")
-                .containsEntry("failedResourceTypes", List.of("code_lab"));
+                .containsEntry("failedResourceTypes", List.of("code_lab"))
+                .containsEntry("pathId", 71L)
+                .containsEntry("pathVersion", 2)
+                .containsEntry("pathSourceMessageId", 88L);
 
         LearningPathDTO.WorkflowView retrying = service.retryResource(
                 42L, workflowId, "code_lab", "Bearer student-token");
@@ -321,6 +343,13 @@ class LearningWorkflowServiceImplTest {
         assertThat(completed.getResources().get("code_lab").getId()).isEqualTo("resource-code-2");
         assertThat(completed.getPath().getId()).isEqualTo(71L);
         verify(pathService).replaceActivePath(anyLong(), any());
+        verify(pathService).appendResourcesToPath(
+                org.mockito.ArgumentMatchers.eq(42L),
+                org.mockito.ArgumentMatchers.eq(71L),
+                org.mockito.ArgumentMatchers.eq(2),
+                org.mockito.ArgumentMatchers.eq(88L),
+                org.mockito.ArgumentMatchers.eq(List.of("resource-code-2")),
+                org.mockito.ArgumentMatchers.eq(89L));
 
         AiLeaderSession persistedSession = session(10L, "learning-" + workflowId);
         persistedSession.setCreateTime(LocalDateTime.now().minusMinutes(2));
@@ -332,7 +361,8 @@ class LearningWorkflowServiceImplTest {
                 AiLeaderMessage.ROLE_ASSISTANT,
                 "列表切片讲义已生成，代码实操待重试",
                 "{\"status\":\"partial\",\"intent\":\"resource_package\","
-                        + "\"failedResourceTypes\":[\"code_lab\"]}",
+                        + "\"failedResourceTypes\":[\"code_lab\"],"
+                        + "\"pathId\":71,\"pathVersion\":2,\"pathSourceMessageId\":88}",
                 "[" + jsonResource(
                         "resource-note-1", "explanation", "列表切片讲义", "knowledge_note") + "]");
         AiLeaderMessage recoveredMessage = persistedMessage(
@@ -340,7 +370,8 @@ class LearningWorkflowServiceImplTest {
                 AiLeaderMessage.ROLE_ASSISTANT,
                 "代码实操已补齐",
                 "{\"status\":\"completed\",\"intent\":\"resource_package\","
-                        + "\"failedResourceTypes\":[]}",
+                        + "\"failedResourceTypes\":[],"
+                        + "\"pathId\":71,\"pathVersion\":2,\"pathSourceMessageId\":88}",
                 "[" + jsonResource(
                         "resource-code-2", "code_example", "列表切片实操", "code_lab") + "]");
         when(sessionRepository.findByUserIdAndSessionId(42L, "learning-" + workflowId))
@@ -356,6 +387,8 @@ class LearningWorkflowServiceImplTest {
                     mapper.getTypeFactory().constructCollectionType(List.class, AssistantResourceDTO.class)));
             return null;
         }).when(envelopeService).restoreEnvelope(any(), any(), anyString());
+        LearningPathDTO.PathView historicalPath = completed.getPath();
+        when(pathService.getPathSnapshot(42L, 71L, 2, 88L)).thenReturn(historicalPath);
 
         stateStore.clear();
         LearningPathDTO.WorkflowView reconstructed = service.getWorkflow(42L, workflowId);
@@ -363,11 +396,13 @@ class LearningWorkflowServiceImplTest {
         assertThat(reconstructed.getStatus()).isEqualTo("completed");
         assertThat(reconstructed.getMessage()).isEqualTo("代码实操已补齐");
         assertThat(reconstructed.getMessageId()).isEqualTo(89L);
+        assertThat(reconstructed.getPath().getId()).isEqualTo(71L);
         assertThat(reconstructed.getResources()).containsOnlyKeys("knowledge_note", "code_lab");
         assertThat(reconstructed.getResources().get("knowledge_note").getId())
                 .isEqualTo("resource-note-1");
         assertThat(reconstructed.getResources().get("code_lab").getId())
                 .isEqualTo("resource-code-2");
+        verify(pathService, times(2)).getPathSnapshot(42L, 71L, 2, 88L);
     }
 
     @Test
@@ -410,6 +445,178 @@ class LearningWorkflowServiceImplTest {
         assertThat(view.getErrors().get("code_lab").getMessage()).isEqualTo("资源生成失败，请重试");
         verify(envelopeService).sanitizeLearningSseEventPayload(
                 org.mockito.ArgumentMatchers.eq("agent_failed"), anyMap(), any());
+    }
+
+    @Test
+    void pythonCapabilitiesAreRemovedFromRelayedLearningEvents() {
+        configureCapabilityFiltering("capability-secret");
+        service.start(42L, generateRequest(), "Bearer student-token");
+        String workflowId = stateStore.only().getWorkflowId();
+        Map<String, Object> planning = event(workflowId, 35);
+        planning.put("message", "正在调用 capability-secret");
+        planning.put("internalCapability", "capability-secret");
+        planning.put("raw", Map.of("token", "capability-secret"));
+
+        assertThat(eventHandler.get().handle("planning", planning)).isTrue();
+
+        assertThat(planning).doesNotContainKeys("internalCapability", "raw", "message");
+        assertThat(planning.toString()).doesNotContain("capability-secret");
+    }
+
+    @Test
+    void pythonCapabilitiesAreFilteredBeforeTheWorkflowSnapshotIsStored() {
+        configureCapabilityFiltering("capability-secret");
+        service.start(42L, generateRequest(), "Bearer student-token");
+        String workflowId = stateStore.only().getWorkflowId();
+        Map<String, Object> planning = event(workflowId, 35);
+        planning.put("message", "正在调用 capability-secret");
+        planning.put("internalCapability", "capability-secret");
+
+        assertThat(eventHandler.get().handle("planning", planning)).isTrue();
+
+        LearningPathDTO.WorkflowView polled = service.getWorkflow(42L, workflowId);
+        assertThat(polled.getMessage()).doesNotContain("capability-secret");
+        assertThat(new ObjectMapper().findAndRegisterModules().valueToTree(polled).toString())
+                .doesNotContain("capability-secret");
+    }
+
+    @Test
+    void retryRequiresATerminalRetryableFailureAndReturnsSuccessfulResourcesIdempotently() {
+        service.start(42L, generateRequest(), "Bearer student-token");
+        String workflowId = stateStore.only().getWorkflowId();
+
+        assertThrows(BusinessException.class, () -> service.retryResource(
+                42L, workflowId, "code_lab", "Bearer student-token"));
+
+        Map<String, Object> partial = event(workflowId, 100);
+        partial.put("status", "partial");
+        partial.put("answer", "讲义已生成，代码实操不可重试");
+        partial.put("resources", List.of(
+                resource("resource-note-1", "explanation", "列表切片讲义", "knowledge_note")));
+        partial.put("failedResources", List.of(Map.of(
+                "resourceType", "code_lab",
+                "stage", "exporting",
+                "retryable", false,
+                "message", "代码实操生成失败",
+                "errorType", "validation_failed"
+        )));
+        partial.put("pathDraft", pathDraft("初始补强路径"));
+        assertThat(eventHandler.get().handle("done", partial)).isTrue();
+
+        LearningPathDTO.WorkflowView unchanged = service.retryResource(
+                42L, workflowId, "knowledge_note", "Bearer student-token");
+        assertThat(unchanged.getResources().get("knowledge_note").getId())
+                .isEqualTo("resource-note-1");
+        assertThat(unchanged.getStatus()).isEqualTo("partial");
+        assertThrows(BusinessException.class, () -> service.retryResource(
+                42L, workflowId, "code_lab", "Bearer student-token"));
+        verify(proxy, times(1)).streamLearningWorkflow(anyMap(), anyString(), any());
+    }
+
+    @Test
+    void retryClaimAndTransportFailurePreserveTheLastCommittedResourcesAndErrors() {
+        service.start(42L, generateRequest(), "Bearer student-token");
+        String workflowId = stateStore.only().getWorkflowId();
+        Map<String, Object> partial = event(workflowId, 100);
+        partial.put("status", "partial");
+        partial.put("answer", "讲义已生成，代码实操待重试");
+        partial.put("resources", List.of(
+                resource("resource-note-1", "explanation", "列表切片讲义", "knowledge_note")));
+        partial.put("failedResources", List.of(Map.of(
+                "resourceType", "code_lab",
+                "stage", "exporting",
+                "retryable", true,
+                "message", "原始代码实操失败",
+                "errorType", "export_failed"
+        )));
+        partial.put("pathDraft", pathDraft("初始补强路径"));
+        assertThat(eventHandler.get().handle("done", partial)).isTrue();
+
+        LearningPathDTO.WorkflowView retrying = service.retryResource(
+                42L, workflowId, "code_lab", "Bearer student-token");
+        assertThat(retrying.getStatus()).isEqualTo("partial");
+        assertThat(retrying.getStage()).isEqualTo("retrying");
+        assertThat(retrying.getErrors()).containsKey("code_lab");
+        assertThrows(BusinessException.class, () -> service.retryResource(
+                42L, workflowId, "code_lab", "Bearer student-token"));
+
+        Map<String, Object> preview = event(workflowId, 70);
+        preview.put("resourceType", "code_lab");
+        preview.put("resource", resource(
+                "uncommitted-code", "code_example", "未提交代码实操", "code_lab"));
+        assertThat(eventHandler.get().handle("agent_done", preview)).isTrue();
+        Map<String, Object> transportError = event(workflowId, 70);
+        transportError.put("message", "Python AI 流式服务暂时不可用，请稍后再试。");
+        assertThat(eventHandler.get().handle("error", transportError)).isTrue();
+
+        LearningPathDTO.WorkflowView restored = service.getWorkflow(42L, workflowId);
+        assertThat(restored.getStatus()).isEqualTo("partial");
+        assertThat(restored.getStage()).isEqualTo("partial");
+        assertThat(restored.getResources()).containsOnlyKeys("knowledge_note");
+        assertThat(restored.getResources().get("knowledge_note").getId())
+                .isEqualTo("resource-note-1");
+        assertThat(restored.getErrors()).containsOnlyKeys("code_lab");
+        assertThat(restored.getErrors().get("code_lab").getMessage())
+                .isEqualTo("原始代码实操失败");
+    }
+
+    @Test
+    void pathDraftIsValidatedBeforeAnyAssistantMessageIsReserved() {
+        service.start(42L, generateRequest(), "Bearer student-token");
+        String workflowId = stateStore.only().getWorkflowId();
+        org.mockito.Mockito.doThrow(new BusinessException(400, "路径草案无效"))
+                .when(pathService).validatePathDraft(
+                        org.mockito.ArgumentMatchers.eq(42L), any());
+        Map<String, Object> done = event(workflowId, 100);
+        done.put("status", "completed");
+        done.put("answer", "生成完成");
+        done.put("resources", List.of(
+                resource("resource-note-1", "explanation", "列表切片讲义", "knowledge_note"),
+                resource("resource-code-1", "code_example", "列表切片实操", "code_lab")));
+        done.put("pathDraft", pathDraft("待验证路径"));
+
+        assertThrows(BusinessException.class,
+                () -> eventHandler.get().handle("done", done));
+
+        verify(envelopeService, never()).reserveAssistantMessage(any(), any());
+        verify(envelopeService, never()).persistAssistantMessage(
+                anyLong(), any(), any(), any(), any(), any());
+        assertThat(stateStore.only().getView().getStatus()).isEqualTo("generation_failed");
+        assertThat(stateStore.only().getTerminal()).isTrue();
+    }
+
+    @Test
+    void pathSaveFailureNeverPublishesACompletedAssistantEnvelope() {
+        service.start(42L, generateRequest(), "Bearer student-token");
+        String workflowId = stateStore.only().getWorkflowId();
+        org.mockito.Mockito.doThrow(new IllegalStateException("path write failed"))
+                .when(pathService).replaceActivePath(anyLong(), any());
+        Map<String, Object> done = event(workflowId, 100);
+        done.put("status", "completed");
+        done.put("answer", "生成完成");
+        done.put("resources", List.of(
+                resource("resource-note-1", "explanation", "列表切片讲义", "knowledge_note"),
+                resource("resource-code-1", "code_example", "列表切片实操", "code_lab")));
+        done.put("pathDraft", pathDraft("保存失败路径"));
+
+        assertThrows(IllegalStateException.class,
+                () -> eventHandler.get().handle("done", done));
+
+        verify(envelopeService).reserveAssistantMessage(any(), any());
+        verify(envelopeService, never()).persistAssistantMessage(
+                anyLong(), any(), any(), any(), any(), any());
+        assertThat(stateStore.only().getTerminal()).isTrue();
+        assertThat(stateStore.only().getView().getStatus()).isEqualTo("generation_failed");
+
+        AiLeaderSession persistedSession = session(10L, "learning-" + workflowId);
+        when(sessionRepository.findByUserIdAndSessionId(42L, "learning-" + workflowId))
+                .thenReturn(Optional.of(persistedSession));
+        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(10L))
+                .thenReturn(List.of(persistedMessage(
+                        1L, AiLeaderMessage.ROLE_USER, "列表切片", "{}", "[]")));
+        stateStore.clear();
+        assertThrows(BusinessException.class,
+                () -> service.getWorkflow(42L, workflowId));
     }
 
     @Test
@@ -513,6 +720,26 @@ class LearningWorkflowServiceImplTest {
         return event;
     }
 
+    private void configureCapabilityFiltering(String capability) {
+        when(envelopeService.scanInternalCapabilities(any())).thenAnswer(invocation -> {
+            Object value = invocation.getArgument(0);
+            boolean present = value instanceof Map<?, ?> map
+                    && capability.equals(map.get("internalCapability"));
+            return new AssistantEnvelopeService.CapabilityScan(
+                    present ? java.util.Set.of(capability) : java.util.Set.of(), false);
+        });
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> payload = invocation.getArgument(1);
+            payload.remove("internalCapability");
+            payload.remove("raw");
+            if (String.valueOf(payload.get("message")).contains(capability)) {
+                payload.remove("message");
+            }
+            return null;
+        }).when(envelopeService).sanitizeLearningSseEventPayload(anyString(), anyMap(), any());
+    }
+
     private Map<String, Object> resource(
             String id, String kind, String title, String resourceType) {
         return Map.of(
@@ -575,6 +802,7 @@ class LearningWorkflowServiceImplTest {
 
     private static final class InMemoryStateStore implements LearningWorkflowStateStore {
         private final Map<String, WorkflowState> states = new LinkedHashMap<>();
+        private final Map<String, String> retryClaims = new LinkedHashMap<>();
 
         @Override
         public void save(WorkflowState state) {
@@ -586,6 +814,23 @@ class LearningWorkflowServiceImplTest {
             return Optional.ofNullable(states.get(workflowId));
         }
 
+        @Override
+        public synchronized Optional<String> claimRetry(String workflowId, String resourceType) {
+            String key = workflowId + ":" + resourceType;
+            if (retryClaims.containsKey(key)) {
+                return Optional.empty();
+            }
+            String token = "claim-" + key;
+            retryClaims.put(key, token);
+            return Optional.of(token);
+        }
+
+        @Override
+        public synchronized void releaseRetryClaim(
+                String workflowId, String resourceType, String claimToken) {
+            retryClaims.remove(workflowId + ":" + resourceType, claimToken);
+        }
+
         private WorkflowState only() {
             assertThat(states).hasSize(1);
             return new ArrayList<>(states.values()).getFirst();
@@ -593,6 +838,7 @@ class LearningWorkflowServiceImplTest {
 
         private void clear() {
             states.clear();
+            retryClaims.clear();
         }
     }
 }

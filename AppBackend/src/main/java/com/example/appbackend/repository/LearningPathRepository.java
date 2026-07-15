@@ -19,6 +19,21 @@ public interface LearningPathRepository extends JpaRepository<LearningPath, Long
     Optional<LearningPath> findTopByUserIdAndCourseKeyOrderByVersionNoDesc(
             Long userId, String courseKey);
 
+    Optional<LearningPath> findByIdAndUserIdAndCourseKey(
+            Long id, Long userId, String courseKey);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select path from LearningPath path
+            where path.id = :pathId
+              and path.userId = :userId
+              and path.courseKey = :courseKey
+            """)
+    Optional<LearningPath> findOwnedByIdForUpdate(
+            @Param("pathId") Long pathId,
+            @Param("userId") Long userId,
+            @Param("courseKey") String courseKey);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select path from LearningPath path

@@ -8,10 +8,17 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -86,6 +93,94 @@ class RedisLearningWorkflowStateStoreTest {
     }
 
     @Test
+    void successfulRedisWritesDoNotCreateAnUnboundedShadowCopy() throws Exception {
+        RedisLearningWorkflowStateStore.RedisClient redis = mock(
+                RedisLearningWorkflowStateStore.RedisClient.class);
+        RedisLearningWorkflowStateStore store = new RedisLearningWorkflowStateStore(
+                redis, new ObjectMapper().findAndRegisterModules());
+
+        store.save(state("wf-redis-only", 42L));
+        when(redis.get(any())).thenThrow(new IOException("later outage"));
+
+        assertThat(store.find("wf-redis-only")).isEmpty();
+        assertThat(store.fallbackSize()).isZero();
+    }
+
+    @Test
+    void fallbackCacheHasTtlCapacityAndBatchEvictionWithAControllableClock() throws Exception {
+        RedisLearningWorkflowStateStore.RedisClient redis = mock(
+                RedisLearningWorkflowStateStore.RedisClient.class);
+        doThrow(new IOException("redis unavailable"))
+                .when(redis).set(any(), any(), any(Duration.class));
+        when(redis.get(any())).thenThrow(new IOException("redis unavailable"));
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-15T00:00:00Z"));
+        RedisLearningWorkflowStateStore store = new RedisLearningWorkflowStateStore(
+                redis, new ObjectMapper().findAndRegisterModules(), clock, 3);
+
+        for (int index = 0; index < 8; index++) {
+            store.save(state("wf-" + index, 42L));
+            clock.advance(Duration.ofSeconds(1));
+        }
+
+        assertThat(store.fallbackSize()).isEqualTo(3);
+        assertThat(store.find("wf-0")).isEmpty();
+        assertThat(store.find("wf-7")).isPresent();
+
+        clock.advance(Duration.ofHours(25));
+        assertThat(store.find("wf-7")).isEmpty();
+        assertThat(store.fallbackSize()).isZero();
+    }
+
+    @Test
+    void retryClaimsUseAtomicRedisSetNxAndTokenCheckedRelease() throws Exception {
+        RedisLearningWorkflowStateStore.RedisClient redis = mock(
+                RedisLearningWorkflowStateStore.RedisClient.class);
+        when(redis.setIfAbsent(any(), any(), any(Duration.class)))
+                .thenReturn(true, false);
+        RedisLearningWorkflowStateStore store = new RedisLearningWorkflowStateStore(
+                redis, new ObjectMapper().findAndRegisterModules());
+
+        Optional<String> first = store.claimRetry("wf-claim", "code_lab");
+        Optional<String> second = store.claimRetry("wf-claim", "code_lab");
+
+        assertThat(first).isPresent();
+        assertThat(second).isEmpty();
+        store.releaseRetryClaim("wf-claim", "code_lab", first.orElseThrow());
+        org.mockito.Mockito.verify(redis).compareAndDelete(
+                "learning:workflow:retry:wf-claim:code_lab", first.orElseThrow());
+    }
+
+    @Test
+    void fallbackRetryClaimAllowsOnlyOneConcurrentWinner() throws Exception {
+        RedisLearningWorkflowStateStore.RedisClient redis = mock(
+                RedisLearningWorkflowStateStore.RedisClient.class);
+        when(redis.setIfAbsent(any(), any(), any(Duration.class)))
+                .thenThrow(new IOException("redis unavailable"));
+        RedisLearningWorkflowStateStore store = new RedisLearningWorkflowStateStore(
+                redis, new ObjectMapper().findAndRegisterModules());
+        CountDownLatch start = new CountDownLatch(1);
+        var executor = Executors.newFixedThreadPool(8);
+        List<Future<Optional<String>>> claims = new java.util.ArrayList<>();
+        for (int index = 0; index < 32; index++) {
+            claims.add(executor.submit(() -> {
+                start.await();
+                return store.claimRetry("wf-concurrent", "code_lab");
+            }));
+        }
+
+        start.countDown();
+        long winners = 0;
+        for (Future<Optional<String>> claim : claims) {
+            if (claim.get().isPresent()) {
+                winners++;
+            }
+        }
+        executor.shutdownNow();
+
+        assertThat(winners).isEqualTo(1L);
+    }
+
+    @Test
     void respCodecUsesUtf8ByteLengthsAndRejectsRedisErrors() throws Exception {
         byte[] command = RedisLearningWorkflowStateStore.RespRedisClient.encodeCommand(
                 List.of("SET", "learning:workflow:wf-1", "学习", "EX", "86400"));
@@ -115,5 +210,32 @@ class RedisLearningWorkflowStateStoreTest {
         state.setOwnerUserId(userId);
         state.setView(view);
         return state;
+    }
+
+    private static final class MutableClock extends Clock {
+        private Instant instant;
+
+        private MutableClock(Instant instant) {
+            this.instant = instant;
+        }
+
+        private void advance(Duration duration) {
+            instant = instant.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return instant;
+        }
     }
 }

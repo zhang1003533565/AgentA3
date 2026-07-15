@@ -12,6 +12,10 @@ public interface LearningWorkflowStateStore {
 
     Optional<WorkflowState> find(String workflowId);
 
+    Optional<String> claimRetry(String workflowId, String resourceType);
+
+    void releaseRetryClaim(String workflowId, String resourceType, String claimToken);
+
     @Data
     class WorkflowState {
         private String workflowId;

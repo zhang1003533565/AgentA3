@@ -350,6 +350,37 @@ public class AssistantEnvelopeService {
         target.putAll(safe);
     }
 
+    public String sanitizeLearningText(Object value,
+                                       int maxLength,
+                                       String fallback,
+                                       Set<String> internalCapabilities) {
+        String text = value == null ? "" : String.valueOf(value).trim();
+        if (text.length() > maxLength) {
+            text = text.substring(0, maxLength);
+        }
+        return safePublicText(text, fallback,
+                internalCapabilities == null ? Set.of() : internalCapabilities).trim();
+    }
+
+    @Transactional
+    public AiLeaderMessage reserveAssistantMessage(
+            AiLeaderSession session, LlmChatResponse response) {
+        if (session == null || session.getId() == null || response == null) {
+            throw new IllegalArgumentException("assistant message reservation is invalid");
+        }
+        AiLeaderMessage message = new AiLeaderMessage();
+        message.setLeaderSessionId(session.getId());
+        message.setRole(AiLeaderMessage.ROLE_ASSISTANT);
+        fillBaseFields(message, response);
+        clearPublicEnvelope(message);
+        message = messageRepository.save(message);
+        if (message.getId() == null) {
+            throw new IllegalStateException("assistant message id was not generated");
+        }
+        response.setMessageId(message.getId());
+        return message;
+    }
+
     @Transactional
     public AiLeaderMessage persistAssistantMessage(Long userId,
                                                    AiLeaderSession session,
@@ -365,13 +396,9 @@ public class AssistantEnvelopeService {
             throw new IllegalStateException("assistant capability manifest validation failed");
         }
         assertPublicResponseSafe(response, mergedCapabilities.values());
-        AiLeaderMessage message = existing == null ? new AiLeaderMessage() : existing;
+        AiLeaderMessage message = existing;
         if (existing == null) {
-            message.setLeaderSessionId(session.getId());
-            message.setRole(AiLeaderMessage.ROLE_ASSISTANT);
-            fillBaseFields(message, response);
-            clearPublicEnvelope(message);
-            message = messageRepository.save(message);
+            message = reserveAssistantMessage(session, response);
         }
         if (message.getId() == null) {
             throw new IllegalStateException("assistant message id was not generated");

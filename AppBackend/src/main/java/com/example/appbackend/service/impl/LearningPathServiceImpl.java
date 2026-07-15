@@ -29,6 +29,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -100,11 +101,33 @@ public class LearningPathServiceImpl implements LearningPathService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public LearningPathDTO.PathView getPathSnapshot(
+            Long userId, Long pathId, Integer version, Long sourceMessageId) {
+        validateUserAndCourse(userId, PYTHON);
+        if (pathId == null || version == null || sourceMessageId == null) {
+            throw badRequest("学习路径快照标识无效");
+        }
+        LearningPath path = pathRepository.findByIdAndUserIdAndCourseKey(
+                        pathId, userId, PYTHON)
+                .filter(value -> version.equals(value.getVersionNo())
+                        && sourceMessageId.equals(value.getSourceMessageId()))
+                .orElseThrow(() -> new BusinessException(
+                        Result.NOT_FOUND_CODE, "学习路径快照不存在"));
+        return toPathView(path);
+    }
+
+    @Override
+    public void validatePathDraft(Long userId, LearningPathDTO.PathDraft draft) {
+        validateUserAndCourse(userId, draft == null ? null : draft.getCourseKey());
+        validateDraft(draft);
+    }
+
+    @Override
     @Transactional
     public LearningPathDTO.PathView replaceActivePath(
             Long userId, LearningPathDTO.PathDraft draft) {
-        validateUserAndCourse(userId, draft == null ? null : draft.getCourseKey());
-        validateDraft(draft);
+        validatePathDraft(userId, draft);
         lockUser(userId);
 
         List<LearningPath> latestRows = pathRepository.findLatestForUpdate(
@@ -157,6 +180,41 @@ public class LearningPathServiceImpl implements LearningPathService {
         }
         itemRepository.saveAll(items);
         return toPathView(path);
+    }
+
+    @Override
+    @Transactional
+    public LearningPathDTO.PathView appendResourcesToPath(
+            Long userId,
+            Long pathId,
+            Integer expectedVersion,
+            Long expectedSourceMessageId,
+            List<String> resourceIds,
+            Long sourceMessageId) {
+        validateUserAndCourse(userId, PYTHON);
+        if (pathId == null || expectedVersion == null || expectedSourceMessageId == null
+                || sourceMessageId == null || resourceIds == null || resourceIds.isEmpty()) {
+            throw badRequest("学习路径资源更新参数无效");
+        }
+        lockUser(userId);
+        LearningPath path = pathRepository.findOwnedByIdForUpdate(pathId, userId, PYTHON)
+                .filter(value -> expectedVersion.equals(value.getVersionNo())
+                        && Objects.equals(expectedSourceMessageId, value.getSourceMessageId()))
+                .orElseThrow(() -> new BusinessException(
+                        Result.NOT_FOUND_CODE, "学习路径快照不存在"));
+        List<LearningPathItem> pathItems = itemRepository.findByPathIdForUpdate(pathId);
+        if (pathItems.isEmpty()) {
+            throw new BusinessException(Result.NOT_FOUND_CODE, "学习路径节点不存在");
+        }
+        for (LearningPathItem item : pathItems) {
+            List<String> mergedIds = new ArrayList<>(readStringList(item.getResourceIdsJson()));
+            mergedIds.addAll(resourceIds);
+            item.setResourceIdsJson(canonicalJson(mergedIds));
+            item.setDeliveryStatus("available");
+            item.setSourceMessageId(sourceMessageId);
+        }
+        itemRepository.saveAll(pathItems);
+        return toPathView(path, pathItems);
     }
 
     @Override

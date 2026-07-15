@@ -26,8 +26,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -48,6 +51,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 @Service
 public class LearningWorkflowServiceImpl implements LearningWorkflowService {
@@ -56,6 +60,8 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
     private static final String LEADER_AGENT = "leader_agent";
     private static final String PROFILE_SOURCE = "profile_form";
     private static final String SESSION_PREFIX = "learning-";
+    private static final String RETRY_RESOURCE_CONTEXT = "retryResourceType";
+    private static final String RETRY_CLAIM_CONTEXT = "retryClaimToken";
     private static final Set<String> INTENTS = Set.of(
             "resource_package", "learning_plan", "weakness_review", "path_replanning");
     private static final Set<String> RESOURCE_TYPES = Set.of(
@@ -80,6 +86,10 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
                                Map<String, LearningPathDTO.WorkflowError> failures) {
     }
 
+    private record PersistedCompletion(AiLeaderMessage message,
+                                       LearningPathDTO.PathView path) {
+    }
+
     private final PythonAiProxyService pythonAiProxyService;
     private final LearningWorkflowStateStore stateStore;
     private final LearningPathService learningPathService;
@@ -91,7 +101,9 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
     private final AssistantEnvelopeService assistantEnvelopeService;
     private final ObjectMapper objectMapper;
     private final ObjectMapper canonicalMapper;
+    private final TransactionTemplate transactionTemplate;
 
+    @Autowired
     public LearningWorkflowServiceImpl(PythonAiProxyService pythonAiProxyService,
                                        LearningWorkflowStateStore stateStore,
                                        LearningPathService learningPathService,
@@ -101,7 +113,41 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
                                        AiLeaderSessionRepository sessionRepository,
                                        AiLeaderMessageRepository messageRepository,
                                        AssistantEnvelopeService assistantEnvelopeService,
-                                       ObjectMapper objectMapper) {
+                                       ObjectMapper objectMapper,
+                                       PlatformTransactionManager transactionManager) {
+        this(pythonAiProxyService, stateStore, learningPathService, userProfileService,
+                courseKnowledgeService, profileEvidenceRepository, sessionRepository,
+                messageRepository, assistantEnvelopeService, objectMapper,
+                new TransactionTemplate(transactionManager));
+    }
+
+    LearningWorkflowServiceImpl(PythonAiProxyService pythonAiProxyService,
+                                LearningWorkflowStateStore stateStore,
+                                LearningPathService learningPathService,
+                                UserProfileService userProfileService,
+                                CourseKnowledgeService courseKnowledgeService,
+                                UserProfileEvidenceRepository profileEvidenceRepository,
+                                AiLeaderSessionRepository sessionRepository,
+                                AiLeaderMessageRepository messageRepository,
+                                AssistantEnvelopeService assistantEnvelopeService,
+                                ObjectMapper objectMapper) {
+        this(pythonAiProxyService, stateStore, learningPathService, userProfileService,
+                courseKnowledgeService, profileEvidenceRepository, sessionRepository,
+                messageRepository, assistantEnvelopeService, objectMapper,
+                (TransactionTemplate) null);
+    }
+
+    private LearningWorkflowServiceImpl(PythonAiProxyService pythonAiProxyService,
+                                        LearningWorkflowStateStore stateStore,
+                                        LearningPathService learningPathService,
+                                        UserProfileService userProfileService,
+                                        CourseKnowledgeService courseKnowledgeService,
+                                        UserProfileEvidenceRepository profileEvidenceRepository,
+                                        AiLeaderSessionRepository sessionRepository,
+                                        AiLeaderMessageRepository messageRepository,
+                                        AssistantEnvelopeService assistantEnvelopeService,
+                                        ObjectMapper objectMapper,
+                                        TransactionTemplate transactionTemplate) {
         this.pythonAiProxyService = pythonAiProxyService;
         this.stateStore = stateStore;
         this.learningPathService = learningPathService;
@@ -112,6 +158,7 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
         this.messageRepository = messageRepository;
         this.assistantEnvelopeService = assistantEnvelopeService;
         this.objectMapper = objectMapper;
+        this.transactionTemplate = transactionTemplate;
         this.canonicalMapper = objectMapper.copy()
                 .configure(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY, true)
                 .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true);
@@ -297,28 +344,56 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
         LearningWorkflowStateStore.WorkflowState state = stateStore.find(workflowId.trim())
                 .orElseThrow(() -> notFound("学习工作流不存在"));
         requireOwner(state, userId);
-        Map<String, Object> pythonRequest = retryPythonRequest(
-                state, userId, resourceType, authorization);
-        Map<String, Object> metadata = mapValue(pythonRequest.get("metadata"));
-        metadata.put("requestedResourceTypes", List.of(resourceType));
-        pythonRequest.put("metadata", metadata);
         synchronized (state) {
-            state.setTerminal(false);
-            state.getView().setStatus("generating");
-            state.getView().setStage("retrying");
-            state.getView().setActiveResourceType(resourceType);
-            if (state.getView().getErrors() != null) {
-                state.getView().getErrors().remove(resourceType);
+            if (committedResource(state.getView(), resourceType)) {
+                return copyView(state.getView());
             }
-            state.getView().setUpdatedAt(LocalDateTime.now());
-            Map<String, Object> context = new LinkedHashMap<>();
-            context.put("pythonRequest", pythonRequest);
-            context.put("retryResourceType", resourceType);
-            state.setContext(context);
-            stateStore.save(state);
+            validateRetryEligibility(state, resourceType);
         }
-        startPythonStream(state, pythonRequest, authorization);
-        return copyView(state.getView());
+        String claimToken = stateStore.claimRetry(workflowId.trim(), resourceType)
+                .orElseThrow(() -> conflict("该学习资源正在重试，请勿重复提交"));
+        try {
+            Map<String, Object> pythonRequest;
+            synchronized (state) {
+                if (committedResource(state.getView(), resourceType)) {
+                    stateStore.releaseRetryClaim(workflowId.trim(), resourceType, claimToken);
+                    return copyView(state.getView());
+                }
+                validateRetryEligibility(state, resourceType);
+                pythonRequest = retryPythonRequest(
+                        state, userId, resourceType, authorization);
+                Map<String, Object> metadata = mapValue(pythonRequest.get("metadata"));
+                metadata.put("requestedResourceTypes", List.of(resourceType));
+                pythonRequest.put("metadata", metadata);
+            }
+            synchronized (state) {
+                validateRetryEligibility(state, resourceType);
+                state.setLastProgress(0);
+                state.setTerminal(false);
+                state.getView().setStatus("partial");
+                state.getView().setStage("retrying");
+                state.getView().setActiveResourceType(resourceType);
+                state.getView().setUpdatedAt(LocalDateTime.now());
+                Map<String, Object> context = new LinkedHashMap<>();
+                context.put("pythonRequest", pythonRequest);
+                context.put(RETRY_RESOURCE_CONTEXT, resourceType);
+                context.put(RETRY_CLAIM_CONTEXT, claimToken);
+                state.setContext(context);
+                stateStore.save(state);
+            }
+            startPythonStream(state, pythonRequest, authorization);
+            return copyView(state.getView());
+        } catch (RuntimeException error) {
+            synchronized (state) {
+                if (resourceType.equals(retryResourceType(state))
+                        && claimToken.equals(retryClaimToken(state))) {
+                    restoreRetryAfterFailure(state, "学习资源重试未启动，请稍后再试。");
+                    stateStore.save(state);
+                }
+            }
+            stateStore.releaseRetryClaim(workflowId.trim(), resourceType, claimToken);
+            throw error;
+        }
     }
 
     private SseEmitter startPythonStream(LearningWorkflowStateStore.WorkflowState state,
@@ -332,6 +407,17 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
                     (eventName, eventPayload) -> handleLearningEvent(
                             state, eventName, eventPayload, internalCapabilities));
         } catch (RuntimeException error) {
+            String retryResourceType = retryResourceType(state);
+            if (StringUtils.hasText(retryResourceType)) {
+                String claimToken = retryClaimToken(state);
+                synchronized (state) {
+                    restoreRetryAfterFailure(state, "学习资源重试未启动，请稍后再试。");
+                    stateStore.save(state);
+                }
+                stateStore.releaseRetryClaim(
+                        state.getWorkflowId(), retryResourceType, claimToken);
+                return dependencyUnavailableEmitter(state.getView());
+            }
             markDependencyUnavailable(state);
             return dependencyUnavailableEmitter(state.getView());
         }
@@ -367,23 +453,58 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
             internalCapabilities.clear();
             internalCapabilities.addAll(merged.values());
 
+            if (!"done".equals(eventName)) {
+                assistantEnvelopeService.sanitizeLearningSseEventPayload(
+                        eventName, payload, Set.copyOf(internalCapabilities));
+            }
             int progress = progress(payload.get("progress"), value(state.getLastProgress()));
             if ("done".equals(eventName) && progress != 100) {
                 throw new IllegalStateException("learning workflow done progress invalid");
             }
             payload.put("progress", progress);
             state.setLastProgress(progress);
+            String retryResourceType = retryResourceType(state);
+            String retryClaimToken = retryClaimToken(state);
+            if ("error".equals(eventName) && StringUtils.hasText(retryResourceType)) {
+                restoreRetryAfterFailure(state,
+                        firstNonBlank(text(payload.get("message"), 1_000),
+                                "学习资源重试中断，请稍后再试。"));
+                replacePayload(payload, state.getView());
+                stateStore.releaseRetryClaim(
+                        state.getWorkflowId(), retryResourceType, retryClaimToken);
+                stateStore.save(state);
+                return true;
+            }
             if ("done".equals(eventName)) {
-                completeWorkflow(state, payload, Set.copyOf(internalCapabilities));
+                try {
+                    completeWorkflow(state, payload, Set.copyOf(internalCapabilities));
+                } catch (RuntimeException error) {
+                    if (StringUtils.hasText(retryResourceType)) {
+                        restoreRetryAfterFailure(
+                                state, "学习资源重试提交失败，请稍后再试。");
+                        stateStore.releaseRetryClaim(
+                                state.getWorkflowId(), retryResourceType, retryClaimToken);
+                    } else {
+                        markCompletionFailure(state);
+                    }
+                    replacePayload(payload, state.getView());
+                    stateStore.save(state);
+                    throw error;
+                }
+                stateStore.releaseRetryClaim(
+                        state.getWorkflowId(), retryResourceType, retryClaimToken);
                 replacePayload(payload, state.getView());
                 state.setTerminal(true);
                 stateStore.save(state);
                 return true;
             }
 
+            if (StringUtils.hasText(retryResourceType)) {
+                updateRetryProgressState(state.getView(), eventName, payload, progress);
+                stateStore.save(state);
+                return true;
+            }
             updateProgressState(state.getView(), eventName, payload, progress);
-            assistantEnvelopeService.sanitizeLearningSseEventPayload(
-                    eventName, payload, Set.copyOf(internalCapabilities));
             captureIncrementalResource(state.getView(), payload);
             stateStore.save(state);
             return true;
@@ -427,16 +548,59 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
         String finalStatus = errors.isEmpty() && "completed".equals(outcome.status())
                 ? "completed" : "partial";
         response.setOutputMeta(learningOutputMeta(state, finalStatus, errors));
-
-        AiLeaderMessage message = assistantEnvelopeService.persistAssistantMessage(
-                state.getOwnerUserId(), session, response,
-                envelope.internalAttachments(), envelope.internalCapabilities(), null);
-        LearningPathDTO.PathView path = view.getPath();
-        if (!StringUtils.hasText(retryResourceType) || path == null) {
-            LearningPathDTO.PathDraft pathDraft = mapPythonPathDraft(
-                    state, payload, response, message.getId());
-            path = learningPathService.replaceActivePath(state.getOwnerUserId(), pathDraft);
+        LearningPathDTO.PathDraft pathDraft = null;
+        if (!StringUtils.hasText(retryResourceType)) {
+            pathDraft = mapPythonPathDraft(
+                    state, payload, response, null, internalCapabilities);
+            learningPathService.validatePathDraft(state.getOwnerUserId(), pathDraft);
+        } else if (view.getPath() == null) {
+            throw new IllegalStateException("learning workflow retry path unavailable");
         }
+
+        LearningPathDTO.PathDraft validatedDraft = pathDraft;
+        PersistedCompletion persisted = inTransaction(() -> {
+            LearningPathDTO.PathView path;
+            if (validatedDraft == null) {
+                path = learningPathService.getPathSnapshot(
+                        state.getOwnerUserId(),
+                        view.getPath().getId(),
+                        view.getPath().getVersion(),
+                        view.getPath().getSourceMessageId());
+            } else {
+                learningPathService.validatePathDraft(state.getOwnerUserId(), validatedDraft);
+                path = null;
+            }
+            AiLeaderMessage reserved = assistantEnvelopeService.reserveAssistantMessage(
+                    session, response);
+            if (validatedDraft != null) {
+                bindPathSourceMessage(validatedDraft, reserved.getId());
+                path = learningPathService.replaceActivePath(
+                        state.getOwnerUserId(), validatedDraft);
+            } else {
+                List<String> generatedResourceIds = generatedResources.values().stream()
+                        .map(AssistantResourceDTO::getId)
+                        .filter(StringUtils::hasText)
+                        .distinct()
+                        .toList();
+                if (!generatedResourceIds.isEmpty()) {
+                    path = learningPathService.appendResourcesToPath(
+                            state.getOwnerUserId(),
+                            path.getId(),
+                            path.getVersion(),
+                            path.getSourceMessageId(),
+                            generatedResourceIds,
+                            reserved.getId());
+                }
+            }
+            response.setOutputMeta(withPathMetadata(response.getOutputMeta(), path));
+            AiLeaderMessage message = assistantEnvelopeService.persistAssistantMessage(
+                    state.getOwnerUserId(), session, response,
+                    envelope.internalAttachments(), envelope.internalCapabilities(), reserved);
+            refreshSession(session, response.getAnswer());
+            return new PersistedCompletion(message, path);
+        });
+        AiLeaderMessage message = persisted.message();
+        LearningPathDTO.PathView path = persisted.path();
 
         view.setStatus(finalStatus);
         view.setStage("partial".equals(finalStatus) ? "partial" : "done");
@@ -455,9 +619,9 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
         view.setUpdatedAt(LocalDateTime.now());
         Map<String, Object> context = new LinkedHashMap<>(
                 state.getContext() == null ? Map.of() : state.getContext());
-        context.remove("retryResourceType");
+        context.remove(RETRY_RESOURCE_CONTEXT);
+        context.remove(RETRY_CLAIM_CONTEXT);
         state.setContext(context);
-        refreshSession(session, response.getAnswer());
     }
 
     private LlmChatResponse toLearningResponse(LearningWorkflowStateStore.WorkflowState state,
@@ -490,12 +654,14 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
             LearningWorkflowStateStore.WorkflowState state,
             Map<String, Object> payload,
             LlmChatResponse response,
-            Long messageId) {
+            Long messageId,
+            Set<String> internalCapabilities) {
         Map<String, Object> rawDraft = mapValue(payload.get("pathDraft"));
         if (rawDraft.isEmpty()) {
             rawDraft = mapValue(mapValue(payload.get("result")).get("pathDraft"));
         }
-        String goal = text(rawDraft.get("goal"), 500);
+        String goal = assistantEnvelopeService.sanitizeLearningText(
+                rawDraft.get("goal"), 500, "", internalCapabilities);
         List<Map<String, Object>> rawItems = mapList(rawDraft.get("items"));
         if (!StringUtils.hasText(goal) || rawItems.isEmpty() || rawItems.size() > 20) {
             throw new IllegalStateException("learning workflow path draft invalid");
@@ -509,14 +675,20 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
                 .filter(StringUtils::hasText)
                 .distinct()
                 .toList();
-        List<String> personalization = stringList(rawDraft.get("personalizationReasons"));
+        List<String> personalization = stringList(rawDraft.get("personalizationReasons")).stream()
+                .map(value -> assistantEnvelopeService.sanitizeLearningText(
+                        value, 1_000, "", internalCapabilities))
+                .filter(StringUtils::hasText)
+                .toList();
         List<LearningPathDTO.PathItemDraft> items = new ArrayList<>();
         Set<Integer> orders = new HashSet<>();
         for (int index = 0; index < rawItems.size(); index++) {
             Map<String, Object> rawItem = rawItems.get(index);
             int order = integer(rawItem.get("order"), -1);
-            String title = text(rawItem.get("title"), 160);
-            String objective = text(rawItem.get("goal"), 500);
+            String title = assistantEnvelopeService.sanitizeLearningText(
+                    rawItem.get("title"), 160, "", internalCapabilities);
+            String objective = assistantEnvelopeService.sanitizeLearningText(
+                    rawItem.get("goal"), 500, "", internalCapabilities);
             if (order != index + 1 || !orders.add(order)
                     || !StringUtils.hasText(title) || !StringUtils.hasText(objective)) {
                 throw new IllegalStateException("learning workflow path item invalid");
@@ -551,6 +723,42 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
         draft.setNextReplanAt(LocalDateTime.now().plusDays(7));
         draft.setItems(items);
         return draft;
+    }
+
+    private void bindPathSourceMessage(
+            LearningPathDTO.PathDraft draft, Long sourceMessageId) {
+        if (draft == null || sourceMessageId == null) {
+            throw new IllegalStateException("learning workflow path source message unavailable");
+        }
+        draft.setSourceMessageId(sourceMessageId);
+        if (draft.getItems() != null) {
+            draft.getItems().forEach(item -> item.setSourceMessageId(sourceMessageId));
+        }
+    }
+
+    private Map<String, Object> withPathMetadata(
+            Map<String, Object> outputMeta, LearningPathDTO.PathView path) {
+        if (path == null || path.getId() == null || path.getVersion() == null
+                || path.getSourceMessageId() == null) {
+            throw new IllegalStateException("learning workflow persisted path metadata unavailable");
+        }
+        Map<String, Object> result = new LinkedHashMap<>(
+                outputMeta == null ? Map.of() : outputMeta);
+        result.put("pathId", path.getId());
+        result.put("pathVersion", path.getVersion());
+        result.put("pathSourceMessageId", path.getSourceMessageId());
+        return result;
+    }
+
+    private <T> T inTransaction(Supplier<T> work) {
+        if (transactionTemplate == null) {
+            return work.get();
+        }
+        T result = transactionTemplate.execute(status -> work.get());
+        if (result == null) {
+            throw new IllegalStateException("learning workflow transaction returned no result");
+        }
+        return result;
     }
 
     private LearningPathDTO.PathDraft replanDraft(LearningPathDTO.HomeView home,
@@ -649,19 +857,28 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
 
         Map<String, AssistantResourceDTO> restoredResources = new LinkedHashMap<>();
         AiLeaderMessageItem restored = null;
+        Map<String, Object> restoredPathMetadata = Map.of();
         for (AiLeaderMessage persisted : assistantMessages) {
             AiLeaderMessageItem item = restorePersistedMessage(persisted, topic);
             restoredResources.putAll(resourceMap(item.getResources()));
             restored = item;
+            if (hasPathMetadata(item.getOutputMeta())) {
+                restoredPathMetadata = item.getOutputMeta();
+            }
         }
         if (restored == null) {
             throw notFound("学习工作流不存在");
         }
         Map<String, LearningPathDTO.WorkflowError> persistedErrors = persistedErrors(
                 restored.getOutputMeta());
-        String persistedStatus = "partial".equals(text(
-                restored.getOutputMeta().get("status"), 40)) || !persistedErrors.isEmpty()
+        String storedStatus = text(restored.getOutputMeta().get("status"), 40);
+        if (!Set.of("completed", "partial").contains(storedStatus)) {
+            throw notFound("学习工作流尚未完整持久化");
+        }
+        String persistedStatus = "partial".equals(storedStatus) || !persistedErrors.isEmpty()
                 ? "partial" : "completed";
+        LearningPathDTO.PathView restoredPath = restoreWorkflowPath(
+                userId, restoredPathMetadata);
 
         LearningPathDTO.WorkflowView view = new LearningPathDTO.WorkflowView();
         view.setWorkflowId(workflowId);
@@ -676,7 +893,7 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
         view.setMessageId(assistant.getId());
         view.setResources(restoredResources);
         view.setErrors(persistedErrors);
-        view.setPath(learningPathService.getActivePath(userId, PYTHON));
+        view.setPath(restoredPath);
         view.setStartedAt(session.getCreateTime());
         view.setUpdatedAt(session.getUpdateTime());
 
@@ -690,6 +907,25 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
         state.setContext(Map.of());
         stateStore.save(state);
         return state;
+    }
+
+    private boolean hasPathMetadata(Map<String, Object> outputMeta) {
+        return outputMeta != null
+                && outputMeta.get("pathId") instanceof Number
+                && outputMeta.get("pathVersion") instanceof Number
+                && outputMeta.get("pathSourceMessageId") instanceof Number;
+    }
+
+    private LearningPathDTO.PathView restoreWorkflowPath(
+            Long userId, Map<String, Object> outputMeta) {
+        if (!hasPathMetadata(outputMeta)) {
+            return null;
+        }
+        Number pathId = (Number) outputMeta.get("pathId");
+        Number pathVersion = (Number) outputMeta.get("pathVersion");
+        Number sourceMessageId = (Number) outputMeta.get("pathSourceMessageId");
+        return learningPathService.getPathSnapshot(
+                userId, pathId.longValue(), pathVersion.intValue(), sourceMessageId.longValue());
     }
 
     private AiLeaderMessageItem restorePersistedMessage(
@@ -809,6 +1045,60 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
             view.getErrors().put(type, error);
         }
         view.setUpdatedAt(LocalDateTime.now());
+    }
+
+    private void updateRetryProgressState(LearningPathDTO.WorkflowView view,
+                                          String eventName,
+                                          Map<String, Object> payload,
+                                          int progress) {
+        view.setStatus("partial");
+        view.setStage("agent_failed".equals(eventName) ? "retrying" : eventName);
+        view.setProgress(progress);
+        view.setActiveAgentName(text(payload.get("agentName"), 80));
+        view.setActiveResourceType(firstNonBlank(
+                text(payload.get("resourceType"), 64), view.getActiveResourceType()));
+        String message = text(payload.get("message"), 1_000);
+        if (StringUtils.hasText(message)) {
+            view.setMessage(message);
+        }
+        view.setUpdatedAt(LocalDateTime.now());
+    }
+
+    private void restoreRetryAfterFailure(
+            LearningWorkflowStateStore.WorkflowState state, String message) {
+        LearningPathDTO.WorkflowView view = state.getView();
+        view.setStatus("partial");
+        view.setStage("partial");
+        view.setProgress(100);
+        view.setActiveAgentName(null);
+        view.setActiveResourceType(null);
+        if (StringUtils.hasText(message)) {
+            view.setMessage(text(message, 1_000));
+        }
+        view.setUpdatedAt(LocalDateTime.now());
+        state.setLastProgress(100);
+        state.setTerminal(true);
+        Map<String, Object> context = new LinkedHashMap<>(
+                state.getContext() == null ? Map.of() : state.getContext());
+        context.remove(RETRY_RESOURCE_CONTEXT);
+        context.remove(RETRY_CLAIM_CONTEXT);
+        state.setContext(context);
+    }
+
+    private void markCompletionFailure(LearningWorkflowStateStore.WorkflowState state) {
+        LearningPathDTO.WorkflowView view = state.getView();
+        view.setStatus("generation_failed");
+        view.setStage("error");
+        view.setProgress(100);
+        view.setMessage("学习资源提交失败，未发布不完整结果，请重新生成。");
+        view.setActiveAgentName(null);
+        view.setActiveResourceType(null);
+        Map<String, LearningPathDTO.WorkflowError> errors = copyErrors(view.getErrors());
+        errors.put("workflow", workflowError(view.getMessage(), true));
+        view.setErrors(errors);
+        view.setUpdatedAt(LocalDateTime.now());
+        state.setLastProgress(100);
+        state.setTerminal(true);
     }
 
     private void replacePayload(Map<String, Object> payload, LearningPathDTO.WorkflowView view) {
@@ -1040,6 +1330,29 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
         }
     }
 
+    private boolean committedResource(LearningPathDTO.WorkflowView view, String resourceType) {
+        return view != null
+                && view.getResources() != null
+                && view.getResources().containsKey(resourceType)
+                && (view.getErrors() == null || !view.getErrors().containsKey(resourceType));
+    }
+
+    private void validateRetryEligibility(
+            LearningWorkflowStateStore.WorkflowState state, String resourceType) {
+        LearningPathDTO.WorkflowView view = state.getView();
+        if (!Boolean.TRUE.equals(state.getTerminal())
+                || view == null
+                || !"partial".equals(view.getStatus())
+                || "retrying".equals(view.getStage())) {
+            throw conflict("学习工作流尚未进入可重试的部分完成状态");
+        }
+        LearningPathDTO.WorkflowError error = view.getErrors() == null
+                ? null : view.getErrors().get(resourceType);
+        if (error == null || !Boolean.TRUE.equals(error.getRetryable())) {
+            throw conflict("该学习资源当前不可重试");
+        }
+    }
+
     private DoneOutcome doneOutcome(LearningWorkflowStateStore.WorkflowState state,
                                     Map<String, Object> payload,
                                     Set<String> internalCapabilities) {
@@ -1123,7 +1436,12 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
 
     private String retryResourceType(LearningWorkflowStateStore.WorkflowState state) {
         return state.getContext() == null ? ""
-                : text(state.getContext().get("retryResourceType"), 64);
+                : text(state.getContext().get(RETRY_RESOURCE_CONTEXT), 64);
+    }
+
+    private String retryClaimToken(LearningWorkflowStateStore.WorkflowState state) {
+        return state.getContext() == null ? ""
+                : text(state.getContext().get(RETRY_CLAIM_CONTEXT), 80);
     }
 
     private Map<String, Object> retryPythonRequest(
@@ -1276,5 +1594,9 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
 
     private BusinessException notFound(String message) {
         return new BusinessException(Result.NOT_FOUND_CODE, message);
+    }
+
+    private BusinessException conflict(String message) {
+        return new BusinessException(409, message);
     }
 }

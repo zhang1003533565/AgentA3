@@ -151,6 +151,45 @@ class LearningPathServiceImplTest {
     }
 
     @Test
+    void historicalPathLookupRequiresExactOwnerVersionAndSourceMessage() {
+        LearningPath historical = path(7L, 2, "archived");
+        historical.setSourceMessageId(88L);
+        paths.add(historical);
+        items.add(pathItem(historical.getId(), 10L));
+
+        LearningPathDTO.PathView restored = service.getPathSnapshot(
+                7L, historical.getId(), 2, 88L);
+
+        assertEquals(historical.getId(), restored.getId());
+        assertEquals(2, restored.getVersion());
+        assertEquals(88L, restored.getSourceMessageId());
+        assertThrows(BusinessException.class, () -> service.getPathSnapshot(
+                7L, historical.getId(), 3, 88L));
+        assertThrows(BusinessException.class, () -> service.getPathSnapshot(
+                8L, historical.getId(), 2, 88L));
+    }
+
+    @Test
+    void retryResourcesAreAppendedToTheExactHistoricalPathItems() {
+        LearningPath historical = path(7L, 2, "archived");
+        historical.setSourceMessageId(88L);
+        paths.add(historical);
+        LearningPathItem item = pathItem(historical.getId(), 10L);
+        item.setResourceIdsJson("[\"resource-note-1\"]");
+        items.add(item);
+
+        LearningPathDTO.PathView updated = service.appendResourcesToPath(
+                7L, historical.getId(), 2, 88L,
+                List.of("resource-code-2", "resource-note-1"), 99L);
+
+        assertEquals(List.of("resource-code-2", "resource-note-1"),
+                updated.getItems().getFirst().getResourceIds());
+        assertEquals("available", updated.getItems().getFirst().getDeliveryStatus());
+        assertEquals(99L, updated.getItems().getFirst().getSourceMessageId());
+        assertEquals("[\"resource-code-2\",\"resource-note-1\"]", item.getResourceIdsJson());
+    }
+
+    @Test
     void replaceActivePathRejectsDuplicateItemKeysBeforeArchiving() {
         LearningPath existing = path(7L, 1, "active");
         paths.add(existing);
@@ -459,6 +498,11 @@ class LearningPathServiceImplTest {
                         .filter(path -> args[0].equals(path.getUserId()))
                         .filter(path -> args[1].equals(path.getCourseKey()))
                         .filter(path -> args[2].equals(path.getStatus()))
+                        .findFirst();
+                case "findByIdAndUserIdAndCourseKey", "findOwnedByIdForUpdate" -> paths.stream()
+                        .filter(path -> args[0].equals(path.getId()))
+                        .filter(path -> args[1].equals(path.getUserId()))
+                        .filter(path -> args[2].equals(path.getCourseKey()))
                         .findFirst();
                 case "countByUserIdAndCourseKeyAndStatus" -> paths.stream()
                         .filter(path -> args[0].equals(path.getUserId()))

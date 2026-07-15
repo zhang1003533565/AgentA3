@@ -126,4 +126,15 @@ class AssistantEnvelopeServiceTest {
         assertThat(payload).doesNotContainKey("resource");
         assertThat(payload).doesNotContainValue("private-capability");
     }
+
+    @Test
+    void learningPathTextCannotPersistCapabilitiesOrInternalUrls() {
+        assertThat(service.sanitizeLearningText(
+                "切片路径 private-capability", 200, "安全路径",
+                Set.of("private-capability")))
+                .isEqualTo("切片路径");
+        assertThat(service.sanitizeLearningText(
+                "http://127.0.0.1:8081/internal/export", 200, "安全路径", Set.of()))
+                .isEqualTo("安全路径");
+    }
 }
