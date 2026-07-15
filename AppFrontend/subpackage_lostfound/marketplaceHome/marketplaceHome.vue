@@ -4,22 +4,11 @@
       <view class="container">
         <view class="page-content">
           <!-- ===== 1. Header: location + message ===== -->
-          <nav-bar
-            title=""
-            :fixed="true"
-            :placeholder="true"
-            :showBack="false"
-            :border="false"
-            background="#FFFFFF"
-          >
+          <common-page-header title="市集">
             <template #left>
               <view class="market-back-button" @click="onBackToApp">‹</view>
             </template>
-            <template #center>
-            </template>
-            <template #right>
-            </template>
-          </nav-bar>
+          </common-page-header>
 
           <scroll-view scroll-y class="page-body" :show-scrollbar="false">
             <!-- ===== 2. Search (sticky below nav) ===== -->
@@ -199,7 +188,7 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { getSecondhandItemList } from '@/api/secondhand'
 
@@ -220,7 +209,7 @@ const BANNERS = [
 const PRODUCT_TINTS = ['#EBEBF0', '#E8EAED', '#EDE8F0', '#EAF0EB']
 
 export default {
-  components: { NavBar, MarketBottomBar },
+  components: { CommonPageHeader, MarketBottomBar },
   data() {
     return {
       unreadCount: 0,

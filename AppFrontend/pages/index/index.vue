@@ -1,5 +1,7 @@
 <template>
 	<view class="home-page">
+		<common-page-header title="首页" />
+
 		<view class="hero-shell">
 			<swiper
 				class="hero-swiper"
@@ -190,10 +192,11 @@
 import AppMainTabBar from '@/components/app-main-tab-bar/app-main-tab-bar.vue'
 import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant.vue'
 import HomeScheduleCard from '@/components/home-schedule-card/home-schedule-card.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import { getEnabledAnnouncements } from '@/api/notice.js'
 
 export default {
-	components: { AppMainTabBar, HomeScheduleCard, AiFloatAssistant },
+	components: { AppMainTabBar, HomeScheduleCard, AiFloatAssistant, CommonPageHeader },
 	data() {
 		return {
 			headline: '',
