@@ -479,7 +479,7 @@ function TagGroup({ rows = [], color }) {
 function formatJson(value) {
   try {
     return JSON.stringify(value || {}, null, 2)
-  } catch (error) {
+  } catch {
     return '{}'
   }
 }
