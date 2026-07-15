@@ -20,17 +20,53 @@
         <scroll-view scroll-y class="chat-body" :scroll-into-view="scrollBottom" scroll-with-animation>
           <view v-for="m in chatMessages" :key="m.id" :id="'msg-' + m.id">
             <view v-if="m.type === 'sys'" class="system-msg">
-              <view v-if="m.tradeAction" class="trade-event-card">
-                <view class="trade-event-title">{{ tradeActionTitle(m.tradeAction) }}</view>
-                <view class="trade-event-desc">{{ tradeActionDesc(m.tradeAction, m.content) }}</view>
+              <view v-if="m.tradeAction" class="trade-event-card" :class="tradeCardClass(m)">
+                <view class="trade-card-top">
+                  <text class="trade-actor-tag">{{ tradeActorLabel(m) }}</text>
+                  <text class="trade-time">{{ formatClock(m.time) }}</text>
+                </view>
+                <view class="trade-card-main">
+                  <view class="trade-icon">{{ tradeActionIcon(m.tradeAction) }}</view>
+                  <view class="trade-copy">
+                    <view class="trade-event-title">{{ tradeActionTitle(m.tradeAction) }}</view>
+                    <view class="trade-event-desc">{{ tradeActionDesc(m) }}</view>
+                  </view>
+                </view>
+                <view v-if="cardActions(m).length" class="trade-card-actions">
+                  <button
+                    v-for="action in cardActions(m)"
+                    :key="action.type"
+                    class="trade-card-btn"
+                    :class="action.type"
+                    :disabled="acting"
+                    @click="runTradeAction(action.type)"
+                  >
+                    {{ action.label }}
+                  </button>
+                </view>
               </view>
               <text v-else>{{ m.content }}</text>
+              <view v-if="systemHintText(m)" class="system-hint">
+                <text>{{ systemHintText(m) }}</text>
+              </view>
             </view>
 
             <view v-else-if="m.type === 'contact'" class="contact-msg">
-              <view class="contact-card">
-                <view class="contact-title">联系方式</view>
-                <view v-for="line in contactLines(m.content)" :key="line" class="contact-line">{{ line }}</view>
+              <view class="contact-card" :class="tradeCardClass(m)">
+                <view class="trade-card-top">
+                  <text class="trade-actor-tag">{{ tradeActorLabel(m) }}</text>
+                  <text class="trade-time">{{ formatClock(m.time) }}</text>
+                </view>
+                <view class="trade-card-main">
+                  <view class="trade-icon">☎</view>
+                  <view class="trade-copy">
+                    <view class="contact-title">联系方式</view>
+                    <view v-for="line in contactLines(m.content)" :key="line" class="contact-line">{{ line }}</view>
+                  </view>
+                </view>
+              </view>
+              <view v-if="systemHintText(m)" class="system-hint">
+                <text>{{ systemHintText(m) }}</text>
               </view>
             </view>
 
@@ -57,21 +93,37 @@
               </view>
             </view>
           </view>
+
+          <view v-if="standaloneTradeCard" id="trade-action-card" class="system-msg">
+            <view class="trade-event-card action-card" :class="standaloneTradeCard.cardClass">
+              <view class="trade-card-top">
+                <text class="trade-actor-tag">{{ standaloneTradeCard.tag }}</text>
+                <text class="trade-time">{{ standaloneTradeCard.time }}</text>
+              </view>
+              <view class="trade-card-main">
+                <view class="trade-icon">{{ standaloneTradeCard.icon }}</view>
+                <view class="trade-copy">
+                  <view class="trade-event-title">{{ standaloneTradeCard.title }}</view>
+                  <view class="trade-event-desc">{{ standaloneTradeCard.desc }}</view>
+                </view>
+              </view>
+              <view class="trade-card-actions">
+                <button
+                  v-for="action in standaloneTradeCard.actions"
+                  :key="action.type"
+                  class="trade-card-btn"
+                  :class="action.type"
+                  :disabled="acting"
+                  @click="runTradeAction(action.type)"
+                >
+                  {{ action.label }}
+                </button>
+              </view>
+            </view>
+          </view>
         </scroll-view>
 
         <view class="chat-footer-new">
-          <view v-if="tradeActionButtons.length" class="quick-actions">
-            <button
-              v-for="action in tradeActionButtons"
-              :key="action.type"
-              class="quick-action-btn"
-              :class="action.type"
-              :disabled="acting"
-              @click="runTradeAction(action.type)"
-            >
-              {{ action.label }}
-            </button>
-          </view>
           <view class="chat-input-bar">
             <view class="chat-image-btn" @click="sendImage">
               <text>＋</text>
@@ -141,7 +193,8 @@ function normalizeMessage(item) {
       type: 'sys',
       tradeAction: item.tradeAction || '',
       content: item.content,
-      time: item.createTime || ''
+      time: item.createTime || '',
+      isMine: !!item.isMine
     }
   }
   if (Number(item.messageType) === 4) {
@@ -151,7 +204,8 @@ function normalizeMessage(item) {
       messageType: 4,
       tradeAction: item.tradeAction || 'CONTACT_SHARE',
       content: item.content,
-      time: item.createTime || ''
+      time: item.createTime || '',
+      isMine: !!item.isMine
     }
   }
   return {
@@ -228,6 +282,50 @@ export default {
         return actions
       }
       return []
+    },
+    standaloneTradeCard() {
+      const actions = this.tradeActionButtons
+      if (!actions.length) return null
+      const hasHostCard = this.messages.some((message) => {
+        if (this.tradeInfo?.status === 'WAIT_CONFIRM') return message.tradeAction === 'TRADE_INTENT'
+        if (this.tradeInfo?.status === 'TRADING') return message.tradeAction === 'TRADE_CONFIRM'
+        return false
+      })
+      if (hasHostCard) return null
+      if (!this.tradeInfo) {
+        return {
+          tag: '我发起',
+          time: '',
+          icon: '♡',
+          title: '购买意向',
+          desc: '对这个商品感兴趣，可以先向卖家表达购买意向。',
+          cardClass: 'mine-card',
+          actions
+        }
+      }
+      if (this.tradeInfo.status === 'WAIT_CONFIRM') {
+        return {
+          tag: '对方发起',
+          time: '',
+          icon: '♡',
+          title: '购买意向',
+          desc: '买家希望购买该商品，请确认是否进入线下交易沟通。',
+          cardClass: 'other-card',
+          actions
+        }
+      }
+      if (this.tradeInfo.status === 'TRADING') {
+        return {
+          tag: '系统通知',
+          time: '',
+          icon: '✓',
+          title: '已确认交易',
+          desc: '双方已进入交易中，可以交换联系方式并约定线下交易。',
+          cardClass: 'system-card',
+          actions
+        }
+      }
+      return null
     }
   },
   async onLoad(options) {
@@ -463,14 +561,58 @@ export default {
       }
       return map[action] || '交易状态'
     },
-    tradeActionDesc(action, content) {
+    tradeActionDesc(message) {
+      const mine = !!message.isMine
       const map = {
-        TRADE_INTENT: '你表达了购买意向，等待对方确认',
-        TRADE_CONFIRM: '双方已确认线下交易，建议尽快约定时间地点',
+        TRADE_INTENT: mine ? '你表达了购买意向，等待卖家确认。' : '买家希望购买该商品，请确认是否进入线下交易沟通。',
+        TRADE_CONFIRM: mine ? '你已确认线下交易，双方可继续沟通时间地点。' : '对方已确认与你交易，双方可继续沟通线下交易。',
+        TRADE_COMPLETE: mine ? '你已标记该商品交易完成。' : '该商品交易已完成。',
+        TRADE_CANCEL: '交易已取消。'
+      }
+      return map[message.tradeAction] || message.content
+    },
+    tradeActionIcon(action) {
+      const map = {
+        TRADE_INTENT: '♡',
+        TRADE_CONFIRM: '✓',
+        TRADE_COMPLETE: '✓',
+        TRADE_CANCEL: '×'
+      }
+      return map[action] || 'i'
+    },
+    tradeActorLabel(message) {
+      if (message.tradeAction === 'CONTACT_SHARE') return message.isMine ? '我发送' : '对方发送'
+      if (message.tradeAction === 'TRADE_COMPLETE') return message.isMine ? '我标记' : '对方标记'
+      if (message.tradeAction === 'TRADE_CANCEL') return '系统通知'
+      return message.isMine ? '我发起' : '对方发起'
+    },
+    tradeCardClass(message) {
+      if (message.tradeAction === 'CONTACT_SHARE') return message.isMine ? 'contact-mine-card' : 'contact-other-card'
+      if (message.tradeAction === 'TRADE_COMPLETE') return 'done-card'
+      if (message.tradeAction === 'TRADE_CANCEL') return 'system-card'
+      return message.isMine ? 'mine-card' : 'other-card'
+    },
+    cardActions(message) {
+      if (!this.tradeInfo) return []
+      if (message.tradeAction === 'TRADE_INTENT' && this.tradeInfo.status === 'WAIT_CONFIRM' && this.tradeInfo.isSeller) {
+        return [{ type: 'confirm', label: '确认交易' }]
+      }
+      if (message.tradeAction === 'TRADE_CONFIRM' && this.tradeInfo.status === 'TRADING') {
+        const actions = [{ type: 'shareContact', label: '发送联系方式' }]
+        if (this.tradeInfo.isSeller) actions.push({ type: 'complete', label: '标记交易完成' })
+        return actions
+      }
+      return []
+    },
+    systemHintText(message) {
+      if (message.type === 'contact') return message.isMine ? '你已发送联系方式' : '对方已发送联系方式'
+      const map = {
+        TRADE_INTENT: message.isMine ? '你表达了购买意向，等待对方确认' : '对方表达了购买意向，等待你确认',
+        TRADE_CONFIRM: message.isMine ? '你已确认线下交易，可交换联系方式' : '对方已确认与你交易，双方已进入交易中',
         TRADE_COMPLETE: '该商品交易已完成',
         TRADE_CANCEL: '交易已取消'
       }
-      return map[action] || content
+      return map[message.tradeAction] || ''
     },
     contactLines(content) {
       return String(content || '').split(/\n/).filter(Boolean)
@@ -575,13 +717,15 @@ export default {
 
 .chat-body {
   height: calc(100vh - 350rpx);
-  padding: 28rpx 0 170rpx;
+  padding: 28rpx 0 132rpx;
   box-sizing: border-box;
 }
 
 .system-msg,
 .contact-msg {
   display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
   margin-bottom: 28rpx;
 }
@@ -598,19 +742,105 @@ export default {
 
 .trade-event-card,
 .contact-card {
-  width: 560rpx;
+  width: 590rpx;
   padding: 22rpx 24rpx;
-  border-radius: 20rpx;
+  border-radius: 22rpx;
   background: #fff;
-  box-shadow: 0 4rpx 16rpx rgba(43, 68, 94, 0.08);
+  box-shadow: 0 6rpx 18rpx rgba(43, 68, 94, 0.09);
   box-sizing: border-box;
-  text-align: center;
+}
+
+.mine-card {
+  border-left: 8rpx solid #7ba8d4;
+}
+
+.other-card {
+  border-left: 8rpx solid #d9a15f;
+}
+
+.system-card,
+.done-card,
+.contact-mine-card,
+.contact-other-card {
+  border-left: 8rpx solid #7fb59b;
+}
+
+.trade-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18rpx;
+}
+
+.trade-actor-tag {
+  padding: 6rpx 14rpx;
+  border-radius: 999rpx;
+  background: rgba(123, 168, 212, 0.16);
+  color: #4f7599;
+  font-size: 21rpx;
+  font-weight: 900;
+}
+
+.other-card .trade-actor-tag {
+  background: rgba(217, 161, 95, 0.16);
+  color: #9a672c;
+}
+
+.system-card .trade-actor-tag,
+.done-card .trade-actor-tag,
+.contact-mine-card .trade-actor-tag,
+.contact-other-card .trade-actor-tag {
+  background: rgba(127, 181, 155, 0.16);
+  color: #4f7f65;
+}
+
+.trade-time {
+  color: #9aa9b8;
+  font-size: 20rpx;
+}
+
+.trade-card-main {
+  display: flex;
+  gap: 18rpx;
+  align-items: flex-start;
+}
+
+.trade-icon {
+  width: 62rpx;
+  height: 62rpx;
+  border-radius: 18rpx;
+  background: #edf4fb;
+  color: #5c7894;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 34rpx;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+.other-card .trade-icon {
+  background: #fbf1e6;
+  color: #b87535;
+}
+
+.system-card .trade-icon,
+.done-card .trade-icon,
+.contact-mine-card .trade-icon,
+.contact-other-card .trade-icon {
+  background: #edf7f1;
+  color: #4f8a69;
+}
+
+.trade-copy {
+  flex: 1;
+  min-width: 0;
 }
 
 .trade-event-title,
 .contact-title {
   color: #172331;
-  font-size: 27rpx;
+  font-size: 28rpx;
   font-weight: 900;
 }
 
@@ -619,7 +849,52 @@ export default {
   margin-top: 10rpx;
   color: #65788c;
   font-size: 23rpx;
-  line-height: 1.5;
+  line-height: 1.55;
+}
+
+.trade-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14rpx;
+  margin-top: 22rpx;
+}
+
+.trade-card-btn {
+  min-width: 168rpx;
+  height: 58rpx;
+  margin: 0;
+  padding: 0 24rpx;
+  border-radius: 999rpx;
+  background: #7ba8d4;
+  color: #fff;
+  font-size: 23rpx;
+  font-weight: 900;
+  line-height: 58rpx;
+}
+
+.trade-card-btn.shareContact {
+  background: #f2f6fa;
+  color: #4f7599;
+}
+
+.trade-card-btn.complete,
+.trade-card-btn.confirm {
+  background: #7ba8d4;
+  color: #fff;
+}
+
+.trade-card-btn::after {
+  border: none;
+}
+
+.system-hint {
+  margin-top: 12rpx;
+  padding: 9rpx 18rpx;
+  border-radius: 999rpx;
+  background: rgba(84, 99, 116, 0.1);
+  color: #7d8c9c;
+  font-size: 21rpx;
+  line-height: 1.45;
 }
 
 .msg {
@@ -715,38 +990,6 @@ export default {
   z-index: 10;
 }
 
-.quick-actions {
-  display: flex;
-  justify-content: center;
-  gap: 14rpx;
-  margin-bottom: 14rpx;
-  flex-wrap: wrap;
-}
-
-.quick-action-btn {
-  height: 56rpx;
-  margin: 0;
-  padding: 0 26rpx;
-  border-radius: 999rpx;
-  background: #fff;
-  color: #5c7894;
-  border: 1rpx solid #d7e4ef;
-  font-size: 23rpx;
-  font-weight: 800;
-  line-height: 56rpx;
-}
-
-.quick-action-btn.intent,
-.quick-action-btn.confirm,
-.quick-action-btn.complete {
-  background: #7ba8d4;
-  color: #fff;
-  border-color: #7ba8d4;
-}
-
-.quick-action-btn::after {
-  border: none;
-}
 
 .chat-input-bar {
   display: flex;
