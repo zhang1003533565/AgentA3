@@ -2,7 +2,10 @@ from pathlib import Path
 import re
 from tempfile import TemporaryDirectory
 import unittest
+from zipfile import ZipFile
 
+from docx import Document
+from docx.shared import Cm
 from PIL import Image
 
 from scripts.agent_a3_document.source_loader import (
@@ -423,10 +426,12 @@ class SourceContentTest(unittest.TestCase):
 
         python_boundary_terms = (
             "Python 会反向调用 Java，并转发原始 Authorization",
-            "Java base URL 当前固定为 `http://localhost:8080`",
-            "Python 记忆服务直接尝试 `redis://localhost:6379/0`",
             "Redis 不可用时退化为进程内存",
-            "本地默认地址尚未环境配置",
+            "`AI_PYTHON_BASE_URL`",
+            "`JAVA_BACKEND_BASE_URL`",
+            "`REDIS_URL`",
+            "`AI_INTERNAL_TOKEN`",
+            "`X-AI-Internal-Token`",
         )
         for term in python_boundary_terms:
             with self.subTest(term=term):
@@ -438,17 +443,26 @@ class SourceContentTest(unittest.TestCase):
             design,
         )
         self.assertIn(
-            "目标部署要求是通过环境配置提供服务地址与凭据；当前 Python 到 Java "
-            "和 Redis 的地址仍是固定本地默认值，尚不能由部署环境覆盖。",
+            "Java、Python 与 Redis 地址均可由环境覆盖，Compose 使用内部 DNS 名称。",
             design,
         )
+        for stale_fact in (
+            "Java base URL 当前固定为 `http://localhost:8080`",
+            "Python 记忆服务直接尝试 `redis://localhost:6379/0`",
+            "本地默认地址尚未环境配置",
+        ):
+            with self.subTest(stale_fact=stale_fact):
+                self.assertNotIn(stale_fact, design)
 
-        cancellation_fact = (
+        requirements_cancellation_fact = (
             "服务端取消接口属于设计要求；当前客户端 AbortController 仅中止本地 fetch，"
             "不能证明存在 REST 取消端点。"
         )
-        self.assertIn(cancellation_fact, requirements)
-        self.assertIn(cancellation_fact, design)
+        design_cancellation_fact = (
+            "普通助手的服务端取消端点没有现有证据，客户端 AbortController 只中止本地 fetch。"
+        )
+        self.assertIn(requirements_cancellation_fact, requirements)
+        self.assertIn(design_cancellation_fact, design)
 
     def test_overall_design_names_components_flows_and_deployment_boundary(self):
         text = self._read_source("03-overall-design.md")
@@ -464,7 +478,8 @@ class SourceContentTest(unittest.TestCase):
             "REST",
             "SSE",
             "WebSocket",
-            "Python AI 服务当前单独启动",
+            "已纳入五服务 Compose/CI 静态契约",
+            "deploy/compose.submission.yml",
             "不作为独立公网 API",
         )
         for term in required_terms:
@@ -642,7 +657,9 @@ class DetailedFunctionsAndCoreTechnologiesSourceTest(unittest.TestCase):
             "30 个专业智能体实现包",
             "candidate",
             "applied",
-            "考试结果尚未自动回写七维画像",
+            "受支持的客观题交卷后按题目知识点",
+            "同一提交不重复更新掌握度、证据或路径",
+            "主观题不自动评分，也不进入客观题反馈映射",
             "讯飞（Xfyun）实时 ASR WebSocket",
             "顺序执行",
             "不构成零幻觉证明",
@@ -731,11 +748,11 @@ class RemainingProjectDocumentSourceTest(unittest.TestCase):
     def test_data_and_interface_scale_and_boundaries_are_explicit(self):
         text = self._read_remaining("06-data-interfaces.md")
         required = (
-            "62 个 JPA 实体",
-            "61 个唯一映射表",
+            "65 个 JPA 实体",
+            "64 个唯一映射表",
             "逻辑 ID 关系不能作为物理外键已经存在的证明",
-            "52 个控制器",
-            "338 个映射注解",
+            "54 个控制器",
+            "404 个映射注解",
             "MaxKB 仅执行 hit-test 检索",
             "系统 LLM/agent 生成最终回答",
             "Python 会反向调用 Java，并转发原始 Authorization",
@@ -793,8 +810,15 @@ class RemainingProjectDocumentSourceTest(unittest.TestCase):
         deployment = self._read_remaining("09-deployment-usage.md")
         appendices = self._read_remaining("10-summary-appendices.md")
 
-        self.assertIn("324 tests / 0 failures / 1 environment error / 1 skipped", testing)
-        self.assertIn("不从缓存计算 Python 测试通过率", testing)
+        for result in (
+            "389 tests / 0 failures / 0 errors / 1 skipped",
+            "Python 264 passed / 5 warnings",
+            "AppWeb Node 46/46",
+            "AppFrontend 93/93",
+            "不代表最终整合 SHA",
+        ):
+            with self.subTest(result=result):
+                self.assertIn(result, testing)
         self.assertEqual(
             re.findall(r"(?m)^\| (TC-\d{2}) \|", testing),
             [f"TC-{index:02d}" for index in range(1, 12)],
@@ -809,19 +833,28 @@ class RemainingProjectDocumentSourceTest(unittest.TestCase):
             "React/Vite/Nginx",
             "HBuilderX",
             "FastAPI",
-            "Python AI 服务当前单独启动",
-            "AI 服务尚未纳入当前 Compose 与 CI",
+            "deploy/compose.submission.yml",
+            "Python `ai-server` 与 Web 五个服务",
+            "`AI_PYTHON_BASE_URL`",
+            "`JAVA_BACKEND_BASE_URL`",
+            "`REDIS_URL`",
+            "`AI_INTERNAL_TOKEN`",
+            "未确认镜像实际构建、`up -d`",
         ):
             with self.subTest(value=value):
                 self.assertIn(value, deployment)
 
         disclosures = (
             "当前业务密码仍采用明文比较",
-            "配置文件中仍存在凭据值",
+            "JWT 与第三方活动凭据已从跟踪配置值中移除",
+            "数据库开发配置保留默认口令",
+            "Git 历史 secret/PII 扫描、轮换",
             "WebSocket Origin 当前过于宽松",
             "仅列直接依赖及其版本",
             "许可证复核尚未完成",
-            "OmX 辅助需求拆解、设计记录、代码实施和测试复核",
+            "许可证 P0 阻断",
+            "OpenAI Codex（Desktop/本地工作区代理）",
+            "oh-my-codex（OMX）协作层",
             "最终结果由项目成员审阅并承担责任",
             "GB/T 7714",
             "仓库相对路径",
@@ -926,13 +959,13 @@ class GeneratedDiagramContractTest(unittest.TestCase):
             [
                 "known-limit",
                 "partial",
-                "known-limit",
+                "implemented",
                 "implemented",
                 "partial",
                 "partial",
                 "partial",
                 "known-limit",
-                "known-limit",
+                "partial",
                 "known-limit",
                 "partial",
             ],
@@ -953,6 +986,86 @@ class GeneratedDiagramContractTest(unittest.TestCase):
             for first_path, second_path in zip(first, second):
                 with self.subTest(path=first_path.name):
                     self.assertEqual(first_path.read_bytes(), second_path.read_bytes())
+
+
+class ProjectDocumentBuilderContractTest(unittest.TestCase):
+    REPO_ROOT = Path(__file__).resolve().parents[2]
+
+    def test_resolves_every_reviewed_figure_to_a_repository_asset(self):
+        from scripts.agent_a3_document.docx_builder import resolve_figure_path
+
+        blocks = load_source(self.REPO_ROOT / "docs/project-document/source")
+        figure_blocks = [block for block in blocks if block.kind == "figure"]
+
+        self.assertGreaterEqual(len(figure_blocks), 10)
+        for block in figure_blocks:
+            with self.subTest(src=block.attrs["src"]):
+                resolved = resolve_figure_path(
+                    self.REPO_ROOT, block.attrs["src"]
+                )
+                self.assertTrue(resolved.is_file(), resolved)
+                self.assertTrue(resolved.is_relative_to(self.REPO_ROOT))
+
+    def test_builds_a4_docx_with_toc_page_fields_images_and_governed_styles(self):
+        from scripts.agent_a3_document.docx_builder import build_project_document
+
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp) / "AgentA3-project-document.docx"
+            report = build_project_document(self.REPO_ROOT, output)
+
+            self.assertEqual(report.output_path, output)
+            self.assertGreater(report.paragraph_count, 100)
+            self.assertGreaterEqual(report.figure_count, 10)
+            self.assertEqual(report.unresolved_figure_count, 0)
+            self.assertTrue(output.is_file())
+            self.assertGreater(output.stat().st_size, 100_000)
+
+            document = Document(output)
+            self.assertGreaterEqual(len(document.sections), 11)
+            for section in document.sections:
+                with self.subTest(section=section.start_type):
+                    self.assertAlmostEqual(section.page_width.cm, Cm(21).cm, places=1)
+                    self.assertAlmostEqual(section.page_height.cm, Cm(29.7).cm, places=1)
+                    self.assertAlmostEqual(section.left_margin.cm, Cm(2.2).cm, places=1)
+                    self.assertAlmostEqual(section.right_margin.cm, Cm(2.2).cm, places=1)
+
+            self.assertEqual(document.styles["Normal"].font.name, "Songti SC")
+            self.assertEqual(
+                document.styles["Heading 1"].font.color.rgb.__str__(), "0F766E"
+            )
+            self.assertGreaterEqual(len(document.inline_shapes), 10)
+
+            with ZipFile(output) as archive:
+                document_xml = archive.read("word/document.xml").decode("utf-8")
+                footer_xml = "\n".join(
+                    archive.read(name).decode("utf-8")
+                    for name in archive.namelist()
+                    if name.startswith("word/footer") and name.endswith(".xml")
+                )
+                settings_xml = archive.read("word/settings.xml").decode("utf-8")
+
+            self.assertIn('TOC \\o "1-3" \\h \\z \\u', document_xml)
+            self.assertIn("PAGE", footer_xml)
+            self.assertIn("w:updateFields", settings_xml)
+            self.assertIn('w:ascii="Songti SC"', document_xml)
+            self.assertIn('w:ascii="PingFang SC"', document_xml)
+            self.assertNotIn("&lt;!--", document_xml)
+            self.assertNotIn("TBD", document_xml)
+
+    def test_structural_qa_rejects_placeholders_and_unresolved_markdown(self):
+        from scripts.agent_a3_document.docx_qa import audit_docx
+
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bad.docx"
+            document = Document()
+            document.add_paragraph("TODO **未处理的 Markdown**")
+            document.save(path)
+
+            report = audit_docx(path)
+
+        self.assertFalse(report.passed)
+        self.assertIn("placeholder:TODO", report.errors)
+        self.assertIn("unresolved-markdown:**", report.errors)
 
 
 if __name__ == "__main__":

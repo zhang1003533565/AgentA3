@@ -55,13 +55,13 @@ TRACE_STATUS_COLORS = {
 TRACE_ROWS = (
     TraceRow("FR-001/002/024\nNFR-004", "FUNC-01", "API-01 · Role", "TC-01", "known-limit"),
     TraceRow("FR-003/004\nNFR-001/002", "FUNC-02 · TECH-02", "API-03\nAI Session / Task", "TC-02", "partial"),
-    TraceRow("FR-005–008\nNFR-003", "FUNC-03 · TECH-01", "API-04/05\nProfile Evidence", "TC-03", "known-limit"),
-    TraceRow("FR-015–017\nNFR-003", "FUNC-04 · TECH-06", "Resource Envelope\nInteraction", "TC-04", "implemented"),
+    TraceRow("FR-005–008\nNFR-003", "FUNC-03 · TECH-01", "API-04/05/14/15\nProfile · Path", "TC-03", "implemented"),
+    TraceRow("FR-015–017\nNFR-003", "FUNC-04 · TECH-06", "API-11–13\nTyped Resource DAG", "TC-04", "implemented"),
     TraceRow("FR-009–011\nNFR-006", "FUNC-05 · TECH-03/04", "API-06\nMeeting Record", "TC-05", "partial"),
     TraceRow("FR-012–014\nNFR-005", "FUNC-06 · TECH-05", "API-07\nKnowledge Chat", "TC-06", "partial"),
     TraceRow("FR-018/019\nNFR-007", "FUNC-07 · TECH-07", "API-08\nQuestion JSON", "TC-07", "partial"),
     TraceRow("FR-020/021\nNFR-003/004", "FUNC-08 · TECH-07", "API-09\nPreview Proof", "TC-08", "known-limit"),
-    TraceRow("FR-022/023\nNFR-003", "FUNC-09 · TECH-08", "API-10\nAttempt Answer", "TC-09", "known-limit"),
+    TraceRow("FR-022/023\nNFR-003", "FUNC-09 · TECH-08", "API-10\nlearningUpdate", "TC-09", "partial"),
     TraceRow("NFR-002/004/008/009", "FUNC-10 · TECH-03", "Config · WebSocket\nAuth", "TC-10", "known-limit"),
     TraceRow("NFR-005/006/010", "FUNC-11 · 总体部署", "MySQL / Redis / Java\nPython / Web / App", "TC-11", "partial"),
 )
@@ -347,7 +347,7 @@ def _system_context(path: Path) -> None:
     d.box((70, 170, 390, 325), "uni-app 移动端", "STUDENT · TEACHER\n校园服务 / AI / 会议 / 考试", tag="App")
     d.box((70, 410, 390, 580), "React / Vite Web", "ADMIN · MERCHANT\n路由导航未统一按角色过滤", accent=AMBER, tag="Web", body_size=20)
     d.box((555, 250, 1035, 500), "Spring Boot Java 业务治理", "认证与角色 · 领域状态 · JPA 持久化\n业务规则 · 外部服务编排 · 结果登记", strong=True, tag="主边界", body_size=24)
-    d.box((590, 620, 1000, 805), "FastAPI Python AI 服务", "独立进程 · Leader 路由 · 专业智能体\n模型与资源生成 · /internal/* 内网契约", body_size=19, title_size=25)
+    d.box((590, 620, 1000, 805), "FastAPI Python AI 服务", "独立服务 · Leader 路由 · 专业智能体\n模型与资源生成 · /internal/* 内部契约", body_size=19, title_size=25)
     d.box((1190, 155, 1515, 275), "MySQL / Redis", "持久事实 / 短期状态", tag="数据", title_size=23, body_size=18)
     d.box((1190, 325, 1515, 455), "MaxKB", "仅 hit-test 检索\nJava 组装上下文与引用", tag="外部", title_size=23, body_size=18)
     d.box((1190, 505, 1515, 635), xfyun_target, "实时 ASR WebSocket\n由 Java 会议边界接入", tag="外部", title_size=22, body_size=18)
@@ -369,7 +369,7 @@ def _four_part_architecture(path: Path) -> None:
         ((55, 185, 385, 520), "① 移动端", "uni-app\n\n学生 / 教师入口\n校园、AI、会议、考试\n\n只调用 Java 业务接口", TEAL),
         ((420, 185, 750, 520), "② Web 管理端", "React / Vite\n\n管理员 / 商户入口\n知识库、题库、试卷治理\n\n角色隔离仍需加固", AMBER),
         ((785, 185, 1150, 520), "③ Java 后端", "Spring Boot / JPA\n\n认证、事务、领域状态\nMySQL / Redis 与外部编排\n\n业务事实权威边界", DARK),
-        ((1185, 185, 1545, 520), "④ Python AI", "FastAPI\n\nLeader + Catalog + Runner\n专业智能体与模型调用\n\n独立进程、内部接口", TEAL),
+        ((1185, 185, 1545, 520), "④ Python AI", "FastAPI\n\nLeader + Catalog + Runner\n专业智能体与模型调用\n\n独立服务、内部接口", TEAL),
     )
     for rect, title, body, color in cards:
         d.box(rect, title, body, accent=color, strong=color == DARK, title_size=29, body_size=23)
@@ -385,24 +385,28 @@ def _four_part_architecture(path: Path) -> None:
 
 
 def _deployment_boundary(path: Path) -> None:
-    d = Diagram("当前部署拓扑与独立 AI 服务边界", "Compose 覆盖 MySQL、Redis、Java 与 Web；Python FastAPI 需单独启动", height=1000)
-    d.group((55, 175, 1085, 800), "AppBackend/docker-compose.yml 当前边界", color=TEAL)
-    d.box((95, 235, 385, 360), "Web/Nginx", "React/Vite 构建\n静态站点与 Java API 代理", tag="Compose", title_size=21, body_size=18)
-    d.box((480, 225, 865, 385), "Java 21", "Spring Boot\n认证、业务 API、JPA、外部服务治理", strong=True, tag="Compose", body_size=20)
-    d.box((120, 590, 405, 720), "MySQL 8", "持久化业务事实", tag="Compose")
-    d.box((515, 590, 800, 720), "Redis 7", "缓存与 Python 记忆", tag="Compose")
-    d.box((1160, 205, 1535, 405), "Python FastAPI AI", "单独进程启动\n当前未纳入 Compose 与 CI", accent=AMBER, tag="独立部署", body_size=22)
-    d.box((1160, 555, 1535, 745), "外部服务", "Java：MaxKB / 讯飞 ASR\nPython：模型提供方", tag="外部", body_size=21)
-    d.box((65, 845, 505, 930), "HBuilderX / uni-app", "独立构建移动端；仅访问 Java 公网 API", title_size=21, body_size=17)
-    d.connector(((385, 300), (480, 300)), "HTTP / SSE")
-    d.connector(((675, 385), (675, 590)), "缓存")
-    d.connector(((585, 385), (330, 590)), "JPA")
-    d.connector(((865, 305), (1160, 305)), "内部 REST")
-    d.connector(((1348, 405), (1348, 555)), "模型 / 工具")
-    d.connector(((865, 350), (980, 350), (980, 630), (1160, 630)), "MaxKB / ASR")
-    d.connector(((1160, 365), (1100, 365), (1100, 760), (760, 760), (760, 720)), "Python 记忆", color=AMBER)
-    d.badge((810, 748), "Redis 不可用 → 进程内存", color=AMBER)
-    d.legend(((TEAL, "Compose 内"), (AMBER, "独立部署 / 本地默认限制"), (SLATE, "外部依赖")), y=952)
+    d = Diagram(
+        "五服务提交拓扑与内部 AI 边界",
+        "deploy/compose.submission.yml 与 CI 已完成静态校验；镜像构建、up -d 和在线验证仍未执行",
+        height=1000,
+    )
+    d.group((45, 175, 1215, 790), "提交 Compose：MySQL · Redis · Java · Python AI · Web", color=TEAL)
+    d.box((75, 235, 320, 365), "Web/Nginx", "React/Vite 构建\n静态站点与 Java API 代理", title_size=20, body_size=18)
+    d.box((390, 220, 720, 390), "Java 21", "Spring Boot\nAI_PYTHON_BASE_URL\nX-AI-Internal-Token", strong=True, body_size=19)
+    d.box((860, 220, 1180, 390), "Python FastAPI AI", "JAVA_BACKEND_BASE_URL\nREDIS_URL · /internal/*\n生产令牌必须非空", title_size=22, body_size=18)
+    d.box((170, 585, 455, 715), "MySQL 8", "持久化业务事实", title_size=22)
+    d.box((560, 585, 845, 715), "Redis 7", "缓存、工作流短期状态与记忆", title_size=22, body_size=18)
+    d.box((1270, 235, 1535, 480), "外部服务", "Java：MaxKB\nJava：讯飞 ASR\nPython：模型提供方\n\n本次门禁未真实调用", accent=SLATE, title_size=23, body_size=18)
+    d.box((65, 840, 650, 930), "HBuilderX / uni-app", "独立构建；保留校园功能，学习入口仅经 Java 公网 API", title_size=20, body_size=16)
+    d.connector(((320, 300), (390, 300)), "HTTP", label_size=17)
+    d.connector(((720, 300), (860, 300)), "内部 REST + Token", label_size=16)
+    d.connector(((555, 390), (555, 480), (315, 480), (315, 585)), "JPA")
+    d.connector(((650, 390), (650, 585)), "缓存")
+    d.connector(((1020, 390), (1020, 520), (700, 520), (700, 585)), "工作流 / 记忆")
+    d.connector(((720, 350), (790, 350), (790, 455), (1235, 455), (1235, 300), (1270, 300)), "MaxKB / ASR", label_size=17)
+    d.connector(((1180, 345), (1235, 345), (1235, 420), (1270, 420)), "模型", label_size=18)
+    d.badge((885, 690), "静态校验 PASS · 容器实启 not_run", color=AMBER, size=18)
+    d.legend(((TEAL, "Compose 内"), (AMBER, "尚未实启验证"), (SLATE, "外部依赖")), y=952)
     d.save(path)
 
 
@@ -430,7 +434,7 @@ def _agent_capability_groups(path: Path) -> None:
 
 def _profile_evidence_flow(path: Path) -> None:
     d = Diagram("七维画像证据慢更新", "单条信号先进入 candidate；只有 Java 汇总应用后才成为 applied")
-    d.box((55, 190, 285, 355), "证据信号", "AI 对话 / 会议\n资源互动 / 资料事实", title_size=23, body_size=19)
+    d.box((55, 190, 285, 355), "证据信号", "AI 对话 / 会议\n资源互动 / 客观题反馈", title_size=23, body_size=19)
     d.box((355, 190, 610, 355), "候选证据", "candidate\n来源 / 方向\n置信度 / 幂等", title_size=24, body_size=18)
     d.box((680, 180, 950, 365), "Java 汇总规则", "去重 · 冲突 · 权重融合\n控制实际改分幅度", strong=True, tag="写权")
     d.box((1020, 190, 1255, 355), "已应用证据", "applied\n记录实际变化与原因", title_size=23, body_size=18)
@@ -445,7 +449,7 @@ def _profile_evidence_flow(path: Path) -> None:
     d.group((35, 490, 1565, 680), "七个画像维度", color=TEAL)
     d.box((880, 735, 1260, 845), "画像总结智能体", "只解释快照：强项、欠缺与补证建议", title_size=23, body_size=19)
     d.connector(((1545, 270), (1570, 270), (1570, 790), (1260, 790)))
-    d.note((55, 735, 720, 845), "考试链路当前边界", "交卷与客观评分不会自动写回七维画像；未来仍须经过显式映射与候选证据协议。")
+    d.note((55, 735, 720, 845), "考试反馈已接入", "客观题终态按知识点幂等更新掌握度、生成画像 candidate 并重排路径；主观题仍不自动评分。")
     d.save(path)
 
 
@@ -505,25 +509,21 @@ def _maxkb_grounding_flow(path: Path) -> None:
 
 
 def _resource_envelope(path: Path) -> None:
-    d = Diagram("资源信封、互动与受控下载", "结构化元数据贯穿生成、登记、展示和下载校验")
-    d.box((55, 200, 300, 345), "智能体候选内容", "任务标识 · 内容 · 声明类型", tag="生成")
-    d.box((370, 180, 735, 385), "资源构建器", "标准化 Resource Envelope", strong=True, tag="Python")
-    fields = ("type", "source", "grounding", "integrity", "display", "actions")
-    x, y = 405, 280
-    for index, field in enumerate(fields):
-        d.badge((x + (index % 3) * 102, y + (index // 3) * 48), field, color=TEAL if index < 4 else SLATE)
-    d.box((805, 200, 1085, 345), "Java 关联与登记", "用户 / 会话 / 任务\n持久化业务状态", tag="治理")
-    d.box((1155, 200, 1515, 345), "客户端资源卡片", "按类型展示可用操作\n不猜测文件类型", tag="展示")
-    d.connector(((300, 272), (370, 272)))
-    d.connector(((735, 272), (805, 272)))
-    d.connector(((1085, 272), (1155, 272)))
-    d.group((55, 505, 1545, 735), "互动与导出链")
+    d = Diagram("六类资源 typed DAG、信封与受控导出", "类型化节点并行生成、统一复审；局部失败保留成功项并支持单项重试")
+    d.box((55, 185, 300, 370), "课程工作流请求", "画像 · 掌握度 · 路径\n稳定 workflowId", tag="输入", title_size=23, body_size=19)
+    d.box((365, 165, 735, 405), "六类 typed DAG", "讲解文档 · 思维导图 · 练习题\n代码实验 · 演示课件 · 拓展阅读", strong=True, tag="Python", title_size=26, body_size=20)
+    d.box((800, 185, 1080, 370), "统一复审", "证据 · grounding\n内容安全 · 类型契约", tag="review", title_size=24, body_size=19)
+    d.box((1145, 175, 1535, 385), "真实导出 + 资源信封", "附件 / 受控预览\ntype · source · integrity\ndisplay · actions", tag="交付", title_size=23, body_size=18)
+    d.connector(((300, 275), (365, 275)))
+    d.connector(((735, 275), (800, 275)))
+    d.connector(((1080, 275), (1145, 275)))
+    d.group((55, 505, 1545, 735), "登记、展示、下载与局部恢复")
     chain = (
-        ("点击 / 收藏 / 下载", "用户互动"),
-        ("互动记录", "持久化"),
-        ("exporter", "生成 + 登记"),
+        ("成功资源集合", "拒绝项不进入"),
+        ("Java 关联登记", "用户 / 工作流"),
+        ("客户端资源卡", "六状态可见"),
         ("下载再校验", "用户 / 登记 / 路径"),
-        ("受控文件", "成功或明确失败"),
+        ("partial / retry", "仅重试失败类型"),
     )
     x = 80
     for index, (title, body) in enumerate(chain):
@@ -531,12 +531,12 @@ def _resource_envelope(path: Path) -> None:
         if index < len(chain) - 1:
             d.connector(((x + 260, 622), (x + 300, 622)))
         x += 300
-    d.note((55, 780, 1545, 860), "可信边界", "缺字段、integrity 失败、未登记或文件不可用时拒绝下载；资源信封不构成零幻觉证明，也不承诺每个资源包都含视频或完整 PPTX。")
+    d.note((55, 780, 1545, 860), "可信边界", "审核拒绝、空附件或导出失败只影响对应类型；成功资源与路径不被单项重试覆盖。信封不等于零幻觉证明。")
     d.save(path)
 
 
 def _question_paper_exam_loop(path: Path) -> None:
-    d = Diagram("题库、预览证明与在线考试一致性", "题目候选需人工确认；预览证明绑定最终试卷；考试评分不自动写回画像", height=1100)
+    d = Diagram("题库、预览证明与考试学习反馈", "题目候选需人工确认；预览证明绑定最终试卷；客观题终态触发幂等学习更新", height=1100)
     d.group(QUESTION_PAPER_GROUP, "题目候选 → 试卷可信链", color=TEAL, label_size=25)
     top = (
         ("Python 题目包", "7 个实现包"),
@@ -561,7 +561,7 @@ def _question_paper_exam_loop(path: Path) -> None:
         ("自动保存", "答案版本单调递增"),
         ("交卷 / 到期", "锁定终态"),
         ("客观题评分", "按确定规则"),
-        ("主观题", "人工或后续处理"),
+        ("幂等学习反馈", "掌握度 / candidate / 路径"),
     )
     x = 55
     for index, (title, body) in enumerate(bottom):
@@ -569,14 +569,14 @@ def _question_paper_exam_loop(path: Path) -> None:
         if index < len(bottom) - 1:
             d.connector(((x + 260, 735), (x + 300, 735)), color=SLATE)
         x += 300
-    d.note((45, 940, 1555, 1060), "当前边界", "旧版本或终态写入被拒绝；客观评分不自动生成画像证据，考试结果尚未回写七维画像。", title_size=25, body_size=22)
+    d.note((45, 940, 1555, 1060), "当前边界", "旧版本或终态写入被拒绝；同一考试反馈不重复改分或增版。主观题仍需人工或后续处理，不生成虚假自动反馈。", title_size=25, body_size=22)
     d.save(path)
 
 
 def _core_entity_relations(path: Path) -> None:
     d = Diagram("赛题主线关键实体逻辑关系", "箭头表示业务逻辑 ID 关联，不等同于数据库已经建立物理外键", height=1050)
-    d.badge((55, 145), "62 个 JPA 实体 / 61 张表", size=22)
-    d.badge((1235, 145), "52 控制器 / 338 映射", color=SLATE, size=22)
+    d.badge((55, 145), "65 个 JPA 实体 / 64 个唯一表名", size=22)
+    d.badge((1210, 145), "54 控制器 / 404 映射注解", color=SLATE, size=22)
     d.box((650, 200, 950, 330), "用户 / 角色", "身份与角色上下文", strong=True, title_size=28, body_size=22)
     d.group((45, 390, 490, 880), "AI 会话与资源", color=TEAL, label_size=25)
     d.box((80, 450, 275, 570), "AI 会话", "用户会话", title_size=24, body_size=20)
@@ -586,9 +586,9 @@ def _core_entity_relations(path: Path) -> None:
     d.connector(((275, 510), (300, 510)))
     d.connector(((377, 570), (377, 680)))
     d.connector(((275, 740), (300, 740)))
-    d.group((555, 390, 1045, 880), "画像与会议", color=TEAL, label_size=25)
-    d.box((590, 450, 790, 570), "画像维度", "七维快照", title_size=24, body_size=20)
-    d.box((820, 450, 1010, 570), "画像证据", "候选 / 已应用", title_size=24, body_size=20)
+    d.group((555, 390, 1045, 880), "画像、掌握度、路径与会议", color=TEAL, label_size=23)
+    d.box((590, 450, 790, 570), "画像 / 掌握度", "七维 + 知识点", title_size=23, body_size=20)
+    d.box((820, 450, 1010, 570), "证据 / 路径", "候选 / 已应用\n路径版本", title_size=23, body_size=18)
     d.connector(((820, 510), (790, 510)))
     d.box((590, 680, 790, 800), "会议会话", "会议聚合根", title_size=24, body_size=20)
     d.box((820, 650, 1010, 830), "成员 / 记录 / 结果", "参与者 / final\n会后结果", title_size=23, body_size=20)
