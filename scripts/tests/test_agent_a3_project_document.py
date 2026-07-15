@@ -1,9 +1,14 @@
 from pathlib import Path
+from hashlib import sha256
 import re
 from tempfile import TemporaryDirectory
 import unittest
+from zipfile import ZipFile
 
 from PIL import Image
+from docx import Document
+from docx.enum.section import WD_ORIENT
+from docx.oxml.ns import qn
 
 from scripts.agent_a3_document.source_loader import (
     EvidenceRow,
@@ -953,6 +958,217 @@ class GeneratedDiagramContractTest(unittest.TestCase):
             for first_path, second_path in zip(first, second):
                 with self.subTest(path=first_path.name):
                     self.assertEqual(first_path.read_bytes(), second_path.read_bytes())
+
+
+class ProjectDocumentDocxContractTest(unittest.TestCase):
+    SOURCE_DIR = Path("docs/project-document/source")
+    EVIDENCE_PATH = Path("docs/project-document/evidence-index.md")
+    ASSET_DIR = Path("docs/project-document/assets/generated")
+    DESIGN_IMAGES = (
+        Path("docs/designs/profile-radar/profile-radar-design.png"),
+        Path("docs/designs/ai-conversation/ai-conversation-design.png"),
+        Path("docs/designs/meeting-home/meeting-home-design.png"),
+    )
+    CHAPTERS = (
+        "前置材料",
+        "第一章 项目概述",
+        "第二章 需求分析",
+        "第三章 总体设计",
+        "第四章 详细功能设计",
+        "第五章 核心技术设计",
+        "第六章 数据与接口设计",
+        "第七章 页面与交互设计",
+        "第八章 测试与验证",
+        "第九章 安装部署与使用",
+        "第十章 项目总结与附录",
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        from scripts.agent_a3_document.docx_builder import build_document
+
+        cls._tmp = TemporaryDirectory()
+        cls.output = Path(cls._tmp.name) / "AgentA3-project-document.docx"
+        result = build_document(
+            cls.SOURCE_DIR,
+            cls.EVIDENCE_PATH,
+            cls.ASSET_DIR,
+            cls.output,
+        )
+        if result != cls.output:
+            raise AssertionError(f"builder returned {result!r}, expected {cls.output!r}")
+        if not cls.output.is_file():
+            raise AssertionError(f"builder did not create {cls.output}")
+        cls.document = Document(cls.output)
+        with ZipFile(cls.output) as package:
+            cls.parts = {name: package.read(name) for name in package.namelist()}
+
+    @classmethod
+    def tearDownClass(cls):
+        if hasattr(cls, "_tmp"):
+            cls._tmp.cleanup()
+
+    def test_a4_geometry_sections_headers_and_page_number_starts(self):
+        sections = self.document.sections
+        self.assertGreaterEqual(len(sections), 12)
+        for section in sections:
+            self.assertEqual(section.orientation, WD_ORIENT.PORTRAIT)
+            self.assertAlmostEqual(section.page_width.cm, 21.0, places=1)
+            self.assertAlmostEqual(section.page_height.cm, 29.7, places=1)
+            self.assertAlmostEqual(section.left_margin.cm, 2.2, places=1)
+            self.assertAlmostEqual(section.right_margin.cm, 2.2, places=1)
+            self.assertAlmostEqual(section.top_margin.cm, 2.3, places=1)
+            self.assertAlmostEqual(section.bottom_margin.cm, 2.0, places=1)
+            self.assertAlmostEqual(section.header_distance.cm, 1.25, places=1)
+            self.assertAlmostEqual(section.footer_distance.cm, 1.25, places=1)
+
+        self.assertFalse("".join(p.text for p in sections[0].header.paragraphs).strip())
+        self.assertFalse("".join(p.text for p in sections[0].footer.paragraphs).strip())
+        header_text = [
+            " ".join(p.text for p in section.header.paragraphs).strip()
+            for section in sections[1:]
+        ]
+        self.assertEqual(len(header_text), len(self.CHAPTERS))
+        for actual, chapter in zip(header_text, self.CHAPTERS):
+            self.assertIn("AgentA3", actual)
+            self.assertIn(chapter, actual)
+
+        front_num = sections[1]._sectPr.find(qn("w:pgNumType"))
+        chapter_num = sections[2]._sectPr.find(qn("w:pgNumType"))
+        self.assertIsNotNone(front_num)
+        self.assertEqual(front_num.get(qn("w:fmt")), "upperRoman")
+        self.assertEqual(front_num.get(qn("w:start")), "1")
+        self.assertIsNotNone(chapter_num)
+        self.assertEqual(chapter_num.get(qn("w:fmt")), "decimal")
+        self.assertEqual(chapter_num.get(qn("w:start")), "1")
+
+    def test_required_styles_have_explicit_latin_and_east_asian_fonts(self):
+        required = (
+            "Normal",
+            "Title",
+            "Subtitle",
+            "Heading 1",
+            "Heading 2",
+            "Heading 3",
+            "Caption",
+            "Code",
+            "Callout",
+        )
+        for name in required:
+            with self.subTest(style=name):
+                style = self.document.styles[name]
+                fonts = style._element.get_or_add_rPr().get_or_add_rFonts()
+                self.assertTrue(fonts.get(qn("w:ascii")))
+                self.assertTrue(fonts.get(qn("w:hAnsi")))
+                self.assertTrue(fonts.get(qn("w:eastAsia")))
+
+        normal = self.document.styles["Normal"]
+        title = self.document.styles["Title"]
+        heading_one = self.document.styles["Heading 1"]
+        self.assertEqual(normal.font.name, "Times New Roman")
+        self.assertEqual(normal.font.size.pt, 10.5)
+        self.assertEqual(title.font.size.pt, 20.0)
+        self.assertEqual(heading_one.font.size.pt, 15.0)
+        self.assertEqual(str(heading_one.font.color.rgb), "0F766E")
+
+    def test_tables_media_and_relationships_are_self_contained(self):
+        self.assertGreaterEqual(len(self.document.tables), 20)
+        for table_index, table in enumerate(self.document.tables, start=1):
+            self.assertTrue(table.rows, f"table {table_index} has no rows")
+            for row_index, row in enumerate(table.rows, start=1):
+                for column_index, cell in enumerate(row.cells, start=1):
+                    self.assertTrue(
+                        cell.text.strip(),
+                        f"empty table cell {table_index}:{row_index}:{column_index}",
+                    )
+
+        media = {
+            name: data
+            for name, data in self.parts.items()
+            if name.startswith("word/media/")
+        }
+        self.assertGreaterEqual(len(media), 14)
+        embedded_hashes = {sha256(data).hexdigest() for data in media.values()}
+        generated_hashes = {
+            sha256(path.read_bytes()).hexdigest()
+            for path in self.ASSET_DIR.glob("*.png")
+        }
+        design_hashes = {
+            sha256(path.read_bytes()).hexdigest() for path in self.DESIGN_IMAGES
+        }
+        self.assertEqual(len(generated_hashes), 11)
+        self.assertLessEqual(generated_hashes | design_hashes, embedded_hashes)
+
+        relationship_parts = {
+            name: data.decode("utf-8")
+            for name, data in self.parts.items()
+            if name.endswith(".rels")
+        }
+        local_external = re.compile(
+            r'TargetMode="External"[^>]+Target="(?:file:|/|[A-Za-z]:|\\\\)'
+        )
+        for name, xml in relationship_parts.items():
+            with self.subTest(relationship=name):
+                self.assertIsNone(local_external.search(xml))
+
+    def test_toc_page_fields_numbering_and_chapter_captions_are_native(self):
+        settings = self.parts["word/settings.xml"].decode("utf-8")
+        self.assertRegex(
+            settings,
+            r"<w:updateFields(?:\s+[^>]*)?\s+w:val=\"true\"",
+        )
+
+        field_xml = "\n".join(
+            data.decode("utf-8")
+            for name, data in self.parts.items()
+            if name == "word/document.xml"
+            or name.startswith("word/header")
+            or name.startswith("word/footer")
+        )
+        self.assertIn('TOC \\o "1-3" \\h \\z \\u', field_xml)
+        self.assertGreaterEqual(field_xml.count(">PAGE<"), 11)
+
+        document_xml = self.parts["word/document.xml"].decode("utf-8")
+        numbering_xml = self.parts["word/numbering.xml"].decode("utf-8")
+        self.assertIn("<w:numPr>", document_xml)
+        self.assertIn('w:val="bullet"', numbering_xml)
+        self.assertIn('w:val="decimal"', numbering_xml)
+
+        captions = [
+            paragraph.text.strip()
+            for paragraph in self.document.paragraphs
+            if paragraph.style.name == "Caption"
+        ]
+        self.assertGreaterEqual(len(captions), 13)
+        self.assertTrue(any(re.match(r"图5-\d+ ", text) for text in captions))
+        self.assertTrue(any(re.match(r"图7-\d+ ", text) for text in captions))
+        self.assertTrue(any(re.match(r"表10-\d+ ", text) for text in captions))
+
+    def test_missing_or_unsafe_figure_assets_fail_clearly(self):
+        from scripts.agent_a3_document.docx_builder import build_document
+
+        for src, expected in (
+            ("images/missing.png", "missing figure asset"),
+            ("../outside.png", "repository-relative figure path"),
+        ):
+            with self.subTest(src=src), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                source_dir = root / "source"
+                source_dir.mkdir()
+                directive = (
+                    f'<!-- FIGURE src="{src}" caption="验证图" '
+                    'width_cm="15.5" -->\n'
+                )
+                _write_sources(source_dir, directive)
+                output = root / "result.docx"
+                with self.assertRaisesRegex(ValueError, expected):
+                    build_document(
+                        source_dir,
+                        self.EVIDENCE_PATH,
+                        self.ASSET_DIR,
+                        output,
+                    )
+                self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":
