@@ -22,7 +22,7 @@
                 v-for="action in tradeMenuActions"
                 :key="action.type"
                 class="trade-menu-item"
-                :class="{ danger: action.type === 'cancel' }"
+                :class="action.class"
                 @click="handleMenuAction(action)"
               >
                 {{ action.label }}
@@ -393,7 +393,7 @@ export default {
       if (this.tradeInfo.status === 'WAIT_CONFIRM') {
         const actions = []
         if (this.tradeInfo.isSeller) actions.push({ type: 'confirm', label: '确认交易' })
-        actions.push({ type: 'cancel', label: '取消交易' })
+        actions.push({ type: 'cancel', label: '取消交易', class: 'danger' })
         return actions
       }
       if (this.tradeInfo.status === 'TRADING') {
@@ -401,9 +401,9 @@ export default {
         if (!this.hasContactShare) {
           actions.push({ type: 'shareContact', label: '发送联系方式' })
         } else if (this.tradeInfo.isSeller) {
-          actions.push({ type: 'complete', label: '标记交易完成' })
+          actions.push({ type: 'complete', label: '标记交易完成', class: 'success' })
         }
-        actions.push({ type: 'cancel', label: '取消交易' })
+        actions.push({ type: 'cancel', label: '取消交易', class: 'danger' })
         return actions
       }
       return []
@@ -1055,7 +1055,11 @@ export default {
 }
 
 .trade-menu-item.danger {
-  color: #c46b17;
+  color: #d14343;
+}
+
+.trade-menu-item.success {
+  color: #2d8a55;
 }
 
 .cancel-overlay {
@@ -1112,7 +1116,7 @@ export default {
 }
 
 .cancel-btn.primary {
-  background: #c46b17;
+  background: #d14343;
   color: #fff;
 }
 
