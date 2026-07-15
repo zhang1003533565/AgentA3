@@ -137,7 +137,7 @@
             </view>
           </view>
 
-          <view v-for="card in standaloneTradeCards" :key="card.type" :id="'trade-action-card-' + card.type" class="system-msg">
+          <view v-for="(card, idx) in standaloneTradeCards" :key="card.type" :id="'trade-action-card-' + card.type" class="system-msg" :class="{ 'last-msg': idx === standaloneTradeCards.length - 1 }">
             <view class="trade-event-card action-card" :class="card.cardClass">
               <view class="trade-card-top">
                 <text class="trade-actor-tag">{{ card.tag }}</text>
@@ -1127,7 +1127,7 @@ export default {
 }
 
 .last-msg {
-  margin-bottom: 40rpx;
+  margin-bottom: 72rpx;
 }
 
 .system-msg,
