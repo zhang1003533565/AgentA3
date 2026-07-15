@@ -62,15 +62,25 @@
                   <view class="contact-title">联系方式</view>
                 </view>
                 <view class="contact-list">
-                  <view v-for="item in contactItems(m.content)" :key="item.label + item.value" class="contact-row">
+                  <view v-for="(item, idx) in contactItems(m.content)" :key="item.label + idx" class="contact-row">
                     <view class="contact-row-main">
                       <view class="contact-label">{{ item.label }}</view>
-                      <view class="contact-value">{{ item.value }}</view>
+                      <view class="contact-value" :class="{ hidden: !contactVisibility[idx] }">
+                        {{ contactVisibility[idx] ? item.value : '***' + item.value.slice(-2) }}
+                      </view>
                     </view>
-                    <button class="copy-btn" @click.stop="copyContact(item)">
-                      <text class="copy-icon"></text>
-                      <text>复制</text>
-                    </button>
+                    <view class="contact-actions">
+                      <view
+                        class="eye-toggle"
+                        :class="{ visible: contactVisibility[idx] }"
+                        @touchstart.prevent="contactVisibility[idx] = true; $forceUpdate()"
+                        @touchend.prevent="contactVisibility[idx] = false; $forceUpdate()"
+                        @touchcancel.prevent="contactVisibility[idx] = false; $forceUpdate()"
+                      ></view>
+                      <button class="copy-btn" @click.stop="copyContact(item)">
+                        <text class="copy-icon"></text>
+                      </button>
+                    </view>
                   </view>
                 </view>
               </view>
@@ -257,6 +267,7 @@ export default {
       contactVisible: false,
       contactForm: { wechat: '', phone: '', other: '' },
       savedContact: null,
+      contactVisibility: {},
       morePanelVisible: false
     }
   },
@@ -1278,6 +1289,53 @@ export default {
   font-size: 30rpx;
   font-weight: 900;
   word-break: break-all;
+}
+
+.contact-value.hidden {
+  color: #8a94a0;
+  letter-spacing: 4rpx;
+}
+
+.contact-actions {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  flex-shrink: 0;
+}
+
+.eye-toggle {
+  width: 44rpx;
+  height: 44rpx;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.eye-toggle::before {
+  content: '';
+  position: absolute;
+  top: 8rpx;
+  left: 4rpx;
+  width: 28rpx;
+  height: 16rpx;
+  border: 3rpx solid #5c7a99;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.eye-toggle::after {
+  content: '';
+  position: absolute;
+  top: 14rpx;
+  left: 18rpx;
+  width: 6rpx;
+  height: 6rpx;
+  border-radius: 50%;
+  background: #5c7a99;
+  box-sizing: border-box;
+}
+
+.eye-toggle.visible::before {
+  background: rgba(92, 122, 153, 0.18);
 }
 
 .copy-btn {
