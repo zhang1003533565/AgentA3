@@ -77,6 +77,32 @@ _CREDENTIAL_ATTRIBUTE_NAMES = {
     "secret",
     "token",
 }
+_REFERENCE_FIELD_ALLOWLIST = {
+    "source",
+    "title",
+    "url",
+    "score",
+}
+_REFERENCE_METADATA_ALLOWLIST = {
+    "accessScope",
+    "chunkId",
+    "courseKey",
+    "documentId",
+    "knowledgeBaseId",
+    "knowledgePoint",
+    "knowledgePointKey",
+    "page",
+    "pageNumber",
+    "retrievedAt",
+    "score",
+    "section",
+    "sectionTitle",
+    "sourceId",
+    "sourceType",
+    "sourceVersion",
+    "tags",
+    "title",
+}
 
 
 def sanitize_learning_references(
@@ -110,18 +136,28 @@ def sanitize_learning_references(
                 "课程证据净化后为空：第 {} 项".format(index + 1)
             )
         metadata = raw.get("metadata")
-        safe_metadata = dict(metadata) if isinstance(metadata, Mapping) else {}
+        safe_metadata = _allowlisted_metadata(metadata)
+        safe_fields = {}
+        for key in _REFERENCE_FIELD_ALLOWLIST:
+            if key not in raw:
+                continue
+            value = _sanitize_model_visible(raw[key])
+            if value not in (None, "", [], {}):
+                safe_fields[key] = value
+        visible_changed = any(
+            key in raw and safe_fields.get(key) != raw.get(key)
+            for key in _REFERENCE_FIELD_ALLOWLIST
+        ) or (
+            isinstance(metadata, Mapping)
+            and safe_metadata != dict(metadata)
+        )
         safe_metadata.update({
             "untrustedData": True,
-            "instructionTextRemoved": content != original,
+            "instructionTextRemoved": content != original or visible_changed,
             "originalContentDigest": "sha256:"
             + hashlib.sha256(original.encode("utf-8")).hexdigest(),
         })
-        item = {
-            key: value
-            for key, value in raw.items()
-            if key not in {"id", "evidenceId", "referenceId", "content", "text", "metadata"}
-        }
+        item = safe_fields
         item.update({"id": evidence_id, "content": content, "metadata": safe_metadata})
         sanitized.append(item)
     if not sanitized:
@@ -217,6 +253,42 @@ def _strip_instruction_text(value: str) -> str:
         if safe_clauses:
             kept.append("".join(safe_clauses).strip())
     return "\n".join(item for item in kept if item).strip()
+
+
+def _allowlisted_metadata(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    result = {}
+    for key in _REFERENCE_METADATA_ALLOWLIST:
+        if key not in value:
+            continue
+        sanitized = _sanitize_model_visible(value[key])
+        if sanitized not in (None, "", [], {}):
+            result[key] = sanitized
+    return result
+
+
+def _sanitize_model_visible(value: Any) -> Any:
+    if isinstance(value, str):
+        return _strip_instruction_text(value)
+    if isinstance(value, Mapping):
+        result = {}
+        for raw_key, raw_value in value.items():
+            key = _strip_instruction_text(str(raw_key))
+            sanitized = _sanitize_model_visible(raw_value)
+            if key and sanitized not in (None, "", [], {}):
+                result[key] = sanitized
+        return result
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        result = []
+        for item in value:
+            sanitized = _sanitize_model_visible(item)
+            if sanitized not in (None, "", [], {}):
+                result.append(sanitized)
+        return result
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return _strip_instruction_text(str(value))
 
 
 def _is_instruction(value: str) -> bool:

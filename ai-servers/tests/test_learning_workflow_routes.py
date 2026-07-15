@@ -1,3 +1,4 @@
+import base64
 import json
 import time
 
@@ -5,8 +6,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.learning_workflow import delivery as delivery_module
 from app.learning_workflow.delivery import export_learning_resources
 from app.learning_workflow.models import LearningWorkflowResult
+from app.rag.document_conversion.generated_exporter import GeneratedExportResult
 from app.services.java_backend import JavaBackendRetriever
 import app.api.routes.rag as rag_route
 
@@ -51,7 +54,7 @@ def workflow_result():
         resources.append({
             "resourceType": resource_type,
             "agentName": agent_name,
-            "content": f"# {resource_type}\n\n基于循环证据生成。",
+            "content": _resource_content(resource_type, payload),
             "payload": payload,
             "evidenceIds": ["ev-loop"],
             "reviewStatus": "passed",
@@ -87,7 +90,19 @@ def _resource_payload(resource_type):
     if resource_type == "knowledge_note":
         return {"kind": resource_type, "note": {"markdown": "循环讲义"}}
     if resource_type == "mind_map":
-        return {"kind": resource_type, "mindMap": {"nodes": [{"id": "root"}]}}
+        return {
+            "kind": resource_type,
+            "mindMap": {
+                "taskId": "mind-map-task-1",
+                "status": "success",
+                "images": [{
+                    "index": 0,
+                    "url": "https://example.com/python-loop-mind-map.png",
+                    "base64": "",
+                    "status": "success",
+                }],
+            },
+        }
     if resource_type == "practice_set":
         questions = []
         for question_type in (
@@ -107,7 +122,7 @@ def _resource_payload(resource_type):
             "kind": resource_type,
             "codeLab": {
                 "title": "循环实验",
-                "source": "for value in range(3):\n    print(value)",
+                "markdown": "由智能体 content 字段承载实验说明与源码。",
                 "evidenceIds": ["ev-loop"],
             },
         }
@@ -121,6 +136,22 @@ def _resource_payload(resource_type):
             "metadata": {},
         }
     return {"kind": resource_type, "reading": {"markdown": "循环扩展阅读"}}
+
+
+def _resource_content(resource_type, payload):
+    if resource_type == "code_lab":
+        return (
+            "# Python 循环实验\n\n"
+            "## 实验目标\n掌握 range 与 for 循环。\n\n"
+            "```python\n"
+            "for value in range(3):\n"
+            "    print(value)\n"
+            "```\n\n"
+            "预期依次输出 0、1、2。"
+        )
+    if resource_type == "mind_map":
+        return json.dumps(payload["mindMap"], ensure_ascii=False)
+    return f"# {resource_type}\n\n基于循环证据生成。"
 
 
 def parse_sse(text):
@@ -160,7 +191,10 @@ def fake_workflow_runner(result):
         event_callback("review_done", {
             "agentName": "resource_review_agent",
             "reviews": [
-                {"resourceType": item.resourceType, "reviewStatus": "passed"}
+                {
+                    "resourceType": item.resourceType,
+                    "reviewStatus": item.reviewStatus,
+                }
                 for item in result.resources
             ],
         })
@@ -210,7 +244,70 @@ def test_learning_stream_emits_real_monotonic_stages(monkeypatch, tmp_path):
     assert all(item["schemaVersion"] == "assistant-resource-v1" for item in done["resources"])
     assert done["evidenceChain"]["schemaVersion"] == "assistant-evidence-v1"
     assert any(item["metadata"].get("resourceKind") == "code_lab" for item in done["resources"])
+    assert any(
+        item["deliveryType"] == "image"
+        and item["url"] == "https://example.com/python-loop-mind-map.png"
+        for item in done["resources"]
+    )
+    assert {item["ext"] for item in done["attachments"] if item.get("ext")} >= {
+        "py", "md", "zip",
+    }
     assert done["attachments"]
+
+
+def test_rejected_optional_resource_is_partial_and_never_delivered(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("AI_INTERNAL_TOKEN", "internal-test-token")
+    monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
+    raw_result = workflow_result().model_dump(mode="json")
+    rejected = next(
+        item for item in raw_result["resources"]
+        if item["resourceType"] == "extended_reading"
+    )
+    rejected["reviewStatus"] = "rejected"
+    rejected["reviewIssues"] = ["拓展阅读证据不足"]
+    raw_result["packageMetadata"]["resourceCount"] = 5
+    raw_result["packageMetadata"]["resourceTypes"] = [
+        item[0] for item in RESOURCE_SPECS if item[0] != "extended_reading"
+    ]
+    result = LearningWorkflowResult.model_validate(raw_result)
+    monkeypatch.setattr(rag_route, "run_learning_workflow", fake_workflow_runner(result))
+
+    response = TestClient(app).post(
+        "/internal/rag/query/stream",
+        headers={
+            "Authorization": "Bearer user-token",
+            "X-AI-Internal-Token": "internal-test-token",
+            "X-User-Id": "7",
+        },
+        json=learning_request(),
+    )
+
+    done = parse_sse(response.text)[-1]
+    assert done[0] == "done"
+    assert done[1]["status"] == "partial"
+    assert done[1]["retryable"] is True
+    review_failures = [
+        item for item in done[1]["failedResources"]
+        if item["resourceType"] == "extended_reading"
+    ]
+    assert review_failures == [{
+        "resourceType": "extended_reading",
+        "stage": "reviewing",
+        "retryable": True,
+        "message": "拓展阅读审核未通过，请重试",
+        "errorType": "ResourceReviewRejected",
+    }]
+    assert all(
+        item["metadata"].get("resourceKind") != "extended_reading"
+        for item in done[1]["resources"]
+    )
+    assert all(
+        item.get("resourceKind") != "extended_reading"
+        for item in done[1]["attachments"]
+    )
 
 
 def test_single_resource_delivery_failure_finishes_partial_and_retryable(
@@ -265,9 +362,11 @@ def test_real_delivery_isolates_rejected_code_and_keeps_other_artifacts(
     code_resource = next(
         item for item in payload["resources"] if item["resourceType"] == "code_lab"
     )
-    code_resource["payload"]["codeLab"]["source"] = (
-        "import subprocess\nsubprocess.run(['echo', 'unsafe'])"
+    code_resource["content"] = (
+        "# 不安全实验\n\n```python\n"
+        "import subprocess\nsubprocess.run(['echo', 'unsafe'])\n```"
     )
+    code_resource["payload"]["codeLab"] = {"markdown": code_resource["content"]}
 
     attachments_by_type, attachments, failures = export_learning_resources(
         LearningWorkflowResult.model_validate(payload)
@@ -283,6 +382,124 @@ def test_real_delivery_isolates_rejected_code_and_keeps_other_artifacts(
     }]
     assert attachments
     assert attachments_by_type["presentation"]
+
+
+def test_real_agent_code_lab_contract_exports_python_markdown_and_archive(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
+
+    attachments_by_type, _, failures = export_learning_resources(workflow_result())
+
+    assert not [item for item in failures if item["resourceType"] == "code_lab"]
+    code_attachments = attachments_by_type["code_lab"]
+    assert {item["ext"] for item in code_attachments} == {"py", "md", "zip"}
+    source_attachment = next(item for item in code_attachments if item["ext"] == "py")
+    source = (tmp_path / "exports" / source_attachment["storageKey"]).read_text("utf-8")
+    assert "for value in range(3)" in source
+
+
+def test_mind_map_base64_contract_is_persisted_as_trusted_image_attachment(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
+    raw_result = workflow_result().model_dump(mode="json")
+    mind_map = next(
+        item for item in raw_result["resources"] if item["resourceType"] == "mind_map"
+    )
+    png_bytes = b"\x89PNG\r\n\x1a\n" + b"trusted-learning-image"
+    response_payload = {
+        "taskId": "mind-map-base64-task",
+        "status": "success",
+        "images": [{
+            "index": 0,
+            "url": "",
+            "base64": base64.b64encode(png_bytes).decode("ascii"),
+            "status": "success",
+        }],
+    }
+    mind_map["content"] = json.dumps(response_payload, ensure_ascii=False)
+    mind_map["payload"]["mindMap"] = response_payload
+
+    attachments_by_type, _, failures = export_learning_resources(
+        LearningWorkflowResult.model_validate(raw_result)
+    )
+
+    assert not [item for item in failures if item["resourceType"] == "mind_map"]
+    attachment = attachments_by_type["mind_map"][0]
+    assert attachment["ext"] == "png"
+    assert attachment["mimeType"] == "image/png"
+    assert (tmp_path / "exports" / attachment["storageKey"]).read_bytes() == png_bytes
+
+
+def test_mind_map_mermaid_contract_exports_only_mindmap_source(monkeypatch, tmp_path):
+    monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
+    raw_result = workflow_result().model_dump(mode="json")
+    mind_map = next(
+        item for item in raw_result["resources"] if item["resourceType"] == "mind_map"
+    )
+    mermaid = "```mermaid\nmindmap\n  root((Python 循环))\n```"
+    mind_map["content"] = mermaid
+    mind_map["payload"]["mindMap"] = {"content": mermaid}
+
+    attachments_by_type, _, failures = export_learning_resources(
+        LearningWorkflowResult.model_validate(raw_result)
+    )
+
+    assert not [item for item in failures if item["resourceType"] == "mind_map"]
+    assert {item["ext"] for item in attachments_by_type["mind_map"]} >= {"mmd", "md"}
+
+
+def test_mind_map_rejects_wrong_mermaid_diagram_type(monkeypatch, tmp_path):
+    monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
+    raw_result = workflow_result().model_dump(mode="json")
+    mind_map = next(
+        item for item in raw_result["resources"] if item["resourceType"] == "mind_map"
+    )
+    wrong_type = "```mermaid\nflowchart TD\n  A --> B\n```"
+    mind_map["content"] = wrong_type
+    mind_map["payload"]["mindMap"] = {"content": wrong_type}
+
+    attachments_by_type, _, failures = export_learning_resources(
+        LearningWorkflowResult.model_validate(raw_result)
+    )
+
+    assert attachments_by_type["mind_map"] == []
+    assert [
+        item["errorType"] for item in failures if item["resourceType"] == "mind_map"
+    ] == ["MindMapContractError"]
+
+
+def test_empty_export_result_becomes_retryable_resource_failure(monkeypatch, tmp_path):
+    monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
+    raw_result = workflow_result().model_dump(mode="json")
+    raw_result["resources"] = [
+        item for item in raw_result["resources"] if item["resourceType"] == "knowledge_note"
+    ]
+    monkeypatch.setattr(
+        delivery_module,
+        "export_generated_answer",
+        lambda *args, **kwargs: GeneratedExportResult(
+            attachments=[],
+            diagnostics={"skipped": True, "reason": "test-empty"},
+        ),
+    )
+
+    attachments_by_type, attachments, failures = export_learning_resources(
+        LearningWorkflowResult.model_validate(raw_result)
+    )
+
+    assert attachments_by_type["knowledge_note"] == []
+    assert attachments == []
+    assert failures == [{
+        "resourceType": "knowledge_note",
+        "stage": "exporting",
+        "retryable": True,
+        "message": "课程讲义交付失败，请重试",
+        "errorType": "EmptyResourceExportError",
+    }]
 
 
 @pytest.mark.parametrize(
