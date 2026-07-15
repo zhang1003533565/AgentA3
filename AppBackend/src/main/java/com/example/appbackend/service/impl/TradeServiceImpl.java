@@ -122,7 +122,7 @@ public class TradeServiceImpl implements TradeService {
         }
         tradeRecord.setStatus(TradeStatus.CANCELLED);
         tradeRecord = tradeRecordRepository.save(tradeRecord);
-        createTradeMessage(tradeRecord, currentUserId, "交易已取消");
+        createTradeMessage(tradeRecord, currentUserId, "本次交易已取消");
         return toVO(tradeRecord, currentUserId);
     }
 

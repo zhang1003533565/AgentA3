@@ -76,7 +76,9 @@
                         @touchstart.prevent="contactVisibility[idx] = true; $forceUpdate()"
                         @touchend.prevent="contactVisibility[idx] = false; $forceUpdate()"
                         @touchcancel.prevent="contactVisibility[idx] = false; $forceUpdate()"
-                      ></view>
+                      >
+                        <text class="eye-slash"></text>
+                      </view>
                       <button class="copy-btn" @click.stop="copyContact(item)">
                         <text class="copy-icon"></text>
                       </button>
@@ -293,7 +295,7 @@ const TRADE_TEXT = {
   WAIT_CONFIRM: '购买意向待确认',
   TRADING: '双方已确认线下交易',
   COMPLETED: '交易已完成',
-  CANCELLED: '交易已取消'
+  CANCELLED: '本次交易已取消'
 }
 
 export default {
@@ -366,8 +368,11 @@ export default {
       }
       if (this.tradeInfo.status === 'TRADING') {
         const actions = []
-        if (!this.hasContactShare) actions.push({ type: 'shareContact', label: '发送联系方式' })
-        if (this.tradeInfo.isSeller) actions.push({ type: 'complete', label: '标记交易完成' })
+        if (!this.hasContactShare) {
+          actions.push({ type: 'shareContact', label: '发送联系方式' })
+        } else if (this.tradeInfo.isSeller) {
+          actions.push({ type: 'complete', label: '标记交易完成' })
+        }
         actions.push({ type: 'cancel', label: '取消交易' })
         return actions
       }
@@ -860,8 +865,7 @@ export default {
       uni.setClipboardData({
         data: item.value,
         success: () => {
-          const label = item.label === '微信' ? '微信号' : item.label
-          uni.showToast({ title: `已复制${label}`, icon: 'none' })
+          uni.showToast({ title: '已复制联系方式', icon: 'none' })
         }
       })
     },
@@ -1393,68 +1397,78 @@ export default {
 .contact-actions {
   display: flex;
   align-items: center;
-  gap: 8rpx;
+  gap: 2rpx;
   flex-shrink: 0;
 }
 
 .eye-toggle {
-  width: 44rpx;
-  height: 44rpx;
+  width: 52rpx;
+  height: 52rpx;
   position: relative;
   flex-shrink: 0;
+  color: #1f2a36;
 }
 
 .eye-toggle::before {
   content: '';
   position: absolute;
-  top: 8rpx;
-  left: 4rpx;
-  width: 28rpx;
-  height: 16rpx;
-  border: 3rpx solid #5c7a99;
+  top: 17rpx;
+  left: 10rpx;
+  width: 32rpx;
+  height: 18rpx;
+  border: 3rpx solid currentColor;
   border-radius: 50%;
+  transform: rotate(-7deg);
   box-sizing: border-box;
 }
 
 .eye-toggle::after {
   content: '';
   position: absolute;
-  top: 14rpx;
-  left: 18rpx;
-  width: 6rpx;
-  height: 6rpx;
+  top: 22rpx;
+  left: 23rpx;
+  width: 8rpx;
+  height: 8rpx;
   border-radius: 50%;
-  background: #5c7a99;
+  background: currentColor;
   box-sizing: border-box;
 }
 
-.eye-toggle.visible::before {
-  background: rgba(92, 122, 153, 0.18);
+.eye-slash {
+  position: absolute;
+  top: 12rpx;
+  left: 25rpx;
+  width: 3rpx;
+  height: 30rpx;
+  border-radius: 999rpx;
+  background: currentColor;
+  transform: rotate(45deg);
+  transform-origin: center;
+}
+
+.eye-toggle.visible .eye-slash {
+  display: none;
 }
 
 .copy-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6rpx;
-  min-width: 104rpx;
-  height: 50rpx;
+  width: 52rpx;
+  height: 52rpx;
   margin: 0;
-  padding: 0 16rpx;
-  border-radius: 999rpx;
+  padding: 0;
+  border-radius: 0;
   background: transparent;
-  border: 1rpx solid rgba(79, 138, 105, 0.34);
-  color: #4f8a69;
-  font-size: 22rpx;
-  font-weight: 900;
-  line-height: 50rpx;
+  color: #1f2a36;
+  line-height: 52rpx;
   flex-shrink: 0;
 }
 
 .copy-icon {
   position: relative;
-  width: 20rpx;
-  height: 20rpx;
+  width: 32rpx;
+  height: 32rpx;
   flex-shrink: 0;
 }
 
@@ -1462,22 +1476,22 @@ export default {
 .copy-icon::after {
   content: '';
   position: absolute;
-  width: 12rpx;
-  height: 12rpx;
-  border: 2rpx solid currentColor;
-  border-radius: 3rpx;
+  width: 18rpx;
+  height: 18rpx;
+  border: 3rpx solid currentColor;
+  border-radius: 4rpx;
   box-sizing: border-box;
 }
 
 .copy-icon::before {
-  left: 2rpx;
-  top: 5rpx;
+  left: 4rpx;
+  top: 10rpx;
 }
 
 .copy-icon::after {
-  left: 6rpx;
-  top: 1rpx;
-  background: #fff;
+  left: 10rpx;
+  top: 4rpx;
+  background: transparent;
 }
 
 .copy-btn::after {
