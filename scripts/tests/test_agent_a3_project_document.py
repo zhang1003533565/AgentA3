@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -6,6 +7,7 @@ from scripts.agent_a3_document.source_loader import (
     EvidenceRow,
     extract_evidence_rows,
     load_source,
+    parse_markdown,
 )
 
 
@@ -237,6 +239,152 @@ class EvidenceIndexContractTest(unittest.TestCase):
                     r"repository-relative",
                 ):
                     extract_evidence_rows(path)
+
+
+class SourceContentTest(unittest.TestCase):
+    SOURCE_DIR = Path("docs/project-document/source")
+    SOURCE_NAMES = (
+        "00-frontmatter.md",
+        "01-project-overview.md",
+        "02-requirements.md",
+        "03-overall-design.md",
+    )
+
+    def _read_source(self, name: str) -> str:
+        path = self.SOURCE_DIR / name
+        self.assertTrue(path.is_file(), f"missing reviewed source: {path}")
+        return path.read_text(encoding="utf-8")
+
+    def _combined_source(self) -> str:
+        return "\n".join(self._read_source(name) for name in self.SOURCE_NAMES)
+
+    def test_frontmatter_uses_exact_titles_and_document_governance(self):
+        text = self._read_source("00-frontmatter.md")
+        required_text = (
+            "AgentA3 智慧校园个性化学习多智能体系统——需求、设计与开发说明书",
+            "第十五届中国软件杯大赛——A组赛题",
+            "A3-基于大模型的个性化资源生成与学习多智能体系统开发",
+            "AgentA3 项目组",
+            "V1.0",
+            "2026-07-15",
+            "修订记录",
+            "摘要",
+            "文档范围",
+        )
+        for value in required_text:
+            with self.subTest(value=value):
+                self.assertIn(value, text)
+        self.assertEqual(text.count("<!-- AUTO_TOC -->"), 1)
+
+    def test_sources_use_only_supported_directives_and_section_breaks(self):
+        for name in self.SOURCE_NAMES:
+            with self.subTest(name=name):
+                text = self._read_source(name)
+                blocks = parse_markdown(text, source_name=name)
+                self.assertTrue(blocks)
+                self.assertEqual(
+                    sum(block.kind == "section_break" for block in blocks), 1
+                )
+
+    def test_requirements_have_exact_unique_ids_and_traceability_columns(self):
+        text = self._read_source("02-requirements.md")
+        functional_ids = re.findall(r"(?<![A-Z0-9-])FR-\d{3}(?![A-Z0-9-])", text)
+        nonfunctional_ids = re.findall(
+            r"(?<![A-Z0-9-])NFR-\d{3}(?![A-Z0-9-])", text
+        )
+        self.assertEqual(
+            functional_ids, [f"FR-{index:03d}" for index in range(1, 25)]
+        )
+        self.assertEqual(
+            nonfunctional_ids,
+            [f"NFR-{index:03d}" for index in range(1, 11)],
+        )
+        traceability_header = (
+            "| ID | 参与者（actor） | 触发条件（trigger） | "
+            "系统行为（system behavior） | 验收证据（acceptance evidence） | "
+            "当前状态（current status） |"
+        )
+        self.assertEqual(text.count(traceability_header), 2)
+
+    def test_requirements_cover_roles_pain_points_and_capability_matrix(self):
+        text = self._read_source("02-requirements.md")
+        for role in ("ADMIN", "TEACHER", "STUDENT", "MERCHANT"):
+            with self.subTest(role=role):
+                self.assertIn(role, text)
+        pain_point_ids = re.findall(r"(?<![A-Z0-9-])BP-\d{3}(?![A-Z0-9-])", text)
+        self.assertEqual(pain_point_ids, [f"BP-{index:03d}" for index in range(1, 7)])
+        capability_header = (
+            "| 能力维度 | 通用聊天机器人 | 传统教学平台 | "
+            "基础知识库问答 | AgentA3 |"
+        )
+        self.assertEqual(text.count(capability_header), 1)
+
+    def test_overall_design_names_components_flows_and_deployment_boundary(self):
+        text = self._read_source("03-overall-design.md")
+        required_terms = (
+            "uni-app",
+            "React/Vite",
+            "Spring Boot",
+            "FastAPI",
+            "MySQL",
+            "Redis",
+            "MaxKB",
+            "讯飞（Xfyun）",
+            "REST",
+            "SSE",
+            "WebSocket",
+            "Python AI 服务当前单独启动",
+            "不作为独立公网 API",
+        )
+        for term in required_terms:
+            with self.subTest(term=term):
+                self.assertIn(term, text)
+
+    def test_sources_separate_requirements_goals_facts_and_roadmap(self):
+        text = self._combined_source()
+        for heading in (
+            "赛题要求",
+            "设计目标",
+            "当前实现",
+            "部分实现",
+            "后续规划",
+        ):
+            with self.subTest(heading=heading):
+                self.assertIn(heading, text)
+        for status in ("implemented", "partial", "planned", "known-limit"):
+            with self.subTest(status=status):
+                self.assertIn(status, text)
+
+    def test_sources_exclude_banned_claims_placeholders_secrets_and_local_paths(self):
+        text = self._combined_source()
+        banned_claims = (
+            "所有智能体回答均经过 RAG",
+            "30 个智能体同时自主协商",
+            "考试结果已经自动更新七维画像",
+            "已完成完整的动态学习路径管理",
+            "所有资源包均包含视频或完整 PPTX",
+            "一条 Compose 命令能够部署全部系统",
+            "全部测试通过",
+            "已通过等保",
+        )
+        forbidden_tokens = (
+            "TBD",
+            "TODO",
+            "XXX",
+            "X-X",
+            "N 条样本",
+            "待填写",
+            "学校名称",
+            "成员姓名",
+            "/Users/",
+            "/home/",
+            "C:\\Users\\",
+            "BEGIN PRIVATE KEY",
+            "AKIA",
+        )
+        for value in (*banned_claims, *forbidden_tokens):
+            with self.subTest(value=value):
+                self.assertNotIn(value, text)
 
 
 if __name__ == "__main__":
