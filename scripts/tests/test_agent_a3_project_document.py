@@ -430,6 +430,17 @@ class SourceContentTest(unittest.TestCase):
             with self.subTest(term=term):
                 self.assertIn(term, design)
 
+        self.assertNotIn("MaxKB 检索与回答", design)
+        self.assertIn(
+            "MaxKB hit-test 检索；系统 LLM/agent 生成最终回答",
+            design,
+        )
+        self.assertIn(
+            "目标部署要求是通过环境配置提供服务地址与凭据；当前 Python 到 Java "
+            "和 Redis 的地址仍是固定本地默认值，尚不能由部署环境覆盖。",
+            design,
+        )
+
         cancellation_fact = (
             "服务端取消接口属于设计要求；当前客户端 AbortController 仅中止本地 fetch，"
             "不能证明存在 REST 取消端点。"

@@ -110,7 +110,7 @@ MySQL 与 Redis 位于 Compose 基础设施边界，但 Python MemoryStore 当�
 | AI Leader 学习助手 | 移动端 | 会话与业务上下文、SSE 输出、结果登记 | Leader 路由、专业智能体执行、模型调用 | 会话、消息、任务、资源信封 |
 | 七维画像 | 移动端、Java 服务 | 维度规则、证据候选、汇总应用、分数与趋势 | 画像总结解释快照 | 维度、证据状态、置信度、应用结果 |
 | 会议与研讨 | App：STUDENT、TEACHER | 会话、参与者、转写记录、会后结果编排 | 讯飞 ASR；会议类专业智能体 | 会议状态、partial 与 final 文本、分析结果 |
-| 知识库问答 | Web：ADMIN 当前；App 目标角色待授权 | 当前 ADMIN 负责 MaxKB 治理和问答结果处理 | MaxKB 检索与回答 | 知识库、会话、引用、异常状态、授权范围 |
+| 知识库问答 | Web：ADMIN 当前；App 目标角色待授权 | 当前 ADMIN 负责 MaxKB 治理和问答结果处理 | MaxKB hit-test 检索；系统 LLM/agent 生成最终回答 | 知识库、会话、引用、异常状态、授权范围 |
 | 个性化资源 | 移动端、Web | 资源登记、互动、下载权限 | 资源构建、模型生成、受控导出 | 类型、来源、grounding、integrity、互动 |
 | 题库与试卷 | Web：ADMIN、MERCHANT 当前可见；TEACHER 目标 | 题目生成只允许 ADMIN；试卷创建、查询、下载和预览只校验登录；发布状态只允许 ADMIN | AI 生成题目候选 | 题目 JSON、试卷、预览证明与待加固授权范围 |
 | 在线考试 | 移动端 | 尝试、答案快照、版本、自动保存、交卷与客观题评分 | 当前不依赖 Python 直接评分主观题 | 尝试状态、答案版本、分数与提交时间 |
@@ -137,7 +137,7 @@ MySQL 与 Redis 位于 Compose 基础设施边界，但 Python MemoryStore 当�
 | uni-app 移动端 | HBuilderX 或目标平台构建 | 只连接受控 Java API 与会议入口 | Spring Boot API | 真机兼容和发布流程仍需验收 |
 | FastAPI Python AI 服务 | `ai-servers/start-ai-server.sh` 或说明中的独立进程 | 接收 Java 调用，也会携带 Authorization 反向查询 Java | 模型提供商、Java、Redis 与进程内存 fallback | 尚未纳入同一 Compose；Java 与 Redis 地址需环境配置 |
 
-部署时应先准备 MySQL 与 Redis，再启动 Java 业务后端和独立 Python AI 服务，随后部署 Web 并构建移动端。服务之间的地址和凭据通过部署环境提供，不写入公开说明书。当前不能把上述步骤简化为单个统一容器启动结论，Python 边界必须单独检查。
+部署时应先准备 MySQL 与 Redis，再启动 Java 业务后端和独立 Python AI 服务，随后部署 Web 并构建移动端。目标部署要求是通过环境配置提供服务地址与凭据；当前 Python 到 Java 和 Redis 的地址仍是固定本地默认值，尚不能由部署环境覆盖。当前不能把上述步骤简化为单个统一容器启动结论，Python 边界必须单独检查。
 
 ## 3.11 安全边界
 
