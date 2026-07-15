@@ -67,14 +67,14 @@ public class KnowledgeChatServiceImpl implements KnowledgeChatService {
     }
 
     @Override
-    public KnowledgeChatDTO.ChatResponse chat(KnowledgeChatDTO.ChatRequest request, String authorization) {
+    public KnowledgeChatDTO.RetrievalResult retrieve(KnowledgeChatDTO.RetrievalRequest request) {
         int topNumber = request.getTopNumber() == null ? DEFAULT_TOP_NUMBER : request.getTopNumber();
         double similarity = request.getSimilarity() == null ? DEFAULT_SIMILARITY : request.getSimilarity();
         String searchMode = StringUtils.hasText(request.getSearchMode()) ? request.getSearchMode().trim() : DEFAULT_SEARCH_MODE;
 
         Map<String, Object> hitRequest = new LinkedHashMap<>();
         hitRequest.put("knowledge_id_list", List.of(request.getKnowledgeId()));
-        hitRequest.put("query_text", request.getQuestion());
+        hitRequest.put("query_text", request.getQuery());
         hitRequest.put("top_number", topNumber);
         hitRequest.put("similarity", similarity);
         hitRequest.put("search_mode", searchMode);
@@ -82,7 +82,7 @@ public class KnowledgeChatServiceImpl implements KnowledgeChatService {
         KnowledgeChatDTO.CacheLookupResult cacheLookup = knowledgeRetrievalCacheService.getOrLoad(
                 request.getAccountId(),
                 request.getKnowledgeId(),
-                request.getQuestion(),
+                request.getQuery(),
                 searchMode,
                 topNumber,
                 similarity,
@@ -95,10 +95,33 @@ public class KnowledgeChatServiceImpl implements KnowledgeChatService {
                 }
         );
         KnowledgeChatDTO.RetrievalPayload retrievalPayload = cacheLookup.getPayload();
-        Object retrievalRaw = retrievalPayload == null ? null : retrievalPayload.getRetrievalRaw();
         List<KnowledgeChatDTO.Reference> references = retrievalPayload == null || retrievalPayload.getReferences() == null
                 ? List.of()
                 : retrievalPayload.getReferences();
+
+        KnowledgeChatDTO.RetrievalResult result = new KnowledgeChatDTO.RetrievalResult();
+        result.setReferences(references);
+        result.setRetrievalCache(buildCacheInfo(cacheLookup, retrievalPayload));
+        return result;
+    }
+
+    @Override
+    public KnowledgeChatDTO.ChatResponse chat(KnowledgeChatDTO.ChatRequest request, String authorization) {
+        int topNumber = request.getTopNumber() == null ? DEFAULT_TOP_NUMBER : request.getTopNumber();
+        double similarity = request.getSimilarity() == null ? DEFAULT_SIMILARITY : request.getSimilarity();
+        String searchMode = StringUtils.hasText(request.getSearchMode()) ? request.getSearchMode().trim() : DEFAULT_SEARCH_MODE;
+
+        KnowledgeChatDTO.RetrievalRequest retrievalRequest = new KnowledgeChatDTO.RetrievalRequest();
+        retrievalRequest.setAccountId(request.getAccountId());
+        retrievalRequest.setKnowledgeId(request.getKnowledgeId());
+        retrievalRequest.setQuery(request.getQuestion());
+        retrievalRequest.setTopNumber(topNumber);
+        retrievalRequest.setSimilarity(similarity);
+        retrievalRequest.setSearchMode(searchMode);
+        KnowledgeChatDTO.RetrievalResult retrievalResult = retrieve(retrievalRequest);
+        List<KnowledgeChatDTO.Reference> references = retrievalResult.getReferences() == null
+                ? List.of()
+                : retrievalResult.getReferences();
 
         LlmChatRequest chatRequest = new LlmChatRequest();
         chatRequest.setSessionId(request.getSessionId());
@@ -116,10 +139,9 @@ public class KnowledgeChatServiceImpl implements KnowledgeChatService {
         response.setAnswer(llmResponse == null ? "" : llmResponse.getAnswer());
         response.setAnswerType(llmResponse == null ? "text" : llmResponse.getAnswerType());
         response.setReferences(references);
-        response.setRetrievalCache(buildCacheInfo(cacheLookup, retrievalPayload));
+        response.setRetrievalCache(retrievalResult.getRetrievalCache());
         response.setMetadata(buildMetadata(request, chatRequest, topNumber, similarity, searchMode, references, response.getRetrievalCache()));
         response.setLlmResponse(llmResponse);
-        response.setRetrievalRaw(retrievalRaw);
         return response;
     }
 

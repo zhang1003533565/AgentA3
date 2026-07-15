@@ -16,6 +16,24 @@ import java.util.Map;
 public class KnowledgeChatDTO {
 
     @Data
+    @Schema(description = "MaxKB 检索请求")
+    public static class RetrievalRequest {
+        private Long accountId;
+        private String knowledgeId;
+        private String query;
+        private Integer topNumber;
+        private Double similarity;
+        private String searchMode;
+    }
+
+    @Data
+    @Schema(description = "MaxKB 检索结果")
+    public static class RetrievalResult {
+        private List<Reference> references;
+        private CacheInfo retrievalCache;
+    }
+
+    @Data
     @Schema(description = "Java 知识库智能体聊天请求")
     public static class ChatRequest {
         @NotNull(message = "MaxKB 账号不能为空")
