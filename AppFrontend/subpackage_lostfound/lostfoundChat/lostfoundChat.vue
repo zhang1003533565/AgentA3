@@ -15,6 +15,31 @@
               <text v-if="tradeInfo" class="trade-status">{{ tradeStatusText }}</text>
             </view>
           </view>
+          <view v-if="tradeMenuActions.length" class="trade-more-wrap" @click.stop>
+            <view class="trade-more-btn" @click="tradeMenuVisible = !tradeMenuVisible">⋮</view>
+            <view v-if="tradeMenuVisible" class="trade-menu-dropdown">
+              <view
+                v-for="action in tradeMenuActions"
+                :key="action.type"
+                class="trade-menu-item"
+                :class="{ danger: action.type === 'cancel' }"
+                @click="handleMenuAction(action)"
+              >
+                {{ action.label }}
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <view v-if="cancelConfirmVisible" class="cancel-overlay" @click="cancelConfirmVisible = false">
+          <view class="cancel-dialog" @click.stop>
+            <view class="cancel-title">确认取消本次交易？</view>
+            <view class="cancel-desc">取消后商品将恢复出售状态，聊天记录保留</view>
+            <view class="cancel-actions">
+              <button class="cancel-btn secondary" @click="cancelConfirmVisible = false">再想想</button>
+              <button class="cancel-btn primary" :disabled="acting" @click="confirmCancel">确认取消</button>
+            </view>
+          </view>
         </view>
 
         <scroll-view scroll-y class="chat-body" :scroll-into-view="scrollBottom" scroll-with-animation>
@@ -322,7 +347,9 @@ export default {
       editingTemplateIndex: null,
       savedContact: null,
       contactVisibility: {},
-      morePanelVisible: false
+      morePanelVisible: false,
+      tradeMenuVisible: false,
+      cancelConfirmVisible: false
     }
   },
   computed: {
@@ -356,7 +383,7 @@ export default {
     selectedContactTemplate() {
       return this.contactTemplates[this.selectedTemplateIndex] || null
     },
-    tradeActionButtons() {
+    tradeMenuActions() {
       if (!this.curChat) return []
       const itemStatus = Number(this.curChat.itemStatus)
       if (!this.tradeInfo) {
@@ -382,7 +409,7 @@ export default {
       return []
     },
     standaloneTradeCards() {
-      const actions = this.tradeActionButtons
+      const actions = this.tradeMenuActions
       if (!actions.length) return []
       const hasHostCard = this.messages.some((message) => {
         if (this.tradeInfo?.status === 'WAIT_CONFIRM') return message.tradeAction === 'TRADE_INTENT'
@@ -604,7 +631,8 @@ export default {
       if (!this.tradeInfo || !this.tradeInfo.id) return
       const actions = {
         confirm: confirmTradeRecord,
-        complete: completeTradeRecord
+        complete: completeTradeRecord,
+        cancel: cancelTradeRecord
       }
       const action = actions[type]
       if (!action) return
@@ -621,6 +649,18 @@ export default {
       } finally {
         this.acting = false
       }
+    },
+    handleMenuAction(action) {
+      this.tradeMenuVisible = false
+      if (action.type === 'cancel') {
+        this.cancelConfirmVisible = true
+        return
+      }
+      this.runTradeAction(action.type)
+    },
+    async confirmCancel() {
+      this.cancelConfirmVisible = false
+      await this.runTradeAction('cancel')
     },
     async expressPurchaseIntent() {
       if (!this.curChat || !this.curChat.itemId || this.acting) return
@@ -968,6 +1008,112 @@ export default {
 .trade-status {
   background: rgba(92, 138, 184, 0.14);
   color: #4f7599;
+}
+
+.trade-more-wrap {
+  position: relative;
+  flex-shrink: 0;
+  margin-left: 8rpx;
+}
+
+.trade-more-btn {
+  width: 52rpx;
+  height: 52rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #5c7a99;
+  font-size: 34rpx;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.trade-menu-dropdown {
+  position: absolute;
+  top: 58rpx;
+  right: 0;
+  min-width: 200rpx;
+  background: #fff;
+  border-radius: 14rpx;
+  box-shadow: 0 8rpx 28rpx rgba(43, 68, 94, 0.18);
+  overflow: hidden;
+  z-index: 50;
+}
+
+.trade-menu-item {
+  padding: 22rpx 28rpx;
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #172331;
+  border-bottom: 1rpx solid #edf3f8;
+  white-space: nowrap;
+}
+
+.trade-menu-item:last-child {
+  border-bottom: none;
+}
+
+.trade-menu-item.danger {
+  color: #c46b17;
+}
+
+.cancel-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cancel-dialog {
+  width: calc(100% - 96rpx);
+  max-width: 520rpx;
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 40rpx 32rpx 28rpx;
+  text-align: center;
+}
+
+.cancel-title {
+  font-size: 30rpx;
+  font-weight: 900;
+  color: #172331;
+}
+
+.cancel-desc {
+  margin-top: 14rpx;
+  font-size: 24rpx;
+  color: #7d8c9c;
+  line-height: 1.5;
+}
+
+.cancel-actions {
+  display: flex;
+  gap: 18rpx;
+  margin-top: 32rpx;
+}
+
+.cancel-btn {
+  flex: 1;
+  height: 80rpx;
+  border-radius: 20rpx;
+  font-size: 26rpx;
+  font-weight: 800;
+}
+
+.cancel-btn::after { border: none; }
+
+.cancel-btn.secondary {
+  background: #f3f6f8;
+  color: #5c7a99;
+}
+
+.cancel-btn.primary {
+  background: #c46b17;
+  color: #fff;
 }
 
 .chat-body {
