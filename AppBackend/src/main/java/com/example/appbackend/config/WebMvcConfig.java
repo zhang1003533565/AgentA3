@@ -25,7 +25,6 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/api/v1/facility/types",
                         "/api/secondhand/category/list",
                         "/api/secondhand/item/list",
-                        "/api/secondhand/item/*",
                         "/uploads/**",
                         "/swagger-ui.html",
                         "/swagger-ui/**",

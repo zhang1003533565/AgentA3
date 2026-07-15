@@ -97,6 +97,7 @@
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getSecondhandItemDetail } from '@/api/secondhand'
+import { getUserInfo } from '@/utils/storage'
 import { getMarketCategoryLabel, getMarketSubcategoryLabel } from '../utils/marketCategories'
 
 const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
@@ -250,7 +251,13 @@ export default {
     },
     async contactSeller() {
       if (!this.item.id) return
-      uni.navigateTo({ url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?itemId=${this.item.id}` })
+      const userInfo = getUserInfo()
+      if (userInfo && Number(userInfo.id) === Number(this.item.sellerId)) {
+        uni.showToast({ title: '这是您发布的商品', icon: 'none' })
+        return
+      }
+      const sellerParam = this.item.sellerId ? `&sellerId=${this.item.sellerId}` : ''
+      uni.navigateTo({ url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?itemId=${this.item.id}${sellerParam}` })
     },
     formatTime(value) {
       if (!value) return ''
