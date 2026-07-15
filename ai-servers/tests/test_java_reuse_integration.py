@@ -136,6 +136,17 @@ class FakeLLM:
         if "Leader 智能体" in system_prompt:
             payload = json.loads(user_prompt)
             input_text = payload.get("user_input") or ""
+            if "黄焖鸡" in input_text:
+                return json.dumps({
+                    "intent": "campus_search",
+                    "target_agent": "leader_agent",
+                    "need_retrieval": True,
+                    "rag_strategy": "",
+                    "action": "call_tool",
+                    "tool_name": "java_canteen_api",
+                    "route_reason": "测试 LLM 路由到 Java 食堂数据。",
+                    "answer": "",
+                }, ensure_ascii=False)
             return json.dumps({
                 "intent": "campus_search",
                 "target_agent": "textbook_knowledge_agent",
@@ -146,8 +157,8 @@ class FakeLLM:
                 "route_reason": "测试 LLM 路由到教材知识点智能体。",
                 "answer": "",
             }, ensure_ascii=False)
-        if "思维导图智能体" in system_prompt:
-            return "```mermaid\nmindmap\n  root((操作系统进程调度))\n```"
+        if "思维导图图片提示词智能体" in system_prompt:
+            return "教学用思维导图图片，中心主题为操作系统进程调度，分支清晰，蓝绿配色。"
         return "textbook_knowledge_agent: 已生成，证据数=1"
 
     def extract_search_keyword(self, input_text):
@@ -177,6 +188,7 @@ class JavaReuseIntegrationTest(unittest.TestCase):
         data_store.enabled = True
         data_store.java_base_url = f"http://127.0.0.1:{self.port}"
         data_store.timeout_seconds = 3
+        data_store.clear_tool_cache()
         self._llm_token = set_active_llm_config(LlmRuntimeConfig(
             provider="deepseek",
             base_url="https://llm.test/v1",
@@ -187,6 +199,7 @@ class JavaReuseIntegrationTest(unittest.TestCase):
         self._patch_model_providers()
 
     def tearDown(self):
+        data_store.clear_tool_cache()
         for module, old_get_chat_model_provider in reversed(self._patched_modules):
             module.get_chat_model_provider = old_get_chat_model_provider
         reset_active_llm_config(self._llm_token)
@@ -306,7 +319,7 @@ class JavaReuseIntegrationTest(unittest.TestCase):
 
         self.assertEqual("mind_map_agent", resp.agentName)
         self.assertEqual("test-model", resp.model)
-        self.assertIn("mindmap", resp.answer)
+        self.assertIn("思维导图图片", resp.answer)
 
 
 if __name__ == "__main__":

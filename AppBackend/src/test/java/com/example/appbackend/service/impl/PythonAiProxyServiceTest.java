@@ -46,6 +46,7 @@ class PythonAiProxyServiceTest {
     @Test
     void chat_shouldForwardAuthorizationAndUserIdAndParseResponse() throws Exception {
         AtomicReference<String> authRef = new AtomicReference<>();
+        AtomicReference<String> internalTokenRef = new AtomicReference<>();
         AtomicReference<String> userIdRef = new AtomicReference<>();
         AtomicReference<String> aiBaseUrlRef = new AtomicReference<>();
         AtomicReference<String> aiApiKeyRef = new AtomicReference<>();
@@ -55,6 +56,7 @@ class PythonAiProxyServiceTest {
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/internal/chat", exchange -> {
             authRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            internalTokenRef.set(exchange.getRequestHeaders().getFirst("X-AI-Internal-Token"));
             userIdRef.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
             aiBaseUrlRef.set(exchange.getRequestHeaders().getFirst("X-AI-Base-Url"));
             aiApiKeyRef.set(exchange.getRequestHeaders().getFirst("X-AI-Api-Key"));
@@ -103,6 +105,7 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals(1, response.getTrace().size());
 
         Assertions.assertEquals("Bearer " + token, authRef.get());
+        Assertions.assertEquals("test-internal-token", internalTokenRef.get());
         Assertions.assertEquals("1001", userIdRef.get());
         Assertions.assertEquals("https://llm.test/v1", aiBaseUrlRef.get());
         Assertions.assertEquals("test-ai-key", aiApiKeyRef.get());
@@ -513,12 +516,14 @@ class PythonAiProxyServiceTest {
         byte[] payload = new byte[]{0, -1, 1, 2, 0, 127};
         AtomicReference<String> pathRef = new AtomicReference<>();
         AtomicReference<String> capabilityRef = new AtomicReference<>();
+        AtomicReference<String> internalTokenRef = new AtomicReference<>();
         AtomicReference<String> authorizationRef = new AtomicReference<>();
         AtomicReference<String> userIdRef = new AtomicReference<>();
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/internal/rag/exports/export.bin", exchange -> {
             pathRef.set(exchange.getRequestURI().getRawPath());
             capabilityRef.set(exchange.getRequestHeaders().getFirst("X-AI-Export-Capability"));
+            internalTokenRef.set(exchange.getRequestHeaders().getFirst("X-AI-Internal-Token"));
             authorizationRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
             userIdRef.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
             exchange.getResponseHeaders().set("Content-Type", MediaType.APPLICATION_PDF_VALUE);
@@ -537,6 +542,7 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals(payload.length, response.declaredLength());
         Assertions.assertEquals("/internal/rag/exports/export.bin", pathRef.get());
         Assertions.assertEquals("persisted-capability", capabilityRef.get());
+        Assertions.assertEquals("test-internal-token", internalTokenRef.get());
         Assertions.assertNull(authorizationRef.get());
         Assertions.assertNull(userIdRef.get());
     }
@@ -646,6 +652,7 @@ class PythonAiProxyServiceTest {
                 systemConfigService,
                 systemConfigRepository,
                 "http://localhost:" + port,
+                "test-internal-token",
                 5,
                 maxBytes,
                 "test-internal-token"

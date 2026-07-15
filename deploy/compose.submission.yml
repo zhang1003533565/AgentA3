@@ -1,0 +1,151 @@
+name: agent-a3-submission
+
+services:
+  mysql:
+    image: mysql:8.4.5
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-smart-campus}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "${MYSQL_BIND_ADDRESS:-127.0.0.1}:${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
+
+  redis:
+    image: redis:7.4.2-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_BIND_ADDRESS:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  backend:
+    image: agent-a3/backend:${IMAGE_TAG:-submission}
+    build:
+      context: ../AppBackend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      SERVER_PORT: "8080"
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-smart-campus}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      SPRING_SQL_INIT_MODE: never
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN}
+      AI_PYTHON_BASE_URL: http://ai-server:8081
+      AI_PYTHON_TIMEOUT_SECONDS: ${AI_PYTHON_TIMEOUT_SECONDS:-65}
+      FILE_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
+      EXAM_PAPER_PREVIEW_SOFFICE_PATH: /usr/bin/soffice
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--Xms256m -Xmx1024m}
+      KNOWLEDGE_MAXKB_TIMEOUT_SECONDS: ${KNOWLEDGE_MAXKB_TIMEOUT_SECONDS:-30}
+      TENCENT_MAP_KEY: ${TENCENT_MAP_KEY:-}
+      TENCENT_COS_SECRET_ID: ${TENCENT_COS_SECRET_ID:-}
+      TENCENT_COS_SECRET_KEY: ${TENCENT_COS_SECRET_KEY:-}
+      AMAP_APP_KEY: ${AMAP_APP_KEY:-}
+      AMAP_WEB_KEY: ${AMAP_WEB_KEY:-}
+      ALIYUN_OSS_ACCESS_KEY_ID: ${ALIYUN_OSS_ACCESS_KEY_ID:-}
+      ALIYUN_OSS_ACCESS_KEY_SECRET: ${ALIYUN_OSS_ACCESS_KEY_SECRET:-}
+    ports:
+      - "${BACKEND_BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - backend-uploads:/app/uploads
+      - backend-preview:/tmp/agent-a3-exam-preview
+    networks:
+      default:
+        aliases:
+          # AppWeb/nginx.conf keeps this legacy upstream name. The alias makes
+          # the submission network work without changing existing deployments.
+          - smart-campus-backend
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 45s
+
+  ai-server:
+    image: agent-a3/ai-server:${IMAGE_TAG:-submission}
+    build:
+      context: ../ai-servers
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PYTHONUNBUFFERED: "1"
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN}
+      JAVA_BACKEND_BASE_URL: http://backend:8080
+      REDIS_URL: redis://redis:6379/0
+      AI_EXPORT_ROOT: /app/data/ai-exports
+      AI_TOOL_CACHE_ENABLED: ${AI_TOOL_CACHE_ENABLED:-true}
+      AI_TOOL_CACHE_TTL_SECONDS: ${AI_TOOL_CACHE_TTL_SECONDS:-180}
+      AI_TOOL_CACHE_MAX_ENTRIES: ${AI_TOOL_CACHE_MAX_ENTRIES:-1000}
+    ports:
+      - "${AI_BIND_ADDRESS:-127.0.0.1}:${AI_PORT:-8081}:8081"
+    volumes:
+      - ai-exports:/app/data/ai-exports
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/healthz', timeout=3).read()
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 25s
+
+  web:
+    image: agent-a3/web:${IMAGE_TAG:-submission}
+    build:
+      context: ../AppWeb
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      ai-server:
+        condition: service_healthy
+    ports:
+      - "${WEB_BIND_ADDRESS:-0.0.0.0}:${WEB_PORT:-3000}:80"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--output-document=-", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  mysql-data:
+  redis-data:
+  backend-uploads:
+  backend-preview:
+  ai-exports:

@@ -8,7 +8,11 @@ on:
   workflow_dispatch:
 
 jobs:
+  quality:
+    uses: ./.github/workflows/quality-gate.yml
+
   deploy:
+    needs: quality
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -30,9 +34,7 @@ jobs:
           context: ./AppBackend
           file: ./AppBackend/Dockerfile
           push: true
-          tags: |
-            ${{ secrets.ACR_REGISTRY }}/lukezhang/appbackend:latest
-            ${{ secrets.ACR_REGISTRY }}/lukezhang/appbackend:${{ github.sha }}
+          tags: ${{ secrets.ACR_REGISTRY }}/lukezhang/appbackend:${{ github.sha }}
 
       - name: Build And Push Web
         uses: docker/build-push-action@v6
@@ -40,9 +42,15 @@ jobs:
           context: ./AppWeb
           file: ./AppWeb/Dockerfile
           push: true
-          tags: |
-            ${{ secrets.ACR_REGISTRY }}/lukezhang/appweb:latest
-            ${{ secrets.ACR_REGISTRY }}/lukezhang/appweb:${{ github.sha }}
+          tags: ${{ secrets.ACR_REGISTRY }}/lukezhang/appweb:${{ github.sha }}
+
+      - name: Build And Push AI Server
+        uses: docker/build-push-action@v6
+        with:
+          context: ./ai-servers
+          file: ./ai-servers/Dockerfile
+          push: true
+          tags: ${{ secrets.ACR_REGISTRY }}/lukezhang/ai-server:${{ github.sha }}
 
       - name: Deploy On Server
         uses: appleboy/ssh-action@v1.2.0
@@ -54,7 +62,7 @@ jobs:
           script: |
             export REPO_DIR="${{ secrets.DEPLOY_PATH }}"
             export DEPLOY_BRANCH="${{ github.ref_name }}"
-            export IMAGE_TAG="latest"
+            export IMAGE_TAG="${{ github.sha }}"
             cd "$REPO_DIR"
             docker login --username="${{ secrets.ACR_USERNAME }}" --password="${{ secrets.ACR_PASSWORD }}" "${{ secrets.ACR_REGISTRY }}"
             chmod +x AppBackend/deploy/deploy-on-server.sh

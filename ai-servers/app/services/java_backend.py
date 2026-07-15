@@ -44,7 +44,8 @@ class JavaBackendRetriever:
         self.enabled = True
         self.disabled_until: Optional[float] = None
         self.circuit_open_seconds = 10.0
-        self.java_base_url = "http://localhost:8080"
+        configured_java_url = str(os.getenv("JAVA_BACKEND_BASE_URL", "")).strip().rstrip("/")
+        self.java_base_url = configured_java_url or "http://localhost:8080"
         self.timeout_seconds = 8
         self.cache_enabled = self._env_bool("AI_TOOL_CACHE_ENABLED", True)
         self.cache_ttl_seconds = self._env_int("AI_TOOL_CACHE_TTL_SECONDS", 180)
@@ -475,7 +476,10 @@ class JavaBackendRetriever:
         course_keyword = parse_schedule_course_keyword(input_text)
         all_semester_scope = is_all_semester_schedule_query(input_text)
         semester_scope = all_semester_scope or is_semester_schedule_query(input_text)
-        course_lookup_scope = bool(course_keyword)
+        # Explicit dates are schedule lookups even when the natural-language
+        # course-keyword parser sees the trailing “有什么课”. Do not widen such
+        # requests to all semesters or collapse them into course summaries.
+        course_lookup_scope = bool(course_keyword) and requested_date is None
 
         if requested_date is not None:
             requested_weekday = requested_date.isoweekday()
@@ -485,10 +489,10 @@ class JavaBackendRetriever:
 
         if all_semester_scope:
             payload = self._get_json("/api/schedule", authorization, params={"allSemesters": "true"})
-        elif semester_scope or course_lookup_scope:
-            payload = self._get_json("/api/schedule", authorization)
         elif requested_week is not None:
             payload = self._get_json(f"/api/schedule/week/{requested_week}", authorization)
+        elif semester_scope or course_lookup_scope:
+            payload = self._get_json("/api/schedule", authorization)
         else:
             payload = self._get_json("/api/schedule/current-week", authorization)
 
