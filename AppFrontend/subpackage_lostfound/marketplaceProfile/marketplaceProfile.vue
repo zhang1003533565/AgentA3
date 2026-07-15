@@ -95,7 +95,7 @@
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
-import { getUserInfo } from '@/utils/storage.js'
+import { getUserInfo, getToken } from '@/utils/storage.js'
 import { getMySecondhandItems, getMyFavorites, getTradeRecords } from '@/api/secondhand'
 
 export default {
@@ -139,11 +139,11 @@ export default {
   },
   onLoad() {
     this.loadUser()
-    this.loadStats()
+    if (getToken()) this.loadStats()
   },
   onShow() {
     this.loadUser()
-    this.loadStats()
+    if (getToken()) this.loadStats()
   },
   methods: {
     loadUser() {
