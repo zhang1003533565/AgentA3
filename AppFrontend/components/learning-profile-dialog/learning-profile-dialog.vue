@@ -43,28 +43,33 @@ export default {
   },
   emits: ['close', 'answered', 'complete'],
   data() {
-    return { questionIndex: 0, answer: '', submitting: false, errorMessage: '' }
+    return { questionQueue: [], questionIndex: 0, answer: '', submitting: false, errorMessage: '' }
   },
   computed: {
     questions() {
-      const answered = new Set(this.answeredQuestionIds.map(String))
-      const remaining = PYTHON_PROFILE_QUESTIONS.filter(item => !answered.has(item.id))
-      return remaining.length ? remaining : PYTHON_PROFILE_QUESTIONS
+      return this.questionQueue
     },
     currentQuestion() {
       return this.questions[this.questionIndex] || null
     }
   },
   watch: {
-    visible(value) {
-      if (value) {
-        this.questionIndex = 0
-        this.answer = ''
-        this.errorMessage = ''
+    visible: {
+      immediate: true,
+      handler(value) {
+        if (value) this.startQuestionRound()
       }
     }
   },
   methods: {
+    startQuestionRound() {
+      const answered = new Set(this.answeredQuestionIds.map(String))
+      const remaining = PYTHON_PROFILE_QUESTIONS.filter(item => !answered.has(item.id))
+      this.questionQueue = [...(remaining.length ? remaining : PYTHON_PROFILE_QUESTIONS)]
+      this.questionIndex = 0
+      this.answer = ''
+      this.errorMessage = ''
+    },
     close() {
       if (!this.submitting) this.$emit('close')
     },

@@ -23,8 +23,6 @@ export function resolveAiToolDestination(tool = {}) {
   if (['试卷生成', '学科出题', '考研题目'].includes(name)) return resourceRoute('practice_set', name)
   if (name === 'Python代码实验') return resourceRoute('code_lab', name)
   if (name === '学习计划') return '/subpackage_learning/learningPath/learningPath'
-  if (name === '活动图') return '/subpackage_ai/activityGenerate/activityGenerate'
-  if (name === '架构图') return '/subpackage_ai/architectureGenerate/architectureGenerate'
-  if (name === '流程图') return '/subpackage_ai/flowchartGenerate/flowchartGenerate'
+  if (['活动图', '架构图', '流程图'].includes(name)) return conversationRoute(tool)
   return conversationRoute(tool)
 }

@@ -276,7 +276,10 @@ export async function streamSse(url, data, handlers = {}, unsupportedMessage = '
     signal: controller.signal
   })
   if (!response.ok) {
-    throw new Error(`流式请求失败: ${response.status}`)
+    const error = new Error(`流式请求失败: ${response.status}`)
+    error.status = response.status
+    error.statusCode = response.status
+    throw error
   }
   if (!response.body?.getReader) {
     const error = new Error('当前运行环境无法读取流式响应')

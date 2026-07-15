@@ -42,6 +42,15 @@ test('every visible AI Create action resolves to a real page and never silently 
   assert.match(resolveAiToolDestination({ name: 'Python代码实验' }), /resourceType=code_lab/)
   assert.equal(resolveAiToolDestination({ name: '学习计划' }), '/subpackage_learning/learningPath/learningPath')
   assert.match(resolveAiToolDestination({ name: '课程报告', desc: '课程报告助力提升' }), /aiConversation\/aiConversation\?prefill=/)
+
+  for (const name of ['活动图', '架构图', '流程图']) {
+    const description = `${name}的真实能力`
+    const route = resolveAiToolDestination({ name, desc: description })
+    assert.match(route, /^\/subpackage_ai\/aiConversation\/aiConversation\?prefill=/, `${name} should use the real AI conversation`)
+    const prefill = decodeURIComponent(route.split('prefill=')[1])
+    assert.ok(prefill.includes(name), `${name} prefill should identify the selected card`)
+    assert.ok(prefill.includes(description), `${name} prefill should retain the card intent`)
+  }
 })
 
 test('AI Create uses one total resolver for cards and tappable hero actions', () => {

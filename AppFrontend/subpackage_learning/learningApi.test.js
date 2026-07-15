@@ -15,6 +15,17 @@ function loadLearningApi(request, streamSse) {
   return new Function('request', 'streamSse', `${source}\nreturn { ${names.join(', ')} }`)(request, streamSse)
 }
 
+function loadSharedStreamSse() {
+  const source = readFileSync(join(__dirname, '../api/ai.js'), 'utf8')
+  const start = source.indexOf('export async function streamSse')
+  const end = source.indexOf('\nexport function getLeaderSessions', start)
+  assert.ok(start >= 0 && end > start, 'streamSse implementation should remain extractable')
+  const implementation = source
+    .slice(start, end)
+    .replace('export async function streamSse', 'async function streamSse')
+  return new Function('getToken', 'BASE_URL', `${implementation}\nreturn streamSse`)(() => '', 'https://example.test')
+}
+
 test('learning API exposes the authenticated Python learning facade', async () => {
   const calls = []
   const api = loadLearningApi(
@@ -65,4 +76,22 @@ test('shared AI API exports SSE and accepts complete resource interactions', () 
   const source = readFileSync(join(__dirname, '../api/ai.js'), 'utf8')
   assert.match(source, /export async function streamSse\s*\(/)
   assert.match(source, /'complete'/)
+})
+
+test('shared SSE errors retain the HTTP status used by learning six-state classification', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => ({ ok: false, status: 503 })
+  try {
+    const streamSse = loadSharedStreamSse()
+    await assert.rejects(
+      streamSse('/learning/stream', { courseKey: 'python' }),
+      error => {
+        assert.equal(error.status, 503)
+        assert.equal(error.statusCode, 503)
+        return true
+      }
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
