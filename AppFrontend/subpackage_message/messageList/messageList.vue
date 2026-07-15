@@ -20,7 +20,7 @@
 			</view>
 			
 			<view v-if="messages.length === 0" class="empty-state">
-				<image src="/static/images/empty-msg.png" mode="aspectFit" class="empty-img" />
+				<image src="/static/icons/line/message-circle.svg" mode="aspectFit" class="empty-img" />
 				<text class="empty-text">暂无消息通知</text>
 			</view>
 		</view>

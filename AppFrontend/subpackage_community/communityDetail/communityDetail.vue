@@ -38,7 +38,7 @@
             <text class="meta-value">{{ formatDateRange(activity.signInStartTime, activity.signInEndTime) }}</text>
           </view>
           <view class="meta-row">
-            <image class="meta-icon" src="/static/icons/line/user.svg" mode="aspectFit" />
+            <image class="meta-icon" src="/static/icons/line/users.svg" mode="aspectFit" />
             <text class="meta-label">报名人数</text>
             <text class="meta-value">{{ activity.currentPeople }}/{{ activity.maxPeople }}人</text>
           </view>

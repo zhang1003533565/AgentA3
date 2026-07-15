@@ -26,7 +26,7 @@
                   <text class="hero-small-title">AI视频</text>
                   <text class="hero-small-subtitle">轻松生成视频</text>
                 </view>
-                <image class="hero-small-icon" src="/static/icons/ai create/ai video.png" mode="aspectFit"></image>
+                <image class="hero-small-icon" src="/static/icons/ai create/img-video.png" mode="aspectFit"></image>
               </view>
               <!-- 右下：AIPPT -->
               <view class="hero-small hero-ppt" @tap="handleToolTap({ name: 'AIPPT', desc: '智能PPT神器' })">
