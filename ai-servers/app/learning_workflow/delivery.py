@@ -406,7 +406,9 @@ def _remote_image_format(path: str, item: Mapping[str, Any]) -> Tuple[str, str]:
     extension = _image_extension_from_name(path)
     if extension:
         return _IMAGE_EXTENSIONS[extension]
-    return "png", "image/png"
+    raise MindMapContractError(
+        "思维导图远程图片必须声明受支持的 Content-Type 或使用可识别扩展名"
+    )
 
 
 def _decode_image_base64(encoded: str) -> Tuple[bytes, str]:

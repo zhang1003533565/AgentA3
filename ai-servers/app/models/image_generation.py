@@ -68,6 +68,7 @@ class ImageItem(BaseModel):
     index: int
     url: str = ""
     base64: str = ""
+    contentType: str = ""
     status: ImageStatus = "pending"
     seed: Optional[int] = None
     errorMessage: str = ""

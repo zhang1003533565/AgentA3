@@ -653,6 +653,38 @@ def test_mind_map_remote_url_uses_declared_content_type_consistently(
     assert attachment["fileName"].endswith(".jpg")
 
 
+def test_mind_map_remote_url_without_type_or_known_extension_is_rejected(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
+    raw_result = workflow_result().model_dump(mode="json")
+    mind_map = next(
+        item for item in raw_result["resources"] if item["resourceType"] == "mind_map"
+    )
+    response_payload = {
+        "taskId": "remote-unknown-task",
+        "status": "success",
+        "images": [{
+            "index": 0,
+            "url": "https://example.com/generated/mind-map",
+            "status": "success",
+        }],
+    }
+    mind_map["content"] = json.dumps(response_payload, ensure_ascii=False)
+    mind_map["payload"]["mindMap"] = response_payload
+
+    attachments_by_type, _, failures = export_learning_resources(
+        LearningWorkflowResult.model_validate(raw_result)
+    )
+
+    assert attachments_by_type["mind_map"] == []
+    assert [
+        item["errorType"] for item in failures if item["resourceType"] == "mind_map"
+    ] == ["MindMapContractError"]
+
+
+
 def test_mind_map_mermaid_contract_exports_only_mindmap_source(monkeypatch, tmp_path):
     monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
     raw_result = workflow_result().model_dump(mode="json")
