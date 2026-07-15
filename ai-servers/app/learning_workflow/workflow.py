@@ -2,7 +2,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import copy_context
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set
 
 from pydantic import ValidationError
 
@@ -45,6 +45,7 @@ class ResourceJob:
 def run_learning_workflow(
     request: LearningWorkflowRequest,
     runner: Any = None,
+    event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
 ) -> LearningWorkflowResult:
     if not isinstance(request, LearningWorkflowRequest):
         request = LearningWorkflowRequest.model_validate(request)
@@ -58,6 +59,12 @@ def run_learning_workflow(
     allowed_evidence_ids = _reference_ids(request.references)
     events: List[WorkflowEvent] = []
 
+    _notify(
+        event_callback,
+        "planning_start",
+        agentName="learning_path_agent",
+        message="正在规划个性化学习路径",
+    )
     plan_payload = _parse_agent_payload(
         runner.run(
             "learning_path_agent",
@@ -70,6 +77,13 @@ def run_learning_workflow(
     _validate_declared_evidence(plan.model_dump(mode="json"), allowed_evidence_ids, "learning_path_agent")
     _validate_plan_briefs(plan, request.requestedResourceTypes)
     path_draft = plan.pathDraft.model_dump(mode="json")
+    _notify(
+        event_callback,
+        "planning_done",
+        agentName="learning_path_agent",
+        pathDraft=path_draft,
+        message="个性化学习路径规划完成",
+    )
     _append_event(events, "planning", "learning_path_agent", message="学习路径规划完成")
 
     jobs = resource_jobs(request, plan)
@@ -78,20 +92,18 @@ def run_learning_workflow(
         future_jobs = {
             _submit_with_current_context(
                 pool,
-                runner.run,
-                job.agent,
-                job.input_text,
+                _run_resource_job,
+                job,
+                runner,
                 request.references,
+                allowed_evidence_ids,
+                event_callback,
             ): job
             for job in jobs
         }
         for future in as_completed(future_jobs):
             job = future_jobs[future]
-            drafts_by_type[job.resource_type] = to_resource(
-                job,
-                future.result(),
-                allowed_evidence_ids,
-            )
+            drafts_by_type[job.resource_type] = future.result()
 
     drafts = [drafts_by_type[job.resource_type] for job in jobs]
     for resource in drafts:
@@ -103,6 +115,12 @@ def run_learning_workflow(
             "资源初稿生成完成",
         )
 
+    _notify(
+        event_callback,
+        "review_start",
+        agentName="resource_review_agent",
+        message="正在审核资源事实与个性化质量",
+    )
     review_payload = _parse_agent_payload(
         runner.run(
             "resource_review_agent",
@@ -114,6 +132,13 @@ def run_learning_workflow(
     review = _validate_model(ResourceReviewResult, review_payload, "resource_review_agent")
     _validate_declared_evidence(review.model_dump(mode="json"), allowed_evidence_ids, "resource_review_agent")
     reviewed = apply_review(drafts, review)
+    _notify(
+        event_callback,
+        "review_done",
+        agentName="resource_review_agent",
+        reviews=[item.model_dump(mode="json") for item in review.reviews],
+        message="资源审核完成",
+    )
     _append_event(events, "review", "resource_review_agent", message="资源审核完成")
 
     rewritten = rewrite_rejected_once(
@@ -135,6 +160,12 @@ def run_learning_workflow(
         _append_event(events, "review", "resource_review_agent", message="重写资源权威复审完成")
 
     passed_resources = validate_package_threshold(rewritten)
+    _notify(
+        event_callback,
+        "packaging_start",
+        agentName="resource_package_agent",
+        message="正在组装审核通过的资源包",
+    )
     package_payload = _parse_agent_payload(
         runner.run(
             "resource_package_agent",
@@ -150,6 +181,13 @@ def run_learning_workflow(
         "resource_package_agent",
     )
     _validate_package_metadata(package_metadata, passed_resources)
+    _notify(
+        event_callback,
+        "packaging_done",
+        agentName="resource_package_agent",
+        packageMetadata=package_metadata.model_dump(mode="json"),
+        message="学习资源包组装完成",
+    )
     _append_event(events, "packaging", "resource_package_agent", message="学习资源包组装完成")
     _append_event(events, "completed", message="学习资源协作 DAG 完成")
 
@@ -160,6 +198,42 @@ def run_learning_workflow(
         packageMetadata=package_metadata,
         pathDraft=path_draft,
     )
+
+
+def _run_resource_job(
+    job: ResourceJob,
+    runner: Any,
+    references: List[Dict[str, Any]],
+    allowed_evidence_ids: Set[str],
+    event_callback: Optional[Callable[[str, Dict[str, Any]], None]],
+) -> WorkflowResource:
+    _notify(
+        event_callback,
+        "agent_start",
+        agentName=job.agent,
+        resourceType=job.resource_type,
+        message="正在生成 {}".format(job.resource_type),
+    )
+    raw_output = runner.run(job.agent, job.input_text, references)
+    resource = to_resource(job, raw_output, allowed_evidence_ids)
+    _notify(
+        event_callback,
+        "agent_done",
+        agentName=job.agent,
+        resourceType=job.resource_type,
+        resource=resource,
+        message="{} 生成完成".format(job.resource_type),
+    )
+    return resource
+
+
+def _notify(
+    callback: Optional[Callable[[str, Dict[str, Any]], None]],
+    name: str,
+    **payload: Any,
+) -> None:
+    if callback is not None:
+        callback(name, payload)
 
 
 def build_plan_input(request: LearningWorkflowRequest) -> str:

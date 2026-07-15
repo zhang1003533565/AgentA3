@@ -22,24 +22,28 @@ class ShortAnswerQuestionAgentTest(unittest.TestCase):
             "questions": [
                 {
                     "id": "SA1",
-                    "question": "简述栈和队列的主要区别。",
+                    "type": "short_answer",
+                    "stem": "简述栈和队列的主要区别。",
+                    "score": 10,
                     "knowledgePoints": ["栈", "队列", "后进先出", "先进先出"],
                     "difficulty": "easy",
-                    "answerPoints": [
-                        {
-                            "point": "栈只允许在栈顶插入和删除，遵循后进先出原则。",
-                            "sourceBasis": ["输入知识点说明栈只能在栈顶操作，特点是后进先出"],
-                        },
-                        {
-                            "point": "队列只允许在队尾插入、队头删除，遵循先进先出原则。",
-                            "sourceBasis": ["输入知识点说明队列只能在队尾插入、队头删除，特点是先进先出"],
-                        },
-                    ],
-                    "scoringRubric": [
-                        {"criterion": "说明栈的操作端和后进先出特点", "score": 5},
-                        {"criterion": "说明队列的操作端和先进先出特点", "score": 5},
-                    ],
-                    "totalScore": 10,
+                    "tags": ["数据结构"],
+                    "body": {},
+                    "answer": {
+                        "referenceAnswer": "栈后进先出，队列先进先出。",
+                        "answerPoints": [
+                            "栈只允许在栈顶插入和删除，遵循后进先出原则。",
+                            "队列只允许在队尾插入、队头删除，遵循先进先出原则。",
+                        ],
+                    },
+                    "analysis": "考查两种线性结构的操作顺序。",
+                    "scoring": {
+                        "mode": "rubric",
+                        "rubrics": [
+                            {"criterion": "说明栈的操作端和后进先出特点", "score": 5},
+                            {"criterion": "说明队列的操作端和先进先出特点", "score": 5},
+                        ],
+                    },
                     "sourceBasis": ["输入提供了栈和队列的定义、操作限制和特点"],
                 }
             ],
@@ -55,7 +59,7 @@ class ShortAnswerQuestionAgentTest(unittest.TestCase):
         payload = json.loads(result)
         self.assertEqual(1, len(payload["questions"]))
         self.assertEqual([], payload["missingInfo"])
-        self.assertEqual(10, payload["questions"][0]["totalScore"])
+        self.assertEqual(10, payload["questions"][0]["score"])
 
     def test_allows_missing_info_without_inventing_question(self):
         provider = FakeShortAnswerProvider(json.dumps({

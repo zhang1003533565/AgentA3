@@ -244,6 +244,29 @@ def test_workflow_runs_shared_plan_resources_review_and_package():
     assert all(evidence is build_request().references or evidence == build_request().references for _, _, evidence in runner.inputs)
 
 
+def test_workflow_callback_wraps_real_planning_generation_and_review_operations():
+    runner = FakeRunner()
+    observed = []
+
+    run_learning_workflow(
+        build_request(),
+        runner=runner,
+        event_callback=lambda name, payload: observed.append((name, payload)),
+    )
+
+    names = [name for name, _ in observed]
+    assert names[0] == "planning_start"
+    assert names.count("agent_start") == 6
+    assert names.count("agent_done") == 6
+    assert names.index("review_start") > max(
+        index for index, name in enumerate(names) if name == "agent_done"
+    )
+    assert names.index("review_done") > names.index("review_start")
+    assert names[-1] == "packaging_done"
+    for _, payload in [item for item in observed if item[0] == "agent_done"]:
+        assert payload["resource"].resourceType == payload["resourceType"]
+
+
 def test_plan_review_and_package_models_are_public_strict_contracts():
     assert LearningPathDraft.model_config["extra"] == "forbid"
     assert LearningPlan.model_config["extra"] == "forbid"

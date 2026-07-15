@@ -2,9 +2,10 @@ import asyncio
 import hashlib
 import json
 import re
+import threading
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -28,16 +29,34 @@ from app.multi_agents.catalog import (
 from app.multi_agents.leader_agent.agent import leader_agent
 from app.multi_agents.question_bank_schema import review_question_bank_payload
 from app.multi_agents.runner import run_specialist_agent
+from app.learning_workflow import (
+    LearningWorkflowRequest,
+    export_learning_resources,
+    run_learning_workflow,
+)
 from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx, export_generated_answer
 from app.rag.document_conversion.generated_exporter import GeneratedExportAccessError, open_generated_export
 from app.rag.structured.text_to_sql import TextToSqlService
-from app.services.assistant_resource_builder import finalize_assistant_response
+from app.services.assistant_resource_builder import (
+    build_learning_resource_bundle,
+    finalize_assistant_response,
+)
 from app.services.data_store import data_store
+from app.security.internal_auth import require_internal_token
+from app.safety.learning_content_guard import (
+    LearningContentGuardError,
+    sanitize_learning_references,
+)
 from app.utils.logger import get_logger
 from app.utils.sse import build_sse, chunk_answer
 from app.utils.text_utils import build_session_token, normalize_text
 
-router = APIRouter(prefix="/internal/rag", tags=["internal-rag"])
+router = APIRouter(
+    prefix="/internal/rag",
+    tags=["internal-rag"],
+    dependencies=[Depends(require_internal_token)],
+)
+export_router = APIRouter(prefix="/internal/rag", tags=["internal-rag-exports"])
 logger = get_logger("api.rag")
 
 VISIBLE_GENERATION_AGENTS = {
@@ -259,7 +278,7 @@ class QuestionBankReviewRequest(BaseModel):
     expectedType: Optional[str] = Field(default=None, max_length=64)
 
 
-@router.get("/exports/{storage_key}")
+@export_router.get("/exports/{storage_key}")
 def download_generated_export(
     storage_key: str,
     export_capability: Optional[str] = Header(default=None, alias="X-AI-Export-Capability"),
@@ -588,6 +607,7 @@ async def run_rag_query_stream(
     x_ai_base_url: Optional[str] = Header(default=None, alias="X-AI-Base-Url"),
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
+    x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
 ):
     _require_authorization(authorization)
     llm_config = build_llm_runtime_config(
@@ -596,12 +616,18 @@ async def run_rag_query_stream(
         api_key=x_ai_api_key,
         model=x_ai_model,
     )
+    learning_workflow = _is_learning_workflow_request(request)
 
     async def event_stream():
-        yield build_sse("status", {"stage": "processing"})
         token = set_active_llm_config(llm_config)
         generation_started = False
         try:
+            if learning_workflow:
+                async for event in _stream_learning_workflow(request, x_user_id):
+                    yield event
+                return
+
+            yield build_sse("status", {"stage": "processing"})
             request.input = _prepare_request_input(request)
             requested_agent = normalize_leader_request_agent(request.agentName)
             if request.agentName and not requested_agent:
@@ -676,11 +702,314 @@ async def run_rag_query_stream(
             })
         except Exception as exc:
             logger.exception("rag stream failed agent=%s", request.agentName or "-")
-            yield build_sse("error", _build_stream_error_payload(request, exc, llm_config))
+            if learning_workflow:
+                yield build_sse("error", _build_learning_error_payload(request, exc))
+            else:
+                yield build_sse("error", _build_stream_error_payload(request, exc, llm_config))
         finally:
             reset_active_llm_config(token)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+LEARNING_WORKFLOW_INTENTS = frozenset({
+    "resource_package",
+    "learning_plan",
+    "weakness_review",
+    "path_replanning",
+})
+
+
+def _is_learning_workflow_request(request: RagQueryRequest) -> bool:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    return (
+        str(metadata.get("courseKey") or "").strip().lower() == "python"
+        and str(request.intent or "").strip() in LEARNING_WORKFLOW_INTENTS
+    )
+
+
+async def _stream_learning_workflow(
+    request: RagQueryRequest,
+    x_user_id: Optional[str],
+):
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    workflow_id = str(metadata.get("workflowId") or "").strip()
+    yield build_sse("accepted", _learning_event_payload(
+        workflow_id,
+        "accepted",
+        0,
+        "学习资源生成请求已受理",
+    ))
+
+    plan = leader_agent.plan(
+        request.input,
+        request.ragStrategy or "",
+        learning_context={
+            "courseKey": metadata.get("courseKey"),
+            "intent": request.intent,
+        },
+    )
+    if plan.action != "run_learning_workflow":
+        raise LearningContentGuardError("学习请求未进入受控工作流")
+
+    try:
+        user_id = int(str(x_user_id or "").strip())
+    except (TypeError, ValueError) as exc:
+        raise LearningContentGuardError("学习工作流缺少已认证用户身份") from exc
+    if user_id <= 0:
+        raise LearningContentGuardError("学习工作流用户身份无效")
+
+    profile_snapshot = metadata.get("profileSnapshot")
+    mastery_snapshot = metadata.get("masterySnapshot")
+    path_snapshot = metadata.get("pathSnapshot")
+    if not isinstance(profile_snapshot, dict):
+        raise LearningContentGuardError("学习画像快照无效")
+    if not isinstance(mastery_snapshot, list):
+        raise LearningContentGuardError("知识掌握度快照无效")
+    if not isinstance(path_snapshot, dict):
+        raise LearningContentGuardError("学习路径快照无效")
+    yield build_sse("profile", _learning_event_payload(
+        workflow_id,
+        "profiling",
+        5,
+        "已加载动态学习画像与掌握度",
+    ))
+
+    references = sanitize_learning_references(metadata.get("references") or [])
+    yield build_sse("retrieval", {
+        **_learning_event_payload(
+            workflow_id,
+            "retrieving",
+            12,
+            "已接收并净化课程知识证据",
+        ),
+        "evidenceCount": len(references),
+    })
+
+    learning_request = LearningWorkflowRequest.model_validate({
+        "workflowId": workflow_id,
+        "userId": user_id,
+        "courseKey": "python",
+        "topic": request.input,
+        "profileSnapshot": profile_snapshot,
+        "masterySnapshot": mastery_snapshot,
+        "pathSnapshot": path_snapshot,
+        "references": references,
+        "requestedResourceTypes": metadata.get("requestedResourceTypes") or [],
+    })
+
+    loop = asyncio.get_running_loop()
+    queue = asyncio.Queue()
+    callback_lock = threading.Lock()
+    transition_count = 0
+    review_emitted = False
+
+    def event_callback(name: str, payload: Dict[str, Any]) -> None:
+        nonlocal transition_count, review_emitted
+        with callback_lock:
+            event_name = ""
+            progress = 0
+            event_payload = dict(payload or {})
+            if name == "planning_start":
+                event_name, progress = "planning", 18
+            elif name in {"agent_start", "agent_done"}:
+                transition_count += 1
+                event_name = name
+                progress = min(68, 18 + transition_count * 4)
+                if name == "agent_done" and event_payload.get("resource") is not None:
+                    provisional_bundle = build_learning_resource_bundle(
+                        workflow_id=workflow_id,
+                        topic=request.input,
+                        resources=[event_payload["resource"]],
+                        references=references,
+                        resource_metadata=_learning_resource_metadata(path_snapshot, mastery_snapshot),
+                    )
+                    provisional = provisional_bundle.get("resources") or []
+                    event_payload["resource"] = provisional[0] if provisional else None
+            elif name == "review_start":
+                event_name, progress = "review_start", 74
+            elif name == "review_done" and not review_emitted:
+                review_emitted = True
+                event_name, progress = "review_result", 82
+            if not event_name:
+                return
+            event_data = _learning_event_payload(
+                workflow_id,
+                _learning_stage(event_name),
+                progress,
+                str(event_payload.pop("message", "") or _learning_event_message(event_name)),
+                agent_name=str(event_payload.pop("agentName", "") or ""),
+                resource_type=str(event_payload.pop("resourceType", "") or ""),
+            )
+            event_data.update(_jsonable(event_payload))
+            loop.call_soon_threadsafe(queue.put_nowait, (event_name, event_data))
+
+    worker = asyncio.create_task(asyncio.to_thread(
+        run_learning_workflow,
+        learning_request,
+        event_callback=event_callback,
+    ))
+    while not worker.done() or not queue.empty():
+        try:
+            event_name, event_data = await asyncio.wait_for(queue.get(), timeout=0.05)
+        except asyncio.TimeoutError:
+            continue
+        yield build_sse(event_name, event_data)
+    workflow_result = await worker
+
+    yield build_sse("exporting", _learning_event_payload(
+        workflow_id,
+        "exporting",
+        88,
+        "正在生成可直接使用的课程文件",
+    ))
+    attachments_by_type, attachments, failed_resources = await asyncio.to_thread(
+        export_learning_resources,
+        workflow_result,
+    )
+    failed_types = {
+        str(item.get("resourceType") or "")
+        for item in failed_resources
+        if isinstance(item, dict)
+    }
+    delivered_workflow_resources = [
+        item for item in workflow_result.resources
+        if item.resourceType not in failed_types
+    ]
+
+    yield build_sse("pathing", _learning_event_payload(
+        workflow_id,
+        "pathing",
+        93,
+        "个性化学习路径已准备完成",
+    ))
+    bundle = build_learning_resource_bundle(
+        workflow_id=workflow_id,
+        topic=request.input,
+        resources=delivered_workflow_resources,
+        references=references,
+        attachments_by_type=attachments_by_type,
+        resource_metadata=_learning_resource_metadata(path_snapshot, mastery_snapshot),
+    )
+    status = "partial" if failed_resources else "completed"
+    yield build_sse("persisting", {
+        **_learning_event_payload(
+            workflow_id,
+            "persisting",
+            97,
+            "正在向 Java 控制面交付资源与路径",
+            retryable=bool(failed_resources),
+        ),
+        "status": status,
+        "failedResources": failed_resources,
+    })
+    raw_result = workflow_result.model_dump(mode="json")
+    delivery_result = {
+        "workflowId": workflow_id,
+        "status": status,
+        "resources": bundle["resources"],
+        "attachments": attachments,
+        "evidenceChain": bundle["evidenceChain"],
+        "pathDraft": raw_result["pathDraft"],
+        "packageMetadata": raw_result["packageMetadata"],
+        "events": raw_result["events"],
+        "failedResources": failed_resources,
+    }
+    yield build_sse("done", {
+        **_learning_event_payload(
+            workflow_id,
+            "completed" if status == "completed" else "partial",
+            100,
+            "学习资源包已完成" if status == "completed" else "部分资源待重试",
+            retryable=bool(failed_resources),
+        ),
+        **delivery_result,
+        "result": delivery_result,
+    })
+
+
+def _learning_event_payload(
+    workflow_id: str,
+    stage: str,
+    progress: int,
+    message: str,
+    *,
+    agent_name: str = "",
+    resource_type: str = "",
+    retryable: bool = False,
+) -> Dict[str, Any]:
+    return {
+        "workflowId": workflow_id,
+        "stage": stage,
+        "progress": max(0, min(100, int(progress))),
+        "agentName": agent_name,
+        "resourceType": resource_type,
+        "message": message,
+        "retryable": retryable,
+    }
+
+
+def _learning_stage(event_name: str) -> str:
+    return {
+        "planning": "planning",
+        "agent_start": "generating",
+        "agent_done": "generating",
+        "review_start": "reviewing",
+        "review_result": "reviewing",
+    }.get(event_name, event_name)
+
+
+def _learning_event_message(event_name: str) -> str:
+    return {
+        "planning": "正在规划个性化学习路径",
+        "agent_start": "专业学习智能体开始生成资源",
+        "agent_done": "专业学习智能体已完成资源",
+        "review_start": "正在审核资源事实与质量",
+        "review_result": "资源审核已完成",
+    }.get(event_name, "学习工作流正在执行")
+
+
+def _learning_resource_metadata(
+    path_snapshot: Dict[str, Any],
+    mastery_snapshot: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    first_mastery = mastery_snapshot[0] if mastery_snapshot and isinstance(mastery_snapshot[0], dict) else {}
+    return {
+        "learningPathId": path_snapshot.get("learningPathId") or path_snapshot.get("id") or "",
+        "learningPathItemKey": path_snapshot.get("currentItemKey") or path_snapshot.get("currentItem") or "",
+        "knowledgePoint": first_mastery.get("knowledgePointKey") or first_mastery.get("knowledgePoint") or "",
+    }
+
+
+def _jsonable(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return _jsonable(value.model_dump(mode="json"))
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    return value
+
+
+def _build_learning_error_payload(
+    request: RagQueryRequest,
+    exc: Exception,
+) -> Dict[str, Any]:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    if isinstance(exc, LearningContentGuardError):
+        message = str(exc)
+    else:
+        message = "学习资源工作流执行失败，请重试"
+    return {
+        **_learning_event_payload(
+            str(metadata.get("workflowId") or ""),
+            "failed",
+            100,
+            message,
+            retryable=True,
+        ),
+        "errorType": exc.__class__.__name__,
+    }
 
 
 def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQueryResponse:

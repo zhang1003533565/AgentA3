@@ -10,6 +10,7 @@ from app.learning_workflow.models import (
     WorkflowResource,
 )
 from app.learning_workflow.workflow import LearningWorkflowError, run_learning_workflow
+from app.learning_workflow.delivery import export_learning_resources
 
 __all__ = [
     "LearningWorkflowError",
@@ -23,4 +24,5 @@ __all__ = [
     "WorkflowEvent",
     "WorkflowResource",
     "run_learning_workflow",
+    "export_learning_resources",
 ]

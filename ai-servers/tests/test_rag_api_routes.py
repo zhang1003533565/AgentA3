@@ -1,5 +1,7 @@
+import copy
 import importlib
 import json
+import os
 import unittest
 from types import SimpleNamespace
 
@@ -9,6 +11,7 @@ from app.main import app
 from app.model_providers import factory as model_provider_factory
 from app.model_providers.multimodal import build_multimodal_human_content, extract_image_references
 from app.model_providers.runtime_config import LlmRuntimeConfig
+from app.multi_agents.catalog import AGENT_ORDER
 from app.multi_agents.ppt_layout_agent.agent import normalize_ppt_layout_answer
 from app.multi_agents.ppt_outline_agent.agent import normalize_ppt_outline_answer
 
@@ -23,11 +26,37 @@ INTERNAL_LEARNING_WORKFLOW_AGENTS = {
 }
 
 
+class ConfiguredTestClient(TestClient):
+    def request(self, method, url, **kwargs):
+        payload = kwargs.get("json")
+        if str(url).startswith("/internal/rag/query") and isinstance(payload, dict):
+            payload = copy.deepcopy(payload)
+            metadata = payload.get("metadata")
+            metadata = dict(metadata) if isinstance(metadata, dict) else {}
+            configs = metadata.get("agentModelConfigs")
+            configs = dict(configs) if isinstance(configs, dict) else {}
+            for agent_name in AGENT_ORDER:
+                configs.setdefault(agent_name, {
+                    "configPrefix": "ai.agent.{}".format(agent_name),
+                    "provider": "deepseek",
+                    "baseUrl": "https://llm.test/v1",
+                    "apiKey": "test-key",
+                    "model": "test-model",
+                })
+            metadata["agentModelConfigs"] = configs
+            payload["metadata"] = metadata
+            kwargs["json"] = payload
+        return super().request(method, url, **kwargs)
+
+
 class RagApiRoutesTest(unittest.TestCase):
     def setUp(self):
-        self.client = TestClient(app)
+        self._old_internal_token = os.environ.get("AI_INTERNAL_TOKEN")
+        os.environ["AI_INTERNAL_TOKEN"] = "test-internal-token"
+        self.client = ConfiguredTestClient(app)
         self.headers = {
             "Authorization": "Bearer test-token",
+            "X-AI-Internal-Token": "test-internal-token",
             "X-AI-Provider": "deepseek",
             "X-AI-Base-Url": "https://llm.test/v1",
             "X-AI-Api-Key": "test-key",
@@ -37,12 +66,26 @@ class RagApiRoutesTest(unittest.TestCase):
         self._patched_image_modules = []
         self._patch_model_providers()
         self._patch_image_provider()
+        rag_routes = importlib.import_module("app.api.routes.rag")
+        self._rag_routes = rag_routes
+        self._old_search_service_tool_with_meta = rag_routes.data_store.search_service_tool_with_meta
+        rag_routes.data_store.search_service_tool_with_meta = (
+            lambda authorization, tool_name, input_text: (
+                rag_routes.data_store.search_service_tool(authorization, tool_name, input_text),
+                {"toolCache": {}},
+            )
+        )
 
     def tearDown(self):
+        self._rag_routes.data_store.search_service_tool_with_meta = self._old_search_service_tool_with_meta
         for module, old_get_qwen_image_provider in reversed(self._patched_image_modules):
             module.get_qwen_image_provider = old_get_qwen_image_provider
         for module, old_get_chat_model_provider in reversed(self._patched_modules):
             module.get_chat_model_provider = old_get_chat_model_provider
+        if self._old_internal_token is None:
+            os.environ.pop("AI_INTERNAL_TOKEN", None)
+        else:
+            os.environ["AI_INTERNAL_TOKEN"] = self._old_internal_token
 
     def _patch_model_providers(self):
         module_names = [
@@ -91,7 +134,10 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertIn("SELECT", payload["metadata"]["sql"])
 
     def test_rag_routes_require_authorization(self):
-        response = self.client.get("/internal/rag/agents")
+        response = self.client.get(
+            "/internal/rag/agents",
+            headers={"X-AI-Internal-Token": "test-internal-token"},
+        )
 
         self.assertEqual(401, response.status_code)
 
@@ -141,7 +187,11 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         payload = response.json()
-        self.assertEqual([], payload["coverage"])
+        self.assertTrue(
+            {"generated_export_tools", "question_bank_validation", "agent_enabled_gate"}.issubset(
+                {item["name"] for item in payload["coverage"]}
+            )
+        )
         self.assertNotIn("strategies", payload["runtimeFolders"])
         self.assertIn("app/rag/document_conversion", payload["runtimeFolders"]["documentConversion"])
         self.assertIn("app/rag/structured", payload["runtimeFolders"]["textToSql"])
@@ -1116,6 +1166,20 @@ class FakeRagModelProvider:
         }
 
     def _specialist_answer(self, system_prompt):
+        question_agent_labels = (
+            "单选题智能体",
+            "填空题智能体",
+            "判断题智能体",
+            "多选题智能体",
+            "简答题智能体",
+            "计算题智能体",
+            "编程题智能体",
+        )
+        if any(label in system_prompt for label in question_agent_labels):
+            return json.dumps({
+                "questions": [],
+                "missingInfo": ["测试夹具未提供题库证据"],
+            }, ensure_ascii=False)
         if "思维导图智能体" in system_prompt:
             return "```mermaid\nmindmap\n  root((测试思维导图))\n```"
         if "教材知识点智能体" in system_prompt:

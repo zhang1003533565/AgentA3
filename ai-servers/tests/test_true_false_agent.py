@@ -21,16 +21,35 @@ class TrueFalseQuestionAgentTest(unittest.TestCase):
         provider = FakeTrueFalseProvider(json.dumps({
             "questions": [
                 {
-                    "statement": "列表是 Python 中的可变序列类型。",
-                    "answer": True,
-                    "explanation": "列表创建后可以增删改元素。",
+                    "id": "TF1",
+                    "type": "true_false",
+                    "stem": "列表是 Python 中的可变序列类型。",
+                    "score": 2,
+                    "difficulty": "easy",
+                    "knowledgePoints": ["列表"],
+                    "tags": ["Python"],
+                    "body": {"statement": "列表是 Python 中的可变序列类型。"},
+                    "answer": {"correct": True},
+                    "analysis": "列表创建后可以增删改元素。",
+                    "scoring": {"mode": "exact", "rubrics": []},
+                    "sourceBasis": ["列表是可变序列"],
                 },
                 {
-                    "statement": "字典的键可以是列表类型。",
-                    "answer": False,
-                    "explanation": "列表是可变类型，不能作为字典键。",
+                    "id": "TF2",
+                    "type": "true_false",
+                    "stem": "字典的键可以是列表类型。",
+                    "score": 2,
+                    "difficulty": "easy",
+                    "knowledgePoints": ["字典"],
+                    "tags": ["Python"],
+                    "body": {"statement": "字典的键可以是列表类型。"},
+                    "answer": {"correct": False},
+                    "analysis": "列表是可变类型，不能作为字典键。",
+                    "scoring": {"mode": "exact", "rubrics": []},
+                    "sourceBasis": ["字典键必须可哈希"],
                 },
-            ]
+            ],
+            "missingInfo": [],
         }, ensure_ascii=False))
 
         result = textbook_question_true_false_agent.generate_questions(
@@ -42,8 +61,8 @@ class TrueFalseQuestionAgentTest(unittest.TestCase):
         payload = json.loads(result)
         self.assertEqual(2, len(payload["questions"]))
         self.assertNotIn("题目数量要求：5", provider.user_prompt)
-        self.assertIs(payload["questions"][0]["answer"], True)
-        self.assertIs(payload["questions"][1]["answer"], False)
+        self.assertIs(payload["questions"][0]["answer"]["correct"], True)
+        self.assertIs(payload["questions"][1]["answer"]["correct"], False)
 
     def test_rejects_non_boolean_answer(self):
         provider = FakeTrueFalseProvider(json.dumps({

@@ -42,6 +42,8 @@ _tool_cache_context_var: contextvars.ContextVar[Dict[str, Any]] = contextvars.Co
 class JavaBackendRetriever:
     def __init__(self) -> None:
         self.enabled = True
+        self.disabled_until: Optional[float] = None
+        self.circuit_open_seconds = 10.0
         self.java_base_url = "http://localhost:8080"
         self.timeout_seconds = 8
         self.cache_enabled = self._env_bool("AI_TOOL_CACHE_ENABLED", True)
@@ -61,7 +63,7 @@ class JavaBackendRetriever:
         self._cache_path_stats: Dict[str, Dict[str, Any]] = {}
 
     def _get_json(self, path: str, authorization: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        if not self.enabled:
+        if not self._can_call():
             return {}
 
         query = ""
@@ -89,15 +91,35 @@ class JavaBackendRetriever:
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
                 logger.info("java api ok path=%s elapsed_ms=%s", path, elapsed_ms)
                 payload = json.loads(body)
+                self._record_success()
                 self._record_cache_miss(path, elapsed_ms, cache_key, normalized, user_key, payload)
                 self._write_cache(path, cache_key, payload, elapsed_ms, normalized, user_key)
                 return payload
         except Exception:
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             self._record_cache_miss(path, elapsed_ms, cache_key, normalized, user_key, None, status="error")
-            logger.exception("java api failed path=%s elapsed_ms=%s disable_store=true", path, elapsed_ms)
-            self.enabled = False
+            self._record_failure()
+            logger.exception(
+                "java api failed path=%s elapsed_ms=%s circuit_open_seconds=%s",
+                path,
+                elapsed_ms,
+                self.circuit_open_seconds,
+            )
             return {}
+
+    def _can_call(self) -> bool:
+        if not self.enabled:
+            return False
+        disabled_until = self.disabled_until
+        return disabled_until is None or time.monotonic() >= disabled_until
+
+    def _record_failure(self) -> None:
+        with self._cache_lock:
+            self.disabled_until = time.monotonic() + self.circuit_open_seconds
+
+    def _record_success(self) -> None:
+        with self._cache_lock:
+            self.disabled_until = None
 
     def _env_bool(self, key: str, default: bool) -> bool:
         value = str(os.getenv(key, "")).strip().lower()
