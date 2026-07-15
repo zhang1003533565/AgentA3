@@ -337,6 +337,10 @@ export default {
   box-sizing: border-box;
 }
 
+.safety-card {
+  margin-bottom: 120rpx;
+}
+
 .main-card {
   padding-bottom: 0;
   overflow: hidden;
