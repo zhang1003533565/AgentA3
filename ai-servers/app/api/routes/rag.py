@@ -16,7 +16,15 @@ from app.models.schemas import (
 )
 from app.model_providers.multimodal import append_image_references_to_text, collect_request_image_references
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
-from app.multi_agents.catalog import AGENT_ORDER, get_agent_catalog, get_agent_detail, get_agent_profile, normalize_agent_name, update_agent_example_input
+from app.multi_agents.catalog import (
+    LEADER_CALLABLE_AGENT_ORDER,
+    get_agent_catalog,
+    get_agent_detail,
+    get_agent_profile,
+    normalize_agent_name,
+    normalize_leader_request_agent,
+    update_agent_example_input,
+)
 from app.multi_agents.leader_agent.agent import leader_agent
 from app.multi_agents.question_bank_schema import review_question_bank_payload
 from app.multi_agents.runner import run_specialist_agent
@@ -595,7 +603,7 @@ async def run_rag_query_stream(
         generation_started = False
         try:
             request.input = _prepare_request_input(request)
-            requested_agent = normalize_agent_name(request.agentName)
+            requested_agent = normalize_leader_request_agent(request.agentName)
             if request.agentName and not requested_agent:
                 raise HTTPException(status_code=400, detail="智能体不存在")
 
@@ -677,7 +685,7 @@ async def run_rag_query_stream(
 
 def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
     request.input = _prepare_request_input(request)
-    requested_agent = normalize_agent_name(request.agentName)
+    requested_agent = normalize_leader_request_agent(request.agentName)
     if request.agentName and not requested_agent:
         raise HTTPException(status_code=400, detail="智能体不存在")
 
@@ -1079,8 +1087,7 @@ def _require_tool_enabled(request: RagQueryRequest, tool_name: str) -> None:
 def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) -> Dict[str, Any]:
     agents = [
         _leader_callable_agent_item(agent_name, request)
-        for agent_name in AGENT_ORDER
-        if agent_name != "leader_agent"
+        for agent_name in LEADER_CALLABLE_AGENT_ORDER
     ]
     agents = [item for item in agents if item]
     tools = [_leader_callable_tool_item(tool, request) for tool in LEADER_CALLABLE_TOOLS]
@@ -1606,7 +1613,7 @@ def _build_stream_error_payload(
         base_url = exc.base_url or ("" if is_specialist_failure else getattr(llm_config, "base_url", "") or "")
         model_config_prefix = exc.model_config_prefix or ""
     else:
-        agent_name = normalize_agent_name(request.agentName) or "leader_agent"
+        agent_name = normalize_leader_request_agent(request.agentName) or "leader_agent"
         intent = ""
         route_reason = ""
         message = _exception_message(exc)

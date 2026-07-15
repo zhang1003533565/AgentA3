@@ -7,8 +7,10 @@ import pytest
 from fastapi import HTTPException
 
 from app.learning_workflow import (
+    LearningPathDraft,
     LearningPlan,
     LearningWorkflowRequest,
+    PracticeQuestion,
     ResourcePackageMetadata,
     ResourceReviewResult,
     run_learning_workflow,
@@ -81,7 +83,22 @@ class FakeRunner:
                 {
                     "pathDraft": {
                         "title": "循环与函数强化路径",
-                        "items": ["循环复习", "函数练习"],
+                        "goal": "按掌握度先复习循环，再衔接函数",
+                        "items": [
+                            {
+                                "order": 1,
+                                "title": "循环复习",
+                                "goal": "巩固循环执行过程",
+                                "evidenceIds": ["ev-python-1"],
+                            },
+                            {
+                                "order": 2,
+                                "title": "函数练习",
+                                "goal": "理解函数输入与返回值",
+                                "evidenceIds": ["ev-python-2"],
+                            },
+                        ],
+                        "personalizationReasons": ["循环掌握度为 0.45，需要先复习"],
                     },
                     "resourceBriefs": [
                         {
@@ -114,11 +131,26 @@ class FakeRunner:
             }
             if resource_type == "practice_set":
                 result["questions"] = [
-                    {"type": "single_choice", "stem": "单选", "evidenceIds": ["ev-python-1"]},
-                    {"type": "multiple_choice", "stem": "多选", "evidenceIds": ["ev-python-1"]},
-                    {"type": "true_false", "stem": "判断", "evidenceIds": ["ev-python-1"]},
-                    {"type": "fill_blank", "stem": "填空", "evidenceIds": ["ev-python-1"]},
-                    {"type": "code_output", "stem": "代码输出", "evidenceIds": ["ev-python-1"]},
+                    {
+                        "type": "single_choice", "stem": "单选", "answer": "A",
+                        "explanation": "循环会重复执行代码。", "evidenceIds": ["ev-python-1"],
+                    },
+                    {
+                        "type": "multiple_choice", "stem": "多选", "answer": ["A", "B"],
+                        "explanation": "循环与函数均可复用逻辑。", "evidenceIds": ["ev-python-1"],
+                    },
+                    {
+                        "type": "true_false", "stem": "判断", "answer": True,
+                        "explanation": "函数可以返回结果。", "evidenceIds": ["ev-python-1"],
+                    },
+                    {
+                        "type": "fill_blank", "stem": "填空", "answer": "range",
+                        "explanation": "range 可生成循环序列。", "evidenceIds": ["ev-python-1"],
+                    },
+                    {
+                        "type": "code_output", "stem": "代码输出", "answer": "0\\n1",
+                        "explanation": "循环依次输出两个整数。", "evidenceIds": ["ev-python-1"],
+                    },
                 ]
             elif resource_type == "knowledge_note":
                 result["sections"] = [{"title": "循环", "body": "循环知识"}]
@@ -194,7 +226,7 @@ def test_workflow_runs_shared_plan_resources_review_and_package():
     assert runner.max_active == 3
     assert len(result.resources) == 6
     assert all(item.reviewStatus == "passed" for item in result.resources)
-    assert result.pathDraft["title"] == "循环与函数强化路径"
+    assert result.pathDraft.title == "循环与函数强化路径"
     assert result.packageMetadata.resourceCount == 6
     assert [event.sequence for event in result.events] == list(range(1, len(result.events) + 1))
     assert result.events[0].agentName == "learning_path_agent"
@@ -203,7 +235,9 @@ def test_workflow_runs_shared_plan_resources_review_and_package():
 
 
 def test_plan_review_and_package_models_are_public_strict_contracts():
+    assert LearningPathDraft.model_config["extra"] == "forbid"
     assert LearningPlan.model_config["extra"] == "forbid"
+    assert PracticeQuestion.model_config["extra"] == "forbid"
     assert ResourceReviewResult.model_config["extra"] == "forbid"
     assert ResourcePackageMetadata.model_config["extra"] == "forbid"
 
@@ -257,6 +291,27 @@ def test_workflow_rejects_practice_set_missing_a_required_question_type():
         run_learning_workflow(build_request(), runner=runner)
 
     assert "resource_review_agent" not in runner.calls
+
+
+@pytest.mark.parametrize("defect", ["extra", "missing_answer", "empty_explanation"])
+def test_workflow_rejects_non_strict_or_incomplete_practice_questions(defect):
+    class InvalidPracticeQuestionRunner(FakeRunner):
+        def run(self, agent_name, input_text, evidence):
+            answer = super().run(agent_name, input_text, evidence)
+            if agent_name != "python_practice_set_agent":
+                return answer
+            payload = json.loads(answer)
+            question = payload["questions"][0]
+            if defect == "extra":
+                question["unexpected"] = "must fail"
+            elif defect == "missing_answer":
+                question.pop("answer")
+            else:
+                question["explanation"] = ""
+            return json.dumps(payload, ensure_ascii=False)
+
+    with pytest.raises(ValueError, match="unexpected|answer|explanation"):
+        run_learning_workflow(build_request(), runner=InvalidPracticeQuestionRunner())
 
 
 def test_workflow_rejects_practice_question_with_empty_evidence_ids():
@@ -454,8 +509,11 @@ def test_plan_and_package_forged_evidence_ids_fail_closed(stage, forged_id):
         run_learning_workflow(build_request(), runner=runner)
 
 
-@pytest.mark.parametrize("defect", ["missing_brief", "duplicate_brief", "empty_path"])
-def test_learning_plan_rejects_missing_duplicate_briefs_and_empty_path(defect):
+@pytest.mark.parametrize(
+    "defect",
+    ["missing_brief", "duplicate_brief", "empty_path", "arbitrary_path", "unordered_items"],
+)
+def test_learning_plan_rejects_invalid_briefs_or_path_draft(defect):
     class InvalidPlanRunner(FakeRunner):
         def run(self, agent_name, input_text, evidence):
             answer = super().run(agent_name, input_text, evidence)
@@ -466,13 +524,17 @@ def test_learning_plan_rejects_missing_duplicate_briefs_and_empty_path(defect):
                 payload["resourceBriefs"] = payload["resourceBriefs"][:-1]
             elif defect == "duplicate_brief":
                 payload["resourceBriefs"][-1] = dict(payload["resourceBriefs"][0])
-            else:
+            elif defect == "empty_path":
                 payload["pathDraft"] = {}
+            elif defect == "arbitrary_path":
+                payload["pathDraft"] = {"arbitrary": "non-empty but invalid"}
+            else:
+                payload["pathDraft"]["items"][0]["order"] = 2
             return json.dumps(payload, ensure_ascii=False)
 
     runner = InvalidPlanRunner()
 
-    with pytest.raises(ValueError, match="resourceBriefs|pathDraft"):
+    with pytest.raises(ValueError, match="resourceBriefs|pathDraft|title|goal|items|order"):
         run_learning_workflow(build_request(), runner=runner)
 
     assert "textbook_knowledge_agent" not in runner.calls
@@ -603,11 +665,38 @@ def test_production_workflow_runner_adapts_registered_legacy_outputs():
 
     chat_service = object()
     runner = LearningWorkflowRunner(chat_service=chat_service, dispatcher=dispatcher)
-    evidence = [{"id": "ev-python-1", "content": "循环知识"}]
+    evidence = [
+        {"id": "ev-python-1", "content": "循环知识"},
+        {"id": "ev-python-2", "content": "函数知识"},
+    ]
 
-    knowledge = json.loads(runner.run("textbook_knowledge_agent", "讲义输入", evidence))
-    mind_map = json.loads(runner.run("diagram_mind_map_agent", "导图输入", evidence))
-    presentation = json.loads(runner.run("ppt_outline_agent", "课件输入", evidence))
+    def workflow_input(evidence_ids):
+        return json.dumps(
+            {"resourceBrief": {"evidenceIds": evidence_ids}},
+            ensure_ascii=False,
+        )
+
+    knowledge = json.loads(
+        runner.run(
+            "textbook_knowledge_agent",
+            workflow_input(["ev-python-1"]),
+            evidence,
+        )
+    )
+    mind_map = json.loads(
+        runner.run(
+            "diagram_mind_map_agent",
+            workflow_input(["ev-python-2"]),
+            evidence,
+        )
+    )
+    presentation = json.loads(
+        runner.run(
+            "ppt_outline_agent",
+            workflow_input(["ev-python-1"]),
+            evidence,
+        )
+    )
 
     assert knowledge == {
         "resourceType": "knowledge_note",
@@ -620,11 +709,45 @@ def test_production_workflow_runner_adapts_registered_legacy_outputs():
     }
     assert mind_map["resourceType"] == "mind_map"
     assert mind_map["payload"]["mindMap"]["url"] == "https://cdn.example.edu/mind-map.png"
-    assert mind_map["evidenceIds"] == ["ev-python-1"]
+    assert mind_map["evidenceIds"] == ["ev-python-2"]
     assert presentation["resourceType"] == "presentation"
     assert presentation["payload"]["outline"].startswith("## PPT 大纲")
     assert presentation["evidenceIds"] == ["ev-python-1"]
-    assert all(call[2] is evidence and call[3] is chat_service for call in calls)
+    assert [call[2] for call in calls] == [
+        [evidence[0]],
+        [evidence[1]],
+        [evidence[0]],
+    ]
+    assert all(call[3] is chat_service for call in calls)
+
+
+@pytest.mark.parametrize(
+    "brief_evidence_ids",
+    [[], [""], ["ev-forged"]],
+)
+def test_production_workflow_runner_rejects_empty_or_forged_brief_evidence(
+    brief_evidence_ids,
+):
+    calls = []
+
+    def dispatcher(agent_name, input_text, evidence, chat_service=None):
+        calls.append((agent_name, input_text, evidence, chat_service))
+        return "## 知识讲义"
+
+    runner = LearningWorkflowRunner(dispatcher=dispatcher)
+    input_text = json.dumps(
+        {"resourceBrief": {"evidenceIds": brief_evidence_ids}},
+        ensure_ascii=False,
+    )
+
+    with pytest.raises(HTTPException, match="evidence"):
+        runner.run(
+            "textbook_knowledge_agent",
+            input_text,
+            [{"id": "ev-python-1", "content": "循环知识"}],
+        )
+
+    assert calls == []
 
 
 def test_production_workflow_runner_preserves_strict_new_agent_json():
@@ -658,11 +781,26 @@ def test_python_practice_set_requires_five_question_types():
         "content": "五类混合练习",
         "evidenceIds": ["ev-python-1"],
         "questions": [
-            {"type": "single_choice", "stem": "单选", "evidenceIds": ["ev-python-1"]},
-            {"type": "multiple_choice", "stem": "多选", "evidenceIds": ["ev-python-1"]},
-            {"type": "true_false", "stem": "判断", "evidenceIds": ["ev-python-1"]},
-            {"type": "fill_blank", "stem": "填空", "evidenceIds": ["ev-python-1"]},
-            {"type": "code_output", "stem": "代码输出", "evidenceIds": ["ev-python-1"]},
+            {
+                "type": "single_choice", "stem": "单选", "answer": "A",
+                "explanation": "循环会重复执行。", "evidenceIds": ["ev-python-1"],
+            },
+            {
+                "type": "multiple_choice", "stem": "多选", "answer": ["A", "B"],
+                "explanation": "循环与函数都能复用逻辑。", "evidenceIds": ["ev-python-1"],
+            },
+            {
+                "type": "true_false", "stem": "判断", "answer": True,
+                "explanation": "函数可以返回结果。", "evidenceIds": ["ev-python-1"],
+            },
+            {
+                "type": "fill_blank", "stem": "填空", "answer": "range",
+                "explanation": "range 可生成循环序列。", "evidenceIds": ["ev-python-1"],
+            },
+            {
+                "type": "code_output", "stem": "代码输出", "answer": "0\\n1",
+                "explanation": "循环依次输出两个整数。", "evidenceIds": ["ev-python-1"],
+            },
         ],
     }
 

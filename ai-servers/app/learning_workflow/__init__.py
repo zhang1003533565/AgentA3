@@ -1,7 +1,9 @@
 from app.learning_workflow.models import (
+    LearningPathDraft,
     LearningPlan,
     LearningWorkflowRequest,
     LearningWorkflowResult,
+    PracticeQuestion,
     ResourcePackageMetadata,
     ResourceReviewResult,
     WorkflowEvent,
@@ -11,9 +13,11 @@ from app.learning_workflow.workflow import LearningWorkflowError, run_learning_w
 
 __all__ = [
     "LearningWorkflowError",
+    "LearningPathDraft",
     "LearningPlan",
     "LearningWorkflowRequest",
     "LearningWorkflowResult",
+    "PracticeQuestion",
     "ResourcePackageMetadata",
     "ResourceReviewResult",
     "WorkflowEvent",

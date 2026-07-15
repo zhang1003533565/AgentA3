@@ -7,6 +7,15 @@ from fastapi import HTTPException
 from app.multi_agents.catalog import AGENT_PROFILES, normalize_agent_name
 
 
+LEGACY_WORKFLOW_RESOURCE_AGENTS = frozenset(
+    {
+        "textbook_knowledge_agent",
+        "diagram_mind_map_agent",
+        "ppt_outline_agent",
+    }
+)
+
+
 def run_specialist_agent(
     agent_name: Optional[str],
     input_text: str,
@@ -52,20 +61,63 @@ class LearningWorkflowRunner:
         input_text: str,
         evidence: List[Dict[str, Any]],
     ) -> str:
+        dispatch_evidence = evidence
+        if agent_name in LEGACY_WORKFLOW_RESOURCE_AGENTS:
+            dispatch_evidence = _resource_brief_evidence(input_text, evidence)
         answer = self.dispatcher(
             agent_name,
             input_text,
-            evidence,
+            dispatch_evidence,
             chat_service=self.chat_service,
         )
-        if agent_name not in {
-            "textbook_knowledge_agent",
-            "diagram_mind_map_agent",
-            "ppt_outline_agent",
-        }:
+        if agent_name not in LEGACY_WORKFLOW_RESOURCE_AGENTS:
             return answer
-        evidence_ids = _workflow_evidence_ids(evidence)
+        evidence_ids = _workflow_evidence_ids(dispatch_evidence)
         return _adapt_legacy_workflow_resource(agent_name, answer, evidence_ids)
+
+
+def _resource_brief_evidence(
+    input_text: str,
+    evidence: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    try:
+        payload = json.loads(str(input_text or ""))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="legacy 学习资源输入必须是包含 resourceBrief 的 JSON 对象",
+        ) from exc
+    resource_brief = payload.get("resourceBrief") if isinstance(payload, dict) else None
+    evidence_ids = resource_brief.get("evidenceIds") if isinstance(resource_brief, dict) else None
+    if not isinstance(evidence_ids, list) or not evidence_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="resourceBrief.evidenceIds 必须是非空列表",
+        )
+    normalized_ids = [str(evidence_id).strip() for evidence_id in evidence_ids]
+    if any(not evidence_id for evidence_id in normalized_ids):
+        raise HTTPException(
+            status_code=400,
+            detail="resourceBrief.evidenceIds 不得包含空 ID",
+        )
+    if len(set(normalized_ids)) != len(normalized_ids):
+        raise HTTPException(
+            status_code=400,
+            detail="resourceBrief.evidenceIds 不得重复",
+        )
+
+    _workflow_evidence_ids(evidence)
+    evidence_by_id = {
+        str(item["id"]).strip(): item
+        for item in evidence
+    }
+    forged_ids = [evidence_id for evidence_id in normalized_ids if evidence_id not in evidence_by_id]
+    if forged_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"resourceBrief.evidenceIds 含未知 ID：{', '.join(forged_ids)}",
+        )
+    return [evidence_by_id[evidence_id] for evidence_id in normalized_ids]
 
 
 def _workflow_evidence_ids(evidence: List[Dict[str, Any]]) -> List[str]:

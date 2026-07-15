@@ -8,7 +8,7 @@
 输出一个 JSON 对象，字段必须包含：
 - `resourceType`: 固定为 `practice_set`
 - `content`: 练习说明 Markdown
-- `questions`: 非空数组，至少各含一道 `single_choice`、`multiple_choice`、`true_false`、`fill_blank`、`code_output` 题；每题包含 `type`、`stem`、`answer`、`explanation`、`evidenceIds`
+- `questions`: 非空数组，至少各含一道 `single_choice`、`multiple_choice`、`true_false`、`fill_blank`、`code_output` 题；每题只能包含 `type`、`stem`、`options`、`answer`、`explanation`、`evidenceIds`，其中 `answer` 必须存在且非空，`explanation` 必须是非空字符串
 - `evidenceIds`: 整套练习使用的非空证据 ID 数组
 
 收到 `rewriteAttempt=1` 时，只根据 `reviewIssues` 重写一次，仍必须保留全部五种题型。

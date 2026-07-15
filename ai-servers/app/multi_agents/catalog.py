@@ -104,6 +104,14 @@ AGENT_ORDER = [
     *LEARNING_WORKFLOW_AGENT_SPECS.keys(),
 ]
 
+LEARNING_WORKFLOW_INTERNAL_AGENTS = frozenset(LEARNING_WORKFLOW_AGENT_SPECS)
+LEADER_CALLABLE_AGENT_ORDER = tuple(
+    agent_name
+    for agent_name in AGENT_ORDER
+    if agent_name != "leader_agent"
+    and agent_name not in LEARNING_WORKFLOW_INTERNAL_AGENTS
+)
+
 
 def _question_agent_profile(agent_name: str, role: str, intent: str, purpose: str, example_input: str) -> Dict[str, Any]:
     return {
@@ -509,6 +517,13 @@ def normalize_agent_name(agent_name: Optional[str]) -> Optional[str]:
     if not value:
         return None
     return AGENT_ALIASES.get(value.lower())
+
+
+def normalize_leader_request_agent(agent_name: Optional[str]) -> Optional[str]:
+    normalized = normalize_agent_name(agent_name)
+    if normalized == "leader_agent" or normalized in LEADER_CALLABLE_AGENT_ORDER:
+        return normalized
+    return None
 
 
 def get_agent_profile(agent_name: Optional[str]) -> Optional[Dict[str, Any]]:

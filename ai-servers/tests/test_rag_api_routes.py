@@ -13,6 +13,16 @@ from app.multi_agents.ppt_layout_agent.agent import normalize_ppt_layout_answer
 from app.multi_agents.ppt_outline_agent.agent import normalize_ppt_outline_answer
 
 
+INTERNAL_LEARNING_WORKFLOW_AGENTS = {
+    "learning_path_agent",
+    "python_practice_set_agent",
+    "python_code_lab_agent",
+    "extension_reading_agent",
+    "resource_review_agent",
+    "resource_package_agent",
+}
+
+
 class RagApiRoutesTest(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
@@ -286,6 +296,15 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertIn("questionBank", payload["workflow"])
         self.assertEqual("agentName", payload["invocation"]["parameter"])
 
+        leader_callable_names = {
+            item["name"] for item in payload["leaderCallableCatalog"]["agents"]
+        }
+        self.assertTrue(INTERNAL_LEARNING_WORKFLOW_AGENTS.isdisjoint(leader_callable_names))
+        self.assertGreaterEqual(
+            leader_callable_names,
+            {"textbook_knowledge_agent", "ppt_outline_agent", "diagram_mind_map_agent"},
+        )
+
     def test_agent_detail_endpoint_returns_single_agent(self):
         response = self.client.get("/internal/rag/agents/leader_agent", headers=self.headers)
 
@@ -392,6 +411,100 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertTrue(payload["metadata"]["retrievalSkipped"])
         self.assertEqual("leader_route", payload["trace"][0]["stage"])
         self.assertIn("PPT 大纲", payload["answer"])
+
+    def test_production_leader_planning_excludes_internal_dag_agents_and_keeps_routes(self):
+        class RecordingLeaderProvider(FakeRagModelProvider):
+            def __init__(self):
+                self.callable_catalogs = []
+
+            def complete(self, system_prompt, user_prompt):
+                if "Leader 智能体" in system_prompt:
+                    payload = json.loads(user_prompt)
+                    self.callable_catalogs.append(payload["leader_callable_catalog"])
+                    if "流程图" in (payload.get("user_input") or ""):
+                        return json.dumps(
+                            {
+                                "intent": "diagram_flowchart",
+                                "target_agent": "diagram_flowchart_agent",
+                                "need_retrieval": False,
+                                "rag_strategy": "",
+                                "action": "delegate_agent",
+                                "tool_name": "",
+                                "route_reason": "LLM 根据 Leader 可调用清单选择流程图智能体。",
+                                "answer": "",
+                            },
+                            ensure_ascii=False,
+                        )
+                return super().complete(system_prompt, user_prompt)
+
+        rag_routes = importlib.import_module("app.api.routes.rag")
+        leader_module = importlib.import_module("app.multi_agents.leader_agent.agent")
+        provider = RecordingLeaderProvider()
+        old_get_chat_model_provider = leader_module.get_chat_model_provider
+        old_search_service_tool = rag_routes.data_store.search_service_tool
+        try:
+            leader_module.get_chat_model_provider = lambda: provider
+            rag_routes.data_store.search_service_tool = lambda *_args: [
+                {
+                    "type": "course_schedule_summary",
+                    "name": "Python程序设计",
+                    "semesterLabel": "2025-2026 第 2 学期",
+                    "teacherName": "范老师",
+                    "scheduleCount": 1,
+                    "scheduleItems": ["周三 1-2节 A101 1-16周"],
+                }
+            ]
+            schedule_response = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={"input": "这个学期都有什么课啊", "agentName": "leader_agent"},
+            )
+            agent_model_configs = {
+                agent_name: {
+                    "configPrefix": f"ai.agent.{agent_name}",
+                    "provider": "deepseek",
+                    "baseUrl": "https://llm.test/v1",
+                    "apiKey": "test-key",
+                    "model": "test-model",
+                }
+                for agent_name in ("ppt_outline_agent", "diagram_flowchart_agent")
+            }
+            ppt_response = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={
+                    "input": "生成 Python 课程 PPT",
+                    "agentName": "leader_agent",
+                    "metadata": {"agentModelConfigs": agent_model_configs},
+                },
+            )
+            diagram_response = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={
+                    "input": "生成 Python 循环流程图",
+                    "agentName": "leader_agent",
+                    "metadata": {"agentModelConfigs": agent_model_configs},
+                },
+            )
+        finally:
+            leader_module.get_chat_model_provider = old_get_chat_model_provider
+            rag_routes.data_store.search_service_tool = old_search_service_tool
+
+        self.assertEqual(200, schedule_response.status_code)
+        self.assertEqual("java_schedule_api", schedule_response.json()["metadata"]["toolName"])
+        self.assertEqual(200, ppt_response.status_code)
+        self.assertEqual("ppt_outline_agent", ppt_response.json()["metadata"]["targetAgent"])
+        self.assertEqual(200, diagram_response.status_code)
+        self.assertEqual("diagram_flowchart_agent", diagram_response.json()["metadata"]["targetAgent"])
+        self.assertEqual(3, len(provider.callable_catalogs))
+        for catalog in provider.callable_catalogs:
+            callable_names = {item["name"] for item in catalog["agents"]}
+            self.assertTrue(INTERNAL_LEARNING_WORKFLOW_AGENTS.isdisjoint(callable_names))
+            self.assertGreaterEqual(
+                callable_names,
+                {"textbook_knowledge_agent", "ppt_outline_agent", "diagram_mind_map_agent"},
+            )
 
     def test_leader_agent_answers_smalltalk_without_rag(self):
         response = self.client.post(
@@ -783,13 +896,29 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(400, response.status_code)
 
+    def test_learning_workflow_internal_agents_cannot_be_directly_requested(self):
+        for requested_agent in ("learning_path_agent", "Python 学习路径智能体"):
+            with self.subTest(requested_agent=requested_agent):
+                response = self.client.post(
+                    "/internal/rag/query",
+                    headers=self.headers,
+                    json={"input": "生成学习路径", "agentName": requested_agent},
+                )
+
+                self.assertEqual(400, response.status_code)
+                self.assertEqual("智能体不存在", response.json()["detail"])
+
     def test_agent_catalog_examples_are_runnable_for_specialists(self):
         catalog_response = self.client.get("/internal/rag/agents", headers=self.headers)
         self.assertEqual(200, catalog_response.status_code)
 
+        callable_names = {
+            item["name"]
+            for item in catalog_response.json()["leaderCallableCatalog"]["agents"]
+        }
         specialists = [
             agent for agent in catalog_response.json()["agents"]
-            if agent["name"] != "leader_agent"
+            if agent["name"] in callable_names
         ]
 
         for agent in specialists:

@@ -68,7 +68,7 @@ def run_learning_workflow(
     plan = _validate_model(LearningPlan, plan_payload, "learning_path_agent")
     _validate_declared_evidence(plan.model_dump(mode="json"), allowed_evidence_ids, "learning_path_agent")
     _validate_plan_briefs(plan, request.requestedResourceTypes)
-    path_draft = dict(plan.pathDraft)
+    path_draft = plan.pathDraft.model_dump(mode="json")
     _append_event(events, "planning", "learning_path_agent", message="学习路径规划完成")
 
     jobs = resource_jobs(request, plan)
@@ -195,7 +195,7 @@ def resource_jobs(
                         "topic": request.topic,
                         "resourceType": resource_type,
                         "resourceBrief": briefs[resource_type],
-                        "pathDraft": plan.pathDraft,
+                        "pathDraft": plan.pathDraft.model_dump(mode="json"),
                         "profileSnapshot": request.profileSnapshot,
                         "masterySnapshot": request.masterySnapshot,
                         "pathSnapshot": request.pathSnapshot,
