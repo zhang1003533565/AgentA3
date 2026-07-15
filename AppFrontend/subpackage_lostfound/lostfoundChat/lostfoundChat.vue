@@ -162,6 +162,8 @@
               </view>
             </view>
           </view>
+
+          <view id="bottom-spacer" class="bottom-spacer"></view>
         </scroll-view>
 
         <view class="chat-footer-new">
@@ -545,9 +547,7 @@ export default {
         })
         this.messages = sorted.map(normalizeMessage)
         this.$nextTick(() => {
-          if (this.messages.length) {
-            this.scrollBottom = `msg-${this.messages[this.messages.length - 1].id}`
-          }
+          this.scrollBottom = 'bottom-spacer'
         })
       } catch (error) {
         console.error('加载消息失败', error)
@@ -1128,6 +1128,11 @@ export default {
 
 .last-msg {
   margin-bottom: 72rpx;
+}
+
+.bottom-spacer {
+  height: 72rpx;
+  flex-shrink: 0;
 }
 
 .system-msg,
