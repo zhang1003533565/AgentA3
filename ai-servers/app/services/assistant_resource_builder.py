@@ -64,6 +64,8 @@ _FIELD_ALIASES = {
 _SAFE_RESOURCE_METADATA = {
     "source", "sourceId", "sourceType", "sourceVersion", "retrievedAt",
     "location", "route", "status", "legacy", "serverGenerated",
+    "courseKey", "knowledgePoint", "learningPathId", "learningPathItemKey",
+    "resourceKind", "reviewStatus",
 }
 _SAFE_TRACE_DETAIL = {
     "agentName", "targetAgent", "toolName", "toolDisplayName", "routeReason",

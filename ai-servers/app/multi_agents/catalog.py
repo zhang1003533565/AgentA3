@@ -36,6 +36,51 @@ PPT_AGENT_SPECS = {
     "ppt_to_docx_agent": ("PPT 转 DOCX 智能体", "ppt_to_docx", "负责将 PPTX 文件转换为 DOCX，按幻灯片顺序重排内容并保留图片。", "上传 PPTX 文件后转换为 DOCX，保留图片并允许 Word 重新排版"),
 }
 
+LEARNING_WORKFLOW_AGENT_SPECS = {
+    "python_code_lab_agent": (
+        "Python 代码实验智能体",
+        "python_code_lab",
+        "根据学习路径、画像、掌握度和课程证据生成可运行、可验证的 Python 代码实验。",
+        "为 Python 循环与函数生成分步代码实验、预期输出和自检项",
+        ["strict_code_lab_json"],
+    ),
+    "python_practice_set_agent": (
+        "Python 混合练习智能体",
+        "python_practice_set",
+        "生成至少覆盖单选、多选、判断、填空和代码输出的证据化 Python 混合练习。",
+        "为 Python 循环与函数生成五种题型的混合练习和解析",
+        ["strict_mixed_practice_json"],
+    ),
+    "extension_reading_agent": (
+        "Python 拓展阅读智能体",
+        "extension_reading",
+        "围绕当前 Python 学习节点生成难度递进、带证据来源的拓展阅读。",
+        "为 Python 循环学习节点生成函数入门拓展阅读",
+        ["strict_extended_reading_json"],
+    ),
+    "resource_review_agent": (
+        "学习资源审核智能体",
+        "resource_review",
+        "统一审核多类学习资源的证据、正确性、教学适配度和输出契约。",
+        "审核一批 Python 学习资源并逐项返回通过或拒绝结论",
+        ["strict_resource_review_json"],
+    ),
+    "resource_package_agent": (
+        "学习资源整合智能体",
+        "resource_package",
+        "将满足核心资源与五类通过门槛的资源组装为学习包元数据。",
+        "把审核通过的 Python 资源按学习路径组装为学习包",
+        ["strict_resource_package_json"],
+    ),
+    "learning_path_agent": (
+        "Python 学习路径智能体",
+        "learning_path",
+        "综合画像、掌握度、现有路径和课程证据，生成共享路径草案与资源简报。",
+        "根据画像和掌握度为 Python 循环与函数生成路径草案",
+        ["strict_learning_path_json"],
+    ),
+}
+
 DIAGRAM_AGENT_SPECS = {
     "diagram_flowchart_agent": ("图表流程图智能体", "diagram_flowchart", "把算法步骤、业务过程和知识点流程整理成 Mermaid 流程图。", "括号匹配算法流程材料"),
     "diagram_activity_agent": ("图表活动图智能体", "diagram_activity", "把角色协作、任务执行和活动顺序整理成 Mermaid 活动图。", "会议任务活动流程材料"),
@@ -56,6 +101,7 @@ AGENT_ORDER = [
     *QUESTION_AGENT_SPECS.keys(),
     *MEETING_AGENT_SPECS.keys(),
     *PPT_AGENT_SPECS.keys(),
+    *LEARNING_WORKFLOW_AGENT_SPECS.keys(),
 ]
 
 
@@ -89,6 +135,42 @@ def _meeting_agent_profile(agent_name: str, role: str, intent: str, purpose: str
         "needRetrieval": False,
         "executionMode": "direct_agent",
         "executionModeLabel": f"直接处理会议内容生成{role.replace('智能体', '')}结果",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": [intent, role, role.replace("智能体", ""), agent_name],
+        "exampleInput": example_input,
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+    }
+
+
+def _learning_workflow_agent_profile(
+    agent_name: str,
+    role: str,
+    intent: str,
+    purpose: str,
+    example_input: str,
+    outputs: list[str],
+) -> Dict[str, Any]:
+    inputs = {
+        "learning_path_agent": [
+            "topic", "profile_snapshot", "mastery_snapshot", "path_snapshot", "evidence",
+        ],
+        "resource_review_agent": ["resources", "package_rules", "evidence"],
+        "resource_package_agent": ["path_draft", "passed_resources", "package_rules", "evidence"],
+    }.get(
+        agent_name,
+        ["topic", "resource_brief", "profile_snapshot", "mastery_snapshot", "path_snapshot", "evidence"],
+    )
+    return {
+        "role": role,
+        "purpose": purpose,
+        "inputs": inputs,
+        "outputs": outputs,
+        "skills": ["typed learning workflow", "evidence grounding", intent],
+        "intent": intent,
+        "needRetrieval": False,
+        "executionMode": "direct_agent",
+        "executionModeLabel": f"直接生成{role.replace('智能体', '')}结果",
         "defaultRagStrategy": "",
         "supportedRagStrategies": [],
         "aliases": [intent, role, role.replace("智能体", ""), agent_name],
@@ -293,6 +375,10 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         agent_name: _ppt_profile(agent_name, *spec)
         for agent_name, spec in PPT_AGENT_SPECS.items()
     },
+    **{
+        agent_name: _learning_workflow_agent_profile(agent_name, *spec)
+        for agent_name, spec in LEARNING_WORKFLOW_AGENT_SPECS.items()
+    },
     "image_agent": {
         "role": "图片智能体",
         "purpose": "根据用户需求、课程主题、知识点证据和用户画像生成单张或批量图片，并返回图片 URL/Base64、任务状态和完整生成参数。",
@@ -381,6 +467,17 @@ def get_agent_catalog() -> Dict[str, Any]:
             "meeting": ["leader_agent", *MEETING_AGENT_SPECS.keys()],
             "ppt": ["leader_agent", "textbook_knowledge_agent", *PPT_AGENT_SPECS.keys()],
             "image": ["leader_agent", "textbook_knowledge_agent", *DIAGRAM_AGENT_SPECS.keys()],
+            "pythonLearningResources": [
+                "learning_path_agent",
+                "textbook_knowledge_agent",
+                "diagram_mind_map_agent",
+                "python_practice_set_agent",
+                "python_code_lab_agent",
+                "ppt_outline_agent",
+                "extension_reading_agent",
+                "resource_review_agent",
+                "resource_package_agent",
+            ],
         },
         "agents": agents,
     }

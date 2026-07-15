@@ -261,6 +261,35 @@ def test_source_digests_and_ids_are_deterministic_and_metadata_is_safe():
         assert forbidden not in serialized
 
 
+def test_learning_resource_metadata_uses_exact_public_allowlist():
+    bundle = build_bundle(
+        metadata={
+            "courseKey": "python",
+            "knowledgePoint": "loops",
+            "learningPathId": "path-1",
+            "learningPathItemKey": "loop-basics",
+            "resourceKind": "practice_set",
+            "reviewStatus": "passed",
+            "userId": 7,
+            "profile": {"level": "beginner"},
+            "authorization": "Bearer secret",
+            "internalPrompt": "drop-me",
+        }
+    )
+
+    assert bundle["resources"][0]["metadata"] == {
+        "courseKey": "python",
+        "knowledgePoint": "loops",
+        "learningPathId": "path-1",
+        "learningPathItemKey": "loop-basics",
+        "resourceKind": "practice_set",
+        "reviewStatus": "passed",
+    }
+    serialized = json.dumps(bundle, ensure_ascii=False).lower()
+    for forbidden in ("userid", "authorization", "bearer secret", "internalprompt"):
+        assert forbidden not in serialized
+
+
 def test_positional_tool_document_ids_do_not_become_persistent_evidence_ids():
     first = build_bundle(
         documents=[{"id": "tool:0", "content": "相同业务记录", "source": "java_backend"}]

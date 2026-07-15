@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.multi_agents.catalog import normalize_agent_name
+from app.multi_agents.catalog import AGENT_PROFILES, normalize_agent_name
 
 
 def run_specialist_agent(
@@ -35,6 +35,8 @@ def run_specialist_agent(
 
 
 def _load_agent(agent_name: str) -> Any:
+    if agent_name not in AGENT_PROFILES:
+        raise HTTPException(status_code=400, detail=f"不支持的智能体：{agent_name}")
     module_name = f"app.multi_agents.{agent_name}.agent"
     try:
         module = import_module(module_name)
