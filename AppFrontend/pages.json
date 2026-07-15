@@ -250,6 +250,15 @@
 					}
 				},
 				{
+					"path": "marketplaceHome/marketplaceHome",
+					"style": {
+						"navigationBarTitleText": "校园市集",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "lostfoundDetail/lostfoundDetail",
 					"style": {
 						"navigationBarTitleText": "详情",

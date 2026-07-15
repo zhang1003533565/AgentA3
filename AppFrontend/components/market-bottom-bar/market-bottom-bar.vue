@@ -45,7 +45,7 @@ export default {
     },
     goToList() {
       if (this.activeTab === 'market') return
-      uni.redirectTo({ url: '/subpackage_lostfound/lostfoundList/lostfoundList' })
+      uni.redirectTo({ url: '/subpackage_lostfound/marketplaceHome/marketplaceHome' })
     },
     goToPublish() {
       uni.showToast({ title: '发布功能待下一阶段迁移', icon: 'none' })
