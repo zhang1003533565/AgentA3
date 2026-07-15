@@ -62,7 +62,7 @@
                     class="trade-card-btn"
                     :class="action.type"
                     :disabled="acting"
-                    @click="runTradeAction(action.type)"
+                    @click="handleMenuAction(action)"
                   >
                     {{ action.label }}
                   </button>
@@ -155,7 +155,7 @@
                   class="trade-card-btn"
                   :class="action.type"
                   :disabled="acting"
-                  @click="runTradeAction(action.type)"
+                  @click="handleMenuAction(action)"
                 >
                   {{ action.label }}
                 </button>
@@ -403,7 +403,7 @@ export default {
         if (!this.hasContactShare) {
           actions.push({ type: 'shareContact', label: '发送联系方式' })
         } else if (this.tradeInfo.isSeller) {
-          actions.push({ type: 'complete', label: '标记交易完成', class: 'success' })
+          actions.push({ type: 'complete', label: '交易完成', class: 'success' })
         }
         actions.push({ type: 'cancel', label: '取消交易', class: 'danger' })
         return actions
