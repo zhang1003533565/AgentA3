@@ -139,9 +139,11 @@ export default {
   },
   onLoad() {
     this.loadUser()
+    this.loadStats()
   },
   onShow() {
     this.loadUser()
+    this.loadStats()
   },
   methods: {
     loadUser() {
