@@ -1,6 +1,6 @@
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 ResourceType = Literal[
@@ -11,16 +11,151 @@ ResourceType = Literal[
     "presentation",
     "extended_reading",
 ]
+QuestionType = Literal[
+    "single_choice",
+    "multiple_choice",
+    "true_false",
+    "fill_blank",
+    "code_output",
+]
+REQUIRED_QUESTION_TYPES = frozenset(
+    {"single_choice", "multiple_choice", "true_false", "fill_blank", "code_output"}
+)
 
 
 class StrictWorkflowModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+def _normalize_non_empty_unique(values: List[str], field_name: str) -> List[str]:
+    normalized = [str(value).strip() for value in values]
+    if any(not value for value in normalized):
+        raise ValueError(f"{field_name} must not contain blank values")
+    if len(set(normalized)) != len(normalized):
+        raise ValueError(f"{field_name} must be unique")
+    return normalized
+
+
+class ResourceBrief(StrictWorkflowModel):
+    resourceType: ResourceType
+    goal: str = Field(min_length=1)
+    difficulty: str = ""
+    constraints: List[str] = Field(default_factory=list)
+    evidenceIds: List[str] = Field(min_length=1)
+
+    @field_validator("goal")
+    @classmethod
+    def strip_goal(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("goal must not be blank")
+        return value
+
+    @field_validator("evidenceIds")
+    @classmethod
+    def validate_evidence_ids(cls, values: List[str]) -> List[str]:
+        return _normalize_non_empty_unique(values, "evidenceIds")
+
+
+class LearningPlan(StrictWorkflowModel):
+    pathDraft: Dict[str, Any] = Field(min_length=1)
+    resourceBriefs: List[ResourceBrief] = Field(min_length=1)
+    evidenceIds: List[str] = Field(min_length=1)
+
+    @field_validator("evidenceIds")
+    @classmethod
+    def validate_evidence_ids(cls, values: List[str]) -> List[str]:
+        return _normalize_non_empty_unique(values, "evidenceIds")
+
+    @model_validator(mode="after")
+    def validate_unique_resource_briefs(self):
+        resource_types = [brief.resourceType for brief in self.resourceBriefs]
+        if len(set(resource_types)) != len(resource_types):
+            raise ValueError("resourceBriefs must contain unique resourceType values")
+        return self
+
+
+class KnowledgeNotePayload(StrictWorkflowModel):
+    kind: Literal["knowledge_note"]
+    note: Dict[str, Any] = Field(min_length=1)
+
+
+class MindMapPayload(StrictWorkflowModel):
+    kind: Literal["mind_map"]
+    mindMap: Dict[str, Any] = Field(min_length=1)
+
+
+class PracticeQuestion(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    type: QuestionType
+    stem: str = Field(min_length=1)
+    options: List[Any] = Field(default_factory=list)
+    answer: Any = None
+    explanation: str = ""
+    evidenceIds: List[str] = Field(min_length=1)
+
+    @field_validator("evidenceIds")
+    @classmethod
+    def validate_evidence_ids(cls, values: List[str]) -> List[str]:
+        return _normalize_non_empty_unique(values, "evidenceIds")
+
+
+class PracticeSetPayload(StrictWorkflowModel):
+    kind: Literal["practice_set"]
+    questions: List[PracticeQuestion] = Field(min_length=1)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_required_question_types(self):
+        question_types = {question.type for question in self.questions}
+        missing = sorted(REQUIRED_QUESTION_TYPES - question_types)
+        if missing:
+            raise ValueError(f"practice_set missing required question types: {', '.join(missing)}")
+        return self
+
+
+class CodeLabPayload(StrictWorkflowModel):
+    kind: Literal["code_lab"]
+    codeLab: Dict[str, Any] = Field(min_length=1)
+
+
+class PresentationPayload(StrictWorkflowModel):
+    kind: Literal["presentation"]
+    outline: Any
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("outline")
+    @classmethod
+    def validate_outline(cls, value: Any) -> Any:
+        if value is None or value == "" or value == [] or value == {}:
+            raise ValueError("outline must not be empty")
+        return value
+
+
+class ExtendedReadingPayload(StrictWorkflowModel):
+    kind: Literal["extended_reading"]
+    reading: Dict[str, Any] = Field(min_length=1)
+
+
+ResourcePayload = Annotated[
+    Union[
+        KnowledgeNotePayload,
+        MindMapPayload,
+        PracticeSetPayload,
+        CodeLabPayload,
+        PresentationPayload,
+        ExtendedReadingPayload,
+    ],
+    Field(discriminator="kind"),
+]
+
+
 class WorkflowResource(StrictWorkflowModel):
     resourceType: ResourceType
     agentName: str = Field(min_length=1)
     content: str = Field(min_length=1)
+    payload: ResourcePayload
     evidenceIds: List[str] = Field(min_length=1)
     reviewStatus: Literal["pending", "passed", "rejected"] = "pending"
     reviewIssues: List[str] = Field(default_factory=list)
@@ -36,12 +171,70 @@ class WorkflowResource(StrictWorkflowModel):
     @field_validator("evidenceIds")
     @classmethod
     def normalize_evidence_ids(cls, values: List[str]) -> List[str]:
-        normalized = [str(value).strip() for value in values]
-        if any(not value for value in normalized):
-            raise ValueError("evidenceIds must not contain blank values")
-        if len(set(normalized)) != len(normalized):
-            raise ValueError("evidenceIds must be unique")
-        return normalized
+        return _normalize_non_empty_unique(values, "evidenceIds")
+
+    @model_validator(mode="after")
+    def validate_payload_type(self):
+        if self.payload.kind != self.resourceType:
+            raise ValueError("payload kind must match resourceType")
+        return self
+
+
+class ResourceReviewItem(StrictWorkflowModel):
+    resourceType: ResourceType
+    reviewStatus: Literal["passed", "rejected"]
+    reviewIssues: List[str] = Field(default_factory=list)
+    evidenceIds: List[str] = Field(min_length=1)
+
+    @field_validator("evidenceIds")
+    @classmethod
+    def validate_evidence_ids(cls, values: List[str]) -> List[str]:
+        return _normalize_non_empty_unique(values, "evidenceIds")
+
+
+class ResourceReviewResult(StrictWorkflowModel):
+    reviews: List[ResourceReviewItem] = Field(min_length=1)
+    evidenceIds: List[str] = Field(min_length=1)
+
+    @field_validator("evidenceIds")
+    @classmethod
+    def validate_evidence_ids(cls, values: List[str]) -> List[str]:
+        return _normalize_non_empty_unique(values, "evidenceIds")
+
+    @model_validator(mode="after")
+    def validate_unique_reviews(self):
+        resource_types = [review.resourceType for review in self.reviews]
+        if len(set(resource_types)) != len(resource_types):
+            raise ValueError("reviews must contain unique resourceType values")
+        return self
+
+
+class ResourcePackageMetadata(StrictWorkflowModel):
+    packageId: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    resourceCount: int = Field(ge=5)
+    resourceTypes: List[ResourceType] = Field(min_length=5)
+    evidenceIds: List[str] = Field(min_length=1)
+
+    @field_validator("packageId", "title")
+    @classmethod
+    def strip_package_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("value must not be blank")
+        return value
+
+    @field_validator("evidenceIds")
+    @classmethod
+    def validate_evidence_ids(cls, values: List[str]) -> List[str]:
+        return _normalize_non_empty_unique(values, "evidenceIds")
+
+    @field_validator("resourceTypes")
+    @classmethod
+    def validate_unique_resource_types(cls, values: List[str]) -> List[str]:
+        if len(set(values)) != len(values):
+            raise ValueError("resourceTypes must be unique")
+        return values
 
 
 class LearningWorkflowRequest(StrictWorkflowModel):
@@ -63,15 +256,40 @@ class LearningWorkflowRequest(StrictWorkflowModel):
             raise ValueError("value must not be blank")
         return stripped
 
+    @field_validator("references")
+    @classmethod
+    def canonicalize_references(cls, values: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized: List[Dict[str, Any]] = []
+        seen = set()
+        for index, reference in enumerate(values):
+            if not isinstance(reference, dict):
+                raise ValueError(f"references[{index}] must be an object")
+            identifiers = {
+                str(reference[key]).strip()
+                for key in ("id", "evidenceId", "referenceId")
+                if reference.get(key) is not None and str(reference[key]).strip()
+            }
+            if not identifiers:
+                raise ValueError(f"references[{index}] missing evidence ID")
+            if len(identifiers) != 1:
+                raise ValueError(f"references[{index}] contains conflicting evidence IDs")
+            evidence_id = next(iter(identifiers))
+            if evidence_id in seen:
+                raise ValueError(f"duplicate reference evidence ID: {evidence_id}")
+            seen.add(evidence_id)
+            canonical = {
+                key: value
+                for key, value in reference.items()
+                if key not in {"id", "evidenceId", "referenceId"}
+            }
+            canonical["id"] = evidence_id
+            normalized.append(canonical)
+        return normalized
+
     @field_validator("requestedResourceTypes")
     @classmethod
     def normalize_requested_resource_types(cls, values: List[str]) -> List[str]:
-        normalized = [str(value).strip() for value in values]
-        if any(not value for value in normalized):
-            raise ValueError("requestedResourceTypes must not contain blank values")
-        if len(set(normalized)) != len(normalized):
-            raise ValueError("requestedResourceTypes must be unique")
-        return normalized
+        return _normalize_non_empty_unique(values, "requestedResourceTypes")
 
 
 class WorkflowEvent(StrictWorkflowModel):
@@ -88,13 +306,26 @@ class LearningWorkflowResult(StrictWorkflowModel):
     status: Literal["completed"] = "completed"
     events: List[WorkflowEvent]
     resources: List[WorkflowResource]
-    packageMetadata: Dict[str, Any]
-    pathDraft: Dict[str, Any]
+    packageMetadata: ResourcePackageMetadata
+    pathDraft: Dict[str, Any] = Field(min_length=1)
 
 
 __all__ = [
+    "CodeLabPayload",
+    "ExtendedReadingPayload",
+    "KnowledgeNotePayload",
+    "LearningPlan",
     "LearningWorkflowRequest",
     "LearningWorkflowResult",
+    "MindMapPayload",
+    "PracticeQuestion",
+    "PracticeSetPayload",
+    "PresentationPayload",
+    "ResourceBrief",
+    "ResourcePackageMetadata",
+    "ResourcePayload",
+    "ResourceReviewItem",
+    "ResourceReviewResult",
     "ResourceType",
     "WorkflowEvent",
     "WorkflowResource",

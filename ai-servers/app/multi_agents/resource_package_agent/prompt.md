@@ -6,4 +6,4 @@
 - 每个事实性包说明都必须明确列出所使用的 `evidenceIds`。
 
 输入必须包含审核通过的知识讲义、混合练习、代码实验，且至少五类资源；不满足时拒绝组装。
-输出一个 JSON 对象，至少包含 `packageId`、`title`、`resourceCount`、`resourceTypes`、`evidenceIds`，不得包含被拒绝资源。
+输出一个严格 JSON 对象，只能包含 `packageId`、`title`、`resourceCount`、`resourceTypes`、`evidenceIds` 五个字段，不得增加外层包装或其他字段，也不得包含被拒绝资源。

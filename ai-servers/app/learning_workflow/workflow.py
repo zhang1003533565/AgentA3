@@ -1,11 +1,16 @@
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Sequence, Set
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set
+
+from pydantic import ValidationError
 
 from app.learning_workflow.models import (
+    LearningPlan,
     LearningWorkflowRequest,
     LearningWorkflowResult,
+    ResourcePackageMetadata,
+    ResourceReviewResult,
     WorkflowEvent,
     WorkflowResource,
 )
@@ -38,10 +43,16 @@ class ResourceJob:
 
 def run_learning_workflow(
     request: LearningWorkflowRequest,
-    runner: Any,
+    runner: Any = None,
 ) -> LearningWorkflowResult:
     if not isinstance(request, LearningWorkflowRequest):
         request = LearningWorkflowRequest.model_validate(request)
+
+    _validate_requested_resource_types(request.requestedResourceTypes)
+    if runner is None:
+        from app.multi_agents.runner import LearningWorkflowRunner
+
+        runner = LearningWorkflowRunner()
 
     allowed_evidence_ids = _reference_ids(request.references)
     events: List[WorkflowEvent] = []
@@ -54,11 +65,13 @@ def run_learning_workflow(
         ),
         "learning_path_agent",
     )
-    _validate_declared_evidence(plan_payload, allowed_evidence_ids, "learning_path_agent")
-    path_draft = _path_draft(plan_payload)
+    plan = _validate_model(LearningPlan, plan_payload, "learning_path_agent")
+    _validate_declared_evidence(plan.model_dump(mode="json"), allowed_evidence_ids, "learning_path_agent")
+    _validate_plan_briefs(plan, request.requestedResourceTypes)
+    path_draft = dict(plan.pathDraft)
     _append_event(events, "planning", "learning_path_agent", message="学习路径规划完成")
 
-    jobs = resource_jobs(request, plan_payload)
+    jobs = resource_jobs(request, plan)
     drafts_by_type: Dict[str, WorkflowResource] = {}
     with ThreadPoolExecutor(max_workers=MAX_PARALLELISM) as pool:
         future_jobs = {
@@ -91,8 +104,9 @@ def run_learning_workflow(
         ),
         "resource_review_agent",
     )
-    _validate_declared_evidence(review_payload, allowed_evidence_ids, "resource_review_agent")
-    reviewed = apply_review(drafts, review_payload)
+    review = _validate_model(ResourceReviewResult, review_payload, "resource_review_agent")
+    _validate_declared_evidence(review.model_dump(mode="json"), allowed_evidence_ids, "resource_review_agent")
+    reviewed = apply_review(drafts, review)
     _append_event(events, "review", "resource_review_agent", message="资源审核完成")
 
     rewritten = rewrite_rejected_once(
@@ -110,6 +124,8 @@ def run_learning_workflow(
                 after.resourceType,
                 "拒绝资源已完成唯一一次重写",
             )
+    if any(resource.reviewStatus == "rejected" for resource in reviewed):
+        _append_event(events, "review", "resource_review_agent", message="重写资源权威复审完成")
 
     passed_resources = validate_package_threshold(rewritten)
     package_payload = _parse_agent_payload(
@@ -121,12 +137,12 @@ def run_learning_workflow(
         "resource_package_agent",
     )
     _validate_declared_evidence(package_payload, allowed_evidence_ids, "resource_package_agent")
-    package_metadata = package_payload.get(
-        "packageMetadata",
-        package_payload.get("metadata", package_payload),
+    package_metadata = _validate_model(
+        ResourcePackageMetadata,
+        package_payload,
+        "resource_package_agent",
     )
-    if not isinstance(package_metadata, dict):
-        raise LearningWorkflowError("resource_package_agent 的 packageMetadata 必须是对象")
+    _validate_package_metadata(package_metadata, passed_resources)
     _append_event(events, "packaging", "resource_package_agent", message="学习资源包组装完成")
     _append_event(events, "completed", message="学习资源协作 DAG 完成")
 
@@ -156,16 +172,11 @@ def build_plan_input(request: LearningWorkflowRequest) -> str:
 
 def resource_jobs(
     request: LearningWorkflowRequest,
-    plan: Mapping[str, Any],
+    plan: LearningPlan,
 ) -> List[ResourceJob]:
-    unknown = sorted(set(request.requestedResourceTypes) - set(RESOURCE_AGENT_BY_TYPE))
-    if unknown:
-        raise LearningWorkflowError(f"不支持的资源类型：{', '.join(unknown)}")
-
     briefs = {
-        str(item.get("resourceType")): item
-        for item in plan.get("resourceBriefs", [])
-        if isinstance(item, dict) and item.get("resourceType")
+        brief.resourceType: brief.model_dump(mode="json")
+        for brief in plan.resourceBriefs
     }
     requested = set(request.requestedResourceTypes)
     jobs: List[ResourceJob] = []
@@ -183,8 +194,8 @@ def resource_jobs(
                         "courseKey": request.courseKey,
                         "topic": request.topic,
                         "resourceType": resource_type,
-                        "resourceBrief": briefs.get(resource_type, {}),
-                        "pathDraft": _path_draft(plan),
+                        "resourceBrief": briefs[resource_type],
+                        "pathDraft": plan.pathDraft,
                         "profileSnapshot": request.profileSnapshot,
                         "masterySnapshot": request.masterySnapshot,
                         "pathSnapshot": request.pathSnapshot,
@@ -220,24 +231,35 @@ def to_resource(
     issues = payload.get("reviewIssues", [])
     if not isinstance(issues, list):
         raise LearningWorkflowError(f"{job.agent} 的 reviewIssues 必须是列表")
-    return WorkflowResource(
-        resourceType=job.resource_type,
-        agentName=job.agent,
-        content=content,
-        evidenceIds=evidence_ids,
-        reviewStatus=review_status,
-        reviewIssues=[str(issue) for issue in issues],
-    )
+    try:
+        return WorkflowResource(
+            resourceType=job.resource_type,
+            agentName=job.agent,
+            content=content,
+            payload=_resource_payload(job.resource_type, payload, content),
+            evidenceIds=evidence_ids,
+            reviewStatus=review_status,
+            reviewIssues=[str(issue) for issue in issues],
+        )
+    except ValidationError as exc:
+        raise LearningWorkflowError(f"{job.agent} 资源合同无效：{exc}") from exc
 
 
-def build_review_input(resources: Sequence[WorkflowResource]) -> str:
+def build_review_input(
+    resources: Sequence[WorkflowResource],
+    review_scope: str = "initial_batch",
+) -> str:
+    if review_scope not in {"initial_batch", "rewritten_subset"}:
+        raise LearningWorkflowError(f"不支持的 reviewScope：{review_scope}")
     return _json_input(
         {
+            "reviewScope": review_scope,
             "resources": [resource.model_dump(mode="json") for resource in resources],
             "requirements": {
                 "mandatoryResourceTypes": sorted(MANDATORY_RESOURCE_TYPES),
                 "minimumPassedResourceTypes": MIN_PASSED_RESOURCES,
                 "rejectOnUnsupportedEvidenceId": True,
+                "packageThresholdApplies": review_scope == "initial_batch",
             },
             "referencePolicy": _reference_policy(),
         }
@@ -246,49 +268,27 @@ def build_review_input(resources: Sequence[WorkflowResource]) -> str:
 
 def apply_review(
     drafts: Sequence[WorkflowResource],
-    review: Mapping[str, Any],
+    review: ResourceReviewResult,
 ) -> List[WorkflowResource]:
-    raw_reviews = review.get("reviews", review.get("resources", review.get("items")))
-    if not isinstance(raw_reviews, list):
-        raise LearningWorkflowError("resource_review_agent 必须返回 reviews 列表")
-
-    decisions: Dict[str, Dict[str, Any]] = {}
     known_types = {resource.resourceType for resource in drafts}
-    for item in raw_reviews:
-        if not isinstance(item, dict):
-            raise LearningWorkflowError("resource_review_agent 的审核项必须是对象")
-        resource_type = str(item.get("resourceType") or "")
-        if resource_type not in known_types:
-            raise LearningWorkflowError(f"resource_review_agent 返回未知资源类型：{resource_type}")
-        if resource_type in decisions:
-            raise LearningWorkflowError(f"resource_review_agent 重复审核资源：{resource_type}")
-        decisions[resource_type] = item
+    decisions = {item.resourceType: item for item in review.reviews}
+    if set(decisions) != known_types:
+        missing = sorted(known_types - set(decisions))
+        unexpected = sorted(set(decisions) - known_types)
+        raise LearningWorkflowError(
+            f"resource_review_agent reviews 与资源不一致；missing={missing}, unexpected={unexpected}"
+        )
 
     reviewed: List[WorkflowResource] = []
     for draft in drafts:
-        decision = decisions.get(draft.resourceType)
-        if decision is None:
-            reviewed.append(
-                draft.model_copy(
-                    update={
-                        "reviewStatus": "rejected",
-                        "reviewIssues": ["审核结果缺失，按失败关闭策略拒绝"],
-                    }
-                )
-            )
-            continue
-        status = decision.get("reviewStatus", decision.get("status"))
-        if status not in {"passed", "rejected"}:
-            status = "rejected"
-        issues = decision.get("reviewIssues", decision.get("issues", []))
-        if not isinstance(issues, list):
-            issues = [str(issues)]
-        if status == "rejected" and not issues:
+        decision = decisions[draft.resourceType]
+        issues = decision.reviewIssues
+        if decision.reviewStatus == "rejected" and not issues:
             issues = ["审核未通过但未提供具体问题"]
         reviewed.append(
             draft.model_copy(
                 update={
-                    "reviewStatus": status,
+                    "reviewStatus": decision.reviewStatus,
                     "reviewIssues": [str(issue) for issue in issues],
                 }
             )
@@ -301,12 +301,13 @@ def rewrite_rejected_once(
     request: LearningWorkflowRequest,
     runner: Any,
     *,
-    allowed_evidence_ids: Set[str] = None,
+    allowed_evidence_ids: Optional[Set[str]] = None,
 ) -> List[WorkflowResource]:
     allowed_ids = allowed_evidence_ids or _reference_ids(request.references)
     rejected = [resource for resource in reviewed if resource.reviewStatus == "rejected"]
     rewritten_by_type: Dict[str, WorkflowResource] = {}
     if rejected:
+        rewritten_candidates: Dict[str, WorkflowResource] = {}
         with ThreadPoolExecutor(max_workers=MAX_PARALLELISM) as pool:
             future_resources = {
                 pool.submit(
@@ -337,11 +338,30 @@ def rewrite_rejected_once(
                     future.result(),
                     allowed_ids,
                 )
-                if candidate.reviewStatus != "rejected":
-                    candidate = candidate.model_copy(
-                        update={"reviewStatus": "passed", "reviewIssues": []}
-                    )
-                rewritten_by_type[resource.resourceType] = candidate
+                rewritten_candidates[resource.resourceType] = candidate
+
+        ordered_candidates = [
+            rewritten_candidates[resource.resourceType]
+            for resource in rejected
+        ]
+        review_payload = _parse_agent_payload(
+            runner.run(
+                "resource_review_agent",
+                build_review_input(ordered_candidates, review_scope="rewritten_subset"),
+                request.references,
+            ),
+            "resource_review_agent",
+        )
+        review = _validate_model(ResourceReviewResult, review_payload, "resource_review_agent")
+        _validate_declared_evidence(
+            review.model_dump(mode="json"),
+            allowed_ids,
+            "resource_review_agent",
+        )
+        rewritten_by_type = {
+            resource.resourceType: resource
+            for resource in apply_review(ordered_candidates, review)
+        }
 
     return [rewritten_by_type.get(resource.resourceType, resource) for resource in reviewed]
 
@@ -381,12 +401,116 @@ def build_package_input(
     )
 
 
+def _resource_payload(resource_type: str, payload: Mapping[str, Any], content: str) -> Dict[str, Any]:
+    envelope_fields = {
+        "resourceType", "agentName", "content", "evidenceIds",
+        "reviewStatus", "reviewIssues", "payload",
+    }
+    structured = {
+        key: value
+        for key, value in payload.items()
+        if key not in envelope_fields
+    }
+    explicit_payload = payload.get("payload")
+    if explicit_payload is not None:
+        if not isinstance(explicit_payload, Mapping):
+            raise LearningWorkflowError("resource payload 必须是对象")
+        if structured:
+            raise LearningWorkflowError(
+                f"resource payload 与顶层结构字段冲突：{sorted(structured)}"
+            )
+        return dict(explicit_payload)
+
+    if resource_type == "knowledge_note":
+        return {
+            "kind": "knowledge_note",
+            "note": structured or {"markdown": content},
+        }
+    if resource_type == "mind_map":
+        return {
+            "kind": "mind_map",
+            "mindMap": structured or {"content": content},
+        }
+    if resource_type == "practice_set":
+        questions = structured.pop("questions", None)
+        return {
+            "kind": "practice_set",
+            "questions": questions,
+            "metadata": structured,
+        }
+    if resource_type == "code_lab":
+        return {
+            "kind": "code_lab",
+            "codeLab": structured or {"markdown": content},
+        }
+    if resource_type == "presentation":
+        outline = structured.pop("outline", content)
+        return {
+            "kind": "presentation",
+            "outline": outline,
+            "metadata": structured,
+        }
+    if resource_type == "extended_reading":
+        return {
+            "kind": "extended_reading",
+            "reading": structured or {"markdown": content},
+        }
+    raise LearningWorkflowError(f"不支持的资源类型：{resource_type}")
+
+
+def _validate_requested_resource_types(requested_resource_types: Sequence[str]) -> None:
+    requested = list(requested_resource_types)
+    unknown = sorted(set(requested) - set(RESOURCE_AGENT_BY_TYPE))
+    if unknown:
+        raise LearningWorkflowError(f"不支持的资源类型：{', '.join(unknown)}")
+    if len(requested) < MIN_PASSED_RESOURCES:
+        raise LearningWorkflowError("requestedResourceTypes 至少 5 类")
+    missing = sorted(MANDATORY_RESOURCE_TYPES - set(requested))
+    if missing:
+        raise LearningWorkflowError(
+            f"requestedResourceTypes 必须包含：{', '.join(missing)}"
+        )
+
+
+def _validate_plan_briefs(plan: LearningPlan, requested_resource_types: Sequence[str]) -> None:
+    actual = {brief.resourceType for brief in plan.resourceBriefs}
+    expected = set(requested_resource_types)
+    if actual != expected:
+        missing = sorted(expected - actual)
+        unexpected = sorted(actual - expected)
+        raise LearningWorkflowError(
+            f"resourceBriefs 与请求不一致；missing={missing}, unexpected={unexpected}"
+        )
+
+
+def _validate_package_metadata(
+    package: ResourcePackageMetadata,
+    passed_resources: Sequence[WorkflowResource],
+) -> None:
+    expected_types = [resource.resourceType for resource in passed_resources]
+    if package.resourceCount != len(passed_resources):
+        raise LearningWorkflowError(
+            f"resourceCount={package.resourceCount} 与通过资源数 {len(passed_resources)} 不一致"
+        )
+    if package.resourceTypes != expected_types:
+        raise LearningWorkflowError(
+            f"resourceTypes={package.resourceTypes} 与通过资源顺序 {expected_types} 不一致"
+        )
+
+
+def _validate_model(model_type: Any, payload: Mapping[str, Any], agent_name: str):
+    try:
+        return model_type.model_validate(payload)
+    except ValidationError as exc:
+        raise LearningWorkflowError(f"{agent_name} 输出合同无效：{exc}") from exc
+
+
 def _reference_ids(references: Iterable[Mapping[str, Any]]) -> Set[str]:
     ids: Set[str] = set()
     for index, reference in enumerate(references):
         if not isinstance(reference, Mapping):
             raise LearningWorkflowError(f"references[{index}] 必须是对象")
-        raw_id = reference.get("evidenceId") or reference.get("id") or reference.get("referenceId")
+        raw_id = reference.get("id")
         evidence_id = str(raw_id or "").strip()
         if not evidence_id:
             raise LearningWorkflowError(f"references[{index}] 缺少证据 ID")
@@ -417,6 +541,8 @@ def _declared_evidence_lists(payload: Any):
             if normalized_key == "evidenceids":
                 if not isinstance(value, list):
                     raise LearningWorkflowError("evidenceIds 必须是列表")
+                if not value:
+                    raise LearningWorkflowError("evidenceIds 必须是非空列表")
                 yield value
             else:
                 yield from _declared_evidence_lists(value)
@@ -449,19 +575,6 @@ def _parse_agent_payload(raw_output: Any, agent_name: str) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         raise LearningWorkflowError(f"{agent_name} 必须返回 JSON 对象")
     return payload
-
-
-def _path_draft(plan: Mapping[str, Any]) -> Dict[str, Any]:
-    path_draft = plan.get("pathDraft", plan.get("path"))
-    if path_draft is None:
-        path_draft = {
-            key: value
-            for key, value in plan.items()
-            if key not in {"resourceBriefs", "evidenceIds", "evidence_ids"}
-        }
-    if not isinstance(path_draft, dict):
-        raise LearningWorkflowError("learning_path_agent 的 pathDraft 必须是对象")
-    return dict(path_draft)
 
 
 def _append_event(

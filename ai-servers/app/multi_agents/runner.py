@@ -1,5 +1,6 @@
+import json
 from importlib import import_module
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import HTTPException
 
@@ -34,6 +35,106 @@ def run_specialist_agent(
     raise HTTPException(status_code=400, detail=f"不支持的智能体：{normalized}")
 
 
+class LearningWorkflowRunner:
+    """Production adapter from registered specialist dispatch to workflow contracts."""
+
+    def __init__(
+        self,
+        chat_service=None,
+        dispatcher: Optional[Callable[..., str]] = None,
+    ):
+        self.chat_service = chat_service
+        self.dispatcher = dispatcher or run_specialist_agent
+
+    def run(
+        self,
+        agent_name: str,
+        input_text: str,
+        evidence: List[Dict[str, Any]],
+    ) -> str:
+        answer = self.dispatcher(
+            agent_name,
+            input_text,
+            evidence,
+            chat_service=self.chat_service,
+        )
+        if agent_name not in {
+            "textbook_knowledge_agent",
+            "diagram_mind_map_agent",
+            "ppt_outline_agent",
+        }:
+            return answer
+        evidence_ids = _workflow_evidence_ids(evidence)
+        return _adapt_legacy_workflow_resource(agent_name, answer, evidence_ids)
+
+
+def _workflow_evidence_ids(evidence: List[Dict[str, Any]]) -> List[str]:
+    evidence_ids: List[str] = []
+    for index, item in enumerate(evidence or []):
+        evidence_id = str(item.get("id") or "").strip() if isinstance(item, dict) else ""
+        if not evidence_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"学习工作流 evidence[{index}] 缺少 canonical id",
+            )
+        if evidence_id not in evidence_ids:
+            evidence_ids.append(evidence_id)
+    if not evidence_ids:
+        raise HTTPException(status_code=400, detail="学习工作流必须提供 evidence")
+    return evidence_ids
+
+
+def _adapt_legacy_workflow_resource(
+    agent_name: str,
+    answer: str,
+    evidence_ids: List[str],
+) -> str:
+    content = str(answer or "").strip()
+    if not content:
+        raise HTTPException(status_code=502, detail=f"{agent_name} 返回内容为空")
+    if agent_name == "textbook_knowledge_agent":
+        payload = {
+            "resourceType": "knowledge_note",
+            "content": content,
+            "payload": {
+                "kind": "knowledge_note",
+                "note": {"markdown": content},
+            },
+            "evidenceIds": evidence_ids,
+        }
+    elif agent_name == "diagram_mind_map_agent":
+        try:
+            mind_map = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail="diagram_mind_map_agent 返回内容不是合法 JSON",
+            ) from exc
+        if not isinstance(mind_map, dict) or not mind_map:
+            raise HTTPException(
+                status_code=502,
+                detail="diagram_mind_map_agent 返回空图片结果",
+            )
+        payload = {
+            "resourceType": "mind_map",
+            "content": content,
+            "payload": {"kind": "mind_map", "mindMap": mind_map},
+            "evidenceIds": evidence_ids,
+        }
+    else:
+        payload = {
+            "resourceType": "presentation",
+            "content": content,
+            "payload": {
+                "kind": "presentation",
+                "outline": content,
+                "metadata": {},
+            },
+            "evidenceIds": evidence_ids,
+        }
+    return json.dumps(payload, ensure_ascii=False)
+
+
 def _load_agent(agent_name: str) -> Any:
     if agent_name not in AGENT_PROFILES:
         raise HTTPException(status_code=400, detail=f"不支持的智能体：{agent_name}")
@@ -48,3 +149,6 @@ def _load_agent(agent_name: str) -> Any:
     if agent is None:
         raise HTTPException(status_code=500, detail=f"{agent_name} 智能体目录缺少运行实例")
     return agent
+
+
+__all__ = ["LearningWorkflowRunner", "run_specialist_agent"]
