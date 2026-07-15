@@ -343,7 +343,7 @@ def get_rag_capabilities(
             "purpose": "把 Java 画像快照总结为强项、欠缺、置信依据和补证建议；不修改画像分数。",
             "output": "strict_profile_summary_json",
         },
-        "agents": AGENT_ORDER,
+        "agents": ["leader_agent", *LEADER_CALLABLE_AGENT_ORDER],
         "agentInvocation": {
             "chatParameter": "agentName",
             "ragQueryParameter": "agentName",

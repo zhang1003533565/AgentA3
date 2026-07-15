@@ -126,6 +126,15 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertNotIn("indexing", payload)
         self.assertNotIn("retrieval", payload)
         self.assertIn("textbook_knowledge_agent", payload["agents"])
+        self.assertIn("leader_agent", payload["agents"])
+        self.assertTrue(
+            INTERNAL_LEARNING_WORKFLOW_AGENTS.isdisjoint(payload["agents"])
+        )
+        catalog = self.client.get("/internal/rag/agents", headers=self.headers).json()
+        callable_names = {
+            item["name"] for item in catalog["leaderCallableCatalog"]["agents"]
+        }
+        self.assertEqual(set(payload["agents"]), {"leader_agent", *callable_names})
 
     def test_framework_endpoint_describes_full_runtime_layout(self):
         response = self.client.get("/internal/rag/framework", headers=self.headers)
@@ -304,6 +313,18 @@ class RagApiRoutesTest(unittest.TestCase):
             leader_callable_names,
             {"textbook_knowledge_agent", "ppt_outline_agent", "diagram_mind_map_agent"},
         )
+        internal_agents = {
+            item["name"]: item
+            for item in payload["agents"]
+            if item["name"] in INTERNAL_LEARNING_WORKFLOW_AGENTS
+        }
+        self.assertEqual(set(internal_agents), INTERNAL_LEARNING_WORKFLOW_AGENTS)
+        for agent in internal_agents.values():
+            self.assertEqual("workflow_internal", agent["executionMode"])
+            self.assertEqual(
+                "workflow_internal",
+                agent["invokeExample"]["executionMode"],
+            )
 
     def test_agent_detail_endpoint_returns_single_agent(self):
         response = self.client.get("/internal/rag/agents/leader_agent", headers=self.headers)

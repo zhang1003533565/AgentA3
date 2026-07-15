@@ -177,8 +177,8 @@ def _learning_workflow_agent_profile(
         "skills": ["typed learning workflow", "evidence grounding", intent],
         "intent": intent,
         "needRetrieval": False,
-        "executionMode": "direct_agent",
-        "executionModeLabel": f"直接生成{role.replace('智能体', '')}结果",
+        "executionMode": "workflow_internal",
+        "executionModeLabel": "仅由 Python 学习资源 DAG 内部调用",
         "defaultRagStrategy": "",
         "supportedRagStrategies": [],
         "aliases": [intent, role, role.replace("智能体", ""), agent_name],
@@ -458,6 +458,7 @@ def get_agent_catalog() -> Dict[str, Any]:
             "leader_call_tool": "Leader 调用接口/工具",
             "leader_routed_direct_agent": "Leader 分发给非检索智能体",
             "direct_agent": "专业智能体直接处理",
+            "workflow_internal": "仅供学习资源 DAG 内部协作调用",
         },
         "workflow": {
             "default": ["leader_agent", "textbook_knowledge_agent"],
@@ -562,7 +563,7 @@ def _build_agent(agent_name: str, include_documents: bool) -> Dict[str, Any]:
                 else (
                     {"ragStrategy": profile["defaultRagStrategy"]}
                     if profile["needRetrieval"]
-                    else {"executionMode": "direct_agent"}
+                    else {"executionMode": profile["executionMode"]}
                 )
             ),
         },

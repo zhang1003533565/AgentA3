@@ -312,6 +312,18 @@ def rewrite_rejected_once(
 ) -> List[WorkflowResource]:
     allowed_ids = allowed_evidence_ids or _reference_ids(request.references)
     rejected = [resource for resource in reviewed if resource.reviewStatus == "rejected"]
+    authoritative_ids_by_type = {
+        resource.resourceType: set(resource.evidenceIds)
+        for resource in rejected
+    }
+    rewrite_references_by_type = {
+        resource.resourceType: _select_references(
+            request.references,
+            resource.evidenceIds,
+            allowed_ids,
+        )
+        for resource in rejected
+    }
     rewritten_by_type: Dict[str, WorkflowResource] = {}
     if rejected:
         rewritten_candidates: Dict[str, WorkflowResource] = {}
@@ -341,7 +353,7 @@ def rewrite_rejected_once(
                             "referencePolicy": _reference_policy(),
                         }
                     ),
-                    request.references,
+                    rewrite_references_by_type[resource.resourceType],
                 ): resource
                 for resource in rejected
             }
@@ -350,7 +362,7 @@ def rewrite_rejected_once(
                 candidate = to_resource(
                     ResourceJob(resource.resourceType, resource.agentName, ""),
                     future.result(),
-                    allowed_ids,
+                    authoritative_ids_by_type[resource.resourceType],
                 )
                 rewritten_candidates[resource.resourceType] = candidate
 
@@ -358,23 +370,40 @@ def rewrite_rejected_once(
             rewritten_candidates[resource.resourceType]
             for resource in rejected
         ]
+        review_allowed_ids = set().union(*authoritative_ids_by_type.values())
+        review_references = _select_references(
+            request.references,
+            [
+                str(reference["id"]).strip()
+                for reference in request.references
+                if str(reference["id"]).strip() in review_allowed_ids
+            ],
+            allowed_ids,
+        )
         review_payload = _parse_agent_payload(
             runner.run(
                 "resource_review_agent",
                 build_review_input(ordered_candidates, review_scope="rewritten_subset"),
-                request.references,
+                review_references,
             ),
             "resource_review_agent",
         )
         review = _validate_model(ResourceReviewResult, review_payload, "resource_review_agent")
         _validate_declared_evidence(
             review.model_dump(mode="json"),
-            allowed_ids,
+            review_allowed_ids,
             "resource_review_agent",
         )
+        reviewed_candidates = apply_review(ordered_candidates, review)
+        for decision in review.reviews:
+            _validate_declared_evidence(
+                decision.model_dump(mode="json"),
+                authoritative_ids_by_type[decision.resourceType],
+                "resource_review_agent",
+            )
         rewritten_by_type = {
             resource.resourceType: resource
-            for resource in apply_review(ordered_candidates, review)
+            for resource in reviewed_candidates
         }
 
     return [rewritten_by_type.get(resource.resourceType, resource) for resource in reviewed]
@@ -532,6 +561,24 @@ def _reference_ids(references: Iterable[Mapping[str, Any]]) -> Set[str]:
     if not ids:
         raise LearningWorkflowError("references 必须至少提供一个证据 ID")
     return ids
+
+
+def _select_references(
+    references: Sequence[Mapping[str, Any]],
+    evidence_ids: Sequence[str],
+    allowed_evidence_ids: Set[str],
+) -> List[Mapping[str, Any]]:
+    normalized_ids = [str(evidence_id).strip() for evidence_id in evidence_ids]
+    _validate_declared_evidence(
+        {"evidenceIds": normalized_ids},
+        allowed_evidence_ids,
+        "rewrite",
+    )
+    references_by_id = {
+        str(reference.get("id") or "").strip(): reference
+        for reference in references
+    }
+    return [references_by_id[evidence_id] for evidence_id in normalized_ids]
 
 
 def _validate_declared_evidence(

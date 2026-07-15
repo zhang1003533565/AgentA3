@@ -912,6 +912,137 @@ def test_legacy_rewrite_uses_current_resource_authoritative_evidence_subset(
     rewrite_call = next(call for call in calls if call[0] == agent_name)
     assert rewrite_call[1]["resourceBrief"]["evidenceIds"] == ["ev-python-2"]
     assert rewrite_call[2] == [request.references[1]]
+    assert all(call[2] == [request.references[1]] for call in calls)
+
+
+def test_typed_rewrite_rejects_evidence_expansion_beyond_original_resource():
+    calls = []
+
+    class EvidenceExpandingRunner:
+        def run(self, agent_name, input_text, evidence):
+            calls.append((agent_name, json.loads(input_text), evidence))
+            if agent_name == "python_code_lab_agent":
+                return json.dumps(
+                    {
+                        "resourceType": "code_lab",
+                        "content": "扩权后的代码实验",
+                        "codeBlocks": [
+                            {"language": "python", "code": "print('expanded')"}
+                        ],
+                        "evidenceIds": ["ev-2"],
+                    },
+                    ensure_ascii=False,
+                )
+            if agent_name == "resource_review_agent":
+                return json.dumps(
+                    {
+                        "evidenceIds": ["ev-2"],
+                        "reviews": [
+                            {
+                                "resourceType": "code_lab",
+                                "reviewStatus": "passed",
+                                "reviewIssues": [],
+                                "evidenceIds": ["ev-2"],
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                )
+            raise AssertionError(agent_name)
+
+    request = build_request(
+        references=[
+            {"id": "ev-1", "source": "maxkb", "content": "循环证据"},
+            {"id": "ev-2", "source": "maxkb", "content": "函数证据"},
+        ]
+    )
+    reviewed = WorkflowResource(
+        resourceType="code_lab",
+        agentName="python_code_lab_agent",
+        content="原代码实验",
+        payload={
+            "kind": "code_lab",
+            "codeLab": {"codeBlocks": [{"language": "python", "code": "print('old')"}]},
+        },
+        evidenceIds=["ev-1"],
+        reviewStatus="rejected",
+        reviewIssues=["需要重写"],
+    )
+
+    with pytest.raises(ValueError, match="ev-2"):
+        rewrite_rejected_once([reviewed], request, EvidenceExpandingRunner())
+
+    assert calls[0][0] == "python_code_lab_agent"
+    assert calls[0][2] == [request.references[0]]
+    assert all(call[0] != "resource_review_agent" for call in calls)
+
+
+def test_typed_rewrite_review_receives_only_original_authoritative_references():
+    calls = []
+
+    class EvidencePreservingRunner:
+        def run(self, agent_name, input_text, evidence):
+            calls.append((agent_name, json.loads(input_text), evidence))
+            if agent_name == "python_code_lab_agent":
+                return json.dumps(
+                    {
+                        "resourceType": "code_lab",
+                        "content": "重写后的代码实验",
+                        "codeBlocks": [
+                            {"language": "python", "code": "print('preserved')"}
+                        ],
+                        "evidenceIds": ["ev-1"],
+                    },
+                    ensure_ascii=False,
+                )
+            if agent_name == "resource_review_agent":
+                return json.dumps(
+                    {
+                        "evidenceIds": ["ev-1"],
+                        "reviews": [
+                            {
+                                "resourceType": "code_lab",
+                                "reviewStatus": "passed",
+                                "reviewIssues": [],
+                                "evidenceIds": ["ev-1"],
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                )
+            raise AssertionError(agent_name)
+
+    request = build_request(
+        references=[
+            {"id": "ev-1", "source": "maxkb", "content": "循环证据"},
+            {"id": "ev-2", "source": "maxkb", "content": "函数证据"},
+        ]
+    )
+    reviewed = WorkflowResource(
+        resourceType="code_lab",
+        agentName="python_code_lab_agent",
+        content="原代码实验",
+        payload={
+            "kind": "code_lab",
+            "codeLab": {"codeBlocks": [{"language": "python", "code": "print('old')"}]},
+        },
+        evidenceIds=["ev-1"],
+        reviewStatus="rejected",
+        reviewIssues=["需要重写"],
+    )
+
+    rewritten = rewrite_rejected_once(
+        [reviewed],
+        request,
+        EvidencePreservingRunner(),
+    )
+
+    assert rewritten[0].reviewStatus == "passed"
+    assert [call[0] for call in calls] == [
+        "python_code_lab_agent",
+        "resource_review_agent",
+    ]
+    assert all(call[2] == [request.references[0]] for call in calls)
 
 
 class FakeProvider:
