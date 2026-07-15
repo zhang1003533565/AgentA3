@@ -668,5 +668,186 @@ class DetailedFunctionsAndCoreTechnologiesSourceTest(unittest.TestCase):
                 self.assertNotIn(claim, combined)
 
 
+class RemainingProjectDocumentSourceTest(unittest.TestCase):
+    SOURCE_DIR = Path("docs/project-document/source")
+    SOURCE_NAMES = (
+        "00-frontmatter.md",
+        "01-project-overview.md",
+        "02-requirements.md",
+        "03-overall-design.md",
+        "04-detailed-functions.md",
+        "05-core-technologies.md",
+        "06-data-interfaces.md",
+        "07-ui-interaction.md",
+        "08-testing.md",
+        "09-deployment-usage.md",
+        "10-summary-appendices.md",
+    )
+    REMAINING_SOURCES = SOURCE_NAMES[6:]
+
+    def _read_remaining(self, name: str) -> str:
+        path = self.SOURCE_DIR / name
+        self.assertTrue(path.is_file(), f"missing reviewed source: {path}")
+        return path.read_text(encoding="utf-8")
+
+    def _combined_remaining(self) -> str:
+        return "\n".join(self._read_remaining(name) for name in self.REMAINING_SOURCES)
+
+    def test_exactly_eleven_sources_load_with_required_chapters(self):
+        self.assertEqual(
+            tuple(path.name for path in sorted(self.SOURCE_DIR.glob("[0-9][0-9]-*.md"))),
+            self.SOURCE_NAMES,
+        )
+        blocks = load_source(self.SOURCE_DIR)
+        self.assertEqual(
+            [block.text for block in blocks if block.kind == "section_break"],
+            [
+                "前置材料",
+                "第一章 项目概述",
+                "第二章 需求分析",
+                "第三章 总体设计",
+                "第四章 详细功能设计",
+                "第五章 核心技术设计",
+                "第六章 数据与接口设计",
+                "第七章 页面与交互设计",
+                "第八章 测试与验证",
+                "第九章 安装部署与使用",
+                "第十章 项目总结与附录",
+            ],
+        )
+
+    def test_remaining_sources_use_only_supported_directives(self):
+        for name in self.REMAINING_SOURCES:
+            with self.subTest(name=name):
+                text = self._read_remaining(name)
+                blocks = parse_markdown(text, source_name=name)
+                self.assertTrue(blocks)
+                self.assertEqual(
+                    sum(block.kind == "section_break" for block in blocks), 1
+                )
+
+    def test_data_and_interface_scale_and_boundaries_are_explicit(self):
+        text = self._read_remaining("06-data-interfaces.md")
+        required = (
+            "62 个 JPA 实体",
+            "61 个唯一映射表",
+            "逻辑 ID 关系不能作为物理外键已经存在的证明",
+            "52 个控制器",
+            "338 个映射注解",
+            "MaxKB 仅执行 hit-test 检索",
+            "系统 LLM/agent 生成最终回答",
+            "Python 会反向调用 Java，并转发原始 Authorization",
+            "当前 Web 路由与导航未按角色过滤",
+        )
+        for value in required:
+            with self.subTest(value=value):
+                self.assertIn(value, text)
+        for trace_id in ("DATA-01", "DATA-02", "API-01", "API-02", "API-03"):
+            with self.subTest(trace_id=trace_id):
+                self.assertIn(trace_id, text)
+
+    def test_ui_uses_only_the_three_approved_design_images(self):
+        text = self._read_remaining("07-ui-interaction.md")
+        figures = re.findall(
+            r'<!-- FIGURE src="([^"]+)" caption="([^"]+)" width_cm="15\.5" -->',
+            text,
+        )
+        self.assertEqual(len(figures), 3)
+        self.assertEqual(
+            {src for src, _ in figures},
+            {
+                "images/profile-radar-design.png",
+                "images/ai-conversation-design.png",
+                "images/meeting-home-design.png",
+            },
+        )
+        self.assertTrue(all("界面设计稿" in caption for _, caption in figures))
+        self.assertNotIn("docs/images/app-run.png", text)
+        for value in ("SSE", "资源卡片", "下载", "失败恢复", "ASR", "自动保存"):
+            with self.subTest(value=value):
+                self.assertIn(value, text)
+
+    def test_paper_auth_gap_includes_random_preview_and_download(self):
+        disclosure = "随机预览、创建、列表、详情、预览与下载只校验登录"
+        for name in (
+            "06-data-interfaces.md",
+            "07-ui-interaction.md",
+            "09-deployment-usage.md",
+            "10-summary-appendices.md",
+        ):
+            with self.subTest(name=name):
+                self.assertIn(disclosure, self._read_remaining(name))
+
+    def test_generated_figure_names_follow_asset_manifest(self):
+        data = self._read_remaining("06-data-interfaces.md")
+        deployment = self._read_remaining("09-deployment-usage.md")
+        self.assertIn('src="images/core-entity-relations.png"', data)
+        self.assertIn('src="images/deployment-boundary.png"', deployment)
+        self.assertNotIn('src="images/data-entity-relations.png"', data)
+        self.assertNotIn('src="images/deployment-topology.png"', deployment)
+
+    def test_testing_deployment_and_disclosures_match_current_evidence(self):
+        testing = self._read_remaining("08-testing.md")
+        deployment = self._read_remaining("09-deployment-usage.md")
+        appendices = self._read_remaining("10-summary-appendices.md")
+
+        self.assertIn("324 tests / 0 failures / 1 environment error / 1 skipped", testing)
+        self.assertIn("不从缓存计算 Python 测试通过率", testing)
+        self.assertEqual(
+            re.findall(r"(?m)^\| (TC-\d{2}) \|", testing),
+            [f"TC-{index:02d}" for index in range(1, 12)],
+        )
+        for gap in ("性能测试", "真机测试", "渗透测试", "生产端到端测试"):
+            self.assertIn(gap, testing)
+
+        for value in (
+            "MySQL 8",
+            "Redis 7",
+            "Java 21",
+            "React/Vite/Nginx",
+            "HBuilderX",
+            "FastAPI",
+            "Python AI 服务当前单独启动",
+            "AI 服务尚未纳入当前 Compose 与 CI",
+        ):
+            with self.subTest(value=value):
+                self.assertIn(value, deployment)
+
+        disclosures = (
+            "当前业务密码仍采用明文比较",
+            "配置文件中仍存在凭据值",
+            "WebSocket Origin 当前过于宽松",
+            "仅列直接依赖及其版本",
+            "许可证复核尚未完成",
+            "OmX 辅助需求拆解、设计记录、代码实施和测试复核",
+            "最终结果由项目成员审阅并承担责任",
+            "GB/T 7714",
+            "仓库相对路径",
+        )
+        for value in disclosures:
+            with self.subTest(value=value):
+                self.assertIn(value, appendices)
+
+    def test_remaining_sources_exclude_placeholders_secrets_and_absolute_paths(self):
+        text = self._combined_remaining()
+        forbidden = (
+            "TBD",
+            "TODO",
+            "XXX",
+            "待填写",
+            "/Users/",
+            "/home/",
+            "C:\\Users\\",
+            "BEGIN PRIVATE KEY",
+            "AKIA",
+            "全部测试通过",
+            "一条 Compose 命令能够部署全部系统",
+            "已完成全部许可证审计",
+        )
+        for value in forbidden:
+            with self.subTest(value=value):
+                self.assertNotIn(value, text)
+
+
 if __name__ == "__main__":
     unittest.main()
