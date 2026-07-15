@@ -1411,14 +1411,14 @@ DELETE FROM system_config WHERE config_key IN (
 );
 
 INSERT INTO system_config (id, config_key, config_value, config_group, description, status, create_time, update_time) VALUES
-(1, 'jwt.secret', '', 'security', 'JWT 签名密钥', 1, NOW(), NOW()),
+(1, 'jwt.secret', '', 'security', 'JWT 签名密钥', 0, NOW(), NOW()),
 (2, 'jwt.expiration', '86400000', 'security', 'JWT 过期时间，单位毫秒', 1, NOW(), NOW()),
-(3, 'tencent.map.key', '', 'map', '腾讯地图 WebService 密钥', 1, NOW(), NOW()),
+(3, 'tencent.map.key', '', 'map', '腾讯地图 WebService 密钥', 0, NOW(), NOW()),
 (4, 'tencent.map.base-url', 'https://apis.map.qq.com', 'map', '腾讯地图接口基础地址', 1, NOW(), NOW()),
 (5, 'aliyun.oss.endpoint', 'oss-cn-beijing.aliyuncs.com', 'oss', '阿里云 OSS 节点', 1, NOW(), NOW()),
 (6, 'aliyun.oss.bucket-name', 'smart-campus111', 'oss', '阿里云 OSS Bucket 名称', 1, NOW(), NOW()),
-(7, 'aliyun.oss.access-key-id', '', 'oss', '阿里云 OSS AccessKeyId', 1, NOW(), NOW()),
-(8, 'aliyun.oss.access-key-secret', '', 'oss', '阿里云 OSS AccessKeySecret', 1, NOW(), NOW()),
+(7, 'aliyun.oss.access-key-id', '', 'oss', '阿里云 OSS AccessKeyId', 0, NOW(), NOW()),
+(8, 'aliyun.oss.access-key-secret', '', 'oss', '阿里云 OSS AccessKeySecret', 0, NOW(), NOW()),
 (9, 'aliyun.oss.base-url', 'https://smart-campus111.oss-cn-beijing.aliyuncs.com', 'oss', '阿里云 OSS 访问基础地址', 1, NOW(), NOW()),
 (10, 'browser.headless', 'true', 'browser', '浏览器自动化是否无头运行', 1, NOW(), NOW()),
 (11, 'browser.default-url', 'https://jwx.hebiace.edu.cn/', 'browser', '浏览器自动化默认打开地址', 1, NOW(), NOW()),

@@ -12,7 +12,6 @@ import java.util.Date;
 @Component
 public class JwtUtil {
 
-    private static final String DEFAULT_SECRET = "smart-campus-jwt-secret-key-please-change-this-seed-value";
     private static final long DEFAULT_EXPIRATION = 86400000L;
 
     private final SystemConfigService systemConfigService;
@@ -22,7 +21,10 @@ public class JwtUtil {
     }
 
     private SecretKey getSigningKey() {
-        String secret = systemConfigService.getValue("jwt.secret", DEFAULT_SECRET);
+        String secret = systemConfigService.getValue("jwt.secret", null);
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException("JWT secret is not configured");
+        }
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
