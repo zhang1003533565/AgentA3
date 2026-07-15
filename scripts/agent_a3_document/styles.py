@@ -15,8 +15,8 @@ from docx.shared import Cm, Pt, RGBColor
 
 
 LATIN_FONT = "Times New Roman"
-CJK_SERIF_FONT = "Source Han Serif SC"
-CJK_SANS_FONT = "Source Han Sans SC"
+CJK_SERIF_FONT = "PingFang SC"
+CJK_SANS_FONT = "PingFang SC"
 MONO_FONT = "Courier New"
 
 PRIMARY = "0F766E"
@@ -245,18 +245,15 @@ def configure_table(table, column_widths_dxa: tuple[int, ...]) -> None:
             tr_pr.append(OxmlElement("w:tblHeader"))
 
     for row_index, row in enumerate(table.rows):
-        tr_pr = row._tr.get_or_add_trPr()
-        if tr_pr.find(qn("w:cantSplit")) is None:
-            tr_pr.append(OxmlElement("w:cantSplit"))
         for cell in row.cells:
             if row_index == 0:
                 _set_cell_shading(cell, LIGHT_HEADER)
-            _set_cell_margins(cell, top=90, start=110, bottom=90, end=110)
+            _set_cell_margins(cell, top=70, start=110, bottom=70, end=110)
             cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
             for paragraph in cell.paragraphs:
                 paragraph.paragraph_format.first_line_indent = None
-                paragraph.paragraph_format.space_after = Pt(1.5)
-                paragraph.paragraph_format.line_spacing = 1.15
+                paragraph.paragraph_format.space_after = Pt(0.5)
+                paragraph.paragraph_format.line_spacing = 1.10
 
 
 def _set_table_cell_widths(table, column_widths_dxa: tuple[int, ...]) -> None:
@@ -430,6 +427,18 @@ def _configure_styles(document: Document) -> None:
         before=3,
         after=6,
         keep_with_next=True,
+    )
+
+    table_text = _get_or_add_style(styles, "Table Text")
+    _configure_paragraph_style(
+        table_text,
+        latin=LATIN_FONT,
+        east_asia=CJK_SERIF_FONT,
+        size=9,
+        color="222222",
+        alignment=WD_ALIGN_PARAGRAPH.LEFT,
+        line_spacing=1.10,
+        after=0.5,
     )
 
     code = _get_or_add_style(styles, "Code")

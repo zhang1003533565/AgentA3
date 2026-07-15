@@ -2,21 +2,30 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 import re
 from tempfile import TemporaryDirectory
+from typing import Sequence
 
 from PIL import Image
 from docx import Document
 from docx.enum.section import WD_SECTION
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.text import (
+    WD_ALIGN_PARAGRAPH,
+    WD_TAB_ALIGNMENT,
+    WD_TAB_LEADER,
+)
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
+from docx.text.paragraph import Paragraph
 
 from .source_loader import Block, extract_evidence_rows, load_source
 from .styles import (
     BLUE_GRAY,
+    CJK_SERIF_FONT,
     CJK_SANS_FONT,
     DARK,
     LATIN_FONT,
@@ -91,7 +100,154 @@ _EXPECTED_GENERATED_IMAGES = {
 
 _INLINE_RE = re.compile(r"(\*\*.+?\*\*|`[^`]+`)")
 _EXISTING_CAPTION_RE = re.compile(r"^图(?:\d+|[一二三四五六七八九十]+)-\d+\s*")
+_FUNCTION_HEADING_RE = re.compile(r"^\d+\.\d+\s+(FUNC-\d+)\s+")
+_FUNCTION_DETAIL_RE = re.compile(
+    r"^\*\*(?P<label>[^*]+)\*\*[：:]\s*(?P<value>.*)$",
+    re.DOTALL,
+)
+_FUNCTION_DETAIL_LABELS = (
+    "目标",
+    "参与者",
+    "触发条件",
+    "前置条件",
+    "主流程",
+    "替代流程",
+    "异常流程",
+    "后置条件",
+    "业务规则",
+    "涉及接口",
+    "数据实体",
+    "验收条件",
+    "测试编号",
+)
 _WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
+_WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+@dataclass(frozen=True)
+class TocEntry:
+    """One visible cached TOC row retained inside the native TOC field."""
+
+    level: int
+    title: str
+    page: int | str
+
+
+def materialize_toc_cache(
+    docx_path: Path,
+    entries: Sequence[TocEntry],
+) -> Path:
+    """Replace a TOC field's placeholder result with visible dotted entries."""
+
+    path = Path(docx_path)
+    normalized: list[TocEntry] = []
+    for entry in entries:
+        title = " ".join(entry.title.replace("\t", " ").split())
+        if not title:
+            raise ValueError("TOC entry title must not be empty")
+        if entry.level < 0:
+            raise ValueError("TOC entry level must be non-negative")
+        if isinstance(entry.page, bool):
+            raise ValueError("TOC entry page label must be a positive page number")
+        if isinstance(entry.page, int):
+            if entry.page <= 0:
+                raise ValueError("TOC entry page number must be positive")
+            page_label = str(entry.page)
+        else:
+            page_label = " ".join(entry.page.replace("\t", " ").split())
+            if not page_label:
+                raise ValueError("TOC entry page label must not be empty")
+        normalized.append(TocEntry(min(entry.level, 2), title, page_label))
+    if not normalized:
+        raise ValueError("at least one TOC entry is required")
+
+    document = Document(path)
+    toc_paragraph = next(
+        (
+            paragraph
+            for paragraph in document.paragraphs
+            if any(
+                (node.text or "").strip().startswith("TOC ")
+                for node in paragraph._p.findall(
+                    ".//w:instrText", {"w": _WORD_NS}
+                )
+            )
+        ),
+        None,
+    )
+    if toc_paragraph is None:
+        raise ValueError("DOCX does not contain a native TOC field")
+
+    try:
+        cache_style = document.styles["TOC Cache"]
+    except KeyError:
+        cache_style = document.styles.add_style("TOC Cache", WD_STYLE_TYPE.PARAGRAPH)
+        cache_style.font.name = LATIN_FONT
+        cache_style.font.size = Pt(8.5)
+
+    next_element = toc_paragraph._p.getnext()
+    while next_element is not None:
+        style = next_element.find(qn("w:pPr"))
+        style = style.find(qn("w:pStyle")) if style is not None else None
+        if style is None or style.get(qn("w:val")) != cache_style.style_id:
+            break
+        following = next_element.getnext()
+        next_element.getparent().remove(next_element)
+        next_element = following
+
+    toc_paragraph.clear()
+    toc_paragraph.style = cache_style
+    field_run = toc_paragraph.add_run()
+    begin = OxmlElement("w:fldChar")
+    begin.set(qn("w:fldCharType"), "begin")
+    begin.set(qn("w:dirty"), "true")
+    instruction = OxmlElement("w:instrText")
+    instruction.set(qn("xml:space"), "preserve")
+    instruction.text = 'TOC \\o "1-3" \\h \\z \\u'
+    separate = OxmlElement("w:fldChar")
+    separate.set(qn("w:fldCharType"), "separate")
+    field_run._r.extend((begin, instruction, separate))
+
+    paragraphs = [toc_paragraph]
+    for _ in normalized[1:]:
+        element = OxmlElement("w:p")
+        paragraphs[-1]._p.addnext(element)
+        paragraph = Paragraph(element, toc_paragraph._parent)
+        paragraph.style = cache_style
+        paragraphs.append(paragraph)
+
+    for paragraph, entry in zip(paragraphs, normalized):
+        paragraph_format = paragraph.paragraph_format
+        paragraph_format.left_indent = Cm(0.55 * entry.level)
+        paragraph_format.right_indent = None
+        paragraph_format.space_before = Pt(0)
+        paragraph_format.space_after = Pt(0)
+        paragraph_format.line_spacing = 1.0
+        paragraph_format.keep_together = True
+        paragraph_format.tab_stops.add_tab_stop(
+            Cm(16.1), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS
+        )
+
+        title_run = paragraph.add_run(entry.title)
+        title_run.font.size = Pt(8.5 if entry.level == 0 else 8.0)
+        title_run.bold = bool(re.match(r"^第[一二三四五六七八九十]+章", entry.title))
+        _set_run_fonts(title_run, east_asia=CJK_SANS_FONT)
+        tab_run = paragraph.add_run("\t")
+        _set_run_fonts(tab_run, east_asia=CJK_SANS_FONT)
+        page_run = paragraph.add_run(str(entry.page))
+        page_run.font.size = title_run.font.size
+        _set_run_fonts(page_run, east_asia=CJK_SANS_FONT)
+
+    end_run = paragraphs[-1].add_run()
+    end = OxmlElement("w:fldChar")
+    end.set(qn("w:fldCharType"), "end")
+    end_run._r.append(end)
+
+    with TemporaryDirectory(prefix=".agent-a3-toc-", dir=path.parent) as temporary_dir:
+        temporary_path = Path(temporary_dir) / path.name
+        document.save(temporary_path)
+        temporary_path.replace(path)
+    return path
 
 
 def build_document(
@@ -150,9 +306,34 @@ class _DocumentBuilder:
     def build(self) -> Path:
         self._preflight()
         self._initialize_document()
-        for block in self.blocks:
+        index = 0
+        while index < len(self.blocks):
+            block = self.blocks[index]
             self._render_block(block)
             self.previous_block_kind = block.kind
+            function_match = (
+                _FUNCTION_HEADING_RE.match(block.text)
+                if block.kind == "heading" and block.level == 2
+                else None
+            )
+            if function_match is not None:
+                detail_start = index + 1
+                detail_end = detail_start
+                while detail_end < len(self.blocks):
+                    candidate = self.blocks[detail_end]
+                    if candidate.kind == "section_break" or (
+                        candidate.kind == "heading" and candidate.level <= block.level
+                    ):
+                        break
+                    detail_end += 1
+                self._render_function_details(
+                    function_match.group(1),
+                    self.blocks[detail_start:detail_end],
+                )
+                self.previous_block_kind = "table"
+                index = detail_end
+                continue
+            index += 1
         if self.pending_supplement is not None:
             self._render_pending_supplement()
 
@@ -334,7 +515,13 @@ class _DocumentBuilder:
         else:
             style = f"Heading {min(block.level - 1, 3)}"
         paragraph = self.document.add_paragraph(style=style)
-        self._add_inline_text(paragraph, block.text)
+        if self.cover_mode and block.level == 1 and "——" in block.text:
+            system_title, separator, document_scope = block.text.partition("——")
+            self._add_inline_text(paragraph, system_title)
+            paragraph.add_run().add_break()
+            self._add_inline_text(paragraph, f"{separator}{document_scope}")
+        else:
+            self._add_inline_text(paragraph, block.text)
         if self.cover_mode:
             paragraph.paragraph_format.space_before = Pt(42)
             paragraph.paragraph_format.space_after = Pt(24)
@@ -379,20 +566,86 @@ class _DocumentBuilder:
         table = self.document.add_table(
             rows=len(block.rows), cols=len(block.rows[0])
         )
-        widths = _table_column_widths(
-            block.rows, total_dxa=USABLE_PAGE_WIDTH_DXA
-        )
+        if block.attrs.get("layout") == "function-detail":
+            label_width = round(USABLE_PAGE_WIDTH_DXA * 0.18)
+            widths = (label_width, USABLE_PAGE_WIDTH_DXA - label_width)
+        else:
+            widths = _table_column_widths(
+                block.rows, total_dxa=USABLE_PAGE_WIDTH_DXA
+            )
         configure_table(table, widths)
         for row_index, (row, source_row) in enumerate(zip(table.rows, block.rows)):
-            for cell, text in zip(row.cells, source_row):
+            for column_index, (cell, text) in enumerate(zip(row.cells, source_row)):
                 paragraph = cell.paragraphs[0]
                 paragraph.clear()
+                paragraph.style = "Table Text"
                 self._add_inline_text(paragraph, text)
-                if row_index == 0:
+                if row_index == 0 or (
+                    block.attrs.get("layout") == "function-detail"
+                    and column_index == 0
+                ):
                     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     for run in paragraph.runs:
                         run.bold = True
                         _set_run_fonts(run, east_asia=CJK_SANS_FONT)
+
+    def _render_function_details(
+        self,
+        function_id: str,
+        blocks: Sequence[Block],
+    ) -> None:
+        """Render repeated atomic-function fields as one compact traceability table."""
+
+        rows: list[tuple[str, str]] = []
+        current_label = ""
+        current_parts: list[str] = []
+        numbered_index = 0
+
+        def flush() -> None:
+            nonlocal current_label, current_parts, numbered_index
+            if not current_label:
+                return
+            rows.append((current_label, "\n".join(current_parts).strip()))
+            current_label = ""
+            current_parts = []
+            numbered_index = 0
+
+        for block in blocks:
+            if block.kind == "paragraph":
+                match = _FUNCTION_DETAIL_RE.match(block.text)
+                if match is None:
+                    raise ValueError(
+                        f"{function_id} contains an unlabeled detail paragraph"
+                    )
+                flush()
+                current_label = match.group("label").strip()
+                value = match.group("value").strip()
+                if value:
+                    current_parts.append(value)
+            elif block.kind == "numbered":
+                if not current_label:
+                    raise ValueError(f"{function_id} contains an orphan numbered item")
+                numbered_index += 1
+                current_parts.append(f"{numbered_index}. {block.text}")
+            elif block.kind == "bullet":
+                if not current_label:
+                    raise ValueError(f"{function_id} contains an orphan bullet item")
+                current_parts.append(f"• {block.text}")
+            else:
+                raise ValueError(
+                    f"{function_id} contains unsupported detail block: {block.kind}"
+                )
+        flush()
+
+        labels = tuple(label for label, _ in rows)
+        if labels != _FUNCTION_DETAIL_LABELS or any(not value for _, value in rows):
+            raise ValueError(f"{function_id} has an incomplete detail contract")
+        table_block = Block(
+            kind="table",
+            attrs={"layout": "function-detail"},
+            rows=((function_id, "原子功能设计"), *rows),
+        )
+        self._render_table(table_block)
 
     def _render_figure(self, path: Path, caption: str, width_cm: float) -> None:
         paragraph = self.document.add_paragraph()
@@ -551,7 +804,7 @@ def _set_run_fonts(
     run,
     *,
     latin: str = LATIN_FONT,
-    east_asia: str = "Source Han Serif SC",
+    east_asia: str = CJK_SERIF_FONT,
 ) -> None:
     run.font.name = latin
     r_fonts = run._r.get_or_add_rPr().get_or_add_rFonts()
