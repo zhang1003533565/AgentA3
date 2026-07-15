@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from pathlib import Path, PurePosixPath
 import re
 
@@ -69,6 +70,8 @@ _BULLET_RE = re.compile(r"^(?P<indent> *)(?:[-+*])\s+(?P<text>.+)$")
 _NUMBERED_RE = re.compile(r"^(?P<indent> *)\d+[.)]\s+(?P<text>.+)$")
 _TABLE_SEPARATOR_RE = re.compile(r"^:?-{3,}:?$")
 _BACKTICK_VALUE_RE = re.compile(r"`([^`]+)`")
+_POSITIVE_DECIMAL_RE = re.compile(r"(?:\d+(?:\.\d+)?|\.\d+)")
+_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
 
 
 def extract_evidence_rows(path: Path) -> list[EvidenceRow]:
@@ -169,7 +172,11 @@ def parse_markdown(text: str, *, source_name: str = "<memory>") -> list[Block]:
 
         figure_match = _FIGURE_RE.fullmatch(line)
         if figure_match:
-            blocks.append(Block(kind="figure", attrs=figure_match.groupdict()))
+            attrs = figure_match.groupdict()
+            _validate_figure_width(
+                attrs["width_cm"], source_name=source_name, line_number=line_number
+            )
+            blocks.append(Block(kind="figure", attrs=attrs))
             index += 1
             continue
 
@@ -335,6 +342,7 @@ def _validate_evidence_paths(evidence: str, source_name: str, line_number: int) 
             normalized.is_absolute()
             or ".." in normalized.parts
             or reference.startswith("~")
+            or _WINDOWS_DRIVE_RE.match(reference)
             or "://" in reference
             or "\\" in reference
         ):
@@ -343,6 +351,17 @@ def _validate_evidence_paths(evidence: str, source_name: str, line_number: int) 
                 line_number,
                 "evidence paths must be repository-relative",
             )
+
+
+def _validate_figure_width(
+    width_cm: str, *, source_name: str, line_number: int
+) -> None:
+    if not _POSITIVE_DECIMAL_RE.fullmatch(width_cm) or Decimal(width_cm) <= 0:
+        raise _source_error(
+            source_name,
+            line_number,
+            "figure width_cm must be a positive number",
+        )
 
 
 def _starts_block(raw_line: str) -> bool:

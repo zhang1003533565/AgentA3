@@ -16,6 +16,20 @@ def _write_sources(root: Path, first_body: str) -> None:
 
 
 class SourceContractTest(unittest.TestCase):
+    def _assert_rejects_figure_width(self, width_cm: str) -> None:
+        body = (
+            '<!-- FIGURE src="figure.png" caption="验证图" '
+            f'width_cm="{width_cm}" -->\n'
+        )
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_sources(root, body)
+            with self.assertRaisesRegex(
+                ValueError,
+                r"00-chapter\.md:1: figure width_cm must be a positive number",
+            ):
+                load_source(root)
+
     def test_loads_required_block_types_in_numeric_order(self):
         chapter_names = ["第一章 项目概述"] + [
             f"第{i}章 验证章节" for i in range(2, 11)
@@ -116,6 +130,15 @@ print("ok")
             ):
                 load_source(root)
 
+    def test_rejects_non_numeric_figure_width(self):
+        self._assert_rejects_figure_width("wide")
+
+    def test_rejects_zero_figure_width(self):
+        self._assert_rejects_figure_width("0")
+
+    def test_rejects_negative_figure_width(self):
+        self._assert_rejects_figure_width("-1.5")
+
     def test_rejects_malformed_table_with_source_location(self):
         body = """# 第一章
 
@@ -190,6 +213,30 @@ class EvidenceIndexContractTest(unittest.TestCase):
                 r"evidence-index\.md:3: evidence paths must be repository-relative",
             ):
                 extract_evidence_rows(path)
+
+    def test_rejects_windows_drive_and_unc_evidence_paths(self):
+        unsafe_paths = (
+            "C:/Users/name/file.txt",
+            r"C:\Users\name\file.txt",
+            r"\\server\share\file.txt",
+            "//server/share/file.txt",
+        )
+        for unsafe_path in unsafe_paths:
+            with self.subTest(unsafe_path=unsafe_path), TemporaryDirectory() as tmp:
+                path = Path(tmp) / "evidence-index.md"
+                path.write_text(
+                    "| ID | Claim | Status | Evidence | Final wording |\n"
+                    "|---|---|---|---|---|\n"
+                    f"| EV-001 | 不安全证据 | implemented | `{unsafe_path}` | "
+                    "不得使用 |\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(
+                    ValueError,
+                    r"evidence-index\.md:3: evidence paths must be "
+                    r"repository-relative",
+                ):
+                    extract_evidence_rows(path)
 
 
 if __name__ == "__main__":
