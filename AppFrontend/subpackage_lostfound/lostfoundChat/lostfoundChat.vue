@@ -1122,7 +1122,7 @@ export default {
 
 .chat-body {
   height: calc(100vh - 350rpx);
-  padding: 28rpx 0 132rpx;
+  padding: 28rpx 0 120rpx;
   box-sizing: border-box;
 }
 
