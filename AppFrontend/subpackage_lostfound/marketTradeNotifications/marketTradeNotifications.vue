@@ -32,6 +32,7 @@
             <view v-if="!item.isRead" class="unread-dot"></view>
           </view>
         </scroll-view>
+        <market-bottom-bar activeTab="messages" />
       </view>
     </view>
   </view>
@@ -39,6 +40,7 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { getTradeNotifications, markTradeNotificationRead } from '@/api/secondhand'
 
 const STATUS_TEXT = {
@@ -66,7 +68,8 @@ function normalizeNotification(item) {
 
 export default {
   components: {
-    NavBar
+    NavBar,
+    MarketBottomBar
   },
   data() {
     return {

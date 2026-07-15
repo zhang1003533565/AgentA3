@@ -2,127 +2,158 @@
   <view class="page-root">
     <view class="screen">
       <view class="container">
-        <nav-bar title="发布商品" :fixed="true" :placeholder="true" />
-
-        <scroll-view scroll-y class="page-body">
-          <view class="section">
-            <view class="section-title">商品图片</view>
-            <view class="upload-list">
-              <view v-for="(img, index) in form.images" :key="img" class="upload-item">
-                <image class="upload-img" :src="img" mode="aspectFill" @click="previewImage(img)" />
-                <view class="remove" @click.stop="removeImage(index)">×</view>
-              </view>
-              <view v-if="form.images.length < 9" class="upload-add" @click="chooseImage">
-                <text class="plus">＋</text>
-                <text>添加图片</text>
+        <nav-bar title="发布闲置" :fixed="true" :placeholder="true" />
+        
+        <scroll-view scroll-y class="page-body pub-body">
+          <view class="section photo-section">
+            <view class="section-head">
+              <text class="section-title">图片</text>
+              <text class="section-hint">{{ publishForm.images.length }}/9</text>
+            </view>
+            <view v-if="publishForm.images.length" class="photo-board">
+              <view
+                v-for="(img, index) in publishForm.images"
+                :key="index"
+                class="photo-item"
+                :class="{ 'photo-item--cover': index === 0 }"
+              >
+                <image class="upload-preview" :src="img" mode="aspectFill" @click="previewImg(img)" />
+                <view v-if="index === 0" class="cover-mark">封面</view>
+                <view class="upload-delete" @click.stop="removeImg(index)">×</view>
               </view>
             </view>
-            <view class="hint">{{ form.images.length }}/9，至少上传 1 张</view>
+            <view v-if="publishForm.images.length < 9" class="upload-add" @click="choosePublishImage">
+              <text class="upload-icon">+</text>
+              <view class="upload-copy">
+                <text class="upload-title">{{ publishForm.images.length ? '继续添加商品图片' : '添加商品图片' }}</text>
+                <text class="upload-text">首张图片作为封面</text>
+              </view>
+            </view>
           </view>
 
           <view class="section">
-            <view class="section-title">基本信息</view>
-            <view class="field">
-              <input v-model.trim="form.title" class="input" maxlength="50" placeholder="商品名称，4-50个字" />
+            <view class="field-line">
+              <text class="field-label">商品名称</text>
+              <input class="field-input" v-model="publishForm.name" placeholder="请输入商品名称" />
             </view>
-            <view class="field">
-              <textarea
-                v-model.trim="form.description"
-                class="textarea"
-                maxlength="500"
-                placeholder="描述商品成色、配件、购买时间等，至少10个字"
+            <view class="field-line">
+              <text class="field-label">价格</text>
+              <input
+                class="field-input price-input"
+                v-model="publishForm.price"
+                type="number"
+                :disabled="priceMode === 'free' || priceMode === 'face'"
+                :placeholder="pricePlaceholder"
               />
             </view>
-          </view>
-
-          <view class="section">
-            <view class="section-title">价格</view>
-            <view class="segmented">
+            <view class="price-modes">
               <view
                 v-for="mode in priceModes"
                 :key="mode.value"
-                class="segment"
-                :class="{ active: form.priceMode === mode.value }"
-                @click="form.priceMode = mode.value"
+                class="price-mode"
+                :class="{ active: priceMode === mode.value }"
+                @click="setPriceMode(mode.value)"
               >
                 {{ mode.label }}
               </view>
             </view>
-            <view v-if="form.priceMode !== 'face'" class="field">
-              <input v-model="form.price" class="input" type="digit" placeholder="请输入售价" />
+          </view>
+
+          <view class="section">
+            <view class="section-head">
+              <text class="section-title">描述</text>
+              <text class="section-hint">至少10字</text>
             </view>
-            <view class="switch-row">
-              <text>可议价</text>
-              <switch :checked="form.negotiable" color="#5c8ab8" @change="onNegotiableChange" />
+            <textarea
+              class="desc-input"
+              v-model="publishForm.desc"
+              placeholder="补充使用情况、瑕疵、配件等信息"
+            />
+          </view>
+
+          <view class="section">
+            <view class="section-head">
+              <text class="section-title">新旧程度</text>
+            </view>
+            <view class="condition-grid">
+              <view
+                v-for="c in conditionOptions"
+                :key="c.value"
+                class="condition-card"
+                :class="{ active: publishForm.condition === c.value }"
+                @click="publishForm.condition = c.value"
+              >
+                <text class="condition-name">{{ c.label }}</text>
+                <text class="condition-desc">{{ c.desc }}</text>
+              </view>
             </view>
           </view>
 
           <view class="section">
-            <view class="section-title">分类</view>
-            <view class="option-grid">
+            <view class="section-head">
+              <text class="section-title">分类</text>
+            </view>
+            <text class="category-level-label">一级分类</text>
+            <view class="category-grid category-grid--primary">
               <view
                 v-for="cat in categories"
                 :key="cat.id"
-                class="option"
-                :class="{ active: String(form.categoryId) === String(cat.id) }"
-                @click="selectCategory(cat)"
+                class="category-card category-card--primary"
+                :class="{ active: selectedCategoryLevel1Id === cat.id }"
+                @click="selectCategoryLevel1(cat.id)"
+              >
+                {{ cat.name }}
+              </view>
+              <view v-if="!categories.length" class="category-card disabled">暂无可用分类</view>
+            </view>
+            <text v-if="currentCategoryChildren.length" class="category-level-label category-level-label--sub">二级分类</text>
+            <view v-if="currentCategoryChildren.length" class="category-grid category-grid--sub">
+              <view
+                v-for="cat in currentCategoryChildren"
+                :key="cat.id"
+                class="category-card category-card--sub"
+                :class="{ active: publishForm.cat === cat.id }"
+                @click="selectCategoryLevel2(cat.id)"
               >
                 {{ cat.name }}
               </view>
             </view>
-            <view v-if="subcategories.length" class="sub-list">
-              <view
-                v-for="sub in subcategories"
-                :key="sub.id"
-                class="sub"
-                :class="{ active: String(form.subcategoryId) === String(sub.id) }"
-                @click="form.subcategoryId = sub.id"
-              >
-                {{ sub.name }}
-              </view>
-            </view>
           </view>
 
           <view class="section">
-            <view class="section-title">成色</view>
-            <view class="condition-list">
+            <view class="section-head">
+              <text class="section-title">取货地点</text>
+            </view>
+            <text class="sub-label">常用地点</text>
+            <view class="pickup-options">
               <view
-                v-for="condition in conditionOptions"
-                :key="condition.value"
-                class="condition"
-                :class="{ active: form.condition === condition.value }"
-                @click="form.condition = condition.value"
-              >
-                <text>{{ condition.label }}</text>
-                <text>{{ condition.desc }}</text>
-              </view>
+                v-for="point in pickupOptions"
+                :key="point.value"
+                class="pickup-option"
+                :class="{ active: publishForm.pickupPoint === point.value }"
+                @click="selectPickupPoint(point.value)"
+              >{{ point.label }}</view>
+            </view>
+            <view class="pickup-line">
+              <input class="field-input" v-model="publishForm.pickupPoint" placeholder="例如：三食堂门口、XX宿舍楼下" maxlength="50" />
             </view>
           </view>
 
-          <view class="section">
-            <view class="section-title">取货信息</view>
-            <view class="option-grid">
-              <view
-                v-for="campus in campusOptions"
-                :key="campus.id"
-                class="option"
-                :class="{ active: form.campusId === campus.id }"
-                @click="selectCampus(campus)"
-              >
-                {{ campus.name }}
-              </view>
+          <view class="section contact-section">
+            <view class="section-head">
+              <text class="section-title">联系方式</text>
             </view>
-            <view class="field">
-              <input v-model.trim="form.tradeLocation" class="input" maxlength="40" placeholder="交易区域，例如：图书馆东门" />
+            <view class="chat-tip">
+              <text class="chat-tip-title">平台聊天</text>
+              <text class="chat-tip-desc">默认通过站内消息联系</text>
             </view>
-            <view class="field">
-              <input v-model.trim="form.pickupPoint" class="input" maxlength="60" placeholder="具体取货点，例如：一食堂门口" />
+            <view class="field-line">
+              <text class="field-label">微信号</text>
+              <input class="field-input" v-model="publishForm.phone" placeholder="可选，愿意加微信再填" maxlength="30" />
             </view>
           </view>
 
-          <button class="submit" :loading="submitting" :disabled="submitting" @click="submit">
-            发布商品
-          </button>
+          <button class="pbtn" @click="publish">发布闲置</button>
         </scroll-view>
       </view>
     </view>
@@ -133,13 +164,13 @@
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { createSecondhandItem } from '@/api/secondhand'
 import { getUploadErrorMessage, uploadImages } from '@/utils/upload'
-import { MARKET_CATEGORIES } from '../utils/marketCategories'
+import { MARKET_CATEGORIES } from '@/subpackage_lostfound/utils/marketCategories.js'
 
-const CAMPUS_OPTIONS = [
-  { id: 'main', name: '主校区' },
-  { id: 'east', name: '东校区' },
-  { id: 'west', name: '西校区' },
-  { id: 'north', name: '北校区' }
+const COMMON_PICKUP_POINTS = [
+  { value: '宿舍楼下', label: '宿舍楼下' },
+  { value: '食堂门口', label: '食堂门口' },
+  { value: '图书馆', label: '图书馆' },
+  { value: '教学楼', label: '教学楼' }
 ]
 
 export default {
@@ -147,145 +178,169 @@ export default {
     NavBar
   },
   data() {
-    const firstCategory = MARKET_CATEGORIES[0]
     return {
-      submitting: false,
+      publishType: 'sell',
       categories: MARKET_CATEGORIES,
-      campusOptions: CAMPUS_OPTIONS,
+      selectedCategoryLevel1Id: MARKET_CATEGORIES[0]?.id || '',
+      pickupOptions: COMMON_PICKUP_POINTS,
+      priceMode: 'normal',
       priceModes: [
-        { value: 'fixed', label: '一口价' },
-        { value: 'negotiable', label: '面议' },
-        { value: 'face', label: '赠送' }
+        { value: 'normal', label: '标价' },
+        { value: 'negotiable', label: '可议价' },
+        { value: 'face', label: '面议' },
+        { value: 'free', label: '免费送' }
       ],
       conditionOptions: [
-        { value: 1, label: '全新', desc: '未拆封或未使用' },
-        { value: 2, label: '几乎全新', desc: '使用痕迹很少' },
-        { value: 3, label: '轻微使用', desc: '功能完好' },
-        { value: 4, label: '明显使用', desc: '有可见磨损' },
-        { value: 5, label: '功能正常', desc: '适合低价转手' }
+        { value: 1, label: '全新', desc: '未拆或基本没用' },
+        { value: 2, label: '很新', desc: '看起来很干净' },
+        { value: 3, label: '正常使用', desc: '有轻微痕迹' },
+        { value: 4, label: '明显使用', desc: '瑕疵已说明' },
+        { value: 5, label: '配件/零件', desc: '适合自取研究' }
       ],
-      form: {
-        title: '',
-        description: '',
-        images: [],
-        priceMode: 'fixed',
+      publishForm: {
+        name: '',
         price: '',
-        negotiable: false,
-        categoryId: firstCategory?.id || 1,
-        subcategoryId: firstCategory?.children?.[0]?.id || '',
-        condition: 2,
-        campusId: CAMPUS_OPTIONS[0].id,
-        campusName: CAMPUS_OPTIONS[0].name,
-        tradeLocation: '',
-        pickupPoint: ''
+        desc: '',
+        cat: '',
+        phone: '',
+        images: [],
+        pickupPoint: '',
+        condition: 2
       }
     }
   },
   computed: {
-    selectedCategory() {
-      return this.categories.find(cat => String(cat.id) === String(this.form.categoryId)) || this.categories[0] || {}
+    currentCategoryChildren() {
+      const current = this.categories.find((item) => item.id === this.selectedCategoryLevel1Id)
+      return Array.isArray(current?.children) ? current.children : []
     },
-    subcategories() {
-      return this.selectedCategory.children || []
+    pricePlaceholder() {
+      if (this.priceMode === 'free') return '免费赠送'
+      if (this.priceMode === 'face') return '见面再聊'
+      if (this.priceMode === 'negotiable') return '先写一个心理价'
+      return '输入价格'
     }
   },
+  async onLoad(options) {
+    if (options.type) {
+      this.publishType = options.type
+    }
+    this.ensureCategorySelection()
+  },
   methods: {
-    selectCategory(category) {
-      this.form.categoryId = category.id
-      this.form.subcategoryId = category.children?.[0]?.id || ''
+    setPriceMode(value) {
+      this.priceMode = value
+      if (value === 'free' || value === 'face') {
+        this.publishForm.price = ''
+      }
     },
-    selectCampus(campus) {
-      this.form.campusId = campus.id
-      this.form.campusName = campus.name
+    selectPickupPoint(value) {
+      this.publishForm.pickupPoint = this.publishForm.pickupPoint === value ? '' : value
     },
-    onNegotiableChange(event) {
-      this.form.negotiable = event.detail.value
+    ensureCategorySelection() {
+      if (!this.selectedCategoryLevel1Id && this.categories.length) {
+        this.selectedCategoryLevel1Id = this.categories[0].id
+      }
+      if (!this.publishForm.cat && this.currentCategoryChildren.length) {
+        this.publishForm.cat = this.currentCategoryChildren[0].id
+      }
     },
-    chooseImage() {
+    selectCategoryLevel1(id) {
+      this.selectedCategoryLevel1Id = id
+      const current = this.categories.find((item) => item.id === id)
+      const children = Array.isArray(current?.children) ? current.children : []
+      this.publishForm.cat = children[0]?.id || ''
+    },
+    selectCategoryLevel2(id) {
+      this.publishForm.cat = id
+    },
+    choosePublishImage() {
       uni.chooseImage({
-        count: 9 - this.form.images.length,
+        count: 9 - this.publishForm.images.length,
         sizeType: ['compressed'],
         sourceType: ['album', 'camera'],
         success: async (res) => {
+          const files = res.tempFilePaths
           try {
-            uni.showLoading({ title: '上传中...' })
-            const urls = await uploadImages(res.tempFilePaths || [])
-            this.form.images = [...this.form.images, ...urls].slice(0, 9)
+            const urls = await uploadImages(files)
+            this.publishForm.images = [...this.publishForm.images, ...urls]
           } catch (e) {
             uni.showToast({ title: getUploadErrorMessage(e), icon: 'none' })
-          } finally {
-            uni.hideLoading()
           }
         }
       })
     },
-    removeImage(index) {
-      this.form.images.splice(index, 1)
+    removeImg(index) {
+      this.publishForm.images.splice(index, 1)
     },
-    previewImage(src) {
+    previewImg(src) {
       uni.previewImage({
-        urls: this.form.images,
+        urls: this.publishForm.images,
         current: src
       })
     },
-    validate() {
-      if (this.form.title.length < 4 || this.form.title.length > 50) {
-        return '商品名称需为4-50个字'
+    async publish() {
+      const title = this.publishForm.name.trim()
+      if (!title) {
+        uni.showToast({ title: '请输入名称', icon: 'none' })
+        return
       }
-      if (this.form.description.length < 10 || this.form.description.length > 500) {
-        return '商品描述需为10-500个字'
+      if (title.length < 4) {
+        uni.showToast({ title: '标题至少4个字', icon: 'none' })
+        return
       }
-      if (!this.form.images.length) {
-        return '至少上传一张商品图片'
+      if (title.length > 50) {
+        uni.showToast({ title: '标题最多50字', icon: 'none' })
+        return
       }
-      if (this.form.priceMode !== 'face' && (!this.form.price || Number(this.form.price) <= 0)) {
-        return '请输入正确售价'
+      if (!this.publishForm.desc.trim() || this.publishForm.desc.trim().length < 10) {
+        uni.showToast({ title: '描述至少10个字', icon: 'none' })
+        return
       }
-      if (!this.form.categoryId) {
-        return '请选择商品分类'
+      const needsPrice = this.priceMode === 'normal' || this.priceMode === 'negotiable'
+      if (needsPrice && (!this.publishForm.price || Number(this.publishForm.price) <= 0)) {
+        uni.showToast({ title: '请输入正确售价', icon: 'none' })
+        return
       }
-      if (!this.form.tradeLocation && !this.form.pickupPoint) {
-        return '请填写交易区域或取货点'
+      if (!this.publishForm.images.length) {
+        uni.showToast({ title: '至少上传一张图片', icon: 'none' })
+        return
       }
-      return ''
-    },
-    buildPayload() {
-      const price = this.form.priceMode === 'face' ? 0 : Number(this.form.price)
-      const notes = []
-      if (this.form.priceMode === 'negotiable' || this.form.negotiable) notes.push('价格可议')
-      if (this.form.priceMode === 'face') notes.push('免费赠送')
-      return {
-        categoryId: Number(this.form.categoryId),
-        subcategoryId: this.form.subcategoryId,
-        title: this.form.title.trim(),
-        description: [this.form.description.trim(), ...notes].join(notes.length ? '\n' : ''),
-        images: this.form.images,
-        price,
-        condition: this.form.condition,
-        location: this.form.pickupPoint || this.form.tradeLocation || this.form.campusName,
-        campusId: this.form.campusId,
-        campusName: this.form.campusName,
-        tradeLocation: this.form.tradeLocation,
-        pickupPoint: this.form.pickupPoint
-      }
-    },
-    async submit() {
-      const message = this.validate()
-      if (message) {
-        uni.showToast({ title: message, icon: 'none' })
+      const categoryId = Number(this.publishForm.cat)
+      if (!categoryId || Number.isNaN(categoryId)) {
+        uni.showToast({ title: '请选择有效分类', icon: 'none' })
         return
       }
       try {
-        this.submitting = true
         uni.showLoading({ title: '发布中...' })
-        await createSecondhandItem(this.buildPayload())
-        uni.showToast({ title: '发布成功', icon: 'success' })
-        setTimeout(() => uni.navigateBack(), 900)
-      } catch (e) {
-        console.error('发布商品失败', e)
-        uni.showToast({ title: '发布失败，请稍后重试', icon: 'none' })
+        const price = needsPrice ? Number(this.publishForm.price) : 0
+        const priceNoteMap = {
+          negotiable: '价格可议',
+          face: '价格面议',
+          free: '免费赠送'
+        }
+        const priceNote = priceNoteMap[this.priceMode]
+        const description = priceNote
+          ? `${this.publishForm.desc.trim()}\n\n${priceNote}`
+          : this.publishForm.desc.trim()
+        await createSecondhandItem({
+          categoryId,
+          title,
+          description,
+          images: this.publishForm.images,
+          price,
+          condition: this.publishForm.condition,
+          location: this.publishForm.pickupPoint.trim() || '校内自提'
+        })
+        uni.showToast({ title: '发布成功！', icon: 'success' })
+        setTimeout(() => {
+          uni.navigateBack()
+        }, 1000)
+      } catch (error) {
+        const msg = error?.data?.msg || error?.msg || error?.message || '发布失败'
+        uni.showToast({ title: msg, icon: 'none' })
+        console.error('发布失败', error)
       } finally {
-        this.submitting = false
         uni.hideLoading()
       }
     }
@@ -293,208 +348,425 @@ export default {
 }
 </script>
 
-<style scoped>
-.page-root,
-.screen {
+<style lang="scss" scoped>
+.page-root {
   width: 100%;
   min-height: 100vh;
-  background: #f0f5fa;
+  background: #F7F7F9;
+}
+
+.screen {
+  width: 100%;
+  background: #F7F7F9;
+  min-height: 100vh;
 }
 
 .container {
   width: 100%;
-  max-width: 430px;
-  min-height: 100vh;
   margin: 0 auto;
-  padding: 0 16rpx;
   box-sizing: border-box;
-  background: #e8f0f8;
-}
-
-.page-body {
-  height: calc(100vh - 88rpx);
-  padding: 28rpx 0 56rpx;
-  box-sizing: border-box;
-}
-
-.section {
-  margin-bottom: 24rpx;
-  padding: 28rpx;
-  border-radius: 20rpx;
-  background: #fff;
-  box-shadow: 0 6rpx 18rpx rgba(43, 68, 94, 0.08);
-}
-
-.section-title {
-  margin-bottom: 20rpx;
-  color: #172331;
-  font-size: 28rpx;
-  font-weight: 800;
-}
-
-.upload-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16rpx;
-}
-
-.upload-item,
-.upload-add {
-  width: 148rpx;
-  height: 148rpx;
-  border-radius: 16rpx;
-  overflow: hidden;
+  padding: 0 24rpx;
+  background: #F7F7F9;
+  min-height: 100vh;
   position: relative;
 }
 
-.upload-img {
+.page-body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.pub-body {
+  padding: 24rpx 0 44rpx;
+}
+
+.section {
+  margin-bottom: 18rpx;
+  padding: 0 24rpx;
+  border-radius: 24rpx;
+  background: #FFFFFF;
+  box-sizing: border-box;
+  box-shadow: 0 6rpx 18rpx rgba(92, 122, 153, 0.06);
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  min-height: 82rpx;
+}
+
+.section-title {
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #1D1D1F;
+  line-height: 1.2;
+}
+
+.section-hint {
+  font-size: 22rpx;
+  color: #8E8E93;
+  white-space: nowrap;
+}
+
+.photo-section {
+  padding-bottom: 22rpx;
+}
+
+.photo-board {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10rpx;
+  margin-bottom: 12rpx;
+}
+
+.photo-item {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 16rpx;
+  overflow: hidden;
+  background: #F1F3F5;
+}
+
+.photo-item--cover {
+  grid-column: span 1;
+  grid-row: span 1;
+}
+
+.upload-preview {
   width: 100%;
   height: 100%;
 }
 
+.cover-mark {
+  position: absolute;
+  left: 8rpx;
+  bottom: 8rpx;
+  padding: 3rpx 8rpx;
+  border-radius: 6rpx;
+  background: rgba(92, 122, 153, 0.86);
+  color: #FFFFFF;
+  font-size: 20rpx;
+  font-weight: 500;
+}
+
+.upload-delete {
+  position: absolute;
+  top: 6rpx;
+  right: 6rpx;
+  width: 32rpx;
+  height: 32rpx;
+  background: rgba(29, 29, 31, 0.56);
+  border-radius: 50%;
+  color: #fff;
+  font-size: 24rpx;
+  line-height: 32rpx;
+  text-align: center;
+}
+
 .upload-add {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 8rpx;
-  color: #6f8294;
-  font-size: 22rpx;
-  border: 2rpx dashed #bfd0df;
-  background: #f4f8fb;
-}
-
-.plus {
-  font-size: 40rpx;
-  line-height: 1;
-}
-
-.remove {
-  position: absolute;
-  top: 8rpx;
-  right: 8rpx;
-  width: 34rpx;
-  height: 34rpx;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.58);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24rpx;
-}
-
-.hint {
-  margin-top: 14rpx;
-  color: #8a99a8;
-  font-size: 22rpx;
-}
-
-.field {
-  margin-top: 16rpx;
-  border-radius: 16rpx;
-  background: #f4f8fb;
-  overflow: hidden;
-}
-
-.input,
-.textarea {
-  width: 100%;
+  gap: 18rpx;
+  min-height: 112rpx;
+  padding: 0 20rpx;
+  border-radius: 18rpx;
+  border: 1rpx solid #E8EEF4;
+  background: #FFFFFF;
   box-sizing: border-box;
-  padding: 20rpx 22rpx;
-  color: #172331;
-  font-size: 26rpx;
+  box-shadow: 0 6rpx 18rpx rgba(92, 122, 153, 0.06);
 }
 
-.textarea {
-  height: 200rpx;
-  line-height: 1.6;
+.upload-icon {
+  width: 54rpx;
+  height: 54rpx;
+  border-radius: 16rpx;
+  background: rgba(92, 122, 153, 0.08);
+  border: 1rpx solid rgba(92, 122, 153, 0.14);
+  color: #5C7A99;
+  font-size: 36rpx;
+  font-weight: 300;
+  line-height: 50rpx;
+  text-align: center;
+  flex-shrink: 0;
 }
 
-.segmented,
-.option-grid,
-.sub-list {
+.upload-copy {
   display: flex;
-  flex-wrap: wrap;
-  gap: 14rpx;
+  flex-direction: column;
+  gap: 4rpx;
+  min-width: 0;
 }
 
-.segment,
-.option,
-.sub {
-  padding: 14rpx 20rpx;
-  border-radius: 999rpx;
-  background: #f1f6fa;
-  color: #64778a;
-  font-size: 24rpx;
-  font-weight: 700;
+.upload-title {
+  font-size: 26rpx;
+  font-weight: 750;
+  color: #1D1D1F;
 }
 
-.segment.active,
-.option.active,
-.sub.active {
-  background: #5c8ab8;
-  color: #fff;
+.upload-text {
+  font-size: 22rpx;
+  color: #8E8E93;
+  line-height: 1.35;
 }
 
-.switch-row {
+.field-line {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-top: 18rpx;
-  color: #172331;
+  min-height: 86rpx;
+  border-bottom: 1rpx solid #EEEEEE;
+}
+
+.field-line:last-child {
+  border-bottom: none;
+}
+
+.field-label {
+  width: 152rpx;
+  flex-shrink: 0;
+  font-size: 25rpx;
+  font-weight: 600;
+  color: #1D1D1F;
+}
+
+.field-input {
+  flex: 1;
+  min-width: 0;
+  height: 86rpx;
   font-size: 26rpx;
+  color: #1D1D1F;
+  background: transparent;
+}
+
+.price-input {
   font-weight: 700;
 }
 
-.sub-list {
-  margin-top: 18rpx;
-}
-
-.condition-list {
+.price-modes {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14rpx;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10rpx;
+  padding: 18rpx 0 20rpx;
 }
 
-.condition {
-  padding: 18rpx;
+.price-mode {
+  height: 56rpx;
+  border-radius: 14rpx;
+  background: #F3F5F7;
+  color: #4A4A4A;
+  font-size: 23rpx;
+  font-weight: 600;
+  line-height: 56rpx;
+  text-align: center;
+}
+
+.price-mode.active {
+  background: #5C7A99;
+  color: #FFFFFF;
+}
+
+.desc-input {
+  width: 100%;
+  height: 208rpx;
+  padding: 18rpx 0 24rpx;
+  font-size: 26rpx;
+  line-height: 1.6;
+  color: #1D1D1F;
+  background: #FFFFFF;
+  box-sizing: border-box;
+}
+
+.condition-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10rpx;
+  padding-bottom: 20rpx;
+}
+
+.condition-card {
+  min-height: 86rpx;
+  padding: 14rpx 16rpx;
   border-radius: 16rpx;
-  background: #f4f8fb;
-  border: 2rpx solid transparent;
+  background: #F8FAFC;
+  border: 1rpx solid transparent;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
 }
 
-.condition.active {
-  border-color: #5c8ab8;
-  background: #edf5fc;
+.condition-card.active {
+  background: rgba(92, 122, 153, 0.08);
+  border-color: rgba(92, 122, 153, 0.28);
 }
 
-.condition text:first-child {
-  display: block;
-  color: #172331;
-  font-size: 25rpx;
-  font-weight: 800;
+.condition-name {
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #1D1D1F;
 }
 
-.condition text:last-child {
-  display: block;
-  margin-top: 6rpx;
-  color: #7d8c9c;
+.condition-desc {
   font-size: 21rpx;
+  color: #8E8E93;
+  line-height: 1.3;
 }
 
-.submit {
+.condition-card.active .condition-name {
+  color: #4A6278;
+}
+
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10rpx;
+  padding-bottom: 20rpx;
+}
+
+.category-grid--primary {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8rpx;
+  padding-bottom: 18rpx;
+}
+
+.category-grid--sub {
+  padding-top: 2rpx;
+}
+
+.category-level-label {
+  display: block;
+  margin: 0 0 12rpx;
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #8E8E93;
+  line-height: 1.2;
+}
+
+.category-level-label--sub {
+  margin-top: 4rpx;
+  color: #5C7A99;
+}
+
+.category-card {
+  min-height: 64rpx;
+  padding: 0 16rpx;
+  border-radius: 16rpx;
+  background: #F8FAFC;
+  color: #1D1D1F;
+  font-size: 24rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.category-card--primary {
+  min-height: 58rpx;
+  padding: 0 8rpx;
+  border-radius: 14rpx;
+  justify-content: center;
+  text-align: center;
+  font-size: 22rpx;
+  color: #5C6470;
+  background: transparent;
+}
+
+.category-card--sub {
+  background: #F8FAFC;
+}
+
+.category-card.active {
+  background: #5C7A99;
+  color: #FFFFFF;
+}
+
+.category-card.disabled {
+  color: #8E8E93;
+  background: #F3F5F7;
+}
+
+.sub-label {
+  display: block;
+  margin: 0 0 12rpx;
+  font-size: 23rpx;
+  font-weight: 600;
+  color: #5C7A99;
+}
+
+.pickup-options {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10rpx;
+  margin-bottom: 18rpx;
+}
+
+.pickup-option {
+  min-height: 64rpx;
+  padding: 0 16rpx;
+  border-radius: 16rpx;
+  background: #F8FAFC;
+  color: #1D1D1F;
+  font-size: 24rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.pickup-option.active {
+  background: #5C7A99;
+  color: #FFFFFF;
+}
+
+.pickup-line {
+  border-top: 1rpx solid #EEEEEE;
+  margin-top: 2rpx;
+  padding-top: 0;
+}
+
+.contact-section {
+  padding-bottom: 0;
+}
+
+.chat-tip {
+  min-height: 82rpx;
+  border-bottom: 1rpx solid #EEEEEE;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6rpx;
+}
+
+.chat-tip-title {
+  font-size: 25rpx;
+  font-weight: 600;
+  color: #1D1D1F;
+}
+
+.chat-tip-desc {
+  font-size: 22rpx;
+  color: #8E8E93;
+  line-height: 1.4;
+}
+
+.pbtn {
   width: 100%;
   height: 88rpx;
-  margin: 20rpx 0 32rpx;
   border-radius: 24rpx;
-  background: linear-gradient(135deg, #7ba8d4, #5c8ab8);
-  color: #fff;
-  font-size: 30rpx;
-  font-weight: 900;
+  background: #5C7A99;
+  color: #FFFFFF;
+  font-size: 28rpx;
+  font-weight: 700;
+  border: none;
+  margin: 20rpx 0 20rpx;
+  box-shadow: 0 10rpx 24rpx rgba(92, 122, 153, 0.22);
 }
 
-.submit::after {
+.pbtn::after {
   border: none;
 }
+
 </style>

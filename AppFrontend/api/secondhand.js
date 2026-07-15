@@ -146,3 +146,39 @@ export function cancelTradeRecord(id) {
     method: 'POST'
   })
 }
+
+export function reserveSecondhandItem(itemId) {
+  return request({
+    url: `/api/trade/record/reserve/${itemId}`,
+    method: 'POST'
+  })
+}
+
+export function getTradeRecord(id) {
+  return request({
+    url: `/api/trade/record/${id}`,
+    method: 'GET'
+  })
+}
+
+export function favoriteSecondhandItem(itemId) {
+  return request({
+    url: `/api/secondhand/favorite/${itemId}`,
+    method: 'POST'
+  })
+}
+
+export function unfavoriteSecondhandItem(itemId) {
+  return request({
+    url: `/api/secondhand/favorite/${itemId}`,
+    method: 'DELETE'
+  })
+}
+
+export function getMyFavorites(params = {}) {
+  return request({
+    url: '/api/secondhand/favorite/my',
+    method: 'GET',
+    params
+  })
+}

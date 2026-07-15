@@ -18,11 +18,6 @@
             <template #center>
             </template>
             <template #right>
-              <view class="header-right" @click="onSelectSchool">
-                <image class="header-loc-icon" src="/static/icons/mi-location.svg" mode="aspectFit" />
-                <text class="header-school-name">{{ schoolName }}</text>
-                <text class="header-chevron">▾</text>
-              </view>
             </template>
           </nav-bar>
 
@@ -228,7 +223,6 @@ export default {
   components: { NavBar, MarketBottomBar },
   data() {
     return {
-      schoolName: 'XX大学',
       unreadCount: 0,
       items: [],
       zones: ZONES,
@@ -269,7 +263,6 @@ export default {
     }
   },
   onLoad() {
-    this.loadSchool()
     this.loadItems()
     this.startBannerAuto()
   },
@@ -289,14 +282,6 @@ export default {
     }
   },
   methods: {
-    loadSchool() {
-      try {
-        const info = uni.getStorageSync('userInfo')
-        if (info && info.schoolName) {
-          this.schoolName = info.schoolName
-        }
-      } catch (e) {}
-    },
     async loadItems() {
       this.hotLoading = true
       try {
@@ -401,9 +386,6 @@ export default {
         this.bannerIndex = (this.bannerIndex + 1) % this.banners.length
       }, 4000)
     },
-    onSelectSchool() {
-      uni.showToast({ title: '学校选择功能开发中', icon: 'none' })
-    },
     onZoneClick() {
       uni.showToast({ title: '校园专区即将开放', icon: 'none' })
     },
@@ -498,13 +480,6 @@ export default {
         })
       }, 300)
     },
-    goToMessages() {
-      uni.showToast({ title: '消息功能待后续迁移', icon: 'none' })
-    },
-    goToProfile() {
-      uni.showToast({ title: '我的页面待后续迁移', icon: 'none' })
-    },
-    goToHome() {},
     onBackToApp() {
       uni.reLaunch({ url: '/pages/index/index' })
     },

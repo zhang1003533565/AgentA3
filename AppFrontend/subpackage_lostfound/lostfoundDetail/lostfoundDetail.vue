@@ -72,7 +72,7 @@
             </view>
           </view>
 
-          <view class="card seller-card">
+          <view class="card seller-card" @click="contactSeller">
             <view class="avatar">{{ sellerInitial }}</view>
             <view class="seller-info">
               <view class="seller-name">{{ item.sellerName || '校园用户' }}</view>
@@ -82,11 +82,12 @@
         </scroll-view>
 
         <view class="bottom-bar">
-          <view class="bottom-status">
-            <text>{{ statusText }}</text>
-            <text>{{ item.pickupPoint || item.tradeLocation || item.campusName || '校内自提' }}</text>
-          </view>
-          <button class="bottom-btn" disabled>聊天与交易后续迁移</button>
+          <button class="icon-action" :class="{ active: item.isFavorited }" :disabled="favoriting" @click="toggleFavorite">
+            {{ item.isFavorited ? '已收藏' : '收藏' }}
+          </button>
+          <button class="bottom-btn secondary" @click="contactSeller">联系卖家</button>
+          <button v-if="isAvailable" class="bottom-btn" :loading="reserving" :disabled="reserving" @click="reserveItem">拍下</button>
+          <button v-else class="bottom-btn disabled" disabled>{{ tradeStateText }}</button>
         </view>
       </view>
     </view>
@@ -95,10 +96,12 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getSecondhandItemDetail } from '@/api/secondhand'
+import { createOrGetChatSession, favoriteSecondhandItem, getSecondhandItemDetail, reserveSecondhandItem, unfavoriteSecondhandItem } from '@/api/secondhand'
 import { getMarketCategoryLabel, getMarketSubcategoryLabel } from '../utils/marketCategories'
 
 const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
+const BROWSE_HISTORY_KEY = 'market_browse_history'
+
 const CONDITION_LABELS = {
   1: '全新',
   2: '几乎全新',
@@ -127,7 +130,9 @@ function normalizeItem(raw = {}) {
     heatScore: Number(raw.heatScore || 0),
     inquiryCount: Number(raw.inquiryCount || 0),
     viewCount: Number(raw.viewCount || 0),
+    sellerId: raw.sellerId || seller.id || raw.userId || raw.publisherId || '',
     sellerName: seller.username || raw.sellerName || raw.userName || '',
+    isFavorited: Boolean(raw.isFavorited),
     createTime: raw.createTime || raw.ctime || ''
   }
 }
@@ -140,7 +145,9 @@ export default {
     return {
       itemId: null,
       item: normalizeItem(),
-      imageIndex: 0
+      imageIndex: 0,
+      favoriting: false,
+      reserving: false
     }
   },
   computed: {
@@ -170,6 +177,15 @@ export default {
     },
     sellerInitial() {
       return (this.item.sellerName || '校').slice(0, 1)
+    },
+    isAvailable() {
+      return Number(this.item.status) === 2
+    },
+    tradeStateText() {
+      if (Number(this.item.status) === 5) return '交易中'
+      if (Number(this.item.status) === 3) return '已售出'
+      if (Number(this.item.status) === 4) return '已下架'
+      return this.statusText
     }
   },
   async onLoad(options) {
@@ -185,10 +201,30 @@ export default {
       try {
         const res = await getSecondhandItemDetail(this.itemId)
         this.item = normalizeItem(res?.data || {})
+        this.saveBrowseHistory()
       } catch (e) {
         console.error('加载商品详情失败', e)
         uni.showToast({ title: '商品不存在', icon: 'none' })
         setTimeout(() => uni.navigateBack(), 1200)
+      }
+    },
+    saveBrowseHistory() {
+      if (!this.item.id) return
+      try {
+        const current = uni.getStorageSync(BROWSE_HISTORY_KEY)
+        const list = Array.isArray(current) ? current : []
+        const nextItem = {
+          id: this.item.id,
+          title: this.item.title,
+          image: this.item.images?.[0] || '',
+          campusName: this.item.campusName,
+          tradeLocation: this.item.tradeLocation || this.item.pickupPoint,
+          viewTime: Date.now()
+        }
+        const next = [nextItem, ...list.filter((item) => item.id !== this.item.id)].slice(0, 50)
+        uni.setStorageSync(BROWSE_HISTORY_KEY, next)
+      } catch (e) {
+        console.warn('保存浏览记录失败', e)
       }
     },
     emoji(id) {
@@ -202,6 +238,53 @@ export default {
         urls: this.item.images,
         current: src
       })
+    },
+    async toggleFavorite() {
+      if (!this.item.id || this.favoriting) return
+      try {
+        this.favoriting = true
+        if (this.item.isFavorited) {
+          await unfavoriteSecondhandItem(this.item.id)
+          this.item.isFavorited = false
+          uni.showToast({ title: '已取消收藏', icon: 'none' })
+        } else {
+          await favoriteSecondhandItem(this.item.id)
+          this.item.isFavorited = true
+          uni.showToast({ title: '已收藏', icon: 'success' })
+        }
+      } catch (e) {
+        console.error('收藏操作失败', e)
+        uni.showToast({ title: '操作失败', icon: 'none' })
+      } finally {
+        this.favoriting = false
+      }
+    },
+    async contactSeller() {
+      if (!this.item.id) return
+      try {
+        const res = await createOrGetChatSession(this.item.id)
+        const sessionId = res?.data?.sessionId || res?.data?.id
+        const query = sessionId ? `sessionId=${sessionId}` : `itemId=${this.item.id}`
+        uni.navigateTo({ url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?${query}` })
+      } catch (e) {
+        console.error('创建聊天失败', e)
+        uni.showToast({ title: '暂时无法联系卖家', icon: 'none' })
+      }
+    },
+    async reserveItem() {
+      if (!this.item.id || this.reserving) return
+      try {
+        this.reserving = true
+        await reserveSecondhandItem(this.item.id)
+        uni.showToast({ title: '已拍下，等待卖家确认', icon: 'success' })
+        await this.loadItem()
+        await this.contactSeller()
+      } catch (e) {
+        console.error('拍下商品失败', e)
+        uni.showToast({ title: e?.data?.msg || e?.msg || '拍下失败', icon: 'none' })
+      } finally {
+        this.reserving = false
+      }
     },
     formatTime(value) {
       if (!value) return ''
@@ -498,5 +581,33 @@ export default {
 
 .bottom-btn::after {
   border: none;
+}
+
+.icon-action {
+  min-width: 128rpx;
+  height: 76rpx;
+  border-radius: 20rpx;
+  background: #ffffff;
+  color: #5c7894;
+  font-size: 24rpx;
+  font-weight: 800;
+  border: 2rpx solid #d7e4ef;
+}
+
+.icon-action.active {
+  color: #d56b55;
+  border-color: #f1b7a9;
+  background: #fff5f2;
+}
+
+.bottom-btn.secondary {
+  background: #ffffff;
+  color: #5c7894;
+  border: 2rpx solid #d7e4ef;
+}
+
+.bottom-btn.disabled {
+  background: #bac6d2;
+  color: #ffffff;
 }
 </style>

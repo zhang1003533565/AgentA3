@@ -2,11 +2,18 @@
   <view class="page-root">
     <view class="screen">
       <view class="container">
-        <nav-bar title="我的消息" :fixed="true" :placeholder="true" />
+        <nav-bar title="市集消息" :fixed="true" :placeholder="true" />
         
         <scroll-view scroll-y class="page-body">
           <view class="section-title">通知</view>
-          <view class="notify-card" @click="openTradeNotifications">
+          <view class="notify-card" @click="openSystemNotifications">
+            <view class="notify-icon system">系</view>
+            <view class="notify-body">
+              <view class="notify-name">系统通知</view>
+              <view class="notify-desc">查看校园公告和市集系统消息</view>
+            </view>
+          </view>
+          <view class="notify-card notify-card-spaced" @click="openTradeNotifications">
             <view class="notify-icon">交</view>
             <view class="notify-body">
               <view class="notify-name">交易通知</view>
@@ -17,7 +24,7 @@
 
           <view class="section-title chat-title">聊天</view>
           <view v-if="chats.length === 0" class="empty">
-            <view class="empty-i">💬</view>
+            <image class="empty-icon" src="/static/icons/message-empty.svg" mode="aspectFit" />
             <view class="empty-t">暂无消息</view>
           </view>
           <view v-for="c in chats" :key="c.id" class="mscard" @click="openChat(c.id)">
@@ -33,6 +40,7 @@
             </view>
           </view>
         </scroll-view>
+        <market-bottom-bar activeTab="messages" />
       </view>
     </view>
   </view>
@@ -40,6 +48,7 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { getChatSessions, getTradeNotificationUnreadCount } from '@/api/secondhand'
 
 function normalizeSession(item) {
@@ -56,7 +65,8 @@ function normalizeSession(item) {
 
 export default {
   components: {
-    NavBar
+    NavBar,
+    MarketBottomBar
   },
   data() {
     return {
@@ -109,6 +119,11 @@ export default {
         url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?sessionId=${id}`
       })
     },
+    openSystemNotifications() {
+      uni.navigateTo({
+        url: '/subpackage_lostfound/marketNotifications/marketNotifications'
+      })
+    },
     openTradeNotifications() {
       uni.navigateTo({
         url: '/subpackage_lostfound/marketTradeNotifications/marketTradeNotifications'
@@ -151,7 +166,7 @@ export default {
 .page-body {
   flex: 1;
   overflow-y: auto;
-  padding: 20rpx 0;
+  padding: 20rpx 0 150rpx;
 }
 
 .section-title {
@@ -214,9 +229,12 @@ export default {
   text-align: center;
 }
 
-.empty-i {
-  font-size: 80rpx;
-  margin-bottom: 24rpx;
+.empty-icon {
+  display: block;
+  width: 120rpx;
+  height: 120rpx;
+  margin: 0 auto 24rpx;
+  opacity: 0.45;
 }
 
 .empty-t {
@@ -297,5 +315,14 @@ export default {
   color: #fff;
   font-size: 20rpx;
   font-weight: 600;
+}
+
+.notify-card-spaced {
+  margin-top: 16rpx;
+}
+
+.notify-icon.system {
+  background: #eef3fb;
+  color: #5c8ab8;
 }
 </style>

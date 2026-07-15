@@ -1,5 +1,5 @@
 <template>
-  <view class="bottom-bar">
+  <view class="bottom-bar" :class="{ 'bottom-bar--publishing': publishOverlayMounted }">
     <view class="bar-item" hover-class="none" :class="{ active: activeTab === 'home' }" @click="goToHome">
       <image class="bar-icon-img" src="/static/icons/home.svg" mode="aspectFit" />
       <span>首页</span>
@@ -24,39 +24,118 @@
       <image class="bar-icon-img" src="/static/icons/profile.svg" mode="aspectFit" />
       <span>我的</span>
     </view>
+    <market-publish-overlay
+      v-if="publishOverlayMounted"
+      :visible="publishOverlayVisible"
+      @close="closePublishOverlay"
+    />
   </view>
 </template>
 
 <script>
+import { getChatUnreadCount, getTradeRecords } from '@/api/secondhand'
+import { getEnabledAnnouncements } from '@/api/notice'
+import MarketPublishOverlay from '@/components/market-publish-overlay/market-publish-overlay.vue'
+
 export default {
   name: 'MarketBottomBar',
+  components: {
+    MarketPublishOverlay
+  },
   props: {
     activeTab: { type: String, default: 'home' }
   },
   data() {
     return {
-      unreadCount: 0
+      unreadCount: 0,
+      publishOverlayMounted: false,
+      publishOverlayVisible: false,
+      publishOverlayTimer: null
+    }
+  },
+  mounted() {
+    this.refreshUnread()
+  },
+  beforeDestroy() {
+    if (this.publishOverlayTimer) {
+      clearTimeout(this.publishOverlayTimer)
+      this.publishOverlayTimer = null
+    }
+  },
+  pageLifetimes: {
+    show() {
+      this.refreshUnread()
     }
   },
   methods: {
+    async refreshUnread() {
+      try {
+        const [chatRes, announceRes, tradeRes] = await Promise.all([
+          getChatUnreadCount(),
+          getEnabledAnnouncements(),
+          getTradeRecords({ current: 1, size: 100 })
+        ])
+
+        // 聊天消息未读（getChatUnreadCount 直接返回总数）
+        const chatUnread = Number(chatRes?.data) || 0
+
+        // 通知公告未读（对比本地已读最大 ID）
+        const announceList = Array.isArray(announceRes?.data)
+          ? announceRes.data
+          : (Array.isArray(announceRes?.data?.records) ? announceRes.data.records : [])
+        const lastSeenId = uni.getStorageSync('marketLastSeenAnnounceId') || 0
+        const announceUnread = announceList.filter(a => (a.id || 0) > lastSeenId).length
+
+        // 交易消息未读（messageType=0 且未读）
+        const tradeList = Array.isArray(tradeRes?.data?.records) ? tradeRes.data.records : []
+        const tradeUnread = tradeList.filter(r => r.messageType === 0 && r.isRead === false).length
+
+        this.unreadCount = chatUnread + announceUnread + tradeUnread
+      } catch (_) {
+        // 静默失败：未读数获取失败不影响导航功能
+      }
+    },
     goToHome() {
       if (this.activeTab === 'home') return
       uni.redirectTo({ url: '/subpackage_lostfound/marketplaceHome/marketplaceHome' })
     },
     goToList() {
       if (this.activeTab === 'market') return
-      uni.redirectTo({ url: '/subpackage_lostfound/marketplaceHome/marketplaceHome' })
+      uni.redirectTo({ url: '/subpackage_lostfound/lostfoundList/lostfoundList' })
     },
     goToPublish() {
-      uni.showToast({ title: '发布功能待下一阶段迁移', icon: 'none' })
+      if (this.publishOverlayMounted) return
+      if (this.publishOverlayTimer) {
+        clearTimeout(this.publishOverlayTimer)
+        this.publishOverlayTimer = null
+      }
+      this.publishOverlayMounted = true
+      this.$nextTick(() => {
+        this.publishOverlayTimer = setTimeout(() => {
+          this.publishOverlayVisible = true
+          this.publishOverlayTimer = null
+        }, 20)
+      })
+    },
+    closePublishOverlay() {
+      if (!this.publishOverlayMounted) return
+      if (this.publishOverlayTimer) {
+        clearTimeout(this.publishOverlayTimer)
+        this.publishOverlayTimer = null
+      }
+      this.publishOverlayVisible = false
+      this.publishOverlayTimer = setTimeout(() => {
+        this.publishOverlayMounted = false
+        this.publishOverlayTimer = null
+      }, 300)
     },
     goToMessages() {
       if (this.activeTab === 'messages') return
-      uni.showToast({ title: '消息功能待后续迁移', icon: 'none' })
+      uni.redirectTo({ url: '/pages/market/message/message' })
     },
     goToProfile() {
       if (this.activeTab === 'profile') return
-      uni.showToast({ title: '我的页面待后续迁移', icon: 'none' })
+      uni.redirectTo({ url: '/subpackage_lostfound/marketplaceProfile/marketplaceProfile' })
     }
   }
 }
@@ -75,6 +154,10 @@ export default {
   padding: 8rpx 0 calc(6rpx + env(safe-area-inset-bottom));
   box-shadow: 0 -2rpx 12rpx rgba(0, 0, 0, 0.06);
   z-index: 60;
+}
+
+.bottom-bar--publishing {
+  z-index: 2147483647;
 }
 
 .bar-item {
