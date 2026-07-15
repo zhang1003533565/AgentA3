@@ -1009,6 +1009,7 @@ function WorkspacePage({ pageKey }) {
   const mapPickerContainerRef = useRef(null)
   const mapPickerAmapRef = useRef(null)
   const mapPickerOverlaysRef = useRef([])
+  const mapPickerInitialPositionRef = useRef(null)
   const markerAmapContainerRef = useRef(null)
   const markerAmapHostRef = useRef(null)
   const markerAmapRef = useRef(null)
@@ -3141,6 +3142,11 @@ function WorkspacePage({ pageKey }) {
   }, [destroyAmapMap])
 
   const openMapPicker = (record) => {
+    const initialLongitude = toFiniteNumber(record.longitude)
+    const initialLatitude = toFiniteNumber(record.latitude)
+    mapPickerInitialPositionRef.current = initialLongitude !== null && initialLatitude !== null
+      ? [initialLongitude, initialLatitude]
+      : [DEFAULT_MAP_CENTER.longitude, DEFAULT_MAP_CENTER.latitude]
     setMapPickerRecord(record)
     setMapPickerLng(record.longitude ? String(record.longitude) : '')
     setMapPickerLat(record.latitude ? String(record.latitude) : '')
@@ -3182,6 +3188,8 @@ function WorkspacePage({ pageKey }) {
     }
   }
 
+  const mapPickerFacilityName = mapPickerRecord?.facilityName || ''
+
   // 地图选点 Drawer 内地图初始化
   useEffect(() => {
     if (!mapPickerOpen || !mapPickerAmapReady || !mapPickerContainerRef.current) return undefined
@@ -3197,8 +3205,10 @@ function WorkspacePage({ pageKey }) {
       mapPickerAmapRef.current = null
     }
 
-    const lng = toFiniteNumber(mapPickerLng) ?? DEFAULT_MAP_CENTER.longitude
-    const lat = toFiniteNumber(mapPickerLat) ?? DEFAULT_MAP_CENTER.latitude
+    const [lng, lat] = mapPickerInitialPositionRef.current || [
+      DEFAULT_MAP_CENTER.longitude,
+      DEFAULT_MAP_CENTER.latitude,
+    ]
 
     const map = new window.AMap.Map(mapPickerContainerRef.current, {
       zoom: 17,
@@ -3207,16 +3217,6 @@ function WorkspacePage({ pageKey }) {
       mapStyle: 'amap://styles/normal',
     })
     mapPickerAmapRef.current = map
-
-    // 已有位置显示标记
-    if (toFiniteNumber(mapPickerLng) !== null && toFiniteNumber(mapPickerLat) !== null) {
-      const marker = new window.AMap.Marker({
-        map,
-        position: [lng, lat],
-        label: { content: mapPickerRecord?.facilityName || '当前位置', direction: 'top' },
-      })
-      mapPickerOverlaysRef.current = [marker]
-    }
 
     // 点击地图取点
     const clickHandler = (event) => {
@@ -3228,14 +3228,6 @@ function WorkspacePage({ pageKey }) {
       }
       setMapPickerLng(roundCoordinate(rawLng))
       setMapPickerLat(roundCoordinate(rawLat))
-      // 更新标记
-      clearAmapOverlays(mapPickerOverlaysRef)
-      const newMarker = new window.AMap.Marker({
-        map,
-        position: [rawLng, rawLat],
-        label: { content: mapPickerRecord?.facilityName || '新位置', direction: 'top' },
-      })
-      mapPickerOverlaysRef.current = [newMarker]
     }
     map.on('click', clickHandler)
 
@@ -3249,7 +3241,28 @@ function WorkspacePage({ pageKey }) {
       }
       mapPickerAmapRef.current = null
     }
-  }, [clearAmapOverlays, mapPickerAmapReady, mapPickerLat, mapPickerLng, mapPickerOpen, mapPickerRecord?.facilityName])
+  }, [clearAmapOverlays, mapPickerAmapReady, mapPickerOpen])
+
+  // 坐标变化只同步选点标记，不重建地图实例
+  useEffect(() => {
+    if (!mapPickerOpen || !mapPickerAmapReady || !mapPickerAmapRef.current || !window.AMap) return
+    const lng = toFiniteNumber(mapPickerLng)
+    const lat = toFiniteNumber(mapPickerLat)
+    if (lng === null || lat === null) {
+      clearAmapOverlays(mapPickerOverlaysRef)
+      return
+    }
+
+    const map = mapPickerAmapRef.current
+    clearAmapOverlays(mapPickerOverlaysRef)
+    const marker = new window.AMap.Marker({
+      map,
+      position: [lng, lat],
+      label: { content: mapPickerFacilityName || '当前位置', direction: 'top' },
+    })
+    mapPickerOverlaysRef.current = [marker]
+    map.setCenter([lng, lat])
+  }, [clearAmapOverlays, mapPickerAmapReady, mapPickerFacilityName, mapPickerLat, mapPickerLng, mapPickerOpen])
 
   const renderMapPickerDrawer = () => (
     <Drawer
