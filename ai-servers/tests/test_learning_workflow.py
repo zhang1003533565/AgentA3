@@ -2,6 +2,7 @@ import json
 import threading
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi import HTTPException
@@ -13,8 +14,17 @@ from app.learning_workflow import (
     PracticeQuestion,
     ResourcePackageMetadata,
     ResourceReviewResult,
+    WorkflowResource,
     run_learning_workflow,
 )
+from app.learning_workflow.workflow import rewrite_rejected_once
+from app.model_providers.runtime_config import (
+    LlmRuntimeConfig,
+    get_active_llm_config,
+    reset_active_llm_config,
+    set_active_llm_config,
+)
+from app.multi_agents import runner as runner_module
 from app.multi_agents.catalog import AGENT_ORDER, get_agent_profile
 from app.multi_agents.python_practice_set_agent.agent import python_practice_set_agent
 from app.multi_agents.runner import LearningWorkflowRunner, run_specialist_agent
@@ -765,6 +775,143 @@ def test_production_workflow_runner_preserves_strict_new_agent_json():
     assert json.loads(
         runner.run("python_code_lab_agent", "代码输入", [{"id": "ev-python-1"}])
     ) == answer
+
+
+def test_default_production_runner_propagates_and_isolates_request_llm_context(
+    monkeypatch,
+):
+    observations = []
+    observation_lock = threading.Lock()
+    backing_runner = FakeRunner()
+
+    def dispatcher(agent_name, input_text, evidence, chat_service=None):
+        payload = json.loads(input_text)
+        workflow_id = payload.get("workflowId")
+        if workflow_id:
+            active_config = get_active_llm_config()
+            with observation_lock:
+                observations.append(
+                    (workflow_id, None if active_config is None else active_config.model)
+                )
+
+        answer = backing_runner.run(agent_name, input_text, evidence)
+        if agent_name not in {
+            "textbook_knowledge_agent",
+            "diagram_mind_map_agent",
+            "ppt_outline_agent",
+        }:
+            return answer
+
+        resource = json.loads(answer)
+        if agent_name == "diagram_mind_map_agent":
+            return json.dumps({"nodes": resource["nodes"]}, ensure_ascii=False)
+        return resource["content"]
+
+    monkeypatch.setattr(runner_module, "run_specialist_agent", dispatcher)
+
+    def run_request(workflow_id, model):
+        token = set_active_llm_config(
+            LlmRuntimeConfig(
+                provider="test",
+                base_url="https://llm.example.edu/v1",
+                api_key=f"key-{model}",
+                model=model,
+            )
+        )
+        try:
+            return run_learning_workflow(build_request(workflowId=workflow_id))
+        finally:
+            reset_active_llm_config(token)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(run_request, "workflow-a", "model-a"),
+            pool.submit(run_request, "workflow-b", "model-b"),
+        ]
+        results = [future.result() for future in futures]
+
+    assert [result.workflowId for result in results] == ["workflow-a", "workflow-b"]
+    assert observations
+    assert all(
+        model == {"workflow-a": "model-a", "workflow-b": "model-b"}[workflow_id]
+        for workflow_id, model in observations
+    )
+
+
+@pytest.mark.parametrize(
+    ("resource_type", "agent_name", "payload", "rewrite_output"),
+    [
+        (
+            "knowledge_note",
+            "textbook_knowledge_agent",
+            {"kind": "knowledge_note", "note": {"markdown": "旧讲义"}},
+            "## 新讲义",
+        ),
+        (
+            "mind_map",
+            "diagram_mind_map_agent",
+            {"kind": "mind_map", "mindMap": {"url": "old.png"}},
+            json.dumps({"url": "new.png"}, ensure_ascii=False),
+        ),
+        (
+            "presentation",
+            "ppt_outline_agent",
+            {"kind": "presentation", "outline": "旧课件", "metadata": {}},
+            "## 新课件",
+        ),
+    ],
+)
+def test_legacy_rewrite_uses_current_resource_authoritative_evidence_subset(
+    resource_type,
+    agent_name,
+    payload,
+    rewrite_output,
+):
+    calls = []
+
+    def dispatcher(called_agent, input_text, evidence, chat_service=None):
+        calls.append((called_agent, json.loads(input_text), evidence))
+        if called_agent == agent_name:
+            return rewrite_output
+        if called_agent == "resource_review_agent":
+            return json.dumps(
+                {
+                    "evidenceIds": ["ev-python-2"],
+                    "reviews": [
+                        {
+                            "resourceType": resource_type,
+                            "reviewStatus": "passed",
+                            "reviewIssues": [],
+                            "evidenceIds": ["ev-python-2"],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            )
+        raise AssertionError(called_agent)
+
+    request = build_request()
+    reviewed = WorkflowResource(
+        resourceType=resource_type,
+        agentName=agent_name,
+        content="旧资源",
+        payload=payload,
+        evidenceIds=["ev-python-2"],
+        reviewStatus="rejected",
+        reviewIssues=["需要依据当前证据重写"],
+    )
+
+    rewritten = rewrite_rejected_once(
+        [reviewed],
+        request,
+        LearningWorkflowRunner(dispatcher=dispatcher),
+    )
+
+    assert rewritten[0].reviewStatus == "passed"
+    assert rewritten[0].evidenceIds == ["ev-python-2"]
+    rewrite_call = next(call for call in calls if call[0] == agent_name)
+    assert rewrite_call[1]["resourceBrief"]["evidenceIds"] == ["ev-python-2"]
+    assert rewrite_call[2] == [request.references[1]]
 
 
 class FakeProvider:

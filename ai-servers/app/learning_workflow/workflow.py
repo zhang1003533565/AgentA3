@@ -1,5 +1,6 @@
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set
 
@@ -75,7 +76,13 @@ def run_learning_workflow(
     drafts_by_type: Dict[str, WorkflowResource] = {}
     with ThreadPoolExecutor(max_workers=MAX_PARALLELISM) as pool:
         future_jobs = {
-            pool.submit(runner.run, job.agent, job.input_text, request.references): job
+            _submit_with_current_context(
+                pool,
+                runner.run,
+                job.agent,
+                job.input_text,
+                request.references,
+            ): job
             for job in jobs
         }
         for future in as_completed(future_jobs):
@@ -310,7 +317,8 @@ def rewrite_rejected_once(
         rewritten_candidates: Dict[str, WorkflowResource] = {}
         with ThreadPoolExecutor(max_workers=MAX_PARALLELISM) as pool:
             future_resources = {
-                pool.submit(
+                _submit_with_current_context(
+                    pool,
                     runner.run,
                     resource.agentName,
                     _json_input(
@@ -319,6 +327,12 @@ def rewrite_rejected_once(
                             "topic": request.topic,
                             "resourceType": resource.resourceType,
                             "rewriteAttempt": 1,
+                            "resourceBrief": {
+                                "resourceType": resource.resourceType,
+                                "goal": "根据审核意见修订当前资源",
+                                "constraints": list(resource.reviewIssues),
+                                "evidenceIds": list(resource.evidenceIds),
+                            },
                             "previousResource": resource.model_dump(mode="json"),
                             "reviewIssues": resource.reviewIssues,
                             "profileSnapshot": request.profileSnapshot,
@@ -606,6 +620,11 @@ def _reference_policy() -> Dict[str, Any]:
 
 def _json_input(payload: Mapping[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _submit_with_current_context(pool: ThreadPoolExecutor, callable_: Any, *args: Any):
+    request_context = copy_context()
+    return pool.submit(request_context.run, callable_, *args)
 
 
 __all__ = [
