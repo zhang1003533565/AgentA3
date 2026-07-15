@@ -4,7 +4,7 @@
       <view class="container">
         <nav-bar title="商品详情" :fixed="true" :placeholder="true" />
 
-        <scroll-view scroll-y class="page-body">
+        <scroll-view scroll-y class="page-body" :style="{ height: pageBodyHeight + 'px' }">
           <view class="hero-wrap">
           <swiper
             v-if="item.images.length"
@@ -145,6 +145,7 @@ export default {
     return {
       itemId: null,
       item: normalizeItem(),
+      pageBodyHeight: 0,
       imageIndex: 0
     }
   },
@@ -182,9 +183,25 @@ export default {
   },
   async onLoad(options) {
     this.itemId = options.id
+    this.calcPageBodyHeight()
     await this.loadItem()
   },
   methods: {
+    calcPageBodyHeight() {
+      this.$nextTick(() => {
+        const query = uni.createSelectorQuery().in(this)
+        query.select('.page-body').boundingClientRect()
+        query.select('.bottom-bar').boundingClientRect()
+        query.exec((res) => {
+          if (!res || !res[0]) return
+          const bodyTop = res[0] ? res[0].top : 0
+          const barHeight = res[1] ? res[1].height : 0
+          const sysInfo = uni.getSystemInfoSync()
+          const vh = sysInfo.windowHeight || 0
+          this.pageBodyHeight = Math.max(0, vh - bodyTop - barHeight)
+        })
+      })
+    },
     async loadItem() {
       if (!this.itemId) {
         uni.showToast({ title: '缺少商品信息', icon: 'none' })
@@ -277,7 +294,6 @@ export default {
 }
 
 .page-body {
-  height: calc(100vh - 176rpx - 120rpx);
   padding: 22rpx 0 0;
   box-sizing: border-box;
 }
