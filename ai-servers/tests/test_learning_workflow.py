@@ -264,7 +264,8 @@ def test_workflow_callback_wraps_real_planning_generation_and_review_operations(
     assert names.index("review_done") > names.index("review_start")
     assert names[-1] == "packaging_done"
     for _, payload in [item for item in observed if item[0] == "agent_done"]:
-        assert payload["resource"].resourceType == payload["resourceType"]
+        assert set(payload) == {"agentName", "resourceType", "message"}
+        assert "resource" not in payload
 
 
 def test_plan_review_and_package_models_are_public_strict_contracts():

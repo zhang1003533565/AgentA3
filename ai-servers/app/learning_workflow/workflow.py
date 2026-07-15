@@ -221,7 +221,6 @@ def _run_resource_job(
         "agent_done",
         agentName=job.agent,
         resourceType=job.resource_type,
-        resource=resource,
         message="{} 生成完成".format(job.resource_type),
     )
     return resource

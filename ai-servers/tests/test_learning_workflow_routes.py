@@ -1,9 +1,12 @@
 import base64
+from io import BytesIO
 import json
 import time
+import zipfile
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app.main import app
 from app.learning_workflow import delivery as delivery_module
@@ -51,10 +54,13 @@ def workflow_result():
     resources = []
     for resource_type, agent_name in RESOURCE_SPECS:
         payload = _resource_payload(resource_type)
+        content = _resource_content(resource_type, payload)
+        if resource_type == "code_lab":
+            payload["codeLab"]["markdown"] = content
         resources.append({
             "resourceType": resource_type,
             "agentName": agent_name,
-            "content": _resource_content(resource_type, payload),
+            "content": content,
             "payload": payload,
             "evidenceIds": ["ev-loop"],
             "reviewStatus": "passed",
@@ -225,13 +231,38 @@ def test_learning_stream_emits_real_monotonic_stages(monkeypatch, tmp_path):
     assert response.status_code == 200
     events = parse_sse(response.text)
     names = [name for name, _ in events]
-    assert names[:4] == ["accepted", "profile", "retrieval", "planning"]
-    assert names.count("agent_start") == 6
-    assert names.count("agent_done") == 6
+    expected_agent_events = []
+    for _ in RESOURCE_SPECS:
+        expected_agent_events.extend(["agent_start", "agent_done"])
+    assert names == [
+        "accepted",
+        "profile",
+        "retrieval",
+        "planning",
+        *expected_agent_events,
+        "review_start",
+        "review_result",
+        "exporting",
+        "pathing",
+        "persisting",
+        "done",
+    ]
     assert names.index("review_start") > max(
         index for index, name in enumerate(names) if name == "agent_done"
     )
-    assert names[-5:] == ["review_result", "exporting", "pathing", "persisting", "done"]
+    for name, data in events:
+        if name != "agent_done":
+            continue
+        assert set(data) == {
+            "workflowId",
+            "stage",
+            "progress",
+            "agentName",
+            "resourceType",
+            "message",
+            "retryable",
+        }
+        assert "resource" not in data
     progress = [data["progress"] for _, data in events]
     assert progress == sorted(progress)
     assert names.count("done") == 1
@@ -398,6 +429,128 @@ def test_real_agent_code_lab_contract_exports_python_markdown_and_archive(
     source_attachment = next(item for item in code_attachments if item["ext"] == "py")
     source = (tmp_path / "exports" / source_attachment["storageKey"]).read_text("utf-8")
     assert "for value in range(3)" in source
+    guide_attachment = next(item for item in code_attachments if item["ext"] == "md")
+    guide = (tmp_path / "exports" / guide_attachment["storageKey"]).read_text("utf-8")
+    assert "掌握 range 与 for 循环" in guide
+    archive_attachment = next(item for item in code_attachments if item["ext"] == "zip")
+    with zipfile.ZipFile(tmp_path / "exports" / archive_attachment["storageKey"]) as archive:
+        assert "掌握 range 与 for 循环" in archive.read("README.md").decode("utf-8")
+
+
+@pytest.mark.parametrize(
+    "code_lab",
+    [
+        {"sourceCode": "print('sourceCode-contract')"},
+        {"source": "print('source-contract')"},
+        {"code": "print('code-contract')"},
+        {"codeBlocks": [{
+            "language": "python3",
+            "role": "main",
+            "code": "print('codeBlocks-contract')",
+        }]},
+    ],
+)
+def test_structured_code_lab_contract_fields_are_exported(
+    monkeypatch,
+    tmp_path,
+    code_lab,
+):
+    monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
+    raw_result = workflow_result().model_dump(mode="json")
+    resource = next(
+        item for item in raw_result["resources"] if item["resourceType"] == "code_lab"
+    )
+    resource["content"] = "# 结构化代码实验"
+    resource["payload"]["codeLab"] = code_lab
+
+    attachments_by_type, _, failures = export_learning_resources(
+        LearningWorkflowResult.model_validate(raw_result)
+    )
+
+    assert not [item for item in failures if item["resourceType"] == "code_lab"]
+    source_attachment = next(
+        item for item in attachments_by_type["code_lab"] if item["ext"] == "py"
+    )
+    source = (tmp_path / "exports" / source_attachment["storageKey"]).read_text("utf-8")
+    assert "contract" in source
+
+
+@pytest.mark.parametrize("test_field", ["testCode", "testsCode"])
+def test_structured_code_lab_test_fields_are_preserved_in_archive(
+    monkeypatch,
+    tmp_path,
+    test_field,
+):
+    monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
+    raw_result = workflow_result().model_dump(mode="json")
+    resource = next(
+        item for item in raw_result["resources"] if item["resourceType"] == "code_lab"
+    )
+    resource["content"] = "# 带自测的结构化代码实验"
+    resource["payload"]["codeLab"] = {
+        "sourceCode": "value = 3\nprint(value)",
+        test_field: "assert 1 + 1 == 2  # structured-test-marker",
+    }
+
+    attachments_by_type, _, failures = export_learning_resources(
+        LearningWorkflowResult.model_validate(raw_result)
+    )
+
+    assert not [item for item in failures if item["resourceType"] == "code_lab"]
+    archive_attachment = next(
+        item for item in attachments_by_type["code_lab"] if item["ext"] == "zip"
+    )
+    with zipfile.ZipFile(tmp_path / "exports" / archive_attachment["storageKey"]) as archive:
+        assert "structured-test-marker" in archive.read("test_lab.py").decode("utf-8")
+
+
+def test_markdown_code_lab_accepts_safe_unlabelled_fence(monkeypatch, tmp_path):
+    monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
+    raw_result = workflow_result().model_dump(mode="json")
+    resource = next(
+        item for item in raw_result["resources"] if item["resourceType"] == "code_lab"
+    )
+    resource["content"] = (
+        "# 无语言标签实验\n\n```\n"
+        "values = [1, 2, 3]\nprint(sum(values))  # unlabelled-marker\n```"
+    )
+    resource["payload"]["codeLab"] = {"markdown": resource["content"]}
+
+    attachments_by_type, _, failures = export_learning_resources(
+        LearningWorkflowResult.model_validate(raw_result)
+    )
+
+    assert not [item for item in failures if item["resourceType"] == "code_lab"]
+    source_attachment = next(
+        item for item in attachments_by_type["code_lab"] if item["ext"] == "py"
+    )
+    source = (tmp_path / "exports" / source_attachment["storageKey"]).read_text("utf-8")
+    assert "unlabelled-marker" in source
+
+
+def test_markdown_code_lab_prefers_explicit_python_fence(monkeypatch, tmp_path):
+    monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
+    raw_result = workflow_result().model_dump(mode="json")
+    resource = next(
+        item for item in raw_result["resources"] if item["resourceType"] == "code_lab"
+    )
+    resource["content"] = (
+        "# 双代码块实验\n\n```\nprint('unlabelled-choice')\n```\n\n"
+        "```py\nprint('explicit-choice')\n```"
+    )
+    resource["payload"]["codeLab"] = {"markdown": resource["content"]}
+
+    attachments_by_type, _, failures = export_learning_resources(
+        LearningWorkflowResult.model_validate(raw_result)
+    )
+
+    assert not [item for item in failures if item["resourceType"] == "code_lab"]
+    source_attachment = next(
+        item for item in attachments_by_type["code_lab"] if item["ext"] == "py"
+    )
+    source = (tmp_path / "exports" / source_attachment["storageKey"]).read_text("utf-8")
+    assert "explicit-choice" in source
+    assert "unlabelled-choice" not in source
 
 
 def test_mind_map_base64_contract_is_persisted_as_trusted_image_attachment(
@@ -409,7 +562,9 @@ def test_mind_map_base64_contract_is_persisted_as_trusted_image_attachment(
     mind_map = next(
         item for item in raw_result["resources"] if item["resourceType"] == "mind_map"
     )
-    png_bytes = b"\x89PNG\r\n\x1a\n" + b"trusted-learning-image"
+    image_buffer = BytesIO()
+    Image.new("RGB", (1, 1), color=(35, 120, 220)).save(image_buffer, format="PNG")
+    png_bytes = image_buffer.getvalue()
     response_payload = {
         "taskId": "mind-map-base64-task",
         "status": "success",
@@ -432,6 +587,70 @@ def test_mind_map_base64_contract_is_persisted_as_trusted_image_attachment(
     assert attachment["ext"] == "png"
     assert attachment["mimeType"] == "image/png"
     assert (tmp_path / "exports" / attachment["storageKey"]).read_bytes() == png_bytes
+
+
+def test_mind_map_rejects_signature_only_fake_png(monkeypatch, tmp_path):
+    monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
+    raw_result = workflow_result().model_dump(mode="json")
+    mind_map = next(
+        item for item in raw_result["resources"] if item["resourceType"] == "mind_map"
+    )
+    fake_png = b"\x89PNG\r\n\x1a\nnot-a-decodable-image"
+    response_payload = {
+        "taskId": "fake-png-task",
+        "status": "success",
+        "images": [{
+            "index": 0,
+            "url": "",
+            "base64": base64.b64encode(fake_png).decode("ascii"),
+            "status": "success",
+        }],
+    }
+    mind_map["content"] = json.dumps(response_payload, ensure_ascii=False)
+    mind_map["payload"]["mindMap"] = response_payload
+
+    attachments_by_type, _, failures = export_learning_resources(
+        LearningWorkflowResult.model_validate(raw_result)
+    )
+
+    assert attachments_by_type["mind_map"] == []
+    assert [
+        item["errorType"] for item in failures if item["resourceType"] == "mind_map"
+    ] == ["MindMapContractError"]
+    assert not (tmp_path / "exports").exists() or not list((tmp_path / "exports").glob("*.png"))
+
+
+def test_mind_map_remote_url_uses_declared_content_type_consistently(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
+    raw_result = workflow_result().model_dump(mode="json")
+    mind_map = next(
+        item for item in raw_result["resources"] if item["resourceType"] == "mind_map"
+    )
+    response_payload = {
+        "taskId": "remote-jpeg-task",
+        "status": "success",
+        "images": [{
+            "index": 0,
+            "url": "https://example.com/generated/mind-map",
+            "contentType": "image/jpeg",
+            "status": "success",
+        }],
+    }
+    mind_map["content"] = json.dumps(response_payload, ensure_ascii=False)
+    mind_map["payload"]["mindMap"] = response_payload
+
+    attachments_by_type, _, failures = export_learning_resources(
+        LearningWorkflowResult.model_validate(raw_result)
+    )
+
+    assert not [item for item in failures if item["resourceType"] == "mind_map"]
+    attachment = attachments_by_type["mind_map"][0]
+    assert attachment["ext"] == "jpg"
+    assert attachment["mimeType"] == "image/jpeg"
+    assert attachment["fileName"].endswith(".jpg")
 
 
 def test_mind_map_mermaid_contract_exports_only_mindmap_source(monkeypatch, tmp_path):
@@ -500,6 +719,30 @@ def test_empty_export_result_becomes_retryable_resource_failure(monkeypatch, tmp
         "message": "课程讲义交付失败，请重试",
         "errorType": "EmptyResourceExportError",
     }]
+
+
+def test_name_only_attachment_is_not_considered_deliverable(monkeypatch, tmp_path):
+    monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path / "exports"))
+    raw_result = workflow_result().model_dump(mode="json")
+    raw_result["resources"] = [
+        item for item in raw_result["resources"] if item["resourceType"] == "knowledge_note"
+    ]
+    monkeypatch.setattr(
+        delivery_module,
+        "export_generated_answer",
+        lambda *args, **kwargs: GeneratedExportResult(
+            attachments=[{"name": "not-backed-by-storage.md"}],
+            diagnostics={"skipped": False},
+        ),
+    )
+
+    attachments_by_type, attachments, failures = export_learning_resources(
+        LearningWorkflowResult.model_validate(raw_result)
+    )
+
+    assert attachments_by_type["knowledge_note"] == []
+    assert attachments == []
+    assert [item["errorType"] for item in failures] == ["EmptyResourceExportError"]
 
 
 @pytest.mark.parametrize(

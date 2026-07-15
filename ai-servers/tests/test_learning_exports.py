@@ -116,6 +116,40 @@ def test_code_lab_export_accepts_the_typed_workflow_payload(tmp_path, monkeypatc
     assert "print(values[1:])" in source_path.read_text("utf-8")
 
 
+def test_code_lab_export_preserves_personalized_markdown_in_guide_and_zip(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("AI_EXPORT_ROOT", str(tmp_path))
+    payload = {
+        "kind": "code_lab",
+        "codeLab": {
+            "sourceCode": "for value in range(2):\n    print(value)",
+            "markdown": (
+                "## 针对当前薄弱点的实验\n\n"
+                "先预测循环输出，再完成挑战：把 range 上界改为画像推荐值。"
+            ),
+            "evidenceIds": ["python-loop-01"],
+        },
+    }
+
+    result = export_python_code_lab(
+        payload,
+        {"title": "循环个性化实验", "reviewStatus": "passed"},
+    )
+
+    guide_path = tmp_path / next(
+        item["storageKey"] for item in result.attachments if item["ext"] == "md"
+    )
+    assert "针对当前薄弱点的实验" in guide_path.read_text("utf-8")
+    archive_path = tmp_path / next(
+        item["storageKey"] for item in result.attachments if item["ext"] == "zip"
+    )
+    with zipfile.ZipFile(archive_path) as archive:
+        readme = archive.read("README.md").decode("utf-8")
+    assert "把 range 上界改为画像推荐值" in readme
+
+
 @pytest.mark.parametrize(
     "source",
     [

@@ -291,22 +291,39 @@ def export_python_code_lab(
 def render_code_lab_guide(payload: Mapping[str, Any], metadata: Mapping[str, Any]) -> str:
     data = _unwrap_code_lab_payload(payload)
     title = str(metadata.get("title") or "Python 代码实验").strip()
+    personalized_markdown = str(
+        data.get("markdown") or payload.get("markdown") or ""
+    ).strip()
     objectives = _string_list(data.get("objectives") or payload.get("objectives"))
     steps = _string_list(data.get("steps") or data.get("instructions") or payload.get("steps"))
-    expected_output = str(
-        data.get("expectedOutput") or payload.get("expectedOutput") or "请运行源码并对照实验目标检查结果。"
-    ).strip()
+    expected_output = str(data.get("expectedOutput") or payload.get("expectedOutput") or "").strip()
     verification_cases = data.get("verificationCases") or payload.get("verificationCases") or []
     evidence_ids = _string_list(data.get("evidenceIds") or payload.get("evidenceIds"))
 
-    lines = [f"# {title}", "", "## 学习目标", ""]
-    lines.extend(f"- {item}" for item in (objectives or ["理解并运行本实验中的 Python 示例。"]))
-    lines.extend(["", "## 实验步骤", ""])
-    lines.extend(
-        f"{index}. {item}"
-        for index, item in enumerate(steps or ["运行 `lab.py`。", "根据输出完成自测。"], start=1)
-    )
-    lines.extend(["", "## 预期输出", "", "```text", expected_output, "```"])
+    lines = [f"# {title}"]
+    if personalized_markdown:
+        lines.extend(["", personalized_markdown])
+    if objectives or not personalized_markdown:
+        lines.extend(["", "## 学习目标", ""])
+        lines.extend(f"- {item}" for item in (objectives or ["理解并运行本实验中的 Python 示例。"]))
+    if steps or not personalized_markdown:
+        lines.extend(["", "## 实验步骤", ""])
+        lines.extend(
+            f"{index}. {item}"
+            for index, item in enumerate(
+                steps or ["运行 `lab.py`。", "根据输出完成自测。"],
+                start=1,
+            )
+        )
+    if expected_output or not personalized_markdown:
+        lines.extend([
+            "",
+            "## 预期输出",
+            "",
+            "```text",
+            expected_output or "请运行源码并对照实验目标检查结果。",
+            "```",
+        ])
     if isinstance(verification_cases, list) and verification_cases:
         lines.extend(["", "## 验证用例", ""])
         for index, item in enumerate(verification_cases, start=1):

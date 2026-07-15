@@ -816,16 +816,9 @@ async def _stream_learning_workflow(
                 transition_count += 1
                 event_name = name
                 progress = min(68, 18 + transition_count * 4)
-                if name == "agent_done" and event_payload.get("resource") is not None:
-                    provisional_bundle = build_learning_resource_bundle(
-                        workflow_id=workflow_id,
-                        topic=request.input,
-                        resources=[event_payload["resource"]],
-                        references=references,
-                        resource_metadata=_learning_resource_metadata(path_snapshot, mastery_snapshot),
-                    )
-                    provisional = provisional_bundle.get("resources") or []
-                    event_payload["resource"] = provisional[0] if provisional else None
+                # Draft resources have not passed review yet. Keep progress events
+                # deliberately content-free until the final reviewed delivery.
+                event_payload.pop("resource", None)
             elif name == "review_start":
                 event_name, progress = "review_start", 74
             elif name == "review_done" and not review_emitted:

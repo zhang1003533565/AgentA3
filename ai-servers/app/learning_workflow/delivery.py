@@ -1,9 +1,12 @@
 import base64
 import binascii
+from io import BytesIO
 import json
 import re
 from typing import Any, Dict, List, Mapping, Tuple
 from urllib.parse import urlparse
+
+from PIL import Image, UnidentifiedImageError
 
 from app.learning_workflow.models import LearningWorkflowResult, WorkflowResource
 from app.rag.document_conversion import (
@@ -13,6 +16,7 @@ from app.rag.document_conversion import (
 )
 from app.rag.document_conversion import generated_exporter
 from app.safety.learning_content_guard import validate_generated_python_code
+from app.services.assistant_resource_builder import _safe_url as _safe_resource_url
 
 
 class EmptyResourceExportError(ValueError):
@@ -21,6 +25,22 @@ class EmptyResourceExportError(ValueError):
 
 class MindMapContractError(ValueError):
     pass
+
+
+_IMAGE_CONTENT_TYPES = {
+    "image/png": ("png", "image/png"),
+    "image/jpeg": ("jpg", "image/jpeg"),
+    "image/jpg": ("jpg", "image/jpeg"),
+    "image/gif": ("gif", "image/gif"),
+    "image/webp": ("webp", "image/webp"),
+}
+_IMAGE_EXTENSIONS = {
+    "png": ("png", "image/png"),
+    "jpg": ("jpg", "image/jpeg"),
+    "jpeg": ("jpg", "image/jpeg"),
+    "gif": ("gif", "image/gif"),
+    "webp": ("webp", "image/webp"),
+}
 
 
 def export_learning_resources(
@@ -98,10 +118,16 @@ def _require_attachments(exported: Any) -> List[Dict[str, Any]]:
         if not isinstance(raw, Mapping):
             continue
         attachment = dict(raw)
-        if any(
-            attachment.get(key)
-            for key in ("fileName", "name", "title", "url", "storageKey")
-        ):
+        storage_key = str(attachment.get("storageKey") or "").strip()
+        safe_url = _safe_resource_url(attachment.get("url"), relative=False)
+        if storage_key or safe_url:
+            if safe_url:
+                attachment["url"] = safe_url
+                if attachment.get("previewUrl"):
+                    attachment["previewUrl"] = _safe_resource_url(
+                        attachment.get("previewUrl"),
+                        relative=False,
+                    )
             normalized.append(attachment)
     if not normalized:
         raise EmptyResourceExportError("资源导出器未生成可交付附件")
@@ -140,9 +166,13 @@ def _prepare_code_lab_payload(
     payload: Mapping[str, Any],
 ) -> Tuple[Dict[str, Any], List[str]]:
     normalized = dict(payload)
-    sources = _python_sources(normalized)
-    if sources:
-        return normalized, sources
+    try:
+        source, test_source = generated_exporter._extract_code_lab_sources(normalized)
+    except generated_exporter.GeneratedExportError:
+        source = ""
+        test_source = ""
+    if source:
+        return normalized, [item for item in (source, test_source) if item]
 
     fenced_sources = _python_fenced_blocks(resource.content)
     if not fenced_sources:
@@ -157,15 +187,29 @@ def _prepare_code_lab_payload(
 
 def _python_fenced_blocks(content: str) -> List[str]:
     matches = re.finditer(
-        r"```[ \t]*(?:python3?|py)\b[^\r\n]*\r?\n(?P<source>.*?)```",
+        r"```(?P<info>[^\r\n`]*)\r?\n(?P<source>.*?)```",
         str(content or ""),
         flags=re.IGNORECASE | re.DOTALL,
     )
-    return [
-        match.group("source").strip()
-        for match in matches
-        if match.group("source").strip()
-    ]
+    explicit: List[str] = []
+    unlabelled: List[str] = []
+    for match in matches:
+        source = match.group("source").strip()
+        if not source:
+            continue
+        info = match.group("info").strip().lower()
+        language = info.split(None, 1)[0] if info else ""
+        if language in {"python", "python3", "py"}:
+            explicit.append(source)
+            continue
+        if info:
+            continue
+        try:
+            validate_generated_python_code(source)
+        except Exception:
+            continue
+        unlabelled.append(source)
+    return explicit or unlabelled
 
 
 def _export_mind_map(
@@ -233,16 +277,14 @@ def _remote_image_attachment(
     task_id: str,
     index: int,
 ) -> Dict[str, Any]:
+    safe_url = _safe_resource_url(url, relative=False)
+    if not safe_url:
+        return {}
     try:
-        parsed = urlparse(url)
+        parsed = urlparse(safe_url)
     except ValueError:
         return {}
-    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
-        return {}
-    extension = _image_extension_from_name(parsed.path)
-    mime_type = str(item.get("mimeType") or "").strip().lower()
-    if not mime_type.startswith("image/"):
-        mime_type = "image/{}".format("jpeg" if extension == "jpg" else extension)
+    extension, mime_type = _remote_image_format(parsed.path, item)
     name = "python-mind-map-{}.{}".format(index, extension)
     return {
         "name": name,
@@ -251,8 +293,8 @@ def _remote_image_attachment(
         "kind": "image",
         "ext": extension,
         "mimeType": mime_type,
-        "url": url,
-        "previewUrl": url,
+        "url": safe_url,
+        "previewUrl": safe_url,
         "source": "generated_image",
         "sourceType": "generated_image",
         "sourceId": task_id,
@@ -261,23 +303,12 @@ def _remote_image_attachment(
 
 
 def _persist_inline_image(encoded: str, task_id: str, index: int) -> Dict[str, Any]:
-    mime_hint = ""
-    raw_value = encoded
-    data_url = re.fullmatch(
-        r"data:(?P<mime>image/[a-z0-9.+-]+);base64,(?P<data>.+)",
-        encoded,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    if data_url:
-        mime_hint = data_url.group("mime").lower()
-        raw_value = data_url.group("data")
-    try:
-        content = base64.b64decode(raw_value, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise MindMapContractError("思维导图图片 base64 无效") from exc
+    content, mime_hint = _decode_image_base64(encoded)
     extension, mime_type = _detect_image_format(content)
-    if mime_hint and mime_hint != mime_type:
-        raise MindMapContractError("思维导图图片 MIME 与内容不一致")
+    if mime_hint:
+        normalized_hint = _IMAGE_CONTENT_TYPES.get(mime_hint)
+        if normalized_hint is None or normalized_hint[1] != mime_type:
+            raise MindMapContractError("思维导图图片 MIME 与内容不一致")
 
     root = generated_exporter._current_export_root()
     generated_exporter.cleanup_generated_exports(root=root)
@@ -320,20 +351,80 @@ def _persist_inline_image(encoded: str, task_id: str, index: int) -> Dict[str, A
 
 
 def _detect_image_format(content: bytes) -> Tuple[str, str]:
-    if content.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "png", "image/png"
-    if content.startswith(b"\xff\xd8\xff"):
-        return "jpg", "image/jpeg"
-    if content.startswith((b"GIF87a", b"GIF89a")):
-        return "gif", "image/gif"
-    if len(content) >= 12 and content.startswith(b"RIFF") and content[8:12] == b"WEBP":
-        return "webp", "image/webp"
-    raise MindMapContractError("思维导图图片格式不受支持")
+    if not content:
+        raise MindMapContractError("思维导图图片内容为空")
+    try:
+        with Image.open(BytesIO(content)) as image:
+            image_format = str(image.format or "").upper()
+            image.verify()
+        with Image.open(BytesIO(content)) as image:
+            image.load()
+            if image.width < 1 or image.height < 1:
+                raise MindMapContractError("思维导图图片尺寸无效")
+    except (
+        Image.DecompressionBombError,
+        UnidentifiedImageError,
+        OSError,
+        SyntaxError,
+        ValueError,
+    ) as exc:
+        raise MindMapContractError("思维导图图片无法通过真实解码校验") from exc
+    normalized = {
+        "PNG": ("png", "image/png"),
+        "JPEG": ("jpg", "image/jpeg"),
+        "GIF": ("gif", "image/gif"),
+        "WEBP": ("webp", "image/webp"),
+    }.get(image_format)
+    if normalized is None:
+        raise MindMapContractError("思维导图图片格式不受支持")
+    return normalized
 
 
 def _image_extension_from_name(path: str) -> str:
     extension = str(path or "").rsplit("/", 1)[-1].rsplit(".", 1)[-1].lower()
-    return extension if extension in {"png", "jpg", "jpeg", "gif", "webp"} else "png"
+    return extension if extension in _IMAGE_EXTENSIONS else ""
+
+
+def _remote_image_format(path: str, item: Mapping[str, Any]) -> Tuple[str, str]:
+    declared = str(
+        item.get("contentType") or item.get("mimeType") or ""
+    ).split(";", 1)[0].strip().lower()
+    if declared:
+        normalized = _IMAGE_CONTENT_TYPES.get(declared)
+        if normalized is None:
+            raise MindMapContractError("思维导图远程图片 Content-Type 不受支持")
+        return normalized
+
+    encoded = str(item.get("base64") or "").strip()
+    if encoded:
+        try:
+            content, _ = _decode_image_base64(encoded)
+            return _detect_image_format(content)
+        except MindMapContractError:
+            pass
+
+    extension = _image_extension_from_name(path)
+    if extension:
+        return _IMAGE_EXTENSIONS[extension]
+    return "png", "image/png"
+
+
+def _decode_image_base64(encoded: str) -> Tuple[bytes, str]:
+    mime_hint = ""
+    raw_value = str(encoded or "").strip()
+    data_url = re.fullmatch(
+        r"data:(?P<mime>image/[a-z0-9.+-]+);base64,(?P<data>.+)",
+        raw_value,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if data_url:
+        mime_hint = data_url.group("mime").lower()
+        raw_value = data_url.group("data")
+    raw_value = re.sub(r"\s+", "", raw_value)
+    try:
+        return base64.b64decode(raw_value, validate=True), mime_hint
+    except (binascii.Error, ValueError) as exc:
+        raise MindMapContractError("思维导图图片 base64 无效") from exc
 
 
 def _mind_map_mermaid_body(content: str, mind_map: Mapping[str, Any]) -> str:
@@ -358,29 +449,6 @@ def _mind_map_mermaid_body(content: str, mind_map: Mapping[str, Any]) -> str:
         if first_line.lower() == "mindmap" or first_line.lower().startswith("flowchart"):
             return text
     return ""
-
-
-def _python_sources(value: Any) -> List[str]:
-    sources: List[str] = []
-    if isinstance(value, Mapping):
-        language = str(value.get("language") or "").strip().lower()
-        for key, item in value.items():
-            if key in {"source", "testSource"} and isinstance(item, str) and item.strip():
-                sources.append(item)
-            elif key == "code" and isinstance(item, str) and item.strip() and language in {"", "python", "py"}:
-                sources.append(item)
-            else:
-                sources.extend(_python_sources(item))
-    elif isinstance(value, list):
-        for item in value:
-            sources.extend(_python_sources(item))
-    if not sources:
-        return []
-    unique = []
-    for source in sources:
-        if source not in unique:
-            unique.append(source)
-    return unique
 
 
 def _answer_type(resource_type: str) -> str:
