@@ -3,6 +3,8 @@ import re
 from tempfile import TemporaryDirectory
 import unittest
 
+from PIL import Image
+
 from scripts.agent_a3_document.source_loader import (
     EvidenceRow,
     extract_evidence_rows,
@@ -847,6 +849,51 @@ class RemainingProjectDocumentSourceTest(unittest.TestCase):
         for value in forbidden:
             with self.subTest(value=value):
                 self.assertNotIn(value, text)
+
+
+class GeneratedDiagramContractTest(unittest.TestCase):
+    EXPECTED_DIAGRAMS = {
+        "system-context.png",
+        "four-part-architecture.png",
+        "deployment-boundary.png",
+        "agent-capability-groups.png",
+        "profile-evidence-flow.png",
+        "meeting-asr-loop.png",
+        "maxkb-grounding-flow.png",
+        "resource-envelope.png",
+        "question-paper-exam-loop.png",
+        "core-entity-relations.png",
+        "requirements-trace.png",
+    }
+    APPROVED_COLORS = {
+        (15, 118, 110),
+        (18, 59, 69),
+        (79, 107, 122),
+        (183, 121, 31),
+        (242, 244, 245),
+    }
+
+    def test_builds_exact_deterministic_diagram_manifest(self):
+        from scripts.agent_a3_document.diagrams import build_all_diagrams
+
+        with TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            generated = build_all_diagrams(output_dir)
+
+            self.assertEqual({path.name for path in generated}, self.EXPECTED_DIAGRAMS)
+            self.assertEqual(
+                {path.name for path in output_dir.iterdir() if path.is_file()},
+                self.EXPECTED_DIAGRAMS,
+            )
+            for path in generated:
+                with self.subTest(path=path.name), Image.open(path) as image:
+                    self.assertEqual(image.format, "PNG")
+                    self.assertGreaterEqual(image.width, 1600)
+                    self.assertGreaterEqual(image.height, 850)
+                    self.assertIsNotNone(image.getbbox())
+                    self.assertLessEqual(
+                        set(image.convert("RGB").getdata()), self.APPROVED_COLORS
+                    )
 
 
 if __name__ == "__main__":
