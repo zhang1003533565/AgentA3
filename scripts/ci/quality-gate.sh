@@ -40,13 +40,13 @@ command -v docker >/dev/null 2>&1 || {
   exit 1
 }
 
-echo "[1/5] AppBackend Maven tests"
+echo "[1/6] AppBackend Maven tests"
 (cd AppBackend && mvn -q test)
 
-echo "[2/5] ai-servers pytest"
+echo "[2/6] ai-servers pytest"
 (cd ai-servers && "$python_exec" -m pytest -q)
 
-echo "[3/5] AppWeb Node tests, lint and production build"
+echo "[3/6] AppWeb Node tests, lint and production build"
 web_tests=()
 while IFS= read -r test_file; do
   web_tests+=("$test_file")
@@ -58,7 +58,7 @@ fi
 node --test "${web_tests[@]}"
 (cd AppWeb && npm run lint && npm run build)
 
-echo "[4/5] AppFrontend Node tests"
+echo "[4/6] AppFrontend Node tests"
 app_tests=()
 while IFS= read -r test_file; do
   app_tests+=("$test_file")
@@ -69,7 +69,13 @@ if [[ "${#app_tests[@]}" -eq 0 ]]; then
 fi
 node --test "${app_tests[@]}"
 
-echo "[5/5] Docker Compose submission manifest"
+echo "[5/6] Submission knowledge and factual-evaluation contracts"
+"$python_exec" scripts/knowledge/test_validate_python_course.py
+"$python_exec" scripts/eval/test_run_factual_eval.py
+"$python_exec" scripts/knowledge/validate_python_course.py
+"$python_exec" scripts/eval/run_factual_eval.py --validate-only
+
+echo "[6/6] Docker Compose submission manifest"
 docker compose --env-file deploy/.env.example -f deploy/compose.submission.yml config --quiet
 
 echo "Quality gate passed."

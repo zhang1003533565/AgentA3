@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "status": "not_run",
+  "reason": "missing EVAL_ENDPOINT or EVAL_TOKEN; no live request was attempted",
+  "attemptedAt": null,
+  "dataset": {
+    "total": 30,
+    "byType": {
+      "deterministic": 20,
+      "refusal": 5,
+      "rubric": 5
+    },
+    "sha256": "d4e87e688c98b9ea85b9579cf6bab0bc029742370fe52ceb56698476a96e9b7d"
+  },
+  "metrics": {
+    "recallAt5": null,
+    "citationValidity": null,
+    "deterministicAccuracy": null,
+    "rubricPassCount": null,
+    "refusalAccuracy": null,
+    "errorRate": null,
+    "p95LatencyMs": null
+  },
+  "metricNotes": {
+    "recallAt5": "Requires frozen expectedEvidence mapped to declared knowledge sources.",
+    "citationValidity": "Requires a ready knowledge manifest and live returned citations."
+  },
+  "results": []
+}
