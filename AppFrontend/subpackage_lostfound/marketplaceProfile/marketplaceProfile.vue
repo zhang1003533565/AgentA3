@@ -139,11 +139,9 @@ export default {
   },
   onLoad() {
     this.loadUser()
-    if (getToken()) this.loadStats()
   },
   onShow() {
     this.loadUser()
-    if (getToken()) this.loadStats()
   },
   methods: {
     loadUser() {
