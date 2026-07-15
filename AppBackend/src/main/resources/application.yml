@@ -32,16 +32,16 @@ spring:
       max-request-size: 200MB
 
 jwt:
-  secret: your-256-bit-secret-key-here-make-it-long-enough-for-hs256
-  expiration: 86400000
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION_MS:86400000}
 
 tencent:
   map:
-    key: F2ABZ-VU4LH-BDKDF-W7XCC-RXYX2-4AB52
+    key: ${TENCENT_MAP_KEY:}
     base-url: https://apis.map.qq.com
   cos:
-    secret-id: AKIDsjNo2b1EF3d5MPEqEPM6buzrVxCE2e5K
-    secret-key: 6yc3GF0XszsXzDH7j8KK6f193kEWaQ3a
+    secret-id: ${TENCENT_COS_SECRET_ID:}
+    secret-key: ${TENCENT_COS_SECRET_KEY:}
     region: ap-beijing
     bucket: luke-1332125786
     domain: https://luke-1332125786.cos.ap-beijing.myqcloud.com
@@ -50,9 +50,9 @@ tencent:
 
 amap:
   app:
-    key: e4cbde60bc0dc20719889d7f585d9452
+    key: ${AMAP_APP_KEY:}
   web:
-    key: 64bc139adb6a611277fb8f6821b371ac
+    key: ${AMAP_WEB_KEY:}
     base-url: https://restapi.amap.com
 
 ai:
@@ -74,8 +74,8 @@ aliyun:
   oss:
     endpoint: oss-cn-beijing.aliyuncs.com
     bucket-name: smart-campus111
-    access-key-id: LTAI5tG9NLKEfSZVw3EZ2d1E
-    access-key-secret: yagymAoKXBh0rDJT7ArNTeXDUhsuRX
+    access-key-id: ${ALIYUN_OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${ALIYUN_OSS_ACCESS_KEY_SECRET:}
     base-url: https://smart-campus111.oss-cn-beijing.aliyuncs.com
 
 file:
