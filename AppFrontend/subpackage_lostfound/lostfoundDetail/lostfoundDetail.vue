@@ -36,7 +36,7 @@
             </view>
             <view class="pickup-row" @click="contactSeller">
               <view class="pickup-main">
-                <text class="pickup-icon">📍</text>
+                <view class="pickup-icon-wrap"><image class="pickup-icon" src="/static/icons/mi--location.svg" mode="aspectFit" /></view>
                 <text class="pickup-label">取货地点：</text>
                 <text class="pickup-value">校内 · {{ pickupText }}</text>
               </view>
@@ -74,7 +74,7 @@
           </view>
 
           <view class="safety-card">
-            <view class="shield-icon">◇</view>
+            <image class="shield-icon" src="/static/icons/ant-design--safety-outlined.svg" mode="aspectFit" />
             <view class="safety-copy">
               <view class="safety-title">交易提醒</view>
               <view class="safety-desc">建议当面交易，沟通后再交换联系方式，注意财产安全</view>
@@ -263,7 +263,7 @@ export default {
 .screen {
   width: 100%;
   min-height: 100vh;
-  background: #eef4f8;
+  background: #f5f5f5;
 }
 
 .container {
@@ -271,15 +271,15 @@ export default {
   max-width: 430px;
   min-height: 100vh;
   margin: 0 auto;
-  padding: 0 20rpx;
+  padding: 0;
   box-sizing: border-box;
-  background: #eef4f8;
+  background: #f5f5f5;
   position: relative;
 }
 
 .page-body {
   height: calc(100vh - 176rpx);
-  padding: 22rpx 0 156rpx;
+  padding: 22rpx 0 104rpx;
   box-sizing: border-box;
 }
 
@@ -431,12 +431,26 @@ export default {
   align-items: center;
   color: #172331;
   font-size: 27rpx;
-  font-weight: 700;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.pickup-icon-wrap {
+  width: 42rpx;
+  height: 42rpx;
+  margin-right: 12rpx;
+  border-radius: 13rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #edf4fb;
+  flex-shrink: 0;
 }
 
 .pickup-icon {
-  margin-right: 10rpx;
-  font-size: 29rpx;
+  width: 32rpx;
+  height: 32rpx;
+  display: block;
 }
 
 .pickup-label {
@@ -565,16 +579,10 @@ export default {
 }
 
 .shield-icon {
-  width: 44rpx;
-  height: 44rpx;
-  border-radius: 14rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 2rpx solid #253548;
-  color: #253548;
-  font-size: 24rpx;
-  font-weight: 900;
+  width: 42rpx;
+  height: 42rpx;
+  flex-shrink: 0;
+  display: block;
 }
 
 .safety-copy {
@@ -605,17 +613,16 @@ export default {
   width: 100%;
   max-width: 430px;
   transform: translateX(-50%);
-  padding: 22rpx 32rpx 42rpx;
+  padding: 16rpx 32rpx calc(16rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.94);
-  border-top: 1rpx solid rgba(132, 151, 168, 0.18);
-  box-shadow: 0 -8rpx 28rpx rgba(31, 48, 64, 0.08);
+  background: #fff;
+  border-top: 1rpx solid rgba(132, 151, 168, 0.14);
+  z-index: 20;
 }
-
 .contact-button {
   width: 100%;
-  height: 88rpx;
-  border-radius: 28rpx;
+  height: 96rpx;
+  border-radius: 32rpx;
   background: #8ea6ba;
   color: #fff;
   display: flex;
