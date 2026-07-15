@@ -895,6 +895,65 @@ class GeneratedDiagramContractTest(unittest.TestCase):
                         set(image.convert("RGB").getdata()), self.APPROVED_COLORS
                     )
 
+    def test_reviewed_semantic_manifests_are_explicit(self):
+        from scripts.agent_a3_document.diagrams import (
+            MEETING_RETURN_FLOW,
+            QUESTION_PAPER_FINAL_CARD,
+            QUESTION_PAPER_GROUP,
+            SYSTEM_CONTEXT_EXTERNAL_CONNECTIONS,
+            TRACE_ROWS,
+            TRACE_STATUS_COLORS,
+        )
+
+        self.assertEqual(
+            SYSTEM_CONTEXT_EXTERNAL_CONNECTIONS,
+            (("Java", "讯飞 Xfyun ASR"), ("Python", "模型提供方")),
+        )
+        self.assertEqual(
+            MEETING_RETURN_FLOW,
+            (
+                "Xfyun partial / final → Java handler",
+                "Java → 客户端广播",
+                "Java → MeetingRecord 持久化 final",
+            ),
+        )
+        self.assertEqual(
+            [row.test_id for row in TRACE_ROWS],
+            [f"TC-{index:02d}" for index in range(1, 12)],
+        )
+        self.assertEqual(
+            [row.status for row in TRACE_ROWS],
+            [
+                "known-limit",
+                "partial",
+                "known-limit",
+                "implemented",
+                "partial",
+                "partial",
+                "partial",
+                "known-limit",
+                "known-limit",
+                "known-limit",
+                "partial",
+            ],
+        )
+        self.assertGreater(len({row.status for row in TRACE_ROWS}), 1)
+        self.assertTrue({row.status for row in TRACE_ROWS} <= TRACE_STATUS_COLORS.keys())
+        self.assertLessEqual(QUESTION_PAPER_FINAL_CARD[2], QUESTION_PAPER_GROUP[2])
+
+    def test_repeated_builds_are_byte_identical(self):
+        from scripts.agent_a3_document.diagrams import build_all_diagrams
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = build_all_diagrams(root / "first")
+            second = build_all_diagrams(root / "second")
+
+            self.assertEqual([path.name for path in first], [path.name for path in second])
+            for first_path, second_path in zip(first, second):
+                with self.subTest(path=first_path.name):
+                    self.assertEqual(first_path.read_bytes(), second_path.read_bytes())
+
 
 if __name__ == "__main__":
     unittest.main()
