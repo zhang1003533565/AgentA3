@@ -17,6 +17,20 @@ export const getPostList = (params = {}) =>
     },
   })
 
+export const getAdminPostList = (params = {}) =>
+  request({
+    url: '/api/forum/posts/admin/list',
+    method: 'get',
+    params: {
+      pageNum: params.pageNum ?? params.page ?? 1,
+      pageSize: params.pageSize ?? params.size ?? 10,
+      topicId: params.topicId,
+      keyword: params.keyword,
+      sortBy: params.sortBy,
+      status: params.status,
+    },
+  })
+
 export const getPostDetail = (id) =>
   request({
     url: `/api/forum/posts/${id}`,
@@ -41,6 +55,31 @@ export const deletePost = (id) =>
   request({
     url: `/api/forum/posts/${id}`,
     method: 'delete',
+  })
+
+export const batchDeletePosts = (ids) =>
+  request({
+    url: '/api/forum/posts/batch',
+    method: 'delete',
+    data: ids,
+  })
+
+export const togglePostPin = (id) =>
+  request({
+    url: `/api/forum/posts/${id}/pin`,
+    method: 'put',
+  })
+
+export const togglePostHighlight = (id) =>
+  request({
+    url: `/api/forum/posts/${id}/highlight`,
+    method: 'put',
+  })
+
+export const togglePostHidden = (id) =>
+  request({
+    url: `/api/forum/posts/${id}/hidden`,
+    method: 'put',
   })
 
 export const getHotPosts = (params = {}) =>
@@ -113,6 +152,13 @@ export const adminDeleteComment = (id) =>
   request({
     url: `/api/forum/comments/admin/${id}`,
     method: 'delete',
+  })
+
+export const batchDeleteComments = (ids) =>
+  request({
+    url: '/api/forum/comments/admin/batch',
+    method: 'delete',
+    data: ids,
   })
 
 // ========== 举报 ==========

@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react'
-import { message, Modal, Form, Input, Button, Table, Space, Popconfirm, Tag, Select } from 'antd'
+import { message, Modal, Form, Input, Button, Table, Space, Popconfirm, Tag, Select, Card } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons'
 import { getTopicList, createTopic, updateTopic, deleteTopic } from '../../../api/forum'
 import './TopicManage.css'
-
-const { Option } = Select
 
 function TopicManage() {
   const [topics, setTopics] = useState([])
@@ -13,17 +11,31 @@ function TopicManage() {
   const [modalTitle, setModalTitle] = useState('创建话题')
   const [editingId, setEditingId] = useState(null)
   const [form] = Form.useForm()
-  const [searchKeyword, setSearchKeyword] = useState('')
+  const [searchForm] = Form.useForm()
+  const [pagination, setPagination] = useState({
+    current: 1,
+    pageSize: 10,
+    total: 0
+  })
 
   // 获取话题列表
-  const fetchTopics = async () => {
+  const fetchTopics = async (params = {}) => {
     setLoading(true)
     try {
-      const res = await getTopicList()
+      const values = searchForm.getFieldsValue()
+      const res = await getTopicList({
+        page: pagination.current,
+        size: pagination.pageSize,
+        ...values,
+        ...params
+      })
       if (res.code === 200) {
-        // 适配分页响应结构 { records: [...], total: ... }
         const records = res.data?.records || res.data?.list || res.data || []
         setTopics(Array.isArray(records) ? records : [])
+        setPagination({
+          ...pagination,
+          total: res.data?.total || records.length
+        })
       }
     } catch (error) {
       console.error('获取话题列表失败:', error)
@@ -36,16 +48,25 @@ function TopicManage() {
     fetchTopics()
   }, [])
 
-  // 搜索过滤
-  const filteredTopics = topics.filter(topic => 
-    topic.topicName?.toLowerCase().includes(searchKeyword.toLowerCase())
-  )
+  // 搜索
+  const handleSearch = (values) => {
+    setPagination({ ...pagination, current: 1 })
+    fetchTopics(values)
+  }
+
+  // 重置搜索
+  const handleReset = () => {
+    searchForm.resetFields()
+    setPagination({ ...pagination, current: 1 })
+    fetchTopics()
+  }
 
   // 打开创建弹窗
   const handleCreate = () => {
     setModalTitle('创建话题')
     setEditingId(null)
     form.resetFields()
+    form.setFieldsValue({ isHot: 0, status: 'ACTIVE' })
     setModalVisible(true)
   }
 
@@ -57,8 +78,8 @@ function TopicManage() {
       topicName: record.topicName,
       topicIcon: record.topicIcon,
       description: record.description,
-      isHot: record.isHot === 1,
-      status: record.status === 'ACTIVE'
+      isHot: record.isHot === 1 ? 1 : 0,
+      status: record.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'
     })
     setModalVisible(true)
   }
@@ -69,8 +90,8 @@ function TopicManage() {
       const values = await form.validateFields()
       const data = {
         ...values,
-        isHot: values.isHot ? 1 : 0,
-        status: values.status ? 'ACTIVE' : 'INACTIVE'
+        isHot: values.isHot === 1 ? 1 : 0,
+        status: values.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'
       }
       
       let res
@@ -114,7 +135,7 @@ function TopicManage() {
       title: '图标',
       dataIndex: 'topicIcon',
       width: 60,
-      render: (icon) => <span style={{ fontSize: 20 }}>{icon}</span>
+      render: (icon) => <span style={{ fontSize: 20 }}>{icon || '📌'}</span>
     },
     {
       title: '话题名称',
@@ -131,22 +152,23 @@ function TopicManage() {
       title: '描述',
       dataIndex: 'description',
       ellipsis: true,
-      width: 200
+      width: 200,
+      render: (text) => text || '-'
     },
     {
       title: '帖子数',
       dataIndex: 'postCount',
       width: 100,
-      sorter: (a, b) => a.postCount - b.postCount
+      sorter: (a, b) => (a.postCount || 0) - (b.postCount || 0)
     },
     {
       title: '状态',
       dataIndex: 'status',
       width: 100,
       render: (status) => (
-        <span className={`status-tag ${status === 'ACTIVE' ? 'active' : 'inactive'}`}>
+        <Tag color={status === 'ACTIVE' ? 'green' : 'default'}>
           {status === 'ACTIVE' ? '启用' : '禁用'}
-        </span>
+        </Tag>
       )
     },
     {
@@ -157,7 +179,7 @@ function TopicManage() {
     {
       title: '操作',
       key: 'action',
-      width: 200,
+      width: 180,
       fixed: 'right',
       render: (_, record) => (
         <Space size="small">
@@ -185,23 +207,47 @@ function TopicManage() {
 
   return (
     <div className="topic-manage-container">
+      {/* 统计卡片 */}
+      <div className="stat-cards">
+        <Card size="small" className="stat-card">
+          <div className="stat-value">{pagination.total}</div>
+          <div className="stat-label">话题总数</div>
+        </Card>
+        <Card size="small" className="stat-card stat-green">
+          <div className="stat-value">--</div>
+          <div className="stat-label">启用中</div>
+        </Card>
+        <Card size="small" className="stat-card stat-orange">
+          <div className="stat-value">--</div>
+          <div className="stat-label">热门话题</div>
+        </Card>
+      </div>
+
       {/* 主内容 */}
       <main className="manage-main">
-        {/* 页面标题 */}
-        <div className="page-header">
-          <h2>话题管理</h2>
-        </div>
-
         {/* 搜索栏 */}
         <div className="search-bar">
-          <Input
-            placeholder="搜索话题名称"
-            prefix={<SearchOutlined />}
-            value={searchKeyword}
-            onChange={(e) => setSearchKeyword(e.target.value)}
-            style={{ width: 250 }}
-            allowClear
-          />
+          <Form form={searchForm} layout="inline" onFinish={handleSearch}>
+            <Form.Item name="keyword">
+              <Input placeholder="搜索话题名称" prefix={<SearchOutlined />} allowClear style={{ width: 180 }} />
+            </Form.Item>
+            <Form.Item name="status">
+              <Select placeholder="状态" allowClear style={{ width: 100 }}>
+                <Option value="ACTIVE">启用</Option>
+                <Option value="INACTIVE">禁用</Option>
+              </Select>
+            </Form.Item>
+            <Form.Item name="isHot">
+              <Select placeholder="热门" allowClear style={{ width: 80 }}>
+                <Option value={1}>是</Option>
+                <Option value={0}>否</Option>
+              </Select>
+            </Form.Item>
+            <Form.Item>
+              <Button type="primary" htmlType="submit">搜索</Button>
+              <Button onClick={handleReset} style={{ marginLeft: 8 }}>重置</Button>
+            </Form.Item>
+          </Form>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
             创建话题
           </Button>
@@ -210,13 +256,19 @@ function TopicManage() {
         {/* 话题列表 */}
         <Table
           columns={columns}
-          dataSource={filteredTopics}
+          dataSource={topics}
           rowKey="id"
           loading={loading}
-          scroll={{ x: 1280 }}
+          scroll={{ x: 1200 }}
           pagination={{
-            pageSize: 10,
-            showTotal: (total) => `共 ${total} 条`
+            ...pagination,
+            showSizeChanger: true,
+            showTotal: (total) => `共 ${total} 条`,
+            pageSizeOptions: ['10', '20', '50']
+          }}
+          onChange={(pag) => {
+            setPagination({ ...pagination, current: pag.current, pageSize: pag.pageSize })
+            fetchTopics({ page: pag.current, size: pag.pageSize })
           }}
         />
       </main>
@@ -246,10 +298,10 @@ function TopicManage() {
 
           <Form.Item
             name="topicIcon"
-            label="话题图标"
+            label="话题图标（Emoji）"
             rules={[{ required: true, message: '请输入话题图标' }]}
           >
-            <Input placeholder="请输入emoji图标，如：📚" maxLength={4} />
+            <Input placeholder="如：📚" maxLength={4} />
           </Form.Item>
 
           <Form.Item
@@ -264,6 +316,7 @@ function TopicManage() {
             name="isHot"
             label="热门话题"
             initialValue={0}
+            rules={[{ required: true, message: '请选择' }]}
           >
             <Select placeholder="请选择">
               <Option value={1}>是</Option>
@@ -275,6 +328,7 @@ function TopicManage() {
             name="status"
             label="状态"
             initialValue="ACTIVE"
+            rules={[{ required: true, message: '请选择' }]}
           >
             <Select placeholder="请选择">
               <Option value="ACTIVE">启用</Option>

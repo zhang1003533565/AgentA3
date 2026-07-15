@@ -193,6 +193,10 @@ public class CommentServiceImpl implements CommentService {
         if (comment.getReplyToId() != null) {
             response.setReplyToUsername(resolveUserName(comment.getReplyToId()));
         }
+        // Resolve post title for admin list
+        if (comment.getPostId() != null) {
+            postRepository.findById(comment.getPostId()).ifPresent(p -> response.setPostTitle(p.getTitle()));
+        }
         response.setIsLiked(currentUserId != null
                 && likeRepository.existsByUserIdAndTargetIdAndTargetType(
                 currentUserId, comment.getId(), ForumLike.TARGET_TYPE_COMMENT));

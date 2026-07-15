@@ -1,6 +1,7 @@
 .topic-manage-container {
   padding: 24px;
   background: #f0f2f5;
+  min-height: calc(100vh - 64px);
 }
 
 .manage-main {
@@ -8,6 +9,44 @@
   margin: 0 auto;
 }
 
+/* 统计卡片 */
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+  max-width: 1400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.stat-card {
+  text-align: center;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.stat-card .ant-card-body {
+  padding: 16px 24px;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1890ff;
+}
+
+.stat-green .stat-value { color: #52c41a; }
+.stat-orange .stat-value { color: #fa8c16; }
+.stat-red .stat-value { color: #f5222d; }
+
+.stat-label {
+  font-size: 13px;
+  color: #8c8c8c;
+  margin-top: 4px;
+}
+
+/* 搜索栏 */
 .search-bar {
   display: flex;
   justify-content: space-between;
@@ -16,22 +55,7 @@
   padding: 16px 24px;
   background: #fff;
   border-radius: 4px;
-}
-
-.status-tag {
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-}
-
-.status-tag.active {
-  background: #f6ffed;
-  color: #52c41a;
-  border: 1px solid #b7eb8f;
-}
-
-.status-tag.inactive {
-  background: #fff7e6;
-  color: #faad14;
-  border: 1px solid #ffd591;
+  max-width: 1400px;
+  margin-left: auto;
+  margin-right: auto;
 }

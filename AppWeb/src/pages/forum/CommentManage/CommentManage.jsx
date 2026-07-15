@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { message, Modal, Button, Table, Tag, Space, Popconfirm, Input, Select, Form } from 'antd'
-import { EyeOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons'
-import { getCommentList, deleteComment } from '../../../api/forum'
+import { message, Drawer, Button, Table, Tag, Space, Popconfirm, Input, Select, Form, Card } from 'antd'
+import { EyeOutlined, DeleteOutlined, SearchOutlined, MessageOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { getCommentList, batchDeleteComments } from '../../../api/forum'
 import './CommentManage.css'
 
 const { Option } = Select
@@ -22,6 +22,9 @@ function CommentManage() {
     pageSize: 10,
     total: 0
   })
+  const [selectedRowKeys, setSelectedRowKeys] = useState([])
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [currentComment, setCurrentComment] = useState(null)
 
   // 获取评论列表
   const fetchComments = async (params = {}) => {
@@ -34,7 +37,8 @@ function CommentManage() {
         ...params
       })
       if (res.code === 200) {
-        setComments(res.data?.list || res.data || [])
+        const records = res.data?.records || res.data?.list || res.data || []
+        setComments(Array.isArray(records) ? records : [])
         setPagination({
           ...pagination,
           total: res.data?.total || 0
@@ -66,37 +70,22 @@ function CommentManage() {
 
   // 查看详情
   const handleView = (record) => {
-    Modal.info({
-      title: '评论详情',
-      width: 500,
-      content: (
-        <div className="comment-detail">
-          <p><strong>评论ID：</strong>{record.id}</p>
-          <p><strong>所属帖子：</strong>{record.post?.title || '未知'}</p>
-          <p><strong>评论者：</strong>{record.user?.realName || '未知'}</p>
-          {record.replyToUser && (
-            <p><strong>回复对象：</strong>{record.replyToUser.realName}</p>
-          )}
-          <p><strong>点赞数：</strong>{record.likeCount}</p>
-          <p><strong>状态：</strong>{statusMap[record.status]?.text}</p>
-          <p><strong>评论时间：</strong>{record.createTime}</p>
-          <p><strong>内容：</strong></p>
-          <div className="comment-content">{record.content}</div>
-        </div>
-      )
-    })
+    setCurrentComment(record)
+    setDrawerOpen(true)
   }
 
-  // 删除评论
-  const handleDelete = async (id) => {
+  // 批量删除
+  const handleBatchDelete = async () => {
+    if (selectedRowKeys.length === 0) return
     try {
-      const res = await deleteComment(id)
+      const res = await batchDeleteComments(selectedRowKeys)
       if (res.code === 200) {
-        message.success('删除成功')
+        message.success(`已批量删除 ${selectedRowKeys.length} 条评论`)
+        setSelectedRowKeys([])
         fetchComments()
       }
     } catch (error) {
-      console.error('删除失败:', error)
+      console.error('批量删除失败:', error)
     }
   }
 
@@ -109,27 +98,41 @@ function CommentManage() {
     },
     {
       title: '所属帖子',
-      dataIndex: 'post',
+      dataIndex: 'postTitle',
       ellipsis: true,
-      width: 180,
-      render: (post) => post?.title || '未知'
+      width: 200,
+      render: (text, record) => {
+        const title = record.postTitle || record.post?.title || '未知帖子'
+        return <span title={title}>{title}</span>
+      }
     },
     {
       title: '评论者',
-      dataIndex: 'user',
+      dataIndex: 'username',
       width: 100,
-      render: (user) => user?.realName || '未知'
+      render: (username) => username || '未知'
     },
     {
       title: '评论内容',
       dataIndex: 'content',
-      ellipsis: true,
-      width: 250
+      ellipsis: { showTitle: false },
+      width: 300,
+      render: (text) => (
+        <div className="comment-text-preview" title={text}>
+          {text || '(空)'}
+        </div>
+      )
     },
     {
       title: '点赞',
       dataIndex: 'likeCount',
-      width: 80
+      width: 80,
+      render: (count) => (
+        <Space>
+          <ThunderboltOutlined style={{ fontSize: 12, color: '#faad14' }} />
+          {count || 0}
+        </Space>
+      )
     },
     {
       title: '状态',
@@ -149,45 +152,54 @@ function CommentManage() {
     {
       title: '操作',
       key: 'action',
-      width: 150,
+      width: 100,
       fixed: 'right',
       render: (_, record) => (
-        <Space size="small">
-          <Button 
-            type="text" 
-            icon={<EyeOutlined />} 
-            onClick={() => handleView(record)}
-          >
-            查看
-          </Button>
-          <Popconfirm
-            title="确定删除该评论吗？"
-            onConfirm={() => handleDelete(record.id)}
-            okText="确定"
-            cancelText="取消"
-          >
-            <Button type="text" danger icon={<DeleteOutlined />}>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
+        <Button
+          type="text"
+          icon={<EyeOutlined />}
+          onClick={() => handleView(record)}
+        >
+          查看
+        </Button>
       )
     }
   ]
 
+  const rowSelection = {
+    selectedRowKeys,
+    onChange: (keys) => setSelectedRowKeys(keys)
+  }
+
   return (
     <div className="comment-manage-container">
+      {/* 统计卡片 */}
+      <div className="stat-cards">
+        <Card size="small" className="stat-card">
+          <div className="stat-value">--</div>
+          <div className="stat-label">评论总数</div>
+        </Card>
+        <Card size="small" className="stat-card stat-green">
+          <div className="stat-value">--</div>
+          <div className="stat-label">正常</div>
+        </Card>
+        <Card size="small" className="stat-card stat-orange">
+          <div className="stat-value">--</div>
+          <div className="stat-label">已隐藏</div>
+        </Card>
+        <Card size="small" className="stat-card stat-red">
+          <div className="stat-value">{selectedRowKeys.length}</div>
+          <div className="stat-label">已选中</div>
+        </Card>
+      </div>
+
       {/* 主内容 */}
       <main className="manage-main">
-        {/* 页面标题 */}
-        <div className="page-header">
-          <h2>评论管理</h2>
-        </div>
         {/* 搜索栏 */}
         <div className="search-bar">
           <Form form={searchForm} layout="inline" onFinish={handleSearch}>
             <Form.Item name="keyword">
-              <Input placeholder="搜索评论内容" prefix={<SearchOutlined />} allowClear />
+              <Input placeholder="搜索评论内容" prefix={<SearchOutlined />} allowClear style={{ width: 180 }} />
             </Form.Item>
             <Form.Item name="status">
               <Select placeholder="选择状态" allowClear style={{ width: 120 }}>
@@ -203,8 +215,24 @@ function CommentManage() {
           </Form>
         </div>
 
+        {/* 批量操作栏 */}
+        {selectedRowKeys.length > 0 && (
+          <div className="batch-bar">
+            <span>已选择 {selectedRowKeys.length} 条</span>
+            <Popconfirm
+              title={`确定删除选中的 ${selectedRowKeys.length} 条评论吗？`}
+              onConfirm={handleBatchDelete}
+              okText="确定"
+              cancelText="取消"
+            >
+              <Button type="primary" danger size="small">批量删除</Button>
+            </Popconfirm>
+          </div>
+        )}
+
         {/* 评论列表 */}
         <Table
+          rowSelection={rowSelection}
           columns={columns}
           dataSource={comments}
           rowKey="id"
@@ -212,15 +240,45 @@ function CommentManage() {
           pagination={{
             ...pagination,
             showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 条`
+            showTotal: (total) => `共 ${total} 条`,
+            pageSizeOptions: ['10', '20', '50']
           }}
           onChange={(pag) => {
             setPagination({ ...pagination, current: pag.current, pageSize: pag.pageSize })
             fetchComments({ page: pag.current, size: pag.pageSize })
           }}
-          scroll={{ x: 1100 }}
+          scroll={{ x: 1200 }}
         />
       </main>
+
+      {/* 详情抽屉 */}
+      <Drawer
+        title="评论详情"
+        placement="right"
+        width={500}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+      >
+        {currentComment && (
+          <div className="comment-detail-drawer">
+            <p><strong>评论ID：</strong>{currentComment.id}</p>
+            <p><strong>所属帖子：</strong>{currentComment.postTitle || currentComment.post?.title || '未知'}</p>
+            <p><strong>评论者：</strong>{currentComment.username || '未知'}</p>
+            {currentComment.replyToUsername && (
+              <p><strong>回复对象：</strong>{currentComment.replyToUsername}</p>
+            )}
+            <p><strong>点赞数：</strong>{currentComment.likeCount || 0}</p>
+            <p><strong>状态：</strong>
+              <Tag color={statusMap[currentComment.status]?.color}>
+                {statusMap[currentComment.status]?.text}
+              </Tag>
+            </p>
+            <p><strong>评论时间：</strong>{currentComment.createTime}</p>
+            <p><strong>内容：</strong></p>
+            <div className="comment-content">{currentComment.content}</div>
+          </div>
+        )}
+      </Drawer>
     </div>
   )
 }

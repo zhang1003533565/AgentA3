@@ -14,6 +14,7 @@ import RagManage from './pages/ai/RagManage/RagManage'
 import AgentSettings from './pages/ai/AgentSettings/AgentSettings'
 import AgentCache from './pages/ai/AgentCache/AgentCache'
 import Login from './pages/Login/Login'
+import ReportManage from './pages/forum/ReportManage/ReportManage'
 import ExamPaperCreatePage from './pages/questionBank/ExamPaperCreatePage'
 import ExamPaperHistoryPage from './pages/questionBank/ExamPaperHistoryPage'
 import QuestionBankGeneratePage from './pages/questionBank/QuestionBankGeneratePage'
@@ -42,6 +43,7 @@ function App() {
           <Route path="/activity/create" element={<ActivityEditor />} />
           <Route path="/activity/:id/edit" element={<ActivityEditor />} />
           <Route path="/activity/:id" element={<ActivityDetail />} />
+          <Route path="/forum/report" element={<ReportManage />} />
           <Route path="/ai/rag" element={<Navigate to="/ai/rag/agents" replace />} />
           <Route path="/ai/rag/strategy" element={<Navigate to="/ai/rag/agents" replace />} />
           <Route path="/ai/rag/agents" element={<RagManage page="agents" />} />
