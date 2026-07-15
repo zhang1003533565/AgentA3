@@ -70,6 +70,7 @@ fi
 node --test "${app_tests[@]}"
 
 echo "[5/6] Submission knowledge, factual-evaluation and load-test contracts"
+"$python_exec" scripts/deploy/test_release_contracts.py
 "$python_exec" scripts/knowledge/test_validate_python_course.py
 "$python_exec" scripts/eval/test_run_factual_eval.py
 "$python_exec" scripts/eval/test_run_load.py

@@ -33,6 +33,15 @@ class MemoryStore:
             logger.warning("redis unavailable, fallback to in-memory store: %s", exc)
             self._redis_client = None
 
+    def is_redis_ready(self) -> bool:
+        if self._redis_client is None:
+            return False
+        try:
+            return bool(self._redis_client.ping())
+        except Exception as exc:
+            logger.warning("redis readiness failed: %s", exc)
+            return False
+
     def _key(self, session_token: str) -> str:
         return f"llm:memory:{session_token}"
 

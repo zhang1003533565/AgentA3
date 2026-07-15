@@ -14,6 +14,19 @@ jobs:
   deploy:
     needs: quality
     runs-on: ubuntu-latest
+    env:
+      ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+      ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+      ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+      BACKEND_IMAGE: ${{ vars.BACKEND_IMAGE || format('{0}/lukezhang/appbackend', secrets.ACR_REGISTRY) }}
+      WEB_IMAGE: ${{ vars.WEB_IMAGE || format('{0}/lukezhang/appweb', secrets.ACR_REGISTRY) }}
+      AI_SERVER_IMAGE: ${{ vars.AI_SERVER_IMAGE || format('{0}/lukezhang/ai-server', secrets.ACR_REGISTRY) }}
+      IMAGE_TAG: ${{ github.sha }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      AI_INTERNAL_TOKEN: ${{ secrets.AI_INTERNAL_TOKEN }}
+      MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+      REPO_DIR: ${{ secrets.DEPLOY_PATH }}
+      DEPLOY_BRANCH: ${{ github.ref_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,7 +47,7 @@ jobs:
           context: ./AppBackend
           file: ./AppBackend/Dockerfile
           push: true
-          tags: ${{ secrets.ACR_REGISTRY }}/lukezhang/appbackend:${{ github.sha }}
+          tags: ${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
 
       - name: Build And Push Web
         uses: docker/build-push-action@v6
@@ -42,7 +55,7 @@ jobs:
           context: ./AppWeb
           file: ./AppWeb/Dockerfile
           push: true
-          tags: ${{ secrets.ACR_REGISTRY }}/lukezhang/appweb:${{ github.sha }}
+          tags: ${{ env.WEB_IMAGE }}:${{ env.IMAGE_TAG }}
 
       - name: Build And Push AI Server
         uses: docker/build-push-action@v6
@@ -50,7 +63,7 @@ jobs:
           context: ./ai-servers
           file: ./ai-servers/Dockerfile
           push: true
-          tags: ${{ secrets.ACR_REGISTRY }}/lukezhang/ai-server:${{ github.sha }}
+          tags: ${{ env.AI_SERVER_IMAGE }}:${{ env.IMAGE_TAG }}
 
       - name: Deploy On Server
         uses: appleboy/ssh-action@v1.2.0
@@ -59,11 +72,9 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || 22 }}
+          envs: ACR_REGISTRY,ACR_USERNAME,ACR_PASSWORD,BACKEND_IMAGE,WEB_IMAGE,AI_SERVER_IMAGE,IMAGE_TAG,JWT_SECRET,AI_INTERNAL_TOKEN,MYSQL_ROOT_PASSWORD,REPO_DIR,DEPLOY_BRANCH
           script: |
-            export REPO_DIR="${{ secrets.DEPLOY_PATH }}"
-            export DEPLOY_BRANCH="${{ github.ref_name }}"
-            export IMAGE_TAG="${{ github.sha }}"
             cd "$REPO_DIR"
-            docker login --username="${{ secrets.ACR_USERNAME }}" --password="${{ secrets.ACR_PASSWORD }}" "${{ secrets.ACR_REGISTRY }}"
+            printf '%s' "$ACR_PASSWORD" | docker login --username="$ACR_USERNAME" --password-stdin "$ACR_REGISTRY"
             chmod +x AppBackend/deploy/deploy-on-server.sh
             ./AppBackend/deploy/deploy-on-server.sh

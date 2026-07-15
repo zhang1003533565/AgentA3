@@ -18,16 +18,17 @@
    - `author`：作者或组织；
    - `license`：校验器允许的 SPDX/项目许可证标识；
    - `sha256`：文件真实 SHA-256。
-5. 在 `manifest.json` 中把 `status` 改为 `ready`，填写实际 `maxkbVersion`、统计、切分配置、已核验章节、`sourceIds` 与 `sources`。`sources` 每项包含 `sourceId`、`path` 和 `sha256`。
-6. 如果原生导出可以合法提交，将其保存为 `portable-pack.zip`，并在 `exportArtifact` 中记录路径和真实哈希；否则保持 `null`。
-7. 重新计算 `README.md`、`manifest.json`、`sources.csv` 的 SHA-256，更新 `checksums.sha256`。
-8. 冻结 `evaluation/python-course/gold.jsonl` 后运行：
+5. 在 `manifest.json` 中填写实际 `maxkbVersion`、统计、切分配置、已核验章节、`sourceIds` 与 `sources`。`documentCount` 必须与已声明源文档数量一致，`paragraphCount` 不得小于文档数；`sources` 每项包含 `sourceId`、`path` 和 `sha256`。
+6. 将可合法提交且能恢复的 MaxKB 导出保存为本目录内的 `.zip`，并在 `exportArtifact` 中记录安全相对路径和真实 SHA-256。没有真实导出时不得把状态改为 `ready`。
+7. 把提交与再分发授权证据放入本目录，在 `authorizationEvidence` 中记录路径、哈希及与 `sourceIds` 完全一致的 `coveredSourceIds`；再由知识负责人、合规复核人完成签字文件，在 `reviewSignoff` 中记录路径、哈希、两名复核角色和 UTC 签字时间。证据不得只写在 Git 提交说明里。
+8. 所有文件、导出和治理证据核验通过后，才能把 `status` 改为 `ready`。重新计算 `README.md`、`manifest.json`、`sources.csv` 的 SHA-256，更新 `checksums.sha256`。
+9. 冻结 `evaluation/python-course/gold.jsonl` 后运行：
 
 ```bash
 python3 scripts/knowledge/validate_python_course.py
 ```
 
-任何未知许可证、缺失文件、哈希不一致、路径穿越、未声明证据引用都会使校验失败。
+任何未知许可证、清单结构不一致、缺失导出或治理证据、哈希不一致、路径穿越、未声明事实评测证据引用都会使校验失败。错误信息会定位到 CSV 行号或 `manifest.<field>` 字段。
 
 ## 中间阶段校验
 

@@ -1,11 +1,36 @@
 name: agent-a3-submission
 
 services:
+  config-guard:
+    image: redis:7.4.2-alpine
+    restart: "no"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?AI_INTERNAL_TOKEN must be set}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        for value in "$$MYSQL_ROOT_PASSWORD" "$$JWT_SECRET" "$$AI_INTERNAL_TOKEN"; do
+          case "$$value" in
+            *CHANGE_ME*|*change-me*|*change_me*)
+              echo "[FAIL] submission secrets must not use CHANGE_ME placeholders" >&2
+              exit 1
+              ;;
+          esac
+        done
+        [ "$${#JWT_SECRET}" -ge 32 ] || { echo "[FAIL] JWT_SECRET must contain at least 32 characters" >&2; exit 1; }
+        [ "$${#AI_INTERNAL_TOKEN}" -ge 32 ] || { echo "[FAIL] AI_INTERNAL_TOKEN must contain at least 32 characters" >&2; exit 1; }
+
   mysql:
     image: mysql:8.4.5
     restart: unless-stopped
+    depends_on:
+      config-guard:
+        condition: service_completed_successfully
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-smart-campus}
       TZ: Asia/Shanghai
     command:
@@ -25,6 +50,9 @@ services:
   redis:
     image: redis:7.4.2-alpine
     restart: unless-stopped
+    depends_on:
+      config-guard:
+        condition: service_completed_successfully
     command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "${REDIS_BIND_ADDRESS:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
@@ -37,7 +65,7 @@ services:
       retries: 12
 
   backend:
-    image: agent-a3/backend:${IMAGE_TAG:-submission}
+    image: ${BACKEND_IMAGE:-agent-a3/backend}:${IMAGE_TAG:-submission}
     build:
       context: ../AppBackend
       dockerfile: Dockerfile
@@ -52,13 +80,15 @@ services:
       SERVER_PORT: "8080"
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-smart-campus}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
       SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
       SPRING_SQL_INIT_MODE: never
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
-      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN}
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?AI_INTERNAL_TOKEN must be set}
       AI_PYTHON_BASE_URL: http://ai-server:8081
       AI_PYTHON_TIMEOUT_SECONDS: ${AI_PYTHON_TIMEOUT_SECONDS:-65}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
       FILE_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
       EXAM_PAPER_PREVIEW_SOFFICE_PATH: /usr/bin/soffice
       JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--Xms256m -Xmx1024m}
@@ -89,7 +119,7 @@ services:
       start_period: 45s
 
   ai-server:
-    image: agent-a3/ai-server:${IMAGE_TAG:-submission}
+    image: ${AI_SERVER_IMAGE:-agent-a3/ai-server}:${IMAGE_TAG:-submission}
     build:
       context: ../ai-servers
       dockerfile: Dockerfile
@@ -101,7 +131,7 @@ services:
         condition: service_healthy
     environment:
       PYTHONUNBUFFERED: "1"
-      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN}
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?AI_INTERNAL_TOKEN must be set}
       JAVA_BACKEND_BASE_URL: http://backend:8080
       REDIS_URL: redis://redis:6379/0
       AI_EXPORT_ROOT: /app/data/ai-exports
@@ -124,7 +154,7 @@ services:
       start_period: 25s
 
   web:
-    image: agent-a3/web:${IMAGE_TAG:-submission}
+    image: ${WEB_IMAGE:-agent-a3/web}:${IMAGE_TAG:-submission}
     build:
       context: ../AppWeb
       dockerfile: Dockerfile

@@ -18,6 +18,10 @@ class MemoryStoreTest(unittest.TestCase):
         )
         redis_client.ping.assert_called_once_with()
         self.assertIs(redis_client, store._redis_client)
+        self.assertTrue(store.is_redis_ready())
+
+        redis_client.ping.side_effect = RuntimeError("connection lost")
+        self.assertFalse(store.is_redis_ready())
 
     def test_context_turns_are_compacted_and_latest_subject_is_kept(self):
         store = MemoryStore()

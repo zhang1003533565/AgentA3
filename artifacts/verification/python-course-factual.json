@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "not_run",
+  "passed": null,
   "reason": "missing EVAL_ENDPOINT or EVAL_TOKEN; no live request was attempted",
   "attemptedAt": null,
   "dataset": {
@@ -11,6 +12,15 @@
       "rubric": 5
     },
     "sha256": "d4e87e688c98b9ea85b9579cf6bab0bc029742370fe52ceb56698476a96e9b7d"
+  },
+  "thresholds": {
+    "minRecallAt5": 0.8,
+    "minCitationValidity": 1.0,
+    "minDeterministicAccuracy": 0.9,
+    "minRubricPassCount": 4,
+    "minRefusalAccuracy": 0.8,
+    "maxErrorRate": 0.05,
+    "maxP95LatencyMs": 30000
   },
   "metrics": {
     "recallAt5": null,

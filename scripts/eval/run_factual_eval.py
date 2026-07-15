@@ -35,6 +35,33 @@ METRIC_NAMES = [
     "errorRate",
     "p95LatencyMs",
 ]
+THRESHOLDS = {
+    "minRecallAt5": 0.80,
+    "minCitationValidity": 1.0,
+    "minDeterministicAccuracy": 0.90,
+    "minRubricPassCount": 4,
+    "minRefusalAccuracy": 0.80,
+    "maxErrorRate": 0.05,
+    "maxP95LatencyMs": 30000,
+}
+REDACTED = "[REDACTED]"
+SENSITIVE_RESPONSE_KEYS = {
+    "accountid",
+    "apikey",
+    "authorization",
+    "bearertoken",
+    "capability",
+    "exportcapability",
+    "internaltoken",
+    "knowledgeid",
+    "password",
+    "pythoncapability",
+    "resourcecapability",
+    "secret",
+    "sessionid",
+    "token",
+    "userid",
+}
 
 
 def _utc_now() -> str:
@@ -121,9 +148,11 @@ def build_not_run_report(records: Sequence[Dict[str, Any]], reason: str, gold_ha
     return {
         "schemaVersion": 1,
         "status": "not_run",
+        "passed": None,
         "reason": reason,
         "attemptedAt": None,
         "dataset": _dataset_summary(records, gold_hash),
+        "thresholds": THRESHOLDS,
         "metrics": {name: None for name in METRIC_NAMES},
         "metricNotes": {
             "recallAt5": "Requires frozen expectedEvidence mapped to declared knowledge sources.",
@@ -178,6 +207,59 @@ def _is_refusal(answer: str) -> bool:
         r"无权访问",
     ]
     return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in signals)
+
+
+def _redact_text(value: str) -> str:
+    text = re.sub(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [REDACTED]", value)
+    return re.sub(
+        r"(?i)([?&](?:access_?token|api_?key|authorization|secret|token)=)[^&#\s]+",
+        r"\1[REDACTED]",
+        text,
+    )
+
+
+def _redact_error(value: str) -> str:
+    text = _redact_text(value)
+    return re.sub(
+        r"(?i)(\b(?:access_?token|api_?key|authorization|password|secret|token)\b[\"']?\s*[:=]\s*)[\"']?[^\"',}\]\s]+[\"']?",
+        r"\1[REDACTED]",
+        text,
+    )
+
+
+def _is_sensitive_response_key(normalized_key: str) -> bool:
+    return (
+        normalized_key in SENSITIVE_RESPONSE_KEYS
+        or normalized_key.endswith("token")
+        or normalized_key.endswith("password")
+        or normalized_key.endswith("secret")
+        or normalized_key.endswith("capability")
+        or "authorization" in normalized_key
+        or "apikey" in normalized_key
+    )
+
+
+def _redact_raw_response(value: Any) -> Any:
+    """Return a stable, JSON-compatible copy without credentials or internal capabilities."""
+    if isinstance(value, dict):
+        redacted: Dict[str, Any] = {}
+        for key, item in value.items():
+            normalized_key = re.sub(r"[^a-z0-9]", "", str(key).lower())
+            redacted[str(key)] = (
+                REDACTED
+                if _is_sensitive_response_key(normalized_key)
+                else _redact_raw_response(item)
+            )
+        return redacted
+    if isinstance(value, list):
+        return [_redact_raw_response(item) for item in value]
+    if isinstance(value, tuple):
+        return [_redact_raw_response(item) for item in value]
+    if isinstance(value, str):
+        return _redact_text(value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return _redact_text(str(value))
 
 
 def _collect_evidence_ids(value: Any) -> List[str]:
@@ -267,7 +349,7 @@ def _request_one(endpoint: str, token: str, record: Dict[str, Any], timeout: flo
             "matchedResults": data.get("matchedResults"),
             "evidenceChain": data.get("evidenceChain"),
         }),
-        "rawResponse": raw,
+        "rawResponse": _redact_raw_response(raw),
     }
 
 
@@ -288,6 +370,38 @@ def _p95(values: Sequence[float]) -> Optional[float]:
     ordered = sorted(values)
     index = max(0, math.ceil(0.95 * len(ordered)) - 1)
     return round(float(ordered[index]), 3)
+
+
+def metrics_pass_thresholds(metrics: Dict[str, Any]) -> bool:
+    required = {
+        "recallAt5",
+        "citationValidity",
+        "deterministicAccuracy",
+        "rubricPassCount",
+        "refusalAccuracy",
+        "errorRate",
+        "p95LatencyMs",
+    }
+    if not required.issubset(metrics):
+        return False
+    if any(metrics[name] is None or isinstance(metrics[name], bool) for name in required):
+        return False
+    try:
+        return (
+            float(metrics["recallAt5"]) >= THRESHOLDS["minRecallAt5"]
+            and float(metrics["citationValidity"]) >= THRESHOLDS["minCitationValidity"]
+            and float(metrics["deterministicAccuracy"]) >= THRESHOLDS["minDeterministicAccuracy"]
+            and int(metrics["rubricPassCount"]) >= THRESHOLDS["minRubricPassCount"]
+            and float(metrics["refusalAccuracy"]) >= THRESHOLDS["minRefusalAccuracy"]
+            and float(metrics["errorRate"]) <= THRESHOLDS["maxErrorRate"]
+            and float(metrics["p95LatencyMs"]) <= THRESHOLDS["maxP95LatencyMs"]
+        )
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def evaluation_exit_code(report: Dict[str, Any]) -> int:
+    return 1 if report.get("status") == "completed" and report.get("passed") is not True else 0
 
 
 def run_live_evaluation(
@@ -326,7 +440,7 @@ def run_live_evaluation(
             )
         except Exception as exc:
             result.update({
-                "error": f"{type(exc).__name__}: {exc}",
+                "error": _redact_error(f"{type(exc).__name__}: {exc}"),
                 "passed": False,
                 "latencyMs": None,
                 "answer": "",
@@ -365,14 +479,17 @@ def run_live_evaluation(
         "errorRate": round(len(errors) / len(records), 6),
         "p95LatencyMs": _p95(latencies),
     }
+    passed = metrics_pass_thresholds(metrics)
     return {
         "schemaVersion": 1,
         "status": "completed",
+        "passed": passed,
         "reason": None,
         "startedAt": started_at,
         "finishedAt": _utc_now(),
-        "endpoint": endpoint,
+        "endpoint": _redact_text(endpoint),
         "dataset": _dataset_summary(records, gold_hash),
+        "thresholds": THRESHOLDS,
         "metrics": metrics,
         "metricNotes": {
             "recallAt5": None if recall_values else "No frozen expectedEvidence values were available.",
@@ -435,8 +552,10 @@ def main() -> int:
     )
     _write_report(args.output, report)
     print(json.dumps(report["metrics"], ensure_ascii=False, indent=2))
-    print(f"[PASS] wrote raw factual evaluation results to {args.output}")
-    return 0
+    exit_code = evaluation_exit_code(report)
+    gate_label = "PASS" if exit_code == 0 else "FAIL"
+    print(f"[{gate_label}] wrote redacted factual evaluation results to {args.output}")
+    return exit_code
 
 
 if __name__ == "__main__":

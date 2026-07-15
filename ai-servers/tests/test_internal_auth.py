@@ -15,6 +15,19 @@ def test_healthz_remains_public_when_internal_token_is_configured(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
+    @patch("app.main.memory_store.is_redis_ready", return_value=True)
+    @patch.dict(os.environ, {"AI_INTERNAL_TOKEN": "submission-internal-secret"})
+    def test_internal_readiness_verifies_token_and_redis(self, _redis_ready):
+        unauthorized = self.client.get("/internal/readiness")
+        ready = self.client.get(
+            "/internal/readiness",
+            headers={"X-AI-Internal-Token": "submission-internal-secret"},
+        )
+
+        self.assertEqual(401, unauthorized.status_code)
+        self.assertEqual(200, ready.status_code)
+        self.assertEqual({"status": "UP", "redis": "UP"}, ready.json())
+
 
 def test_internal_routes_require_configured_matching_token(monkeypatch):
     monkeypatch.setenv("AI_INTERNAL_TOKEN", "internal-test-token")

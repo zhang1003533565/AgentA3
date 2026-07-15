@@ -66,4 +66,4 @@ export EVAL_TOKEN='真实学生登录令牌'
 python3 scripts/eval/run_factual_eval.py
 ```
 
-脚本不会保存令牌，但会保存每题原始响应到 `artifacts/verification/python-course-factual.json`。提交前检查其中不含个人信息或内部 capability。
+脚本不会保存令牌；每题响应会递归移除令牌、账号/知识库标识、会话标识和内部 capability 后，再写入 `artifacts/verification/python-course-factual.json`。报告包含冻结阈值与 `passed`，任一必需指标为空或未达阈值时进程返回非零。提交前仍需人工检查其中不含个人信息。

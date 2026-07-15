@@ -11,6 +11,8 @@
   "sourceIds": [],
   "sources": [],
   "exportArtifact": null,
+  "authorizationEvidence": null,
+  "reviewSignoff": null,
   "updatedAt": null,
   "limitations": [
     "当前 Git 工作区没有可核验的 MaxKB 原生导出或可再分发课程源文件。",

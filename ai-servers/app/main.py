@@ -11,6 +11,7 @@ from app.api.routes.rag import export_router as rag_export_router
 from app.api.routes.rag import router as rag_router
 from app.api.routes.videos import router as videos_router
 from app.rag.document_conversion import EXPORT_ROOT
+from app.services.memory_store import memory_store
 from app.utils.logger import init_logging
 
 init_logging()
@@ -38,3 +39,15 @@ async def require_internal_service_token(request, call_next):
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
+
+
+@app.get("/internal/readiness")
+def internal_readiness():
+    redis_ready = memory_store.is_redis_ready()
+    payload = {
+        "status": "UP" if redis_ready else "DOWN",
+        "redis": "UP" if redis_ready else "DOWN",
+    }
+    if redis_ready:
+        return payload
+    return JSONResponse(status_code=503, content=payload)

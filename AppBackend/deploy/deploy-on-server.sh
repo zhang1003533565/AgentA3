@@ -3,13 +3,17 @@ set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 DEPLOY_BRANCH="${DEPLOY_BRANCH:-master}"
-ENV_FILE="${ENV_FILE:-AppBackend/deploy/.env}"
-COMPOSE_FILE="${COMPOSE_FILE:-AppBackend/docker-compose.yml}"
+ENV_FILE="${ENV_FILE:-deploy/.env}"
+COMPOSE_FILE="${COMPOSE_FILE:-deploy/compose.submission.yml}"
+
+# BACKEND_IMAGE, AI_SERVER_IMAGE, WEB_IMAGE, IMAGE_TAG, JWT_SECRET,
+# AI_INTERNAL_TOKEN and MYSQL_ROOT_PASSWORD may come from CI. Docker Compose
+# gives those process values precedence; otherwise it reads deploy/.env.
 
 cd "$REPO_DIR"
 
 if [[ ! -f "$ENV_FILE" ]]; then
-  echo "[deploy] Missing $ENV_FILE. Copy AppBackend/deploy/.env.example to AppBackend/deploy/.env and fill real values." >&2
+  echo "[deploy] Missing $ENV_FILE. Copy deploy/.env.example to deploy/.env and fill real values." >&2
   exit 1
 fi
 
@@ -17,5 +21,14 @@ git fetch origin "$DEPLOY_BRANCH"
 git checkout "$DEPLOY_BRANCH"
 git pull --ff-only origin "$DEPLOY_BRANCH"
 
-docker compose --profile deploy --env-file "$ENV_FILE" -f "$COMPOSE_FILE" pull
-docker compose --profile deploy --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --remove-orphans
+compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+"${compose[@]}" config --quiet
+"${compose[@]}" pull config-guard mysql redis backend ai-server web
+"${compose[@]}" run --rm --no-deps config-guard
+"${compose[@]}" up -d --remove-orphans
+
+BACKEND_BASE_URL="${BACKEND_BASE_URL:-http://127.0.0.1:${BACKEND_PORT:-8080}}" \
+AI_BASE_URL="${AI_BASE_URL:-http://127.0.0.1:${AI_PORT:-8081}}" \
+WEB_BASE_URL="${WEB_BASE_URL:-http://127.0.0.1:${WEB_PORT:-3000}}" \
+AI_INTERNAL_TOKEN="${AI_INTERNAL_TOKEN:-}" \
+bash deploy/verify.sh

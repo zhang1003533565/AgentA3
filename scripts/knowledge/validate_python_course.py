@@ -4,6 +4,7 @@ import csv
 import hashlib
 import json
 import re
+import zipfile
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set
 
@@ -62,6 +63,61 @@ def _safe_pack_path(pack: Path, raw_path: str, errors: List[str], source_id: str
     return candidate
 
 
+def _safe_manifest_artifact_path(
+    pack: Path,
+    raw_path: Any,
+    errors: List[str],
+    location: str,
+) -> Optional[Path]:
+    value = str(raw_path or "").strip()
+    relative = Path(value)
+    if not value or relative.is_absolute() or ".." in relative.parts:
+        errors.append(f"{location} must be a safe path relative to the knowledge pack: {value}")
+        return None
+    candidate = (pack / relative).resolve()
+    try:
+        candidate.relative_to(pack.resolve())
+    except ValueError:
+        errors.append(f"{location} escapes the knowledge pack: {value}")
+        return None
+    return candidate
+
+
+def _validate_artifact_reference(
+    pack: Path,
+    raw_value: Any,
+    errors: List[str],
+    location: str,
+    *,
+    require_zip: bool = False,
+) -> Optional[Path]:
+    if not isinstance(raw_value, dict):
+        errors.append(f"{location} must be an object with path and sha256")
+        return None
+    raw_path = raw_value.get("path")
+    candidate = _safe_manifest_artifact_path(pack, raw_path, errors, f"{location}.path")
+    expected_hash = str(raw_value.get("sha256") or "").strip().lower()
+    if not SHA256_RE.fullmatch(expected_hash):
+        errors.append(f"{location}.sha256 must be a lowercase SHA-256 digest")
+    if candidate is None:
+        return None
+    if not candidate.is_file():
+        errors.append(f"{location}.path does not exist: {raw_path}")
+        return candidate
+    if SHA256_RE.fullmatch(expected_hash):
+        actual_hash = _sha256(candidate)
+        if actual_hash != expected_hash:
+            errors.append(
+                f"{location}.sha256 mismatch: expected {expected_hash}, got {actual_hash}"
+            )
+    if require_zip:
+        if candidate.suffix.lower() != ".zip":
+            errors.append(f"{location}.path must point to a .zip MaxKB export")
+        elif not zipfile.is_zipfile(candidate):
+            errors.append(f"{location}.path is not a readable ZIP archive")
+    return candidate
+
+
 def _read_sources(pack: Path, errors: List[str]) -> Dict[str, Dict[str, str]]:
     path = pack / "sources.csv"
     try:
@@ -107,6 +163,7 @@ def _read_sources(pack: Path, errors: List[str]) -> Dict[str, Dict[str, str]]:
 
 
 def _validate_manifest(
+    pack: Path,
     manifest: Optional[Dict[str, Any]],
     sources: Dict[str, Dict[str, str]],
     errors: List[str],
@@ -125,6 +182,9 @@ def _validate_manifest(
         "courseChapters",
         "sourceIds",
         "sources",
+        "exportArtifact",
+        "authorizationEvidence",
+        "reviewSignoff",
     }
     missing = sorted(required - set(manifest))
     if missing:
@@ -186,6 +246,9 @@ def _validate_manifest(
             errors.append("needs_export manifest cannot claim exported sources")
         if manifest.get("courseChapters") not in ([], None):
             errors.append("needs_export manifest cannot claim verified course chapters")
+        for field in ["exportArtifact", "authorizationEvidence", "reviewSignoff"]:
+            if manifest.get(field) is not None:
+                errors.append(f"needs_export manifest must keep {field}=null")
     elif status == "ready":
         if not isinstance(manifest.get("maxkbVersion"), str) or not manifest.get("maxkbVersion", "").strip():
             errors.append("ready manifest requires maxkbVersion")
@@ -193,12 +256,78 @@ def _validate_manifest(
             value = manifest.get(field)
             if not isinstance(value, int) or isinstance(value, bool) or value < 1:
                 errors.append(f"ready manifest requires positive integer {field}")
-        if not isinstance(manifest.get("splitConfiguration"), dict):
-            errors.append("ready manifest requires splitConfiguration object")
-        if not isinstance(manifest.get("courseChapters"), list) or not manifest.get("courseChapters"):
-            errors.append("ready manifest requires verified courseChapters")
+        if not isinstance(manifest.get("splitConfiguration"), dict) or not manifest.get("splitConfiguration"):
+            errors.append("manifest.splitConfiguration must be a non-empty object when status=ready")
+        raw_chapters = manifest.get("courseChapters")
+        if (
+            not isinstance(raw_chapters, list)
+            or not raw_chapters
+            or any(not isinstance(item, str) or not item.strip() for item in raw_chapters)
+        ):
+            errors.append("manifest.courseChapters must be a non-empty string array when status=ready")
+        elif len({item.strip() for item in raw_chapters}) != len(raw_chapters):
+            errors.append("manifest.courseChapters contains duplicates")
         if not sources:
             errors.append("ready manifest requires at least one source")
+        document_count = manifest.get("documentCount")
+        paragraph_count = manifest.get("paragraphCount")
+        if isinstance(document_count, int) and not isinstance(document_count, bool):
+            if document_count != len(sources):
+                errors.append(
+                    "manifest.documentCount must equal the number of declared source documents: "
+                    f"documentCount={document_count}, sources={len(sources)}"
+                )
+        if (
+            isinstance(paragraph_count, int)
+            and not isinstance(paragraph_count, bool)
+            and isinstance(document_count, int)
+            and not isinstance(document_count, bool)
+            and paragraph_count < document_count
+        ):
+            errors.append("manifest.paragraphCount cannot be smaller than manifest.documentCount")
+
+        _validate_artifact_reference(
+            pack,
+            manifest.get("exportArtifact"),
+            errors,
+            "manifest.exportArtifact",
+            require_zip=True,
+        )
+        _validate_artifact_reference(
+            pack,
+            manifest.get("authorizationEvidence"),
+            errors,
+            "manifest.authorizationEvidence",
+        )
+        authorization_evidence = manifest.get("authorizationEvidence")
+        if isinstance(authorization_evidence, dict):
+            covered_source_ids = authorization_evidence.get("coveredSourceIds")
+            if (
+                not isinstance(covered_source_ids, list)
+                or any(not isinstance(item, str) or not item.strip() for item in covered_source_ids)
+                or len(set(covered_source_ids)) != len(covered_source_ids)
+                or set(covered_source_ids) != source_ids
+            ):
+                errors.append(
+                    "manifest.authorizationEvidence.coveredSourceIds must match manifest.sourceIds exactly"
+                )
+        _validate_artifact_reference(
+            pack,
+            manifest.get("reviewSignoff"),
+            errors,
+            "manifest.reviewSignoff",
+        )
+        review_signoff = manifest.get("reviewSignoff")
+        if isinstance(review_signoff, dict):
+            signed_by = review_signoff.get("signedBy")
+            if (
+                not isinstance(signed_by, list)
+                or len({str(item).strip() for item in signed_by if str(item).strip()}) < 2
+            ):
+                errors.append("manifest.reviewSignoff.signedBy requires two distinct non-blank reviewers")
+            signed_at = str(review_signoff.get("signedAt") or "").strip()
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", signed_at):
+                errors.append("manifest.reviewSignoff.signedAt must use UTC YYYY-MM-DDTHH:MM:SSZ")
     return source_ids
 
 
@@ -279,7 +408,7 @@ def collect_validation_errors(root: Path, *, require_evaluation: bool = True) ->
     errors: List[str] = []
     sources = _read_sources(pack, errors)
     manifest = _load_json(pack / "manifest.json", errors)
-    declared_source_ids = _validate_manifest(manifest, sources, errors)
+    declared_source_ids = _validate_manifest(pack, manifest, sources, errors)
     _validate_checksums(pack, errors)
     if require_evaluation:
         _validate_evaluation(root, declared_source_ids, errors)
