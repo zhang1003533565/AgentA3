@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+from artifact_sanitizer import sanitize_artifact, sanitize_text
+
 
 MIN_REQUESTS = 50
 MIN_CONCURRENCY = 5
@@ -172,7 +174,7 @@ def _request_once(
             "latencyMs": latency_ms,
             "answerLength": 0,
             "answerSha256": None,
-            "error": f"{type(exc).__name__}: {exc}",
+            "error": sanitize_text(f"{type(exc).__name__}: {exc}"),
         }
 
 
@@ -200,7 +202,10 @@ def run_load_test(
             )
             for index in range(total_requests)
         ]
-        results = [future.result() for future in concurrent.futures.as_completed(futures)]
+        results = [
+            sanitize_artifact(future.result())
+            for future in concurrent.futures.as_completed(futures)
+        ]
     wall_seconds = max(time.perf_counter() - wall_started, 0.000001)
     results.sort(key=lambda item: item["index"])
     successes = sum(bool(item["success"]) for item in results)
@@ -231,7 +236,7 @@ def run_load_test(
         "reason": None,
         "startedAt": started_at,
         "finishedAt": _utc_now(),
-        "endpoint": endpoint,
+        "endpoint": sanitize_text(endpoint),
         "plan": {
             "totalRequests": total_requests,
             "concurrency": concurrency,
@@ -247,7 +252,8 @@ def run_load_test(
 
 def _write_report(path: Path, report: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    safe_report = sanitize_artifact(report)
+    path.write_text(json.dumps(safe_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def main() -> int:

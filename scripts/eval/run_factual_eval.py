@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from artifact_sanitizer import sanitize_artifact, sanitize_text
+
 
 ANSWER_TYPES = {"deterministic", "rubric", "refusal"}
 EXPECTED_DISTRIBUTION = {"deterministic": 20, "rubric": 5, "refusal": 5}
@@ -44,26 +46,6 @@ THRESHOLDS = {
     "maxErrorRate": 0.05,
     "maxP95LatencyMs": 30000,
 }
-REDACTED = "[REDACTED]"
-SENSITIVE_RESPONSE_KEYS = {
-    "accountid",
-    "apikey",
-    "authorization",
-    "bearertoken",
-    "capability",
-    "exportcapability",
-    "internaltoken",
-    "knowledgeid",
-    "password",
-    "pythoncapability",
-    "resourcecapability",
-    "secret",
-    "sessionid",
-    "token",
-    "userid",
-}
-
-
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -210,56 +192,16 @@ def _is_refusal(answer: str) -> bool:
 
 
 def _redact_text(value: str) -> str:
-    text = re.sub(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [REDACTED]", value)
-    return re.sub(
-        r"(?i)([?&](?:access_?token|api_?key|authorization|secret|token)=)[^&#\s]+",
-        r"\1[REDACTED]",
-        text,
-    )
+    return sanitize_text(value)
 
 
 def _redact_error(value: str) -> str:
-    text = _redact_text(value)
-    return re.sub(
-        r"(?i)(\b(?:access_?token|api_?key|authorization|password|secret|token)\b[\"']?\s*[:=]\s*)[\"']?[^\"',}\]\s]+[\"']?",
-        r"\1[REDACTED]",
-        text,
-    )
-
-
-def _is_sensitive_response_key(normalized_key: str) -> bool:
-    return (
-        normalized_key in SENSITIVE_RESPONSE_KEYS
-        or normalized_key.endswith("token")
-        or normalized_key.endswith("password")
-        or normalized_key.endswith("secret")
-        or normalized_key.endswith("capability")
-        or "authorization" in normalized_key
-        or "apikey" in normalized_key
-    )
+    return sanitize_text(value)
 
 
 def _redact_raw_response(value: Any) -> Any:
     """Return a stable, JSON-compatible copy without credentials or internal capabilities."""
-    if isinstance(value, dict):
-        redacted: Dict[str, Any] = {}
-        for key, item in value.items():
-            normalized_key = re.sub(r"[^a-z0-9]", "", str(key).lower())
-            redacted[str(key)] = (
-                REDACTED
-                if _is_sensitive_response_key(normalized_key)
-                else _redact_raw_response(item)
-            )
-        return redacted
-    if isinstance(value, list):
-        return [_redact_raw_response(item) for item in value]
-    if isinstance(value, tuple):
-        return [_redact_raw_response(item) for item in value]
-    if isinstance(value, str):
-        return _redact_text(value)
-    if value is None or isinstance(value, (bool, int, float)):
-        return value
-    return _redact_text(str(value))
+    return sanitize_artifact(value)
 
 
 def _collect_evidence_ids(value: Any) -> List[str]:
@@ -438,7 +380,9 @@ def run_live_evaluation(
                 len(set(expected_ids) & set(returned_top5)) / len(set(expected_ids))
                 if expected_ids else None
             )
+            result["answer"] = sanitize_text(answer)
         except Exception as exc:
+            expected_ids = _expected_evidence_ids(record)
             result.update({
                 "error": _redact_error(f"{type(exc).__name__}: {exc}"),
                 "passed": False,
@@ -446,8 +390,8 @@ def run_live_evaluation(
                 "answer": "",
                 "evidenceIds": [],
                 "rawResponse": None,
-                "expectedEvidence": _expected_evidence_ids(record),
-                "recallAt5": None,
+                "expectedEvidence": expected_ids,
+                "recallAt5": 0.0 if expected_ids and not record["shouldRefuse"] else None,
             })
         results.append(result)
 
@@ -455,7 +399,17 @@ def run_live_evaluation(
     deterministic = [item for item in results if item["answerType"] == "deterministic"]
     rubric = [item for item in results if item["answerType"] == "rubric"]
     refusals = [item for item in results if item["answerType"] == "refusal"]
-    recall_values = [item["recallAt5"] for item in results if item.get("recallAt5") is not None]
+    answerable = [item for item in results if not item["shouldRefuse"]]
+    missing_expected_evidence = [
+        str(item["id"])
+        for item in answerable
+        if not item.get("expectedEvidence")
+    ]
+    recall_values = [item["recallAt5"] for item in answerable if item.get("recallAt5") is not None]
+    recall_is_complete = (
+        not missing_expected_evidence
+        and len(recall_values) == len(answerable)
+    )
     returned_evidence = [
         evidence_id
         for item in results
@@ -464,7 +418,10 @@ def run_live_evaluation(
     valid_evidence = [item for item in returned_evidence if item in declared_source_ids]
     latencies = [float(item["latencyMs"]) for item in results if item.get("latencyMs") is not None]
     metrics = {
-        "recallAt5": round(statistics.fmean(recall_values), 6) if recall_values else None,
+        "recallAt5": (
+            round(statistics.fmean(recall_values), 6)
+            if recall_values and recall_is_complete else None
+        ),
         "citationValidity": (
             round(len(valid_evidence) / len(returned_evidence), 6)
             if returned_evidence and declared_source_ids else None
@@ -487,12 +444,17 @@ def run_live_evaluation(
         "reason": None,
         "startedAt": started_at,
         "finishedAt": _utc_now(),
-        "endpoint": _redact_text(endpoint),
+        "endpoint": sanitize_text(endpoint),
         "dataset": _dataset_summary(records, gold_hash),
         "thresholds": THRESHOLDS,
         "metrics": metrics,
         "metricNotes": {
-            "recallAt5": None if recall_values else "No frozen expectedEvidence values were available.",
+            "recallAt5": (
+                f"Missing expectedEvidence for answerable records: {', '.join(missing_expected_evidence)}"
+                if missing_expected_evidence
+                else None if recall_is_complete
+                else "Recall was unavailable for one or more answerable records."
+            ),
             "citationValidity": None if declared_source_ids else "Knowledge manifest is not ready.",
             "rubric": "Automated keyword-group precheck; final competition claim requires human rubric review.",
         },
@@ -502,7 +464,8 @@ def run_live_evaluation(
 
 def _write_report(path: Path, report: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    safe_report = sanitize_artifact(report)
+    path.write_text(json.dumps(safe_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def main() -> int:

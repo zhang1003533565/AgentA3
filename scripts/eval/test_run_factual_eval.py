@@ -1,10 +1,14 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from run_factual_eval import (
     THRESHOLDS,
     _redact_error,
     _redact_raw_response,
+    _write_report,
     build_not_run_report,
     evaluation_exit_code,
     metrics_pass_thresholds,
@@ -108,6 +112,36 @@ class FactualEvaluationContractTest(unittest.TestCase):
         self.assertEqual(1, evaluation_exit_code(report))
         self.assertTrue(all(result["passed"] is False for result in report["results"]))
 
+    def test_one_answerable_item_without_expected_evidence_invalidates_recall_and_gate(self):
+        records = make_records()
+        for record in records:
+            if not record["shouldRefuse"]:
+                record["expectedEvidence"] = ["python-source"]
+        records[0]["expectedEvidence"] = []
+
+        def request_one(_endpoint, _token, record, _timeout):
+            return {
+                "latencyMs": 1.0,
+                "answer": "资料不足" if record["shouldRefuse"] else "answer keyword",
+                "evidenceIds": ["python-source"],
+                "rawResponse": {"code": 200},
+            }
+
+        with patch("run_factual_eval._request_one", side_effect=request_one):
+            report = run_live_evaluation(
+                records,
+                endpoint="http://evaluation.invalid/query",
+                token="local-test-token",
+                timeout=1,
+                declared_source_ids={"python-source"},
+                gold_hash="0" * 64,
+            )
+
+        self.assertIsNone(report["metrics"]["recallAt5"])
+        self.assertFalse(report["passed"])
+        self.assertEqual(1, evaluation_exit_code(report))
+        self.assertIn("missing", report["metricNotes"]["recallAt5"].lower())
+
     def test_raw_response_redaction_is_recursive_and_deterministic(self):
         raw = {
             "data": {
@@ -134,12 +168,65 @@ class FactualEvaluationContractTest(unittest.TestCase):
         self.assertNotIn("secret", first["data"]["nested"]["url"])
 
     def test_error_redaction_removes_json_and_key_value_credentials(self):
-        error = 'HTTP 500: {"apiKey":"secret-json","password": plain-secret}'
+        error = 'HTTP 500: {"apiKey":"secret-json","password": two word secret}'
 
         redacted = _redact_error(error)
 
         self.assertNotIn("secret-json", redacted)
-        self.assertNotIn("plain-secret", redacted)
+        self.assertNotIn("two word secret", redacted)
+
+    def test_sanitizer_handles_stringified_json_cookie_url_userinfo_and_sensitive_query(self):
+        raw = {
+            "jsonPayload": json.dumps({
+                "password": "two word secret",
+                "nested": {"secret": "secret-json"},
+            }),
+            "callback": "https://user:pass@example.invalid/cb?token=top-secret&safe=ok",
+            "headers": "Cookie: session=word secret\nSet-Cookie: auth=top-secret; HttpOnly",
+            "authorizationText": "Authorization: Bearer word-secret",
+        }
+
+        serialized = json.dumps(_redact_raw_response(raw), ensure_ascii=False)
+        redacted_callback = _redact_raw_response(raw)["callback"]
+
+        for secret in [
+            "secret-json",
+            "two word secret",
+            "word secret",
+            "user:pass",
+            "top-secret",
+        ]:
+            self.assertNotIn(secret, serialized)
+        self.assertEqual(
+            "https://[REDACTED]@example.invalid/cb?token=[REDACTED]&safe=ok",
+            redacted_callback,
+        )
+        self.assertEqual(
+            "Authorization: [REDACTED]",
+            _redact_error("Authorization: Bearer word-secret"),
+        )
+
+    def test_report_writer_applies_defense_in_depth_sanitization(self):
+        report = {
+            "endpoint": "https://user:pass@example.invalid/query?api_key=top-secret",
+            "error": '{"secret":"secret-json","password":"two word secret"}',
+            "headers": "Cookie: session=word secret",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "report.json"
+
+            _write_report(output, report)
+
+            serialized = output.read_text(encoding="utf-8")
+
+        for secret in [
+            "secret-json",
+            "two word secret",
+            "word secret",
+            "user:pass",
+            "top-secret",
+        ]:
+            self.assertNotIn(secret, serialized)
 
 
 if __name__ == "__main__":

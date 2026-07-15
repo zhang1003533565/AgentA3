@@ -26,10 +26,20 @@ app.include_router(rag_export_router)
 app.include_router(videos_router)
 
 
+def _is_export_capability_route(method: str, path: str) -> bool:
+    prefix = "/internal/rag/exports/"
+    storage_key = path[len(prefix):] if path.startswith(prefix) else ""
+    return method == "GET" and bool(storage_key) and "/" not in storage_key
+
+
 @app.middleware("http")
 async def require_internal_service_token(request, call_next):
     configured_token = os.getenv("AI_INTERNAL_TOKEN", "").strip()
-    if request.url.path.startswith("/internal") and configured_token:
+    requires_internal_token = (
+        request.url.path.startswith("/internal")
+        and not _is_export_capability_route(request.method, request.url.path)
+    )
+    if requires_internal_token and configured_token:
         supplied_token = request.headers.get("X-AI-Internal-Token", "")
         if not secrets.compare_digest(supplied_token, configured_token):
             return JSONResponse(status_code=401, content={"detail": "内部服务凭据无效"})

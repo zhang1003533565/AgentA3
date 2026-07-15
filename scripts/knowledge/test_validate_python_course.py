@@ -10,6 +10,18 @@ from validate_python_course import collect_validation_errors
 
 
 class PythonCourseKnowledgeValidationTest(unittest.TestCase):
+    @staticmethod
+    def _rewrite_manifest(pack: Path, mutate):
+        manifest_path = pack / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        mutate(manifest)
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        checksums = []
+        for relative in ["README.md", "manifest.json", "sources.csv"]:
+            digest = hashlib.sha256((pack / relative).read_bytes()).hexdigest()
+            checksums.append(f"{digest}  {relative}")
+        (pack / "checksums.sha256").write_text("\n".join(checksums) + "\n", encoding="utf-8")
+
     def _write_pack(
         self,
         root: Path,
@@ -217,6 +229,87 @@ class PythonCourseKnowledgeValidationTest(unittest.TestCase):
             )
 
             self.assertEqual([], collect_validation_errors(root))
+
+    def test_ready_pack_requires_expected_evidence_for_every_answerable_gold_item(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_pack(
+                root,
+                sources=[{
+                    "source_id": "source-1",
+                    "title": "测试来源",
+                    "origin": "sources/source-1.txt",
+                    "author": "Team",
+                    "license": "Team-Authored",
+                    "sha256": "",
+                }],
+                evidence=[],
+            )
+
+            errors = collect_validation_errors(root)
+
+            self.assertTrue(any("expectedEvidence" in error for error in errors))
+
+    def test_review_signoff_requires_exactly_two_string_reviewers_and_real_utc_timestamp(self):
+        source = [{
+            "source_id": "source-1",
+            "title": "测试来源",
+            "origin": "sources/source-1.txt",
+            "author": "Team",
+            "license": "Team-Authored",
+            "sha256": "",
+        }]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_pack(root, sources=source, evidence=["source-1"])
+            pack = root / "artifacts/knowledge-base/python-course"
+            self._rewrite_manifest(
+                pack,
+                lambda manifest: manifest["reviewSignoff"].update({
+                    "signedBy": [1, 2],
+                    "signedAt": "2026-7-5T1:2:3Z",
+                }),
+            )
+
+            errors = collect_validation_errors(root)
+
+            self.assertTrue(any("signedBy" in error for error in errors))
+            self.assertTrue(any("signedAt" in error for error in errors))
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_pack(root, sources=source, evidence=["source-1"])
+            pack = root / "artifacts/knowledge-base/python-course"
+            self._rewrite_manifest(
+                pack,
+                lambda manifest: manifest["reviewSignoff"].update({
+                    "signedBy": ["owner", "reviewer", "observer"],
+                }),
+            )
+
+            errors = collect_validation_errors(root)
+
+            self.assertTrue(any("signedBy" in error for error in errors))
+
+    def test_ready_pack_rejects_blank_or_malformed_expected_evidence_entries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_pack(
+                root,
+                sources=[{
+                    "source_id": "source-1",
+                    "title": "测试来源",
+                    "origin": "sources/source-1.txt",
+                    "author": "Team",
+                    "license": "Team-Authored",
+                    "sha256": "",
+                }],
+                evidence=["source-1", ""],
+            )
+
+            errors = collect_validation_errors(root)
+
+            self.assertTrue(any("expectedEvidence" in error for error in errors))
 
     def test_authorization_evidence_must_cover_every_declared_source(self):
         with tempfile.TemporaryDirectory() as directory:

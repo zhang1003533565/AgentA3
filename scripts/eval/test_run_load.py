@@ -1,6 +1,17 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
-from run_load import build_not_run_report, nearest_rank_percentile, validate_load_plan
+from run_load import (
+    _request_once,
+    _write_report,
+    build_not_run_report,
+    nearest_rank_percentile,
+    run_load_test,
+    validate_load_plan,
+)
 
 
 class LoadEvaluationContractTest(unittest.TestCase):
@@ -33,6 +44,78 @@ class LoadEvaluationContractTest(unittest.TestCase):
         self.assertEqual(5, report["plan"]["concurrency"])
         self.assertTrue(all(value is None for value in report["metrics"].values()))
         self.assertEqual([], report["requests"])
+
+    @patch(
+        "run_load.urllib.request.urlopen",
+        side_effect=RuntimeError(
+            'request failed: {"secret":"secret-json","password":"two word secret"}; '
+            "Cookie: session=word secret"
+        ),
+    )
+    def test_request_error_is_sanitized(self, _urlopen):
+        result = _request_once(
+            "https://user:pass@example.invalid/query?token=top-secret",
+            "local-token",
+            1,
+            0,
+            "query",
+        )
+
+        serialized = json.dumps(result, ensure_ascii=False)
+
+        for secret in ["secret-json", "two word secret", "word secret", "top-secret"]:
+            self.assertNotIn(secret, serialized)
+
+    @patch("run_load._request_once")
+    def test_report_endpoint_and_worker_errors_are_sanitized(self, request_once):
+        request_once.return_value = {
+            "index": 0,
+            "success": False,
+            "status": 500,
+            "latencyMs": 1.0,
+            "answerLength": 0,
+            "answerSha256": None,
+            "error": "password=two word secret; token=top-secret",
+        }
+
+        report = run_load_test(
+            endpoint="https://user:pass@example.invalid/query?api_key=top-secret",
+            token="local-token",
+            queries=["query"],
+            total_requests=1,
+            concurrency=1,
+            timeout_seconds=1,
+            gold_hash="0" * 64,
+        )
+        serialized = json.dumps(report, ensure_ascii=False)
+
+        self.assertNotIn("user:pass", serialized)
+        self.assertNotIn("two word secret", serialized)
+        self.assertNotIn("top-secret", serialized)
+
+    def test_report_writer_sanitizes_stringified_json(self):
+        report = {
+            "endpoint": "https://user:pass@example.invalid/query?token=top-secret",
+            "requests": [{
+                "error": '{"secret":"secret-json","password":"two word secret"}',
+                "headers": "Set-Cookie: session=word secret",
+            }],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "load.json"
+
+            _write_report(output, report)
+
+            serialized = output.read_text(encoding="utf-8")
+
+        for secret in [
+            "secret-json",
+            "two word secret",
+            "word secret",
+            "user:pass",
+            "top-secret",
+        ]:
+            self.assertNotIn(secret, serialized)
 
 
 if __name__ == "__main__":

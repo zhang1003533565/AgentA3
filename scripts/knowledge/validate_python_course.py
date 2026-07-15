@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set
 
@@ -322,11 +323,21 @@ def _validate_manifest(
             signed_by = review_signoff.get("signedBy")
             if (
                 not isinstance(signed_by, list)
-                or len({str(item).strip() for item in signed_by if str(item).strip()}) < 2
+                or len(signed_by) != 2
+                or any(not isinstance(item, str) or not item.strip() for item in signed_by)
+                or len({item.strip() for item in signed_by if isinstance(item, str)}) != 2
             ):
                 errors.append("manifest.reviewSignoff.signedBy requires two distinct non-blank reviewers")
             signed_at = str(review_signoff.get("signedAt") or "").strip()
-            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", signed_at):
+            valid_signed_at = bool(
+                re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", signed_at)
+            )
+            if valid_signed_at:
+                try:
+                    datetime.strptime(signed_at, "%Y-%m-%dT%H:%M:%SZ")
+                except ValueError:
+                    valid_signed_at = False
+            if not valid_signed_at:
                 errors.append("manifest.reviewSignoff.signedAt must use UTC YYYY-MM-DDTHH:MM:SSZ")
     return source_ids
 
@@ -377,7 +388,13 @@ def _evidence_ids(raw_evidence: Any) -> Iterable[str]:
     return [value for value in values if value]
 
 
-def _validate_evaluation(root: Path, declared_source_ids: Set[str], errors: List[str]) -> None:
+def _validate_evaluation(
+    root: Path,
+    declared_source_ids: Set[str],
+    errors: List[str],
+    *,
+    require_answerable_evidence: bool,
+) -> None:
     path = root / EVALUATION_RELATIVE
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -395,7 +412,21 @@ def _validate_evaluation(root: Path, declared_source_ids: Set[str], errors: List
         if not isinstance(record, dict):
             errors.append(f"gold.jsonl line {line_number} must be an object")
             continue
-        for source_id in _evidence_ids(record.get("expectedEvidence")):
+        raw_evidence = record.get("expectedEvidence")
+        evidence_ids = list(_evidence_ids(raw_evidence))
+        if (
+            require_answerable_evidence
+            and record.get("shouldRefuse") is False
+            and (
+                not isinstance(raw_evidence, list)
+                or not evidence_ids
+                or len(evidence_ids) != len(raw_evidence)
+            )
+        ):
+            errors.append(
+                f"gold.jsonl line {line_number} answerable item requires non-empty expectedEvidence IDs"
+            )
+        for source_id in evidence_ids:
             if source_id not in declared_source_ids:
                 errors.append(
                     f"gold.jsonl line {line_number} references undeclared source: {source_id}"
@@ -411,7 +442,14 @@ def collect_validation_errors(root: Path, *, require_evaluation: bool = True) ->
     declared_source_ids = _validate_manifest(pack, manifest, sources, errors)
     _validate_checksums(pack, errors)
     if require_evaluation:
-        _validate_evaluation(root, declared_source_ids, errors)
+        _validate_evaluation(
+            root,
+            declared_source_ids,
+            errors,
+            require_answerable_evidence=(
+                isinstance(manifest, dict) and manifest.get("status") == "ready"
+            ),
+        )
     return errors
 
 

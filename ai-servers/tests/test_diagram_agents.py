@@ -74,7 +74,7 @@ class DiagramAgentsTest(unittest.TestCase):
             "get_qwen_image_provider",
             return_value=flowchart_provider,
         ):
-            flowchart = json.loads(diagram_flowchart_agent.build_diagram("括号匹配", []))
+            flowchart = json.loads(diagram_flowchart_agent.generate_images_json("括号匹配", []))
         self.assertEqual("success", flowchart["status"])
         self.assertEqual("flowchart", flowchart_provider.requests[0].metadata["diagramType"])
 
@@ -84,7 +84,7 @@ class DiagramAgentsTest(unittest.TestCase):
             "get_qwen_image_provider",
             return_value=activity_provider,
         ):
-            activity = json.loads(diagram_activity_agent.build_diagram("任务流程", []))
+            activity = json.loads(diagram_activity_agent.generate_images_json("任务流程", []))
         self.assertEqual("success", activity["status"])
         self.assertEqual("activity", activity_provider.requests[0].metadata["diagramType"])
 
@@ -100,7 +100,7 @@ class DiagramAgentsTest(unittest.TestCase):
 
     def test_rejects_empty_diagram_prompt(self):
         with self.assertRaises(HTTPException):
-            diagram_flowchart_agent.build_diagram("", [])
+            diagram_flowchart_agent.generate_images_json("", [])
         with self.assertRaises(ValueError):
             diagram_mind_map_agent.generate_mind_map_image("")
 

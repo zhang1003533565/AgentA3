@@ -69,6 +69,12 @@ command -v curl >/dev/null 2>&1 || {
   exit 1
 }
 
+smoke_token="${SMOKE_TOKEN:-}"
+if [[ "${FINAL_SUBMISSION:-false}" == "true" && -z "${smoke_token//[[:space:]]/}" ]]; then
+  echo "[FAIL] FINAL_SUBMISSION=true requires SMOKE_TOKEN for an authenticated campus business smoke" >&2
+  exit 1
+fi
+
 check_url "backend" "${backend_url}/actuator/health"
 check_json_up "backend dependencies" "${backend_url}/actuator/readiness"
 check_url "ai-server" "${ai_url}/healthz"
@@ -82,8 +88,8 @@ else
 fi
 check_url "web" "${web_url}"
 
-if [[ -n "${SMOKE_TOKEN:-}" ]]; then
-  authorization="${SMOKE_TOKEN}"
+if [[ -n "$smoke_token" ]]; then
+  authorization="$smoke_token"
   if [[ "$authorization" != Bearer\ * ]]; then
     authorization="Bearer ${authorization}"
   fi

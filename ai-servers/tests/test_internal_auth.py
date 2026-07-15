@@ -15,18 +15,21 @@ def test_healthz_remains_public_when_internal_token_is_configured(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
-    @patch("app.main.memory_store.is_redis_ready", return_value=True)
-    @patch.dict(os.environ, {"AI_INTERNAL_TOKEN": "submission-internal-secret"})
-    def test_internal_readiness_verifies_token_and_redis(self, _redis_ready):
-        unauthorized = self.client.get("/internal/readiness")
-        ready = self.client.get(
-            "/internal/readiness",
-            headers={"X-AI-Internal-Token": "submission-internal-secret"},
-        )
 
-        self.assertEqual(401, unauthorized.status_code)
-        self.assertEqual(200, ready.status_code)
-        self.assertEqual({"status": "UP", "redis": "UP"}, ready.json())
+def test_internal_readiness_verifies_token_and_redis(monkeypatch):
+    monkeypatch.setenv("AI_INTERNAL_TOKEN", "submission-internal-secret")
+    monkeypatch.setattr("app.main.memory_store.is_redis_ready", lambda: True)
+    client = TestClient(app)
+
+    unauthorized = client.get("/internal/readiness")
+    ready = client.get(
+        "/internal/readiness",
+        headers={"X-AI-Internal-Token": "submission-internal-secret"},
+    )
+
+    assert unauthorized.status_code == 401
+    assert ready.status_code == 200
+    assert ready.json() == {"status": "UP", "redis": "UP"}
 
 
 def test_internal_routes_require_configured_matching_token(monkeypatch):
@@ -91,6 +94,26 @@ def test_export_capability_route_does_not_require_java_internal_secret(monkeypat
     )
 
     assert response.status_code in {403, 404, 410}
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("post", "/internal/rag/exports/not-a-real-export.md"),
+        ("get", "/internal/rag/exports/not-a-real-export.md/extra"),
+        ("get", "/internal/rag/exports"),
+    ],
+)
+def test_only_exact_export_download_route_bypasses_java_internal_secret(
+    monkeypatch,
+    method,
+    path,
+):
+    monkeypatch.setenv("AI_INTERNAL_TOKEN", "internal-test-token")
+
+    response = TestClient(app).request(method, path)
+
+    assert response.status_code == 401
 
 
 @pytest.mark.parametrize(
