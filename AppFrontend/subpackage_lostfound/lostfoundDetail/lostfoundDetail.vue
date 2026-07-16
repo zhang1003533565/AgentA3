@@ -88,7 +88,8 @@
             <button class="manage-button" @click="handleSellerPrimaryAction">{{ sellerPrimaryButtonText }}</button>
             <button class="offline-button" :disabled="sellerSecondaryDisabled" @click="handleSellerSecondaryAction">{{ sellerSecondaryButtonText }}</button>
           </view>
-          <view v-else-if="isOtherUserTradeLocked" class="trade-locked-button">商品交易中</view>
+          <button v-else-if="isCompletedTradeBuyer" class="contact-button" @click="openTradeRecords">查看交易记录</button>
+          <view v-else-if="isItemCompleted" class="trade-locked-button">已售出</view>
           <view v-else-if="isCurrentTradeBuyer" class="buyer-trade-actions">
             <view class="trade-status-button">交易进行中</view>
             <button class="contact-button contact-button--compact" @click="contactSeller">
@@ -159,6 +160,7 @@ export default {
       itemId: null,
       item: normalizeItem(),
       activeTrade: null,
+      completedTrade: null,
       pageBodyHeight: 0,
       imageIndex: 0
     }
@@ -209,20 +211,30 @@ export default {
         String(this.activeTrade.buyerId) === String(this.currentUserId)
       )
     },
-    isOtherUserTradeLocked() {
-      return Boolean(this.activeTrade && !this.isSeller && !this.isCurrentTradeBuyer)
+    isItemCompleted() {
+      return Number(this.item.status) === 3 || this.completedTrade?.status === 'COMPLETED'
+    },
+    isCompletedTradeBuyer() {
+      return Boolean(
+        this.isItemCompleted &&
+        this.completedTrade &&
+        this.currentUserId &&
+        String(this.completedTrade.buyerId) === String(this.currentUserId)
+      )
     },
     canOfflineItem() {
       return Number(this.item.status) === 2
     },
     sellerPrimaryButtonText() {
+      if (this.isItemCompleted) return '交易已完成'
       return this.activeTrade ? '查看交易' : '管理商品'
     },
     sellerSecondaryButtonText() {
+      if (this.isItemCompleted) return '管理商品'
       return this.activeTrade ? '管理商品' : '下架商品'
     },
     sellerSecondaryDisabled() {
-      return !this.activeTrade && !this.canOfflineItem
+      return !this.isItemCompleted && !this.activeTrade && !this.canOfflineItem
     },
     contactButtonText() {
       return '联系卖家'
@@ -267,15 +279,20 @@ export default {
     },
     async loadActiveTrade() {
       this.activeTrade = null
+      this.completedTrade = null
       if (!this.item.id) return
       const userInfo = getUserInfo()
       if (!userInfo) return
       try {
         const res = await getTradeRecords({ current: 1, size: 100 })
         const records = Array.isArray(res?.data?.records) ? res.data.records : (Array.isArray(res?.data) ? res.data : [])
-        this.activeTrade = records.find((record) => {
+        const itemRecords = records.filter((record) => Number(record.itemId) === Number(this.item.id))
+        this.activeTrade = itemRecords.find((record) => {
+          return ['WAIT_CONFIRM', 'TRADING'].includes(record.status)
+        }) || null
+        this.completedTrade = itemRecords.find((record) => {
           return Number(record.itemId) === Number(this.item.id) &&
-            ['WAIT_CONFIRM', 'TRADING'].includes(record.status)
+            record.status === 'COMPLETED'
         }) || null
       } catch (e) {
         console.warn('查询交易记录失败', e)
@@ -319,12 +336,19 @@ export default {
         uni.showToast({ title: '这是您发布的商品', icon: 'none' })
         return
       }
-      if (this.isOtherUserTradeLocked) {
-        uni.showToast({ title: '商品交易中', icon: 'none' })
+      if (this.isItemCompleted) {
+        if (this.isCompletedTradeBuyer) {
+          this.openTradeRecords()
+          return
+        }
+        uni.showToast({ title: '商品已售出', icon: 'none' })
         return
       }
       const sellerParam = this.item.sellerId ? `&sellerId=${this.item.sellerId}` : ''
       uni.navigateTo({ url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?itemId=${this.item.id}${sellerParam}` })
+    },
+    openTradeRecords() {
+      uni.navigateTo({ url: '/subpackage_lostfound/marketTradeRecords/marketTradeRecords' })
     },
     openTradeChat() {
       if (!this.activeTrade || !this.item.id) return
@@ -333,6 +357,10 @@ export default {
       uni.navigateTo({ url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?itemId=${this.item.id}${targetParam}` })
     },
     handleSellerPrimaryAction() {
+      if (this.isItemCompleted) {
+        this.openTradeRecords()
+        return
+      }
       if (this.activeTrade) {
         this.openTradeChat()
         return
