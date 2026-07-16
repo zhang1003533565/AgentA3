@@ -60,10 +60,11 @@ export function getChatSessions(params = {}) {
   })
 }
 
-export function createOrGetChatSession(itemId) {
+export function createOrGetChatSession(itemId, targetUserId) {
   return request({
     url: `/api/chat/session/${itemId}`,
-    method: 'POST'
+    method: 'POST',
+    params: targetUserId ? { targetUserId } : {}
   })
 }
 
@@ -90,7 +91,94 @@ export function getChatUnreadCount() {
   })
 }
 
+export function getTradeNotifications(params = {}) {
+  return request({
+    url: '/api/chat/trade-notifications',
+    method: 'GET',
+    params
+  })
+}
+
+export function getTradeNotificationUnreadCount() {
+  return request({
+    url: '/api/chat/trade-notifications/unread/count',
+    method: 'GET'
+  })
+}
+
+export function markTradeNotificationRead(id) {
+  return request({
+    url: `/api/chat/trade-notifications/${id}/read`,
+    method: 'PUT'
+  })
+}
+
 export function uploadSecondhandImage(filePath) {
   const { uploadImage } = require('../utils/upload.js')
   return uploadImage(filePath)
+}
+
+export function getTradeRecords(params = {}) {
+  return request({
+    url: '/api/trade/record/list',
+    method: 'GET',
+    params
+  })
+}
+
+export function confirmTradeRecord(id) {
+  return request({
+    url: `/api/trade/record/${id}/confirm`,
+    method: 'POST'
+  })
+}
+
+export function completeTradeRecord(id) {
+  return request({
+    url: `/api/trade/record/${id}/complete`,
+    method: 'POST'
+  })
+}
+
+export function cancelTradeRecord(id) {
+  return request({
+    url: `/api/trade/record/${id}/cancel`,
+    method: 'POST'
+  })
+}
+
+export function reserveSecondhandItem(itemId) {
+  return request({
+    url: `/api/trade/record/reserve/${itemId}`,
+    method: 'POST'
+  })
+}
+
+export function getTradeRecord(id) {
+  return request({
+    url: `/api/trade/record/${id}`,
+    method: 'GET'
+  })
+}
+
+export function favoriteSecondhandItem(itemId) {
+  return request({
+    url: `/api/secondhand/favorite/${itemId}`,
+    method: 'POST'
+  })
+}
+
+export function unfavoriteSecondhandItem(itemId) {
+  return request({
+    url: `/api/secondhand/favorite/${itemId}`,
+    method: 'DELETE'
+  })
+}
+
+export function getMyFavorites(params = {}) {
+  return request({
+    url: '/api/secondhand/favorite/my',
+    method: 'GET',
+    params
+  })
 }

@@ -2,17 +2,36 @@
   <view class="page-root">
     <view class="screen">
       <view class="container">
-        <nav-bar title="我的消息" :fixed="true" :placeholder="true" />
+        <nav-bar title="市集消息" :fixed="true" :placeholder="true" />
         
         <scroll-view scroll-y class="page-body">
+          <view class="section-title">通知</view>
+          <view class="notify-card" @click="openSystemNotifications">
+            <view class="notify-icon system">系</view>
+            <view class="notify-body">
+              <view class="notify-name">系统通知</view>
+              <view class="notify-desc">查看校园公告和市集系统消息</view>
+            </view>
+          </view>
+          <view class="notify-card notify-card-spaced" @click="openTradeNotifications">
+            <view class="notify-icon">交</view>
+            <view class="notify-body">
+              <view class="notify-name">交易通知</view>
+              <view class="notify-desc">查看拍下、确认、完成和取消交易的系统消息</view>
+            </view>
+            <view v-if="tradeUnread" class="msbadge">{{ tradeUnread }}</view>
+          </view>
+
+          <view class="section-title chat-title">聊天</view>
           <view v-if="chats.length === 0" class="empty">
-            <view class="empty-i">💬</view>
+            <image class="empty-icon" src="/static/icons/message-empty.svg" mode="aspectFit" />
             <view class="empty-t">暂无消息</view>
           </view>
           <view v-for="c in chats" :key="c.id" class="mscard" @click="openChat(c.id)">
             <view class="msava">{{ c.otherName[0] }}</view>
             <view class="msbody">
               <view class="msname">{{ c.otherName }}</view>
+              <view class="msitem">{{ c.itemTitle }}<text v-if="c.statusText"> · {{ c.statusText }}</text></view>
               <view class="msprev">{{ c.lastMsg }}</view>
             </view>
             <view class="msmeta">
@@ -21,6 +40,7 @@
             </view>
           </view>
         </scroll-view>
+        <market-bottom-bar activeTab="messages" />
       </view>
     </view>
   </view>
@@ -28,34 +48,45 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getChatSessions } from '@/api/secondhand'
+import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
+import { getChatSessions, getTradeNotificationUnreadCount } from '@/api/secondhand'
 
 function normalizeSession(item) {
   return {
     id: item.sessionId,
+    itemTitle: item.itemTitle || '商品',
     otherName: item.otherUsername || item.sellerName || '用户',
     lastMsg: item.lastMessage || '暂无消息',
     lastTime: item.lastTime || '',
-    unread: item.unreadCount || 0
+    unread: item.unreadCount || 0,
+    statusText: item.tradeStatusText || item.itemStatusText || ''
   }
 }
 
 export default {
   components: {
-    NavBar
+    NavBar,
+    MarketBottomBar
   },
   data() {
     return {
-      chats: []
+      chats: [],
+      tradeUnread: 0
     }
   },
   async onLoad() {
-    await this.loadSessions()
+    await this.loadData()
   },
   async onShow() {
-    await this.loadSessions()
+    await this.loadData()
   },
   methods: {
+    async loadData() {
+      await Promise.all([
+        this.loadSessions(),
+        this.loadTradeUnread()
+      ])
+    },
     async loadSessions() {
       try {
         const res = await getChatSessions({ current: 1, size: 100 })
@@ -63,6 +94,15 @@ export default {
         this.chats = records.map(normalizeSession)
       } catch (e) {
         console.error('加载数据失败', e)
+      }
+    },
+    async loadTradeUnread() {
+      try {
+        const res = await getTradeNotificationUnreadCount()
+        this.tradeUnread = Number(res?.data || 0)
+      } catch (e) {
+        console.error('加载交易通知未读失败', e)
+        this.tradeUnread = 0
       }
     },
     fmt(ts) {
@@ -77,6 +117,16 @@ export default {
     openChat(id) {
       uni.navigateTo({
         url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?sessionId=${id}`
+      })
+    },
+    openSystemNotifications() {
+      uni.navigateTo({
+        url: '/subpackage_lostfound/marketNotifications/marketNotifications'
+      })
+    },
+    openTradeNotifications() {
+      uni.navigateTo({
+        url: '/subpackage_lostfound/marketTradeNotifications/marketTradeNotifications'
       })
     }
   }
@@ -116,7 +166,62 @@ export default {
 .page-body {
   flex: 1;
   overflow-y: auto;
-  padding: 20rpx 0;
+  padding: 20rpx 0 150rpx;
+}
+
+.section-title {
+  padding: 8rpx 8rpx 14rpx;
+  font-size: 24rpx;
+  font-weight: 800;
+  color: #5c7894;
+}
+
+.chat-title {
+  margin-top: 22rpx;
+}
+
+.notify-card {
+  display: flex;
+  align-items: center;
+  gap: 22rpx;
+  padding: 28rpx 24rpx;
+  background: #fff;
+  border-radius: 20rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.06);
+}
+
+.notify-icon {
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 22rpx;
+  background: #eaf4ef;
+  color: #2f8a58;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30rpx;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+.notify-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.notify-name {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #2c3e50;
+  margin-bottom: 8rpx;
+}
+
+.notify-desc {
+  font-size: 23rpx;
+  color: #8aa1b2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .empty {
@@ -124,9 +229,12 @@ export default {
   text-align: center;
 }
 
-.empty-i {
-  font-size: 80rpx;
-  margin-bottom: 24rpx;
+.empty-icon {
+  display: block;
+  width: 120rpx;
+  height: 120rpx;
+  margin: 0 auto 24rpx;
+  opacity: 0.45;
 }
 
 .empty-t {
@@ -168,7 +276,16 @@ export default {
   font-size: 28rpx;
   font-weight: 600;
   color: #2c3e50;
-  margin-bottom: 8rpx;
+  margin-bottom: 4rpx;
+}
+
+.msitem {
+  font-size: 22rpx;
+  color: #5c8ab8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 6rpx;
 }
 
 .msprev {
@@ -198,5 +315,14 @@ export default {
   color: #fff;
   font-size: 20rpx;
   font-weight: 600;
+}
+
+.notify-card-spaced {
+  margin-top: 16rpx;
+}
+
+.notify-icon.system {
+  background: #eef3fb;
+  color: #5c8ab8;
 }
 </style>

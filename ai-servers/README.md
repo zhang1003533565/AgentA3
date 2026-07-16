@@ -27,7 +27,20 @@ AI 相关框架统一放在 `app/` 下维护，避免运行代码、skill、cont
 ./start-ai-server.sh
 ```
 
-启动脚本现在只负责创建虚拟环境、安装依赖并启动 FastAPI 服务，不再自动启动 Docker、Milvus 或知识库构建流程。
+启动脚本使用 `uv sync` 同步依赖，并通过 `uv run` 启动 FastAPI 服务，不再自动启动 Docker、Milvus 或知识库构建流程。
+
+Windows PowerShell：
+
+```powershell
+.\start-ai-server.ps1
+```
+
+手动 uv 启动：
+
+```bash
+uv sync
+uv run python -m uvicorn app.main:app --host 127.0.0.1 --port 8081
+```
 
 ## Endpoints
 
@@ -72,14 +85,12 @@ cd ai-servers
 ./start-ai-server.sh
 ```
 
-手动启动仍然可用：
+手动 uv 启动仍然可用：
 
 ```bash
 cd ai-servers
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python -m uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
+uv sync
+uv run python -m uvicorn app.main:app --host 0.0.0.0 --port ${PYTHON_SERVER_PORT:-8081}
 ```
 
 ## Environment Variables

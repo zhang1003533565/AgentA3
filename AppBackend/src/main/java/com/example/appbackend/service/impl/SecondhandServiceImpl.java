@@ -112,6 +112,8 @@ public class SecondhandServiceImpl implements SecondhandService {
         SecondhandItem item = itemRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(404, "物品不存在"));
         itemRepository.incrementViewCount(id);
+        itemRepository.updateHeatScore(id);
+        item = itemRepository.findById(id).orElse(item);
         SecondhandDTO.ItemDetailVO vo = toItemDetailVO(item);
         if (currentUserId != null) {
             vo.setIsFavorited(favoriteRepository.existsByUserIdAndItemId(currentUserId, id));
@@ -133,6 +135,10 @@ public class SecondhandServiceImpl implements SecondhandService {
         item.setOriginalPrice(req.getOriginalPrice());
         item.setCondition(req.getCondition());
         item.setLocation(req.getLocation());
+        item.setCampusId(req.getCampusId());
+        item.setCampusName(req.getCampusName());
+        item.setTradeLocation(req.getTradeLocation());
+        item.setPickupPoint(req.getPickupPoint());
         item.setStatus(2);
         item = itemRepository.save(item);
         return toItemVO(item);
@@ -154,6 +160,10 @@ public class SecondhandServiceImpl implements SecondhandService {
         if (req.getOriginalPrice() != null) item.setOriginalPrice(req.getOriginalPrice());
         if (req.getCondition() != null) item.setCondition(req.getCondition());
         if (req.getLocation() != null) item.setLocation(req.getLocation());
+        if (req.getCampusId() != null) item.setCampusId(req.getCampusId());
+        if (req.getCampusName() != null) item.setCampusName(req.getCampusName());
+        if (req.getTradeLocation() != null) item.setTradeLocation(req.getTradeLocation());
+        if (req.getPickupPoint() != null) item.setPickupPoint(req.getPickupPoint());
         itemRepository.save(item);
     }
 
@@ -259,6 +269,7 @@ public class SecondhandServiceImpl implements SecondhandService {
         f.setItemId(itemId);
         favoriteRepository.save(f);
         itemRepository.updateFavoriteCount(itemId, 1);
+        itemRepository.updateHeatScore(itemId);
     }
 
     @Override
@@ -267,6 +278,7 @@ public class SecondhandServiceImpl implements SecondhandService {
                 .orElseThrow(() -> new BusinessException(404, "收藏记录不存在"));
         favoriteRepository.delete(f);
         itemRepository.updateFavoriteCount(itemId, -1);
+        itemRepository.updateHeatScore(itemId);
     }
 
     @Override
@@ -340,8 +352,14 @@ public class SecondhandServiceImpl implements SecondhandService {
         vo.setCondition(item.getCondition());
         vo.setConditionText(getConditionText(item.getCondition()));
         vo.setLocation(item.getLocation());
+        vo.setCampusId(item.getCampusId());
+        vo.setCampusName(item.getCampusName());
+        vo.setTradeLocation(item.getTradeLocation());
+        vo.setPickupPoint(item.getPickupPoint());
         vo.setViewCount(item.getViewCount());
         vo.setFavoriteCount(item.getFavoriteCount());
+        vo.setInquiryCount(item.getInquiryCount());
+        vo.setHeatScore(item.getHeatScore());
         vo.setStatus(item.getStatus());
         vo.setStatusText(getStatusText(item.getStatus()));
         vo.setCreateTime(item.getCreateTime() != null ? item.getCreateTime().format(FMT) : null);
@@ -383,8 +401,14 @@ public class SecondhandServiceImpl implements SecondhandService {
         vo.setCondition(item.getCondition());
         vo.setConditionText(getConditionText(item.getCondition()));
         vo.setLocation(item.getLocation());
+        vo.setCampusId(item.getCampusId());
+        vo.setCampusName(item.getCampusName());
+        vo.setTradeLocation(item.getTradeLocation());
+        vo.setPickupPoint(item.getPickupPoint());
         vo.setViewCount(item.getViewCount());
         vo.setFavoriteCount(item.getFavoriteCount());
+        vo.setInquiryCount(item.getInquiryCount());
+        vo.setHeatScore(item.getHeatScore());
         vo.setStatus(item.getStatus());
         vo.setStatusText(getStatusText(item.getStatus()));
         vo.setCreateTime(item.getCreateTime() != null ? item.getCreateTime().format(FMT) : null);
@@ -408,6 +432,7 @@ public class SecondhandServiceImpl implements SecondhandService {
             case 2: return "在售";
             case 3: return "已售出";
             case 4: return "已下架";
+            case 5: return "交易中";
             default: return "";
         }
     }
@@ -434,7 +459,7 @@ public class SecondhandServiceImpl implements SecondhandService {
         String sortField = "id";
         if ("price_asc".equals(sort)) { sortField = "price"; direction = Sort.Direction.ASC; }
         else if ("price_desc".equals(sort)) { sortField = "price"; direction = Sort.Direction.DESC; }
-        else if ("hot".equals(sort)) { sortField = "favoriteCount"; direction = Sort.Direction.DESC; }
+        else if ("hot".equals(sort)) { sortField = "heatScore"; direction = Sort.Direction.DESC; }
         else if ("latest".equals(sort) || sort == null) { sortField = "id"; direction = Sort.Direction.DESC; }
         return PageRequest.of(current - 1, size, Sort.by(direction, sortField));
     }

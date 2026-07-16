@@ -7,6 +7,7 @@ SERVER_PORT="8081"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+export UV_LINK_MODE="${UV_LINK_MODE:-copy}"
 
 log() {
   printf '[%s] %s\n' "$PROJECT_NAME" "$*"
@@ -50,33 +51,23 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-ensure_python() {
-  command -v python3 >/dev/null 2>&1 || fail "python3 is not available."
+ensure_uv() {
+  command -v uv >/dev/null 2>&1 || fail "uv is not available. Install uv first: https://docs.astral.sh/uv/getting-started/installation/"
 }
 
-ensure_venv() {
-  if [[ ! -d ".venv" ]]; then
-    log "Creating Python virtual environment..."
-    python3 -m venv .venv
-  fi
-  # shellcheck disable=SC1091
-  source .venv/bin/activate
-}
-
-install_requirements() {
-  log "Installing Python dependencies..."
-  python -m pip install -r requirements.txt
+sync_dependencies() {
+  log "Syncing Python dependencies with uv..."
+  uv sync
 }
 
 start_ai_server() {
   log "Starting AI Server at http://${SERVER_HOST}:${SERVER_PORT} ..."
-  exec python -m uvicorn app.main:app --host "$SERVER_HOST" --port "$SERVER_PORT"
+  exec uv run python -m uvicorn app.main:app --host "$SERVER_HOST" --port "$SERVER_PORT"
 }
 
 main() {
-  ensure_python
-  ensure_venv
-  install_requirements
+  ensure_uv
+  sync_dependencies
   start_ai_server
 }
 

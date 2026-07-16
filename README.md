@@ -1,3 +1,63 @@
+## Windows 手动启动命令
+
+前置要求：先启动 Docker Desktop，并确保已安装 JDK 21、Maven 3.9+、Node.js 20+、Python 3.11+、uv。
+
+### 终端 1：后端服务 + MySQL/Redis/Adminer
+
+```powershell
+cd E:\zzs\github\AgentA3\AppBackend
+
+$env:ADMINER_PORT = "7070"
+docker compose up -d
+
+docker compose exec -T mysql mysqladmin ping -uroot -p123456 --silent
+docker compose exec -T mysql mysql -uroot -p123456 -e "CREATE DATABASE IF NOT EXISTS `smart-campus` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+mvn spring-boot:run
+```
+
+后端地址：http://localhost:8080
+
+Swagger 地址：http://localhost:8080/swagger-ui.html
+
+### 终端 2：AI Python 服务
+
+```powershell
+cd E:\zzs\github\AgentA3\ai-servers
+
+uv sync
+uv run python -m uvicorn app.main:app --host 127.0.0.1 --port 8081
+```
+
+AI 服务地址：http://127.0.0.1:8081
+
+### 终端 3：Web 管理后台
+
+```powershell
+cd E:\zzs\github\AgentA3\AppWeb
+
+npm install
+npm run dev
+```
+
+Web 地址：http://localhost:5174
+
+### 脚本启动方式
+
+也可以直接使用脚本启动：
+
+```powershell
+cd E:\zzs\github\AgentA3\AppBackend
+.\start-smart-campus.ps1
+```
+
+```powershell
+cd E:\zzs\github\AgentA3\ai-servers
+.\start-ai-server.ps1
+```
+
+启动顺序建议：Docker Desktop -> 后端服务 -> AI Python 服务 -> Web 管理后台。
+
 # 智慧校园
 
 > 署名说明：

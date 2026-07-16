@@ -2,25 +2,55 @@
   <view class="page-root">
     <view class="screen">
       <view class="container">
-        <nav-bar :title="curChat ? curChat.otherName : '聊天'" :fixed="true" :placeholder="true" />
+        <nav-bar :title="chatTitle" :fixed="true" :placeholder="true" />
 
-        <scroll-view scroll-y class="chat-body" :scroll-into-view="scrollBottom" scroll-with-animation @scroll="onChatScroll">
+        <view v-if="curChat" class="product-card" @click="goProduct">
+          <image v-if="curChat.itemImage" class="product-img" :src="curChat.itemImage" mode="aspectFill" />
+          <view v-else class="product-img product-empty">{{ curChat.itemTitle ? curChat.itemTitle[0] : '物' }}</view>
+          <view class="product-info">
+            <view class="product-title">{{ curChat.itemTitle || '商品' }}</view>
+            <view class="product-meta">
+              <text class="product-price">¥{{ priceText(curChat.itemPrice) }}</text>
+              <text class="item-status">{{ itemStatusText }}</text>
+              <text v-if="tradeInfo" class="trade-status">{{ tradeStatusText }}</text>
+            </view>
+            <view v-if="tradeActionButtons.length" class="trade-actions" @click.stop>
+              <button
+                v-for="action in tradeActionButtons"
+                :key="action.type"
+                class="trade-btn"
+                :class="action.type"
+                :disabled="acting"
+                @click="runTradeAction(action.type)"
+              >
+                {{ action.label }}
+              </button>
+            </view>
+          </view>
+        </view>
+
+        <scroll-view scroll-y class="chat-body" :scroll-into-view="scrollBottom" scroll-with-animation>
           <view v-for="m in chatMessages" :key="m.id" :id="'msg-' + m.id">
-            <view class="msg" :class="m.type">
+            <view v-if="m.type === 'sys'" class="system-msg">
+              <text>{{ m.content }}</text>
+            </view>
+            <view v-else class="msg" :class="m.type">
               <view v-if="m.type === 's'" class="msg-content-s">
                 <view class="msg-bubble-group">
                   <view class="mbub mbub-s">
-                    <text>{{ m.content }}</text>
+                    <image v-if="m.messageType === 2" class="chat-img" :src="m.content" mode="widthFix" @click="previewImage(m.content)" />
+                    <text v-else>{{ m.content }}</text>
                   </view>
                   <view class="mtime mtime-s">{{ formatClock(m.time) }}</view>
                 </view>
                 <view class="mava mava-s">我</view>
               </view>
               <view v-else class="msg-content-r">
-                <view class="mava mava-r">{{ curChat ? curChat.otherName[0] : '' }}</view>
+                <view class="mava mava-r">{{ otherInitial }}</view>
                 <view class="msg-bubble-group">
                   <view class="mbub mbub-r">
-                    <text>{{ m.content }}</text>
+                    <image v-if="m.messageType === 2" class="chat-img" :src="m.content" mode="widthFix" @click="previewImage(m.content)" />
+                    <text v-else>{{ m.content }}</text>
                   </view>
                   <view class="mtime mtime-r">{{ formatClock(m.time) }}</view>
                 </view>
@@ -31,6 +61,9 @@
 
         <view class="chat-footer-new">
           <view class="chat-input-bar">
+            <view class="chat-image-btn" @click="sendImage">
+              <text>＋</text>
+            </view>
             <input v-model="messageInput" class="chat-input-new" placeholder="输入消息..." @confirm="sendMsg" />
             <view class="chat-send-btn" @click="sendMsg">
               <text>➤</text>
@@ -45,29 +78,60 @@
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import {
+  cancelTradeRecord,
+  completeTradeRecord,
+  confirmTradeRecord,
   createOrGetChatSession,
   getChatMessages,
   getChatSessions,
+  getTradeRecords,
   sendChatMessage
 } from '@/api/secondhand'
+import { getUploadErrorMessage, uploadImage } from '@/utils/upload'
 
 function normalizeSession(item) {
   return {
     id: item.sessionId,
     itemId: item.itemId,
+    itemTitle: item.itemTitle || '',
+    itemImage: item.itemImage || '',
+    itemPrice: item.itemPrice,
+    itemStatus: item.itemStatus,
+    itemStatusText: item.itemStatusText || '',
+    otherUserId: item.otherUserId,
     otherName: item.otherUsername || item.sellerName || '用户',
     lastMsg: item.lastMessage || '',
-    lastTime: item.lastTime || ''
+    lastTime: item.lastTime || '',
+    isSeller: item.isSeller,
+    tradeId: item.tradeId,
+    tradeStatus: item.tradeStatus,
+    tradeStatusText: item.tradeStatusText || ''
   }
 }
 
 function normalizeMessage(item) {
+  if (Number(item.messageType) === 0) {
+    return {
+      id: item.id,
+      type: 'sys',
+      content: item.content,
+      time: item.createTime || ''
+    }
+  }
   return {
     id: item.id,
     type: item.isMine ? 's' : 'r',
+    messageType: Number(item.messageType || 1),
     content: item.content,
     time: item.createTime || ''
   }
+}
+
+const TRADE_TEXT = {
+  WAIT_CONFIRM: '等待卖家确认',
+  TRADING: '交易中',
+  COMPLETED: '交易完成',
+  CANCELLED: '交易取消'
 }
 
 export default {
@@ -77,21 +141,56 @@ export default {
   data() {
     return {
       itemId: null,
+      targetUserId: null,
       sessionId: null,
       curChat: null,
+      tradeInfo: null,
       messages: [],
       messageInput: '',
       scrollBottom: '',
-      isNearBottom: false
+      acting: false,
+      uploadingImage: false
     }
   },
   computed: {
+    chatTitle() {
+      return this.curChat ? this.curChat.otherName : '聊天'
+    },
+    otherInitial() {
+      return this.curChat && this.curChat.otherName ? this.curChat.otherName[0] : ''
+    },
     chatMessages() {
       return this.messages
+    },
+    itemStatusText() {
+      if (this.curChat?.itemStatusText) return this.curChat.itemStatusText
+      const status = Number(this.curChat?.itemStatus)
+      if (status === 2) return '在售'
+      if (status === 5) return '交易中'
+      if (status === 3) return '已售出'
+      if (status === 4) return '已下架'
+      return ''
+    },
+    tradeStatusText() {
+      return this.tradeInfo ? (TRADE_TEXT[this.tradeInfo.status] || this.tradeInfo.statusText || '') : ''
+    },
+    tradeActionButtons() {
+      if (!this.tradeInfo) return []
+      if (this.tradeInfo.status === 'WAIT_CONFIRM') {
+        return this.tradeInfo.isSeller ? [{ type: 'confirm', label: '确认交易' }] : []
+      }
+      if (this.tradeInfo.status === 'TRADING') {
+        return [
+          { type: 'complete', label: '完成交易' },
+          { type: 'cancel', label: '取消交易' }
+        ]
+      }
+      return []
     }
   },
   async onLoad(options) {
     this.itemId = options.itemId
+    this.targetUserId = options.targetUserId || options.buyerId || options.sellerId || null
     this.sessionId = options.sessionId
     await this.initChat()
   },
@@ -99,61 +198,78 @@ export default {
     async initChat() {
       try {
         if (!this.sessionId && this.itemId) {
-          const sessionRes = await createOrGetChatSession(this.itemId)
+          const sessionRes = await createOrGetChatSession(this.itemId, this.targetUserId)
           this.sessionId = sessionRes?.data?.sessionId
         }
         if (!this.sessionId) {
           uni.showToast({ title: '会话不存在', icon: 'none' })
           return
         }
-        const sessionListRes = await getChatSessions({ current: 1, size: 100 })
-        const sessions = Array.isArray(sessionListRes?.data?.records) ? sessionListRes.data.records : []
-        const matched = sessions.find((item) => Number(item.sessionId) === Number(this.sessionId))
-        this.curChat = matched ? normalizeSession(matched) : { id: this.sessionId, otherName: '聊天' }
+        await this.loadSession()
+        await this.loadTradeInfo()
         await this.loadMessages()
       } catch (e) {
         console.error('初始化聊天失败', e)
+        uni.showToast({ title: '聊天初始化失败', icon: 'none' })
       }
     },
-    onChatScroll(e) {
-      const { scrollTop, scrollHeight, clientHeight } = e.detail
-      const distanceToBottom = scrollHeight - scrollTop - clientHeight
-      this.isNearBottom = distanceToBottom <= 160
+    async loadSession() {
+      const sessionListRes = await getChatSessions({ current: 1, size: 100 })
+      const sessions = Array.isArray(sessionListRes?.data?.records) ? sessionListRes.data.records : []
+      const matched = sessions.find((item) => Number(item.sessionId) === Number(this.sessionId))
+      this.curChat = matched ? normalizeSession(matched) : { id: this.sessionId, otherName: '聊天' }
     },
-    updateCardPosition() {
-      this.$nextTick(() => {
-        uni.createSelectorQuery()
-          .in(this)
-          .select('.chat-body')
-          .boundingClientRect()
-          .select('.chat-body >>> .uni-scroll-view-content')
-          .boundingClientRect()
-          .exec((res) => {
-            if (!res || res.length < 2 || !res[0] || !res[1]) return
-            const bodyRect = res[0]
-            const contentRect = res[1]
-            if (contentRect.height <= bodyRect.height) {
-              this.isNearBottom = false
-            } else {
-              this.isNearBottom = true
+    async loadTradeInfo() {
+      if (!this.curChat || !this.curChat.itemId) {
+        this.tradeInfo = null
+        return
+      }
+      try {
+        const res = await getTradeRecords({ current: 1, size: 100 })
+        const records = Array.isArray(res?.data?.records) ? res.data.records : []
+        const matched = records.find((record) => {
+          if (Number(record.itemId) !== Number(this.curChat.itemId)) return false
+          if (!this.curChat.otherUserId) return true
+          return Number(record.buyerId) === Number(this.curChat.otherUserId) ||
+            Number(record.sellerId) === Number(this.curChat.otherUserId)
+        })
+        this.tradeInfo = matched
+          ? {
+              id: matched.id,
+              status: matched.status,
+              statusText: matched.statusText,
+              isSeller: matched.isSeller
             }
-          })
-      })
+          : null
+      } catch (e) {
+        console.warn('加载交易信息失败', e)
+        this.tradeInfo = null
+      }
     },
     async loadMessages() {
       try {
         const res = await getChatMessages(this.sessionId, { current: 1, size: 100 })
         const records = Array.isArray(res?.data?.records) ? res.data.records : []
-        this.messages = records.map(normalizeMessage)
+        const sorted = [...records].sort((a, b) => {
+          const ta = a.createTime || ''
+          const tb = b.createTime || ''
+          if (ta < tb) return -1
+          if (ta > tb) return 1
+          return (a.id || 0) - (b.id || 0)
+        })
+        this.messages = sorted.map(normalizeMessage)
         this.$nextTick(() => {
           if (this.messages.length) {
             this.scrollBottom = `msg-${this.messages[this.messages.length - 1].id}`
           }
-          this.updateCardPosition()
         })
       } catch (error) {
         console.error('加载消息失败', error)
       }
+    },
+    priceText(value) {
+      const price = Number(value)
+      return Number.isFinite(price) ? price.toFixed(price % 1 === 0 ? 0 : 2) : '--'
     },
     formatClock(value) {
       if (!value) return ''
@@ -175,41 +291,222 @@ export default {
         console.error('发送消息失败', error)
       }
     },
-    reqExchange() {
-      uni.showToast({ title: '该功能暂未接入后端', icon: 'none' })
+    async sendImage() {
+      if (!this.sessionId || this.uploadingImage) return
+      try {
+        const chooseRes = await new Promise((resolve, reject) => {
+          uni.chooseImage({
+            count: 1,
+            sizeType: ['compressed'],
+            sourceType: ['album', 'camera'],
+            success: resolve,
+            fail: reject
+          })
+        })
+        const filePath = chooseRes.tempFilePaths && chooseRes.tempFilePaths[0]
+        if (!filePath) return
+        this.uploadingImage = true
+        uni.showLoading({ title: '图片发送中...' })
+        const url = await uploadImage(filePath)
+        if (!url) throw new Error('图片上传失败')
+        await sendChatMessage({
+          sessionId: Number(this.sessionId),
+          content: url,
+          messageType: 2
+        })
+        await this.loadMessages()
+      } catch (error) {
+        if (error?.errMsg && String(error.errMsg).includes('cancel')) return
+        console.error('发送图片失败', error)
+        uni.showToast({ title: getUploadErrorMessage(error), icon: 'none' })
+      } finally {
+        this.uploadingImage = false
+        uni.hideLoading()
+      }
+    },
+    previewImage(url) {
+      if (!url) return
+      uni.previewImage({
+        urls: [url],
+        current: url
+      })
+    },
+    async runTradeAction(type) {
+      if (!this.tradeInfo || !this.tradeInfo.id || this.acting) return
+      const actions = {
+        confirm: confirmTradeRecord,
+        complete: completeTradeRecord,
+        cancel: cancelTradeRecord
+      }
+      const action = actions[type]
+      if (!action) return
+      try {
+        this.acting = true
+        await action(this.tradeInfo.id)
+        uni.showToast({ title: '状态已更新', icon: 'success' })
+        await this.loadSession()
+        await this.loadTradeInfo()
+        await this.loadMessages()
+      } catch (e) {
+        console.error('交易操作失败', e)
+        uni.showToast({ title: '操作失败', icon: 'none' })
+      } finally {
+        this.acting = false
+      }
+    },
+    goProduct() {
+      if (!this.curChat || !this.curChat.itemId) return
+      uni.navigateTo({
+        url: `/subpackage_lostfound/lostfoundDetail/lostfoundDetail?id=${this.curChat.itemId}`
+      })
     }
   }
 }
 </script>
 
 <style scoped>
-.page-root {
-  width: 100%;
-  min-height: 100vh;
-  background: #F0F5FA;
-}
-
+.page-root,
 .screen {
   width: 100%;
-  background: #F0F5FA;
   min-height: 100vh;
+  background: #f0f5fa;
 }
 
 .container {
   width: 100%;
   max-width: 430px;
-  margin: 0 auto;
-  box-sizing: border-box;
-  padding: 0 16rpx;
-  background: #E8F0F8;
   min-height: 100vh;
+  margin: 0 auto;
+  padding: 0 16rpx;
+  box-sizing: border-box;
+  background: #e8f0f8;
   position: relative;
 }
 
+.product-card {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  margin: 16rpx 0 0;
+  padding: 18rpx;
+  border-radius: 18rpx;
+  background: #fff;
+  box-shadow: 0 4rpx 16rpx rgba(43, 68, 94, 0.08);
+}
+
+.product-img {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 14rpx;
+  background: #edf4fb;
+  flex-shrink: 0;
+}
+
+.product-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #5c8ab8;
+  font-size: 34rpx;
+  font-weight: 800;
+}
+
+.product-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.product-title {
+  color: #172331;
+  font-size: 27rpx;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  margin-top: 10rpx;
+}
+
+.product-price {
+  color: #f26a42;
+  font-size: 25rpx;
+  font-weight: 900;
+}
+
+.item-status,
+.trade-status {
+  padding: 4rpx 12rpx;
+  border-radius: 999rpx;
+  background: #edf4fb;
+  color: #5c7894;
+  font-size: 20rpx;
+  font-weight: 700;
+}
+
+.trade-status {
+  background: rgba(242, 144, 64, 0.14);
+  color: #c46b17;
+}
+
+.trade-actions {
+  display: flex;
+  gap: 12rpx;
+  margin-top: 12rpx;
+}
+
+.trade-btn {
+  height: 48rpx;
+  margin: 0;
+  padding: 0 18rpx;
+  border-radius: 999rpx;
+  background: #f1f6fa;
+  color: #5c7894;
+  font-size: 21rpx;
+  font-weight: 800;
+  line-height: 48rpx;
+}
+
+.trade-btn.confirm,
+.trade-btn.complete {
+  background: #e9f3ed;
+  color: #2f8a58;
+}
+
+.trade-btn.cancel {
+  background: #f6eeee;
+  color: #b45a5a;
+}
+
+.trade-btn::after {
+  border: none;
+}
+
 .chat-body {
-  height: calc(100vh - 240rpx);
-  padding: 32rpx 0 0rpx;
+  height: calc(100vh - 350rpx);
+  padding: 28rpx 0 0;
   box-sizing: border-box;
+}
+
+.system-msg {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 28rpx;
+}
+
+.system-msg text {
+  max-width: 560rpx;
+  padding: 10rpx 20rpx;
+  border-radius: 999rpx;
+  background: rgba(84, 99, 116, 0.1);
+  color: #7d8c9c;
+  font-size: 22rpx;
+  line-height: 1.45;
 }
 
 .msg {
@@ -259,14 +556,6 @@ export default {
   flex-shrink: 0;
 }
 
-.mava-r {
-  background: #7ba8d4;
-}
-
-.mava-s {
-  background: #7ba8d4;
-}
-
 .mbub {
   padding: 20rpx 28rpx;
   border-radius: 24rpx;
@@ -274,6 +563,13 @@ export default {
   max-width: 100%;
   word-break: break-all;
   line-height: 1.5;
+}
+
+.chat-img {
+  width: 280rpx;
+  max-height: 360rpx;
+  border-radius: 18rpx;
+  display: block;
 }
 
 .mbub-s {
@@ -293,111 +589,6 @@ export default {
   padding: 0 4rpx;
 }
 
-.msys {
-  text-align: center;
-  font-size: 24rpx;
-  color: rgba(0, 0, 0, 0.4);
-  margin: 32rpx 0;
-}
-
-.excard-new {
-  margin: 32rpx 0;
-  padding: 40rpx;
-  background: rgba(123, 168, 212, 0.1);
-  border-radius: 24rpx;
-  text-align: center;
-}
-
-.excard-new-title {
-  font-size: 30rpx;
-  font-weight: 700;
-  color: rgba(0, 0, 0, 0.85);
-  margin-bottom: 12rpx;
-}
-
-.excard-new-desc {
-  font-size: 24rpx;
-  color: rgba(0, 0, 0, 0.5);
-  margin-bottom: 24rpx;
-}
-
-.excard-new-btn {
-  padding: 20rpx 48rpx;
-  border-radius: 999rpx;
-  background: #7ba8d4;
-  color: #fff;
-  font-size: 28rpx;
-  font-weight: 700;
-  border: none;
-}
-
-.revealed-new {
-  padding: 40rpx 32rpx;
-  background: #fff;
-  border-radius: 24rpx;
-  text-align: center;
-  width: calc(100% - 96rpx);
-  max-width: 500rpx;
-  box-sizing: border-box;
-  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.06);
-}
-
-.revealed-flow {
-  position: relative;
-  margin: 20rpx auto 0;
-}
-
-.revealed-fixed {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 24rpx;
-  z-index: 9;
-  box-shadow: 0 6rpx 20rpx rgba(0, 0, 0, 0.08);
-}
-
-.rev-row-new {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 28rpx;
-  margin-bottom: 28rpx;
-}
-
-.rev-ava-new {
-  width: 80rpx;
-  height: 80rpx;
-  border-radius: 50%;
-  background: #7ba8d4;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 30rpx;
-  font-weight: 700;
-}
-
-.rev-ava-new.them {
-  background: rgba(0, 0, 0, 0.5);
-}
-
-.rev-icon-new {
-  font-size: 36rpx;
-  color: #7ba8d4;
-}
-
-.rev-phone-new {
-  font-size: 36rpx;
-  font-weight: 800;
-  color: #5c8ab8;
-  margin-bottom: 8rpx;
-}
-
-.rev-label-new {
-  font-size: 24rpx;
-  color: rgba(0, 0, 0, 0.5);
-}
-
 .chat-footer-new {
   position: fixed;
   bottom: 0;
@@ -409,31 +600,6 @@ export default {
   z-index: 10;
 }
 
-.chat-ex-btn-new {
-  position: absolute;
-  top: -68rpx;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 12rpx 32rpx;
-  border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.95);
-  font-size: 24rpx;
-  font-weight: 700;
-  color: #7ba8d4;
-  border: 2rpx solid rgba(123, 168, 212, 0.3);
-  text-align: center;
-  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.08);
-  backdrop-filter: blur(10rpx);
-  z-index: 10;
-  white-space: nowrap;
-}
-
-.chat-ex-btn-new.exchanged {
-  color: rgba(123, 168, 212, 0.5);
-  border-color: rgba(123, 168, 212, 0.15);
-  background: rgba(255, 255, 255, 0.6);
-}
-
 .chat-input-bar {
   display: flex;
   align-items: center;
@@ -443,9 +609,18 @@ export default {
   padding: 8rpx 8rpx 8rpx 24rpx;
 }
 
-.chat-input-icon {
-  font-size: 32rpx;
-  opacity: 0.5;
+.chat-image-btn {
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: 50%;
+  background: #edf4fb;
+  color: #5c7894;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 34rpx;
+  font-weight: 700;
+  flex-shrink: 0;
 }
 
 .chat-input-new {

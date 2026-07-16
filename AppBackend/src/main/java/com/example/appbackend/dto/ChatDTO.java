@@ -16,6 +16,8 @@ public class ChatDTO {
         private String itemTitle;
         private String itemImage;
         private BigDecimal itemPrice;
+        private Integer itemStatus;
+        private String itemStatusText;
         private Long sellerId;
         private String sellerName;
         private Long otherUserId;
@@ -25,6 +27,9 @@ public class ChatDTO {
         private String lastTime;
         private Integer unreadCount;
         private Boolean isSeller;
+        private Long tradeId;
+        private String tradeStatus;
+        private String tradeStatusText;
     }
 
     @Data
@@ -56,5 +61,55 @@ public class ChatDTO {
 
         @Schema(description = "消息类型：1-文本 2-图片 3-位置，默认1")
         private Integer messageType = 1;
+    }
+
+    @Data
+    @Schema(description = "创建交易记录请求")
+    public static class CreateTradeRecordRequest {
+        @NotNull(message = "商品ID不能为空")
+        @Schema(description = "商品ID", example = "10")
+        private Long itemId;
+
+        @NotNull(message = "买家ID不能为空")
+        @Schema(description = "买家ID", example = "3")
+        private Long buyerId;
+
+        @Schema(description = "卖家ID，不传时使用商品发布者", example = "5")
+        private Long sellerId;
+    }
+
+    @Data
+    @Schema(description = "交易记录响应")
+    public static class TradeRecordVO {
+        private Long id;
+        private Long itemId;
+        private Long buyerId;
+        private Long sellerId;
+        private String status;
+        private String statusText;
+        private String createTime;
+        private String updateTime;
+        private String itemTitle;
+        private BigDecimal itemPrice;
+        private Long otherUserId;
+        private String otherUsername;
+        private String otherAvatar;
+        private Boolean isSeller;
+    }
+
+    @Data
+    @Schema(description = "交易通知响应")
+    public static class TradeNotificationVO {
+        private Long id;
+        private Long sessionId;
+        private Long itemId;
+        private String itemTitle;
+        private String itemImage;
+        private Long tradeId;
+        private String tradeStatus;
+        private String tradeStatusText;
+        private String content;
+        private String createTime;
+        private Boolean isRead;
     }
 }
