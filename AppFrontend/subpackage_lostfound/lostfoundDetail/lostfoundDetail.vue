@@ -110,7 +110,7 @@
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getSecondhandItemDetail, getTradeRecords, offlineSecondhandItem } from '@/api/secondhand'
-import { getUserInfo } from '@/utils/storage'
+import { getToken, getUserInfo } from '@/utils/storage'
 import { getMarketCategoryLabel, getMarketSubcategoryLabel } from '../utils/marketCategories'
 
 const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
@@ -124,8 +124,64 @@ const CONDITION_LABELS = {
   5: '功能正常'
 }
 
+function firstValue(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== '')
+}
+
+function normalizeId(value) {
+  if (value === undefined || value === null || value === '') return ''
+  if (typeof value !== 'object') return String(value)
+  return normalizeId(firstValue(
+    value.id,
+    value.userId,
+    value.uid,
+    value.ownerId,
+    value.sellerId,
+    value.publisherId
+  ))
+}
+
+function parseStoredUserInfo() {
+  const userInfo = getUserInfo()
+  if (userInfo) return userInfo
+  try {
+    const raw = uni.getStorageSync('userInfo')
+    if (!raw) return {}
+    return typeof raw === 'string' ? JSON.parse(raw) : raw
+  } catch {
+    return {}
+  }
+}
+
+function decodeTokenPayload(token) {
+  if (!token || typeof atob !== 'function') return {}
+  try {
+    const payload = token.split('.')[1]
+    if (!payload) return {}
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const decoded = atob(base64)
+    try {
+      const json = decodeURIComponent(decoded.split('').map((char) => {
+        return `%${(`00${char.charCodeAt(0).toString(16)}`).slice(-2)}`
+      }).join(''))
+      return JSON.parse(json)
+    } catch {
+      return JSON.parse(decoded)
+    }
+  } catch {
+    return {}
+  }
+}
+
+function getCurrentUserId() {
+  const userInfo = parseStoredUserInfo()
+  const nestedUser = userInfo.user || userInfo.profile || userInfo.data || {}
+  const tokenPayload = decodeTokenPayload(getToken())
+  return normalizeId(userInfo) || normalizeId(nestedUser) || normalizeId(tokenPayload)
+}
+
 function normalizeItem(raw = {}) {
-  const seller = raw.seller || {}
+  const seller = raw.seller || raw.user || raw.owner || raw.publisher || {}
   return {
     id: raw.id,
     title: raw.title || raw.name || '',
@@ -144,7 +200,7 @@ function normalizeItem(raw = {}) {
     heatScore: Number(raw.heatScore || 0),
     inquiryCount: Number(raw.inquiryCount || 0),
     viewCount: Number(raw.viewCount || 0),
-    sellerId: raw.sellerId || seller.id || raw.userId || raw.publisherId || '',
+    sellerId: normalizeId(raw.sellerId) || normalizeId(seller) || normalizeId(raw.userId) || normalizeId(raw.ownerId) || normalizeId(raw.publisherId),
     sellerName: seller.username || raw.sellerName || raw.userName || '',
     isFavorited: Boolean(raw.isFavorited),
     createTime: raw.createTime || raw.ctime || ''
@@ -197,12 +253,10 @@ export default {
       return this.item.pickupPoint || this.item.location || '待卖家确认'
     },
     isSeller() {
-      const userInfo = getUserInfo()
-      return Boolean(userInfo && this.item.sellerId && String(userInfo.id) === String(this.item.sellerId))
+      return Boolean(this.currentUserId && this.item.sellerId && String(this.currentUserId) === String(this.item.sellerId))
     },
     currentUserId() {
-      const userInfo = getUserInfo()
-      return userInfo?.id || ''
+      return getCurrentUserId()
     },
     isCurrentTradeBuyer() {
       return Boolean(
@@ -269,6 +323,11 @@ export default {
       try {
         const res = await getSecondhandItemDetail(this.itemId)
         this.item = normalizeItem(res?.data || {})
+        console.log('[DETAIL AUTH]', {
+          currentUserId: this.currentUserId,
+          sellerId: this.item.sellerId,
+          item: this.item
+        })
         this.saveBrowseHistory()
         await this.loadActiveTrade()
       } catch (e) {
@@ -281,8 +340,7 @@ export default {
       this.activeTrade = null
       this.completedTrade = null
       if (!this.item.id) return
-      const userInfo = getUserInfo()
-      if (!userInfo) return
+      if (!this.currentUserId) return
       try {
         const res = await getTradeRecords({ current: 1, size: 100 })
         const records = Array.isArray(res?.data?.records) ? res.data.records : (Array.isArray(res?.data) ? res.data : [])
@@ -331,8 +389,7 @@ export default {
     },
     async contactSeller() {
       if (!this.item.id) return
-      const userInfo = getUserInfo()
-      if (userInfo && this.isSeller) {
+      if (this.isSeller) {
         uni.showToast({ title: '这是您发布的商品', icon: 'none' })
         return
       }
