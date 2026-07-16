@@ -39,7 +39,7 @@ spring:
       timeout: ${REDIS_COMMAND_TIMEOUT:2s}
 
 jwt:
-  secret: ${JWT_SECRET}
+  secret: ${JWT_SECRET:dev-local-jwt-secret-change-before-production-2026}
   expiration: ${JWT_EXPIRATION_MS:86400000}
 
 tencent:
