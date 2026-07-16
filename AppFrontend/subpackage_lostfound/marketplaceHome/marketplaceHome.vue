@@ -10,18 +10,18 @@
             </template>
           </common-page-header>
 
-          <scroll-view scroll-y class="page-body" :show-scrollbar="false">
-            <!-- ===== 2. Search (sticky below nav) ===== -->
-            <view class="search-block search-block--sticky">
-              <view class="search-pill" @click="goToSearch">
-                <image class="search-pill-icon" src="/static/icons/search.svg" mode="aspectFit" />
-                <input class="search-pill-input" value="搜索" disabled />
-              </view>
-              <view class="search-scan-btn" @click="onScan">
-                <image class="search-scan-icon" src="/static/icons/camera.svg" mode="aspectFit" />
-              </view>
+          <!-- ===== 2. Search (fixed outside scroll content) ===== -->
+          <view class="search-block search-block--sticky">
+            <view class="search-pill" @click="goToSearch">
+              <image class="search-pill-icon" src="/static/icons/search.svg" mode="aspectFit" />
+              <input class="search-pill-input" value="搜索" disabled />
             </view>
+            <view class="search-scan-btn" @click="onScan">
+              <image class="search-scan-icon" src="/static/icons/camera.svg" mode="aspectFit" />
+            </view>
+          </view>
 
+          <scroll-view scroll-y class="page-body" :show-scrollbar="false">
             <!-- ===== 3. Banner ===== -->
             <view class="banner-block">
               <view
@@ -498,20 +498,36 @@ export default {
 /* ===== Page ===== */
 .page-root {
   width: 100%;
+  height: 100vh;
   min-height: 100vh;
   background: #F5F5F5;
-  padding-bottom: 130rpx;
+  overflow: hidden;
 }
 
 .page-content {
-  /* 入场动画已移除 */
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.screen { width: 100%; }
-.container { width: 100%; }
+.screen {
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.container {
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
 
 .page-body {
-  height: calc(100vh - 88rpx);
+  flex: 1;
+  min-height: 0;
+  height: 0;
+  overflow: hidden;
 }
 
 /* ===== Section shared ===== */
@@ -591,10 +607,10 @@ export default {
 }
 
 .search-block--sticky {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 10;
   background: #FFFFFF;
+  flex-shrink: 0;
 }
 
 .search-pill {
