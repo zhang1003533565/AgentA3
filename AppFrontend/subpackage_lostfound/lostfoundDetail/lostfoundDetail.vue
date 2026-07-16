@@ -84,9 +84,21 @@
         </scroll-view>
 
         <view class="bottom-bar">
-          <button class="contact-button" @click="contactSeller">
+          <view v-if="isSeller" class="seller-actions">
+            <button class="manage-button" @click="handleSellerPrimaryAction">{{ sellerPrimaryButtonText }}</button>
+            <button class="offline-button" :disabled="sellerSecondaryDisabled" @click="handleSellerSecondaryAction">{{ sellerSecondaryButtonText }}</button>
+          </view>
+          <view v-else-if="isOtherUserTradeLocked" class="trade-locked-button">商品交易中</view>
+          <view v-else-if="isCurrentTradeBuyer" class="buyer-trade-actions">
+            <view class="trade-status-button">交易进行中</view>
+            <button class="contact-button contact-button--compact" @click="contactSeller">
+              <view class="chat-outline"></view>
+              <text>联系卖家</text>
+            </button>
+          </view>
+          <button v-else class="contact-button" @click="contactSeller">
             <view class="chat-outline"></view>
-            <text>联系卖家</text>
+            <text>{{ contactButtonText }}</text>
           </button>
         </view>
       </view>
@@ -96,7 +108,7 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getSecondhandItemDetail } from '@/api/secondhand'
+import { getSecondhandItemDetail, getTradeRecords, offlineSecondhandItem } from '@/api/secondhand'
 import { getUserInfo } from '@/utils/storage'
 import { getMarketCategoryLabel, getMarketSubcategoryLabel } from '../utils/marketCategories'
 
@@ -146,6 +158,7 @@ export default {
     return {
       itemId: null,
       item: normalizeItem(),
+      activeTrade: null,
       pageBodyHeight: 0,
       imageIndex: 0
     }
@@ -156,13 +169,13 @@ export default {
       return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 2) : '--'
     },
     statusText() {
-      if (this.item.status === 5) return '沟通中'
-      if (this.item.status === 3) return '已完成'
+      if (this.activeTrade && this.item.status === 2) return '交易中'
+      if (this.item.status === 3) return '已售'
       if (this.item.status === 4) return '已下架'
-      return '出售中'
+      return '在售'
     },
     statusClass() {
-      if (this.item.status === 5) return 'is-pending'
+      if (this.activeTrade && this.item.status === 2) return 'is-trading'
       if (this.item.status === 3) return 'is-sold'
       if (this.item.status === 4) return 'is-offline'
       return 'is-online'
@@ -180,6 +193,39 @@ export default {
     },
     pickupText() {
       return this.item.pickupPoint || this.item.location || '待卖家确认'
+    },
+    isSeller() {
+      const userInfo = getUserInfo()
+      return Boolean(userInfo && this.item.sellerId && String(userInfo.id) === String(this.item.sellerId))
+    },
+    currentUserId() {
+      const userInfo = getUserInfo()
+      return userInfo?.id || ''
+    },
+    isCurrentTradeBuyer() {
+      return Boolean(
+        this.activeTrade &&
+        this.currentUserId &&
+        String(this.activeTrade.buyerId) === String(this.currentUserId)
+      )
+    },
+    isOtherUserTradeLocked() {
+      return Boolean(this.activeTrade && !this.isSeller && !this.isCurrentTradeBuyer)
+    },
+    canOfflineItem() {
+      return Number(this.item.status) === 2
+    },
+    sellerPrimaryButtonText() {
+      return this.activeTrade ? '查看交易' : '管理商品'
+    },
+    sellerSecondaryButtonText() {
+      return this.activeTrade ? '管理商品' : '下架商品'
+    },
+    sellerSecondaryDisabled() {
+      return !this.activeTrade && !this.canOfflineItem
+    },
+    contactButtonText() {
+      return '联系卖家'
     }
   },
   async onLoad(options) {
@@ -212,10 +258,27 @@ export default {
         const res = await getSecondhandItemDetail(this.itemId)
         this.item = normalizeItem(res?.data || {})
         this.saveBrowseHistory()
+        await this.loadActiveTrade()
       } catch (e) {
         console.error('加载商品详情失败', e)
         uni.showToast({ title: '商品不存在', icon: 'none' })
         setTimeout(() => uni.navigateBack(), 1200)
+      }
+    },
+    async loadActiveTrade() {
+      this.activeTrade = null
+      if (!this.item.id) return
+      const userInfo = getUserInfo()
+      if (!userInfo) return
+      try {
+        const res = await getTradeRecords({ current: 1, size: 100 })
+        const records = Array.isArray(res?.data?.records) ? res.data.records : (Array.isArray(res?.data) ? res.data : [])
+        this.activeTrade = records.find((record) => {
+          return Number(record.itemId) === Number(this.item.id) &&
+            ['WAIT_CONFIRM', 'TRADING'].includes(record.status)
+        }) || null
+      } catch (e) {
+        console.warn('查询交易记录失败', e)
       }
     },
     saveBrowseHistory() {
@@ -252,12 +315,54 @@ export default {
     async contactSeller() {
       if (!this.item.id) return
       const userInfo = getUserInfo()
-      if (userInfo && Number(userInfo.id) === Number(this.item.sellerId)) {
+      if (userInfo && this.isSeller) {
         uni.showToast({ title: '这是您发布的商品', icon: 'none' })
+        return
+      }
+      if (this.isOtherUserTradeLocked) {
+        uni.showToast({ title: '商品交易中', icon: 'none' })
         return
       }
       const sellerParam = this.item.sellerId ? `&sellerId=${this.item.sellerId}` : ''
       uni.navigateTo({ url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?itemId=${this.item.id}${sellerParam}` })
+    },
+    openTradeChat() {
+      if (!this.activeTrade || !this.item.id) return
+      const targetUserId = this.isSeller ? this.activeTrade.buyerId : this.item.sellerId
+      const targetParam = targetUserId ? `&targetUserId=${targetUserId}` : ''
+      uni.navigateTo({ url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?itemId=${this.item.id}${targetParam}` })
+    },
+    handleSellerPrimaryAction() {
+      if (this.activeTrade) {
+        this.openTradeChat()
+        return
+      }
+      this.manageItem()
+    },
+    handleSellerSecondaryAction() {
+      if (this.activeTrade) {
+        this.manageItem()
+        return
+      }
+      this.offlineItem()
+    },
+    manageItem() {
+      uni.showToast({ title: '商品管理功能开发中', icon: 'none' })
+    },
+    async offlineItem() {
+      if (!this.isSeller || !this.item.id) return
+      if (!this.canOfflineItem) {
+        uni.showToast({ title: '当前商品不可下架', icon: 'none' })
+        return
+      }
+      try {
+        await offlineSecondhandItem(this.item.id)
+        uni.showToast({ title: '已下架', icon: 'none' })
+        await this.loadItem()
+      } catch (e) {
+        console.error('下架商品失败', e)
+        uni.showToast({ title: e?.data?.msg || e?.msg || '下架失败', icon: 'none' })
+      }
     },
     formatTime(value) {
       if (!value) return ''
@@ -389,6 +494,11 @@ export default {
 .is-online {
   background: #dff1e8;
   color: #2f8a58;
+}
+
+.is-trading {
+  background: #edf4fb;
+  color: #5f7890;
 }
 
 .is-pending {
@@ -633,6 +743,52 @@ export default {
   border-top: 1rpx solid rgba(132, 151, 168, 0.14);
   z-index: 20;
 }
+
+.seller-actions {
+  display: flex;
+  gap: 18rpx;
+}
+
+.buyer-trade-actions {
+  display: flex;
+  gap: 18rpx;
+}
+
+.manage-button,
+.offline-button {
+  flex: 1;
+  height: 96rpx;
+  border-radius: 32rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30rpx;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.manage-button {
+  background: #f2f6fa;
+  color: #526579;
+}
+
+.offline-button {
+  background: #8ea6ba;
+  color: #fff;
+  box-shadow: 0 10rpx 22rpx rgba(85, 112, 136, 0.18);
+}
+
+.offline-button[disabled] {
+  background: #edf1f5;
+  color: #9aa8b5;
+  box-shadow: none;
+}
+
+.manage-button::after,
+.offline-button::after {
+  border: none;
+}
+
 .contact-button {
   width: 100%;
   height: 96rpx;
@@ -649,8 +805,39 @@ export default {
   box-shadow: 0 10rpx 22rpx rgba(85, 112, 136, 0.22);
 }
 
+.contact-button--compact {
+  flex: 1;
+  width: auto;
+}
+
 .contact-button::after {
   border: none;
+}
+
+.trade-status-button,
+.trade-locked-button {
+  height: 96rpx;
+  border-radius: 32rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30rpx;
+  font-weight: 900;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
+.trade-status-button {
+  flex: 1;
+  background: #edf4fb;
+  color: #5f7890;
+  border: 1rpx solid rgba(95, 120, 144, 0.18);
+}
+
+.trade-locked-button {
+  width: 100%;
+  background: #f1f3f5;
+  color: #7b8792;
 }
 
 .chat-outline {
