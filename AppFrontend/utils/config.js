@@ -6,7 +6,7 @@ const trimTrailingSlash = value => String(value || '').replace(/\/+$/, '')
 export function getApiBaseUrl() {
   const injected = import.meta.env?.VITE_API_BASE_URL || ''
   // #ifdef H5
-  return trimTrailingSlash(injected || '')
+  return trimTrailingSlash(injected || 'http://localhost:8080')
   // #endif
   // #ifndef H5
   return trimTrailingSlash(injected || 'http://127.0.0.1:8080')
