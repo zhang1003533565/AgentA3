@@ -42,6 +42,7 @@
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { getTradeNotifications, markTradeNotificationRead } from '@/api/secondhand'
+import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore'
 
 const STATUS_TEXT = {
   WAIT_CONFIRM: '等待对方确认',
@@ -74,16 +75,38 @@ export default {
   data() {
     return {
       notifications: [],
-      loading: false
+      loading: false,
+      unsubscribeMessageStore: null
     }
   },
   async onLoad() {
+    this.applyMessageState(getMessageState())
+    this.unsubscribeMessageStore = subscribeMessageStore((state, reason) => {
+      this.applyMessageState(state)
+      if (reason !== 'subscribe') {
+        this.loadNotificationsFromStore(state)
+      }
+    })
     await this.loadNotifications()
   },
   async onShow() {
-    await this.loadNotifications()
+    await refreshMessageState('trade-notifications-show')
+  },
+  onUnload() {
+    if (this.unsubscribeMessageStore) {
+      this.unsubscribeMessageStore()
+      this.unsubscribeMessageStore = null
+    }
   },
   methods: {
+    applyMessageState(state = {}) {
+      this.loadNotificationsFromStore(state)
+    },
+    loadNotificationsFromStore(state = {}) {
+      if (Array.isArray(state.tradeNotifications)) {
+        this.notifications = state.tradeNotifications.map(normalizeNotification)
+      }
+    },
     async loadNotifications() {
       if (this.loading) return
       try {
@@ -91,6 +114,7 @@ export default {
         const res = await getTradeNotifications({ current: 1, size: 100 })
         const records = Array.isArray(res?.data?.records) ? res.data.records : []
         this.notifications = records.map(normalizeNotification)
+        await refreshMessageState('trade-notifications-load')
       } catch (e) {
         console.error('加载交易通知失败', e)
         uni.showToast({ title: '通知加载失败', icon: 'none' })
@@ -116,6 +140,7 @@ export default {
         if (!item.isRead) {
           await markTradeNotificationRead(item.id)
           item.isRead = true
+          await refreshMessageState('trade-notification-read')
         }
       } catch (e) {
         console.error('标记交易通知已读失败', e)

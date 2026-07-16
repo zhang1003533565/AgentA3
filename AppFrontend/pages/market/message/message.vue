@@ -65,8 +65,9 @@
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
-import { getChatSessions, getTradeRecords } from '@/api/secondhand'
+import { getChatSessions, getTradeNotificationUnreadCount } from '@/api/secondhand'
 import { getEnabledAnnouncements } from '@/api/notice'
+import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore'
 
 function normalizeSession(item) {
   return {
@@ -80,39 +81,34 @@ function normalizeSession(item) {
   }
 }
 
-function normalizeTradeRecord(item) {
-  return {
-    tradeId: item.tradeId,
-    sessionId: item.sessionId,
-    itemId: item.itemId,
-    itemTitle: item.itemTitle || '',
-    itemImage: item.itemImage || '',
-    itemStatus: item.itemStatus,
-    otherUsername: item.otherUsername || '用户',
-    status: item.status,
-    statusText: item.statusText || '',
-    updateTime: item.updateTime || '',
-    isSeller: item.isSeller,
-    isRead: item.isRead !== false,
-    messageType: item.messageType
-  }
-}
-
 export default {
   components: { NavBar, MarketBottomBar },
   data() {
     return {
       sessions: [],
-      tradeRecords: [],
       unreadAnnounceCount: 0,
-      unreadTradeCount: 0
+      unreadTradeCount: 0,
+      unsubscribeMessageStore: null
     }
   },
   async onLoad() {
+    this.applyMessageState(getMessageState())
+    this.unsubscribeMessageStore = subscribeMessageStore((state, reason) => {
+      this.applyMessageState(state)
+      if (reason !== 'subscribe') {
+        this.loadSessionsFromStore(state)
+      }
+    })
     await this.loadData()
   },
   async onShow() {
-    await this.loadData()
+    await refreshMessageState('message-page-show')
+  },
+  onUnload() {
+    if (this.unsubscribeMessageStore) {
+      this.unsubscribeMessageStore()
+      this.unsubscribeMessageStore = null
+    }
   },
   methods: {
     async loadData() {
@@ -121,6 +117,16 @@ export default {
         this.loadTradeRecords(),
         this.checkAnnouncements()
       ])
+      await refreshMessageState('message-page-load')
+    },
+    applyMessageState(state = {}) {
+      this.unreadTradeCount = Number(state.unreadTradeCount || 0)
+      this.loadSessionsFromStore(state)
+    },
+    loadSessionsFromStore(state = {}) {
+      if (Array.isArray(state.sessions)) {
+        this.sessions = state.sessions.map(normalizeSession)
+      }
     },
     async loadSessions() {
       try {
@@ -153,18 +159,11 @@ export default {
     },
     async loadTradeRecords() {
       try {
-        const res = await getTradeRecords({ current: 1, size: 100 })
-        const records = Array.isArray(res?.data?.records) ? res.data.records : []
-        this.tradeRecords = records.map(normalizeTradeRecord)
-        this.updateUnreadTradeCount()
+        const res = await getTradeNotificationUnreadCount()
+        this.unreadTradeCount = Number(res?.data || 0)
       } catch (e) {
         console.error('加载交易记录失败', e)
       }
-    },
-    updateUnreadTradeCount() {
-      this.unreadTradeCount = this.tradeRecords.filter((item) => {
-        return item.messageType === 0 && item.isRead === false
-      }).length
     },
     openChat(session) {
       uni.navigateTo({

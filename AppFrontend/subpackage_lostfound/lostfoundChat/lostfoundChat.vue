@@ -267,6 +267,12 @@ import {
   sendChatMessage
 } from '@/api/secondhand'
 import { getUploadErrorMessage, uploadImage } from '@/utils/upload'
+import {
+  clearActiveChatSession,
+  refreshMessageState,
+  setActiveChatSession,
+  subscribeMessageStore
+} from '@/utils/messageStore'
 
 function normalizeSession(item) {
   return {
@@ -352,7 +358,9 @@ export default {
       contactVisibility: {},
       morePanelVisible: false,
       tradeMenuVisible: false,
-      cancelConfirmVisible: false
+      cancelConfirmVisible: false,
+      unsubscribeMessageStore: null,
+      messageSyncing: false
     }
   },
   computed: {
@@ -481,8 +489,38 @@ export default {
     this.targetUserId = options.targetUserId || options.buyerId || options.sellerId || null
     this.sessionId = options.sessionId
     await this.initChat()
+    if (this.sessionId) {
+      setActiveChatSession(this.sessionId)
+      this.unsubscribeMessageStore = subscribeMessageStore((state, reason) => {
+        if (reason === 'subscribe') return
+        if (Number(state.activeChatSessionId) === Number(this.sessionId)) {
+          this.syncActiveChat(reason)
+        }
+      })
+      await refreshMessageState('chat-open')
+    }
+  },
+  onUnload() {
+    if (this.unsubscribeMessageStore) {
+      this.unsubscribeMessageStore()
+      this.unsubscribeMessageStore = null
+    }
+    clearActiveChatSession(this.sessionId)
+    refreshMessageState('chat-close')
   },
   methods: {
+    async syncActiveChat(reason = 'message-sync') {
+      if (!this.sessionId || this.messageSyncing) return
+      this.messageSyncing = true
+      try {
+        await this.loadSession()
+        await this.loadTradeInfo()
+        await this.loadMessages()
+        await refreshMessageState(`chat-read-${reason}`)
+      } finally {
+        this.messageSyncing = false
+      }
+    },
     async initChat() {
       try {
         this.loadSavedContact()
@@ -574,6 +612,7 @@ export default {
         })
         this.messageInput = ''
         await this.loadMessages()
+        await refreshMessageState('chat-send')
       } catch (error) {
         console.error('发送消息失败', error)
       }
@@ -603,6 +642,7 @@ export default {
           messageType: 2
         })
         await this.loadMessages()
+        await refreshMessageState('chat-send-image')
       } catch (error) {
         if (error?.errMsg && String(error.errMsg).includes('cancel')) return
         console.error('发送图片失败', error)
@@ -644,6 +684,7 @@ export default {
         await this.loadSession()
         await this.loadTradeInfo()
         await this.loadMessages()
+        await refreshMessageState('trade-action')
       } catch (e) {
         console.error('交易操作失败', e)
         uni.showToast({ title: e?.data?.msg || e?.msg || '操作失败', icon: 'none' })
@@ -672,6 +713,7 @@ export default {
         await this.loadSession()
         await this.loadTradeInfo()
         await this.loadMessages()
+        await refreshMessageState('trade-intent')
       } catch (e) {
         console.error('发送购买意向失败', e)
         uni.showToast({ title: e?.data?.msg || e?.msg || '发送失败', icon: 'none' })
@@ -714,6 +756,7 @@ export default {
         this.contactVisible = false
         this.morePanelVisible = false
         await this.loadMessages()
+        await refreshMessageState('contact-exchange')
       } catch (e) {
         console.error('发送联系方式失败', e)
         uni.showToast({ title: e?.data?.msg || e?.msg || '发送失败', icon: 'none' })

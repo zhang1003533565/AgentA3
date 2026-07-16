@@ -33,9 +33,8 @@
 </template>
 
 <script>
-import { getChatUnreadCount, getTradeRecords } from '@/api/secondhand'
-import { getEnabledAnnouncements } from '@/api/notice'
 import MarketPublishOverlay from '@/components/market-publish-overlay/market-publish-overlay.vue'
+import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore'
 
 export default {
   name: 'MarketBottomBar',
@@ -50,50 +49,35 @@ export default {
       unreadCount: 0,
       publishOverlayMounted: false,
       publishOverlayVisible: false,
-      publishOverlayTimer: null
+      publishOverlayTimer: null,
+      unsubscribeMessageStore: null
     }
   },
   mounted() {
-    this.refreshUnread()
+    this.applyMessageState(getMessageState())
+    this.unsubscribeMessageStore = subscribeMessageStore((state) => {
+      this.applyMessageState(state)
+    })
+    refreshMessageState('bottom-bar-mounted')
   },
   beforeDestroy() {
     if (this.publishOverlayTimer) {
       clearTimeout(this.publishOverlayTimer)
       this.publishOverlayTimer = null
     }
+    if (this.unsubscribeMessageStore) {
+      this.unsubscribeMessageStore()
+      this.unsubscribeMessageStore = null
+    }
   },
   pageLifetimes: {
     show() {
-      this.refreshUnread()
+      refreshMessageState('bottom-bar-show')
     }
   },
   methods: {
-    async refreshUnread() {
-      try {
-        const [chatRes, announceRes, tradeRes] = await Promise.all([
-          getChatUnreadCount(),
-          getEnabledAnnouncements(),
-          getTradeRecords({ current: 1, size: 100 })
-        ])
-
-        // 聊天消息未读（getChatUnreadCount 直接返回总数）
-        const chatUnread = Number(chatRes?.data) || 0
-
-        // 通知公告未读（对比本地已读最大 ID）
-        const announceList = Array.isArray(announceRes?.data)
-          ? announceRes.data
-          : (Array.isArray(announceRes?.data?.records) ? announceRes.data.records : [])
-        const lastSeenId = uni.getStorageSync('marketLastSeenAnnounceId') || 0
-        const announceUnread = announceList.filter(a => (a.id || 0) > lastSeenId).length
-
-        // 交易消息未读（messageType=0 且未读）
-        const tradeList = Array.isArray(tradeRes?.data?.records) ? tradeRes.data.records : []
-        const tradeUnread = tradeList.filter(r => r.messageType === 0 && r.isRead === false).length
-
-        this.unreadCount = chatUnread + announceUnread + tradeUnread
-      } catch (_) {
-        // 静默失败：未读数获取失败不影响导航功能
-      }
+    applyMessageState(state = {}) {
+      this.unreadCount = Number(state.totalUnreadCount || 0)
     },
     goToHome() {
       if (this.activeTab === 'home') return

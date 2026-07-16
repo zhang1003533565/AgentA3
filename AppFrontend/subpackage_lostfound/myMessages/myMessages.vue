@@ -50,6 +50,7 @@
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { getChatSessions, getTradeNotificationUnreadCount } from '@/api/secondhand'
+import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore'
 
 function normalizeSession(item) {
   return {
@@ -71,14 +72,28 @@ export default {
   data() {
     return {
       chats: [],
-      tradeUnread: 0
+      tradeUnread: 0,
+      unsubscribeMessageStore: null
     }
   },
   async onLoad() {
+    this.applyMessageState(getMessageState())
+    this.unsubscribeMessageStore = subscribeMessageStore((state, reason) => {
+      this.applyMessageState(state)
+      if (reason !== 'subscribe') {
+        this.loadSessionsFromStore(state)
+      }
+    })
     await this.loadData()
   },
   async onShow() {
-    await this.loadData()
+    await refreshMessageState('my-messages-show')
+  },
+  onUnload() {
+    if (this.unsubscribeMessageStore) {
+      this.unsubscribeMessageStore()
+      this.unsubscribeMessageStore = null
+    }
   },
   methods: {
     async loadData() {
@@ -86,6 +101,16 @@ export default {
         this.loadSessions(),
         this.loadTradeUnread()
       ])
+      await refreshMessageState('my-messages-load')
+    },
+    applyMessageState(state = {}) {
+      this.tradeUnread = Number(state.unreadTradeCount || 0)
+      this.loadSessionsFromStore(state)
+    },
+    loadSessionsFromStore(state = {}) {
+      if (Array.isArray(state.sessions)) {
+        this.chats = state.sessions.map(normalizeSession)
+      }
     },
     async loadSessions() {
       try {

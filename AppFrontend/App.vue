@@ -1,13 +1,17 @@
 <script>
+	import { startMessageSync, refreshMessageState } from '@/utils/messageStore'
+
 	export default {
 		globalData: {
 			currentTab: 'index'  // 底部导航当前高亮：index | activity | message | mine
 		},
 		onLaunch: function() {
 			console.log('App Launch')
+			startMessageSync()
 		},
 		onShow: function() {
 			console.log('App Show')
+			refreshMessageState('app-show')
 		},
 		onHide: function() {
 			console.log('App Hide')
