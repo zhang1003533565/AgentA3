@@ -1,5 +1,5 @@
 <template>
-  <view class="page-root">
+  <view class="page-root" :class="{ 'page-root--market-list': currentPage === 'list' }">
     <view class="screen">
       <view class="container">
       <!-- 列表页 -->
@@ -76,7 +76,7 @@
             </view>
           </view>
 
-          <scroll-view scroll-y class="page-body">
+          <scroll-view scroll-y class="page-body market-list-scroll">
             <view class="product-grid">
               <view v-if="filteredItems.length === 0" class="empty-block">
                 <view class="empty-icon"></view>
@@ -1170,6 +1170,25 @@ export default {
   padding-bottom: 120rpx;
 }
 
+.page-root--market-list {
+  height: 100vh;
+  min-height: 100vh;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.page-root--market-list .screen,
+.page-root--market-list .container,
+.page-root--market-list .page-list {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.page-root--market-list .page {
+  min-height: 0;
+}
+
 .page-content {
   /* 入场动画已移除 */
 }
@@ -1211,9 +1230,13 @@ export default {
 
 .page-body {
   flex: 1;
+  overflow-y: auto;
+}
+
+.market-list-scroll {
   min-height: 0;
   height: 0;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .market-hero {
