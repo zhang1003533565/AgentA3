@@ -7,76 +7,76 @@
         <view class="page-content">
           <nav-bar title="校园集市" :fixed="true" :placeholder="true" :showBack="false" />
 
-          <scroll-view scroll-y class="page-body">
-            <view class="market-hero">
+          <view class="market-hero">
 
-              <view class="market-list-search-row" :class="{ 'market-list-search-row--transitioning': searchTransitioning }">
-                <market-search-entry
-                  class="market-list-search"
-                  source="marketplace"
-                  bar-motion="rise"
-                  @transition-change="searchTransitioning = $event"
-                  @overlay-change="handleSearchOverlayChange"
-                />
-                <view class="search-filter-btn" @click.stop="openFilter">
-                  <image class="search-filter-icon" src="/static/icons/mage-filter-fill.svg" mode="aspectFit" />
-                  <view v-if="hasActiveFilter" class="search-filter-dot"></view>
-                </view>
-              </view>
-
-              <view class="scene-strip">
-                <view
-                  v-for="tag in sceneTags"
-                  :key="tag.key"
-                  class="scene-chip"
-                  :class="{ on: currentSceneTag === tag.key }"
-                  @click="applySceneTag(tag)"
-                >
-                  <text class="scene-chip-title">{{ tag.label }}</text>
-                  <text class="scene-chip-sub">{{ tag.sub }}</text>
-                </view>
+            <view class="market-list-search-row" :class="{ 'market-list-search-row--transitioning': searchTransitioning }">
+              <market-search-entry
+                class="market-list-search"
+                source="marketplace"
+                bar-motion="rise"
+                @transition-change="searchTransitioning = $event"
+                @overlay-change="handleSearchOverlayChange"
+              />
+              <view class="search-filter-btn" @click.stop="openFilter">
+                <image class="search-filter-icon" src="/static/icons/mage-filter-fill.svg" mode="aspectFit" />
+                <view v-if="hasActiveFilter" class="search-filter-dot"></view>
               </view>
             </view>
 
-            <view class="category-shell">
-              <view class="section-headline">
-                <text class="section-title">商品分类</text>
-                <text class="section-note">本校同学闲置</text>
-              </view>
-              <view class="cat-grid">
-                <view
-                  v-for="cat in categories"
-                  :key="cat.key"
-                  class="cat-item"
-                  :class="{ on: currentCat === cat.key }"
-                  @click="currentCat = cat.key"
-                >
-                  <view class="cat-icon-wrap">
-                    <image v-if="cat.icon" class="cat-icon-img" :src="cat.icon" mode="aspectFit" />
-                    <text v-else class="cat-icon-text">{{ cat.label.slice(0, 1) }}</text>
-                  </view>
-                  <text class="cat-label" :class="{ 'cat-label--muted': cat.key === 'more' }">{{ cat.label }}</text>
-                </view>
-              </view>
-            </view>
-
-            <view class="sort-bar">
+            <view class="scene-strip">
               <view
-                v-for="s in sortOptions"
-                :key="s.value"
-                class="sort-tab"
-                :class="{ on: sortBy === s.value }"
-                @click="sortBy = s.value"
+                v-for="tag in sceneTags"
+                :key="tag.key"
+                class="scene-chip"
+                :class="{ on: currentSceneTag === tag.key }"
+                @click="applySceneTag(tag)"
               >
-                {{ s.label }}
-              </view>
-              <view class="sort-spacer"></view>
-              <view class="sort-filter" :class="{ on: hasActiveFilter }" @click="openFilter">
-                <text>{{ hasActiveFilter ? '已筛选' : '筛选' }}</text>
-                <image class="sort-filter-icon" src="/static/icons/mage-filter-fill.svg" mode="aspectFit" />
+                <text class="scene-chip-title">{{ tag.label }}</text>
+                <text class="scene-chip-sub">{{ tag.sub }}</text>
               </view>
             </view>
+          </view>
 
+          <view class="category-shell">
+            <view class="section-headline">
+              <text class="section-title">商品分类</text>
+              <text class="section-note">本校同学闲置</text>
+            </view>
+            <view class="cat-grid">
+              <view
+                v-for="cat in categories"
+                :key="cat.key"
+                class="cat-item"
+                :class="{ on: currentCat === cat.key }"
+                @click="currentCat = cat.key"
+              >
+                <view class="cat-icon-wrap">
+                  <image v-if="cat.icon" class="cat-icon-img" :src="cat.icon" mode="aspectFit" />
+                  <text v-else class="cat-icon-text">{{ cat.label.slice(0, 1) }}</text>
+                </view>
+                <text class="cat-label" :class="{ 'cat-label--muted': cat.key === 'more' }">{{ cat.label }}</text>
+              </view>
+            </view>
+          </view>
+
+          <view class="sort-bar">
+            <view
+              v-for="s in sortOptions"
+              :key="s.value"
+              class="sort-tab"
+              :class="{ on: sortBy === s.value }"
+              @click="sortBy = s.value"
+            >
+              {{ s.label }}
+            </view>
+            <view class="sort-spacer"></view>
+            <view class="sort-filter" :class="{ on: hasActiveFilter }" @click="openFilter">
+              <text>{{ hasActiveFilter ? '已筛选' : '筛选' }}</text>
+              <image class="sort-filter-icon" src="/static/icons/mage-filter-fill.svg" mode="aspectFit" />
+            </view>
+          </view>
+
+          <scroll-view scroll-y class="page-body">
             <view class="product-grid">
               <view v-if="filteredItems.length === 0" class="empty-block">
                 <view class="empty-icon"></view>
@@ -1174,6 +1174,18 @@ export default {
   /* 入场动画已移除 */
 }
 
+.page-list {
+  height: 100vh;
+  overflow: hidden;
+}
+
+.page-list .page-content {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .screen {
   width: 100%;
   background: #F7F7F9;
@@ -1199,12 +1211,12 @@ export default {
 
 .page-body {
   flex: 1;
+  min-height: 0;
+  height: 0;
   overflow-y: auto;
 }
 
 .market-hero {
-  position: sticky;
-  top: 0;
   z-index: 20;
   padding: 8rpx 0 18rpx;
   background: #FFFFFF;
@@ -1518,8 +1530,6 @@ export default {
 
 /* ===== Sort bar ===== */
 .sort-bar {
-  position: sticky;
-  top: 216rpx;
   z-index: 12;
   display: flex;
   align-items: center;
