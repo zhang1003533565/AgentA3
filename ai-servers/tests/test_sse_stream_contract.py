@@ -156,6 +156,54 @@ class SseStreamContractTest(unittest.TestCase):
         finally:
             chat_route.run_chat_core = original_run_chat_core
 
+    def test_rag_stream_disables_proxy_buffering_and_reports_timings(self):
+        client = self._client()
+        original_run_rag_core = rag_route._run_rag_query_core
+        try:
+            rag_route._run_rag_query_core = lambda request, authorization: RagQueryResponse(
+                strategy="direct_agent",
+                answer="这是立即发送的测试回答。",
+                answerType="text",
+                metadata={"executedAgent": "textbook_knowledge_agent"},
+            )
+            with client.stream(
+                "POST",
+                "/internal/rag/query/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "input": "测试流式耗时",
+                    "agentName": "textbook_knowledge_agent",
+                    "metadata": {
+                        "profileContextMs": 7,
+                        "profileContextSource": "local_snapshot",
+                    },
+                },
+            ) as response:
+                self.assertEqual(200, response.status_code)
+                self.assertEqual("no-cache, no-transform", response.headers["cache-control"])
+                self.assertEqual("no", response.headers["x-accel-buffering"])
+                payload = "".join(response.iter_text())
+
+            events = [event for event in payload.split("\n\n") if event.strip()]
+            self.assertTrue(events[0].startswith("event: status\n"))
+            done_event = next(event for event in events if event.startswith("event: done\n"))
+            data_line = next(line for line in done_event.splitlines() if line.startswith("data: "))
+            done_data = json.loads(data_line.removeprefix("data: "))
+            metadata = done_data["retrievalMeta"]
+            timings = metadata["timings"]
+            self.assertEqual(7, timings["profileMs"])
+            self.assertIn("planMs", timings)
+            self.assertIn("executionMs", timings)
+            self.assertIn("finalizeMs", timings)
+            self.assertIn("firstEventMs", timings)
+            self.assertIn("firstTokenMs", timings)
+            self.assertIn("totalMs", timings)
+            self.assertLessEqual(timings["firstEventMs"], timings["firstTokenMs"])
+            self.assertLessEqual(timings["firstTokenMs"], timings["totalMs"])
+            self.assertEqual("local_snapshot", metadata["profileContextSource"])
+        finally:
+            rag_route._run_rag_query_core = original_run_rag_core
+
     def test_rag_done_payload_uses_resource_evidence_finalizer(self):
         client = self._client()
         original_run_rag_core = rag_route._run_rag_query_core

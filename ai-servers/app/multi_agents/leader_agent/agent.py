@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
@@ -44,6 +45,136 @@ CAMPUS_SERVICE_TOOL_NAMES = {
     "java_secondhand_api",
 }
 
+# Set to false/0/off to restore the original model-only routing path immediately.
+LEADER_FAST_ROUTE_ENABLED_ENV = "AI_LEADER_FAST_ROUTE_ENABLED"
+
+_FAST_ROUTE_SMALLTALK = {
+    "你好",
+    "您好",
+    "嗨",
+    "hi",
+    "hello",
+    "在吗",
+    "在不在",
+    "早上好",
+    "中午好",
+    "下午好",
+    "晚上好",
+    "谢谢",
+    "再见",
+}
+
+_FAST_ROUTE_ACTIVITY_TOKENS = (
+    "校园活动",
+    "活动安排",
+    "最近活动",
+    "近期活动",
+    "有什么活动",
+    "有什么讲座",
+    "最近讲座",
+    "近期讲座",
+    "讲座安排",
+    "有什么比赛",
+    "最近比赛",
+    "近期比赛",
+    "比赛安排",
+    "报名活动",
+)
+_FAST_ROUTE_MEETING_TOKENS = (
+    "我的会议",
+    "会议列表",
+    "会议状态",
+    "预约的会议",
+    "已预约会议",
+    "预约会议安排",
+    "有什么会议",
+    "查询会议安排",
+    "查看会议安排",
+    "今天的会议安排",
+    "明天的会议安排",
+    "本周会议安排",
+)
+_FAST_ROUTE_CANTEEN_TOKENS = (
+    "食堂",
+    "档口",
+    "食堂菜单",
+    "餐厅菜单",
+    "有什么菜",
+    "菜品价格",
+    "吃什么",
+    "餐饮优惠",
+    "餐饮信息",
+)
+_FAST_ROUTE_FOLLOWUP_TOKENS = (
+    "刚才",
+    "上一个",
+    "前一个",
+    "那个",
+    "这个呢",
+    "它呢",
+    "那明天",
+    "那后天",
+    "还有吗",
+    "还有哪些",
+    "还有什么",
+    "除此之外",
+    "另外呢",
+    "继续",
+    "同样",
+)
+_FAST_ROUTE_MULTI_INTENT_TOKENS = (
+    "顺便",
+    "同时",
+    "并且",
+    "以及",
+    "再帮我",
+    "然后",
+)
+_MEETING_NON_QUERY_TOKENS = (
+    "会议总结",
+    "会议纪要",
+    "会议摘要",
+    "会议转写",
+    "语音转写",
+    "成员分析",
+    "资源推荐",
+    "语音播报",
+    "播报脚本",
+    "会议总控",
+    "会议调度",
+    "创建会议",
+    "发起会议",
+    "帮我预约",
+)
+_ACTIVITY_NON_QUERY_TOKENS = (
+    "活动图",
+    "泳道图",
+    "策划",
+    "创建",
+    "发布",
+    "生成活动",
+    "策划活动",
+    "创建活动",
+    "发布活动",
+)
+_SCHEDULE_NON_QUERY_TOKENS = (
+    "生成课表",
+    "制作课表",
+    "设计课表",
+    "制定课程安排",
+    "规划课程安排",
+    "设计课程安排",
+    "怎么安排",
+    "如何安排",
+)
+_CANTEEN_NON_QUERY_TOKENS = (
+    "食堂管理",
+    "餐厅设计",
+    "菜单设计",
+    "生成菜单",
+    "制定菜单",
+)
+
 
 @dataclass
 class LeaderPlan:
@@ -55,6 +186,7 @@ class LeaderPlan:
     tool_name: str = ""
     route_reason: str = ""
     answer: str = ""
+    route_mode: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -91,7 +223,30 @@ class LeaderAgent:
                 action="direct_answer",
                 route_reason="用户询问 Leader 当前可调用的智能体和工具，直接展示后台清单。",
                 answer=self._callable_catalog_answer(callable_catalog),
+                route_mode="rules",
             )
+
+        normalized_fast_text = self._normalize_fast_route_text(input_text)
+        if (
+            self._fast_route_enabled()
+            and not str(rag_strategy or "").strip()
+            and normalized_fast_text in _FAST_ROUTE_SMALLTALK
+        ):
+            return self._plan_with_rules(input_text, rag_strategy)
+
+        fast_plan = self._plan_high_confidence_service_query(
+            input_text,
+            rag_strategy=rag_strategy,
+            callable_catalog=callable_catalog,
+            conversation_context=conversation_context,
+        )
+        if fast_plan:
+            logger.info(
+                "leader fast route intent=%s tool=%s",
+                fast_plan.intent,
+                fast_plan.tool_name,
+            )
+            return fast_plan
 
         return self._plan_with_llm(
             input_text,
@@ -124,9 +279,16 @@ class LeaderAgent:
             rag_strategy="",
             action="run_learning_workflow",
             route_reason="Python 课程个性化学习请求进入受控多智能体工作流。",
+            route_mode="workflow",
         )
 
     def _plan_with_rules(self, input_text: str, rag_strategy: str = "") -> LeaderPlan:
+        plan = self._plan_with_rules_impl(input_text, rag_strategy)
+        if not plan.route_mode:
+            plan.route_mode = "rules"
+        return plan
+
+    def _plan_with_rules_impl(self, input_text: str, rag_strategy: str = "") -> LeaderPlan:
         normalized = (input_text or "").strip().lower()
         if is_smalltalk_intent(input_text):
             return LeaderPlan(
@@ -139,14 +301,16 @@ class LeaderAgent:
                 answer=self._smalltalk_answer(input_text),
             )
         if is_schedule_intent(input_text):
+            intent, answer = self._schedule_fast_route_response(input_text)
             return LeaderPlan(
-                intent="schedule",
-                target_agent="textbook_knowledge_agent",
+                intent=intent,
+                target_agent="leader_agent",
                 need_retrieval=False,
                 rag_strategy="",
                 action="call_tool",
                 tool_name="java_schedule_api",
                 route_reason="命中课表意图，优先调用 Java 后端课表接口。",
+                answer=answer,
             )
         if self._is_structured_query(normalized):
             return LeaderPlan(
@@ -222,6 +386,167 @@ class LeaderAgent:
             return LeaderPlan("textbook_knowledge", "textbook_knowledge_agent", False, "", route_reason="命中教材/课程知识意图，使用教材知识点智能体直接整理。")
         return LeaderPlan("campus_search", "textbook_knowledge_agent", False, "", route_reason="未命中特定生成类意图，按校园知识查询处理。")
 
+    def _plan_high_confidence_service_query(
+        self,
+        input_text: str,
+        rag_strategy: str = "",
+        callable_catalog: Optional[Dict[str, Any]] = None,
+        conversation_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[LeaderPlan]:
+        if not self._fast_route_enabled() or str(rag_strategy or "").strip():
+            return None
+        try:
+            normalized = self._normalize_fast_route_text(input_text)
+            if not normalized or self._requires_llm_routing(normalized, conversation_context):
+                return None
+
+            domains = self._fast_route_domains(normalized)
+            if len(domains) != 1:
+                return None
+            domain = domains[0]
+            tool_name = {
+                "schedule": "java_schedule_api",
+                "activity": "java_activity_api",
+                "meeting": "java_meeting_api",
+                "canteen": "java_canteen_api",
+            }[domain]
+            if not self._catalog_tool_enabled(callable_catalog, tool_name):
+                return None
+
+            if domain == "schedule":
+                plan = self._plan_with_rules(input_text, rag_strategy)
+                if plan.action != "call_tool" or plan.tool_name != tool_name:
+                    return None
+                plan.route_reason = "高置信度命中明确课表查询，跳过模型路由并调用 Java 后端课表接口。"
+                return plan
+
+            labels = {
+                "activity": ("activity_query", "校园活动", "正在为你查询校园活动。"),
+                "meeting": ("meeting_query", "会议安排", "正在为你查询会议安排。"),
+                "canteen": ("canteen_query", "食堂餐饮", "正在为你查询食堂餐饮信息。"),
+            }
+            intent, label, answer = labels[domain]
+            return LeaderPlan(
+                intent=intent,
+                target_agent="leader_agent",
+                need_retrieval=False,
+                rag_strategy="",
+                action="call_tool",
+                tool_name=tool_name,
+                route_reason=f"高置信度命中明确{label}查询，跳过模型路由并调用 Java 后端接口。",
+                answer=answer,
+                route_mode="rules",
+            )
+        except Exception as exc:
+            logger.warning("leader fast route failed; fallback to llm: %s", exc)
+            return None
+
+    def _fast_route_domains(self, normalized: str) -> List[str]:
+        domains: List[str] = []
+        if self._is_high_confidence_schedule_query(normalized):
+            domains.append("schedule")
+        if (
+            any(token in normalized for token in _FAST_ROUTE_ACTIVITY_TOKENS)
+            and not any(token in normalized for token in _ACTIVITY_NON_QUERY_TOKENS)
+        ):
+            domains.append("activity")
+        if (
+            any(token in normalized for token in _FAST_ROUTE_MEETING_TOKENS)
+            and not any(token in normalized for token in _MEETING_NON_QUERY_TOKENS)
+        ):
+            domains.append("meeting")
+        if (
+            any(token in normalized for token in _FAST_ROUTE_CANTEEN_TOKENS)
+            and not any(token in normalized for token in _CANTEEN_NON_QUERY_TOKENS)
+        ):
+            domains.append("canteen")
+        return domains
+
+    def _is_high_confidence_schedule_query(self, normalized: str) -> bool:
+        if any(token in normalized for token in _SCHEDULE_NON_QUERY_TOKENS):
+            return False
+        explicit_tokens = (
+            "课表",
+            "课程安排",
+            "下节课",
+            "下一节课",
+            "再下一节课",
+            "后一节课",
+            "下一门课",
+            "再下一门课",
+            "下门课",
+            "今天有什么课",
+            "明天有什么课",
+            "后天有什么课",
+            "今天有课吗",
+            "明天有课吗",
+            "后天有课吗",
+            "本周有什么课",
+            "这周有什么课",
+            "课程列表",
+            "全部课程",
+        )
+        if any(token in normalized for token in explicit_tokens):
+            return True
+        if is_semester_schedule_query(normalized) or is_all_semester_schedule_query(normalized):
+            return True
+        return bool(re.search(r"(?:第\d+周|周[一二三四五六日天]|星期[一二三四五六日天]).*(?:有|上|没|没有).*课", normalized))
+
+    def _requires_llm_routing(
+        self,
+        normalized: str,
+        conversation_context: Optional[Dict[str, Any]],
+    ) -> bool:
+        if any(token in normalized for token in _FAST_ROUTE_MULTI_INTENT_TOKENS):
+            return True
+        context = conversation_context if isinstance(conversation_context, dict) else {}
+        has_context = bool(context.get("summary") or context.get("turns") or context.get("lastSubjects"))
+        if has_context and any(token in normalized for token in _FAST_ROUTE_FOLLOWUP_TOKENS):
+            return True
+        if has_context:
+            subjects = [
+                self._normalize_fast_route_text(subject)
+                for subject in (context.get("lastSubjects") or [])
+                if str(subject or "").strip()
+            ]
+            is_subject_followup = any(subject and subject in normalized for subject in subjects)
+            if is_subject_followup and any(
+                token in normalized
+                for token in ("老师", "教师", "谁教", "几节课", "几次课", "课时", "什么时候", "哪天", "周几", "几点", "在哪", "哪里")
+            ):
+                return True
+        return False
+
+    def _catalog_tool_enabled(self, callable_catalog: Optional[Dict[str, Any]], tool_name: str) -> bool:
+        if not isinstance(callable_catalog, dict):
+            return True
+        tools = callable_catalog.get("tools")
+        if not isinstance(tools, list):
+            return True
+        for item in tools:
+            if not isinstance(item, dict) or str(item.get("name") or "").strip() != tool_name:
+                continue
+            return item.get("enabled") is not False
+        return False
+
+    def _schedule_fast_route_response(self, input_text: str) -> tuple[str, str]:
+        if is_course_teacher_query(input_text):
+            return "course_teacher", "正在为你查询课程老师。"
+        if is_course_count_query(input_text):
+            return "course_count", "正在为你查询课程次数。"
+        if is_course_time_query(input_text):
+            return "course_time", "正在为你查询课程时间。"
+        if is_semester_schedule_query(input_text) or is_all_semester_schedule_query(input_text):
+            return "schedule", "正在为你查询本学期课表。"
+        return "schedule", "正在为你查询课程安排。"
+
+    def _fast_route_enabled(self) -> bool:
+        value = str(os.getenv(LEADER_FAST_ROUTE_ENABLED_ENV, "true") or "").strip().lower()
+        return value not in {"0", "false", "no", "off", "disabled"}
+
+    def _normalize_fast_route_text(self, value: Any) -> str:
+        return re.sub(r"[\s，。！？,.!?？、；;：:（）()\[\]{}\"']", "", str(value or "").strip().lower())
+
     def _plan_with_llm(
         self,
         input_text: str,
@@ -295,6 +620,7 @@ class LeaderAgent:
             tool_name=tool_name,
             route_reason=str(plan.get("route_reason") or plan.get("routeReason") or "Leader LLM 完成意图识别。").strip(),
             answer=str(plan.get("answer") or "").strip(),
+            route_mode="llm",
         )
 
     def _plan_for_requested_agent(self, requested_agent: Optional[str], rag_strategy: str) -> Optional[LeaderPlan]:
@@ -310,6 +636,7 @@ class LeaderAgent:
             need_retrieval=bool(profile["needRetrieval"]),
             rag_strategy="",
             route_reason=f"用户显式选择 {profile['role']}，Leader 按指定智能体执行。",
+            route_mode="forced",
         )
 
     def _is_structured_query(self, normalized_text: str) -> bool:

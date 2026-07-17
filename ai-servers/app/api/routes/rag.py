@@ -1,8 +1,10 @@
 import asyncio
 import hashlib
 import json
+import os
 import re
 import threading
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -566,6 +568,7 @@ def run_rag_query(
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
 ) -> RagQueryResponse:
+    request_started_at = time.perf_counter()
     _require_authorization(authorization)
     audit = _llm_header_audit_fields(
         provider=x_ai_provider,
@@ -593,7 +596,19 @@ def run_rag_query(
     ))
     try:
         response = _finalize_rag_response(request, _run_rag_query_core(request, authorization or ""))
+        _merge_response_performance(
+            response,
+            profileMs=_profile_ms_from_request(request),
+            totalMs=_elapsed_ms(request_started_at),
+        )
         _save_conversation_context(request, authorization or "", response)
+        timings = (response.metadata or {}).get("timings") or {}
+        logger.info(
+            "rag query completed agent=%s route_mode=%s timings=%s",
+            request.agentName or "leader_agent",
+            (response.metadata or {}).get("routeMode") or "direct",
+            timings,
+        )
         return response
     finally:
         reset_active_llm_config(token)
@@ -619,14 +634,20 @@ async def run_rag_query_stream(
     learning_workflow = _is_learning_workflow_request(request)
 
     async def event_stream():
+        stream_started_at = time.perf_counter()
         token = set_active_llm_config(llm_config)
         generation_started = False
+        plan = None
+        plan_ms = 0
+        execution_ms = 0
+        first_event_ms = 0
         try:
             if learning_workflow:
                 async for event in _stream_learning_workflow(request, x_user_id):
                     yield event
                 return
 
+            first_event_ms = _elapsed_ms(stream_started_at)
             yield build_sse("status", {"stage": "processing"})
             request.input = _prepare_request_input(request)
             requested_agent = normalize_leader_request_agent(request.agentName)
@@ -635,6 +656,7 @@ async def run_rag_query_stream(
 
             active_agent = requested_agent or "leader_agent"
             if active_agent == "leader_agent":
+                planning_started_at = time.perf_counter()
                 profile_context = _profile_context_from_request(request)
                 callable_catalog = _build_leader_callable_catalog(request)
                 conversation_context = _apply_conversation_context(request, authorization or "")
@@ -646,6 +668,7 @@ async def run_rag_query_stream(
                     callable_catalog=callable_catalog,
                     conversation_context=conversation_context,
                 )
+                plan_ms = _elapsed_ms(planning_started_at)
                 if getattr(plan, "action", "") == "call_tool" and getattr(plan, "answer", ""):
                     yield build_sse("tool_start", {
                         "stage": "tool_start",
@@ -658,14 +681,36 @@ async def run_rag_query_stream(
                 if _should_emit_generation_start(request, plan.target_agent, plan):
                     yield build_sse("generation_start", _build_generation_start_payload(request, plan))
                     generation_started = True
+                execution_started_at = time.perf_counter()
                 response = await asyncio.to_thread(_execute_leader_plan, request, authorization or "", profile_context, plan)
+                execution_ms = _elapsed_ms(execution_started_at)
             else:
                 if _should_emit_generation_start(request, active_agent):
                     yield build_sse("generation_start", _build_generation_start_payload(request, None, active_agent))
                     generation_started = True
+                execution_started_at = time.perf_counter()
                 response = await asyncio.to_thread(_run_rag_query_core, request, authorization or "")
+                execution_ms = _elapsed_ms(execution_started_at)
+            finalization_started_at = time.perf_counter()
             response = _finalize_rag_response(request, response)
+            finalization_ms = _elapsed_ms(finalization_started_at)
+            if plan is not None:
+                _set_response_route_mode(response, plan)
+            else:
+                response.metadata = dict(response.metadata or {})
+                response.metadata.setdefault("routeMode", "direct")
+            _merge_response_performance(
+                response,
+                profileMs=_profile_ms_from_request(request),
+                planMs=plan_ms,
+                executionMs=execution_ms,
+                finalizeMs=finalization_ms,
+                firstEventMs=first_event_ms,
+            )
             metadata = response.metadata or {}
+            request_metadata = request.metadata if isinstance(request.metadata, dict) else {}
+            if request_metadata.get("profileContextSource"):
+                metadata["profileContextSource"] = request_metadata.get("profileContextSource")
             session_id = str((request.metadata or {}).get("sessionId") or "")
             yield build_sse("session", {
                 "sessionId": session_id,
@@ -679,10 +724,21 @@ async def run_rag_query_stream(
                 "retrievalMeta": metadata,
             })
             if not generation_started:
+                first_token_recorded = False
                 for chunk in chunk_answer(response.answer):
+                    if not first_token_recorded:
+                        _merge_response_performance(response, firstTokenMs=_elapsed_ms(stream_started_at))
+                        first_token_recorded = True
                     yield build_sse("delta", {"content": chunk})
-                    await asyncio.sleep(0.035)
             _save_conversation_context(request, authorization or "", response)
+            _merge_response_performance(response, totalMs=_elapsed_ms(stream_started_at))
+            metadata = response.metadata or {}
+            logger.info(
+                "rag stream completed agent=%s route_mode=%s timings=%s",
+                request.agentName or "leader_agent",
+                metadata.get("routeMode") or "direct",
+                metadata.get("timings") or {},
+            )
             yield build_sse("done", {
                 "sessionId": session_id,
                 "answer": response.answer,
@@ -709,7 +765,14 @@ async def run_rag_query_stream(
         finally:
             reset_active_llm_config(token)
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 LEARNING_WORKFLOW_INTENTS = frozenset({
@@ -1046,7 +1109,59 @@ def _finalize_rag_response(request: RagQueryRequest, response: RagQueryResponse)
     )
 
 
+def _elapsed_ms(started_at: float) -> int:
+    return max(0, int((time.perf_counter() - started_at) * 1000))
+
+
+def _optional_nonnegative_int(value: Any) -> Optional[int]:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return max(0, parsed)
+
+
+def _profile_ms_from_request(request: RagQueryRequest) -> Optional[int]:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    return _optional_nonnegative_int(metadata.get("profileContextMs"))
+
+
+def _merge_response_performance(
+    response: RagQueryResponse,
+    **values: Optional[int],
+) -> RagQueryResponse:
+    metadata = dict(response.metadata or {})
+    timings = dict(metadata.get("timings") or {})
+    for name, value in values.items():
+        normalized = _optional_nonnegative_int(value)
+        if normalized is None:
+            continue
+        timings[name] = normalized
+        # Keep the flat fields for the current App trace panel while also exposing a
+        # grouped object for future observability screens.
+        metadata[name] = normalized
+    metadata["timings"] = timings
+    response.metadata = metadata
+    return response
+
+
+def _set_response_route_mode(response: RagQueryResponse, plan: Any) -> RagQueryResponse:
+    metadata = dict(response.metadata or {})
+    route_mode = str(getattr(plan, "route_mode", "") or "llm").strip()
+    metadata["routeMode"] = route_mode
+    response.metadata = metadata
+    return response
+
+
+def _feature_enabled(name: str, default: bool = True) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() not in {"0", "false", "no", "off", "disabled"}
+
+
 def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
+    planning_started_at = time.perf_counter()
     profile_context = _profile_context_from_request(request)
     callable_catalog = _build_leader_callable_catalog(request)
     conversation_context = _apply_conversation_context(request, authorization)
@@ -1057,7 +1172,17 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
         callable_catalog=callable_catalog,
         conversation_context=conversation_context,
     )
-    return _execute_leader_plan(request, authorization, profile_context, plan)
+    plan_ms = _elapsed_ms(planning_started_at)
+    execution_started_at = time.perf_counter()
+    response = _execute_leader_plan(request, authorization, profile_context, plan)
+    execution_ms = _elapsed_ms(execution_started_at)
+    _set_response_route_mode(response, plan)
+    return _merge_response_performance(
+        response,
+        profileMs=_profile_ms_from_request(request),
+        planMs=plan_ms,
+        executionMs=execution_ms,
+    )
 
 
 def _prepare_request_input(request: RagQueryRequest) -> str:
@@ -2175,7 +2300,10 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
     tool_display_name = _tool_display_name(tool_name)
     planning_answer = str(getattr(leader_plan, "answer", "") or "").strip()
     answer_type = "service_tool_result"
+    tool_started_at = time.perf_counter()
     results, cache_meta = data_store.search_service_tool_with_meta(authorization, tool_name, request.input)
+    results = results or []
+    tool_ms = _elapsed_ms(tool_started_at)
     tool_cache = cache_meta.get("toolCache", {}) if isinstance(cache_meta, dict) else {}
     retrieval_meta = {
         "javaBackendCount": len(results),
@@ -2190,18 +2318,27 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
     documents = [_tool_result_to_document(item, index) for index, item in enumerate(results, start=1)]
     summary_error = ""
     summarized_by_model = False
-    try:
-        answer = leader_agent.summarize_tool_result(
-            input_text=request.input,
-            plan=leader_plan,
-            tool_display_name=tool_display_name,
-            tool_results=results,
-        )
-        summarized_by_model = bool(answer)
-    except Exception as exc:
-        logger.warning("leader tool result summarization failed tool=%s error=%s", tool_name, exc)
-        answer = ""
-        summary_error = str(exc)
+    direct_empty_result = not results and _feature_enabled("AI_LEADER_DIRECT_RESULT_RENDER_ENABLED", True)
+    summary_started_at = time.perf_counter()
+    if direct_empty_result:
+        answer = _empty_service_tool_answer(tool_name, request.input)
+        summary_mode = "direct_empty"
+    else:
+        summary_mode = "model"
+        try:
+            answer = leader_agent.summarize_tool_result(
+                input_text=request.input,
+                plan=leader_plan,
+                tool_display_name=tool_display_name,
+                tool_results=results,
+            )
+            summarized_by_model = bool(answer)
+        except Exception as exc:
+            logger.warning("leader tool result summarization failed tool=%s error=%s", tool_name, exc)
+            answer = ""
+            summary_error = str(exc)
+            summary_mode = "fallback"
+    summary_ms = 0 if direct_empty_result else _elapsed_ms(summary_started_at)
     if not answer and results:
         answer = _format_service_tool_answer(tool_name, results)
     elif not answer:
@@ -2227,13 +2364,14 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
         "executionModeLabel": "Leader 调用 Java 后端接口并整理结果",
         "answerType": answer_type,
         "toolResultSummarized": summarized_by_model,
+        "toolResultSummaryMode": summary_mode,
         "toolToggles": _tool_toggles_from_request(request),
         **retrieval_meta,
     }
     metadata.update(_context_metadata_from_request(request))
     if summary_error:
         metadata["toolResultSummaryError"] = summary_error
-    return _decorate_output_response(RagQueryResponse(
+    return _merge_response_performance(_decorate_output_response(RagQueryResponse(
         strategy=tool_name,
         answer=answer,
         answerType=answer_type,
@@ -2244,6 +2382,7 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
                 "toolName": tool_name,
                 "toolDisplayName": tool_display_name,
                 "planningAnswer": planning_answer,
+                "toolMs": tool_ms,
                 **retrieval_meta,
             }),
             RagTraceResponse(stage="tool_result_summary", detail={
@@ -2251,12 +2390,37 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
                 "toolName": tool_name,
                 "toolDisplayName": tool_display_name,
                 "summarizedByModel": summarized_by_model,
+                "summaryMode": summary_mode,
+                "summaryMs": summary_ms,
                 "resultCount": len(results),
                 **({"error": summary_error} if summary_error else {}),
             }),
         ],
         metadata=metadata,
-    ))
+    )), toolMs=tool_ms, summaryMs=summary_ms)
+
+
+def _empty_service_tool_answer(tool_name: str, input_text: str) -> str:
+    text = str(input_text or "")
+    if tool_name == "java_schedule_api":
+        if any(token in text for token in ("今天", "今日")):
+            return "我已经查询了课表系统，暂未查询到今天的课表安排。"
+        if "明天" in text:
+            return "我已经查询了课表系统，暂未查询到明天的课表安排。"
+        if any(token in text for token in ("本周", "这周")):
+            return "我已经查询了课表系统，暂未查询到本周的课表安排。"
+        return "我已经查询了课表系统，暂未查询到符合条件的课表安排。"
+    empty_answers = {
+        "java_activity_api": "我已经查询了活动系统，暂未查询到符合条件的校园活动。",
+        "java_meeting_api": "我已经查询了会议系统，暂未查询到符合条件的会议安排。",
+        "java_canteen_api": "我已经查询了食堂系统，暂未查询到符合条件的食堂、档口、菜品或优惠信息。",
+        "java_facility_api": "我已经查询了校园设施系统，暂未查询到符合条件的设施或位置信息。",
+        "java_secondhand_api": "我已经查询了校园二手市场，暂未查询到符合条件的物品。",
+    }
+    return empty_answers.get(
+        tool_name,
+        f"我已经调用了{_tool_display_name(tool_name) or '对应系统能力'}，暂未查询到可展示的数据。",
+    )
 
 
 def _format_service_tool_answer(tool_name: str, results: List[Dict[str, Any]]) -> str:

@@ -94,7 +94,7 @@ class AppAiLeaderControllerTest {
             }
             return message;
         });
-        when(userProfileService.buildLeaderProfileContext(anyLong(), any())).thenReturn(Map.of());
+        when(userProfileService.buildLeaderProfileContext(anyLong())).thenReturn(Map.of());
         when(exportRepository.findByMessageIdAndStorageKey(anyLong(), any())).thenAnswer(invocation -> {
             AiLeaderGeneratedExport current = savedExport.get();
             if (current != null
@@ -316,6 +316,31 @@ class AppAiLeaderControllerTest {
                 .isEqualTo("请把上一条回答整理成可下载的 Word 文件");
         assertThat(history.path("messages").path(1).path("evidenceChain").path("evidenceState").asText())
                 .isEqualTo("available");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void syncUsesLocalProfileContextWithoutPassingAuthorizationIntoProfileSummaryPath() {
+        Map<String, Object> localProfile = Map.of(
+                "summaryEngine", "local_profile_summary_v1",
+                "aiSummary", "local summary"
+        );
+        when(userProfileService.buildLeaderProfileContext(42L)).thenReturn(localProfile);
+        AtomicReference<Map<String, Object>> upstreamPayload = new AtomicReference<>();
+        when(pythonAiProxyService.queryRag(any(), any())).thenAnswer(invocation -> {
+            upstreamPayload.set(invocation.getArgument(0));
+            return validGeneratedResponse();
+        });
+
+        controller.query(request(), authenticatedRequest());
+
+        Map<String, Object> metadata = (Map<String, Object>) upstreamPayload.get().get("metadata");
+        assertThat(metadata.get("profileSnapshot")).isEqualTo(localProfile);
+        assertThat(metadata.get("profileContextSource")).isEqualTo("local_snapshot");
+        assertThat(metadata.get("profileContextMs")).isInstanceOf(Long.class);
+        assertThat(((Long) metadata.get("profileContextMs"))).isGreaterThanOrEqualTo(0L);
+        verify(userProfileService).buildLeaderProfileContext(42L);
+        verify(userProfileService, never()).buildLeaderProfileContext(anyLong(), any());
     }
 
     @Test

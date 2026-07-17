@@ -597,7 +597,8 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("ppt_outline_agent", ppt_response.json()["metadata"]["targetAgent"])
         self.assertEqual(200, diagram_response.status_code)
         self.assertEqual("diagram_flowchart_agent", diagram_response.json()["metadata"]["targetAgent"])
-        self.assertEqual(3, len(provider.callable_catalogs))
+        # 明确的学期课表查询走规则快速路由；PPT 和流程图仍由模型读取可调用清单后路由。
+        self.assertEqual(2, len(provider.callable_catalogs))
         for catalog in provider.callable_catalogs:
             callable_names = {item["name"] for item in catalog["agents"]}
             self.assertTrue(INTERNAL_LEARNING_WORKFLOW_AGENTS.isdisjoint(callable_names))
@@ -695,6 +696,53 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertNotIn("周一 1-2节", payload["answer"])
         self.assertEqual("java_schedule_api", calls[0][1])
         self.assertEqual("tool_result_summary", payload["trace"][-1]["stage"])
+
+    def test_leader_empty_schedule_result_skips_model_summary(self):
+        rag_routes = importlib.import_module("app.api.routes.rag")
+        old_search_service_tool = rag_routes.data_store.search_service_tool_with_meta
+        old_summarize_tool_result = rag_routes.leader_agent.summarize_tool_result
+        old_direct_result_flag = os.environ.get("AI_LEADER_DIRECT_RESULT_RENDER_ENABLED")
+        summary_calls = []
+        try:
+            os.environ["AI_LEADER_DIRECT_RESULT_RENDER_ENABLED"] = "true"
+            rag_routes.data_store.search_service_tool_with_meta = lambda *_args: (
+                [],
+                {"toolCache": {"requestCount": 2, "hitCount": 0, "missCount": 2}},
+            )
+
+            def fail_if_summary_called(**_kwargs):
+                summary_calls.append(True)
+                raise AssertionError("empty tool results must not call the model summarizer")
+
+            rag_routes.leader_agent.summarize_tool_result = fail_if_summary_called
+            response = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={
+                    "input": "我今天的课表是什么",
+                    "agentName": "leader_agent",
+                    "metadata": {"profileContextMs": 3},
+                },
+            )
+        finally:
+            rag_routes.data_store.search_service_tool_with_meta = old_search_service_tool
+            rag_routes.leader_agent.summarize_tool_result = old_summarize_tool_result
+            if old_direct_result_flag is None:
+                os.environ.pop("AI_LEADER_DIRECT_RESULT_RENDER_ENABLED", None)
+            else:
+                os.environ["AI_LEADER_DIRECT_RESULT_RENDER_ENABLED"] = old_direct_result_flag
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual([], summary_calls)
+        self.assertEqual("java_schedule_api", payload["strategy"])
+        self.assertFalse(payload["metadata"]["toolResultSummarized"])
+        self.assertEqual("direct_empty", payload["metadata"]["toolResultSummaryMode"])
+        self.assertEqual("rules", payload["metadata"]["routeMode"])
+        self.assertEqual(0, payload["metadata"]["timings"]["summaryMs"])
+        self.assertEqual(3, payload["metadata"]["timings"]["profileMs"])
+        self.assertIn("暂未查询到今天的课表安排", payload["answer"])
+        self.assertEqual("direct_empty", payload["trace"][-1]["detail"]["summaryMode"])
 
     def test_leader_routes_course_teacher_query_to_schedule_tool(self):
         rag_routes = importlib.import_module("app.api.routes.rag")

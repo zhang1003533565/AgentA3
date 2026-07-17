@@ -416,7 +416,13 @@ public class AppAiLeaderController {
                 metadata.put("sourceMessageId", request.getSourceMessageId());
             }
         }
-        metadata.put("profileSnapshot", userProfileService.buildLeaderProfileContext(userId, authorization));
+        // Leader chat stays on the local profile path so opening an SSE stream never waits for
+        // profile_summary_agent. Profile pages and explicit refresh workflows can still use the
+        // authorization-aware overload when they need an AI-refined snapshot.
+        long profileContextStartedAt = System.nanoTime();
+        metadata.put("profileSnapshot", userProfileService.buildLeaderProfileContext(userId));
+        metadata.put("profileContextMs", Math.max(0L, (System.nanoTime() - profileContextStartedAt) / 1_000_000L));
+        metadata.put("profileContextSource", "local_snapshot");
         metadata.put("profileEvidencePolicy", Map.of(
                 "leaderCanUpdateScore", false,
                 "leaderCanSubmitEvidence", true,

@@ -483,8 +483,11 @@ public class UserProfileServiceImpl implements UserProfileService {
     private void applyProfileSummaryAgent(UserProfileDTO.RadarSnapshot snapshot,
                                           List<UserProfileDTO.DimensionSnapshot> dimensions,
                                           String authorization) {
+        if (!StringUtils.hasText(authorization)) {
+            return;
+        }
         String modelBinding = resolveProfileSummaryModelBinding();
-        if (!StringUtils.hasText(authorization) || !StringUtils.hasText(modelBinding)) {
+        if (!StringUtils.hasText(modelBinding)) {
             return;
         }
         Map<String, Object> profilePayload = buildProfileSummaryPayload(snapshot, dimensions);
