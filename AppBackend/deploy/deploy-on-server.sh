@@ -20,8 +20,8 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 
 git fetch origin "$DEPLOY_BRANCH"
-git checkout "$DEPLOY_BRANCH"
-git pull --ff-only origin "$DEPLOY_BRANCH"
+git checkout -B "$DEPLOY_BRANCH" "origin/$DEPLOY_BRANCH"
+git reset --hard "origin/$DEPLOY_BRANCH"
 
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 "${compose[@]}" config --quiet

@@ -66,6 +66,16 @@ class SubmissionReleaseContractTest(unittest.TestCase):
         self.assertNotIn("docker system prune -af --volumes", server_script)
         self.assertNotIn("docker volume prune", server_script)
 
+    def test_server_deploy_discards_tracked_changes_before_syncing_branch(self):
+        workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+        server_script = (ROOT / "AppBackend/deploy/deploy-on-server.sh").read_text(encoding="utf-8")
+
+        for source in [workflow, server_script]:
+            self.assertIn('git checkout -B "$DEPLOY_BRANCH" "origin/$DEPLOY_BRANCH"', source)
+            self.assertIn('git reset --hard "origin/$DEPLOY_BRANCH"', source)
+            self.assertNotIn("git pull --ff-only", source)
+            self.assertNotIn("git stash push", source)
+
     def test_web_image_builds_with_same_origin_api_mode(self):
         dockerfile = (ROOT / "AppWeb/Dockerfile").read_text(encoding="utf-8")
 
