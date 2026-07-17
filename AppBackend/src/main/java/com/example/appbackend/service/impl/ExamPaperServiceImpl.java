@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Random;
 import java.util.Set;
 import java.util.random.RandomGenerator;
 
@@ -58,7 +59,7 @@ public class ExamPaperServiceImpl implements ExamPaperService {
                                 ExamPaperRepository paperRepository,
                                 ExamPaperQuestionRepository paperQuestionRepository) {
         this(questionRepository, paperRepository, paperQuestionRepository,
-                RandomGenerator.getDefault(), new ExamPaperDocumentDispatcher());
+                new Random(), new ExamPaperDocumentDispatcher());
     }
 
     @Autowired
@@ -67,7 +68,7 @@ public class ExamPaperServiceImpl implements ExamPaperService {
                                 ExamPaperQuestionRepository paperQuestionRepository,
                                 ExamPaperPreviewService previewService) {
         this(questionRepository, paperRepository, paperQuestionRepository,
-                RandomGenerator.getDefault(), new ExamPaperDocumentDispatcher(), previewService);
+                new Random(), new ExamPaperDocumentDispatcher(), previewService);
     }
 
     ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
