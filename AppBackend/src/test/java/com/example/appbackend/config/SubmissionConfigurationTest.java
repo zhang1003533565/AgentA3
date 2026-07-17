@@ -37,7 +37,7 @@ class SubmissionConfigurationTest {
         String yaml = Files.readString(Path.of("src/main/resources/application.yml"));
         Map<String, String> values = flattenYaml(yaml);
         Map<String, String> expected = Map.ofEntries(
-                Map.entry("jwt.secret", "${JWT_SECRET}"),
+                Map.entry("jwt.secret", "${JWT_SECRET:dev-local-jwt-secret-change-before-production-2026}"),
                 Map.entry("jwt.expiration", "${JWT_EXPIRATION_MS:86400000}"),
                 Map.entry("tencent.map.key", "${TENCENT_MAP_KEY:}"),
                 Map.entry("tencent.cos.secret-id", "${TENCENT_COS_SECRET_ID:}"),
