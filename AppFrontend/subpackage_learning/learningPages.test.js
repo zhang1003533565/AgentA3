@@ -150,12 +150,11 @@ test('course resources never display review success when grounding still says mo
   assert.equal(learningResourceReviewStatus({}, true), 'generation_failed')
 })
 
-test('home adds Python learning after the existing AI entry without replacing it', () => {
+test('home keeps the existing AI entry without exposing Python learning', () => {
   const home = source('../pages/index/index.vue')
   const existing = home.indexOf("navigate('/subpackage_ai/aiCreate/aiCreate')")
-  const learning = home.indexOf("navigate('/subpackage_learning/pythonHome/pythonHome')")
   assert.ok(existing >= 0)
-  assert.ok(learning > existing)
-  assert.match(home, /Python 个性化学习/)
+  assert.doesNotMatch(home, /navigate\('\/subpackage_learning\/pythonHome\/pythonHome'\)/)
+  assert.doesNotMatch(home, /Python 个性化学习/)
   assert.match(home, /智感工坊/)
 })

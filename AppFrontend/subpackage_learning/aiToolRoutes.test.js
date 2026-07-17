@@ -29,7 +29,7 @@ test('every visible AI Create action resolves to a real page and never silently 
     '实践报告', '课程报告', '英语作文', '活动总结', '学科出题', '学习计划', '考研题目', '文章主题大纲', '雅思大作文', '思想汇报',
     'PPT大纲', '简历制作', '心得体会', '工作总结', '文本比较', '长文本写作', '周报日报', '影视解说', '文章配图', '合同模板',
     '视频灵感', '短视频文案', '视频标题', 'AI写小说', '旅游攻略', '视频介绍', '种草文案', '智能翻译', '好评文案', '带货标题',
-    'Python代码实验'
+    'Python个性化学习'
   ]
   for (const name of visibleNames) {
     const route = resolveAiToolDestination({ name, desc: `${name}的真实能力` })
@@ -39,7 +39,7 @@ test('every visible AI Create action resolves to a real page and never silently 
   assert.match(resolveAiToolDestination({ name: 'PPT生成' }), /resourceGenerate\/resourceGenerate\?resourceType=presentation/)
   assert.match(resolveAiToolDestination({ name: '思维导图' }), /resourceType=mind_map/)
   assert.match(resolveAiToolDestination({ name: '试卷生成' }), /resourceType=practice_set/)
-  assert.match(resolveAiToolDestination({ name: 'Python代码实验' }), /resourceType=code_lab/)
+  assert.equal(resolveAiToolDestination({ name: 'Python个性化学习' }), '/subpackage_learning/pythonHome/pythonHome')
   assert.equal(resolveAiToolDestination({ name: '学习计划' }), '/subpackage_learning/learningPath/learningPath')
   assert.match(resolveAiToolDestination({ name: '课程报告', desc: '课程报告助力提升' }), /aiConversation\/aiConversation\?prefill=/)
 

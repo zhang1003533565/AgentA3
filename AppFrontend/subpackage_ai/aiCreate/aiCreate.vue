@@ -124,7 +124,7 @@ const toolCategories = {
     { name: '架构图', desc: '系统架构可视化', icon: '/static/icons/ai create/plan.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
     { name: '流程图', desc: '逻辑流程一键绘制', icon: '/static/icons/ai create/video-convert.png', themeColor: '#1DD1A1', lightColor: 'rgba(29, 209, 161, 0.35)' },
     { name: '复习资料', desc: '智能整理复习重点', icon: '/static/icons/ai create/review.png', themeColor: '#FECA57', lightColor: 'rgba(254, 202, 87, 0.35)' },
-    { name: 'Python代码实验', desc: '生成可运行代码与测试', icon: '/static/icons/ai create/course.png', themeColor: '#2563EB', lightColor: 'rgba(37, 99, 235, 0.35)' }
+    { name: 'Python个性化学习', desc: '按基础规划学习路径', icon: '/static/icons/ai create/course.png', themeColor: '#2563EB', lightColor: 'rgba(37, 99, 235, 0.35)' }
   ],
   format: [
     { name: 'PPT转PDF', desc: '一键PPT转PDF', icon: '/static/icons/ai create/ppt-pdf.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
