@@ -101,7 +101,8 @@ services:
       - "${BACKEND_BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-18080}:8080"
     volumes:
       - backend-uploads:/app/uploads
-      - backend-preview:/tmp/agent-a3-exam-preview
+    tmpfs:
+      - /tmp/agent-a3-exam-preview
     networks:
       default:
         aliases:
@@ -174,5 +175,4 @@ volumes:
   mysql-data:
   redis-data:
   backend-uploads:
-  backend-preview:
   ai-exports:

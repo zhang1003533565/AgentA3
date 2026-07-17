@@ -4,7 +4,7 @@
 
 CI, server deployment and manual competition reproduction all use the repository-root `deploy/compose.submission.yml`. The manifest starts MySQL, Redis, AppBackend, the Python AI Server and AppWeb. The server script does not use the legacy backend-only Compose profile.
 
-GitHub builds and pushes three application images. MySQL and Redis use the pinned images declared in the submission manifest. Runtime volumes preserve database data, Redis state, uploads, preview files and generated AI exports.
+GitHub builds and pushes three application images. MySQL and Redis use the pinned images declared in the submission manifest. Runtime volumes preserve database data, Redis state, uploads and generated AI exports. Exam preview files are temporary and run on a fresh tmpfs on every backend container start.
 
 ## Server preparation
 

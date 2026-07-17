@@ -49,6 +49,14 @@ class SubmissionReleaseContractTest(unittest.TestCase):
         self.assertIn("jdbc:mysql://mysql:3306/", compose)
         self.assertIn("REDIS_URL: redis://redis:6379/0", compose)
 
+    def test_backend_exam_preview_cache_is_ephemeral(self):
+        compose = (ROOT / "deploy/compose.submission.yml").read_text(encoding="utf-8")
+
+        self.assertIn("tmpfs:", compose)
+        self.assertIn("- /tmp/agent-a3-exam-preview", compose)
+        self.assertNotIn("backend-preview:", compose)
+        self.assertNotIn("backend-preview:/tmp/agent-a3-exam-preview", compose)
+
     def test_submission_runtime_host_ports_avoid_common_java_defaults(self):
         workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
         compose = (ROOT / "deploy/compose.submission.yml").read_text(encoding="utf-8")
