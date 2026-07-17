@@ -2,6 +2,7 @@ import os
 import subprocess
 import unittest
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -37,6 +38,16 @@ class SubmissionReleaseContractTest(unittest.TestCase):
         self.assertIn("REDIS_URL: redis://redis:6379/0", compose)
         self.assertIn("image: ${MYSQL_IMAGE:-mysql:8.4.5}", compose)
         self.assertIn("image: ${REDIS_IMAGE:-redis:7.4.2-alpine}", compose)
+
+    def test_submission_compose_does_not_publish_stateful_service_ports(self):
+        compose = (ROOT / "deploy/compose.submission.yml").read_text(encoding="utf-8")
+
+        for service in ["mysql", "redis"]:
+            match = re.search(rf"^  {service}:\n(?P<body>(?:    .*\n|      .*\n|        .*\n)*)", compose, re.MULTILINE)
+            self.assertIsNotNone(match, service)
+            self.assertNotIn("\n    ports:", match.group("body"), service)
+        self.assertIn("jdbc:mysql://mysql:3306/", compose)
+        self.assertIn("REDIS_URL: redis://redis:6379/0", compose)
 
     def test_deploy_mirrors_runtime_base_images_to_acr_before_server_pull(self):
         workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
