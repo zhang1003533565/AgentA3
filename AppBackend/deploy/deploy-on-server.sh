@@ -8,9 +8,10 @@ COMPOSE_FILE="${COMPOSE_FILE:-deploy/compose.submission.yml}"
 DEPLOY_PRUNE_DOCKER="${DEPLOY_PRUNE_DOCKER:-true}"
 DEPLOY_PRUNE_UNTIL="${DEPLOY_PRUNE_UNTIL:-24h}"
 
-# BACKEND_IMAGE, AI_SERVER_IMAGE, WEB_IMAGE, IMAGE_TAG, JWT_SECRET,
-# AI_INTERNAL_TOKEN and MYSQL_ROOT_PASSWORD may come from CI. Docker Compose
-# gives those process values precedence; otherwise it reads deploy/.env.
+# BACKEND_IMAGE, AI_SERVER_IMAGE, WEB_IMAGE, MYSQL_IMAGE, REDIS_IMAGE,
+# IMAGE_TAG, JWT_SECRET, AI_INTERNAL_TOKEN and MYSQL_ROOT_PASSWORD may come
+# from CI. Docker Compose gives those process values precedence; otherwise it
+# reads deploy/.env.
 
 cd "$REPO_DIR"
 

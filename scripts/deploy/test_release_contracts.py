@@ -15,7 +15,7 @@ class SubmissionReleaseContractTest(unittest.TestCase):
 
         self.assertIn("deploy/compose.submission.yml", server_script)
         self.assertIn('ENV_FILE="${ENV_FILE:-deploy/.env}"', server_script)
-        for variable in ["BACKEND_IMAGE", "WEB_IMAGE", "AI_SERVER_IMAGE", "IMAGE_TAG"]:
+        for variable in ["BACKEND_IMAGE", "WEB_IMAGE", "AI_SERVER_IMAGE", "MYSQL_IMAGE", "REDIS_IMAGE", "IMAGE_TAG"]:
             self.assertIn(variable, workflow)
             self.assertIn(variable, server_script)
         for shared_secret in ["JWT_SECRET", "AI_INTERNAL_TOKEN"]:
@@ -35,6 +35,20 @@ class SubmissionReleaseContractTest(unittest.TestCase):
         self.assertIn("service_completed_successfully", compose)
         self.assertIn("REDIS_HOST: redis", compose)
         self.assertIn("REDIS_URL: redis://redis:6379/0", compose)
+        self.assertIn("image: ${MYSQL_IMAGE:-mysql:8.4.5}", compose)
+        self.assertIn("image: ${REDIS_IMAGE:-redis:7.4.2-alpine}", compose)
+
+    def test_deploy_mirrors_runtime_base_images_to_acr_before_server_pull(self):
+        workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+
+        self.assertIn("Mirror Runtime Images To ACR", workflow)
+        self.assertIn("docker pull mysql:8.4.5", workflow)
+        self.assertIn('docker tag mysql:8.4.5 "$MYSQL_IMAGE"', workflow)
+        self.assertIn('docker push "$MYSQL_IMAGE"', workflow)
+        self.assertIn("docker pull redis:7.4.2-alpine", workflow)
+        self.assertIn('docker tag redis:7.4.2-alpine "$REDIS_IMAGE"', workflow)
+        self.assertIn('docker push "$REDIS_IMAGE"', workflow)
+        self.assertIn("MYSQL_IMAGE,REDIS_IMAGE", workflow)
 
     def test_local_java_and_python_share_development_internal_token_default(self):
         application_yml = (ROOT / "AppBackend/src/main/resources/application.yml").read_text(encoding="utf-8")
