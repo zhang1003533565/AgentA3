@@ -26,9 +26,10 @@ app.include_router(rag_export_router)
 app.include_router(videos_router)
 
 
-def _is_export_capability_route(method: str, path: str) -> bool:
+def _is_export_capability_route(method: str, path: str, raw_path: bytes = b"") -> bool:
     prefix = "/internal/rag/exports/"
-    storage_key = path[len(prefix):] if path.startswith(prefix) else ""
+    route_path = raw_path.decode("ascii", "ignore") if raw_path else path
+    storage_key = route_path[len(prefix):] if route_path.startswith(prefix) else ""
     return method == "GET" and bool(storage_key) and "/" not in storage_key
 
 
@@ -37,7 +38,11 @@ async def require_internal_service_token(request, call_next):
     configured_token = get_configured_internal_token()
     requires_internal_token = (
         request.url.path.startswith("/internal")
-        and not _is_export_capability_route(request.method, request.url.path)
+        and not _is_export_capability_route(
+            request.method,
+            request.url.path,
+            request.scope.get("raw_path", b""),
+        )
     )
     if requires_internal_token:
         supplied_token = request.headers.get("X-AI-Internal-Token", "")
