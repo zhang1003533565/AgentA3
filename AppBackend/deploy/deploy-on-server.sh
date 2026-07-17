@@ -58,6 +58,18 @@ release_configured_ports() {
   done
 }
 
+dump_deploy_diagnostics() {
+  echo "[deploy] Compose service status:" >&2
+  "${compose[@]}" ps -a >&2 || true
+  local service
+  for service in backend mysql redis ai-server web config-guard; do
+    echo "[deploy] Last logs for ${service}:" >&2
+    "${compose[@]}" logs --no-color --tail=200 "$service" >&2 || true
+  done
+  echo "[deploy] Docker containers publishing deployment ports:" >&2
+  docker ps --format 'table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}' >&2 || true
+}
+
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "[deploy] Missing $ENV_FILE. Copy deploy/.env.example to deploy/.env and fill real values." >&2
   exit 1
@@ -107,13 +119,19 @@ compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 "${compose[@]}" run --rm --no-deps config-guard
 "${compose[@]}" down --remove-orphans
 release_configured_ports
-"${compose[@]}" up -d --remove-orphans
+if ! "${compose[@]}" up -d --remove-orphans; then
+  dump_deploy_diagnostics
+  exit 1
+fi
 
-BACKEND_BASE_URL="${BACKEND_BASE_URL:-http://127.0.0.1:${BACKEND_PORT:-18080}}" \
-AI_BASE_URL="${AI_BASE_URL:-http://127.0.0.1:${AI_PORT:-18081}}" \
-WEB_BASE_URL="${WEB_BASE_URL:-http://127.0.0.1:${WEB_PORT:-3000}}" \
-AI_INTERNAL_TOKEN="${AI_INTERNAL_TOKEN:-}" \
-bash deploy/verify.sh
+if ! BACKEND_BASE_URL="${BACKEND_BASE_URL:-http://127.0.0.1:${BACKEND_PORT:-18080}}" \
+  AI_BASE_URL="${AI_BASE_URL:-http://127.0.0.1:${AI_PORT:-18081}}" \
+  WEB_BASE_URL="${WEB_BASE_URL:-http://127.0.0.1:${WEB_PORT:-3000}}" \
+  AI_INTERNAL_TOKEN="${AI_INTERNAL_TOKEN:-}" \
+  bash deploy/verify.sh; then
+  dump_deploy_diagnostics
+  exit 1
+fi
 
 if [[ "$DEPLOY_PRUNE_DOCKER" == "true" ]]; then
   echo "[deploy] Pruning unused Docker images and build cache older than ${DEPLOY_PRUNE_UNTIL}; volumes are preserved."
