@@ -49,6 +49,26 @@ class SubmissionReleaseContractTest(unittest.TestCase):
         self.assertIn("jdbc:mysql://mysql:3306/", compose)
         self.assertIn("REDIS_URL: redis://redis:6379/0", compose)
 
+    def test_submission_runtime_host_ports_avoid_common_java_defaults(self):
+        workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+        compose = (ROOT / "deploy/compose.submission.yml").read_text(encoding="utf-8")
+        verify = (ROOT / "deploy/verify.sh").read_text(encoding="utf-8")
+        env_example = (ROOT / "deploy/.env.example").read_text(encoding="utf-8")
+
+        self.assertIn("${BACKEND_PORT:-18080}:8080", compose)
+        self.assertIn("${AI_PORT:-18081}:8081", compose)
+        self.assertIn("BACKEND_PORT: ${{ vars.BACKEND_PORT || '18080' }}", workflow)
+        self.assertIn("AI_PORT: ${{ vars.AI_PORT || '18081' }}", workflow)
+        self.assertIn("BACKEND_PORT,AI_PORT", workflow)
+        self.assertIn("DEPLOY_FORCE_RELEASE_PORTS", workflow)
+        self.assertIn("DEPLOY_RELEASE_PORTS", workflow)
+        self.assertIn("localhost:18080", verify)
+        self.assertIn("localhost:18081", verify)
+        self.assertIn("BACKEND_PORT=18080", env_example)
+        self.assertIn("AI_PORT=18081", env_example)
+        self.assertIn("DEPLOY_FORCE_RELEASE_PORTS=true", env_example)
+        self.assertIn("DEPLOY_RELEASE_PORTS=8080 8081 18080 18081 3000", env_example)
+
     def test_deploy_mirrors_runtime_base_images_to_acr_before_server_pull(self):
         workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
 
@@ -86,10 +106,32 @@ class SubmissionReleaseContractTest(unittest.TestCase):
 
         self.assertIn("DEPLOY_PRUNE_DOCKER", server_script)
         self.assertIn("DEPLOY_PRUNE_UNTIL", server_script)
+        self.assertIn("DEPLOY_FORCE_RELEASE_PORTS", server_script)
+        self.assertIn("DEPLOY_RELEASE_PORTS", server_script)
+        self.assertIn('env_file_value BACKEND_PORT', server_script)
+        self.assertIn('env_file_value DEPLOY_RELEASE_PORTS', server_script)
+        self.assertIn('down --remove-orphans', server_script)
+        self.assertLess(
+            server_script.index('run --rm --no-deps config-guard'),
+            server_script.index('down --remove-orphans'),
+        )
+        self.assertLess(
+            server_script.index('"${compose[@]}" down --remove-orphans'),
+            server_script.index('\nrelease_configured_ports\n'),
+        )
+        self.assertLess(
+            server_script.index('\nrelease_configured_ports\n'),
+            server_script.index('up -d --remove-orphans'),
+        )
+        self.assertIn('docker ps -q --filter "publish=${port}"', server_script)
+        self.assertIn("docker rm -f $container_ids", server_script)
+        self.assertIn("fuser -k -n tcp", server_script)
+        self.assertIn("kill -9 $pids", server_script)
         self.assertIn("docker image prune -af --filter", server_script)
         self.assertIn("docker builder prune -af --filter", server_script)
         self.assertNotIn("docker system prune -af --volumes", server_script)
         self.assertNotIn("docker volume prune", server_script)
+        self.assertNotIn("down --volumes", server_script)
 
     def test_server_deploy_discards_tracked_changes_before_syncing_branch(self):
         workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")

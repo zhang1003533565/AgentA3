@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-backend_url="${BACKEND_BASE_URL:-http://localhost:8080}"
-ai_url="${AI_BASE_URL:-http://localhost:8081}"
+backend_url="${BACKEND_BASE_URL:-http://localhost:18080}"
+ai_url="${AI_BASE_URL:-http://localhost:18081}"
 web_url="${WEB_BASE_URL:-http://localhost:3000}"
 
 check_url() {
