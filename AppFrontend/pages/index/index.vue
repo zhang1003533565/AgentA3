@@ -82,97 +82,64 @@
 				</view>
 			</view>
 
-			<view class="meeting-entry-card" @click="navigate('/subpackage_meeting/meetingRoom/meetingRoom')">
-				<view class="meeting-entry-card__glow"></view>
-				<view class="meeting-entry-card__content">
-					<view class="meeting-entry-card__copy">
-						<text class="meeting-entry-card__eyebrow">AI MEETING</text>
-						<text class="meeting-entry-card__title">会议空间</text>
-						<text class="meeting-entry-card__desc">开会记录、纪要总结、成员分析和资源推荐，一页完成</text>
-						<view class="meeting-entry-card__agents">
-							<text class="meeting-entry-card__tag">总控</text>
-							<text class="meeting-entry-card__tag">转写</text>
-							<text class="meeting-entry-card__tag">总结</text>
+			<view class="campus-ai-module">
+				<view
+					v-if="!campusAiExpanded"
+					class="campus-ai-fold-card"
+					@click="toggleCampusAi(true)"
+					@touchstart="captureCampusAiTouchStart"
+					@touchend="handleCampusAiTouchEnd"
+				>
+					<view class="campus-ai-fold-main">
+						<view class="campus-ai-mark">
+							<text class="campus-ai-mark__spark">✦</text>
+						</view>
+						<view class="campus-ai-copy">
+							<text class="campus-ai-title">校园 AI</text>
+							<text class="campus-ai-subtitle">记录会议 · 生成内容 · 智能总结</text>
 						</view>
 					</view>
-					<view class="meeting-entry-card__visual">
-						<view class="meeting-board">
-							<view class="meeting-board__line meeting-board__line--wide"></view>
-							<view class="meeting-board__line"></view>
-							<view class="meeting-board__spark"></view>
-						</view>
-						<view class="meeting-avatar meeting-avatar--one">会</view>
-						<view class="meeting-avatar meeting-avatar--two">析</view>
-						<view class="meeting-avatar meeting-avatar--three">荐</view>
+					<text class="campus-ai-chevron">⌄</text>
+				</view>
+
+				<view v-else class="campus-ai-expand-card">
+					<view class="campus-ai-expand-head">
+						<text class="campus-ai-question">今天想做什么?</text>
+						<view class="campus-ai-close" @click.stop="toggleCampusAi(false)">×</view>
 					</view>
-				</view>
-				<view class="meeting-entry-card__action">
-					<text>进入会议</text>
-					<view class="meeting-entry-card__arrow">→</view>
-				</view>
-			</view>
 
-			<view class="supplement-grid">
-				<view class="supplement-card supplement-card--ai">
-					<view class="ai-card-content">
-						<view class="ai-card-text">
-							<view class="title-deco">
-								<view class="t-deco-line"></view>
-								<view class="t-deco-dot"></view>
+					<view class="campus-ai-actions">
+						<view class="campus-ai-action campus-ai-action--meeting" @click.stop="navigate('/subpackage_meeting/meetingRoom/meetingRoom')">
+							<view class="campus-ai-action-icon campus-ai-action-icon--meeting">
+								<view class="campus-ai-mic">
+									<view class="campus-ai-mic__stem"></view>
+								</view>
 							</view>
-							<text class="ai-card-title">智感工坊</text>
-							<text class="ai-card-subtitle">让创意点亮校园生活</text>
-
-							<view class="ai-card-btn" @click="navigate('/subpackage_ai/aiCreate/aiCreate')">
-								<text class="ai-card-btn-text">立即体验</text>
-								<view class="btn-arrow">→</view>
+							<view class="campus-ai-action-copy">
+								<text class="campus-ai-action-title">记录会议</text>
+								<text class="campus-ai-action-desc">语音转写 / 纪要生成</text>
 							</view>
 						</view>
-						<view class="ai-card-visual">
-							<view class="ai-scene">
-								<!-- 背景装饰圆 -->
-								<view class="bg-circles">
-									<view class="bg-circle c-1"></view>
-									<view class="bg-circle c-2"></view>
-									<view class="bg-circle c-3"></view>
-								</view>
-								<!-- 轨道装饰 -->
-								<view class="orbit-ring orbit-1">
-									<view class="orbit-dot"></view>
-								</view>
-								<view class="orbit-ring orbit-2">
-									<view class="orbit-dot"></view>
-								</view>
-								<!-- 3D AI 盾牌 -->
-								<view class="ai-shield">
-									<view class="shield-body">
-										<text class="shield-text">AI</text>
-									</view>
-									<view class="shield-shine"></view>
-									<view class="shield-glow"></view>
-								</view>
-								<!-- 功能图标环绕 -->
-								<view class="feature-orbit">
-									<view class="orbit-icon icon-1">✍</view>
-									<view class="orbit-icon icon-2">▶</view>
-									<view class="orbit-icon icon-3">◈</view>
-								</view>
-								<!-- 上升箭头 -->
-								<view class="trend-arrow">
-									<view class="arrow-body"></view>
-									<view class="arrow-head"></view>
-								</view>
-								<!-- 粒子效果 -->
-								<view class="particles">
-									<view class="particle p-1"></view>
-									<view class="particle p-2"></view>
-									<view class="particle p-3"></view>
-									<view class="particle p-4"></view>
-									<view class="particle p-5"></view>
-									<view class="particle p-6"></view>
-								</view>
+
+						<view class="campus-ai-action campus-ai-action--create" @click.stop="navigate('/subpackage_ai/aiCreate/aiCreate')">
+							<view class="campus-ai-action-icon campus-ai-action-icon--create">
+								<text class="campus-ai-spark">✦</text>
+							</view>
+							<view class="campus-ai-action-copy">
+								<text class="campus-ai-action-title">灵感创作</text>
+								<text class="campus-ai-action-desc">海报 / 文案 / PPT</text>
 							</view>
 						</view>
+					</view>
+
+					<view class="campus-ai-recent-label">最近使用</view>
+					<view class="campus-ai-recent" @click.stop="navigate('/subpackage_meeting/meetingSchedule/meetingSchedule')">
+						<view class="campus-ai-doc-icon"></view>
+						<view class="campus-ai-recent-copy">
+							<text class="campus-ai-recent-title">会议日程与历史</text>
+							<text class="campus-ai-recent-desc">查看最近会议记录与 AI 纪要</text>
+						</view>
+						<text class="campus-ai-recent-arrow">›</text>
 					</view>
 				</view>
 			</view>
@@ -198,6 +165,8 @@ export default {
 		return {
 			headline: '',
 			announcements: [],
+			campusAiExpanded: false,
+			campusAiTouchStartY: 0,
 
 			heroSlides: [
 				{
@@ -247,6 +216,21 @@ export default {
 				return
 			}
 			uni.navigateTo({ url: path })
+		},
+		toggleCampusAi(expanded) {
+			this.campusAiExpanded = typeof expanded === 'boolean' ? expanded : !this.campusAiExpanded
+		},
+		captureCampusAiTouchStart(event) {
+			const point = event.changedTouches?.[0] || event.touches?.[0]
+			this.campusAiTouchStartY = point ? point.clientY : 0
+		},
+		handleCampusAiTouchEnd(event) {
+			const point = event.changedTouches?.[0] || event.touches?.[0]
+			const endY = point ? point.clientY : 0
+			if (this.campusAiTouchStartY && this.campusAiTouchStartY - endY > 24) {
+				this.toggleCampusAi(true)
+			}
+			this.campusAiTouchStartY = 0
 		},
 		goToNotice() {
 			uni.navigateTo({
@@ -486,6 +470,381 @@ export default {
 	100% {
 		transform: translateX(-100%);
 	}
+}
+
+.campus-ai-module {
+	margin-top: 28rpx;
+}
+
+.campus-ai-fold-card,
+.campus-ai-expand-card {
+	position: relative;
+	box-sizing: border-box;
+	border: 1rpx solid rgba(226, 235, 239, 0.92);
+	background: #ffffff;
+	box-shadow: 0 18rpx 46rpx rgba(62, 83, 92, 0.10);
+}
+
+.campus-ai-fold-card {
+	min-height: 144rpx;
+	padding: 26rpx 30rpx;
+	border-radius: 24rpx;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	overflow: hidden;
+}
+
+.campus-ai-fold-card::before {
+	content: '';
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	height: 48rpx;
+	background: linear-gradient(90deg, rgba(232, 255, 240, 0.72), rgba(236, 244, 255, 0.78));
+	opacity: 0.58;
+	pointer-events: none;
+}
+
+.campus-ai-fold-card:active,
+.campus-ai-action:active,
+.campus-ai-recent:active {
+	transform: translateY(2rpx);
+}
+
+.campus-ai-fold-main {
+	position: relative;
+	z-index: 1;
+	display: flex;
+	align-items: center;
+	min-width: 0;
+}
+
+.campus-ai-mark {
+	width: 58rpx;
+	height: 58rpx;
+	border-radius: 20rpx;
+	background: linear-gradient(135deg, #eefdf4, #edf5ff);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-shadow: inset 0 0 0 1rpx rgba(255, 255, 255, 0.82);
+	flex-shrink: 0;
+}
+
+.campus-ai-mark__spark {
+	color: #2476f2;
+	font-size: 30rpx;
+	font-weight: 900;
+	line-height: 1;
+}
+
+.campus-ai-copy {
+	margin-left: 18rpx;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.campus-ai-title {
+	font-size: 29rpx;
+	font-weight: 900;
+	color: #17242b;
+	line-height: 1.25;
+}
+
+.campus-ai-subtitle {
+	margin-top: 6rpx;
+	font-size: 22rpx;
+	line-height: 1.35;
+	color: #6d7d86;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 500rpx;
+}
+
+.campus-ai-chevron {
+	position: relative;
+	z-index: 1;
+	width: 42rpx;
+	height: 42rpx;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: #5e6e78;
+	font-size: 34rpx;
+	line-height: 1;
+}
+
+.campus-ai-expand-card {
+	min-height: 380rpx;
+	padding: 26rpx 30rpx 28rpx;
+	border-radius: 24rpx;
+	overflow: hidden;
+	background:
+		linear-gradient(145deg, rgba(234, 255, 242, 0.72) 0%, rgba(255, 255, 255, 0.90) 42%),
+		linear-gradient(35deg, rgba(255, 255, 255, 0) 40%, rgba(238, 245, 255, 0.92) 100%),
+		#ffffff;
+}
+
+.campus-ai-expand-head {
+	position: relative;
+	z-index: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 42rpx;
+}
+
+.campus-ai-question {
+	font-size: 28rpx;
+	font-weight: 900;
+	color: #1d282f;
+	line-height: 1.3;
+}
+
+.campus-ai-close {
+	position: absolute;
+	right: 0;
+	top: 50%;
+	transform: translateY(-50%);
+	width: 48rpx;
+	height: 48rpx;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: #687986;
+	font-size: 32rpx;
+	line-height: 1;
+}
+
+.campus-ai-actions {
+	position: relative;
+	z-index: 1;
+	margin-top: 28rpx;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 18rpx;
+}
+
+.campus-ai-action {
+	min-width: 0;
+	min-height: 122rpx;
+	padding: 22rpx 20rpx;
+	border-radius: 20rpx;
+	display: flex;
+	align-items: center;
+	box-sizing: border-box;
+	border: 1rpx solid rgba(228, 238, 243, 0.92);
+	box-shadow: 0 12rpx 28rpx rgba(73, 96, 106, 0.08);
+}
+
+.campus-ai-action--meeting {
+	background: linear-gradient(135deg, rgba(244, 255, 247, 0.96), rgba(255, 255, 255, 0.94));
+}
+
+.campus-ai-action--create {
+	background: linear-gradient(135deg, rgba(246, 250, 255, 0.96), rgba(255, 255, 255, 0.96));
+}
+
+.campus-ai-action-icon {
+	width: 66rpx;
+	height: 66rpx;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+}
+
+.campus-ai-action-icon--meeting {
+	background: #dff9e6;
+}
+
+.campus-ai-action-icon--create {
+	background: #e4efff;
+}
+
+.campus-ai-mic {
+	position: relative;
+	width: 38rpx;
+	height: 48rpx;
+}
+
+.campus-ai-mic::before {
+	content: '';
+	position: absolute;
+	top: 2rpx;
+	left: 50%;
+	width: 18rpx;
+	height: 30rpx;
+	border-radius: 999rpx;
+	background: #20b46b;
+	transform: translateX(-50%);
+}
+
+.campus-ai-mic::after {
+	content: '';
+	position: absolute;
+	top: 20rpx;
+	left: 50%;
+	width: 32rpx;
+	height: 22rpx;
+	border: 4rpx solid #20b46b;
+	border-top: 0;
+	border-radius: 0 0 18rpx 18rpx;
+	transform: translateX(-50%);
+	box-sizing: border-box;
+}
+
+.campus-ai-mic__stem {
+	position: absolute;
+	left: 50%;
+	bottom: 0;
+	width: 18rpx;
+	height: 4rpx;
+	border-radius: 999rpx;
+	background: #20b46b;
+	transform: translateX(-50%);
+}
+
+.campus-ai-mic__stem::before {
+	content: '';
+	position: absolute;
+	left: 50%;
+	bottom: 0;
+	width: 4rpx;
+	height: 14rpx;
+	border-radius: 999rpx;
+	background: #20b46b;
+	transform: translateX(-50%);
+}
+
+.campus-ai-spark {
+	color: #2d7df4;
+	font-size: 34rpx;
+	font-weight: 900;
+	line-height: 1;
+}
+
+.campus-ai-action-copy {
+	margin-left: 16rpx;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.campus-ai-action-title {
+	font-size: 25rpx;
+	font-weight: 900;
+	color: #1f2d35;
+	line-height: 1.32;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.campus-ai-action-desc {
+	margin-top: 6rpx;
+	font-size: 20rpx;
+	line-height: 1.3;
+	color: #697a84;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.campus-ai-recent-label {
+	position: relative;
+	z-index: 1;
+	margin-top: 26rpx;
+	font-size: 22rpx;
+	color: #687986;
+	line-height: 1.35;
+}
+
+.campus-ai-recent {
+	position: relative;
+	z-index: 1;
+	margin-top: 12rpx;
+	min-height: 78rpx;
+	padding: 16rpx 18rpx;
+	border-radius: 18rpx;
+	background: rgba(255, 255, 255, 0.86);
+	border: 1rpx solid rgba(226, 235, 239, 0.95);
+	display: flex;
+	align-items: center;
+	box-sizing: border-box;
+	box-shadow: 0 10rpx 24rpx rgba(73, 96, 106, 0.06);
+}
+
+.campus-ai-doc-icon {
+	position: relative;
+	width: 30rpx;
+	height: 34rpx;
+	border-radius: 6rpx;
+	border: 3rpx solid #3478f6;
+	box-sizing: border-box;
+	flex-shrink: 0;
+}
+
+.campus-ai-doc-icon::before,
+.campus-ai-doc-icon::after {
+	content: '';
+	position: absolute;
+	left: 6rpx;
+	right: 6rpx;
+	height: 3rpx;
+	border-radius: 999rpx;
+	background: #3478f6;
+}
+
+.campus-ai-doc-icon::before {
+	top: 9rpx;
+}
+
+.campus-ai-doc-icon::after {
+	top: 18rpx;
+}
+
+.campus-ai-recent-copy {
+	margin-left: 16rpx;
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+}
+
+.campus-ai-recent-title {
+	font-size: 23rpx;
+	font-weight: 800;
+	color: #21313a;
+	line-height: 1.3;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.campus-ai-recent-desc {
+	margin-top: 4rpx;
+	font-size: 19rpx;
+	line-height: 1.3;
+	color: #788892;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.campus-ai-recent-arrow {
+	margin-left: 12rpx;
+	color: #748590;
+	font-size: 38rpx;
+	line-height: 1;
+	flex-shrink: 0;
 }
 
 .meeting-entry-card {

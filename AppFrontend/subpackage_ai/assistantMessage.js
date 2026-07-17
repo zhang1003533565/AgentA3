@@ -97,6 +97,38 @@ function inferDeliveryType(resource) {
   return explicit === 'business' ? 'business_card' : explicit
 }
 
+function comparableContent(value, withoutAttachmentReferences = false) {
+  if (typeof value !== 'string') return ''
+  let content = value
+  if (withoutAttachmentReferences) {
+    content = content
+      .replace(legacyMarkdownAttachmentPattern(), ' ')
+      .replace(legacyAttachmentUrlPattern(), ' ')
+  }
+  return content.replace(/\r\n?/g, '\n').trim().replace(/\s+/g, ' ')
+}
+
+function equivalentMessageContent(value, messageContent) {
+  const normalizedValue = comparableContent(value)
+  const normalizedMessage = comparableContent(messageContent)
+  if (!normalizedValue || !normalizedMessage) return false
+  if (normalizedValue === normalizedMessage) return true
+
+  const valueWithoutAttachments = comparableContent(value, true)
+  const messageWithoutAttachments = comparableContent(messageContent, true)
+  return Boolean(valueWithoutAttachments && messageWithoutAttachments
+    && valueWithoutAttachments === messageWithoutAttachments)
+}
+
+function redundantMessageContentResource(resource, messageContent) {
+  const source = objectValue(resource)
+  if (inferDeliveryType(source) !== 'content') return false
+  const payload = objectValue(source.payload)
+  const body = typeof payload.content === 'string' ? payload.content : ''
+  if (body.trim()) return equivalentMessageContent(body, messageContent)
+  return equivalentMessageContent(typeof source.summary === 'string' ? source.summary : '', messageContent)
+}
+
 function resourceUnavailable(resource) {
   if (resource.unavailable === true) return true
   const metadata = objectValue(resource.metadata)
@@ -361,6 +393,7 @@ export function normalizeAssistantResources(message) {
   const weakLegacyKeyCounts = new Map()
   for (const rawResource of Array.isArray(source.resources) ? source.resources : []) {
     if (!rawResource || typeof rawResource !== 'object' || Array.isArray(rawResource)) continue
+    if (redundantMessageContentResource(rawResource, source.content)) continue
     const identities = resourceIdentities(rawResource)
     if (identities.some((identity) => seen.has(identity))) continue
     const normalized = normalizeAssistantResource(rawResource, { messageId })

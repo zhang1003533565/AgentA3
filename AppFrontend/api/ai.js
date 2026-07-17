@@ -58,7 +58,7 @@ export function queryLeaderAgent(data) {
   })
 }
 
-export async function streamLeaderAgent(data, handlers = {}) {
+export function streamLeaderAgent(data, handlers = {}) {
   return streamSse('/api/ai/leader/query/stream', {
     ...(data || {}),
     agentName: 'leader_agent',
@@ -254,89 +254,111 @@ export function previewMeetingAgent(sessionId, data) {
   })
 }
 
-export async function streamLlmChat(data, handlers = {}) {
+export function streamLlmChat(data, handlers = {}) {
   return streamSse('/api/llm/chat/stream', data, handlers, '当前运行环境暂不支持流式总结')
 }
 
-export async function streamSse(url, data, handlers = {}, unsupportedMessage = '当前运行环境暂不支持流式响应') {
-  if (typeof fetch !== 'function') {
-    const error = new Error(unsupportedMessage)
-    error.fallbackToNormalRequest = true
-    throw error
-  }
-  const token = getToken()
-  const controller = new AbortController()
-  const response = await fetch(`${BASE_URL}${url}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    },
-    body: JSON.stringify(data || {}),
-    signal: controller.signal
-  })
-  if (!response.ok) {
-    const error = new Error(`流式请求失败: ${response.status}`)
-    error.status = response.status
-    error.statusCode = response.status
-    throw error
-  }
-  if (!response.body?.getReader) {
-    const error = new Error('当前运行环境无法读取流式响应')
-    error.fallbackToNormalRequest = true
-    throw error
-  }
-
-  const decoder = new TextDecoder('utf-8')
-  const reader = response.body.getReader()
-  let buffer = ''
-  const flushEvent = (block) => {
-    const lines = block.split(/\r?\n/)
-    let eventName = 'message'
-    const dataLines = []
-    lines.forEach(line => {
-      if (line.startsWith('event:')) {
-        eventName = line.slice(6).trim() || 'message'
-      } else if (line.startsWith('data:')) {
-        dataLines.push(line.slice(5).trim())
-      }
+export function streamSse(url, data, handlers = {}, unsupportedMessage = '当前运行环境暂不支持流式响应') {
+  const controller = typeof AbortController === 'function' ? new AbortController() : null
+  const done = (async () => {
+    if (typeof fetch !== 'function' || !controller) {
+      const error = new Error(unsupportedMessage)
+      error.fallbackToNormalRequest = true
+      throw error
+    }
+    const token = getToken()
+    const response = await fetch(`${BASE_URL}${url}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify(data || {}),
+      signal: controller.signal
     })
-    if (!dataLines.length) return
-    let payload = dataLines.join('\n')
+    if (!response.ok) {
+      const error = new Error(`流式请求失败: ${response.status}`)
+      error.status = response.status
+      error.statusCode = response.status
+      throw error
+    }
+    if (!response.body?.getReader) {
+      const error = new Error('当前运行环境无法读取流式响应')
+      error.fallbackToNormalRequest = true
+      throw error
+    }
+
+    const decoder = new TextDecoder('utf-8')
+    const reader = response.body.getReader()
+    let buffer = ''
+    const flushEvent = (block) => {
+      const lines = block.split(/\r?\n/)
+      let eventName = 'message'
+      const dataLines = []
+      lines.forEach(line => {
+        if (line.startsWith('event:')) {
+          eventName = line.slice(6).trim() || 'message'
+        } else if (line.startsWith('data:')) {
+          dataLines.push(line.slice(5).trim())
+        }
+      })
+      if (!dataLines.length) return
+      let payload = dataLines.join('\n')
+      try {
+        payload = JSON.parse(payload)
+      } catch (error) {}
+      if (eventName === 'delta') {
+        handlers.onDelta?.(payload?.content || '')
+      } else if (eventName === 'session') {
+        handlers.onSession?.(payload)
+      } else if (eventName === 'search') {
+        handlers.onSearch?.(payload)
+      } else if (eventName === 'done') {
+        handlers.onDone?.(payload)
+      } else if (eventName === 'error') {
+        handlers.onError?.(payload)
+      } else {
+        handlers.onEvent?.(eventName, payload)
+      }
+    }
+
     try {
-      payload = JSON.parse(payload)
-    } catch (error) {}
-    if (eventName === 'delta') {
-      handlers.onDelta?.(payload?.content || '')
-    } else if (eventName === 'session') {
-      handlers.onSession?.(payload)
-    } else if (eventName === 'search') {
-      handlers.onSearch?.(payload)
-    } else if (eventName === 'done') {
-      handlers.onDone?.(payload)
-    } else if (eventName === 'error') {
-      handlers.onError?.(payload)
-    } else {
-      handlers.onEvent?.(eventName, payload)
+      while (true) {
+        const { value, done: streamDone } = await reader.read()
+        if (streamDone) break
+        buffer += decoder.decode(value, { stream: true })
+        const blocks = buffer.split(/\n\s*\n/)
+        buffer = blocks.pop() || ''
+        blocks.forEach(flushEvent)
+      }
+      buffer += decoder.decode()
+      if (buffer.trim()) flushEvent(buffer)
+    } finally {
+      reader.releaseLock()
+    }
+
+    return controller
+  })()
+
+  return {
+    controller,
+    signal: controller?.signal,
+    done,
+    abort(reason) {
+      if (!controller || controller.signal.aborted) return false
+      controller.abort(reason)
+      return true
+    },
+    then(onFulfilled, onRejected) {
+      return done.then(onFulfilled, onRejected)
+    },
+    catch(onRejected) {
+      return done.catch(onRejected)
+    },
+    finally(onFinally) {
+      return done.finally(onFinally)
     }
   }
-
-  try {
-    while (true) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const blocks = buffer.split(/\n\s*\n/)
-      buffer = blocks.pop() || ''
-      blocks.forEach(flushEvent)
-    }
-    buffer += decoder.decode()
-    if (buffer.trim()) flushEvent(buffer)
-  } finally {
-    reader.releaseLock()
-  }
-
-  return controller
 }
 
 export function getLeaderSessions(params = {}) {

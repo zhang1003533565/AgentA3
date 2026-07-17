@@ -147,6 +147,70 @@ test('legacy fallback preserves structured aliases plus JSON, Markdown and bare 
   assert.ok(json.every((item) => item.legacy))
 })
 
+test('message-equivalent content resources stay hidden instead of repeating a plain answer', async () => {
+  const { normalizeAssistantResources } = await helper
+  const content = '你好呀！有什么可以帮你的呢？ 😊'
+  const resources = normalizeAssistantResources({
+    content,
+    resources: [{
+      id: 'res_answer_body',
+      kind: 'explanation',
+      deliveryType: 'content',
+      summary: content,
+      payload: { type: 'content', content: `  ${content}\r\n` }
+    }, {
+      id: 'res_answer_summary',
+      kind: 'explanation',
+      deliveryType: 'content',
+      summary: `\n${content}\n`,
+      payload: { type: 'content' }
+    }]
+  })
+
+  assert.deepEqual(resources, [])
+})
+
+test('a genuinely independent content resource remains visible', async () => {
+  const { normalizeAssistantResources } = await helper
+  const resources = normalizeAssistantResources({
+    content: '这是简要回答。',
+    resources: [{
+      id: 'res_extended_note',
+      kind: 'extended_reading',
+      deliveryType: 'content',
+      summary: '这是简要回答。',
+      payload: { type: 'content', content: '## 延伸阅读\n\n这是与主回答不同的完整材料。' }
+    }]
+  })
+
+  assert.equal(resources.length, 1)
+  assert.equal(resources[0].id, 'res_extended_note')
+  assert.equal(resources[0].renderer, 'content')
+})
+
+test('hiding duplicate content still keeps one legacy Markdown attachment card', async () => {
+  const { normalizeAssistantResources } = await helper
+  const url = '/uploads/old.docx'
+  const resources = normalizeAssistantResources({
+    messageId: 42,
+    content: `这是答复。\n\n[旧讲义](${url})`,
+    resources: [{
+      id: 'res_repeated_answer',
+      kind: 'explanation',
+      deliveryType: 'content',
+      summary: '这是答复。',
+      payload: { type: 'content', content: '这是答复。' }
+    }],
+    attachments: [{ name: '旧讲义', fileUrl: url }]
+  })
+
+  assert.equal(resources.length, 1)
+  assert.equal(resources[0].url, url)
+  assert.equal(resources[0].renderer, 'document')
+  assert.equal(resources[0].legacy, true)
+  assert.equal(resources[0].messageId, 42)
+})
+
 test('normal legacy attachments without strong identities keep same-name records and use local collision keys', async () => {
   const { normalizeAssistantResources } = await helper
   const resources = normalizeAssistantResources({
