@@ -1,16 +1,25 @@
 <template>
   <view class="conversation-page">
-    <nav-bar title="AI 会话" :showBack="true" fixed placeholder />
+    <nav-bar title="Leader 智能助手" :showBack="true" fixed placeholder />
 
     <view class="conversation-actions">
-      <view class="conversation-action" @click="openHistory">历史对话</view>
-      <view class="conversation-action conversation-action--primary" @click="startNewConversation">新对话</view>
+      <view class="conversation-action" @click="openHistory">
+        <text class="conversation-action__icon">◷</text>
+        <text>历史</text>
+      </view>
+      <view class="conversation-action conversation-action--primary" @click="startNewConversation">
+        <text class="conversation-action__icon">＋</text>
+        <text>新建对话</text>
+      </view>
     </view>
 
     <scroll-view
       class="message-list"
       scroll-y
       :scroll-into-view="scrollAnchor"
+      :lower-threshold="80"
+      @scroll="handleMessageScroll"
+      @scrolltolower="handleReachBottom"
     >
       <view v-if="messages.length === 0" class="conversation-empty">
         <text class="conversation-empty__title">和 Leader 开始聊吧</text>
@@ -22,10 +31,21 @@
         :key="message.localId || message.id"
         :id="`msg-${index}`"
         class="message-row"
-        :class="message.role === 'user' ? 'message-row--user' : 'message-row--assistant'"
+        :class="message.role === 'user'
+          ? 'message-row--user'
+          : (message.role === 'action' ? 'message-row--action' : 'message-row--assistant')"
       >
-        <view class="message-bubble" :class="message.role === 'user' ? 'message-bubble--user' : 'message-bubble--assistant'">
-          <view v-if="message.type === 'thinking'" class="thinking-indicator">
+        <view
+          class="message-bubble"
+          :class="message.role === 'user'
+            ? 'message-bubble--user'
+            : (message.role === 'action' ? 'message-bubble--action' : 'message-bubble--assistant')"
+        >
+          <view v-if="message.role === 'action'" class="action-message">
+            <text class="action-message__icon">↳</text>
+            <text class="action-message__text">{{ getDisplayText(message) }}</text>
+          </view>
+          <view v-else-if="message.type === 'thinking'" class="thinking-indicator">
             <text class="thinking-text">{{ message.content || '思考中' }}</text>
             <view class="thinking-dots">
               <text></text>
@@ -34,9 +54,15 @@
             </view>
           </view>
           <view v-else class="message-content">
-            <view v-if="message.role === 'assistant' && getOutputTypeTags(message).length" class="output-type-list">
+            <view v-if="message.role === 'assistant'" class="assistant-identity">
+              <view class="assistant-identity__avatar">AI</view>
+              <text class="assistant-identity__name">Leader</text>
+              <text v-if="message.responseState === 'stopped'" class="assistant-identity__state">已停止</text>
+              <text v-else-if="message.responseState === 'interrupted'" class="assistant-identity__state assistant-identity__state--warning">已中断</text>
+            </view>
+            <view v-if="message.role === 'assistant' && getVisibleOutputTypeTags(message).length" class="output-type-list">
               <text
-                v-for="type in getOutputTypeTags(message)"
+                v-for="type in getVisibleOutputTypeTags(message)"
                 :key="`${message.localId || message.id}-type-${type}`"
                 class="output-type-tag"
                 :class="`output-type-tag--${type}`"
@@ -74,7 +100,7 @@
                     </view>
                   </view>
                 </view>
-                <text v-if="resource.summary" class="resource-card__summary">{{ resource.summary }}</text>
+                <text v-if="getResourceSummary(resource)" class="resource-card__summary">{{ getResourceSummary(resource) }}</text>
                 <safe-markdown
                   v-if="resource.renderer === 'content' && resource.payload.content"
                   class="resource-card__content"
@@ -94,7 +120,7 @@
                   v-if="resource.renderer === 'image' && getResourceDisplayPath(resource)"
                   class="resource-card__image"
                   :src="getResourceDisplayPath(resource)"
-                  mode="aspectFill"
+                  mode="aspectFit"
                   @click="previewResourceImage(resource, message)"
                 />
                 <video
@@ -139,28 +165,32 @@
                   :key="`${message.localId || message.id}-follow-${actionIndex}`"
                   class="follow-up-action"
                   :class="action.style === 'secondary' ? 'follow-up-action--secondary' : 'follow-up-action--primary'"
-                  @click="handleFollowUpAction(action)"
+                  @click="handleFollowUpAction(action, message)"
                 >{{ action.label }}</view>
               </view>
             </view>
+            <view v-if="message.role === 'assistant' && message.type !== 'thinking'" class="message-action-bar">
+              <view class="message-action" @click="copyMessage(message)">复制</view>
+              <view class="message-action" @click="retryMessage(message)">重答</view>
+            </view>
             <view
-              v-if="message.role === 'assistant'"
+              v-if="shouldShowEvidence(message)"
               class="evidence-panel"
               :class="`evidence-panel--${getEvidenceSummary(message).state}`"
             >
               <view class="evidence-panel__header" @click="toggleEvidence(message)">
-                <view class="evidence-panel__heading">
-                  <text class="evidence-panel__title">来源与依据</text>
-                  <text class="evidence-panel__summary">{{ getEvidenceSummary(message).label }}</text>
-                  <text class="evidence-panel__meta">
-                    {{ getEvidenceAgentLabel(message) }} · {{ getEvidenceGeneratedAtLabel(message) }}
-                  </text>
+                <view class="evidence-panel__heading-row">
+                  <text class="evidence-panel__icon">{{ getEvidenceIcon(message) }}</text>
+                  <text class="evidence-panel__title">{{ getEvidenceCompactLabel(message) }}</text>
                 </view>
-                <text v-if="getEvidenceSources(message).length" class="evidence-panel__toggle">
-                  {{ isEvidenceExpanded(message) ? '收起' : '查看来源' }}
+                <text class="evidence-panel__toggle">
+                  {{ isEvidenceExpanded(message) ? '收起' : '查看' }}
                 </text>
               </view>
               <view v-if="isEvidenceExpanded(message)" class="evidence-panel__sources">
+                <text class="evidence-panel__meta">
+                  {{ getEvidenceAgentLabel(message) }} · {{ getEvidenceGeneratedAtLabel(message) }}
+                </text>
                 <view
                   v-for="source in getEvidenceSources(message)"
                   :key="source.evidenceId"
@@ -176,12 +206,12 @@
               </view>
             </view>
           </view>
-          <view v-if="message.role === 'assistant' && hasCallDetail(message)" class="call-detail-panel">
+          <view v-if="message.role === 'assistant' && shouldShowCallDetail(message)" class="call-detail-panel">
             <view class="call-detail-header" @click="toggleCallDetail(message)">
               <view class="call-detail-heading">
                 <view class="call-detail-status-dot" :class="`call-detail-status-dot--${getCallDetailStatus(message)}`"></view>
                 <view class="call-detail-title-wrap">
-                  <text class="call-detail-title">调用明细</text>
+                  <text class="call-detail-title">运行过程</text>
                   <text class="call-detail-summary">{{ getCallDetailSummary(message) }}</text>
                 </view>
               </view>
@@ -230,6 +260,10 @@
       <view id="message-anchor"></view>
     </scroll-view>
 
+    <view v-if="showScrollToBottom" class="scroll-to-bottom" @click="resumeAutoFollow">
+      回到底部 ↓
+    </view>
+
     <view class="composer">
       <textarea
         v-model="inputValue"
@@ -243,7 +277,10 @@
         @confirm="handleInputConfirm"
         @keydown.enter="handleEnterKey"
       />
-      <view class="send-btn" :class="{ disabled: !canSend }" @click="sendMessage">发送</view>
+      <view v-if="sending" class="send-btn send-btn--stop" :class="{ disabled: stopping }" @click="stopGeneration">
+        {{ stopping ? '停止中' : '停止' }}
+      </view>
+      <view v-else class="send-btn" :class="{ disabled: !canSend }" @click="sendMessage()">发送</view>
     </view>
   </view>
 </template>
@@ -288,11 +325,13 @@ const CALL_DETAIL_STAGE_LABELS = {
   tool_call: '调用工具',
   tool_result_summary: '整理结果',
   done: '完成',
+  stopped: '用户停止',
   error: '异常'
 }
 const CALL_DETAIL_STATUS_LABELS = {
   running: '进行中',
   completed: '已完成',
+  stopped: '已停止',
   failed: '失败'
 }
 const AGENT_LABELS = {
@@ -429,6 +468,12 @@ export default {
       reportedInteractions: {},
       audioContext: null,
       activeAudioKey: '',
+      activeStreamTask: null,
+      activeStreamLocalId: '',
+      stopRequestedLocalId: '',
+      stopping: false,
+      autoFollowMessages: true,
+      showScrollToBottom: false,
       viewEpoch: 0,
       localRevision: 0,
       historyRequestGeneration: 0,
@@ -451,6 +496,7 @@ export default {
     this.loadDetail()
   },
   onUnload() {
+    this.abortActiveStream(true)
     this.advanceViewEpoch()
     this.disposeAudio()
   },
@@ -471,13 +517,17 @@ export default {
         const data = res?.data || {}
         this.messages = (data.messages || []).map((item) => {
           const merged = mergeAssistantMessage({}, item)
+          const isAction = item.role === 'user' && String(item.answerType || '').startsWith('action_')
           return {
             ...merged,
+            role: isAction ? 'action' : item.role,
+            requestContent: isAction ? String(item?.outputMeta?.requestContent || '') : '',
+            interactionType: isAction ? String(item?.outputMeta?.interactionType || '') : '',
             localId: `${item.role}-${item.id}`
           }
         })
         this.markLocalMutation()
-        this.scrollToBottom()
+        this.scrollToBottom(true)
       } catch (error) {
         if (this.sessionId === requestedSessionId
           && requestGeneration === this.historyRequestGeneration
@@ -488,40 +538,60 @@ export default {
         }
       }
     },
-    appendMessage(message) {
+    appendMessage(message, forceScroll = false) {
       const item = {
         localId: `${message.role}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         ...message
       }
       this.messages.push(item)
       this.markLocalMutation()
-      this.scrollToBottom()
+      this.scrollToBottom(forceScroll)
       return item
     },
-    async sendMessage() {
-      const text = this.inputValue.trim()
-      if (!text || !this.canSend) return
-      this.inputValue = ''
+    async sendMessage(options = {}) {
+      const requestOptions = options && typeof options === 'object' && !Array.isArray(options)
+        ? options
+        : {}
+      const hasRequestText = Object.prototype.hasOwnProperty.call(requestOptions, 'requestText')
+      const text = String(hasRequestText ? requestOptions.requestText : this.inputValue).trim()
+      if (!text || this.sending) return
+      const displayText = String(requestOptions.displayText || text).trim()
+      const displayRole = requestOptions.displayRole === 'action' ? 'action' : 'user'
+      const interactionType = String(requestOptions.interactionType || '').trim()
+      if (!hasRequestText) this.inputValue = ''
       const releaseComposer = this.createComposerRelease()
-      this.appendMessage({ role: 'user', content: text })
+      this.appendMessage({
+        role: displayRole,
+        content: displayText,
+        requestContent: text,
+        answerType: interactionType ? `action_${interactionType}` : 'text',
+        interactionType
+      }, true)
       const thinkingMessage = this.appendMessage({
         role: 'assistant',
         type: 'thinking',
         content: '思考中',
-        callDetail: this.createInitialCallDetail(text),
+        callDetail: this.createInitialCallDetail(displayText),
         callDetailExpanded: false
-      })
+      }, true)
       const requestContext = this.captureViewContext({ localId: thinkingMessage.localId })
       const isRequestCurrent = () => this.isViewContextCurrent(requestContext, true)
       let streamStarted = false
       let streamTouched = false
       let authoritativeTerminalHandled = false
+      const leaderRequest = {
+        sessionId: requestContext.sessionId,
+        agentName: 'leader_agent',
+        input: text,
+        ...(interactionType ? {
+          interactionType,
+          displayInput: displayText,
+          requestedOutputType: String(requestOptions.requestedOutputType || '').trim(),
+          sourceMessageId: requestOptions.sourceMessageId || null
+        } : {})
+      }
       try {
-        await streamLeaderAgent({
-          sessionId: requestContext.sessionId,
-          agentName: 'leader_agent',
-          input: text
-        }, {
+        const streamTask = streamLeaderAgent(leaderRequest, {
           onEvent: (eventName, payload) => {
             if (!isRequestCurrent()) return
             streamTouched = true
@@ -644,20 +714,31 @@ export default {
             throw streamError
           }
         })
+        this.activeStreamTask = streamTask
+        this.activeStreamLocalId = thinkingMessage.localId
+        await streamTask
       } catch (error) {
         if (!isRequestCurrent() || authoritativeTerminalHandled) return
+        if (this.stopRequestedLocalId === thinkingMessage.localId || this.isAbortError(error)) {
+          this.finalizeStoppedMessage(thinkingMessage.localId)
+          return
+        }
         const current = this.messages.find((item) => item.localId === thinkingMessage.localId)
         const errorCallDetail = this.buildErrorCallDetail(error, current?.callDetail)
         const errorContent = this.buildFailureContent(errorCallDetail, streamStarted || streamTouched ? '这次流式回复中断了' : '这次没有顺利完成请求')
         if (streamStarted || streamTouched) {
+          const partialContent = current?.type === 'thinking' ? '' : String(current?.content || '').trim()
           this.replaceMessage(thinkingMessage.localId, {
+            ...current,
             role: 'assistant',
-            content: errorContent,
+            type: '',
+            content: partialContent ? `${partialContent}\n\n> ${errorContent}` : errorContent,
+            responseState: 'interrupted',
             callDetail: errorCallDetail,
             callDetailExpanded: current?.callDetailExpanded || false
           })
         } else if (error?.fallbackToNormalRequest) {
-          await this.sendMessageFallback(text, thinkingMessage.localId, error, requestContext)
+          await this.sendMessageFallback(leaderRequest, thinkingMessage.localId, error, requestContext)
         } else {
           this.replaceMessage(thinkingMessage.localId, {
             role: 'assistant',
@@ -667,8 +748,62 @@ export default {
           })
         }
       } finally {
+        const finishingOwnStop = this.stopRequestedLocalId === thinkingMessage.localId
+        if (this.activeStreamLocalId === thinkingMessage.localId) {
+          this.activeStreamTask = null
+          this.activeStreamLocalId = ''
+        }
+        if (finishingOwnStop) {
+          this.stopRequestedLocalId = ''
+        }
+        if (!this.stopRequestedLocalId) this.stopping = false
         releaseComposer()
       }
+    },
+    stopGeneration() {
+      if (!this.activeStreamTask || !this.activeStreamLocalId || this.stopping) return
+      this.stopping = true
+      this.stopRequestedLocalId = this.activeStreamLocalId
+      this.finalizeStoppedMessage(this.activeStreamLocalId)
+      if (typeof this.activeStreamTask.abort === 'function') {
+        this.activeStreamTask.abort('user_cancelled')
+      } else if (typeof this.activeStreamTask?.controller?.abort === 'function') {
+        this.activeStreamTask.controller.abort('user_cancelled')
+      }
+    },
+    abortActiveStream(silent = false) {
+      if (!this.activeStreamTask) return
+      if (!silent && this.activeStreamLocalId) {
+        this.stopRequestedLocalId = this.activeStreamLocalId
+        this.finalizeStoppedMessage(this.activeStreamLocalId)
+      }
+      if (typeof this.activeStreamTask.abort === 'function') {
+        this.activeStreamTask.abort(silent ? 'page_unload' : 'user_cancelled')
+      } else if (typeof this.activeStreamTask?.controller?.abort === 'function') {
+        this.activeStreamTask.controller.abort(silent ? 'page_unload' : 'user_cancelled')
+      }
+    },
+    isAbortError(error) {
+      return error?.name === 'AbortError' || error?.code === 'ABORT_ERR'
+    },
+    finalizeStoppedMessage(localId) {
+      const current = this.messages.find((item) => item.localId === localId)
+      if (!current || current.responseState === 'stopped') return
+      const partialContent = current.type === 'thinking' ? '' : String(current.content || '').trim()
+      const detail = this.normalizeCallDetail(current)
+      this.replaceMessage(localId, {
+        ...current,
+        role: 'assistant',
+        type: '',
+        content: partialContent ? `${partialContent}\n\n> 已停止生成。` : '已停止生成。',
+        responseState: 'stopped',
+        callDetail: {
+          ...detail,
+          status: 'stopped',
+          currentStep: 'stopped',
+          trace: this.withTerminalTrace(detail.trace, 'stopped')
+        }
+      })
     },
     createComposerRelease() {
       this.blockingRequestCount += 1
@@ -707,15 +842,24 @@ export default {
       })
       this.replaceMessage(localId, merged)
     },
-    async sendMessageFallback(text, localId, streamError, requestContext) {
+    async sendMessageFallback(requestPayload, localId, streamError, requestContext) {
       if (!this.isViewContextCurrent(requestContext, true)) return
       try {
-        const res = await queryLeaderAgent({
+        const fallbackTask = queryLeaderAgent({
+          ...(requestPayload || {}),
           sessionId: requestContext.sessionId,
-          agentName: 'leader_agent',
-          input: text
+          agentName: 'leader_agent'
         })
+        if (!this.isViewContextCurrent(requestContext, true)) {
+          fallbackTask?.abort?.('stale_conversation')
+          return
+        }
+        this.activeStreamTask = fallbackTask
+        this.activeStreamLocalId = localId
+        const res = await fallbackTask
         if (!this.isViewContextCurrent(requestContext, true)) return
+        const beforeMerge = this.messages.find((item) => item.localId === localId)
+        if (this.stopRequestedLocalId === localId || beforeMerge?.responseState === 'stopped') return
         const payload = res?.data || {}
         this.syncSessionId(payload.sessionId)
         const current = this.messages.find((item) => item.localId === localId)
@@ -738,6 +882,8 @@ export default {
         this.replaceMessage(localId, merged)
       } catch (error) {
         if (!this.isViewContextCurrent(requestContext, true)) return
+        const current = this.messages.find((item) => item.localId === localId)
+        if (this.stopRequestedLocalId === localId || current?.responseState === 'stopped') return
         const errorCallDetail = this.buildErrorCallDetail(error, null)
         this.replaceMessage(localId, {
           role: 'assistant',
@@ -900,7 +1046,7 @@ export default {
     },
     withTerminalTrace(trace, status, errorMessage = '', extraDetail = {}) {
       const list = Array.isArray(trace) ? [...trace] : []
-      const terminalStage = status === 'failed' ? 'error' : 'done'
+      const terminalStage = status === 'failed' ? 'error' : (status === 'stopped' ? 'stopped' : 'done')
       const actualStage = status === 'failed' && extraDetail?.stage ? extraDetail.stage : terminalStage
       const exists = list.some((step) => String(step?.stage || '') === actualStage)
       if (!exists) {
@@ -915,6 +1061,18 @@ export default {
       if (Array.isArray(message.trace) && message.trace.length) return true
       if (message.retrievalMeta && Object.keys(message.retrievalMeta).length) return true
       return Boolean(message.agentName || message.searchKeyword)
+    },
+    shouldShowCallDetail(message) {
+      if (!this.hasCallDetail(message)) return false
+      const detail = this.normalizeCallDetail(message)
+      if (message?.type === 'thinking' || ['running', 'failed', 'stopped'].includes(detail.status)) return true
+      const intent = String(detail.intent || '').toLowerCase()
+      const matchedCount = this.getMatchedCount(detail)
+      const meaningfulStages = (Array.isArray(detail.trace) ? detail.trace : [])
+        .map((step) => String(step?.stage || ''))
+        .filter((stage) => stage && !['status', 'processing', 'session', 'answer', 'done'].includes(stage))
+      if (matchedCount > 0 || this.getToolNameFromDetail(detail) || meaningfulStages.length) return true
+      return !['smalltalk', 'greeting'].includes(intent)
     },
     getMessageKey(message) {
       return message?.localId || message?.id || ''
@@ -947,8 +1105,11 @@ export default {
       if (detail.status === 'failed') {
         return `${statusLabel} · ${currentLabel}`
       }
-      const intentLabel = detail.intent ? this.getIntentLabel(detail.intent) : ''
-      return `${statusLabel} · ${intentLabel || agentLabel}`
+      if (detail.status === 'stopped') return statusLabel
+      const matchedCount = this.getMatchedCount(detail)
+      if (matchedCount > 0) return `${statusLabel} · 命中 ${matchedCount} 条资料`
+      const stepCount = this.getCallDetailSteps(message).length
+      return `${statusLabel} · ${stepCount} 个步骤`
     },
     getCallDetailMetaItems(message) {
       const detail = this.normalizeCallDetail(message)
@@ -1278,7 +1439,7 @@ export default {
       this.inputValue = ''
       this.resetResourceState()
       uni.removeStorageSync(STORAGE_KEY)
-      this.scrollToBottom()
+      this.scrollToBottom(true)
     },
     resetResourceState() {
       this.disposeAudio()
@@ -1330,7 +1491,29 @@ export default {
       event?.preventDefault?.()
       this.sendMessage()
     },
-    scrollToBottom() {
+    handleMessageScroll(event) {
+      const deltaY = Number(event?.detail?.deltaY || 0)
+      if (deltaY < -2) {
+        this.autoFollowMessages = false
+        this.showScrollToBottom = true
+      }
+    },
+    handleReachBottom() {
+      this.autoFollowMessages = true
+      this.showScrollToBottom = false
+    },
+    resumeAutoFollow() {
+      this.autoFollowMessages = true
+      this.showScrollToBottom = false
+      this.scrollToBottom(true)
+    },
+    scrollToBottom(force = false) {
+      if (!force && !this.autoFollowMessages) {
+        this.showScrollToBottom = true
+        return
+      }
+      if (force) this.autoFollowMessages = true
+      this.showScrollToBottom = false
       this.$nextTick(() => {
         this.scrollAnchor = ''
         this.$nextTick(() => {
@@ -1370,6 +1553,9 @@ export default {
         .map((type) => this.normalizeOutputType(type))
         .filter(Boolean)
       return [...new Set(normalized)]
+    },
+    getVisibleOutputTypeTags(message) {
+      return this.getOutputTypeTags(message).filter((type) => type !== 'text')
     },
     detectMessageType(message) {
       const resources = this.getMessageResources(message)
@@ -1412,6 +1598,11 @@ export default {
     },
     getMessageResources(message) {
       return normalizeAssistantResources(message)
+    },
+    getResourceSummary(resource) {
+      const summary = String(resource?.summary || '').trim().replace(/\s+/g, ' ')
+      const content = String(resource?.payload?.content || '').trim().replace(/\s+/g, ' ')
+      return summary && summary !== content ? resource.summary : ''
     },
     getResourceActions(resource) {
       return normalizeResourceActions(resource)
@@ -1660,6 +1851,26 @@ export default {
     getEvidenceSummary(message) {
       return summarizeEvidenceChain(message?.evidenceChain)
     },
+    shouldShowEvidence(message) {
+      if (!message || message.role !== 'assistant' || message.type === 'thinking' || !message.evidenceChain) return false
+      const summary = this.getEvidenceSummary(message)
+      if (summary.state === 'legacy_missing') return false
+      const intent = String(this.normalizeCallDetail(message).intent || '').toLowerCase()
+      if (summary.status === 'model_only' && ['smalltalk', 'greeting'].includes(intent)) return false
+      return true
+    },
+    getEvidenceCompactLabel(message) {
+      const summary = this.getEvidenceSummary(message)
+      if (summary.state !== 'available') return summary.label
+      if (summary.status === 'grounded') return `引用 ${summary.sourceCount} 个来源`
+      if (summary.status === 'context_only') return '基于本次会话上下文'
+      return '未引用外部资料'
+    },
+    getEvidenceIcon(message) {
+      const summary = this.getEvidenceSummary(message)
+      if (['malformed', 'integrity_failed', 'generation_failed'].includes(summary.state)) return '!'
+      return summary.status === 'grounded' ? '✓' : 'i'
+    },
     getEvidenceAgentLabel(message) {
       const agent = this.getEvidenceSummary(message).agent
       return agent ? this.getAgentLabel(agent) : '智能体未记录'
@@ -1678,7 +1889,6 @@ export default {
       return EVIDENCE_SOURCE_LABELS[sourceType] || '来源记录'
     },
     toggleEvidence(message) {
-      if (!this.getEvidenceSources(message).length) return
       const key = this.getMessageKey(message)
       const index = this.messages.findIndex((item) => this.getMessageKey(item) === key)
       if (index === -1) return
@@ -1689,7 +1899,7 @@ export default {
       this.scrollToBottom()
     },
     isEvidenceExpanded(message) {
-      return Boolean(message?.evidenceExpanded) && this.getEvidenceSources(message).length > 0
+      return Boolean(message?.evidenceExpanded)
     },
     getMessageChoicePrompt(message) {
       return String(message?.outputMeta?.choicePrompt || '').trim()
@@ -1702,10 +1912,46 @@ export default {
           .slice(0, 3)
         : []
     },
-    handleFollowUpAction(action) {
+    copyMessage(message) {
+      const content = this.getDisplayText(message)
+      if (!content || typeof uni.setClipboardData !== 'function') return
+      uni.setClipboardData({
+        data: content,
+        success: () => uni.showToast({ title: '已复制', icon: 'none' }),
+        fail: () => uni.showToast({ title: '复制失败', icon: 'none' })
+      })
+    },
+    retryMessage(message) {
+      if (!message || this.sending) return
+      const index = this.messages.findIndex((item) => this.getMessageKey(item) === this.getMessageKey(message))
+      if (index < 0) return
+      let source = null
+      for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+        if (['user', 'action'].includes(this.messages[cursor]?.role)) {
+          source = this.messages[cursor]
+          break
+        }
+      }
+      const requestText = String(source?.requestContent || source?.content || '').trim()
+      if (!requestText) return
+      return this.sendMessage({
+        requestText,
+        displayText: '重新生成上一条回答',
+        displayRole: 'action',
+        interactionType: 'retry',
+        sourceMessageId: message?.messageId || message?.id || null
+      })
+    },
+    handleFollowUpAction(action, message) {
       if (!action?.prompt || this.sending) return
-      this.inputValue = action.prompt
-      this.sendMessage()
+      return this.sendMessage({
+        requestText: action.prompt,
+        displayText: `已请求：${action.label}`,
+        displayRole: 'action',
+        interactionType: 'transform',
+        requestedOutputType: action.outputType || '',
+        sourceMessageId: message?.messageId || message?.id || null
+      })
     }
   }
 }
@@ -1717,7 +1963,7 @@ export default {
   background: #F7F7F9;
   display: flex;
   flex-direction: column;
-  padding-bottom: 116rpx;
+  padding-bottom: 0;
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -1728,9 +1974,11 @@ export default {
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 16rpx;
-  padding: 14rpx 24rpx 12rpx;
-  background: #F7F7F9;
+  justify-content: flex-end;
+  gap: 12rpx;
+  padding: 12rpx 24rpx;
+  background: rgba(247, 247, 249, 0.96);
+  border-bottom: 1rpx solid rgba(226, 232, 240, 0.72);
   box-sizing: border-box;
   width: 100%;
 }
@@ -1740,8 +1988,10 @@ export default {
 }
 
 .conversation-action {
-  flex: 1;
-  height: 58rpx;
+  flex: none;
+  min-width: 112rpx;
+  height: 60rpx;
+  padding: 0 20rpx;
   border-radius: 999rpx;
   background: #FFFFFF;
   color: #5B6472;
@@ -1750,12 +2000,20 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 8rpx 18rpx rgba(31, 41, 55, 0.04);
+  border: 1rpx solid #E5EAF1;
+  box-sizing: border-box;
+  gap: 8rpx;
 }
 
 .conversation-action--primary {
-  background: #E8F1FF;
-  color: #2F6FE4;
+  background: #2F6FE4;
+  color: #FFFFFF;
+  border-color: #2F6FE4;
+}
+
+.conversation-action__icon {
+  font-size: 26rpx;
+  line-height: 1;
 }
 
 .message-list {
@@ -1795,7 +2053,7 @@ export default {
 
 .message-row {
   display: flex;
-  margin-bottom: 18rpx;
+  margin-bottom: 24rpx;
 }
 
 .message-row--user {
@@ -1806,34 +2064,110 @@ export default {
   justify-content: flex-start;
 }
 
+.message-row--action {
+  justify-content: flex-end;
+  margin-top: -8rpx;
+  margin-bottom: 18rpx;
+}
+
 .message-bubble {
-  max-width: 82%;
   padding: 20rpx 24rpx;
   border-radius: 24rpx;
+  box-sizing: border-box;
 }
 
 .message-bubble--user {
+  max-width: 82%;
   background: linear-gradient(135deg, #3D7DF5, #69A6FF);
   color: #FFFFFF;
 }
 
 .message-bubble--assistant {
+  width: 100%;
+  max-width: 100%;
+  padding: 24rpx 26rpx;
   background: #FFFFFF;
   color: #1F2933;
-  box-shadow: 0 10rpx 24rpx rgba(72, 103, 163, 0.08);
+  border: 1rpx solid rgba(100, 116, 139, 0.1);
+  box-shadow: 0 8rpx 22rpx rgba(72, 103, 163, 0.06);
+}
+
+.message-bubble--action {
+  max-width: 84%;
+  padding: 12rpx 18rpx;
+  border-radius: 16rpx;
+  background: #EEF4FF;
+  color: #48627F;
+  border: 1rpx solid rgba(47, 111, 228, 0.12);
+}
+
+.action-message {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.action-message__icon {
+  color: #2F6FE4;
+  font-size: 24rpx;
+  font-weight: 800;
+}
+
+.action-message__text {
+  font-size: 24rpx;
+  line-height: 1.5;
 }
 
 .message-text {
-  font-size: 28rpx;
+  font-size: 30rpx;
   line-height: 1.7;
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: break-word;
 }
 
 .message-content {
   display: flex;
   flex-direction: column;
   gap: 16rpx;
+}
+
+.assistant-identity {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  min-height: 40rpx;
+}
+
+.assistant-identity__avatar {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 12rpx;
+  background: #E8F1FF;
+  color: #2F6FE4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18rpx;
+  font-weight: 800;
+}
+
+.assistant-identity__name {
+  font-size: 24rpx;
+  font-weight: 800;
+  color: #243044;
+}
+
+.assistant-identity__state {
+  padding: 3rpx 9rpx;
+  border-radius: 999rpx;
+  background: #F1F5F9;
+  color: #64748B;
+  font-size: 19rpx;
+}
+
+.assistant-identity__state--warning {
+  background: #FFF3E8;
+  color: #A45B00;
 }
 
 .generation-status {
@@ -2066,7 +2400,7 @@ export default {
 .resource-card__image,
 .resource-card__video {
   width: 100%;
-  height: 260rpx;
+  height: 360rpx;
   border-radius: 16rpx;
   background: #E8EDF4;
   overflow: hidden;
@@ -2139,11 +2473,13 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 12rpx;
-  padding-top: 4rpx;
+  padding-top: 2rpx;
+  border-top: 1rpx solid #EEF2F7;
 }
 
 .follow-up-prompt {
-  font-size: 24rpx;
+  margin-top: 10rpx;
+  font-size: 23rpx;
   line-height: 1.55;
   color: #64748B;
 }
@@ -2155,7 +2491,7 @@ export default {
 }
 
 .follow-up-action {
-  min-height: 54rpx;
+  min-height: 60rpx;
   padding: 0 18rpx;
   border-radius: 999rpx;
   display: flex;
@@ -2176,23 +2512,48 @@ export default {
   border: 1rpx solid rgba(100, 116, 139, 0.12);
 }
 
+.message-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  padding-top: 2rpx;
+}
+
+.message-action {
+  min-height: 56rpx;
+  padding: 0 16rpx;
+  border-radius: 14rpx;
+  color: #667085;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
+.message-action:active {
+  background: #F1F5F9;
+  color: #2F6FE4;
+}
+
 .evidence-panel {
-  padding: 14rpx 16rpx;
-  border-radius: 16rpx;
-  background: #F7F9FD;
-  border: 1rpx solid rgba(100, 116, 139, 0.12);
+  padding: 12rpx 0 0;
+  border-radius: 0;
+  background: transparent;
+  border: 0;
+  border-top: 1rpx solid #EEF2F7;
 }
 
 .evidence-panel--available {
-  background: #F3FAF6;
-  border-color: rgba(24, 160, 88, 0.16);
+  background: transparent;
+  border-color: #EEF2F7;
 }
 
 .evidence-panel--malformed,
 .evidence-panel--integrity_failed,
 .evidence-panel--generation_failed {
-  background: #FFF5F5;
-  border-color: rgba(229, 72, 77, 0.18);
+  background: transparent;
+  border-color: rgba(229, 72, 77, 0.16);
 }
 
 .evidence-panel__header,
@@ -2203,12 +2564,25 @@ export default {
   gap: 14rpx;
 }
 
-.evidence-panel__heading {
+.evidence-panel__heading-row {
   min-width: 0;
   flex: 1;
   display: flex;
-  flex-direction: column;
-  gap: 4rpx;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.evidence-panel__icon {
+  width: 30rpx;
+  height: 30rpx;
+  border-radius: 50%;
+  background: #EEF4FF;
+  color: #2F6FE4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18rpx;
+  font-weight: 800;
 }
 
 .evidence-panel__title {
@@ -2224,6 +2598,8 @@ export default {
 }
 
 .evidence-panel__meta {
+  display: block;
+  margin-bottom: 4rpx;
   font-size: 19rpx;
   line-height: 1.4;
   color: #8A96A8;
@@ -2281,13 +2657,13 @@ export default {
 }
 
 .call-detail-panel {
-  margin-top: 14rpx;
-  padding-top: 14rpx;
+  margin-top: 10rpx;
+  padding-top: 10rpx;
   border-top: 1rpx solid #EEF2F7;
 }
 
 .call-detail-header {
-  min-height: 54rpx;
+  min-height: 50rpx;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2540,11 +2916,29 @@ export default {
   }
 }
 
+.scroll-to-bottom {
+  flex-shrink: 0;
+  align-self: flex-end;
+  margin: 0 24rpx 12rpx;
+  z-index: 19;
+  min-height: 60rpx;
+  padding: 0 20rpx;
+  border-radius: 999rpx;
+  background: #FFFFFF;
+  color: #2F6FE4;
+  border: 1rpx solid rgba(47, 111, 228, 0.18);
+  box-shadow: 0 10rpx 24rpx rgba(31, 41, 55, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22rpx;
+  font-weight: 800;
+}
+
 .composer {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: relative;
+  flex-shrink: 0;
+  width: 100%;
   z-index: 20;
   display: flex;
   align-items: flex-end;
@@ -2565,7 +2959,7 @@ export default {
   box-sizing: border-box;
   background: #F5F7FB;
   border-radius: 22rpx;
-  font-size: 28rpx;
+  font-size: 30rpx;
   line-height: 1.5;
 }
 
@@ -2584,5 +2978,9 @@ export default {
 
 .send-btn.disabled {
   opacity: 0.45;
+}
+
+.send-btn--stop {
+  background: #E5484D;
 }
 </style>

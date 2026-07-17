@@ -270,6 +270,55 @@ class AppAiLeaderControllerTest {
     }
 
     @Test
+    void structuredTransformPersistsCompactHistoryAndForwardsWhitelistedMetadata() throws Exception {
+        AtomicReference<Map<String, Object>> upstreamPayload = new AtomicReference<>();
+        when(pythonAiProxyService.queryRag(any(), any())).thenAnswer(invocation -> {
+            upstreamPayload.set(invocation.getArgument(0));
+            Map<String, Object> response = validGeneratedResponse();
+            evidenceChain(response).put("queryDigest", sha256Text("请把上一条回答整理成可下载的 Word 文件"));
+            refreshChainIntegrity(evidenceChain(response));
+            return response;
+        });
+        LlmChatRequest request = request();
+        request.setInput("请把上一条回答整理成可下载的 Word 文件");
+        request.setInteractionType("transform");
+        request.setDisplayInput("已请求：生成文件版");
+        request.setRequestedOutputType("document");
+        request.setSourceMessageId(88L);
+
+        controller.query(request, authenticatedRequest());
+
+        AiLeaderMessage userMessage = savedMessages.stream()
+                .filter(item -> AiLeaderMessage.ROLE_USER.equals(item.getRole()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(userMessage.getContent()).isEqualTo("已请求：生成文件版");
+        assertThat(userMessage.getAnswerType()).isEqualTo("action_transform");
+        JsonNode persistedAction = objectMapper.readTree(userMessage.getOutputMetaJson());
+        assertThat(persistedAction.path("requestContent").asText())
+                .isEqualTo("请把上一条回答整理成可下载的 Word 文件");
+        assertThat(session.getLastMessage()).isEqualTo("资料已生成");
+        assertThat(upstreamPayload.get()).containsEntry("input", "请把上一条回答整理成可下载的 Word 文件");
+        assertThat(upstreamPayload.get()).doesNotContainKeys("interactionType", "displayInput", "requestedOutputType", "sourceMessageId");
+        JsonNode metadata = objectMapper.valueToTree(upstreamPayload.get().get("metadata"));
+        assertThat(metadata.path("interactionType").asText()).isEqualTo("transform");
+        assertThat(metadata.path("requestedOutputType").asText()).isEqualTo("document");
+        assertThat(metadata.path("sourceMessageId").asLong()).isEqualTo(88L);
+        assertThat(metadata.has("displayInput")).isFalse();
+
+        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAscIdAsc(9L))
+                .thenReturn(List.copyOf(savedMessages));
+        JsonNode history = objectMapper.valueToTree(
+                controller.sessionDetail("session-1", authenticatedRequest()).getData());
+        assertThat(history.path("messages").path(0).path("content").asText())
+                .isEqualTo("已请求：生成文件版");
+        assertThat(history.path("messages").path(0).path("outputMeta").path("requestContent").asText())
+                .isEqualTo("请把上一条回答整理成可下载的 Word 文件");
+        assertThat(history.path("messages").path(1).path("evidenceChain").path("evidenceState").asText())
+                .isEqualTo("available");
+    }
+
+    @Test
     void syncPersistsPublicEnvelopeWithRealMessageIdAndNeverLeaksCapability() throws Exception {
         when(pythonAiProxyService.queryRag(any(), any())).thenReturn(validGeneratedResponse());
 

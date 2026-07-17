@@ -164,9 +164,9 @@ test('full conversation source wires the shared message envelope and canonical r
   assert.doesNotMatch(source, /\bextractAttachmentsFromText\s*\(/)
   assert.doesNotMatch(source, /\bbuildAttachment\s*\(/)
 
-  assert.match(sourceSlice(source, '\n    async loadDetail() {', '\n    appendMessage(message) {'), /mergeAssistantMessage\(\{\},\s*item\)/)
-  assert.match(sourceSlice(source, '\n    async loadDetail() {', '\n    appendMessage(message) {'), /this\.sessionId\s*!==\s*requestedSessionId/)
-  assert.match(sourceSlice(source, '\n    async sendMessage() {', '\n    createComposerRelease() {'), /onDone:[\s\S]*mergeAssistantMessage\(current,/)
+  assert.match(sourceSlice(source, '\n    async loadDetail() {', '\n    appendMessage(message, forceScroll = false) {'), /mergeAssistantMessage\(\{\},\s*item\)/)
+  assert.match(sourceSlice(source, '\n    async loadDetail() {', '\n    appendMessage(message, forceScroll = false) {'), /this\.sessionId\s*!==\s*requestedSessionId/)
+  assert.match(sourceSlice(source, '\n    async sendMessage(options = {}) {', '\n    stopGeneration() {'), /onDone:[\s\S]*mergeAssistantMessage\(current,/)
   assert.match(sourceSlice(source, '\n    applyGenerationStart(localId', '\n    async sendMessageFallback('), /mergeAssistantMessage\(current,/)
   assert.match(sourceSlice(source, '\n    async sendMessageFallback(', '\n    createInitialCallDetail('), /mergeAssistantMessage\(current,/)
 })
@@ -175,13 +175,14 @@ test('full conversation source wires evidence state and recorded-source expansio
   const source = page('aiConversation/aiConversation.vue')
 
   assert.match(source, /class="evidence-panel"/)
-  assert.match(source, /getEvidenceSummary\(message\)\.label/)
+  assert.match(source, /shouldShowEvidence\(message\)/)
+  assert.match(source, /getEvidenceCompactLabel\(message\)/)
   assert.match(source, /toggleEvidence\(message\)/)
   assert.match(source, /getEvidenceSources\(message\)/)
   assert.match(source, /source\.excerpt/)
   assert.match(source, /summary\.trusted/)
-  assert.match(source, /getEvidenceSummary\(message\)\.agent/)
-  assert.match(source, /getEvidenceSummary\(message\)\.generatedAt/)
+  assert.match(source, /getEvidenceAgentLabel\(message\)/)
+  assert.match(source, /getEvidenceGeneratedAtLabel\(message\)/)
 })
 
 test('full conversation source keeps protected URLs behind authenticated download and allows configured public media', () => {
@@ -210,6 +211,17 @@ test('full conversation source wires authenticated audio playback from safe disp
   assert.match(source, /uni\.createInnerAudioContext\(\)/)
   assert.match(source, /uni\.saveFile\(/)
   assert.match(source, /disposeAudio\(\)/)
+})
+
+test('full conversation keeps a growing composer in flex flow so it cannot cover the message tail', () => {
+  const source = page('aiConversation/aiConversation.vue')
+  const style = source.slice(source.indexOf('<style'), source.indexOf('</style>'))
+
+  assert.match(style, /\.conversation-page\s*\{[\s\S]{0,220}padding-bottom:\s*0/)
+  assert.match(style, /\.message-list\s*\{[\s\S]{0,160}min-height:\s*0/)
+  assert.match(style, /\.composer\s*\{[\s\S]{0,180}position:\s*relative/)
+  assert.match(style, /\.composer\s*\{[\s\S]{0,220}flex-shrink:\s*0/)
+  assert.doesNotMatch(style, /\.composer\s*\{[\s\S]{0,120}position:\s*fixed/)
 })
 
 test('full conversation source preserves absent hit lists and merges authoritative final envelopes', () => {
@@ -407,6 +419,209 @@ test('a prompt-less facility follow-up action sends the title-derived prompt fro
   assert.equal(streamCalls.length, 1)
   assert.equal(streamCalls[0].input, action.prompt)
   assert.ok(vm.messages.some((item) => item.role === 'user' && item.content === action.prompt))
+})
+
+test('answer conversion uses a compact action message and a structured leader request', async () => {
+  let requestPayload
+  const component = await loadConversationComponent({
+    streamLeaderAgent: (payload, handlers) => {
+      requestPayload = payload
+      handlers.onDone({
+        sessionId: 'session-a',
+        messageId: 401,
+        answer: '文件已生成',
+        answerType: 'document',
+        outputType: 'document',
+        resources: [],
+        attachments: []
+      })
+      return Promise.resolve()
+    }
+  })
+  installUni({ aiAssistantSessionId: 'session-a' })
+  const vm = instantiate(component)
+  vm.sessionId = 'session-a'
+
+  await vm.handleFollowUpAction({
+    label: '生成文件版',
+    prompt: '请把刚才的内容整理成可下载文件。',
+    outputType: 'document'
+  }, { messageId: 77 })
+
+  assert.deepEqual(requestPayload, {
+    sessionId: 'session-a',
+    agentName: 'leader_agent',
+    input: '请把刚才的内容整理成可下载文件。',
+    interactionType: 'transform',
+    displayInput: '已请求：生成文件版',
+    requestedOutputType: 'document',
+    sourceMessageId: 77
+  })
+  const actionMessage = vm.messages.find((item) => item.role === 'action')
+  assert.equal(actionMessage.content, '已请求：生成文件版')
+  assert.equal(actionMessage.requestContent, '请把刚才的内容整理成可下载文件。')
+  assert.ok(!vm.messages.some((item) => item.role === 'user'
+    && item.content === '请把刚才的内容整理成可下载文件。'))
+  assert.equal(vm.messages.at(-1).content, '文件已生成')
+})
+
+test('structured conversion keeps its metadata when SSE falls back to the normal request', async () => {
+  let fallbackPayload
+  const unsupported = new Error('stream unsupported')
+  unsupported.fallbackToNormalRequest = true
+  const component = await loadConversationComponent({
+    streamLeaderAgent: () => Promise.reject(unsupported),
+    queryLeaderAgent: async (payload) => {
+      fallbackPayload = payload
+      return { data: { answer: '图片已生成', answerType: 'image', resources: [], attachments: [] } }
+    }
+  })
+  installUni({ aiAssistantSessionId: 'session-a' })
+  const vm = instantiate(component)
+  vm.sessionId = 'session-a'
+
+  await vm.handleFollowUpAction({
+    label: '生成图片版',
+    prompt: '请把刚才的内容转换成图片。',
+    outputType: 'image'
+  }, { messageId: 78 })
+
+  assert.equal(fallbackPayload.interactionType, 'transform')
+  assert.equal(fallbackPayload.displayInput, '已请求：生成图片版')
+  assert.equal(fallbackPayload.requestedOutputType, 'image')
+  assert.equal(fallbackPayload.sourceMessageId, 78)
+  assert.equal(fallbackPayload.input, '请把刚才的内容转换成图片。')
+})
+
+test('stop generation aborts the active stream and preserves the partial answer', async () => {
+  const stream = deferred()
+  let handlers
+  let abortReason = ''
+  const abortableTask = Object.assign(stream.promise, {
+    abort(reason) {
+      abortReason = reason
+      const error = new Error('aborted')
+      error.name = 'AbortError'
+      stream.reject(error)
+      return true
+    }
+  })
+  const component = await loadConversationComponent({
+    streamLeaderAgent: (payload, nextHandlers) => {
+      handlers = nextHandlers
+      return abortableTask
+    }
+  })
+  installUni({ aiAssistantSessionId: 'session-a' })
+  const vm = instantiate(component)
+  vm.sessionId = 'session-a'
+  vm.inputValue = '写一份较长的计划'
+
+  const sending = vm.sendMessage()
+  handlers.onDelta('已经生成的部分')
+  vm.stopGeneration()
+  await sending
+
+  assert.equal(abortReason, 'user_cancelled')
+  const assistant = vm.messages.at(-1)
+  assert.equal(assistant.responseState, 'stopped')
+  assert.match(assistant.content, /已经生成的部分/)
+  assert.match(assistant.content, /已停止生成/)
+  assert.equal(assistant.callDetail.status, 'stopped')
+  assert.equal(vm.sending, false)
+})
+
+test('stop generation cannot be overwritten by a late non-streaming fallback response', async () => {
+  const fallback = deferred()
+  const unsupported = new Error('stream unsupported')
+  unsupported.fallbackToNormalRequest = true
+  const component = await loadConversationComponent({
+    streamLeaderAgent: () => Promise.reject(unsupported),
+    queryLeaderAgent: () => fallback.promise
+  })
+  installUni({ aiAssistantSessionId: 'session-a' })
+  const vm = instantiate(component)
+  vm.sessionId = 'session-a'
+  vm.inputValue = '生成一份计划'
+
+  const sending = vm.sendMessage()
+  await Promise.resolve()
+  await Promise.resolve()
+  vm.stopGeneration()
+  fallback.resolve({ data: { answer: '不应覆盖停止状态', answerType: 'text' } })
+  await sending
+
+  const assistant = vm.messages.at(-1)
+  assert.equal(assistant.responseState, 'stopped')
+  assert.match(assistant.content, /已停止生成/)
+  assert.doesNotMatch(assistant.content, /不应覆盖停止状态/)
+})
+
+test('stop generation aborts the native fallback task and releases the composer immediately', async () => {
+  const fallback = deferred()
+  let abortReason = ''
+  const fallbackTask = Object.assign(fallback.promise, {
+    abort(reason) {
+      abortReason = reason
+      const error = new Error('aborted')
+      error.name = 'AbortError'
+      fallback.reject(error)
+      return true
+    }
+  })
+  const unsupported = new Error('stream unsupported')
+  unsupported.fallbackToNormalRequest = true
+  const component = await loadConversationComponent({
+    streamLeaderAgent: () => Promise.reject(unsupported),
+    queryLeaderAgent: () => fallbackTask
+  })
+  installUni({ aiAssistantSessionId: 'session-a' })
+  const vm = instantiate(component)
+  vm.sessionId = 'session-a'
+  vm.inputValue = '原生端请求'
+
+  const sending = vm.sendMessage()
+  await Promise.resolve()
+  await Promise.resolve()
+  vm.stopGeneration()
+  await sending
+
+  assert.equal(abortReason, 'user_cancelled')
+  assert.equal(vm.sending, false)
+  assert.equal(vm.stopping, false)
+  assert.equal(vm.messages.at(-1).responseState, 'stopped')
+})
+
+test('history restores structured actions and ordinary text stays visually untagged', async () => {
+  const component = await loadConversationComponent({
+    getLeaderSessionDetail: async () => ({
+      data: {
+        messages: [
+          {
+            id: 1,
+            role: 'user',
+            content: '已请求：生成视频版',
+            answerType: 'action_transform',
+            outputMeta: {
+              interactionType: 'transform',
+              requestContent: '请把刚才的内容生成视频版。',
+              requestedOutputType: 'video'
+            }
+          },
+          { id: 2, role: 'assistant', content: '普通回答', answerType: 'text', outputTypes: ['text'] }
+        ]
+      }
+    })
+  })
+  installUni({ aiAssistantSessionId: 'session-a' })
+  const vm = instantiate(component)
+  vm.sessionId = 'session-a'
+
+  await vm.loadDetail()
+
+  assert.equal(vm.messages[0].role, 'action')
+  assert.equal(vm.messages[0].requestContent, '请把刚才的内容生成视频版。')
+  assert.deepEqual(vm.getVisibleOutputTypeTags(vm.messages[1]), [])
 })
 
 test('a stale full-page download cannot mutate the replacement view or clear its same-key loading owner', async () => {
