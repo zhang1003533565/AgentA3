@@ -288,6 +288,34 @@ test('full conversation keeps Java authoritative terminal error resources and ev
   assert.equal(assistant.type, '')
 })
 
+test('a completed answer stays completed when the stream transport rejects during teardown', async () => {
+  const component = await loadConversationComponent({
+    streamLeaderAgent: async (payload, handlers) => {
+      handlers.onDone({
+        sessionId: 'session-a',
+        messageId: 202,
+        answer: '完整答案',
+        answerType: 'text',
+        resources: [],
+        attachments: []
+      })
+      throw new Error('reader failed after done')
+    }
+  })
+  installUni({ aiAssistantSessionId: 'session-a' })
+  const vm = instantiate(component)
+  vm.sessionId = 'session-a'
+  vm.inputValue = '测试流收尾'
+
+  await vm.sendMessage()
+
+  const assistant = vm.messages.at(-1)
+  assert.equal(assistant.content, '完整答案')
+  assert.equal(assistant.responseState, 'completed')
+  assert.doesNotMatch(assistant.content, /中断|失败/)
+  assert.equal(vm.sending, false)
+})
+
 test('full conversation ignores a successful history snapshot that started before a local send', async () => {
   const history = deferred()
   const component = await loadConversationComponent({
@@ -520,6 +548,7 @@ test('stop generation aborts the active stream and preserves the partial answer'
   const sending = vm.sendMessage()
   handlers.onDelta('已经生成的部分')
   vm.stopGeneration()
+  handlers.onDone({ answer: '停止后到达的完整答案', answerType: 'text' })
   await sending
 
   assert.equal(abortReason, 'user_cancelled')
@@ -527,6 +556,7 @@ test('stop generation aborts the active stream and preserves the partial answer'
   assert.equal(assistant.responseState, 'stopped')
   assert.match(assistant.content, /已经生成的部分/)
   assert.match(assistant.content, /已停止生成/)
+  assert.doesNotMatch(assistant.content, /停止后到达的完整答案/)
   assert.equal(assistant.callDetail.status, 'stopped')
   assert.equal(vm.sending, false)
 })

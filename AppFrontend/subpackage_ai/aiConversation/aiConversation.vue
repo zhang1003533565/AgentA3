@@ -658,7 +658,7 @@ export default {
             this.appendMessageContent(thinkingMessage.localId, content)
           },
           onDone: (payload) => {
-            if (!isRequestCurrent()) return
+            if (!isRequestCurrent() || this.stopRequestedLocalId === thinkingMessage.localId) return
             streamTouched = true
             this.syncSessionId(payload?.sessionId)
             const finalAnswer = payload?.answer || ''
@@ -678,12 +678,15 @@ export default {
               searchKeyword: payload?.searchKeyword || current?.callDetail?.searchKeyword || '',
               callDetail: this.buildFinalCallDetail(payload, current?.callDetail, 'completed'),
               callDetailExpanded: current?.callDetailExpanded || false,
-              evidenceExpanded: current?.evidenceExpanded || false
+              evidenceExpanded: current?.evidenceExpanded || false,
+              responseState: 'completed'
             })
             this.replaceMessage(thinkingMessage.localId, merged)
+            authoritativeTerminalHandled = true
+            releaseComposer()
           },
           onError: (payload) => {
-            if (!isRequestCurrent()) return
+            if (!isRequestCurrent() || this.stopRequestedLocalId === thinkingMessage.localId) return
             streamTouched = true
             if (typeof payload?.answer === 'string' && payload.answer) {
               streamStarted = true
@@ -703,10 +706,12 @@ export default {
                 agentName: payload?.agentName || current?.callDetail?.agentName || 'leader_agent',
                 callDetail: this.buildFinalCallDetail(payload, current?.callDetail, 'failed'),
                 callDetailExpanded: current?.callDetailExpanded || false,
-                evidenceExpanded: current?.evidenceExpanded || false
+                evidenceExpanded: current?.evidenceExpanded || false,
+                responseState: 'failed'
               })
               this.replaceMessage(thinkingMessage.localId, merged)
               authoritativeTerminalHandled = true
+              releaseComposer()
               return
             }
             const streamError = new Error(payload?.message || '流式请求失败')
