@@ -67,7 +67,7 @@ ai:
     base-url: ${AI_PYTHON_BASE_URL:http://localhost:8081}
     timeout-seconds: ${AI_PYTHON_TIMEOUT_SECONDS:65}
     file-response-max-in-memory-bytes: ${AI_PYTHON_FILE_RESPONSE_MAX_IN_MEMORY_BYTES:52428800}
-    internal-token: ${AI_INTERNAL_TOKEN:}
+    internal-token: ${AI_INTERNAL_TOKEN:dev-internal-token-change-me-32chars}
   assistant:
     public-resource-hosts: ${AI_ASSISTANT_PUBLIC_RESOURCE_HOSTS:}
   learning:

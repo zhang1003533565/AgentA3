@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.security.internal_auth import require_internal_token
+from app.security.internal_auth import DEFAULT_INTERNAL_TOKEN, require_internal_token
 
 
 def test_healthz_remains_public_when_internal_token_is_configured(monkeypatch):
@@ -54,19 +54,18 @@ def test_internal_routes_require_configured_matching_token(monkeypatch):
     assert valid.status_code == 200
 
 
-def test_missing_server_configuration_fails_closed(monkeypatch):
+def test_missing_server_configuration_uses_local_default_token(monkeypatch):
     monkeypatch.delenv("AI_INTERNAL_TOKEN", raising=False)
 
-    response = TestClient(app).post(
-        "/internal/chat",
+    response = TestClient(app).get(
+        "/internal/models/providers",
         headers={
-            "X-AI-Internal-Token": "anything",
+            "X-AI-Internal-Token": DEFAULT_INTERNAL_TOKEN,
             "Authorization": "Bearer user-token",
         },
-        json={"input": "你好"},
     )
 
-    assert response.status_code == 401
+    assert response.status_code == 200
 
 
 def test_internal_token_uses_constant_time_comparison(monkeypatch):

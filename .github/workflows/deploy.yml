@@ -25,8 +25,11 @@ jobs:
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
       AI_INTERNAL_TOKEN: ${{ secrets.AI_INTERNAL_TOKEN }}
       MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+      SMOKE_TOKEN: ${{ secrets.SMOKE_TOKEN }}
       REPO_DIR: ${{ secrets.DEPLOY_PATH }}
       DEPLOY_BRANCH: ${{ github.ref_name }}
+      DEPLOY_PRUNE_DOCKER: ${{ vars.DEPLOY_PRUNE_DOCKER || 'true' }}
+      DEPLOY_PRUNE_UNTIL: ${{ vars.DEPLOY_PRUNE_UNTIL || '24h' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -72,7 +75,7 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || 22 }}
-          envs: ACR_REGISTRY,ACR_USERNAME,ACR_PASSWORD,BACKEND_IMAGE,WEB_IMAGE,AI_SERVER_IMAGE,IMAGE_TAG,JWT_SECRET,AI_INTERNAL_TOKEN,MYSQL_ROOT_PASSWORD,REPO_DIR,DEPLOY_BRANCH
+          envs: ACR_REGISTRY,ACR_USERNAME,ACR_PASSWORD,BACKEND_IMAGE,WEB_IMAGE,AI_SERVER_IMAGE,IMAGE_TAG,JWT_SECRET,AI_INTERNAL_TOKEN,MYSQL_ROOT_PASSWORD,SMOKE_TOKEN,REPO_DIR,DEPLOY_BRANCH,DEPLOY_PRUNE_DOCKER,DEPLOY_PRUNE_UNTIL
           script: |
             cd "$REPO_DIR"
             printf '%s' "$ACR_PASSWORD" | docker login --username="$ACR_USERNAME" --password-stdin "$ACR_REGISTRY"

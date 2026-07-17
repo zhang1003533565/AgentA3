@@ -19,9 +19,11 @@ openssl rand -hex 32
 
 把两次输出分别填入 `JWT_SECRET` 和 `AI_INTERNAL_TOKEN`，并替换 `MYSQL_ROOT_PASSWORD`。三个值均为必填；Compose 使用 `${VAR:?}` 拒绝空值，启动前的 `config-guard` 还会拒绝 `CHANGE_ME` 和过短令牌。`deploy/.env` 已由仓库根 `.gitignore` 排除，禁止提交。
 
-`AI_INTERNAL_TOKEN` 在 Compose 中以同一值注入 Java 与 Python。Python 在该值非空时拒绝没有 `X-AI-Internal-Token` 的 `/internal/**` 请求；健康检查 `/healthz` 不受影响。本地开发未配置该变量时保持兼容模式。
+`AI_INTERNAL_TOKEN` 在 Compose 中以同一值注入 Java 与 Python。Python 会拒绝没有 `X-AI-Internal-Token` 的 `/internal/**` 请求；健康检查 `/healthz` 不受影响。本地开发未配置该变量时，Java 与 Python 使用同一个开发默认值 `dev-internal-token-change-me-32chars`，生产 Compose 仍由 `config-guard` 强制提供真实非空令牌。
 
-GitHub 发布工作流与服务器脚本也只使用本清单。工作流以提交 SHA 作为 `IMAGE_TAG`，默认把三个镜像推送到 ACR；如镜像路径不同，可设置仓库变量 `BACKEND_IMAGE`、`AI_SERVER_IMAGE`、`WEB_IMAGE` 覆盖。服务器上的 `deploy/.env` 仍是手工复现的来源，CI 注入的镜像、`JWT_SECRET`、`AI_INTERNAL_TOKEN`、MySQL 密码按 Compose 规则优先覆盖同名值。
+GitHub 发布工作流与服务器脚本也只使用本清单。工作流以提交 SHA 作为 `IMAGE_TAG`，默认把三个镜像推送到 ACR；如镜像路径不同，可设置仓库变量 `BACKEND_IMAGE`、`AI_SERVER_IMAGE`、`WEB_IMAGE` 覆盖。服务器上的 `deploy/.env` 仍是手工复现的来源，CI 注入的镜像、`JWT_SECRET`、`AI_INTERNAL_TOKEN`、MySQL 密码按 Compose 规则优先覆盖同名值。部署脚本默认在验收通过后执行 Docker 镜像与 build cache 清理，`DEPLOY_PRUNE_UNTIL` 默认 `24h`，可按磁盘和回滚需求调整；该清理不删除 volume。
+
+AppWeb 本地开发默认 `VITE_API_MODE=local`，浏览器请求 `http://localhost:8080`。Docker 生产镜像默认 `VITE_API_MODE=relative`，浏览器请求当前站点的 `/api/**`，再由 Nginx 代理到 Java；Java 调 Python 仍使用 Compose 内网 `http://ai-server:8081`。
 
 ## 3. 构建与启动
 
@@ -38,6 +40,7 @@ bash deploy/verify.sh
 - `http://localhost:8080/actuator/readiness`（数据库、Redis、Java→Python 内部令牌链路）
 - `http://localhost:8081/healthz`
 - `http://localhost:8081/internal/readiness`（传入 `AI_INTERNAL_TOKEN` 时直接复核 Python→Redis）
+- `http://localhost:8081/internal/models/providers`（同时传入 `AI_INTERNAL_TOKEN` 与 `SMOKE_TOKEN` 时复核 Python 内部模型目录接口）
 - `http://localhost:3000`
 - `http://localhost:8080/api/auth/current-user`（无令牌时必须返回 401；设置 `SMOKE_TOKEN` 时必须完成真实鉴权请求）
 
@@ -48,6 +51,8 @@ AI_INTERNAL_TOKEN='与 deploy/.env 一致的值' \
 SMOKE_TOKEN='真实学生 JWT' \
 bash deploy/verify.sh
 ```
+
+GitHub 自动部署同样会转发可选的 `SMOKE_TOKEN` secret；配置后每次部署都会额外验证 Python AI Server 的模型服务商目录接口。
 
 ## 4. 外部 MaxKB 与模型配置
 
@@ -86,6 +91,15 @@ docker compose --env-file deploy/.env -f deploy/compose.submission.yml down
 ```
 
 默认保留数据库、Redis、上传文件和生成附件。只有明确确认不再需要数据时，才执行带 `--volumes` 的清理命令。
+
+自动部署脚本默认执行：
+
+```bash
+docker image prune -af --filter "until=${DEPLOY_PRUNE_UNTIL:-24h}"
+docker builder prune -af --filter "until=${DEPLOY_PRUNE_UNTIL:-24h}"
+```
+
+如需临时保留所有旧镜像，可在 GitHub 仓库变量或服务器环境中设置 `DEPLOY_PRUNE_DOCKER=false`。不要在自动部署中加入 `--volumes`。
 
 ## 8. 常见故障
 

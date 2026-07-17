@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { message } from 'antd'
+import { API_BASE_URL } from '../config/apiBase'
 
 const getErrorMessage = (data, fallback = '请求失败') => {
   if (typeof data === 'string') return data
@@ -7,7 +8,7 @@ const getErrorMessage = (data, fallback = '请求失败') => {
 }
 
 const request = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '',
+  baseURL: API_BASE_URL,
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json'

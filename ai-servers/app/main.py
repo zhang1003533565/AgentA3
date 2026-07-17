@@ -1,4 +1,3 @@
-import os
 import secrets
 
 from fastapi import FastAPI
@@ -11,6 +10,7 @@ from app.api.routes.rag import export_router as rag_export_router
 from app.api.routes.rag import router as rag_router
 from app.api.routes.videos import router as videos_router
 from app.rag.document_conversion import EXPORT_ROOT
+from app.security.internal_auth import get_configured_internal_token
 from app.services.memory_store import memory_store
 from app.utils.logger import init_logging
 
@@ -34,12 +34,12 @@ def _is_export_capability_route(method: str, path: str) -> bool:
 
 @app.middleware("http")
 async def require_internal_service_token(request, call_next):
-    configured_token = os.getenv("AI_INTERNAL_TOKEN", "").strip()
+    configured_token = get_configured_internal_token()
     requires_internal_token = (
         request.url.path.startswith("/internal")
         and not _is_export_capability_route(request.method, request.url.path)
     )
-    if requires_internal_token and configured_token:
+    if requires_internal_token:
         supplied_token = request.headers.get("X-AI-Internal-Token", "")
         if not secrets.compare_digest(supplied_token, configured_token):
             return JSONResponse(status_code=401, content={"detail": "内部服务凭据无效"})

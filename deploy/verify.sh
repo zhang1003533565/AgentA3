@@ -35,6 +35,30 @@ check_json_up() {
   echo "[PASS] ${label}: ${url}"
 }
 
+check_json_contains() {
+  local label="$1"
+  local url="$2"
+  local expected="$3"
+  shift 3
+  local body
+  local curl_args=(--fail --silent --show-error --max-time 10)
+  local header
+  for header in "$@"; do
+    if [[ -n "$header" ]]; then
+      curl_args+=(-H "$header")
+    fi
+  done
+  if ! body="$(curl "${curl_args[@]}" "$url")"; then
+    echo "[FAIL] ${label}: ${url}" >&2
+    return 1
+  fi
+  if [[ "$body" != *"$expected"* ]]; then
+    echo "[FAIL] ${label}: response does not contain ${expected}" >&2
+    return 1
+  fi
+  echo "[PASS] ${label}: ${url}"
+}
+
 check_business_success() {
   local label="$1"
   local url="$2"
@@ -83,6 +107,20 @@ if [[ -n "${AI_INTERNAL_TOKEN:-}" ]]; then
     "ai-server Redis readiness" \
     "${ai_url}/internal/readiness" \
     "X-AI-Internal-Token: ${AI_INTERNAL_TOKEN}"
+  if [[ -n "$smoke_token" ]]; then
+    ai_authorization="$smoke_token"
+    if [[ "$ai_authorization" != Bearer\ * ]]; then
+      ai_authorization="Bearer ${ai_authorization}"
+    fi
+    check_json_contains \
+      "ai-server model provider catalog" \
+      "${ai_url}/internal/models/providers" \
+      '"providers"' \
+      "X-AI-Internal-Token: ${AI_INTERNAL_TOKEN}" \
+      "Authorization: ${ai_authorization}"
+  else
+    echo "[INFO] direct /internal/models/providers probe skipped; set SMOKE_TOKEN to verify authenticated AI provider catalog access"
+  fi
 else
   echo "[INFO] direct /internal/readiness probe skipped; backend readiness already verifies the shared Java→Python token"
 fi
