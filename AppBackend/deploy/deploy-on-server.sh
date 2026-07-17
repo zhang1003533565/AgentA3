@@ -20,8 +20,32 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 
 git fetch origin "$DEPLOY_BRANCH"
-git checkout -B "$DEPLOY_BRANCH" "origin/$DEPLOY_BRANCH"
+git checkout -f -B "$DEPLOY_BRANCH" "origin/$DEPLOY_BRANCH"
 git reset --hard "origin/$DEPLOY_BRANCH"
+
+missing_required=()
+for name in MYSQL_ROOT_PASSWORD JWT_SECRET AI_INTERNAL_TOKEN; do
+  if [[ -z "${!name:-}" ]]; then
+    file_value="$(
+      awk -F= -v key="$name" '
+        $1 == key {
+          value = substr($0, length(key) + 2)
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+          print value
+          exit
+        }
+      ' "$ENV_FILE"
+    )"
+    if [[ -z "$file_value" || "$file_value" == CHANGE_ME* ]]; then
+      missing_required+=("$name")
+    fi
+  fi
+done
+if [[ "${#missing_required[@]}" -gt 0 ]]; then
+  printf '[deploy] Missing required deployment secrets: %s\n' "${missing_required[*]}" >&2
+  printf '[deploy] Set them as GitHub Actions secrets or fill real values in %s on the server.\n' "$ENV_FILE" >&2
+  exit 1
+fi
 
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 "${compose[@]}" config --quiet
