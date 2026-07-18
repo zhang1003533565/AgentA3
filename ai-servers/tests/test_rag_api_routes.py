@@ -622,15 +622,17 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("leader_direct_answer", payload["strategy"])
         self.assertEqual("leader_direct_answer", payload["metadata"]["executionMode"])
         self.assertTrue(payload["metadata"]["retrievalSkipped"])
+        self.assertEqual("rules", payload["metadata"]["routeMode"])
         self.assertEqual([], payload["documents"])
-        self.assertIn("LLM 已接入", payload["answer"])
+        self.assertIn("Leader 智能体", payload["answer"])
 
     def test_leader_agent_uses_request_llm_config_when_forwarded_from_java(self):
+        input_text = "请用一句话鼓励我"
         response = self.client.post(
             "/internal/rag/query",
             headers=self.headers,
             json={
-                "input": "你好",
+                "input": input_text,
                 "agentName": "leader_agent",
             },
         )
@@ -638,7 +640,8 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         payload = response.json()
         self.assertEqual("leader_direct_answer", payload["strategy"])
-        self.assertEqual("LLM 已接入：你好", payload["answer"])
+        self.assertEqual(f"LLM 已接入：{input_text}", payload["answer"])
+        self.assertEqual("llm", payload["metadata"]["routeMode"])
         self.assertIn("Java 后台模型配置", payload["metadata"]["routeReason"])
 
     def test_query_without_agent_uses_leader_by_default(self):
@@ -688,6 +691,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("java_schedule_api", payload["metadata"]["toolName"])
         self.assertEqual("正在为你查询本学期课表。", payload["metadata"]["planningAnswer"])
         self.assertTrue(payload["metadata"]["toolResultSummarized"])
+        self.assertEqual("model", payload["metadata"]["toolResultSummaryMode"])
         self.assertEqual("service_tool_result", payload["answerType"])
         self.assertEqual(["text"], payload["outputTypes"])
         self.assertEqual([], payload["attachments"])
@@ -707,7 +711,14 @@ class RagApiRoutesTest(unittest.TestCase):
             os.environ["AI_LEADER_DIRECT_RESULT_RENDER_ENABLED"] = "true"
             rag_routes.data_store.search_service_tool_with_meta = lambda *_args: (
                 [],
-                {"toolCache": {"requestCount": 2, "hitCount": 0, "missCount": 2}},
+                {
+                    "toolCache": {
+                        "requestCount": 2,
+                        "hitCount": 0,
+                        "missCount": 2,
+                        "events": [{"status": "miss"}, {"status": "miss"}],
+                    }
+                },
             )
 
             def fail_if_summary_called(**_kwargs):
@@ -743,6 +754,83 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(3, payload["metadata"]["timings"]["profileMs"])
         self.assertIn("暂未查询到今天的课表安排", payload["answer"])
         self.assertEqual("direct_empty", payload["trace"][-1]["detail"]["summaryMode"])
+
+    def test_leader_empty_tool_result_reports_java_backend_error_instead_of_no_data(self):
+        rag_routes = importlib.import_module("app.api.routes.rag")
+        old_search_service_tool = rag_routes.data_store.search_service_tool_with_meta
+        old_summarize_tool_result = rag_routes.leader_agent.summarize_tool_result
+        summary_calls = []
+        try:
+            rag_routes.data_store.search_service_tool_with_meta = lambda *_args: (
+                [],
+                {
+                    "toolCache": {
+                        "requestCount": 1,
+                        "hitCount": 0,
+                        "missCount": 1,
+                        "events": [{"status": "error", "elapsedMs": 8000}],
+                    }
+                },
+            )
+
+            def fail_if_summary_called(**_kwargs):
+                summary_calls.append(True)
+                raise AssertionError("backend failures must not call the model summarizer")
+
+            rag_routes.leader_agent.summarize_tool_result = fail_if_summary_called
+            response = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={"input": "我今天的课表是什么", "agentName": "leader_agent"},
+            )
+        finally:
+            rag_routes.data_store.search_service_tool_with_meta = old_search_service_tool
+            rag_routes.leader_agent.summarize_tool_result = old_summarize_tool_result
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual([], summary_calls)
+        self.assertEqual("backend_error", payload["metadata"]["toolResultSummaryMode"])
+        self.assertEqual("request_error", payload["metadata"]["serviceToolBackendStatus"])
+        self.assertTrue(payload["metadata"]["serviceToolBackendFailure"])
+        self.assertIn("本次调用失败", payload["answer"])
+        self.assertIn("不能用于判断是否有数据", payload["answer"])
+        self.assertNotIn("暂未查询到今天的课表安排", payload["answer"])
+        self.assertEqual("backend_error", payload["trace"][-1]["detail"]["summaryMode"])
+        self.assertEqual(
+            "java_backend_request_failed",
+            payload["trace"][-1]["detail"]["backendFailure"]["reason"],
+        )
+
+    def test_service_tool_backend_failure_classifies_auth_timeout_and_circuit_open(self):
+        rag_routes = importlib.import_module("app.api.routes.rag")
+
+        unauthorized = rag_routes._service_tool_backend_failure({
+            "toolCache": {
+                "requestCount": 1,
+                "events": [{"status": "error", "statusCode": 401}],
+            }
+        })
+        timeout = rag_routes._service_tool_backend_failure({
+            "toolCache": {
+                "requestCount": 1,
+                "events": [{"status": "timeout"}],
+            }
+        })
+
+        retriever = rag_routes.data_store._retriever
+        old_disabled_until = retriever.disabled_until
+        try:
+            retriever.disabled_until = rag_routes.time.monotonic() + 10
+            circuit_open = rag_routes._service_tool_backend_failure({
+                "toolCache": {"requestCount": 0, "events": []}
+            })
+        finally:
+            retriever.disabled_until = old_disabled_until
+
+        self.assertEqual("unauthorized", unauthorized["status"])
+        self.assertEqual("timeout", timeout["status"])
+        self.assertEqual("circuit_open", circuit_open["status"])
 
     def test_leader_routes_course_teacher_query_to_schedule_tool(self):
         rag_routes = importlib.import_module("app.api.routes.rag")

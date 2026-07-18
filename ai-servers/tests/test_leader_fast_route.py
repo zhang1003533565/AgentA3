@@ -53,6 +53,25 @@ class LeaderFastRouteTest(unittest.TestCase):
         self.assertIn("高置信度", plan.route_reason)
         self.assertEqual("rules", plan.to_dict()["route_mode"])
 
+    def test_clear_schedule_lookup_phrasings_remain_on_fast_route(self):
+        queries = (
+            "我今天的课表是什么",
+            "明天有课吗",
+            "想知道明天有没有课",
+            "帮我查一下课表",
+            "周三有没有课",
+            "数据库今天有课吗",
+        )
+
+        for query in queries:
+            with self.subTest(query=query):
+                plan = self.agent.plan(query, chat_service=self.provider)
+                self.assertEqual("call_tool", plan.action)
+                self.assertEqual("java_schedule_api", plan.tool_name)
+                self.assertEqual("rules", plan.route_mode)
+
+        self.assertEqual(0, self.provider.calls)
+
     def test_exact_smalltalk_skips_llm_but_greeting_plus_task_does_not(self):
         greeting = self.agent.plan("你好", chat_service=self.provider)
         task = self.agent.plan("你好，帮我分析这门课", chat_service=self.provider)
@@ -99,6 +118,78 @@ class LeaderFastRouteTest(unittest.TestCase):
                 self.assertEqual("llm", plan.route_mode)
 
         self.assertEqual(len(queries), self.provider.calls)
+
+    def test_service_meta_questions_fall_back_to_llm(self):
+        queries = (
+            "课表接口怎么实现",
+            "课表系统为何报错",
+            "课表的设计原则是什么",
+            "如何开发课表查询功能",
+            "今天的课表为什么加载失败",
+            "校园活动接口如何开发",
+            "活动列表系统为什么报错",
+            "会议列表接口返回哪些字段",
+            "会议系统的设计原则是什么",
+            "食堂菜单接口怎么实现",
+            "食堂系统为什么报错",
+        )
+
+        for query in queries:
+            with self.subTest(query=query):
+                plan = self.agent.plan(query, chat_service=self.provider)
+                self.assertEqual("llm_fallback", plan.intent)
+                self.assertEqual("llm", plan.route_mode)
+
+        self.assertEqual(len(queries), self.provider.calls)
+
+    def test_broad_service_nouns_need_lookup_signal_or_typical_shorthand(self):
+        fallback_queries = (
+            "请介绍校园活动的发展历史",
+            "分析会议列表的使用场景",
+            "谈谈食堂文化",
+            "解释课程安排方法",
+            "告诉我食堂文化的发展历史",
+            "给我介绍校园活动的教育意义",
+            "告诉我今天食堂文化的发展历史",
+            "今天校园活动有什么教育意义",
+        )
+
+        for query in fallback_queries:
+            with self.subTest(query=query):
+                plan = self.agent.plan(query, chat_service=self.provider)
+                self.assertEqual("llm_fallback", plan.intent)
+                self.assertEqual("llm", plan.route_mode)
+
+        shorthand_cases = (
+            ("校园活动", "java_activity_api"),
+            ("我的会议", "java_meeting_api"),
+            ("食堂菜单", "java_canteen_api"),
+        )
+        for query, tool_name in shorthand_cases:
+            with self.subTest(query=query):
+                plan = self.agent.plan(query, chat_service=self.provider)
+                self.assertEqual("call_tool", plan.action)
+                self.assertEqual(tool_name, plan.tool_name)
+                self.assertEqual("rules", plan.route_mode)
+
+        self.assertEqual(len(fallback_queries), self.provider.calls)
+
+    def test_polite_prefixes_do_not_block_real_service_queries(self):
+        cases = (
+            ("告诉我今天食堂有什么菜", "java_canteen_api"),
+            ("想知道明天有没有课", "java_schedule_api"),
+            ("给我看看今天校园有什么讲座", "java_activity_api"),
+            ("告诉我本周有什么会议", "java_meeting_api"),
+        )
+
+        for query, tool_name in cases:
+            with self.subTest(query=query):
+                plan = self.agent.plan(query, chat_service=self.provider)
+                self.assertEqual("call_tool", plan.action)
+                self.assertEqual(tool_name, plan.tool_name)
+                self.assertEqual("rules", plan.route_mode)
+
+        self.assertEqual(0, self.provider.calls)
 
     def test_contextual_followup_falls_back_but_standalone_schedule_remains_fast(self):
         context = {

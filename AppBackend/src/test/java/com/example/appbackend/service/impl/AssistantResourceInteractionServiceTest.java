@@ -383,7 +383,8 @@ class AssistantResourceInteractionServiceTest {
                 mock(UserProfileEvidenceRepository.class),
                 mock(PythonAiProxyService.class),
                 mock(SystemConfigService.class),
-                new ObjectMapper()
+                new ObjectMapper(),
+                Runnable::run
         );
         var method = UserProfileServiceImpl.class
                 .getDeclaredMethod("sourceReliabilityScore", String.class);
@@ -414,7 +415,8 @@ class AssistantResourceInteractionServiceTest {
                 evidenceRepository,
                 mock(PythonAiProxyService.class),
                 mock(SystemConfigService.class),
-                new ObjectMapper()
+                new ObjectMapper(),
+                Runnable::run
         );
         var hintsMethod = UserProfileServiceImpl.class
                 .getDeclaredMethod("buildOutputPreferenceHints", Long.class);

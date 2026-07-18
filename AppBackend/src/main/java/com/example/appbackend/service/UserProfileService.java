@@ -17,4 +17,6 @@ public interface UserProfileService {
     Map<String, Object> buildLeaderProfileContext(Long userId);
 
     Map<String, Object> buildLeaderProfileContext(Long userId, String authorization);
+
+    void refreshLeaderProfileContextAsync(Long userId, String authorization);
 }

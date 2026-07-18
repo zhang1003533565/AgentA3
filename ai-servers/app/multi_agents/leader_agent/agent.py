@@ -130,6 +130,140 @@ _FAST_ROUTE_MULTI_INTENT_TOKENS = (
     "再帮我",
     "然后",
 )
+_FAST_ROUTE_QUERY_ACTION_TOKENS = (
+    "查询",
+    "查看",
+    "查一下",
+    "查查",
+    "看看",
+    "列出",
+    "显示",
+    "帮我查",
+)
+_FAST_ROUTE_QUERY_SCOPE_TOKENS = (
+    "今天",
+    "今日",
+    "明天",
+    "后天",
+    "本周",
+    "这周",
+    "下周",
+    "本月",
+    "最近",
+    "近期",
+    "当前",
+    "本学期",
+    "这学期",
+    "当前学期",
+    "所有学期",
+    "全部学期",
+)
+_FAST_ROUTE_QUESTION_TOKENS = (
+    "有什么",
+    "有哪些",
+    "有没有",
+    "有吗",
+    "多少",
+    "几个",
+    "几场",
+    "什么时候",
+    "几点",
+    "哪天",
+    "哪个",
+    "哪家",
+    "推荐",
+)
+_FAST_ROUTE_META_HARD_TOKENS = (
+    "接口",
+    "api",
+    "sdk",
+    "代码",
+    "源码",
+    "表结构",
+    "字段",
+    "参数",
+    "返回值",
+    "状态码",
+    "架构",
+    "设计原则",
+    "技术方案",
+    "实现原理",
+    "调用链",
+    "路由规则",
+    "缓存策略",
+    "单元测试",
+    "测试用例",
+    "日志",
+    "报错",
+    "错误",
+    "异常",
+    "故障",
+    "bug",
+    "加载失败",
+    "请求失败",
+    "无法加载",
+    "打不开",
+    "没显示",
+    "不显示",
+)
+_FAST_ROUTE_META_PHRASES = (
+    "怎么实现",
+    "如何实现",
+    "怎么开发",
+    "如何开发",
+    "怎么设计",
+    "如何设计",
+    "怎么编写",
+    "如何编写",
+    "怎么接入",
+    "如何接入",
+    "实现方式",
+    "开发方式",
+)
+_FAST_ROUTE_KNOWLEDGE_INTENT_TOKENS = (
+    "介绍",
+    "分析",
+    "科普",
+    "解释",
+    "讲解",
+    "讲讲",
+    "谈谈",
+    "概述",
+    "讨论",
+    "研究",
+    "评价",
+    "解读",
+)
+_FAST_ROUTE_KNOWLEDGE_TOPIC_TOKENS = (
+    "文化",
+    "历史",
+    "意义",
+    "发展",
+    "背景",
+    "起源",
+    "概念",
+    "定义",
+    "原理",
+    "价值",
+    "作用",
+    "影响",
+)
+_FAST_ROUTE_SERVICE_ENTITY_TOKENS = (
+    "课表",
+    "课程安排",
+    "课程列表",
+    "校园活动",
+    "活动安排",
+    "活动",
+    "讲座",
+    "比赛",
+    "会议",
+    "食堂",
+    "档口",
+    "菜单",
+    "菜品",
+    "餐饮",
+)
 _MEETING_NON_QUERY_TOKENS = (
     "会议总结",
     "会议纪要",
@@ -166,6 +300,7 @@ _SCHEDULE_NON_QUERY_TOKENS = (
     "设计课程安排",
     "怎么安排",
     "如何安排",
+    "课表设计",
 )
 _CANTEEN_NON_QUERY_TOKENS = (
     "食堂管理",
@@ -414,11 +549,18 @@ class LeaderAgent:
                 return None
 
             if domain == "schedule":
-                plan = self._plan_with_rules(input_text, rag_strategy)
-                if plan.action != "call_tool" or plan.tool_name != tool_name:
-                    return None
-                plan.route_reason = "高置信度命中明确课表查询，跳过模型路由并调用 Java 后端课表接口。"
-                return plan
+                intent, answer = self._schedule_fast_route_response(input_text)
+                return LeaderPlan(
+                    intent=intent,
+                    target_agent="leader_agent",
+                    need_retrieval=False,
+                    rag_strategy="",
+                    action="call_tool",
+                    tool_name=tool_name,
+                    route_reason="高置信度命中明确课表查询，跳过模型路由并调用 Java 后端课表接口。",
+                    answer=answer,
+                    route_mode="rules",
+                )
 
             labels = {
                 "activity": ("activity_query", "校园活动", "正在为你查询校园活动。"),
@@ -442,32 +584,117 @@ class LeaderAgent:
             return None
 
     def _fast_route_domains(self, normalized: str) -> List[str]:
+        if self._is_service_meta_question(normalized):
+            return []
+
         domains: List[str] = []
         if self._is_high_confidence_schedule_query(normalized):
             domains.append("schedule")
-        if (
-            any(token in normalized for token in _FAST_ROUTE_ACTIVITY_TOKENS)
-            and not any(token in normalized for token in _ACTIVITY_NON_QUERY_TOKENS)
-        ):
+        if self._is_high_confidence_activity_query(normalized):
             domains.append("activity")
-        if (
-            any(token in normalized for token in _FAST_ROUTE_MEETING_TOKENS)
-            and not any(token in normalized for token in _MEETING_NON_QUERY_TOKENS)
-        ):
+        if self._is_high_confidence_meeting_query(normalized):
             domains.append("meeting")
-        if (
-            any(token in normalized for token in _FAST_ROUTE_CANTEEN_TOKENS)
-            and not any(token in normalized for token in _CANTEEN_NON_QUERY_TOKENS)
-        ):
+        if self._is_high_confidence_canteen_query(normalized):
             domains.append("canteen")
         return domains
+
+    def _is_service_meta_question(self, normalized: str) -> bool:
+        if any(token in normalized for token in _FAST_ROUTE_META_HARD_TOKENS):
+            return True
+        if any(phrase in normalized for phrase in _FAST_ROUTE_META_PHRASES):
+            return True
+        if self._is_service_knowledge_question(normalized):
+            return True
+        if "系统" in normalized and any(
+            token in normalized
+            for token in ("为什么", "为何", "实现", "开发", "设计", "原理", "失败", "有问题")
+        ):
+            return True
+        return False
+
+    def _is_service_knowledge_question(self, normalized: str) -> bool:
+        if any(token in normalized for token in _FAST_ROUTE_KNOWLEDGE_INTENT_TOKENS):
+            return True
+        for entity in _FAST_ROUTE_SERVICE_ENTITY_TOKENS:
+            entity_index = normalized.find(entity)
+            if entity_index < 0:
+                continue
+            knowledge_start = entity_index + len(entity)
+            if any(normalized.find(topic, knowledge_start) >= 0 for topic in _FAST_ROUTE_KNOWLEDGE_TOPIC_TOKENS):
+                return True
+        return False
+
+    def _has_explicit_service_query_signal(self, normalized: str) -> bool:
+        return any(token in normalized for token in _FAST_ROUTE_QUERY_ACTION_TOKENS) or any(
+            token in normalized for token in _FAST_ROUTE_QUERY_SCOPE_TOKENS
+        ) or any(token in normalized for token in _FAST_ROUTE_QUESTION_TOKENS)
+
+    def _is_high_confidence_activity_query(self, normalized: str) -> bool:
+        if any(token in normalized for token in _ACTIVITY_NON_QUERY_TOKENS):
+            return False
+        if not any(token in normalized for token in _FAST_ROUTE_ACTIVITY_TOKENS):
+            return False
+        if normalized in {
+            "校园活动",
+            "活动安排",
+            "最近活动",
+            "近期活动",
+            "讲座安排",
+            "比赛安排",
+            "报名活动",
+        }:
+            return True
+        return self._has_explicit_service_query_signal(normalized)
+
+    def _is_high_confidence_meeting_query(self, normalized: str) -> bool:
+        if any(token in normalized for token in _MEETING_NON_QUERY_TOKENS):
+            return False
+        if not any(token in normalized for token in _FAST_ROUTE_MEETING_TOKENS):
+            return False
+        if normalized in {
+            "我的会议",
+            "会议列表",
+            "会议状态",
+            "预约的会议",
+            "已预约会议",
+            "预约会议安排",
+            "有什么会议",
+            "查询会议安排",
+            "查看会议安排",
+            "今天的会议安排",
+            "明天的会议安排",
+            "本周会议安排",
+        }:
+            return True
+        return self._has_explicit_service_query_signal(normalized) or any(
+            token in normalized for token in ("我的会议", "预约的会议", "已预约会议")
+        )
+
+    def _is_high_confidence_canteen_query(self, normalized: str) -> bool:
+        if any(token in normalized for token in _CANTEEN_NON_QUERY_TOKENS):
+            return False
+        if not any(token in normalized for token in _FAST_ROUTE_CANTEEN_TOKENS):
+            return False
+        if normalized in {
+            "食堂",
+            "档口",
+            "食堂菜单",
+            "餐厅菜单",
+            "有什么菜",
+            "菜品价格",
+            "吃什么",
+            "餐饮优惠",
+            "餐饮信息",
+        }:
+            return True
+        if any(token in normalized for token in ("有什么菜", "吃什么")):
+            return True
+        return self._has_explicit_service_query_signal(normalized)
 
     def _is_high_confidence_schedule_query(self, normalized: str) -> bool:
         if any(token in normalized for token in _SCHEDULE_NON_QUERY_TOKENS):
             return False
-        explicit_tokens = (
-            "课表",
-            "课程安排",
+        typical_query_tokens = (
             "下节课",
             "下一节课",
             "再下一节课",
@@ -481,16 +708,47 @@ class LeaderAgent:
             "今天有课吗",
             "明天有课吗",
             "后天有课吗",
+            "今天有没有课",
+            "明天有没有课",
+            "后天有没有课",
+            "本周有没有课",
+            "这周有没有课",
             "本周有什么课",
             "这周有什么课",
-            "课程列表",
-            "全部课程",
+            "今日课表",
+            "今天的课表",
+            "明天的课表",
+            "后天的课表",
+            "本周课表",
+            "这周课表",
+            "下周课表",
+            "我的课表",
         )
-        if any(token in normalized for token in explicit_tokens):
+        if any(token in normalized for token in typical_query_tokens):
             return True
         if is_semester_schedule_query(normalized) or is_all_semester_schedule_query(normalized):
             return True
-        return bool(re.search(r"(?:第\d+周|周[一二三四五六日天]|星期[一二三四五六日天]).*(?:有|上|没|没有).*课", normalized))
+        if normalized in {
+            "课表",
+            "我的课表",
+            "查询课表",
+            "查看课表",
+            "查课表",
+            "课程安排",
+            "我的课程安排",
+            "课程列表",
+            "全部课程",
+        }:
+            return True
+        has_schedule_entity = any(token in normalized for token in ("课表", "课程安排", "课程列表"))
+        if has_schedule_entity and self._has_explicit_service_query_signal(normalized):
+            return True
+        return bool(
+            re.search(
+                r"(?:第\d+周|周[一二三四五六日天]|星期[一二三四五六日天]).*(?:有|上|没|没有).*课",
+                normalized,
+            )
+        )
 
     def _requires_llm_routing(
         self,

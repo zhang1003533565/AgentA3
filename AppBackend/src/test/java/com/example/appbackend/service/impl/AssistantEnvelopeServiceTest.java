@@ -1,5 +1,6 @@
 package com.example.appbackend.service.impl;
 
+import com.example.appbackend.dto.LlmChatResponse;
 import com.example.appbackend.repository.AiLeaderGeneratedExportRepository;
 import com.example.appbackend.repository.AiLeaderMessageRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,6 +26,34 @@ class AssistantEnvelopeServiceTest {
                 mock(AiLeaderGeneratedExportRepository.class),
                 new ObjectMapper().findAndRegisterModules(),
                 "cdn.example.edu");
+    }
+
+    @Test
+    void liveResponseKeepsOnlySafeProfileTimingDiagnostics() {
+        LlmChatResponse response = new LlmChatResponse();
+        response.setAnswer("测试回答");
+        response.setAnswerType("text");
+        response.setRetrievalMeta(new LinkedHashMap<>(Map.of(
+                "profileMs", 12,
+                "profileContextSource", "local_snapshot",
+                "firstTokenMs", 14,
+                "profileSnapshot", Map.of("score", 99),
+                "timings", Map.of("profileMs", 12, "planMs", 1, "firstTokenMs", 14)
+        )));
+
+        service.prepareLiveResponse(response, Map.of(), "测试问题");
+
+        assertThat(response.getRetrievalMeta())
+                .containsEntry("profileMs", 12)
+                .containsEntry("profileContextSource", "local_snapshot")
+                .containsEntry("firstTokenMs", 14)
+                .doesNotContainKey("profileSnapshot");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> timings = (Map<String, Object>) response.getRetrievalMeta().get("timings");
+        assertThat(timings)
+                .containsEntry("profileMs", 12)
+                .containsEntry("planMs", 1)
+                .containsEntry("firstTokenMs", 14);
     }
 
     @Test

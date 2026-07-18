@@ -159,6 +159,7 @@ class SseStreamContractTest(unittest.TestCase):
     def test_rag_stream_disables_proxy_buffering_and_reports_timings(self):
         client = self._client()
         original_run_rag_core = rag_route._run_rag_query_core
+        original_save_context = rag_route._save_conversation_context
         try:
             rag_route._run_rag_query_core = lambda request, authorization: RagQueryResponse(
                 strategy="direct_agent",
@@ -166,6 +167,7 @@ class SseStreamContractTest(unittest.TestCase):
                 answerType="text",
                 metadata={"executedAgent": "textbook_knowledge_agent"},
             )
+            rag_route._save_conversation_context = lambda *_args: rag_route.time.sleep(0.01)
             with client.stream(
                 "POST",
                 "/internal/rag/query/stream",
@@ -195,14 +197,58 @@ class SseStreamContractTest(unittest.TestCase):
             self.assertIn("planMs", timings)
             self.assertIn("executionMs", timings)
             self.assertIn("finalizeMs", timings)
+            self.assertIn("persistMs", timings)
             self.assertIn("firstEventMs", timings)
             self.assertIn("firstTokenMs", timings)
             self.assertIn("totalMs", timings)
             self.assertLessEqual(timings["firstEventMs"], timings["firstTokenMs"])
             self.assertLessEqual(timings["firstTokenMs"], timings["totalMs"])
+            self.assertGreaterEqual(timings["persistMs"], 5)
+            self.assertLessEqual(timings["persistMs"], timings["totalMs"])
+            self.assertEqual("python_processing_including_persistence", metadata["timingScope"])
             self.assertEqual("local_snapshot", metadata["profileContextSource"])
         finally:
             rag_route._run_rag_query_core = original_run_rag_core
+            rag_route._save_conversation_context = original_save_context
+
+    def test_rag_sync_total_timing_is_recorded_after_persistence(self):
+        client = self._client()
+        original_run_rag_core = rag_route._run_rag_query_core
+        original_save_context = rag_route._save_conversation_context
+        observed = {}
+        try:
+            rag_route._run_rag_query_core = lambda request, authorization: RagQueryResponse(
+                strategy="direct_agent",
+                answer="同步耗时测试回答。",
+                answerType="text",
+                metadata={"executedAgent": "textbook_knowledge_agent"},
+            )
+
+            def observe_persistence(request, authorization, response):
+                timings = (response.metadata or {}).get("timings") or {}
+                observed["totalPresentBeforePersistence"] = "totalMs" in timings
+                rag_route.time.sleep(0.01)
+
+            rag_route._save_conversation_context = observe_persistence
+            response = client.post(
+                "/internal/rag/query",
+                headers={"Authorization": "Bearer test-token"},
+                json={"input": "同步耗时测试", "agentName": "textbook_knowledge_agent"},
+            )
+        finally:
+            rag_route._run_rag_query_core = original_run_rag_core
+            rag_route._save_conversation_context = original_save_context
+
+        self.assertEqual(200, response.status_code)
+        metadata = response.json()["metadata"]
+        timings = metadata["timings"]
+        self.assertFalse(observed["totalPresentBeforePersistence"])
+        self.assertIn("finalizeMs", timings)
+        self.assertIn("persistMs", timings)
+        self.assertIn("totalMs", timings)
+        self.assertGreaterEqual(timings["persistMs"], 5)
+        self.assertLessEqual(timings["persistMs"], timings["totalMs"])
+        self.assertEqual("python_processing_including_persistence", metadata["timingScope"])
 
     def test_rag_done_payload_uses_resource_evidence_finalizer(self):
         client = self._client()

@@ -595,13 +595,23 @@ def run_rag_query(
         model=x_ai_model,
     ))
     try:
-        response = _finalize_rag_response(request, _run_rag_query_core(request, authorization or ""))
+        response = _run_rag_query_core(request, authorization or "")
+        finalization_started_at = time.perf_counter()
+        response = _finalize_rag_response(request, response)
+        finalization_ms = _elapsed_ms(finalization_started_at)
         _merge_response_performance(
             response,
             profileMs=_profile_ms_from_request(request),
+            finalizeMs=finalization_ms,
+        )
+        persistence_started_at = time.perf_counter()
+        _save_conversation_context(request, authorization or "", response)
+        persistence_ms = _elapsed_ms(persistence_started_at)
+        _merge_response_performance(
+            response,
+            persistMs=persistence_ms,
             totalMs=_elapsed_ms(request_started_at),
         )
-        _save_conversation_context(request, authorization or "", response)
         timings = (response.metadata or {}).get("timings") or {}
         logger.info(
             "rag query completed agent=%s route_mode=%s timings=%s",
@@ -624,6 +634,7 @@ async def run_rag_query_stream(
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
     x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
 ):
+    request_started_at = time.perf_counter()
     _require_authorization(authorization)
     llm_config = build_llm_runtime_config(
         provider=x_ai_provider,
@@ -634,7 +645,7 @@ async def run_rag_query_stream(
     learning_workflow = _is_learning_workflow_request(request)
 
     async def event_stream():
-        stream_started_at = time.perf_counter()
+        stream_started_at = request_started_at
         token = set_active_llm_config(llm_config)
         generation_started = False
         plan = None
@@ -730,8 +741,14 @@ async def run_rag_query_stream(
                         _merge_response_performance(response, firstTokenMs=_elapsed_ms(stream_started_at))
                         first_token_recorded = True
                     yield build_sse("delta", {"content": chunk})
+            persistence_started_at = time.perf_counter()
             _save_conversation_context(request, authorization or "", response)
-            _merge_response_performance(response, totalMs=_elapsed_ms(stream_started_at))
+            persistence_ms = _elapsed_ms(persistence_started_at)
+            _merge_response_performance(
+                response,
+                persistMs=persistence_ms,
+                totalMs=_elapsed_ms(stream_started_at),
+            )
             metadata = response.metadata or {}
             logger.info(
                 "rag stream completed agent=%s route_mode=%s timings=%s",
@@ -1141,6 +1158,11 @@ def _merge_response_performance(
         # grouped object for future observability screens.
         metadata[name] = normalized
     metadata["timings"] = timings
+    if "totalMs" in timings:
+        # Both the synchronous and SSE endpoints measure through conversation
+        # context persistence. Socket delivery after the response is yielded is
+        # intentionally outside this Python processing scope.
+        metadata["timingScope"] = "python_processing_including_persistence"
     response.metadata = metadata
     return response
 
@@ -1158,6 +1180,104 @@ def _feature_enabled(name: str, default: bool = True) -> bool:
     if raw is None:
         return default
     return str(raw).strip().lower() not in {"0", "false", "no", "off", "disabled"}
+
+
+def _service_tool_backend_failure(cache_meta: Any) -> Dict[str, Any]:
+    """Return failure diagnostics when an empty adapter result is not real empty data.
+
+    The Java adapter intentionally converts transport errors to ``{}``/``[]``.
+    Its per-call cache events are therefore the only non-invasive signal available
+    at this layer: successful calls are ``hit``/``miss`` and failed calls are
+    ``error``. A circuit-open or administratively disabled adapter makes no request,
+    so it produces zero events.
+    """
+    meta = cache_meta if isinstance(cache_meta, dict) else {}
+    tool_cache = meta.get("toolCache") if isinstance(meta.get("toolCache"), dict) else {}
+    events = [event for event in (tool_cache.get("events") or []) if isinstance(event, dict)]
+    failure_events: List[Dict[str, Any]] = []
+    failure_kind = ""
+    for event in events:
+        status = str(event.get("status") or "").strip().lower()
+        status_code = _optional_nonnegative_int(event.get("statusCode") or event.get("httpStatus"))
+        if status_code == 401 or "unauthor" in status:
+            failure_kind = failure_kind or "unauthorized"
+        elif status_code == 403 or "forbidden" in status:
+            failure_kind = failure_kind or "forbidden"
+        elif status_code in {408, 504} or "timeout" in status or "timed_out" in status:
+            failure_kind = failure_kind or "timeout"
+        elif status_code is not None and status_code >= 400:
+            failure_kind = failure_kind or "request_error"
+        elif status in {"error", "failed", "failure", "circuit_open", "disabled"}:
+            failure_kind = failure_kind or (status if status != "error" else "request_error")
+        else:
+            continue
+        failure_events.append(event)
+
+    if failure_events:
+        return {
+            "status": failure_kind or "request_error",
+            "reason": "java_backend_request_failed",
+            "errorCount": len(failure_events),
+        }
+
+    successful_event_count = sum(
+        1
+        for event in events
+        if str(event.get("status") or "").strip().lower() in {"hit", "miss"}
+    )
+    if successful_event_count > 0:
+        return {}
+
+    request_count = _optional_nonnegative_int(tool_cache.get("requestCount"))
+    if request_count is None:
+        request_count = len(events)
+    if request_count > 0:
+        return {
+            "status": "unverified",
+            "reason": "java_backend_result_status_missing",
+            "errorCount": 0,
+        }
+
+    retriever = getattr(data_store, "_retriever", None)
+    if not bool(getattr(data_store, "enabled", True)):
+        status = "disabled"
+        reason = "java_backend_disabled"
+    else:
+        disabled_until = getattr(retriever, "disabled_until", None)
+        if isinstance(disabled_until, (int, float)) and disabled_until > time.monotonic():
+            status = "circuit_open"
+            reason = "java_backend_circuit_open"
+        else:
+            status = "not_called"
+            reason = "java_backend_request_not_executed"
+    return {"status": status, "reason": reason, "errorCount": 0}
+
+
+def _service_tool_backend_failure_answer(tool_name: str, failure: Dict[str, Any]) -> str:
+    system_labels = {
+        "java_schedule_api": "课表系统",
+        "java_activity_api": "活动系统",
+        "java_meeting_api": "会议系统",
+        "java_canteen_api": "食堂系统",
+        "java_facility_api": "校园设施系统",
+        "java_secondhand_api": "校园二手市场",
+    }
+    system_label = system_labels.get(tool_name, "校园业务系统")
+    status = str(failure.get("status") or "request_error")
+    if status == "circuit_open":
+        failure_label = "暂时处于故障保护状态"
+    elif status == "disabled":
+        failure_label = "当前未启用"
+    elif status in {"unauthorized", "forbidden"}:
+        failure_label = "登录状态校验失败"
+    elif status == "timeout":
+        failure_label = "本次请求超时"
+    else:
+        failure_label = "本次调用失败"
+    return (
+        f"{system_label}{failure_label}，当前结果不能用于判断是否有数据。"
+        "请稍后重试；如果仍然失败，请重新登录或检查 Java 后端服务状态。"
+    )
 
 
 def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
@@ -2318,9 +2438,18 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
     documents = [_tool_result_to_document(item, index) for index, item in enumerate(results, start=1)]
     summary_error = ""
     summarized_by_model = False
-    direct_empty_result = not results and _feature_enabled("AI_LEADER_DIRECT_RESULT_RENDER_ENABLED", True)
+    backend_failure = _service_tool_backend_failure(cache_meta) if not results else {}
+    direct_empty_result = (
+        not results
+        and not backend_failure
+        and _feature_enabled("AI_LEADER_DIRECT_RESULT_RENDER_ENABLED", True)
+    )
+    direct_backend_failure = not results and bool(backend_failure)
     summary_started_at = time.perf_counter()
-    if direct_empty_result:
+    if direct_backend_failure:
+        answer = _service_tool_backend_failure_answer(tool_name, backend_failure)
+        summary_mode = "backend_error"
+    elif direct_empty_result:
         answer = _empty_service_tool_answer(tool_name, request.input)
         summary_mode = "direct_empty"
     else:
@@ -2338,7 +2467,7 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
             answer = ""
             summary_error = str(exc)
             summary_mode = "fallback"
-    summary_ms = 0 if direct_empty_result else _elapsed_ms(summary_started_at)
+    summary_ms = 0 if (direct_empty_result or direct_backend_failure) else _elapsed_ms(summary_started_at)
     if not answer and results:
         answer = _format_service_tool_answer(tool_name, results)
     elif not answer:
@@ -2365,6 +2494,8 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
         "answerType": answer_type,
         "toolResultSummarized": summarized_by_model,
         "toolResultSummaryMode": summary_mode,
+        "serviceToolBackendStatus": str(backend_failure.get("status") or "ok"),
+        "serviceToolBackendFailure": bool(backend_failure),
         "toolToggles": _tool_toggles_from_request(request),
         **retrieval_meta,
     }
@@ -2393,6 +2524,8 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
                 "summaryMode": summary_mode,
                 "summaryMs": summary_ms,
                 "resultCount": len(results),
+                "serviceToolBackendStatus": str(backend_failure.get("status") or "ok"),
+                **({"backendFailure": backend_failure} if backend_failure else {}),
                 **({"error": summary_error} if summary_error else {}),
             }),
         ],

@@ -320,7 +320,7 @@ class AppAiLeaderControllerTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void syncUsesLocalProfileContextWithoutPassingAuthorizationIntoProfileSummaryPath() {
+    void syncUsesImmediateProfileContextAndOnlySchedulesAuthorizationAwareRefresh() {
         Map<String, Object> localProfile = Map.of(
                 "summaryEngine", "local_profile_summary_v1",
                 "aiSummary", "local summary"
@@ -340,7 +340,30 @@ class AppAiLeaderControllerTest {
         assertThat(metadata.get("profileContextMs")).isInstanceOf(Long.class);
         assertThat(((Long) metadata.get("profileContextMs"))).isGreaterThanOrEqualTo(0L);
         verify(userProfileService).buildLeaderProfileContext(42L);
+        verify(userProfileService).refreshLeaderProfileContextAsync(42L, "Bearer test-token");
         verify(userProfileService, never()).buildLeaderProfileContext(anyLong(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void syncReusesSavedAiProfileWithoutSchedulingRedundantRefresh() {
+        Map<String, Object> savedAiProfile = Map.of(
+                "summaryEngine", "profile_summary_agent",
+                "aiSummary", "saved AI summary"
+        );
+        when(userProfileService.buildLeaderProfileContext(42L)).thenReturn(savedAiProfile);
+        AtomicReference<Map<String, Object>> upstreamPayload = new AtomicReference<>();
+        when(pythonAiProxyService.queryRag(any(), any())).thenAnswer(invocation -> {
+            upstreamPayload.set(invocation.getArgument(0));
+            return validGeneratedResponse();
+        });
+
+        controller.query(request(), authenticatedRequest());
+
+        Map<String, Object> metadata = (Map<String, Object>) upstreamPayload.get().get("metadata");
+        assertThat(metadata.get("profileSnapshot")).isEqualTo(savedAiProfile);
+        assertThat(metadata.get("profileContextSource")).isEqualTo("saved_ai_snapshot");
+        verify(userProfileService, never()).refreshLeaderProfileContextAsync(anyLong(), any());
     }
 
     @Test

@@ -416,13 +416,18 @@ public class AppAiLeaderController {
                 metadata.put("sourceMessageId", request.getSourceMessageId());
             }
         }
-        // Leader chat stays on the local profile path so opening an SSE stream never waits for
-        // profile_summary_agent. Profile pages and explicit refresh workflows can still use the
-        // authorization-aware overload when they need an AI-refined snapshot.
+        // Leader chat only reads the compatible saved AI insight (or the local fallback) here.
+        // A missing/stale insight is refreshed in a bounded background executor below, so opening
+        // an SSE stream never waits for profile_summary_agent.
         long profileContextStartedAt = System.nanoTime();
-        metadata.put("profileSnapshot", userProfileService.buildLeaderProfileContext(userId));
+        Map<String, Object> profileContext = userProfileService.buildLeaderProfileContext(userId);
+        metadata.put("profileSnapshot", profileContext);
         metadata.put("profileContextMs", Math.max(0L, (System.nanoTime() - profileContextStartedAt) / 1_000_000L));
-        metadata.put("profileContextSource", "local_snapshot");
+        boolean hasSavedAiSnapshot = "profile_summary_agent".equals(profileContext.get("summaryEngine"));
+        metadata.put("profileContextSource", hasSavedAiSnapshot ? "saved_ai_snapshot" : "local_snapshot");
+        if (!hasSavedAiSnapshot) {
+            userProfileService.refreshLeaderProfileContextAsync(userId, authorization);
+        }
         metadata.put("profileEvidencePolicy", Map.of(
                 "leaderCanUpdateScore", false,
                 "leaderCanSubmitEvidence", true,
