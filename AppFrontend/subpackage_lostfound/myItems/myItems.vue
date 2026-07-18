@@ -1,71 +1,90 @@
 <template>
   <view class="page-root">
     <view class="screen">
-      <view class="container">
-        <nav-bar title="我发布的" :fixed="true" :placeholder="true" />
-        
-        <scroll-view scroll-y class="page-body">
-          <view v-if="myItems.length === 0" class="empty">
-            <view class="empty-i"></view>
-            <view class="empty-t">还没有发布过</view>
-          </view>
-          <view v-for="item in myItems" :key="item.id" class="micard">
-            <view class="mi-main" @click="goToDetail(item.id)">
-              <view class="miimg">
-                <text v-if="item.type === 'want'">🔍</text>
-                <image v-else-if="item.images && item.images.length" :src="item.images[0]" mode="aspectFill" />
-                <text v-else>{{ emoji(item.id) }}</text>
-              </view>
-              <view class="mibody">
-                <view class="miname">{{ item.name }}</view>
-                <view v-if="item.type === 'sell'" class="miprice">
-                  <small>¥</small>{{ item.price }}
-                </view>
-                <view class="mitime">{{ fmt(item.ctime) }}发布</view>
-              </view>
-              <button
-                v-if="isCurrentUserPublisher(item)"
-                class="mi-manage-btn"
-                @click.stop="openManage(item)"
-              >
-                管理
-              </button>
-            </view>
-            <view v-if="shouldShowActionBar(item)" class="mi-actions">
-              <button
-                v-if="shouldShowContactAction(item)"
-                class="mi-action-btn mi-action-contact"
-                :class="{ 'mi-action-disabled': !canContact(item) }"
-                :disabled="!canContact(item)"
-                @click.stop="openChat(item)"
-              >
-                {{ contactLabel(item) }}
-              </button>
-              <button
-                v-if="showSecondaryAction(item)"
-                class="mi-action-btn mi-action-status"
-                @click.stop="handleSecondaryAction(item)"
-              >
-                {{ statusActionText(item) }}
-              </button>
-            </view>
-          </view>
-        </scroll-view>
+      <common-page-header title="我的发布" :subtitle="publishSummary" :fixed="true" :placeholder="true" :showBack="false">
+        <template #left>
+          <view class="market-back-button" @click="goBack">‹</view>
+        </template>
+      </common-page-header>
+
+      <view class="filter-tabs">
+        <view
+          v-for="filter in filters"
+          :key="filter.key"
+          class="filter-tab"
+          :class="{ active: activeFilter === filter.key }"
+          @click="activeFilter = filter.key"
+        >
+          <text>{{ filter.label }}</text>
+        </view>
       </view>
+
+      <scroll-view scroll-y class="page-body" :show-scrollbar="false">
+        <view v-if="myItems.length === 0" class="empty">
+          <view class="empty-i"></view>
+          <view class="empty-t">{{ emptyText }}</view>
+        </view>
+
+        <view v-for="item in myItems" :key="item.id" class="publish-card">
+          <view class="item-cover" @click="goToDetail(item.id)">
+            <image v-if="item.images && item.images.length" :src="item.images[0]" mode="aspectFill" />
+            <view v-else class="cover-placeholder"></view>
+          </view>
+
+          <view class="item-main">
+            <view class="item-title" @click="goToDetail(item.id)">{{ item.name }}</view>
+            <view class="item-price">¥{{ priceText(item.price) }}</view>
+            <view class="item-time">{{ fmt(item.ctime) }}发布</view>
+
+            <view class="item-operate">
+              <view class="status-pill" :class="'status-pill--' + itemDisplayStatus(item).key">
+                {{ itemDisplayStatus(item).label }}
+              </view>
+              <view class="manage-link" @click.stop="openManage(item)">
+                <text>管理</text>
+                <view class="chevron-icon"></view>
+              </view>
+            </view>
+
+            <view class="item-metrics">
+              <view class="metric">
+                <view class="metric-icon eye-icon"></view>
+                <text>浏览 {{ item.viewCount || 0 }}</text>
+              </view>
+              <view class="metric">
+                <view class="metric-icon star-icon"></view>
+                <text>收藏 {{ item.favoriteCount || 0 }}</text>
+              </view>
+              <view class="metric">
+                <view class="metric-icon chat-icon"></view>
+                <text>咨询 {{ item.inquiryCount || 0 }}</text>
+              </view>
+            </view>
+          </view>
+        </view>
+      </scroll-view>
     </view>
   </view>
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getChatSessions, getMySecondhandItems, getTradeRecords, offlineSecondhandItem, onlineSecondhandItem, cancelTradeRecord } from '@/api/secondhand'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
+import { getChatSessions, getMySecondhandItems, getTradeRecords, offlineSecondhandItem, onlineSecondhandItem } from '@/api/secondhand'
 import { getToken, getUserInfo } from '@/utils/storage.js'
 
-const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
+const FILTERS = [
+  { key: 'all', label: '全部' },
+  { key: 'online', label: '在售' },
+  { key: 'trading', label: '交易中' },
+  { key: 'sold', label: '已售' },
+  { key: 'offline', label: '已下架' }
+]
+
+const ACTIVE_TRADE_STATUS = ['WAIT_CONFIRM', 'TRADING']
 
 function formatTimestamp(value) {
   if (!value) return ''
-  return value.replace('T', ' ')
+  return String(value).replace('T', ' ')
 }
 
 function firstValue(...values) {
@@ -118,62 +137,40 @@ function decodeTokenPayload(token) {
   }
 }
 
+function isCancelledTrade(status) {
+  return String(status) === '5' || String(status).toUpperCase() === 'CANCELLED'
+}
+
+function isActiveTrade(status) {
+  const text = String(status || '').toUpperCase()
+  return ACTIVE_TRADE_STATUS.includes(text) || text === '4'
+}
+
 function normalizeItem(item) {
   const seller = item.seller || {}
   const trade = item.trade || item.tradeRecord || item.order || {}
   const buyer = trade.buyer || trade.buyerUser || {}
   const sellerId = firstValue(item.sellerId, item.userId, normalizeId(seller))
-  const categoryId = item.categoryId ?? item.categoryLevel2Id ?? item.categoryLevel1Id ?? 'other'
-  const categoryName = item.categoryName || item.categoryLevel2Name || item.categoryLevel1Name || ''
-  const condition = item.condition || item.itemCondition || ''
-  const location = item.location || item.tradeLocationText || ''
-  const schoolName = item.schoolName || seller.schoolName || ''
+  const statusNumber = Number(item.status)
 
   return {
     id: item.id,
-    name: item.title,
+    name: item.title || item.name || '',
     desc: item.description || '',
     price: item.price,
-    originalPrice: item.originalPrice || item.original_price || null,
     type: 'sell',
-    status: item.status === 2 ? 'online' : item.status === 5 ? 'reserved' : item.status === 4 ? 'offline' : 'sold',
-    statusText: item.statusText || (item.status === 2 ? '在售' : item.status === 5 ? '交易中' : item.status === 3 ? '已售出' : '已下架'),
+    status: statusNumber === 4 ? 'offline' : statusNumber === 3 ? 'sold' : 'online',
+    statusText: item.statusText || (statusNumber === 3 ? '已售' : statusNumber === 4 ? '已下架' : '在售'),
     images: Array.isArray(item.images) ? item.images : [],
     userId: item.userId || sellerId,
     sellerId,
     buyerId: firstValue(trade.buyerId, trade.buyerUserId, normalizeId(buyer)),
     sessionId: trade.sessionId || trade.chatSessionId,
     intentSessionId: '',
-    userName: seller.username || '用户',
-    userPhone: seller.phone || '',
-    userAva: seller.avatar || '',
     ctime: formatTimestamp(item.createTime),
-    categoryId: item.categoryId || categoryId,
-    categoryName,
-    categoryLevel1Id: item.categoryLevel1Id || item.categoryParentId || item.categoryId || '',
-    categoryLevel1Name: item.categoryLevel1Name || item.categoryParentName || item.categoryName || '',
-    categoryLevel2Id: item.categoryLevel2Id || item.categoryId || '',
-    categoryLevel2Name: item.categoryLevel2Name || item.categoryName || '',
-    condition,
-    conditionText: item.conditionText || item.conditionName || '',
-    location,
-    tradeLocation: item.tradeLocation || item.trade_location || location,
-    campusId: item.campusId || '',
-    campusName: item.campusName || '',
-    schoolId: item.schoolId || seller.schoolId || '',
-    schoolName,
-    college: seller.college || item.college || '',
-    dormitoryArea: item.dormitoryArea || '',
-    allowBargain: Boolean(item.allowBargain ?? item.allow_bargain ?? false),
-    deliveryMethod: item.deliveryMethod || item.delivery_method || 'pickup',
-    isFree: Boolean(item.isFree ?? Number(item.price) === 0),
-    urgency: item.urgency || 'normal',
     viewCount: Number(item.viewCount || item.view_count || 0),
     favoriteCount: Number(item.favoriteCount || item.favorite_count || 0),
-    distanceText: item.distanceText || '',
-    distanceValue: item.distanceValue || null,
-    pickupPoint: item.pickupPoint || item.pickup_point || '',
-    attributes: item.attributes || {}
+    inquiryCount: Number(item.inquiryCount || item.inquiry_count || 0)
   }
 }
 
@@ -213,11 +210,10 @@ function createIntentSessionMap(records = [], cancelledSessionIds = new Set()) {
 function createTradeMap(records = []) {
   const tradeMap = new Map()
   records.map(normalizeTradeRecord).forEach((trade) => {
-    if (!trade.itemId) return
-    if (Number(trade.status) === 5) return
+    if (!trade.itemId || isCancelledTrade(trade.status)) return
     const key = String(trade.itemId)
     const prev = tradeMap.get(key)
-    if (!prev || Number(trade.status) === 4 || (!prev.buyerId && trade.buyerId)) {
+    if (!prev || isActiveTrade(trade.status) || (!prev.buyerId && trade.buyerId)) {
       tradeMap.set(key, trade)
     }
   })
@@ -226,18 +222,35 @@ function createTradeMap(records = []) {
 
 export default {
   components: {
-    NavBar
+    CommonPageHeader
   },
   data() {
     return {
       items: [],
       loading: false,
-      currentUserId: ''
+      currentUserId: '',
+      activeFilter: 'all',
+      filters: FILTERS
     }
   },
   computed: {
     myItems() {
-      return this.items
+      if (this.activeFilter === 'all') return this.items
+      return this.items.filter((item) => {
+        if (this.activeFilter === 'trading') return this.isTradingItem(item)
+        if (this.activeFilter === 'online') return item.status === 'online' && !this.isTradingItem(item)
+        return item.status === this.activeFilter
+      })
+    },
+    tradingCount() {
+      return this.items.filter((item) => this.isTradingItem(item)).length
+    },
+    publishSummary() {
+      return `${this.items.length}件商品 · ${this.tradingCount}件交易中`
+    },
+    emptyText() {
+      const current = this.filters.find((item) => item.key === this.activeFilter)
+      return this.activeFilter === 'all' ? '还没有发布过' : `暂无${current?.label || ''}商品`
     }
   },
   async onLoad() {
@@ -249,6 +262,14 @@ export default {
     await this.loadItems()
   },
   methods: {
+    goBack() {
+      const pages = getCurrentPages()
+      if (pages.length > 1) {
+        uni.navigateBack({ delta: 1 })
+        return
+      }
+      uni.redirectTo({ url: '/subpackage_lostfound/marketplaceProfile/marketplaceProfile' })
+    },
     loadCurrentUser() {
       let userInfo = getUserInfo() || {}
       if (!userInfo.id && !userInfo.userId) {
@@ -282,7 +303,7 @@ export default {
         const sessionRecords = Array.isArray(sessionRes?.data?.records) ? sessionRes.data.records : []
         const cancelledSessionIds = new Set(
           tradeRecords
-            .filter((record) => Number(record.status) === 5 && record.sessionId)
+            .filter((record) => isCancelledTrade(record.status) && record.sessionId)
             .map((record) => String(record.sessionId))
         )
         const tradeMap = createTradeMap(tradeRecords)
@@ -313,18 +334,30 @@ export default {
         this.loading = false
       }
     },
-    emoji(id) {
-      return EMOJIS[id % EMOJIS.length]
-    },
     fmt(ts) {
       const time = typeof ts === 'string' ? new Date(ts.replace(/-/g, '/')).getTime() : ts
       const d = new Date(time)
       const now = new Date()
       const diff = now - d
+      if (!time || Number.isNaN(time)) return ''
       if (diff < 60000) return '刚刚'
       if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
       if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
       return `${d.getMonth() + 1}/${d.getDate()}`
+    },
+    priceText(value) {
+      const price = Number(value)
+      if (!Number.isFinite(price)) return '0.00'
+      return price.toFixed(2)
+    },
+    isTradingItem(item) {
+      return isActiveTrade(item?.tradeStatus)
+    },
+    itemDisplayStatus(item) {
+      if (item?.status === 'offline') return { key: 'offline', label: '已下架' }
+      if (item?.status === 'sold') return { key: 'sold', label: '已售' }
+      if (this.isTradingItem(item)) return { key: 'trading', label: '交易中' }
+      return { key: 'online', label: '在售' }
     },
     async toggleStatus(id) {
       const item = this.items.find(i => i.id === id)
@@ -353,13 +386,6 @@ export default {
       if (item.buyerId && this.currentUserId && String(item.buyerId) === String(this.currentUserId)) return true
       return Boolean(item.sessionId || item.tradeStatus)
     },
-    shouldShowActionBar(item) {
-      return this.isCurrentUserPublisher(item) || this.isPurchaseRecord(item)
-    },
-    shouldShowContactAction(item) {
-      if (this.isCurrentUserPublisher(item)) return true
-      return this.isPurchaseRecord(item)
-    },
     getChatTargetUserId(item) {
       if (!item) return ''
       const targetId = this.isCurrentUserPublisher(item) ? item.buyerId : item.sellerId
@@ -370,34 +396,13 @@ export default {
     isSoldItem(item) {
       return item?.status === 'sold'
     },
-    isReservedItem(item) {
-      return item?.status === 'reserved'
-    },
     canContact(item) {
       if (!item) return false
       if (this.isCurrentUserPublisher(item)) {
         if (this.getChatTargetUserId(item)) return true
-        return !this.isSoldItem(item) && !this.isReservedItem(item) && Boolean(item.intentSessionId)
+        return !this.isSoldItem(item) && Boolean(item.intentSessionId)
       }
       return Boolean(this.getChatTargetUserId(item))
-    },
-    contactLabel(item) {
-      if (this.isCurrentUserPublisher(item) && !this.getChatTargetUserId(item) && !this.isSoldItem(item) && !this.isReservedItem(item) && item.intentSessionId) return '联系咨询者'
-      if (this.isCurrentUserPublisher(item) && !this.canContact(item)) return '暂无买家'
-      return this.isCurrentUserPublisher(item) ? '联系买家' : '联系卖家'
-    },
-    showSecondaryAction(item) {
-      if (this.isCurrentUserPublisher(item)) {
-        return ['online', 'offline', 'reserved'].includes(item?.status)
-      }
-      return this.isPurchaseRecord(item)
-    },
-    statusActionText(item) {
-      if (!this.isCurrentUserPublisher(item)) return '查看订单'
-      if (item.status === 'online') return '下架'
-      if (item.status === 'offline') return '上架'
-      if (item.status === 'reserved') return '取消交易'
-      return ''
     },
     async handleSecondaryAction(item) {
       if (!item) return
@@ -405,36 +410,19 @@ export default {
         this.openOrder(item)
         return
       }
-      if (item.status === 'reserved') {
-        await this.cancelTrade(item)
-        return
-      }
       await this.toggleStatus(item.id)
     },
-    openManage() {
+    openManage(item) {
+      if (!item) return
       uni.showToast({ title: '功能开发中', icon: 'none' })
     },
     openOrder() {
-      uni.showToast({ title: '订单功能开发中', icon: 'none' })
-    },
-    async cancelTrade(item) {
-      if (!item.tradeId) {
-        uni.showToast({ title: '暂无交易记录', icon: 'none' })
-        return
-      }
-      try {
-        await cancelTradeRecord(item.tradeId)
-        uni.showToast({ title: '交易已取消', icon: 'none' })
-        await this.loadItems()
-      } catch (error) {
-        console.error('取消交易失败', error)
-        uni.showToast({ title: '取消失败', icon: 'none' })
-      }
+      uni.showToast({ title: '请在聊天中查看交易沟通', icon: 'none' })
     },
     openChat(item) {
       if (!item || !item.id) return
       const targetUserId = this.getChatTargetUserId(item)
-      if (this.isCurrentUserPublisher(item) && !targetUserId && !this.isSoldItem(item) && !this.isReservedItem(item) && item.intentSessionId) {
+      if (this.isCurrentUserPublisher(item) && !targetUserId && !this.isSoldItem(item) && item.intentSessionId) {
         uni.navigateTo({
           url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?sessionId=${item.intentSessionId}`
         })
@@ -464,36 +452,62 @@ export default {
 .page-root {
   width: 100%;
   min-height: 100vh;
-  background: #F5F5F5;
+  background: #F7F8FA;
 }
 
 .screen {
   width: 100%;
-  background: #F5F5F5;
-  min-height: 100vh;
-}
-
-.container {
-  width: 100%;
   max-width: 430px;
-  margin: 0 auto;
-  box-sizing: border-box;
-  padding: 0 16rpx;
-  background: #F5F5F5;
   min-height: 100vh;
-  position: relative;
+  margin: 0 auto;
+  background: #F7F8FA;
 }
 
-.page {
-  width: 100%;
-  min-height: 100vh;
+.filter-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  align-items: center;
+  height: 138rpx;
+  padding: 20rpx 24rpx 22rpx;
+  background: #FFFFFF;
   box-sizing: border-box;
+}
+
+.filter-tab {
+  position: relative;
+  height: 72rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999rpx;
+  color: #6E788A;
+  font-size: 28rpx;
+  font-weight: 800;
+  box-sizing: border-box;
+}
+
+.filter-tab.active {
+  background: #EAF3FF;
+  color: #2F73E0;
+}
+
+.filter-tab.active::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -4rpx;
+  width: 38rpx;
+  height: 6rpx;
+  border-radius: 999rpx;
+  background: #2F73E0;
+  transform: translateX(-50%);
 }
 
 .page-body {
-  flex: 1;
-  overflow-y: auto;
-  padding-top: 20rpx;
+  height: calc(100vh - 226rpx - var(--status-bar-height));
+  padding: 26rpx 18rpx 34rpx;
+  box-sizing: border-box;
+  background: #F7F8FA;
 }
 
 .empty {
@@ -503,13 +517,12 @@ export default {
 
 .empty-i {
   position: relative;
-  width: 82rpx;
-  height: 62rpx;
+  width: 86rpx;
+  height: 64rpx;
   margin: 0 auto 24rpx;
-  border: 3rpx solid #8E8E93;
+  border: 3rpx solid #A5AFBF;
   border-top: 0;
-  border-radius: 8rpx 8rpx 12rpx 12rpx;
-  background: transparent;
+  border-radius: 8rpx 8rpx 14rpx 14rpx;
   box-sizing: border-box;
 }
 
@@ -518,167 +531,253 @@ export default {
   position: absolute;
   left: -3rpx;
   top: -20rpx;
-  width: 82rpx;
+  width: 86rpx;
   height: 24rpx;
-  box-sizing: border-box;
-  border: 3rpx solid #8E8E93;
+  border: 3rpx solid #A5AFBF;
   border-bottom: 0;
-  border-radius: 10rpx 10rpx 0 0;
+  border-radius: 12rpx 12rpx 0 0;
+  box-sizing: border-box;
 }
 
 .empty-i::after {
   content: '';
   position: absolute;
-  left: 20rpx;
-  right: 20rpx;
-  top: 18rpx;
-  height: 0;
-  box-sizing: border-box;
-  border-top: 3rpx solid #8E8E93;
-  border-radius: 999rpx;
+  left: 22rpx;
+  right: 22rpx;
+  top: 20rpx;
+  border-top: 3rpx solid #A5AFBF;
 }
 
 .empty-t {
-  font-size: 28rpx;
-  color: #888888;
+  color: #8A94A6;
+  font-size: 27rpx;
 }
 
-.micard {
-  display: flex;
-  flex-direction: column;
+.publish-card {
+  display: grid;
+  grid-template-columns: 160rpx 1fr;
   gap: 20rpx;
-  padding: 22rpx;
-  background: #fff;
+  margin-bottom: 18rpx;
+  padding: 16rpx;
+  border: 1rpx solid #E8ECF2;
   border-radius: 18rpx;
-  margin-bottom: 20rpx;
-  border: 1rpx solid #EEEEEE;
-  box-shadow: 0 6rpx 18rpx rgba(92, 122, 153, 0.05);
+  background: #FFFFFF;
+  box-shadow: 0 6rpx 18rpx rgba(30, 41, 59, 0.045);
   box-sizing: border-box;
 }
 
-.mi-main {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 22rpx;
-  box-sizing: border-box;
-}
-
-.miimg {
-  width: 132rpx;
-  height: 132rpx;
-  border-radius: 16rpx;
-  background: #F1F3F5;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 48rpx;
+.item-cover {
+  width: 160rpx;
+  height: 160rpx;
+  border-radius: 14rpx;
   overflow: hidden;
-  flex-shrink: 0;
+  background: #EEF2F7;
 }
 
-.miimg image {
+.item-cover image {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.cover-placeholder {
+  position: relative;
   width: 100%;
   height: 100%;
 }
 
-.mibody {
-  flex: 1;
-  min-width: 0;
-}
-
-.mi-manage-btn {
-  width: 104rpx;
-  height: 58rpx;
-  margin: 0;
-  padding: 0;
-  border-radius: 14rpx;
-  background: #F3F6F8;
-  color: #4A6278;
-  border: 1rpx solid #DDE6EF;
-  font-size: 24rpx;
-  font-weight: 700;
-  line-height: 58rpx;
-  text-align: center;
-  flex-shrink: 0;
+.cover-placeholder::before {
+  content: '';
+  position: absolute;
+  left: 62rpx;
+  top: 58rpx;
+  width: 86rpx;
+  height: 66rpx;
+  border: 5rpx solid #A5AFBF;
+  border-radius: 12rpx;
   box-sizing: border-box;
 }
 
-.mi-manage-btn::after {
-  border: none;
+.cover-placeholder::after {
+  content: '';
+  position: absolute;
+  left: 76rpx;
+  top: 116rpx;
+  width: 62rpx;
+  height: 34rpx;
+  border-left: 5rpx solid #A5AFBF;
+  border-bottom: 5rpx solid #A5AFBF;
+  transform: skew(-28deg);
 }
 
-.miname {
-  font-size: 29rpx;
-  font-weight: 700;
-  color: #1D1D1F;
-  margin-bottom: 10rpx;
+.item-main {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr auto;
+}
+
+.item-title {
+  color: #111827;
+  font-size: 25rpx;
+  font-weight: 900;
+  line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.miprice {
-  font-size: 34rpx;
-  font-weight: 850;
-  color: #1D1D1F;
-  margin-bottom: 8rpx;
-  line-height: 1.1;
+.item-price {
+  margin-top: 16rpx;
+  color: #111827;
+  font-size: 32rpx;
+  font-weight: 900;
+  line-height: 1;
 }
 
-.miprice small {
+.item-time {
+  margin-top: 12rpx;
+  color: #66738A;
+  font-size: 22rpx;
+  line-height: 1.2;
+}
+
+.item-operate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  margin-top: 8rpx;
+}
+
+.status-pill {
+  min-width: 66rpx;
+  height: 34rpx;
+  padding: 0 14rpx;
+  border-radius: 999rpx;
   font-size: 22rpx;
   font-weight: 800;
-}
-
-.mitime {
-  font-size: 22rpx;
-  color: #8E8E93;
-}
-
-.mi-actions {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 14rpx;
-  padding-top: 18rpx;
-  border-top: 1rpx solid #F0F0F0;
-  box-sizing: border-box;
-}
-
-.mi-action-btn {
-  flex: 1;
-  height: 68rpx;
-  margin: 0;
-  padding: 0;
-  border-radius: 14rpx;
-  font-size: 25rpx;
-  font-weight: 700;
-  line-height: 68rpx;
+  line-height: 34rpx;
   text-align: center;
-  border: none;
   box-sizing: border-box;
+}
+
+.status-pill--online {
+  background: #DCF8EA;
+  color: #13B566;
+}
+
+.status-pill--trading {
+  background: #E6F0FF;
+  color: #2F73E0;
+}
+
+.status-pill--sold,
+.status-pill--offline {
+  background: #F0F2F5;
+  color: #737D8C;
+}
+
+.manage-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10rpx;
+  color: #66738A;
+  font-size: 23rpx;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.chevron-icon {
+  width: 13rpx;
+  height: 13rpx;
+  border-right: 3rpx solid currentColor;
+  border-top: 3rpx solid currentColor;
+  transform: rotate(45deg);
+  border-radius: 2rpx;
+}
+
+.item-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8rpx;
+  margin-top: 14rpx;
+  padding-top: 11rpx;
+  border-top: 1rpx solid #E7EAF0;
+}
+
+.metric {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 7rpx;
+  color: #66738A;
+  font-size: 21rpx;
+  white-space: nowrap;
 }
 
-.mi-action-contact {
-  background: #F3F6F8;
-  color: #4A6278;
+.metric-icon {
+  position: relative;
+  width: 23rpx;
+  height: 23rpx;
+  color: #66738A;
+  flex-shrink: 0;
 }
 
-.mi-action-status {
-  background: #F7F7F9;
-  color: #5C5C60;
+.eye-icon::before {
+  content: '';
+  position: absolute;
+  left: 1rpx;
+  top: 6rpx;
+  width: 21rpx;
+  height: 13rpx;
+  border: 2.5rpx solid currentColor;
+  border-radius: 50%;
+  box-sizing: border-box;
 }
 
-.mi-action-disabled {
-  background: #F5F5F5;
-  color: #A6A6A6;
+.eye-icon::after {
+  content: '';
+  position: absolute;
+  left: 9rpx;
+  top: 10rpx;
+  width: 5rpx;
+  height: 5rpx;
+  border-radius: 50%;
+  background: currentColor;
 }
 
-.mi-action-btn::after {
-  border: none;
+.star-icon::before {
+  content: '';
+  position: absolute;
+  left: 2rpx;
+  top: 1rpx;
+  width: 19rpx;
+  height: 19rpx;
+  border: 2.5rpx solid currentColor;
+  clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 94%, 50% 72%, 21% 94%, 32% 57%, 2% 35%, 39% 35%);
+  box-sizing: border-box;
+}
+
+.chat-icon::before {
+  content: '';
+  position: absolute;
+  left: 1rpx;
+  top: 4rpx;
+  width: 21rpx;
+  height: 16rpx;
+  border: 2.5rpx solid currentColor;
+  border-radius: 8rpx;
+  box-sizing: border-box;
+}
+
+.chat-icon::after {
+  content: '';
+  position: absolute;
+  left: 7rpx;
+  bottom: 1rpx;
+  width: 7rpx;
+  height: 7rpx;
+  border-left: 2.5rpx solid currentColor;
+  border-bottom: 2.5rpx solid currentColor;
+  transform: rotate(-18deg);
 }
 </style>

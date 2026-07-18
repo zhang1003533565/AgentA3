@@ -5,6 +5,7 @@ import com.example.appbackend.dto.PageResponse;
 import com.example.appbackend.entity.*;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.*;
+import com.example.appbackend.service.AppMessageService;
 import com.example.appbackend.service.ChatService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,10 +31,15 @@ public class ChatServiceImpl implements ChatService {
     @Autowired private SecondhandItemRepository itemRepository;
     @Autowired private TradeRecordRepository tradeRecordRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private AppMessageService appMessageService;
     @Autowired private ObjectMapper objectMapper;
     @PersistenceContext private EntityManager entityManager;
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final String CONTACT_EXCHANGE_NONE = "NONE";
+    private static final String CONTACT_EXCHANGE_REQUESTED = "REQUESTED";
+    private static final String CONTACT_EXCHANGE_EXCHANGED = "EXCHANGED";
+    private static final String CONTACT_ACTION_DECLINE = "DECLINE";
 
     @Override
     public ChatDTO.SessionVO createOrGetSession(Long itemId, Long buyerId) {
@@ -105,7 +111,11 @@ public class ChatServiceImpl implements ChatService {
         msg.setSessionId(req.getSessionId());
         msg.setSenderId(senderId);
         msg.setContent(req.getContent());
-        msg.setMessageType(normalizeUserMessageType(req.getMessageType()));
+        Integer messageType = normalizeUserMessageType(req.getMessageType());
+        if (Integer.valueOf(4).equals(messageType)) {
+            return handleContactExchange(req, senderId, session);
+        }
+        msg.setMessageType(messageType);
         msg = messageRepository.save(msg);
 
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
@@ -117,6 +127,7 @@ public class ChatServiceImpl implements ChatService {
             sessionRepository.incrementBuyerUnreadAndUpdateLast(
                     session.getId(), req.getContent(), now);
         }
+        createChatMessageAppMessageIfNeeded(session, msg);
         return toMessageVO(msg, senderId);
     }
 
@@ -191,7 +202,7 @@ public class ChatServiceImpl implements ChatService {
     public void markTradeNotificationRead(Long id, Long userId) {
         ChatMessage message = messageRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(404, "交易通知不存在"));
-        if (!Integer.valueOf(0).equals(message.getMessageType())) {
+        if (!Integer.valueOf(0).equals(message.getMessageType()) && !Integer.valueOf(4).equals(message.getMessageType())) {
             throw new BusinessException(400, "不是交易通知");
         }
         if (message.getSession() == null ||
@@ -204,14 +215,275 @@ public class ChatServiceImpl implements ChatService {
         }
     }
 
+    @Override
+    public void markAllTradeNotificationsRead(Long userId) {
+        messageRepository.markAllTradeNotificationsReadByUser(userId);
+    }
+
     // ========== 工具方法 ==========
 
     private Integer normalizeUserMessageType(Integer messageType) {
         if (messageType == null) return 1;
-        if (messageType < 1 || messageType > 3) {
-            throw new BusinessException(400, "普通聊天消息类型只能是1-文本、2-图片、3-位置");
+        if (messageType < 1 || messageType > 4) {
+            throw new BusinessException(400, "普通聊天消息类型只能是1-文本、2-图片、3-位置、4-交换联系方式");
         }
         return messageType;
+    }
+
+    private ChatDTO.MessageVO handleContactExchange(ChatDTO.SendMessageRequest req, Long senderId, ChatSession session) {
+        TradeRecord tradeRecord = tradeRecordRepository.findByItemIdAndBuyerIdAndStatusIn(session.getItemId(), session.getBuyerId(),
+                Collections.singletonList(TradeRecord.TradeStatus.TRADING))
+                .orElseThrow(() -> new BusinessException(400, "双方确认线下交易后才能交换联系方式"));
+        normalizeContactExchangeState(tradeRecord);
+        if (CONTACT_EXCHANGE_EXCHANGED.equals(tradeRecord.getContactExchangeStatus())) {
+            throw new BusinessException(400, "已交换联系方式");
+        }
+
+        String action = req.getContactExchangeAction() == null ? "" : req.getContactExchangeAction().trim().toUpperCase(Locale.ROOT);
+        if (CONTACT_ACTION_DECLINE.equals(action)) {
+            resetContactExchange(tradeRecord);
+            tradeRecordRepository.save(tradeRecord);
+            ChatMessage declineMessage = saveTradeMessage(session, senderId, "双方可以继续在平台内交流。", 0);
+            updateSessionLast(session, senderId, declineMessage.getContent());
+            return toMessageVO(declineMessage, senderId);
+        }
+
+        String contactContent = req.getContent() == null ? "" : req.getContent().trim();
+        if (contactContent.isEmpty()) {
+            throw new BusinessException(400, "请选择需要交换的联系方式");
+        }
+
+        if (tradeRecord.getContactExchangeRequesterId() == null || CONTACT_EXCHANGE_NONE.equals(tradeRecord.getContactExchangeStatus())) {
+            tradeRecord.setContactExchangeRequesterId(senderId);
+        }
+        setContactAgreement(tradeRecord, senderId, contactContent);
+
+        if (Boolean.TRUE.equals(tradeRecord.getBuyerContactAgreed()) && Boolean.TRUE.equals(tradeRecord.getSellerContactAgreed())) {
+            tradeRecord.setContactExchangeConfirmerId(senderId);
+            tradeRecord.setContactExchangeStatus(CONTACT_EXCHANGE_EXCHANGED);
+            tradeRecord.setContactExchangeTime(LocalDateTime.now());
+            tradeRecordRepository.save(tradeRecord);
+            saveContactMessage(session, tradeRecord.getBuyerId(), tradeRecord.getBuyerContactContent());
+            saveContactMessage(session, tradeRecord.getSellerId(), tradeRecord.getSellerContactContent());
+            ChatMessage doneMessage = saveTradeMessage(session, senderId, "双方已交换联系方式，可以通过线下方式沟通交易。", 0);
+            updateSessionLast(session, senderId, doneMessage.getContent());
+            createContactExchangeAppMessages(session, tradeRecord);
+            return toMessageVO(doneMessage, senderId);
+        }
+
+        tradeRecord.setContactExchangeStatus(CONTACT_EXCHANGE_REQUESTED);
+        tradeRecordRepository.save(tradeRecord);
+        return buildContactExchangeStateMessage(session, senderId);
+    }
+
+    private ChatMessage saveTradeMessage(ChatSession session, Long senderId, String content, Integer messageType) {
+        ChatMessage msg = new ChatMessage();
+        msg.setSessionId(session.getId());
+        msg.setSenderId(senderId);
+        msg.setContent(content);
+        msg.setMessageType(messageType);
+        msg.setIsRead(false);
+        return messageRepository.save(msg);
+    }
+
+    private void updateSessionLast(ChatSession session, Long senderId, String content) {
+        LocalDateTime now = LocalDateTime.now();
+        if (senderId.equals(session.getBuyerId())) {
+            sessionRepository.incrementSellerUnreadAndUpdateLast(session.getId(), content, now);
+        } else {
+            sessionRepository.incrementBuyerUnreadAndUpdateLast(session.getId(), content, now);
+        }
+    }
+
+    private void saveContactMessage(ChatSession session, Long senderId, String content) {
+        if (content == null || content.trim().isEmpty()) return;
+        saveTradeMessage(session, senderId, content.trim(), 4);
+    }
+
+    private void createChatMessageAppMessageIfNeeded(ChatSession session, ChatMessage message) {
+        if (session == null || message == null || message.getId() == null || message.getSenderId() == null) {
+            return;
+        }
+        Long receiverId = Objects.equals(message.getSenderId(), session.getBuyerId())
+                ? session.getSellerId()
+                : session.getBuyerId();
+        if (receiverId == null || Objects.equals(receiverId, message.getSenderId())) {
+            return;
+        }
+        AppMessageDTO.CreateCommand command = new AppMessageDTO.CreateCommand();
+        command.setUserId(receiverId);
+        command.setModuleType(AppMessage.MODULE_LOST_FOUND);
+        command.setEventType("CHAT_MESSAGE");
+        command.setTitle(resolveUserDisplayName(message.getSenderId()));
+        command.setContent("[" + resolveItemTitle(session.getItemId()) + "] " + resolveMessageSummary(message));
+        command.setTargetPage("/subpackage_lostfound/lostfoundChat/lostfoundChat");
+        command.setTargetParams(buildTargetParams(session, null));
+        command.setSourceType("CHAT_MESSAGE");
+        command.setSourceId(message.getId());
+        appMessageService.createIfAbsent(command);
+    }
+
+    private String resolveUserDisplayName(Long userId) {
+        if (userId == null) return "对方用户";
+        return userRepository.findById(userId)
+                .map(user -> firstNonBlank(user.getRealName(), user.getUsername(), "对方用户"))
+                .orElse("对方用户");
+    }
+
+    private String resolveItemTitle(Long itemId) {
+        if (itemId == null) return "商品";
+        return itemRepository.findById(itemId)
+                .map(item -> firstNonBlank(item.getTitle(), "商品"))
+                .orElse("商品");
+    }
+
+    private String resolveMessageSummary(ChatMessage message) {
+        if (message == null) return "新消息";
+        if (Integer.valueOf(2).equals(message.getMessageType())) return "[图片]";
+        if (Integer.valueOf(3).equals(message.getMessageType())) return "[位置]";
+        return firstNonBlank(message.getContent(), "新消息");
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) return "";
+        for (String value : values) {
+            if (value != null && !value.trim().isEmpty()) {
+                return value.trim();
+            }
+        }
+        return "";
+    }
+
+    private void createContactExchangeAppMessages(ChatSession session, TradeRecord tradeRecord) {
+        createContactExchangeAppMessage(session, tradeRecord, tradeRecord.getBuyerId());
+        createContactExchangeAppMessage(session, tradeRecord, tradeRecord.getSellerId());
+    }
+
+    private void createContactExchangeAppMessage(ChatSession session, TradeRecord tradeRecord, Long userId) {
+        if (session == null || tradeRecord == null || userId == null) return;
+        AppMessageDTO.CreateCommand command = new AppMessageDTO.CreateCommand();
+        command.setUserId(userId);
+        command.setModuleType(AppMessage.MODULE_LOST_FOUND);
+        command.setEventType("CONTACT_EXCHANGE");
+        command.setTitle("联系方式已交换");
+        command.setContent("双方已交换联系方式，可以继续沟通线下交易");
+        command.setTargetPage("/subpackage_lostfound/lostfoundChat/lostfoundChat");
+        command.setTargetParams(buildTargetParams(session, tradeRecord.getId()));
+        command.setSourceType("TRADE_RECORD");
+        command.setSourceId(tradeRecord.getId());
+        appMessageService.createIfAbsent(command);
+    }
+
+    private String buildTargetParams(ChatSession session, Long tradeId) {
+        try {
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("itemId", session.getItemId());
+            params.put("sessionId", session.getId());
+            if (tradeId != null) {
+                params.put("tradeId", tradeId);
+            }
+            return objectMapper.writeValueAsString(params);
+        } catch (Exception e) {
+            return "{\"itemId\":" + session.getItemId() + ",\"sessionId\":" + session.getId() + "}";
+        }
+    }
+
+    private ChatDTO.MessageVO buildContactExchangeStateMessage(ChatSession session, Long senderId) {
+        ChatDTO.MessageVO vo = new ChatDTO.MessageVO();
+        vo.setSessionId(session.getId());
+        vo.setSenderId(senderId);
+        vo.setContent("");
+        vo.setMessageType(0);
+        vo.setIsRead(false);
+        vo.setIsMine(true);
+        vo.setCreateTime(LocalDateTime.now().format(FMT));
+        return vo;
+    }
+
+    private void setContactAgreement(TradeRecord tradeRecord, Long userId, String contactContent) {
+        if (Objects.equals(userId, tradeRecord.getBuyerId())) {
+            tradeRecord.setBuyerContactAgreed(true);
+            tradeRecord.setBuyerContactContent(contactContent);
+            if (Objects.equals(userId, tradeRecord.getContactExchangeRequesterId())) {
+                tradeRecord.setRequesterContactContent(contactContent);
+            } else {
+                tradeRecord.setConfirmerContactContent(contactContent);
+            }
+        } else if (Objects.equals(userId, tradeRecord.getSellerId())) {
+            tradeRecord.setSellerContactAgreed(true);
+            tradeRecord.setSellerContactContent(contactContent);
+            if (Objects.equals(userId, tradeRecord.getContactExchangeRequesterId())) {
+                tradeRecord.setRequesterContactContent(contactContent);
+            } else {
+                tradeRecord.setConfirmerContactContent(contactContent);
+            }
+        } else {
+            throw new BusinessException(403, "无权限交换联系方式");
+        }
+    }
+
+    private void resetContactExchange(TradeRecord tradeRecord) {
+        tradeRecord.setContactExchangeStatus(CONTACT_EXCHANGE_NONE);
+        tradeRecord.setContactExchangeRequesterId(null);
+        tradeRecord.setContactExchangeConfirmerId(null);
+        tradeRecord.setBuyerContactAgreed(false);
+        tradeRecord.setSellerContactAgreed(false);
+        tradeRecord.setBuyerContactContent(null);
+        tradeRecord.setSellerContactContent(null);
+        tradeRecord.setRequesterContactContent(null);
+        tradeRecord.setConfirmerContactContent(null);
+        tradeRecord.setContactExchangeTime(null);
+    }
+
+    private void normalizeContactExchangeState(TradeRecord tradeRecord) {
+        if (CONTACT_EXCHANGE_EXCHANGED.equals(tradeRecord.getContactExchangeStatus())) {
+            migrateLegacyContactContent(tradeRecord);
+            tradeRecord.setBuyerContactAgreed(true);
+            tradeRecord.setSellerContactAgreed(true);
+            return;
+        }
+        if ("PENDING".equals(tradeRecord.getContactExchangeStatus())) {
+            migrateLegacyContactContent(tradeRecord);
+            if (Objects.equals(tradeRecord.getContactExchangeRequesterId(), tradeRecord.getBuyerId())) {
+                tradeRecord.setBuyerContactAgreed(true);
+            } else if (Objects.equals(tradeRecord.getContactExchangeRequesterId(), tradeRecord.getSellerId())) {
+                tradeRecord.setSellerContactAgreed(true);
+            }
+            tradeRecord.setContactExchangeStatus(CONTACT_EXCHANGE_REQUESTED);
+        }
+        if (tradeRecord.getContactExchangeStatus() == null) {
+            tradeRecord.setContactExchangeStatus(CONTACT_EXCHANGE_NONE);
+        }
+        if (tradeRecord.getBuyerContactAgreed() == null) {
+            tradeRecord.setBuyerContactAgreed(false);
+        }
+        if (tradeRecord.getSellerContactAgreed() == null) {
+            tradeRecord.setSellerContactAgreed(false);
+        }
+    }
+
+    private void migrateLegacyContactContent(TradeRecord tradeRecord) {
+        if (Objects.equals(tradeRecord.getContactExchangeRequesterId(), tradeRecord.getBuyerId())) {
+            if (tradeRecord.getBuyerContactContent() == null) tradeRecord.setBuyerContactContent(tradeRecord.getRequesterContactContent());
+            if (tradeRecord.getSellerContactContent() == null) tradeRecord.setSellerContactContent(tradeRecord.getConfirmerContactContent());
+        } else if (Objects.equals(tradeRecord.getContactExchangeRequesterId(), tradeRecord.getSellerId())) {
+            if (tradeRecord.getSellerContactContent() == null) tradeRecord.setSellerContactContent(tradeRecord.getRequesterContactContent());
+            if (tradeRecord.getBuyerContactContent() == null) tradeRecord.setBuyerContactContent(tradeRecord.getConfirmerContactContent());
+        }
+    }
+
+    private String resolveTradeAction(ChatMessage message) {
+        if (message == null) return null;
+        if (Integer.valueOf(4).equals(message.getMessageType())) return "CONTACT_EXCHANGE_DONE";
+        if (!Integer.valueOf(0).equals(message.getMessageType())) return null;
+        String content = message.getContent();
+        if ("你表达了购买意向，等待对方确认".equals(content)) return "TRADE_INTENT";
+        if ("双方已确认线下交易，建议尽快约定时间地点".equals(content)) return "TRADE_CONFIRM";
+        if ("双方已交换联系方式，可进行线下沟通交易。".equals(content) ||
+                "双方已交换联系方式，可以通过线下方式沟通交易。".equals(content)) return "CONTACT_EXCHANGE_DONE";
+        if ("该商品交易已完成".equals(content) || "卖家已标记该商品交易完成".equals(content)) return "TRADE_COMPLETE";
+        if ("交易已取消".equals(content) || "本次交易已取消".equals(content)) return "TRADE_CANCEL";
+        return null;
     }
 
     private ChatDTO.SessionVO toSessionVO(ChatSession s, Long currentUserId) {
@@ -254,6 +526,9 @@ public class ChatServiceImpl implements ChatService {
                     vo.setTradeId(trade.getId());
                     vo.setTradeStatus(trade.getStatus() != null ? trade.getStatus().name() : null);
                     vo.setTradeStatusText(getTradeStatusText(trade.getStatus()));
+                    vo.setContactExchangeStatus(trade.getContactExchangeStatus());
+                    vo.setContactExchangeRequesterId(trade.getContactExchangeRequesterId());
+                    vo.setContactExchange(buildContactExchangeVO(trade, currentUserId));
                 });
         return vo;
     }
@@ -264,7 +539,6 @@ public class ChatServiceImpl implements ChatService {
             case 2: return "在售";
             case 3: return "已售出";
             case 4: return "已下架";
-            case 5: return "交易中";
             default: return "";
         }
     }
@@ -285,8 +559,9 @@ public class ChatServiceImpl implements ChatService {
         vo.setId(m.getId());
         vo.setSessionId(m.getSessionId());
         vo.setSenderId(m.getSenderId());
-        vo.setContent(m.getContent());
+        vo.setContent(Integer.valueOf(4).equals(m.getMessageType()) && m.getSenderId().equals(currentUserId) ? "" : m.getContent());
         vo.setMessageType(m.getMessageType());
+        vo.setTradeAction(resolveTradeAction(m));
         vo.setIsRead(!m.getSenderId().equals(currentUserId) && Boolean.FALSE.equals(m.getIsRead()));
         vo.setIsMine(m.getSenderId().equals(currentUserId));
         vo.setCreateTime(m.getCreateTime() != null ? m.getCreateTime().format(FMT) : null);
@@ -297,11 +572,34 @@ public class ChatServiceImpl implements ChatService {
         return vo;
     }
 
+    private ChatDTO.ContactExchangeVO buildContactExchangeVO(TradeRecord tradeRecord, Long currentUserId) {
+        normalizeContactExchangeState(tradeRecord);
+        boolean isBuyer = Objects.equals(currentUserId, tradeRecord.getBuyerId());
+        boolean currentAgreed = isBuyer
+                ? Boolean.TRUE.equals(tradeRecord.getBuyerContactAgreed())
+                : Boolean.TRUE.equals(tradeRecord.getSellerContactAgreed());
+        boolean otherAgreed = isBuyer
+                ? Boolean.TRUE.equals(tradeRecord.getSellerContactAgreed())
+                : Boolean.TRUE.equals(tradeRecord.getBuyerContactAgreed());
+        boolean trading = tradeRecord.getStatus() == TradeRecord.TradeStatus.TRADING;
+        boolean exchanged = CONTACT_EXCHANGE_EXCHANGED.equals(tradeRecord.getContactExchangeStatus());
+
+        ChatDTO.ContactExchangeVO vo = new ChatDTO.ContactExchangeVO();
+        vo.setStatus(tradeRecord.getContactExchangeStatus() == null ? CONTACT_EXCHANGE_NONE : tradeRecord.getContactExchangeStatus());
+        vo.setCurrentUserAgreed(currentAgreed);
+        vo.setOtherUserAgreed(otherAgreed);
+        vo.setCanAgree(trading && !exchanged && !currentAgreed && tradeRecord.getContactExchangeRequesterId() != null);
+        vo.setCanDecline(trading && !exchanged && !currentAgreed && tradeRecord.getContactExchangeRequesterId() != null);
+        vo.setRequesterId(tradeRecord.getContactExchangeRequesterId());
+        return vo;
+    }
+
     private ChatDTO.TradeNotificationVO toTradeNotificationVO(ChatMessage message, Long currentUserId) {
         ChatDTO.TradeNotificationVO vo = new ChatDTO.TradeNotificationVO();
         vo.setId(message.getId());
         vo.setSessionId(message.getSessionId());
         vo.setContent(message.getContent());
+        vo.setTradeAction(resolveTradeAction(message));
         vo.setCreateTime(message.getCreateTime() != null ? message.getCreateTime().format(FMT) : null);
         vo.setIsRead(message.getSenderId().equals(currentUserId) || Boolean.TRUE.equals(message.getIsRead()));
 

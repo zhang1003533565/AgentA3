@@ -1,7 +1,7 @@
 <template>
   <view class="page-root">
     <view class="container">
-      <nav-bar title="浏览记录" :fixed="true" :placeholder="true" />
+      <common-page-header title="浏览记录" :fixed="true" :placeholder="true" :showBack="true" />
       <scroll-view scroll-y class="page-body">
         <view v-if="items.length === 0" class="empty"><text>暂无浏览记录</text></view>
         <view v-for="item in items" :key="item.id" class="item-card" @click="openDetail(item.id)">
@@ -19,12 +19,12 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 const HISTORY_KEY = 'market_browse_history'
 
 export default {
-  components: { NavBar, MarketBottomBar },
+  components: { CommonPageHeader, MarketBottomBar },
   data() {
     return { items: [] }
   },

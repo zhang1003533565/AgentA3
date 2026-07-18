@@ -2,9 +2,13 @@
   <view class="page-root">
     <view class="screen">
       <view class="container">
-        <nav-bar title="消息" :fixed="true" :placeholder="true" :showBack="false" />
+        <common-page-header title="消息" :fixed="true" :placeholder="true" :showBack="false">
+          <template #left>
+            <view class="market-back-button" @click="onBackToApp">‹</view>
+          </template>
+        </common-page-header>
 
-        <scroll-view scroll-y class="page-body">
+        <scroll-view scroll-y class="page-body" :show-scrollbar="false">
           <!-- 通知卡片（固定第一行，不参与排序） -->
           <view class="notify-card" @click="goToNotifications">
             <view class="notify-left">
@@ -29,7 +33,8 @@
             </view>
           </view>
 
-          <view class="section-title">
+          <view class="section-title chat-section-title">
+            <view class="section-title-mark"></view>
             <text>聊天消息</text>
           </view>
 
@@ -63,10 +68,11 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
-import { getChatSessions, getTradeRecords } from '@/api/secondhand'
+import { getChatSessions, getTradeNotificationUnreadCount } from '@/api/secondhand'
 import { getEnabledAnnouncements } from '@/api/notice'
+import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore'
 
 function normalizeSession(item) {
   return {
@@ -80,47 +86,55 @@ function normalizeSession(item) {
   }
 }
 
-function normalizeTradeRecord(item) {
-  return {
-    tradeId: item.tradeId,
-    sessionId: item.sessionId,
-    itemId: item.itemId,
-    itemTitle: item.itemTitle || '',
-    itemImage: item.itemImage || '',
-    itemStatus: item.itemStatus,
-    otherUsername: item.otherUsername || '用户',
-    status: item.status,
-    statusText: item.statusText || '',
-    updateTime: item.updateTime || '',
-    isSeller: item.isSeller,
-    isRead: item.isRead !== false,
-    messageType: item.messageType
-  }
-}
-
 export default {
-  components: { NavBar, MarketBottomBar },
+  components: { CommonPageHeader, MarketBottomBar },
   data() {
     return {
       sessions: [],
-      tradeRecords: [],
       unreadAnnounceCount: 0,
-      unreadTradeCount: 0
+      unreadTradeCount: 0,
+      unsubscribeMessageStore: null
     }
   },
   async onLoad() {
+    this.applyMessageState(getMessageState())
+    this.unsubscribeMessageStore = subscribeMessageStore((state, reason) => {
+      this.applyMessageState(state)
+      if (reason !== 'subscribe') {
+        this.loadSessionsFromStore(state)
+      }
+    })
     await this.loadData()
   },
   async onShow() {
-    await this.loadData()
+    await refreshMessageState('message-page-show')
+  },
+  onUnload() {
+    if (this.unsubscribeMessageStore) {
+      this.unsubscribeMessageStore()
+      this.unsubscribeMessageStore = null
+    }
   },
   methods: {
+    onBackToApp() {
+      uni.reLaunch({ url: '/pages/index/index' })
+    },
     async loadData() {
       await Promise.all([
         this.loadSessions(),
         this.loadTradeRecords(),
         this.checkAnnouncements()
       ])
+      await refreshMessageState('message-page-load')
+    },
+    applyMessageState(state = {}) {
+      this.unreadTradeCount = Number(state.unreadTradeCount || 0)
+      this.loadSessionsFromStore(state)
+    },
+    loadSessionsFromStore(state = {}) {
+      if (Array.isArray(state.sessions)) {
+        this.sessions = state.sessions.map(normalizeSession)
+      }
     },
     async loadSessions() {
       try {
@@ -153,18 +167,11 @@ export default {
     },
     async loadTradeRecords() {
       try {
-        const res = await getTradeRecords({ current: 1, size: 100 })
-        const records = Array.isArray(res?.data?.records) ? res.data.records : []
-        this.tradeRecords = records.map(normalizeTradeRecord)
-        this.updateUnreadTradeCount()
+        const res = await getTradeNotificationUnreadCount()
+        this.unreadTradeCount = Number(res?.data || 0)
       } catch (e) {
         console.error('加载交易记录失败', e)
       }
-    },
-    updateUnreadTradeCount() {
-      this.unreadTradeCount = this.tradeRecords.filter((item) => {
-        return item.messageType === 0 && item.isRead === false
-      }).length
     },
     openChat(session) {
       uni.navigateTo({
@@ -188,15 +195,18 @@ export default {
 <style lang="scss" scoped>
 .page-root {
   width: 100%;
+  height: 100vh;
   min-height: 100vh;
   background: #F5F5F5;
-  padding-bottom: 130rpx;
+  overflow: hidden;
 }
 
 .screen {
   width: 100%;
   background: #F5F5F5;
+  height: 100vh;
   min-height: 100vh;
+  overflow: hidden;
 }
 
 .container {
@@ -206,13 +216,27 @@ export default {
   box-sizing: border-box;
   padding: 0 24rpx;
   background: #F5F5F5;
+  height: 100vh;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .page-body {
   flex: 1;
+  min-height: 0;
+  height: 0;
   overflow-y: auto;
-  padding: 20rpx 0;
+  padding: 20rpx 0 150rpx;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.page-body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 /* 通知卡片 */
@@ -273,6 +297,24 @@ export default {
   font-size: 28rpx;
   font-weight: 700;
   line-height: 1.2;
+}
+
+.chat-section-title {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  padding: 10rpx 4rpx 18rpx;
+  color: #1D1D1F;
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+.section-title-mark {
+  width: 8rpx;
+  height: 34rpx;
+  border-radius: 999rpx;
+  background: #6F98D0;
+  flex-shrink: 0;
 }
 
 /* 空状态 */

@@ -18,4 +18,5 @@ public interface ChatService {
     PageResponse<ChatDTO.TradeNotificationVO> getTradeNotifications(Long userId, Integer current, Integer size);
     long countUnreadTradeNotifications(Long userId);
     void markTradeNotificationRead(Long id, Long userId);
+    void markAllTradeNotificationsRead(Long userId);
 }

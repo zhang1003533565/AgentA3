@@ -1,6 +1,6 @@
 <template>
   <view class="page-root">
-    <nav-bar title="搜索" :fixed="true" :placeholder="true" @back="handleBack" />
+    <common-page-header title="搜索" :fixed="true" :placeholder="true" :showBack="true" @back="handleBack" />
 
     <view class="search-shell">
       <view class="search-bar">
@@ -149,7 +149,7 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketProductGrid from '@/components/market-product-grid/market-product-grid.vue'
 import { getSecondhandItemList } from '@/api/secondhand'
 import { createDefaultMarketFilter, filterMarketItems } from '@/subpackage_lostfound/utils/marketFilter.js'
@@ -181,7 +181,7 @@ const CONDITION_OPTIONS = [
 
 export default {
   components: {
-    NavBar,
+    CommonPageHeader,
     MarketProductGrid
   },
   data() {
@@ -206,7 +206,7 @@ export default {
       source: '',
       fromRoute: '',
       searchPlaceholder: '搜索',
-      categoryFilterExpanded: true
+      categoryFilterExpanded: false
     }
   },
   computed: {
@@ -290,6 +290,7 @@ export default {
       }
       this.activeKeyword = value
       this.hasSearched = true
+      this.categoryFilterExpanded = false
       this.saveHistory(value)
     },
     useHistory(value) {

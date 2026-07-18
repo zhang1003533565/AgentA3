@@ -1,7 +1,7 @@
 <template>
   <view class="page-root">
     <view class="container">
-      <nav-bar title="我的收藏" :fixed="true" :placeholder="true" />
+      <common-page-header title="我的收藏" :fixed="true" :placeholder="true" :showBack="true" />
       <scroll-view scroll-y class="page-body" refresher-enabled :refresher-triggered="refreshing" @refresherrefresh="refresh">
         <view v-if="!loading && items.length === 0" class="empty">
           <view class="empty-icon">☆</view>
@@ -22,7 +22,7 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import { getMyFavorites } from '@/api/secondhand'
 const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '📦']
 function normalize(raw = {}) {
@@ -38,7 +38,7 @@ function normalize(raw = {}) {
   }
 }
 export default {
-  components: { NavBar },
+  components: { CommonPageHeader },
   data() { return { loading: false, refreshing: false, items: [] } },
   onShow() { this.loadItems() },
   methods: {

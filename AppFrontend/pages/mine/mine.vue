@@ -14,6 +14,19 @@
       </view>
       <!-- 12px 灰色隔离条 -->
       <view class="gap-bar"></view>
+      <view class="menu-block">
+        <view class="cell" @click="goToMessageCenter">
+          <view class="cell-left">
+            <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/message-circle.svg" mode="aspectFit" /></view>
+            <text class="cell-label">我的消息</text>
+          </view>
+          <view class="cell-right">
+            <text v-if="messageUnreadCount > 0" class="message-badge">{{ messageUnreadCount > 99 ? '99+' : messageUnreadCount }}</text>
+            <text class="cell-arrow">›</text>
+          </view>
+        </view>
+      </view>
+      <view class="gap-bar"></view>
       <!-- 常用功能：通栏白块 -->
       <view class="menu-block">
         <view class="cell" @click="goToSchedule">
@@ -95,20 +108,35 @@ import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getUserInfo, setUserInfo } from '@/utils/storage.js'
 import { updateAvatar } from '@/api/user.js'
 import { getUploadErrorMessage, uploadImage } from '@/utils/upload.js'
+import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore.js'
 
 export default {
   components: { AppMainTabBar, NavBar },
   data() {
     return {
       userInfo: null,
-      userAvatar: ''
+      userAvatar: '',
+      messageUnreadCount: 0,
+      unsubscribeMessageStore: null
     }
   },
   onLoad() {
     this.loadUser()
+    this.applyMessageState(getMessageState())
+    this.unsubscribeMessageStore = subscribeMessageStore((state) => {
+      this.applyMessageState(state)
+    })
+    refreshMessageState('mine-load')
   },
   onShow() {
     this.loadUser()
+    refreshMessageState('mine-show')
+  },
+  onUnload() {
+    if (this.unsubscribeMessageStore) {
+      this.unsubscribeMessageStore()
+      this.unsubscribeMessageStore = null
+    }
   },
   methods: {
     loadUser() {
@@ -124,6 +152,9 @@ export default {
         const seed = info.realName || info.username || info.studentId || 'mine-user'
         this.userAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`
       }
+    },
+    applyMessageState(state = {}) {
+      this.messageUnreadCount = Number(state.unreadLostFoundAppCount || 0)
     },
     changeAvatar() {
       uni.chooseImage({
@@ -150,6 +181,9 @@ export default {
           }
         }
       })
+    },
+    goToMessageCenter() {
+      uni.navigateTo({ url: '/subpackage_message/messageCenter/messageCenter' })
     },
     goToSchedule() {
       uni.navigateTo({ url: '/subpackage_schedule/schedule/schedule' })
@@ -190,6 +224,17 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+.page-wrap {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.page-wrap::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 .page-wrap {
   min-height: 100vh;
   background-color: #F7F7F9;
@@ -285,6 +330,24 @@ export default {
   color: #C7C7CC;
   flex-shrink: 0;
   margin-left: 16rpx;
+}
+.cell-right {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.message-badge {
+  min-width: 34rpx;
+  height: 34rpx;
+  padding: 0 10rpx;
+  border-radius: 999rpx;
+  background-color: #D95D5D;
+  color: #FFFFFF;
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 34rpx;
+  text-align: center;
+  box-sizing: border-box;
 }
 .cell-divider {
   height: 1rpx;

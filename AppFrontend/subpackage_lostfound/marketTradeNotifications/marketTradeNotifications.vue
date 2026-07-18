@@ -2,7 +2,7 @@
   <view class="page-root">
     <view class="screen">
       <view class="container">
-        <nav-bar title="交易通知" :fixed="true" :placeholder="true" />
+        <common-page-header title="交易通知" :fixed="true" :placeholder="true" :showBack="true" />
 
         <scroll-view scroll-y class="page-body">
           <view v-if="notifications.length === 0" class="empty">
@@ -39,13 +39,14 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
-import { getTradeNotifications, markTradeNotificationRead } from '@/api/secondhand'
+import { getTradeNotifications, markAllTradeNotificationsRead, markTradeNotificationRead } from '@/api/secondhand'
+import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore'
 
 const STATUS_TEXT = {
-  WAIT_CONFIRM: '待确认',
-  TRADING: '交易中',
+  WAIT_CONFIRM: '等待对方确认',
+  TRADING: '双方已确认',
   COMPLETED: '已完成',
   CANCELLED: '已取消'
 }
@@ -68,22 +69,45 @@ function normalizeNotification(item) {
 
 export default {
   components: {
-    NavBar,
+    CommonPageHeader,
     MarketBottomBar
   },
   data() {
     return {
       notifications: [],
-      loading: false
+      loading: false,
+      unsubscribeMessageStore: null
     }
   },
   async onLoad() {
+    this.applyMessageState(getMessageState())
+    this.unsubscribeMessageStore = subscribeMessageStore((state, reason) => {
+      this.applyMessageState(state)
+      if (reason !== 'subscribe') {
+        this.loadNotificationsFromStore(state)
+      }
+    })
     await this.loadNotifications()
+    await this.markAllNotificationsRead()
   },
   async onShow() {
-    await this.loadNotifications()
+    await refreshMessageState('trade-notifications-show')
+  },
+  onUnload() {
+    if (this.unsubscribeMessageStore) {
+      this.unsubscribeMessageStore()
+      this.unsubscribeMessageStore = null
+    }
   },
   methods: {
+    applyMessageState(state = {}) {
+      this.loadNotificationsFromStore(state)
+    },
+    loadNotificationsFromStore(state = {}) {
+      if (Array.isArray(state.tradeNotifications)) {
+        this.notifications = state.tradeNotifications.map(normalizeNotification)
+      }
+    },
     async loadNotifications() {
       if (this.loading) return
       try {
@@ -91,11 +115,23 @@ export default {
         const res = await getTradeNotifications({ current: 1, size: 100 })
         const records = Array.isArray(res?.data?.records) ? res.data.records : []
         this.notifications = records.map(normalizeNotification)
+        await refreshMessageState('trade-notifications-load')
       } catch (e) {
         console.error('加载交易通知失败', e)
         uni.showToast({ title: '通知加载失败', icon: 'none' })
       } finally {
         this.loading = false
+      }
+    },
+    async markAllNotificationsRead() {
+      const hasUnread = this.notifications.some((item) => !item.isRead)
+      if (!hasUnread) return
+      try {
+        await markAllTradeNotificationsRead()
+        this.notifications = this.notifications.map((item) => ({ ...item, isRead: true }))
+        await refreshMessageState('trade-notifications-read-all')
+      } catch (e) {
+        console.error('批量标记交易通知已读失败', e)
       }
     },
     statusText(status) {
@@ -116,6 +152,7 @@ export default {
         if (!item.isRead) {
           await markTradeNotificationRead(item.id)
           item.isRead = true
+          await refreshMessageState('trade-notification-read')
         }
       } catch (e) {
         console.error('标记交易通知已读失败', e)

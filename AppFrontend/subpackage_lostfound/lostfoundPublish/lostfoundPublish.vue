@@ -2,12 +2,16 @@
   <view class="page-root">
     <view class="screen">
       <view class="container">
-        <nav-bar title="发布闲置" :fixed="true" :placeholder="true" />
+        <common-page-header title="发布闲置" :fixed="true" :placeholder="true" :showBack="true" />
         
-        <scroll-view scroll-y class="page-body pub-body">
-          <view class="section photo-section">
+        <scroll-view scroll-y class="page-body pub-body" :scroll-into-view="scrollTarget" scroll-with-animation>
+          <view
+            id="publish-field-images"
+            class="section photo-section"
+            :class="{ 'section--error': fieldErrors.images, 'shake-once': shakeField === 'images' }"
+          >
             <view class="section-head">
-              <text class="section-title">图片</text>
+              <text class="section-title" :class="{ 'is-error-text': fieldErrors.images }">图片</text>
               <text class="section-hint">{{ publishForm.images.length }}/9</text>
             </view>
             <view v-if="publishForm.images.length" class="photo-board">
@@ -22,53 +26,65 @@
                 <view class="upload-delete" @click.stop="removeImg(index)">×</view>
               </view>
             </view>
-            <view v-if="publishForm.images.length < 9" class="upload-add" @click="choosePublishImage">
+            <view
+              v-if="publishForm.images.length < 9"
+              class="upload-add"
+              :class="{ 'upload-add--error': fieldErrors.images }"
+              @click="choosePublishImage"
+            >
               <text class="upload-icon">+</text>
               <view class="upload-copy">
                 <text class="upload-title">{{ publishForm.images.length ? '继续添加商品图片' : '添加商品图片' }}</text>
                 <text class="upload-text">首张图片作为封面</text>
               </view>
             </view>
+            <text v-if="fieldErrors.images" class="field-error-text">{{ fieldErrors.images }}</text>
           </view>
 
           <view class="section">
-            <view class="field-line">
-              <text class="field-label">商品名称</text>
-              <input class="field-input" v-model="publishForm.name" placeholder="请输入商品名称" />
+            <view
+              id="publish-field-name"
+              class="field-line"
+              :class="{ 'field-line--error': fieldErrors.name, 'shake-once': shakeField === 'name' }"
+            >
+              <text class="field-label" :class="{ 'is-error-text': fieldErrors.name }">商品名称</text>
+              <input class="field-input" v-model="publishForm.name" placeholder="请输入商品名称" @input="clearFieldError('name')" />
             </view>
-            <view class="field-line">
-              <text class="field-label">价格</text>
+            <text v-if="fieldErrors.name" class="field-error-text field-error-text--line">{{ fieldErrors.name }}</text>
+            <view
+              id="publish-field-price"
+              class="field-line"
+              :class="{ 'field-line--error': fieldErrors.price, 'shake-once': shakeField === 'price' }"
+            >
+              <text class="field-label" :class="{ 'is-error-text': fieldErrors.price }">价格</text>
               <input
                 class="field-input price-input"
                 v-model="publishForm.price"
                 type="number"
-                :disabled="priceMode === 'free' || priceMode === 'face'"
-                :placeholder="pricePlaceholder"
+                placeholder="输入价格，0表示免费"
+                @input="clearFieldError('price')"
               />
             </view>
-            <view class="price-modes">
-              <view
-                v-for="mode in priceModes"
-                :key="mode.value"
-                class="price-mode"
-                :class="{ active: priceMode === mode.value }"
-                @click="setPriceMode(mode.value)"
-              >
-                {{ mode.label }}
-              </view>
-            </view>
+            <text v-if="fieldErrors.price" class="field-error-text field-error-text--line">{{ fieldErrors.price }}</text>
           </view>
 
-          <view class="section">
+          <view
+            id="publish-field-desc"
+            class="section"
+            :class="{ 'section--error': fieldErrors.desc, 'shake-once': shakeField === 'desc' }"
+          >
             <view class="section-head">
-              <text class="section-title">描述</text>
+              <text class="section-title" :class="{ 'is-error-text': fieldErrors.desc }">描述</text>
               <text class="section-hint">至少10字</text>
             </view>
             <textarea
               class="desc-input"
+              :class="{ 'desc-input--error': fieldErrors.desc }"
               v-model="publishForm.desc"
               placeholder="补充使用情况、瑕疵、配件等信息"
+              @input="clearFieldError('desc')"
             />
+            <text v-if="fieldErrors.desc" class="field-error-text">{{ fieldErrors.desc }}</text>
           </view>
 
           <view class="section">
@@ -89,9 +105,13 @@
             </view>
           </view>
 
-          <view class="section">
+          <view
+            id="publish-field-category"
+            class="section"
+            :class="{ 'section--error': fieldErrors.category, 'shake-once': shakeField === 'category' }"
+          >
             <view class="section-head">
-              <text class="section-title">分类</text>
+              <text class="section-title" :class="{ 'is-error-text': fieldErrors.category }">分类</text>
             </view>
             <text class="category-level-label">一级分类</text>
             <view class="category-grid category-grid--primary">
@@ -99,7 +119,7 @@
                 v-for="cat in categories"
                 :key="cat.id"
                 class="category-card category-card--primary"
-                :class="{ active: selectedCategoryLevel1Id === cat.id }"
+                :class="{ active: selectedCategoryLevel1Id === cat.id, 'category-card--error': fieldErrors.category }"
                 @click="selectCategoryLevel1(cat.id)"
               >
                 {{ cat.name }}
@@ -112,12 +132,13 @@
                 v-for="cat in currentCategoryChildren"
                 :key="cat.id"
                 class="category-card category-card--sub"
-                :class="{ active: publishForm.cat === cat.id }"
+                :class="{ active: publishForm.cat === cat.id, 'category-card--error': fieldErrors.category }"
                 @click="selectCategoryLevel2(cat.id)"
               >
                 {{ cat.name }}
               </view>
             </view>
+            <text v-if="fieldErrors.category" class="field-error-text">{{ fieldErrors.category }}</text>
           </view>
 
           <view class="section">
@@ -145,11 +166,8 @@
             </view>
             <view class="chat-tip">
               <text class="chat-tip-title">平台聊天</text>
-              <text class="chat-tip-desc">默认通过站内消息联系</text>
-            </view>
-            <view class="field-line">
-              <text class="field-label">微信号</text>
-              <input class="field-input" v-model="publishForm.phone" placeholder="可选，愿意加微信再填" maxlength="30" />
+              <text class="chat-tip-desc">默认通过站内消息联系。</text>
+              <text class="chat-tip-desc">交易确认后可交换联系方式。</text>
             </view>
           </view>
 
@@ -161,7 +179,7 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import { createSecondhandItem } from '@/api/secondhand'
 import { getUploadErrorMessage, uploadImages } from '@/utils/upload'
 import { MARKET_CATEGORIES } from '@/subpackage_lostfound/utils/marketCategories.js'
@@ -175,7 +193,7 @@ const COMMON_PICKUP_POINTS = [
 
 export default {
   components: {
-    NavBar
+    CommonPageHeader
   },
   data() {
     return {
@@ -183,13 +201,6 @@ export default {
       categories: MARKET_CATEGORIES,
       selectedCategoryLevel1Id: MARKET_CATEGORIES[0]?.id || '',
       pickupOptions: COMMON_PICKUP_POINTS,
-      priceMode: 'normal',
-      priceModes: [
-        { value: 'normal', label: '标价' },
-        { value: 'negotiable', label: '可议价' },
-        { value: 'face', label: '面议' },
-        { value: 'free', label: '免费送' }
-      ],
       conditionOptions: [
         { value: 1, label: '全新', desc: '未拆或基本没用' },
         { value: 2, label: '很新', desc: '看起来很干净' },
@@ -202,23 +213,25 @@ export default {
         price: '',
         desc: '',
         cat: '',
-        phone: '',
         images: [],
         pickupPoint: '',
         condition: 2
-      }
+      },
+      fieldErrors: {
+        images: '',
+        name: '',
+        price: '',
+        desc: '',
+        category: ''
+      },
+      scrollTarget: '',
+      shakeField: ''
     }
   },
   computed: {
     currentCategoryChildren() {
       const current = this.categories.find((item) => item.id === this.selectedCategoryLevel1Id)
       return Array.isArray(current?.children) ? current.children : []
-    },
-    pricePlaceholder() {
-      if (this.priceMode === 'free') return '免费赠送'
-      if (this.priceMode === 'face') return '见面再聊'
-      if (this.priceMode === 'negotiable') return '先写一个心理价'
-      return '输入价格'
     }
   },
   async onLoad(options) {
@@ -228,12 +241,6 @@ export default {
     this.ensureCategorySelection()
   },
   methods: {
-    setPriceMode(value) {
-      this.priceMode = value
-      if (value === 'free' || value === 'face') {
-        this.publishForm.price = ''
-      }
-    },
     selectPickupPoint(value) {
       this.publishForm.pickupPoint = this.publishForm.pickupPoint === value ? '' : value
     },
@@ -250,9 +257,11 @@ export default {
       const current = this.categories.find((item) => item.id === id)
       const children = Array.isArray(current?.children) ? current.children : []
       this.publishForm.cat = children[0]?.id || ''
+      this.clearFieldError('category')
     },
     selectCategoryLevel2(id) {
       this.publishForm.cat = id
+      this.clearFieldError('category')
     },
     choosePublishImage() {
       uni.chooseImage({
@@ -264,6 +273,7 @@ export default {
           try {
             const urls = await uploadImages(files)
             this.publishForm.images = [...this.publishForm.images, ...urls]
+            this.clearFieldError('images')
           } catch (e) {
             uni.showToast({ title: getUploadErrorMessage(e), icon: 'none' })
           }
@@ -279,56 +289,83 @@ export default {
         current: src
       })
     },
-    async publish() {
+    clearFieldError(field) {
+      if (this.fieldErrors[field]) {
+        this.fieldErrors[field] = ''
+      }
+    },
+    resetFieldErrors() {
+      Object.keys(this.fieldErrors).forEach((key) => {
+        this.fieldErrors[key] = ''
+      })
+    },
+    focusInvalidField(field) {
+      const targetMap = {
+        images: 'publish-field-images',
+        name: 'publish-field-name',
+        price: 'publish-field-price',
+        desc: 'publish-field-desc',
+        category: 'publish-field-category'
+      }
+      this.scrollTarget = ''
+      this.shakeField = ''
+      this.$nextTick(() => {
+        this.scrollTarget = targetMap[field] || ''
+        this.shakeField = field
+        setTimeout(() => {
+          this.shakeField = ''
+        }, 220)
+      })
+    },
+    validatePublishForm() {
+      this.resetFieldErrors()
       const title = this.publishForm.name.trim()
-      if (!title) {
-        uni.showToast({ title: '请输入名称', icon: 'none' })
-        return
+      const desc = this.publishForm.desc.trim()
+      const priceText = String(this.publishForm.price).trim()
+      const price = Number(priceText)
+      const errors = []
+      if (!this.publishForm.images.length) {
+        errors.push({ field: 'images', message: '至少上传一张图片' })
       }
       if (title.length < 4) {
-        uni.showToast({ title: '标题至少4个字', icon: 'none' })
-        return
+        errors.push({ field: 'name', message: '商品名称至少4个字' })
+      } else if (title.length > 50) {
+        errors.push({ field: 'name', message: '商品名称最多50字' })
       }
-      if (title.length > 50) {
-        uni.showToast({ title: '标题最多50字', icon: 'none' })
-        return
+      if (priceText === '') {
+        errors.push({ field: 'price', message: '请输入价格，0表示免费' })
+      } else if (Number.isNaN(price) || price < 0) {
+        errors.push({ field: 'price', message: '价格需为大于等于0的数字' })
       }
-      if (!this.publishForm.desc.trim() || this.publishForm.desc.trim().length < 10) {
-        uni.showToast({ title: '描述至少10个字', icon: 'none' })
-        return
-      }
-      const needsPrice = this.priceMode === 'normal' || this.priceMode === 'negotiable'
-      if (needsPrice && (!this.publishForm.price || Number(this.publishForm.price) <= 0)) {
-        uni.showToast({ title: '请输入正确售价', icon: 'none' })
-        return
-      }
-      if (!this.publishForm.images.length) {
-        uni.showToast({ title: '至少上传一张图片', icon: 'none' })
-        return
+      if (desc.length < 10) {
+        errors.push({ field: 'desc', message: '商品描述至少10个字' })
       }
       const categoryId = Number(this.publishForm.cat)
       if (!categoryId || Number.isNaN(categoryId)) {
-        uni.showToast({ title: '请选择有效分类', icon: 'none' })
-        return
+        errors.push({ field: 'category', message: '请选择有效分类' })
       }
+      errors.forEach((error) => {
+        this.fieldErrors[error.field] = error.message
+      })
+      if (errors.length) {
+        const first = errors[0]
+        uni.showToast({ title: first.message, icon: 'none' })
+        this.focusInvalidField(first.field)
+        return null
+      }
+      return { title, desc, price, categoryId }
+    },
+    async publish() {
+      const validated = this.validatePublishForm()
+      if (!validated) return
       try {
         uni.showLoading({ title: '发布中...' })
-        const price = needsPrice ? Number(this.publishForm.price) : 0
-        const priceNoteMap = {
-          negotiable: '价格可议',
-          face: '价格面议',
-          free: '免费赠送'
-        }
-        const priceNote = priceNoteMap[this.priceMode]
-        const description = priceNote
-          ? `${this.publishForm.desc.trim()}\n\n${priceNote}`
-          : this.publishForm.desc.trim()
         await createSecondhandItem({
-          categoryId,
-          title,
-          description,
+          categoryId: validated.categoryId,
+          title: validated.title,
+          description: validated.desc,
           images: this.publishForm.images,
-          price,
+          price: validated.price,
           condition: this.publishForm.condition,
           location: this.publishForm.pickupPoint.trim() || '校内自提'
         })
@@ -385,8 +422,14 @@ export default {
   padding: 0 24rpx;
   border-radius: 24rpx;
   background: #FFFFFF;
+  border: 1rpx solid transparent;
   box-sizing: border-box;
   box-shadow: 0 6rpx 18rpx rgba(92, 122, 153, 0.06);
+}
+
+.section--error {
+  border-color: rgba(209, 67, 67, 0.42);
+  background: linear-gradient(0deg, rgba(209, 67, 67, 0.035), rgba(209, 67, 67, 0.035)), #FFFFFF;
 }
 
 .section-head {
@@ -479,6 +522,11 @@ export default {
   box-shadow: 0 6rpx 18rpx rgba(92, 122, 153, 0.06);
 }
 
+.upload-add--error {
+  border-color: rgba(209, 67, 67, 0.5);
+  background: rgba(209, 67, 67, 0.05);
+}
+
 .upload-icon {
   width: 54rpx;
   height: 54rpx;
@@ -519,6 +567,14 @@ export default {
   border-bottom: 1rpx solid #EEEEEE;
 }
 
+.field-line--error {
+  margin-top: 8rpx;
+  padding: 0 16rpx;
+  border: 1rpx solid rgba(209, 67, 67, 0.48);
+  border-radius: 16rpx;
+  background: rgba(209, 67, 67, 0.045);
+}
+
 .field-line:last-child {
   border-bottom: none;
 }
@@ -544,29 +600,6 @@ export default {
   font-weight: 700;
 }
 
-.price-modes {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10rpx;
-  padding: 18rpx 0 20rpx;
-}
-
-.price-mode {
-  height: 56rpx;
-  border-radius: 14rpx;
-  background: #F3F5F7;
-  color: #4A4A4A;
-  font-size: 23rpx;
-  font-weight: 600;
-  line-height: 56rpx;
-  text-align: center;
-}
-
-.price-mode.active {
-  background: #5C7A99;
-  color: #FFFFFF;
-}
-
 .desc-input {
   width: 100%;
   height: 208rpx;
@@ -576,6 +609,13 @@ export default {
   color: #1D1D1F;
   background: #FFFFFF;
   box-sizing: border-box;
+}
+
+.desc-input--error {
+  padding: 18rpx 16rpx 24rpx;
+  border: 1rpx solid rgba(209, 67, 67, 0.48);
+  border-radius: 16rpx;
+  background: rgba(209, 67, 67, 0.045);
 }
 
 .condition-grid {
@@ -682,6 +722,14 @@ export default {
   color: #FFFFFF;
 }
 
+.category-card--error {
+  border: 1rpx solid rgba(209, 67, 67, 0.38);
+}
+
+.category-card.active.category-card--error {
+  border-color: rgba(92, 122, 153, 0.28);
+}
+
 .category-card.disabled {
   color: #8E8E93;
   background: #F3F5F7;
@@ -732,8 +780,7 @@ export default {
 }
 
 .chat-tip {
-  min-height: 82rpx;
-  border-bottom: 1rpx solid #EEEEEE;
+  min-height: 104rpx;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -767,6 +814,42 @@ export default {
 
 .pbtn::after {
   border: none;
+}
+
+.is-error-text {
+  color: #D14343;
+}
+
+.field-error-text {
+  display: block;
+  margin-top: 12rpx;
+  padding-bottom: 12rpx;
+  color: #D14343;
+  font-size: 22rpx;
+  line-height: 1.35;
+}
+
+.field-error-text--line {
+  padding-left: 16rpx;
+}
+
+.shake-once {
+  animation: publish-field-shake 220ms ease-out 1;
+}
+
+@keyframes publish-field-shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-6rpx);
+  }
+  50% {
+    transform: translateX(5rpx);
+  }
+  75% {
+    transform: translateX(-4rpx);
+  }
 }
 
 </style>

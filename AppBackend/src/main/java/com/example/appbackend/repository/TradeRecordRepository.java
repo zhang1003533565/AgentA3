@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -20,7 +21,7 @@ public interface TradeRecordRepository extends JpaRepository<TradeRecord, Long> 
 
     Optional<TradeRecord> findByItemIdAndBuyerId(Long itemId, Long buyerId);
 
-    Optional<TradeRecord> findByItemIdAndStatusIn(Long itemId, Collection<TradeStatus> statuses);
+    List<TradeRecord> findByItemIdAndStatusIn(Long itemId, Collection<TradeStatus> statuses);
 
     Optional<TradeRecord> findByItemIdAndBuyerIdAndStatusIn(Long itemId, Long buyerId, Collection<TradeStatus> statuses);
 }

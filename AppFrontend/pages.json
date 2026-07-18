@@ -170,6 +170,24 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
 					}
+				},
+				{
+					"path": "messageCenter/messageCenter",
+					"style": {
+						"navigationBarTitleText": "消息",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "lostFoundChatMessages/lostFoundChatMessages",
+					"style": {
+						"navigationBarTitleText": "聊天消息",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
 				}
 			]
 		},

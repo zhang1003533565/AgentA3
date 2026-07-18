@@ -43,7 +43,6 @@ export function request(options) {
           } else {
             if (data.code === 401) {
               clearAuth()
-              uni.reLaunch({ url: '/pages/login/login' })
             }
             uni.showToast({ title: data.msg || data.message || '请求失败', icon: 'none' })
             settled = true
@@ -52,7 +51,6 @@ export function request(options) {
         } else {
           if (res.statusCode === 401) {
             clearAuth()
-            uni.reLaunch({ url: '/pages/login/login' })
           }
           const msg = (res.data && (res.data.msg || res.data.message)) || `请求失败: ${res.statusCode}`
           uni.showToast({ title: msg, icon: 'none' })

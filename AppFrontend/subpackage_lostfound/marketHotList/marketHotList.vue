@@ -1,6 +1,6 @@
 <template>
   <view class="page-root" :class="{ 'page-root--content-visible': contentVisible }">
-    <nav-bar title="本校热门" :fixed="true" :placeholder="true" />
+    <common-page-header title="本校热门" :fixed="true" :placeholder="true" :showBack="true" />
 
     <view class="hot-list-content" :class="{ 'hot-list-content--visible': contentVisible }">
       <view class="toolbar" :class="{ 'toolbar--transitioning': searchTransitioning }">
@@ -123,7 +123,7 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketProductGrid from '@/components/market-product-grid/market-product-grid.vue'
 import MarketSearchEntry from '@/components/market-search-entry/market-search-entry.vue'
 import { getSecondhandItemList } from '@/api/secondhand'
@@ -169,7 +169,7 @@ function defaultFilter() {
 
 export default {
   components: {
-    NavBar,
+    CommonPageHeader,
     MarketProductGrid,
     MarketSearchEntry
   },

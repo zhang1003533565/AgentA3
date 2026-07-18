@@ -2,7 +2,7 @@
   <view class="page-root">
     <view class="screen">
       <view class="container">
-        <nav-bar title="市集消息" :fixed="true" :placeholder="true" />
+        <common-page-header title="市集消息" :fixed="true" :placeholder="true" :showBack="true" />
         
         <scroll-view scroll-y class="page-body">
           <view class="section-title">通知</view>
@@ -17,7 +17,7 @@
             <view class="notify-icon">交</view>
             <view class="notify-body">
               <view class="notify-name">交易通知</view>
-              <view class="notify-desc">查看拍下、确认、完成和取消交易的系统消息</view>
+              <view class="notify-desc">查看购买意向、交易确认、联系方式和完成消息</view>
             </view>
             <view v-if="tradeUnread" class="msbadge">{{ tradeUnread }}</view>
           </view>
@@ -47,9 +47,10 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { getChatSessions, getTradeNotificationUnreadCount } from '@/api/secondhand'
+import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore'
 
 function normalizeSession(item) {
   return {
@@ -65,20 +66,34 @@ function normalizeSession(item) {
 
 export default {
   components: {
-    NavBar,
+    CommonPageHeader,
     MarketBottomBar
   },
   data() {
     return {
       chats: [],
-      tradeUnread: 0
+      tradeUnread: 0,
+      unsubscribeMessageStore: null
     }
   },
   async onLoad() {
+    this.applyMessageState(getMessageState())
+    this.unsubscribeMessageStore = subscribeMessageStore((state, reason) => {
+      this.applyMessageState(state)
+      if (reason !== 'subscribe') {
+        this.loadSessionsFromStore(state)
+      }
+    })
     await this.loadData()
   },
   async onShow() {
-    await this.loadData()
+    await refreshMessageState('my-messages-show')
+  },
+  onUnload() {
+    if (this.unsubscribeMessageStore) {
+      this.unsubscribeMessageStore()
+      this.unsubscribeMessageStore = null
+    }
   },
   methods: {
     async loadData() {
@@ -86,6 +101,16 @@ export default {
         this.loadSessions(),
         this.loadTradeUnread()
       ])
+      await refreshMessageState('my-messages-load')
+    },
+    applyMessageState(state = {}) {
+      this.tradeUnread = Number(state.unreadTradeCount || 0)
+      this.loadSessionsFromStore(state)
+    },
+    loadSessionsFromStore(state = {}) {
+      if (Array.isArray(state.sessions)) {
+        this.chats = state.sessions.map(normalizeSession)
+      }
     },
     async loadSessions() {
       try {

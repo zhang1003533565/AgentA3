@@ -4,35 +4,24 @@
       <view class="container">
         <view class="page-content">
           <!-- ===== 1. Header: location + message ===== -->
-          <nav-bar
-            title=""
-            :fixed="true"
-            :placeholder="true"
-            :showBack="false"
-            :border="false"
-            background="#FFFFFF"
-          >
+          <common-page-header title="首页" :fixed="true" :placeholder="true" :showBack="false">
             <template #left>
               <view class="market-back-button" @click="onBackToApp">‹</view>
             </template>
-            <template #center>
-            </template>
-            <template #right>
-            </template>
-          </nav-bar>
+          </common-page-header>
+
+          <!-- ===== 2. Search (fixed outside scroll content) ===== -->
+          <view class="search-block search-block--sticky">
+            <view class="search-pill" @click="goToSearch">
+              <image class="search-pill-icon" src="/static/icons/search.svg" mode="aspectFit" />
+              <input class="search-pill-input" value="搜索" disabled />
+            </view>
+            <view class="search-scan-btn" @click="onScan">
+              <image class="search-scan-icon" src="/static/icons/camera.svg" mode="aspectFit" />
+            </view>
+          </view>
 
           <scroll-view scroll-y class="page-body" :show-scrollbar="false">
-            <!-- ===== 2. Search (sticky below nav) ===== -->
-            <view class="search-block search-block--sticky">
-              <view class="search-pill" @click="goToSearch">
-                <image class="search-pill-icon" src="/static/icons/search.svg" mode="aspectFit" />
-                <input class="search-pill-input" value="搜索" disabled />
-              </view>
-              <view class="search-scan-btn" @click="onScan">
-                <image class="search-scan-icon" src="/static/icons/camera.svg" mode="aspectFit" />
-              </view>
-            </view>
-
             <!-- ===== 3. Banner ===== -->
             <view class="banner-block">
               <view
@@ -199,7 +188,7 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { getSecondhandItemList } from '@/api/secondhand'
 
@@ -220,7 +209,7 @@ const BANNERS = [
 const PRODUCT_TINTS = ['#EBEBF0', '#E8EAED', '#EDE8F0', '#EAF0EB']
 
 export default {
-  components: { NavBar, MarketBottomBar },
+  components: { CommonPageHeader, MarketBottomBar },
   data() {
     return {
       unreadCount: 0,
@@ -317,8 +306,8 @@ export default {
             allowBargain: Boolean(r.allowBargain ?? r.allow_bargain ?? false),
             deliveryMethod: r.deliveryMethod || r.delivery_method || 'pickup',
             isFree: Boolean(r.isFree ?? Number(r.price) === 0),
-            status: r.status === 2 ? 'online' : r.status === 5 ? 'reserved' : r.status === 4 ? 'offline' : 'sold',
-            statusText: r.statusText || (r.status === 2 ? '在售' : r.status === 5 ? '交易中' : r.status === 3 ? '已售出' : '已下架'),
+            status: r.status === 4 ? 'offline' : r.status === 3 ? 'sold' : 'online',
+            statusText: r.statusText || (r.status === 3 ? '已售出' : r.status === 4 ? '已下架' : '在售'),
             urgency: r.urgency || 'normal',
             viewCount: Number(r.viewCount || r.view_count || 0),
             favoriteCount: Number(r.favoriteCount || r.favorite_count || 0),
@@ -509,20 +498,44 @@ export default {
 /* ===== Page ===== */
 .page-root {
   width: 100%;
+  height: 100vh;
   min-height: 100vh;
   background: #F5F5F5;
-  padding-bottom: 130rpx;
+  overflow: hidden;
 }
 
 .page-content {
-  /* 入场动画已移除 */
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.screen { width: 100%; }
-.container { width: 100%; }
+.screen {
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.container {
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
 
 .page-body {
-  height: calc(100vh - 88rpx);
+  flex: 1;
+  min-height: 0;
+  height: 0;
+  overflow: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.page-body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 /* ===== Section shared ===== */
@@ -558,19 +571,6 @@ export default {
   gap: 4rpx;
 }
 
-.market-back-button {
-  width: 64rpx;
-  height: 64rpx;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #1D1D1F;
-  font-size: 48rpx;
-  font-weight: 500;
-  line-height: 1;
-}
-
 .header-loc-icon {
   width: 28rpx;
   height: 28rpx;
@@ -602,10 +602,10 @@ export default {
 }
 
 .search-block--sticky {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 10;
   background: #FFFFFF;
+  flex-shrink: 0;
 }
 
 .search-pill {

@@ -113,6 +113,13 @@ export function markTradeNotificationRead(id) {
   })
 }
 
+export function markAllTradeNotificationsRead() {
+  return request({
+    url: '/api/chat/trade-notifications/read-all',
+    method: 'PUT'
+  })
+}
+
 export function uploadSecondhandImage(filePath) {
   const { uploadImage } = require('../utils/upload.js')
   return uploadImage(filePath)

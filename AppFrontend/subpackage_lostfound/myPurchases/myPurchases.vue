@@ -1,7 +1,7 @@
 <template>
   <view class="page-root">
     <view class="container">
-      <nav-bar title="我的购买" :fixed="true" :placeholder="true" />
+      <common-page-header title="我的购买" :fixed="true" :placeholder="true" :showBack="true" />
       <scroll-view scroll-y class="page-body">
         <view v-if="items.length === 0" class="empty"><text>暂无购买记录</text></view>
         <view v-for="record in items" :key="record.id" class="record-card" @click="openChat(record)">
@@ -19,12 +19,12 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { createOrGetChatSession, getTradeRecords } from '@/api/secondhand'
 
 export default {
-  components: { NavBar, MarketBottomBar },
+  components: { CommonPageHeader, MarketBottomBar },
   data() {
     return { items: [] }
   },
@@ -43,7 +43,7 @@ export default {
       }
     },
     statusText(status) {
-      const map = { WAIT_CONFIRM: '待卖家确认', TRADING: '交易中', COMPLETED: '已完成', CANCELLED: '已取消' }
+      const map = { WAIT_CONFIRM: '等待对方确认', TRADING: '双方已确认', COMPLETED: '已完成', CANCELLED: '已取消' }
       return map[status] || '交易记录'
     },
     async openChat(record) {

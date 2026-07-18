@@ -23,6 +23,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/api/auth/weblogin",
                         "/api/meetings/*/asr/stream",
                         "/api/v1/facility/types",
+                        "/api/secondhand/category/list",
+                        "/api/secondhand/item/list",
                         "/uploads/**",
                         "/swagger-ui.html",
                         "/swagger-ui/**",
@@ -38,7 +40,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
-                .allowedOrigins("http://localhost:5174", "http://localhost:5173", "http://localhost:8080")
+                .allowedOriginPatterns("http://localhost:*")
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(true)
