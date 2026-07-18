@@ -1,3 +1,13 @@
+# ============================================
+# 环境变量说明
+# ============================================
+# 敏感配置已迁移至环境变量，不在代码中硬编码
+# 本地开发时可通过以下方式设置：
+# 1. 设置系统环境变量
+# 2. 在项目根目录创建 .env 文件（已被 .gitignore 忽略）
+# 3. 使用 IDE 的 Run Configuration 设置环境变量
+# ============================================
+
 server:
   port: ${SERVER_PORT:8080}
   servlet:
@@ -42,10 +52,17 @@ spring:
       connect-timeout: ${REDIS_CONNECT_TIMEOUT:2s}
       timeout: ${REDIS_COMMAND_TIMEOUT:2s}
 
+# JWT 认证配置
+# JWT_SECRET: JWT 签名密钥，生产环境务必修改
+# JWT_EXPIRATION_MS: Token 过期时间（毫秒）
 jwt:
   secret: ${JWT_SECRET:dev-local-jwt-secret-change-before-production-2026}
   expiration: ${JWT_EXPIRATION_MS:86400000}
 
+# 腾讯云配置
+# TENCENT_MAP_KEY: 腾讯地图 API Key
+# TENCENT_COS_SECRET_ID/SECRET_KEY: COS 存储密钥
+# TENCENT_COS_BUCKET/DOMAIN: COS Bucket 名称和域名
 tencent:
   map:
     key: ${TENCENT_MAP_KEY:}
@@ -59,6 +76,9 @@ tencent:
     upload-prefix: smart-campus/media
     map-buildings-prefix: smart-campus/map-buildings
 
+# 高德地图配置
+# AMAP_APP_KEY: 移动端 API Key
+# AMAP_WEB_KEY: Web 端 API Key
 amap:
   app:
     key: ${AMAP_APP_KEY:}
@@ -86,6 +106,10 @@ knowledge:
       ttl-seconds: ${KNOWLEDGE_MAXKB_RETRIEVAL_CACHE_TTL_SECONDS:300}
       max-entries: ${KNOWLEDGE_MAXKB_RETRIEVAL_CACHE_MAX_ENTRIES:500}
 
+# 阿里云 OSS 配置
+# ALIYUN_OSS_BUCKET_NAME: OSS Bucket 名称
+# ALIYUN_OSS_ACCESS_KEY_ID/ACCESS_KEY_SECRET: OSS 密钥
+# ALIYUN_OSS_BASE_URL: OSS 访问域名
 aliyun:
   oss:
     endpoint: ${ALIYUN_OSS_ENDPOINT:oss-cn-beijing.aliyuncs.com}
