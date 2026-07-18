@@ -11,6 +11,7 @@
 		},
 		onShow: function() {
 			console.log('App Show')
+			startMessageSync()
 			refreshMessageState('app-show')
 		},
 		onHide: function() {

@@ -13,6 +13,7 @@ export function request(options) {
   const url = options.url.startsWith('http') ? options.url : BASE_URL + options.url
   const token = getToken()
   const payload = options.data !== undefined ? options.data : options.params
+  const showError = options.showError !== false
   const header = {
     'Content-Type': 'application/json',
     ...(options.header || {})
@@ -44,7 +45,9 @@ export function request(options) {
             if (data.code === 401) {
               clearAuth()
             }
-            uni.showToast({ title: data.msg || data.message || '请求失败', icon: 'none' })
+            if (showError) {
+              uni.showToast({ title: data.msg || data.message || '请求失败', icon: 'none' })
+            }
             settled = true
             reject(data)
           }
@@ -53,7 +56,9 @@ export function request(options) {
             clearAuth()
           }
           const msg = (res.data && (res.data.msg || res.data.message)) || `请求失败: ${res.statusCode}`
-          uni.showToast({ title: msg, icon: 'none' })
+          if (showError) {
+            uni.showToast({ title: msg, icon: 'none' })
+          }
           settled = true
           reject(res)
         }
@@ -67,7 +72,9 @@ export function request(options) {
           reject(abortError)
           return
         }
-        uni.showToast({ title: '网络请求失败', icon: 'none' })
+        if (showError) {
+          uni.showToast({ title: '网络请求失败', icon: 'none' })
+        }
         reject(err)
       }
     })

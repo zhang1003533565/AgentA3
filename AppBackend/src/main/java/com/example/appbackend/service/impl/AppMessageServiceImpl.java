@@ -6,6 +6,7 @@ import com.example.appbackend.entity.AppMessage;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.AppMessageRepository;
 import com.example.appbackend.service.AppMessageService;
+import com.example.appbackend.service.MessageRealtimeNotifier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -24,6 +25,7 @@ public class AppMessageServiceImpl implements AppMessageService {
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Autowired private AppMessageRepository appMessageRepository;
+    @Autowired private MessageRealtimeNotifier realtimeNotifier;
 
     @Override
     public PageResponse<AppMessageDTO.MessageVO> getMessages(Long userId, Integer current, Integer size) {
@@ -54,13 +56,16 @@ public class AppMessageServiceImpl implements AppMessageService {
             message.setIsRead(true);
             message.setReadTime(LocalDateTime.now());
             appMessageRepository.save(message);
+            realtimeNotifier.notifyUser(userId, "app");
         }
     }
 
     @Override
     @Transactional
     public void markAllRead(Long userId) {
-        appMessageRepository.markAllReadByUserId(userId);
+        if (appMessageRepository.markAllReadByUserId(userId) > 0) {
+            realtimeNotifier.notifyUser(userId, "app");
+        }
     }
 
     @Override
@@ -84,7 +89,9 @@ public class AppMessageServiceImpl implements AppMessageService {
         message.setTargetParams(command.getTargetParams());
         message.setSourceId(command.getSourceId());
         message.setSourceType(command.getSourceType());
-        return toVO(appMessageRepository.save(message));
+        AppMessage saved = appMessageRepository.save(message);
+        realtimeNotifier.notifyUser(command.getUserId(), "app");
+        return toVO(saved);
     }
 
     private AppMessageDTO.MessageVO toVO(AppMessage message) {

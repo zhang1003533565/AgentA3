@@ -156,5 +156,5 @@ test('home keeps the existing AI entry without exposing Python learning', () => 
   assert.ok(existing >= 0)
   assert.doesNotMatch(home, /navigate\('\/subpackage_learning\/pythonHome\/pythonHome'\)/)
   assert.doesNotMatch(home, /Python 个性化学习/)
-  assert.match(home, /智感工坊/)
+  assert.match(home, /灵感创作/)
 })

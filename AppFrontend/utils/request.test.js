@@ -53,3 +53,22 @@ test('request resolves the existing response envelope and cannot abort after com
   assert.deepEqual(await task, { code: 200, data: { ok: true } })
   assert.equal(task.abort(), false)
 })
+
+test('request can suppress error toasts for optional background refreshes', async () => {
+  const toasts = []
+  globalThis.uni = {
+    request(options) {
+      options.success({
+        statusCode: 404,
+        data: { message: 'No static resource api/app-message/unread/count.' }
+      })
+      return { abort() {} }
+    },
+    showToast: (options) => toasts.push(options),
+    reLaunch() {}
+  }
+  const { request } = await modulePromise
+
+  await assert.rejects(request({ url: '/api/app-message/unread/count', showError: false }))
+  assert.deepEqual(toasts, [])
+})

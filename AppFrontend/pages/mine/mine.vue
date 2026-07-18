@@ -108,7 +108,7 @@ import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getUserInfo, setUserInfo } from '@/utils/storage.js'
 import { updateAvatar } from '@/api/user.js'
 import { getUploadErrorMessage, uploadImage } from '@/utils/upload.js'
-import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore.js'
+import { getMessageState, refreshMessageState, stopMessageSync, subscribeMessageStore } from '@/utils/messageStore.js'
 
 export default {
   components: { AppMainTabBar, NavBar },
@@ -212,6 +212,7 @@ export default {
         content: '确定要退出登录吗？',
         success: (res) => {
           if (res.confirm) {
+            stopMessageSync()
             uni.removeStorageSync('token')
             uni.removeStorageSync('userInfo')
             uni.reLaunch({ url: '/pages/login/login' })

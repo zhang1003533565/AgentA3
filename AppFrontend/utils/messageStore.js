@@ -6,8 +6,8 @@ import {
 } from '@/api/secondhand'
 import { getEnabledAnnouncements } from '@/api/notice'
 import { getAppMessageUnreadCount } from '@/api/message'
-
-const POLL_INTERVAL = 5000
+import { getToken } from '@/utils/storage'
+import { startMessageSocket, stopMessageSocket } from '@/utils/messageSocket'
 
 const state = {
   unreadChatCount: 0,
@@ -23,7 +23,8 @@ const state = {
   started: false
 }
 
-let timer = null
+let realtimeRefreshTimer = null
+let realtimeRefreshPending = false
 const listeners = new Set()
 let lastSignature = ''
 
@@ -108,6 +109,7 @@ export function subscribeMessageStore(listener) {
 }
 
 export async function refreshMessageState(reason = 'manual') {
+  if (!getToken()) return getMessageState()
   if (state.syncing) return getMessageState()
   state.syncing = true
   try {
@@ -115,7 +117,7 @@ export async function refreshMessageState(reason = 'manual') {
       getChatUnreadCount(),
       getTradeNotificationUnreadCount(),
       getEnabledAnnouncements().catch(() => ({ data: [] })),
-      getAppMessageUnreadCount().catch(() => ({ data: { lostFound: 0 } })),
+      getAppMessageUnreadCount({ showError: false }).catch(() => ({ data: { lostFound: 0 } })),
       getChatSessions({ current: 1, size: 100 }),
       getTradeNotifications({ current: 1, size: 100 })
     ])
@@ -130,7 +132,7 @@ export async function refreshMessageState(reason = 'manual') {
     state.lastSyncAt = Date.now()
 
     const signature = buildSignature(state)
-    if (signature !== lastSignature || reason !== 'poll') {
+    if (signature !== lastSignature || reason !== 'realtime') {
       lastSignature = signature
       notify(reason)
     }
@@ -138,25 +140,39 @@ export async function refreshMessageState(reason = 'manual') {
     console.warn('messageStore refresh failed', error)
   } finally {
     state.syncing = false
+    if (realtimeRefreshPending) scheduleRealtimeRefresh()
   }
   return getMessageState()
 }
 
-export function startMessageSync(options = {}) {
-  if (state.started) return
+function scheduleRealtimeRefresh() {
+  if (realtimeRefreshTimer) return
+  realtimeRefreshTimer = setTimeout(() => {
+    realtimeRefreshTimer = null
+    if (state.syncing) return
+    realtimeRefreshPending = false
+    refreshMessageState('realtime')
+  }, 120)
+}
+
+function handleRealtimeEvent(event) {
+  if (event?.type !== 'MESSAGE_STATE_CHANGED') return
+  realtimeRefreshPending = true
+  scheduleRealtimeRefresh()
+}
+
+export function startMessageSync() {
   state.started = true
-  const interval = Number(options.interval || POLL_INTERVAL)
-  refreshMessageState('start')
-  timer = setInterval(() => {
-    refreshMessageState('poll')
-  }, interval)
+  startMessageSocket(handleRealtimeEvent)
 }
 
 export function stopMessageSync() {
-  if (timer) {
-    clearInterval(timer)
-    timer = null
+  if (realtimeRefreshTimer) {
+    clearTimeout(realtimeRefreshTimer)
+    realtimeRefreshTimer = null
   }
+  realtimeRefreshPending = false
+  stopMessageSocket()
   state.started = false
 }
 

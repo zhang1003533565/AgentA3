@@ -228,6 +228,7 @@
 <script>
 import { login as apiLogin, register as apiRegister } from '../../api/user.js'
 import { getToken, setToken, setUserInfo } from '../../utils/storage.js'
+import { refreshMessageState, startMessageSync } from '../../utils/messageStore.js'
 
 export default {
 	data() {
@@ -329,6 +330,8 @@ export default {
 					personalNumber: result.data.personalNumber,
 					studentId: result.data.personalNumber
 				})
+				startMessageSync()
+				refreshMessageState('login')
 
 				uni.showToast({
 					title: this.isLogin ? '登录成功' : '注册成功',

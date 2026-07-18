@@ -7,6 +7,7 @@ import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.*;
 import com.example.appbackend.service.AppMessageService;
 import com.example.appbackend.service.ChatService;
+import com.example.appbackend.service.MessageRealtimeNotifier;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
@@ -32,6 +33,7 @@ public class ChatServiceImpl implements ChatService {
     @Autowired private TradeRecordRepository tradeRecordRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private AppMessageService appMessageService;
+    @Autowired private MessageRealtimeNotifier realtimeNotifier;
     @Autowired private ObjectMapper objectMapper;
     @PersistenceContext private EntityManager entityManager;
 
@@ -99,6 +101,8 @@ public class ChatServiceImpl implements ChatService {
             throw new BusinessException(403, "无权限");
         messageRepository.deleteBySessionId(sessionId);
         sessionRepository.delete(session);
+        realtimeNotifier.notifyUser(session.getBuyerId(), "chat", "trade", "sessions");
+        realtimeNotifier.notifyUser(session.getSellerId(), "chat", "trade", "sessions");
     }
 
     @Override
@@ -128,6 +132,7 @@ public class ChatServiceImpl implements ChatService {
                     session.getId(), req.getContent(), now);
         }
         createChatMessageAppMessageIfNeeded(session, msg);
+        notifyMessageChange(session, senderId, true, false);
         return toMessageVO(msg, senderId);
     }
 
@@ -151,6 +156,7 @@ public class ChatServiceImpl implements ChatService {
         session.setLastMessage(content.trim());
         session.setLastTime(LocalDateTime.now());
         sessionRepository.save(session);
+        notifyMessageChange(session, actorId, false, true);
     }
 
     @Override
@@ -162,11 +168,15 @@ public class ChatServiceImpl implements ChatService {
         if (!session.getBuyerId().equals(userId) && !session.getSellerId().equals(userId))
             throw new BusinessException(403, "无权限");
         // 原子标记已读 + 重置计数，同一个事务内完成
+        int unreadBefore = sessionRepository.countUnreadBySessionAndUser(sessionId, userId);
         messageRepository.markAllReadBySessionAndUser(sessionId, userId);
         if (userId.equals(session.getBuyerId())) {
             sessionRepository.clearBuyerUnread(sessionId);
         } else {
             sessionRepository.clearSellerUnread(sessionId);
+        }
+        if (unreadBefore > 0) {
+            realtimeNotifier.notifyUser(userId, "chat", "sessions");
         }
 
         Page<ChatMessage> page = messageRepository.findBySessionIdOrderByCreateTimeDesc(sessionId, PageRequest.of(current - 1, size));
@@ -212,12 +222,15 @@ public class ChatServiceImpl implements ChatService {
         if (!message.getSenderId().equals(userId) && Boolean.FALSE.equals(message.getIsRead())) {
             message.setIsRead(true);
             messageRepository.save(message);
+            realtimeNotifier.notifyUser(userId, "trade");
         }
     }
 
     @Override
     public void markAllTradeNotificationsRead(Long userId) {
-        messageRepository.markAllTradeNotificationsReadByUser(userId);
+        if (messageRepository.markAllTradeNotificationsReadByUser(userId) > 0) {
+            realtimeNotifier.notifyUser(userId, "trade");
+        }
     }
 
     // ========== 工具方法 ==========
@@ -245,6 +258,7 @@ public class ChatServiceImpl implements ChatService {
             tradeRecordRepository.save(tradeRecord);
             ChatMessage declineMessage = saveTradeMessage(session, senderId, "双方可以继续在平台内交流。", 0);
             updateSessionLast(session, senderId, declineMessage.getContent());
+            notifyMessageChange(session, senderId, true, true);
             return toMessageVO(declineMessage, senderId);
         }
 
@@ -268,6 +282,8 @@ public class ChatServiceImpl implements ChatService {
             ChatMessage doneMessage = saveTradeMessage(session, senderId, "双方已交换联系方式，可以通过线下方式沟通交易。", 0);
             updateSessionLast(session, senderId, doneMessage.getContent());
             createContactExchangeAppMessages(session, tradeRecord);
+            notifyMessageChange(session, senderId, true, true);
+            realtimeNotifier.notifyUser(senderId, "trade");
             return toMessageVO(doneMessage, senderId);
         }
 
@@ -298,6 +314,27 @@ public class ChatServiceImpl implements ChatService {
     private void saveContactMessage(ChatSession session, Long senderId, String content) {
         if (content == null || content.trim().isEmpty()) return;
         saveTradeMessage(session, senderId, content.trim(), 4);
+    }
+
+    private void notifyMessageChange(ChatSession session,
+                                     Long actorId,
+                                     boolean chatChanged,
+                                     boolean tradeChanged) {
+        if (session == null || actorId == null) return;
+        Long receiverId = Objects.equals(actorId, session.getBuyerId())
+                ? session.getSellerId()
+                : session.getBuyerId();
+        realtimeNotifier.notifyUser(actorId, "sessions");
+        if (receiverId == null) return;
+        if (chatChanged && tradeChanged) {
+            realtimeNotifier.notifyUser(receiverId, "chat", "trade", "sessions");
+        } else if (chatChanged) {
+            realtimeNotifier.notifyUser(receiverId, "chat", "sessions");
+        } else if (tradeChanged) {
+            realtimeNotifier.notifyUser(receiverId, "trade", "sessions");
+        } else {
+            realtimeNotifier.notifyUser(receiverId, "sessions");
+        }
     }
 
     private void createChatMessageAppMessageIfNeeded(ChatSession session, ChatMessage message) {

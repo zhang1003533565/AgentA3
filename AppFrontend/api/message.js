@@ -8,10 +8,19 @@ export function getAppMessages(params = {}) {
   })
 }
 
-export function getAppMessageUnreadCount() {
+export function getAppMessageUnreadCount({ showError = true } = {}) {
   return request({
     url: '/api/app-message/unread/count',
-    method: 'GET'
+    method: 'GET',
+    showError
+  })
+}
+
+export function getRealtimeTicket() {
+  return request({
+    url: '/api/realtime/ticket',
+    method: 'POST',
+    showError: false
   })
 }
 
