@@ -49,7 +49,7 @@ class QuestionGenerationServiceImplTest {
     }
 
     @Test
-    void returnsFiveQuestionTypesAndMarksValidMappingAvailable() {
+    void returnsAllQuestionTypesAndMarksValidMappingAvailable() {
         map("single_choice", "choice_agent");
         catalog(Map.of("choice_agent", descriptor("choice_agent", "选择题专家", true, "ai.service.text.choice")));
         testedModel("ai.service.text.choice");
@@ -57,11 +57,25 @@ class QuestionGenerationServiceImplTest {
         OptionsResponse response = service().getOptions(AUTHORIZATION);
 
         assertThat(response.getQuestionTypes()).extracting(QuestionTypeOption::getType)
-                .containsExactly("single_choice", "multiple_choice", "true_false", "fill_blank", "short_answer");
+                .containsExactly("single_choice", "multiple_choice", "true_false", "fill_blank", "short_answer",
+                        "calculation", "programming");
         assertThat(option(response, "single_choice"))
                 .extracting(QuestionTypeOption::getAgentName, QuestionTypeOption::getAgentRole,
                         QuestionTypeOption::getAvailable, QuestionTypeOption::getUnavailableReason)
                 .containsExactly("choice_agent", "选择题专家", true, null);
+    }
+
+    @Test
+    void optionsRemainUsableForExistingBankWhenAgentCatalogIsOffline() {
+        map("single_choice", "choice_agent");
+        when(pythonAiProxyService.getQuestionGenerationAgentCatalog(AUTHORIZATION))
+                .thenThrow(new IllegalStateException("offline"));
+
+        OptionsResponse response = service().getOptions(AUTHORIZATION);
+
+        assertThat(response.getQuestionTypes()).hasSize(7);
+        assertThat(option(response, "single_choice").getAvailable()).isFalse();
+        assertThat(option(response, "single_choice").getUnavailableReason()).contains("智能体不存在");
     }
 
     @Test
@@ -287,12 +301,12 @@ class QuestionGenerationServiceImplTest {
         request.setProof(generated.getProof());
         request.setQuestions(generated.getQuestions());
         ExamQuestionDTO.ImportResponse imported = new ExamQuestionDTO.ImportResponse();
-        when(examQuestionService.importQuestions(any(), eq("single_choice"), eq(9L))).thenReturn(imported);
+        when(examQuestionService.importPublicQuestions(any(), eq("single_choice"), eq(9L))).thenReturn(imported);
 
         service.importGenerated(request, 9L);
 
         var captor = org.mockito.ArgumentCaptor.forClass(ExamQuestionDTO.ImportRequest.class);
-        verify(examQuestionService).importQuestions(captor.capture(), eq("single_choice"), eq(9L));
+        verify(examQuestionService).importPublicQuestions(captor.capture(), eq("single_choice"), eq(9L));
         assertThat(captor.getValue().getSourceAgent()).isEqualTo("configured_agent");
         assertThat(captor.getValue().getSourceTitle()).isEqualTo("课程第一章");
         assertThat(captor.getValue().getSourceScene()).isEqualTo("question_generation");

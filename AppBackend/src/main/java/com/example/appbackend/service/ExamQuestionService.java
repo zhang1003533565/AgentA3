@@ -9,7 +9,9 @@ public interface ExamQuestionService {
 
     ExamQuestionDTO.ImportResponse importQuestions(ExamQuestionDTO.ImportRequest request, String expectedType, Long userId);
 
-    PageResponse<ExamQuestionDTO.QuestionVO> listQuestions(Integer current, Integer size, String type, String difficulty, String keyword);
+    ExamQuestionDTO.ImportResponse importPublicQuestions(ExamQuestionDTO.ImportRequest request, String expectedType, Long adminUserId);
 
-    ExamQuestionDTO.QuestionVO getQuestion(Long id);
+    PageResponse<ExamQuestionDTO.QuestionVO> listQuestions(Integer current, Integer size, String type, String difficulty, String keyword, Long userId);
+
+    ExamQuestionDTO.QuestionVO getQuestion(Long id, Long userId);
 }

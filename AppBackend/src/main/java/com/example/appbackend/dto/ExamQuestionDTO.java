@@ -72,6 +72,9 @@ public class ExamQuestionDTO {
         private String sourceTitle;
         private String sourceScene;
         private Long createdBy;
+        private String visibility;
+        private Long ownerUserId;
+        private Boolean ownedByCurrentUser;
         private LocalDateTime createTime;
         private LocalDateTime updateTime;
     }

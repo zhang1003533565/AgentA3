@@ -8,7 +8,6 @@
   >
     <view class="map-fullscreen">
       <map
-        :key="mapFilterKey"
         id="campusAmap"
         class="amap-native"
         :latitude="mapCenter.latitude"
@@ -62,6 +61,12 @@
         @primary-click="onPoiPrimaryAction"
       />
 
+      <view class="locate-btn-map" aria-label="回到当前位置" @click.stop="locateToCurrent">
+        <view class="locate-crosshair">
+          <view class="locate-dot"></view>
+        </view>
+      </view>
+
       <view class="filter-bar-map" @click.stop>
         <scroll-view class="filter-scroll" scroll-x :show-scrollbar="false">
           <view class="filter-row">
@@ -69,7 +74,7 @@
               v-for="item in categories"
               :key="item.id"
               class="filter-item-map"
-              :class="{ active: currentCategory === item.id }"
+              :class="{ active: selectedFacilityTypes.includes(item.id) }"
               @click="selectCategory(item.id)"
             >
               {{ item.name }}
@@ -91,6 +96,7 @@ import { getMarkerList, searchPlaces } from '@/api/map'
 import {
   applyFacilityTypeLabels,
   buildFacilityDetailRoute,
+  FACILITY_TYPE_OPTIONS,
   getFacilityTypeLabel,
   resolveFacilityType
 } from '@/constants/facilityType'
@@ -112,7 +118,7 @@ export default {
     return {
       statusBarHeight: 20,
       searchKeyword: '',
-      currentCategory: 0,
+      selectedFacilityTypes: FACILITY_TYPE_OPTIONS.map((item) => item.value),
       selectedLocation: null,
       mapScale: DEFAULT_MAP_SCALE,
       mapCenter: {
@@ -125,23 +131,14 @@ export default {
         longitude: null,
         latitude: null
       },
-      categories: [
-        { id: 0, name: '全部' },
-        { id: 1, name: '教学楼' },
-        { id: 2, name: '行政办公' },
-        { id: 3, name: '食堂' },
-        { id: 4, name: '生活服务' },
-        { id: 5, name: '运动场馆' },
-        { id: 6, name: '校门' }
-      ],
+      categories: FACILITY_TYPE_OPTIONS.map((item) => ({ id: item.value, name: item.label })),
       locationList: [],
-      tempSearchLocation: null
+      tempSearchLocation: null,
+      markerCache: {},
+      mapDataRequestId: 0
     }
   },
   computed: {
-    mapFilterKey() {
-      return `${this.currentCategory}_${(this.searchKeyword || '').trim()}`
-    },
     amapMarkers() {
       const markers = this.visibleLocations
         .filter((item) => item.longitude != null && item.latitude != null)
@@ -167,8 +164,6 @@ export default {
     visibleLocations() {
       const keyword = (this.searchKeyword || '').trim().toLowerCase()
       return this.locationList.filter((item) => {
-        const matchedCategory = this.currentCategory === 0 || item.category === this.currentCategory
-        if (!matchedCategory) return false
         if (!keyword) return true
         return `${item.name} ${item.shortName} ${item.detail}`.toLowerCase().includes(keyword)
       })
@@ -210,41 +205,73 @@ export default {
       const sys = uni.getSystemInfoSync()
       this.statusBarHeight = sys.statusBarHeight || 20
     } catch (e) {}
-    this.loadFacilityTypes()
-    this.loadMapData()
+    this.initializeMap()
   },
   methods: {
+    async initializeMap() {
+      await this.loadFacilityTypes()
+      await this.loadMapData({ resetViewport: true })
+    },
     async loadFacilityTypes() {
       try {
         const res = await getFacilityTypes()
         const types = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : [])
         if (types.length) {
           applyFacilityTypeLabels(types)
+          this.categories = types.map((item) => ({ id: Number(item.value), name: item.label }))
+          this.selectedFacilityTypes = this.categories.map((item) => item.id)
         }
       } catch (error) {
         console.warn('加载设施类型字典失败，使用本地兜底', error)
       }
     },
-    async loadMapData() {
+    async loadMapData(options = {}) {
+      const resetViewport = !!options.resetViewport
+      const requestId = ++this.mapDataRequestId
+      if (!this.selectedFacilityTypes.length) {
+        this.locationList = []
+        this.selectedLocation = null
+        this.navigationPolyline = []
+        return
+      }
+      const selected = [...this.selectedFacilityTypes].sort((a, b) => a - b)
+      const allSelected = selected.length === this.categories.length
+      const cacheKey = allSelected ? 'all' : selected.join(',')
       try {
-        const markerRes = await getMarkerList({ pageSize: 100 })
-        this.mapCenter = {
-          longitude: DEFAULT_MAP_CENTER.longitude,
-          latitude: DEFAULT_MAP_CENTER.latitude
+        let records = this.markerCache[cacheKey]
+        if (!records) {
+          const params = { pageSize: 100 }
+          if (!allSelected) params.facilityTypes = selected.join(',')
+          const markerRes = await getMarkerList(params)
+          records = markerRes?.data?.records || []
+          this.markerCache[cacheKey] = records
         }
-        this.mapScale = DEFAULT_MAP_SCALE
-        const records = markerRes?.data?.records || []
+        if (requestId !== this.mapDataRequestId) return
+        if (resetViewport) {
+          this.mapCenter = {
+            longitude: DEFAULT_MAP_CENTER.longitude,
+            latitude: DEFAULT_MAP_CENTER.latitude
+          }
+          this.mapScale = DEFAULT_MAP_SCALE
+        }
         this.locationList = records
           .map((item) => this.toMarkerItem(item))
           .filter(Boolean)
-        this.fetchCurrentLocation()
+        if (resetViewport) {
+          const availableTypes = new Set(this.locationList.map((item) => Number(item.facilityType)))
+          this.categories = this.categories.filter((item) => availableTypes.has(item.id))
+          this.selectedFacilityTypes = this.categories.map((item) => item.id)
+          this.fetchCurrentLocation()
+        }
         this.syncNearestLocation()
         this.refreshSelectedLocation()
       } catch (error) {
         console.error('加载地图数据失败', error)
       }
     },
-    fetchCurrentLocation() {
+    fetchCurrentLocation(options = {}) {
+      const centerMap = !!options.centerMap
+      const showError = !!options.showError
       uni.getLocation({
         type: 'gcj02',
         success: (res) => {
@@ -253,6 +280,7 @@ export default {
           this.refreshLocationDistances()
           this.syncNearestLocation()
           this.refreshSelectedLocation()
+          if (centerMap) this.centerOnCurrentLocation()
         },
         fail: () => {
           this.currentLocation.longitude = null
@@ -260,6 +288,32 @@ export default {
           this.refreshLocationDistances()
           this.syncNearestLocation()
           this.refreshSelectedLocation()
+          if (showError) {
+            uni.showToast({ title: '无法获取当前位置，请检查定位权限', icon: 'none' })
+          }
+        }
+      })
+    },
+    locateToCurrent() {
+      this.fetchCurrentLocation({ centerMap: true, showError: true })
+    },
+    centerOnCurrentLocation() {
+      const longitude = this.currentLocation.longitude
+      const latitude = this.currentLocation.latitude
+      if (longitude == null || latitude == null) return
+
+      this.selectedLocation = null
+      this.navigationPolyline = []
+      this.mapCenter = { longitude, latitude }
+      this.mapScale = 17
+      this.$nextTick(() => {
+        try {
+          const mapContext = uni.createMapContext('campusAmap', this)
+          if (mapContext && typeof mapContext.moveToLocation === 'function') {
+            mapContext.moveToLocation({ longitude, latitude })
+          }
+        } catch (error) {
+          // Reactive center coordinates above remain the cross-platform fallback.
         }
       })
     },
@@ -484,9 +538,14 @@ export default {
       this.tempSearchLocation = null
       this.refreshSelectedLocation()
     },
-    selectCategory(categoryId) {
-      this.currentCategory = categoryId
-      this.refreshSelectedLocation()
+    async selectCategory(categoryId) {
+      if (this.selectedFacilityTypes.includes(categoryId)) {
+        this.selectedFacilityTypes = this.selectedFacilityTypes.filter((id) => id !== categoryId)
+      } else {
+        this.selectedFacilityTypes = [...this.selectedFacilityTypes, categoryId]
+      }
+      this.tempSearchLocation = null
+      await this.loadMapData()
     },
     selectLocation(item) {
       this.selectedLocation = item
@@ -678,6 +737,72 @@ export default {
   color: rgba(0, 0, 0, 0.32);
 }
 
+.locate-btn-map {
+  position: absolute;
+  right: 28rpx;
+  bottom: 126rpx;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 76rpx;
+  height: 76rpx;
+  border: 1rpx solid rgba(29, 68, 103, 0.1);
+  border-radius: 22rpx;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10rpx 28rpx rgba(33, 64, 91, 0.14);
+  transition: bottom 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.locate-btn-map:active {
+  background: #eef4ff;
+}
+
+.locate-crosshair {
+  position: relative;
+  width: 34rpx;
+  height: 34rpx;
+  border: 4rpx solid var(--map-blue-1);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.locate-crosshair::before,
+.locate-crosshair::after {
+  content: '';
+  position: absolute;
+  background: var(--map-blue-1);
+}
+
+.locate-crosshair::before {
+  left: 50%;
+  top: -10rpx;
+  width: 4rpx;
+  height: 46rpx;
+  transform: translateX(-50%);
+}
+
+.locate-crosshair::after {
+  left: -10rpx;
+  top: 50%;
+  width: 46rpx;
+  height: 4rpx;
+  transform: translateY(-50%);
+}
+
+.locate-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  width: 10rpx;
+  height: 10rpx;
+  border: 3rpx solid #fff;
+  border-radius: 50%;
+  background: var(--map-blue-1);
+  transform: translate(-50%, -50%);
+}
+
 .filter-bar-map {
   position: absolute;
   left: 28rpx;
@@ -706,9 +831,22 @@ $map-poi-gap-visual: 36rpx;
   );
 }
 
+.map-page--poi-open .locate-btn-map {
+  z-index: 41;
+  bottom: calc(
+    #{$map-poi-fallback-head-h} + #{$map-poi-body-h} + env(safe-area-inset-bottom) + 58rpx
+  );
+}
+
 .map-page--poi-open.map-page--poi-image .filter-bar-map {
   bottom: calc(
     #{$map-poi-hero-h} + #{$map-poi-body-h} + env(safe-area-inset-bottom) - #{$map-poi-gap-visual}
+  );
+}
+
+.map-page--poi-open.map-page--poi-image .locate-btn-map {
+  bottom: calc(
+    #{$map-poi-hero-h} + #{$map-poi-body-h} + env(safe-area-inset-bottom) + 58rpx
   );
 }
 

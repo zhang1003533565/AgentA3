@@ -381,6 +381,7 @@ class AssistantResourceInteractionServiceTest {
         UserProfileServiceImpl profileService = new UserProfileServiceImpl(
                 mock(UserProfileDimensionRepository.class),
                 mock(UserProfileEvidenceRepository.class),
+                mock(com.example.appbackend.repository.UserProfileSnapshotRepository.class),
                 mock(PythonAiProxyService.class),
                 mock(SystemConfigService.class),
                 new ObjectMapper(),
@@ -413,6 +414,7 @@ class AssistantResourceInteractionServiceTest {
         UserProfileServiceImpl profileService = new UserProfileServiceImpl(
                 mock(UserProfileDimensionRepository.class),
                 evidenceRepository,
+                mock(com.example.appbackend.repository.UserProfileSnapshotRepository.class),
                 mock(PythonAiProxyService.class),
                 mock(SystemConfigService.class),
                 new ObjectMapper(),

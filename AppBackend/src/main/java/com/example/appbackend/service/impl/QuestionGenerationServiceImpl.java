@@ -33,7 +33,8 @@ public class QuestionGenerationServiceImpl implements QuestionGenerationService 
 
     private static final String MAPPING_PREFIX = "ai.question-generation.agent.";
     private static final List<String> QUESTION_TYPES = List.of(
-            "single_choice", "multiple_choice", "true_false", "fill_blank", "short_answer");
+            "single_choice", "multiple_choice", "true_false", "fill_blank", "short_answer",
+            "calculation", "programming");
 
     private final SystemConfigService systemConfigService;
     private final PythonAiProxyService pythonAiProxyService;
@@ -56,8 +57,13 @@ public class QuestionGenerationServiceImpl implements QuestionGenerationService 
 
     @Override
     public OptionsResponse getOptions(String authorization) {
-        Map<String, PythonAiProxyService.AgentDescriptor> catalog =
-                pythonAiProxyService.getQuestionGenerationAgentCatalog(authorization);
+        Map<String, PythonAiProxyService.AgentDescriptor> catalog;
+        try {
+            catalog = pythonAiProxyService.getQuestionGenerationAgentCatalog(authorization);
+        } catch (RuntimeException error) {
+            log.warn("question generation agent catalog unavailable: {}", error.getMessage());
+            catalog = Map.of();
+        }
         OptionsResponse response = new OptionsResponse();
         response.setQuestionTypes(QUESTION_TYPES.stream()
                 .map(type -> resolveOption(type, catalog))
@@ -144,6 +150,16 @@ public class QuestionGenerationServiceImpl implements QuestionGenerationService 
 
     @Override
     public ExamQuestionDTO.ImportResponse importGenerated(GeneratedImportRequest request, Long userId) {
+        return importGenerated(request, userId, true);
+    }
+
+    @Override
+    public ExamQuestionDTO.ImportResponse importGeneratedPrivate(GeneratedImportRequest request, Long userId) {
+        return importGenerated(request, userId, false);
+    }
+
+    private ExamQuestionDTO.ImportResponse importGenerated(
+            GeneratedImportRequest request, Long userId, boolean publicImport) {
         GenerationProof proof = proofs.remove(request.getProof());
         if (proof == null || proof.expiresAt().isBefore(Instant.now())) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "生成凭证无效、已过期或已使用");
@@ -153,8 +169,10 @@ public class QuestionGenerationServiceImpl implements QuestionGenerationService 
         trusted.setMissingInfo(request.getMissingInfo());
         trusted.setSourceAgent(proof.agentName());
         trusted.setSourceTitle(proof.sourceTitle());
-        trusted.setSourceScene("question_generation");
-        return examQuestionService.importQuestions(trusted, proof.questionType(), userId);
+        trusted.setSourceScene(publicImport ? "question_generation" : "user_question_generation");
+        return publicImport
+                ? examQuestionService.importPublicQuestions(trusted, proof.questionType(), userId)
+                : examQuestionService.importQuestions(trusted, proof.questionType(), userId);
     }
 
     private GenerationResponse invalidJsonResponse(GenerationResponse response) {
