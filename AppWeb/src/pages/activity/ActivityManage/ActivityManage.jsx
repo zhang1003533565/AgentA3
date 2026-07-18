@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Form, Input, Popconfirm, Select, Space, Table, Tag, message } from 'antd'
 import { DeleteOutlined, EyeOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
@@ -25,12 +25,14 @@ function ActivityManage() {
     pageSize: 10,
     total: 0,
   })
+  const currentPage = pagination.current
+  const currentPageSize = pagination.pageSize
 
-  const fetchActivities = async (params = {}) => {
+  const fetchActivities = useCallback(async (params = {}) => {
     setLoading(true)
     try {
-      const page = params.page || pagination.current
-      const size = params.size || pagination.pageSize
+      const page = params.page || currentPage
+      const size = params.size || currentPageSize
       const mergedParams = {
         ...queryParams,
         ...params,
@@ -59,9 +61,9 @@ function ActivityManage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [currentPage, currentPageSize, queryParams])
 
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     try {
       const res = await getCategoryList()
       if (res.code === 200) {
@@ -70,7 +72,7 @@ function ActivityManage() {
     } catch (error) {
       console.error('获取分类失败:', error)
     }
-  }
+  }, [])
 
   useEffect(() => {
     if (!initialized.current) {
@@ -78,7 +80,7 @@ function ActivityManage() {
       fetchActivities()
       fetchCategories()
     }
-  }, [])
+  }, [fetchActivities, fetchCategories])
 
   const handleSearch = (values) => {
     const nextQueryParams = {

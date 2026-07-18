@@ -10,6 +10,9 @@ import com.example.appbackend.repository.ExamPaperAttemptAnswerRepository;
 import com.example.appbackend.repository.ExamPaperAttemptRepository;
 import com.example.appbackend.repository.ExamPaperQuestionRepository;
 import com.example.appbackend.repository.ExamPaperRepository;
+import com.example.appbackend.repository.ExamQuestionRepository;
+import com.example.appbackend.service.LearningPathService;
+import com.example.appbackend.service.UserProfileService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,12 +41,22 @@ class AppExamServiceImplTest {
     @Mock ExamPaperQuestionRepository paperQuestionRepository;
     @Mock ExamPaperAttemptRepository attemptRepository;
     @Mock ExamPaperAttemptAnswerRepository answerRepository;
+    @Mock ExamQuestionRepository examQuestionRepository;
+    @Mock LearningPathService learningPathService;
+    @Mock UserProfileService userProfileService;
 
     private AppExamServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new AppExamServiceImpl(paperRepository, paperQuestionRepository, attemptRepository, answerRepository);
+        service = new AppExamServiceImpl(
+                paperRepository,
+                paperQuestionRepository,
+                attemptRepository,
+                answerRepository,
+                examQuestionRepository,
+                learningPathService,
+                userProfileService);
     }
 
     @Test

@@ -237,7 +237,7 @@ INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, 
 -- 教师 (用户名: fjj2, 密码: admin123)
 (3, 'fjj2', 'admin123', '李老师', '13800000003', 'lilaoshi@campus.edu.cn', 2, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000003'),
 -- 学生 (用户名: zzs, 密码: admin123)
-(4, 'zzs', 'admin123', '张三', '13800000004', 'zhangsan@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000004'),
+(4, 'zzs', 'admin123', 'A3演示学生', '13800000000', 'a3-demo@example.invalid', 3, 1, NOW(), NOW(),'','A3DEMO001','2026-02-24','SCH000004'),
 -- 学生 (用户名: lisi, 密码: admin123)
 (5, 'lisi', 'admin123', '李四', '13800000005', 'lisi@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000005'),
 -- 学生 (用户名: wangwu, 密码: admin123)
@@ -1492,14 +1492,14 @@ DELETE FROM system_config WHERE config_key IN (
 );
 
 INSERT INTO system_config (id, config_key, config_value, config_group, description, status, create_time, update_time) VALUES
-(1, 'jwt.secret', 'smart-campus-jwt-secret-key-please-change-this-seed-value', 'security', 'JWT 签名密钥', 1, NOW(), NOW()),
+(1, 'jwt.secret', '', 'security', 'JWT 签名密钥', 0, NOW(), NOW()),
 (2, 'jwt.expiration', '86400000', 'security', 'JWT 过期时间，单位毫秒', 1, NOW(), NOW()),
-(3, 'tencent.map.key', 'F2ABZ-VU4LH-BDKDF-W7XCC-RXYX2-4AB52', 'map', '腾讯地图 WebService 密钥', 1, NOW(), NOW()),
+(3, 'tencent.map.key', '', 'map', '腾讯地图 WebService 密钥', 0, NOW(), NOW()),
 (4, 'tencent.map.base-url', 'https://apis.map.qq.com', 'map', '腾讯地图接口基础地址', 1, NOW(), NOW()),
 (5, 'aliyun.oss.endpoint', 'oss-cn-beijing.aliyuncs.com', 'oss', '阿里云 OSS 节点', 1, NOW(), NOW()),
 (6, 'aliyun.oss.bucket-name', 'smart-campus111', 'oss', '阿里云 OSS Bucket 名称', 1, NOW(), NOW()),
-(7, 'aliyun.oss.access-key-id', 'LTAI5tG9NLKEfSZVw3EZ2d1E', 'oss', '阿里云 OSS AccessKeyId', 1, NOW(), NOW()),
-(8, 'aliyun.oss.access-key-secret', 'yagymAoKXBh0rDJT7ArNTeXDUhsuRX', 'oss', '阿里云 OSS AccessKeySecret', 1, NOW(), NOW()),
+(7, 'aliyun.oss.access-key-id', '', 'oss', '阿里云 OSS AccessKeyId', 0, NOW(), NOW()),
+(8, 'aliyun.oss.access-key-secret', '', 'oss', '阿里云 OSS AccessKeySecret', 0, NOW(), NOW()),
 (9, 'aliyun.oss.base-url', 'https://smart-campus111.oss-cn-beijing.aliyuncs.com', 'oss', '阿里云 OSS 访问基础地址', 1, NOW(), NOW()),
 (10, 'browser.headless', 'true', 'browser', '浏览器自动化是否无头运行', 1, NOW(), NOW()),
 (11, 'browser.default-url', 'https://jwx.hebiace.edu.cn/', 'browser', '浏览器自动化默认打开地址', 1, NOW(), NOW()),

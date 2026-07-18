@@ -258,7 +258,7 @@ const generateExam = async () => {
 
   try {
     const res = await queryLeaderAgent({ input: prompt })
-    const answer = res?.answer || ''
+    const answer = res?.data?.answer || ''
 
     // 尝试解析 JSON 回答
     let questions = []

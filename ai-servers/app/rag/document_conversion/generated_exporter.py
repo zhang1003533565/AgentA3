@@ -1,3 +1,5 @@
+import ast
+import builtins
 import hashlib
 import hmac
 import json
@@ -6,6 +8,7 @@ import os
 import re
 import secrets
 import stat
+import string
 import tempfile
 import uuid
 import zipfile
@@ -34,6 +37,12 @@ def _resolve_export_root(environment: Optional[Mapping[str, str]] = None) -> Pat
     if configured_root:
         return Path(configured_root).expanduser().resolve()
     return (Path(__file__).resolve().parents[3] / "data" / "ai-exports").resolve()
+
+
+def _current_export_root() -> Path:
+    if str(os.environ.get("AI_EXPORT_ROOT") or "").strip():
+        return _resolve_export_root()
+    return Path(EXPORT_ROOT).resolve()
 
 
 def _positive_number_setting(name: str, default: float) -> float:
@@ -72,10 +81,12 @@ _MANIFEST_FIELDS = {
 }
 _MIME_TYPES = {
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "zip": "application/zip",
     "md": "text/markdown",
     "mmd": "text/plain",
+    "py": "text/x-python",
 }
 
 EXPORTABLE_MARKDOWN_ANSWER_TYPES = {
@@ -142,6 +153,579 @@ class GeneratedExportAccessError(Exception):
         super().__init__(detail)
         self.status_code = status_code
         self.detail = detail
+
+
+class GeneratedExportError(ValueError):
+    pass
+
+
+_ALLOWED_PYTHON_MODULE_APIS = {
+    "array": {"array"},
+    "bisect": {"bisect", "bisect_left", "bisect_right", "insort", "insort_left", "insort_right"},
+    "collections": {"ChainMap", "Counter", "OrderedDict", "defaultdict", "deque", "namedtuple"},
+    "copy": {"copy", "deepcopy"},
+    "dataclasses": {"asdict", "astuple", "dataclass", "field", "fields", "is_dataclass", "replace"},
+    "datetime": {"date", "datetime", "time", "timedelta", "timezone"},
+    "decimal": {"Decimal", "ROUND_DOWN", "ROUND_HALF_EVEN", "ROUND_HALF_UP", "ROUND_UP", "getcontext"},
+    "enum": {"Enum", "Flag", "IntEnum", "IntFlag", "auto", "unique"},
+    "fractions": {"Fraction"},
+    "functools": {"cache", "cached_property", "lru_cache", "partial", "reduce", "singledispatch", "total_ordering", "wraps"},
+    "heapq": {"heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"},
+    "itertools": {"accumulate", "chain", "combinations", "combinations_with_replacement", "compress", "count", "cycle", "dropwhile", "filterfalse", "groupby", "islice", "permutations", "product", "repeat", "starmap", "takewhile", "tee", "zip_longest"},
+    "json": {"JSONDecodeError", "dumps", "loads"},
+    "math": {"acos", "asin", "atan", "atan2", "ceil", "comb", "cos", "degrees", "dist", "e", "exp", "fabs", "factorial", "floor", "fmod", "fsum", "gcd", "hypot", "inf", "isclose", "isfinite", "isinf", "isnan", "lcm", "log", "log10", "log2", "nan", "perm", "pi", "pow", "prod", "radians", "remainder", "sin", "sqrt", "tan", "tau", "trunc"},
+    "random": {"choice", "choices", "randint", "random", "randrange", "sample", "seed", "shuffle", "uniform"},
+    "re": {"compile", "escape", "findall", "finditer", "fullmatch", "match", "search", "split", "sub", "subn"},
+    "statistics": {"fmean", "geometric_mean", "harmonic_mean", "mean", "median", "median_grouped", "median_high", "median_low", "mode", "multimode", "pstdev", "pvariance", "stdev", "variance"},
+    "string": {"Template", "ascii_letters", "ascii_lowercase", "ascii_uppercase", "capwords", "digits", "hexdigits", "octdigits", "printable", "punctuation", "whitespace"},
+    "time": {"monotonic", "perf_counter", "process_time", "sleep", "time"},
+    "typing": {"Any", "Callable", "Dict", "Iterable", "Iterator", "List", "Literal", "Mapping", "NamedTuple", "Optional", "Protocol", "Sequence", "Set", "Tuple", "TypeVar", "Union"},
+}
+_ALLOWED_PYTHON_BUILTINS = frozenset({
+    "__name__",
+    "abs", "all", "any", "ascii", "bin", "bool", "bytearray",
+    "bytes", "callable", "chr", "classmethod", "complex", "dict", "divmod", "enumerate",
+    "filter", "float", "format", "frozenset", "hash", "hex", "id", "input", "int",
+    "isinstance", "issubclass", "iter", "len", "list", "map", "max", "memoryview",
+    "min", "next", "object", "oct", "ord", "pow", "print", "property", "range", "repr",
+    "reversed", "round", "set", "slice", "sorted", "staticmethod", "str", "sum", "super",
+    "tuple", "type", "zip",
+}) | frozenset(
+    name
+    for name, value in vars(builtins).items()
+    if isinstance(value, type) and issubclass(value, BaseException)
+)
+_PYTHON_BUILTIN_NAMES = frozenset(vars(builtins)) | frozenset({
+    "copyright", "credits", "exit", "license", "quit",
+})
+_BLOCKED_PYTHON_NAMES = {
+    "__builtins__",
+    "__import__",
+    "aiter",
+    "anext",
+    "breakpoint",
+    "compile",
+    "delattr",
+    "eval",
+    "exec",
+    "getattr",
+    "globals",
+    "help",
+    "locals",
+    "open",
+    "setattr",
+    "vars",
+}
+_BLOCKED_PYTHON_ATTRIBUTES = {
+    "ag_frame",
+    "cr_frame",
+    "f_back",
+    "f_builtins",
+    "f_globals",
+    "f_locals",
+    "format_map",
+    "gi_frame",
+    "tb_frame",
+}
+def export_python_code_lab(
+    payload: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+) -> GeneratedExportResult:
+    """Export reviewed Python learning code without executing generated code."""
+    _require_passed_review(metadata)
+    source, test_source = _extract_code_lab_sources(payload)
+    _validate_python_source(source, "实验源码")
+    if test_source:
+        _validate_python_source(test_source, "自测源码")
+
+    cleanup_generated_exports(root=_current_export_root())
+    title = str(metadata.get("title") or "Python 代码实验").strip()
+    slug = _slugify(title or "python-code-lab")
+    source_path: Optional[Path] = None
+    guide_path: Optional[Path] = None
+    test_path: Optional[Path] = None
+    archive_path: Optional[Path] = None
+    try:
+        source_path = _write_text_file(slug, "py", source.rstrip() + "\n")
+        guide_path = _write_text_file(
+            f"{slug}-guide",
+            "md",
+            render_code_lab_guide(payload, {**dict(metadata), "title": title}),
+        )
+        archive_inputs = [source_path, guide_path]
+        archive_names = {
+            source_path: "lab.py",
+            guide_path: "README.md",
+        }
+        if test_source:
+            test_path = _write_text_file(f"{slug}-test", "py", test_source.rstrip() + "\n")
+            archive_inputs.append(test_path)
+            archive_names[test_path] = "test_lab.py"
+        archive_path = _write_archive(slug, archive_inputs, archive_names=archive_names)
+
+        result = GeneratedExportResult(
+            attachments=[
+                _attachment_for_file(source_path, "python_code_export", "Python 源码"),
+                _attachment_for_file(guide_path, MARKDOWN_EXPORT_TOOL_NAME, "实验说明"),
+                _attachment_for_file(archive_path, ARCHIVE_EXPORT_TOOL_NAME, "代码实验包"),
+            ],
+            diagnostics={
+                "skipped": False,
+                "contentKind": "python_code_lab",
+                "hasTests": bool(test_source),
+                "producedFormats": ["py", "md", "zip"],
+            },
+        )
+        return _finalize_export_batch(result)
+    except Exception:
+        export_root = _current_export_root()
+        for path in (source_path, guide_path, test_path, archive_path):
+            if path is not None:
+                _delete_export_pair(export_root, path.name)
+        raise
+    finally:
+        if test_path is not None:
+            _safe_unlink(test_path)
+
+
+def render_code_lab_guide(payload: Mapping[str, Any], metadata: Mapping[str, Any]) -> str:
+    data = _unwrap_code_lab_payload(payload)
+    title = str(metadata.get("title") or "Python 代码实验").strip()
+    personalized_markdown = str(
+        data.get("markdown") or payload.get("markdown") or ""
+    ).strip()
+    objectives = _string_list(data.get("objectives") or payload.get("objectives"))
+    steps = _string_list(data.get("steps") or data.get("instructions") or payload.get("steps"))
+    expected_output = str(data.get("expectedOutput") or payload.get("expectedOutput") or "").strip()
+    verification_cases = data.get("verificationCases") or payload.get("verificationCases") or []
+    evidence_ids = _string_list(data.get("evidenceIds") or payload.get("evidenceIds"))
+
+    lines = [f"# {title}"]
+    if personalized_markdown:
+        lines.extend(["", personalized_markdown])
+    if objectives or not personalized_markdown:
+        lines.extend(["", "## 学习目标", ""])
+        lines.extend(f"- {item}" for item in (objectives or ["理解并运行本实验中的 Python 示例。"]))
+    if steps or not personalized_markdown:
+        lines.extend(["", "## 实验步骤", ""])
+        lines.extend(
+            f"{index}. {item}"
+            for index, item in enumerate(
+                steps or ["运行 `lab.py`。", "根据输出完成自测。"],
+                start=1,
+            )
+        )
+    if expected_output or not personalized_markdown:
+        lines.extend([
+            "",
+            "## 预期输出",
+            "",
+            "```text",
+            expected_output or "请运行源码并对照实验目标检查结果。",
+            "```",
+        ])
+    if isinstance(verification_cases, list) and verification_cases:
+        lines.extend(["", "## 验证用例", ""])
+        for index, item in enumerate(verification_cases, start=1):
+            if isinstance(item, Mapping):
+                input_value = item.get("input", "-")
+                expected = item.get("expected", "-")
+                lines.append(f"{index}. 输入：`{input_value}`；期望：`{expected}`")
+            else:
+                lines.append(f"{index}. {item}")
+    if evidence_ids:
+        lines.extend(["", "## 课程依据", ""])
+        lines.extend(f"- `{item}`" for item in evidence_ids)
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _require_passed_review(metadata: Mapping[str, Any]) -> None:
+    if str(metadata.get("reviewStatus") or "").strip().lower() != "passed":
+        raise GeneratedExportError("只有审核通过的学习资源才能导出")
+
+
+def _unwrap_code_lab_payload(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    nested = payload.get("codeLab")
+    if isinstance(nested, Mapping):
+        return nested
+    resource_payload = payload.get("payload")
+    if isinstance(resource_payload, Mapping):
+        nested = resource_payload.get("codeLab")
+        if isinstance(nested, Mapping):
+            return nested
+    return payload
+
+
+def _extract_code_lab_sources(payload: Mapping[str, Any]) -> tuple[str, str]:
+    data = _unwrap_code_lab_payload(payload)
+    source = str(data.get("sourceCode") or data.get("source") or data.get("code") or "").strip()
+    test_source = str(data.get("testCode") or data.get("testsCode") or "").strip()
+    blocks = data.get("codeBlocks")
+    if isinstance(blocks, list):
+        for block in blocks:
+            if not isinstance(block, Mapping):
+                continue
+            language = str(block.get("language") or "").strip().lower()
+            code = str(block.get("code") or block.get("content") or "").strip()
+            role = str(block.get("role") or block.get("name") or "").strip().lower()
+            if language not in {"", "py", "python", "python3"} or not code:
+                continue
+            if "test" in role and not test_source:
+                test_source = code
+            elif not source:
+                source = code
+    if not source:
+        raise GeneratedExportError("代码实验缺少 Python 实验源码")
+    return source, test_source
+
+
+def _validate_python_source(source: str, label: str) -> None:
+    filename = f"<{label}>"
+    try:
+        compile(source, filename, "exec")
+        tree = ast.parse(source, filename=filename, mode="exec")
+    except (SyntaxError, ValueError) as exc:
+        raise GeneratedExportError(f"{label}存在 Python 语法错误") from exc
+    parents: Dict[int, ast.AST] = {
+        id(child): parent
+        for parent in ast.walk(tree)
+        for child in ast.iter_child_nodes(parent)
+    }
+    module_aliases, imported_capability_names = _validate_python_imports(tree, label)
+    safe_format_receivers = _collect_safe_format_receivers(tree, parents)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            root_name, attributes = _attribute_root_and_chain(node)
+            if root_name in module_aliases:
+                module = module_aliases[root_name]
+                allowed = _ALLOWED_PYTHON_MODULE_APIS[module]
+                if len(attributes) != 1 or attributes[0] not in allowed:
+                    raise GeneratedExportError(f"{label}访问了未允许的标准库能力")
+            elif "__" in node.attr:
+                raise GeneratedExportError(f"{label}包含不允许的系统、文件或网络操作")
+            elif node.attr == "format":
+                if not _is_safe_static_string_format_call(
+                    node,
+                    parents,
+                    safe_format_receivers,
+                ):
+                    raise GeneratedExportError(f"{label}包含不允许的字符串反射格式化")
+            elif node.attr in _BLOCKED_PYTHON_ATTRIBUTES:
+                raise GeneratedExportError(f"{label}包含不允许的系统、文件或网络操作")
+        elif isinstance(node, ast.Name):
+            if node.id in imported_capability_names:
+                continue
+            if node.id in _BLOCKED_PYTHON_NAMES:
+                raise GeneratedExportError(f"{label}包含不允许的动态执行或文件操作")
+            if node.id.startswith("__") and node.id != "__name__":
+                raise GeneratedExportError(f"{label}包含不允许的运行时魔术名称")
+            if (
+                isinstance(node.ctx, ast.Load)
+                and node.id in _PYTHON_BUILTIN_NAMES
+                and node.id not in _ALLOWED_PYTHON_BUILTINS
+            ):
+                raise GeneratedExportError(f"{label}引用了未允许的 Python 内置能力")
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Name) or node.id not in module_aliases:
+            continue
+        parent = parents.get(id(node))
+        if not isinstance(parent, ast.Attribute) or parent.value is not node:
+            raise GeneratedExportError(f"{label}不得传递或重绑定标准库模块对象")
+
+
+def _validate_python_imports(
+    tree: ast.AST,
+    label: str,
+) -> tuple[Dict[str, str], Set[str]]:
+    module_aliases: Dict[str, str] = {}
+    imported_capability_names: Set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                module = str(alias.name or "")
+                if "." in module or module not in _ALLOWED_PYTHON_MODULE_APIS:
+                    raise GeneratedExportError(f"{label}只能导入代码实验允许的标准库")
+                bound_name = str(alias.asname or module)
+                if _is_restricted_import_binding(bound_name):
+                    raise GeneratedExportError(f"{label}导入别名不得覆盖受限内置能力")
+                module_aliases[bound_name] = module
+        elif isinstance(node, ast.ImportFrom):
+            module = str(node.module or "")
+            if node.level or (module != "lab" and module not in _ALLOWED_PYTHON_MODULE_APIS):
+                raise GeneratedExportError(f"{label}只能导入代码实验允许的标准库")
+            allowed_names = _ALLOWED_PYTHON_MODULE_APIS.get(module)
+            for alias in node.names:
+                imported_name = str(alias.name or "")
+                if imported_name == "*" or imported_name.startswith("__"):
+                    raise GeneratedExportError(f"{label}不允许通配或魔术名称导入")
+                if module != "lab" and imported_name not in (allowed_names or set()):
+                    raise GeneratedExportError(f"{label}导入了未允许的标准库能力")
+                bound_name = str(alias.asname or imported_name)
+                if _is_restricted_import_binding(bound_name):
+                    raise GeneratedExportError(f"{label}导入别名不得覆盖受限内置能力")
+                imported_capability_names.add(bound_name)
+    return module_aliases, imported_capability_names
+
+
+def _is_restricted_import_binding(name: str) -> bool:
+    return bool(
+        name.startswith("__")
+        or name in _BLOCKED_PYTHON_NAMES
+        or (name in _PYTHON_BUILTIN_NAMES and name not in _ALLOWED_PYTHON_BUILTINS)
+    )
+
+
+_FORMAT_SCOPE_TYPES = (
+    ast.Module,
+    ast.FunctionDef,
+    ast.AsyncFunctionDef,
+    ast.Lambda,
+    ast.ClassDef,
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+)
+_FORMAT_COMPREHENSION_SCOPE_TYPES = (
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+)
+
+
+def _collect_safe_format_receivers(
+    tree: ast.AST,
+    parents: Mapping[int, ast.AST],
+) -> Set[int]:
+    bindings: Dict[int, Dict[str, List[bool]]] = {}
+    global_names: Dict[int, Set[str]] = {}
+    nonlocal_names: Dict[int, Set[str]] = {}
+
+    def scope_for(node: ast.AST) -> Optional[ast.AST]:
+        if isinstance(node, ast.Module):
+            return node
+        current: Optional[ast.AST] = node
+        while current is not None:
+            parent = parents.get(id(current))
+            if parent is None:
+                return tree if isinstance(tree, ast.Module) else None
+            if isinstance(parent, ast.Module):
+                return parent
+            if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if current in parent.body:
+                    return parent
+            elif isinstance(parent, ast.Lambda):
+                if current is parent.body:
+                    return parent
+            elif isinstance(parent, _FORMAT_COMPREHENSION_SCOPE_TYPES):
+                return parent
+            current = parent
+        return None
+
+    def parent_scope(scope: ast.AST) -> Optional[ast.AST]:
+        if isinstance(scope, ast.Module):
+            return None
+        current = scope_for(scope)
+        if isinstance(
+            scope,
+            (
+                ast.FunctionDef,
+                ast.AsyncFunctionDef,
+                ast.Lambda,
+                *_FORMAT_COMPREHENSION_SCOPE_TYPES,
+            ),
+        ):
+            while isinstance(current, ast.ClassDef):
+                current = scope_for(current)
+        return current
+
+    for node in ast.walk(tree):
+        scope = scope_for(node)
+        if scope is None:
+            continue
+        if isinstance(node, ast.Global):
+            global_names.setdefault(id(scope), set()).update(node.names)
+        elif isinstance(node, ast.Nonlocal):
+            nonlocal_names.setdefault(id(scope), set()).update(node.names)
+
+    def binding_scopes(scope: ast.AST, name: str) -> List[ast.AST]:
+        if name in global_names.get(id(scope), set()):
+            return [tree]
+        if name not in nonlocal_names.get(id(scope), set()):
+            return [scope]
+
+        result: List[ast.AST] = []
+        current = parent_scope(scope)
+        while current is not None:
+            if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                result.append(current)
+            current = parent_scope(current)
+        return result or [tree]
+
+    def record(scope: Optional[ast.AST], name: str, safe: bool) -> None:
+        if scope is None or not name:
+            return
+        for binding_scope in binding_scopes(scope, name):
+            bindings.setdefault(id(binding_scope), {}).setdefault(name, []).append(safe)
+
+    def record_target(
+        scope: Optional[ast.AST],
+        target: ast.AST,
+        value: Optional[ast.AST],
+    ) -> None:
+        if isinstance(target, ast.Name):
+            safe = (
+                isinstance(value, ast.Constant)
+                and isinstance(value.value, str)
+                and _is_safe_format_template(value.value)
+            )
+            record(scope, target.id, safe)
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            values = (
+                list(value.elts)
+                if isinstance(value, (ast.Tuple, ast.List))
+                and len(value.elts) == len(target.elts)
+                else [None] * len(target.elts)
+            )
+            for item, item_value in zip(target.elts, values):
+                record_target(scope, item, item_value)
+        elif isinstance(target, ast.Starred):
+            record_target(scope, target.value, None)
+
+    for node in ast.walk(tree):
+        scope = scope_for(node)
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                record_target(scope, target, node.value)
+        elif isinstance(node, ast.AnnAssign):
+            record_target(scope, node.target, node.value)
+        elif isinstance(node, ast.NamedExpr):
+            binding_scope = scope
+            while isinstance(binding_scope, _FORMAT_COMPREHENSION_SCOPE_TYPES):
+                binding_scope = parent_scope(binding_scope)
+            record_target(binding_scope, node.target, node.value)
+        elif isinstance(node, ast.AugAssign):
+            record_target(scope, node.target, None)
+        elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+            record_target(scope, node.target, None)
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                if item.optional_vars is not None:
+                    record_target(scope, item.optional_vars, None)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            record(scope, str(node.name), False)
+        elif isinstance(node, ast.Delete):
+            for target in node.targets:
+                record_target(scope, target, None)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            record(scope_for(node), node.name, False)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                function_scope = node
+                arguments = list(getattr(node.args, "posonlyargs", [])) + list(node.args.args)
+                arguments += list(node.args.kwonlyargs)
+                if node.args.vararg is not None:
+                    arguments.append(node.args.vararg)
+                if node.args.kwarg is not None:
+                    arguments.append(node.args.kwarg)
+                for argument in arguments:
+                    record(function_scope, argument.arg, False)
+        elif isinstance(node, ast.Lambda):
+            arguments = list(getattr(node.args, "posonlyargs", [])) + list(node.args.args)
+            arguments += list(node.args.kwonlyargs)
+            if node.args.vararg is not None:
+                arguments.append(node.args.vararg)
+            if node.args.kwarg is not None:
+                arguments.append(node.args.kwarg)
+            for argument in arguments:
+                record(node, argument.arg, False)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                record(scope, str(alias.asname or alias.name).split(".", 1)[0], False)
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            for name in node.names:
+                record(scope, name, False)
+
+    def resolves_to_safe_template(scope: Optional[ast.AST], name: str) -> bool:
+        if scope is not None and (
+            name in global_names.get(id(scope), set())
+            or name in nonlocal_names.get(id(scope), set())
+        ):
+            return False
+        current = scope
+        while current is not None:
+            if isinstance(current, (ast.ClassDef, *_FORMAT_COMPREHENSION_SCOPE_TYPES)):
+                return False
+            values = bindings.get(id(current), {}).get(name)
+            if values is not None:
+                return bool(values) and all(values)
+            current = parent_scope(current)
+        return False
+
+    result: Set[int] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr == "format"
+            and isinstance(node.value, ast.Name)
+            and resolves_to_safe_template(scope_for(node), node.value.id)
+        ):
+            result.add(id(node.value))
+    return result
+
+
+def _attribute_root_and_chain(node: ast.Attribute) -> tuple[str, List[str]]:
+    attributes = [node.attr]
+    value: ast.AST = node.value
+    while isinstance(value, ast.Attribute):
+        attributes.append(value.attr)
+        value = value.value
+    attributes.reverse()
+    return (value.id if isinstance(value, ast.Name) else ""), attributes
+
+
+def _is_safe_static_string_format_call(
+    attribute: ast.Attribute,
+    parents: Mapping[int, ast.AST],
+    safe_format_receivers: Set[int],
+) -> bool:
+    call = parents.get(id(attribute))
+    if not isinstance(call, ast.Call) or call.func is not attribute:
+        return False
+    if isinstance(attribute.value, ast.Constant) and isinstance(attribute.value.value, str):
+        template = attribute.value.value
+    elif isinstance(attribute.value, ast.Name) and id(attribute.value) in safe_format_receivers:
+        return True
+    else:
+        return False
+    return _is_safe_format_template(template)
+
+
+def _is_safe_format_template(template: str) -> bool:
+    try:
+        fields = list(string.Formatter().parse(template))
+    except ValueError:
+        return False
+    for _literal, field_name, format_spec, conversion in fields:
+        if field_name is None:
+            continue
+        if field_name and not (field_name.isdigit() or field_name.isidentifier()):
+            return False
+        if "__" in field_name or any(token in field_name for token in ".[]"):
+            return False
+        if "{" in format_spec or "}" in format_spec:
+            return False
+        if conversion not in {None, "s", "r", "a"}:
+            return False
+    return True
+
+
+def _string_list(value: Any) -> List[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
 def export_generated_answer(answer: str, answer_type: str, metadata: Optional[Dict[str, Any]] = None) -> GeneratedExportResult:
@@ -468,13 +1052,19 @@ def _write_xlsx(slug: str, sheet_name: str, rows: List[List[Any]]) -> Path:
     return path
 
 
-def _write_archive(slug: str, paths: List[Path]) -> Path:
+def _write_archive(
+    slug: str,
+    paths: List[Path],
+    *,
+    archive_names: Optional[Mapping[Path, str]] = None,
+) -> Path:
     path = _new_export_path(f"{slug}-bundle", "zip")
     def write_archive(temporary_path: Path) -> None:
         with zipfile.ZipFile(temporary_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for item in paths:
                 if item and item.exists():
-                    archive.write(item, arcname=item.name)
+                    arcname = str((archive_names or {}).get(item) or item.name)
+                    archive.write(item, arcname=Path(arcname).name)
 
     _atomic_write_payload(path, write_archive)
     return path
@@ -612,13 +1202,14 @@ def _attachment_for_file(path: Path, tool_name: str, format_label: str) -> Dict[
 
 
 def _new_export_path(slug: str, ext: str) -> Path:
-    EXPORT_ROOT.mkdir(parents=True, exist_ok=True)
+    export_root = _current_export_root()
+    export_root.mkdir(parents=True, exist_ok=True)
     del slug
     normalized_extension = re.sub(r"[^a-z0-9]", "", str(ext or "").lower())[:16]
     if not normalized_extension:
         raise ValueError("generated export extension is required")
     filename = f"{uuid.uuid4()}.{normalized_extension}"
-    return EXPORT_ROOT / filename
+    return export_root / filename
 
 
 def _atomic_write_payload(path: Path, writer: Any) -> None:
@@ -686,6 +1277,7 @@ def _commit_export_manifest(path: Path) -> Dict[str, Any]:
 
 
 def _finalize_export_batch(result: GeneratedExportResult) -> GeneratedExportResult:
+    export_root = _current_export_root()
     storage_keys = {
         str(attachment.get("storageKey") or "")
         for attachment in result.attachments
@@ -698,9 +1290,9 @@ def _finalize_export_batch(result: GeneratedExportResult) -> GeneratedExportResu
     )
     if generated_size > EXPORT_MAX_BYTES:
         for storage_key in storage_keys:
-            _delete_export_pair(EXPORT_ROOT, storage_key)
+            _delete_export_pair(export_root, storage_key)
         raise RuntimeError("generated export batch exceeds AI_EXPORT_MAX_BYTES")
-    cleanup_generated_exports(preserve_storage_keys=storage_keys)
+    cleanup_generated_exports(root=export_root, preserve_storage_keys=storage_keys)
     return result
 
 
@@ -712,7 +1304,7 @@ def cleanup_generated_exports(
     preserve_storage_keys: Optional[Set[str]] = None,
     staging_grace_seconds: Optional[float] = None,
 ) -> None:
-    export_root = Path(root or EXPORT_ROOT).resolve()
+    export_root = Path(root or _current_export_root()).resolve()
     export_root.mkdir(parents=True, exist_ok=True)
     current_time = _as_utc(now or datetime.now(timezone.utc))
     capacity = EXPORT_MAX_BYTES if max_bytes is None else max(0, int(max_bytes))
@@ -794,7 +1386,7 @@ def open_generated_export(
     root: Optional[Path] = None,
     now: Optional[datetime] = None,
 ) -> GeneratedExportFile:
-    export_root = Path(root or EXPORT_ROOT).resolve()
+    export_root = Path(root or _current_export_root()).resolve()
     normalized_key = str(storage_key or "")
     if not _is_valid_storage_key(normalized_key):
         raise GeneratedExportAccessError(404, "generated export not found")
@@ -1130,9 +1722,11 @@ __all__ = [
     "EXPORT_TTL_HOURS",
     "EXPORT_URL_PATH",
     "GeneratedExportAccessError",
+    "GeneratedExportError",
     "GeneratedExportFile",
     "GeneratedExportResult",
     "cleanup_generated_exports",
     "export_generated_answer",
+    "export_python_code_lab",
     "open_generated_export",
 ]

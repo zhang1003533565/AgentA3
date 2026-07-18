@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from typing import Any, Dict, List, Optional
 
@@ -24,12 +25,22 @@ class MemoryStore:
         try:
             if redis is None:
                 raise RuntimeError("redis package is not installed")
-            self._redis_client = redis.Redis.from_url("redis://localhost:6379/0", decode_responses=True)
+            redis_url = os.getenv("REDIS_URL", "").strip() or "redis://localhost:6379/0"
+            self._redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
             self._redis_client.ping()
             logger.debug("redis connected")
         except Exception as exc:
             logger.warning("redis unavailable, fallback to in-memory store: %s", exc)
             self._redis_client = None
+
+    def is_redis_ready(self) -> bool:
+        if self._redis_client is None:
+            return False
+        try:
+            return bool(self._redis_client.ping())
+        except Exception as exc:
+            logger.warning("redis readiness failed: %s", exc)
+            return False
 
     def _key(self, session_token: str) -> str:
         return f"llm:memory:{session_token}"

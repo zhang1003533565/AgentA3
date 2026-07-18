@@ -104,7 +104,7 @@
                     <text class="meta-text">{{ item.location }}</text>
                   </view>
                   <view class="meta-item">
-                    <image class="meta-icon" src="/static/icons/line/user.svg" mode="aspectFit" />
+                    <image class="meta-icon" src="/static/icons/line/users.svg" mode="aspectFit" />
                     <text class="meta-text">{{ item.currentPeople }}/{{ item.maxPeople }}人</text>
                   </view>
                 </view>
@@ -838,4 +838,3 @@ export default {
   text-shadow: 0 2rpx 4rpx rgba(0, 0, 0, 0.1);
 }
 </style>
-

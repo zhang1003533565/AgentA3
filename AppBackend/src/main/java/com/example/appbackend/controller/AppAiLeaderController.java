@@ -244,7 +244,8 @@ public class AppAiLeaderController {
         detail.setSession(toSessionItem(session));
         List<AiLeaderMessageItem> items = new ArrayList<>();
         String latestUserInput = null;
-        for (AiLeaderMessage message : messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(session.getId())) {
+        for (AiLeaderMessage message : messageRepository
+                .findByLeaderSessionIdOrderByCreateTimeAscIdAsc(session.getId())) {
             if (AiLeaderMessage.ROLE_USER.equals(message.getRole())) {
                 latestUserInput = message.getContent();
             }

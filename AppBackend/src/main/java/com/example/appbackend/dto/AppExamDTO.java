@@ -108,6 +108,52 @@ public final class AppExamDTO {
         private BigDecimal objectiveScore;
         private BigDecimal objectiveTotalScore;
         private List<QuestionResult> questions;
+        private LearningUpdate learningUpdate;
+    }
+
+    @Data
+    public static class LearningUpdate {
+        private String schemaVersion;
+        private List<String> assessedKnowledgePoints;
+        private List<String> weakKnowledgePoints;
+        private List<MasteryChange> masteryChanges;
+        private List<ProfileEvidenceUpdate> profileEvidence;
+        private String evidenceStatus;
+        private Integer pathVersionBefore;
+        private Integer pathVersionAfter;
+        private Boolean replanned;
+        private String replanReason;
+        private List<PathChange> changedNodes;
+        private LearningPathDTO.Recommendation nextRecommendation;
+    }
+
+    @Data
+    public static class MasteryChange {
+        private String knowledgePointKey;
+        private Boolean correct;
+        private BigDecimal scoreBefore;
+        private BigDecimal scoreAfter;
+        private String statusBefore;
+        private String statusAfter;
+    }
+
+    @Data
+    public static class ProfileEvidenceUpdate {
+        private String dimensionKey;
+        private String sourceId;
+        private String status;
+        private Boolean accepted;
+    }
+
+    @Data
+    public static class PathChange {
+        private String itemKey;
+        private String knowledgePoint;
+        private Integer sequenceBefore;
+        private Integer sequenceAfter;
+        private String statusBefore;
+        private String statusAfter;
+        private String reason;
     }
 
     @Data

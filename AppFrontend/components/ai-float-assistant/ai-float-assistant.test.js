@@ -29,6 +29,7 @@ function stripImports(script) {
 async function loadComponent(overrides = {}) {
   const helper = await helperModule
   const dependencies = {
+    SafeMarkdown: {},
     ASSISTANT_PUBLIC_RESOURCE_HOSTS: [],
     BASE_URL: 'http://localhost:8080',
     downloadAssistantResource: async () => '/tmp/resource.bin',

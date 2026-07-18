@@ -2,6 +2,7 @@ import base64
 import json
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from typing import Any, Dict, List, Optional
@@ -31,6 +32,14 @@ CHART_PROMPT_PREFIXES = {
     "state": "A UML state machine diagram describing states and transitions for: ",
     "journey": "A user journey map showing stages, touchpoints, and emotions for: ",
     "concept": "A concept map connecting key ideas and relationships about: ",
+}
+
+IMAGE_CONTENT_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
 }
 
 
@@ -307,6 +316,7 @@ class QwenImageProvider:
                 index=index,
                 url=item.get("url", ""),
                 base64=self._download_base64(item.get("url", "")) if request and request.returnType in {"base64", "url_and_base64"} else "",
+                contentType=self._image_content_type(item),
                 status="success" if item.get("url") else status,
                 seed=request.seed if request else None,
                 errorMessage="" if item.get("url") else message,
@@ -414,8 +424,36 @@ class QwenImageProvider:
                     continue
                 image_url = str(content.get("image") or "").strip()
                 if image_url:
-                    extracted.append({"url": image_url})
+                    extracted.append({
+                        "url": image_url,
+                        "contentType": str(
+                            content.get("contentType")
+                            or content.get("content_type")
+                            or content.get("mimeType")
+                            or content.get("mime_type")
+                            or ""
+                        ),
+                    })
         return extracted
+
+    @staticmethod
+    def _image_content_type(item: Dict[str, Any]) -> str:
+        declared = str(
+            item.get("contentType")
+            or item.get("content_type")
+            or item.get("mimeType")
+            or item.get("mime_type")
+            or ""
+        ).split(";", 1)[0].strip().lower()
+        if declared.startswith("image/"):
+            return "image/jpeg" if declared == "image/jpg" else declared
+
+        image_url = str(item.get("url") or "").strip()
+        suffix = urllib.parse.urlparse(image_url).path.lower()
+        for extension, content_type in IMAGE_CONTENT_TYPES.items():
+            if suffix.endswith(extension):
+                return content_type
+        return ""
 
     @staticmethod
     def _normalize_wan_size(size: str, model_id: str) -> str:

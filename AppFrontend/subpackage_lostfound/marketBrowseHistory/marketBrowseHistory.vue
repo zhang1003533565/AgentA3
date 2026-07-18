@@ -5,7 +5,7 @@
       <scroll-view scroll-y class="page-body">
         <view v-if="items.length === 0" class="empty"><text>暂无浏览记录</text></view>
         <view v-for="item in items" :key="item.id" class="item-card" @click="openDetail(item.id)">
-          <image class="cover" :src="item.image || '/static/images/default-goods.png'" mode="aspectFill" />
+          <image class="cover" :src="item.image || '/static/images/default-goods.svg'" mode="aspectFill" />
           <view class="main">
             <view class="title">{{ item.title }}</view>
             <view class="meta">{{ item.campusName || item.tradeLocation || '校园市集' }}</view>

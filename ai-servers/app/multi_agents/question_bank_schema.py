@@ -305,6 +305,10 @@ def _validate_programming(question: Dict[str, Any], path: str, issues: List[str]
     answer = question.get("answer", {})
     for key in ("title", "description", "language", "inputFormat", "outputFormat"):
         _require_string(body, key, f"{path}.body", issues)
+    language = str(body.get("language") or "").strip().lower()
+    reference_solution = str(answer.get("referenceSolution") or "").strip()
+    if reference_solution and language in {"未指定", "unknown", "unspecified", "n/a"}:
+        issues.append(f"{path}.body.language 在提供参考代码时必须明确指定")
     _require_list(body, "constraints", f"{path}.body", issues)
     _require_list(body, "examples", f"{path}.body", issues)
     solution_outline = answer.get("solutionOutline")
@@ -507,4 +511,3 @@ def _as_number(value: Any) -> Optional[float]:
     if isinstance(value, (int, float)):
         return float(value)
     return None
-

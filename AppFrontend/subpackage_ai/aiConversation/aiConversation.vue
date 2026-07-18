@@ -42,7 +42,12 @@
                 :class="`output-type-tag--${type}`"
               >{{ getOutputTypeLabel(type) }}</text>
             </view>
-            <text v-if="getDisplayText(message)" class="message-text">{{ getDisplayText(message) }}</text>
+            <safe-markdown
+              v-if="message.role === 'assistant' && getDisplayText(message)"
+              class="message-text"
+              :content="getDisplayText(message)"
+            />
+            <text v-else-if="getDisplayText(message)" class="message-text">{{ getDisplayText(message) }}</text>
             <view v-if="isMessageGenerating(message)" class="generation-status">
               <view class="generation-spinner"></view>
               <text class="generation-status__text">图片生成中</text>
@@ -70,10 +75,11 @@
                   </view>
                 </view>
                 <text v-if="resource.summary" class="resource-card__summary">{{ resource.summary }}</text>
-                <text
+                <safe-markdown
                   v-if="resource.renderer === 'content' && resource.payload.content"
                   class="resource-card__content"
-                >{{ resource.payload.content }}</text>
+                  :content="resource.payload.content"
+                />
                 <view v-if="resource.renderer === 'business_card'" class="resource-card__business">
                   <view
                     v-for="field in getBusinessResourceFields(resource)"
@@ -244,6 +250,7 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import SafeMarkdown from '@/components/safe-markdown/safe-markdown.vue'
 import { ASSISTANT_PUBLIC_RESOURCE_HOSTS, BASE_URL } from '@/utils/config.js'
 import {
   downloadAssistantResource,
@@ -408,7 +415,7 @@ const RESOURCE_INTERACTION_BY_ACTION = {
 }
 
 export default {
-  components: { NavBar },
+  components: { NavBar, SafeMarkdown },
   data() {
     return {
       sessionId: '',
@@ -433,8 +440,11 @@ export default {
       return !this.sending && this.inputValue.trim().length > 0
     }
   },
-  onLoad(options) {
+  onLoad(options = {}) {
     this.sessionId = options.sessionId ? decodeURIComponent(options.sessionId) : ''
+    if (options.prefill) {
+      try { this.inputValue = decodeURIComponent(options.prefill) } catch (error) { this.inputValue = String(options.prefill) }
+    }
     if (this.sessionId) {
       uni.setStorageSync(STORAGE_KEY, this.sessionId)
     }

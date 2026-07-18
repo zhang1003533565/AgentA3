@@ -6,18 +6,17 @@ from fastapi import HTTPException
 from app.image_generation import get_qwen_image_provider
 from app.models.image_generation import ImageGenerationRequest
 from app.model_providers.runtime_config import get_active_llm_config
+from app.multi_agents.diagram_common import DiagramMermaidAgent
 
 
-class FlowchartDiagramAgent:
-    name = "diagram_flowchart_agent"
+class FlowchartDiagramAgent(DiagramMermaidAgent):
+    def __init__(self) -> None:
+        super().__init__("diagram_flowchart_agent", ("flowchart", "graph"))
 
-    def build_diagram(self, topic: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
+    def generate_images_json(self, topic: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
         """生成流程图图片，返回包含图片 URL 的 JSON。"""
         prompt = self._prepare_prompt(topic, evidence, chat_service=chat_service)
         return self._call_image_api(prompt)
-
-    def process(self, input_text: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
-        return self.build_diagram(input_text, evidence, chat_service=chat_service)
 
     def _prepare_prompt(self, topic: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
         normalized = (topic or "").strip()

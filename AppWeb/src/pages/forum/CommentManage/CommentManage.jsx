@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useState, useEffect } from 'react'
 import { message, Modal, Button, Table, Tag, Space, Popconfirm, Input, Select, Form } from 'antd'
 import { EyeOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons'
 import { getCommentList, deleteComment } from '../../../api/forum'
@@ -22,34 +22,36 @@ function CommentManage() {
     pageSize: 10,
     total: 0
   })
+  const currentPage = pagination.current
+  const currentPageSize = pagination.pageSize
 
   // 获取评论列表
-  const fetchComments = async (params = {}) => {
+  const fetchComments = useCallback(async (params = {}) => {
     setLoading(true)
     try {
       const res = await getCommentList({
         admin: true,
-        page: pagination.current,
-        size: pagination.pageSize,
+        page: currentPage,
+        size: currentPageSize,
         ...params
       })
       if (res.code === 200) {
         setComments(res.data?.list || res.data || [])
-        setPagination({
-          ...pagination,
+        setPagination((prev) => ({
+          ...prev,
           total: res.data?.total || 0
-        })
+        }))
       }
     } catch (error) {
       console.error('获取评论列表失败:', error)
     } finally {
       setLoading(false)
     }
-  }
+  }, [currentPage, currentPageSize])
 
   useEffect(() => {
     fetchComments()
-  }, [])
+  }, [fetchComments])
 
   // 搜索
   const handleSearch = (values) => {

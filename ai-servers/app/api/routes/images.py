@@ -1,11 +1,16 @@
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app.image_generation import get_qwen_image_provider
 from app.models.image_generation import ImageBatchRequest, ImageGenerationRequest, ImageGenerationResponse
+from app.security.internal_auth import require_internal_token
 
-router = APIRouter(prefix="/internal/images", tags=["internal-images"])
+router = APIRouter(
+    prefix="/internal/images",
+    tags=["internal-images"],
+    dependencies=[Depends(require_internal_token)],
+)
 
 
 @router.post("/generate", response_model=ImageGenerationResponse)

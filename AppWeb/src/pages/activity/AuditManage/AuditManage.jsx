@@ -76,7 +76,7 @@ function AuditManage() {
         setRegistrations([])
       }
     })()
-  }, [])
+  }, [searchForm])
 
   // 鎼滅储
   const handleSearch = (values) => {
@@ -135,12 +135,12 @@ function AuditManage() {
       width: 500,
       content: (
         <div className="registration-detail">
-          <p><strong>鎶ュ悕ID锛?/strong>{record.id}</p>
-          <p><strong>娲诲姩ID锛?/strong>{record.activityId}</p>
-          <p><strong>鎶ュ悕浜猴細</strong>{record.realName || record.username}</p>
-          <p><strong>鎶ュ悕鏃堕棿锛?/strong>{record.signupTime}</p>
-          <p><strong>鐘舵€侊細</strong>{statusMap[record.status]?.text || record.status}</p>
-          {record.remark && <p><strong>澶囨敞锛?/strong>{record.remark}</p>}
+          <p><strong>报名 ID：</strong>{record.id}</p>
+          <p><strong>活动 ID：</strong>{record.activityId}</p>
+          <p><strong>报名人：</strong>{record.realName || record.username}</p>
+          <p><strong>报名时间：</strong>{record.signupTime}</p>
+          <p><strong>状态：</strong>{statusMap[record.status]?.text || record.status}</p>
+          {record.remark && <p><strong>备注：</strong>{record.remark}</p>}
         </div>
       )
     })
@@ -168,7 +168,7 @@ function AuditManage() {
       ellipsis: true
     },
     {
-      title: '鎶ュ悕浜?,
+      title: '报名人',
       dataIndex: 'realName',
       render: (text, record) => text || record.username
     },
@@ -178,7 +178,7 @@ function AuditManage() {
       width: 120
     },
     {
-      title: '鎵嬫満鍙?,
+      title: '手机号',
       dataIndex: 'phone',
       width: 130
     },
@@ -188,7 +188,7 @@ function AuditManage() {
       width: 160
     },
     {
-      title: '鐘舵€?,
+      title: '状态',
       dataIndex: 'status',
       width: 100,
       render: (status) => (
@@ -256,7 +256,7 @@ function AuditManage() {
               </Select>
             </Form.Item>
             <Form.Item name="status">
-              <Select placeholder="閫夋嫨鐘舵€? allowClear style={{ width: 120 }}>
+              <Select placeholder="选择状态" allowClear style={{ width: 120 }}>
                 {Object.entries(statusMap).map(([key, value]) => (
                   <Option key={key} value={key}>{value.text}</Option>
                 ))}
@@ -286,7 +286,7 @@ function AuditManage() {
           loading={loading}
           pagination={{
             pageSize: 10,
-            showTotal: (total) => `鍏?${total} 鏉
+            showTotal: (total) => `共 ${total} 条`
           }}
           scroll={{ x: 1200 }}
         />
@@ -338,4 +338,3 @@ function AuditManage() {
 }
 
 export default AuditManage
-

@@ -26,6 +26,13 @@ AppFrontend/unpackage/
 ai-servers/.rag-data/
 ai-servers/data/ai-exports/
 
+# Submission rendering scratch (keep only final PPTX/DOCX/PDF artifacts)
+artifacts/submission/*.inspect.ndjson
+artifacts/submission/AgentA3-中国软件杯演示/
+artifacts/submission/*.zip
+artifacts/submission/*.zip.sha256
+docs/project-document/output/
+
 # OS
 .DS_Store
 Thumbs.db

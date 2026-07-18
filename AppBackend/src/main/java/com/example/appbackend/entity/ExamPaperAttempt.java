@@ -62,6 +62,11 @@ public class ExamPaperAttempt {
     @Column(name = "question_count", nullable = false)
     private Integer questionCount;
 
+    /** Immutable response snapshot created with the first successful submission. */
+    @Lob
+    @Column(name = "learning_update_json", columnDefinition = "LONGTEXT COMMENT '考试学习闭环结果快照'")
+    private String learningUpdateJson;
+
     @Column(name = "create_time", nullable = false)
     private LocalDateTime createTime;
 

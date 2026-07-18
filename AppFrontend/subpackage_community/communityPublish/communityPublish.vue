@@ -9,7 +9,6 @@
         <view class="cover-upload" @click="chooseCover">
           <image v-if="form.cover" class="cover-preview" :src="form.cover" mode="aspectFill" />
           <view v-else class="upload-placeholder">
-            <image class="upload-icon" src="/static/icons/line/camera.svg" mode="aspectFit" />
             <text class="upload-text">点击上传封面</text>
           </view>
         </view>
@@ -47,7 +46,7 @@
         <text class="form-label">活动时间 <text class="required">*</text></text>
         <view class="time-picker" @click="showTimePicker = true">
           <text class="picker-text">{{ form.startTime || '请选择活动时间' }}</text>
-          <image class="picker-arrow" src="/static/icons/line/arrow-right.svg" mode="aspectFit" />
+          <text class="picker-arrow">›</text>
         </view>
       </view>
       
@@ -223,12 +222,6 @@ export default {
   justify-content: center;
 }
 
-.upload-icon {
-  width: 80rpx;
-  height: 80rpx;
-  margin-bottom: 16rpx;
-}
-
 .upload-text {
   font-size: 28rpx;
   color: #999;
@@ -285,6 +278,10 @@ export default {
 .picker-arrow {
   width: 32rpx;
   height: 32rpx;
+  color: #999;
+  font-size: 36rpx;
+  line-height: 1;
+  text-align: center;
 }
 
 .form-textarea {

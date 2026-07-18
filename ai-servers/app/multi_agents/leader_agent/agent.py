@@ -72,10 +72,15 @@ class LeaderAgent:
         profile_context: Optional[Dict[str, Any]] = None,
         callable_catalog: Optional[Dict[str, Any]] = None,
         conversation_context: Optional[Dict[str, Any]] = None,
+        learning_context: Optional[Dict[str, Any]] = None,
     ) -> LeaderPlan:
         forced_plan = self._plan_for_requested_agent(requested_agent, rag_strategy)
         if forced_plan:
             return forced_plan
+
+        learning_plan = self._plan_learning_workflow(learning_context)
+        if learning_plan:
+            return learning_plan
 
         if self._is_callable_catalog_query(input_text):
             return LeaderPlan(
@@ -95,6 +100,30 @@ class LeaderAgent:
             profile_context=profile_context,
             callable_catalog=callable_catalog,
             conversation_context=conversation_context,
+        )
+
+    def _plan_learning_workflow(
+        self,
+        learning_context: Optional[Dict[str, Any]],
+    ) -> Optional[LeaderPlan]:
+        context = learning_context if isinstance(learning_context, dict) else {}
+        intent = str(context.get("intent") or "").strip()
+        if str(context.get("courseKey") or "").strip().lower() != "python":
+            return None
+        if intent not in {
+            "resource_package",
+            "learning_plan",
+            "weakness_review",
+            "path_replanning",
+        }:
+            return None
+        return LeaderPlan(
+            intent=intent,
+            target_agent="leader_agent",
+            need_retrieval=True,
+            rag_strategy="",
+            action="run_learning_workflow",
+            route_reason="Python 课程个性化学习请求进入受控多智能体工作流。",
         )
 
     def _plan_with_rules(self, input_text: str, rag_strategy: str = "") -> LeaderPlan:

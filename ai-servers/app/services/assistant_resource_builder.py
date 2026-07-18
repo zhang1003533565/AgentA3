@@ -64,6 +64,8 @@ _FIELD_ALIASES = {
 _SAFE_RESOURCE_METADATA = {
     "source", "sourceId", "sourceType", "sourceVersion", "retrievedAt",
     "location", "route", "status", "legacy", "serverGenerated",
+    "courseKey", "knowledgePoint", "learningPathId", "learningPathItemKey",
+    "resourceKind", "reviewStatus",
 }
 _SAFE_TRACE_DETAIL = {
     "agentName", "targetAgent", "toolName", "toolDisplayName", "routeReason",
@@ -150,6 +152,137 @@ def build_assistant_resource_bundle(
     }
     chain["integrity"] = _integrity(chain)
     return _fit_envelope({"resources": resources, "evidenceChain": chain})
+
+
+def build_learning_resource_bundle(
+    *,
+    workflow_id: str,
+    topic: str,
+    resources: Sequence[Any],
+    references: Sequence[Any],
+    attachments_by_type: Optional[Mapping[str, Sequence[Any]]] = None,
+    resource_metadata: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Convert reviewed workflow resources into the existing trusted envelope."""
+    generated_at = _timestamp(None)
+    documents = []
+    for raw in references:
+        reference = _mapping(raw)
+        reference_id = _text(
+            reference.get("id")
+            or reference.get("evidenceId")
+            or reference.get("referenceId"),
+            256,
+        )
+        if not reference_id:
+            continue
+        reference_metadata = _mapping(reference.get("metadata"))
+        reference_metadata.update({
+            "sourceId": reference_id,
+            "sourceType": _identifier(
+                reference.get("source") or reference_metadata.get("sourceType"),
+                "knowledge_base",
+            ),
+            "title": _text(
+                reference.get("title")
+                or reference_metadata.get("title")
+                or reference_id,
+                240,
+            ),
+        })
+        documents.append({
+            "id": reference_id,
+            "content": _text(reference.get("content"), MAX_CONTENT_CHARS),
+            "source": reference_metadata["sourceType"],
+            "metadata": reference_metadata,
+        })
+
+    sources, source_ids, _ = _build_sources(documents, generated_at)
+    raw_resources = [_mapping(item) for item in resources]
+    content_digest = _digest_text("\n".join(
+        str(item.get("content") or "") for item in raw_resources
+    ))
+    request_id = _request_id(workflow_id, _digest_text(topic), content_digest)
+    common_metadata = _mapping(resource_metadata)
+    output_resources = []
+    attachment_map = attachments_by_type if isinstance(attachments_by_type, Mapping) else {}
+    for raw in raw_resources:
+        if len(output_resources) >= MAX_RESOURCES:
+            break
+        resource_type = _identifier(raw.get("resourceType"), "explanation")
+        raw_evidence_ids = [
+            str(value).strip()
+            for value in raw.get("evidenceIds", [])
+            if str(value).strip()
+        ] if isinstance(raw.get("evidenceIds"), list) else []
+        evidence_ids = _mapped_evidence_ids(raw_evidence_ids, source_ids)
+        metadata = {
+            **common_metadata,
+            "courseKey": "python",
+            "resourceKind": resource_type,
+            "reviewStatus": _identifier(raw.get("reviewStatus"), "pending"),
+            "executedAgent": _identifier(raw.get("agentName"), "learning_workflow"),
+            "title": _learning_resource_title(resource_type),
+        }
+        content = _text(raw.get("content"), MAX_CONTENT_CHARS)
+        if content:
+            output_resources.append(_content_resource(
+                content,
+                _learning_answer_type(resource_type),
+                evidence_ids,
+                "grounded" if evidence_ids else "model_only",
+                generated_at,
+                metadata,
+            ))
+        for attachment_raw in list(attachment_map.get(resource_type, ()) or ()):
+            if len(output_resources) >= MAX_RESOURCES:
+                break
+            attachment = _mapping(attachment_raw)
+            attachment.update({
+                "courseKey": "python",
+                "resourceKind": resource_type,
+                "reviewStatus": metadata["reviewStatus"],
+            })
+            converted = _attachment_resource(
+                attachment,
+                evidence_ids,
+                "grounded" if evidence_ids else "model_only",
+                generated_at,
+            )
+            if converted:
+                output_resources.append(converted)
+
+    chain = {
+        "schemaVersion": EVIDENCE_SCHEMA_VERSION,
+        "chainId": "chain_" + _hex_digest({
+            "requestId": request_id,
+            "workflowId": workflow_id,
+            "resourceIds": [item["id"] for item in output_resources],
+        })[:24],
+        "requestId": request_id,
+        "status": "grounded" if sources else "model_only",
+        "generatedAt": generated_at,
+        "evidenceState": "available",
+        "queryDigest": _digest_text(topic),
+        "answerDigest": content_digest,
+        "sources": sources,
+        "steps": [{
+            "stage": "learning_workflow",
+            "detail": {"agentName": "learning_workflow"},
+        }],
+        "resourceLinks": [
+            {"resourceId": item["id"], "evidenceIds": list(item["evidenceIds"])}
+            for item in output_resources
+        ],
+        "generation": {
+            "agent": "learning_workflow",
+            "model": "",
+            "answerType": "learning_package",
+            "profileContextUsed": True,
+        },
+    }
+    chain["integrity"] = _integrity(chain)
+    return _fit_envelope({"resources": output_resources, "evidenceChain": chain})
 
 
 def finalize_assistant_response(response: Any, *, request_context: Optional[Mapping[str, Any]] = None) -> Any:
@@ -426,6 +559,13 @@ def _has_context_document(documents):
 def _content_kind(answer_type, metadata):
     answer_type = str(answer_type or "").lower()
     agent = str(metadata.get("executedAgent") or metadata.get("targetAgent") or "").lower()
+    resource_kind = str(metadata.get("resourceKind") or "").lower()
+    if resource_kind == "extended_reading":
+        return "extended_reading"
+    if resource_kind == "practice_set":
+        return "exercise"
+    if resource_kind == "code_lab":
+        return "code_example"
     if "mind" in answer_type or "mind_map" in agent:
         return "mind_map"
     if "mermaid" in answer_type or "diagram" in answer_type or "diagram" in agent:
@@ -433,6 +573,34 @@ def _content_kind(answer_type, metadata):
     if "question" in answer_type or "exercise" in answer_type:
         return "exercise"
     return "code_example" if "code" in answer_type or "programming" in agent else "explanation"
+
+
+def _mapped_evidence_ids(raw_ids, source_ids):
+    mapped = []
+    for raw_id in raw_ids:
+        evidence_id = source_ids.get(raw_id)
+        if evidence_id and evidence_id not in mapped:
+            mapped.append(evidence_id)
+    return mapped
+
+
+def _learning_answer_type(resource_type):
+    return {
+        "mind_map": "mermaid_mind_map",
+        "practice_set": "exercise",
+        "code_lab": "code",
+    }.get(resource_type, "markdown")
+
+
+def _learning_resource_title(resource_type):
+    return {
+        "knowledge_note": "个性化课程讲义",
+        "mind_map": "知识点思维导图",
+        "practice_set": "个性化练习题",
+        "code_lab": "Python 代码实验",
+        "presentation": "个性化教学课件",
+        "extended_reading": "拓展阅读材料",
+    }.get(resource_type, "学习资源")
 
 
 def _content_language(answer, answer_type):

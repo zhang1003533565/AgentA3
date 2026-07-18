@@ -1,4 +1,5 @@
 import json
+import os
 import unittest
 from types import SimpleNamespace
 
@@ -12,6 +13,22 @@ import app.api.routes.rag as rag_route
 
 
 class SseStreamContractTest(unittest.TestCase):
+    def setUp(self):
+        self._old_internal_token = os.environ.get("AI_INTERNAL_TOKEN")
+        os.environ["AI_INTERNAL_TOKEN"] = "test-internal-token"
+
+    def tearDown(self):
+        if self._old_internal_token is None:
+            os.environ.pop("AI_INTERNAL_TOKEN", None)
+        else:
+            os.environ["AI_INTERNAL_TOKEN"] = self._old_internal_token
+
+    def _client(self):
+        return TestClient(
+            app,
+            headers={"X-AI-Internal-Token": "test-internal-token"},
+        )
+
     def test_merge_attachments_prefers_storage_key_and_uses_url_as_fallback(self):
         generated = {
             "storageKey": "11111111-1111-4111-8111-111111111111.md",
@@ -34,7 +51,7 @@ class SseStreamContractTest(unittest.TestCase):
         self.assertEqual([generated, legacy], merged)
 
     def test_server_generated_attachment_reaches_sync_and_sse_done_payload(self):
-        client = TestClient(app)
+        client = self._client()
         attachment = {
             "name": "22222222-2222-4222-8222-222222222222.md",
             "storageKey": "22222222-2222-4222-8222-222222222222.md",
@@ -106,7 +123,7 @@ class SseStreamContractTest(unittest.TestCase):
         self.assertNotIn("\\n", event)
 
     def test_stream_endpoint_emits_sse_events(self):
-        client = TestClient(app)
+        client = self._client()
         original_run_chat_core = chat_route.run_chat_core
         try:
             chat_route.run_chat_core = lambda request, authorization, user_id: ChatResponse(
@@ -140,7 +157,7 @@ class SseStreamContractTest(unittest.TestCase):
             chat_route.run_chat_core = original_run_chat_core
 
     def test_rag_done_payload_uses_resource_evidence_finalizer(self):
-        client = TestClient(app)
+        client = self._client()
         original_run_rag_core = rag_route._run_rag_query_core
         try:
             rag_route._run_rag_query_core = lambda request, authorization: RagQueryResponse(

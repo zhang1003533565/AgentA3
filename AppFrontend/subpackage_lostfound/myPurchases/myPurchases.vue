@@ -5,7 +5,7 @@
       <scroll-view scroll-y class="page-body">
         <view v-if="items.length === 0" class="empty"><text>暂无购买记录</text></view>
         <view v-for="record in items" :key="record.id" class="record-card" @click="openChat(record)">
-          <image class="cover" :src="record.itemImage || '/static/images/default-goods.png'" mode="aspectFill" />
+          <image class="cover" :src="record.itemImage || '/static/images/default-goods.svg'" mode="aspectFill" />
           <view class="main">
             <view class="title">{{ record.itemTitle || '校园市集商品' }}</view>
             <view class="meta">{{ statusText(record.status) }}</view>

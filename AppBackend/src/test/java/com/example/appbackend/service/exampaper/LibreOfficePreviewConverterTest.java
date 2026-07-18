@@ -24,10 +24,11 @@ class LibreOfficePreviewConverterTest {
 
     @Test
     void resolvesBareSofficeCommandFromAvailableFallback() throws Exception {
-        Path fallback = executable("soffice", "#!/bin/sh\nexit 0\n");
+        String command = "agent-a3-test-soffice";
+        Path fallback = executable(command, "#!/bin/sh\nexit 0\n");
 
         assertEquals(fallback.toString(), LibreOfficePreviewConverter.resolveSofficePath(
-                "soffice", List.of(root.resolve("missing"), fallback)));
+                command, List.of(root.resolve("missing"), fallback)));
         assertEquals(root.resolve("explicit-soffice").toString(), LibreOfficePreviewConverter.resolveSofficePath(
                 root.resolve("explicit-soffice").toString(), List.of(fallback)));
     }
@@ -180,7 +181,7 @@ class LibreOfficePreviewConverterTest {
     }
 
     private Path executable(String name, String body) throws Exception {
-        Path file = root.resolve(name); Files.writeString(file, body); file.toFile().setExecutable(true); return file;
+        Path file = root.resolve(name); Files.writeString(file, body.stripLeading()); file.toFile().setExecutable(true); return file;
     }
 
     private Path pdf(String name, int pages) throws Exception {

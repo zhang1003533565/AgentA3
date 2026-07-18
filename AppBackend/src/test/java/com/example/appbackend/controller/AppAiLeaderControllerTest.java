@@ -350,7 +350,7 @@ class AppAiLeaderControllerTest {
         AiLeaderMessage assistant = savedMessages.stream()
                 .filter(item -> AiLeaderMessage.ROLE_ASSISTANT.equals(item.getRole()))
                 .findFirst().orElseThrow();
-        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(9L)).thenReturn(List.of(assistant));
+        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAscIdAsc(9L)).thenReturn(List.of(assistant));
 
         JsonNode validHistory = objectMapper.valueToTree(
                 controller.sessionDetail("session-1", authenticatedRequest()).getData());
@@ -380,7 +380,7 @@ class AppAiLeaderControllerTest {
         ObjectNode chain = (ObjectNode) objectMapper.readTree(assistant.getEvidenceChainJson());
         chain.put("answerDigest", "sha256:" + "f".repeat(64));
         assistant.setEvidenceChainJson(objectMapper.writeValueAsString(chain));
-        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(9L)).thenReturn(List.of(assistant));
+        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAscIdAsc(9L)).thenReturn(List.of(assistant));
 
         JsonNode history = objectMapper.valueToTree(
                 controller.sessionDetail("session-1", authenticatedRequest()).getData());
@@ -481,7 +481,7 @@ class AppAiLeaderControllerTest {
                 "name", "old.docx", "url", "http://localhost:8081/generated/old.docx"))));
         message.setMatchedResultsJson("[]");
         message.setEvidenceChainJson("");
-        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(9L)).thenReturn(List.of(message));
+        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAscIdAsc(9L)).thenReturn(List.of(message));
 
         JsonNode history = objectMapper.valueToTree(
                 controller.sessionDetail("session-1", authenticatedRequest()).getData());
@@ -680,7 +680,7 @@ class AppAiLeaderControllerTest {
         message.setResourcesJson("{malformed");
         message.setAttachmentsJson("[]");
         message.setEvidenceChainJson(objectMapper.writeValueAsString(chain));
-        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(9L)).thenReturn(List.of(message));
+        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAscIdAsc(9L)).thenReturn(List.of(message));
 
         JsonNode history = objectMapper.valueToTree(
                 controller.sessionDetail("session-1", authenticatedRequest()).getData());
@@ -738,7 +738,7 @@ class AppAiLeaderControllerTest {
         controller.query(request(), authenticatedRequest());
         AiLeaderMessage latest = savedMessages.getLast();
         latest.setContent("被篡改的历史正文");
-        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(9L)).thenReturn(List.of(latest));
+        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAscIdAsc(9L)).thenReturn(List.of(latest));
         JsonNode history = objectMapper.valueToTree(
                 controller.sessionDetail("session-1", authenticatedRequest()).getData());
         assertThat(history.path("messages").path(0).path("evidenceChain").path("evidenceState").asText())
@@ -755,7 +755,7 @@ class AppAiLeaderControllerTest {
         when(pythonAiProxyService.queryRag(any(), any())).thenReturn(raw);
 
         JsonNode live = objectMapper.valueToTree(controller.query(request(), authenticatedRequest()).getData());
-        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(9L))
+        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAscIdAsc(9L))
                 .thenReturn(new ArrayList<>(savedMessages));
         JsonNode history = objectMapper.valueToTree(
                 controller.sessionDetail("session-1", authenticatedRequest()).getData());
@@ -1047,7 +1047,7 @@ class AppAiLeaderControllerTest {
                 "scope", "canonical-json-without-integrity",
                 "signed", false)));
         assistant.setEvidenceChainJson(objectMapper.writeValueAsString(chain));
-        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(9L)).thenReturn(List.of(assistant));
+        when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAscIdAsc(9L)).thenReturn(List.of(assistant));
 
         ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
                 LoggerFactory.getLogger(AssistantEnvelopeService.class);
