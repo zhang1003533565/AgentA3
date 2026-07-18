@@ -5,6 +5,7 @@ import {
   getTradeNotifications
 } from '@/api/secondhand'
 import { getEnabledAnnouncements } from '@/api/notice'
+import { getAppMessageUnreadCount } from '@/api/message'
 
 const POLL_INTERVAL = 5000
 
@@ -12,6 +13,7 @@ const state = {
   unreadChatCount: 0,
   unreadTradeCount: 0,
   unreadAppCount: 0,
+  unreadLostFoundAppCount: 0,
   totalUnreadCount: 0,
   sessions: [],
   tradeNotifications: [],
@@ -60,6 +62,7 @@ function buildSignature(nextState) {
     nextState.unreadChatCount,
     nextState.unreadTradeCount,
     nextState.unreadAppCount,
+    nextState.unreadLostFoundAppCount,
     sessionPart,
     tradePart
   ].join('::')
@@ -84,6 +87,7 @@ export function getMessageState() {
     unreadChatCount: state.unreadChatCount,
     unreadTradeCount: state.unreadTradeCount,
     unreadAppCount: state.unreadAppCount,
+    unreadLostFoundAppCount: state.unreadLostFoundAppCount,
     totalUnreadCount: state.totalUnreadCount,
     sessions: [...state.sessions],
     tradeNotifications: [...state.tradeNotifications],
@@ -107,10 +111,11 @@ export async function refreshMessageState(reason = 'manual') {
   if (state.syncing) return getMessageState()
   state.syncing = true
   try {
-    const [chatUnreadRes, tradeUnreadRes, announceRes, sessionsRes, tradeRes] = await Promise.all([
+    const [chatUnreadRes, tradeUnreadRes, announceRes, appMessageUnreadRes, sessionsRes, tradeRes] = await Promise.all([
       getChatUnreadCount(),
       getTradeNotificationUnreadCount(),
       getEnabledAnnouncements().catch(() => ({ data: [] })),
+      getAppMessageUnreadCount().catch(() => ({ data: { lostFound: 0 } })),
       getChatSessions({ current: 1, size: 100 }),
       getTradeNotifications({ current: 1, size: 100 })
     ])
@@ -118,6 +123,7 @@ export async function refreshMessageState(reason = 'manual') {
     state.unreadChatCount = numberValue(chatUnreadRes?.data)
     state.unreadTradeCount = numberValue(tradeUnreadRes?.data)
     state.unreadAppCount = getAnnouncementUnreadCount(announceRes)
+    state.unreadLostFoundAppCount = numberValue(appMessageUnreadRes?.data?.lostFound)
     state.totalUnreadCount = state.unreadChatCount + state.unreadTradeCount + state.unreadAppCount
     state.sessions = getRecords(sessionsRes)
     state.tradeNotifications = getRecords(tradeRes)

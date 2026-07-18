@@ -4,7 +4,7 @@
       <view class="container">
         <view class="page-content">
           <!-- ===== 1. Header: location + message ===== -->
-          <common-page-header title="市集">
+          <common-page-header title="首页" :fixed="true" :placeholder="true" :showBack="false">
             <template #left>
               <view class="market-back-button" @click="onBackToApp">‹</view>
             </template>
@@ -306,8 +306,8 @@ export default {
             allowBargain: Boolean(r.allowBargain ?? r.allow_bargain ?? false),
             deliveryMethod: r.deliveryMethod || r.delivery_method || 'pickup',
             isFree: Boolean(r.isFree ?? Number(r.price) === 0),
-            status: r.status === 2 ? 'online' : r.status === 5 ? 'reserved' : r.status === 4 ? 'offline' : 'sold',
-            statusText: r.statusText || (r.status === 2 ? '在售' : r.status === 5 ? '交易中' : r.status === 3 ? '已售出' : '已下架'),
+            status: r.status === 4 ? 'offline' : r.status === 3 ? 'sold' : 'online',
+            statusText: r.statusText || (r.status === 3 ? '已售出' : r.status === 4 ? '已下架' : '在售'),
             urgency: r.urgency || 'normal',
             viewCount: Number(r.viewCount || r.view_count || 0),
             favoriteCount: Number(r.favoriteCount || r.favorite_count || 0),
@@ -528,6 +528,14 @@ export default {
   min-height: 0;
   height: 0;
   overflow: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.page-body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 /* ===== Section shared ===== */
@@ -561,19 +569,6 @@ export default {
   display: flex;
   align-items: center;
   gap: 4rpx;
-}
-
-.market-back-button {
-  width: 64rpx;
-  height: 64rpx;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #1D1D1F;
-  font-size: 48rpx;
-  font-weight: 500;
-  line-height: 1;
 }
 
 .header-loc-icon {

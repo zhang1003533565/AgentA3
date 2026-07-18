@@ -2,7 +2,7 @@
   <view class="page-root">
     <view class="screen">
       <view class="container">
-        <nav-bar title="市集消息" :fixed="true" :placeholder="true" />
+        <common-page-header title="市集消息" :fixed="true" :placeholder="true" :showBack="true" />
         
         <scroll-view scroll-y class="page-body">
           <view class="section-title">通知</view>
@@ -47,7 +47,7 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { getChatSessions, getTradeNotificationUnreadCount } from '@/api/secondhand'
 import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore'
@@ -66,7 +66,7 @@ function normalizeSession(item) {
 
 export default {
   components: {
-    NavBar,
+    CommonPageHeader,
     MarketBottomBar
   },
   data() {

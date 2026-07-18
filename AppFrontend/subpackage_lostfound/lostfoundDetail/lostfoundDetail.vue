@@ -2,7 +2,7 @@
   <view class="page-root">
     <view class="screen">
       <view class="container">
-        <nav-bar title="商品详情" :fixed="true" :placeholder="true" />
+        <common-page-header title="商品详情" :fixed="true" :placeholder="true" :showBack="true" />
 
         <scroll-view scroll-y class="page-body" :show-scrollbar="false" :style="{ height: pageBodyHeight + 'px' }">
           <view class="hero-wrap">
@@ -108,7 +108,7 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import { getSecondhandItemDetail, getTradeRecords, offlineSecondhandItem } from '@/api/secondhand'
 import { getToken, getUserInfo } from '@/utils/storage'
 import { getMarketCategoryLabel, getMarketSubcategoryLabel } from '../utils/marketCategories'
@@ -209,7 +209,7 @@ function normalizeItem(raw = {}) {
 
 export default {
   components: {
-    NavBar
+    CommonPageHeader
   },
   data() {
     return {

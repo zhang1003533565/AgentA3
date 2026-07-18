@@ -1,13 +1,16 @@
 package com.example.appbackend.service.impl;
 
+import com.example.appbackend.dto.AppMessageDTO;
 import com.example.appbackend.dto.ChatDTO;
 import com.example.appbackend.dto.PageResponse;
 import com.example.appbackend.entity.SecondhandItem;
 import com.example.appbackend.entity.TradeRecord;
 import com.example.appbackend.entity.TradeRecord.TradeStatus;
 import com.example.appbackend.exception.BusinessException;
+import com.example.appbackend.repository.ChatSessionRepository;
 import com.example.appbackend.repository.SecondhandItemRepository;
 import com.example.appbackend.repository.TradeRecordRepository;
+import com.example.appbackend.service.AppMessageService;
 import com.example.appbackend.service.ChatService;
 import com.example.appbackend.service.TradeService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,13 +31,17 @@ public class TradeServiceImpl implements TradeService {
 
     @Autowired private TradeRecordRepository tradeRecordRepository;
     @Autowired private SecondhandItemRepository itemRepository;
+    @Autowired private ChatSessionRepository sessionRepository;
     @Autowired private ChatService chatService;
+    @Autowired private AppMessageService appMessageService;
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final List<TradeStatus> ACTIVE_STATUSES = Arrays.asList(TradeStatus.WAIT_CONFIRM, TradeStatus.TRADING);
     private static final int ITEM_ON_SALE = 2;
     private static final int ITEM_SOLD = 3;
-    private static final int ITEM_TRADING = 5;
+    private static final String CONTACT_EXCHANGE_NONE = "NONE";
+    private static final String CONTACT_EXCHANGE_REQUESTED = "REQUESTED";
+    private static final String CONTACT_EXCHANGE_EXCHANGED = "EXCHANGED";
 
     @Override
     public ChatDTO.TradeRecordVO createTradeRecord(ChatDTO.CreateTradeRecordRequest req, Long currentUserId) {
@@ -54,8 +61,8 @@ public class TradeServiceImpl implements TradeService {
         if (!Integer.valueOf(ITEM_ON_SALE).equals(item.getStatus())) {
             throw new BusinessException(400, "商品当前不可表达购买意向");
         }
-        if (tradeRecordRepository.findByItemIdAndStatusIn(itemId, ACTIVE_STATUSES).isPresent()) {
-            throw new BusinessException(400, "商品已有有效交易");
+        if (tradeRecordRepository.findByItemIdAndBuyerIdAndStatusIn(itemId, currentUserId, ACTIVE_STATUSES).isPresent()) {
+            throw new BusinessException(400, "你已对该商品表达购买意向");
         }
 
         TradeRecord tradeRecord = new TradeRecord();
@@ -65,6 +72,7 @@ public class TradeServiceImpl implements TradeService {
         tradeRecord.setStatus(TradeStatus.WAIT_CONFIRM);
         tradeRecord = tradeRecordRepository.save(tradeRecord);
         createTradeMessage(tradeRecord, currentUserId, "你表达了购买意向，等待对方确认");
+        createLostFoundAppMessage(tradeRecord, tradeRecord.getSellerId(), "TRADE_INTENT", "收到购买意向", "有人想购买你的商品");
         return toVO(tradeRecord, currentUserId);
     }
 
@@ -78,13 +86,10 @@ public class TradeServiceImpl implements TradeService {
         if (tradeRecord.getStatus() != TradeStatus.WAIT_CONFIRM) {
             throw new BusinessException(400, "只有待确认交易可以确认");
         }
-        int updated = itemRepository.updateStatusIfCurrent(tradeRecord.getItemId(), ITEM_ON_SALE, ITEM_TRADING);
-        if (updated != 1) {
-            throw new BusinessException(400, "商品状态异常，无法确认交易");
-        }
         tradeRecord.setStatus(TradeStatus.TRADING);
         tradeRecord = tradeRecordRepository.save(tradeRecord);
         createTradeMessage(tradeRecord, currentUserId, "双方已确认线下交易，建议尽快约定时间地点");
+        createLostFoundAppMessage(tradeRecord, tradeRecord.getBuyerId(), "TRADE_CONFIRM", "交易已确认", "卖家已确认交易，请继续沟通交易细节");
         return toVO(tradeRecord, currentUserId);
     }
 
@@ -98,13 +103,15 @@ public class TradeServiceImpl implements TradeService {
         if (tradeRecord.getStatus() != TradeStatus.TRADING) {
             throw new BusinessException(400, "只有交易中记录可以完成");
         }
-        int updated = itemRepository.updateStatusIfCurrent(tradeRecord.getItemId(), ITEM_TRADING, ITEM_SOLD);
+        int updated = itemRepository.updateStatusIfCurrent(tradeRecord.getItemId(), ITEM_ON_SALE, ITEM_SOLD);
         if (updated != 1) {
             throw new BusinessException(400, "商品状态异常，无法完成交易");
         }
         tradeRecord.setStatus(TradeStatus.COMPLETED);
         tradeRecord = tradeRecordRepository.save(tradeRecord);
+        cancelOtherActiveTrades(tradeRecord);
         createTradeMessage(tradeRecord, currentUserId, "卖家已标记该商品交易完成");
+        createLostFoundAppMessage(tradeRecord, tradeRecord.getBuyerId(), "TRADE_COMPLETE", "交易已完成", "卖家已标记该商品交易完成");
         return toVO(tradeRecord, currentUserId);
     }
 
@@ -115,10 +122,6 @@ public class TradeServiceImpl implements TradeService {
         checkParticipant(tradeRecord, currentUserId);
         if (tradeRecord.getStatus() != TradeStatus.WAIT_CONFIRM && tradeRecord.getStatus() != TradeStatus.TRADING) {
             throw new BusinessException(400, "当前交易状态不可取消");
-        }
-        int updated = itemRepository.updateStatusIfCurrent(tradeRecord.getItemId(), ITEM_TRADING, ITEM_ON_SALE);
-        if (updated != 1) {
-            throw new BusinessException(400, "商品状态异常，无法取消交易");
         }
         tradeRecord.setStatus(TradeStatus.CANCELLED);
         tradeRecord = tradeRecordRepository.save(tradeRecord);
@@ -185,7 +188,69 @@ public class TradeServiceImpl implements TradeService {
             vo.setOtherUsername(tradeRecord.getSeller().getUsername());
             vo.setOtherAvatar(tradeRecord.getSeller().getAvatar());
         }
+        vo.setContactExchangeStatus(tradeRecord.getContactExchangeStatus());
+        vo.setContactExchangeRequesterId(tradeRecord.getContactExchangeRequesterId());
+        vo.setContactExchange(buildContactExchangeVO(tradeRecord, currentUserId));
         return vo;
+    }
+
+    private ChatDTO.ContactExchangeVO buildContactExchangeVO(TradeRecord tradeRecord, Long currentUserId) {
+        normalizeContactExchangeState(tradeRecord);
+        boolean isBuyer = Objects.equals(currentUserId, tradeRecord.getBuyerId());
+        boolean currentAgreed = isBuyer
+                ? Boolean.TRUE.equals(tradeRecord.getBuyerContactAgreed())
+                : Boolean.TRUE.equals(tradeRecord.getSellerContactAgreed());
+        boolean otherAgreed = isBuyer
+                ? Boolean.TRUE.equals(tradeRecord.getSellerContactAgreed())
+                : Boolean.TRUE.equals(tradeRecord.getBuyerContactAgreed());
+        boolean trading = tradeRecord.getStatus() == TradeStatus.TRADING;
+        boolean exchanged = CONTACT_EXCHANGE_EXCHANGED.equals(tradeRecord.getContactExchangeStatus());
+
+        ChatDTO.ContactExchangeVO vo = new ChatDTO.ContactExchangeVO();
+        vo.setStatus(tradeRecord.getContactExchangeStatus() == null ? CONTACT_EXCHANGE_NONE : tradeRecord.getContactExchangeStatus());
+        vo.setCurrentUserAgreed(currentAgreed);
+        vo.setOtherUserAgreed(otherAgreed);
+        vo.setCanAgree(trading && !exchanged && !currentAgreed && tradeRecord.getContactExchangeRequesterId() != null);
+        vo.setCanDecline(trading && !exchanged && !currentAgreed && tradeRecord.getContactExchangeRequesterId() != null);
+        vo.setRequesterId(tradeRecord.getContactExchangeRequesterId());
+        return vo;
+    }
+
+    private void normalizeContactExchangeState(TradeRecord tradeRecord) {
+        if (CONTACT_EXCHANGE_EXCHANGED.equals(tradeRecord.getContactExchangeStatus())) {
+            tradeRecord.setBuyerContactAgreed(true);
+            tradeRecord.setSellerContactAgreed(true);
+            return;
+        }
+        if ("PENDING".equals(tradeRecord.getContactExchangeStatus())) {
+            if (Objects.equals(tradeRecord.getContactExchangeRequesterId(), tradeRecord.getBuyerId())) {
+                tradeRecord.setBuyerContactAgreed(true);
+            } else if (Objects.equals(tradeRecord.getContactExchangeRequesterId(), tradeRecord.getSellerId())) {
+                tradeRecord.setSellerContactAgreed(true);
+            }
+            tradeRecord.setContactExchangeStatus(CONTACT_EXCHANGE_REQUESTED);
+        }
+        if (tradeRecord.getContactExchangeStatus() == null) {
+            tradeRecord.setContactExchangeStatus(CONTACT_EXCHANGE_NONE);
+        }
+        if (tradeRecord.getBuyerContactAgreed() == null) {
+            tradeRecord.setBuyerContactAgreed(false);
+        }
+        if (tradeRecord.getSellerContactAgreed() == null) {
+            tradeRecord.setSellerContactAgreed(false);
+        }
+    }
+
+    private void cancelOtherActiveTrades(TradeRecord completedTrade) {
+        List<TradeRecord> activeTrades = tradeRecordRepository.findByItemIdAndStatusIn(completedTrade.getItemId(), ACTIVE_STATUSES);
+        for (TradeRecord activeTrade : activeTrades) {
+            if (Objects.equals(activeTrade.getId(), completedTrade.getId())) {
+                continue;
+            }
+            activeTrade.setStatus(TradeStatus.CANCELLED);
+            tradeRecordRepository.save(activeTrade);
+            createTradeMessage(activeTrade, completedTrade.getSellerId(), "本次交易已取消");
+        }
     }
 
     private String getStatusText(TradeStatus status) {
@@ -202,5 +267,29 @@ public class TradeServiceImpl implements TradeService {
     private void createTradeMessage(TradeRecord tradeRecord, Long actorId, String content) {
         chatService.createOrGetSession(tradeRecord.getItemId(), tradeRecord.getBuyerId());
         chatService.createTradeSystemMessage(tradeRecord.getItemId(), tradeRecord.getBuyerId(), actorId, content);
+    }
+
+    private void createLostFoundAppMessage(TradeRecord tradeRecord, Long userId, String eventType, String title, String content) {
+        if (tradeRecord == null || userId == null) return;
+        AppMessageDTO.CreateCommand command = new AppMessageDTO.CreateCommand();
+        command.setUserId(userId);
+        command.setModuleType("LOST_FOUND");
+        command.setEventType(eventType);
+        command.setTitle(title);
+        command.setContent(content);
+        command.setTargetPage("/subpackage_lostfound/lostfoundChat/lostfoundChat");
+        command.setTargetParams(buildTargetParams(tradeRecord));
+        command.setSourceType("TRADE_RECORD");
+        command.setSourceId(tradeRecord.getId());
+        appMessageService.createIfAbsent(command);
+    }
+
+    private String buildTargetParams(TradeRecord tradeRecord) {
+        Long sessionId = sessionRepository.findByItemIdAndBuyerId(tradeRecord.getItemId(), tradeRecord.getBuyerId())
+                .map(session -> session.getId())
+                .orElse(null);
+        return "{\"itemId\":" + tradeRecord.getItemId() +
+                ",\"sessionId\":" + (sessionId == null ? "null" : sessionId) +
+                ",\"tradeId\":" + tradeRecord.getId() + "}";
     }
 }

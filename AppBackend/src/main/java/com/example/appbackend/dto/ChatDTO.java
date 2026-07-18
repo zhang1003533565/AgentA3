@@ -30,6 +30,9 @@ public class ChatDTO {
         private Long tradeId;
         private String tradeStatus;
         private String tradeStatusText;
+        private String contactExchangeStatus;
+        private Long contactExchangeRequesterId;
+        private ContactExchangeVO contactExchange;
     }
 
     @Data
@@ -56,12 +59,15 @@ public class ChatDTO {
         private Long sessionId;
 
         @NotBlank(message = "消息内容不能为空")
-        @Size(min = 1, max = 500, message = "消息内容1-500字")
+        @Size(min = 1, max = 1000, message = "消息内容1-1000字")
         @Schema(description = "消息内容", example = "您好，请问还在吗？")
         private String content;
 
-        @Schema(description = "消息类型：1-文本 2-图片 3-位置 4-联系方式，默认1")
+        @Schema(description = "消息类型：1-文本 2-图片 3-位置 4-交换联系方式，默认1")
         private Integer messageType = 1;
+
+        @Schema(description = "联系方式交换动作：AGREE-同意/发起 DECLINE-暂不交换")
+        private String contactExchangeAction;
     }
 
     @Data
@@ -96,6 +102,20 @@ public class ChatDTO {
         private String otherUsername;
         private String otherAvatar;
         private Boolean isSeller;
+        private String contactExchangeStatus;
+        private Long contactExchangeRequesterId;
+        private ContactExchangeVO contactExchange;
+    }
+
+    @Data
+    @Schema(description = "联系方式交换状态")
+    public static class ContactExchangeVO {
+        private String status;
+        private Boolean currentUserAgreed;
+        private Boolean otherUserAgreed;
+        private Boolean canAgree;
+        private Boolean canDecline;
+        private Long requesterId;
     }
 
     @Data

@@ -43,7 +43,7 @@ public class TradeController {
     }
 
     @PostMapping("/record/{id}/confirm")
-    @Operation(summary = "卖家确认交易", description = "交易状态从 WAIT_CONFIRM 改为 TRADING，商品从 2-在售 改为 5-交易中")
+    @Operation(summary = "卖家确认交易", description = "交易状态从 WAIT_CONFIRM 改为 TRADING，商品仍保持 2-在售")
     public Result<ChatDTO.TradeRecordVO> confirmTrade(
             @PathVariable Long id,
             HttpServletRequest httpRequest) {
@@ -51,7 +51,7 @@ public class TradeController {
     }
 
     @PostMapping("/record/{id}/complete")
-    @Operation(summary = "完成交易", description = "卖家标记线下交易完成，交易状态从 TRADING 改为 COMPLETED，商品状态从 5-交易中 改为 3-已完成")
+    @Operation(summary = "完成交易", description = "卖家标记线下交易完成，交易状态从 TRADING 改为 COMPLETED，商品状态从 2-在售改为 3-已售出，并取消同商品其他有效交易")
     public Result<ChatDTO.TradeRecordVO> completeTrade(
             @PathVariable Long id,
             HttpServletRequest httpRequest) {
@@ -59,7 +59,7 @@ public class TradeController {
     }
 
     @PostMapping("/record/{id}/cancel")
-    @Operation(summary = "取消交易", description = "交易状态从 WAIT_CONFIRM/TRADING 改为 CANCELLED，商品状态从 5-交易中 恢复为 2-在售")
+    @Operation(summary = "取消交易", description = "交易状态从 WAIT_CONFIRM/TRADING 改为 CANCELLED，商品状态不变化")
     public Result<ChatDTO.TradeRecordVO> cancelTrade(
             @PathVariable Long id,
             HttpServletRequest httpRequest) {

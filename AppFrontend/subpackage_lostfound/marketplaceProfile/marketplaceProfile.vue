@@ -1,44 +1,59 @@
 <template>
   <view class="page-root">
-    <nav-bar title="我的" :fixed="true" :placeholder="true" :showBack="false" />
+    <common-page-header title="我的" :fixed="true" :placeholder="true" :showBack="false">
+      <template #left>
+        <view class="market-back-button" @click="onBackToApp">‹</view>
+      </template>
+    </common-page-header>
 
     <scroll-view scroll-y class="page-body">
       <!-- ========== 用户信息卡片 ========== -->
       <view class="user-card">
         <image class="uc-avatar" :src="avatarUrl" mode="aspectFill" />
         <view class="uc-info">
-          <view class="uc-name-row">
-            <text class="uc-name">{{ displayName }}</text>
-            <view v-if="isVerified" class="uc-badge">
-              <text>已认证</text>
-            </view>
+          <text class="uc-name">{{ displayName }}</text>
+          <view class="uc-badge">
+            <image class="uc-badge-icon" src="/static/icons/line/book-open.svg" mode="aspectFit" />
+            <text>校园用户</text>
           </view>
-          <text class="uc-school">{{ schoolName || '未设置' }}</text>
-          <text class="uc-student-id">学号 {{ studentId || '未设置' }}</text>
+          <view class="uc-meta-row">
+            <image class="uc-meta-icon" src="/static/icons/ant-design--safety-outlined.svg" mode="aspectFit" />
+            <text class="uc-student-id">学号{{ studentId || '未设置' }}</text>
+          </view>
         </view>
+        <text class="uc-arrow">›</text>
       </view>
 
       <!-- ========== 数据统计 ========== -->
       <view class="stats-row">
         <view class="stat-item">
           <text class="stat-num">{{ stats.myItems }}</text>
-          <text class="stat-label">我的发布</text>
+          <view class="stat-label-row">
+            <image class="stat-icon" src="/static/icons/publish.svg" mode="aspectFit" />
+            <text class="stat-label">我的发布</text>
+          </view>
+        </view>
+        <view class="stat-divider"></view>
+        <view class="stat-item">
+          <text class="stat-num">{{ stats.activeTrades }}</text>
+          <view class="stat-label-row">
+            <image class="stat-icon" src="/static/icons/line/credit-card.svg" mode="aspectFit" />
+            <text class="stat-label">进行中交易</text>
+          </view>
         </view>
         <view class="stat-divider"></view>
         <view class="stat-item">
           <text class="stat-num">{{ stats.myFavorites }}</text>
-          <text class="stat-label">我的收藏</text>
-        </view>
-        <view class="stat-divider"></view>
-        <view class="stat-item">
-          <text class="stat-num">{{ stats.completedTrades }}</text>
-          <text class="stat-label">成交数量</text>
+          <view class="stat-label-row">
+            <image class="stat-icon" src="/static/icons/line/award.svg" mode="aspectFit" />
+            <text class="stat-label">我的收藏</text>
+          </view>
         </view>
       </view>
 
-      <!-- ========== 交易管理 ========== -->
+      <!-- ========== 交易中心 ========== -->
       <view class="section-header">
-        <text class="section-title">交易管理</text>
+        <text class="section-title">交易中心</text>
       </view>
       <view class="menu-block">
         <view class="menu-item" @click="goToMyItems">
@@ -49,7 +64,7 @@
         <view class="menu-divider"></view>
         <view class="menu-item" @click="goToMyPurchases">
           <image class="menu-icon" src="/static/icons/line/credit-card.svg" mode="aspectFit" />
-          <text class="menu-label">我的购买</text>
+          <text class="menu-label">我的交易</text>
           <text class="menu-arrow">›</text>
         </view>
         <view class="menu-divider"></view>
@@ -60,9 +75,9 @@
         </view>
       </view>
 
-      <!-- ========== 其他 ========== -->
+      <!-- ========== 更多服务 ========== -->
       <view class="section-header">
-        <text class="section-title">其他</text>
+        <text class="section-title">更多服务</text>
       </view>
       <view class="menu-block">
         <view class="menu-item" @click="goToFavorites">
@@ -93,20 +108,20 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { getUserInfo, getToken } from '@/utils/storage.js'
 import { getMySecondhandItems, getMyFavorites, getTradeRecords } from '@/api/secondhand'
 
 export default {
-  components: { NavBar, MarketBottomBar },
+  components: { CommonPageHeader, MarketBottomBar },
   data() {
     return {
       userInfo: null,
       stats: {
         myItems: 0,
         myFavorites: 0,
-        completedTrades: 0
+        activeTrades: 0
       }
     }
   },
@@ -124,17 +139,9 @@ export default {
         : 'market-user'
       return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`
     },
-    schoolName() {
-      if (!this.userInfo) return ''
-      return this.userInfo.college || ''
-    },
     studentId() {
       if (!this.userInfo) return ''
       return this.userInfo.studentId || ''
-    },
-    isVerified() {
-      if (!this.userInfo) return false
-      return !!(this.userInfo.studentId || this.userInfo.personalNumber)
     }
   },
   onLoad() {
@@ -146,6 +153,9 @@ export default {
     this.loadStats()
   },
   methods: {
+    onBackToApp() {
+      uni.reLaunch({ url: '/pages/index/index' })
+    },
     loadUser() {
       this.userInfo = getUserInfo()
     },
@@ -161,7 +171,7 @@ export default {
         const records = Array.isArray(tradeRes?.data?.records)
           ? tradeRes.data.records
           : []
-        this.stats.completedTrades = records.filter(r => r.status === 'COMPLETED').length
+        this.stats.activeTrades = records.filter(r => ['WAIT_CONFIRM', 'TRADING'].includes(r.status)).length
       } catch (e) {
         console.error('加载统计数据失败', e)
       }
@@ -193,13 +203,13 @@ export default {
 .page-root {
   width: 100%;
   min-height: 100vh;
-  background: #F5F5F5;
+  background: #F7F8FA;
   padding-bottom: 130rpx;
 }
 
 .page-body {
   width: 100%;
-  padding: 20rpx 24rpx;
+  padding: 24rpx 28rpx 0;
   box-sizing: border-box;
 }
 
@@ -207,19 +217,19 @@ export default {
 .user-card {
   display: flex;
   align-items: center;
-  gap: 24rpx;
-  padding: 32rpx 28rpx;
+  gap: 34rpx;
+  padding: 50rpx 40rpx;
   background: #FFFFFF;
-  border-radius: 16rpx;
-  margin-bottom: 20rpx;
-  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
+  border-radius: 28rpx;
+  margin-bottom: 28rpx;
+  box-shadow: 0 22rpx 46rpx rgba(15, 23, 42, 0.08);
 }
 
 .uc-avatar {
-  width: 104rpx;
-  height: 104rpx;
+  width: 150rpx;
+  height: 150rpx;
   border-radius: 50%;
-  background: #F0F0F0;
+  background: #EAF4FF;
   flex-shrink: 0;
 }
 
@@ -228,53 +238,78 @@ export default {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
+  gap: 16rpx;
+}
+
+.uc-name {
+  max-width: 360rpx;
+  font-size: 44rpx;
+  line-height: 1.12;
+  font-weight: 800;
+  color: #17181A;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.uc-badge {
+  height: 44rpx;
+  padding: 0 18rpx;
+  border-radius: 14rpx;
+  background: #EEF5FF;
+  display: inline-flex;
+  align-items: center;
   gap: 8rpx;
 }
 
-.uc-name-row {
+.uc-badge text {
+  font-size: 26rpx;
+  color: #5578AF;
+  font-weight: 600;
+}
+
+.uc-badge-icon {
+  width: 30rpx;
+  height: 30rpx;
+  opacity: 0.72;
+}
+
+.uc-meta-row {
   display: flex;
   align-items: center;
   gap: 12rpx;
 }
 
-.uc-name {
-  font-size: 34rpx;
-  font-weight: 700;
-  color: #111111;
-}
-
-.uc-badge {
-  padding: 2rpx 14rpx;
-  border-radius: 999rpx;
-  background: #F5F5F5;
-  border: 1rpx solid #DDDDDD;
-}
-
-.uc-badge text {
-  font-size: 20rpx;
-  color: #666666;
-  font-weight: 500;
-}
-
-.uc-school {
-  font-size: 24rpx;
-  color: #888888;
+.uc-meta-icon {
+  width: 32rpx;
+  height: 32rpx;
+  opacity: 0.46;
 }
 
 .uc-student-id {
-  font-size: 22rpx;
-  color: #999999;
+  font-size: 28rpx;
+  line-height: 1.2;
+  color: #8B8F96;
+}
+
+.uc-arrow {
+  flex-shrink: 0;
+  color: #9A9A9A;
+  font-size: 68rpx;
+  font-weight: 200;
+  line-height: 1;
 }
 
 /* ========== Stats Row ========== */
 .stats-row {
   display: flex;
   align-items: center;
-  padding: 28rpx 0;
+  padding: 38rpx 0 34rpx;
   background: #FFFFFF;
-  border-radius: 16rpx;
-  margin-bottom: 28rpx;
-  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
+  border-radius: 28rpx;
+  margin-bottom: 42rpx;
+  box-shadow: 0 18rpx 42rpx rgba(15, 23, 42, 0.06);
 }
 
 .stat-item {
@@ -282,81 +317,105 @@ export default {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6rpx;
+  gap: 22rpx;
+  min-width: 0;
 }
 
 .stat-num {
-  font-size: 40rpx;
+  font-size: 48rpx;
   font-weight: 800;
-  color: #111111;
-  line-height: 1.2;
+  color: #17181A;
+  line-height: 1;
+}
+
+.stat-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  min-width: 0;
+}
+
+.stat-icon {
+  width: 34rpx;
+  height: 34rpx;
+  opacity: 0.72;
 }
 
 .stat-label {
-  font-size: 22rpx;
-  color: #888888;
+  font-size: 26rpx;
+  line-height: 1.2;
+  color: #8B8F96;
+  white-space: nowrap;
 }
 
 .stat-divider {
   width: 1rpx;
-  height: 48rpx;
-  background: #EEEEEE;
+  height: 80rpx;
+  background: #E4E6EA;
 }
 
 /* ========== Section Header ========== */
 .section-header {
-  padding: 0 4rpx 16rpx 4rpx;
+  padding: 0 6rpx 20rpx;
 }
 
 .section-title {
-  font-size: 24rpx;
-  font-weight: 600;
-  color: #999999;
+  font-size: 32rpx;
+  line-height: 1.2;
+  font-weight: 700;
+  color: #2B2D31;
 }
 
 /* ========== Menu Block ========== */
 .menu-block {
   background: #FFFFFF;
-  border-radius: 16rpx;
+  border-radius: 28rpx;
   overflow: hidden;
-  margin-bottom: 28rpx;
-  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
+  margin-bottom: 42rpx;
+  box-shadow: 0 18rpx 42rpx rgba(15, 23, 42, 0.05);
 }
 
 .menu-item {
   display: flex;
   align-items: center;
-  padding: 28rpx 28rpx;
+  min-height: 112rpx;
+  padding: 0 34rpx;
 }
 
 .menu-icon {
-  width: 36rpx;
-  height: 36rpx;
-  margin-right: 24rpx;
+  width: 44rpx;
+  height: 44rpx;
+  margin-right: 30rpx;
   flex-shrink: 0;
-  opacity: 0.5;
+  opacity: 0.78;
 }
 
 .menu-label {
   flex: 1;
-  font-size: 28rpx;
-  color: #111111;
+  font-size: 32rpx;
+  line-height: 1.2;
+  color: #2B2D31;
+  font-weight: 500;
 }
 
 .menu-arrow {
-  font-size: 32rpx;
-  color: #C7C7CC;
+  font-size: 56rpx;
+  color: #9D9FA4;
+  font-weight: 200;
+  line-height: 1;
   flex-shrink: 0;
 }
 
 .menu-divider {
   height: 1rpx;
-  margin-left: 84rpx;
-  background: #EEEEEE;
+  margin-left: 96rpx;
+  margin-right: 34rpx;
+  background: #EDEFF2;
 }
 
 /* ========== Bottom Spacer ========== */
 .bottom-spacer {
-  height: 40rpx;
+  height: 64rpx;
 }
 </style>

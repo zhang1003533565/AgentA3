@@ -176,12 +176,34 @@ CREATE TABLE IF NOT EXISTS favorite_destination (
     FOREIGN KEY (marker_id) REFERENCES map_marker(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='收藏目的地表';
 
+-- APP消息中心聚合消息表
+CREATE TABLE IF NOT EXISTS app_message (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '消息ID',
+    user_id BIGINT NOT NULL COMMENT '接收用户ID',
+    module_type VARCHAR(32) NOT NULL COMMENT '模块类型：LOST_FOUND/FORUM/EXAM/MEETING/LEARNING',
+    event_type VARCHAR(64) NOT NULL COMMENT '事件类型',
+    title VARCHAR(128) NOT NULL COMMENT '消息标题',
+    content VARCHAR(512) DEFAULT NULL COMMENT '消息内容',
+    target_page VARCHAR(255) DEFAULT NULL COMMENT '点击跳转页面',
+    target_params VARCHAR(1000) DEFAULT NULL COMMENT '跳转参数JSON',
+    source_id BIGINT DEFAULT NULL COMMENT '来源记录ID',
+    source_type VARCHAR(64) DEFAULT NULL COMMENT '来源类型',
+    is_read TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否已读',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    read_time DATETIME DEFAULT NULL COMMENT '阅读时间',
+    UNIQUE KEY uk_app_message_source_user_event (source_type, source_id, user_id, event_type),
+    KEY idx_app_message_user_time (user_id, create_time),
+    KEY idx_app_message_user_read (user_id, is_read),
+    KEY idx_app_message_module (module_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='APP消息中心聚合消息表';
+
 -- =============================================
 -- 第二部分：清空表数据（注意顺序，先删除有外键依赖的表）
 -- =============================================
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- 先清空地图/导航/评价表
+TRUNCATE TABLE app_message;
 TRUNCATE TABLE favorite_destination;
 TRUNCATE TABLE navigation_log;
 TRUNCATE TABLE map_config;
@@ -459,12 +481,14 @@ CREATE TABLE IF NOT EXISTS secondhand_item (
     favorite_count INT DEFAULT 0 COMMENT '收藏数',
     inquiry_count INT DEFAULT 0 COMMENT '咨询次数',
     heat_score INT DEFAULT 0 COMMENT '热度分 = 浏览*1 + 收藏*3 + 咨询*5',
-    status INT NOT NULL DEFAULT 2 COMMENT '状态: 2-在售 3-已售出 4-已下架 5-交易中',
+    status INT NOT NULL DEFAULT 2 COMMENT '状态: 2-在售 3-已售出 4-已下架',
     create_time DATETIME COMMENT '创建时间',
     update_time DATETIME COMMENT '更新时间',
     FOREIGN KEY (user_id) REFERENCES sys_user(id),
     FOREIGN KEY (category_id) REFERENCES secondhand_category(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='二手物品表';
+
+UPDATE secondhand_item SET status = 2 WHERE status = 5;
 
 -- 旧库迁移：为 secondhand_item 添加校区/热度字段（列不存在时自动补列）
 SET @si_db := DATABASE();

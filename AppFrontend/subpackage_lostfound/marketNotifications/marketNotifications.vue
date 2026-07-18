@@ -1,12 +1,12 @@
 <template>
   <view class="page-root">
-    <nav-bar title="系统通知" :fixed="true" :placeholder="true" :showBack="false">
+    <common-page-header title="系统通知" :fixed="true" :placeholder="true" :showBack="false">
       <template #left>
         <view class="header-back" @click="goBack">
           <text class="header-back-icon">‹</text>
         </view>
       </template>
-    </nav-bar>
+    </common-page-header>
 
     <scroll-view scroll-y class="page-body">
       <view v-if="announcements.length === 0" class="empty">
@@ -33,12 +33,12 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { getEnabledAnnouncements } from '@/api/notice'
 
 export default {
-  components: { NavBar, MarketBottomBar },
+  components: { CommonPageHeader, MarketBottomBar },
   data() {
     return {
       announcements: []
@@ -100,17 +100,16 @@ export default {
 
 /* 返回按钮（与首页一致） */
 .header-back {
-  width: 60rpx;
-  height: 60rpx;
+  width: 64rpx;
+  height: 64rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-left: -8rpx;
-  margin-right: 4rpx;
+  margin: 0;
 }
 
 .header-back-icon {
-  font-size: 56rpx;
+  font-size: 48rpx;
   font-weight: 300;
   color: #111111;
   line-height: 1;

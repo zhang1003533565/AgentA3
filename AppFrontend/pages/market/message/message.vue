@@ -2,9 +2,13 @@
   <view class="page-root">
     <view class="screen">
       <view class="container">
-        <nav-bar title="消息" :fixed="true" :placeholder="true" :showBack="false" />
+        <common-page-header title="消息" :fixed="true" :placeholder="true" :showBack="false">
+          <template #left>
+            <view class="market-back-button" @click="onBackToApp">‹</view>
+          </template>
+        </common-page-header>
 
-        <scroll-view scroll-y class="page-body">
+        <scroll-view scroll-y class="page-body" :show-scrollbar="false">
           <!-- 通知卡片（固定第一行，不参与排序） -->
           <view class="notify-card" @click="goToNotifications">
             <view class="notify-left">
@@ -29,7 +33,8 @@
             </view>
           </view>
 
-          <view class="section-title">
+          <view class="section-title chat-section-title">
+            <view class="section-title-mark"></view>
             <text>聊天消息</text>
           </view>
 
@@ -63,7 +68,7 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { getChatSessions, getTradeNotificationUnreadCount } from '@/api/secondhand'
 import { getEnabledAnnouncements } from '@/api/notice'
@@ -82,7 +87,7 @@ function normalizeSession(item) {
 }
 
 export default {
-  components: { NavBar, MarketBottomBar },
+  components: { CommonPageHeader, MarketBottomBar },
   data() {
     return {
       sessions: [],
@@ -111,6 +116,9 @@ export default {
     }
   },
   methods: {
+    onBackToApp() {
+      uni.reLaunch({ url: '/pages/index/index' })
+    },
     async loadData() {
       await Promise.all([
         this.loadSessions(),
@@ -187,15 +195,18 @@ export default {
 <style lang="scss" scoped>
 .page-root {
   width: 100%;
+  height: 100vh;
   min-height: 100vh;
   background: #F5F5F5;
-  padding-bottom: 130rpx;
+  overflow: hidden;
 }
 
 .screen {
   width: 100%;
   background: #F5F5F5;
+  height: 100vh;
   min-height: 100vh;
+  overflow: hidden;
 }
 
 .container {
@@ -205,13 +216,27 @@ export default {
   box-sizing: border-box;
   padding: 0 24rpx;
   background: #F5F5F5;
+  height: 100vh;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .page-body {
   flex: 1;
+  min-height: 0;
+  height: 0;
   overflow-y: auto;
-  padding: 20rpx 0;
+  padding: 20rpx 0 150rpx;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.page-body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 /* 通知卡片 */
@@ -272,6 +297,24 @@ export default {
   font-size: 28rpx;
   font-weight: 700;
   line-height: 1.2;
+}
+
+.chat-section-title {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  padding: 10rpx 4rpx 18rpx;
+  color: #1D1D1F;
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+.section-title-mark {
+  width: 8rpx;
+  height: 34rpx;
+  border-radius: 999rpx;
+  background: #6F98D0;
+  flex-shrink: 0;
 }
 
 /* 空状态 */

@@ -2,7 +2,7 @@
   <view class="page-root">
     <view class="screen">
       <view class="container">
-        <nav-bar title="交易通知" :fixed="true" :placeholder="true" />
+        <common-page-header title="交易通知" :fixed="true" :placeholder="true" :showBack="true" />
 
         <scroll-view scroll-y class="page-body">
           <view v-if="notifications.length === 0" class="empty">
@@ -39,9 +39,9 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
-import { getTradeNotifications, markTradeNotificationRead } from '@/api/secondhand'
+import { getTradeNotifications, markAllTradeNotificationsRead, markTradeNotificationRead } from '@/api/secondhand'
 import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore'
 
 const STATUS_TEXT = {
@@ -69,7 +69,7 @@ function normalizeNotification(item) {
 
 export default {
   components: {
-    NavBar,
+    CommonPageHeader,
     MarketBottomBar
   },
   data() {
@@ -88,6 +88,7 @@ export default {
       }
     })
     await this.loadNotifications()
+    await this.markAllNotificationsRead()
   },
   async onShow() {
     await refreshMessageState('trade-notifications-show')
@@ -120,6 +121,17 @@ export default {
         uni.showToast({ title: '通知加载失败', icon: 'none' })
       } finally {
         this.loading = false
+      }
+    },
+    async markAllNotificationsRead() {
+      const hasUnread = this.notifications.some((item) => !item.isRead)
+      if (!hasUnread) return
+      try {
+        await markAllTradeNotificationsRead()
+        this.notifications = this.notifications.map((item) => ({ ...item, isRead: true }))
+        await refreshMessageState('trade-notifications-read-all')
+      } catch (e) {
+        console.error('批量标记交易通知已读失败', e)
       }
     },
     statusText(status) {

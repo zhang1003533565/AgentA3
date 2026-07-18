@@ -9,12 +9,17 @@
       :background="background"
       :heightRpx="heightRpx"
       :titleColor="titleColor"
+      :subtitle="subtitle"
+      :subtitleColor="subtitleColor"
+      :iconColor="iconColor"
       :shadow="shadow"
+      @back="$emit('back')"
+      @right-click="$emit('right-click')"
     >
-      <template #left>
+      <template v-if="$slots.left" #left>
         <slot name="left"></slot>
       </template>
-      <template #right>
+      <template v-if="$slots.right" #right>
         <slot name="right"></slot>
       </template>
     </nav-bar>
@@ -29,6 +34,7 @@ export default {
   components: { NavBar },
   props: {
     title: { type: String, default: '' },
+    subtitle: { type: String, default: '' },
     fixed: { type: Boolean, default: true },
     placeholder: { type: Boolean, default: true },
     showBack: { type: Boolean, default: false },
@@ -36,6 +42,8 @@ export default {
     background: { type: String, default: '#E8F0F8' },
     heightRpx: { type: Number, default: 88 },
     titleColor: { type: String, default: '#1D1D1F' },
+    subtitleColor: { type: String, default: '#8E8E93' },
+    iconColor: { type: String, default: '#1D1D1F' },
     shadow: { type: Boolean, default: false }
   },
   computed: {

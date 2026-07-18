@@ -432,7 +432,6 @@ public class SecondhandServiceImpl implements SecondhandService {
             case 2: return "在售";
             case 3: return "已售出";
             case 4: return "已下架";
-            case 5: return "交易中";
             default: return "";
         }
     }

@@ -288,11 +288,13 @@ export default {
 }
 
 .nav-action {
-  height: 72rpx;
+  width: 64rpx;
+  height: 64rpx;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 12rpx;
+  padding: 0;
+  margin: 0;
   border-radius: 999rpx;
   transition: background-color 0.18s ease, transform 0.12s ease;
 }
@@ -303,14 +305,14 @@ export default {
 }
 
 .nav-action--wechat {
-  width: 72rpx;
-  height: 72rpx;
+  width: 64rpx;
+  height: 64rpx;
   padding: 0;
   border-radius: 50%;
 }
 
 .nav-back-icon {
-  font-size: 64rpx;
+  font-size: 48rpx;
   line-height: 1;
   font-weight: 300;
 }
@@ -378,5 +380,40 @@ export default {
   height: 12rpx;
   border-radius: 50%;
   background: #111827;
+}
+</style>
+
+<style lang="scss">
+.market-back-button {
+  position: relative;
+  width: 64rpx;
+  height: 64rpx;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  border-radius: 999rpx;
+  color: #1D1D1F;
+  font-size: 0;
+  line-height: 0;
+  box-sizing: border-box;
+  transition: background-color 0.18s ease, transform 0.12s ease;
+}
+
+.market-back-button::before {
+  content: '';
+  width: 20rpx;
+  height: 20rpx;
+  border-left: 4rpx solid currentColor;
+  border-bottom: 4rpx solid currentColor;
+  transform: rotate(45deg);
+  border-radius: 2rpx;
+  box-sizing: border-box;
+}
+
+.market-back-button:active {
+  background: rgba(15, 23, 42, 0.06);
+  transform: scale(0.96);
 }
 </style>

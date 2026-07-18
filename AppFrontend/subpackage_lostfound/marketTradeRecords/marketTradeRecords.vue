@@ -1,7 +1,7 @@
 <template>
   <view class="page-root">
     <view class="container">
-      <nav-bar title="交易记录" :fixed="true" :placeholder="true" />
+      <common-page-header title="交易记录" :fixed="true" :placeholder="true" :showBack="true" />
       <scroll-view scroll-y class="page-body">
         <view v-if="records.length === 0" class="empty"><text>暂无交易记录</text></view>
         <view v-for="record in records" :key="record.id" class="record-card" @click="openDetail(record.itemId)">
@@ -17,12 +17,12 @@
 </template>
 
 <script>
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { getTradeRecords } from '@/api/secondhand'
 
 export default {
-  components: { NavBar, MarketBottomBar },
+  components: { CommonPageHeader, MarketBottomBar },
   data() {
     return { records: [] }
   },

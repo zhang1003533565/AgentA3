@@ -31,4 +31,12 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
             "AND (cs.buyerId = :userId OR cs.sellerId = :userId)")
     long countUnreadTradeNotifications(@Param("userId") Long userId);
 
+    @Modifying
+    @Query("UPDATE ChatMessage cm SET cm.isRead = true WHERE cm.messageType IN (0, 4) " +
+            "AND cm.senderId <> :userId AND cm.isRead = false " +
+            "AND cm.sessionId IN (" +
+            "SELECT cs.id FROM ChatSession cs WHERE cs.buyerId = :userId OR cs.sellerId = :userId" +
+            ")")
+    int markAllTradeNotificationsReadByUser(@Param("userId") Long userId);
+
 }

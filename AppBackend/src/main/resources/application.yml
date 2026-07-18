@@ -2,6 +2,10 @@ server:
   port: ${SERVER_PORT:8080}
   servlet:
     context-path: /
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
 
 spring:
   application:
@@ -11,7 +15,7 @@ spring:
       mode: ${SPRING_SQL_INIT_MODE:never}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/smart-campus?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/smart-campus?useUnicode=true&characterEncoding=utf8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai}
     username: ${SPRING_DATASOURCE_USERNAME:root}
     password: ${SPRING_DATASOURCE_PASSWORD:123456}
   jpa:
@@ -32,27 +36,27 @@ spring:
       max-request-size: 200MB
 
 jwt:
-  secret: your-256-bit-secret-key-here-make-it-long-enough-for-hs256
-  expiration: 86400000
+  secret: ${JWT_SECRET:your-256-bit-secret-key-here-make-it-long-enough-for-hs256}
+  expiration: ${JWT_EXPIRATION:86400000}
 
 tencent:
   map:
-    key: F2ABZ-VU4LH-BDKDF-W7XCC-RXYX2-4AB52
+    key: ${TENCENT_MAP_KEY:}
     base-url: https://apis.map.qq.com
   cos:
-    secret-id: AKIDsjNo2b1EF3d5MPEqEPM6buzrVxCE2e5K
-    secret-key: 6yc3GF0XszsXzDH7j8KK6f193kEWaQ3a
-    region: ap-beijing
-    bucket: luke-1332125786
-    domain: https://luke-1332125786.cos.ap-beijing.myqcloud.com
+    secret-id: ${TENCENT_COS_SECRET_ID:}
+    secret-key: ${TENCENT_COS_SECRET_KEY:}
+    region: ${TENCENT_COS_REGION:ap-beijing}
+    bucket: ${TENCENT_COS_BUCKET:}
+    domain: ${TENCENT_COS_DOMAIN:}
     upload-prefix: smart-campus/media
     map-buildings-prefix: smart-campus/map-buildings
 
 amap:
   app:
-    key: e4cbde60bc0dc20719889d7f585d9452
+    key: ${AMAP_APP_KEY:}
   web:
-    key: 64bc139adb6a611277fb8f6821b371ac
+    key: ${AMAP_WEB_KEY:}
     base-url: https://restapi.amap.com
 
 ai:
@@ -72,11 +76,11 @@ knowledge:
 
 aliyun:
   oss:
-    endpoint: oss-cn-beijing.aliyuncs.com
-    bucket-name: smart-campus111
-    access-key-id: LTAI5tG9NLKEfSZVw3EZ2d1E
-    access-key-secret: yagymAoKXBh0rDJT7ArNTeXDUhsuRX
-    base-url: https://smart-campus111.oss-cn-beijing.aliyuncs.com
+    endpoint: ${ALIYUN_OSS_ENDPOINT:oss-cn-beijing.aliyuncs.com}
+    bucket-name: ${ALIYUN_OSS_BUCKET_NAME:}
+    access-key-id: ${ALIYUN_OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${ALIYUN_OSS_ACCESS_KEY_SECRET:}
+    base-url: ${ALIYUN_OSS_BASE_URL:}
 
 file:
   upload-dir: uploads

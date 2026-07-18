@@ -5,7 +5,11 @@
       <!-- 列表页 -->
       <view v-if="currentPage === 'list'" class="page page-list">
         <view class="page-content">
-          <nav-bar title="校园集市" :fixed="true" :placeholder="true" :showBack="false" />
+          <common-page-header title="校园集市" :fixed="true" :placeholder="true" :showBack="false">
+            <template #left>
+              <view class="market-back-button" @click="onBackToApp">‹</view>
+            </template>
+          </common-page-header>
 
           <view class="market-hero">
 
@@ -23,38 +27,47 @@
               </view>
             </view>
 
-            <view class="scene-strip">
-              <view
-                v-for="tag in sceneTags"
-                :key="tag.key"
-                class="scene-chip"
-                :class="{ on: currentSceneTag === tag.key }"
-                @click="applySceneTag(tag)"
-              >
-                <text class="scene-chip-title">{{ tag.label }}</text>
-                <text class="scene-chip-sub">{{ tag.sub }}</text>
-              </view>
-            </view>
           </view>
 
-          <view class="category-shell">
+          <view class="category-shell" :class="{ 'category-shell--collapsed': !categoryExpanded }">
             <view class="section-headline">
-              <text class="section-title">商品分类</text>
-              <text class="section-note">本校同学闲置</text>
+              <text class="section-title">分类浏览</text>
+              <view class="category-toggle" @click.stop="toggleCategoryPanel">
+                <view
+                  class="category-toggle-icon"
+                  :class="{ 'category-toggle-icon--expanded': categoryExpanded }"
+                ></view>
+              </view>
             </view>
-            <view class="cat-grid">
-              <view
-                v-for="cat in categories"
-                :key="cat.key"
-                class="cat-item"
-                :class="{ on: currentCat === cat.key }"
-                @click="currentCat = cat.key"
-              >
-                <view class="cat-icon-wrap">
-                  <image v-if="cat.icon" class="cat-icon-img" :src="cat.icon" mode="aspectFit" />
-                  <text v-else class="cat-icon-text">{{ cat.label.slice(0, 1) }}</text>
+            <view class="category-collapse" :class="{ 'category-collapse--expanded': categoryExpanded }">
+              <view class="category-collapse-inner">
+                <view class="scene-strip scene-strip--in-category">
+                  <view
+                    v-for="tag in sceneTags"
+                    :key="tag.key"
+                    class="scene-chip"
+                    :class="{ on: currentSceneTag === tag.key }"
+                    @click="applySceneTag(tag)"
+                  >
+                    <text class="scene-chip-title">{{ tag.label }}</text>
+                    <text class="scene-chip-sub">{{ tag.sub }}</text>
+                  </view>
                 </view>
-                <text class="cat-label" :class="{ 'cat-label--muted': cat.key === 'more' }">{{ cat.label }}</text>
+                <view class="cat-grid">
+                  <view
+                    v-for="cat in categories"
+                    :key="cat.key"
+                    class="cat-item"
+                    :class="{ on: currentCat === cat.key }"
+                    @click="currentCat = cat.key"
+                  >
+                    <view class="cat-icon-wrap">
+                      <image v-if="cat.icon" class="cat-icon-img" :src="cat.icon" mode="aspectFit" />
+                      <text v-else class="cat-icon-text">{{ cat.label.slice(0, 1) }}</text>
+                    </view>
+                    <text class="cat-label" :class="{ 'cat-label--muted': cat.key === 'more' }">{{ cat.label }}</text>
+                  </view>
+                </view>
               </view>
             </view>
           </view>
@@ -274,7 +287,7 @@
 
       <!-- 详情页 -->
       <view v-else-if="currentPage === 'detail'" class="page page-detail">
-        <nav-bar title="详情" :fixed="true" :placeholder="true" @back="go('pgList')" />
+        <common-page-header title="详情" :fixed="true" :placeholder="true" :showBack="true" @back="go('pgList')" />
 
         <scroll-view scroll-y class="page-body">
           <view class="dimg">
@@ -308,7 +321,7 @@
 
       <!-- 聊天 -->
       <view v-else-if="currentPage === 'chat'" class="page page-chat">
-        <nav-bar :title="curChat ? curChat.otherName : '聊天'" :fixed="true" :placeholder="true" @back="go('pgDetail')" />
+        <common-page-header :title="curChat ? curChat.otherName : '聊天'" :fixed="true" :placeholder="true" :showBack="true" @back="go('pgDetail')" />
 
         <scroll-view scroll-y class="chat-body" :scroll-into-view="scrollBottom" scroll-with-animation @scroll="onChatScroll">
           <view v-for="m in chatMessages" :key="m.id" :id="'msg-' + m.id">
@@ -391,7 +404,7 @@
 
       <!-- 我的发布 -->
       <view v-else-if="currentPage === 'myitems'" class="page page-myitems">
-        <nav-bar title="我发布的" :fixed="true" :placeholder="true" @back="go('pgList')" />
+        <common-page-header title="我发布的" :fixed="true" :placeholder="true" :showBack="true" @back="go('pgList')" />
 
         <scroll-view scroll-y class="page-body">
           <view v-if="myItems.length === 0" class="empty">
@@ -424,7 +437,7 @@
 
       <!-- 我的消息 -->
       <view v-else-if="currentPage === 'mymessages'" class="page page-mymessages">
-        <nav-bar title="我的消息" :fixed="true" :placeholder="true" @back="go('pgList')" />
+        <common-page-header title="我的消息" :fixed="true" :placeholder="true" :showBack="true" @back="go('pgList')" />
 
         <scroll-view scroll-y class="page-body">
           <view v-if="chats.length === 0" class="empty">
@@ -474,7 +487,7 @@
 
 <script>
 import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant.vue'
-import NavBar from '@/components/nav-bar/nav-bar.vue'
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import MarketSearchEntry from '@/components/market-search-entry/market-search-entry.vue'
 import { getSecondhandItemList } from '@/api/secondhand'
@@ -581,8 +594,8 @@ function normalizeItem(item) {
     price: item.price,
     originalPrice: item.originalPrice || item.original_price || null,
     type: 'sell',
-    status: item.status === 2 ? 'online' : item.status === 5 ? 'reserved' : item.status === 4 ? 'offline' : 'sold',
-    statusText: item.statusText || (item.status === 2 ? '在售' : item.status === 5 ? '交易中' : item.status === 3 ? '已售出' : '已下架'),
+    status: item.status === 4 ? 'offline' : item.status === 3 ? 'sold' : 'online',
+    statusText: item.statusText || (item.status === 3 ? '已售出' : item.status === 4 ? '已下架' : '在售'),
     cat: String(categoryId),
     images: Array.isArray(item.images) ? item.images : [],
     userId: item.userId,
@@ -623,7 +636,7 @@ function normalizeItem(item) {
 export default {
   components: {
     AiFloatAssistant,
-    NavBar,
+    CommonPageHeader,
     MarketBottomBar,
     MarketSearchEntry
   },
@@ -636,6 +649,7 @@ export default {
       currentPage: 'list',
       currentTab: 'market',
       currentCat: 'all',
+      categoryExpanded: false,
       currentType: 'all',
       currentSceneTag: '',
       sortBy: 'latest',
@@ -1004,6 +1018,9 @@ export default {
       }
       this.currentPage = pageMap[page] || 'list'
     },
+    onBackToApp() {
+      uni.reLaunch({ url: '/pages/index/index' })
+    },
     goToMyItems() {
       uni.navigateTo({
         url: '/subpackage_lostfound/myItems/myItems'
@@ -1022,6 +1039,10 @@ export default {
     goToMarket() {
       this.currentTab = 'market'
       this.currentPage = 'list'
+      this.categoryExpanded = false
+    },
+    toggleCategoryPanel() {
+      this.categoryExpanded = !this.categoryExpanded
     },
     goToMine() {
       this.currentTab = 'mine'
@@ -1431,6 +1452,12 @@ export default {
   display: none;
 }
 
+.scene-strip--in-category {
+  padding: 0 0 22rpx;
+  margin-bottom: 22rpx;
+  border-bottom: 1rpx solid #F0F1F3;
+}
+
 .scene-chip {
   min-width: 142rpx;
   padding: 14rpx 18rpx;
@@ -1470,15 +1497,17 @@ export default {
 
 .section-headline {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   margin-bottom: 22rpx;
+  transition: margin-bottom 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .section-title {
   font-size: 30rpx;
   font-weight: 800;
   color: #1D1D1F;
+  line-height: 1;
 }
 
 .section-note {
@@ -1486,13 +1515,94 @@ export default {
   color: #8E8E93;
 }
 
+.category-toggle {
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.category-toggle:active {
+  background: transparent;
+}
+
+.category-toggle-icon {
+  width: 30rpx;
+  height: 30rpx;
+  position: relative;
+  color: #1D1D1F;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.category-toggle-icon::before {
+  content: '';
+  width: 14rpx;
+  height: 14rpx;
+  border-right: 2rpx solid currentColor;
+  border-bottom: 2rpx solid currentColor;
+  transform: rotate(45deg);
+  transform-origin: center;
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.category-toggle-icon--expanded::before {
+  transform: rotate(225deg);
+}
+
 /* ===== Categories (4-col inside card, from homepage) ===== */
 .category-shell {
+  display: flex;
+  flex-direction: column;
   background: #fff;
   border-radius: 20rpx;
   margin: 18rpx 24rpx 0;
   padding: 24rpx 20rpx 22rpx;
   border: 1rpx solid #EEEEEE;
+  transition:
+    height 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.category-shell--collapsed {
+  height: 88rpx;
+  padding-top: 0;
+  padding-bottom: 0;
+  justify-content: center;
+}
+
+.category-shell--collapsed .section-headline {
+  height: 100%;
+  margin-bottom: 0;
+}
+
+.category-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(-8rpx);
+  overflow: hidden;
+  transition:
+    grid-template-rows 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease-out,
+    transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.category-collapse--expanded {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.category-collapse-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .cat-grid {
