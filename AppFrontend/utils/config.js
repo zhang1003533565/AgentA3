@@ -9,7 +9,7 @@ export function getApiBaseUrl() {
   return trimTrailingSlash(injected || 'http://localhost:8080')
   // #endif
   // #ifndef H5
-  return trimTrailingSlash(injected || 'http://127.0.0.1:8080')
+  return trimTrailingSlash(injected || 'http://120.27.207.149')
   // #endif
 }
 

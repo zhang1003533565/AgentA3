@@ -1,5 +1,5 @@
 {
-    "name" : "AppFrontend",
+    "name" : "学迹智引",
     "appid" : "__UNI__5037171",
     "description" : "",
     "versionName" : "1.0.0",
@@ -44,7 +44,9 @@
                 ]
             },
             /* ios打包配置 */
-            "ios" : {},
+            "ios" : {
+                "dSYMs" : false
+            },
             /* SDK配置 */
             "sdkConfigs" : {
                 "maps" : {
