@@ -28,6 +28,16 @@ class RecordingChatService:
         )
 
 
+class StaticPlanChatService:
+    def __init__(self, plan) -> None:
+        self.plan = plan
+        self.calls = 0
+
+    def complete(self, system_prompt, user_prompt):
+        self.calls += 1
+        return json.dumps(self.plan, ensure_ascii=False)
+
+
 class LeaderFastRouteTest(unittest.TestCase):
     def setUp(self) -> None:
         self.agent = LeaderAgent()
@@ -84,6 +94,64 @@ class LeaderFastRouteTest(unittest.TestCase):
         self.assertEqual("llm_fallback", task.intent)
         self.assertEqual("llm", task.route_mode)
         self.assertEqual(1, self.provider.calls)
+
+    def test_generic_python_learning_request_delegates_to_knowledge_agent_not_image(self):
+        plan = self.agent.plan(
+            "我想学习python",
+            chat_service=self.provider,
+            callable_catalog={
+                "agents": [{"name": "textbook_knowledge_agent", "enabled": True}],
+            },
+        )
+
+        self.assertEqual(0, self.provider.calls)
+        self.assertEqual("learning_guidance", plan.intent)
+        self.assertEqual("textbook_knowledge_agent", plan.target_agent)
+        self.assertEqual("delegate_agent", plan.action)
+        self.assertEqual("rules", plan.route_mode)
+
+    def test_profile_image_preference_cannot_turn_plain_explanation_into_image_generation(self):
+        provider = StaticPlanChatService({
+            "intent": "image_generation",
+            "target_agent": "image_agent",
+            "need_retrieval": False,
+            "action": "delegate_agent",
+            "route_reason": "画像偏好图片。",
+        })
+
+        plan = self.agent.plan(
+            "解释一下 Python 装饰器",
+            chat_service=provider,
+            callable_catalog={
+                "agents": [
+                    {"name": "image_agent", "enabled": True},
+                    {"name": "textbook_knowledge_agent", "enabled": True},
+                ],
+            },
+        )
+
+        self.assertEqual(1, provider.calls)
+        self.assertEqual("textbook_knowledge_agent", plan.target_agent)
+        self.assertEqual("delegate_agent", plan.action)
+        self.assertEqual("rules", plan.route_mode)
+
+    def test_explicit_image_request_can_still_use_image_agent(self):
+        provider = StaticPlanChatService({
+            "intent": "image_generation",
+            "target_agent": "image_agent",
+            "need_retrieval": False,
+            "action": "delegate_agent",
+            "route_reason": "用户明确要求图片。",
+        })
+
+        plan = self.agent.plan(
+            "给我生成一张 Python 学习路线图片",
+            chat_service=provider,
+            callable_catalog={"agents": [{"name": "image_agent", "enabled": True}]},
+        )
+
+        self.assertEqual("image_agent", plan.target_agent)
+        self.assertEqual("llm", plan.route_mode)
 
     def test_mind_map_image_agent_returned_by_leader_model_is_accepted(self):
         plan = self.agent._parse_llm_plan({

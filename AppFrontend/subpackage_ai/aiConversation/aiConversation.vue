@@ -2039,7 +2039,7 @@ export default {
   flex: 1;
   height: 0;
   min-height: 0;
-  padding: 24rpx 24rpx 112rpx;
+  padding: 24rpx;
   box-sizing: border-box;
 }
 

@@ -130,6 +130,14 @@ _FAST_ROUTE_MULTI_INTENT_TOKENS = (
     "再帮我",
     "然后",
 )
+_EXPLICIT_VISUAL_OUTPUT_TOKENS = (
+    "生成图片", "生成一张", "生成张", "画一张", "画张", "画图", "做一张", "来一张", "配图", "插图", "封面图", "海报",
+    "图片版", "图解版", "文生图", "思维导图", "脑图", "流程图", "活动图", "泳道图", "架构图",
+)
+_VISUAL_GENERATION_AGENTS = frozenset({
+    "image_agent", "diagram_mind_map_agent", "diagram_flowchart_agent",
+    "diagram_activity_agent", "diagram_architecture_agent", "ppt_image_agent",
+})
 _FAST_ROUTE_QUERY_ACTION_TOKENS = (
     "查询",
     "查看",
@@ -349,6 +357,10 @@ class LeaderAgent:
         if learning_plan:
             return learning_plan
 
+        learning_guidance_plan = self._plan_learning_guidance_agent(input_text, callable_catalog)
+        if learning_guidance_plan:
+            return learning_guidance_plan
+
         if self._is_callable_catalog_query(input_text):
             return LeaderPlan(
                 intent="leader_callable_catalog",
@@ -416,6 +428,36 @@ class LeaderAgent:
             route_reason="Python 课程个性化学习请求进入受控多智能体工作流。",
             route_mode="workflow",
         )
+
+    def _plan_learning_guidance_agent(
+        self,
+        input_text: str,
+        callable_catalog: Optional[Dict[str, Any]],
+    ) -> Optional[LeaderPlan]:
+        normalized = self._normalize_fast_route_text(input_text)
+        if not normalized or self._has_explicit_visual_output_request(normalized):
+            return None
+        if not any(token in normalized for token in (
+            "想学", "想学习", "怎么学", "如何学", "如何学习", "学习路线", "入门", "从哪开始",
+        )):
+            return None
+        if not self._catalog_agent_enabled(callable_catalog, "textbook_knowledge_agent"):
+            return None
+        return LeaderPlan(
+            intent="learning_guidance",
+            target_agent="textbook_knowledge_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            action="delegate_agent",
+            route_reason="用户询问学习方法且未明确要求图片，调用教材知识点智能体生成学习建议；画像输出偏好不覆盖当前指令。",
+            route_mode="rules",
+        )
+
+    def _has_explicit_visual_output_request(self, input_text: str) -> bool:
+        normalized = self._normalize_fast_route_text(input_text)
+        if any(token in normalized for token in _EXPLICIT_VISUAL_OUTPUT_TOKENS):
+            return True
+        return "图片" in normalized and any(token in normalized for token in ("生成", "画", "制作", "做成", "转成"))
 
     def _plan_with_rules(self, input_text: str, rag_strategy: str = "") -> LeaderPlan:
         plan = self._plan_with_rules_impl(input_text, rag_strategy)
@@ -787,6 +829,18 @@ class LeaderAgent:
             return item.get("enabled") is not False
         return False
 
+    def _catalog_agent_enabled(self, callable_catalog: Optional[Dict[str, Any]], agent_name: str) -> bool:
+        if not isinstance(callable_catalog, dict):
+            return True
+        agents = callable_catalog.get("agents")
+        if not isinstance(agents, list):
+            return True
+        for item in agents:
+            if not isinstance(item, dict) or str(item.get("name") or "").strip() != agent_name:
+                continue
+            return item.get("enabled") is not False
+        return False
+
     def _schedule_fast_route_response(self, input_text: str) -> tuple[str, str]:
         if is_course_teacher_query(input_text):
             return "course_teacher", "正在为你查询课程老师。"
@@ -831,6 +885,7 @@ class LeaderAgent:
         parsed = self._parse_llm_plan(plan, rag_strategy)
         if not parsed:
             raise HTTPException(status_code=502, detail=f"Leader LLM 路由结果字段不合法：{plan}")
+        parsed = self._enforce_current_input_output_intent(parsed, input_text, callable_catalog)
         logger.info(
             "leader llm plan intent=%s action=%s target=%s retrieval=%s",
             parsed.intent,
@@ -839,6 +894,37 @@ class LeaderAgent:
             parsed.need_retrieval,
         )
         return parsed
+
+    def _enforce_current_input_output_intent(
+        self,
+        plan: LeaderPlan,
+        input_text: str,
+        callable_catalog: Optional[Dict[str, Any]],
+    ) -> LeaderPlan:
+        if plan.target_agent not in _VISUAL_GENERATION_AGENTS:
+            return plan
+        if self._has_explicit_visual_output_request(input_text):
+            return plan
+        if self._catalog_agent_enabled(callable_catalog, "textbook_knowledge_agent"):
+            return LeaderPlan(
+                intent="textbook_knowledge",
+                target_agent="textbook_knowledge_agent",
+                need_retrieval=False,
+                rag_strategy="",
+                action="delegate_agent",
+                route_reason="当前输入没有明确要求图片或图表，已阻止画像输出偏好覆盖本轮指令，并改由教材知识点智能体处理。",
+                route_mode="rules",
+            )
+        return LeaderPlan(
+            intent="output_format_clarification",
+            target_agent="leader_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            action="direct_answer",
+            route_reason="当前输入没有明确要求图片，且没有已确认可用的文本知识智能体，先询问用户需要的内容形式。",
+            answer="你希望我先给出文字学习建议，还是生成图片或图解？",
+            route_mode="rules",
+        )
 
     def _parse_llm_plan(self, plan: Dict[str, Any], requested_rag_strategy: str) -> Optional[LeaderPlan]:
         if not isinstance(plan, dict):
@@ -1319,7 +1405,7 @@ def build_leader_router_user_prompt(
             "行为证据实时沉淀，雷达图分数由 Java 后端定时汇总更新。",
             "Leader 不能直接更新画像分数；发现明确证据或冲突时只在 route_reason 中说明，由 Java 按 campus-profile-evidence-v1 记录候选证据。",
             "当前输入与画像冲突时，以当前输入完成本轮回答，并在 route_reason 中说明冲突倾向。",
-            "如果 profile_snapshot.outputPreferenceHints 显示用户稳定偏好文件/图片等输出形式，同类任务默认参考该偏好，并在结尾提示可补另一种形式。",
+            "profile_snapshot.outputPreferenceHints 只能用于提供后续图片版/文件版选项，不能凭偏好把普通学习、解释或问答请求改成生图任务。只有当前 user_input 明确要求图片、图解或具体图表时，才允许选择图片/图表智能体。",
             "如果任务既可做图片又可做文件且没有稳定偏好，先询问用户要图片形式还是文件形式。",
             "用户要求文件版/文档版/Excel/Word/打包下载时，优先路由到能生成知识、题库、会议纪要或 PPT 大纲的专业智能体；AI Server 会自动调用 generated_export_tools 生成附件，不要把长内容只当纯文字回复。",
             "用户要求题库表格或题库 Excel 时，仍先选择对应题型智能体生成严格题库 JSON，再由导出工具转换为 md/docx/xlsx/zip。",

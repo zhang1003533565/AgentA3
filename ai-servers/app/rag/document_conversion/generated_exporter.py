@@ -1213,9 +1213,11 @@ def _attachment_for_file(path: Path, tool_name: str, format_label: str) -> Dict[
     ext = path.suffix.lower().lstrip(".")
     attachment_type = "docx" if ext == "docx" else "excel" if ext == "xlsx" else "file"
     export_metadata = _commit_export_manifest(path)
+    display_stem = re.sub(r'[\\/:*?"<>|\r\n]+', "-", str(format_label or "生成文件")).strip(" .-")
+    display_name = f"{display_stem or '生成文件'}.{ext}"
     return {
-        "name": path.name,
-        "fileName": path.name,
+        "name": display_name,
+        "fileName": display_name,
         "type": attachment_type,
         "ext": ext,
         "mimeType": export_metadata["mimeType"],

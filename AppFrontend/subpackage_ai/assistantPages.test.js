@@ -219,7 +219,8 @@ test('full conversation keeps a growing composer in flex flow so it cannot cover
 
   assert.match(style, /\.conversation-page\s*\{[\s\S]{0,220}padding-bottom:\s*0/)
   assert.match(style, /\.message-list\s*\{[\s\S]{0,160}min-height:\s*0/)
-  assert.match(style, /\.message-list\s*\{[\s\S]{0,220}padding:\s*24rpx 24rpx 112rpx/)
+  assert.match(style, /\.message-list\s*\{[\s\S]{0,220}padding:\s*24rpx/)
+  assert.doesNotMatch(style, /\.message-list\s*\{[\s\S]{0,220}padding:\s*24rpx 24rpx 112rpx/)
   assert.match(style, /\.scroll-to-bottom\s*\{[\s\S]{0,180}position:\s*absolute/)
   assert.match(style, /\.scroll-to-bottom\s*\{[\s\S]{0,220}bottom:\s*calc\(112rpx \+ env\(safe-area-inset-bottom\)\)/)
   assert.match(style, /\.composer\s*\{[\s\S]{0,180}position:\s*relative/)

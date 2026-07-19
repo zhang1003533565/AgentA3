@@ -89,7 +89,9 @@ class GeneratedExporterTest(unittest.TestCase):
             self.assertTrue(attachment["serverGenerated"])
             self.assertNotIn("url", attachment)
             storage_key = attachment["storageKey"]
-            self.assertEqual(storage_key, attachment["name"])
+            self.assertEqual("Markdown.md", attachment["name"])
+            self.assertEqual(attachment["name"], attachment["fileName"])
+            self.assertNotEqual(storage_key, attachment["name"])
             self.assertEqual(str(uuid.UUID(Path(storage_key).stem)), Path(storage_key).stem)
 
             payload_path = root / storage_key
@@ -277,10 +279,10 @@ class GeneratedExporterTest(unittest.TestCase):
             self.assertEqual(["md", "docx", "xlsx", "zip"], [item["ext"] for item in result.attachments])
             self.assertEqual("question_bank", result.diagnostics["contentKind"])
             for attachment in result.attachments:
-                path = generated_exporter.EXPORT_ROOT / attachment["name"]
+                path = generated_exporter.EXPORT_ROOT / attachment["storageKey"]
                 self.assertTrue(path.exists(), path)
-            xlsx_name = next(item["name"] for item in result.attachments if item["ext"] == "xlsx")
-            with zipfile.ZipFile(generated_exporter.EXPORT_ROOT / xlsx_name) as archive:
+            xlsx_key = next(item["storageKey"] for item in result.attachments if item["ext"] == "xlsx")
+            with zipfile.ZipFile(generated_exporter.EXPORT_ROOT / xlsx_key) as archive:
                 self.assertIn("xl/worksheets/sheet1.xml", archive.namelist())
 
     def test_markdown_exports_reading_files(self):
@@ -333,8 +335,8 @@ class GeneratedExporterTest(unittest.TestCase):
 
             self.assertEqual(["mmd", "md", "zip"], [item["ext"] for item in result.attachments])
             self.assertEqual("diagram_source", result.diagnostics["contentKind"])
-            mmd_name = next(item["name"] for item in result.attachments if item["ext"] == "mmd")
-            self.assertIn("flowchart TD", (generated_exporter.EXPORT_ROOT / mmd_name).read_text(encoding="utf-8"))
+            mmd_key = next(item["storageKey"] for item in result.attachments if item["ext"] == "mmd")
+            self.assertIn("flowchart TD", (generated_exporter.EXPORT_ROOT / mmd_key).read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
