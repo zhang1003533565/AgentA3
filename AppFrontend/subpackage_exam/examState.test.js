@@ -96,6 +96,10 @@ test('attempt page wires seven controls, back navigation, autosave retry, deadli
   assert.match(page, /attemptResult\/attemptResult/)
   assert.match(page, /onUnload/)
   assert.match(page, /<nav-bar[^>]+:showBack="true"/)
+  assert.match(page, /currentIndex/)
+  assert.match(page, /question-nav-item/)
+  assert.match(page, /previousQuestion/)
+  assert.match(page, /nextQuestion/)
 })
 
 test('pages.json registers the exam subpackage and mine exposes the entry', () => {

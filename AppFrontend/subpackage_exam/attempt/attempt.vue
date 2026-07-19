@@ -15,8 +15,25 @@
       <button class="secondary-button" @click="loadAttempt">重新加载</button>
     </view>
 
-    <view v-else class="question-list">
-      <view v-for="(question, index) in questions" :key="question.id" class="question-card">
+    <view v-else class="attempt-content">
+      <scroll-view class="question-nav" scroll-x :show-scrollbar="false">
+        <view class="question-nav-list">
+          <view
+            v-for="(question, index) in questions"
+            :key="question.id"
+            class="question-nav-item"
+            :class="{
+              current: index === currentIndex,
+              answered: answerState(question.id).answered
+            }"
+            @tap="goToQuestion(index)"
+          >{{ index + 1 }}</view>
+        </view>
+      </scroll-view>
+
+      <view class="question-list">
+        <block v-for="(question, index) in questions" :key="question.id">
+          <view v-if="index === currentIndex" class="question-card">
         <view class="question-heading">
           <text class="question-index">{{ index + 1 }}</text>
           <view class="question-copy">
@@ -87,16 +104,26 @@
           @input="onShortInput(question, $event)"
         />
 
-        <view class="save-status" :class="answerState(question.id).status">
-          {{ saveStatusText(answerState(question.id)) }}
-        </view>
+            <view class="save-status" :class="answerState(question.id).status">
+              {{ saveStatusText(answerState(question.id)) }}
+            </view>
+          </view>
+        </block>
       </view>
     </view>
 
     <view v-if="!loading && !loadError" class="footer-actions">
-      <button class="submit-button" :disabled="submitting" @click="confirmSubmit">
-        {{ submitting ? '提交中...' : '提交试卷' }}
-      </button>
+      <view class="step-actions">
+        <button class="step-button previous" :disabled="currentIndex <= 0" @click="previousQuestion">上一题</button>
+        <button
+          v-if="currentIndex < questions.length - 1"
+          class="step-button next"
+          @click="nextQuestion"
+        >下一题</button>
+        <button v-else class="step-button submit" :disabled="submitting" @click="confirmSubmit">
+          {{ submitting ? '提交中...' : '提交试卷' }}
+        </button>
+      </view>
       <text class="leave-hint">可直接返回，答案会自动保存，下次继续作答</text>
     </view>
   </view>
@@ -128,7 +155,8 @@ export default {
       clockTimer: null,
       refreshTimer: null,
       submitting: false,
-      expiryHandled: false
+      expiryHandled: false,
+      currentIndex: 0
     }
   },
   computed: {
@@ -226,6 +254,16 @@ export default {
     },
     onShortInput(question, event) {
       this.updateAnswer(question, event.detail.value)
+    },
+    goToQuestion(index) {
+      if (index < 0 || index >= this.questions.length) return
+      this.currentIndex = index
+    },
+    previousQuestion() {
+      this.goToQuestion(this.currentIndex - 1)
+    },
+    nextQuestion() {
+      this.goToQuestion(this.currentIndex + 1)
     },
     updateAnswer(question, value) {
       const previous = this.answerState(question.id)
@@ -425,6 +463,11 @@ export default {
 .state-card { margin: 32rpx; padding: 48rpx 32rpx; border-radius: 20rpx; background: #fff; text-align: center; color: #667085; }
 .state-card.error { color: #c3392c; }
 .secondary-button { margin-top: 24rpx; width: 240rpx; color: #315efb; background: #edf2ff; }
+.question-nav { box-sizing: border-box; width: 100%; padding: 22rpx 24rpx 0; white-space: nowrap; }
+.question-nav-list { display: inline-flex; gap: 14rpx; padding-bottom: 8rpx; }
+.question-nav-item { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 64rpx; height: 64rpx; border: 2rpx solid #dce2ee; border-radius: 14rpx; background: #fff; color: #667085; font-size: 24rpx; }
+.question-nav-item.answered { border-color: #b9cafc; background: #edf2ff; color: #315efb; }
+.question-nav-item.current { border-color: #315efb; background: #315efb; color: #fff; font-weight: 700; }
 .question-list { padding: 24rpx; }
 .question-card { margin-bottom: 24rpx; padding: 30rpx; border-radius: 22rpx; background: #fff; box-shadow: 0 6rpx 22rpx rgba(27, 45, 86, .06); }
 .question-heading { display: flex; align-items: flex-start; }
@@ -446,7 +489,10 @@ export default {
 .save-status.error { color: #d14343; }
 .save-status.retrying { color: #c77b12; }
 .footer-actions { position: fixed; right: 0; bottom: 0; left: 0; z-index: 12; padding: 20rpx 28rpx calc(18rpx + env(safe-area-inset-bottom)); background: rgba(255,255,255,.96); box-shadow: 0 -4rpx 18rpx rgba(27, 45, 86, .08); }
-.submit-button { height: 84rpx; border-radius: 18rpx; color: #fff; background: #315efb; font-size: 30rpx; font-weight: 700; line-height: 84rpx; }
-.submit-button[disabled] { opacity: .55; }
+.step-actions { display: flex; gap: 18rpx; }
+.step-button { flex: 1; height: 84rpx; margin: 0; border-radius: 18rpx; font-size: 28rpx; font-weight: 700; line-height: 84rpx; }
+.step-button.previous { border: 2rpx solid #c9d5ea; color: #315efb; background: #fff; }
+.step-button.next, .step-button.submit { color: #fff; background: #315efb; }
+.step-button[disabled] { opacity: .45; }
 .leave-hint { display: block; margin-top: 10rpx; color: #8993a4; font-size: 21rpx; text-align: center; }
 </style>
