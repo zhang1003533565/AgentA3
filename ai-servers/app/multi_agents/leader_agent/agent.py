@@ -377,6 +377,14 @@ class LeaderAgent:
         if learning_guidance_plan:
             return learning_guidance_plan
 
+        if self._normalize_fast_route_text(input_text) in _FAST_ROUTE_SMALLTALK:
+            return self._plan_with_rules(input_text, rag_strategy)
+
+        if self._is_explicit_visual_generation_request(input_text):
+            visual_plan = self._plan_with_rules(input_text, rag_strategy)
+            if visual_plan.action == "call_tool" and visual_plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
+                return visual_plan
+
         if self._is_callable_catalog_query(input_text):
             return LeaderPlan(
                 intent="leader_callable_catalog",
@@ -474,6 +482,15 @@ class LeaderAgent:
         if any(token in normalized for token in _EXPLICIT_VISUAL_OUTPUT_TOKENS):
             return True
         return "图片" in normalized and any(token in normalized for token in ("生成", "画", "制作", "做成", "转成"))
+
+    def _is_explicit_visual_generation_request(self, input_text: str) -> bool:
+        normalized = self._normalize_fast_route_text(input_text)
+        if not self._has_explicit_visual_output_request(normalized):
+            return False
+        return any(token in normalized for token in (
+            "我想生成", "帮我生成", "请生成", "给我生成", "生成一个", "生成一张",
+            "画一个", "画一张", "制作一个", "制作一张", "做一个", "做一张", "转成",
+        ))
 
     def _plan_with_rules(self, input_text: str, rag_strategy: str = "") -> LeaderPlan:
         plan = self._plan_with_rules_impl(input_text, rag_strategy)
@@ -1010,14 +1027,16 @@ class LeaderAgent:
     def _smalltalk_answer(self, input_text: str) -> str:
         normalized = (input_text or "").strip()
         if "谢谢" in normalized:
-            return "不客气。你也可以问我“现在能做什么”，我会只按后台当前真实可用的能力回答。"
+            return "不客气。"
         if "再见" in normalized:
             return "再见，有需要时再叫我。"
-        return "你好，我是 Leader 智能体。你可以问我“现在能做什么”，我会只按后台当前真实可用的能力回答。"
+        return "你好！有什么可以帮你？"
 
     def _is_callable_catalog_query(self, input_text: str) -> bool:
         normalized = (input_text or "").strip().lower()
         if not normalized:
+            return False
+        if self._is_explicit_visual_generation_request(normalized):
             return False
         action_tokens = (
             "能调用", "会调用", "调用哪些", "调用什么", "有哪些", "有什么", "清单", "列表", "能力",

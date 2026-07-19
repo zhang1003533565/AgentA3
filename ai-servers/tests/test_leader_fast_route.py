@@ -90,10 +90,36 @@ class LeaderFastRouteTest(unittest.TestCase):
         self.assertEqual("smalltalk", greeting.intent)
         self.assertEqual("direct_answer", greeting.action)
         self.assertEqual("rules", greeting.route_mode)
-        self.assertIn("Leader 智能体", greeting.answer)
+        self.assertEqual("你好！有什么可以帮你？", greeting.answer)
         self.assertEqual("llm_fallback", task.intent)
         self.assertEqual("llm", task.route_mode)
         self.assertEqual(1, self.provider.calls)
+
+    def test_exact_greeting_never_uses_model_fallback_when_fast_route_is_disabled(self):
+        with patch.dict(os.environ, {"AI_LEADER_FAST_ROUTE_ENABLED": "false"}):
+            greeting = self.agent.plan("你好", chat_service=self.provider)
+
+        self.assertEqual(0, self.provider.calls)
+        self.assertEqual("smalltalk", greeting.intent)
+        self.assertEqual("direct_answer", greeting.action)
+        self.assertEqual("rules", greeting.route_mode)
+        self.assertEqual("你好！有什么可以帮你？", greeting.answer)
+
+    def test_explicit_flowchart_request_with_polite_question_uses_tool_not_capability_catalog(self):
+        plan = self.agent.plan(
+            "我想生成一个python的发展历史的流程图，可以吗",
+            chat_service=self.provider,
+            callable_catalog={
+                "agents": [],
+                "tools": [{"name": "generate_flowchart_image_tool", "enabled": True}],
+            },
+        )
+
+        self.assertEqual(0, self.provider.calls)
+        self.assertEqual("diagram_flowchart", plan.intent)
+        self.assertEqual("call_tool", plan.action)
+        self.assertEqual("generate_flowchart_image_tool", plan.tool_name)
+        self.assertEqual("rules", plan.route_mode)
 
     def test_generic_python_learning_request_delegates_to_knowledge_agent_not_image(self):
         plan = self.agent.plan(

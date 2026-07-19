@@ -352,10 +352,10 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "textbook_knowledge_agent": {
         "role": "教材知识点智能体",
-        "purpose": "围绕教材章节、课程内容、Markdown 教材文本、知识点和考点做整理，第三方知识库证据由 Java 后端接入后再作为输入传入。",
+        "purpose": "有材料时严格整理教材章节、课程内容、知识点和考点；无材料且用户明确要求自行生成时，根据用户主题生成带模型来源标记的知识材料。第三方知识库证据由 Java 后端接入。",
         "inputs": ["topic", "evidence"],
         "outputs": ["knowledge_markdown"],
-        "skills": ["textbook knowledge extraction", "markdown knowledge organization"],
+        "skills": ["textbook knowledge extraction", "model-generated knowledge drafting", "markdown knowledge organization"],
         "intent": "textbook_knowledge",
         "needRetrieval": False,
         "executionMode": "direct_agent",

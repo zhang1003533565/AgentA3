@@ -739,7 +739,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertTrue(payload["metadata"]["retrievalSkipped"])
         self.assertEqual("rules", payload["metadata"]["routeMode"])
         self.assertEqual([], payload["documents"])
-        self.assertIn("Leader 智能体", payload["answer"])
+        self.assertEqual("你好！有什么可以帮你？", payload["answer"])
 
     def test_leader_agent_uses_request_llm_config_when_forwarded_from_java(self):
         input_text = "请用一句话鼓励我"

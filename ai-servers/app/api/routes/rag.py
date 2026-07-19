@@ -31,6 +31,7 @@ from app.multi_agents.catalog import (
 from app.multi_agents.leader_agent.agent import LeaderPlan, leader_agent
 from app.multi_agents.question_bank_schema import review_question_bank_payload
 from app.multi_agents.runner import run_specialist_agent
+from app.multi_agents.textbook_knowledge_agent import resolve_knowledge_source_mode
 from app.learning_workflow import (
     LearningWorkflowRequest,
     export_learning_resources,
@@ -2297,6 +2298,11 @@ def _run_direct_agent(
 ) -> RagQueryResponse:
     agent_name = agent_profile["name"]
     profile_evidence = _profile_evidence_from_request(request)
+    knowledge_source_mode = (
+        resolve_knowledge_source_mode(request.input, profile_evidence)
+        if agent_name == "textbook_knowledge_agent"
+        else ""
+    )
     answer, model_metadata = _run_specialist_agent_with_bound_model(
         request,
         agent_name,
@@ -2321,6 +2327,16 @@ def _run_direct_agent(
         "toolToggles": _tool_toggles_from_request(request),
         **model_metadata,
     }
+    if knowledge_source_mode:
+        metadata.update({
+            "knowledgeSourceMode": knowledge_source_mode,
+            "modelGeneratedMaterial": knowledge_source_mode == "model_generated",
+            "materialSourceLabel": {
+                "provided_material": "用户材料或知识库证据",
+                "model_generated": "模型根据用户主题生成",
+                "source_selection_required": "等待用户选择材料来源",
+            }[knowledge_source_mode],
+        })
     metadata.update(_context_metadata_from_request(request))
     if leader_plan:
         metadata.update({
