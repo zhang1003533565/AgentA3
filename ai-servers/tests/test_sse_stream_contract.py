@@ -1,7 +1,6 @@
 import json
 import os
 import unittest
-from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -66,18 +65,14 @@ class SseStreamContractTest(unittest.TestCase):
             "ext": "md",
         }
         original_run_rag_core = rag_route._run_rag_query_core
-        original_export_generated_answer = rag_route.export_generated_answer
         try:
-            rag_route.export_generated_answer = lambda *args, **kwargs: SimpleNamespace(
-                attachments=[dict(attachment)],
-                diagnostics={"skipped": False},
-            )
             rag_route._run_rag_query_core = lambda request, authorization: rag_route._decorate_output_response(
                 RagQueryResponse(
                     strategy="direct_agent",
                     answer="# 导出内容",
                     answerType="markdown",
                     metadata={"executedAgent": "textbook_knowledge_agent"},
+                    attachments=[dict(attachment)],
                 )
             )
             request_payload = {"input": "导出内容", "agentName": "textbook_knowledge_agent"}
@@ -113,7 +108,6 @@ class SseStreamContractTest(unittest.TestCase):
             self.assertEqual(attachment["internalCapability"], stream_attachment["internalCapability"])
         finally:
             rag_route._run_rag_query_core = original_run_rag_core
-            rag_route.export_generated_answer = original_export_generated_answer
 
     def test_build_sse_uses_real_newlines(self):
         event = build_sse("status", {"stage": "processing"})
