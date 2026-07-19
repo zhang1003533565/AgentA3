@@ -52,6 +52,7 @@ class ConfiguredTestClient(TestClient):
 
 class RagApiRoutesTest(unittest.TestCase):
     def setUp(self):
+        FakeImageProvider.requests.clear()
         self._old_internal_token = os.environ.get("AI_INTERNAL_TOKEN")
         os.environ["AI_INTERNAL_TOKEN"] = "test-internal-token"
         self.client = ConfiguredTestClient(app)
@@ -72,7 +73,7 @@ class RagApiRoutesTest(unittest.TestCase):
                 "model": "test-model",
                 "tested": True,
             }
-            for item in ({"name": name} for name in LEADER_CALLABLE_AGENT_ORDER)
+            for item in ({"name": name} for name in AGENT_ORDER)
         }
         self._patched_modules = []
         self._patched_image_modules = []
@@ -111,13 +112,7 @@ class RagApiRoutesTest(unittest.TestCase):
             module.get_chat_model_provider = lambda provider=FakeRagModelProvider(): provider
 
     def _patch_image_provider(self):
-        module_names = [
-            "app.multi_agents.image_agent.agent",
-            "app.multi_agents.diagram_activity_agent.agent",
-            "app.multi_agents.diagram_architecture_agent.agent",
-            "app.multi_agents.diagram_flowchart_agent.agent",
-            "app.multi_agents.diagram_mind_map_agent.agent",
-        ]
+        module_names = ["app.multi_agents.image_agent.agent"]
         for module_name in module_names:
             module = importlib.import_module(module_name)
             self._patched_image_modules.append((module, module.get_qwen_image_provider))
@@ -156,16 +151,17 @@ class RagApiRoutesTest(unittest.TestCase):
         request.metadata["agentModelConfigs"]["image_agent"]["apiKey"] = ""
         self.assertFalse(self._rag_routes._is_agent_enabled(request, "image_agent"))
 
-    def test_agent_without_model_binding_is_not_advertised_as_available(self):
+    def test_visual_tool_without_internal_image_binding_is_not_advertised_as_available(self):
         request = SimpleNamespace(metadata={
             "agentToggles": {"image_agent": True},
             "agentModelConfigs": {},
         })
 
         catalog = self._rag_routes._build_leader_callable_catalog(request)
-        image_agent = next(item for item in catalog["agents"] if item["name"] == "image_agent")
+        image_tool = next(item for item in catalog["tools"] if item["name"] == "generate_image_tool")
 
-        self.assertFalse(image_agent["enabled"])
+        self.assertFalse(image_tool["enabled"])
+        self.assertNotIn("image_agent", {item["name"] for item in catalog["agents"]})
 
     def test_file_transform_action_forces_real_export_tool(self):
         request = SimpleNamespace(metadata={
@@ -198,6 +194,26 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertEqual(["Excel 题库", "Markdown 题库"], [item["label"] for item in actions])
         self.assertEqual(["xlsx", "md"], [item["outputType"] for item in actions])
+
+    def test_agent_answer_does_not_auto_export_every_file_format_before_user_selects_one(self):
+        response = self._rag_routes.RagQueryResponse(
+            strategy="direct_agent",
+            answer="# Python 入门学习路线\n\n- 基础语法\n- 数据结构",
+            answerType="markdown",
+            metadata={
+                "executedAgent": "textbook_knowledge_agent",
+                "toolToggles": {"generated_export_tools": True},
+            },
+        )
+
+        decorated = self._rag_routes._decorate_output_response(response)
+
+        self.assertEqual([], decorated.attachments)
+        self.assertEqual("output_format_not_selected", decorated.outputMeta["generatedExports"]["reason"])
+        self.assertEqual(
+            ["docx", "xlsx", "md"],
+            [item["outputType"] for item in decorated.outputMeta["followUpActions"]],
+        )
 
     def test_removed_strategy_routes_return_404(self):
         response = self.client.get("/internal/rag/strategies", headers=self.headers)
@@ -456,8 +472,19 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertTrue(INTERNAL_LEARNING_WORKFLOW_AGENTS.isdisjoint(leader_callable_names))
         self.assertGreaterEqual(
             leader_callable_names,
-            {"textbook_knowledge_agent", "ppt_outline_agent", "diagram_mind_map_agent"},
+            {"textbook_knowledge_agent", "ppt_outline_agent"},
         )
+        self.assertTrue({
+            "image_agent",
+            "mind_map_agent",
+            "architecture_prompt_agent",
+            "diagram_flowchart_prompt_agent",
+            "diagram_activity_prompt_agent",
+            "knowledge_graph_prompt_agent",
+            "ppt_image_agent",
+        }.isdisjoint(leader_callable_names))
+        leader_tool_names = {item["name"] for item in payload["leaderCallableCatalog"]["tools"]}
+        self.assertGreaterEqual(leader_tool_names, set(self._rag_routes.VISUAL_GENERATION_TOOL_NAMES))
         internal_agents = {
             item["name"]: item
             for item in payload["agents"]
@@ -593,12 +620,12 @@ class RagApiRoutesTest(unittest.TestCase):
                         return json.dumps(
                             {
                                 "intent": "diagram_flowchart",
-                                "target_agent": "diagram_flowchart_agent",
+                                "target_agent": "leader_agent",
                                 "need_retrieval": False,
                                 "rag_strategy": "",
-                                "action": "delegate_agent",
-                                "tool_name": "",
-                                "route_reason": "LLM 根据 Leader 可调用清单选择流程图智能体。",
+                                "action": "call_tool",
+                                "tool_name": "generate_flowchart_image_tool",
+                                "route_reason": "LLM 根据 Leader 可调用清单选择流程图图片生成工具。",
                                 "answer": "",
                             },
                             ensure_ascii=False,
@@ -636,7 +663,12 @@ class RagApiRoutesTest(unittest.TestCase):
                     "model": "test-model",
                     "tested": True,
                 }
-                for agent_name in ("ppt_outline_agent", "diagram_flowchart_agent")
+                for agent_name in (
+                    "ppt_outline_agent",
+                    "diagram_flowchart_agent",
+                    "diagram_flowchart_prompt_agent",
+                    "image_agent",
+                )
             }
             ppt_response = self.client.post(
                 "/internal/rag/query",
@@ -665,16 +697,30 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(200, ppt_response.status_code)
         self.assertEqual("ppt_outline_agent", ppt_response.json()["metadata"]["targetAgent"])
         self.assertEqual(200, diagram_response.status_code)
-        self.assertEqual("diagram_flowchart_agent", diagram_response.json()["metadata"]["targetAgent"])
+        diagram_payload = diagram_response.json()
+        self.assertEqual("generate_flowchart_image_tool", diagram_payload["metadata"]["targetAgent"])
+        self.assertEqual("generate_flowchart_image_tool", diagram_payload["metadata"]["executedAgent"])
+        self.assertEqual("generate_flowchart_image_tool", diagram_payload["metadata"]["toolName"])
+        self.assertEqual("diagram_flowchart_prompt_agent", diagram_payload["metadata"]["promptAgent"])
+        self.assertEqual("generate_flowchart_image_tool", diagram_payload["strategy"])
+        self.assertEqual(1, len(FakeImageProvider.requests))
+        self.assertEqual(
+            "专业流程图图片提示词：蓝白教学风格，清晰展示开始、处理步骤、判断分支和结束节点。",
+            FakeImageProvider.requests[0].prompt,
+        )
         # 明确的学期课表查询走规则快速路由；PPT 和流程图仍由模型读取可调用清单后路由。
         self.assertEqual(2, len(provider.callable_catalogs))
         for catalog in provider.callable_catalogs:
             callable_names = {item["name"] for item in catalog["agents"]}
+            callable_tools = {item["name"] for item in catalog["tools"]}
             self.assertTrue(INTERNAL_LEARNING_WORKFLOW_AGENTS.isdisjoint(callable_names))
             self.assertGreaterEqual(
                 callable_names,
-                {"textbook_knowledge_agent", "ppt_outline_agent", "diagram_mind_map_agent"},
+                {"ppt_outline_agent"},
             )
+            self.assertIn("generate_flowchart_image_tool", callable_tools)
+            self.assertNotIn("diagram_flowchart_prompt_agent", callable_names)
+            self.assertNotIn("image_agent", callable_names)
 
     def test_leader_agent_answers_smalltalk_without_rag(self):
         response = self.client.post(
@@ -1455,7 +1501,19 @@ class FakeRagModelProvider:
         }
 
     def _specialist_answer(self, system_prompt):
-        if "diagram_mind_map_agent" in system_prompt or "思维导图智能体" in system_prompt:
+        if "diagram_mind_map_agent" in system_prompt:
+            return "```mermaid\nmindmap\n  root((测试思维导图))\n```"
+        if "diagram_flowchart_prompt_agent" in system_prompt:
+            return "专业流程图图片提示词：蓝白教学风格，清晰展示开始、处理步骤、判断分支和结束节点。"
+        if "diagram_activity_prompt_agent" in system_prompt:
+            return "专业活动图图片提示词：使用泳道清晰展示角色、任务和状态变化。"
+        if "architecture_prompt_agent" in system_prompt:
+            return "专业架构图图片提示词：分层展示客户端、服务层和数据层及其依赖关系。"
+        if "mind_map_agent" in system_prompt:
+            return "专业思维导图图片提示词：中心主题向外分层展开，节点清晰可读。"
+        if "knowledge_graph_prompt_agent" in system_prompt:
+            return "专业知识图谱图片提示词：实体节点分组清晰，关系名称明确，使用带方向箭头连接。"
+        if "思维导图智能体" in system_prompt:
             return "```mermaid\nmindmap\n  root((测试思维导图))\n```"
         if "diagram_flowchart_agent" in system_prompt:
             return "```mermaid\nflowchart TD\n  Start([开始]) --> End([结束])\n```"
@@ -1527,7 +1585,10 @@ class FakeRagModelProvider:
 
 
 class FakeImageProvider:
+    requests = []
+
     def generate(self, request):
+        self.__class__.requests.append(request)
         return SimpleNamespace(model_dump=lambda: {
             "taskId": "fake-image-task",
             "providerTaskId": "fake-provider-task",

@@ -5,12 +5,21 @@ from typing import Any, Dict, List, Optional
 from fastapi import HTTPException
 
 from app.image_generation import get_qwen_image_provider
-from app.models.image_generation import ImageBatchRequest, ImageGenerationRequest
+from app.models.image_generation import ImageBatchRequest, ImageGenerationRequest, ImageGenerationResponse
 from app.model_providers.runtime_config import get_active_llm_config
 
 
 class ImageAgent:
     name = "image_agent"
+
+    def execute_request(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
+        return get_qwen_image_provider().generate(request)
+
+    def execute_batch_request(self, request: ImageBatchRequest) -> ImageGenerationResponse:
+        return get_qwen_image_provider().batch(request)
+
+    def get_task(self, task_id: str) -> ImageGenerationResponse:
+        return get_qwen_image_provider().get_task(task_id)
 
     def build_image_prompt(self, topic: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
         return self._direct_prompt(topic)
@@ -51,11 +60,10 @@ class ImageAgent:
                 "apiKey": active_config.api_key,
                 "model": active_config.model,
             })
-        provider = get_qwen_image_provider()
         if normalized_count == 1:
-            response = provider.generate(ImageGenerationRequest(**payload))
+            response = self.execute_request(ImageGenerationRequest(**payload))
         else:
-            response = provider.batch(ImageBatchRequest(**payload, prompts=[enhanced_prompt] * normalized_count))
+            response = self.execute_batch_request(ImageBatchRequest(**payload, prompts=[enhanced_prompt] * normalized_count))
         return response.model_dump()
 
     def generate_images_json(self, topic: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:

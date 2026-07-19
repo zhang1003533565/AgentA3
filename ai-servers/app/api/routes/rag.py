@@ -61,13 +61,66 @@ router = APIRouter(
 export_router = APIRouter(prefix="/internal/rag", tags=["internal-rag-exports"])
 logger = get_logger("api.rag")
 
-VISIBLE_GENERATION_AGENTS = {
-    "image_agent",
-    "diagram_mind_map_agent",
-    "diagram_architecture_agent",
-    "diagram_flowchart_agent",
-    "diagram_activity_agent",
+VISUAL_GENERATION_TOOL_CONFIG = {
+    "generate_image_tool": {
+        "zhName": "通用图片生成工具",
+        "purpose": "根据用户明确提供的图片描述生成图片。",
+        "trigger": "用户明确要求生成普通图片、插图、封面、海报或图片素材。",
+        "promptAgent": "",
+    },
+    "generate_mind_map_image_tool": {
+        "zhName": "思维导图图片生成工具",
+        "purpose": "先生成思维导图专用提示词，再统一调用图片生成入口。",
+        "trigger": "用户要求生成思维导图或脑图图片。",
+        "promptAgent": "mind_map_agent",
+    },
+    "generate_flowchart_image_tool": {
+        "zhName": "流程图图片生成工具",
+        "purpose": "先生成流程图专用提示词，再统一调用图片生成入口。",
+        "trigger": "用户要求生成流程图、算法流程或步骤流程图片。",
+        "promptAgent": "diagram_flowchart_prompt_agent",
+    },
+    "generate_activity_image_tool": {
+        "zhName": "活动图图片生成工具",
+        "purpose": "先生成活动图专用提示词，再统一调用图片生成入口。",
+        "trigger": "用户要求生成活动图、泳道图或角色任务流程图片。",
+        "promptAgent": "diagram_activity_prompt_agent",
+    },
+    "generate_architecture_image_tool": {
+        "zhName": "架构图图片生成工具",
+        "purpose": "先生成架构图专用提示词，再统一调用图片生成入口。",
+        "trigger": "用户要求生成系统架构图、技术架构图或模块依赖图。",
+        "promptAgent": "architecture_prompt_agent",
+    },
+    "generate_knowledge_graph_image_tool": {
+        "zhName": "知识图谱图片生成工具",
+        "purpose": "先生成知识图谱专用提示词，再统一调用图片生成入口。",
+        "trigger": "用户要求生成知识图谱、实体关系图或概念关系图。",
+        "promptAgent": "knowledge_graph_prompt_agent",
+    },
+    "generate_ppt_image_tool": {
+        "zhName": "PPT 配图生成工具",
+        "purpose": "先生成 PPT 配图专用提示词，再统一调用图片生成入口。",
+        "trigger": "用户要求生成 PPT 封面、课件配图或页面插图。",
+        "promptAgent": "ppt_image_agent",
+    },
 }
+
+VISUAL_GENERATION_TOOLS = [
+    {
+        "name": tool_name,
+        "zhName": config["zhName"],
+        "displayName": f"{config['zhName']}（{tool_name}）",
+        "category": "visual_generation",
+        "purpose": config["purpose"],
+        "trigger": config["trigger"],
+        "outputs": ["image"],
+        "status": "implemented",
+        "configurable": True,
+    }
+    for tool_name, config in VISUAL_GENERATION_TOOL_CONFIG.items()
+]
+VISUAL_GENERATION_TOOL_NAMES = frozenset(VISUAL_GENERATION_TOOL_CONFIG)
 
 
 class AgentExecutionError(Exception):
@@ -234,6 +287,7 @@ CAMPUS_SERVICE_TOOLS = [
 SERVICE_TOOL_NAMES = {tool["name"] for tool in CAMPUS_SERVICE_TOOLS}
 
 LEADER_CALLABLE_TOOLS = [
+    *VISUAL_GENERATION_TOOLS,
     {
         "name": "text_to_sql",
         "zhName": "结构化查询工具",
@@ -359,6 +413,12 @@ def get_rag_capabilities(
         "structuredKnowledge": {
             "textToSql": True,
         },
+        "visualGeneration": {
+            "leaderMode": "tool_only",
+            "tools": VISUAL_GENERATION_TOOLS,
+            "internalAgentsExposedToLeader": False,
+            "imageProviderEntry": "image_agent",
+        },
         "profileSummary": {
             "agent": "profile_summary_agent",
             "purpose": "把 Java 画像快照总结为强项、欠缺、置信依据和补证建议；不修改画像分数。",
@@ -407,6 +467,12 @@ def get_rag_framework(
                 "status": "implemented",
             },
             {
+                "name": "visual_generation_tools",
+                "category": "visual_generation",
+                "purpose": "Leader 只选择视觉工具；工具内部调用专用提示词智能体，再通过唯一图片入口生成图片。",
+                "status": "implemented",
+            },
+            {
                 "name": "profile_summary_agent",
                 "category": "profile",
                 "purpose": "汇总个人画像雷达图强弱、置信度、证据状态和补证建议。",
@@ -414,6 +480,7 @@ def get_rag_framework(
             },
         ],
         "serviceTools": CAMPUS_SERVICE_TOOLS,
+        "visualTools": VISUAL_GENERATION_TOOLS,
         "generatedTools": GENERATED_CONTENT_TOOLS,
         "runtimeFolders": {
             "modelProviders": "app/model_providers",
@@ -1547,6 +1614,8 @@ def _execute_leader_plan(
             return _run_service_tool(request, authorization, plan)
         if plan.tool_name == "generated_export_tools":
             return _run_generated_export_tool(request, plan)
+        if plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
+            return _run_visual_generation_tool(request, plan)
         raise HTTPException(status_code=502, detail=f"Leader 选择了未注册工具：{plan.tool_name or '空'}，已停止执行。")
 
     agent_profile = get_agent_profile(plan.target_agent)
@@ -1560,14 +1629,10 @@ def _execute_leader_plan(
 
 
 def _should_emit_generation_start(request: RagQueryRequest, agent_name: Optional[str], plan=None) -> bool:
-    normalized = normalize_agent_name(agent_name)
-    if normalized not in VISIBLE_GENERATION_AGENTS:
-        return False
-    if plan is not None and getattr(plan, "action", "") != "delegate_agent":
-        return False
-    if not _is_agent_enabled(request, normalized):
-        return False
-    return get_agent_profile(normalized) is not None
+    if plan is not None and getattr(plan, "action", "") == "call_tool":
+        tool_name = str(getattr(plan, "tool_name", "") or "").strip()
+        return tool_name in VISUAL_GENERATION_TOOL_NAMES and _visual_tool_dependencies_enabled(request, tool_name)
+    return False
 
 
 def _build_generation_start_payload(
@@ -1575,20 +1640,30 @@ def _build_generation_start_payload(
     plan=None,
     agent_name: Optional[str] = None,
 ) -> Dict[str, Any]:
-    target_agent = normalize_agent_name(agent_name or getattr(plan, "target_agent", "")) or ""
-    profile = get_agent_profile(target_agent) or {}
-    runtime_config, config_prefix = _require_agent_runtime_config(request, target_agent, leader_plan=plan)
+    visual_tool_name = ""
+    if plan is not None and getattr(plan, "action", "") == "call_tool":
+        candidate = str(getattr(plan, "tool_name", "") or "").strip()
+        if candidate in VISUAL_GENERATION_TOOL_NAMES:
+            visual_tool_name = candidate
+    requested_agent = normalize_agent_name(agent_name or getattr(plan, "target_agent", "")) or ""
+    prompt_agent = str(VISUAL_GENERATION_TOOL_CONFIG[visual_tool_name].get("promptAgent") or "") if visual_tool_name else ""
+    target_agent = visual_tool_name or requested_agent
+    profile = get_agent_profile("image_agent") or {}
+    runtime_config, config_prefix = _require_agent_runtime_config(request, "image_agent", leader_plan=plan)
     model_metadata = _agent_model_metadata(runtime_config, config_prefix)
     session_id = str((request.metadata or {}).get("sessionId") or "")
     intent = getattr(plan, "intent", "") or profile.get("intent") or ""
     route_reason = getattr(plan, "route_reason", "") or profile.get("purpose") or ""
-    answer_type = _answer_type_for_agent(target_agent)
+    answer_type = "image_generation" if visual_tool_name else _answer_type_for_agent(target_agent)
     role = str(profile.get("role") or target_agent or "图片智能体")
     answer = f"已识别到你要生成图片，正在调用「{role}」处理中。你可以继续提问，生成完成后我会把结果更新到这里。"
     metadata = {
         "agentName": "leader_agent" if plan else target_agent,
         "targetAgent": target_agent,
         "executedAgent": target_agent,
+        "promptAgent": prompt_agent,
+        "imageAgent": "image_agent" if visual_tool_name else "",
+        "toolName": visual_tool_name,
         "intent": intent,
         "needRetrieval": False,
         "retrievalSkipped": True,
@@ -1737,7 +1812,10 @@ def _leader_callable_agent_item(agent_name: str, request: Optional[RagQueryReque
     profile = get_agent_profile(agent_name)
     if not profile:
         return {}
-    enabled = True if request is None else _is_agent_enabled(request, agent_name)
+    if request is None:
+        enabled = True
+    else:
+        enabled = _is_agent_enabled(request, agent_name)
     return {
         "name": agent_name,
         "role": profile.get("role") or agent_name,
@@ -1753,12 +1831,22 @@ def _leader_callable_agent_item(agent_name: str, request: Optional[RagQueryReque
 def _leader_callable_tool_item(tool: Dict[str, Any], request: Optional[RagQueryRequest]) -> Dict[str, Any]:
     name = str(tool.get("name") or "").strip()
     enabled = True if request is None else _is_tool_enabled(request, name)
+    if enabled and request is not None and name in VISUAL_GENERATION_TOOL_NAMES:
+        enabled = _visual_tool_dependencies_enabled(request, name)
     return {
         **tool,
         "zhName": tool.get("zhName") or _tool_zh_name(name),
         "displayName": tool.get("displayName") or _tool_display_name(name),
         "enabled": enabled,
     }
+
+
+def _visual_tool_dependencies_enabled(request: RagQueryRequest, tool_name: str) -> bool:
+    config = VISUAL_GENERATION_TOOL_CONFIG.get(str(tool_name or "").strip())
+    if not config or not _is_agent_enabled(request, "image_agent"):
+        return False
+    prompt_agent = str(config.get("promptAgent") or "").strip()
+    return not prompt_agent or _is_agent_enabled(request, prompt_agent)
 
 
 def _leader_agent_category(agent_name: str) -> str:
@@ -2106,6 +2194,96 @@ def _run_leader_direct_answer(plan, profile_context: Optional[Dict[str, Any]] = 
     ))
 
 
+def _run_visual_generation_tool(
+    request: RagQueryRequest,
+    leader_plan,
+) -> RagQueryResponse:
+    tool_name = str(getattr(leader_plan, "tool_name", "") or "").strip()
+    config = VISUAL_GENERATION_TOOL_CONFIG.get(tool_name)
+    if not config:
+        raise HTTPException(status_code=502, detail=f"未注册的视觉生成工具：{tool_name or '空'}")
+    prompt_agent = str(config.get("promptAgent") or "").strip()
+    if not _is_agent_enabled(request, "image_agent"):
+        return _run_disabled_tool_response(request, tool_name, leader_plan=leader_plan)
+    if prompt_agent and not _is_agent_enabled(request, prompt_agent):
+        return _run_disabled_tool_response(request, tool_name, leader_plan=leader_plan)
+
+    evidence = _profile_evidence_from_request(request)
+    prompt_text = request.input
+    prompt_model_metadata: Dict[str, Any] = {}
+    if prompt_agent:
+        prompt_text, prompt_model_metadata = _run_specialist_agent_with_bound_model(
+            request,
+            prompt_agent,
+            request.input,
+            evidence,
+            leader_plan=leader_plan,
+        )
+    image_answer, image_model_metadata = _run_specialist_agent_with_bound_model(
+        request,
+        "image_agent",
+        prompt_text,
+        [],
+        leader_plan=leader_plan,
+    )
+    metadata = {
+        "agentName": "leader_agent",
+        "targetAgent": tool_name,
+        "executedAgent": tool_name,
+        "toolName": tool_name,
+        "toolDisplayName": _tool_display_name(tool_name),
+        "promptAgent": prompt_agent,
+        "imageAgent": "image_agent",
+        "intent": getattr(leader_plan, "intent", "") or "image_generation",
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "strategyLabel": config.get("purpose") or _tool_display_name(tool_name),
+        "executionMode": "leader_call_tool",
+        "executionModeLabel": "Leader 调用视觉生成工具",
+        "answerType": "image_generation",
+        "profileContextUsed": bool(evidence),
+        "outputPreferenceHints": _output_preference_hints_from_request(request),
+        "toolToggles": _tool_toggles_from_request(request),
+        "leaderAction": leader_plan.action,
+        "leaderActionLabel": _leader_action_label(leader_plan.action),
+        "routeReason": leader_plan.route_reason,
+        "promptModelProvider": prompt_model_metadata.get("modelProvider") or "",
+        "promptModel": prompt_model_metadata.get("model") or "",
+        **image_model_metadata,
+    }
+    metadata.update(_context_metadata_from_request(request))
+    trace = [
+        RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+        RagTraceResponse(stage="tool_call", detail={
+            "toolName": tool_name,
+            "toolDisplayName": _tool_display_name(tool_name),
+            "promptAgent": prompt_agent,
+            "imageAgent": "image_agent",
+        }),
+    ]
+    if prompt_agent:
+        trace.append(RagTraceResponse(stage="prompt_agent", detail={
+            "agentName": prompt_agent,
+            "output": "image_prompt",
+            "answerLength": len(prompt_text or ""),
+            **prompt_model_metadata,
+        }))
+    trace.append(RagTraceResponse(stage="image_generation_tool", detail={
+        "agentName": "image_agent",
+        "input": "prompt_agent_output" if prompt_agent else "user_input",
+        "answerLength": len(image_answer or ""),
+        **image_model_metadata,
+    }))
+    return _decorate_output_response(RagQueryResponse(
+        strategy=tool_name,
+        answer=image_answer,
+        answerType="image_generation",
+        documents=[],
+        trace=trace,
+        metadata=metadata,
+    ))
+
+
 def _run_direct_agent(
     request: RagQueryRequest,
     agent_profile: Dict[str, Any],
@@ -2194,14 +2372,7 @@ def _exception_message(exc: Exception) -> str:
 def _friendly_agent_failure_message(raw_message: str, agent_name: str = "") -> str:
     message = str(raw_message or "").strip()
     lowered = message.lower()
-    is_image_agent = agent_name in {
-        "image_agent",
-        "diagram_mind_map_agent",
-        "diagram_architecture_agent",
-        "diagram_flowchart_agent",
-        "diagram_activity_agent",
-        "ppt_image_agent",
-    }
+    is_image_agent = agent_name == "image_agent"
     if is_image_agent and "api.deepseek.com" in lowered and "services/aigc" in lowered:
         return (
             "图片模型服务配置不匹配：当前把 Qwen/DashScope 图片生成接口请求发到了 DeepSeek 地址。"
@@ -2680,10 +2851,17 @@ def _decorate_output_response(response: RagQueryResponse) -> RagQueryResponse:
         response.metadata = {}
     existing_attachments = response.attachments if isinstance(response.attachments, list) else []
     extracted_attachments = _extract_response_attachments(response.answer)
-    export_result = export_generated_answer(response.answer, response.answerType, response.metadata)
-    attachments = _merge_attachments(existing_attachments, extracted_attachments, export_result.attachments)
-    export_diagnostics = export_result.diagnostics
-    if not export_result.attachments and isinstance(response.metadata.get("generatedExports"), dict):
+    requested_output_type = str(response.metadata.get("requestedOutputType") or "").strip().lower()
+    concrete_export_types = {"docx", "word", "xlsx", "excel", "md", "markdown", "mmd", "zip"}
+    if requested_output_type in concrete_export_types:
+        export_result = export_generated_answer(response.answer, response.answerType, response.metadata)
+        generated_attachments = export_result.attachments
+        export_diagnostics = export_result.diagnostics
+    else:
+        generated_attachments = []
+        export_diagnostics = {"skipped": True, "reason": "output_format_not_selected"}
+    attachments = _merge_attachments(existing_attachments, extracted_attachments, generated_attachments)
+    if not generated_attachments and isinstance(response.metadata.get("generatedExports"), dict):
         export_diagnostics = response.metadata["generatedExports"]
     output_types = _infer_output_types(response.answerType, response.metadata, attachments)
     follow_up_actions = _follow_up_actions_for_output(response.answerType, response.metadata, output_types)
@@ -2734,13 +2912,7 @@ def _infer_output_types(answer_type: str, metadata: Dict[str, Any], attachments:
         types.append("document")
     normalized_answer_type = str(answer_type or "").strip()
     agent = str((metadata or {}).get("executedAgent") or (metadata or {}).get("targetAgent") or "").strip()
-    if normalized_answer_type in {"image_generation", "image_prompt", "ppt_image_prompt"} or agent in {
-        "image_agent",
-        "diagram_mind_map_agent",
-        "diagram_architecture_agent",
-        "diagram_flowchart_agent",
-        "diagram_activity_agent",
-    }:
+    if normalized_answer_type == "image_generation" or agent == "image_agent":
         if "image" not in types:
             types.append("image")
     if normalized_answer_type == "document_conversion" or agent == "ppt_to_docx_agent":
@@ -3069,6 +3241,10 @@ def _strategy_label(strategy_name: str) -> str:
         "java_secondhand_api": "旧物查询工具",
         "generated_export_tools": "内容导出工具",
         "text_to_sql": "Text-to-SQL",
+        **{
+            tool_name: config["zhName"]
+            for tool_name, config in VISUAL_GENERATION_TOOL_CONFIG.items()
+        },
     }
     if strategy_name in custom_labels:
         return custom_labels[strategy_name]
@@ -3090,6 +3266,10 @@ def _tool_zh_name(tool_name: str) -> str:
         "excel_export_tool": "Excel 导出工具",
         "content_archive_tool": "附件打包工具",
         "diagram_source_export_tool": "图表源码导出工具",
+        **{
+            tool_name: config["zhName"]
+            for tool_name, config in VISUAL_GENERATION_TOOL_CONFIG.items()
+        },
     }
     return labels.get(str(tool_name or "").strip(), str(tool_name or "").strip())
 
@@ -3106,8 +3286,11 @@ def _answer_type_for_agent(agent_name: str) -> str:
     mapping = {
         "leader_agent": "text",
         "profile_summary_agent": "profile_summary_json",
-        "mind_map_agent": "mermaid_mindmap",
-        "diagram_architecture_agent": "image_generation",
+        "mind_map_agent": "image_prompt",
+        "diagram_mind_map_agent": "mermaid_mindmap",
+        "diagram_flowchart_agent": "mermaid_flowchart",
+        "diagram_activity_agent": "mermaid_activity_flowchart",
+        "diagram_architecture_agent": "mermaid_architecture",
         "textbook_knowledge_agent": "markdown",
         "ppt_outline_agent": "ppt_outline",
         "ppt_layout_agent": "ppt_layout",

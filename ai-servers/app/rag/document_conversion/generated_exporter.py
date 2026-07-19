@@ -850,7 +850,7 @@ def _no_enabled_export_format_result(content_kind: str, metadata: Dict[str, Any]
 
 
 def _export_question_bank(payload: Dict[str, Any], metadata: Dict[str, Any]) -> GeneratedExportResult:
-    title = _title_from_metadata(metadata, "题库导出")
+    title = _question_bank_title(payload, metadata)
     slug = _slugify(title or "question-bank")
     markdown = _question_bank_to_markdown(payload, title)
     rows = _question_bank_rows(payload)
@@ -859,17 +859,17 @@ def _export_question_bank(payload: Dict[str, Any], metadata: Dict[str, Any]) -> 
     if _wants_export_format(metadata, "md") and _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
         path = _write_text_file(slug, "md", markdown)
         paths.append(path)
-        attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown"))
+        attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown", title))
     if _wants_export_format(metadata, "docx") and _is_export_tool_enabled(metadata, DOCX_EXPORT_TOOL_NAME):
         path = _write_question_bank_docx(slug, title, payload)
         paths.append(path)
-        attachments.append(_attachment_for_file(path, DOCX_EXPORT_TOOL_NAME, "Word 文档"))
+        attachments.append(_attachment_for_file(path, DOCX_EXPORT_TOOL_NAME, "Word 文档", title))
     if _wants_export_format(metadata, "xlsx") and _is_export_tool_enabled(metadata, EXCEL_EXPORT_TOOL_NAME):
         path = _write_xlsx(slug, "题库", rows)
         paths.append(path)
-        attachments.append(_attachment_for_file(path, EXCEL_EXPORT_TOOL_NAME, "Excel 表格"))
+        attachments.append(_attachment_for_file(path, EXCEL_EXPORT_TOOL_NAME, "Excel 表格", title))
     if _wants_export_format(metadata, "zip") and _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
-        attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件"))
+        attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件", title))
     attachments = _keep_requested_attachments(attachments, metadata)
     if not attachments:
         return _no_enabled_export_format_result(
@@ -898,17 +898,17 @@ def _export_markdown_content(content: str, metadata: Dict[str, Any]) -> Generate
     if _wants_export_format(metadata, "md") and _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
         path = _write_text_file(slug, "md", content)
         paths.append(path)
-        attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown"))
+        attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown", title))
     if _wants_export_format(metadata, "docx") and _is_export_tool_enabled(metadata, DOCX_EXPORT_TOOL_NAME):
         path = _write_markdown_docx(slug, title, content)
         paths.append(path)
-        attachments.append(_attachment_for_file(path, DOCX_EXPORT_TOOL_NAME, "Word 文档"))
+        attachments.append(_attachment_for_file(path, DOCX_EXPORT_TOOL_NAME, "Word 文档", title))
     if rows and _wants_export_format(metadata, "xlsx") and _is_export_tool_enabled(metadata, EXCEL_EXPORT_TOOL_NAME):
         path = _write_xlsx(slug, "知识清单", rows)
         paths.append(path)
-        attachments.append(_attachment_for_file(path, EXCEL_EXPORT_TOOL_NAME, "Excel 表格"))
+        attachments.append(_attachment_for_file(path, EXCEL_EXPORT_TOOL_NAME, "Excel 表格", title))
     if _wants_export_format(metadata, "zip") and _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
-        attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件"))
+        attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件", title))
     attachments = _keep_requested_attachments(attachments, metadata)
     if not attachments:
         return _no_enabled_export_format_result(
@@ -938,13 +938,13 @@ def _export_diagram_source(content: str, metadata: Dict[str, Any]) -> GeneratedE
     if _wants_export_format(metadata, "mmd") and _is_export_tool_enabled(metadata, DIAGRAM_SOURCE_EXPORT_TOOL_NAME):
         path = _write_text_file(slug, "mmd", mermaid_code.strip() + "\n")
         paths.append(path)
-        attachments.append(_attachment_for_file(path, DIAGRAM_SOURCE_EXPORT_TOOL_NAME, "Mermaid 源文件"))
+        attachments.append(_attachment_for_file(path, DIAGRAM_SOURCE_EXPORT_TOOL_NAME, "Mermaid 源文件", title))
     if _wants_export_format(metadata, "md") and _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
         path = _write_text_file(f"{slug}-mermaid", "md", markdown)
         paths.append(path)
-        attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown"))
+        attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown", title))
     if _wants_export_format(metadata, "zip") and _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
-        attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件"))
+        attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件", title))
     attachments = _keep_requested_attachments(attachments, metadata)
     if not attachments:
         return _no_enabled_export_format_result("diagram_source", metadata)
@@ -1209,12 +1209,16 @@ def _markdown_rows(content: str) -> List[List[Any]]:
     return rows if len(rows) > 1 else []
 
 
-def _attachment_for_file(path: Path, tool_name: str, format_label: str) -> Dict[str, Any]:
+def _attachment_for_file(path: Path, tool_name: str, format_label: str, display_stem: str = "") -> Dict[str, Any]:
     ext = path.suffix.lower().lstrip(".")
     attachment_type = "docx" if ext == "docx" else "excel" if ext == "xlsx" else "file"
     export_metadata = _commit_export_manifest(path)
-    display_stem = re.sub(r'[\\/:*?"<>|\r\n]+', "-", str(format_label or "生成文件")).strip(" .-")
-    display_name = f"{display_stem or '生成文件'}.{ext}"
+    safe_stem = re.sub(
+        r'[\\/:*?"<>|\r\n]+',
+        "-",
+        str(display_stem or format_label or "生成文件"),
+    ).strip(" .-")[:100]
+    display_name = f"{safe_stem or '生成文件'}.{ext}"
     return {
         "name": display_name,
         "fileName": display_name,
@@ -1616,6 +1620,19 @@ def _title_from_markdown(content: str) -> str:
         if match:
             return _clean_inline_markdown(match.group(1))[:60]
     return ""
+
+
+def _question_bank_title(payload: Dict[str, Any], metadata: Dict[str, Any]) -> str:
+    explicit_title = str(payload.get("title") or payload.get("topic") or "").strip()
+    if explicit_title:
+        return explicit_title[:60]
+    questions = payload.get("questions") if isinstance(payload.get("questions"), list) else []
+    first_question = questions[0] if questions and isinstance(questions[0], dict) else {}
+    knowledge_points = first_question.get("knowledgePoints")
+    first_point = str(knowledge_points[0] or "").strip() if isinstance(knowledge_points, list) and knowledge_points else ""
+    if first_point:
+        return f"{first_point}题库"[:60]
+    return _title_from_metadata(metadata, "题库")
 
 
 def _title_from_metadata(metadata: Dict[str, Any], fallback: str) -> str:

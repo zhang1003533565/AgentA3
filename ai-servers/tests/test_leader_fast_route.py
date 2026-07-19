@@ -113,9 +113,10 @@ class LeaderFastRouteTest(unittest.TestCase):
     def test_profile_image_preference_cannot_turn_plain_explanation_into_image_generation(self):
         provider = StaticPlanChatService({
             "intent": "image_generation",
-            "target_agent": "image_agent",
+            "target_agent": "leader_agent",
             "need_retrieval": False,
-            "action": "delegate_agent",
+            "action": "call_tool",
+            "tool_name": "generate_image_tool",
             "route_reason": "画像偏好图片。",
         })
 
@@ -123,10 +124,8 @@ class LeaderFastRouteTest(unittest.TestCase):
             "解释一下 Python 装饰器",
             chat_service=provider,
             callable_catalog={
-                "agents": [
-                    {"name": "image_agent", "enabled": True},
-                    {"name": "textbook_knowledge_agent", "enabled": True},
-                ],
+                "agents": [{"name": "textbook_knowledge_agent", "enabled": True}],
+                "tools": [{"name": "generate_image_tool", "category": "visual_generation", "enabled": True}],
             },
         )
 
@@ -135,40 +134,43 @@ class LeaderFastRouteTest(unittest.TestCase):
         self.assertEqual("delegate_agent", plan.action)
         self.assertEqual("rules", plan.route_mode)
 
-    def test_explicit_image_request_can_still_use_image_agent(self):
+    def test_explicit_image_request_uses_image_tool(self):
         provider = StaticPlanChatService({
             "intent": "image_generation",
-            "target_agent": "image_agent",
+            "target_agent": "leader_agent",
             "need_retrieval": False,
-            "action": "delegate_agent",
+            "action": "call_tool",
+            "tool_name": "generate_image_tool",
             "route_reason": "用户明确要求图片。",
         })
 
         plan = self.agent.plan(
             "给我生成一张 Python 学习路线图片",
             chat_service=provider,
-            callable_catalog={"agents": [{"name": "image_agent", "enabled": True}]},
+            callable_catalog={"agents": [], "tools": [{"name": "generate_image_tool", "enabled": True}]},
         )
 
-        self.assertEqual("image_agent", plan.target_agent)
-        self.assertEqual("llm", plan.route_mode)
+        self.assertEqual("leader_agent", plan.target_agent)
+        self.assertEqual("call_tool", plan.action)
+        self.assertEqual("generate_image_tool", plan.tool_name)
 
-    def test_mind_map_image_agent_returned_by_leader_model_is_accepted(self):
+    def test_mind_map_tool_returned_by_leader_model_is_accepted(self):
         plan = self.agent._parse_llm_plan({
             "intent": "diagram_mind_map_image",
-            "target_agent": "diagram_mind_map_agent",
+            "target_agent": "leader_agent",
             "need_retrieval": False,
             "rag_strategy": "",
-            "action": "delegate_agent",
-            "tool_name": "",
+            "action": "call_tool",
+            "tool_name": "generate_mind_map_image_tool",
             "route_reason": "用户偏好图解，生成学习路线思维导图。",
             "answer": "正在生成思维导图。",
         }, "")
 
         self.assertIsNotNone(plan)
         self.assertEqual("diagram_mind_map_image", plan.intent)
-        self.assertEqual("diagram_mind_map_agent", plan.target_agent)
-        self.assertEqual("delegate_agent", plan.action)
+        self.assertEqual("leader_agent", plan.target_agent)
+        self.assertEqual("call_tool", plan.action)
+        self.assertEqual("generate_mind_map_image_tool", plan.tool_name)
         self.assertEqual("llm", plan.route_mode)
 
     def test_every_catalogued_leader_callable_agent_passes_plan_validation(self):
@@ -342,10 +344,10 @@ class LeaderFastRouteTest(unittest.TestCase):
             chat_service=self.provider,
             callable_catalog={
                 "agents": [
-                    {"name": "image_agent", "role": "图片智能体", "category": "image", "enabled": False},
                     {"name": "textbook_knowledge_agent", "role": "教材知识点智能体", "category": "textbook", "enabled": True},
                 ],
                 "tools": [
+                    {"name": "generate_image_tool", "displayName": "图片生成工具", "category": "visual_generation", "enabled": False},
                     {"name": "java_schedule_api", "displayName": "课表查询", "purpose": "查询课表", "enabled": True},
                     {"name": "java_meeting_api", "displayName": "会议查询", "purpose": "查询会议", "enabled": False},
                 ],
@@ -358,7 +360,7 @@ class LeaderFastRouteTest(unittest.TestCase):
         self.assertEqual(0, self.provider.calls)
         self.assertIn("教材知识点智能体", plan.answer)
         self.assertIn("课表查询", plan.answer)
-        self.assertNotIn("图片智能体", plan.answer)
+        self.assertNotIn("图片生成工具", plan.answer)
         self.assertNotIn("会议查询", plan.answer)
         self.assertNotIn("已关闭", plan.answer)
 
@@ -372,14 +374,13 @@ class LeaderFastRouteTest(unittest.TestCase):
             "你支持生图吗？",
             chat_service=self.provider,
             callable_catalog={
-                "agents": [{
-                    "name": "image_agent",
-                    "role": "图片智能体",
-                    "category": "image",
-                    "requiredModelModalities": ["image"],
+                "agents": [],
+                "tools": [{
+                    "name": "generate_image_tool",
+                    "displayName": "通用图片生成工具",
+                    "category": "visual_generation",
                     "enabled": True,
                 }],
-                "tools": [],
                 "contentTools": [],
             },
         )
@@ -389,7 +390,7 @@ class LeaderFastRouteTest(unittest.TestCase):
         self.assertEqual(0, self.provider.calls)
         self.assertIn("当前不支持生图", unavailable_plan.answer)
         self.assertIn("当前支持生图", available_plan.answer)
-        self.assertIn("图片智能体", available_plan.answer)
+        self.assertIn("通用图片生成工具", available_plan.answer)
 
 
 if __name__ == "__main__":

@@ -89,7 +89,8 @@ class GeneratedExporterTest(unittest.TestCase):
             self.assertTrue(attachment["serverGenerated"])
             self.assertNotIn("url", attachment)
             storage_key = attachment["storageKey"]
-            self.assertEqual("Markdown.md", attachment["name"])
+            self.assertTrue(attachment["name"].endswith(".md"))
+            self.assertNotEqual("Markdown.md", attachment["name"])
             self.assertEqual(attachment["name"], attachment["fileName"])
             self.assertNotEqual(storage_key, attachment["name"])
             self.assertEqual(str(uuid.UUID(Path(storage_key).stem)), Path(storage_key).stem)
@@ -323,6 +324,10 @@ class GeneratedExporterTest(unittest.TestCase):
 
             self.assertEqual(["docx"], [item["ext"] for item in word_result.attachments])
             self.assertEqual(["xlsx"], [item["ext"] for item in excel_result.attachments])
+            self.assertTrue(word_result.attachments[0]["name"].endswith(".docx"))
+            self.assertTrue(excel_result.attachments[0]["name"].endswith(".xlsx"))
+            self.assertNotEqual("Word 文档.docx", word_result.attachments[0]["name"])
+            self.assertNotEqual("Excel 表格.xlsx", excel_result.attachments[0]["name"])
 
     def test_mermaid_exports_source_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:

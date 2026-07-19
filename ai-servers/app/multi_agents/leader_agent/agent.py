@@ -19,7 +19,16 @@ LEADER_OUTPUT_PUSH_STRATEGIES = [
     {
         "push_type": "image",
         "triggers": ["生成图片", "画一张", "配图", "插图", "封面图", "海报", "图片素材", "架构图", "流程图", "活动图", "思维导图图片"],
-        "target_agents": ["image_agent", "diagram_mind_map_agent", "diagram_architecture_agent", "diagram_flowchart_agent", "diagram_activity_agent", "ppt_image_agent"],
+        "target_agents": [],
+        "target_tools": [
+            "generate_image_tool",
+            "generate_mind_map_image_tool",
+            "generate_flowchart_image_tool",
+            "generate_activity_image_tool",
+            "generate_architecture_image_tool",
+            "generate_knowledge_graph_image_tool",
+            "generate_ppt_image_tool",
+        ],
         "display_policy": "返回图片 URL 或图片生成 JSON 时，App 会话页以图片卡片展示，支持点击预览。",
     },
     {
@@ -43,6 +52,16 @@ CAMPUS_SERVICE_TOOL_NAMES = {
     "java_canteen_api",
     "java_facility_api",
     "java_secondhand_api",
+}
+
+VISUAL_GENERATION_TOOL_NAMES = {
+    "generate_image_tool",
+    "generate_mind_map_image_tool",
+    "generate_flowchart_image_tool",
+    "generate_activity_image_tool",
+    "generate_architecture_image_tool",
+    "generate_knowledge_graph_image_tool",
+    "generate_ppt_image_tool",
 }
 
 # Set to false/0/off to restore the original model-only routing path immediately.
@@ -134,10 +153,7 @@ _EXPLICIT_VISUAL_OUTPUT_TOKENS = (
     "生成图片", "生成一张", "生成张", "画一张", "画张", "画图", "做一张", "来一张", "配图", "插图", "封面图", "海报",
     "图片版", "图解版", "文生图", "思维导图", "脑图", "流程图", "活动图", "泳道图", "架构图",
 )
-_VISUAL_GENERATION_AGENTS = frozenset({
-    "image_agent", "diagram_mind_map_agent", "diagram_flowchart_agent",
-    "diagram_activity_agent", "diagram_architecture_agent", "ppt_image_agent",
-})
+_VISUAL_GENERATION_AGENTS = frozenset({"image_agent"})
 _FAST_ROUTE_QUERY_ACTION_TOKENS = (
     "查询",
     "查看",
@@ -499,22 +515,27 @@ class LeaderAgent:
                 tool_name="text_to_sql",
                 route_reason="命中统计/查询结构化数据意图，使用 Text-to-SQL 查询接口。",
             )
+        if any(token in normalized for token in ("知识图谱", "实体关系图", "概念关系图", "knowledge graph")):
+            return LeaderPlan("knowledge_graph_image", "leader_agent", False, "", action="call_tool", tool_name="generate_knowledge_graph_image_tool", route_reason="命中知识图谱生成意图，调用知识图谱图片生成工具。")
         if "架构图" in normalized and "提示词" in normalized:
-            return LeaderPlan("architecture_diagram_prompt", "architecture_prompt_agent", False, "", route_reason="命中架构图提示词生成意图，分发给图表架构图提示词智能体。")
+            return LeaderPlan("architecture_diagram_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_architecture_image_tool", route_reason="命中架构图生成意图，调用架构图图片生成工具。")
         if any(token in normalized for token in ("架构图", "系统架构图", "architecture diagram", "architecture")):
-            return LeaderPlan("diagram_architecture", "diagram_architecture_agent", False, "", route_reason="命中架构图生成意图，分发给图表架构图智能体。")
+            return LeaderPlan("diagram_architecture", "leader_agent", False, "", action="call_tool", tool_name="generate_architecture_image_tool", route_reason="命中架构图生成意图，调用架构图图片生成工具。")
         if "活动图" in normalized and "提示词" in normalized:
-            return LeaderPlan("diagram_activity_prompt", "diagram_activity_prompt_agent", False, "", route_reason="命中活动图提示词生成意图，分发给活动图提示词智能体。")
+            return LeaderPlan("diagram_activity_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_activity_image_tool", route_reason="命中活动图生成意图，调用活动图图片生成工具。")
         if any(token in normalized for token in ("活动图", "泳道图", "activity diagram", "任务活动图")):
-            return LeaderPlan("diagram_activity", "diagram_activity_agent", False, "", route_reason="命中活动图生成意图，分发给图表活动图智能体。")
+            return LeaderPlan("diagram_activity", "leader_agent", False, "", action="call_tool", tool_name="generate_activity_image_tool", route_reason="命中活动图生成意图，调用活动图图片生成工具。")
         if "流程图" in normalized and "提示词" in normalized:
-            return LeaderPlan("diagram_flowchart_prompt", "diagram_flowchart_prompt_agent", False, "", route_reason="命中流程图提示词生成意图，分发给流程图提示词智能体。")
+            return LeaderPlan("diagram_flowchart_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_flowchart_image_tool", route_reason="命中流程图生成意图，调用流程图图片生成工具。")
         if any(token in normalized for token in ("流程图", "flowchart", "流程")):
-            return LeaderPlan("diagram_flowchart", "diagram_flowchart_agent", False, "", route_reason="命中流程图生成意图，分发给图表流程图智能体。")
+            return LeaderPlan("diagram_flowchart", "leader_agent", False, "", action="call_tool", tool_name="generate_flowchart_image_tool", route_reason="命中流程图生成意图，调用流程图图片生成工具。")
         if any(token in normalized for token in ("思维导图", "mindmap", "mind map", "脑图")):
-            return LeaderPlan("diagram_mind_map", "diagram_mind_map_agent", False, "", route_reason="命中思维导图生成意图，分发给图表思维导图智能体。")
-        if any(token in normalized for token in ("生成图片", "画一张", "画张", "配图", "插图", "封面图", "海报", "图片素材", "文生图")):
-            return LeaderPlan("image_generation", "image_agent", False, "", route_reason="命中图片生成/配图意图，分发给图片智能体，并在 App 会话页以图片卡片推送。")
+            return LeaderPlan("diagram_mind_map", "leader_agent", False, "", action="call_tool", tool_name="generate_mind_map_image_tool", route_reason="命中思维导图生成意图，调用思维导图图片生成工具。")
+        if (
+            any(token in normalized for token in ("生成图片", "画一张", "画张", "配图", "插图", "封面图", "海报", "图片素材", "文生图"))
+            and not any(token in normalized for token in ("ppt", "课件", "幻灯片"))
+        ):
+            return LeaderPlan("image_generation", "leader_agent", False, "", action="call_tool", tool_name="generate_image_tool", route_reason="命中图片生成/配图意图，调用通用图片生成工具。")
         if any(token in normalized for token in ("个人画像汇总", "画像汇总", "画像总结", "画像分析", "画像雷达总结", "profile summary")):
             return LeaderPlan("profile_summary", "profile_summary_agent", False, "", route_reason="命中个人画像汇总意图，分发给个人画像汇总智能体。")
         if any(token in normalized for token in ("多选题", "多项选择")):
@@ -553,8 +574,14 @@ class LeaderAgent:
             return LeaderPlan("ppt_review", "ppt_review_agent", False, "", route_reason="命中 PPT 审查/评分意图，分发给 PPT 审查智能体。")
         if any(token in normalized for token in ("ppt布局", "ppt排版", "ppt版式", "排布局", "排版")):
             return LeaderPlan("ppt_layout", "ppt_layout_agent", False, "", route_reason="命中 PPT 布局/排版意图，分发给 PPT 布局智能体。")
-        if any(token in normalized for token in ("ppt图片", "ppt配图", "ppt插图", "ppt封面", "课件配图")):
-            return LeaderPlan("ppt_image", "ppt_image_agent", False, "", route_reason="命中 PPT 图片/配图意图，分发给 PPT 图片智能体。")
+        if (
+            any(token in normalized for token in ("ppt图片", "ppt配图", "ppt插图", "ppt封面", "课件配图"))
+            or (
+                any(token in normalized for token in ("ppt", "课件", "幻灯片"))
+                and any(token in normalized for token in ("图片", "配图", "插图", "封面图", "封面"))
+            )
+        ):
+            return LeaderPlan("ppt_image", "leader_agent", False, "", action="call_tool", tool_name="generate_ppt_image_tool", route_reason="命中 PPT 图片/配图意图，调用 PPT 配图生成工具。")
         if any(token in normalized for token in ("ppt", "幻灯片", "课件", "演示文稿")):
             return LeaderPlan("ppt_outline", "ppt_outline_agent", False, "", route_reason="命中 PPT/课件生成意图，默认分发给 PPT 大纲智能体。")
         if any(token in normalized for token in ("md", "markdown", "知识点提取", "提取知识点", "知识点整理")):
@@ -901,7 +928,10 @@ class LeaderAgent:
         input_text: str,
         callable_catalog: Optional[Dict[str, Any]],
     ) -> LeaderPlan:
-        if plan.target_agent not in _VISUAL_GENERATION_AGENTS:
+        if (
+            plan.target_agent not in _VISUAL_GENERATION_AGENTS
+            and plan.tool_name not in VISUAL_GENERATION_TOOL_NAMES
+        ):
             return plan
         if self._has_explicit_visual_output_request(input_text):
             return plan
@@ -1015,19 +1045,14 @@ class LeaderAgent:
         asks_image = any(token in normalized_query for token in ("生图", "画图", "图片", "配图", "插图", "海报", "封面图", "文生图"))
         asks_full_catalog = any(token in normalized_query for token in ("哪些功能", "有什么功能", "有哪些功能", "能做什么", "能力清单"))
         if asks_image and not asks_full_catalog:
-            image_agents = []
-            for item in enabled_agents:
-                modalities = item.get("requiredModelModalities")
-                normalized_modalities = {
-                    str(modality or "").strip().lower()
-                    for modality in (modalities if isinstance(modalities, list) else [])
-                }
-                if item.get("category") == "image" or "image" in normalized_modalities:
-                    image_agents.append(item)
-            if not image_agents:
-                return "当前不支持生图：后台没有已开启、模型配置完整且测试通过的生图智能体。"
-            names = "、".join(str(item.get("role") or item.get("name")) for item in image_agents)
-            return f"当前支持生图，可调用：{names}。这些能力均已在后台开启并通过模型配置测试。"
+            image_tools = [
+                item for item in enabled_tools
+                if str(item.get("category") or "").strip() == "visual_generation"
+            ]
+            if not image_tools:
+                return "当前不支持生图：后台没有已开启且依赖配置完整的图片生成工具。"
+            names = "、".join(str(item.get("displayName") or item.get("zhName") or item.get("name")) for item in image_tools)
+            return f"当前支持生图，可调用：{names}。这些能力均通过工具执行，Leader 不会直接调用内部提示词智能体或图片智能体。"
         if not enabled_agents and not enabled_tools and not enabled_content_tools:
             return "当前没有已确认可用的智能体或工具。后台开启并完成模型配置测试后，我才会把对应能力列出来。"
 
@@ -1424,6 +1449,7 @@ def build_leader_router_user_prompt(
             "用户询问你有什么功能、是否支持生图/PPT/题库/文档/图表等能力时，只能依据 leader_callable_catalog 中 enabled=true 的项目回答；不得把静态提示词、已知智能体名称或输出策略当成当前可用能力。",
             "某项能力未出现在启用清单中时，必须明确回答当前不可用或尚未完成配置，不得声称可以生成后再执行失败。",
             "leader_output_push_strategies 只是已启用能力的输出路由提示，不能单独证明某种生成能力当前可用。",
+            "所有图片、思维导图、流程图、活动图、架构图、知识图谱和 PPT 配图请求都必须 action=call_tool，并从 leader_callable_catalog.tools 选择对应 generate_*_image_tool；不得 delegate_agent 到提示词智能体或 image_agent。",
             "target_agent 必须来自 leader_callable_catalog.agents.name；tool_name 必须来自 leader_callable_catalog.tools.name。",
             "action=call_tool 时，answer 必须是一句简短自然的进行中回复，例如“正在为你查询今日课表。”；最终结果会在工具返回后再由模型整理。",
         ],

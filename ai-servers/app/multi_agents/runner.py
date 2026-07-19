@@ -30,14 +30,11 @@ def run_specialist_agent(
         return agent.build_diagram(input_text, evidence, chat_service=chat_service)
     if hasattr(agent, "build_mind_map"):
         return agent.build_mind_map(input_text, evidence, chat_service=chat_service)
-    if hasattr(agent, "generate_mind_map_image_json"):
-        # diagram_mind_map_agent: 接收提示词生成图片
-        return agent.generate_mind_map_image_json(prompt=input_text)
     if hasattr(agent, "summarize_knowledge_points"):
         return agent.summarize_knowledge_points(input_text, evidence, chat_service=chat_service)
     if hasattr(agent, "generate_questions"):
         return agent.generate_questions(input_text, evidence, chat_service=chat_service)
-    if hasattr(agent, "generate_images_json"):
+    if normalized == "image_agent" and hasattr(agent, "generate_images_json"):
         return agent.generate_images_json(input_text, evidence, chat_service=chat_service)
     if hasattr(agent, "process"):
         return agent.process(input_text, evidence, chat_service=chat_service)
@@ -155,18 +152,21 @@ def _adapt_legacy_workflow_resource(
             "evidenceIds": evidence_ids,
         }
     elif agent_name == "diagram_mind_map_agent":
-        try:
-            mind_map = json.loads(content)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(
-                status_code=502,
-                detail="diagram_mind_map_agent 返回内容不是合法 JSON",
-            ) from exc
-        if not isinstance(mind_map, dict) or not mind_map:
-            raise HTTPException(
-                status_code=502,
-                detail="diagram_mind_map_agent 返回空图片结果",
-            )
+        if "```mermaid" in content.lower():
+            mind_map = {"mermaid": content}
+        else:
+            try:
+                mind_map = json.loads(content)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(
+                    status_code=502,
+                    detail="diagram_mind_map_agent 必须返回 Mermaid 源码或兼容的思维导图 JSON",
+                ) from exc
+            if not isinstance(mind_map, dict) or not mind_map:
+                raise HTTPException(
+                    status_code=502,
+                    detail="diagram_mind_map_agent 返回了无效的思维导图结构",
+                )
         payload = {
             "resourceType": "mind_map",
             "content": content,

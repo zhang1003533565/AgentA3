@@ -89,7 +89,24 @@
                 class="resource-card"
                 :class="[`resource-card--${resource.renderer}`, { 'resource-card--unavailable': resource.unavailable }]"
               >
-                <view class="resource-card__header">
+                <view
+                  v-if="isFileResource(resource)"
+                  class="resource-file"
+                  :class="{ 'resource-file--clickable': getPrimaryFileAction(resource) }"
+                  @click="openFileResource(resource, message)"
+                >
+                  <view class="resource-file__icon" :class="`resource-file__icon--${getResourceFileClass(resource)}`">
+                    <view class="resource-file__fold"></view>
+                    <text class="resource-file__extension">{{ getResourceFileExtension(resource) }}</text>
+                  </view>
+                  <view class="resource-file__body">
+                    <text class="resource-file__name">{{ resource.title }}</text>
+                    <text class="resource-file__meta">
+                      {{ getResourceSizeLabel(resource) }}{{ getPrimaryFileAction(resource) ? ' · 点击下载' : '' }}
+                    </text>
+                  </view>
+                </view>
+                <view v-else class="resource-card__header">
                   <view class="resource-card__icon" :class="`resource-card__icon--${resource.renderer}`">
                     {{ getResourceIcon(resource) }}
                   </view>
@@ -104,7 +121,7 @@
                     </view>
                   </view>
                 </view>
-                <text v-if="getResourceSummary(resource)" class="resource-card__summary">{{ getResourceSummary(resource) }}</text>
+                <text v-if="!isFileResource(resource) && getResourceSummary(resource)" class="resource-card__summary">{{ getResourceSummary(resource) }}</text>
                 <safe-markdown
                   v-if="resource.renderer === 'content' && resource.payload.content"
                   class="resource-card__content"
@@ -144,7 +161,7 @@
                   <text class="resource-card__audio-label">{{ isResourceAudioPlaying(resource) ? '停止播放' : '播放音频' }}</text>
                 </view>
                 <text v-if="resource.unavailable" class="resource-card__unavailable">旧资源链接已失效，无法继续打开</text>
-                <view v-if="getResourceActions(resource).length" class="resource-card__actions">
+                <view v-if="!isFileResource(resource) && getResourceActions(resource).length" class="resource-card__actions">
                   <view
                     v-for="action in getResourceActions(resource)"
                     :key="`${resource.key}-${action.type}`"
@@ -1628,6 +1645,38 @@ export default {
     getResourceIcon(resource) {
       return RESOURCE_ICON_LABELS[resource?.renderer] || RESOURCE_ICON_LABELS.generic
     },
+    isFileResource(resource) {
+      return ['document', 'presentation', 'spreadsheet', 'bundle'].includes(resource?.renderer)
+    },
+    getResourceFileExtension(resource) {
+      const title = String(resource?.title || '')
+      const titleMatch = title.match(/\.([a-z0-9]{1,8})$/i)
+      const value = String(resource?.payload?.format || titleMatch?.[1] || 'FILE').replace(/^\./, '').toUpperCase()
+      return ({ WORD: 'DOCX', EXCEL: 'XLSX', MARKDOWN: 'MD' })[value] || value.slice(0, 5)
+    },
+    getResourceFileClass(resource) {
+      const extension = this.getResourceFileExtension(resource).toLowerCase()
+      if (['doc', 'docx'].includes(extension)) return 'word'
+      if (['xls', 'xlsx', 'csv'].includes(extension)) return 'excel'
+      if (extension === 'pdf') return 'pdf'
+      if (['zip', 'rar', '7z', 'tar', 'gz'].includes(extension)) return 'archive'
+      if (['ppt', 'pptx'].includes(extension)) return 'powerpoint'
+      return 'text'
+    },
+    getResourceSizeLabel(resource) {
+      const size = Number(resource?.payload?.size || resource?.metadata?.size || 0)
+      if (!Number.isFinite(size) || size <= 0) return this.getResourceFileExtension(resource) + ' 文件'
+      if (size < 1024) return `${size} B`
+      if (size < 1024 * 1024) return `${(size / 1024).toFixed(size >= 10240 ? 0 : 1)} KB`
+      return `${(size / (1024 * 1024)).toFixed(1)} MB`
+    },
+    getPrimaryFileAction(resource) {
+      return this.getResourceActions(resource).find((action) => ['download', 'preview', 'open_resource'].includes(action.type)) || null
+    },
+    openFileResource(resource, message) {
+      const action = this.getPrimaryFileAction(resource)
+      if (action) this.handleResourceAction(resource, action, message)
+    },
     getResourceKindLabel(resource) {
       return RESOURCE_KIND_LABELS[resource?.kind] || '资源'
     },
@@ -2529,6 +2578,78 @@ export default {
   background: #F4F7FB;
   color: #526070;
   border: 1rpx solid rgba(100, 116, 139, 0.12);
+}
+
+.resource-file {
+  display: flex;
+  align-items: center;
+  gap: 22rpx;
+  min-height: 128rpx;
+}
+
+.resource-file--clickable {
+  cursor: pointer;
+}
+
+.resource-file__icon {
+  position: relative;
+  width: 88rpx;
+  height: 112rpx;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 8rpx 18rpx 8rpx 8rpx;
+  background: #64748B;
+  box-shadow: inset 0 0 0 1rpx rgba(15, 23, 42, 0.08);
+}
+
+.resource-file__fold {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 26rpx;
+  height: 26rpx;
+  background: rgba(255, 255, 255, 0.72);
+  clip-path: polygon(0 0, 100% 100%, 0 100%);
+}
+
+.resource-file__extension {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 18rpx;
+  color: #FFFFFF;
+  text-align: center;
+  font-size: 21rpx;
+  font-weight: 900;
+  letter-spacing: 1rpx;
+}
+
+.resource-file__icon--word { background: #2878D0; }
+.resource-file__icon--excel { background: #16865B; }
+.resource-file__icon--pdf { background: #E44848; }
+.resource-file__icon--archive { background: #7A5CC7; }
+.resource-file__icon--powerpoint { background: #D66B2C; }
+.resource-file__icon--text { background: #64748B; }
+
+.resource-file__body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.resource-file__name {
+  color: #172033;
+  font-size: 28rpx;
+  font-weight: 700;
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+.resource-file__meta {
+  color: #8490A3;
+  font-size: 22rpx;
 }
 
 .message-action-bar {

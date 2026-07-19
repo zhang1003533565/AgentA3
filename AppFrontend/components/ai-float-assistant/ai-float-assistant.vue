@@ -68,7 +68,22 @@
 									class="ai-resource-card"
 									:class="[`ai-resource-card--${resource.renderer}`, { 'ai-resource-card--unavailable': resource.unavailable }]"
 								>
-									<view class="ai-resource-card__header">
+									<view
+										v-if="isFileResource(resource)"
+										class="ai-resource-file"
+										:class="{ 'ai-resource-file--clickable': getPrimaryFileAction(resource) }"
+										@click="openFileResource(resource, message)"
+									>
+										<view class="ai-resource-file__icon" :class="`ai-resource-file__icon--${getResourceFileClass(resource)}`">
+											<view class="ai-resource-file__fold"></view>
+											<text class="ai-resource-file__extension">{{ getResourceFileExtension(resource) }}</text>
+										</view>
+										<view class="ai-resource-file__body">
+											<text class="ai-resource-file__name">{{ resource.title }}</text>
+											<text class="ai-resource-file__meta">{{ getResourceSizeLabel(resource) }}{{ getPrimaryFileAction(resource) ? ' · 点击下载' : '' }}</text>
+										</view>
+									</view>
+									<view v-else class="ai-resource-card__header">
 										<text class="ai-resource-card__icon">{{ getResourceIcon(resource) }}</text>
 										<view class="ai-resource-card__heading">
 											<text class="ai-resource-card__title">{{ resource.title }}</text>
@@ -77,7 +92,7 @@
 											</text>
 										</view>
 									</view>
-									<text v-if="resource.summary" class="ai-resource-card__summary">{{ resource.summary }}</text>
+									<text v-if="!isFileResource(resource) && resource.summary" class="ai-resource-card__summary">{{ resource.summary }}</text>
 									<safe-markdown
 										v-if="resource.renderer === 'content' && resource.payload.content"
 										class="ai-resource-card__content"
@@ -112,7 +127,7 @@
 										<text>{{ isResourceAudioPlaying(resource) ? '停止播放' : '播放音频' }}</text>
 									</view>
 									<text v-if="resource.unavailable" class="ai-resource-card__unavailable">旧资源链接已失效</text>
-									<view v-if="getResourceActions(resource).length" class="ai-resource-card__actions">
+									<view v-if="!isFileResource(resource) && getResourceActions(resource).length" class="ai-resource-card__actions">
 										<view
 											v-for="action in getResourceActions(resource)"
 											:key="`${resource.key}-${action.type}`"
@@ -629,6 +644,38 @@ export default {
 		},
 		getResourceIcon(resource) {
 			return RESOURCE_ICON_LABELS[resource?.renderer] || RESOURCE_ICON_LABELS.generic
+		},
+		isFileResource(resource) {
+			return ['document', 'presentation', 'spreadsheet', 'bundle'].includes(resource?.renderer)
+		},
+		getResourceFileExtension(resource) {
+			const title = String(resource?.title || '')
+			const titleMatch = title.match(/\.([a-z0-9]{1,8})$/i)
+			const value = String(resource?.payload?.format || titleMatch?.[1] || 'FILE').replace(/^\./, '').toUpperCase()
+			return ({ WORD: 'DOCX', EXCEL: 'XLSX', MARKDOWN: 'MD' })[value] || value.slice(0, 5)
+		},
+		getResourceFileClass(resource) {
+			const extension = this.getResourceFileExtension(resource).toLowerCase()
+			if (['doc', 'docx'].includes(extension)) return 'word'
+			if (['xls', 'xlsx', 'csv'].includes(extension)) return 'excel'
+			if (extension === 'pdf') return 'pdf'
+			if (['zip', 'rar', '7z', 'tar', 'gz'].includes(extension)) return 'archive'
+			if (['ppt', 'pptx'].includes(extension)) return 'powerpoint'
+			return 'text'
+		},
+		getResourceSizeLabel(resource) {
+			const size = Number(resource?.payload?.size || resource?.metadata?.size || 0)
+			if (!Number.isFinite(size) || size <= 0) return this.getResourceFileExtension(resource) + ' 文件'
+			if (size < 1024) return `${size} B`
+			if (size < 1024 * 1024) return `${(size / 1024).toFixed(size >= 10240 ? 0 : 1)} KB`
+			return `${(size / (1024 * 1024)).toFixed(1)} MB`
+		},
+		getPrimaryFileAction(resource) {
+			return this.getResourceActions(resource).find((action) => ['download', 'preview', 'open_resource'].includes(action.type)) || null
+		},
+		openFileResource(resource, message) {
+			const action = this.getPrimaryFileAction(resource)
+			if (action) this.handleResourceAction(resource, action, message)
 		},
 		getResourceKindLabel(resource) {
 			return RESOURCE_KIND_LABELS[resource?.kind] || '资源'
@@ -1489,6 +1536,76 @@ export default {
 	display: flex;
 	align-items: center;
 	gap: 12rpx;
+}
+
+.ai-resource-file {
+	display: flex;
+	align-items: center;
+	gap: 16rpx;
+	min-height: 104rpx;
+}
+
+.ai-resource-file--clickable {
+	cursor: pointer;
+}
+
+.ai-resource-file__icon {
+	position: relative;
+	width: 72rpx;
+	height: 92rpx;
+	flex-shrink: 0;
+	overflow: hidden;
+	border-radius: 7rpx 15rpx 7rpx 7rpx;
+	background: #64748b;
+}
+
+.ai-resource-file__fold {
+	position: absolute;
+	top: 0;
+	right: 0;
+	width: 22rpx;
+	height: 22rpx;
+	background: rgba(255, 255, 255, 0.72);
+	clip-path: polygon(0 0, 100% 100%, 0 100%);
+}
+
+.ai-resource-file__extension {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 14rpx;
+	color: #fff;
+	text-align: center;
+	font-size: 17rpx;
+	font-weight: 900;
+}
+
+.ai-resource-file__icon--word { background: #2878d0; }
+.ai-resource-file__icon--excel { background: #16865b; }
+.ai-resource-file__icon--pdf { background: #e44848; }
+.ai-resource-file__icon--archive { background: #7a5cc7; }
+.ai-resource-file__icon--powerpoint { background: #d66b2c; }
+.ai-resource-file__icon--text { background: #64748b; }
+
+.ai-resource-file__body {
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
+}
+
+.ai-resource-file__name {
+	color: #172033;
+	font-size: 24rpx;
+	font-weight: 700;
+	line-height: 1.35;
+	word-break: break-all;
+}
+
+.ai-resource-file__meta {
+	color: #8490a3;
+	font-size: 19rpx;
 }
 
 .ai-resource-card__icon {
