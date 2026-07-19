@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.multi_agents.catalog import DIAGRAM_AGENT_SPECS, MEETING_AGENT_SPECS, PPT_AGENT_SPECS, QUESTION_AGENT_SPECS, get_agent_profile, normalize_agent_name
+from app.multi_agents.catalog import LEADER_CALLABLE_AGENT_ORDER, get_agent_profile, normalize_agent_name
 from app.model_providers.factory import get_chat_model_provider
 from app.multi_agents.runtime import load_agent_prompt
 from app.services.memory_store import memory_store
@@ -847,18 +847,7 @@ class LeaderAgent:
         tool_name = str(plan.get("tool_name") or plan.get("toolName") or "").strip()
         default_target = "leader_agent" if action in {"direct_answer", "call_tool"} else "textbook_knowledge_agent"
         target_agent = normalize_agent_name(str(plan.get("target_agent") or plan.get("targetAgent") or "")) or default_target
-        if target_agent not in {
-            "leader_agent",
-            "profile_summary_agent",
-            "architecture_prompt_agent",
-            *DIAGRAM_AGENT_SPECS.keys(),
-            "mind_map_agent",
-            "textbook_knowledge_agent",
-            *QUESTION_AGENT_SPECS.keys(),
-            *MEETING_AGENT_SPECS.keys(),
-            *PPT_AGENT_SPECS.keys(),
-            "image_agent",
-        }:
+        if target_agent not in {"leader_agent", *LEADER_CALLABLE_AGENT_ORDER}:
             return None
         need_retrieval = bool(plan.get("need_retrieval", plan.get("needRetrieval", False)))
         profile = get_agent_profile(target_agent)

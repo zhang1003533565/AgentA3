@@ -1017,7 +1017,11 @@ export default {
       }
       const payloadTrace = Array.isArray(payload?.trace) ? payload.trace : []
       const trace = payloadTrace.length ? payloadTrace : previous.trace
-      const message = payload?.message || error?.message || error?.msg || '请求失败'
+      const message = payload?.message
+        || retrievalMeta.failureReason
+        || error?.message
+        || error?.msg
+        || '请求失败'
       const rawMessage = payload?.rawMessage || retrievalMeta.rawFailureReason || ''
       const failedAgent = payload?.failedAgent
         || payload?.agentName
@@ -1973,6 +1977,7 @@ export default {
 
 <style lang="scss" scoped>
 .conversation-page {
+  position: relative;
   height: 100vh;
   background: #F7F7F9;
   display: flex;
@@ -2034,7 +2039,7 @@ export default {
   flex: 1;
   height: 0;
   min-height: 0;
-  padding: 24rpx 24rpx 32rpx;
+  padding: 24rpx 24rpx 112rpx;
   box-sizing: border-box;
 }
 
@@ -2931,10 +2936,11 @@ export default {
 }
 
 .scroll-to-bottom {
-  flex-shrink: 0;
-  align-self: flex-end;
-  margin: 0 24rpx 12rpx;
-  z-index: 19;
+  position: absolute;
+  right: 24rpx;
+  bottom: calc(112rpx + env(safe-area-inset-bottom));
+  margin: 0;
+  z-index: 21;
   min-height: 60rpx;
   padding: 0 20rpx;
   border-radius: 999rpx;

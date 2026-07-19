@@ -671,14 +671,28 @@ async def run_rag_query_stream(
                 profile_context = _profile_context_from_request(request)
                 callable_catalog = _build_leader_callable_catalog(request)
                 conversation_context = _apply_conversation_context(request, authorization or "")
-                plan = await asyncio.to_thread(
-                    leader_agent.plan,
-                    request.input,
-                    request.ragStrategy or "",
-                    profile_context=profile_context,
-                    callable_catalog=callable_catalog,
-                    conversation_context=conversation_context,
-                )
+                try:
+                    plan = await asyncio.to_thread(
+                        leader_agent.plan,
+                        request.input,
+                        request.ragStrategy or "",
+                        profile_context=profile_context,
+                        callable_catalog=callable_catalog,
+                        conversation_context=conversation_context,
+                    )
+                except AgentExecutionError:
+                    raise
+                except Exception as exc:
+                    raise AgentExecutionError(
+                        message="Leader 模型规划调用失败，请检查 Leader 智能体的模型配置。",
+                        agent_name="leader_agent",
+                        stage="leader_plan",
+                        status_code=getattr(exc, "status_code", 500) or 500,
+                        raw_message=_exception_message(exc),
+                        model_provider=getattr(llm_config, "provider", "") or "",
+                        model=getattr(llm_config, "model", "") or "",
+                        base_url=getattr(llm_config, "base_url", "") or "",
+                    ) from exc
                 plan_ms = _elapsed_ms(planning_started_at)
                 if getattr(plan, "action", "") == "call_tool" and getattr(plan, "answer", ""):
                     yield build_sse("tool_start", {

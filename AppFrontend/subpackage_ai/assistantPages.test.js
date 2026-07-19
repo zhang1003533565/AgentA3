@@ -219,6 +219,9 @@ test('full conversation keeps a growing composer in flex flow so it cannot cover
 
   assert.match(style, /\.conversation-page\s*\{[\s\S]{0,220}padding-bottom:\s*0/)
   assert.match(style, /\.message-list\s*\{[\s\S]{0,160}min-height:\s*0/)
+  assert.match(style, /\.message-list\s*\{[\s\S]{0,220}padding:\s*24rpx 24rpx 112rpx/)
+  assert.match(style, /\.scroll-to-bottom\s*\{[\s\S]{0,180}position:\s*absolute/)
+  assert.match(style, /\.scroll-to-bottom\s*\{[\s\S]{0,220}bottom:\s*calc\(112rpx \+ env\(safe-area-inset-bottom\)\)/)
   assert.match(style, /\.composer\s*\{[\s\S]{0,180}position:\s*relative/)
   assert.match(style, /\.composer\s*\{[\s\S]{0,220}flex-shrink:\s*0/)
   assert.doesNotMatch(style, /\.composer\s*\{[\s\S]{0,120}position:\s*fixed/)
@@ -286,6 +289,25 @@ test('full conversation keeps Java authoritative terminal error resources and ev
   assert.deepEqual(assistant.resources, [])
   assert.deepEqual(assistant.evidenceChain, evidenceChain)
   assert.equal(assistant.type, '')
+})
+
+test('full conversation shows the safe backend failure stage instead of a generic request error', async () => {
+  const component = await loadConversationComponent()
+  const vm = instantiate(component)
+
+  const detail = vm.buildErrorCallDetail({
+    payload: {
+      retrievalMeta: {
+        failureStage: 'leader_plan',
+        failureReason: 'Leader 模型规划调用失败，请检查 Leader 智能体的模型配置。',
+        failedAgent: 'leader_agent'
+      }
+    }
+  })
+
+  assert.equal(detail.currentStep, 'leader_plan')
+  assert.equal(detail.agentName, 'leader_agent')
+  assert.match(detail.error, /Leader 模型规划调用失败/)
 })
 
 test('a completed answer stays completed when the stream transport rejects during teardown', async () => {

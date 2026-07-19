@@ -1227,7 +1227,10 @@ class AppAiLeaderControllerTest {
         Map<String, Object> error = new LinkedHashMap<>(Map.of(
                 "message", "python raw secret-capability",
                 "internalCapability", "secret-capability",
-                "endpoint", "http://localhost:8081/internal"));
+                "endpoint", "http://localhost:8081/internal",
+                "stage", "leader_plan",
+                "agentName", "leader_agent",
+                "statusCode", 502));
 
         handler.handle("error", error);
 
@@ -1239,6 +1242,9 @@ class AppAiLeaderControllerTest {
         assertThat(live.path("answer").asText()).isEqualTo(assistant.getContent());
         assertThat(live.path("resources")).hasSize(0);
         assertThat(live.path("evidenceChain").path("evidenceState").asText()).isEqualTo("generation_failed");
+        assertThat(live.path("retrievalMeta").path("failureStage").asText()).isEqualTo("leader_plan");
+        assertThat(live.path("retrievalMeta").path("failureReason").asText())
+                .contains("Leader 模型规划调用失败");
         assertThat(live.path("evidenceChain")).isEqualTo(persistedEvidence);
         assertThat(live.toString()).doesNotContain("python raw", "secret-capability", "localhost", "internalCapability");
         verify(userProfileService, never()).addEvidence(anyLong(), any());

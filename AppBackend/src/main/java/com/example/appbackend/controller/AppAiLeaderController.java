@@ -178,6 +178,12 @@ public class AppAiLeaderController {
                     errorResult.put("answerType", "text");
                     errorResult.put("outputType", "text");
                     errorResult.put("outputTypes", List.of("text"));
+                    Map<String, Object> diagnostics = safeStreamFailureDiagnostics(eventPayload);
+                    errorResult.put("retrievalMeta", diagnostics);
+                    errorResult.put("trace", List.of(Map.of(
+                            "stage", diagnostics.get("failureStage"),
+                            "agentName", diagnostics.get("failedAgent")
+                    )));
                     LlmChatResponse response = toChatResponse(session, errorResult);
                     AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(
                             response, errorResult, request.getInput(), Set.copyOf(internalCapabilities));
@@ -737,6 +743,38 @@ public class AppAiLeaderController {
 
     private String stringValue(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private Map<String, Object> safeStreamFailureDiagnostics(Object eventPayload) {
+        Map<String, Object> source = mapValue(eventPayload);
+        String stage = safeDiagnosticIdentifier(source.get("stage"), "error");
+        String failedAgent = safeDiagnosticIdentifier(
+                firstNonBlank(stringValue(source.get("failedAgent")), stringValue(source.get("agentName"))),
+                LEADER_AGENT);
+        String intent = safeDiagnosticIdentifier(source.get("intent"), "");
+        String reason = switch (stage) {
+            case "leader_plan" -> "Leader 模型规划调用失败，请检查 Leader 智能体的模型绑定、API Key、Base URL 和模型名。";
+            case "agent_model_config" -> "目标智能体的模型配置缺失或不完整，请到后台 AI 模块检查智能体设置。";
+            case "agent_failed" -> "目标智能体执行失败，请检查该智能体的模型配置和 AI 服务日志。";
+            default -> "AI 服务处理失败，请检查 AI 服务日志。";
+        };
+        Map<String, Object> diagnostics = new LinkedHashMap<>();
+        diagnostics.put("failureStage", stage);
+        diagnostics.put("failureReason", reason);
+        diagnostics.put("failedAgent", failedAgent);
+        if (StringUtils.hasText(intent)) {
+            diagnostics.put("intent", intent);
+        }
+        Object statusCode = source.get("statusCode");
+        if (statusCode instanceof Number number) {
+            diagnostics.put("statusCode", number.intValue());
+        }
+        return diagnostics;
+    }
+
+    private String safeDiagnosticIdentifier(Object value, String fallback) {
+        String candidate = truncate(stringValue(value).trim(), 80);
+        return candidate.matches("[A-Za-z0-9:_-]+") ? candidate : fallback;
     }
 
     private String firstNonBlank(String... values) {

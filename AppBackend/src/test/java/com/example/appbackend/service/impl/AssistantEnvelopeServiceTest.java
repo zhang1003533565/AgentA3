@@ -166,4 +166,67 @@ class AssistantEnvelopeServiceTest {
                 "http://127.0.0.1:8081/internal/export", 200, "安全路径", Set.of()))
                 .isEqualTo("安全路径");
     }
+
+    @Test
+    void acceptsEvidenceBundleProducedByPythonResourceBuilder() throws Exception {
+        String rawJson = """
+                {
+                  "resources": [{
+                    "schemaVersion": "assistant-resource-v1",
+                    "id": "res_89d35450b9f090e0ac7677cf",
+                    "messageId": null,
+                    "kind": "explanation",
+                    "deliveryType": "content",
+                    "groundingStatus": "model_only",
+                    "title": "回答内容",
+                    "summary": "可以开始学习 Python。",
+                    "mimeType": "text/plain",
+                    "storageKey": "",
+                    "url": "",
+                    "previewUrl": "",
+                    "sourceType": "response_content",
+                    "sourceId": "assistant_answer",
+                    "evidenceIds": [],
+                    "actions": [],
+                    "authScope": "request_user",
+                    "createdAt": "2026-07-19T06:48:18Z",
+                    "expiresAt": null,
+                    "integrity": null,
+                    "payload": {"type": "content", "content": "可以开始学习 Python。", "language": "text"},
+                    "metadata": {}
+                  }],
+                  "evidenceChain": {
+                    "schemaVersion": "assistant-evidence-v1",
+                    "chainId": "chain_50b911fb030877177570db1f",
+                    "requestId": "req_a59d733614c7ea2b056a2d3f",
+                    "status": "model_only",
+                    "generatedAt": "2026-07-19T06:48:18Z",
+                    "evidenceState": "available",
+                    "queryDigest": "sha256:36873bca484d6f9f878dd3dea70c5b724b4678e5e3939b662f19c6f9c859f582",
+                    "answerDigest": "sha256:b04d7164cb39d1a2dcc61e6497426f1a8436c3b9603d72c67c78be8135dc0f20",
+                    "sources": [],
+                    "steps": [{"stage": "leader_route", "detail": {"intent": "python_learning_guidance", "targetAgent": "leader_agent"}}],
+                    "resourceLinks": [{"resourceId": "res_89d35450b9f090e0ac7677cf", "evidenceIds": []}],
+                    "generation": {"agent": "leader_agent", "model": "", "answerType": "text", "profileContextUsed": false},
+                    "integrity": {
+                      "algorithm": "SHA-256",
+                      "digest": "sha256:146f4e0f45daf9a548cfa848a3ef8e54b101d049b0a979277b9a6f325fba47ea",
+                      "scope": "canonical-json-without-integrity",
+                      "signed": false
+                    }
+                  }
+                }
+                """;
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> raw = mapper.readValue(rawJson, Map.class);
+        LlmChatResponse response = new LlmChatResponse();
+        response.setAnswer("可以开始学习 Python。");
+        response.setAnswerType("text");
+
+        service.prepareLiveResponse(response, raw, "我想学习python这个怎么办?");
+
+        assertThat(response.getEvidenceChain().getEvidenceState()).isEqualTo("available");
+        assertThat(response.getResources()).hasSize(1);
+    }
 }

@@ -3,6 +3,7 @@ import os
 import unittest
 from unittest.mock import patch
 
+from app.multi_agents.catalog import LEADER_CALLABLE_AGENT_ORDER
 from app.multi_agents.leader_agent.agent import LeaderAgent
 
 
@@ -83,6 +84,36 @@ class LeaderFastRouteTest(unittest.TestCase):
         self.assertEqual("llm_fallback", task.intent)
         self.assertEqual("llm", task.route_mode)
         self.assertEqual(1, self.provider.calls)
+
+    def test_mind_map_image_agent_returned_by_leader_model_is_accepted(self):
+        plan = self.agent._parse_llm_plan({
+            "intent": "diagram_mind_map_image",
+            "target_agent": "diagram_mind_map_agent",
+            "need_retrieval": False,
+            "rag_strategy": "",
+            "action": "delegate_agent",
+            "tool_name": "",
+            "route_reason": "用户偏好图解，生成学习路线思维导图。",
+            "answer": "正在生成思维导图。",
+        }, "")
+
+        self.assertIsNotNone(plan)
+        self.assertEqual("diagram_mind_map_image", plan.intent)
+        self.assertEqual("diagram_mind_map_agent", plan.target_agent)
+        self.assertEqual("delegate_agent", plan.action)
+        self.assertEqual("llm", plan.route_mode)
+
+    def test_every_catalogued_leader_callable_agent_passes_plan_validation(self):
+        for agent_name in LEADER_CALLABLE_AGENT_ORDER:
+            with self.subTest(agent_name=agent_name):
+                plan = self.agent._parse_llm_plan({
+                    "intent": "catalog_agent_test",
+                    "target_agent": agent_name,
+                    "action": "delegate_agent",
+                    "route_reason": "验证后台可调用智能体与 Leader 路由白名单一致。",
+                }, "")
+                self.assertIsNotNone(plan)
+                self.assertEqual(agent_name, plan.target_agent)
 
     def test_explicit_service_queries_use_matching_java_tool_without_llm(self):
         cases = (
