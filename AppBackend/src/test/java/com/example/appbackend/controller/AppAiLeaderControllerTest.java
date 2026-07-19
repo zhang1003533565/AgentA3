@@ -353,6 +353,36 @@ class AppAiLeaderControllerTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void typedWordExportInfersFormatAndUsesLatestAssistantMessageAsSource() throws Exception {
+        AiLeaderMessage latestAssistant = new AiLeaderMessage();
+        latestAssistant.setId(88L);
+        latestAssistant.setRole(AiLeaderMessage.ROLE_ASSISTANT);
+        latestAssistant.setContent("# 数据结构\n\n- 栈：后进先出");
+        when(messageRepository.findFirstByLeaderSessionIdAndRoleOrderByCreateTimeDesc(
+                9L, AiLeaderMessage.ROLE_ASSISTANT)).thenReturn(Optional.of(latestAssistant));
+
+        AtomicReference<Map<String, Object>> upstreamPayload = new AtomicReference<>();
+        when(pythonAiProxyService.queryRag(any(), any())).thenAnswer(invocation -> {
+            upstreamPayload.set(invocation.getArgument(0));
+            Map<String, Object> response = validGeneratedResponse();
+            evidenceChain(response).put("queryDigest", sha256Text("给我导出word"));
+            refreshChainIntegrity(evidenceChain(response));
+            return response;
+        });
+        LlmChatRequest request = request();
+        request.setInput("给我导出word");
+
+        controller.query(request, authenticatedRequest());
+
+        Map<String, Object> metadata = (Map<String, Object>) upstreamPayload.get().get("metadata");
+        assertThat(metadata).containsEntry("requestedOutputType", "docx");
+        assertThat(metadata).containsEntry("sourceMessageId", 88L);
+        assertThat(metadata).containsEntry("sourceMessageContent", latestAssistant.getContent());
+        assertThat(metadata).containsEntry("sourceMessageOrigin", "latest_assistant_message");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void syncReusesSavedAiProfileWithoutSchedulingRedundantRefresh() {
         Map<String, Object> savedAiProfile = Map.of(
                 "summaryEngine", "profile_summary_agent",
@@ -1218,7 +1248,7 @@ class AppAiLeaderControllerTest {
     }
 
     @Test
-    void streamStartThenErrorUsesOneSafeTerminalEnvelopeForLiveAndHistory() throws Exception {
+    void streamStartThenErrorDeletesPlaceholderAndDoesNotCreateAssistantFallbackReply() throws Exception {
         AtomicReference<PythonAiProxyService.SseEventHandler> handlerRef = captureStreamHandler();
         controller.queryStream(request(), "Bearer test-token", authenticatedRequest());
         PythonAiProxyService.SseEventHandler handler = handlerRef.get();
@@ -1237,16 +1267,12 @@ class AppAiLeaderControllerTest {
         AiLeaderMessage assistant = savedMessages.stream()
                 .filter(item -> AiLeaderMessage.ROLE_ASSISTANT.equals(item.getRole())).findFirst().orElseThrow();
         JsonNode live = objectMapper.valueToTree(error);
-        JsonNode persistedEvidence = objectMapper.readTree(assistant.getEvidenceChainJson());
-        assertThat(live.path("messageId").asLong()).isEqualTo(start.get("messageId"));
-        assertThat(live.path("answer").asText()).isEqualTo(assistant.getContent());
-        assertThat(live.path("resources")).hasSize(0);
-        assertThat(live.path("evidenceChain").path("evidenceState").asText()).isEqualTo("generation_failed");
-        assertThat(live.path("retrievalMeta").path("failureStage").asText()).isEqualTo("leader_plan");
-        assertThat(live.path("retrievalMeta").path("failureReason").asText())
-                .contains("Leader 模型规划调用失败");
-        assertThat(live.path("evidenceChain")).isEqualTo(persistedEvidence);
+        assertThat(live.has("answer")).isFalse();
+        assertThat(live.has("messageId")).isFalse();
+        assertThat(live.has("resources")).isFalse();
+        assertThat(live.has("evidenceChain")).isFalse();
         assertThat(live.toString()).doesNotContain("python raw", "secret-capability", "localhost", "internalCapability");
+        verify(messageRepository).delete(assistant);
         verify(userProfileService, never()).addEvidence(anyLong(), any());
     }
 

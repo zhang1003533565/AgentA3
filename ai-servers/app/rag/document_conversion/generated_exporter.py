@@ -20,6 +20,8 @@ from typing import Any, BinaryIO, Dict, List, Mapping, Optional, Set
 from xml.sax.saxutils import escape
 
 from docx import Document
+from pptx import Presentation
+from pptx.util import Pt
 
 DEFAULT_EXPORT_TTL_HOURS = 168.0
 DEFAULT_EXPORT_MAX_BYTES = 1024 * 1024 * 1024
@@ -120,6 +122,7 @@ GENERATED_EXPORT_TOOL_NAME = "generated_export_tools"
 MARKDOWN_EXPORT_TOOL_NAME = "markdown_export_tool"
 DOCX_EXPORT_TOOL_NAME = "docx_export_tool"
 EXCEL_EXPORT_TOOL_NAME = "excel_export_tool"
+PPTX_EXPORT_TOOL_NAME = "pptx_export_tool"
 ARCHIVE_EXPORT_TOOL_NAME = "content_archive_tool"
 DIAGRAM_SOURCE_EXPORT_TOOL_NAME = "diagram_source_export_tool"
 KNOWN_EXPORT_TOOL_NAMES = {
@@ -127,6 +130,7 @@ KNOWN_EXPORT_TOOL_NAMES = {
     MARKDOWN_EXPORT_TOOL_NAME,
     DOCX_EXPORT_TOOL_NAME,
     EXCEL_EXPORT_TOOL_NAME,
+    PPTX_EXPORT_TOOL_NAME,
     ARCHIVE_EXPORT_TOOL_NAME,
     DIAGRAM_SOURCE_EXPORT_TOOL_NAME,
 }
@@ -839,7 +843,7 @@ def _validated_image_extension(content: bytes, content_type: str) -> str:
 
 def _should_export_markdown(answer_type: str, agent: str, metadata: Dict[str, Any], content: str) -> bool:
     requested = str(metadata.get("requestedOutputType") or metadata.get("preferredOutputType") or "").strip().lower()
-    if requested in {"document", "file", "docx", "word", "excel", "md", "markdown"}:
+    if requested in {"document", "file", "docx", "word", "excel", "md", "markdown", "ppt", "pptx"}:
         return True
     if agent in EXPORTABLE_MARKDOWN_AGENTS:
         return True
@@ -872,6 +876,7 @@ def _requested_export_format(metadata: Dict[str, Any]) -> str:
         "word": "docx",
         "excel": "xlsx",
         "markdown": "md",
+        "ppt": "pptx",
         "bundle": "zip",
         "archive": "zip",
     }
@@ -881,9 +886,12 @@ def _requested_export_format(metadata: Dict[str, Any]) -> str:
 def _wants_export_format(metadata: Dict[str, Any], file_format: str) -> bool:
     requested = _requested_export_format(metadata)
     if requested in {"", "document", "file"}:
-        return True
+        # Preserve the legacy generic document bundle. PPTX is only generated
+        # when the user explicitly asks for it, otherwise every Markdown answer
+        # would unexpectedly gain a presentation attachment.
+        return file_format != "pptx"
     if requested == "zip":
-        return file_format in {"md", "docx", "xlsx", "mmd", "zip"}
+        return file_format in {"md", "docx", "xlsx", "pptx", "mmd", "zip"}
     return requested == file_format
 
 
@@ -984,6 +992,10 @@ def _export_markdown_content(content: str, metadata: Dict[str, Any]) -> Generate
         path = _write_xlsx(slug, "知识清单", rows)
         paths.append(path)
         attachments.append(_attachment_for_file(path, EXCEL_EXPORT_TOOL_NAME, "Excel 表格", title))
+    if _wants_export_format(metadata, "pptx") and _is_export_tool_enabled(metadata, PPTX_EXPORT_TOOL_NAME):
+        path = _write_markdown_pptx(slug, title, content)
+        paths.append(path)
+        attachments.append(_attachment_for_file(path, PPTX_EXPORT_TOOL_NAME, "PPT 演示文稿", title))
     if _wants_export_format(metadata, "zip") and _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
         attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件", title))
     attachments = _keep_requested_attachments(attachments, metadata)
@@ -1157,6 +1169,49 @@ def _write_xlsx(slug: str, sheet_name: str, rows: List[List[Any]]) -> Path:
             archive.writestr("xl/styles.xml", styles)
 
     _atomic_write_payload(path, write_workbook)
+    return path
+
+
+def _write_markdown_pptx(slug: str, title: str, content: str) -> Path:
+    path = _new_export_path(slug, "pptx")
+    presentation = Presentation()
+    title_slide = presentation.slides.add_slide(presentation.slide_layouts[0])
+    title_slide.shapes.title.text = title or "演示文稿"
+    if len(title_slide.placeholders) > 1:
+        title_slide.placeholders[1].text = "由文件内容编排智能体整理"
+
+    sections: List[tuple[str, List[str]]] = []
+    current_title = "内容概览"
+    current_items: List[str] = []
+    for raw_line in str(content or "").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("# "):
+            continue
+        if line.startswith("## "):
+            if current_items:
+                sections.append((current_title, current_items))
+            current_title = line[3:].strip() or "内容"
+            current_items = []
+            continue
+        cleaned = re.sub(r"^(?:[-*+]\s+|\d+[.)、]\s*)", "", line).strip()
+        if cleaned and not cleaned.startswith("```"):
+            current_items.append(cleaned)
+    if current_items:
+        sections.append((current_title, current_items))
+    if not sections:
+        sections = [("内容概览", [title or "暂无可展示内容"])]
+
+    for section_title, items in sections[:30]:
+        slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+        slide.shapes.title.text = section_title[:120]
+        text_frame = slide.placeholders[1].text_frame
+        text_frame.clear()
+        for index, item in enumerate(items[:8]):
+            paragraph = text_frame.paragraphs[0] if index == 0 else text_frame.add_paragraph()
+            paragraph.text = item[:500]
+            paragraph.level = 0
+            paragraph.font.size = Pt(20)
+    _atomic_write_payload(path, presentation.save)
     return path
 
 

@@ -10,6 +10,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from pptx import Presentation
+
 from app.rag.document_conversion import generated_exporter
 
 
@@ -354,13 +356,28 @@ class GeneratedExporterTest(unittest.TestCase):
                     "requestedOutputType": "xlsx",
                 },
             )
+            ppt_result = generated_exporter.export_generated_answer(
+                "# 栈与队列\n\n## 核心概念\n\n- 栈：后进先出\n- 队列：先进先出",
+                "markdown",
+                {
+                    "executedAgent": "generated_export_tools",
+                    "allowGeneratedExportTool": True,
+                    "requestedOutputType": "pptx",
+                },
+            )
 
             self.assertEqual(["docx"], [item["ext"] for item in word_result.attachments])
             self.assertEqual(["xlsx"], [item["ext"] for item in excel_result.attachments])
+            self.assertEqual(["pptx"], [item["ext"] for item in ppt_result.attachments])
             self.assertTrue(word_result.attachments[0]["name"].endswith(".docx"))
             self.assertTrue(excel_result.attachments[0]["name"].endswith(".xlsx"))
+            self.assertTrue(ppt_result.attachments[0]["name"].endswith(".pptx"))
             self.assertNotEqual("Word 文档.docx", word_result.attachments[0]["name"])
             self.assertNotEqual("Excel 表格.xlsx", excel_result.attachments[0]["name"])
+            presentation = Presentation(
+                generated_exporter.EXPORT_ROOT / ppt_result.attachments[0]["storageKey"]
+            )
+            self.assertGreaterEqual(len(presentation.slides), 2)
 
     def test_mermaid_exports_source_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:

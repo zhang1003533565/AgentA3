@@ -161,7 +161,7 @@ GENERATED_CONTENT_TOOLS = [
         "category": "content_export",
         "purpose": "内容整理工具总开关。关闭后 Leader 不会调用导出整理能力，自动附件整理也会停止。",
         "trigger": "用户要求文件版、文档版、表格版、源码版，或智能体生成结果适合沉淀为附件。",
-        "outputs": ["md", "docx", "xlsx", "mmd", "zip"],
+        "outputs": ["md", "docx", "xlsx", "pptx", "mmd", "zip"],
         "status": "implemented",
     },
     {
@@ -192,6 +192,16 @@ GENERATED_CONTENT_TOOLS = [
         "purpose": "把题库 JSON 或知识点清单整理成 Excel 表格，方便导入、筛选和二次加工。",
         "trigger": "题库 JSON、知识清单、用户要求 Excel/表格。",
         "outputs": ["xlsx"],
+        "status": "implemented",
+    },
+    {
+        "name": "pptx_export_tool",
+        "zhName": "PPT 导出工具",
+        "displayName": "PPT 导出工具（pptx_export_tool）",
+        "category": "content_export",
+        "purpose": "把文件内容编排智能体生成的逐页大纲转换为真实 PPTX 文件。",
+        "trigger": "用户明确要求 PPT/PPTX/幻灯片文件。",
+        "outputs": ["pptx"],
         "status": "implemented",
     },
     {
@@ -306,9 +316,9 @@ LEADER_CALLABLE_TOOLS = [
         "zhName": "内容整理工具",
         "displayName": "内容整理工具（generated_export_tools）",
         "category": "content_export",
-        "purpose": "把已有 Markdown、普通文本或标准题库 JSON 直接整理成附件。",
-        "trigger": "用户已经提供要导出的内容，并明确要求文件版、文档版、表格版或打包下载。",
-        "outputs": ["md", "docx", "xlsx", "mmd", "zip"],
+        "purpose": "先由文件内容编排智能体确定内容与结构，再调用指定格式工具生成真实附件。",
+        "trigger": "用户明确要求 Word、Excel、Markdown、PPT 文件版，或打包下载。",
+        "outputs": ["md", "docx", "xlsx", "pptx", "mmd", "zip"],
         "status": "implemented",
         "configurable": True,
     },
@@ -1335,33 +1345,6 @@ def _service_tool_backend_failure(cache_meta: Any) -> Dict[str, Any]:
     return {"status": status, "reason": reason, "errorCount": 0}
 
 
-def _service_tool_backend_failure_answer(tool_name: str, failure: Dict[str, Any]) -> str:
-    system_labels = {
-        "java_schedule_api": "课表系统",
-        "java_activity_api": "活动系统",
-        "java_meeting_api": "会议系统",
-        "java_canteen_api": "食堂系统",
-        "java_facility_api": "校园设施系统",
-        "java_secondhand_api": "校园二手市场",
-    }
-    system_label = system_labels.get(tool_name, "校园业务系统")
-    status = str(failure.get("status") or "request_error")
-    if status == "circuit_open":
-        failure_label = "暂时处于故障保护状态"
-    elif status == "disabled":
-        failure_label = "当前未启用"
-    elif status in {"unauthorized", "forbidden"}:
-        failure_label = "登录状态校验失败"
-    elif status == "timeout":
-        failure_label = "本次请求超时"
-    else:
-        failure_label = "本次调用失败"
-    return (
-        f"{system_label}{failure_label}，当前结果不能用于判断是否有数据。"
-        "请稍后重试；如果仍然失败，请重新登录或检查 Java 后端服务状态。"
-    )
-
-
 def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
     planning_started_at = time.perf_counter()
     profile_context = _profile_context_from_request(request)
@@ -1393,10 +1376,12 @@ def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderP
     metadata = request.metadata if isinstance(request.metadata, dict) else {}
     interaction_type = str(metadata.get("interactionType") or "").strip().lower()
     requested_output_type = str(metadata.get("requestedOutputType") or "").strip().lower()
-    supported_file_types = {"document", "file", "docx", "word", "xlsx", "excel", "md", "markdown", "mmd", "zip"}
-    if interaction_type != "transform" or requested_output_type not in supported_file_types:
+    supported_file_types = {"document", "file", "docx", "word", "xlsx", "excel", "md", "markdown", "ppt", "pptx", "mmd", "zip"}
+    if requested_output_type not in supported_file_types:
         return None
-    if not metadata.get("sourceMessageId") or not str(metadata.get("sourceMessageContent") or "").strip():
+    if interaction_type == "transform" and (
+        not metadata.get("sourceMessageId") or not str(metadata.get("sourceMessageContent") or "").strip()
+    ):
         return None
     return LeaderPlan(
         intent="document_export",
@@ -1406,7 +1391,6 @@ def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderP
         action="call_tool",
         tool_name="generated_export_tools",
         route_reason=f"用户选择将当前消息生成 {requested_output_type} 文件，直接调用已启用的内容导出工具。",
-        answer="正在把当前消息整理成所选文件。",
         route_mode="rules",
     )
 
@@ -1614,6 +1598,8 @@ def _execute_leader_plan(
         if plan.tool_name in SERVICE_TOOL_NAMES:
             return _run_service_tool(request, authorization, plan)
         if plan.tool_name == "generated_export_tools":
+            if not _is_agent_enabled(request, "file_content_planner_agent"):
+                return _run_disabled_tool_response(request, plan.tool_name, leader_plan=plan)
             return _run_generated_export_tool(request, plan)
         if plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
             return _run_visual_generation_tool(request, plan)
@@ -1834,6 +1820,8 @@ def _leader_callable_tool_item(tool: Dict[str, Any], request: Optional[RagQueryR
     enabled = True if request is None else _is_tool_enabled(request, name)
     if enabled and request is not None and name in VISUAL_GENERATION_TOOL_NAMES:
         enabled = _visual_tool_dependencies_enabled(request, name)
+    if enabled and request is not None and name == "generated_export_tools":
+        enabled = _is_agent_enabled(request, "file_content_planner_agent")
     return {
         **tool,
         "zhName": tool.get("zhName") or _tool_zh_name(name),
@@ -1876,61 +1864,7 @@ def _run_disabled_agent_response(
     normalized = normalize_agent_name(agent_name) or str(agent_name or "").strip()
     profile = get_agent_profile(normalized) or {}
     role = profile.get("role") or normalized or "目标智能体"
-    if leader_plan:
-        answer = (
-            f"Leader 已识别到需要调用「{role}（{normalized}）」；"
-            "但后台开关当前为关闭，所以本次已跳过该智能体，没有继续执行。"
-        )
-        execution_mode = "leader_skipped_disabled_agent"
-        execution_label = "Leader 跳过已关闭智能体"
-    else:
-        answer = (
-            f"你选择的「{role}（{normalized}）」当前未开启，"
-            "所以本次没有执行该智能体。请在后台多智能体页面开启后再使用。"
-        )
-        execution_mode = "direct_disabled_agent"
-        execution_label = "已关闭智能体未执行"
-
-    metadata = {
-        "agentName": "leader_agent" if leader_plan else normalized,
-        "targetAgent": normalized,
-        "executedAgent": None,
-        "disabledAgent": normalized,
-        "agentDisabled": True,
-        "needRetrieval": False,
-        "retrievalSkipped": True,
-        "strategyLabel": "智能体已关闭，跳过执行",
-        "executionMode": execution_mode,
-        "executionModeLabel": execution_label,
-        "answerType": "text",
-    }
-    if leader_plan:
-        metadata.update({
-            "intent": leader_plan.intent,
-            "leaderAction": leader_plan.action,
-            "leaderActionLabel": _leader_action_label(leader_plan.action),
-            "routeReason": leader_plan.route_reason,
-        })
-
-    trace = []
-    if leader_plan:
-        trace.append(RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)))
-    trace.append(RagTraceResponse(
-        stage="agent_skipped",
-        detail={
-            "agentName": normalized,
-            "reason": "agent_disabled",
-            "message": "后台智能体开关关闭，跳过执行",
-        },
-    ))
-    return _decorate_output_response(RagQueryResponse(
-        strategy="agent_disabled",
-        answer=answer,
-        answerType="text",
-        documents=[],
-        trace=trace,
-        metadata=metadata,
-    ))
+    raise HTTPException(status_code=403, detail=f"智能体 {role}（{normalized}）已在后台关闭，本次未执行。")
 
 
 def _profile_context_from_request(request: RagQueryRequest) -> Dict[str, Any]:
@@ -2506,12 +2440,17 @@ def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResp
         "readonly": bool(result.sql),
         "error": result.error,
     }
-    answer = _format_text_to_sql_answer(metadata)
-    if not answer:
-        raise HTTPException(
-            status_code=502,
-            detail=metadata.get("error") or "Text-to-SQL 未生成可执行 SQL 或可展示结果，已禁止本地兜底回答",
+    try:
+        answer = leader_agent.summarize_tool_result(
+            input_text=request.input,
+            plan=leader_plan,
+            tool_display_name=_tool_display_name(leader_plan.tool_name),
+            tool_results=[{"type": "text_to_sql_result", **metadata}],
         )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="模型未能生成 Text-to-SQL 结果回复，已禁止系统兜底回复。") from exc
+    if not str(answer or "").strip():
+        raise HTTPException(status_code=502, detail="模型返回空的 Text-to-SQL 结果回复，已禁止系统兜底回复。")
     metadata.update({
         "agentName": "leader_agent",
         "targetAgent": "text_to_sql",
@@ -2548,7 +2487,9 @@ def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResp
 
 def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQueryResponse:
     request_metadata = request.metadata if isinstance(request.metadata, dict) else {}
-    requested_output_type = str(request_metadata.get("requestedOutputType") or "document").strip().lower()
+    requested_output_type = _normalize_requested_file_type(
+        request_metadata.get("requestedOutputType") or _requested_file_type_from_text(request.input) or "document"
+    )
     metadata = {
         "agentName": "leader_agent",
         "targetAgent": "generated_export_tools",
@@ -2571,7 +2512,60 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
     }
     metadata.update(_context_metadata_from_request(request))
     source_content = str(request_metadata.get("sourceMessageContent") or "").strip()
-    export_content = source_content or request.input
+    planner_payload = json.dumps({
+        "userRequest": str((request.metadata or {}).get("contextOriginalInput") or request.input or ""),
+        "targetFormat": requested_output_type,
+        "sourceContent": source_content,
+        "conversationContext": request_metadata.get("conversationContext") or {},
+    }, ensure_ascii=False)
+    planner_answer, planner_model_metadata = _run_file_content_planner(
+        request,
+        planner_payload,
+        leader_plan,
+    )
+    planner_result = _try_parse_json_object(planner_answer)
+    planner_action = str(planner_result.get("action") or "").strip().lower()
+    if planner_action == "clarify":
+        question = str(planner_result.get("question") or "").strip()
+        if not question:
+            raise HTTPException(status_code=502, detail="文件内容编排智能体要求澄清，但没有返回问题。")
+        clarification_metadata = {
+            **metadata,
+            **planner_model_metadata,
+            "targetAgent": "file_content_planner_agent",
+            "executedAgent": "file_content_planner_agent",
+            "intent": "file_source_clarification",
+            "answerType": "text",
+            "fileContentPlannerAction": "clarify",
+        }
+        return _decorate_output_response(RagQueryResponse(
+            strategy="file_content_planner_agent",
+            answer=question,
+            answerType="text",
+            documents=[],
+            trace=[
+                RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+                RagTraceResponse(stage="agent_answer", detail={
+                    "agentName": "file_content_planner_agent",
+                    "action": "clarify",
+                    **planner_model_metadata,
+                }),
+            ],
+            metadata=clarification_metadata,
+        ))
+    if planner_action != "export":
+        raise HTTPException(status_code=502, detail="文件内容编排智能体返回了无效 action。")
+    export_content = str(planner_result.get("content") or "").strip()
+    export_title = str(planner_result.get("title") or "").strip()
+    if not export_content or not export_title:
+        raise HTTPException(status_code=502, detail="文件内容编排智能体没有返回完整的标题和内容。")
+    metadata.update({
+        **planner_model_metadata,
+        "sourceTitle": export_title,
+        "promptAgent": "file_content_planner_agent",
+        "fileContentPlannerAction": "export",
+        "sourceMessageOrigin": request_metadata.get("sourceMessageOrigin") or ("selected_message" if source_content else "user_request"),
+    })
     parsed_input = _try_parse_json_object(export_content)
     export_answer_type = "question_bank" if isinstance(parsed_input.get("questions"), list) else "markdown"
     export_result = export_generated_answer(export_content, export_answer_type, metadata)
@@ -2594,6 +2588,12 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
         documents=[],
         trace=[
             RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+            RagTraceResponse(stage="agent_answer", detail={
+                "agentName": "file_content_planner_agent",
+                "action": "export",
+                "title": export_title,
+                **planner_model_metadata,
+            }),
             RagTraceResponse(stage="tool_call", detail={"toolName": leader_plan.tool_name, "toolDisplayName": _tool_display_name(leader_plan.tool_name), **export_result.diagnostics}),
         ],
         metadata=metadata,
@@ -2601,70 +2601,39 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
     ))
 
 
-def _format_text_to_sql_answer(metadata: Dict[str, Any]) -> str:
-    sql = str(metadata.get("sql") or "").strip()
-    if not sql:
-        return ""
-    rows = metadata.get("rows")
-    if not isinstance(rows, list):
-        rows = []
-    if not rows:
-        return f"已生成只读 SQL：{sql}\n当前查询结果为空。"
-    previews = []
-    for row in rows[:8]:
-        if isinstance(row, dict):
-            previews.append("，".join(f"{key}={value}" for key, value in row.items()))
-        else:
-            previews.append(str(row))
-    return f"已生成只读 SQL：{sql}\n查询到 {len(rows)} 条结果：\n" + "\n".join(
-        f"{index}. {text}" for index, text in enumerate(previews, start=1)
+def _run_file_content_planner(request: RagQueryRequest, planner_payload: str, leader_plan) -> Tuple[str, Dict[str, Any]]:
+    return _run_specialist_agent_with_bound_model(
+        request,
+        "file_content_planner_agent",
+        planner_payload,
+        [],
+        leader_plan=leader_plan,
     )
+
+
+def _requested_file_type_from_text(input_text: str) -> str:
+    normalized = normalize_text(input_text)
+    if "word" in normalized or "docx" in normalized or "文档版" in normalized:
+        return "docx"
+    if "excel" in normalized or "xlsx" in normalized or "表格版" in normalized:
+        return "xlsx"
+    if "markdown" in normalized or "md文件" in normalized:
+        return "md"
+    if "pptx" in normalized or "ppt" in normalized or "幻灯片" in normalized:
+        return "pptx"
+    return ""
+
+
+def _normalize_requested_file_type(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    aliases = {"word": "docx", "excel": "xlsx", "markdown": "md", "ppt": "pptx"}
+    return aliases.get(normalized, normalized)
 
 
 def _run_disabled_tool_response(request: RagQueryRequest, tool_name: str, leader_plan) -> RagQueryResponse:
     normalized = str(tool_name or "").strip()
     display_name = _tool_display_name(normalized) or "目标工具"
-    answer = (
-        f"Leader 已识别到需要调用「{display_name}」；"
-        "但后台工具开关当前为关闭，所以本次已跳过，没有继续调用，也没有改用其他兜底能力。"
-    )
-    metadata = {
-        "agentName": "leader_agent",
-        "targetAgent": normalized,
-        "executedAgent": None,
-        "disabledTool": normalized,
-        "toolDisabled": True,
-        "intent": leader_plan.intent,
-        "needRetrieval": False,
-        "retrievalSkipped": True,
-        "leaderAction": leader_plan.action,
-        "leaderActionLabel": _leader_action_label(leader_plan.action),
-        "toolName": normalized,
-        "toolDisplayName": display_name,
-        "routeReason": leader_plan.route_reason,
-        "strategyLabel": "工具已关闭，跳过执行",
-        "executionMode": "leader_skipped_disabled_tool",
-        "executionModeLabel": "Leader 跳过已关闭工具",
-        "answerType": "text",
-        "toolToggles": _tool_toggles_from_request(request),
-    }
-    metadata.update(_context_metadata_from_request(request))
-    return _decorate_output_response(RagQueryResponse(
-        strategy="tool_disabled",
-        answer=answer,
-        answerType="text",
-        documents=[],
-        trace=[
-            RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
-            RagTraceResponse(stage="tool_call", detail={
-                "toolName": normalized,
-                "toolDisplayName": display_name,
-                "reason": "tool_disabled",
-                "message": "后台工具开关关闭，跳过执行",
-            }),
-        ],
-        metadata=metadata,
-    ))
+    raise HTTPException(status_code=403, detail=f"工具 {display_name}（{normalized}）已在后台关闭，本次未执行。")
 
 
 def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan) -> RagQueryResponse:
@@ -2688,45 +2657,32 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
         "toolCacheMissCount": int(tool_cache.get("missCount") or 0),
     }
     documents = [_tool_result_to_document(item, index) for index, item in enumerate(results, start=1)]
-    summary_error = ""
-    summarized_by_model = False
     backend_failure = _service_tool_backend_failure(cache_meta) if not results else {}
-    direct_empty_result = (
-        not results
-        and not backend_failure
-        and _feature_enabled("AI_LEADER_DIRECT_RESULT_RENDER_ENABLED", True)
-    )
-    direct_backend_failure = not results and bool(backend_failure)
+    summary_results = results
+    if backend_failure:
+        summary_results = [{
+            "type": "tool_execution_error",
+            "status": backend_failure.get("status"),
+            "reason": backend_failure.get("reason"),
+            "statusCode": backend_failure.get("statusCode"),
+            "message": "工具调用失败，当前结果不能用于判断是否存在业务数据。",
+        }]
     summary_started_at = time.perf_counter()
-    if direct_backend_failure:
-        answer = _service_tool_backend_failure_answer(tool_name, backend_failure)
-        summary_mode = "backend_error"
-    elif direct_empty_result:
-        answer = _empty_service_tool_answer(tool_name, request.input)
-        summary_mode = "direct_empty"
-    else:
-        summary_mode = "model"
-        try:
-            answer = leader_agent.summarize_tool_result(
-                input_text=request.input,
-                plan=leader_plan,
-                tool_display_name=tool_display_name,
-                tool_results=results,
-            )
-            summarized_by_model = bool(answer)
-        except Exception as exc:
-            logger.warning("leader tool result summarization failed tool=%s error=%s", tool_name, exc)
-            answer = ""
-            summary_error = str(exc)
-            summary_mode = "fallback"
-    summary_ms = 0 if (direct_empty_result or direct_backend_failure) else _elapsed_ms(summary_started_at)
-    if not answer and results:
-        answer = _format_service_tool_answer(tool_name, results)
-    elif not answer:
-        answer = (
-            f"Leader 已识别为「{_tool_zh_name(tool_name)}」，并调用了对应 Java 后端接口；"
-            "但当前没有返回可展示的数据。请确认 Java 服务、登录态或该业务数据是否正常。"
+    try:
+        answer = leader_agent.summarize_tool_result(
+            input_text=request.input,
+            plan=leader_plan,
+            tool_display_name=tool_display_name,
+            tool_results=summary_results,
         )
+    except Exception as exc:
+        logger.warning("leader tool result summarization failed tool=%s error=%s", tool_name, exc)
+        raise HTTPException(status_code=502, detail="模型未能生成工具结果回复，已禁止系统兜底回复。") from exc
+    summary_ms = _elapsed_ms(summary_started_at)
+    if not str(answer or "").strip():
+        raise HTTPException(status_code=502, detail="模型返回空的工具结果回复，已禁止系统兜底回复。")
+    summarized_by_model = True
+    summary_mode = "model"
     metadata = {
         "agentName": "leader_agent",
         "targetAgent": tool_name,
@@ -2752,8 +2708,6 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
         **retrieval_meta,
     }
     metadata.update(_context_metadata_from_request(request))
-    if summary_error:
-        metadata["toolResultSummaryError"] = summary_error
     return _merge_response_performance(_decorate_output_response(RagQueryResponse(
         strategy=tool_name,
         answer=answer,
@@ -2778,94 +2732,10 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
                 "resultCount": len(results),
                 "serviceToolBackendStatus": str(backend_failure.get("status") or "ok"),
                 **({"backendFailure": backend_failure} if backend_failure else {}),
-                **({"error": summary_error} if summary_error else {}),
             }),
         ],
         metadata=metadata,
     )), toolMs=tool_ms, summaryMs=summary_ms)
-
-
-def _empty_service_tool_answer(tool_name: str, input_text: str) -> str:
-    text = str(input_text or "")
-    if tool_name == "java_schedule_api":
-        if any(token in text for token in ("今天", "今日")):
-            return "我已经查询了课表系统，暂未查询到今天的课表安排。"
-        if "明天" in text:
-            return "我已经查询了课表系统，暂未查询到明天的课表安排。"
-        if any(token in text for token in ("本周", "这周")):
-            return "我已经查询了课表系统，暂未查询到本周的课表安排。"
-        return "我已经查询了课表系统，暂未查询到符合条件的课表安排。"
-    empty_answers = {
-        "java_activity_api": "我已经查询了活动系统，暂未查询到符合条件的校园活动。",
-        "java_meeting_api": "我已经查询了会议系统，暂未查询到符合条件的会议安排。",
-        "java_canteen_api": "我已经查询了食堂系统，暂未查询到符合条件的食堂、档口、菜品或优惠信息。",
-        "java_facility_api": "我已经查询了校园设施系统，暂未查询到符合条件的设施或位置信息。",
-        "java_secondhand_api": "我已经查询了校园二手市场，暂未查询到符合条件的物品。",
-    }
-    return empty_answers.get(
-        tool_name,
-        f"我已经调用了{_tool_display_name(tool_name) or '对应系统能力'}，暂未查询到可展示的数据。",
-    )
-
-
-def _format_service_tool_answer(tool_name: str, results: List[Dict[str, Any]]) -> str:
-    title = _tool_zh_name(tool_name)
-    lines = [f"## {title}结果"]
-    for item in results[:8]:
-        lines.append(f"- {_format_service_tool_item(item)}")
-    if len(results) > 8:
-        lines.append(f"- 另有 {len(results) - 8} 条结果未展开。")
-    return "\n".join(lines)
-
-
-def _format_service_tool_item(item: Dict[str, Any]) -> str:
-    item_type = str(item.get("type") or "")
-    name = item.get("name") or item.get("courseName") or item.get("title") or "未命名"
-    if item_type == "course_schedule":
-        return (
-            f"{item.get('weekdayText') or ''} {item.get('classSessions') or ''}：{name}"
-            f"（{item.get('location') or '地点待补充'}，{item.get('teacherName') or '教师待补充'}）"
-        )
-    if item_type == "course_schedule_summary":
-        schedule_items = item.get("scheduleItems") if isinstance(item.get("scheduleItems"), list) else []
-        schedule_text = "；".join(str(value) for value in schedule_items[:3] if str(value or "").strip())
-        if len(schedule_items) > 3:
-            schedule_text += f"；另有 {len(schedule_items) - 3} 次安排"
-        suffix = _join_non_empty(item.get("teacherName"), item.get("assessmentType"), f"{item.get('credit')} 学分" if item.get("credit") not in (None, "") else "")
-        detail = f"（{suffix}）" if suffix else ""
-        semester_label = str(item.get("semesterLabel") or "").strip()
-        prefix = f"[{semester_label}] " if semester_label else ""
-        return f"{prefix}{name}{detail}" + (f"：{schedule_text}" if schedule_text else "")
-    if item_type == "activity":
-        time_text = _join_non_empty(item.get("startTime"), item.get("endTime"), separator=" - ")
-        suffix = _join_non_empty(time_text, item.get("location"), item.get("organizerName"))
-        return f"{name}" + (f"（{suffix}）" if suffix else "")
-    if item_type == "meeting":
-        suffix = _join_non_empty(item.get("scheduledStartTime"), item.get("status"), item.get("roomCode"))
-        return f"{name}" + (f"（{suffix}）" if suffix else "")
-    if item_type in {"restaurant", "stall", "dish", "coupon"}:
-        suffix = _join_non_empty(item.get("location"), item.get("category"), item.get("avgPrice") or item.get("price") or item.get("pickupLocation"))
-        return f"{name}" + (f"（{suffix}）" if suffix else "")
-    if item_type in {"facility", "facility_location"}:
-        suffix = _join_non_empty(item.get("location"), item.get("facilityTypeName"), _coordinate_text(item))
-        return f"{name}" + (f"（{suffix}）" if suffix else "")
-    if item_type == "secondhand_item":
-        suffix = _join_non_empty(item.get("price"), item.get("condition"), item.get("sellerName"), item.get("location"))
-        return f"{name}" + (f"（{suffix}）" if suffix else "")
-    return str(name)
-
-
-def _join_non_empty(*values: Any, separator: str = "，") -> str:
-    parts = [str(value).strip() for value in values if value is not None and str(value).strip()]
-    return separator.join(parts)
-
-
-def _coordinate_text(item: Dict[str, Any]) -> str:
-    longitude = item.get("longitude")
-    latitude = item.get("latitude")
-    if longitude is None or latitude is None:
-        return ""
-    return f"{longitude},{latitude}"
 
 
 def _decorate_output_response(response: RagQueryResponse) -> RagQueryResponse:
@@ -2874,14 +2744,21 @@ def _decorate_output_response(response: RagQueryResponse) -> RagQueryResponse:
     existing_attachments = response.attachments if isinstance(response.attachments, list) else []
     extracted_attachments = _extract_response_attachments(response.answer)
     requested_output_type = str(response.metadata.get("requestedOutputType") or "").strip().lower()
-    concrete_export_types = {"docx", "word", "xlsx", "excel", "md", "markdown", "mmd", "zip"}
-    if requested_output_type in concrete_export_types:
+    concrete_export_types = {"docx", "word", "xlsx", "excel", "md", "markdown", "ppt", "pptx", "mmd", "zip"}
+    planner_is_clarifying = (
+        str(response.metadata.get("fileContentPlannerAction") or "").strip().lower() == "clarify"
+        or str(response.metadata.get("intent") or "").strip().lower() == "file_source_clarification"
+    )
+    if requested_output_type in concrete_export_types and not planner_is_clarifying:
         export_result = export_generated_answer(response.answer, response.answerType, response.metadata)
         generated_attachments = export_result.attachments
         export_diagnostics = export_result.diagnostics
     else:
         generated_attachments = []
-        export_diagnostics = {"skipped": True, "reason": "output_format_not_selected"}
+        export_diagnostics = {
+            "skipped": True,
+            "reason": "file_source_clarification" if planner_is_clarifying else "output_format_not_selected",
+        }
     attachments = _merge_attachments(existing_attachments, extracted_attachments, generated_attachments)
     if not generated_attachments and isinstance(response.metadata.get("generatedExports"), dict):
         export_diagnostics = response.metadata["generatedExports"]
@@ -2975,6 +2852,9 @@ def _push_strategy_for_output(answer_type: str, metadata: Dict[str, Any], output
 def _follow_up_actions_for_output(answer_type: str, metadata: Dict[str, Any], output_types: List[str]) -> List[Dict[str, Any]]:
     metadata = metadata or {}
     agent = str(metadata.get("executedAgent") or metadata.get("targetAgent") or "").strip()
+    intent = str(metadata.get("intent") or "").strip().lower()
+    if intent in {"smalltalk", "greeting", "leader_callable_catalog", "capability_inquiry", "file_source_clarification"}:
+        return []
     hints = metadata.get("outputPreferenceHints") if isinstance(metadata.get("outputPreferenceHints"), dict) else {}
     preferred_format = str(hints.get("preferredFormat") or "").strip()
     confidence_level = str(hints.get("confidenceLevel") or "").strip()
@@ -3006,7 +2886,7 @@ def _follow_up_actions_for_output(answer_type: str, metadata: Dict[str, Any], ou
         else:
             actions.extend(file_actions)
 
-    return actions[:3]
+    return actions[:4]
 
 
 def _file_format_follow_up_actions(answer_type: str, metadata: Dict[str, Any], agent: str) -> List[Dict[str, Any]]:
@@ -3030,6 +2910,7 @@ def _file_format_follow_up_actions(answer_type: str, metadata: Dict[str, Any], a
             ("Word 文件", "请把当前消息原内容生成 Word 文件。", "docx", "docx_export_tool"),
             ("Excel 表格", "请把当前消息原内容生成 Excel 表格。", "xlsx", "excel_export_tool"),
             ("Markdown 文件", "请把当前消息原内容生成 Markdown 文件。", "md", "markdown_export_tool"),
+            ("PPT 文件", "请把当前消息原内容生成 PPT 文件。", "pptx", "pptx_export_tool"),
         )
     return [
         _follow_up_action(label, prompt, output_type, "primary")
@@ -3061,7 +2942,7 @@ def _choice_prompt_for_output(metadata: Dict[str, Any], output_types: List[str],
     file_actions = [
         str(item.get("label") or "").strip()
         for item in follow_up_actions
-        if str(item.get("outputType") or "").strip().lower() in {"docx", "xlsx", "md", "mmd", "zip"}
+        if str(item.get("outputType") or "").strip().lower() in {"docx", "xlsx", "md", "pptx", "mmd", "zip"}
     ]
     if file_actions:
         return "请选择需要生成的文件格式：" + "、".join(file_actions) + "。"
@@ -3286,6 +3167,7 @@ def _tool_zh_name(tool_name: str) -> str:
         "markdown_export_tool": "Markdown 导出工具",
         "docx_export_tool": "Word 导出工具",
         "excel_export_tool": "Excel 导出工具",
+        "pptx_export_tool": "PPT 导出工具",
         "content_archive_tool": "附件打包工具",
         "diagram_source_export_tool": "图表源码导出工具",
         **{

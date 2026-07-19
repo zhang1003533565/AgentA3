@@ -26,7 +26,7 @@ class TextbookKnowledgeAgentTest(unittest.TestCase):
         self.agent = TextbookKnowledgeAgent()
 
     def test_explicit_self_generation_without_material_creates_labeled_draft(self):
-        provider = RecordingProvider()
+        provider = RecordingProvider(f"{MODEL_GENERATED_NOTICE}\n\n# Python 知识材料\n\n- 核心知识点")
 
         answer = self.agent.summarize_knowledge_points(
             "我没有上传材料，请根据 Python 发展历史自行生成知识材料",
@@ -41,7 +41,7 @@ class TextbookKnowledgeAgentTest(unittest.TestCase):
         self.assertTrue(answer.startswith(MODEL_GENERATED_NOTICE))
 
     def test_missing_material_without_generation_choice_asks_for_source(self):
-        provider = RecordingProvider()
+        provider = RecordingProvider("你希望上传材料或选择已有材料，还是授权我根据 Python 发展历史自行生成知识材料？")
 
         answer = self.agent.summarize_knowledge_points(
             "Python 发展历史知识点",
@@ -49,9 +49,21 @@ class TextbookKnowledgeAgentTest(unittest.TestCase):
             chat_service=provider,
         )
 
-        self.assertEqual([], provider.calls)
+        self.assertEqual(1, len(provider.calls))
+        request_payload = json.loads(provider.calls[0]["userPrompt"]["user_input"])
+        self.assertEqual("source_selection_required", request_payload["knowledgeSourceMode"])
         self.assertIn("上传材料", answer)
         self.assertIn("自行生成知识材料", answer)
+
+    def test_unlabeled_model_generated_content_is_rejected_instead_of_locally_patched(self):
+        provider = RecordingProvider("# Python 知识材料\n\n- 核心知识点")
+
+        with self.assertRaisesRegex(RuntimeError, "未按约定标注"):
+            self.agent.summarize_knowledge_points(
+                "没有材料，请根据 Python 自己生成知识材料",
+                [],
+                chat_service=provider,
+            )
 
     def test_provided_material_stays_grounded_and_has_no_model_notice(self):
         provider = RecordingProvider()

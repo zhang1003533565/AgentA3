@@ -11,7 +11,7 @@ from app.model_providers.factory import get_chat_model_provider
 from app.multi_agents.runtime import load_agent_prompt
 from app.services.memory_store import memory_store
 from app.utils.logger import get_logger
-from app.utils.text_utils import is_all_semester_schedule_query, is_course_count_query, is_course_teacher_query, is_course_time_query, is_schedule_intent, is_semester_schedule_query, is_smalltalk_intent
+from app.utils.text_utils import is_all_semester_schedule_query, is_course_count_query, is_course_teacher_query, is_course_time_query, is_schedule_intent, is_semester_schedule_query
 
 logger = get_logger("multi_agents.leader")
 
@@ -66,22 +66,6 @@ VISUAL_GENERATION_TOOL_NAMES = {
 
 # Set to false/0/off to restore the original model-only routing path immediately.
 LEADER_FAST_ROUTE_ENABLED_ENV = "AI_LEADER_FAST_ROUTE_ENABLED"
-
-_FAST_ROUTE_SMALLTALK = {
-    "你好",
-    "您好",
-    "嗨",
-    "hi",
-    "hello",
-    "在吗",
-    "在不在",
-    "早上好",
-    "中午好",
-    "下午好",
-    "晚上好",
-    "谢谢",
-    "再见",
-}
 
 _FAST_ROUTE_ACTIVITY_TOKENS = (
     "校园活动",
@@ -377,33 +361,14 @@ class LeaderAgent:
         if learning_guidance_plan:
             return learning_guidance_plan
 
-        if self._normalize_fast_route_text(input_text) in _FAST_ROUTE_SMALLTALK:
-            return self._plan_with_rules(input_text, rag_strategy)
+        file_export_plan = self._plan_explicit_file_export_request(input_text)
+        if file_export_plan:
+            return file_export_plan
 
         if self._is_explicit_visual_generation_request(input_text):
             visual_plan = self._plan_with_rules(input_text, rag_strategy)
             if visual_plan.action == "call_tool" and visual_plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
                 return visual_plan
-
-        if self._is_callable_catalog_query(input_text):
-            return LeaderPlan(
-                intent="leader_callable_catalog",
-                target_agent="leader_agent",
-                need_retrieval=False,
-                rag_strategy="",
-                action="direct_answer",
-                route_reason="用户询问 Leader 当前可调用的智能体和工具，直接展示后台清单。",
-                answer=self._callable_catalog_answer(callable_catalog, input_text),
-                route_mode="rules",
-            )
-
-        normalized_fast_text = self._normalize_fast_route_text(input_text)
-        if (
-            self._fast_route_enabled()
-            and not str(rag_strategy or "").strip()
-            and normalized_fast_text in _FAST_ROUTE_SMALLTALK
-        ):
-            return self._plan_with_rules(input_text, rag_strategy)
 
         fast_plan = self._plan_high_confidence_service_query(
             input_text,
@@ -492,6 +457,32 @@ class LeaderAgent:
             "画一个", "画一张", "制作一个", "制作一张", "做一个", "做一张", "转成",
         ))
 
+    def _plan_explicit_file_export_request(self, input_text: str) -> Optional[LeaderPlan]:
+        normalized = self._normalize_fast_route_text(input_text)
+        if "ppt大纲" in normalized or "pptx大纲" in normalized or "幻灯片大纲" in normalized:
+            return None
+        format_tokens = (
+            "word", "docx", "excel", "xlsx", "markdown", "md文件", "ppt", "pptx",
+            "文档版", "文件版", "表格版", "幻灯片",
+        )
+        action_tokens = (
+            "导出", "生成", "转成", "转换成", "整理成", "制作成", "做成", "保存为", "给我",
+        )
+        if not any(token in normalized for token in format_tokens):
+            return None
+        if not any(token in normalized for token in action_tokens):
+            return None
+        return LeaderPlan(
+            intent="document_export",
+            target_agent="leader_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            action="call_tool",
+            tool_name="generated_export_tools",
+            route_reason="用户明确要求生成指定格式文件，由内容导出工具先调用文件内容编排智能体，再调用对应格式工具。",
+            route_mode="rules",
+        )
+
     def _plan_with_rules(self, input_text: str, rag_strategy: str = "") -> LeaderPlan:
         plan = self._plan_with_rules_impl(input_text, rag_strategy)
         if not plan.route_mode:
@@ -500,16 +491,6 @@ class LeaderAgent:
 
     def _plan_with_rules_impl(self, input_text: str, rag_strategy: str = "") -> LeaderPlan:
         normalized = (input_text or "").strip().lower()
-        if is_smalltalk_intent(input_text):
-            return LeaderPlan(
-                intent="smalltalk",
-                target_agent="leader_agent",
-                need_retrieval=False,
-                rag_strategy="",
-                action="direct_answer",
-                route_reason="命中问候/闲聊意图，Leader 直接回复，不调用工具或本地 RAG。",
-                answer=self._smalltalk_answer(input_text),
-            )
         if is_schedule_intent(input_text):
             intent, answer = self._schedule_fast_route_response(input_text)
             return LeaderPlan(
@@ -962,15 +943,9 @@ class LeaderAgent:
                 route_reason="当前输入没有明确要求图片或图表，已阻止画像输出偏好覆盖本轮指令，并改由教材知识点智能体处理。",
                 route_mode="rules",
             )
-        return LeaderPlan(
-            intent="output_format_clarification",
-            target_agent="leader_agent",
-            need_retrieval=False,
-            rag_strategy="",
-            action="direct_answer",
-            route_reason="当前输入没有明确要求图片，且没有已确认可用的文本知识智能体，先询问用户需要的内容形式。",
-            answer="你希望我先给出文字学习建议，还是生成图片或图解？",
-            route_mode="rules",
+        raise HTTPException(
+            status_code=502,
+            detail="Leader 模型选择了与当前输入不符的图片能力，已拒绝生成系统纠偏回复。",
         )
 
     def _parse_llm_plan(self, plan: Dict[str, Any], requested_rag_strategy: str) -> Optional[LeaderPlan]:
@@ -1023,104 +998,6 @@ class LeaderAgent:
         query_tokens = ("统计", "数量", "多少", "有多少", "列表", "查询", "查一下", "排名")
         domain_tokens = ("优惠券", "优惠", "满减", "食堂", "餐厅", "档口", "菜品", "课程", "课表")
         return any(token in normalized_text for token in query_tokens) and any(token in normalized_text for token in domain_tokens)
-
-    def _smalltalk_answer(self, input_text: str) -> str:
-        normalized = (input_text or "").strip()
-        if "谢谢" in normalized:
-            return "不客气。"
-        if "再见" in normalized:
-            return "再见，有需要时再叫我。"
-        return "你好！有什么可以帮你？"
-
-    def _is_callable_catalog_query(self, input_text: str) -> bool:
-        normalized = (input_text or "").strip().lower()
-        if not normalized:
-            return False
-        if self._is_explicit_visual_generation_request(normalized):
-            return False
-        action_tokens = (
-            "能调用", "会调用", "调用哪些", "调用什么", "有哪些", "有什么", "清单", "列表", "能力",
-            "能不能", "可以吗", "会不会", "支持", "能否", "能做", "会做",
-        )
-        target_tokens = (
-            "智能体", "agent", "工具", "tool", "功能", "能力", "生图", "画图", "图片", "视频",
-            "ppt", "题库", "文档", "思维导图", "流程图",
-        )
-        return any(token in normalized for token in action_tokens) and any(token in normalized for token in target_tokens)
-
-    def _callable_catalog_answer(
-        self,
-        callable_catalog: Optional[Dict[str, Any]],
-        input_text: str = "",
-    ) -> str:
-        catalog = callable_catalog if isinstance(callable_catalog, dict) else {}
-        agents = [item for item in catalog.get("agents", []) if isinstance(item, dict)]
-        tools = [item for item in catalog.get("tools", []) if isinstance(item, dict)]
-        content_tools = [item for item in catalog.get("contentTools", []) if isinstance(item, dict)]
-        enabled_agents = [item for item in agents if item.get("enabled") is not False]
-        enabled_tools = [item for item in tools if item.get("enabled") is not False]
-        enabled_content_tools = [item for item in content_tools if item.get("enabled") is not False]
-        normalized_query = (input_text or "").strip().lower()
-        asks_image = any(token in normalized_query for token in ("生图", "画图", "图片", "配图", "插图", "海报", "封面图", "文生图"))
-        asks_full_catalog = any(token in normalized_query for token in ("哪些功能", "有什么功能", "有哪些功能", "能做什么", "能力清单"))
-        if asks_image and not asks_full_catalog:
-            image_tools = [
-                item for item in enabled_tools
-                if str(item.get("category") or "").strip() == "visual_generation"
-            ]
-            if not image_tools:
-                return "当前不支持生图：后台没有已开启且依赖配置完整的图片生成工具。"
-            names = "、".join(str(item.get("displayName") or item.get("zhName") or item.get("name")) for item in image_tools)
-            return f"当前支持生图，可调用：{names}。这些能力均通过工具执行，Leader 不会直接调用内部提示词智能体或图片智能体。"
-        if not enabled_agents and not enabled_tools and not enabled_content_tools:
-            return "当前没有已确认可用的智能体或工具。后台开启并完成模型配置测试后，我才会把对应能力列出来。"
-
-        lines = ["我当前已确认可用的能力如下：", ""]
-        grouped_agents: Dict[str, List[Dict[str, Any]]] = {}
-        for item in enabled_agents:
-            grouped_agents.setdefault(str(item.get("category") or "other"), []).append(item)
-        if grouped_agents:
-            lines.append("可调用智能体：")
-            for category, items in grouped_agents.items():
-                names = "、".join(f"{item.get('role') or item.get('name')}（{item.get('name')}）" for item in items[:8])
-                overflow = f" 等 {len(items)} 个" if len(items) > 8 else ""
-                lines.append(f"- {self._category_label(category)}：{names}{overflow}")
-
-        if enabled_tools:
-            lines.append("")
-            lines.append("Leader 可直接调用的工具：")
-            for item in enabled_tools:
-                lines.append(f"- {self._tool_display_name(item)}：{item.get('purpose') or ''}")
-
-        if enabled_content_tools:
-            lines.append("")
-            lines.append("内容整理子工具：")
-            lines.append("- " + "、".join(self._tool_display_name(item) for item in enabled_content_tools))
-
-        lines.append("")
-        lines.append("说明：以上只包含后台已开启、模型配置完整且测试通过的能力；未满足条件的能力不会展示，也不会被调用。")
-        return "\n".join(lines).strip()
-
-    def _category_label(self, category: str) -> str:
-        labels = {
-            "profile": "画像",
-            "diagram": "图表",
-            "image": "图片",
-            "textbook": "教材知识",
-            "question_bank": "题库",
-            "meeting": "会议",
-            "ppt": "PPT",
-            "other": "其他",
-        }
-        return labels.get(category or "", category or "其他")
-
-    def _tool_display_name(self, tool: Dict[str, Any]) -> str:
-        name = str(tool.get("name") or "").strip()
-        display_name = str(tool.get("displayName") or "").strip()
-        if display_name:
-            return display_name
-        zh_name = str(tool.get("zhName") or "").strip()
-        return f"{zh_name}（{name}）" if zh_name and name else (zh_name or name)
 
     def load_memory(self, session_token: str) -> List[Dict[str, str]]:
         return memory_store.get_history(session_token)
@@ -1466,6 +1343,8 @@ def build_leader_router_user_prompt(
             "会议纪要/总结/转写/成员分析仍属于会议专业智能体；活动图/流程图仍属于图表智能体，不要误判为校园活动查询。",
             "路由时只能选择 leader_callable_catalog 中 enabled=true 的 agents/tools；关闭项只可在 route_reason 中说明，不允许绕过后台配置。",
             "用户询问你有什么功能、是否支持生图/PPT/题库/文档/图表等能力时，只能依据 leader_callable_catalog 中 enabled=true 的项目回答；不得把静态提示词、已知智能体名称或输出策略当成当前可用能力。",
+            "问候、闲聊和能力询问都必须由你在 answer 中直接生成自然回复；系统不会补写固定问候语、能力清单或其他兜底文案。",
+            "回答能力询问时面向普通用户说明可完成的事情，不要主动输出内部 agent/tool 标识；只有用户明确询问技术名称时才可给出。",
             "某项能力未出现在启用清单中时，必须明确回答当前不可用或尚未完成配置，不得声称可以生成后再执行失败。",
             "leader_output_push_strategies 只是已启用能力的输出路由提示，不能单独证明某种生成能力当前可用。",
             "所有图片、思维导图、流程图、活动图、架构图、知识图谱和 PPT 配图请求都必须 action=call_tool，并从 leader_callable_catalog.tools 选择对应 generate_*_image_tool；不得 delegate_agent 到提示词智能体或 image_agent。",

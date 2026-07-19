@@ -98,6 +98,7 @@ AGENT_ORDER = [
     *DIAGRAM_AGENT_SPECS.keys(),
     "mind_map_agent",
     "image_agent",
+    "file_content_planner_agent",
     "textbook_knowledge_agent",
     *QUESTION_AGENT_SPECS.keys(),
     *MEETING_AGENT_SPECS.keys(),
@@ -121,6 +122,7 @@ INTERNAL_VISUAL_AGENTS = frozenset({
     "knowledge_graph_prompt_agent",
     "ppt_image_agent",
 })
+FILE_EXPORT_INTERNAL_AGENTS = frozenset({"file_content_planner_agent"})
 LEADER_CALLABLE_AGENT_ORDER = tuple(
     agent_name
     for agent_name in AGENT_ORDER
@@ -128,6 +130,7 @@ LEADER_CALLABLE_AGENT_ORDER = tuple(
     and agent_name not in LEARNING_WORKFLOW_INTERNAL_AGENTS
     and agent_name not in DIAGRAM_SOURCE_AGENTS
     and agent_name not in INTERNAL_VISUAL_AGENTS
+    and agent_name not in FILE_EXPORT_INTERNAL_AGENTS
 )
 
 
@@ -312,6 +315,22 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "supportedRagStrategies": [],
         "aliases": ["profile_summary", "profile_summary_agent", "个人画像汇总", "画像汇总智能体", "个人画像汇总智能体"],
         "exampleInput": "根据用户画像快照生成强项、欠缺、置信度说明和补证建议 JSON",
+        "requiredModelModalities": TEXT_MODEL_MODALITY,
+    },
+    "file_content_planner_agent": {
+        "role": "文件内容编排智能体",
+        "purpose": "识别待转换内容和目标格式，生成供 Word、Excel、Markdown、PPT 文件工具消费的结构化内容草稿。",
+        "inputs": ["user_request", "target_format", "source_content", "conversation_context"],
+        "outputs": ["strict_file_content_plan_json"],
+        "skills": ["content selection", "document structuring", "format-aware planning"],
+        "intent": "file_content_planning",
+        "needRetrieval": False,
+        "executionMode": "tool_internal",
+        "executionModeLabel": "仅由文件导出工具内部调用",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": ["file_content_planner_agent", "文件内容编排智能体", "Word知识转换智能体", "文件知识转换智能体"],
+        "exampleInput": "把刚才关于 Python 发展历史的内容整理成 Word 文档",
         "requiredModelModalities": TEXT_MODEL_MODALITY,
     },
     **{

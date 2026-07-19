@@ -1122,7 +1122,6 @@ export default {
 			const isRequestCurrent = () => this.isViewContextCurrent(requestContext, true)
 			let streamStarted = false
 			let streamTouched = false
-			let authoritativeTerminalHandled = false
 
 			try {
 				const requestPayload = {
@@ -1201,6 +1200,10 @@ export default {
 						streamTouched = true
 						this.syncSessionId(payload?.sessionId)
 						const current = this.messages.find(item => this.getMessageKey(item) === assistantMessageId)
+						const finalContent = payload?.answer || (current?.type === 'thinking' ? '' : current?.content || '')
+						if (!String(finalContent).trim()) {
+							throw new Error('模型未返回内容')
+						}
 						const merged = mergeAssistantMessage(current, {
 							...(payload || {}),
 							...(Array.isArray(payload?.resources) && payload.resources.length === 0
@@ -1209,44 +1212,27 @@ export default {
 								: {}),
 							role: 'assistant',
 							type: '',
-							content: payload?.answer || current?.content || 'Leader 这次没有返回可用答案，请换一种问法再试。'
+							content: finalContent
 						})
 						this.updateMessage(assistantMessageId, merged)
 					},
 					onError: (payload) => {
 						if (!isRequestCurrent()) return
 						streamTouched = true
-						if (typeof payload?.answer === 'string' && payload.answer) {
-							streamStarted = true
-							this.mergeLiveAssistantEnvelope(assistantMessageId, {
-								...(payload || {}),
-								role: 'assistant',
-								type: '',
-								content: payload.answer
-							})
-							authoritativeTerminalHandled = true
-							return
-						}
 						const streamError = new Error(payload?.message || '流式请求失败')
 						streamError.payload = payload || {}
 						throw streamError
 					}
 				})
 			} catch (error) {
-				if (!isRequestCurrent() || authoritativeTerminalHandled) return
-				if (streamStarted || streamTouched) {
-					const message = (error && (error.msg || error.message)) || '流式回复中断，请稍后再试'
-					this.updateMessage(assistantMessageId, {
-						type: '',
-						content: `这次流式回复中断了：${message}`
-					})
-				} else if (error?.fallbackToNormalRequest) {
+				if (!isRequestCurrent()) return
+				if (error?.fallbackToNormalRequest && !streamStarted && !streamTouched) {
 					await this.sendMessageFallback(text, assistantMessageId, error, requestContext)
 				} else {
-					const message = (error && (error.msg || error.message)) || '对话失败，请稍后再试'
-					this.updateMessage(assistantMessageId, {
-						type: '',
-						content: `这次没有顺利完成请求：${message}`
+					this.messages = this.messages.filter(item => this.getMessageKey(item) !== assistantMessageId)
+					uni.showToast({
+						title: (error && (error.msg || error.message)) || '模型回复失败',
+						icon: 'none'
 					})
 				}
 			} finally {
@@ -1264,6 +1250,9 @@ export default {
 				})
 				if (!this.isViewContextCurrent(requestContext, true)) return
 				const payload = res.data || {}
+				if (!String(payload.answer || '').trim()) {
+					throw new Error('模型未返回内容')
+				}
 				this.syncSessionId(payload.sessionId)
 				const current = this.messages.find(item => this.getMessageKey(item) === assistantMessageId)
 				const merged = mergeAssistantMessage(current, {
@@ -1274,15 +1263,15 @@ export default {
 						: {}),
 					role: 'assistant',
 					type: '',
-					content: payload.answer || 'Leader 这次没有返回可用答案，请换一种问法再试。'
+					content: payload.answer
 				})
 				this.updateMessage(assistantMessageId, merged)
 			} catch (error) {
 				if (!this.isViewContextCurrent(requestContext, true)) return
-				const message = (error && (error.msg || error.message)) || streamError?.message || '对话失败，请稍后再试'
-				this.updateMessage(assistantMessageId, {
-					type: '',
-					content: `这次没有顺利完成请求：${message}`
+				this.messages = this.messages.filter(item => this.getMessageKey(item) !== assistantMessageId)
+				uni.showToast({
+					title: (error && (error.msg || error.message)) || streamError?.message || '模型回复失败',
+					icon: 'none'
 				})
 			}
 		},

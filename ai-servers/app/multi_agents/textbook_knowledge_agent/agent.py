@@ -50,18 +50,17 @@ class TextbookKnowledgeAgent:
 
     def summarize_knowledge_points(self, topic: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
         source_mode = resolve_knowledge_source_mode(topic, evidence)
-        if source_mode == "source_selection_required":
-            return (
-                "当前没有检测到可用的教材或知识库材料。你可以上传材料、选择知识库内容，"
-                "或者明确告诉我“根据主题自行生成知识材料”。"
-            )
         request_payload = json.dumps({
             "userRequest": topic,
             "knowledgeSourceMode": source_mode,
             "sourcePolicy": (
                 "严格依据 evidence 整理，不补写材料之外的事实。"
                 if source_mode == "provided_material"
-                else "用户已明确授权无材料生成；依据主题生成结构化知识材料，并标记为模型生成内容。"
+                else (
+                    "用户已明确授权无材料生成；依据主题生成结构化知识材料，并标记为模型生成内容。"
+                    if source_mode == "model_generated"
+                    else "当前没有材料且用户尚未选择来源；只询问用户要上传/选择材料，还是授权模型按主题自行生成，不要直接生成知识材料。"
+                )
             ),
         }, ensure_ascii=False)
         answer = complete_agent_or_raise(
@@ -71,7 +70,7 @@ class TextbookKnowledgeAgent:
             model_provider=chat_service,
         )
         if source_mode == "model_generated" and MODEL_GENERATED_NOTICE not in answer:
-            return f"{MODEL_GENERATED_NOTICE}\n\n{answer}"
+            raise RuntimeError("教材知识点模型未按约定标注模型生成来源，已拒绝返回未标注内容")
         return answer
 
     def _meta(self, java_backend_count: int) -> Dict[str, Any]:

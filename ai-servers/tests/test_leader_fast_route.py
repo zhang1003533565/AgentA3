@@ -83,27 +83,27 @@ class LeaderFastRouteTest(unittest.TestCase):
 
         self.assertEqual(0, self.provider.calls)
 
-    def test_exact_smalltalk_skips_llm_but_greeting_plus_task_does_not(self):
+    def test_exact_smalltalk_and_greeting_plus_task_are_both_answered_by_llm(self):
         greeting = self.agent.plan("你好", chat_service=self.provider)
         task = self.agent.plan("你好，帮我分析这门课", chat_service=self.provider)
 
-        self.assertEqual("smalltalk", greeting.intent)
+        self.assertEqual("llm_fallback", greeting.intent)
         self.assertEqual("direct_answer", greeting.action)
-        self.assertEqual("rules", greeting.route_mode)
-        self.assertEqual("你好！有什么可以帮你？", greeting.answer)
+        self.assertEqual("llm", greeting.route_mode)
+        self.assertEqual("模型兜底回答。", greeting.answer)
         self.assertEqual("llm_fallback", task.intent)
         self.assertEqual("llm", task.route_mode)
-        self.assertEqual(1, self.provider.calls)
+        self.assertEqual(2, self.provider.calls)
 
-    def test_exact_greeting_never_uses_model_fallback_when_fast_route_is_disabled(self):
+    def test_exact_greeting_still_uses_model_when_fast_route_is_disabled(self):
         with patch.dict(os.environ, {"AI_LEADER_FAST_ROUTE_ENABLED": "false"}):
             greeting = self.agent.plan("你好", chat_service=self.provider)
 
-        self.assertEqual(0, self.provider.calls)
-        self.assertEqual("smalltalk", greeting.intent)
+        self.assertEqual(1, self.provider.calls)
+        self.assertEqual("llm_fallback", greeting.intent)
         self.assertEqual("direct_answer", greeting.action)
-        self.assertEqual("rules", greeting.route_mode)
-        self.assertEqual("你好！有什么可以帮你？", greeting.answer)
+        self.assertEqual("llm", greeting.route_mode)
+        self.assertEqual("模型兜底回答。", greeting.answer)
 
     def test_explicit_flowchart_request_with_polite_question_uses_tool_not_capability_catalog(self):
         plan = self.agent.plan(
@@ -120,6 +120,24 @@ class LeaderFastRouteTest(unittest.TestCase):
         self.assertEqual("call_tool", plan.action)
         self.assertEqual("generate_flowchart_image_tool", plan.tool_name)
         self.assertEqual("rules", plan.route_mode)
+
+    def test_explicit_file_export_requests_use_content_export_tool_without_calling_router_model(self):
+        requests = {
+            "给我导出word": "document_export",
+            "把这些内容转成 Excel": "document_export",
+            "整理成 Markdown 文件": "document_export",
+            "给我制作成 PPT": "document_export",
+        }
+
+        for query, expected_intent in requests.items():
+            with self.subTest(query=query):
+                plan = self.agent.plan(query, chat_service=self.provider)
+                self.assertEqual(expected_intent, plan.intent)
+                self.assertEqual("call_tool", plan.action)
+                self.assertEqual("generated_export_tools", plan.tool_name)
+                self.assertEqual("rules", plan.route_mode)
+
+        self.assertEqual(0, self.provider.calls)
 
     def test_generic_python_learning_request_delegates_to_knowledge_agent_not_image(self):
         plan = self.agent.plan(
@@ -364,7 +382,7 @@ class LeaderFastRouteTest(unittest.TestCase):
         self.assertEqual("llm", plan.route_mode)
         self.assertEqual(1, self.provider.calls)
 
-    def test_capability_answer_only_lists_currently_enabled_items(self):
+    def test_capability_answer_is_generated_by_model_from_current_catalog(self):
         plan = self.agent.plan(
             "你能生图吗，有哪些功能？",
             chat_service=self.provider,
@@ -381,16 +399,12 @@ class LeaderFastRouteTest(unittest.TestCase):
             },
         )
 
-        self.assertEqual("leader_callable_catalog", plan.intent)
-        self.assertEqual("rules", plan.route_mode)
-        self.assertEqual(0, self.provider.calls)
-        self.assertIn("教材知识点智能体", plan.answer)
-        self.assertIn("课表查询", plan.answer)
-        self.assertNotIn("图片生成工具", plan.answer)
-        self.assertNotIn("会议查询", plan.answer)
-        self.assertNotIn("已关闭", plan.answer)
+        self.assertEqual("llm_fallback", plan.intent)
+        self.assertEqual("llm", plan.route_mode)
+        self.assertEqual(1, self.provider.calls)
+        self.assertEqual("模型兜底回答。", plan.answer)
 
-    def test_direct_image_capability_question_uses_verified_catalog_route(self):
+    def test_direct_image_capability_question_is_always_answered_by_model(self):
         unavailable_plan = self.agent.plan(
             "你支持生图吗？",
             chat_service=self.provider,
@@ -411,12 +425,11 @@ class LeaderFastRouteTest(unittest.TestCase):
             },
         )
 
-        self.assertEqual("leader_callable_catalog", unavailable_plan.intent)
-        self.assertEqual("rules", unavailable_plan.route_mode)
-        self.assertEqual(0, self.provider.calls)
-        self.assertIn("当前不支持生图", unavailable_plan.answer)
-        self.assertIn("当前支持生图", available_plan.answer)
-        self.assertIn("通用图片生成工具", available_plan.answer)
+        self.assertEqual("llm_fallback", unavailable_plan.intent)
+        self.assertEqual("llm", unavailable_plan.route_mode)
+        self.assertEqual("llm_fallback", available_plan.intent)
+        self.assertEqual("llm", available_plan.route_mode)
+        self.assertEqual(2, self.provider.calls)
 
 
 if __name__ == "__main__":

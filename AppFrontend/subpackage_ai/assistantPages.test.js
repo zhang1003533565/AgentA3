@@ -261,7 +261,7 @@ test('assistant public resource hosts have an explicit app configuration boundar
   assert.match(source, /export const ASSISTANT_PUBLIC_RESOURCE_HOSTS\s*=\s*\[/)
 })
 
-test('full conversation keeps Java authoritative terminal error resources and evidence', async () => {
+test('full conversation does not turn a terminal error envelope into an assistant reply', async () => {
   const evidenceChain = {
     schemaVersion: 'assistant-evidence-v1',
     evidenceState: 'generation_failed',
@@ -283,19 +283,18 @@ test('full conversation keeps Java authoritative terminal error resources and ev
       throw new Error('reader failed after authoritative terminal error')
     }
   })
-  installUni({ aiAssistantSessionId: 'session-a' })
+  const { calls } = installUni({ aiAssistantSessionId: 'session-a' })
   const vm = instantiate(component)
+  const initialMessageCount = vm.messages.length
   vm.sessionId = 'session-a'
   vm.inputValue = '生成失败场景'
 
   await vm.sendMessage()
 
-  const assistant = vm.messages.at(-1)
-  assert.equal(assistant.content, terminalEnvelope.answer)
-  assert.equal(assistant.messageId, 201)
-  assert.deepEqual(assistant.resources, [])
-  assert.deepEqual(assistant.evidenceChain, evidenceChain)
-  assert.equal(assistant.type, '')
+  assert.equal(vm.messages.length, initialMessageCount + 1)
+  assert.equal(vm.messages.at(-1).role, 'user')
+  assert.equal(vm.messages.some(message => message.content === terminalEnvelope.answer), false)
+  assert.equal(calls.showToast.length, 1)
 })
 
 test('full conversation shows the safe backend failure stage instead of a generic request error', async () => {

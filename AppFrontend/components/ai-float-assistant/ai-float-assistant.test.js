@@ -201,7 +201,7 @@ test('floating assistant source has no second attachment parser', () => {
   assert.doesNotMatch(source, /\bextractAttachmentsFromText\s*\(/)
 })
 
-test('floating assistant keeps the authoritative terminal error envelope instead of replacing its answer', async () => {
+test('floating assistant does not turn a terminal error envelope into an assistant reply', async () => {
   const evidenceChain = {
     schemaVersion: 'assistant-evidence-v1',
     evidenceState: 'generation_failed',
@@ -223,19 +223,18 @@ test('floating assistant keeps the authoritative terminal error envelope instead
       throw new Error('reader failed after authoritative terminal error')
     }
   })
-  installUni({ aiAssistantSessionId: 'session-a' })
+  const { calls } = installUni({ aiAssistantSessionId: 'session-a' })
   const vm = instantiate(component)
+  const initialMessageCount = vm.messages.length
   vm.sessionId = 'session-a'
   vm.inputValue = '生成一张图'
 
   await vm.sendMessage()
 
-  const assistant = vm.messages.at(-1)
-  assert.equal(assistant.content, terminalEnvelope.answer)
-  assert.equal(assistant.messageId, 91)
-  assert.deepEqual(assistant.resources, [])
-  assert.deepEqual(assistant.evidenceChain, evidenceChain)
-  assert.equal(assistant.type, '')
+  assert.equal(vm.messages.length, initialMessageCount + 1)
+  assert.equal(vm.messages.at(-1).role, 'user')
+  assert.equal(vm.messages.some(message => message.content === terminalEnvelope.answer), false)
+  assert.equal(calls.showToast.length, 1)
 })
 
 test('floating assistant refreshes the same session even when cached messages already exist', async () => {

@@ -693,6 +693,10 @@ export default {
             this.syncSessionId(payload?.sessionId)
             const finalAnswer = payload?.answer || ''
             const current = this.messages.find((item) => item.localId === thinkingMessage.localId)
+            const finalContent = finalAnswer || (current?.type === 'thinking' ? '' : current?.content || '')
+            if (!String(finalContent).trim()) {
+              throw new Error('模型未返回内容')
+            }
             const merged = mergeAssistantMessage(current, {
               ...(payload || {}),
               ...(Array.isArray(payload?.resources) && payload.resources.length === 0
@@ -701,7 +705,7 @@ export default {
                   : {}),
               role: 'assistant',
               type: '',
-              content: finalAnswer || current?.content || 'Leader 这次没有返回可用答案，请换一种问法再试。',
+              content: finalContent,
               answerType: payload?.answerType || 'text',
               outputType: payload?.outputType || payload?.answerType || 'text',
               agentName: payload?.agentName || current?.callDetail?.agentName || 'leader_agent',
@@ -718,32 +722,6 @@ export default {
           onError: (payload) => {
             if (!isRequestCurrent() || this.stopRequestedLocalId === thinkingMessage.localId) return
             streamTouched = true
-            if (typeof payload?.answer === 'string' && payload.answer) {
-              streamStarted = true
-              this.syncSessionId(payload?.sessionId)
-              const current = this.messages.find((item) => item.localId === thinkingMessage.localId)
-              const merged = mergeAssistantMessage(current, {
-                ...(payload || {}),
-                ...(Array.isArray(payload?.resources) && payload.resources.length === 0
-                  && !Object.prototype.hasOwnProperty.call(payload || {}, 'attachments')
-                    ? { attachments: [] }
-                    : {}),
-                role: 'assistant',
-                type: '',
-                content: payload.answer,
-                answerType: payload?.answerType || 'text',
-                outputType: payload?.outputType || payload?.answerType || 'text',
-                agentName: payload?.agentName || current?.callDetail?.agentName || 'leader_agent',
-                callDetail: this.buildFinalCallDetail(payload, current?.callDetail, 'failed'),
-                callDetailExpanded: current?.callDetailExpanded || false,
-                evidenceExpanded: current?.evidenceExpanded || false,
-                responseState: 'failed'
-              })
-              this.replaceMessage(thinkingMessage.localId, merged)
-              authoritativeTerminalHandled = true
-              releaseComposer()
-              return
-            }
             const streamError = new Error(payload?.message || '流式请求失败')
             streamError.payload = payload || {}
             throw streamError
@@ -760,26 +738,13 @@ export default {
         }
         const current = this.messages.find((item) => item.localId === thinkingMessage.localId)
         const errorCallDetail = this.buildErrorCallDetail(error, current?.callDetail)
-        const errorContent = this.buildFailureContent(errorCallDetail, streamStarted || streamTouched ? '这次流式回复中断了' : '这次没有顺利完成请求')
-        if (streamStarted || streamTouched) {
-          const partialContent = current?.type === 'thinking' ? '' : String(current?.content || '').trim()
-          this.replaceMessage(thinkingMessage.localId, {
-            ...current,
-            role: 'assistant',
-            type: '',
-            content: partialContent ? `${partialContent}\n\n> ${errorContent}` : errorContent,
-            responseState: 'interrupted',
-            callDetail: errorCallDetail,
-            callDetailExpanded: current?.callDetailExpanded || false
-          })
-        } else if (error?.fallbackToNormalRequest) {
+        if (error?.fallbackToNormalRequest && !streamStarted && !streamTouched) {
           await this.sendMessageFallback(leaderRequest, thinkingMessage.localId, error, requestContext)
         } else {
-          this.replaceMessage(thinkingMessage.localId, {
-            role: 'assistant',
-            content: errorContent,
-            callDetail: errorCallDetail,
-            callDetailExpanded: current?.callDetailExpanded || false
+          this.messages = this.messages.filter((item) => item.localId !== thinkingMessage.localId)
+          uni.showToast({
+            title: errorCallDetail.error || '模型回复失败',
+            icon: 'none'
           })
         }
       } finally {
@@ -896,6 +861,9 @@ export default {
         const beforeMerge = this.messages.find((item) => item.localId === localId)
         if (this.stopRequestedLocalId === localId || beforeMerge?.responseState === 'stopped') return
         const payload = res?.data || {}
+        if (!String(payload.answer || '').trim()) {
+          throw new Error('模型未返回内容')
+        }
         this.syncSessionId(payload.sessionId)
         const current = this.messages.find((item) => item.localId === localId)
         const merged = mergeAssistantMessage(current, {
@@ -906,7 +874,7 @@ export default {
               : {}),
           role: 'assistant',
           type: '',
-          content: payload.answer || 'Leader 这次没有返回可用答案，请换一种问法再试。',
+          content: payload.answer,
           answerType: payload.answerType || 'text',
           outputType: payload.outputType || payload.answerType || 'text',
           agentName: payload.agentName || 'leader_agent',
@@ -920,11 +888,10 @@ export default {
         const current = this.messages.find((item) => item.localId === localId)
         if (this.stopRequestedLocalId === localId || current?.responseState === 'stopped') return
         const errorCallDetail = this.buildErrorCallDetail(error, null)
-        this.replaceMessage(localId, {
-          role: 'assistant',
-          content: this.buildFailureContent(errorCallDetail, '这次没有顺利完成请求', streamError?.message),
-          callDetail: errorCallDetail,
-          callDetailExpanded: false
+        this.messages = this.messages.filter((item) => item.localId !== localId)
+        uni.showToast({
+          title: errorCallDetail.error || streamError?.message || '模型回复失败',
+          icon: 'none'
         })
       }
     },
@@ -1075,13 +1042,6 @@ export default {
           statusCode: payload?.statusCode || retrievalMeta.statusCode || ''
         })
       }
-    },
-    buildFailureContent(detail, prefix, fallbackMessage = '') {
-      const normalized = this.normalizeCallDetail({ role: 'assistant', callDetail: detail || {} })
-      const agentLabel = this.getAgentLabel(normalized.agentName)
-      const stageLabel = this.getStageLabel(normalized.currentStep || 'error')
-      const reason = normalized.error || fallbackMessage || '请稍后再试'
-      return `${prefix}：${agentLabel} 在「${stageLabel}」阶段失败。原因：${reason}`
     },
     withTerminalTrace(trace, status, errorMessage = '', extraDetail = {}) {
       const list = Array.isArray(trace) ? [...trace] : []
