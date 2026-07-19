@@ -62,6 +62,9 @@ router = APIRouter(
 export_router = APIRouter(prefix="/internal/rag", tags=["internal-rag-exports"])
 logger = get_logger("api.rag")
 
+DEFAULT_RAG_INPUT_MAX_LENGTH = 4_000
+QUESTION_GENERATION_INPUT_MAX_LENGTH = 210_000
+
 VISUAL_GENERATION_TOOL_CONFIG = {
     "generate_image_tool": {
         "zhName": "通用图片生成工具",
@@ -648,6 +651,7 @@ def run_rag_query(
 ) -> RagQueryResponse:
     request_started_at = time.perf_counter()
     _require_authorization(authorization)
+    _validate_rag_input_length(request)
     audit = _llm_header_audit_fields(
         provider=x_ai_provider,
         base_url=x_ai_base_url,
@@ -714,6 +718,7 @@ async def run_rag_query_stream(
 ):
     request_started_at = time.perf_counter()
     _require_authorization(authorization)
+    _validate_rag_input_length(request)
     llm_config = build_llm_runtime_config(
         provider=x_ai_provider,
         base_url=x_ai_base_url,
@@ -3391,6 +3396,7 @@ def text_to_sql_execute(
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ) -> Dict[str, Any]:
     _require_authorization(authorization)
+    _validate_rag_input_length(request)
     service = TextToSqlService()
     schema = service.introspect_sqlite_schema()
     result = service.plan(request.input, schema=schema)
@@ -3401,6 +3407,21 @@ def text_to_sql_execute(
         "readonly": bool(result.sql),
         "error": result.error,
     }
+
+
+def _validate_rag_input_length(request: RagQueryRequest) -> None:
+    input_length = len(request.input or "")
+    purpose = str((request.metadata or {}).get("requestPurpose") or "").strip()
+    maximum = (
+        QUESTION_GENERATION_INPUT_MAX_LENGTH
+        if purpose == "question_generation"
+        else DEFAULT_RAG_INPUT_MAX_LENGTH
+    )
+    if input_length > maximum:
+        raise HTTPException(
+            status_code=422,
+            detail=f"input exceeds the allowed {maximum} characters for this request",
+        )
 
 
 def _require_authorization(authorization: Optional[str]) -> None:

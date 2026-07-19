@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +31,13 @@ import org.slf4j.LoggerFactory;
 public class QuestionGenerationServiceImpl implements QuestionGenerationService {
     private static final Logger log = LoggerFactory.getLogger(QuestionGenerationServiceImpl.class);
     private static final long PROOF_TTL_SECONDS = 15 * 60;
+    private static final Pattern MARKDOWN_IMAGE = Pattern.compile(
+            "!\\[[^\\r\\n]*?]\\([^\\r\\n]*?\\)");
+    private static final Pattern HTML_IMAGE = Pattern.compile("(?is)<img\\b[^>]*>");
+    private static final Pattern STANDALONE_OSS_IMAGE_PATH = Pattern.compile(
+            "(?im)^\\s*(?:\\./)?oss/file/\\S+\\s*$");
+    private static final Pattern EXCESSIVE_BLANK_LINES = Pattern.compile(
+            "(?:\\r?\\n[ \\t]*){3,}");
 
     private static final String MAPPING_PREFIX = "ai.question-generation.agent.";
     private static final List<String> QUESTION_TYPES = List.of(
@@ -96,12 +104,13 @@ public class QuestionGenerationServiceImpl implements QuestionGenerationService 
         }
 
         ParsedMaterial material = materialParser.parse(command.sourceType(), command.file(), command.text());
+        String preparedMaterial = prepareMaterialForGeneration(material.text());
         String sourceTitle = StringUtils.hasText(command.sourceTitle())
                 ? command.sourceTitle().trim() : material.sourceTitle();
         GenerationResponse response = baseResponse(command, option, material, sourceTitle);
         String answer = pythonAiProxyService.queryQuestionGeneration(
                 new PythonAiProxyService.QuestionGenerationPayload(
-                        option.getAgentName(), buildInput(command, material.text()),
+                        option.getAgentName(), buildInput(command, preparedMaterial),
                         command.maxQuestions(), command.difficulty()),
                 authorization);
 
@@ -140,10 +149,10 @@ public class QuestionGenerationServiceImpl implements QuestionGenerationService 
                 Instant.now().plusSeconds(PROOF_TTL_SECONDS)));
         response.setProof(proof);
         response.setModel(option.getModel());
-        response.setMaterialCharacters(material.text().length());
-        response.setMaterialSummary(material.text().length() + " 字符；已安全解析文本内容");
+        response.setMaterialCharacters(preparedMaterial.length());
+        response.setMaterialSummary(preparedMaterial.length() + " 字符；已保留图片说明并过滤不可读取的图片路径");
         log.info("question_generation type={} agent={} model={} chars={} max={} actual={} durationMs={} status={}",
-                command.questionType(), option.getAgentName(), option.getModel(), material.text().length(),
+                command.questionType(), option.getAgentName(), option.getModel(), preparedMaterial.length(),
                 command.maxQuestions(), questions.size(), (System.nanoTime() - started) / 1_000_000,
                 response.getValid() ? "valid" : "invalid");
         return response;
@@ -206,6 +215,17 @@ public class QuestionGenerationServiceImpl implements QuestionGenerationService 
         return "请严格依据以下材料生成 " + command.questionType() + " 题型的标准题库 JSON。"
                 + "顶层只能包含 questions 数组和 missingInfo 数组；不得脱离材料或重复出题。\n"
                 + quantity + difficulty + "\n材料：\n" + material;
+    }
+
+    static String prepareMaterialForGeneration(String material) {
+        if (!StringUtils.hasText(material)) {
+            return material;
+        }
+        String prepared = MARKDOWN_IMAGE.matcher(material).replaceAll("");
+        prepared = HTML_IMAGE.matcher(prepared).replaceAll("");
+        prepared = STANDALONE_OSS_IMAGE_PATH.matcher(prepared).replaceAll("");
+        prepared = EXCESSIVE_BLANK_LINES.matcher(prepared).replaceAll("\n\n");
+        return prepared.trim();
     }
 
     private QuestionTypeOption resolveOption(

@@ -38,7 +38,7 @@ const { TextArea } = Input
 
 const TYPE_LABELS = {
   single_choice: '单选题', multiple_choice: '多选题', true_false: '判断题',
-  fill_blank: '填空题', short_answer: '简答题',
+  fill_blank: '填空题', short_answer: '简答题', calculation: '计算题', programming: '编程题',
 }
 const DIFFICULTIES = [
   { value: 'easy', label: '简单' }, { value: 'medium', label: '中等' }, { value: 'hard', label: '困难' },
@@ -153,6 +153,13 @@ function QuestionEditor({ question, index, editorKey, disabled, onChange, onDele
         <div className="qbg-editor-grid">
           <label className="qbg-field qbg-field--wide"><span>参考答案</span><TextArea value={question.answer?.referenceAnswer} autoSize={{ minRows: 3 }} onChange={(event) => patchAnswer({ referenceAnswer: event.target.value })} /></label>
           <label className="qbg-field qbg-field--wide"><span>得分要点（每行一个）</span><TextArea value={listValue(question.answer?.answerPoints)} onChange={(event) => patchAnswer({ answerPoints: splitLines(event.target.value) })} /></label>
+        </div>
+      )}
+
+      {(question.type === 'calculation' || question.type === 'programming') && (
+        <div className="qbg-editor-grid">
+          <JsonDraftField label="题目内容（JSON）" value={question.body} errorKey={`${editorKey}:body`} disabled={disabled} onInvalidate={onInvalidate} onErrorChange={onJsonErrorChange} onChange={(body) => patch({ body })} />
+          <JsonDraftField label="标准答案（JSON）" value={question.answer} errorKey={`${editorKey}:answer`} disabled={disabled} onInvalidate={onInvalidate} onErrorChange={onJsonErrorChange} onChange={(answer) => patch({ answer })} />
         </div>
       )}
 

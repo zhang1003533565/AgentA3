@@ -359,6 +359,8 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("choice_agent", request.path("agentName").asText());
         Assertions.assertEquals("依据材料出题", request.path("input").asText());
         Assertions.assertEquals("hard", request.path("difficulty").asText());
+        Assertions.assertEquals("question_generation",
+                request.path("metadata").path("requestPurpose").asText());
         Assertions.assertTrue(request.path("maxQuestions").isMissingNode());
     }
 

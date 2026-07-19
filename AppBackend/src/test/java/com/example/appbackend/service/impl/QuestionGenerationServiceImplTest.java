@@ -39,6 +39,21 @@ class QuestionGenerationServiceImplTest {
     private final ExamQuestionService examQuestionService = mock(ExamQuestionService.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    @Test
+    void preservesImageAnnotationsWhileRemovingUnreadableImageReferences() {
+        String material = "正文内容\n\n"
+                + "图片说明：Python 官网下载页面用于说明安装入口。\n"
+                + "![image.png](./oss/file/lesson/python-install.png)\n\n"
+                + "<img src=\"./oss/file/lesson/other.png\">\n"
+                + "./oss/file/lesson/orphan.png\n\n"
+                + "后续知识点";
+
+        String prepared = QuestionGenerationServiceImpl.prepareMaterialForGeneration(material);
+
+        assertThat(prepared).contains("正文内容", "图片说明：Python 官网下载页面用于说明安装入口。", "后续知识点");
+        assertThat(prepared).doesNotContain("![", "<img", "./oss/file/");
+    }
+
     @BeforeEach
     void setUp() {
         when(systemConfigService.getValue(any(), any())).thenAnswer(invocation ->

@@ -209,6 +209,7 @@ public class PythonAiProxyService {
         Map<String, Object> request = new HashMap<>();
         request.put("agentName", payload.agentName());
         request.put("input", payload.input());
+        request.put("metadata", Map.of("requestPurpose", "question_generation"));
         if (payload.maxQuestions() != null) {
             request.put("maxQuestions", payload.maxQuestions());
         }
