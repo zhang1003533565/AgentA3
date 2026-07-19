@@ -57,9 +57,14 @@ test('attempt result displays objective score and post-submit answer details', (
   assert.match(source, /加载失败/)
 })
 
-test('exam generator reads the standard response envelope', () => {
+test('exam generator consumes the background task response envelope and polls its result', () => {
   const source = page('../subpackage_ai/examGenerate/examGenerate.vue')
-  assert.match(source, /const answer = res\?\.data\?\.answer \|\| ''/)
+  assert.match(source, /await submitQuestionAssemblyTask\(spec\)/)
+  assert.match(source, /taskId: res\?\.data\?\.taskId \|\| ''/)
+  assert.match(source, /const res = await getQuestionAssemblyTask\(taskId\)/)
+  assert.match(source, /const task = res\?\.data \|\| \{\}/)
+  assert.match(source, /if \(task\.status === 'SUCCEEDED'\)/)
+  assert.match(source, /applyTaskResult\(task\)/)
   assert.doesNotMatch(source, /const answer = res\?\.answer \|\| ''/)
 })
 
