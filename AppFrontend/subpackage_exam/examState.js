@@ -34,6 +34,8 @@ export function parseAnswer(type, answerJson, fallbackBlanks = []) {
         .filter((blank) => blank.id)
     }
     case 'short_answer':
+    case 'calculation':
+    case 'programming':
       return cleanText(answer.text)
     default:
       return ''
@@ -60,6 +62,8 @@ export function normalizeAnswer(type, value) {
           .sort((left, right) => left.id.localeCompare(right.id))
       }
     case 'short_answer':
+    case 'calculation':
+    case 'programming':
       return { text: cleanText(value) }
     default:
       throw new TypeError(`不支持的题型: ${type}`)

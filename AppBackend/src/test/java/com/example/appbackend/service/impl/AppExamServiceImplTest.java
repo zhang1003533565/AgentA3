@@ -292,6 +292,33 @@ class AppExamServiceImplTest {
     }
 
     @Test
+    void saveAnswerAcceptsCalculationAndProgrammingText() {
+        LocalDateTime now = LocalDateTime.of(2026, 7, 12, 10, 0);
+        ExamPaperAttempt owned = attempt(41L, ExamPaperAttempt.Status.IN_PROGRESS);
+        owned.setDeadlineAt(now.plusMinutes(5));
+        when(attemptRepository.findByIdAndUserIdForUpdate(41L, 9L)).thenReturn(Optional.of(owned));
+        when(paperQuestionRepository.findByIdAndPaperId(106L, 7L)).thenReturn(Optional.of(
+                question(106L, "calculation", new BigDecimal("12"), "{\"referenceAnswer\":\"过程\"}")));
+        when(paperQuestionRepository.findByIdAndPaperId(107L, 7L)).thenReturn(Optional.of(
+                question(107L, "programming", new BigDecimal("15"), "{\"referenceAnswer\":\"代码\"}")));
+        when(answerRepository.findByAttemptIdAndPaperQuestionId(eq(41L), anyLong())).thenReturn(Optional.empty());
+        when(answerRepository.saveAndFlush(any())).thenAnswer(invocation -> {
+            ExamPaperAttemptAnswer saved = invocation.getArgument(0);
+            saved.setVersion(0L);
+            return saved;
+        });
+
+        AppExamDTO.SavedAnswer calculation = service.saveAnswer(
+                41L, 106L, 9L, saveRequest("{\"text\":\"完整计算过程\"}", 0L), now);
+        AppExamDTO.SavedAnswer programming = service.saveAnswer(
+                41L, 107L, 9L, saveRequest("{\"text\":\"print(1)\"}", 0L), now);
+
+        assertTrue(calculation.getAnswered());
+        assertTrue(programming.getAnswered());
+        assertEquals(2, owned.getAnsweredCount());
+    }
+
+    @Test
     void saveAnswerRejectsWrongShapeAndDatabaseOptimisticConflict() {
         LocalDateTime now = LocalDateTime.of(2026, 7, 12, 10, 0);
         ExamPaperAttempt owned = attempt(41L, ExamPaperAttempt.Status.IN_PROGRESS);
@@ -332,7 +359,7 @@ class AppExamServiceImplTest {
     }
 
     @Test
-    void submitScoresAllFiveTypesAndExcludesShortAnswerFromObjectiveTotal() {
+    void submitScoresAllSevenTypesAndExcludesManualAnswersFromObjectiveTotal() {
         LocalDateTime now = LocalDateTime.of(2026, 7, 12, 10, 0);
         ExamPaperAttempt active = attempt(41L, ExamPaperAttempt.Status.IN_PROGRESS);
         active.setDeadlineAt(now.plusMinutes(1));
@@ -342,13 +369,17 @@ class AppExamServiceImplTest {
                 question(103L, "true_false", BigDecimal.ONE, "{\"correct\":true}"),
                 question(104L, "fill_blank", new BigDecimal("4"),
                         "{\"blanks\":[{\"id\":\"b1\",\"answers\":[\"栈顶\"]},{\"id\":\"b2\",\"answers\":[\"栈底\"]}]}"),
-                question(105L, "short_answer", new BigDecimal("10"), "{\"referenceAnswer\":\"略\"}"));
+                question(105L, "short_answer", new BigDecimal("10"), "{\"referenceAnswer\":\"略\"}"),
+                question(106L, "calculation", new BigDecimal("12"), "{\"referenceAnswer\":\"计算过程\"}"),
+                question(107L, "programming", new BigDecimal("15"), "{\"referenceAnswer\":\"参考代码\"}"));
         List<ExamPaperAttemptAnswer> answers = List.of(
                 savedAnswer(101L, "{\"selectedOption\":\"B\"}", 1L, true),
                 savedAnswer(102L, "{\"selectedOptions\":[\"C\",\"A\",\"C\"]}", 1L, true),
                 savedAnswer(103L, "{\"value\":false}", 1L, true),
                 savedAnswer(104L, "{\"blanks\":[{\"id\":\"b2\",\"value\":\" 栈底 \"},{\"id\":\"b1\",\"value\":\"栈顶\"}]}", 1L, true),
-                savedAnswer(105L, "{\"text\":\"我的说明\"}", 1L, true));
+                savedAnswer(105L, "{\"text\":\"我的说明\"}", 1L, true),
+                savedAnswer(106L, "{\"text\":\"我的计算过程\"}", 1L, true),
+                savedAnswer(107L, "{\"text\":\"print(1)\"}", 1L, true));
         when(attemptRepository.findByIdAndUserIdForUpdate(41L, 9L)).thenReturn(Optional.of(active));
         when(paperQuestionRepository.findByPaperIdOrderBySortOrderAscIdAsc(7L)).thenReturn(questions);
         when(answerRepository.findByAttemptId(41L)).thenReturn(answers);
@@ -358,9 +389,11 @@ class AppExamServiceImplTest {
         assertEquals(ExamPaperAttempt.Status.SUBMITTED, active.getStatus());
         assertEquals(new BigDecimal("9"), result.getObjectiveScore());
         assertEquals(new BigDecimal("10"), result.getObjectiveTotalScore());
-        assertEquals(java.util.Arrays.asList(true, true, false, true, null),
+        assertEquals(java.util.Arrays.asList(true, true, false, true, null, null, null),
                 answers.stream().map(ExamPaperAttemptAnswer::getCorrect).toList());
         assertNull(answers.get(4).getScore());
+        assertNull(answers.get(5).getScore());
+        assertNull(answers.get(6).getScore());
     }
 
     @Test

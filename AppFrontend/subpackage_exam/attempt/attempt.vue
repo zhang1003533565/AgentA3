@@ -1,5 +1,6 @@
 <template>
   <view class="exam-page">
+    <nav-bar title="在线答题" :showBack="true" fixed placeholder />
     <view class="exam-header">
       <view>
         <text class="exam-title">在线答题</text>
@@ -78,11 +79,11 @@
         </view>
 
         <textarea
-          v-else-if="question.type === 'short_answer'"
+          v-else-if="['short_answer', 'calculation', 'programming'].includes(question.type)"
           class="answer-textarea"
           :value="answerState(question.id).value"
           maxlength="20000"
-          placeholder="请输入你的答案"
+          :placeholder="textAnswerPlaceholder(question.type)"
           @input="onShortInput(question, $event)"
         />
 
@@ -102,6 +103,7 @@
 </template>
 
 <script>
+import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getExamAttempt, saveExamAnswer, submitExamAttempt } from '@/api/exam.js'
 import {
   formatRemainingTime,
@@ -113,6 +115,7 @@ import {
 } from '../examState.js'
 
 export default {
+  components: { NavBar },
   data() {
     return {
       attemptId: null,
@@ -382,7 +385,7 @@ export default {
       if (type === 'multiple_choice') return answer.selectedOptions.length > 0
       if (type === 'true_false') return true
       if (type === 'fill_blank') return answer.blanks.some((blank) => blank.value)
-      if (type === 'short_answer') return Boolean(answer.text)
+      if (['short_answer', 'calculation', 'programming'].includes(type)) return Boolean(answer.text)
       return false
     },
     typeLabel(type) {
@@ -391,8 +394,16 @@ export default {
         multiple_choice: '多选题',
         true_false: '判断题',
         fill_blank: '填空题',
-        short_answer: '简答题'
+        short_answer: '简答题',
+        calculation: '计算题',
+        programming: '编程题'
       })[type] || '题目'
+    },
+    textAnswerPlaceholder(type) {
+      return ({
+        calculation: '请输入计算过程和最终答案',
+        programming: '请输入解题思路或代码'
+      })[type] || '请输入你的答案'
     },
     saveStatusText(state) {
       return ({ pending: '等待保存', saving: '保存中...', retrying: '保存失败，正在重试', error: '保存失败，请修改后重试', saved: '已保存' })[state.status] || '已保存'
@@ -406,7 +417,7 @@ export default {
 
 <style lang="scss" scoped>
 .exam-page { min-height: 100vh; padding-bottom: 180rpx; background: #f5f7fb; color: #182033; }
-.exam-header { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; padding: 28rpx 32rpx; background: #fff; box-shadow: 0 4rpx 18rpx rgba(27, 45, 86, .08); }
+.exam-header { position: relative; z-index: 10; display: flex; align-items: center; justify-content: space-between; padding: 28rpx 32rpx; background: #fff; box-shadow: 0 4rpx 18rpx rgba(27, 45, 86, .08); }
 .exam-title { display: block; font-size: 34rpx; font-weight: 700; }
 .exam-progress { display: block; margin-top: 8rpx; color: #78849b; font-size: 24rpx; }
 .countdown { padding: 14rpx 22rpx; border-radius: 16rpx; background: #edf2ff; color: #315efb; font-size: 34rpx; font-weight: 700; font-variant-numeric: tabular-nums; }

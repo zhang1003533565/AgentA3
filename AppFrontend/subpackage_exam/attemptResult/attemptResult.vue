@@ -82,7 +82,7 @@ export default {
       return value?.knowledgePoint || value?.objective || value?.title || value?.rationale || '继续完成下一项推荐任务'
     },
     openLearningPath() { uni.navigateTo({ url: '/subpackage_learning/learningPath/learningPath' }) },
-    judgeText(question) { if (question.correct === true) return `正确 +${question.maxScore ?? 0}`; if (question.correct === false) return '错误'; return '简答题' },
+    judgeText(question) { if (question.correct === true) return `正确 +${question.maxScore ?? 0}`; if (question.correct === false) return '错误'; return '待人工评分' },
     answerText(json) {
       if (!json) return '未作答'
       try {

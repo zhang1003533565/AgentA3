@@ -13,7 +13,7 @@ test('remainingSeconds uses server time and clamps expired attempts to zero', as
   assert.equal(remainingSeconds('2026-07-12T11:59:59Z', '2026-07-12T12:00:00Z'), 0)
 })
 
-test('normalizeAnswer creates stable payloads for all five question types', async () => {
+test('normalizeAnswer creates stable payloads for all seven question types', async () => {
   const { normalizeAnswer } = await state
   assert.deepEqual(normalizeAnswer('single_choice', 'B'), { selectedOption: 'B' })
   assert.deepEqual(normalizeAnswer('multiple_choice', ['C', 'A', 'C', '']), {
@@ -30,6 +30,8 @@ test('normalizeAnswer creates stable payloads for all five question types', asyn
     ]
   })
   assert.deepEqual(normalizeAnswer('short_answer', '  说明过程  '), { text: '说明过程' })
+  assert.deepEqual(normalizeAnswer('calculation', '  计算过程  '), { text: '计算过程' })
+  assert.deepEqual(normalizeAnswer('programming', '  print(1)  '), { text: 'print(1)' })
 })
 
 test('mergeSavedAnswer never lets an older response replace newer local input', async () => {
@@ -61,7 +63,7 @@ test('formatRemainingTime keeps countdown stable beyond one hour', async () => {
   assert.equal(formatRemainingTime(3661), '61:01')
 })
 
-test('parseAnswer restores all five controls and tolerates empty persisted JSON', async () => {
+test('parseAnswer restores all seven controls and tolerates empty persisted JSON', async () => {
   const { parseAnswer } = await state
   assert.equal(parseAnswer('single_choice', '{"selectedOption":"B"}'), 'B')
   assert.deepEqual(parseAnswer('multiple_choice', '{"selectedOptions":["C","A"]}'), ['C', 'A'])
@@ -70,13 +72,15 @@ test('parseAnswer restores all five controls and tolerates empty persisted JSON'
     { id: 'b1', value: '甲' }
   ])
   assert.equal(parseAnswer('short_answer', '{"text":"说明"}'), '说明')
+  assert.equal(parseAnswer('calculation', '{"text":"计算过程"}'), '计算过程')
+  assert.equal(parseAnswer('programming', '{"text":"print(1)"}'), 'print(1)')
   assert.equal(parseAnswer('single_choice', ''), '')
   assert.deepEqual(parseAnswer('fill_blank', 'bad-json', [{ id: 'b1' }]), [{ id: 'b1', value: '' }])
 })
 
-test('attempt page wires five controls, autosave retry, deadline and submit flows', () => {
+test('attempt page wires seven controls, back navigation, autosave retry, deadline and submit flows', () => {
   const page = readFileSync(join(__dirname, 'attempt/attempt.vue'), 'utf8')
-  for (const type of ['single_choice', 'multiple_choice', 'true_false', 'fill_blank', 'short_answer']) {
+  for (const type of ['single_choice', 'multiple_choice', 'true_false', 'fill_blank', 'short_answer', 'calculation', 'programming']) {
     assert.ok(page.includes(type), `missing question type ${type}`)
   }
   for (const api of ['getExamAttempt', 'saveExamAnswer', 'submitExamAttempt']) {
@@ -91,6 +95,7 @@ test('attempt page wires five controls, autosave retry, deadline and submit flow
   assert.match(page, /uni\.showModal/)
   assert.match(page, /attemptResult\/attemptResult/)
   assert.match(page, /onUnload/)
+  assert.match(page, /<nav-bar[^>]+:showBack="true"/)
 })
 
 test('pages.json registers the exam subpackage and mine exposes the entry', () => {

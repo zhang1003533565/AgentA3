@@ -52,6 +52,8 @@ import java.util.stream.Collectors;
 public class AppExamServiceImpl implements AppExamService {
     private static final int MAX_ANSWER_BYTES = 64 * 1024;
     private static final int MAX_TEXT_LENGTH = 20_000;
+    private static final Set<String> MANUAL_QUESTION_TYPES = Set.of(
+            "short_answer", "calculation", "programming");
     private static final String PYTHON = "python";
     private static final Pattern PYTHON_KNOWLEDGE_POINT = Pattern.compile(
             "python(?:\\.[a-z0-9_-]+)+");
@@ -322,7 +324,7 @@ public class AppExamServiceImpl implements AppExamService {
             case "multiple_choice" -> isTextArray(node.path("selectedOptions"));
             case "true_false" -> node.path("value").isBoolean();
             case "fill_blank" -> isValidBlanks(node.path("blanks"));
-            case "short_answer" -> node.path("text").isTextual();
+            case "short_answer", "calculation", "programming" -> node.path("text").isTextual();
             default -> false;
         };
         if (!valid) throw new BusinessException(Result.BAD_REQUEST_CODE, "答案结构与题型不匹配");
@@ -370,7 +372,8 @@ public class AppExamServiceImpl implements AppExamService {
                 for (JsonNode blank : node.path("blanks")) any |= !blank.path("value").asText().trim().isEmpty();
                 yield any;
             }
-            case "short_answer" -> !node.path("text").asText().trim().isEmpty();
+            case "short_answer", "calculation", "programming" ->
+                    !node.path("text").asText().trim().isEmpty();
             default -> false;
         };
     }
@@ -385,7 +388,7 @@ public class AppExamServiceImpl implements AppExamService {
         List<ExamPaperAttemptAnswer> scoredAnswers = new ArrayList<>();
         for (ExamPaperQuestion question : questions) {
             ExamPaperAttemptAnswer answer = answers.get(question.getId());
-            if ("short_answer".equals(question.getType())) {
+            if (MANUAL_QUESTION_TYPES.contains(question.getType())) {
                 if (answer != null) {
                     answer.setCorrect(null);
                     answer.setScore(null);
@@ -501,7 +504,7 @@ public class AppExamServiceImpl implements AppExamService {
             Map<Long, ExamPaperAttemptAnswer> answers,
             LocalDateTime now) {
         List<ExamPaperQuestion> eligibleQuestions = questions.stream()
-                .filter(question -> !"short_answer".equals(question.getType()))
+                .filter(question -> !MANUAL_QUESTION_TYPES.contains(question.getType()))
                 .filter(question -> question.getQuestionId() != null)
                 .filter(question -> {
                     ExamPaperAttemptAnswer answer = answers.get(question.getId());
