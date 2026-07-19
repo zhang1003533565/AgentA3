@@ -67,7 +67,7 @@ class ImageAgent:
         return response.model_dump()
 
     def generate_images_json(self, topic: str, evidence: List[Dict[str, Any]], chat_service=None) -> str:
-        result = self.generate_images(topic, evidence, chat_service=chat_service)
+        result = self.generate_images(topic, evidence, return_type="url_and_base64", chat_service=chat_service)
         return json.dumps(result, ensure_ascii=False)
 
     def _direct_prompt(self, topic: str) -> str:

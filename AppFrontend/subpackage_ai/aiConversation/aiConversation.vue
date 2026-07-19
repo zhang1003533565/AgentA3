@@ -486,6 +486,7 @@ export default {
       scrollAnchor: 'message-anchor',
       resourceLocalPaths: {},
       resourceLoading: {},
+      resourcePreloadFailures: {},
       reportedInteractions: {},
       audioContext: null,
       activeAudioKey: '',
@@ -504,6 +505,14 @@ export default {
   computed: {
     canSend() {
       return !this.sending && this.inputValue.trim().length > 0
+    }
+  },
+  watch: {
+    messages: {
+      deep: true,
+      handler() {
+        this.$nextTick(() => this.preloadMessageImages())
+      }
     }
   },
   onLoad(options = {}) {
@@ -1480,6 +1489,7 @@ export default {
       this.disposeAudio()
       this.resourceLocalPaths = {}
       this.resourceLoading = {}
+      this.resourcePreloadFailures = {}
       this.reportedInteractions = {}
       uni.hideLoading?.()
     },
@@ -1736,6 +1746,38 @@ export default {
       this.resourceLocalPaths = {
         ...this.resourceLocalPaths,
         [resource.key]: filePath
+      }
+    },
+    preloadMessageImages() {
+      for (const message of this.messages) {
+        for (const resource of this.getMessageResources(message)) {
+          if (resource.renderer !== 'image'
+            || this.getResourceDisplayPath(resource)
+            || this.isResourceLoading(resource)
+            || this.resourcePreloadFailures[resource.key]
+            || (!resource.url && !resource.previewUrl)) continue
+          this.preloadResourceImage(resource, message)
+        }
+      }
+    },
+    async preloadResourceImage(resource, message) {
+      const actionContext = this.captureResourceContext(resource, message)
+      if (!this.setResourceLoading(resource, true, actionContext)) return
+      try {
+        const filePath = await downloadAssistantResource(resource, {
+          approvedHosts: ASSISTANT_PUBLIC_RESOURCE_HOSTS
+        })
+        if (!this.isResourceContextCurrent(actionContext)) return
+        this.rememberResourceLocalPath(resource, filePath)
+      } catch (error) {
+        if (this.isResourceContextCurrent(actionContext)) {
+          this.resourcePreloadFailures = {
+            ...this.resourcePreloadFailures,
+            [resource.key]: true
+          }
+        }
+      } finally {
+        this.setResourceLoading(resource, false, actionContext)
       }
     },
     previewResourceImage(resource, message = null) {

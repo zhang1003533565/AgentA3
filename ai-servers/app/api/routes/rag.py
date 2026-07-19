@@ -36,7 +36,7 @@ from app.learning_workflow import (
     export_learning_resources,
     run_learning_workflow,
 )
-from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx, export_generated_answer
+from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx, export_generated_answer, materialize_generated_image_answer
 from app.rag.document_conversion.generated_exporter import GeneratedExportAccessError, open_generated_export
 from app.rag.structured.text_to_sql import TextToSqlService
 from app.services.assistant_resource_builder import (
@@ -2226,6 +2226,11 @@ def _run_visual_generation_tool(
         [],
         leader_plan=leader_plan,
     )
+    image_answer, image_attachments = materialize_generated_image_answer(
+        image_answer,
+        display_stem=str(config.get("zhName") or "生成图片").removesuffix("工具"),
+        tool_name=tool_name,
+    )
     metadata = {
         "agentName": "leader_agent",
         "targetAgent": tool_name,
@@ -2281,6 +2286,7 @@ def _run_visual_generation_tool(
         documents=[],
         trace=trace,
         metadata=metadata,
+        attachments=image_attachments,
     ))
 
 

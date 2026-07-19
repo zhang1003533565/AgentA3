@@ -319,6 +319,7 @@ export default {
 			suppressNextTap: false,
 			resourceLocalPaths: {},
 			resourceLoading: {},
+			resourcePreloadFailures: {},
 			reportedInteractions: {},
 			audioContext: null,
 			activeAudioKey: '',
@@ -365,6 +366,14 @@ export default {
 				left: `${left}px`,
 				top: `${Math.max(16, top)}px`,
 				zIndex: 1201
+			}
+		}
+	},
+	watch: {
+		messages: {
+			deep: true,
+			handler() {
+				this.$nextTick(() => this.preloadMessageImages())
 			}
 		}
 	},
@@ -579,6 +588,7 @@ export default {
 			this.disposeAudio()
 			this.resourceLocalPaths = {}
 			this.resourceLoading = {}
+			this.resourcePreloadFailures = {}
 			this.reportedInteractions = {}
 			uni.hideLoading?.()
 		},
@@ -721,6 +731,38 @@ export default {
 		rememberResourceLocalPath(resource, filePath) {
 			if (!resource?.key || !filePath) return
 			this.resourceLocalPaths = { ...this.resourceLocalPaths, [resource.key]: filePath }
+		},
+		preloadMessageImages() {
+			for (const message of this.messages) {
+				for (const resource of this.getMessageResources(message)) {
+					if (resource.renderer !== 'image'
+						|| this.getResourceDisplayPath(resource)
+						|| this.isResourceLoading(resource)
+						|| this.resourcePreloadFailures[resource.key]
+						|| (!resource.url && !resource.previewUrl)) continue
+					this.preloadResourceImage(resource, message)
+				}
+			}
+		},
+		async preloadResourceImage(resource, message) {
+			const viewContext = this.captureViewContext({ messageKey: this.getMessageKey(message) })
+			this.setResourceLoading(resource, true)
+			try {
+				const filePath = await downloadAssistantResource(resource, {
+					approvedHosts: ASSISTANT_PUBLIC_RESOURCE_HOSTS
+				})
+				if (!this.isViewContextCurrent(viewContext, true)) return
+				this.rememberResourceLocalPath(resource, filePath)
+			} catch (error) {
+				if (this.isViewContextCurrent(viewContext, true)) {
+					this.resourcePreloadFailures = {
+						...this.resourcePreloadFailures,
+						[resource.key]: true
+					}
+				}
+			} finally {
+				this.setResourceLoading(resource, false)
+			}
 		},
 		previewResourceImage(resource, message) {
 			const viewContext = this.captureViewContext()

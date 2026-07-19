@@ -1,4 +1,5 @@
 import ast
+import base64
 import builtins
 import hashlib
 import hmac
@@ -760,6 +761,82 @@ def export_generated_answer(answer: str, answer_type: str, metadata: Optional[Di
     return GeneratedExportResult(diagnostics={"skipped": True, "reason": "not_exportable_answer_type"})
 
 
+def materialize_generated_image_answer(
+    answer: str,
+    *,
+    display_stem: str = "生成图片",
+    tool_name: str = "generate_image_tool",
+) -> tuple[str, List[Dict[str, Any]]]:
+    """Persist image-agent base64 output as private generated exports.
+
+    The returned answer deliberately removes provider URLs and base64 payloads so
+    chat history never depends on a short-lived third-party image URL.
+    """
+    cleanup_generated_exports()
+    payload = _parse_json_object(str(answer or ""))
+    images = payload.get("images") if isinstance(payload, dict) else None
+    if not isinstance(images, list):
+        return answer, []
+
+    attachments: List[Dict[str, Any]] = []
+    sanitized_images: List[Dict[str, Any]] = []
+    for index, raw_image in enumerate(images):
+        if not isinstance(raw_image, dict):
+            continue
+        encoded = str(raw_image.get("base64") or "").strip()
+        content_type = str(raw_image.get("contentType") or "").strip().lower()
+        status = str(raw_image.get("status") or "").strip()
+        sanitized = {
+            "index": raw_image.get("index", index),
+            "status": status,
+            "contentType": content_type,
+        }
+        if raw_image.get("errorMessage"):
+            sanitized["errorMessage"] = str(raw_image.get("errorMessage"))[:500]
+        if encoded and status == "success":
+            try:
+                image_bytes = base64.b64decode(encoded, validate=True)
+                extension = _validated_image_extension(image_bytes, content_type)
+                path = _new_export_path(display_stem, extension)
+                _atomic_write_payload(path, lambda temporary_path: temporary_path.write_bytes(image_bytes))
+                attachment = _attachment_for_file(
+                    path,
+                    tool_name,
+                    "图片",
+                    display_stem if len(images) == 1 else f"{display_stem}-{index + 1}",
+                )
+                attachments.append(attachment)
+                sanitized["fileName"] = attachment["fileName"]
+            except (ValueError, TypeError):
+                sanitized["status"] = "failed"
+                sanitized["errorMessage"] = "图片数据无效，未保存"
+        elif raw_image.get("url"):
+            sanitized["url"] = str(raw_image.get("url"))[:1000]
+        sanitized_images.append(sanitized)
+
+    sanitized_payload = {
+        "status": payload.get("status"),
+        "message": payload.get("message") or ("生成完成" if attachments else "图片生成失败"),
+        "count": len(sanitized_images),
+        "images": sanitized_images,
+    }
+    return json.dumps(sanitized_payload, ensure_ascii=False), attachments
+
+
+def _validated_image_extension(content: bytes, content_type: str) -> str:
+    if not content or len(content) > min(EXPORT_MAX_BYTES, 50 * 1024 * 1024):
+        raise ValueError("generated image is empty or too large")
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if content.startswith((b"GIF87a", b"GIF89a")):
+        return "gif"
+    if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "webp"
+    raise ValueError(f"unsupported generated image type: {content_type or 'unknown'}")
+
+
 def _should_export_markdown(answer_type: str, agent: str, metadata: Dict[str, Any], content: str) -> bool:
     requested = str(metadata.get("requestedOutputType") or metadata.get("preferredOutputType") or "").strip().lower()
     if requested in {"document", "file", "docx", "word", "excel", "md", "markdown"}:
@@ -1211,7 +1288,12 @@ def _markdown_rows(content: str) -> List[List[Any]]:
 
 def _attachment_for_file(path: Path, tool_name: str, format_label: str, display_stem: str = "") -> Dict[str, Any]:
     ext = path.suffix.lower().lstrip(".")
-    attachment_type = "docx" if ext == "docx" else "excel" if ext == "xlsx" else "file"
+    attachment_type = (
+        "image" if ext in {"png", "jpg", "jpeg", "gif", "webp"}
+        else "docx" if ext == "docx"
+        else "excel" if ext == "xlsx"
+        else "file"
+    )
     export_metadata = _commit_export_manifest(path)
     safe_stem = re.sub(
         r'[\\/:*?"<>|\r\n]+',
@@ -1778,6 +1860,7 @@ __all__ = [
     "GeneratedExportResult",
     "cleanup_generated_exports",
     "export_generated_answer",
+    "materialize_generated_image_answer",
     "export_python_code_lab",
     "open_generated_export",
 ]

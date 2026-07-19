@@ -1,4 +1,5 @@
 import hashlib
+import base64
 import json
 import os
 import tempfile
@@ -39,6 +40,38 @@ class GeneratedExporterTest(unittest.TestCase):
     @staticmethod
     def _read_manifest(root: Path, storage_key: str):
         return json.loads((root / f"{storage_key}.meta.json").read_text(encoding="utf-8"))
+
+    def test_generated_image_answer_becomes_private_export_without_provider_payload(self):
+        image_bytes = b"\x89PNG\r\n\x1a\n" + b"private-image"
+        answer = json.dumps({
+            "status": "success",
+            "message": "generated",
+            "images": [{
+                "index": 0,
+                "url": "https://temporary.example/image.png",
+                "base64": base64.b64encode(image_bytes).decode("ascii"),
+                "contentType": "image/png",
+                "status": "success",
+            }],
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            generated_exporter.EXPORT_ROOT = Path(directory)
+            clean_answer, attachments = generated_exporter.materialize_generated_image_answer(
+                answer,
+                display_stem="Python 学习流程图",
+                tool_name="generate_flowchart_image_tool",
+            )
+
+            clean_payload = json.loads(clean_answer)
+            self.assertNotIn("url", clean_payload["images"][0])
+            self.assertNotIn("base64", clean_payload["images"][0])
+            self.assertEqual("image", attachments[0]["type"])
+            self.assertEqual("Python 学习流程图.png", attachments[0]["fileName"])
+            self.assertTrue(attachments[0]["serverGenerated"])
+            self.assertEqual(
+                image_bytes,
+                (Path(directory) / attachments[0]["storageKey"]).read_bytes(),
+            )
 
     def test_default_root_is_repository_local_and_production_requires_explicit_root(self):
         expected = Path(generated_exporter.__file__).resolve().parents[3] / "data" / "ai-exports"
