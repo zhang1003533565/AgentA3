@@ -48,7 +48,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public Result<?> handleIllegalArgumentException(IllegalArgumentException e, HttpServletResponse response) {
         response.setStatus(Result.BAD_REQUEST_CODE);
-        return Result.error(e.getMessage());
+        return Result.error(Result.BAD_REQUEST_CODE, e.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

@@ -34,6 +34,16 @@ class LibreOfficePreviewConverterTest {
     }
 
     @Test
+    void includesStandardWindowsLibreOfficeInstallLocations() {
+        List<Path> candidates = LibreOfficePreviewConverter.defaultSofficeCandidates();
+
+        assertTrue(candidates.contains(Path.of("C:\\Program Files\\LibreOffice\\program\\soffice.com")));
+        assertTrue(candidates.contains(Path.of("C:\\Program Files\\LibreOffice\\program\\soffice.exe")));
+        assertTrue(candidates.contains(Path.of("C:\\Program Files (x86)\\LibreOffice\\program\\soffice.com")));
+        assertTrue(candidates.contains(Path.of("C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe")));
+    }
+
+    @Test
     void substitutesMissingSourceFontsOnlyInsidePreviewPackageAttributes() throws Exception {
         ByteArrayOutputStream source = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(source)) {
