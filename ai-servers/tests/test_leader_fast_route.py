@@ -237,6 +237,61 @@ class LeaderFastRouteTest(unittest.TestCase):
         self.assertEqual("llm", plan.route_mode)
         self.assertEqual(1, self.provider.calls)
 
+    def test_capability_answer_only_lists_currently_enabled_items(self):
+        plan = self.agent.plan(
+            "你能生图吗，有哪些功能？",
+            chat_service=self.provider,
+            callable_catalog={
+                "agents": [
+                    {"name": "image_agent", "role": "图片智能体", "category": "image", "enabled": False},
+                    {"name": "textbook_knowledge_agent", "role": "教材知识点智能体", "category": "textbook", "enabled": True},
+                ],
+                "tools": [
+                    {"name": "java_schedule_api", "displayName": "课表查询", "purpose": "查询课表", "enabled": True},
+                    {"name": "java_meeting_api", "displayName": "会议查询", "purpose": "查询会议", "enabled": False},
+                ],
+                "contentTools": [],
+            },
+        )
+
+        self.assertEqual("leader_callable_catalog", plan.intent)
+        self.assertEqual("rules", plan.route_mode)
+        self.assertEqual(0, self.provider.calls)
+        self.assertIn("教材知识点智能体", plan.answer)
+        self.assertIn("课表查询", plan.answer)
+        self.assertNotIn("图片智能体", plan.answer)
+        self.assertNotIn("会议查询", plan.answer)
+        self.assertNotIn("已关闭", plan.answer)
+
+    def test_direct_image_capability_question_uses_verified_catalog_route(self):
+        unavailable_plan = self.agent.plan(
+            "你支持生图吗？",
+            chat_service=self.provider,
+            callable_catalog={"agents": [], "tools": [], "contentTools": []},
+        )
+        available_plan = self.agent.plan(
+            "你支持生图吗？",
+            chat_service=self.provider,
+            callable_catalog={
+                "agents": [{
+                    "name": "image_agent",
+                    "role": "图片智能体",
+                    "category": "image",
+                    "requiredModelModalities": ["image"],
+                    "enabled": True,
+                }],
+                "tools": [],
+                "contentTools": [],
+            },
+        )
+
+        self.assertEqual("leader_callable_catalog", unavailable_plan.intent)
+        self.assertEqual("rules", unavailable_plan.route_mode)
+        self.assertEqual(0, self.provider.calls)
+        self.assertIn("当前不支持生图", unavailable_plan.answer)
+        self.assertIn("当前支持生图", available_plan.answer)
+        self.assertIn("图片智能体", available_plan.answer)
+
 
 if __name__ == "__main__":
     unittest.main()

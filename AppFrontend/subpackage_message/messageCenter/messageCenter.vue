@@ -12,7 +12,7 @@
           @click="activeModule = module.type"
         >
           <text>{{ module.label }}</text>
-          <view v-if="module.type === 'LOST_FOUND' && unreadCount > 0" class="module-badge">{{ formatCount(unreadCount) }}</view>
+          <view v-if="moduleUnread(module.type) > 0" class="module-badge">{{ formatCount(moduleUnread(module.type)) }}</view>
         </view>
       </view>
 
@@ -47,6 +47,32 @@
         </view>
       </view>
 
+      <view v-else-if="activeModule === 'EXAM'" class="category-list">
+        <view
+          v-for="entry in examEntries"
+          :key="entry.id"
+          class="category-item"
+          @click="openCategory(entry)"
+        >
+          <view class="category-icon exam-icon">
+            <image class="category-icon-img" src="/static/icons/line/message-circle.svg" mode="aspectFit" />
+            <view v-if="!entry.isRead" class="unread-dot"></view>
+          </view>
+          <view class="category-body">
+            <view class="category-row">
+              <text class="category-title">{{ entry.title }}</text>
+              <text class="category-time">{{ formatTime(entry.createTime) }}</text>
+            </view>
+            <text class="category-desc">{{ entry.content }}</text>
+          </view>
+          <view class="category-right"><text class="category-arrow">›</text></view>
+        </view>
+        <view v-if="examEntries.length === 0" class="empty-state compact-empty">
+          <text class="empty-title">暂无题库消息</text>
+          <text class="empty-desc">后台题库任务完成后会在这里提醒你</text>
+        </view>
+      </view>
+
       <view v-else class="empty-state">
         <view class="empty-icon"></view>
         <text class="empty-title">暂无{{ activeModuleLabel }}消息</text>
@@ -58,7 +84,8 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getAppMessages, getAppMessageUnreadCount } from '@/api/message'
+import { getAppMessages, getAppMessageUnreadCount, markAppMessageRead } from '@/api/message'
+import { refreshMessageState } from '@/utils/messageStore'
 
 export default {
   components: { NavBar },
@@ -67,6 +94,7 @@ export default {
       loading: false,
       messages: [],
       unreadCount: 0,
+      examUnreadCount: 0,
       activeModule: 'LOST_FOUND',
       modules: [
         { type: 'LOST_FOUND', label: '旧物交易' },
@@ -93,6 +121,12 @@ export default {
     },
     systemMessages() {
       return this.lostFoundMessages.filter((item) => !this.isTradeEvent(item.eventType) && item.eventType !== 'CHAT_MESSAGE')
+    },
+    examMessages() {
+      return this.messages.filter((item) => item.moduleType === 'EXAM')
+    },
+    examEntries() {
+      return this.examMessages
     },
     lostFoundEntries() {
       const chatUnread = this.countUnread(this.chatMessages)
@@ -155,20 +189,50 @@ export default {
       try {
         const res = await getAppMessageUnreadCount()
         this.unreadCount = Number(res?.data?.lostFound || 0)
+        this.examUnreadCount = Number(res?.data?.exam || 0)
       } catch (e) {
         console.error('加载未读数量失败', e)
       }
     },
-    openCategory(entry) {
+    async openCategory(entry) {
       if (!entry || entry.disabled) {
         uni.showToast({ title: '暂无相关消息', icon: 'none' })
         return
       }
-      if (!entry.url) {
+      if (entry.id && !entry.isRead) {
+        try {
+          await markAppMessageRead(entry.id)
+          entry.isRead = true
+          await this.loadUnreadCount()
+          await refreshMessageState('exam-message-read')
+        } catch (error) {
+          console.warn('标记题库消息已读失败', error)
+        }
+      }
+      const url = entry.url || this.messageTargetUrl(entry)
+      if (!url) {
         uni.showToast({ title: '暂未接入详情页', icon: 'none' })
         return
       }
-      uni.navigateTo({ url: entry.url })
+      uni.navigateTo({ url })
+    },
+    moduleUnread(type) {
+      if (type === 'LOST_FOUND') return this.unreadCount
+      if (type === 'EXAM') return this.examUnreadCount
+      return 0
+    },
+    messageTargetUrl(message) {
+      if (!message?.targetPage) return ''
+      let params = {}
+      try {
+        params = message.targetParams ? JSON.parse(message.targetParams) : {}
+      } catch (error) {
+        params = {}
+      }
+      const query = Object.entries(params)
+        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+        .join('&')
+      return query ? `${message.targetPage}?${query}` : message.targetPage
     },
     countUnread(list) {
       return list.filter((item) => !item.isRead).length
@@ -365,6 +429,10 @@ export default {
   background: #F4F1EA;
 }
 
+.exam-icon {
+  background: #EEF0FF;
+}
+
 .unread-dot {
   position: absolute;
   top: -4rpx;
@@ -453,6 +521,10 @@ export default {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+}
+
+.compact-empty {
+  min-height: 260rpx;
 }
 
 .empty-icon {

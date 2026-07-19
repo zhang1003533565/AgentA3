@@ -3,6 +3,10 @@
     <nav-bar title="Leader 智能助手" :showBack="true" fixed placeholder />
 
     <view class="conversation-actions">
+      <view class="conversation-action" @click="openQuestionAssembly">
+        <text class="conversation-action__icon">▤</text>
+        <text>后台题库</text>
+      </view>
       <view class="conversation-action" @click="openHistory">
         <text class="conversation-action__icon">◷</text>
         <text>历史</text>
@@ -1434,6 +1438,11 @@ export default {
     },
     openHistory() {
       uni.redirectTo({ url: '/subpackage_ai/aiHistory/aiHistory' })
+    },
+    openQuestionAssembly() {
+      const prefill = String(this.inputValue || '').trim()
+      const query = prefill ? `?prefill=${encodeURIComponent(prefill)}` : ''
+      uni.navigateTo({ url: `/subpackage_ai/examGenerate/examGenerate${query}` })
     },
     startNewConversation() {
       if (this.sending) return

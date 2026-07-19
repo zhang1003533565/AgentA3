@@ -258,9 +258,6 @@ export default {
           .map((item) => this.toMarkerItem(item))
           .filter(Boolean)
         if (resetViewport) {
-          const availableTypes = new Set(this.locationList.map((item) => Number(item.facilityType)))
-          this.categories = this.categories.filter((item) => availableTypes.has(item.id))
-          this.selectedFacilityTypes = this.categories.map((item) => item.id)
           this.fetchCurrentLocation()
         }
         this.syncNearestLocation()

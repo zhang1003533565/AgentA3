@@ -177,6 +177,11 @@ class PythonAiProxyServiceTest {
         Assertions.assertTrue(reqJson.path("ragStrategy").isMissingNode());
         Assertions.assertTrue(reqJson.path("llmModel").isMissingNode());
         Assertions.assertTrue(reqJson.path("embeddingModel").isMissingNode());
+        Assertions.assertTrue(reqJson.path("metadata")
+                .path("agentModelConfigs")
+                .path("ppt_outline_agent")
+                .path("tested")
+                .asBoolean());
     }
 
     @Test
@@ -840,6 +845,11 @@ class PythonAiProxyServiceTest {
             }
             if ("ai.service.text.model".equals(key)) {
                 return "test-model";
+            }
+            if ("ai.service.text.tested-fingerprint".equals(key)) {
+                return QuestionGenerationServiceImpl.fingerprint(
+                        "deepseek", "https://llm.test/v1", "test-ai-key", "test-model"
+                );
             }
             if ("ai.service.embedding.qwen.provider".equals(key)) {
                 return "qwen";

@@ -42,6 +42,7 @@ class ConfiguredTestClient(TestClient):
                     "baseUrl": "https://llm.test/v1",
                     "apiKey": "test-key",
                     "model": "test-model",
+                    "tested": True,
                 })
             metadata["agentModelConfigs"] = configs
             payload["metadata"] = metadata
@@ -69,6 +70,7 @@ class RagApiRoutesTest(unittest.TestCase):
                 "baseUrl": "https://llm.test/v1",
                 "apiKey": "test-key",
                 "model": "test-model",
+                "tested": True,
             }
             for item in ({"name": name} for name in LEADER_CALLABLE_AGENT_ORDER)
         }
@@ -130,6 +132,72 @@ class RagApiRoutesTest(unittest.TestCase):
             )
         )
         return old
+
+    def test_agent_is_available_only_after_complete_model_config_passes_test(self):
+        request = SimpleNamespace(metadata={
+            "agentToggles": {"image_agent": True},
+            "agentModelConfigs": {
+                "image_agent": {
+                    "provider": "qwen",
+                    "baseUrl": "https://image.test/v1",
+                    "apiKey": "test-key",
+                    "model": "image-model",
+                    "tested": True,
+                },
+            },
+        })
+
+        self.assertTrue(self._rag_routes._is_agent_enabled(request, "image_agent"))
+
+        request.metadata["agentModelConfigs"]["image_agent"]["tested"] = False
+        self.assertFalse(self._rag_routes._is_agent_enabled(request, "image_agent"))
+
+        request.metadata["agentModelConfigs"]["image_agent"]["tested"] = True
+        request.metadata["agentModelConfigs"]["image_agent"]["apiKey"] = ""
+        self.assertFalse(self._rag_routes._is_agent_enabled(request, "image_agent"))
+
+    def test_agent_without_model_binding_is_not_advertised_as_available(self):
+        request = SimpleNamespace(metadata={
+            "agentToggles": {"image_agent": True},
+            "agentModelConfigs": {},
+        })
+
+        catalog = self._rag_routes._build_leader_callable_catalog(request)
+        image_agent = next(item for item in catalog["agents"] if item["name"] == "image_agent")
+
+        self.assertFalse(image_agent["enabled"])
+
+    def test_file_transform_action_forces_real_export_tool(self):
+        request = SimpleNamespace(metadata={
+            "interactionType": "transform",
+            "requestedOutputType": "docx",
+            "sourceMessageId": 88,
+            "sourceMessageContent": "# 数据结构\n\n- 栈：后进先出",
+        })
+
+        plan = self._rag_routes._requested_file_transform_plan(request)
+
+        self.assertIsNotNone(plan)
+        self.assertEqual("call_tool", plan.action)
+        self.assertEqual("generated_export_tools", plan.tool_name)
+        self.assertEqual("rules", plan.route_mode)
+
+    def test_file_format_actions_only_include_enabled_real_tools(self):
+        actions = self._rag_routes._file_format_follow_up_actions(
+            "question_bank",
+            {
+                "toolToggles": {
+                    "generated_export_tools": True,
+                    "excel_export_tool": True,
+                    "docx_export_tool": False,
+                    "markdown_export_tool": True,
+                },
+            },
+            "textbook_question_single_choice_agent",
+        )
+
+        self.assertEqual(["Excel 题库", "Markdown 题库"], [item["label"] for item in actions])
+        self.assertEqual(["xlsx", "md"], [item["outputType"] for item in actions])
 
     def test_removed_strategy_routes_return_404(self):
         response = self.client.get("/internal/rag/strategies", headers=self.headers)
@@ -566,6 +634,7 @@ class RagApiRoutesTest(unittest.TestCase):
                     "baseUrl": "https://llm.test/v1",
                     "apiKey": "test-key",
                     "model": "test-model",
+                    "tested": True,
                 }
                 for agent_name in ("ppt_outline_agent", "diagram_flowchart_agent")
             }

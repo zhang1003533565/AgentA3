@@ -14,6 +14,7 @@ const state = {
   unreadTradeCount: 0,
   unreadAppCount: 0,
   unreadLostFoundAppCount: 0,
+  unreadExamCount: 0,
   totalUnreadCount: 0,
   sessions: [],
   tradeNotifications: [],
@@ -64,6 +65,7 @@ function buildSignature(nextState) {
     nextState.unreadTradeCount,
     nextState.unreadAppCount,
     nextState.unreadLostFoundAppCount,
+    nextState.unreadExamCount,
     sessionPart,
     tradePart
   ].join('::')
@@ -89,6 +91,7 @@ export function getMessageState() {
     unreadTradeCount: state.unreadTradeCount,
     unreadAppCount: state.unreadAppCount,
     unreadLostFoundAppCount: state.unreadLostFoundAppCount,
+    unreadExamCount: state.unreadExamCount,
     totalUnreadCount: state.totalUnreadCount,
     sessions: [...state.sessions],
     tradeNotifications: [...state.tradeNotifications],
@@ -126,6 +129,7 @@ export async function refreshMessageState(reason = 'manual') {
     state.unreadTradeCount = numberValue(tradeUnreadRes?.data)
     state.unreadAppCount = getAnnouncementUnreadCount(announceRes)
     state.unreadLostFoundAppCount = numberValue(appMessageUnreadRes?.data?.lostFound)
+    state.unreadExamCount = numberValue(appMessageUnreadRes?.data?.exam)
     state.totalUnreadCount = state.unreadChatCount + state.unreadTradeCount + state.unreadAppCount
     state.sessions = getRecords(sessionsRes)
     state.tradeNotifications = getRecords(tradeRes)
@@ -157,6 +161,9 @@ function scheduleRealtimeRefresh() {
 
 function handleRealtimeEvent(event) {
   if (event?.type !== 'MESSAGE_STATE_CHANGED') return
+  if (Array.isArray(event.scopes) && event.scopes.includes('exam')) {
+    uni.showToast({ title: '题库后台任务已结束，请到消息中心查看', icon: 'none', duration: 3000 })
+  }
   realtimeRefreshPending = true
   scheduleRealtimeRefresh()
 }

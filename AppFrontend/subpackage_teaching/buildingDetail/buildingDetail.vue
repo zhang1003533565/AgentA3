@@ -18,11 +18,9 @@
 
       <view class="card">
         <text class="section-title">教学楼基本信息</text>
-        <view class="info-row"><text class="label">楼宇编号</text><text class="value">{{ building.buildingNo }}</text></view>
         <view class="info-row"><text class="label">教室数量</text><text class="value">{{ building.classroomCount }}间</text></view>
         <view class="info-row"><text class="label">总座位数</text><text class="value">{{ building.totalSeatCount }}</text></view>
         <view class="info-row"><text class="label">多媒体教室</text><text class="value">{{ building.smartClassroomCount }}间</text></view>
-        <view class="info-row"><text class="label">开放时间</text><text class="value">{{ building.openTime }}</text></view>
       </view>
 
       <view class="card">
@@ -30,29 +28,29 @@
         <view class="status-grid">
           <view class="status-item"><text class="status-label">当前状态</text><text class="status-value" :class="building.statusClass">{{ building.statusText }}</text></view>
           <view class="status-item"><text class="status-label">当前使用教室</text><text class="status-value">{{ building.activeClassroomCount }}间</text></view>
-          <view class="status-item"><text class="status-label">实时使用率</text><text class="status-value">{{ building.usageRate }}</text></view>
+          <view class="status-item"><text class="status-label">当前使用率</text><text class="status-value">{{ usageRate }}</text></view>
           <view class="status-item"><text class="status-label">今日空闲教室</text><text class="status-value">{{ building.freeClassroomCount }}间</text></view>
         </view>
       </view>
 
       <view class="card">
         <view class="title-line">
-          <text class="section-title">课程安排关联</text>
-          <text class="date-tag">{{ currentDateLabel }}</text>
+          <text class="section-title">教室列表</text>
+          <text class="date-tag">{{ building.classroomCount }} 间</text>
         </view>
-        <view v-for="(course, index) in building.courseSchedule" :key="index" class="course-item">
+        <view v-for="room in building.classrooms" :key="room.id" class="course-item">
           <view class="course-left">
-            <text class="course-time">{{ course.time }}</text>
-            <text class="course-room">{{ course.room }}</text>
+            <text class="course-time">{{ room.floorNo }} 层</text>
+            <text class="course-room">{{ room.roomNo }}</text>
           </view>
           <view class="course-main">
-            <text class="course-name">{{ course.courseName }}</text>
-            <text class="course-meta">{{ course.teacher }} · {{ course.className }}</text>
-            <text class="course-meta">上课人数：{{ course.studentCount }} / 教室座位：{{ course.seatCount }}</text>
+            <text class="course-name">{{ room.smart ? '多媒体教室' : '普通教室' }}</text>
+            <text class="course-meta">座位数：{{ room.seatCount }}</text>
+            <text v-if="room.openTime" class="course-meta">开放时间：{{ room.openTime }}</text>
           </view>
-          <text class="course-status" :class="course.statusClass">{{ course.statusText }}</text>
+          <text class="course-status" :class="room.statusClass">{{ room.statusText }}</text>
         </view>
-        <view v-if="!building.courseSchedule.length" class="empty-tip">今日暂无课程安排</view>
+        <view v-if="!building.classrooms.length" class="empty-tip">暂无教室数据</view>
       </view>
       <view class="bottom-gap" />
     </scroll-view>
@@ -61,32 +59,34 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getFacilityDetail, parseFacilityImages } from '@/api/facility.js'
+import { getTeachingBuilding } from '@/api/teaching.js'
 
 export default {
   components: { NavBar },
   data() {
     return {
       navBarHeight: 88,
-      currentDateLabel: '今日课表',
       building: {
         id: '',
         name: '',
         image: '',
-        buildingNo: '',
         zone: '',
         floorCount: 0,
         classroomCount: 0,
         totalSeatCount: 0,
         smartClassroomCount: 0,
-        openTime: '',
         statusText: '',
         statusClass: 'ok',
         activeClassroomCount: 0,
-        usageRate: '--',
         freeClassroomCount: 0,
-        courseSchedule: []
+        classrooms: []
       }
+    }
+  },
+  computed: {
+    usageRate() {
+      if (!this.building.classroomCount) return '--'
+      return `${Math.round((this.building.activeClassroomCount / this.building.classroomCount) * 100)}%`
     }
   },
   onLoad(options) {
@@ -96,95 +96,34 @@ export default {
   },
   methods: {
     async loadBuilding(id) {
-      let coverImage = ''
-      let facilityName = ''
-      let facilityDescription = ''
-      let facilityLocation = ''
       try {
-        const res = await getFacilityDetail(id)
-        const facility = res?.data
-        if (facility) {
-          const images = parseFacilityImages(facility.images)
-          coverImage = images[0] || ''
-          facilityName = facility.facilityName || ''
-          facilityDescription = facility.description || ''
-          facilityLocation = facility.location || ''
+        const res = await getTeachingBuilding(id)
+        const data = res?.data
+        if (!data) return
+        this.building = {
+          ...this.building,
+          ...data,
+          zone: data.zone || '未设置区域',
+          statusText: this.getBuildingStatusText(data.status),
+          statusClass: this.getBuildingStatusClass(data.status),
+          classrooms: (data.classrooms || []).map((room) => ({
+            ...room,
+            statusText: this.getRoomStatusText(room.status),
+            statusClass: room.status === 1 ? 'ok' : (room.status === 2 ? 'busy' : 'warn')
+          }))
         }
       } catch (error) {
-        console.error('加载设施图片失败', error)
+        console.error('加载教学楼详情失败', error)
       }
-
-      const mockData = {
-        '1': {
-          id: '1',
-          name: '教学楼A栋',
-          image: 'https://picsum.photos/seed/teachingA/1200/600',
-          buildingNo: 'A-01',
-          zone: '北区',
-          floorCount: 8,
-          classroomCount: 42,
-          totalSeatCount: 3120,
-          smartClassroomCount: 16,
-          openTime: '07:00 - 22:30',
-          statusText: '使用高峰',
-          statusClass: 'busy',
-          activeClassroomCount: 31,
-          usageRate: '74%',
-          freeClassroomCount: 11,
-          courseSchedule: [
-            { time: '08:00-09:40', room: 'A-302', courseName: '数据结构', teacher: '陈老师', className: '计科22-1', studentCount: 82, seatCount: 100, statusText: '进行中', statusClass: 'busy' },
-            { time: '10:10-11:50', room: 'A-405', courseName: '软件工程', teacher: '王老师', className: '软工22-2', studentCount: 66, seatCount: 80, statusText: '即将开始', statusClass: 'ok' },
-            { time: '14:00-15:40', room: 'A-210', courseName: '大学英语', teacher: '李老师', className: '经管23-3', studentCount: 54, seatCount: 60, statusText: '待上课', statusClass: 'ok' }
-          ]
-        },
-        '2': {
-          id: '2',
-          name: '教学楼B栋',
-          image: 'https://picsum.photos/seed/teachingB/1200/600',
-          buildingNo: 'B-02',
-          zone: '北区',
-          floorCount: 7,
-          classroomCount: 36,
-          totalSeatCount: 2680,
-          smartClassroomCount: 12,
-          openTime: '07:00 - 22:00',
-          statusText: '空闲较多',
-          statusClass: 'ok',
-          activeClassroomCount: 17,
-          usageRate: '47%',
-          freeClassroomCount: 19,
-          courseSchedule: [
-            { time: '08:00-09:40', room: 'B-201', courseName: '高等数学', teacher: '张老师', className: '电信23-1', studentCount: 88, seatCount: 110, statusText: '进行中', statusClass: 'busy' },
-            { time: '16:10-17:50', room: 'B-503', courseName: '概率论', teacher: '何老师', className: '统计22-1', studentCount: 58, seatCount: 70, statusText: '待上课', statusClass: 'ok' }
-          ]
-        }
-      }
-
-      const fallback = mockData[id] || {
-        id: id || '',
-        name: '教学楼详情',
-        image: '',
-        buildingNo: '未知',
-        zone: '未知',
-        floorCount: 0,
-        classroomCount: 0,
-        totalSeatCount: 0,
-        smartClassroomCount: 0,
-        openTime: '暂无',
-        statusText: '未知',
-        statusClass: 'ok',
-        activeClassroomCount: 0,
-        usageRate: '--',
-        freeClassroomCount: 0,
-        courseSchedule: []
-      }
-      this.building = {
-        ...fallback,
-        name: facilityName || fallback.name,
-        image: coverImage,
-        zone: facilityLocation || fallback.zone,
-        description: facilityDescription || fallback.description || ''
-      }
+    },
+    getBuildingStatusText(status) {
+      return ({ 1: '正常开放', 2: '维护中', 3: '已关闭' })[status] || '状态未知'
+    },
+    getBuildingStatusClass(status) {
+      return status === 1 ? 'ok' : (status === 2 ? 'warn' : 'busy')
+    },
+    getRoomStatusText(status) {
+      return ({ 1: '空闲', 2: '使用中', 3: '维护中' })[status] || '未知'
     }
   }
 }

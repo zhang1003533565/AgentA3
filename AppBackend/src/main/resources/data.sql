@@ -78,6 +78,22 @@ CREATE TABLE IF NOT EXISTS campus_facility (
     update_time DATETIME COMMENT '更新时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='校园设施表';
 
+-- 教室是教学楼内部子资源，不参与地图一级点位与分类
+CREATE TABLE IF NOT EXISTS classroom (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '教室 ID',
+    building_id BIGINT NOT NULL COMMENT '所属教学楼设施 ID',
+    room_no VARCHAR(50) NOT NULL COMMENT '教室编号',
+    floor_no INT NOT NULL COMMENT '所在楼层',
+    seat_count INT NOT NULL DEFAULT 0 COMMENT '座位数',
+    is_smart BIT NOT NULL DEFAULT 0 COMMENT '是否多媒体教室',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-空闲 2-使用中 3-维护中',
+    open_time VARCHAR(100) COMMENT '开放时间',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间',
+    UNIQUE KEY uk_classroom_building_room (building_id, room_no),
+    CONSTRAINT fk_classroom_building FOREIGN KEY (building_id) REFERENCES campus_facility(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='教学楼教室子资源';
+
 -- 设施评价表
 CREATE TABLE IF NOT EXISTS facility_review (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '评价ID',

@@ -124,7 +124,17 @@
 
       <!-- 生成试卷按钮 -->
       <view class="generate-btn" :class="{ 'generate-btn--disabled': isGenerating }" @tap="generateExam">
-        <text class="generate-btn-text">{{ isGenerating ? ' 生成中...' : '✦ 生成试卷' }}</text>
+        <text class="generate-btn-text">{{ isGenerating ? '提交中...' : '✦ 后台生成题库' }}</text>
+      </view>
+
+      <view class="section-card task-card" v-if="currentTask.taskId">
+        <view class="task-head">
+          <text class="field-label">题库后台任务</text>
+          <text class="task-status">{{ taskStatusLabel }}</text>
+        </view>
+        <text class="task-message">{{ currentTask.message }}</text>
+        <view class="task-progress"><view class="task-progress-value" :style="{ width: `${currentTask.progress || 0}%` }"></view></view>
+        <text class="field-help" v-if="!isTaskFinished">任务在后台运行，你可以离开本页继续聊天，完成后会收到题库消息。</text>
       </view>
       
       <!-- 试卷预览 -->
@@ -192,13 +202,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import {
   commitPrivateQuestionAssembly,
-  generateQuestionAssembly,
-  generateQuestionAssemblyWithFile,
-  getQuestionAssemblyOptions
+  getQuestionAssemblyTask,
+  getQuestionAssemblyOptions,
+  submitQuestionAssemblyFileTask,
+  submitQuestionAssemblyTask
 } from '@/api/questionAssembly.js'
 
 const examTypes = [
@@ -242,6 +253,8 @@ const assemblyResult = ref(null)
 const isGenerating = ref(false)
 const isSavingPrivate = ref(false)
 const privateSaved = ref(false)
+const currentTask = ref({ taskId: '', status: '', progress: 0, message: '' })
+let taskPollTimer = null
 
 const assemblyModeHelp = computed(() => ({
   existing: '只从公共题库和你自己的私有题库中选题',
@@ -252,6 +265,13 @@ const enabledTotal = computed(() => questionTypes.value
   .filter(item => item.enabled)
   .reduce((sum, item) => sum + item.count, 0))
 const totalQuestions = computed(() => enabledTotal.value)
+const isTaskFinished = computed(() => ['SUCCEEDED', 'FAILED'].includes(currentTask.value.status))
+const taskStatusLabel = computed(() => ({
+  QUEUED: '排队中',
+  RUNNING: '处理中',
+  SUCCEEDED: '已完成',
+  FAILED: '失败'
+}[currentTask.value.status] || '等待中'))
 const getPercent = item => !item.enabled || !enabledTotal.value
   ? 0
   : Math.round(item.count / enabledTotal.value * 100)
@@ -273,7 +293,27 @@ const loadOptions = async () => {
   }
 }
 
-onMounted(loadOptions)
+onMounted(async () => {
+  await loadOptions()
+  const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : []
+  const pageOptions = pages[pages.length - 1]?.options || {}
+  if (pageOptions.prefill && !knowledgeText.value) {
+    try {
+      knowledgeText.value = decodeURIComponent(pageOptions.prefill)
+    } catch (error) {
+      knowledgeText.value = String(pageOptions.prefill)
+    }
+  }
+  const taskId = pageOptions.taskId
+  if (taskId) {
+    currentTask.value.taskId = taskId
+    await refreshTask(taskId)
+  }
+})
+
+onUnmounted(() => {
+  if (taskPollTimer) clearTimeout(taskPollTimer)
+})
 
 const selectBasisMode = value => {
   basisMode.value = value
@@ -359,6 +399,7 @@ const buildSpec = enabledTypes => ({
   topic: knowledgeText.value.trim(),
   text: knowledgeText.value.trim(),
   sourceTitle: examTypes.find(item => item.value === examType.value)?.label || '个人题库编排',
+  saveGeneratedToPrivate: true,
   rules: enabledTypes.map(item => ({
     type: item.key,
     quantity: item.count,
@@ -387,19 +428,57 @@ const generateExam = async () => {
   try {
     const spec = buildSpec(enabledTypes)
     const res = basisFilePath.value
-      ? await generateQuestionAssemblyWithFile(spec, basisFilePath.value)
-      : await generateQuestionAssembly(spec)
-    const result = res?.data || {}
-    assemblyResult.value = result
-    previewQuestions.value = (result.questions || []).map(toPreviewQuestion)
-    previewContent.value = (result.issues || []).join('\n')
-    uni.showToast({ title: `已编排 ${previewQuestions.value.length} 道题`, icon: 'success' })
+      ? await submitQuestionAssemblyFileTask(spec, basisFilePath.value)
+      : await submitQuestionAssemblyTask(spec)
+    currentTask.value = {
+      taskId: res?.data?.taskId || '',
+      status: res?.data?.status || 'QUEUED',
+      progress: 0,
+      message: res?.data?.message || '题库任务已提交'
+    }
+    previewContent.value = '任务已转入后台处理，你可以继续聊天或使用其他功能。'
+    scheduleTaskPoll()
+    uni.showToast({ title: '已转入后台处理', icon: 'success' })
   } catch (error) {
     const message = error?.msg || error?.message || error?.data?.msg || '题库编排失败'
     previewContent.value = message
   } finally {
     isGenerating.value = false
   }
+}
+
+const applyTaskResult = task => {
+  const result = task?.result || {}
+  assemblyResult.value = result
+  previewQuestions.value = (result.questions || []).map(toPreviewQuestion)
+  previewContent.value = (result.issues || []).join('\n')
+  privateSaved.value = Number(task?.importedCount || 0) > 0
+}
+
+const refreshTask = async taskId => {
+  if (!taskId) return
+  try {
+    const res = await getQuestionAssemblyTask(taskId)
+    const task = res?.data || {}
+    currentTask.value = task
+    if (task.status === 'SUCCEEDED') {
+      applyTaskResult(task)
+      return
+    }
+    if (task.status === 'FAILED') {
+      previewContent.value = task.errorMessage || '题库任务处理失败'
+      return
+    }
+    scheduleTaskPoll()
+  } catch (error) {
+    previewContent.value = error?.msg || error?.message || '题库任务状态读取失败'
+  }
+}
+
+const scheduleTaskPoll = () => {
+  if (taskPollTimer) clearTimeout(taskPollTimer)
+  if (!currentTask.value.taskId || isTaskFinished.value) return
+  taskPollTimer = setTimeout(() => refreshTask(currentTask.value.taskId), 3000)
 }
 
 const saveGeneratedToPrivateBank = async () => {
@@ -791,6 +870,47 @@ const saveGeneratedToPrivateBank = async () => {
 .preview-clear {
   font-size: 24rpx;
   color: #999;
+}
+
+.task-card {
+  border: 2rpx solid #DDE3FF;
+}
+
+.task-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.task-head .field-label {
+  margin-bottom: 0;
+}
+
+.task-status {
+  color: #4D6BFE;
+  font-size: 24rpx;
+}
+
+.task-message {
+  display: block;
+  margin-top: 16rpx;
+  color: #475467;
+  font-size: 25rpx;
+}
+
+.task-progress {
+  height: 10rpx;
+  margin-top: 18rpx;
+  overflow: hidden;
+  border-radius: 999rpx;
+  background: #EAECF0;
+}
+
+.task-progress-value {
+  height: 100%;
+  border-radius: inherit;
+  background: #4D6BFE;
+  transition: width .25s ease;
 }
 
 .assembly-summary {

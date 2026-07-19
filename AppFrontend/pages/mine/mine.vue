@@ -155,6 +155,7 @@ export default {
     },
     applyMessageState(state = {}) {
       this.messageUnreadCount = Number(state.unreadLostFoundAppCount || 0)
+        + Number(state.unreadExamCount || 0)
     },
     changeAvatar() {
       uni.chooseImage({

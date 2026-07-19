@@ -29,6 +29,7 @@ public class AppMessageDTO {
     public static class UnreadCountVO {
         private Long total;
         private Long lostFound;
+        private Long exam;
     }
 
     @Data

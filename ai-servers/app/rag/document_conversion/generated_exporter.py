@@ -789,6 +789,34 @@ def _parse_enabled_value(value: Any) -> bool:
     return text not in {"0", "false", "off", "disabled", "no"}
 
 
+def _requested_export_format(metadata: Dict[str, Any]) -> str:
+    requested = str(metadata.get("requestedOutputType") or metadata.get("preferredOutputType") or "").strip().lower()
+    aliases = {
+        "word": "docx",
+        "excel": "xlsx",
+        "markdown": "md",
+        "bundle": "zip",
+        "archive": "zip",
+    }
+    return aliases.get(requested, requested)
+
+
+def _wants_export_format(metadata: Dict[str, Any], file_format: str) -> bool:
+    requested = _requested_export_format(metadata)
+    if requested in {"", "document", "file"}:
+        return True
+    if requested == "zip":
+        return file_format in {"md", "docx", "xlsx", "mmd", "zip"}
+    return requested == file_format
+
+
+def _keep_requested_attachments(attachments: List[Dict[str, Any]], metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
+    requested = _requested_export_format(metadata)
+    if requested == "zip":
+        return [item for item in attachments if str(item.get("ext") or "").lower() == "zip"]
+    return attachments
+
+
 def _disabled_export_tools(metadata: Dict[str, Any]) -> List[str]:
     toggles = metadata.get("toolToggles")
     if not isinstance(toggles, dict):
@@ -828,20 +856,21 @@ def _export_question_bank(payload: Dict[str, Any], metadata: Dict[str, Any]) -> 
     rows = _question_bank_rows(payload)
     paths: List[Path] = []
     attachments: List[Dict[str, Any]] = []
-    if _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
+    if _wants_export_format(metadata, "md") and _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
         path = _write_text_file(slug, "md", markdown)
         paths.append(path)
         attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown"))
-    if _is_export_tool_enabled(metadata, DOCX_EXPORT_TOOL_NAME):
+    if _wants_export_format(metadata, "docx") and _is_export_tool_enabled(metadata, DOCX_EXPORT_TOOL_NAME):
         path = _write_question_bank_docx(slug, title, payload)
         paths.append(path)
         attachments.append(_attachment_for_file(path, DOCX_EXPORT_TOOL_NAME, "Word 文档"))
-    if _is_export_tool_enabled(metadata, EXCEL_EXPORT_TOOL_NAME):
+    if _wants_export_format(metadata, "xlsx") and _is_export_tool_enabled(metadata, EXCEL_EXPORT_TOOL_NAME):
         path = _write_xlsx(slug, "题库", rows)
         paths.append(path)
         attachments.append(_attachment_for_file(path, EXCEL_EXPORT_TOOL_NAME, "Excel 表格"))
-    if _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
+    if _wants_export_format(metadata, "zip") and _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
         attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件"))
+    attachments = _keep_requested_attachments(attachments, metadata)
     if not attachments:
         return _no_enabled_export_format_result(
             "question_bank",
@@ -866,20 +895,21 @@ def _export_markdown_content(content: str, metadata: Dict[str, Any]) -> Generate
     rows = _markdown_rows(content)
     paths: List[Path] = []
     attachments: List[Dict[str, Any]] = []
-    if _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
+    if _wants_export_format(metadata, "md") and _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
         path = _write_text_file(slug, "md", content)
         paths.append(path)
         attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown"))
-    if _is_export_tool_enabled(metadata, DOCX_EXPORT_TOOL_NAME):
+    if _wants_export_format(metadata, "docx") and _is_export_tool_enabled(metadata, DOCX_EXPORT_TOOL_NAME):
         path = _write_markdown_docx(slug, title, content)
         paths.append(path)
         attachments.append(_attachment_for_file(path, DOCX_EXPORT_TOOL_NAME, "Word 文档"))
-    if rows and _is_export_tool_enabled(metadata, EXCEL_EXPORT_TOOL_NAME):
+    if rows and _wants_export_format(metadata, "xlsx") and _is_export_tool_enabled(metadata, EXCEL_EXPORT_TOOL_NAME):
         path = _write_xlsx(slug, "知识清单", rows)
         paths.append(path)
         attachments.append(_attachment_for_file(path, EXCEL_EXPORT_TOOL_NAME, "Excel 表格"))
-    if _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
+    if _wants_export_format(metadata, "zip") and _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
         attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件"))
+    attachments = _keep_requested_attachments(attachments, metadata)
     if not attachments:
         return _no_enabled_export_format_result(
             "markdown_content",
@@ -905,16 +935,17 @@ def _export_diagram_source(content: str, metadata: Dict[str, Any]) -> GeneratedE
     markdown = f"# {title or '图表源码'}\n\n```mermaid\n{mermaid_code}\n```\n"
     paths: List[Path] = []
     attachments: List[Dict[str, Any]] = []
-    if _is_export_tool_enabled(metadata, DIAGRAM_SOURCE_EXPORT_TOOL_NAME):
+    if _wants_export_format(metadata, "mmd") and _is_export_tool_enabled(metadata, DIAGRAM_SOURCE_EXPORT_TOOL_NAME):
         path = _write_text_file(slug, "mmd", mermaid_code.strip() + "\n")
         paths.append(path)
         attachments.append(_attachment_for_file(path, DIAGRAM_SOURCE_EXPORT_TOOL_NAME, "Mermaid 源文件"))
-    if _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
+    if _wants_export_format(metadata, "md") and _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
         path = _write_text_file(f"{slug}-mermaid", "md", markdown)
         paths.append(path)
         attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown"))
-    if _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
+    if _wants_export_format(metadata, "zip") and _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
         attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件"))
+    attachments = _keep_requested_attachments(attachments, metadata)
     if not attachments:
         return _no_enabled_export_format_result("diagram_source", metadata)
     return GeneratedExportResult(
@@ -1223,7 +1254,8 @@ def _atomic_write_payload(path: Path, writer: Any) -> None:
     temporary_path = Path(temporary_name)
     try:
         writer(temporary_path)
-        with temporary_path.open("rb") as stream:
+        # Windows requires a writable descriptor for fsync; a read-only handle fails with EBADF.
+        with temporary_path.open("rb+") as stream:
             os.fsync(stream.fileno())
         os.replace(temporary_path, path)
     finally:

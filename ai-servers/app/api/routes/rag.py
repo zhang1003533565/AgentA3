@@ -28,7 +28,7 @@ from app.multi_agents.catalog import (
     normalize_leader_request_agent,
     update_agent_example_input,
 )
-from app.multi_agents.leader_agent.agent import leader_agent
+from app.multi_agents.leader_agent.agent import LeaderPlan, leader_agent
 from app.multi_agents.question_bank_schema import review_question_bank_payload
 from app.multi_agents.runner import run_specialist_agent
 from app.learning_workflow import (
@@ -1285,13 +1285,15 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
     profile_context = _profile_context_from_request(request)
     callable_catalog = _build_leader_callable_catalog(request)
     conversation_context = _apply_conversation_context(request, authorization)
-    plan = leader_agent.plan(
-        request.input,
-        request.ragStrategy or "",
-        profile_context=profile_context,
-        callable_catalog=callable_catalog,
-        conversation_context=conversation_context,
-    )
+    plan = _requested_file_transform_plan(request)
+    if plan is None:
+        plan = leader_agent.plan(
+            request.input,
+            request.ragStrategy or "",
+            profile_context=profile_context,
+            callable_catalog=callable_catalog,
+            conversation_context=conversation_context,
+        )
     plan_ms = _elapsed_ms(planning_started_at)
     execution_started_at = time.perf_counter()
     response = _execute_leader_plan(request, authorization, profile_context, plan)
@@ -1302,6 +1304,28 @@ def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> R
         profileMs=_profile_ms_from_request(request),
         planMs=plan_ms,
         executionMs=execution_ms,
+    )
+
+
+def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderPlan]:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    interaction_type = str(metadata.get("interactionType") or "").strip().lower()
+    requested_output_type = str(metadata.get("requestedOutputType") or "").strip().lower()
+    supported_file_types = {"document", "file", "docx", "word", "xlsx", "excel", "md", "markdown", "mmd", "zip"}
+    if interaction_type != "transform" or requested_output_type not in supported_file_types:
+        return None
+    if not metadata.get("sourceMessageId") or not str(metadata.get("sourceMessageContent") or "").strip():
+        return None
+    return LeaderPlan(
+        intent="document_export",
+        target_agent="leader_agent",
+        need_retrieval=False,
+        rag_strategy="",
+        action="call_tool",
+        tool_name="generated_export_tools",
+        route_reason=f"用户选择将当前消息生成 {requested_output_type} 文件，直接调用已启用的内容导出工具。",
+        answer="正在把当前消息整理成所选文件。",
+        route_mode="rules",
     )
 
 
@@ -1615,9 +1639,26 @@ def _is_agent_enabled(request: RagQueryRequest, agent_name: Optional[str]) -> bo
     if not normalized or normalized == "leader_agent":
         return True
     toggles = _agent_toggles_from_request(request)
-    if normalized not in toggles:
-        return True
-    return _parse_agent_enabled_value(toggles.get(normalized))
+    if normalized in toggles and not _parse_agent_enabled_value(toggles.get(normalized)):
+        return False
+    return _is_agent_model_ready(request, normalized)
+
+
+def _is_agent_model_ready(request: RagQueryRequest, agent_name: str) -> bool:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    configs = metadata.get("agentModelConfigs")
+    if not isinstance(configs, dict):
+        return False
+    config = configs.get(agent_name)
+    if not isinstance(config, dict) or config.get("tested") is not True:
+        return False
+    required_fields = (
+        config.get("provider"),
+        config.get("baseUrl") or config.get("base_url"),
+        config.get("apiKey") or config.get("api_key"),
+        config.get("model"),
+    )
+    return all(str(value or "").strip() for value in required_fields)
 
 
 def _parse_agent_enabled_value(value: Any) -> bool:
@@ -2299,6 +2340,8 @@ def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResp
 
 
 def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQueryResponse:
+    request_metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    requested_output_type = str(request_metadata.get("requestedOutputType") or "document").strip().lower()
     metadata = {
         "agentName": "leader_agent",
         "targetAgent": "generated_export_tools",
@@ -2315,14 +2358,16 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
         "executionMode": "leader_call_tool",
         "executionModeLabel": "Leader 调用内容导出工具",
         "answerType": "document_export",
-        "requestedOutputType": "document",
+        "requestedOutputType": requested_output_type,
         "allowGeneratedExportTool": True,
         "toolToggles": _tool_toggles_from_request(request),
     }
     metadata.update(_context_metadata_from_request(request))
-    parsed_input = _try_parse_json_object(request.input)
+    source_content = str(request_metadata.get("sourceMessageContent") or "").strip()
+    export_content = source_content or request.input
+    parsed_input = _try_parse_json_object(export_content)
     export_answer_type = "question_bank" if isinstance(parsed_input.get("questions"), list) else "markdown"
-    export_result = export_generated_answer(request.input, export_answer_type, metadata)
+    export_result = export_generated_answer(export_content, export_answer_type, metadata)
     if not export_result.attachments:
         reason = export_result.diagnostics.get("reason") if isinstance(export_result.diagnostics, dict) else ""
         if reason == "tool_disabled":
@@ -2739,22 +2784,57 @@ def _follow_up_actions_for_output(answer_type: str, metadata: Dict[str, Any], ou
     }
 
     actions: List[Dict[str, Any]] = []
+    file_actions = _file_format_follow_up_actions(answer_type, metadata, agent)
     if "document" in output_types:
         actions.append(_follow_up_action("再来图片版", "请在当前内容基础上，再生成图片形式或图解版。", "image", "secondary"))
     elif "image" in output_types:
-        actions.append(_follow_up_action("生成文件版", "请在当前内容基础上，整理成文件或文档形式。", "document", "secondary"))
+        actions.extend(file_actions)
     elif agent in convertible_agents or str(answer_type or "").startswith("mermaid"):
         if preferred_format == "document" and confidence_level in {"high", "medium"}:
-            actions.append(_follow_up_action("生成文件版", "请把刚才的内容整理成文件或文档形式。", "document", "primary"))
-            actions.append(_follow_up_action("再来图片版", "请把刚才的内容再生成图片形式或图解版。", "image", "secondary"))
+            actions.extend(file_actions)
         elif preferred_format == "image" and confidence_level in {"high", "medium"}:
             actions.append(_follow_up_action("生成图片版", "请把刚才的内容生成图片形式或图解版。", "image", "primary"))
-            actions.append(_follow_up_action("再来文件版", "请把刚才的内容整理成文件或文档形式。", "document", "secondary"))
+            actions.extend(file_actions)
         else:
-            actions.append(_follow_up_action("生成文件版", "请把刚才的内容整理成文件或文档形式。", "document", "primary"))
-            actions.append(_follow_up_action("生成图片版", "请把刚才的内容生成图片形式或图解版。", "image", "primary"))
+            actions.extend(file_actions)
 
     return actions[:3]
+
+
+def _file_format_follow_up_actions(answer_type: str, metadata: Dict[str, Any], agent: str) -> List[Dict[str, Any]]:
+    if not _metadata_tool_enabled(metadata, "generated_export_tools"):
+        return []
+    is_diagram = str(answer_type or "").startswith("mermaid") or agent.startswith("diagram_")
+    is_question_bank = str(answer_type or "") == "question_bank" or agent.startswith("textbook_question_")
+    if is_diagram:
+        candidates = (
+            ("Mermaid 源文件", "请把当前消息原内容生成 Mermaid 源文件。", "mmd", "diagram_source_export_tool"),
+            ("Markdown 文件", "请把当前消息原内容生成 Markdown 文件。", "md", "markdown_export_tool"),
+        )
+    elif is_question_bank:
+        candidates = (
+            ("Excel 题库", "请把当前消息原内容生成 Excel 题库文件。", "xlsx", "excel_export_tool"),
+            ("Word 题库", "请把当前消息原内容生成 Word 题库文件。", "docx", "docx_export_tool"),
+            ("Markdown 题库", "请把当前消息原内容生成 Markdown 题库文件。", "md", "markdown_export_tool"),
+        )
+    else:
+        candidates = (
+            ("Word 文件", "请把当前消息原内容生成 Word 文件。", "docx", "docx_export_tool"),
+            ("Excel 表格", "请把当前消息原内容生成 Excel 表格。", "xlsx", "excel_export_tool"),
+            ("Markdown 文件", "请把当前消息原内容生成 Markdown 文件。", "md", "markdown_export_tool"),
+        )
+    return [
+        _follow_up_action(label, prompt, output_type, "primary")
+        for label, prompt, output_type, tool_name in candidates
+        if _metadata_tool_enabled(metadata, tool_name)
+    ]
+
+
+def _metadata_tool_enabled(metadata: Dict[str, Any], tool_name: str) -> bool:
+    toggles = metadata.get("toolToggles") if isinstance(metadata, dict) else None
+    if not isinstance(toggles, dict) or tool_name not in toggles:
+        return True
+    return _parse_agent_enabled_value(toggles.get(tool_name))
 
 
 def _follow_up_action(label: str, prompt: str, output_type: str, style: str) -> Dict[str, Any]:
@@ -2770,6 +2850,13 @@ def _follow_up_action(label: str, prompt: str, output_type: str, style: str) -> 
 def _choice_prompt_for_output(metadata: Dict[str, Any], output_types: List[str], follow_up_actions: List[Dict[str, Any]]) -> str:
     if not follow_up_actions:
         return ""
+    file_actions = [
+        str(item.get("label") or "").strip()
+        for item in follow_up_actions
+        if str(item.get("outputType") or "").strip().lower() in {"docx", "xlsx", "md", "mmd", "zip"}
+    ]
+    if file_actions:
+        return "请选择需要生成的文件格式：" + "、".join(file_actions) + "。"
     hints = metadata.get("outputPreferenceHints") if isinstance((metadata or {}).get("outputPreferenceHints"), dict) else {}
     preferred_format = str(hints.get("preferredFormat") or "").strip()
     confidence_level = str(hints.get("confidenceLevel") or "").strip()

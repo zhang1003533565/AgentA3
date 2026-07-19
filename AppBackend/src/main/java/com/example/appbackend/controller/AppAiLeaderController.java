@@ -104,7 +104,7 @@ public class AppAiLeaderController {
         saveUserMessage(session, request, visibleInput);
         refreshSession(session, visibleInput);
 
-        Map<String, Object> payload = buildLeaderPayload(request, session.getSessionId(), userId, httpRequest.getHeader("Authorization"));
+        Map<String, Object> payload = buildLeaderPayload(request, session, userId, httpRequest.getHeader("Authorization"));
 
         Object ragResult = pythonAiProxyService.queryRag(payload, httpRequest.getHeader("Authorization"));
         LlmChatResponse response = toChatResponse(session, ragResult);
@@ -127,7 +127,7 @@ public class AppAiLeaderController {
         saveUserMessage(session, request, visibleInput);
         refreshSession(session, visibleInput);
 
-        Map<String, Object> payload = buildLeaderPayload(request, session.getSessionId(), userId, authorization);
+        Map<String, Object> payload = buildLeaderPayload(request, session, userId, authorization);
         AtomicReference<AiLeaderMessage> visibleGenerationMessage = new AtomicReference<>();
         AtomicBoolean completed = new AtomicBoolean(false);
         AtomicBoolean poisoned = new AtomicBoolean(false);
@@ -397,7 +397,7 @@ public class AppAiLeaderController {
         }
     }
 
-    private Map<String, Object> buildLeaderPayload(LlmChatRequest request, String sessionId, Long userId, String authorization) {
+    private Map<String, Object> buildLeaderPayload(LlmChatRequest request, AiLeaderSession session, Long userId, String authorization) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("input", request.getInput());
         payload.put("agentName", LEADER_AGENT);
@@ -406,7 +406,7 @@ public class AppAiLeaderController {
         }
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("source", "app_ai_assistant");
-        metadata.put("sessionId", sessionId == null ? "" : sessionId);
+        metadata.put("sessionId", session == null ? "" : session.getSessionId());
         if (StringUtils.hasText(request.getInteractionType())) {
             metadata.put("interactionType", request.getInteractionType().trim());
             if (StringUtils.hasText(request.getRequestedOutputType())) {
@@ -414,6 +414,13 @@ public class AppAiLeaderController {
             }
             if (request.getSourceMessageId() != null) {
                 metadata.put("sourceMessageId", request.getSourceMessageId());
+                messageRepository.findById(request.getSourceMessageId())
+                        .filter(message -> session != null
+                                && session.getId().equals(message.getLeaderSessionId())
+                                && AiLeaderMessage.ROLE_ASSISTANT.equals(message.getRole()))
+                        .map(AiLeaderMessage::getContent)
+                        .filter(StringUtils::hasText)
+                        .ifPresent(content -> metadata.put("sourceMessageContent", truncate(content, 100_000)));
             }
         }
         // Leader chat only reads the compatible saved AI insight (or the local fallback) here.

@@ -295,6 +295,33 @@ class GeneratedExporterTest(unittest.TestCase):
             self.assertEqual(["md", "docx", "xlsx", "zip"], [item["ext"] for item in result.attachments])
             self.assertEqual("markdown_content", result.diagnostics["contentKind"])
 
+    def test_requested_file_format_only_returns_selected_attachment(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            generated_exporter.EXPORT_ROOT = Path(temp_dir)
+            content = "# 栈与队列\n\n- 栈：后进先出\n- 队列：先进先出"
+
+            word_result = generated_exporter.export_generated_answer(
+                content,
+                "markdown",
+                {
+                    "executedAgent": "generated_export_tools",
+                    "allowGeneratedExportTool": True,
+                    "requestedOutputType": "docx",
+                },
+            )
+            excel_result = generated_exporter.export_generated_answer(
+                content,
+                "markdown",
+                {
+                    "executedAgent": "generated_export_tools",
+                    "allowGeneratedExportTool": True,
+                    "requestedOutputType": "xlsx",
+                },
+            )
+
+            self.assertEqual(["docx"], [item["ext"] for item in word_result.attachments])
+            self.assertEqual(["xlsx"], [item["ext"] for item in excel_result.attachments])
+
     def test_mermaid_exports_source_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             generated_exporter.EXPORT_ROOT = Path(temp_dir)

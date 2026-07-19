@@ -25,6 +25,7 @@ public final class QuestionAssemblyDTO {
         private String topic;
         private String text;
         private String sourceTitle;
+        private Boolean saveGeneratedToPrivate = false;
 
         @Valid
         @NotEmpty
@@ -81,5 +82,26 @@ public final class QuestionAssemblyDTO {
         private String draftId;
         private Integer importedCount;
         private List<Long> questionIds = new ArrayList<>();
+    }
+
+    @Data
+    public static class TaskAccepted {
+        private String taskId;
+        private String status;
+        private String message;
+    }
+
+    @Data
+    public static class TaskView {
+        private String taskId;
+        private String status;
+        private Integer progress;
+        private String message;
+        private String errorMessage;
+        private Integer importedCount;
+        private AssemblyResponse result;
+        private String createTime;
+        private String startTime;
+        private String completeTime;
     }
 }

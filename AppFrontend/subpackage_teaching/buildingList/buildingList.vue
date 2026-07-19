@@ -22,8 +22,9 @@
 
       <view class="card">
         <text class="section-title">楼宇列表</text>
-        <view v-for="(item, index) in filteredBuildings" :key="index" class="building-item" @click="goDetail(item)">
-          <image class="building-image" :src="item.image" mode="aspectFill" />
+        <view v-for="item in filteredBuildings" :key="item.id" class="building-item" @click="goDetail(item)">
+          <image v-if="item.image" class="building-image" :src="item.image" mode="aspectFill" />
+          <view v-else class="building-image building-image--empty">楼</view>
           <view class="building-main">
             <view class="building-head">
               <text class="building-name">{{ item.name }}</text>
@@ -34,6 +35,7 @@
           </view>
           <text class="building-arrow">></text>
         </view>
+        <view v-if="!filteredBuildings.length" class="empty-tip">暂无教学楼数据</view>
       </view>
       <view class="bottom-gap" />
     </scroll-view>
@@ -42,6 +44,7 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import { getTeachingBuildings } from '@/api/teaching.js'
 
 export default {
   components: { NavBar },
@@ -49,11 +52,7 @@ export default {
     return {
       navBarHeight: 88,
       currentZone: '全部',
-      buildingList: [
-        { id: '1', name: '教学楼A栋', zone: '北区', classroomCount: 42, totalSeatCount: 3120, statusText: '使用中', statusClass: 'busy', image: 'https://picsum.photos/seed/buildingA2/300/220' },
-        { id: '2', name: '教学楼B栋', zone: '北区', classroomCount: 36, totalSeatCount: 2680, statusText: '空闲较多', statusClass: 'ok', image: 'https://picsum.photos/seed/buildingB2/300/220' },
-        { id: '21', name: '教学楼C栋', zone: '南区', classroomCount: 28, totalSeatCount: 1960, statusText: '部分维护', statusClass: 'warn', image: 'https://picsum.photos/seed/buildingC2/300/220' }
-      ]
+      buildingList: []
     }
   },
   computed: {
@@ -76,8 +75,30 @@ export default {
   onLoad() {
     const sys = uni.getSystemInfoSync()
     this.navBarHeight = (sys.statusBarHeight || 0) + 44
+    this.loadBuildings()
   },
   methods: {
+    async loadBuildings() {
+      try {
+        const res = await getTeachingBuildings()
+        const records = Array.isArray(res?.data) ? res.data : []
+        this.buildingList = records.map((item) => ({
+          ...item,
+          zone: item.zone || '未设置区域',
+          statusText: this.getStatusText(item.status),
+          statusClass: this.getStatusClass(item.status)
+        }))
+      } catch (error) {
+        console.error('加载教学楼失败', error)
+        this.buildingList = []
+      }
+    },
+    getStatusText(status) {
+      return ({ 1: '正常开放', 2: '维护中', 3: '已关闭' })[status] || '状态未知'
+    },
+    getStatusClass(status) {
+      return status === 1 ? 'ok' : (status === 2 ? 'warn' : 'busy')
+    },
     goDetail(item) {
       uni.navigateTo({
         url: `/subpackage_teaching/buildingDetail/buildingDetail?id=${item.id}`
@@ -101,6 +122,7 @@ export default {
 .building-item { display: flex; align-items: center; padding: 18rpx 0; border-bottom: 1rpx solid #f2f3f5; }
 .building-item:last-child { border-bottom: none; }
 .building-image { width: 132rpx; height: 98rpx; border-radius: 14rpx; background: #eee; margin-right: 16rpx; flex-shrink: 0; }
+.building-image--empty { display: flex; align-items: center; justify-content: center; color: #86909c; font-size: 34rpx; }
 .building-main { flex: 1; min-width: 0; }
 .building-head { display: flex; justify-content: space-between; align-items: center; gap: 10rpx; }
 .building-name { font-size: 28rpx; font-weight: 600; color: #1f2329; }
@@ -111,4 +133,5 @@ export default {
 .building-meta { margin-top: 8rpx; display: block; font-size: 22rpx; color: #86909c; }
 .building-arrow { margin-left: 10rpx; color: #c9cdd4; font-size: 28rpx; }
 .bottom-gap { height: 40rpx; }
+.empty-tip { padding: 36rpx 0; text-align: center; font-size: 24rpx; color: #86909c; }
 </style>

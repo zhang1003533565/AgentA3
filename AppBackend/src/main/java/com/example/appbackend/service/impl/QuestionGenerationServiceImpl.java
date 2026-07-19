@@ -57,13 +57,14 @@ public class QuestionGenerationServiceImpl implements QuestionGenerationService 
 
     @Override
     public OptionsResponse getOptions(String authorization) {
-        Map<String, PythonAiProxyService.AgentDescriptor> catalog;
+        Map<String, PythonAiProxyService.AgentDescriptor> resolvedCatalog;
         try {
-            catalog = pythonAiProxyService.getQuestionGenerationAgentCatalog(authorization);
+            resolvedCatalog = pythonAiProxyService.getQuestionGenerationAgentCatalog(authorization);
         } catch (RuntimeException error) {
             log.warn("question generation agent catalog unavailable: {}", error.getMessage());
-            catalog = Map.of();
+            resolvedCatalog = Map.of();
         }
+        final Map<String, PythonAiProxyService.AgentDescriptor> catalog = resolvedCatalog;
         OptionsResponse response = new OptionsResponse();
         response.setQuestionTypes(QUESTION_TYPES.stream()
                 .map(type -> resolveOption(type, catalog))

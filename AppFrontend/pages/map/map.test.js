@@ -13,7 +13,8 @@ test('category and keyword filters update markers without remounting the map pro
   assert.match(source, /selectedFacilityTypes\.includes\(item\.id\)/)
   assert.match(source, /params\.facilityTypes = selected\.join\(','\)/)
   assert.match(source, /const allSelected = selected\.length === this\.categories\.length/)
-  assert.match(source, /this\.categories = this\.categories\.filter\(\(item\) => availableTypes\.has\(item\.id\)\)/)
+  assert.match(source, /this\.categories = types\.map\(\(item\) => \(\{ id: Number\(item\.value\), name: item\.label \}\)\)/)
+  assert.doesNotMatch(source, /availableTypes/)
   assert.match(source, /const requestId = \+\+this\.mapDataRequestId[\s\S]*if \(!this\.selectedFacilityTypes\.length\)/)
 })
 

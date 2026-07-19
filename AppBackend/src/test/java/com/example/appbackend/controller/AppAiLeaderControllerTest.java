@@ -272,6 +272,12 @@ class AppAiLeaderControllerTest {
     @Test
     void structuredTransformPersistsCompactHistoryAndForwardsWhitelistedMetadata() throws Exception {
         AtomicReference<Map<String, Object>> upstreamPayload = new AtomicReference<>();
+        AiLeaderMessage sourceMessage = new AiLeaderMessage();
+        sourceMessage.setId(88L);
+        sourceMessage.setLeaderSessionId(9L);
+        sourceMessage.setRole(AiLeaderMessage.ROLE_ASSISTANT);
+        sourceMessage.setContent("# 数据结构知识点\n\n- 栈：后进先出");
+        when(messageRepository.findById(88L)).thenReturn(Optional.of(sourceMessage));
         when(pythonAiProxyService.queryRag(any(), any())).thenAnswer(invocation -> {
             upstreamPayload.set(invocation.getArgument(0));
             Map<String, Object> response = validGeneratedResponse();
@@ -304,6 +310,7 @@ class AppAiLeaderControllerTest {
         assertThat(metadata.path("interactionType").asText()).isEqualTo("transform");
         assertThat(metadata.path("requestedOutputType").asText()).isEqualTo("document");
         assertThat(metadata.path("sourceMessageId").asLong()).isEqualTo(88L);
+        assertThat(metadata.path("sourceMessageContent").asText()).isEqualTo(sourceMessage.getContent());
         assertThat(metadata.has("displayInput")).isFalse();
 
         when(messageRepository.findByLeaderSessionIdOrderByCreateTimeAscIdAsc(9L))

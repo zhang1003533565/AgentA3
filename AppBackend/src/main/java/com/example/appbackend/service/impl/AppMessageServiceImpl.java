@@ -41,6 +41,7 @@ public class AppMessageServiceImpl implements AppMessageService {
         AppMessageDTO.UnreadCountVO vo = new AppMessageDTO.UnreadCountVO();
         vo.setTotal(appMessageRepository.countByUserIdAndIsReadFalse(userId));
         vo.setLostFound(appMessageRepository.countByUserIdAndModuleTypeAndIsReadFalse(userId, AppMessage.MODULE_LOST_FOUND));
+        vo.setExam(appMessageRepository.countByUserIdAndModuleTypeAndIsReadFalse(userId, AppMessage.MODULE_EXAM));
         return vo;
     }
 
@@ -90,7 +91,11 @@ public class AppMessageServiceImpl implements AppMessageService {
         message.setSourceId(command.getSourceId());
         message.setSourceType(command.getSourceType());
         AppMessage saved = appMessageRepository.save(message);
-        realtimeNotifier.notifyUser(command.getUserId(), "app");
+        if (AppMessage.MODULE_EXAM.equals(message.getModuleType())) {
+            realtimeNotifier.notifyUser(command.getUserId(), "app", "exam");
+        } else {
+            realtimeNotifier.notifyUser(command.getUserId(), "app");
+        }
         return toVO(saved);
     }
 

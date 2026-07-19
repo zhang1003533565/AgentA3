@@ -10,11 +10,31 @@ export function generateQuestionAssembly(data) {
   return request({ url: '/api/exam/question-assembly/generate', method: 'POST', data })
 }
 
+export function submitQuestionAssemblyTask(data) {
+  return request({ url: '/api/exam/question-assembly/tasks', method: 'POST', data })
+}
+
+export function getQuestionAssemblyTask(taskId) {
+  return request({
+    url: `/api/exam/question-assembly/tasks/${encodeURIComponent(taskId)}`,
+    method: 'GET',
+    showError: false
+  })
+}
+
 export function generateQuestionAssemblyWithFile(data, filePath) {
+  return uploadQuestionAssembly('/api/exam/question-assembly/generate', data, filePath)
+}
+
+export function submitQuestionAssemblyFileTask(data, filePath) {
+  return uploadQuestionAssembly('/api/exam/question-assembly/tasks', data, filePath)
+}
+
+function uploadQuestionAssembly(path, data, filePath) {
   const token = getToken()
   return new Promise((resolve, reject) => {
     uni.uploadFile({
-      url: `${BASE_URL}/api/exam/question-assembly/generate`,
+      url: `${BASE_URL}${path}`,
       filePath,
       name: 'file',
       formData: { spec: JSON.stringify(data) },

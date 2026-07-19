@@ -24,6 +24,7 @@ import java.time.LocalDateTime;
 public class AppMessage {
 
     public static final String MODULE_LOST_FOUND = "LOST_FOUND";
+    public static final String MODULE_EXAM = "EXAM";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
