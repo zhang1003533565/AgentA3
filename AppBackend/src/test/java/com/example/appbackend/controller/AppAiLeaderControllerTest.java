@@ -353,13 +353,19 @@ class AppAiLeaderControllerTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void typedWordExportInfersFormatAndUsesLatestAssistantMessageAsSource() throws Exception {
+    void typedWordExportInfersFormatAndProvidesRecentAssistantCandidatesForModelSelection() throws Exception {
         AiLeaderMessage latestAssistant = new AiLeaderMessage();
         latestAssistant.setId(88L);
         latestAssistant.setRole(AiLeaderMessage.ROLE_ASSISTANT);
-        latestAssistant.setContent("# 数据结构\n\n- 栈：后进先出");
-        when(messageRepository.findFirstByLeaderSessionIdAndRoleOrderByCreateTimeDesc(
-                9L, AiLeaderMessage.ROLE_ASSISTANT)).thenReturn(Optional.of(latestAssistant));
+        latestAssistant.setContent("请选择知识来源方式。");
+        latestAssistant.setAnswerType("text");
+        AiLeaderMessage substantiveAssistant = new AiLeaderMessage();
+        substantiveAssistant.setId(87L);
+        substantiveAssistant.setRole(AiLeaderMessage.ROLE_ASSISTANT);
+        substantiveAssistant.setContent("# 数据结构\n\n- 栈：后进先出");
+        substantiveAssistant.setAnswerType("markdown");
+        when(messageRepository.findTop6ByLeaderSessionIdAndRoleOrderByCreateTimeDescIdDesc(
+                9L, AiLeaderMessage.ROLE_ASSISTANT)).thenReturn(List.of(latestAssistant, substantiveAssistant));
 
         AtomicReference<Map<String, Object>> upstreamPayload = new AtomicReference<>();
         when(pythonAiProxyService.queryRag(any(), any())).thenAnswer(invocation -> {
@@ -376,9 +382,12 @@ class AppAiLeaderControllerTest {
 
         Map<String, Object> metadata = (Map<String, Object>) upstreamPayload.get().get("metadata");
         assertThat(metadata).containsEntry("requestedOutputType", "docx");
-        assertThat(metadata).containsEntry("sourceMessageId", 88L);
-        assertThat(metadata).containsEntry("sourceMessageContent", latestAssistant.getContent());
-        assertThat(metadata).containsEntry("sourceMessageOrigin", "latest_assistant_message");
+        assertThat(metadata).doesNotContainKeys("sourceMessageId", "sourceMessageContent");
+        assertThat(metadata).containsEntry("sourceMessageOrigin", "recent_assistant_candidates");
+        List<Map<String, Object>> candidates = (List<Map<String, Object>>) metadata.get("sourceMessageCandidates");
+        assertThat(candidates).extracting("messageId").containsExactly(88L, 87L);
+        assertThat(candidates).extracting("content")
+                .containsExactly(latestAssistant.getContent(), substantiveAssistant.getContent());
     }
 
     @Test

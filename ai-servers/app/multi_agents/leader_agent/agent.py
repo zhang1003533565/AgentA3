@@ -361,6 +361,10 @@ class LeaderAgent:
         if learning_guidance_plan:
             return learning_guidance_plan
 
+        knowledge_generation_plan = self._plan_explicit_knowledge_generation_request(input_text, callable_catalog)
+        if knowledge_generation_plan:
+            return knowledge_generation_plan
+
         file_export_plan = self._plan_explicit_file_export_request(input_text)
         if file_export_plan:
             return file_export_plan
@@ -447,6 +451,32 @@ class LeaderAgent:
         if any(token in normalized for token in _EXPLICIT_VISUAL_OUTPUT_TOKENS):
             return True
         return "图片" in normalized and any(token in normalized for token in ("生成", "画", "制作", "做成", "转成"))
+
+    def _plan_explicit_knowledge_generation_request(
+        self,
+        input_text: str,
+        callable_catalog: Optional[Dict[str, Any]],
+    ) -> Optional[LeaderPlan]:
+        normalized = self._normalize_fast_route_text(input_text)
+        has_authorization = any(token in normalized for token in (
+            "授权模型", "模型自行生成", "自行生成知识", "自己生成知识", "无需材料", "不用材料",
+        ))
+        has_knowledge_target = any(token in normalized for token in (
+            "知识材料", "知识点", "教材内容", "学习材料",
+        ))
+        if not has_authorization or not has_knowledge_target:
+            return None
+        if not self._catalog_agent_enabled(callable_catalog, "textbook_knowledge_agent"):
+            return None
+        return LeaderPlan(
+            intent="textbook_knowledge",
+            target_agent="textbook_knowledge_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            action="delegate_agent",
+            route_reason="用户已授权模型在无材料时自行生成知识材料，直接调用教材知识点智能体，不再重复确认来源。",
+            route_mode="rules",
+        )
 
     def _is_explicit_visual_generation_request(self, input_text: str) -> bool:
         normalized = self._normalize_fast_route_text(input_text)

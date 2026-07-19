@@ -52,6 +52,7 @@ class TextbookKnowledgeAgentTest(unittest.TestCase):
         self.assertEqual(1, len(provider.calls))
         request_payload = json.loads(provider.calls[0]["userPrompt"]["user_input"])
         self.assertEqual("source_selection_required", request_payload["knowledgeSourceMode"])
+        self.assertIn("只提供两个选择", request_payload["sourcePolicy"])
         self.assertIn("上传材料", answer)
         self.assertIn("自行生成知识材料", answer)
 

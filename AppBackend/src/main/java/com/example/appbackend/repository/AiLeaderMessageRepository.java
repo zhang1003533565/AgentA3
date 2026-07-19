@@ -14,4 +14,7 @@ public interface AiLeaderMessageRepository extends JpaRepository<AiLeaderMessage
 
     Optional<AiLeaderMessage> findFirstByLeaderSessionIdAndRoleOrderByCreateTimeDesc(
             Long leaderSessionId, String role);
+
+    List<AiLeaderMessage> findTop6ByLeaderSessionIdAndRoleOrderByCreateTimeDescIdDesc(
+            Long leaderSessionId, String role);
 }

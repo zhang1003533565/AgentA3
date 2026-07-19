@@ -154,6 +154,21 @@ class LeaderFastRouteTest(unittest.TestCase):
         self.assertEqual("delegate_agent", plan.action)
         self.assertEqual("rules", plan.route_mode)
 
+    def test_explicit_model_authorization_routes_to_knowledge_agent_without_reconfirming_source(self):
+        plan = self.agent.plan(
+            "我明确授权模型在没有材料时自行生成知识材料，请继续处理 Python 发展历史",
+            chat_service=self.provider,
+            callable_catalog={
+                "agents": [{"name": "textbook_knowledge_agent", "enabled": True}],
+            },
+        )
+
+        self.assertEqual(0, self.provider.calls)
+        self.assertEqual("textbook_knowledge", plan.intent)
+        self.assertEqual("textbook_knowledge_agent", plan.target_agent)
+        self.assertEqual("delegate_agent", plan.action)
+        self.assertIn("不再重复确认", plan.route_reason)
+
     def test_profile_image_preference_cannot_turn_plain_explanation_into_image_generation(self):
         provider = StaticPlanChatService({
             "intent": "image_generation",

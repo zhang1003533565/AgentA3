@@ -163,7 +163,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertFalse(image_tool["enabled"])
         self.assertNotIn("image_agent", {item["name"] for item in catalog["agents"]})
 
-    def test_file_export_tool_without_content_planner_binding_is_not_advertised_as_available(self):
+    def test_file_export_tool_can_reuse_leader_model_when_planner_has_no_separate_binding(self):
         request = SimpleNamespace(metadata={
             "agentToggles": {"file_content_planner_agent": True},
             "agentModelConfigs": {},
@@ -173,7 +173,7 @@ class RagApiRoutesTest(unittest.TestCase):
         catalog = self._rag_routes._build_leader_callable_catalog(request)
         export_tool = next(item for item in catalog["tools"] if item["name"] == "generated_export_tools")
 
-        self.assertFalse(export_tool["enabled"])
+        self.assertTrue(export_tool["enabled"])
 
     def test_file_transform_action_forces_real_export_tool(self):
         request = SimpleNamespace(metadata={
@@ -189,6 +189,79 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("call_tool", plan.action)
         self.assertEqual("generated_export_tools", plan.tool_name)
         self.assertEqual("rules", plan.route_mode)
+
+    def test_second_source_option_is_expanded_to_explicit_model_authorization(self):
+        context = {
+            "turns": [{
+                "user": "请生成 Python 发展历史知识点",
+                "assistant": "请选择两种来源方式之一：1. 上传材料或选择知识库内容；2. 授权模型自行生成。",
+                "metadata": {"knowledgeSourceMode": "source_selection_required"},
+            }],
+        }
+
+        expanded = self._rag_routes._contextualize_followup_input("第二种方式", context)
+
+        self.assertIn("明确授权模型", expanded)
+        self.assertIn("Python 发展历史", expanded)
+
+    def test_legacy_third_source_option_is_expanded_to_explicit_model_authorization(self):
+        context = {
+            "turns": [
+                {
+                    "user": "请生成 Python 发展历史知识点",
+                    "assistant": "请选择来源。",
+                    "metadata": {},
+                },
+                {
+                    "user": "第二种方式",
+                    "assistant": "1. 上传材料；2. 选择知识库内容；3. 授权模型自行生成。",
+                    "metadata": {"knowledgeSourceMode": "source_selection_required"},
+                },
+            ],
+        }
+
+        expanded = self._rag_routes._contextualize_followup_input("3", context)
+
+        self.assertIn("明确授权模型", expanded)
+        self.assertIn("Python 发展历史", expanded)
+
+    def test_plain_number_is_not_rewritten_without_source_selection_context(self):
+        self.assertEqual("3", self._rag_routes._contextualize_followup_input("3", {"turns": []}))
+
+    def test_confirmed_model_source_is_reused_for_short_continuation(self):
+        context = {
+            "turns": [{
+                "user": "我授权模型生成 Python 发展历史知识材料",
+                "assistant": "已生成知识材料。",
+                "metadata": {
+                    "knowledgeSourceMode": "model_generated",
+                    "knowledgeTopic": "Python 发展历史",
+                },
+            }],
+        }
+
+        expanded = self._rag_routes._contextualize_followup_input("继续生成", context)
+
+        self.assertIn("此前已经授权模型", expanded)
+        self.assertIn("Python 发展历史", expanded)
+
+    def test_knowledge_source_clarification_does_not_offer_file_export_actions(self):
+        response = self._rag_routes.RagQueryResponse(
+            strategy="direct_agent",
+            answer="请选择材料来源。",
+            answerType="markdown",
+            metadata={
+                "executedAgent": "textbook_knowledge_agent",
+                "intent": "knowledge_source_clarification",
+                "knowledgeSourceMode": "source_selection_required",
+                "toolToggles": {"generated_export_tools": True},
+            },
+        )
+
+        decorated = self._rag_routes._decorate_output_response(response)
+
+        self.assertEqual([], decorated.outputMeta["followUpActions"])
+        self.assertEqual("", decorated.outputMeta["choicePrompt"])
 
     def test_typed_word_export_without_source_is_clarified_by_content_planner_model(self):
         response = self.client.post(
@@ -230,6 +303,29 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("file_content_planner_agent", payload["metadata"]["promptAgent"])
         self.assertEqual(["docx"], [item["ext"] for item in payload["attachments"]])
         self.assertEqual(["leader_route", "agent_answer", "tool_call"], [item["stage"] for item in payload["trace"]])
+
+    def test_free_text_word_export_skips_clarification_message_and_uses_previous_substantive_candidate(self):
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "给我生成word格式",
+                "agentName": "leader_agent",
+                "metadata": {
+                    "sourceMessageCandidates": [
+                        {"messageId": 88, "content": "请选择知识来源方式：1. 上传材料；2. 授权模型自行生成。", "answerType": "text"},
+                        {"messageId": 87, "content": "# Python 发展历史\n\n- 1991 年发布首个公开版本。", "answerType": "markdown"},
+                    ],
+                    "agentModelConfigs": self.agent_model_configs,
+                },
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual(["docx"], [item["ext"] for item in payload["attachments"]])
+        self.assertEqual(87, payload["metadata"]["selectedSourceMessageId"])
+        self.assertEqual("generated_export_tools", payload["metadata"]["executedAgent"])
 
     def test_file_format_actions_only_include_enabled_real_tools(self):
         actions = self._rag_routes._file_format_follow_up_actions(
@@ -1556,8 +1652,17 @@ class FakeRagModelProvider:
             outer_payload = json.loads(user_prompt)
             planner_payload = json.loads(outer_payload.get("user_input") or "{}")
             source_content = str(planner_payload.get("sourceContent") or "").strip()
+            source_candidates = planner_payload.get("sourceCandidates") or []
             user_request = str(planner_payload.get("userRequest") or "").strip()
-            if not source_content and user_request.replace(" ", "").lower() in {
+            selected_candidate = next((
+                item for item in source_candidates
+                if isinstance(item, dict)
+                and str(item.get("content") or "").strip()
+                and not any(token in str(item.get("content") or "") for token in (
+                    "请选择知识来源", "需要您确认来源", "资源生成失败", "正在处理",
+                ))
+            ), None)
+            if not source_content and not selected_candidate and user_request.replace(" ", "").lower() in {
                 "给我导出word", "导出word", "生成word", "给我导出docx", "导出docx",
             }:
                 return json.dumps({
@@ -1566,12 +1671,14 @@ class FakeRagModelProvider:
                     "content": "",
                     "question": "你希望把哪一段内容转换成 Word？可以指定当前对话中的内容，或直接告诉我主题。",
                 }, ensure_ascii=False)
-            content = source_content or f"# {user_request}\n\n## 内容\n\n- 由模型根据用户主题整理"
+            selected_content = str((selected_candidate or {}).get("content") or "").strip()
+            content = source_content or selected_content or f"# {user_request}\n\n## 内容\n\n- 由模型根据用户主题整理"
             return json.dumps({
                 "action": "export",
                 "title": "数据结构学习资料" if source_content else "主题学习资料",
                 "content": content,
                 "question": "",
+                "selectedSourceMessageId": (selected_candidate or {}).get("messageId"),
             }, ensure_ascii=False)
         if "diagram_mind_map_agent" in system_prompt:
             return "```mermaid\nmindmap\n  root((测试思维导图))\n```"

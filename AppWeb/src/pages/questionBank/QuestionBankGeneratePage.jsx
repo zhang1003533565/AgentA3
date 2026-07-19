@@ -8,9 +8,16 @@ import {
 import { DeleteOutlined, InboxOutlined } from '@ant-design/icons'
 import { getQuestionGenerationOptions, generateQuestions, importGeneratedQuestions } from '../../api/questionGeneration'
 import { reviewExamQuestions } from '../../api/examQuestion'
+import {
+  getMaxKbAccounts,
+  getMaxKbDocuments,
+  getMaxKbKnowledges,
+  getMaxKbParagraphs,
+} from '../../api/maxkbKnowledge'
 import { QUESTION_BANK_ROUTES } from './questionBankRoutes'
 import {
   buildGenerationFormData,
+  buildKnowledgeMaterial,
   buildImportPayload,
   canEditQuestions,
   canImportQuestions,
@@ -18,6 +25,7 @@ import {
   invalidateReviewGeneration,
   isQuestionTypeAvailable,
   normalizeQuestionForEditor,
+  normalizeKnowledgePage,
   removeQuestionAndRenumber,
   serializeEditedQuestion,
   updateFillBlankAnswers,
@@ -35,6 +43,12 @@ const TYPE_LABELS = {
 const DIFFICULTIES = [
   { value: 'easy', label: '简单' }, { value: 'medium', label: '中等' }, { value: 'hard', label: '困难' },
 ]
+
+const itemId = (item) => String(item?.id ?? item?.knowledge_id ?? item?.document_id ?? '')
+const itemLabel = (item, fallback = '未命名') => {
+  const value = item?.name ?? item?.knowledge_name ?? item?.title ?? item?.file_name ?? itemId(item)
+  return String(value || fallback)
+}
 
 const listValue = (value) => Array.isArray(value) ? value.join('\n') : ''
 const splitLines = (value) => value.split('\n').map((item) => item.trim()).filter(Boolean)
@@ -159,6 +173,11 @@ export default function QuestionBankGeneratePage() {
   const navigate = useNavigate()
   const [sourceType, setSourceType] = useState('text')
   const [fileList, setFileList] = useState([])
+  const [knowledgeAccounts, setKnowledgeAccounts] = useState([])
+  const [knowledgeBases, setKnowledgeBases] = useState([])
+  const [knowledgeDocuments, setKnowledgeDocuments] = useState([])
+  const [knowledgeLoading, setKnowledgeLoading] = useState(false)
+  const [knowledgeError, setKnowledgeError] = useState('')
   const [options, setOptions] = useState([])
   const [optionsLoading, setOptionsLoading] = useState(true)
   const [optionsError, setOptionsError] = useState('')
@@ -249,10 +268,84 @@ export default function QuestionBankGeneratePage() {
     setImportResult(null)
   }, [])
 
+  const loadKnowledgeDocuments = useCallback(async (accountId, knowledgeId) => {
+    setKnowledgeDocuments([])
+    form.setFieldValue('knowledgeDocumentIds', [])
+    if (!accountId || !knowledgeId) return
+    setKnowledgeLoading(true)
+    setKnowledgeError('')
+    try {
+      const response = await getMaxKbDocuments(accountId, knowledgeId, {
+        page: 1,
+        page_size: 200,
+        task_type: 1,
+      })
+      if (!mounted.current) return
+      const page = normalizeKnowledgePage(response.data)
+      setKnowledgeDocuments(page.records)
+      if (!page.records.length) setKnowledgeError('该知识库暂无可用于出题的文档。')
+    } catch (error) {
+      if (!mounted.current) return
+      setKnowledgeDocuments([])
+      setKnowledgeError(error.message || '知识库文档加载失败')
+    } finally {
+      if (mounted.current) setKnowledgeLoading(false)
+    }
+  }, [form])
+
+  const loadKnowledgeBases = useCallback(async (accountId) => {
+    setKnowledgeBases([])
+    setKnowledgeDocuments([])
+    form.setFieldsValue({ knowledgeId: undefined, knowledgeDocumentIds: [] })
+    if (!accountId) return
+    setKnowledgeLoading(true)
+    setKnowledgeError('')
+    try {
+      const response = await getMaxKbKnowledges(accountId, { page: 1, page_size: 100 })
+      if (!mounted.current) return
+      const rows = normalizeKnowledgePage(response.data).records
+      setKnowledgeBases(rows)
+      if (!rows.length) setKnowledgeError('该账号下没有可用知识库。')
+    } catch (error) {
+      if (!mounted.current) return
+      setKnowledgeError(error.message || '知识库加载失败')
+    } finally {
+      if (mounted.current) setKnowledgeLoading(false)
+    }
+  }, [form])
+
+  const loadKnowledgeAccounts = useCallback(async () => {
+    setKnowledgeLoading(true)
+    setKnowledgeError('')
+    try {
+      const response = await getMaxKbAccounts({ current: 1, size: 100, status: 1 })
+      if (!mounted.current) return
+      const rows = normalizeKnowledgePage(response.data).records
+      setKnowledgeAccounts(rows)
+      const accountId = rows.find((item) => item.status === 1)?.id ?? rows[0]?.id
+      form.setFieldsValue({ knowledgeAccountId: accountId, knowledgeId: undefined, knowledgeDocumentIds: [] })
+      if (accountId) await loadKnowledgeBases(accountId)
+      else setKnowledgeError('请先在知识库管理中配置并启用 MaxKB 账号。')
+    } catch (error) {
+      if (!mounted.current) return
+      setKnowledgeError(error.message || 'MaxKB 账号加载失败')
+    } finally {
+      if (mounted.current) setKnowledgeLoading(false)
+    }
+  }, [form, loadKnowledgeBases])
+
   const changeSourceType = (nextType) => {
     setSourceType(nextType)
     setFileList([])
-    form.setFieldsValue({ sourceType: nextType, text: undefined })
+    form.setFieldsValue({
+      sourceType: nextType,
+      text: undefined,
+      knowledgeAccountId: undefined,
+      knowledgeId: undefined,
+      knowledgeDocumentIds: [],
+    })
+    setKnowledgeError('')
+    if (nextType === 'knowledge') loadKnowledgeAccounts()
   }
 
   const changeFile = ({ fileList: nextFiles }) => {
@@ -283,7 +376,41 @@ export default function QuestionBankGeneratePage() {
     setJsonEditorErrors(new Set())
     setGenerating(true)
     try {
-      const response = await generateQuestions(buildGenerationFormData(values, fileList[0]?.originFileObj))
+      let generationValues = values
+      if (values.sourceType === 'knowledge') {
+        const selectedIds = new Set((values.knowledgeDocumentIds || []).map(String))
+        const selectedDocuments = knowledgeDocuments.filter((item) => selectedIds.has(itemId(item)))
+        const paragraphGroups = {}
+        for (const document of selectedDocuments) {
+          const documentId = itemId(document)
+          const paragraphResponse = await getMaxKbParagraphs(
+            values.knowledgeAccountId,
+            values.knowledgeId,
+            documentId,
+            { page: 1, page_size: 1000 },
+          )
+          const page = normalizeKnowledgePage(paragraphResponse.data)
+          if (page.total > page.records.length) {
+            throw new Error(`${itemLabel(document)} 的知识分段超过单次读取上限，请缩小选择范围`)
+          }
+          paragraphGroups[documentId] = page.records
+        }
+        const selectedKnowledge = knowledgeBases.find((item) => itemId(item) === String(values.knowledgeId))
+        const material = buildKnowledgeMaterial(selectedKnowledge, selectedDocuments, paragraphGroups)
+        if (!material.text || material.documentCount !== selectedDocuments.length) {
+          throw new Error('所选知识库文档没有可用于生成题目的文本知识点')
+        }
+        if (material.text.length > 200000) {
+          throw new Error('所选知识库内容超过 200000 字，请减少文档选择后重试')
+        }
+        generationValues = {
+          ...values,
+          sourceType: 'text',
+          text: material.text,
+          sourceTitle: values.sourceTitle || material.sourceTitle,
+        }
+      }
+      const response = await generateQuestions(buildGenerationFormData(generationValues, fileList[0]?.originFileObj))
       const nextDraft = response.data
       reviewSequence.current = invalidateReviewGeneration(reviewSequence.current)
       setDraft(nextDraft)
@@ -293,6 +420,8 @@ export default function QuestionBankGeneratePage() {
       setJsonEditorErrors(new Set())
       setImportResult(null)
       message.success(`已生成 ${nextDraft.generatedCount ?? nextDraft.questions?.length ?? 0} 道题`)
+    } catch (error) {
+      message.error(error.message || '题目生成失败')
     } finally {
       generationLock.current = false
       setGenerating(false)
@@ -338,13 +467,72 @@ export default function QuestionBankGeneratePage() {
 
   return (
     <div className="qbg-page">
-      <section className="qbg-hero"><span>QUESTION GENERATOR</span><Title level={1}>题库智能生成</Title><Paragraph>从文本或课程文件生成题目，逐题编辑并复审后导入题库。</Paragraph></section>
+      <section className="qbg-hero"><span>QUESTION GENERATOR</span><Title level={1}>题库智能生成</Title><Paragraph>从文本、课程文件或知识库文档生成题目，逐题编辑并复审后导入题库。</Paragraph></section>
       {!importResult && <Card title="1. 选择来源与生成参数" className="qbg-panel">
         {optionsError && <Alert className="qbg-options-error" type="error" showIcon message={optionsError} action={<Button size="small" onClick={loadOptions} loading={optionsLoading}>重试</Button>} />}
         <Spin spinning={optionsLoading}>
           <Form form={form} layout="vertical" initialValues={{ sourceType: 'text' }} onFinish={handleGenerate}>
-            <Form.Item name="sourceType" label="来源类型"><Segmented block value={sourceType} options={[{ value: 'text', label: '粘贴文本' }, { value: 'docx', label: 'DOCX 文件' }, { value: 'txt', label: 'TXT 文件' }]} onChange={changeSourceType} /></Form.Item>
-            {sourceType === 'text' ? <Form.Item name="text" label="课程材料" rules={[{ required: true, whitespace: true, message: '请输入课程材料' }]}><TextArea rows={8} maxLength={200000} showCount /></Form.Item> : <Form.Item label="课程文件" required><Upload.Dragger accept={`.${sourceType}`} maxCount={1} fileList={fileList} beforeUpload={() => false} onChange={changeFile} onRemove={() => { setFileList([]); return true }}><InboxOutlined className="qbg-upload-icon" /><p>点击或拖拽一个 {sourceType.toUpperCase()} 文件，选择后不会自动上传</p>{sourceType === 'docx' && <p>DOCX 提取标题、正文和表格，不识别图片</p>}</Upload.Dragger></Form.Item>}
+            <Form.Item name="sourceType" label="来源类型">
+              <Segmented
+                block
+                value={sourceType}
+                options={[
+                  { value: 'text', label: '粘贴文本' },
+                  { value: 'docx', label: 'DOCX 文件' },
+                  { value: 'txt', label: 'TXT 文件' },
+                  { value: 'knowledge', label: '知识库' },
+                ]}
+                onChange={changeSourceType}
+              />
+            </Form.Item>
+            {sourceType === 'text' && (
+              <Form.Item name="text" label="课程材料" rules={[{ required: true, whitespace: true, message: '请输入课程材料' }]}>
+                <TextArea rows={8} maxLength={200000} showCount />
+              </Form.Item>
+            )}
+            {(sourceType === 'docx' || sourceType === 'txt') && (
+              <Form.Item label="课程文件" required>
+                <Upload.Dragger accept={`.${sourceType}`} maxCount={1} fileList={fileList} beforeUpload={() => false} onChange={changeFile} onRemove={() => { setFileList([]); return true }}>
+                  <InboxOutlined className="qbg-upload-icon" />
+                  <p>点击或拖拽一个 {sourceType.toUpperCase()} 文件，选择后不会自动上传</p>
+                  {sourceType === 'docx' && <p>DOCX 提取标题、正文和表格，不识别图片</p>}
+                </Upload.Dragger>
+              </Form.Item>
+            )}
+            {sourceType === 'knowledge' && (
+              <div className="qbg-knowledge-source">
+                {knowledgeError && <Alert type="warning" showIcon message={knowledgeError} />}
+                <div className="qbg-form-grid">
+                  <Form.Item name="knowledgeAccountId" label="MaxKB 账号" rules={[{ required: true, message: '请选择知识库账号' }]}>
+                    <Select
+                      loading={knowledgeLoading}
+                      placeholder="选择已启用账号"
+                      options={knowledgeAccounts.map((item) => ({ value: item.id, label: itemLabel(item, '未命名账号') }))}
+                      onChange={(accountId) => loadKnowledgeBases(accountId)}
+                    />
+                  </Form.Item>
+                  <Form.Item name="knowledgeId" label="知识库" rules={[{ required: true, message: '请选择知识库' }]}>
+                    <Select
+                      loading={knowledgeLoading}
+                      placeholder="选择知识库"
+                      options={knowledgeBases.map((item) => ({ value: itemId(item), label: itemLabel(item, '未命名知识库') }))}
+                      onChange={(knowledgeId) => loadKnowledgeDocuments(form.getFieldValue('knowledgeAccountId'), knowledgeId)}
+                    />
+                  </Form.Item>
+                </div>
+                <Form.Item name="knowledgeDocumentIds" label="用于出题的知识库文档" rules={[{ required: true, type: 'array', min: 1, message: '请至少选择一个知识库文档' }]}>
+                  <Select
+                    mode="multiple"
+                    loading={knowledgeLoading}
+                    placeholder="选择包含目标知识点的文档"
+                    optionFilterProp="label"
+                    maxTagCount="responsive"
+                    options={knowledgeDocuments.map((item) => ({ value: itemId(item), label: itemLabel(item, '未命名文档') }))}
+                  />
+                </Form.Item>
+                <Text type="secondary">只读取所选文档的文本分段作为出题依据，不会把整个知识库无边界提交给智能体。</Text>
+              </div>
+            )}
             <div className="qbg-form-grid">
               <Form.Item name="questionType" label="题型" rules={[{ required: true, message: '请选择题型' }]}><Select placeholder="选择可用题型" options={options.map((option) => ({ value: option.type, disabled: !option.available, label: option.available ? (TYPE_LABELS[option.type] ?? option.type) : `${TYPE_LABELS[option.type] ?? option.type}（${option.unavailableReason || '当前不可用'}）` }))} /></Form.Item>
               <Form.Item name="maxQuestions" label="最大题量"><InputNumber min={1} precision={0} placeholder="留空由智能体决定" /></Form.Item>
@@ -352,7 +540,7 @@ export default function QuestionBankGeneratePage() {
               <Form.Item name="sourceTitle" label="来源标题"><Input maxLength={160} placeholder="可选" /></Form.Item>
             </div>
             {selectedOption && <Alert type={selectedOption.available ? 'info' : 'warning'} showIcon message={selectedOption.available ? `执行智能体：${selectedOption.agentRole || selectedOption.agentName}` : selectedOption.unavailableReason} />}
-            <Button className="qbg-primary" type="primary" htmlType="submit" loading={generating} disabled={optionsLoading || Boolean(optionsError) || !selectedQuestionTypeAvailable || generating || importing || (sourceType !== 'text' && fileList.length !== 1)}>生成题目</Button>
+            <Button className="qbg-primary" type="primary" htmlType="submit" loading={generating} disabled={optionsLoading || Boolean(optionsError) || !selectedQuestionTypeAvailable || generating || importing || ((sourceType === 'docx' || sourceType === 'txt') && fileList.length !== 1) || (sourceType === 'knowledge' && Boolean(knowledgeError))}>生成题目</Button>
           </Form>
         </Spin>
       </Card>}

@@ -1453,6 +1453,9 @@ def _bounded_conversation_context(context: Dict[str, Any]) -> Dict[str, Any]:
 def _contextualize_followup_input(input_text: str, context: Dict[str, Any]) -> str:
     text = str(input_text or "").strip()
     compact = normalize_text(text)
+    knowledge_source_choice = _contextualize_knowledge_source_choice(text, compact, context)
+    if knowledge_source_choice:
+        return knowledge_source_choice
     if _has_explicit_current_schedule_intent(compact):
         return text
     if not text or not _is_contextual_followup(compact):
@@ -1469,6 +1472,85 @@ def _contextualize_followup_input(input_text: str, context: Dict[str, Any]) -> s
     if any(token in compact for token in ("在哪", "哪里", "哪儿", "教室", "地点")):
         return f"{subject}在哪里上课？"
     return f"{subject} {text}"
+
+
+def _contextualize_knowledge_source_choice(input_text: str, compact_text: str, context: Dict[str, Any]) -> str:
+    if not compact_text:
+        return ""
+    turns = [turn for turn in (context.get("turns") or []) if isinstance(turn, dict)]
+    authorized_turn = next(
+        (
+            turn for turn in reversed(turns)
+            if str((turn.get("metadata") or {}).get("knowledgeSourceMode") or "").strip() == "model_generated"
+        ),
+        None,
+    )
+    contextual_continue = compact_text in {
+        "继续", "继续生成", "接着生成", "按这个生成", "就这样生成", "可以", "确认", "确定",
+    }
+    if authorized_turn and contextual_continue:
+        authorized_topic = str((authorized_turn.get("metadata") or {}).get("knowledgeTopic") or "").strip()
+        authorized_topic = authorized_topic or str(authorized_turn.get("user") or "").strip() or "当前主题"
+        return f"用户此前已经授权模型在无材料时自行生成知识材料，无需再次确认来源。请继续处理原始主题：{authorized_topic}"
+
+    selection_turn = next(
+        (
+            turn for turn in reversed(turns)
+            if str((turn.get("metadata") or {}).get("knowledgeSourceMode") or "").strip() == "source_selection_required"
+            or _looks_like_knowledge_source_prompt(str(turn.get("assistant") or ""))
+        ),
+        None,
+    )
+    if not selection_turn:
+        return ""
+
+    assistant_prompt = str(selection_turn.get("assistant") or "")
+    explicit_model_choice = any(token in compact_text for token in (
+        "授权模型", "模型自行生成", "自行生成", "自己生成", "直接生成", "不用材料", "无需材料",
+    ))
+    second_choice = compact_text in {"2", "选2", "选择2", "第二种", "第二种方式", "方式二", "第二项", "选第二个"}
+    third_choice = compact_text in {"3", "选3", "选择3", "第三种", "第三种方式", "方式三", "第三项", "选第三个"}
+    third_model_option = any(token in assistant_prompt for token in (
+        "3. 授权", "3、授权", "3.授权", "3．授权", "第三种方式",
+    ))
+    second_is_model = second_choice and (
+        "两种" in assistant_prompt
+        or "2. 授权" in assistant_prompt
+        or "2、授权" in assistant_prompt
+        or "2.授权" in assistant_prompt
+        or "第二种方式" in assistant_prompt
+        or not third_model_option
+    )
+    third_is_model = third_choice and third_model_option
+    if not (explicit_model_choice or second_is_model or third_is_model):
+        return ""
+
+    topic = str((selection_turn.get("metadata") or {}).get("knowledgeTopic") or "").strip()
+    if not topic:
+        for turn in reversed(turns):
+            candidate = str(turn.get("user") or "").strip()
+            candidate_compact = normalize_text(candidate)
+            if candidate and candidate != input_text and not _is_bare_source_choice(candidate_compact):
+                topic = candidate
+                break
+    topic = topic or _latest_context_subject(context) or "当前主题"
+    return f"我明确授权模型在没有上传材料或知识库证据时自行生成知识材料。请继续处理原始主题：{topic}"
+
+
+def _looks_like_knowledge_source_prompt(answer: str) -> bool:
+    normalized = normalize_text(answer)
+    return (
+        any(token in normalized for token in ("知识来源", "来源方式", "上传材料", "知识库内容"))
+        and any(token in normalized for token in ("授权模型", "自行生成", "自己生成"))
+    )
+
+
+def _is_bare_source_choice(compact_text: str) -> bool:
+    return compact_text in {
+        "1", "2", "3", "选1", "选2", "选3", "选择1", "选择2", "选择3",
+        "第一种", "第二种", "第三种", "第一种方式", "第二种方式", "第三种方式",
+        "方式一", "方式二", "方式三", "第一项", "第二项", "第三项",
+    }
 
 
 def _is_contextual_followup(compact_text: str) -> bool:
@@ -1598,8 +1680,6 @@ def _execute_leader_plan(
         if plan.tool_name in SERVICE_TOOL_NAMES:
             return _run_service_tool(request, authorization, plan)
         if plan.tool_name == "generated_export_tools":
-            if not _is_agent_enabled(request, "file_content_planner_agent"):
-                return _run_disabled_tool_response(request, plan.tool_name, leader_plan=plan)
             return _run_generated_export_tool(request, plan)
         if plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
             return _run_visual_generation_tool(request, plan)
@@ -1820,8 +1900,6 @@ def _leader_callable_tool_item(tool: Dict[str, Any], request: Optional[RagQueryR
     enabled = True if request is None else _is_tool_enabled(request, name)
     if enabled and request is not None and name in VISUAL_GENERATION_TOOL_NAMES:
         enabled = _visual_tool_dependencies_enabled(request, name)
-    if enabled and request is not None and name == "generated_export_tools":
-        enabled = _is_agent_enabled(request, "file_content_planner_agent")
     return {
         **tool,
         "zhName": tool.get("zhName") or _tool_zh_name(name),
@@ -2249,7 +2327,7 @@ def _run_direct_agent(
         "agentName": "leader_agent" if leader_plan else agent_name,
         "targetAgent": agent_name,
         "executedAgent": agent_name,
-        "intent": agent_profile["intent"],
+        "intent": "knowledge_source_clarification" if knowledge_source_mode == "source_selection_required" else agent_profile["intent"],
         "needRetrieval": False,
         "retrievalSkipped": True,
         "strategyLabel": "直接处理（不使用 RAG）",
@@ -2264,6 +2342,7 @@ def _run_direct_agent(
     if knowledge_source_mode:
         metadata.update({
             "knowledgeSourceMode": knowledge_source_mode,
+            "knowledgeTopic": request.input,
             "modelGeneratedMaterial": knowledge_source_mode == "model_generated",
             "materialSourceLabel": {
                 "provided_material": "用户材料或知识库证据",
@@ -2516,6 +2595,7 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
         "userRequest": str((request.metadata or {}).get("contextOriginalInput") or request.input or ""),
         "targetFormat": requested_output_type,
         "sourceContent": source_content,
+        "sourceCandidates": request_metadata.get("sourceMessageCandidates") or [],
         "conversationContext": request_metadata.get("conversationContext") or {},
     }, ensure_ascii=False)
     planner_answer, planner_model_metadata = _run_file_content_planner(
@@ -2566,6 +2646,9 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
         "fileContentPlannerAction": "export",
         "sourceMessageOrigin": request_metadata.get("sourceMessageOrigin") or ("selected_message" if source_content else "user_request"),
     })
+    selected_source_message_id = planner_result.get("selectedSourceMessageId")
+    if selected_source_message_id is not None:
+        metadata["selectedSourceMessageId"] = selected_source_message_id
     parsed_input = _try_parse_json_object(export_content)
     export_answer_type = "question_bank" if isinstance(parsed_input.get("questions"), list) else "markdown"
     export_result = export_generated_answer(export_content, export_answer_type, metadata)
@@ -2602,13 +2685,28 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
 
 
 def _run_file_content_planner(request: RagQueryRequest, planner_payload: str, leader_plan) -> Tuple[str, Dict[str, Any]]:
-    return _run_specialist_agent_with_bound_model(
-        request,
-        "file_content_planner_agent",
-        planner_payload,
-        [],
-        leader_plan=leader_plan,
+    config_agent = (
+        "file_content_planner_agent"
+        if _is_agent_model_ready(request, "file_content_planner_agent")
+        else "leader_agent"
     )
+    runtime_config, config_prefix = _require_agent_runtime_config(request, config_agent, leader_plan=leader_plan)
+    token = set_active_llm_config(runtime_config)
+    try:
+        answer = run_specialist_agent("file_content_planner_agent", planner_payload, [], chat_service=None)
+    except Exception as exc:
+        _raise_agent_execution_error(
+            exc,
+            "file_content_planner_agent",
+            leader_plan=leader_plan,
+            runtime_config=runtime_config,
+            config_prefix=config_prefix,
+        )
+    finally:
+        reset_active_llm_config(token)
+    model_metadata = _agent_model_metadata(runtime_config, config_prefix)
+    model_metadata["plannerModelConfigAgent"] = config_agent
+    return answer, model_metadata
 
 
 def _requested_file_type_from_text(input_text: str) -> str:
@@ -2853,7 +2951,10 @@ def _follow_up_actions_for_output(answer_type: str, metadata: Dict[str, Any], ou
     metadata = metadata or {}
     agent = str(metadata.get("executedAgent") or metadata.get("targetAgent") or "").strip()
     intent = str(metadata.get("intent") or "").strip().lower()
-    if intent in {"smalltalk", "greeting", "leader_callable_catalog", "capability_inquiry", "file_source_clarification"}:
+    if intent in {
+        "smalltalk", "greeting", "leader_callable_catalog", "capability_inquiry",
+        "file_source_clarification", "knowledge_source_clarification",
+    }:
         return []
     hints = metadata.get("outputPreferenceHints") if isinstance(metadata.get("outputPreferenceHints"), dict) else {}
     preferred_format = str(hints.get("preferredFormat") or "").strip()

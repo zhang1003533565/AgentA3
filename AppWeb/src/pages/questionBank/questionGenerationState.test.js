@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import {
   buildGenerationFormData,
+  buildKnowledgeMaterial,
   buildImportPayload,
   canEditQuestions,
   canImportQuestions,
@@ -10,6 +11,7 @@ import {
   isQuestionTypeAvailable,
   invalidateReviewGeneration,
   normalizeQuestionForEditor,
+  normalizeKnowledgePage,
   removeQuestionAndRenumber,
   serializeEditedQuestion,
   updateJsonEditorErrors,
@@ -60,6 +62,34 @@ test('通用文件来源与具体文件来源遵守同一互斥契约', () => {
   assert.equal(data.file instanceof Blob, true)
   assert.equal(data.file.size, file.size)
   assert.equal('text' in data, false)
+})
+
+test('知识库分页响应兼容 records 和嵌套 data 结构', () => {
+  assert.deepEqual(normalizeKnowledgePage({ data: { code: 200, data: { records: [{ id: 'kb-1' }], total: 1 } } }), {
+    records: [{ id: 'kb-1' }],
+    total: 1,
+  })
+})
+
+test('只把用户选中的知识库文档分段合并为题目材料', () => {
+  const material = buildKnowledgeMaterial(
+    { id: 'kb-1', name: 'Python 知识库' },
+    [
+      { id: 'doc-1', name: '基础语法' },
+      { id: 'doc-2', name: '数据结构' },
+    ],
+    {
+      'doc-1': [{ content: '变量与数据类型' }, { text: '条件语句' }],
+      'doc-2': [{ content: '列表与元组' }],
+      'doc-3': [{ content: '未选择内容' }],
+    },
+  )
+
+  assert.equal(material.sourceTitle, 'Python 知识库')
+  assert.equal(material.documentCount, 2)
+  assert.match(material.text, /基础语法[\s\S]*变量与数据类型[\s\S]*条件语句/)
+  assert.match(material.text, /数据结构[\s\S]*列表与元组/)
+  assert.doesNotMatch(material.text, /未选择内容/)
 })
 
 test('空最大题量不写入 FormData，有值时作为生成上限写入', () => {

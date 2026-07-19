@@ -402,14 +402,24 @@ public class AppAiLeaderController {
         if (StringUtils.hasText(inferredOutputType)) {
             metadata.put("requestedOutputType", inferredOutputType);
             if (session != null) {
-                messageRepository.findFirstByLeaderSessionIdAndRoleOrderByCreateTimeDesc(
+                List<Map<String, Object>> sourceCandidates = messageRepository
+                        .findTop6ByLeaderSessionIdAndRoleOrderByCreateTimeDescIdDesc(
                                 session.getId(), AiLeaderMessage.ROLE_ASSISTANT)
+                        .stream()
                         .filter(message -> StringUtils.hasText(message.getContent()))
-                        .ifPresent(message -> {
-                            metadata.put("sourceMessageId", message.getId());
-                            metadata.put("sourceMessageContent", truncate(message.getContent(), 100_000));
-                            metadata.put("sourceMessageOrigin", "latest_assistant_message");
-                        });
+                        .map(message -> {
+                            Map<String, Object> candidate = new LinkedHashMap<>();
+                            candidate.put("messageId", message.getId());
+                            candidate.put("content", truncate(message.getContent(), 100_000));
+                            candidate.put("answerType", message.getAnswerType());
+                            candidate.put("agentName", message.getAgentName());
+                            return candidate;
+                        })
+                        .toList();
+                if (!sourceCandidates.isEmpty()) {
+                    metadata.put("sourceMessageCandidates", sourceCandidates);
+                    metadata.put("sourceMessageOrigin", "recent_assistant_candidates");
+                }
             }
         }
         if (StringUtils.hasText(request.getInteractionType())) {
