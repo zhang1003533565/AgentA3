@@ -12,6 +12,7 @@
       :subtitle="subtitle"
       :subtitleColor="subtitleColor"
       :iconColor="iconColor"
+      :autoBack="autoBack"
       :shadow="shadow"
       @back="$emit('back')"
       @right-click="$emit('right-click')"
@@ -39,11 +40,12 @@ export default {
     placeholder: { type: Boolean, default: true },
     showBack: { type: Boolean, default: false },
     border: { type: Boolean, default: false },
-    background: { type: String, default: '#E8F0F8' },
+    background: { type: String, default: 'linear-gradient(180deg, #dff0ff 0%, #eaf5ff 100%)' },
     heightRpx: { type: Number, default: 88 },
     titleColor: { type: String, default: '#1D1D1F' },
     subtitleColor: { type: String, default: '#8E8E93' },
     iconColor: { type: String, default: '#1D1D1F' },
+    autoBack: { type: Boolean, default: true },
     shadow: { type: Boolean, default: false }
   },
   computed: {

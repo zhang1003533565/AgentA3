@@ -29,7 +29,7 @@
         <view class="stat-item">
           <text class="stat-num">{{ stats.myItems }}</text>
           <view class="stat-label-row">
-            <image class="stat-icon" src="/static/icons/publish.svg" mode="aspectFit" />
+            <image class="stat-icon" src="/static/icons/material-symbols-light--publish-rounded.svg" mode="aspectFit" />
             <text class="stat-label">我的发布</text>
           </view>
         </view>
@@ -45,7 +45,7 @@
         <view class="stat-item">
           <text class="stat-num">{{ stats.myFavorites }}</text>
           <view class="stat-label-row">
-            <image class="stat-icon" src="/static/icons/line/award.svg" mode="aspectFit" />
+            <image class="stat-icon" src="/static/icons/line/star.svg" mode="aspectFit" />
             <text class="stat-label">我的收藏</text>
           </view>
         </view>
@@ -57,14 +57,14 @@
       </view>
       <view class="menu-block">
         <view class="menu-item" @click="goToMyItems">
-          <image class="menu-icon" src="/static/icons/publish.svg" mode="aspectFit" />
+          <image class="menu-icon" src="/static/icons/material-symbols-light--publish-rounded.svg" mode="aspectFit" />
           <text class="menu-label">我的发布</text>
           <text class="menu-arrow">›</text>
         </view>
         <view class="menu-divider"></view>
         <view class="menu-item" @click="goToMyPurchases">
           <image class="menu-icon" src="/static/icons/line/credit-card.svg" mode="aspectFit" />
-          <text class="menu-label">我的交易</text>
+          <text class="menu-label">我的购买</text>
           <text class="menu-arrow">›</text>
         </view>
         <view class="menu-divider"></view>
@@ -81,7 +81,7 @@
       </view>
       <view class="menu-block">
         <view class="menu-item" @click="goToFavorites">
-          <image class="menu-icon" src="/static/icons/line/award.svg" mode="aspectFit" />
+          <image class="menu-icon" src="/static/icons/line/star.svg" mode="aspectFit" />
           <text class="menu-label">我的收藏</text>
           <text class="menu-arrow">›</text>
         </view>
@@ -93,7 +93,7 @@
         </view>
         <view class="menu-divider"></view>
         <view class="menu-item" @click="goToSettings">
-          <image class="menu-icon" src="/static/icons/line/tool.svg" mode="aspectFit" />
+          <image class="menu-icon" src="/static/icons/line/gear.svg" mode="aspectFit" />
           <text class="menu-label">设置</text>
           <text class="menu-arrow">›</text>
         </view>

@@ -79,6 +79,8 @@ public class ChatServiceImpl implements ChatService {
             session.setSellerId(sellerId);
             session.setLastTime(java.time.LocalDateTime.now());
             session = sessionRepository.save(session);
+            itemRepository.incrementInquiryCount(itemId);
+            itemRepository.updateHeatScore(itemId);
         }
         return toSessionVO(session, userId);
     }

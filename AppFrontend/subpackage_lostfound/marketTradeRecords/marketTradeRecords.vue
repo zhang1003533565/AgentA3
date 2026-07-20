@@ -59,9 +59,9 @@ export default {
 </script>
 
 <style scoped>
-.page-root { min-height: 100vh; background: #f0f5fa; }
-.container { width: 100%; max-width: 430px; min-height: 100vh; margin: 0 auto; padding: 0 16rpx; box-sizing: border-box; background: #e8f0f8; }
-.page-body { height: calc(100vh - 88rpx); padding: 24rpx 0 150rpx; box-sizing: border-box; }
+.page-root { min-height: 100vh; background: #F7F8FA; }
+.container { width: 100%; max-width: 430px; min-height: 100vh; margin: 0 auto; box-sizing: border-box; background: #F7F8FA; }
+.page-body { height: calc(100vh - 88rpx); padding: 24rpx 16rpx 150rpx; box-sizing: border-box; background: #F7F8FA; }
 .empty { padding: 180rpx 0; text-align: center; color: #8aa1b2; font-size: 27rpx; }
 .record-card { position: relative; padding: 24rpx; margin-bottom: 18rpx; background: #fff; border-radius: 18rpx; box-shadow: 0 6rpx 18rpx rgba(43, 68, 94, 0.08); }
 .status { display: inline-flex; padding: 8rpx 16rpx; border-radius: 999rpx; background: #eef5fc; color: #5c8ab8; font-size: 22rpx; font-weight: 900; }

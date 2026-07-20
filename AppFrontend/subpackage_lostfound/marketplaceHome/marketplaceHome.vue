@@ -96,20 +96,17 @@
                     <text class="hot-status-badge" :class="'hot-status-badge--' + item.status">{{ item.statusText }}</text>
                   </view>
                   <view class="hot-body">
-                    <view class="hot-main-row">
-                      <text class="hot-name">{{ item.title }}</text>
+                    <text class="hot-name">{{ item.title }}</text>
+                    <text class="hot-desc">{{ item.categoryLevel2Name || item.categoryName || itemCategoryLabel(item) }}</text>
+                    <view class="hot-price-line">
                       <view class="hot-price-row">
                         <text v-if="priceDisplay(item).prefix" class="hot-price-symbol">{{ priceDisplay(item).prefix }}</text>
                         <text class="hot-price" :class="{ 'hot-price-text': !priceDisplay(item).prefix }">{{ priceDisplay(item).text }}</text>
                       </view>
-                    </view>
-                    <view class="hot-info-row">
                       <text class="hot-info-chip">{{ itemConditionLabel(item) }}</text>
-                      <text class="hot-info-chip">{{ itemCategoryLabel(item) }}</text>
-                      <text v-if="isNegotiable(item)" class="hot-info-chip hot-info-chip--blue">可议价</text>
                     </view>
                     <view class="hot-location-row">
-                      <text class="hot-location-label">取货地点</text>
+                      <image class="hot-location-icon" src="/static/icons/mi-location.svg" mode="aspectFit" />
                       <text class="hot-location">{{ itemLocationLabel(item) }}</text>
                     </view>
                     <view class="hot-user">
@@ -540,7 +537,7 @@ export default {
 
 /* ===== Section shared ===== */
 .section {
-  padding: 0 28rpx;
+  padding: 0 18rpx;
   margin-bottom: 36rpx;
 }
 
@@ -595,16 +592,16 @@ export default {
 
 /* ===== 2. Search ===== */
 .search-block {
-  padding: 12rpx 28rpx 20rpx;
+  padding: 28rpx 28rpx 34rpx;
   display: flex;
   align-items: center;
-  gap: 16rpx;
+  gap: 18rpx;
 }
 
 .search-block--sticky {
   position: relative;
   z-index: 10;
-  background: #FFFFFF;
+  background: #F7F7F9;
   flex-shrink: 0;
 }
 
@@ -612,27 +609,30 @@ export default {
   flex: 1;
   display: flex;
   align-items: center;
-  height: 76rpx;
+  height: 82rpx;
   padding: 0 28rpx;
-  background: #F5F5F5;
-  border-radius: 38rpx;
+  background: #FFFFFF;
+  border: 1rpx solid rgba(218, 228, 238, 0.9);
+  border-radius: 42rpx;
+  box-shadow: 0 10rpx 24rpx rgba(92, 122, 153, 0.12);
   gap: 12rpx;
+  box-sizing: border-box;
 }
 
 .search-pill-icon {
-  width: 36rpx;
-  height: 36rpx;
+  width: 38rpx;
+  height: 38rpx;
   flex-shrink: 0;
-  opacity: 0.7;
+  opacity: 0.58;
 }
 
 .search-pill-input {
   flex: 1;
   min-width: 0;
-  height: 76rpx;
-  font-size: 26rpx;
-  line-height: 76rpx;
-  color: #888888;
+  height: 82rpx;
+  font-size: 27rpx;
+  line-height: 82rpx;
+  color: #8C929A;
   font-weight: 500;
   padding: 0;
   margin: 0;
@@ -640,24 +640,28 @@ export default {
   box-sizing: border-box;
   background: transparent;
   opacity: 1;
-  -webkit-text-fill-color: #888888;
+  -webkit-text-fill-color: #8C929A;
   pointer-events: none;
 }
 
 .search-scan-btn {
-  width: 76rpx;
-  height: 76rpx;
+  width: 82rpx;
+  height: 82rpx;
   border-radius: 50%;
-  background: #F5F5F5;
+  background: #FFFFFF;
+  border: 1rpx solid rgba(218, 228, 238, 0.9);
+  box-shadow: 0 10rpx 24rpx rgba(92, 122, 153, 0.12);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .search-scan-icon {
   width: 36rpx;
   height: 36rpx;
+  opacity: 0.82;
 }
 
 .search-transition-mask {
@@ -708,14 +712,15 @@ export default {
   left: var(--search-transition-start-left, 28rpx);
   top: var(--search-transition-start-top, calc(var(--status-bar-height) + 104rpx));
   width: var(--search-transition-start-width, calc(100vw - 132rpx));
-  height: var(--search-transition-start-height, 76rpx);
+  height: var(--search-transition-start-height, 82rpx);
   display: flex;
   align-items: center;
   gap: 12rpx;
   padding: 0 28rpx;
-  border-radius: 38rpx;
-  background: #F5F5F5;
-  border: 1rpx solid #EEEEEE;
+  border-radius: 42rpx;
+  background: #FFFFFF;
+  border: 1rpx solid rgba(218, 228, 238, 0.9);
+  box-shadow: 0 10rpx 24rpx rgba(92, 122, 153, 0.12);
   box-sizing: border-box;
   z-index: 3;
   opacity: 0;
@@ -723,18 +728,18 @@ export default {
 }
 
 .search-transition-icon {
-  width: 36rpx;
-  height: 36rpx;
-  opacity: 0.7;
+  width: 38rpx;
+  height: 38rpx;
+  opacity: 0.58;
 }
 
 .search-transition-input {
   flex: 1;
   min-width: 0;
-  height: 76rpx;
-  font-size: 26rpx;
-  line-height: 76rpx;
-  color: #888888;
+  height: 82rpx;
+  font-size: 27rpx;
+  line-height: 82rpx;
+  color: #8C929A;
   font-weight: 500;
   padding: 0;
   margin: 0;
@@ -742,7 +747,7 @@ export default {
   box-sizing: border-box;
   background: transparent;
   opacity: 1;
-  -webkit-text-fill-color: #888888;
+  -webkit-text-fill-color: #8C929A;
   pointer-events: none;
 }
 
@@ -989,16 +994,18 @@ export default {
 
 .hot-card {
   background: #fff;
-  border-radius: 22rpx;
+  border-radius: 24rpx;
   overflow: hidden;
-  border: 1rpx solid #EEEEEE;
-  box-shadow: 0 6rpx 18rpx rgba(92, 122, 153, 0.05);
+  border: 1rpx solid rgba(228, 232, 238, 0.95);
+  box-shadow: 0 10rpx 28rpx rgba(92, 122, 153, 0.08);
+  padding: 12rpx 12rpx 0;
+  box-sizing: border-box;
 }
 
 .hot-img {
   position: relative;
   width: 100%;
-  aspect-ratio: 1;
+  aspect-ratio: 1.18 / 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1054,7 +1061,7 @@ export default {
 }
 
 .hot-body {
-  padding: 18rpx 18rpx 20rpx;
+  padding: 16rpx 4rpx 18rpx;
 }
 
 .hot-main-row {
@@ -1070,10 +1077,29 @@ export default {
   -webkit-box-orient: vertical;
   overflow: hidden;
   font-size: 27rpx;
-  font-weight: 700;
+  font-weight: 800;
   color: #1D1D1F;
-  line-height: 1.35;
+  line-height: 1.32;
   min-height: 0;
+}
+
+.hot-desc {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  color: #8C929A;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hot-price-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  margin-top: 16rpx;
 }
 
 .hot-price-row {
@@ -1083,14 +1109,14 @@ export default {
 }
 
 .hot-price-symbol {
-  font-size: 21rpx;
+  font-size: 24rpx;
   font-weight: 800;
   color: #1D1D1F;
   line-height: 1;
 }
 
 .hot-price {
-  font-size: 33rpx;
+  font-size: 36rpx;
   font-weight: 850;
   color: #1D1D1F;
   line-height: 1;
@@ -1109,12 +1135,12 @@ export default {
 }
 
 .hot-info-chip {
-  max-width: 128rpx;
-  padding: 5rpx 10rpx;
-  border-radius: 10rpx;
-  background: #F5F6F8;
-  color: #6B6F76;
-  font-size: 18rpx;
+  max-width: 116rpx;
+  padding: 6rpx 12rpx;
+  border-radius: 12rpx;
+  background: rgba(79, 143, 232, 0.1);
+  color: #2F7FE5;
+  font-size: 20rpx;
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1128,9 +1154,17 @@ export default {
 
 .hot-location-row {
   display: flex;
-  flex-direction: column;
-  gap: 4rpx;
+  align-items: center;
+  gap: 6rpx;
+  margin-top: 14rpx;
   margin-bottom: 14rpx;
+}
+
+.hot-location-icon {
+  width: 26rpx;
+  height: 26rpx;
+  flex-shrink: 0;
+  opacity: 0.5;
 }
 
 .hot-location-label {
@@ -1141,8 +1175,8 @@ export default {
 
 .hot-location {
   font-size: 22rpx;
-  color: #5C5C60;
-  font-weight: 500;
+  color: #8C929A;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1153,7 +1187,7 @@ export default {
   align-items: center;
   gap: 8rpx;
   padding-top: 14rpx;
-  border-top: 1rpx solid #F0F0F0;
+  border-top: 1rpx solid #EEF1F4;
 }
 
 .hot-ava {

@@ -175,13 +175,28 @@ function Import-DataSqlIfRequested {
     Write-Log "Warning: data.sql contains TRUNCATE statements and may reset local seed data."
 
     Get-Content -Raw -Encoding UTF8 $DataSqlPath |
-        docker exec -i -e "MYSQL_PWD=$MysqlRootPassword" smart-campus-mysql mysql --default-character-set=utf8mb4 -uroot $MysqlDatabase
+        Invoke-Compose exec -T -e "MYSQL_PWD=$MysqlRootPassword" $MysqlService mysql --default-character-set=utf8mb4 -uroot $MysqlDatabase
 
     if ($LASTEXITCODE -ne 0) {
         Stop-WithError "Failed to import data.sql."
     }
 
     Write-Log "data.sql import completed."
+}
+
+function Wait-ForRedis {
+    Write-Log "Waiting for Redis container..."
+    for ($i = 0; $i -lt $MysqlWaitSeconds; $i++) {
+        $ErrorActionPreference = "SilentlyContinue"
+        Invoke-Compose exec -T redis redis-cli ping *> $null
+        $ErrorActionPreference = "Stop"
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+        Start-Sleep -Seconds 1
+    }
+
+    Stop-WithError "Redis did not become ready within ${MysqlWaitSeconds}s."
 }
 
 function Ensure-BackendTools {
@@ -215,6 +230,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Wait-ForMysql
+Wait-ForRedis
 Ensure-Database
 Import-DataSqlIfRequested
 Ensure-BackendTools

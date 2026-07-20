@@ -22,21 +22,106 @@
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { createOrGetChatSession, getTradeRecords } from '@/api/secondhand'
+import { getToken, getUserInfo } from '@/utils/storage.js'
+
+function firstValue(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== '')
+}
+
+function normalizeId(value) {
+  if (value === undefined || value === null || value === '') return ''
+  if (typeof value !== 'object') return String(value)
+  const id = firstValue(
+    value?.id,
+    value?.userId,
+    value?.buyerId,
+    value?.sellerId,
+    value?.user_id,
+    value?.buyer_id,
+    value?.seller_id,
+    value?.uid
+  )
+  return id === undefined || id === null ? '' : String(id)
+}
+
+function decodeBase64Url(value) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
+  const input = `${value || ''}`.replace(/-/g, '+').replace(/_/g, '/')
+  let output = ''
+  let buffer = 0
+  let bits = 0
+  for (let i = 0; i < input.length; i += 1) {
+    const char = input.charAt(i)
+    if (char === '=') break
+    const index = chars.indexOf(char)
+    if (index < 0) continue
+    buffer = (buffer << 6) | index
+    bits += 6
+    if (bits >= 8) {
+      bits -= 8
+      output += String.fromCharCode((buffer >> bits) & 0xff)
+    }
+  }
+  return output
+}
+
+function decodeTokenPayload(token) {
+  if (!token) return {}
+  try {
+    const payload = token.split('.')[1]
+    if (!payload) return {}
+    return JSON.parse(decodeBase64Url(payload))
+  } catch (e) {
+    return {}
+  }
+}
+
+function getRecordBuyerId(record) {
+  const buyer = record?.buyer || record?.buyerUser || {}
+  return normalizeId(firstValue(record?.buyerId, record?.buyerUserId, record?.buyer_id, buyer))
+}
 
 export default {
   components: { CommonPageHeader, MarketBottomBar },
   data() {
-    return { items: [] }
+    return {
+      items: [],
+      currentUserId: ''
+    }
   },
   onShow() {
+    this.loadCurrentUser()
     this.loadRecords()
   },
   methods: {
+    loadCurrentUser() {
+      let userInfo = getUserInfo() || {}
+      if (!userInfo.id && !userInfo.userId) {
+        const raw = uni.getStorageSync('userInfo')
+        if (raw) {
+          if (typeof raw === 'string') {
+            try {
+              userInfo = JSON.parse(raw)
+            } catch (e) {
+              userInfo = {}
+            }
+          } else if (typeof raw === 'object') {
+            userInfo = raw
+          }
+        }
+      }
+      const nestedUser = userInfo.user || userInfo.profile || userInfo.data || {}
+      const tokenPayload = decodeTokenPayload(getToken())
+      this.currentUserId = normalizeId(userInfo) || normalizeId(nestedUser) || normalizeId(tokenPayload)
+    },
     async loadRecords() {
       try {
         const res = await getTradeRecords({ current: 1, size: 100 })
         const records = Array.isArray(res?.data?.records) ? res.data.records : (Array.isArray(res?.data) ? res.data : [])
-        this.items = records.filter((item) => item.buyerId || item.buyerName || item.role === 'BUYER')
+        this.items = records.filter((item) => {
+          const buyerId = getRecordBuyerId(item)
+          return Boolean(this.currentUserId && buyerId && String(buyerId) === String(this.currentUserId))
+        })
       } catch (e) {
         console.error('加载购买记录失败', e)
         this.items = []
@@ -66,9 +151,9 @@ export default {
 </script>
 
 <style scoped>
-.page-root { min-height: 100vh; background: #f0f5fa; }
-.container { width: 100%; max-width: 430px; min-height: 100vh; margin: 0 auto; padding: 0 16rpx; box-sizing: border-box; background: #e8f0f8; }
-.page-body { height: calc(100vh - 88rpx); padding: 24rpx 0 150rpx; box-sizing: border-box; }
+.page-root { min-height: 100vh; background: #F7F8FA; }
+.container { width: 100%; max-width: 430px; min-height: 100vh; margin: 0 auto; box-sizing: border-box; background: #F7F8FA; }
+.page-body { height: calc(100vh - 88rpx); padding: 24rpx 16rpx 150rpx; box-sizing: border-box; background: #F7F8FA; }
 .empty { padding: 180rpx 0; text-align: center; color: #8aa1b2; font-size: 27rpx; }
 .record-card { display: flex; gap: 18rpx; padding: 20rpx; margin-bottom: 18rpx; background: #fff; border-radius: 18rpx; box-shadow: 0 6rpx 18rpx rgba(43, 68, 94, 0.08); }
 .cover { width: 132rpx; height: 132rpx; border-radius: 14rpx; background: #edf3f8; }

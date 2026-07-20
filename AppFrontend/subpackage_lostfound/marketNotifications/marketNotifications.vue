@@ -1,12 +1,6 @@
 <template>
   <view class="page-root">
-    <common-page-header title="系统通知" :fixed="true" :placeholder="true" :showBack="false">
-      <template #left>
-        <view class="header-back" @click="goBack">
-          <text class="header-back-icon">‹</text>
-        </view>
-      </template>
-    </common-page-header>
+    <common-page-header title="系统通知" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="goBack" />
 
     <scroll-view scroll-y class="page-body">
       <view v-if="announcements.length === 0" class="empty">
@@ -96,23 +90,6 @@ export default {
   overflow-y: auto;
   padding: 20rpx 24rpx;
   box-sizing: border-box;
-}
-
-/* 返回按钮（与首页一致） */
-.header-back {
-  width: 64rpx;
-  height: 64rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0;
-}
-
-.header-back-icon {
-  font-size: 48rpx;
-  font-weight: 300;
-  color: #111111;
-  line-height: 1;
 }
 
 /* 空状态 */

@@ -101,6 +101,7 @@ export default {
     titleColor: { type: String, default: '#1D1D1F' },
     subtitleColor: { type: String, default: '#8E8E93' },
     iconColor: { type: String, default: '#1D1D1F' },
+    autoBack: { type: Boolean, default: true },
     theme: { type: String, default: 'default' },
     showWechatCapsule: { type: Boolean, default: false }
   },
@@ -190,6 +191,7 @@ export default {
     },
     onBack() {
       this.$emit('back')
+      if (!this.autoBack) return
       const pages = getCurrentPages()
       if (pages.length <= 1) {
         uni.reLaunch({ url: '/pages/index/index' })
@@ -311,10 +313,26 @@ export default {
   border-radius: 50%;
 }
 
+.nav-back {
+  position: relative;
+  color: #1D1D1F;
+}
+
+.nav-back::before {
+  content: '';
+  width: 20rpx;
+  height: 20rpx;
+  border-left: 4rpx solid currentColor;
+  border-bottom: 4rpx solid currentColor;
+  transform: rotate(45deg);
+  border-radius: 2rpx;
+  box-sizing: border-box;
+}
+
 .nav-back-icon {
-  font-size: 48rpx;
-  line-height: 1;
-  font-weight: 300;
+  font-size: 0;
+  line-height: 0;
+  color: transparent;
 }
 
 .nav-right-icon {

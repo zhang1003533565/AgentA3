@@ -1,13 +1,13 @@
 <template>
   <view class="page-root">
+    <common-page-header title="消息" :fixed="true" :placeholder="true" :showBack="false">
+      <template #left>
+        <view class="market-back-button" @click="onBackToApp">‹</view>
+      </template>
+    </common-page-header>
+
     <view class="screen">
       <view class="container">
-        <common-page-header title="消息" :fixed="true" :placeholder="true" :showBack="false">
-          <template #left>
-            <view class="market-back-button" @click="onBackToApp">‹</view>
-          </template>
-        </common-page-header>
-
         <scroll-view scroll-y class="page-body" :show-scrollbar="false">
           <!-- 通知卡片（固定第一行，不参与排序） -->
           <view class="notify-card" @click="goToNotifications">
@@ -60,10 +60,10 @@
             </view>
           </view>
         </scroll-view>
-
-        <market-bottom-bar activeTab="messages" />
       </view>
     </view>
+
+    <market-bottom-bar activeTab="messages" />
   </view>
 </template>
 
@@ -197,27 +197,28 @@ export default {
   width: 100%;
   height: 100vh;
   min-height: 100vh;
-  background: #F5F5F5;
+  background: #F7F8FA;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .screen {
   width: 100%;
-  background: #F5F5F5;
-  height: 100vh;
-  min-height: 100vh;
+  flex: 1;
+  min-height: 0;
+  background: #F7F8FA;
   overflow: hidden;
 }
 
 .container {
   width: 100%;
   max-width: 430px;
+  height: 100%;
   margin: 0 auto;
   box-sizing: border-box;
   padding: 0 24rpx;
-  background: #F5F5F5;
-  height: 100vh;
-  min-height: 100vh;
+  background: #F7F8FA;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -228,7 +229,8 @@ export default {
   min-height: 0;
   height: 0;
   overflow-y: auto;
-  padding: 20rpx 0 150rpx;
+  padding: 20rpx 0 calc(120rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }

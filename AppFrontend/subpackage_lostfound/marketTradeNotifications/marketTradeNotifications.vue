@@ -172,7 +172,7 @@ export default {
 .screen {
   width: 100%;
   min-height: 100vh;
-  background: #f0f5fa;
+  background: #F7F8FA;
 }
 
 .container {
@@ -180,15 +180,15 @@ export default {
   max-width: 430px;
   min-height: 100vh;
   margin: 0 auto;
-  padding: 0 16rpx;
   box-sizing: border-box;
-  background: #e8f0f8;
+  background: #F7F8FA;
 }
 
 .page-body {
   height: calc(100vh - 120rpx);
-  padding: 20rpx 0 32rpx;
+  padding: 20rpx 16rpx 32rpx;
   box-sizing: border-box;
+  background: #F7F8FA;
 }
 
 .empty {

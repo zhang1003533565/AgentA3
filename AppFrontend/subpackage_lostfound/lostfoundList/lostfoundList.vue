@@ -12,10 +12,10 @@
           </common-page-header>
 
           <view class="market-hero">
-
             <view class="market-list-search-row" :class="{ 'market-list-search-row--transitioning': searchTransitioning }">
               <market-search-entry
                 class="market-list-search"
+                text="搜索商品、书籍、用品等"
                 source="marketplace"
                 bar-motion="rise"
                 @transition-change="searchTransitioning = $event"
@@ -26,46 +26,36 @@
                 <view v-if="hasActiveFilter" class="search-filter-dot"></view>
               </view>
             </view>
-
           </view>
 
-          <view class="category-shell" :class="{ 'category-shell--collapsed': !categoryExpanded }">
-            <view class="section-headline">
-              <text class="section-title">分类浏览</text>
-              <view class="category-toggle" @click.stop="toggleCategoryPanel">
+          <view class="category-shell" :class="{ 'category-shell--expanded': categoryExpanded }">
+            <view class="category-summary" @click="toggleCategoryPanel">
+              <view class="category-summary-main">
+                <text class="category-summary-title">分类浏览</text>
+              </view>
+              <view class="category-summary-action">
+                <text>{{ categoryExpanded ? '收起' : '展开' }}</text>
                 <view
-                  class="category-toggle-icon"
-                  :class="{ 'category-toggle-icon--expanded': categoryExpanded }"
+                  class="category-summary-arrow"
+                  :class="{ 'category-summary-arrow--expanded': categoryExpanded }"
                 ></view>
               </view>
             </view>
             <view class="category-collapse" :class="{ 'category-collapse--expanded': categoryExpanded }">
               <view class="category-collapse-inner">
-                <view class="scene-strip scene-strip--in-category">
-                  <view
-                    v-for="tag in sceneTags"
-                    :key="tag.key"
-                    class="scene-chip"
-                    :class="{ on: currentSceneTag === tag.key }"
-                    @click="applySceneTag(tag)"
-                  >
-                    <text class="scene-chip-title">{{ tag.label }}</text>
-                    <text class="scene-chip-sub">{{ tag.sub }}</text>
-                  </view>
-                </view>
                 <view class="cat-grid">
                   <view
-                    v-for="cat in categories"
+                    v-for="cat in marketCategoryTabs"
                     :key="cat.key"
                     class="cat-item"
-                    :class="{ on: currentCat === cat.key }"
-                    @click="currentCat = cat.key"
+                    :class="{ on: currentCat === cat.key || (cat.activeKey && currentCat === cat.activeKey) }"
+                    @click="selectMarketCategory(cat)"
                   >
                     <view class="cat-icon-wrap">
                       <image v-if="cat.icon" class="cat-icon-img" :src="cat.icon" mode="aspectFit" />
                       <text v-else class="cat-icon-text">{{ cat.label.slice(0, 1) }}</text>
                     </view>
-                    <text class="cat-label" :class="{ 'cat-label--muted': cat.key === 'more' }">{{ cat.label }}</text>
+                    <text class="cat-label">{{ cat.label }}</text>
                   </view>
                 </view>
               </view>
@@ -112,20 +102,17 @@
                   <text class="product-status-badge" :class="'product-status-badge--' + item.status">{{ item.statusText }}</text>
                 </view>
                 <view class="product-body">
-                  <view class="product-main-row">
-                    <text class="product-name">{{ item.name }}</text>
+                  <text class="product-name">{{ item.name }}</text>
+                  <text class="product-desc">{{ item.categoryLevel2Name || item.categoryName || itemCategoryLabel(item) }}</text>
+                  <view class="product-price-line">
                     <view class="product-price-row">
                       <text v-if="priceDisplay(item).prefix" class="product-price-symbol">{{ priceDisplay(item).prefix }}</text>
                       <text class="product-price-num" :class="{ 'product-price-text': !priceDisplay(item).prefix }">{{ priceDisplay(item).text }}</text>
                     </view>
-                  </view>
-                  <view class="product-info-row">
                     <text class="product-info-chip">{{ itemConditionLabel(item) }}</text>
-                    <text class="product-info-chip">{{ itemCategoryLabel(item) }}</text>
-                    <text v-if="isNegotiable(item)" class="product-info-chip product-info-chip--blue">可议价</text>
                   </view>
                   <view class="product-location-row">
-                    <text class="product-location-label">取货地点</text>
+                    <image class="product-location-icon" src="/static/icons/mi-location.svg" mode="aspectFit" />
                     <text class="product-location">{{ itemLocationLabel(item) }}</text>
                   </view>
                   <view class="product-user">
@@ -287,7 +274,7 @@
 
       <!-- 详情页 -->
       <view v-else-if="currentPage === 'detail'" class="page page-detail">
-        <common-page-header title="详情" :fixed="true" :placeholder="true" :showBack="true" @back="go('pgList')" />
+        <common-page-header title="详情" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="go('pgList')" />
 
         <scroll-view scroll-y class="page-body">
           <view class="dimg">
@@ -321,7 +308,7 @@
 
       <!-- 聊天 -->
       <view v-else-if="currentPage === 'chat'" class="page page-chat">
-        <common-page-header :title="curChat ? curChat.otherName : '聊天'" :fixed="true" :placeholder="true" :showBack="true" @back="go('pgDetail')" />
+        <common-page-header :title="curChat ? curChat.otherName : '聊天'" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="go('pgDetail')" />
 
         <scroll-view scroll-y class="chat-body" :scroll-into-view="scrollBottom" scroll-with-animation @scroll="onChatScroll">
           <view v-for="m in chatMessages" :key="m.id" :id="'msg-' + m.id">
@@ -404,7 +391,7 @@
 
       <!-- 我的发布 -->
       <view v-else-if="currentPage === 'myitems'" class="page page-myitems">
-        <common-page-header title="我发布的" :fixed="true" :placeholder="true" :showBack="true" @back="go('pgList')" />
+        <common-page-header title="我发布的" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="go('pgList')" />
 
         <scroll-view scroll-y class="page-body">
           <view v-if="myItems.length === 0" class="empty">
@@ -437,7 +424,7 @@
 
       <!-- 我的消息 -->
       <view v-else-if="currentPage === 'mymessages'" class="page page-mymessages">
-        <common-page-header title="我的消息" :fixed="true" :placeholder="true" :showBack="true" @back="go('pgList')" />
+        <common-page-header title="我的消息" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="go('pgList')" />
 
         <scroll-view scroll-y class="page-body">
           <view v-if="chats.length === 0" class="empty">
@@ -706,6 +693,17 @@ export default {
     }
   },
   computed: {
+    marketCategoryTabs() {
+      const findCategory = (key) => this.categories.find((cat) => String(cat.key) === String(key)) || {}
+      return [
+        { key: 'all', label: '全部', icon: '/static/icons/cat-all.svg' },
+        { ...findCategory('2'), key: '2', label: '书籍教材', icon: '/static/icons/cat-book.svg' },
+        { ...findCategory('1'), key: '1', label: '数码电子', icon: '/static/icons/cat-digital.svg' },
+        { ...findCategory('4'), key: '4', label: '生活用品', icon: '/static/icons/cat-dorm.svg' },
+        { ...findCategory('5'), key: '5', label: '运动户外', icon: '/static/icons/cat-transport.svg' },
+        { key: 'more', activeKey: '', label: '更多', icon: '/static/icons/cat-more.svg', action: 'filter' }
+      ]
+    },
     filteredItems() {
       return filterMarketItems(this.items, this.normalizedFilterQuery)
     },
@@ -1091,6 +1089,15 @@ export default {
     closeFilter() {
       this.filterVisible = false
     },
+    selectMarketCategory(cat) {
+      if (cat?.action === 'filter' || cat?.key === 'more') {
+        this.categoryExpanded = false
+        this.openFilter()
+        return
+      }
+      this.currentCat = cat?.key || 'all'
+      this.categoryExpanded = false
+    },
     resetFilter() {
       this.filterForm = {
         categoryLevel1Id: 'all',
@@ -1262,9 +1269,9 @@ export default {
 
 .market-hero {
   z-index: 20;
-  padding: 8rpx 0 18rpx;
-  background: #FFFFFF;
-  border-bottom: 1rpx solid #EEEEEE;
+  padding: 28rpx 0 24rpx;
+  background: #F7F7F9;
+  border-bottom: 0;
 }
 
 /* ===== School header ===== */
@@ -1318,13 +1325,35 @@ export default {
 .market-list-search-row {
   display: flex;
   align-items: center;
-  gap: 16rpx;
-  margin: 10rpx 28rpx 0;
+  gap: 18rpx;
+  margin: 0 28rpx;
 }
 
 .market-list-search {
   flex: 1;
   min-width: 0;
+}
+
+.market-list-search :deep(.market-search-entry__pill) {
+  height: 82rpx;
+  border-radius: 42rpx;
+  background: #FFFFFF;
+  box-shadow: 0 10rpx 24rpx rgba(92, 122, 153, 0.12);
+  border: 1rpx solid rgba(218, 228, 238, 0.9);
+}
+
+.market-list-search :deep(.market-search-entry__text) {
+  height: 82rpx;
+  line-height: 82rpx;
+  font-size: 27rpx;
+  color: #8C929A;
+  -webkit-text-fill-color: #8C929A;
+}
+
+.market-list-search :deep(.market-search-entry__icon) {
+  width: 38rpx;
+  height: 38rpx;
+  opacity: 0.58;
 }
 
 .market-list-search-row--transitioning .search-filter-btn {
@@ -1408,11 +1437,12 @@ export default {
 }
 
 .search-filter-btn {
-  width: 76rpx;
-  height: 76rpx;
+  width: 82rpx;
+  height: 82rpx;
   border-radius: 50%;
-  background: #F7F7F9;
-  border: 1rpx solid #EEEEEE;
+  background: #FFFFFF;
+  border: 1rpx solid rgba(218, 228, 238, 0.9);
+  box-shadow: 0 10rpx 24rpx rgba(92, 122, 153, 0.12);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1422,9 +1452,9 @@ export default {
 }
 
 .search-filter-icon {
-  width: 34rpx;
-  height: 34rpx;
-  opacity: 0.52;
+  width: 36rpx;
+  height: 36rpx;
+  opacity: 0.82;
 }
 
 .search-filter-dot {
@@ -1556,30 +1586,79 @@ export default {
   transform: rotate(225deg);
 }
 
-/* ===== Categories (4-col inside card, from homepage) ===== */
+/* ===== Categories ===== */
 .category-shell {
-  display: flex;
-  flex-direction: column;
   background: #fff;
-  border-radius: 20rpx;
-  margin: 18rpx 24rpx 0;
-  padding: 24rpx 20rpx 22rpx;
-  border: 1rpx solid #EEEEEE;
-  transition:
-    height 240ms cubic-bezier(0.22, 1, 0.36, 1),
-    padding 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  border-radius: 22rpx;
+  margin: 4rpx 28rpx 0;
+  padding: 0 22rpx;
+  border: 1rpx solid rgba(228, 232, 238, 0.9);
+  box-shadow: 0 12rpx 32rpx rgba(92, 122, 153, 0.08);
+  overflow: hidden;
+  transition: padding 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.category-shell--collapsed {
-  height: 88rpx;
-  padding-top: 0;
-  padding-bottom: 0;
-  justify-content: center;
+.category-shell--expanded {
+  padding-bottom: 24rpx;
 }
 
-.category-shell--collapsed .section-headline {
-  height: 100%;
-  margin-bottom: 0;
+.category-summary {
+  min-height: 70rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+
+.category-summary-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.category-summary-title {
+  min-width: 0;
+  font-size: 26rpx;
+  color: #1D1D1F;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-summary-action {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  flex-shrink: 0;
+  font-size: 22rpx;
+  color: #5C7A99;
+  font-weight: 800;
+}
+
+.category-summary-arrow {
+  width: 18rpx;
+  height: 18rpx;
+  position: relative;
+  color: #5C7A99;
+}
+
+.category-summary-arrow::before {
+  content: '';
+  position: absolute;
+  left: 3rpx;
+  top: 1rpx;
+  width: 10rpx;
+  height: 10rpx;
+  border-right: 3rpx solid currentColor;
+  border-bottom: 3rpx solid currentColor;
+  transform: rotate(45deg);
+  transform-origin: center;
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.category-summary-arrow--expanded::before {
+  transform: rotate(225deg);
 }
 
 .category-collapse {
@@ -1607,32 +1686,33 @@ export default {
 
 .cat-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 22rpx 0;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0;
 }
 
 .cat-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12rpx;
+  gap: 14rpx;
+  min-width: 0;
 }
 
 .cat-item.on .cat-icon-wrap {
-  background: rgba(92, 122, 153, 0.11);
-  border-color: rgba(92, 122, 153, 0.18);
+  background: rgba(86, 149, 230, 0.14);
+  border-color: rgba(86, 149, 230, 0.28);
 }
 
 .cat-item.on .cat-label {
-  color: #5C7A99;
+  color: #2F7FE5;
   font-weight: 800;
 }
 
 .cat-icon-wrap {
-  width: 86rpx;
-  height: 86rpx;
-  border-radius: 22rpx;
-  background: #F7F7F9;
+  width: 74rpx;
+  height: 74rpx;
+  border-radius: 50%;
+  background: #F5F6F8;
   border: 1rpx solid transparent;
   display: flex;
   align-items: center;
@@ -1641,8 +1721,8 @@ export default {
 }
 
 .cat-icon-img {
-  width: 42rpx;
-  height: 42rpx;
+  width: 40rpx;
+  height: 40rpx;
 }
 
 .cat-icon-text {
@@ -1652,9 +1732,13 @@ export default {
 }
 
 .cat-label {
+  width: 100%;
   font-size: 22rpx;
-  font-weight: 600;
-  color: #4A4A4A;
+  font-weight: 700;
+  color: #24272B;
+  text-align: center;
+  line-height: 1.15;
+  white-space: nowrap;
 }
 
 .cat-label--muted {
@@ -1666,17 +1750,17 @@ export default {
   z-index: 12;
   display: flex;
   align-items: center;
-  gap: 32rpx;
-  padding: 22rpx 28rpx 14rpx;
+  gap: 44rpx;
+  padding: 30rpx 36rpx 18rpx;
   background: #F7F7F9;
 }
 
 .sort-tab {
-  font-size: 24rpx;
+  font-size: 30rpx;
   font-weight: 600;
-  color: #AAAAAA;
+  color: #96999E;
   position: relative;
-  padding-bottom: 4rpx;
+  padding-bottom: 14rpx;
   transition: color 0.18s;
 }
 
@@ -1691,10 +1775,10 @@ export default {
   bottom: 0;
   left: 50%;
   transform: translateX(-50%);
-  width: 24rpx;
-  height: 5rpx;
+  width: 36rpx;
+  height: 6rpx;
   border-radius: 3rpx;
-  background: #1D1D1F;
+  background: #4F8FE8;
 }
 
 .sort-spacer {
@@ -1704,14 +1788,16 @@ export default {
 .sort-filter {
   display: flex;
   align-items: center;
-  gap: 6rpx;
-  padding: 8rpx 16rpx;
+  gap: 8rpx;
+  min-height: 56rpx;
+  padding: 0 22rpx;
   border-radius: 999rpx;
   background: #FFFFFF;
-  border: 1rpx solid #EEEEEE;
-  color: #8E8E93;
-  font-size: 22rpx;
+  border: 1rpx solid rgba(228, 232, 238, 0.9);
+  color: #6F747B;
+  font-size: 24rpx;
   font-weight: 700;
+  box-shadow: 0 6rpx 18rpx rgba(92, 122, 153, 0.08);
 }
 
 .sort-filter.on {
@@ -1721,9 +1807,9 @@ export default {
 }
 
 .sort-filter-icon {
-  width: 26rpx;
-  height: 26rpx;
-  opacity: 0.55;
+  width: 30rpx;
+  height: 30rpx;
+  opacity: 0.68;
 }
 
 /* ===== Product grid ===== */
@@ -1732,16 +1818,18 @@ export default {
   grid-template-columns: repeat(2, 1fr);
   align-items: start;
   gap: 18rpx;
-  padding: 4rpx 24rpx 200rpx;
+  padding: 4rpx 18rpx 210rpx;
 }
 
 .product-card {
   background: #fff;
-  border-radius: 22rpx;
+  border-radius: 24rpx;
   overflow: hidden;
-  border: 1rpx solid #EEEEEE;
+  border: 1rpx solid rgba(228, 232, 238, 0.95);
   transition: transform 0.15s ease;
-  box-shadow: 0 6rpx 18rpx rgba(92, 122, 153, 0.05);
+  box-shadow: 0 10rpx 28rpx rgba(92, 122, 153, 0.08);
+  padding: 12rpx 12rpx 0;
+  box-sizing: border-box;
 }
 
 .product-card:active {
@@ -1751,7 +1839,7 @@ export default {
 .product-img {
   position: relative;
   width: 100%;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 1.18 / 1;
   background: #F1F3F5;
   display: flex;
   align-items: center;
@@ -1807,14 +1895,14 @@ export default {
 }
 
 .product-price-symbol {
-  font-size: 21rpx;
+  font-size: 24rpx;
   font-weight: 800;
   color: #1D1D1F;
   line-height: 1;
 }
 
 .product-price-num {
-  font-size: 33rpx;
+  font-size: 36rpx;
   font-weight: 850;
   color: #1D1D1F;
   line-height: 1;
@@ -1826,7 +1914,7 @@ export default {
 }
 
 .product-body {
-  padding: 18rpx 18rpx 20rpx;
+  padding: 16rpx 4rpx 18rpx;
 }
 
 .product-main-row {
@@ -1838,14 +1926,33 @@ export default {
 
 .product-name {
   font-size: 27rpx;
-  font-weight: 700;
+  font-weight: 800;
   color: #1D1D1F;
-  line-height: 1.35;
+  line-height: 1.32;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   min-height: 0;
+}
+
+.product-desc {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  color: #8C929A;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-price-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  margin-top: 16rpx;
 }
 
 .product-info-row {
@@ -1856,12 +1963,12 @@ export default {
 }
 
 .product-info-chip {
-  max-width: 128rpx;
-  padding: 5rpx 10rpx;
-  border-radius: 10rpx;
-  background: #F5F6F8;
-  color: #6B6F76;
-  font-size: 18rpx;
+  max-width: 116rpx;
+  padding: 6rpx 12rpx;
+  border-radius: 12rpx;
+  background: rgba(79, 143, 232, 0.1);
+  color: #2F7FE5;
+  font-size: 20rpx;
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1881,9 +1988,17 @@ export default {
 
 .product-location-row {
   display: flex;
-  flex-direction: column;
-  gap: 4rpx;
+  align-items: center;
+  gap: 6rpx;
+  margin-top: 14rpx;
   margin-bottom: 14rpx;
+}
+
+.product-location-icon {
+  width: 26rpx;
+  height: 26rpx;
+  flex-shrink: 0;
+  opacity: 0.5;
 }
 
 .product-location-label {
@@ -1894,8 +2009,8 @@ export default {
 
 .product-location {
   font-size: 22rpx;
-  color: #5C5C60;
-  font-weight: 500;
+  color: #8C929A;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1906,7 +2021,7 @@ export default {
   align-items: center;
   gap: 8rpx;
   padding-top: 14rpx;
-  border-top: 1rpx solid #F0F0F0;
+  border-top: 1rpx solid #EEF1F4;
 }
 
 .product-ava {

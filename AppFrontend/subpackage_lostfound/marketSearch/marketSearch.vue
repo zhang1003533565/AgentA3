@@ -1,6 +1,6 @@
 <template>
   <view class="page-root">
-    <common-page-header title="搜索" :fixed="true" :placeholder="true" :showBack="true" @back="handleBack" />
+    <common-page-header title="搜索" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="handleBack" />
 
     <view class="search-shell">
       <view class="search-bar">
@@ -244,14 +244,12 @@ export default {
     }
   },
   onBackPress() {
-    console.log('[SEARCH ON BACK PRESS]', {
-      pagesLength: getCurrentPages().length,
-      pages: getCurrentPages().map(p => ({
-        route: p.route,
-        options: p.options
-      })),
-      fromRoute: this.fromRoute
-    })
+    const pages = getCurrentPages()
+    if (pages.length > 1) {
+      return false
+    }
+    this.handleBack()
+    return true
   },
   methods: {
     async loadItems() {
@@ -338,14 +336,6 @@ export default {
       return typeof url === 'string' && url.startsWith('/') && !url.startsWith('//')
     },
     handleBack() {
-      console.log('[SEARCH BACK]', {
-        pagesLength: getCurrentPages().length,
-        pages: getCurrentPages().map(p => ({
-          route: p.route,
-          options: p.options
-        })),
-        fromRoute: this.fromRoute
-      })
       const pages = getCurrentPages()
       if (pages.length > 1) {
         uni.navigateBack({ delta: 1 })
@@ -355,7 +345,7 @@ export default {
         uni.reLaunch({ url: this.fromRoute })
         return
       }
-      uni.reLaunch({ url: '/pages/index/index' })
+      uni.redirectTo({ url: '/subpackage_lostfound/lostfoundList/lostfoundList' })
     },
     goDetail(id) {
       uni.navigateTo({ url: `/subpackage_lostfound/lostfoundDetail/lostfoundDetail?id=${id}` })

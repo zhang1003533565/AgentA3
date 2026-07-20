@@ -1,11 +1,7 @@
 <template>
   <view class="page-root">
     <view class="screen">
-      <common-page-header title="我的发布" :subtitle="publishSummary" :fixed="true" :placeholder="true" :showBack="false">
-        <template #left>
-          <view class="market-back-button" @click="goBack">‹</view>
-        </template>
-      </common-page-header>
+      <common-page-header title="我的发布" :subtitle="publishSummary" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="goBack" />
 
       <view class="filter-tabs">
         <view
@@ -52,7 +48,7 @@
                 <text>浏览 {{ item.viewCount || 0 }}</text>
               </view>
               <view class="metric">
-                <view class="metric-icon star-icon"></view>
+                <image class="metric-icon metric-icon-img" src="/static/icons/line/star.svg" mode="aspectFit" />
                 <text>收藏 {{ item.favoriteCount || 0 }}</text>
               </view>
               <view class="metric">
@@ -722,6 +718,11 @@ export default {
   flex-shrink: 0;
 }
 
+.metric-icon-img {
+  display: block;
+  opacity: 0.78;
+}
+
 .eye-icon::before {
   content: '';
   position: absolute;
@@ -743,18 +744,6 @@ export default {
   height: 5rpx;
   border-radius: 50%;
   background: currentColor;
-}
-
-.star-icon::before {
-  content: '';
-  position: absolute;
-  left: 2rpx;
-  top: 1rpx;
-  width: 19rpx;
-  height: 19rpx;
-  border: 2.5rpx solid currentColor;
-  clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 94%, 50% 72%, 21% 94%, 32% 57%, 2% 35%, 39% 35%);
-  box-sizing: border-box;
 }
 
 .chat-icon::before {

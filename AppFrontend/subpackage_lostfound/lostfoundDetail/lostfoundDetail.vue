@@ -31,8 +31,19 @@
             </view>
             <view class="title">{{ item.title || '未命名商品' }}</view>
             <view class="meta-row">
-              <text>{{ categoryText }}</text>
-              <text>{{ conditionText }}</text>
+              <view class="meta-tags">
+                <text>{{ categoryText }}</text>
+                <text>{{ conditionText }}</text>
+              </view>
+              <button
+                class="favorite-button"
+                :class="{ 'favorite-button--active': item.isFavorited }"
+                :disabled="favoriteLoading"
+                @click.stop="toggleFavorite"
+              >
+                <image class="favorite-icon" src="/static/icons/line/star.svg" mode="aspectFit" />
+                <text>{{ item.isFavorited ? '已收藏' : '收藏' }}</text>
+              </button>
             </view>
             <view class="pickup-row" @click="contactSeller">
               <view class="pickup-main">
@@ -109,7 +120,13 @@
 
 <script>
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
-import { getSecondhandItemDetail, getTradeRecords, offlineSecondhandItem } from '@/api/secondhand'
+import {
+  favoriteSecondhandItem,
+  getSecondhandItemDetail,
+  getTradeRecords,
+  offlineSecondhandItem,
+  unfavoriteSecondhandItem
+} from '@/api/secondhand'
 import { getToken, getUserInfo } from '@/utils/storage'
 import { getMarketCategoryLabel, getMarketSubcategoryLabel } from '../utils/marketCategories'
 
@@ -217,6 +234,7 @@ export default {
       item: normalizeItem(),
       activeTrade: null,
       completedTrade: null,
+      favoriteLoading: false,
       pageBodyHeight: 0,
       imageIndex: 0
     }
@@ -386,6 +404,31 @@ export default {
         urls: this.item.images,
         current: src
       })
+    },
+    async toggleFavorite() {
+      if (!this.item.id || this.favoriteLoading) return
+      this.favoriteLoading = true
+      const nextFavorited = !this.item.isFavorited
+      try {
+        if (nextFavorited) {
+          await favoriteSecondhandItem(this.item.id)
+        } else {
+          await unfavoriteSecondhandItem(this.item.id)
+        }
+        this.item = {
+          ...this.item,
+          isFavorited: nextFavorited
+        }
+        uni.showToast({
+          title: nextFavorited ? '已收藏' : '已取消收藏',
+          icon: 'none'
+        })
+      } catch (e) {
+        console.error('更新收藏失败', e)
+        uni.showToast({ title: e?.data?.msg || e?.msg || '操作失败', icon: 'none' })
+      } finally {
+        this.favoriteLoading = false
+      }
     },
     async contactSeller() {
       if (!this.item.id) return
@@ -608,19 +651,69 @@ export default {
 
 .meta-row {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 16rpx;
-  flex-wrap: wrap;
   margin-top: 22rpx;
   padding-bottom: 28rpx;
 }
 
-.meta-row text {
+.meta-tags {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  flex-wrap: wrap;
+}
+
+.meta-tags text {
   padding: 9rpx 18rpx;
   border-radius: 999rpx;
   background: #edf4fb;
   color: #5f7c96;
   font-size: 23rpx;
   font-weight: 800;
+}
+
+.favorite-button {
+  flex-shrink: 0;
+  min-width: 132rpx;
+  height: 56rpx;
+  margin: 0;
+  padding: 0 18rpx;
+  border-radius: 999rpx;
+  border: 1rpx solid #d8e3ec;
+  background: #ffffff;
+  color: #5f7c96;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  font-size: 23rpx;
+  font-weight: 800;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
+.favorite-button::after {
+  border: none;
+}
+
+.favorite-button--active {
+  background: #edf4fb;
+  border-color: #d8e6f2;
+  color: #4f7598;
+}
+
+.favorite-icon {
+  width: 28rpx;
+  height: 28rpx;
+  display: block;
+  opacity: 0.76;
+}
+
+.favorite-button--active .favorite-icon {
+  opacity: 0.95;
 }
 
 .pickup-row {

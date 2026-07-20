@@ -2,11 +2,7 @@
   <view class="publish-overlay">
     <view class="publish-panel" :class="{ 'publish-panel--visible': visible }">
       <view class="publish-shell">
-        <view class="publish-header">
-          <view class="publish-close" @click="requestClose">‹</view>
-          <text class="publish-title">发布闲置</text>
-          <view class="publish-placeholder"></view>
-        </view>
+        <common-page-header title="发布闲置" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="requestClose" />
 
         <scroll-view scroll-y class="publish-body" :show-scrollbar="false" :scroll-into-view="scrollTarget" scroll-with-animation>
           <view
@@ -194,6 +190,7 @@
 </template>
 
 <script>
+import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import { createSecondhandItem } from '@/api/secondhand'
 import { getUploadErrorMessage, uploadImages } from '@/utils/upload'
 import { MARKET_CATEGORIES } from '@/subpackage_lostfound/utils/marketCategories.js'
@@ -220,6 +217,7 @@ function createDefaultForm() {
 
 export default {
   name: 'MarketPublishOverlay',
+  components: { CommonPageHeader },
   props: {
     visible: { type: Boolean, default: false }
   },
@@ -506,7 +504,7 @@ export default {
   bottom: 0;
   left: 0;
   width: 100%;
-  background: #F7F7F9;
+  background: linear-gradient(180deg, #dff0ff 0%, #eaf5ff 100%);
   box-sizing: border-box;
   overflow-x: hidden;
   opacity: 0;
@@ -523,61 +521,22 @@ export default {
 .publish-shell {
   width: 100%;
   height: 100vh;
-  background: #F7F7F9;
+  background: linear-gradient(180deg, #dff0ff 0%, #eaf5ff 100%);
   box-sizing: border-box;
   position: relative;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   overflow-x: hidden;
 }
 
-.publish-header {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 2;
-  height: calc(88rpx + var(--status-bar-height, 0px));
-  padding: var(--status-bar-height, 0px) 24rpx 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: #F7F7F9;
-  box-sizing: border-box;
-}
-
-.publish-close,
-.publish-placeholder {
-  width: 64rpx;
-  height: 64rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.publish-close {
-  margin-left: 0;
-  color: #111111;
-  font-size: 48rpx;
-  font-weight: 300;
-  line-height: 1;
-}
-
-.publish-title {
-  font-size: 32rpx;
-  font-weight: 800;
-  color: #1D1D1F;
-}
-
 .publish-body {
-  position: absolute;
-  top: calc(88rpx + var(--status-bar-height, 0px));
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: relative;
+  flex: 1;
+  min-height: 0;
   width: 100%;
   height: auto;
-  padding: 0 24rpx 24rpx;
+  padding: 24rpx 24rpx 24rpx;
   box-sizing: border-box;
   overflow-y: auto;
   overflow-x: hidden;
