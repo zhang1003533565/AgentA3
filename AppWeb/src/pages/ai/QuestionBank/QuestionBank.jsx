@@ -1,32 +1,49 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Card, Descriptions, Drawer, Empty, Form, Input, Select, Space, Table, Tag, Typography, message } from 'antd'
-import { EyeOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
+import { Breadcrumb, Button, Card, Descriptions, Drawer, Empty, Form, Input, Select, Space, Table, Tag, Typography, message } from 'antd'
+import {
+  PlusOutlined,
+  DownloadOutlined,
+  ImportOutlined,
+  DeleteOutlined,
+  UnorderedListOutlined,
+  AppstoreOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+  EyeOutlined,
+} from '@ant-design/icons'
 import { getExamQuestionDetail, getExamQuestionList } from '../../../api/examQuestion'
 import './QuestionBank.css'
 
-const { Text, Title } = Typography
+const { Text } = Typography
 
+// 题型选项（严格按截图：选择/判断/填空/简答/计算）
 const questionTypeOptions = [
-  { value: 'single_choice', label: '单选题' },
-  { value: 'multiple_choice', label: '多选题' },
+  { value: 'single_choice', label: '选择题' },
   { value: 'true_false', label: '判断题' },
   { value: 'fill_blank', label: '填空题' },
   { value: 'short_answer', label: '简答题' },
-  { value: 'essay', label: '论述题' },
-  { value: 'material_analysis', label: '材料分析题' },
   { value: 'calculation', label: '计算题' },
-  { value: 'proof', label: '证明题' },
-  { value: 'programming', label: '编程题' },
-  { value: 'operation', label: '操作题' },
-  { value: 'matching', label: '匹配题' },
-  { value: 'ordering', label: '排序题' },
-  { value: 'cloze', label: '完形填空' },
 ]
 
-const questionTypeLabels = questionTypeOptions.reduce((acc, item) => {
-  acc[item.value] = item.label
-  return acc
-}, {})
+// 题型展示映射
+const questionTypeLabels = {
+  single_choice: '选择题',
+  multiple_choice: '选择题',
+  true_false: '判断题',
+  fill_blank: '填空题',
+  short_answer: '简答题',
+  essay: '简答题',
+  calculation: '计算题',
+}
+
+// 题型标签样式类
+const questionTypeTagClass = {
+  选择题: 'qb-tag-type-choice',
+  判断题: 'qb-tag-type-judge',
+  填空题: 'qb-tag-type-blank',
+  简答题: 'qb-tag-type-answer',
+  计算题: 'qb-tag-type-calc',
+}
 
 const difficultyLabels = {
   easy: '简单',
@@ -34,16 +51,10 @@ const difficultyLabels = {
   hard: '困难',
 }
 
-const difficultyColors = {
-  easy: 'green',
-  medium: 'gold',
-  hard: 'red',
-}
-
-const sourceSceneLabels = {
-  test: '测试导入',
-  import: '批量导入',
-  manual: '手动录入',
+const difficultyTagClass = {
+  easy: 'qb-tag-diff-easy',
+  medium: 'qb-tag-diff-medium',
+  hard: 'qb-tag-diff-hard',
 }
 
 const formatJson = (value) => {
@@ -68,6 +79,8 @@ function QuestionBank() {
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 })
   const [detailOpen, setDetailOpen] = useState(false)
   const [detail, setDetail] = useState(null)
+  const [viewMode, setViewMode] = useState('list')
+  const [selectedRowKeys, setSelectedRowKeys] = useState([])
 
   const fetchList = async (params = {}) => {
     const values = form.getFieldsValue()
@@ -117,110 +130,99 @@ function QuestionBank() {
     {
       title: '题型',
       dataIndex: 'type',
-      width: 120,
-      render: (value) => <Tag color="blue">{questionTypeLabels[value] || value}</Tag>,
+      width: 110,
+      render: (value) => {
+        const label = questionTypeLabels[value] || value
+        return <span className={`qb-type-tag ${questionTypeTagClass[label] || ''}`}>{label}</span>
+      },
     },
     {
-      title: '题干',
+      title: '题目内容',
       dataIndex: 'stem',
       ellipsis: true,
-      render: (value) => <Text strong>{value}</Text>,
+      render: (value) => <span className="qb-stem-text">{value}</span>,
     },
     {
-      title: '分值',
-      dataIndex: 'score',
-      width: 90,
-      render: (value) => `${value ?? 0} 分`,
+      title: '所属题库',
+      dataIndex: 'sourceTitle',
+      width: 160,
+      render: (value) => <span className="qb-bank-text">{value || '-'}</span>,
     },
     {
       title: '难度',
       dataIndex: 'difficulty',
       width: 100,
-      render: (value) => <Tag color={difficultyColors[value] || 'default'}>{difficultyLabels[value] || value}</Tag>,
-    },
-    {
-      title: '知识点',
-      dataIndex: 'knowledgePoints',
-      ellipsis: true,
-      render: (value) => listText(value),
-    },
-    {
-      title: '来源',
-      dataIndex: 'sourceScene',
-      width: 130,
-      render: (value, record) => (
-        <Space size={4} wrap>
-          <Tag color={value === 'test' ? 'purple' : 'default'}>{sourceSceneLabels[value] || value || '未标记'}</Tag>
-          {record.sourceAgent && <Tag>{record.sourceAgent}</Tag>}
-        </Space>
-      ),
-    },
-    {
-      title: '创建时间',
-      dataIndex: 'createTime',
-      width: 170,
+      render: (value) => {
+        const diffLabels = { easy: '简单', medium: '中等', hard: '困难' }
+        return <span className={`qb-diff-tag ${difficultyTagClass[value] || ''}`}>{diffLabels[value] || value || '-'}</span>
+      },
     },
     {
       title: '操作',
-      width: 90,
-      fixed: 'right',
+      width: 160,
       render: (_, record) => (
-        <Button size="small" icon={<EyeOutlined />} onClick={() => openDetail(record.id)}>
-          查看
-        </Button>
+        <Space size={16} className="qb-actions">
+          <a className="qb-action-link qb-action-view" onClick={() => openDetail(record.id)}>查看</a>
+          <a className="qb-action-link qb-action-edit">编辑</a>
+          <a className="qb-action-link qb-action-delete">删除</a>
+        </Space>
       ),
     },
   ], [])
 
   return (
     <div className="question-bank-page">
-      <section className="question-bank-hero">
-        <div>
-          <span className="question-bank-kicker">QUESTION BANK</span>
-          <Title level={1}>题库管理</Title>
-          <p>管理智能体生成和导入的标准题库。</p>
-        </div>
-        <Button icon={<ReloadOutlined />} onClick={() => fetchList()} loading={loading}>
-          刷新
-        </Button>
-      </section>
+      {/* 面包屑 + 刷新 */}
+      <div className="question-bank-header">
+        <Breadcrumb>
+          <Breadcrumb.Item>题库管理</Breadcrumb.Item>
+          <Breadcrumb.Item><span className="qb-breadcrumb-active">题库</span></Breadcrumb.Item>
+        </Breadcrumb>
+        <a className="qb-refresh-top" onClick={() => fetchList()}>
+          <ReloadOutlined /> 刷新
+        </a>
+      </div>
 
-      <Card className="question-bank-card">
+      {/* 筛选区域 */}
+      <Card className="question-bank-card question-bank-filter-card" bordered={false}>
         <Form
           form={form}
           className="question-bank-filter"
-          layout="inline"
+          layout="horizontal"
           onFinish={() => fetchList({ current: 1 })}
         >
-          <Form.Item name="keyword">
-            <Input allowClear prefix={<SearchOutlined />} placeholder="搜索题干" />
+          {/* 搜索框 - 无 label */}
+          <Form.Item name="keyword" colon={false}>
+            <Input allowClear suffix={<SearchOutlined />} placeholder="搜索问题内容" />
           </Form.Item>
-          <Form.Item name="type">
-            <Select
-              allowClear
-              placeholder="题型"
-              options={questionTypeOptions}
-              style={{ width: 150 }}
-            />
+
+          {/* 所属题库 */}
+          <Form.Item name="bank" label="所属题库">
+            <Select allowClear placeholder="请选择所属题库" options={[]} />
           </Form.Item>
-          <Form.Item name="difficulty">
-            <Select
-              allowClear
-              placeholder="难度"
-              style={{ width: 120 }}
-              options={[
-                { value: 'easy', label: '简单' },
-                { value: 'medium', label: '中等' },
-                { value: 'hard', label: '困难' },
-              ]}
-            />
+
+          {/* 题型 */}
+          <Form.Item name="type" label="题型">
+            <Select allowClear placeholder="请选择题型" options={questionTypeOptions} />
           </Form.Item>
-          <Form.Item>
-            <Space>
-              <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>
+
+          {/* 难度 */}
+          <Form.Item name="difficulty" label="难度">
+            <Select allowClear placeholder="请选择难度" options={[
+              { value: 'easy', label: '简单' },
+              { value: 'medium', label: '中等' },
+              { value: 'hard', label: '困难' },
+            ]} />
+          </Form.Item>
+
+          {/* 按钮组 */}
+          <Form.Item className="question-bank-filter-actions">
+            <Space size={12}>
+              <Button type="primary" htmlType="submit" icon={<SearchOutlined />} className="qb-search-btn">
                 查询
               </Button>
               <Button
+                className="qb-reset-btn"
                 onClick={() => {
                   form.resetFields()
                   fetchList({ current: 1 })
@@ -231,21 +233,53 @@ function QuestionBank() {
             </Space>
           </Form.Item>
         </Form>
+      </Card>
 
+      {/* 操作栏 - 仅保留视图切换 */}
+      <div className="question-bank-toolbar">
+        <div className="qb-toolbar-right">
+          <div className="qb-view-toggle">
+            <button
+              type="button"
+              className={`qb-view-btn ${viewMode === 'list' ? 'is-active' : ''}`}
+              onClick={() => setViewMode('list')}
+              aria-label="列表视图"
+            >
+              <UnorderedListOutlined />
+            </button>
+            <button
+              type="button"
+              className={`qb-view-btn ${viewMode === 'grid' ? 'is-active' : ''}`}
+              onClick={() => setViewMode('grid')}
+              aria-label="卡片视图"
+            >
+              <AppstoreOutlined />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 列表卡片 */}
+      <Card className="question-bank-card question-bank-list-card" bordered={false}>
         <Table
+          className="question-bank-table"
           rowKey="id"
           columns={columns}
           dataSource={rows}
           loading={loading}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: setSelectedRowKeys,
+          }}
           locale={{ emptyText: <Empty description="暂无题库数据" /> }}
           pagination={{
             current: pagination.current,
             pageSize: pagination.pageSize,
             total: pagination.total,
             showSizeChanger: true,
+            showQuickJumper: true,
             showTotal: (total) => `共 ${total} 道题`,
           }}
-          scroll={{ x: 1100 }}
           onChange={(nextPagination) => {
             fetchList({
               current: nextPagination.current,
@@ -255,6 +289,7 @@ function QuestionBank() {
         />
       </Card>
 
+      {/* 详情抽屉 */}
       <Drawer
         title="题目详情"
         width={720}
@@ -271,17 +306,15 @@ function QuestionBank() {
               <Descriptions.Item label="题型">
                 <Tag color="blue">{questionTypeLabels[detail.type] || detail.type}</Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="题干">{detail.stem}</Descriptions.Item>
+              <Descriptions.Item label="题目内容">{detail.stem}</Descriptions.Item>
               <Descriptions.Item label="分值">{detail.score} 分</Descriptions.Item>
               <Descriptions.Item label="难度">
-                <Tag color={difficultyColors[detail.difficulty] || 'default'}>
-                  {difficultyLabels[detail.difficulty] || detail.difficulty}
-                </Tag>
+                <Tag>{difficultyLabels[detail.difficulty] || detail.difficulty}</Tag>
               </Descriptions.Item>
               <Descriptions.Item label="知识点">{listText(detail.knowledgePoints)}</Descriptions.Item>
               <Descriptions.Item label="来源场景">
                 <Tag color={detail.sourceScene === 'test' ? 'purple' : 'default'}>
-                  {sourceSceneLabels[detail.sourceScene] || detail.sourceScene || '未标记'}
+                  {detail.sourceScene || '未标记'}
                 </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="来源智能体">{detail.sourceAgent || '-'}</Descriptions.Item>
