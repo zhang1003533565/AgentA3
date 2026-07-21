@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数智人才诊断云 - 分类求职导航</title>
+    <style>
+        /* ===== 基础重置 ===== */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: "Microsoft YaHei", "PingFang SC", sans-serif; 
+            background: #eaf3fc; 
+            color: #333; 
+        }
+        a { text-decoration: none; color: inherit; }
+        ul { list-style: none; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+
+        /* ===== 顶部导航 ===== */
+        .top-nav {
+            background: #1e2b4c; color: #fff; height: 60px; display: flex; align-items: center;
+        }
+        .nav-inner {
+            display: flex; align-items: center; justify-content: space-between; width: 100%;
+        }
+        .nav-left { display: flex; align-items: center; gap: 24px; }
+        .nav-logo { display: flex; align-items: center; gap: 8px; font-weight: bold; font-size: 18px; letter-spacing: 1px; color: #fff; }
+        .nav-logo span { color: #00b4ff; }
+        .nav-links { display: flex; gap: 20px; font-size: 15px; color: #ccc; }
+        .nav-links a:hover { color: #fff; }
+        .nav-right .btn-login { background: #00b4ff; color: #fff; padding: 6px 18px; border-radius: 4px; font-weight: 500; }
+
+        /* ===== 搜索区 ===== */
+        .search-area {
+            background: linear-gradient(180deg, #dce8f4 0%, #eaf3fc 100%);
+            padding: 40px 0 30px; border-bottom: 1px solid #d0dceb;
+        }
+        .search-box-wrap {
+            display: flex; align-items: center; background: #fff; padding: 4px 4px 4px 20px;
+            border-radius: 8px; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+            max-width: 800px; margin: 0 auto;
+        }
+        .search-box-wrap input {
+            flex: 1; border: none; outline: none; font-size: 16px; padding: 12px 0; color: #333;
+        }
+        .search-box-wrap button {
+            background: #0066ff; color: #fff; border: none; border-radius: 6px; padding: 12px 32px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s;
+        }
+        .search-box-wrap button:hover { background: #0052cc; }
+        .hot-searches {
+            display: flex; justify-content: center; gap: 12px; margin-top: 16px; flex-wrap: wrap;
+        }
+        .hot-searches span { color: #444; font-size: 14px; padding: 4px 12px; background: #fff; border-radius: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.02); }
+
+        /* ===== 核心分类与诊断二合一区 ===== */
+        .cat-diagnosis-area {
+            padding: 30px 0; display: flex; gap: 20px; align-items: stretch;
+        }
+        
+        .left-panel {
+            width: 280px; flex-shrink: 0; background: #fff; border-radius: 8px;
+            border: 1px solid #dae5f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+            display: flex; flex-direction: column; position: relative;
+        }
+
+        .cat-menu-page { display: none; flex-direction: column; }
+        .cat-menu-page.active { display: flex; }
+
+        .cat-menu-item {
+            padding: 12px 16px; border-bottom: 1px solid #eef5fb; cursor: pointer;
+            transition: 0.2s; display: flex; align-items: center; gap: 8px;
+        }
+        .cat-menu-item:last-child { border-bottom: none; }
+        .cat-menu-item:hover, .cat-menu-item.active {
+            background: #eaf3fc; color: #0066ff;
+        }
+        
+        .cat-row { flex: 1; overflow: hidden; }
+        .cat-main { font-size: 15px; font-weight: 600; margin-bottom: 2px; display: inline; }
+        .cat-sub-list { 
+            font-size: 12px; color: #888; display: inline; margin-left: 8px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;
+        }
+        .cat-arrow { color: #ccc; font-size: 14px; margin-left: auto; }
+
+        .cat-pagination {
+            padding: 12px 16px; border-top: 1px solid #eef5fb; display: flex; align-items: center; justify-content: space-between;
+        }
+        .page-num { color: #0066ff; font-size: 14px; font-weight: 500; }
+        .page-btns { display: flex; gap: 8px; }
+        .page-btn {
+            width: 24px; height: 24px; border-radius: 4px; border: none; background: #dcecfb;
+            color: #0066ff; cursor: pointer; display: flex; align-items: center; justify-content: center;
+        }
+        .page-btn:hover { background: #c4def9; }
+
+        .right-panel {
+            flex: 1; position: relative; border-radius: 8px; overflow: hidden;
+            background: #fff; 
+        }
+
+        /* ================================================= */
+        /* 👇 Banner 背景图片样式 👇 */
+        /* ================================================= */
+        .diagnosis-banner {
+            width: 100%; height: 100%; min-height: 380px;
+            background-image: url('banner-bg.jpg');
+            background-size: cover;
+            background-position: center center;
+            padding: 30px;
+            display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;
+        }
+        .diagnosis-banner .text-box {
+            background: rgba(255, 255, 255, 0.85);
+            padding: 30px 40px;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+            max-width: 85%;
+        }
+        .diagnosis-banner h2 {
+            font-size: 28px; margin-bottom: 12px; font-weight: 700; letter-spacing: 1px; color: #1e2b4c;
+        }
+        .diagnosis-banner p {
+            color: #444; font-size: 15px; margin-bottom: 24px;
+        }
+        .diagnosis-btn {
+            background: #1A5CFF; color: #fff; padding: 12px 36px; border-radius: 30px; font-weight: bold; font-size: 18px; border: none; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 12px rgba(26, 92, 255, 0.25);
+        }
+        .diagnosis-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(26, 92, 255, 0.35); }
+        /* ================================================= */
+
+        .detail-panel {
+            display: none; width: 100%; height: 100%; background: #fff;
+            padding: 24px 30px; overflow-y: auto; max-height: 380px;
+        }
+        .detail-panel.active { display: block; }
+
+        .detail-title { font-size: 18px; font-weight: bold; color: #0066ff; margin-bottom: 16px; border-bottom: 1px solid #eef5fb; padding-bottom: 12px; }
+        .detail-item { margin-bottom: 18px; }
+        .detail-item-title { font-size: 14px; font-weight: 600; color: #333; margin-bottom: 8px; }
+        .detail-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+        .detail-tags span {
+            padding: 4px 12px; background: #eaf3fc; border-radius: 4px; font-size: 13px; color: #555; transition: 0.2s; cursor: pointer;
+        }
+        .detail-tags span:hover { background: #0066ff; color: #fff; }
+
+        /* ===== 下方列表：热门岗位/热门企业/最新职位 ===== */
+        .section-block { padding: 40px 0 20px; }
+        .section-header { text-align: center; margin-bottom: 30px; }
+        .section-header h2 { font-size: 26px; font-weight: bold; color: #222; }
+        .section-header h2 span { color: #0066ff; }
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+        @media (max-width: 992px) { .grid-3 { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 680px) { .grid-3 { grid-template-columns: 1fr; } }
+
+        .info-card {
+            background: #fff; border-radius: 8px; padding: 20px; 
+            border: 1px solid #dae5f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02); 
+            transition: 0.2s;
+            display: flex; flex-direction: column;
+        }
+        .info-card:hover { 
+            box-shadow: 0 4px 16px rgba(0,0,0,0.06); transform: translateY(-4px); border-color: #b8d0e5; 
+        }
+
+        .card-header-simple { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .card-header-simple .title { font-size: 17px; font-weight: 600; color: #222; }
+        .card-header-simple .salary { color: #0066ff; font-weight: 600; font-size: 16px; }
+
+        .company-header { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+        .company-logo { 
+            width: 44px; height: 44px; 
+            border-radius: 8px; 
+            display: flex; align-items: center; justify-content: center; 
+            font-weight: bold; font-size: 18px; 
+            color: #ffffff; flex-shrink: 0; 
+        }
+        .company-info .company-name { font-size: 16px; font-weight: 600; margin-bottom: 2px; }
+        .company-info .company-meta { font-size: 12px; color: #999; display: flex; gap: 8px; flex-wrap: wrap; }
+
+        .card-desc { font-size: 13px; color: #555; line-height: 1.6; margin-bottom: 10px; }
+        .card-benefits { font-size: 13px; color: #0066ff; margin-top: 10px; border-top: 1px solid #eef5fb; padding-top: 10px; }
+        .card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+        .card-tags span { background: #eaf3fc; color: #555; font-size: 12px; padding: 4px 10px; border-radius: 4px; }
+
+        .more-btn-wrap { margin-top: 16px; display: flex; justify-content: center; }
+        .more-btn { 
+            border: 1px solid #0066ff; color: #0066ff; background: transparent; 
+            padding: 8px 0; width: 100%; border-radius: 4px; font-size: 14px; cursor: pointer; transition: 0.2s; text-align: center; text-decoration: none;
+        }
+        .more-btn:hover { background: #eaf3fc; }
+
+        .view-more-wrap { text-align: center; margin-top: 30px; padding-bottom: 10px; }
+        .view-more-btn {
+            display: inline-block; padding: 10px 40px;
+            border: 1px solid #0066ff; color: #0066ff;
+            background: transparent; border-radius: 6px;
+            font-size: 15px; font-weight: 500; transition: all 0.3s;
+        }
+        .view-more-btn:hover {
+            background: #0066ff; color: #ffffff; box-shadow: 0 4px 12px rgba(0, 102, 255, 0.15);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 顶部导航 -->
+    <header class="top-nav">
+        <div class="container nav-inner">
+            <div class="nav-left">
+                <div class="nav-logo">数智<span>诊断</span>云</div>
+                <div class="nav-links">
+                    <a href="#">首页</a>
+                    <a href="#">热招企业</a>
+                    <a href="#">岗位图谱</a>
+                    <a href="#">行业报告</a>
+                </div>
+            </div>
+            <div class="nav-right">
+                <a href="#" class="btn-login">登录 / 注册</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- 搜索区 -->
+    <section class="search-area">
+        <div class="container">
+            <div class="search-box-wrap">
+                <input type="text" placeholder="搜索职位、公司，例如：AI大模型工程师">
+                <button>搜索</button>
+            </div>
+            <div class="hot-searches">
+                <span>热门搜索：</span>
+                <span>AI算法</span>
+                <span>Java开发</span>
+                <span>前端架构</span>
+                <span>云原生</span>
+                <span>产品经理</span>
+                <span>数据分析</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- 核心分类与诊断区 -->
+    <section class="container cat-diagnosis-area">
+        <div class="left-panel" id="leftPanel">
+            <div class="cat-menu-page active" id="page1"></div>
+            <div class="cat-menu-page" id="page2"></div>
+            <div class="cat-menu-page" id="page3"></div>
+            <div class="cat-menu-page" id="page4"></div>
+            <div class="cat-menu-page" id="page5"></div>
+            
+            <div class="cat-pagination">
+                <span class="page-num" id="pageNum">1 / 5</span>
+                <div class="page-btns">
+                    <button class="page-btn" id="prevBtn" onclick="changePage(-1)">◀</button>
+                    <button class="page-btn" id="nextBtn" onclick="changePage(1)">▶</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="right-panel" id="rightPanel">
+            <!-- 初始 Banner -->
+            <div class="diagnosis-banner" id="defaultBanner">
+                <div class="text-box">
+                    <h2>拒绝盲目内卷，先做岗位体检</h2>
+                    <p>上传简历，AI深度解析你的能力短板。<br>一键生成专属学习路径与高薪岗位适配报告。</p>
+                    <button class="diagnosis-btn" onclick="alert('正在跳转至简历诊断模块...')">🚀 上传简历，开启诊断</button>
+                </div>
+            </div>
+            <!-- 右侧详细分类面板 -->
+            <div class="detail-panel" id="detailPanel"></div>
+        </div>
+    </section>
+
+    <!-- 1. 热门岗位 -->
+    <section class="container section-block">
+        <div class="section-header"><h2>热门岗位</h2></div>
+        <div class="grid-3" id="hotJobs"></div>
+        <div class="view-more-wrap"><a href="#" class="view-more-btn">查看更多 →</a></div>
+    </section>
+
+    <!-- 2. 热门企业 -->
+    <section class="container section-block">
+        <div class="section-header"><h2>热门企业</h2></div>
+        <div class="grid-3" id="hotCompanies"></div>
+        <div class="view-more-wrap"><a href="#" class="view-more-btn">查看更多 →</a></div>
+    </section>
+
+    <!-- 3. 最新职位 -->
+    <section class="container section-block">
+        <div class="section-header"><h2><span>最新</span>职位</h2></div>
+        <div class="grid-3" id="newJobs"></div>
+        <div class="view-more-wrap"><a href="#" class="view-more-btn">查看更多 →</a></div>
+    </section>
+
+    <!-- 页脚 -->
+    <footer style="background: #222222; color: #d0d0d0; padding: 40px 0 20px; border-top: 1px solid #3a3a3a;">
+        <div class="container" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 30px; margin-bottom: 30px;">
+            <div>
+                <h4 style="color: #ffffff; margin-bottom: 15px; font-size: 16px;">关于我们</h4>
+                <ul style="list-style: none; padding: 0; font-size: 14px; line-height: 2.2;">
+                    <li><a href="#" style="color: #b0b0b0; text-decoration: none; transition: 0.2s;">公司简介</a></li>
+                    <li><a href="#" style="color: #b0b0b0; text-decoration: none; transition: 0.2s;">联系我们</a></li>
+                    <li><a href="#" style="color: #b0b0b0; text-decoration: none; transition: 0.2s;">加入我们</a></li>
+                </ul>
+            </div>
+            <div>
+                <h4 style="color: #ffffff; margin-bottom: 15px; font-size: 16px;">产品与服务</h4>
+                <ul style="list-style: none; padding: 0; font-size: 14px; line-height: 2.2;">
+                    <li><a href="#" style="color: #b0b0b0; text-decoration: none; transition: 0.2s;">岗位能力图谱</a></li>
+                    <li><a href="#" style="color: #b0b0b0; text-decoration: none; transition: 0.2s;">人岗匹配诊断</a></li>
+                    <li><a href="#" style="color: #b0b0b0; text-decoration: none; transition: 0.2s;">学习路径推荐</a></li>
+                </ul>
+            </div>
+            <div>
+                <h4 style="color: #ffffff; margin-bottom: 15px; font-size: 16px;">帮助与支持</h4>
+                <ul style="list-style: none; padding: 0; font-size: 14px; line-height: 2.2;">
+                    <li><a href="#" style="color: #b0b0b0; text-decoration: none; transition: 0.2s;">帮助中心</a></li>
+                    <li><a href="#" style="color: #b0b0b0; text-decoration: none; transition: 0.2s;">常见问题</a></li>
+                    <li><a href="#" style="color: #b0b0b0; text-decoration: none; transition: 0.2s;">在线客服</a></li>
+                </ul>
+            </div>
+            <div>
+                <h4 style="color: #ffffff; margin-bottom: 15px; font-size: 16px;">法律合规</h4>
+                <ul style="list-style: none; padding: 0; font-size: 14px; line-height: 2.2;">
+                    <li><a href="#" style="color: #b0b0b0; text-decoration: none; transition: 0.2s;">服务协议</a></li>
+                    <li><a href="#" style="color: #b0b0b0; text-decoration: none; transition: 0.2s;">隐私政策</a></li>
+                    <li><a href="#" style="color: #b0b0b0; text-decoration: none; transition: 0.2s;">免责声明</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="container" style="text-align: center; border-top: 1px solid #3a3a3a; padding-top: 20px; font-size: 12px; color: #888888;">
+            <p>© 2026 数智人才诊断云 | 本平台数据仅用于学术研究与个人职业发展规划</p>
+            <p>ICP备案号：蜀ICP备XXXXXXXX号</p>
+        </div>
+    </footer>
+
+    <!-- =========================================================== -->
+    <!-- ===== JS 核心逻辑与数据渲染 ===== -->
+    <script>
+        // 1. 26个分类及细分职位数据
+        const catDetailData = {
+            'it_ai': { title: '互联网与人工智能', subs: [{ name: '开发与技术', tags: ['前端开发工程师', '后端开发工程师', '全栈开发工程师', '移动端开发工程师', '小程序开发工程师', '游戏开发工程师', '技术支持人员', '系统架构师', '项目经理', '软件测试工程师', '运维工程师', '云计算工程师', '网络安全工程师', '数据库管理员'] }, { name: 'AI与算法', tags: ['算法工程师', '机器学习工程师', '深度学习工程师', '大模型工程师', 'AI应用开发工程师', '提示词工程师', 'AI智能体开发工程师'] }, { name: '数据与产品', tags: ['数据工程师', '数据分析师', '数据科学家', '产品经理', 'UI设计师', 'UX设计师'] }, { name: '运营', tags: ['内容运营', '用户运营', '平台运营'] }] },
+            'elec_comm': { title: '电子与通信技术', subs: [{ name: '研发与设计', tags: ['电子工程师', '通信工程师', '芯片设计工程师', '集成电路工程师', '嵌入式开发工程师', '硬件工程师', 'PCB设计工程师', '半导体工艺工程师'] }, { name: '网络与测试', tags: ['射频工程师', '物联网工程师', '通信网络优化工程师', '设备测试工程师', '技术维修人员'] }] },
+            'finance': { title: '金融与保险', subs: [{ name: '银行与信贷', tags: ['银行柜员', '客户经理', '信贷专员', '风险控制专员', '合规专员', '反洗钱专员'] }, { name: '投资与证券', tags: ['金融分析师', '证券分析师', '投资顾问', '基金经理', '投资银行分析师', '量化交易员'] }, { name: '保险与审计', tags: ['精算师', '审计师', '保险代理人', '保险核保员', '保险理赔员', '金融科技工程师'] }] },
+            'edu': { title: '教育与培训', subs: [{ name: '学校教师', tags: ['幼儿教师', '小学教师', '中学教师', '大学教师', '职业学校教师', '特殊教育教师', '校务管理人员'] }, { name: '教培与研发', tags: ['辅导教师', '外语教师', '艺术教师', '体育教师', '企业培训师', '课程研发人员', '教研人员', '教育产品经理'] }, { name: '咨询与心理', tags: ['在线教育运营', '留学顾问', '学业规划师', '心理辅导教师'] }] },
+            'health': { title: '医疗与健康', subs: [{ name: '临床与护理', tags: ['临床医生', '外科医生', '内科医生', '儿科医生', '牙科医生', '中医师', '护士', '护理员'] }, { name: '医技与康复', tags: ['药剂师', '医学检验师', '医学影像师', '康复治疗师', '心理咨询师', '营养师', '健康管理师'] }, { name: '医疗产业', tags: ['公共卫生人员', '医院行政人员', '医疗器械工程师', '医学研究员', '医药代表'] }] },
+            'bio_chem': { title: '生物、制药与化工', subs: [{ name: '生物与制药', tags: ['生物研究员', '基因工程师', '生物信息工程师', '药物研发人员', '临床研究员', '药品注册专员', '药品质量检测员', '制药工程师'] }, { name: '化学与生产', tags: ['化学工程师', '化学分析师', '实验室技术员', '化妆品研发工程师', '食品检测员', '环境化学工程师', '安全生产工程师'] }] },
+            'manufacturing': { title: '制造业与工业生产', subs: [{ name: '工程与设计', tags: ['机械工程师', '电气工程师', '自动化工程师', '工业工程师', '机器人工程师', '设备工程师', '工艺工程师', '模具设计师'] }, { name: '生产与质量', tags: ['质量工程师', '生产计划员', '生产主管', '数控技术员', '焊接技术员', '装配工', '维修技术员', '安全工程师'] }, { name: '管理与供应链', tags: ['供应链专员', '工厂厂长'] }] },
+            'auto': { title: '汽车与交通装备', subs: [{ name: '汽车研发', tags: ['汽车设计工程师', '新能源汽车工程师', '动力系统工程师', '自动驾驶工程师', '汽车电子工程师', '电池工程师'] }, { name: '制造与测试', tags: ['汽车测试工程师', '汽车维修技师', '航空器维修工程师', '船舶工程师', '轨道交通工程师'] }, { name: '汽车服务', tags: ['汽车销售顾问', '售后服务顾问', '汽车保险理赔员'] }] },
+            'construction': { title: '建筑、工程与房地产', subs: [{ name: '设计与规划', tags: ['建筑设计师', '结构工程师', '土木工程师', '给排水工程师', '暖通工程师', '电气设计工程师', '室内设计师', '景观设计师', '城市规划师'] }, { name: '工程与施工', tags: ['工程造价师', '施工员', '监理工程师', '安全员', '测量工程师', 'BIM工程师'] }, { name: '房地产与物业', tags: ['房地产开发人员', '房产经纪人', '物业管理员'] }] },
+            'energy': { title: '能源、矿业与环保', subs: [{ name: '传统能源与矿业', tags: ['石油工程师', '天然气工程师', '采矿工程师', '地质工程师'] }, { name: '新能源与电力', tags: ['电力工程师', '新能源工程师', '光伏工程师', '风电工程师', '储能工程师', '核能工程师'] }, { name: '环保与检测', tags: ['环境工程师', '污水处理工程师', '固废处理工程师', '碳排放管理师', '环境监测员', '能源管理师'] }] },
+            'agriculture': { title: '农业、林业、牧业与渔业', subs: [{ name: '农业与林业', tags: ['农艺师', '植物保护技术员', '育种研究员', '农业技术推广员', '智慧农业工程师', '农业机械工程师', '林业工程师', '园艺师'] }, { name: '畜牧业与渔业', tags: ['兽医', '畜牧技术员', '水产养殖技术员'] }, { name: '农业服务', tags: ['农产品质量检测员', '农场管理员', '农产品销售人员'] }] },
+            'ecommerce': { title: '电商与零售', subs: [{ name: '电商运营', tags: ['电商运营', '平台运营', '店铺运营', '跨境电商运营', '商品运营', '选品专员', '采购专员'] }, { name: '直播与内容', tags: ['直播运营', '主播', '短视频运营', '社群运营', '电商美工'] }, { name: '实体零售', tags: ['门店店长', '营业员', '陈列师', '零售数据分析师', '售后服务人员', '电商客服'] }] },
+            'marketing': { title: '市场、广告与公共关系', subs: [{ name: '市场与品牌', tags: ['市场专员', '市场经理', '品牌经理', '市场调研员', '商务拓展经理'] }, { name: '广告与投流', tags: ['广告策划', '文案策划', '媒介投放专员', '数字营销专员', '搜索引擎优化专员', '信息流广告优化师'] }, { name: '公关与活动', tags: ['活动策划', '公关专员', '舆情分析师', '用户增长专员'] }] },
+            'media': { title: '文化、传媒与内容创作', subs: [{ name: '编辑与策划', tags: ['记者', '编辑', '出版策划', '编剧', '内容策划', '新媒体运营', '自媒体创作者', '短视频创作者'] }, { name: '影视与后期', tags: ['导演', '摄影师', '摄像师', '剪辑师', '后期制作人员', '动画师', '特效师', '配音演员'] }, { name: '演艺与音乐', tags: ['主播', '音乐制作人', '演员', '经纪人'] }] },
+            'art': { title: '艺术与设计', subs: [{ name: '平面与视觉', tags: ['平面设计师', '视觉设计师', 'UI设计师', 'UX设计师', '插画师'] }, { name: '游戏与三维', tags: ['动画设计师', '游戏美术设计师', '三维建模师'] }, { name: '产品与空间', tags: ['工业设计师', '产品设计师', '包装设计师', '服装设计师', '珠宝设计师', '室内设计师', '展览展示设计师', '艺术指导', '艺术品修复师'] }] },
+            'legal': { title: '法律、咨询与知识产权', subs: [{ name: '法律从业', tags: ['律师', '法官', '检察官', '公证员', '仲裁员', '律师助理'] }, { name: '企业法务与知识产权', tags: ['法务专员', '合规专员', '法律顾问', '知识产权顾问', '专利代理师', '商标代理人'] }, { name: '咨询与调研', tags: ['管理咨询顾问', '战略咨询顾问', '行业研究员', '尽职调查专员'] }] },
+            'finance_acc': { title: '财务、会计与税务', subs: [{ name: '会计与审计', tags: ['出纳', '会计', '成本会计', '管理会计', '财务分析师', '审计专员', '注册会计师'] }, { name: '财务与税务管理', tags: ['财务经理', '财务总监', '税务专员', '税务筹划师', '预算专员', '资金管理专员'] }, { name: '资产管理', tags: ['资产评估师', '财务共享中心专员'] }] },
+            'admin_hr': { title: '企业管理与行政人事', subs: [{ name: '行政管理', tags: ['行政专员', '行政经理', '总经理助理', '秘书', '前台', '档案管理员'] }, { name: '人力资源管理', tags: ['人力资源专员', '招聘专员', '薪酬福利专员', '绩效管理专员', '员工关系专员', '培训专员', '人力资源经理'] }, { name: '企业管理', tags: ['企业文化专员', '项目经理', '运营经理', '企业管理顾问'] }] },
+            'sales': { title: '销售与客户服务', subs: [{ name: '销售与BD', tags: ['电话销售', '门店销售', '渠道销售', '大客户销售', '企业客户销售', '医药销售', '房地产销售', '汽车销售', '销售工程师', '商务专员', '招商经理', '客户经理', '销售经理', '销售总监'] }, { name: '客户服务', tags: ['客服专员', '售后服务人员', '客户成功经理'] }] },
+            'logistics': { title: '物流、仓储与供应链', subs: [{ name: '物流运输', tags: ['物流专员', '仓库管理员', '仓储主管', '配送员', '快递员', '调度员', '运输管理员', '冷链物流专员'] }, { name: '供应链与报关', tags: ['供应链专员', '供应链计划师', '采购专员', '采购经理', '需求预测分析师', '库存管理员', '国际货运代理', '报关员', '单证员'] }] },
+            'hospitality': { title: '餐饮、酒店与旅游', subs: [{ name: '餐饮', tags: ['厨师', '面点师', '咖啡师', '调酒师', '服务员', '餐厅经理', '食品安全员'] }, { name: '酒店', tags: ['酒店前台', '客房服务员', '酒店经理'] }, { name: '旅游与会展', tags: ['导游', '旅游策划师', '旅行顾问', '景区运营人员', '会展策划师', '民宿运营人员', '航空乘务员'] }] },
+            'public_service': { title: '公共服务与政府事务', subs: [{ name: '公职与执法', tags: ['公务员', '事业单位工作人员', '警察', '消防员', '海关工作人员', '税务工作人员'] }, { name: '社区与公共事务', tags: ['社区工作者', '社会工作者', '政策研究员', '城市管理人员', '公共事务专员', '外事工作人员'] }, { name: '应急与服务', tags: ['应急管理人员', '公共服务窗口人员', '慈善公益项目人员'] }] },
+            'sports': { title: '体育与健身', subs: [{ name: '运动与教练', tags: ['职业运动员', '体育教练', '健身教练', '瑜伽教练', '游泳教练', '体能训练师', '电子竞技选手', '电竞教练'] }, { name: '赛事与康复', tags: ['运动康复师', '体育经纪人', '体育赛事运营', '体育解说员', '裁判员', '电竞赛事运营', '体育场馆管理员', '户外运动领队'] }] },
+            'home_service': { title: '家政与生活服务', subs: [{ name: '家庭服务', tags: ['家政服务员', '保洁员', '保姆', '月嫂', '育婴师', '养老护理员', '收纳整理师', '搬家服务人员'] }, { name: '维修与生活', tags: ['家电维修师', '水电维修工', '锁匠'] }, { name: '美业与宠物', tags: ['美发师', '美容师', '美甲师', '化妆师', '宠物美容师', '宠物训练师', '婚礼策划师'] }] },
+            'security': { title: '安保与应急服务', subs: [{ name: '安防与消防', tags: ['保安', '安检员', '消防员', '救援人员', '安全管理员', '消防设施操作员'] }, { name: '安全与风险', tags: ['企业安全工程师', '网络安全人员', '风险评估师', '应急预案专员', '防灾减灾工作人员', '交通安全管理员'] }] },
+            'freelance': { title: '自由职业与新兴职业', subs: [{ name: '创作与设计', tags: ['自由撰稿人', '独立设计师', '独立开发者', '自媒体博主', '视频博主', '网络主播', '知识付费讲师', '在线咨询顾问', '独立摄影师', '翻译', '配音员'] }, { name: '出行与服务', tags: ['网约车司机', '外卖配送员', '数字游民'] }, { name: 'AI与科技新兴', tags: ['AI内容创作者', 'AI绘画师', 'AI训练师', '数据标注员', '虚拟主播运营', '无人机驾驶员'] }] }
+        };
+
+        // 2. 左侧菜单数据 (分5页)
+        const menuPages = [
+            [ { id: 'it_ai', main: '互联网与人工智能', sub: '前端 后端 AI 算法 运营' }, { id: 'elec_comm', main: '电子与通信技术', sub: '硬件 芯片 通信 网络' }, { id: 'finance', main: '金融与保险', sub: '银行 投资 保险 审计' }, { id: 'edu', main: '教育与培训', sub: '教师 教培 留学 心理' }, { id: 'health', main: '医疗与健康', sub: '临床 护理 医技 康复' }, { id: 'bio_chem', main: '生物、制药与化工', sub: '基因 制药 化学 检测' } ],
+            [ { id: 'manufacturing', main: '制造业与工业生产', sub: '机械 电气 生产 供应链' }, { id: 'auto', main: '汽车与交通装备', sub: '汽车研发 测试 服务' }, { id: 'construction', main: '建筑、工程与房地产', sub: '设计 施工 造价 物业' }, { id: 'energy', main: '能源、矿业与环保', sub: '传统能源 新能源 环保' }, { id: 'agriculture', main: '农业、林业、牧业', sub: '农艺 兽医 养殖 销售' }, { id: 'ecommerce', main: '电商与零售', sub: '电商运营 直播 店长' } ],
+            [ { id: 'marketing', main: '市场、广告与公关', sub: '品牌 投流 公关 活动' }, { id: 'media', main: '文化、传媒与内容', sub: '编辑 摄像 演员 自媒体' }, { id: 'art', main: '艺术与设计', sub: '平面 三维 产品 室内' }, { id: 'legal', main: '法律、咨询与产权', sub: '律师 法务 咨询 代理' }, { id: 'finance_acc', main: '财务、会计与税务', sub: '会计 审计 税务 财务' }, { id: 'admin_hr', main: '企业管理与行政', sub: '行政 人事 秘书 经理' } ],
+            [ { id: 'sales', main: '销售与客户服务', sub: '大客户 渠道 客服 经理' }, { id: 'logistics', main: '物流、仓储与供应链', sub: '仓储 配送 采购 报关' }, { id: 'hospitality', main: '餐饮、酒店与旅游', sub: '厨师 酒店 导游 会展' }, { id: 'public_service', main: '公共服务与政府', sub: '公务员 消防 社区 外事' }, { id: 'sports', main: '体育与健身', sub: '教练 康复 电竞 赛事' }, { id: 'home_service', main: '家政与生活服务', sub: '月嫂 维修 美容 宠物' } ],
+            [ { id: 'security', main: '安保与应急服务', sub: '保安 消防 网络安全 应急' }, { id: 'freelance', main: '自由职业与新兴职业', sub: '自媒体 写手 AI绘画 陪诊' } ]
+        ];
+
+        // ===== 核心渲染函数 =====
+        function renderMenus() {
+            const pageIds = ['page1', 'page2', 'page3', 'page4', 'page5'];
+            pageIds.forEach((id, index) => {
+                const el = document.getElementById(id);
+                if(el && menuPages[index]) {
+                    el.innerHTML = menuPages[index].map(item => `
+                        <div class="cat-menu-item" data-cat="${item.id}">
+                            <div class="cat-row"><span class="cat-main">${item.main}</span><span class="cat-sub-list">${item.sub}</span></div>
+                            <div class="cat-arrow">›</div>
+                        </div>
+                    `).join('');
+                }
+            });
+        }
+
+        function renderDetail(catId) {
+            const data = catDetailData[catId];
+            if(!data) return;
+            const panel = document.getElementById('detailPanel');
+            let html = `<div class="detail-title">${data.title}</div>`;
+            data.subs.forEach(sub => {
+                html += `
+                    <div class="detail-item">
+                        <div class="detail-item-title">${sub.name}</div>
+                        <div class="detail-tags">${sub.tags.map(t => `<span>${t}</span>`).join('')}</div>
+                    </div>
+                `;
+            });
+            panel.innerHTML = html;
+        }
+
+        // ===== 翻页逻辑 =====
+        let currentPage = 1;
+        function changePage(dir) {
+            const totalPages = menuPages.length;
+            currentPage += dir;
+            if(currentPage < 1) currentPage = 1;
+            if(currentPage > totalPages) currentPage = totalPages;
+            document.querySelectorAll('.cat-menu-page').forEach(el => el.classList.remove('active'));
+            document.getElementById(`page${currentPage}`).classList.add('active');
+            document.getElementById('pageNum').innerText = `${currentPage} / ${totalPages}`;
+            
+            // 翻页后恢复到默认 Banner
+            document.getElementById('defaultBanner').style.display = 'flex';
+            document.getElementById('detailPanel').classList.remove('active');
+            document.querySelectorAll('.cat-menu-item').forEach(el => el.classList.remove('active'));
+        }
+
+        // ===========================================================
+        // ===== 修改点 2：左侧面板与右侧面板全新的悬停交互逻辑 =====
+        // ===========================================================
+        let hoverTimer = null;
+        function initHover() {
+            const leftPanel = document.getElementById('leftPanel');
+            const rightPanel = document.getElementById('rightPanel');
+            const defaultBanner = document.getElementById('defaultBanner');
+            const detailPanel = document.getElementById('detailPanel');
+
+            // 1. 鼠标悬停左侧分类时，渲染右侧详情
+            leftPanel.addEventListener('mouseover', (e) => {
+                const item = e.target.closest('.cat-menu-item');
+                if(!item) return;
+                
+                document.querySelectorAll('.cat-menu-item').forEach(el => el.classList.remove('active'));
+                item.classList.add('active');
+
+                defaultBanner.style.display = 'none';
+                detailPanel.classList.add('active');
+
+                const catId = item.dataset.cat;
+                renderDetail(catId);
+            });
+
+            // 2. 鼠标离开左侧菜单，不重置右侧（只有右侧面板的离开事件才会重置）
+            leftPanel.addEventListener('mouseleave', () => {
+                document.querySelectorAll('.cat-menu-item').forEach(el => el.classList.remove('active'));
+                // 关键：这里没有任何重置右侧面板的代码
+            });
+
+            // 3. 鼠标进入右侧面板：取消任何可能存在的重置计时器，保持右侧显示
+            rightPanel.addEventListener('mouseenter', () => {
+                if(hoverTimer) {
+                    clearTimeout(hoverTimer);
+                    hoverTimer = null;
+                }
+            });
+
+            // 4. 鼠标完全离开右侧面板：恢复为初始的 Banner
+            rightPanel.addEventListener('mouseleave', () => {
+                // 加上 150ms 的微小延迟，防止鼠标碰到边缘意外闪屏
+                hoverTimer = setTimeout(() => {
+                    defaultBanner.style.display = 'flex';
+                    detailPanel.classList.remove('active');
+                    document.querySelectorAll('.cat-menu-item').forEach(el => el.classList.remove('active'));
+                }, 150);
+            });
+        }
+
+        // ==========================================================
+        // ===== 下方三个列表数据 =====
+        // ==========================================================
+
+        const logoColors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FF9F43', '#A29BFE'];
+        const hotJobData = [
+            { title: '大模型算法工程师', salary: '30K–70K', desc: '模型训练、微调、RLHF、多模态、RAG', requirements: '硕士优先、Python/C++、PyTorch、Transformer', benefits: '13–16薪、奖金、股票/期权、餐补' },
+            { title: 'AI智能体开发工程师', salary: '25K–60K', desc: 'Agent工作流、工具调用、知识库、模型评测', requirements: 'Python/Java、RAG、向量数据库、智能体框架', benefits: '13–16薪、项目奖、弹性工作' },
+            { title: '具身智能算法工程师', salary: '30K–90K', desc: '机器人感知、规划、控制、VLA、世界模型', requirements: '机器人、自动化、计算机视觉背景', benefits: '年终奖、期权、研发补贴' },
+            { title: 'AI Infra工程师', salary: '35K–80K', desc: '分布式训练、GPU调度、推理加速、模型部署', requirements: 'C++/Python、CUDA、Kubernetes、分布式系统', benefits: '14–16薪、股票、设备补贴' },
+            { title: 'AI产品经理', salary: '20K–50K', desc: 'AI产品规划、需求分析、模型效果评估、商业化', requirements: '产品经验、数据分析、理解大模型能力边界', benefits: '绩效奖、年终奖、餐补、培训' },
+            { title: 'AI解决方案架构师', salary: '30K–80K', desc: '为金融、制造、医疗等客户设计AI落地方案', requirements: '技术架构、售前沟通、行业经验', benefits: '奖金、销售提成、差旅补贴' }
+        ];
+        const hotCompanyData = [
+            { name: '字节跳动', focus: '大模型算法、推荐算法、AI Infra、AI产品经理、后端开发', salary: '30K–80K', benefits: '年终奖、股票、餐食、补充保险、带薪休假' },
+            { name: '阿里巴巴/阿里云', focus: '通义大模型、云计算、AI解决方案、模型部署、产品运营', salary: '25K–70K', benefits: '绩效奖金、股票、餐补、健康保障、培训' },
+            { name: '腾讯', focus: '混元大模型、游戏AI、推荐算法、云架构、AI产品', salary: '25K–70K', benefits: '年终奖、股票、餐补、补充医疗、员工活动' },
+            { name: '百度', focus: '文心大模型、自动驾驶、多模态、飞桨框架、搜索推荐', salary: '25K–70K', benefits: '奖金、股票、餐补、补充保险、学习资源' },
+            { name: '华为', focus: '盘古大模型、昇腾计算、芯片、云计算、智能驾驶', salary: '25K–65K', benefits: '奖金、分红或激励、保险、餐补、培训' },
+            { name: '美团', focus: '具身智能、无人机、推荐算法、配送算法、后端开发', salary: '25K–70K', benefits: '年终奖、股票、餐补、补充医疗、带薪休假' }
+        ];
+        const latestJobData = [
+            { company: '百度', title: '大模型应用策略算法工程师', location: '北京', salary: '30K–70K', desc: 'Transformer、GPT、微调、RLHF、RAG、Agent', url: 'https://talent.baidu.com/jobs/detail/SOCIAL/d1881f5f-6b80-424f-9d68-5579e2572723' },
+            { company: '百度', title: '视觉算法工程师', location: '北京/上海', salary: '25K–60K', desc: '目标检测、实例分割、视频理解、AIGC、多模态大模型', url: 'https://talent.baidu.com/jobs/detail/SOCIAL/3808fedd-9239-4b63-ad0e-a7b18a00a4d4' },
+            { company: '美团', title: '具身智能数据算法工程师', location: '北京', salary: '30K–60K', desc: '真机数据采集、第一人称操作数据、具身智能Scaling Law', url: 'https://watchjobs.net/zh/explore/job/meituan_4533558168/%E5%8C%97%E6%96%97-%E5%85%B7%E8%BA%AB%E6%99%BA%E8%83%BD%E6%95%B0%E6%8D%AE%E7%AE%97%E6%B3%95%E5%B7%A5%E7%A8%8B%E5%B8%88-%E7%BE%8E%E5%9B%A2' },
+            { company: '北京日冕机器人', title: '大模型算法工程师（VLA/世界模型）', location: '北京', salary: '30K–70K', desc: '计算机视觉、多模态模型、硕士或博士优先', url: 'https://career.nankai.edu.cn/correcruit/content/id/115578.html' },
+            { company: '青岛企业', title: 'AI产品经理', location: '青岛黄岛', salary: '20K–40K', desc: '业务需求分析、AI产品设计、技术与业务沟通', url: 'https://m.yupao.com/zhaogong/361738914.html' },
+            { company: '北京易道博识', title: 'LLM算法工程师', location: '北京', salary: '20K–30K×13薪', desc: 'OCR、文档理解、LLM/VLM微调评估', url: 'https://www.nowcoder.com/jobs/detail/451826' }
+        ];
+
+        function renderHotJobs() {
+            document.getElementById('hotJobs').innerHTML = hotJobData.map(job => `
+                <div class="info-card">
+                    <div class="card-header-simple"><div class="title">${job.title}</div><div class="salary">${job.salary}</div></div>
+                    <div class="card-desc">${job.desc}</div>
+                    <div class="card-tags">${job.requirements.split('、').map(r => `<span>${r.trim()}</span>`).join('')}</div>
+                    <div class="card-benefits">🎁 ${job.benefits}</div>
+                </div>
+            `).join('');
+        }
+        function renderHotCompanies() {
+            document.getElementById('hotCompanies').innerHTML = hotCompanyData.map((comp, index) => `
+                <div class="info-card">
+                    <div class="company-header">
+                        <div class="company-logo" style="background: ${logoColors[index % logoColors.length]};">${comp.name.charAt(0)}</div>
+                        <div class="company-info"><div class="company-name">${comp.name}</div><div class="company-meta">互联网 · 10000人以上</div></div>
+                    </div>
+                    <div class="card-desc" style="margin-bottom:4px;"><strong>重点招聘方向：</strong></div>
+                    <div class="card-tags">${comp.focus.split('、').map(f => `<span>${f.trim()}</span>`).join('')}</div>
+                    <div class="card-desc" style="margin-top:10px;"><strong>市场参考月薪：</strong><span style="color:#0066ff;font-weight:600;">${comp.salary}</span></div>
+                    <div class="card-benefits" style="border-top:none;padding-top:0;">🎁 常见福利参考：${comp.benefits}</div>
+                </div>
+            `).join('');
+        }
+
+        // ===========================================================
+        // ===== 修改点 1：最新职位的“查看职位详情”去掉了跳转链接 =====
+        // ===========================================================
+        function renderLatestJobs() {
+            document.getElementById('newJobs').innerHTML = latestJobData.map((job, index) => `
+                <div class="info-card">
+                    <div class="company-header">
+                        <div class="company-logo" style="background: ${logoColors[index % logoColors.length]}; color: #fff;">${job.company.charAt(0)}</div>
+                        <div class="company-info"><div class="company-name">${job.company}</div><div class="company-meta">📍 ${job.location}</div></div>
+                    </div>
+                    <div class="card-header-simple" style="margin-bottom:6px;"><div class="title" style="font-size:15px;">${job.title}</div><div class="salary">${job.salary}</div></div>
+                    <div class="card-desc">${job.desc}</div>
+                    <div class="more-btn-wrap"><a href="javascript:void(0)" class="more-btn">查看职位详情 →</a></div>
+                </div>
+            `).join('');
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            renderMenus(); initHover(); renderHotJobs(); renderHotCompanies(); renderLatestJobs();
+        });
+    </script>
+</body>
+</html>
