@@ -42,6 +42,7 @@ public class ChatServiceImpl implements ChatService {
     private static final String CONTACT_EXCHANGE_REQUESTED = "REQUESTED";
     private static final String CONTACT_EXCHANGE_EXCHANGED = "EXCHANGED";
     private static final String CONTACT_ACTION_DECLINE = "DECLINE";
+    private static final int ITEM_ON_SALE = 2;
 
     @Override
     public ChatDTO.SessionVO createOrGetSession(Long itemId, Long buyerId) {
@@ -177,6 +178,7 @@ public class ChatServiceImpl implements ChatService {
         } else {
             sessionRepository.clearSellerUnread(sessionId);
         }
+        appMessageService.markLostFoundChatMessagesReadBySession(sessionId, userId);
         if (unreadBefore > 0) {
             realtimeNotifier.notifyUser(userId, "chat", "sessions");
         }
@@ -246,9 +248,7 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private ChatDTO.MessageVO handleContactExchange(ChatDTO.SendMessageRequest req, Long senderId, ChatSession session) {
-        TradeRecord tradeRecord = tradeRecordRepository.findByItemIdAndBuyerIdAndStatusIn(session.getItemId(), session.getBuyerId(),
-                Collections.singletonList(TradeRecord.TradeStatus.TRADING))
-                .orElseThrow(() -> new BusinessException(400, "双方确认线下交易后才能交换联系方式"));
+        TradeRecord tradeRecord = ensureTradingRecordForSession(session, senderId);
         normalizeContactExchangeState(tradeRecord);
         if (CONTACT_EXCHANGE_EXCHANGED.equals(tradeRecord.getContactExchangeStatus())) {
             throw new BusinessException(400, "已交换联系方式");
@@ -292,6 +292,42 @@ public class ChatServiceImpl implements ChatService {
         tradeRecord.setContactExchangeStatus(CONTACT_EXCHANGE_REQUESTED);
         tradeRecordRepository.save(tradeRecord);
         return buildContactExchangeStateMessage(session, senderId);
+    }
+
+    private TradeRecord ensureTradingRecordForSession(ChatSession session, Long currentUserId) {
+        if (session == null || currentUserId == null) {
+            throw new BusinessException(400, "会话信息不完整");
+        }
+        if (!Objects.equals(currentUserId, session.getBuyerId()) && !Objects.equals(currentUserId, session.getSellerId())) {
+            throw new BusinessException(403, "无权限操作该交易");
+        }
+        Optional<TradeRecord> activeRecord = tradeRecordRepository.findByItemIdAndBuyerIdAndStatusIn(
+                session.getItemId(),
+                session.getBuyerId(),
+                Arrays.asList(TradeRecord.TradeStatus.WAIT_CONFIRM, TradeRecord.TradeStatus.TRADING));
+        if (activeRecord.isPresent()) {
+            TradeRecord tradeRecord = activeRecord.get();
+            if (tradeRecord.getStatus() == TradeRecord.TradeStatus.WAIT_CONFIRM) {
+                tradeRecord.setStatus(TradeRecord.TradeStatus.TRADING);
+                tradeRecord = tradeRecordRepository.save(tradeRecord);
+            }
+            return tradeRecord;
+        }
+        SecondhandItem item = itemRepository.findById(session.getItemId())
+                .orElseThrow(() -> new BusinessException(404, "商品不存在"));
+        if (!Objects.equals(item.getUserId(), session.getSellerId())) {
+            throw new BusinessException(400, "聊天会话与商品发布者不匹配");
+        }
+        if (!Integer.valueOf(ITEM_ON_SALE).equals(item.getStatus())) {
+            throw new BusinessException(400, "商品当前不可交易");
+        }
+        TradeRecord tradeRecord = new TradeRecord();
+        tradeRecord.setItemId(session.getItemId());
+        tradeRecord.setBuyerId(session.getBuyerId());
+        tradeRecord.setSellerId(session.getSellerId());
+        tradeRecord.setStatus(TradeRecord.TradeStatus.TRADING);
+        tradeRecord.setContactExchangeStatus(CONTACT_EXCHANGE_NONE);
+        return tradeRecordRepository.save(tradeRecord);
     }
 
     private ChatMessage saveTradeMessage(ChatSession session, Long senderId, String content, Integer messageType) {
@@ -620,15 +656,16 @@ public class ChatServiceImpl implements ChatService {
         boolean otherAgreed = isBuyer
                 ? Boolean.TRUE.equals(tradeRecord.getSellerContactAgreed())
                 : Boolean.TRUE.equals(tradeRecord.getBuyerContactAgreed());
-        boolean trading = tradeRecord.getStatus() == TradeRecord.TradeStatus.TRADING;
+        boolean contactExchangeAllowed = tradeRecord.getStatus() == TradeRecord.TradeStatus.WAIT_CONFIRM ||
+                tradeRecord.getStatus() == TradeRecord.TradeStatus.TRADING;
         boolean exchanged = CONTACT_EXCHANGE_EXCHANGED.equals(tradeRecord.getContactExchangeStatus());
 
         ChatDTO.ContactExchangeVO vo = new ChatDTO.ContactExchangeVO();
         vo.setStatus(tradeRecord.getContactExchangeStatus() == null ? CONTACT_EXCHANGE_NONE : tradeRecord.getContactExchangeStatus());
         vo.setCurrentUserAgreed(currentAgreed);
         vo.setOtherUserAgreed(otherAgreed);
-        vo.setCanAgree(trading && !exchanged && !currentAgreed && tradeRecord.getContactExchangeRequesterId() != null);
-        vo.setCanDecline(trading && !exchanged && !currentAgreed && tradeRecord.getContactExchangeRequesterId() != null);
+        vo.setCanAgree(contactExchangeAllowed && !exchanged && !currentAgreed && tradeRecord.getContactExchangeRequesterId() != null);
+        vo.setCanDecline(contactExchangeAllowed && !exchanged && !currentAgreed && tradeRecord.getContactExchangeRequesterId() != null);
         vo.setRequesterId(tradeRecord.getContactExchangeRequesterId());
         return vo;
     }

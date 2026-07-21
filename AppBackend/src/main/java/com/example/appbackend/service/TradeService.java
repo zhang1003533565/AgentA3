@@ -9,6 +9,8 @@ public interface TradeService {
 
     ChatDTO.TradeRecordVO reserveTrade(Long itemId, Long currentUserId);
 
+    ChatDTO.TradeRecordVO ensureTradingRecordForSession(Long sessionId, Long currentUserId);
+
     ChatDTO.TradeRecordVO confirmTrade(Long id, Long currentUserId);
 
     ChatDTO.TradeRecordVO completeTrade(Long id, Long currentUserId);

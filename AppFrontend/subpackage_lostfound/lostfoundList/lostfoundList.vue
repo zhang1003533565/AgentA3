@@ -13,14 +13,12 @@
 
           <view class="market-hero">
             <view class="market-list-search-row" :class="{ 'market-list-search-row--transitioning': searchTransitioning }">
-              <market-search-entry
-                class="market-list-search"
-                text="搜索商品、书籍、用品等"
-                source="marketplace"
-                bar-motion="rise"
-                @transition-change="searchTransitioning = $event"
-                @overlay-change="handleSearchOverlayChange"
-              />
+              <view class="market-list-search" @click="goToSearch">
+                <view class="market-search-pill">
+                  <image class="market-search-pill-icon" src="/static/icons/search.svg" mode="aspectFit" />
+                  <input class="market-search-pill-input" value="搜索商品、书籍、用品等" disabled />
+                </view>
+              </view>
               <view class="search-filter-btn" @click.stop="openFilter">
                 <image class="search-filter-icon" src="/static/icons/mage-filter-fill.svg" mode="aspectFit" />
                 <view v-if="hasActiveFilter" class="search-filter-dot"></view>
@@ -189,7 +187,7 @@
                       v-model="filterForm.customPriceMin"
                       class="filter-price-input"
                       type="number"
-                      placeholder="最低价"
+                      placeholder="￥ 最低价"
                       placeholder-class="filter-price-placeholder"
                     />
                     <text class="filter-price-separator">-</text>
@@ -197,7 +195,7 @@
                       v-model="filterForm.customPriceMax"
                       class="filter-price-input"
                       type="number"
-                      placeholder="最高价"
+                      placeholder="￥ 最高价"
                       placeholder-class="filter-price-placeholder"
                     />
                   </view>
@@ -448,24 +446,20 @@
       <!-- Toast -->
       <view v-if="toastText" class="toast show">{{ toastText }}</view>
 
-      <market-bottom-bar activeTab="market" v-show="currentPage === 'list'" />
-      </view>
-    </view>
-    <view
-      v-if="searchOverlayVisible"
-      class="market-search-root-overlay"
-      :class="{ 'market-search-root-overlay--active': searchOverlayActive }"
-    >
       <view
-        class="market-search-root-surface"
-        :style="searchOverlaySurfaceStyle"
-      ></view>
-      <view
-        class="market-search-root-bar"
-        :style="searchOverlayBarStyle"
+        class="search-transition-mask"
+        :class="{ 'search-transition-mask--active': searchTransitioning }"
+        :style="searchTransitionStyle"
       >
-        <image class="market-search-root-icon" src="/static/icons/search.svg" mode="aspectFit" />
-        <input class="market-search-root-text" value="搜索" disabled />
+        <view class="search-transition-top-panel"></view>
+        <view class="search-transition-surface" @transitionend="onSearchTransitionEnd"></view>
+        <view class="search-transition-bar">
+          <image class="search-transition-icon" src="/static/icons/search.svg" mode="aspectFit" />
+          <input class="search-transition-input" value="搜索商品、书籍、用品等" disabled />
+        </view>
+      </view>
+
+      <market-bottom-bar activeTab="market" v-show="currentPage === 'list'" />
       </view>
     </view>
     <ai-float-assistant />
@@ -476,7 +470,6 @@
 import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant.vue'
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
-import MarketSearchEntry from '@/components/market-search-entry/market-search-entry.vue'
 import { getSecondhandItemList } from '@/api/secondhand'
 import { createDefaultMarketFilter, filterMarketItems } from '@/subpackage_lostfound/utils/marketFilter.js'
 import { formatLocationText } from '@/subpackage_lostfound/utils/campusLocation.js'
@@ -624,8 +617,7 @@ export default {
   components: {
     AiFloatAssistant,
     CommonPageHeader,
-    MarketBottomBar,
-    MarketSearchEntry
+    MarketBottomBar
   },
   data() {
     return {
@@ -642,20 +634,13 @@ export default {
       sortBy: 'latest',
       searchKeyword: '',
       searchTransitioning: false,
-      searchOverlayVisible: false,
-      searchOverlayActive: false,
-      searchOverlayRect: {
+      searchTransitionNavigating: false,
+      searchTransitionRect: {
         left: 0,
         top: 0,
-        width: 1,
-        height: 1
+        width: 0,
+        height: 0
       },
-      searchOverlayWindow: {
-        width: 375,
-        height: 667
-      },
-      searchOverlayBarMotion: 'expand',
-      searchOverlayBarTargetTop: 0,
       items: [],
       curItem: {},
       imgIdx: 0,
@@ -724,6 +709,17 @@ export default {
     hasActiveFilter() {
       const f = this.activeFilterForm
       return this.currentCat !== 'all' || Boolean(f.categoryLevel2Id) || f.priceRange !== 'all' || f.publishTime !== 'all' || f.condition !== 'all' || f.location !== 'all' || Object.keys(f.attributes || {}).length > 0
+    },
+    searchTransitionStyle() {
+      const rect = this.searchTransitionRect
+      if (!rect.width || !rect.height) return {}
+      return {
+        '--search-transition-start-left': `${rect.left}px`,
+        '--search-transition-start-top': `${rect.top}px`,
+        '--search-transition-start-width': `${rect.width}px`,
+        '--search-transition-start-height': `${rect.height}px`,
+        '--search-transition-surface-top': `${rect.surfaceTop || rect.top + rect.height}px`
+      }
     },
     selectedAttributeFilterKey() {
       const key = String(this.currentCat || '')
@@ -797,37 +793,6 @@ export default {
     },
     exchangeStatus() {
       return { status: 'none' }
-    },
-    searchOverlaySurfaceStyle() {
-      const rect = this.searchOverlayRect
-      const width = rect.width || 1
-      const height = rect.height || 1
-      const scaleX = Math.max((this.searchOverlayWindow.width + 24) / width, 1)
-      const scaleY = Math.max((this.searchOverlayWindow.height + 24) / height, 1)
-      return {
-        left: `${rect.left}px`,
-        top: `${rect.top}px`,
-        width: `${width}px`,
-        height: `${height}px`,
-        transform: this.searchOverlayActive
-          ? `translate3d(${-rect.left}px, ${-rect.top}px, 0) scale3d(${scaleX}, ${scaleY}, 1)`
-          : 'translate3d(0, 0, 0) scale3d(1, 1, 1)'
-      }
-    },
-    searchOverlayBarStyle() {
-      const rect = this.searchOverlayRect
-      const width = rect.width || 1
-      const height = rect.height || 1
-      const transform = this.searchOverlayBarMotion === 'rise'
-        ? `translate3d(0, ${this.searchOverlayBarTargetTop - (rect.top || 0)}px, 0)`
-        : `translate3d(${-rect.left}px, ${-rect.top}px, 0)`
-      return {
-        left: `${rect.left}px`,
-        top: `${rect.top}px`,
-        width: `${width}px`,
-        height: `${height}px`,
-        transform: this.searchOverlayActive ? transform : 'translate3d(0, 0, 0)'
-      }
     }
   },
   watch: {
@@ -878,9 +843,55 @@ export default {
     await this.loadItems()
   },
   async onShow() {
+    this.searchTransitioning = false
+    this.searchTransitionNavigating = false
     await this.loadItems()
   },
   methods: {
+    goToSearch() {
+      if (this.searchTransitioning || this.searchTransitionNavigating) return
+      uni.createSelectorQuery()
+        .in(this)
+        .select('.market-search-pill')
+        .boundingClientRect()
+        .select('.market-hero')
+        .boundingClientRect()
+        .exec((res) => {
+          const rect = res && res[0]
+          const heroRect = res && res[1]
+          if (!rect) {
+            uni.navigateTo({
+              url: '/subpackage_lostfound/marketSearch/marketSearch?source=marketplace',
+              animationType: 'none',
+              animationDuration: 0
+            })
+            return
+          }
+          this.searchTransitionRect = {
+            left: rect.left || 0,
+            top: rect.top || 0,
+            width: rect.width || 0,
+            height: rect.height || 0,
+            surfaceTop: heroRect && heroRect.bottom ? heroRect.bottom : (rect.top || 0) + (rect.height || 0)
+          }
+          this.$nextTick(() => {
+            this.searchTransitioning = true
+          })
+        })
+    },
+    onSearchTransitionEnd() {
+      if (!this.searchTransitioning || this.searchTransitionNavigating) return
+      this.searchTransitionNavigating = true
+      uni.navigateTo({
+        url: '/subpackage_lostfound/marketSearch/marketSearch?source=marketplace',
+        animationType: 'none',
+        animationDuration: 0,
+        complete: () => {
+          this.searchTransitioning = false
+          this.searchTransitionNavigating = false
+        }
+      })
+    },
     updateFilterQuery(patch = {}) {
       this.filterQuery = createDefaultMarketFilter({
         ...this.filterQuery,
@@ -1149,22 +1160,6 @@ export default {
       if (Number.isNaN(min) || Number.isNaN(max)) return form.priceRange || 'all'
       return max === '' ? `${min}-` : `${min}-${max}`
     },
-    handleSearchOverlayChange(payload = {}) {
-      if (!payload.active) {
-        this.searchOverlayActive = false
-        this.searchOverlayVisible = false
-        return
-      }
-      this.searchOverlayRect = payload.rect || this.searchOverlayRect
-      this.searchOverlayWindow = payload.windowSize || this.searchOverlayWindow
-      this.searchOverlayBarMotion = payload.barMotion || 'expand'
-      this.searchOverlayBarTargetTop = payload.barTargetTop || 0
-      this.searchOverlayVisible = true
-      this.searchOverlayActive = false
-      this.$nextTick(() => {
-        this.searchOverlayActive = true
-      })
-    },
     isAttributeSelected(key, value) {
       return String((this.filterForm.attributes || {})[key]) === String(value)
     },
@@ -1334,33 +1329,45 @@ export default {
   min-width: 0;
 }
 
-.market-list-search :deep(.market-search-entry__pill) {
+.market-search-pill {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 0 28rpx;
   height: 82rpx;
   border-radius: 42rpx;
   background: #FFFFFF;
   box-shadow: 0 10rpx 24rpx rgba(92, 122, 153, 0.12);
   border: 1rpx solid rgba(218, 228, 238, 0.9);
+  box-sizing: border-box;
 }
 
-.market-list-search :deep(.market-search-entry__text) {
+.market-search-pill-input {
+  flex: 1;
+  min-width: 0;
   height: 82rpx;
   line-height: 82rpx;
   font-size: 27rpx;
+  font-weight: 500;
   color: #8C929A;
   -webkit-text-fill-color: #8C929A;
+  padding: 0;
+  margin: 0;
+  border: none;
+  box-sizing: border-box;
+  background: transparent;
+  opacity: 1;
+  pointer-events: none;
 }
 
-.market-list-search :deep(.market-search-entry__icon) {
+.market-search-pill-icon {
   width: 38rpx;
   height: 38rpx;
+  flex-shrink: 0;
   opacity: 0.58;
 }
 
-.market-list-search-row--transitioning .search-filter-btn {
-  opacity: 0;
-}
-
-.market-search-root-overlay {
+.search-transition-mask {
   position: fixed;
   top: 0;
   right: 0;
@@ -1373,66 +1380,98 @@ export default {
   overflow: hidden;
 }
 
-.market-search-root-surface {
+.search-transition-top-panel {
   position: fixed;
-  border-radius: 38rpx;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: var(--search-transition-surface-top, 180rpx);
+  background: transparent;
+  opacity: 0;
+  z-index: 2;
+  transition: none;
+}
+
+.search-transition-surface {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: var(--search-transition-surface-top, 180rpx);
+  bottom: 0;
+  width: 100%;
+  height: auto;
+  border-radius: 0;
   background: #F7F7F9;
   overflow: hidden;
-  box-shadow: 0 16rpx 48rpx rgba(29, 29, 31, 0.10);
+  box-shadow: none;
   transform-origin: left top;
   opacity: 0;
-  transition: transform 320ms ease-out, opacity 320ms ease-out, border-radius 320ms ease-out;
+  transform: translate3d(0, 0, 0) scale3d(1, 0.01, 1);
+  transition:
+    transform 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease-out;
   will-change: transform, opacity;
 }
 
-.market-search-root-overlay--active .market-search-root-surface {
+.search-transition-mask--active .search-transition-surface {
   opacity: 1;
-  border-radius: 0;
+  transform: translate3d(0, 0, 0) scale3d(1, 1, 1);
 }
 
-.market-search-root-bar {
+.search-transition-bar {
   position: fixed;
+  left: var(--search-transition-start-left, 28rpx);
+  top: var(--search-transition-start-top, 120rpx);
+  width: var(--search-transition-start-width, calc(100vw - 132rpx));
+  height: var(--search-transition-start-height, 82rpx);
   z-index: 100000;
-  height: 76rpx;
   display: flex;
   align-items: center;
   gap: 12rpx;
   padding: 0 28rpx;
-  border-radius: 38rpx;
-  background: #F5F5F5;
+  border-radius: 42rpx;
+  background: #FFFFFF;
+  border: 1rpx solid rgba(218, 228, 238, 0.9);
+  box-shadow: 0 10rpx 24rpx rgba(92, 122, 153, 0.12);
   box-sizing: border-box;
   opacity: 0;
-  transform-origin: left top;
-  transition: transform 320ms ease-out, opacity 160ms ease-out;
+  transform: translate3d(0, 8rpx, 0) scale3d(0.985, 0.985, 1);
+  transform-origin: center center;
+  transition:
+    opacity 180ms ease-out,
+    transform 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 340ms ease-out;
   will-change: transform, opacity;
 }
 
-.market-search-root-overlay--active .market-search-root-bar {
+.search-transition-mask--active .search-transition-bar {
   opacity: 1;
+  transform: translate3d(0, 0, 0) scale3d(1, 1, 1);
 }
 
-.market-search-root-icon {
-  width: 36rpx;
-  height: 36rpx;
+.search-transition-icon {
+  width: 38rpx;
+  height: 38rpx;
   flex-shrink: 0;
-  opacity: 0.7;
+  opacity: 0.58;
 }
 
-.market-search-root-text {
+.search-transition-input {
   flex: 1;
   min-width: 0;
-  height: 76rpx;
-  font-size: 26rpx;
-  line-height: 76rpx;
-  color: #888888;
+  height: 82rpx;
+  line-height: 82rpx;
+  font-size: 27rpx;
   font-weight: 500;
+  color: #8C929A;
+  -webkit-text-fill-color: #8C929A;
   padding: 0;
   margin: 0;
   border: none;
   box-sizing: border-box;
   background: transparent;
   opacity: 1;
-  -webkit-text-fill-color: #888888;
   pointer-events: none;
 }
 
@@ -2738,7 +2777,7 @@ export default {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.26);
+  background: rgba(17, 24, 39, 0.32);
   z-index: 100;
   display: flex;
   align-items: flex-end;
@@ -2747,55 +2786,58 @@ export default {
 
 .filter-panel {
   width: 100%;
-  max-height: 70vh;
+  max-height: 88vh;
   background: #fff;
-  border-radius: 34rpx 34rpx 0 0;
+  border-radius: 42rpx 42rpx 0 0;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 -18rpx 54rpx rgba(29, 29, 31, 0.12);
+  box-shadow: 0 -18rpx 64rpx rgba(31, 41, 55, 0.12);
   animation: filterSlideUp 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
 }
 
 .filter-handle {
-  width: 72rpx;
-  height: 8rpx;
+  width: 82rpx;
+  height: 9rpx;
   border-radius: 999rpx;
-  background: #D7DEE8;
-  margin: 18rpx auto 0;
+  background: #D0D5DD;
+  margin: 18rpx auto 4rpx;
 }
 
 .filter-header {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20rpx 32rpx 16rpx;
+  padding: 22rpx 40rpx 26rpx;
   position: relative;
   flex-shrink: 0;
 }
 
 .filter-title {
-  font-size: 30rpx;
-  font-weight: 700;
-  color: #111111;
+  font-size: 38rpx;
+  font-weight: 850;
+  color: #1D1D1F;
+  line-height: 1.2;
 }
 
 .filter-close {
   position: absolute;
-  right: 32rpx;
+  right: 34rpx;
   top: 18rpx;
-  font-size: 28rpx;
-  color: #8E8E93;
-  width: 48rpx;
-  height: 48rpx;
+  font-size: 44rpx;
+  color: #6B7280;
+  width: 64rpx;
+  height: 64rpx;
   display: flex;
   align-items: center;
   justify-content: center;
+  line-height: 1;
 }
 
 .selected-filter-strip {
   display: flex;
   gap: 12rpx;
-  padding: 0 32rpx 18rpx;
+  padding: 0 38rpx 18rpx;
   overflow-x: auto;
   white-space: nowrap;
   scrollbar-width: none;
@@ -2823,22 +2865,37 @@ export default {
 
 .filter-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 0 32rpx 18rpx;
-  max-height: 50vh;
+  padding: 0 38rpx 22rpx;
+  max-height: calc(88vh - 210rpx);
   box-sizing: border-box;
 }
 
 .filter-group {
-  margin-bottom: 28rpx;
+  margin-bottom: 42rpx;
   box-sizing: border-box;
 }
 
 .filter-group-title {
-  font-size: 24rpx;
-  font-weight: 600;
-  color: rgba(0, 0, 0, 0.55);
-  margin-bottom: 14rpx;
+  position: relative;
+  padding-left: 22rpx;
+  font-size: 30rpx;
+  font-weight: 850;
+  color: #2B2F36;
+  margin-bottom: 22rpx;
+  line-height: 1.25;
+}
+
+.filter-group-title::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4rpx;
+  width: 7rpx;
+  height: 32rpx;
+  border-radius: 999rpx;
+  background: #3F73C8;
 }
 
 .filter-attribute-group {
@@ -2872,7 +2929,7 @@ export default {
 .filter-options {
   display: flex;
   flex-wrap: wrap;
-  gap: 14rpx;
+  gap: 18rpx;
   max-width: 100%;
   box-sizing: border-box;
 }
@@ -2880,43 +2937,51 @@ export default {
 .filter-price-custom {
   display: flex;
   align-items: center;
-  gap: 12rpx;
-  margin-top: 16rpx;
+  gap: 18rpx;
+  margin-top: 22rpx;
 }
 
 .filter-price-input {
   flex: 1;
   min-width: 0;
-  height: 64rpx;
-  padding: 0 20rpx;
+  height: 70rpx;
+  padding: 0 24rpx;
   border-radius: 18rpx;
-  background: #F7FAFD;
-  border: 1rpx solid #E9EDF2;
+  background: #FFFFFF;
+  border: 1rpx solid #DDE2EA;
   color: #1D1D1F;
-  font-size: 24rpx;
+  font-size: 26rpx;
   box-sizing: border-box;
 }
 
 .filter-price-placeholder {
-  color: #A2A8AF;
+  color: #A8AFB9;
 }
 
 .filter-price-separator {
-  color: #A2A8AF;
-  font-size: 24rpx;
+  color: #1D1D1F;
+  font-size: 28rpx;
   font-weight: 700;
 }
 
 .filter-opt {
-  padding: 12rpx 28rpx;
-  border-radius: 28rpx;
+  width: calc((100% - 54rpx) / 4);
+  height: 60rpx;
+  padding: 0 10rpx;
+  border-radius: 18rpx;
   background: #FFFFFF;
-  border: 1rpx solid #E9EDF2;
-  font-size: 24rpx;
-  font-weight: 600;
-  color: #4A4A4A;
+  border: 1rpx solid #DDE2EA;
+  font-size: 25rpx;
+  font-weight: 750;
+  color: #252A31;
   box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: transform 0.16s ease, background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .filter-opt:active {
@@ -2924,40 +2989,41 @@ export default {
 }
 
 .filter-opt.on {
-  background: #EAF3FF;
-  border-color: #AFC9EA;
-  color: #4F7FB8;
+  background: #F1F6FF;
+  border-color: #A8C3F0;
+  color: #2F6FC8;
 }
 
 .filter-footer {
   display: flex;
-  gap: 20rpx;
-  padding: 20rpx 32rpx calc(20rpx + env(safe-area-inset-bottom));
-  border-top: 1rpx solid #E9EDF2;
+  gap: 24rpx;
+  padding: 22rpx 36rpx calc(22rpx + env(safe-area-inset-bottom));
+  border-top: 1rpx solid #E5E7EB;
+  background: rgba(255, 255, 255, 0.98);
   flex-shrink: 0;
 }
 
 .filter-btn {
   flex: 1;
-  height: 80rpx;
-  border-radius: 40rpx;
+  height: 78rpx;
+  border-radius: 24rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 28rpx;
-  font-weight: 700;
+  font-size: 30rpx;
+  font-weight: 850;
 }
 
 .filter-btn.reset {
   background: #FFFFFF;
-  border: 1rpx solid #E9EDF2;
-  color: #4A4A4A;
+  border: 1rpx solid #C8D0DA;
+  color: #1D1D1F;
 }
 
 .filter-btn.confirm {
-  background: #6F98D0;
+  background: #4B7DCE;
   color: #fff;
-  box-shadow: 0 8rpx 20rpx rgba(111, 152, 208, 0.24);
+  box-shadow: 0 10rpx 24rpx rgba(75, 125, 206, 0.24);
 }
 
 @keyframes filterFadeIn {
