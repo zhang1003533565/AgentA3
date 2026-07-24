@@ -97,7 +97,7 @@ button {
   font-weight: 700;
 }
 
-.top-nav {
+.app-tab-nav {
   position: fixed;
   right: 0;
   top: 0;
@@ -111,7 +111,7 @@ button {
   backdrop-filter: blur(12px);
 }
 
-.top-nav__inner {
+.app-tab-nav__inner {
   display: grid;
   grid-template-columns: repeat(7, minmax(max-content, 1fr));
   gap: 8px;
@@ -120,11 +120,11 @@ button {
   scrollbar-width: none;
 }
 
-.top-nav__inner::-webkit-scrollbar {
+.app-tab-nav__inner::-webkit-scrollbar {
   display: none;
 }
 
-.top-nav a {
+.app-tab-nav a {
   display: grid;
   place-items: center;
   min-height: 42px;
@@ -137,7 +137,7 @@ button {
   white-space: nowrap;
 }
 
-.top-nav a.router-link-active {
+.app-tab-nav a.router-link-active {
   color: #2563eb;
   background: #eff6ff;
 }
