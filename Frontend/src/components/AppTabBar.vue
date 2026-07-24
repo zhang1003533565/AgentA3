@@ -1,5 +1,14 @@
+<script setup>
+defineProps({
+  embedded: {
+    type: Boolean,
+    default: false,
+  },
+})
+</script>
+
 <template>
-  <nav class="app-tab-nav" aria-label="主导航">
+  <nav class="app-tab-nav" :class="{ 'app-tab-nav--embedded': embedded }" aria-label="主导航">
     <div class="app-tab-nav__inner">
       <RouterLink to="/home">首页</RouterLink>
       <RouterLink to="/map">校园地图</RouterLink>
