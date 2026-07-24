@@ -14,6 +14,8 @@ import MinePapersView from '../views/MinePapersView.vue'
 import MineScheduleView from '../views/MineScheduleView.vue'
 import MineView from '../views/MineView.vue'
 import ResumeView from '../views/ResumeView.vue'
+import ResumeDesigner from '../views/ResumeDesigner.vue'
+import ResumeWizard from '../views/ResumeWizard.vue'
 import { getToken } from '../utils/auth'
 
 const routes = [
@@ -31,7 +33,9 @@ const routes = [
   { path: '/mine/activities', name: 'mine-activities', component: MineActivitiesView },
   { path: '/mine/ai-history', name: 'mine-ai-history', component: MineAiHistoryView },
   { path: '/mine/papers', name: 'mine-papers', component: MinePapersView },
-  { path: '/resume', name: 'resume', component: ResumeView },
+  { path: '/resume', name: 'resume', component: ResumeView, meta: { public: true } },
+  { path: '/resume/designer', name: 'resume-designer', component: ResumeDesigner, meta: { public: true } },
+  { path: '/resume/wizard', name: 'resume-wizard', component: ResumeWizard, meta: { public: true } },
 ]
 
 const router = createRouter({
