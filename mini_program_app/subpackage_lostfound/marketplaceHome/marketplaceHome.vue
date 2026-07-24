@@ -289,7 +289,7 @@ export default {
             categoryLevel2Id: r.categoryLevel2Id || r.categoryId || '',
             categoryLevel2Name: r.categoryLevel2Name || r.categoryName || '',
             location,
-            tradeLocation: r.tradeLocation || r.trade_location || location,
+            tradeLocation: r.tradeLocation || r.trade_location || '',
             campusId: r.campusId || '',
             campusName: r.campusName || '',
             schoolId: r.schoolId || seller.schoolId || '',
