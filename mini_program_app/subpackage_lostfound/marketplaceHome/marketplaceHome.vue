@@ -245,7 +245,6 @@ export default {
     }
   },
   onLoad() {
-    this.loadItems()
     this.startBannerAuto()
   },
   onShow() {

@@ -836,7 +836,6 @@ export default {
     }
   },
   async onLoad() {
-    await this.loadItems()
   },
   async onShow() {
     this.searchTransitioning = false
