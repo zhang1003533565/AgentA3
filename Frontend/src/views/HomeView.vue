@@ -414,17 +414,7 @@ function releasePreview() {
 
 <template>
   <div class="home-view">
-    <header class="top-nav">
-      <div class="container nav-inner">
-        <div class="nav-left">
-          <div class="nav-logo">数智<span>诊断</span>港</div>
-          <AppTabBar embedded />
-        </div>
-        <div class="nav-right">
-          <a href="javascript:void(0)" class="btn-login">登录 / 注册</a>
-        </div>
-      </div>
-    </header>
+    <AppTabBar embedded />
 
     <section class="search-area">
       <div class="container">
@@ -640,38 +630,6 @@ function releasePreview() {
   margin: 0 auto;
 }
 
-.top-nav {
-  background: #1e2b4c;
-  color: #fff;
-}
-
-.nav-inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 60px;
-  gap: 16px;
-}
-
-.nav-left {
-  display: flex;
-  align-items: center;
-}
-
-.nav-left {
-  gap: 24px;
-}
-
-.nav-logo {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 1px;
-}
-
-.nav-logo span {
-  color: #00b4ff;
-}
-
 .footer a {
   color: inherit;
   text-decoration: none;
@@ -679,15 +637,6 @@ function releasePreview() {
 
 .footer a:hover {
   color: #fff;
-}
-
-.btn-login {
-  display: inline-block;
-  padding: 6px 18px;
-  border-radius: 4px;
-  background: #00b4ff;
-  color: #fff;
-  text-decoration: none;
 }
 
 .search-area {
@@ -1133,9 +1082,7 @@ function releasePreview() {
 }
 
 @media (max-width: 992px) {
-  .cat-diagnosis-area,
-  .nav-inner,
-  .nav-left {
+  .cat-diagnosis-area {
     flex-direction: column;
     align-items: stretch;
   }
