@@ -6,6 +6,12 @@ import HomeView from '../views/HomeView.vue'
 import LoginView from '../views/LoginView.vue'
 import MapView from '../views/MapView.vue'
 import MeetingsView from '../views/MeetingsView.vue'
+import MineActivitiesView from '../views/MineActivitiesView.vue'
+import MineAiHistoryView from '../views/MineAiHistoryView.vue'
+import MineMeetingScheduleView from '../views/MineMeetingScheduleView.vue'
+import MineMessagesView from '../views/MineMessagesView.vue'
+import MinePapersView from '../views/MinePapersView.vue'
+import MineScheduleView from '../views/MineScheduleView.vue'
 import MineView from '../views/MineView.vue'
 import ResumeView from '../views/ResumeView.vue'
 import { getToken } from '../utils/auth'
@@ -19,6 +25,12 @@ const routes = [
   { path: '/ai', name: 'ai', component: AiAssistantView },
   { path: '/ai-tools', name: 'ai-tools', component: AiToolsView },
   { path: '/mine', name: 'mine', component: MineView },
+  { path: '/mine/messages', name: 'mine-messages', component: MineMessagesView },
+  { path: '/mine/schedule', name: 'mine-schedule', component: MineScheduleView },
+  { path: '/mine/meeting-schedule', name: 'mine-meeting-schedule', component: MineMeetingScheduleView },
+  { path: '/mine/activities', name: 'mine-activities', component: MineActivitiesView },
+  { path: '/mine/ai-history', name: 'mine-ai-history', component: MineAiHistoryView },
+  { path: '/mine/papers', name: 'mine-papers', component: MinePapersView },
   { path: '/resume', name: 'resume', component: ResumeView },
 ]
 
