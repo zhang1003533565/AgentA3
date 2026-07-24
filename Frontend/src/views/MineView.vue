@@ -11,13 +11,17 @@ const displayName = computed(() => userInfo.value.realName || userInfo.value.use
 const studentId = computed(() => userInfo.value.studentId || userInfo.value.personalNumber || '—')
 
 const menuItems = [
-  '我的消息',
-  '我的课表',
-  '会议日程',
-  '我的活动',
-  'AI 会话历史',
-  '我的试卷',
+  { label: '我的消息', to: '/mine/messages' },
+  { label: '我的课表', to: '/mine/schedule' },
+  { label: '会议日程', to: '/mine/meeting-schedule' },
+  { label: '我的活动', to: '/mine/activities' },
+  { label: 'AI 会话历史', to: '/mine/ai-history' },
+  { label: '我的试卷', to: '/mine/papers' },
 ]
+
+function openMenuItem(item) {
+  router.push(item.to)
+}
 
 function logout() {
   clearAuth()
@@ -41,8 +45,14 @@ function logout() {
       </section>
 
       <section class="menu-card card">
-        <button v-for="item in menuItems" :key="item" class="menu-row" type="button">
-          <span>{{ item }}</span>
+        <button
+          v-for="item in menuItems"
+          :key="item.to"
+          class="menu-row"
+          type="button"
+          @click="openMenuItem(item)"
+        >
+          <span>{{ item.label }}</span>
           <span class="arrow">›</span>
         </button>
       </section>
