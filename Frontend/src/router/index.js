@@ -8,6 +8,8 @@ import MapView from '../views/MapView.vue'
 import MeetingsView from '../views/MeetingsView.vue'
 import MineView from '../views/MineView.vue'
 import ResumeView from '../views/ResumeView.vue'
+import ResumeDesigner from '../views/ResumeDesigner.vue'
+import ResumeWizard from '../views/ResumeWizard.vue'
 import { getToken } from '../utils/auth'
 
 const routes = [
@@ -19,7 +21,9 @@ const routes = [
   { path: '/ai', name: 'ai', component: AiAssistantView },
   { path: '/ai-tools', name: 'ai-tools', component: AiToolsView },
   { path: '/mine', name: 'mine', component: MineView },
-  { path: '/resume', name: 'resume', component: ResumeView },
+  { path: '/resume', name: 'resume', component: ResumeView, meta: { public: true } },
+  { path: '/resume/designer', name: 'resume-designer', component: ResumeDesigner, meta: { public: true } },
+  { path: '/resume/wizard', name: 'resume-wizard', component: ResumeWizard, meta: { public: true } },
 ]
 
 const router = createRouter({
