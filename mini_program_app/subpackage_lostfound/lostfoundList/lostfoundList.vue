@@ -5,11 +5,7 @@
       <!-- 列表页 -->
       <view v-if="currentPage === 'list'" class="page page-list">
         <view class="page-content">
-          <common-page-header title="校园集市" :fixed="true" :placeholder="true" :showBack="false">
-            <template #left>
-              <view class="market-back-button" @click="onBackToApp">‹</view>
-            </template>
-          </common-page-header>
+          <common-page-header title="校园集市" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="onBackToApp" />
 
           <view class="market-hero">
             <view class="market-list-search-row" :class="{ 'market-list-search-row--transitioning': searchTransitioning }">

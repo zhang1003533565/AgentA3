@@ -4,11 +4,7 @@
       <view class="container">
         <view class="page-content">
           <!-- ===== 1. Header: location + message ===== -->
-          <common-page-header title="首页" :fixed="true" :placeholder="true" :showBack="false">
-            <template #left>
-              <view class="market-back-button" @click="onBackToApp">‹</view>
-            </template>
-          </common-page-header>
+          <common-page-header title="首页" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="onBackToApp" />
 
           <!-- ===== 2. Search (fixed outside scroll content) ===== -->
           <view class="search-block search-block--sticky">

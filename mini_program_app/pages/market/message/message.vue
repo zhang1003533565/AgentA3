@@ -1,10 +1,6 @@
 <template>
   <view class="page-root">
-    <common-page-header title="消息" :fixed="true" :placeholder="true" :showBack="false">
-      <template #left>
-        <view class="market-back-button" @click="onBackToApp">‹</view>
-      </template>
-    </common-page-header>
+    <common-page-header title="消息" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="onBackToApp" />
 
     <view class="screen">
       <view class="container">

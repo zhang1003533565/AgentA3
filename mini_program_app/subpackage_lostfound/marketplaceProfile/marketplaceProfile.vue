@@ -1,10 +1,6 @@
 <template>
   <view class="page-root">
-    <common-page-header title="我的" :fixed="true" :placeholder="true" :showBack="false">
-      <template #left>
-        <view class="market-back-button" @click="onBackToApp">‹</view>
-      </template>
-    </common-page-header>
+    <common-page-header title="我的" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="onBackToApp" />
 
     <scroll-view scroll-y class="page-body">
       <!-- ========== 用户信息卡片 ========== -->
