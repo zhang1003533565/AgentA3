@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import AiAssistantView from '../views/AiAssistantView.vue'
 import AiToolsView from '../views/AiToolsView.vue'
+import CampusActivitiesView from '../views/CampusActivitiesView.vue'
 import HomeView from '../views/HomeView.vue'
 import LoginView from '../views/LoginView.vue'
 import MapView from '../views/MapView.vue'
@@ -23,6 +24,7 @@ const routes = [
   { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
   { path: '/home', name: 'home', component: HomeView },
   { path: '/map', name: 'map', component: MapView },
+  { path: '/activities', name: 'activities', component: CampusActivitiesView },
   { path: '/meetings', name: 'meetings', component: MeetingsView },
   { path: '/ai', name: 'ai', component: AiAssistantView },
   { path: '/ai-tools', name: 'ai-tools', component: AiToolsView },

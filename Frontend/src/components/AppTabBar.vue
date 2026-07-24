@@ -17,6 +17,7 @@ defineProps({
       <nav class="app-site-header__nav" aria-label="主导航">
         <RouterLink to="/home">首页</RouterLink>
         <RouterLink to="/map">校园地图</RouterLink>
+        <RouterLink to="/activities">校园活动</RouterLink>
         <RouterLink to="/meetings">会议</RouterLink>
         <RouterLink to="/ai">AI 助手</RouterLink>
         <RouterLink to="/ai-tools">AI 工具</RouterLink>
