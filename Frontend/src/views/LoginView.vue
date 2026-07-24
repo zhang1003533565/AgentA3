@@ -4,25 +4,35 @@ import loginBg from '@/assets/login-bg.jpg'
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { login } from '../api/user'
+import { login, register } from '../api/user'
 import { setToken, setUserInfo } from '../utils/auth'
 
 const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
 const errorMessage = ref('')
+const successMessage = ref('')
 const showPassword = ref(false)
+const mode = ref('login')
 const form = reactive({
   username: '',
   password: '',
+})
+const registerForm = reactive({
+  username: '',
+  password: '',
+  confirmPassword: '',
 })
 
 function togglePassword() {
   showPassword.value = !showPassword.value
 }
 
-function goToRegister() {
-  router.push({ name: 'register' })
+function switchMode(target) {
+  mode.value = target
+  errorMessage.value = ''
+  successMessage.value = ''
+  showPassword.value = false
 }
 
 async function handleLogin() {
@@ -69,6 +79,47 @@ async function handleLogin() {
     loading.value = false
   }
 }
+
+async function handleRegister() {
+  errorMessage.value = ''
+  successMessage.value = ''
+
+  if (registerForm.username.trim().length < 3) {
+    errorMessage.value = '用户名长度至少3位'
+    return
+  }
+
+  if (!registerForm.password || registerForm.password.length < 6) {
+    errorMessage.value = '密码长度至少6位'
+    return
+  }
+
+  if (registerForm.password !== registerForm.confirmPassword) {
+    errorMessage.value = '两次输入的密码不一致'
+    return
+  }
+
+  loading.value = true
+  try {
+    await register({
+      username: registerForm.username.trim(),
+      password: registerForm.password,
+      role: 'STUDENT',
+    })
+
+    form.username = registerForm.username.trim()
+    form.password = ''
+    registerForm.password = ''
+    registerForm.confirmPassword = ''
+    mode.value = 'login'
+    showPassword.value = false
+    successMessage.value = '注册成功，请使用新账号登录'
+  } catch (error) {
+    errorMessage.value = error.message || '注册失败'
+  } finally {
+    loading.value = false
+  }
+}
 </script>
 
 <template>
@@ -104,7 +155,7 @@ async function handleLogin() {
         </div>
       </div>
 
-      <form class="login-form" @submit.prevent="handleLogin">
+      <form v-if="mode === 'login'" class="login-form" @submit.prevent="handleLogin">
         <div class="form-group">
           <label class="form-label">账号</label>
           <div class="input-wrapper">
@@ -145,6 +196,7 @@ async function handleLogin() {
           </div>
         </div>
 
+        <p v-if="successMessage" class="form-success">{{ successMessage }}</p>
         <p v-if="errorMessage" class="form-error">{{ errorMessage }}</p>
 
         <div class="button-group">
@@ -160,9 +212,85 @@ async function handleLogin() {
           <button
             class="register-btn"
             type="button"
-            @click="goToRegister"
+            @click="switchMode('register')"
           >
             注册新账号
+          </button>
+        </div>
+      </form>
+
+      <form v-else class="login-form" @submit.prevent="handleRegister">
+        <div class="form-group">
+          <label class="form-label">账号</label>
+          <div class="input-wrapper">
+            <input
+              v-model="registerForm.username"
+              class="form-input"
+              autocomplete="username"
+              placeholder="请设置账号（3-50位）"
+            />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">密码</label>
+          <div class="input-wrapper">
+            <input
+              v-model="registerForm.password"
+              class="form-input"
+              :type="showPassword ? 'text' : 'password'"
+              autocomplete="new-password"
+              placeholder="请设置密码（至少6位）"
+            />
+            <button
+              type="button"
+              class="toggle-password"
+              @click="togglePassword"
+            >
+              <svg v-if="!showPassword" class="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+              <svg v-else class="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                <line x1="1" y1="1" x2="23" y2="23"></line>
+              </svg>
+              <span class="toggle-text">{{ showPassword ? '隐藏' : '显示' }}</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">确认密码</label>
+          <div class="input-wrapper">
+            <input
+              v-model="registerForm.confirmPassword"
+              class="form-input"
+              :type="showPassword ? 'text' : 'password'"
+              autocomplete="new-password"
+              placeholder="请再次输入密码"
+            />
+          </div>
+        </div>
+
+        <p v-if="errorMessage" class="form-error">{{ errorMessage }}</p>
+
+        <div class="button-group">
+          <button
+            class="submit-btn"
+            :disabled="loading"
+            type="submit"
+          >
+            <span v-if="loading" class="btn-loading"></span>
+            <span class="btn-text">{{ loading ? '注册中...' : '注册账号' }}</span>
+          </button>
+
+          <button
+            class="register-btn"
+            type="button"
+            @click="switchMode('login')"
+          >
+            返回登录
           </button>
         </div>
       </form>
@@ -543,6 +671,16 @@ async function handleLogin() {
   color: #dc2626;
   font-size: 13px;
   animation: error-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
+.form-success {
+  margin: 0;
+  padding: 10px 14px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  color: #16a34a;
+  font-size: 13px;
 }
 
 @keyframes error-shake {
