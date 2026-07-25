@@ -47,7 +47,7 @@ function CommentManage() {
           hiddenComments: res.data.hiddenComments || 0,
         })
       }
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
   }
 
   useEffect(() => { fetchComments(); fetchStats() }, [])

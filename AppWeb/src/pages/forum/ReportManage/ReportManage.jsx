@@ -39,14 +39,14 @@ function ReportManage() {
     try {
       const res = await getReportStatistics()
       setStats(res?.data || null)
-    } catch (error) { setStats(null) }
+    } catch { setStats(null) }
   }
 
   const fetchForumStats = async () => {
     try {
       const res = await getForumStatistics()
       if (res.code === 200) setForumStats(res.data)
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
   }
 
   useEffect(() => { fetchReports({ page: 1 }); fetchStats(); fetchForumStats() }, [])
@@ -57,7 +57,7 @@ function ReportManage() {
     try {
       const res = await getReportLogs(record.id)
       setLogs(res?.data || [])
-    } catch (error) { setLogs([]) }
+    } catch { setLogs([]) }
   }
 
   const openHandle = (record, action) => {

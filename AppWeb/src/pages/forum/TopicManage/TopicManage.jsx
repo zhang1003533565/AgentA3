@@ -39,7 +39,7 @@ function TopicManage() {
           hotTopics: res.data.hotTopics || 0,
         })
       }
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
   }
 
   useEffect(() => { fetchTopics(); fetchStats() }, [])
