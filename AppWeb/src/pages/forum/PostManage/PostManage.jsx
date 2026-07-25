@@ -60,7 +60,7 @@ function PostManage() {
           deletedPosts: res.data.deletedPosts || 0,
         })
       }
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
   }
 
   useEffect(() => {
