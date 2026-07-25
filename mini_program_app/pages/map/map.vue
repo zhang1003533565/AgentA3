@@ -21,7 +21,7 @@
         :show-scale="false"
         @markertap="onMarkerTap"
         @callouttap="onCalloutTap"
-        @tap="closePopup"
+        @tap="handleMapTap"
       />
 
       <view class="top-controls" :style="{ paddingTop: `${statusBarHeight + 12}px` }">
@@ -138,6 +138,27 @@
             <view></view>
           </view>
         </view>
+        <view
+          class="map-tool-btn"
+          :class="{ 'map-tool-btn--active': showNearbyPanel }"
+          aria-label="附近地点"
+          @click.stop="toggleNearbyPanel"
+        >
+          <view class="nearby-tool-icon" aria-hidden="true">
+            <view class="nearby-tool-icon__pin"></view>
+          </view>
+        </view>
+        <view
+          class="map-tool-btn"
+          :class="{ 'map-tool-btn--active': showHistoryPanel }"
+          aria-label="导航历史"
+          @click.stop="toggleHistoryPanel"
+        >
+          <view class="history-tool-icon" aria-hidden="true">
+            <view class="history-tool-icon__face"></view>
+            <view class="history-tool-icon__hand"></view>
+          </view>
+        </view>
         <view class="map-tool-btn" aria-label="回到当前位置" @click.stop="locateToCurrent">
           <view class="tool-target-icon tool-target-icon--small" aria-hidden="true"></view>
         </view>
@@ -146,13 +167,23 @@
       <view v-if="shouldShowNearbySheet" class="nearby-sheet-map" @click.stop>
         <view class="nearby-sheet__handle"></view>
         <view class="nearby-sheet__head">
-          <text class="nearby-sheet__title">附近地点</text>
-          <view class="nearby-sheet__more" @click.stop="showNearbyMore">
+          <text class="nearby-sheet__title">{{ showNearbyPanel ? '附近地点' : '搜索结果' }}</text>
+          <view v-if="showNearbyPanel" class="nearby-sheet__more" @click.stop="toggleNearbyPanel(false)">
+            <text>收起</text>
+            <view class="nearby-more-arrow nearby-more-arrow--down"></view>
+          </view>
+          <view v-else class="nearby-sheet__more" @click.stop="showNearbyMore">
             <text>更多</text>
             <view class="nearby-more-arrow"></view>
           </view>
         </view>
-        <scroll-view class="nearby-list" scroll-x :show-scrollbar="false">
+        <view v-if="nearbyLoading" class="nearby-sheet__loading">
+          <text>正在加载附近地点...</text>
+        </view>
+        <view v-else-if="showNearbyPanel && !nearbyDisplayCards.length" class="nearby-sheet__loading">
+          <text>附近暂无设施数据</text>
+        </view>
+        <scroll-view v-else class="nearby-list" scroll-x :show-scrollbar="false">
           <view class="nearby-row">
             <view
               v-for="item in nearbyDisplayCards"
@@ -179,6 +210,48 @@
           </view>
         </scroll-view>
       </view>
+
+      <view v-if="shouldShowHistorySheet" class="nearby-sheet-map history-sheet-map" @click.stop>
+        <view class="nearby-sheet__handle"></view>
+        <view class="nearby-sheet__head">
+          <text class="nearby-sheet__title">导航历史</text>
+          <view class="nearby-sheet__more" @click.stop="toggleHistoryPanel(false)">
+            <text>收起</text>
+            <view class="nearby-more-arrow nearby-more-arrow--down"></view>
+          </view>
+        </view>
+        <view v-if="historyLoading" class="nearby-sheet__loading">
+          <text>正在加载导航历史...</text>
+        </view>
+        <view v-else-if="!navigationHistory.length" class="nearby-sheet__loading">
+          <text>暂无导航历史记录</text>
+        </view>
+        <scroll-view v-else class="history-list" scroll-y :show-scrollbar="false">
+          <view
+            v-for="item in navigationHistory"
+            :key="item.id"
+            class="history-item"
+            @click="selectHistoryItem(item)"
+          >
+            <view class="history-item__icon" aria-hidden="true">
+              <view class="history-item__pin"></view>
+            </view>
+            <view class="history-item__body">
+              <text class="history-item__name">{{ item.name }}</text>
+              <view class="history-item__meta">
+                <text v-if="item.time">{{ item.time }}</text>
+                <text v-if="item.distance" class="history-item__dot">·</text>
+                <text v-if="item.distance">{{ item.distance }}</text>
+                <text v-if="item.duration" class="history-item__dot">·</text>
+                <text v-if="item.duration">{{ item.duration }}</text>
+              </view>
+            </view>
+            <view class="history-item__status" :class="`history-item__status--${item.status}`">
+              <text>{{ item.status }}</text>
+            </view>
+          </view>
+        </scroll-view>
+      </view>
     </view>
 
     <ai-float-assistant />
@@ -189,7 +262,15 @@
 import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant.vue'
 import PoiDetailCard from '@/components/poi-detail-card/poi-detail-card.vue'
 import { getFacilityTypes } from '@/api/facility'
-import { getMarkerList, getNavigationRoute, searchFacilities, searchPlaces } from '@/api/map'
+import {
+  getMarkerList,
+  getNavigationRoute,
+  getNearbyFacilities,
+  getNavigationHistory,
+  reverseGeocode,
+  searchFacilities,
+  startNavigationRecord
+} from '@/api/map'
 import {
   applyFacilityTypeLabels,
   buildFacilityDetailRoute,
@@ -304,7 +385,16 @@ export default {
       searchSuggestions: [],
       searchHighlightIndex: -1,
       searchDebounceTimer: null,
-      searchRequestId: 0
+      searchRequestId: 0,
+      showNearbyPanel: false,
+      nearbyFacilities: [],
+      nearbyLoading: false,
+      showHistoryPanel: false,
+      navigationHistory: [],
+      historyLoading: false,
+      droppedPin: null,
+      reverseGeocodeLoading: false,
+      reverseGeocodeRequestId: 0
     }
   },
   computed: {
@@ -314,6 +404,9 @@ export default {
         .map((item) => this.buildMapMarker(item))
       if (this.tempSearchLocation && this.tempSearchLocation.longitude != null && this.tempSearchLocation.latitude != null) {
         markers.push(this.buildMapMarker(this.tempSearchLocation, { isSearch: true }))
+      }
+      if (this.droppedPin && this.droppedPin.longitude != null && this.droppedPin.latitude != null) {
+        markers.push(this.buildMapMarker(this.droppedPin, { isPin: true }))
       }
       return markers
     },
@@ -332,9 +425,17 @@ export default {
     },
     visibleLocations() {
       const keyword = this.normalizeSearchToken(this.searchKeyword)
+      if (!keyword) return this.locationList
       return this.locationList.filter((item) => {
-        if (!keyword) return true
-        return (item.searchText || '').includes(keyword)
+        if (!item._searchText) {
+          item._searchText = this.buildLocationSearchText(item._rawItem || item, {
+            name: item.name,
+            shortName: item.shortName,
+            detail: item.detail,
+            description: item.description
+          })
+        }
+        return item._searchText.includes(keyword)
       })
     },
     categoryTiles() {
@@ -373,6 +474,9 @@ export default {
         .slice(0, 4)
     },
     nearbyDisplayCards() {
+      if (this.showNearbyPanel && this.nearbyFacilities.length) {
+        return this.nearbyFacilities
+      }
       if (this.nearbyLocations.length) return this.nearbyLocations
       return this.categoryTiles
         .filter((item) => !item.isMore)
@@ -387,8 +491,13 @@ export default {
         }))
     },
     shouldShowNearbySheet() {
+      if (this.showHistoryPanel) return false
+      if (this.showNearbyPanel) return !this.selectedLocation
       const hasKeyword = !!(this.searchKeyword || '').trim()
       return !this.selectedLocation && (hasKeyword || !!this.tempSearchLocation)
+    },
+    shouldShowHistorySheet() {
+      return this.showHistoryPanel && !this.selectedLocation
     },
     poiCardData() {
       const item = this.selectedLocation
@@ -431,8 +540,12 @@ export default {
   },
   methods: {
     async initializeMap() {
-      await this.loadFacilityTypes()
+      // 设施类型字典有本地兜底，不阻塞地图渲染
+      this.loadFacilityTypes()
+      // 加载标记数据
       await this.loadMapData({ resetViewport: true })
+      // 异步定位，成功后将地图移到用户真实位置
+      this.fetchCurrentLocation({ centerMap: true })
     },
     async loadFacilityTypes() {
       try {
@@ -477,7 +590,6 @@ export default {
           .filter(Boolean)
         if (resetViewport) {
           this.mapCenter = this.resolveInitialMapCenter(this.locationList)
-          this.fetchCurrentLocation({ centerMap: true })
         }
         this.syncNearestLocation()
         this.refreshSelectedLocation()
@@ -630,10 +742,12 @@ export default {
       const icon = this.getFacilityIcon(item.facilityType, item.markerName)
       const route = this.getMarkerRoute(item)
       const coverImage = this.getMarkerCoverImage(item)
+      const shortName = this.getShortName(item.markerName)
+      const detail = item.location || getFacilityTypeLabel(item.facilityType, item.facilityTypeName)
       return {
         id: item.id,
         name: item.markerName,
-        shortName: this.getShortName(item.markerName),
+        shortName,
         icon,
         coverImage,
         facilityType: item.facilityType,
@@ -641,17 +755,13 @@ export default {
         category: resolveFacilityType(item.facilityType).mapCategory,
         typeClass,
         distance: this.formatDistance(longitude, latitude),
-        detail: item.location || getFacilityTypeLabel(item.facilityType, item.facilityTypeName),
+        detail,
         description: item.description || '暂无简介',
         route,
         longitude,
         latitude,
-        searchText: this.buildLocationSearchText(item, {
-          name: item.markerName,
-          shortName: this.getShortName(item.markerName),
-          detail: item.location || getFacilityTypeLabel(item.facilityType, item.facilityTypeName),
-          description: item.description || ''
-        })
+        _rawItem: item,
+        _searchText: ''
       }
     },
     getMarkerRoute(item) {
@@ -676,19 +786,20 @@ export default {
     },
     buildMapMarker(item, options = {}) {
       const isSearch = !!options.isSearch
-      const markerId = isSearch ? -9999 : Number(item.id)
-      const isSelected = !isSearch && this.selectedLocation && this.selectedLocation.id === item.id
+      const isPin = !!options.isPin
+      const markerId = isPin ? -8888 : (isSearch ? -9999 : Number(item.id))
+      const isSelected = !isSearch && !isPin && this.selectedLocation && this.selectedLocation.id === item.id
       const marker = {
         id: markerId,
         longitude: Number(item.longitude),
         latitude: Number(item.latitude),
-        iconPath: this.getMarkerIconPath(item, isSearch),
-        width: isSearch ? 32 : (isSelected ? 34 : 30),
-        height: isSearch ? 40 : (isSelected ? 42 : 38),
-        alpha: isSearch ? 1 : (isSelected ? 1 : 0.86),
+        iconPath: this.getMarkerIconPath(item, isSearch || isPin),
+        width: isPin ? 32 : (isSearch ? 32 : (isSelected ? 34 : 30)),
+        height: isPin ? 40 : (isSearch ? 40 : (isSelected ? 42 : 38)),
+        alpha: isPin ? 1 : (isSearch ? 1 : (isSelected ? 1 : 0.86)),
         callout: {
-          content: item.shortName || item.name || (isSearch ? '搜索结果' : '地点'),
-          display: isSearch || isSelected ? 'ALWAYS' : 'BYCLICK',
+          content: item.shortName || item.name || (isPin ? '地图点位' : (isSearch ? '搜索结果' : '地点')),
+          display: isPin || isSearch || isSelected ? 'ALWAYS' : 'BYCLICK',
           borderRadius: 12,
           padding: 7,
           fontSize: 12,
@@ -813,50 +924,35 @@ export default {
         this.mapScale = 17
         return
       }
-      // 校内设施未匹配，fallback 到腾讯 POI 搜索
+      // 本地未匹配，调后端校内搜索
+      uni.showLoading({ title: '搜索中...', mask: true })
       try {
-        const res = await searchPlaces({
-          keyword,
-          latitude: this.mapCenter.latitude,
-          longitude: this.mapCenter.longitude,
-          radius: 5000
-        })
-        const first = res?.data?.pois?.[0]
-        if (!first || first.longitude == null || first.latitude == null) {
-          this.tempSearchLocation = null
-          this.selectedLocation = null
-          uni.showToast({ title: '未找到匹配地点', icon: 'none' })
+        const searchRes = await searchFacilities({ keyword, limit: 20 }, { showError: false })
+        const searchList = Array.isArray(searchRes?.data) ? searchRes.data : (Array.isArray(searchRes) ? searchRes : [])
+        const matched = searchList.find((item) => item.longitude != null && item.latitude != null)
+        uni.hideLoading()
+        if (matched) {
+          this.selectSuggestion(matched, { keepKeyword: true })
           return
         }
-        const item = {
-          id: 'temp-search-poi',
-          name: first.title || keyword,
-          shortName: this.getShortName(first.title || keyword),
-          icon: '',
-          category: 0,
-          typeClass: 'admin',
-          distance: first.distance != null ? `${first.distance}m` : '--',
-          detail: first.address || first.district || first.typeDesc || '搜索结果',
-          description: first.typeDesc || '地图搜索结果',
-          top: '50%',
-          left: '50%',
-          route: '',
-          longitude: Number(first.longitude),
-          latitude: Number(first.latitude)
-        }
-        this.tempSearchLocation = item
-        this.selectedLocation = null
-        this.closeSuggestPanel()
-        this.mapCenter = {
-          longitude: Number(item.longitude),
-          latitude: Number(item.latitude)
-        }
-        this.mapScale = 17
-      } catch (error) {
         this.tempSearchLocation = null
         this.selectedLocation = null
-        uni.showToast({ title: '地点搜索失败', icon: 'none' })
+        uni.showToast({ title: '未找到匹配地点', icon: 'none' })
+      } catch (error) {
+        uni.hideLoading()
+        this.tempSearchLocation = null
+        this.selectedLocation = null
+        const reason = this.resolveSearchErrorMessage(error)
+        uni.showToast({ title: reason, icon: 'none' })
       }
+    },
+    resolveSearchErrorMessage(error) {
+      if (!error) return '地点搜索失败'
+      if (typeof error === 'string') return error
+      const msg = error.msg || error.message
+      if (msg) return msg
+      if (error.statusCode) return `搜索失败(${error.statusCode})`
+      return '地点搜索失败'
     },
     handleKeywordInput() {
       this.tempSearchLocation = null
@@ -865,6 +961,12 @@ export default {
       if (!keyword) {
         this.closeSuggestPanel()
         return
+      }
+      if (this.showNearbyPanel || this.showHistoryPanel) {
+        this.showNearbyPanel = false
+        this.showHistoryPanel = false
+        this.nearbyFacilities = []
+        this.navigationHistory = []
       }
       if (this.searchDebounceTimer) {
         clearTimeout(this.searchDebounceTimer)
@@ -895,6 +997,7 @@ export default {
       this.searchSuggestions = []
       this.searchHighlightIndex = -1
       this.tempSearchLocation = null
+      this.clearDroppedPin()
       const target = {
         id: item.id || item.markerId || item.facilityId,
         name: item.markerName || item.name,
@@ -924,7 +1027,155 @@ export default {
       uni.showToast({ title: '可左右滑动查看更多分类', icon: 'none' })
     },
     showNearbyMore() {
-      uni.showToast({ title: '可在地图中搜索更多地点', icon: 'none' })
+      this.toggleNearbyPanel(true)
+    },
+    async toggleNearbyPanel(forceOpen = false) {
+      if (forceOpen) {
+        this.showNearbyPanel = true
+      } else {
+        this.showNearbyPanel = !this.showNearbyPanel
+      }
+      if (this.showNearbyPanel) {
+        this.showHistoryPanel = false
+        await this.fetchNearbyFacilities()
+      } else {
+        this.nearbyFacilities = []
+      }
+    },
+    async fetchNearbyFacilities() {
+      let longitude = this.currentLocation.longitude
+      let latitude = this.currentLocation.latitude
+      if (longitude == null || latitude == null) {
+        longitude = this.mapCenter.longitude
+        latitude = this.mapCenter.latitude
+      }
+      if (longitude == null || latitude == null) return
+      this.nearbyLoading = true
+      try {
+        const res = await getNearbyFacilities({
+          longitude,
+          latitude,
+          radius: 1500,
+          limit: 12,
+          sortBy: 'distance'
+        })
+        const data = res?.data || res || {}
+        const list = Array.isArray(data.list) ? data.list : (Array.isArray(data) ? data : [])
+        this.nearbyFacilities = list
+          .filter((item) => item.longitude != null && item.latitude != null)
+          .map((item) => ({
+            id: item.id || item.markerId || item.facilityId,
+            name: item.markerName || item.name || '未命名地点',
+            shortName: this.getShortName(item.markerName || item.name || '地点'),
+            coverImage: '',
+            facilityType: item.facilityType,
+            facilityId: item.facilityId,
+            category: 0,
+            typeClass: this.getTypeClass(item.facilityType, item.markerName),
+            distance: this.formatNearbyDistance(item.distance),
+            detail: item.location || item.facilityTypeName || '',
+            description: item.description || '暂无简介',
+            route: item.facilityId ? buildFacilityDetailRoute(item.facilityType, item.facilityId) : '',
+            longitude: Number(item.longitude),
+            latitude: Number(item.latitude)
+          }))
+      } catch (error) {
+        uni.showToast({ title: '附近地点加载失败', icon: 'none' })
+        this.nearbyFacilities = []
+      } finally {
+        this.nearbyLoading = false
+      }
+    },
+    formatNearbyDistance(distance) {
+      if (distance == null) return '--'
+      const value = Number(distance)
+      if (!Number.isFinite(value)) return '--'
+      if (value >= 1000) return `${(value / 1000).toFixed(2)}km`
+      return `${Math.round(value)}m`
+    },
+    async toggleHistoryPanel(forceOpen = false) {
+      if (forceOpen) {
+        this.showHistoryPanel = true
+      } else {
+        this.showHistoryPanel = !this.showHistoryPanel
+      }
+      if (this.showHistoryPanel) {
+        this.showNearbyPanel = false
+        await this.loadNavigationHistory()
+      } else {
+        this.navigationHistory = []
+      }
+    },
+    async loadNavigationHistory() {
+      this.historyLoading = true
+      try {
+        const res = await getNavigationHistory({ pageNum: 1, pageSize: 20 })
+        const data = res?.data || res || {}
+        const records = Array.isArray(data.records) ? data.records : (Array.isArray(data) ? data : [])
+        this.navigationHistory = records.map((item) => ({
+          id: item.id,
+          name: item.toMarkerName || '历史目的地',
+          shortName: this.getShortName(item.toMarkerName || '目的地'),
+          longitude: item.toLongitude != null ? Number(item.toLongitude) : null,
+          latitude: item.toLatitude != null ? Number(item.toLatitude) : null,
+          distance: this.formatNearbyDistance(item.distance),
+          duration: this.formatDuration(item.duration),
+          status: this.formatHistoryStatus(item.status),
+          time: this.formatHistoryTime(item.createTime || item.arriveTime)
+        }))
+      } catch (error) {
+        uni.showToast({ title: '导航历史加载失败', icon: 'none' })
+        this.navigationHistory = []
+      } finally {
+        this.historyLoading = false
+      }
+    },
+    formatDuration(seconds) {
+      if (seconds == null) return '--'
+      const value = Number(seconds)
+      if (!Number.isFinite(value)) return '--'
+      if (value < 60) return `${Math.round(value)}秒`
+      const minutes = Math.floor(value / 60)
+      if (minutes < 60) return `${minutes}分钟`
+      const hours = Math.floor(minutes / 60)
+      return `${hours}小时${minutes % 60}分钟`
+    },
+    formatHistoryStatus(status) {
+      const map = { 1: '进行中', 2: '已到达', 3: '已取消' }
+      return map[Number(status)] || '未知'
+    },
+    formatHistoryTime(time) {
+      if (!time) return ''
+      const str = `${time}`
+      const match = str.match(/(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2})/)
+      if (match) return `${match[1]} ${match[2]}`
+      return str.slice(0, 16)
+    },
+    selectHistoryItem(item) {
+      if (item.longitude == null || item.latitude == null) {
+        uni.showToast({ title: '该记录缺少坐标信息', icon: 'none' })
+        return
+      }
+      this.showHistoryPanel = false
+      this.navigationHistory = []
+      const target = {
+        id: `history-${item.id}`,
+        name: item.name,
+        shortName: item.shortName,
+        icon: '',
+        coverImage: '',
+        category: 0,
+        typeClass: 'search',
+        distance: item.distance,
+        detail: `导航历史 · ${item.status}`,
+        description: `${item.time ? item.time + ' · ' : ''}${item.duration || ''}`,
+        route: '',
+        longitude: item.longitude,
+        latitude: item.latitude
+      }
+      this.selectedLocation = target
+      this.mapCenter = { longitude: item.longitude, latitude: item.latitude }
+      this.mapScale = 17
     },
     toggleCategoryPanel() {
       this.categoryPanelExpanded = !this.categoryPanelExpanded
@@ -939,6 +1190,7 @@ export default {
       await this.loadMapData()
     },
     selectLocation(item) {
+      this.clearDroppedPin()
       this.selectedLocation = item
       if (item && item.longitude != null && item.latitude != null) {
         this.mapCenter = {
@@ -952,9 +1204,88 @@ export default {
       this.selectedLocation = null
       this.navigationPolyline = []
       this.closeSuggestPanel()
+      this.clearDroppedPin()
+    },
+    handleMapTap(event) {
+      const hasOpenPopup = !!this.selectedLocation
+        || this.searchSuggestions.length > 0
+        || this.navigationPolyline.length > 0
+        || !!this.tempSearchLocation
+        || !!this.droppedPin
+      if (hasOpenPopup) {
+        this.closePopup()
+        this.tempSearchLocation = null
+        return
+      }
+      const longitude = event?.detail?.longitude
+      const latitude = event?.detail?.latitude
+      if (longitude == null || latitude == null) return
+      this.dropPinAt(Number(longitude), Number(latitude))
+    },
+    async dropPinAt(longitude, latitude) {
+      if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return
+      this.clearDroppedPin()
+      const requestId = ++this.reverseGeocodeRequestId
+      const fallbackName = '地图点位'
+      this.droppedPin = {
+        id: 'dropped-pin',
+        name: fallbackName,
+        shortName: '点位',
+        icon: '',
+        coverImage: '',
+        category: 0,
+        typeClass: 'search',
+        distance: this.formatDistance(longitude, latitude),
+        detail: `${longitude.toFixed(6)}, ${latitude.toFixed(6)}`,
+        description: '正在解析地址...',
+        route: '',
+        longitude,
+        latitude
+      }
+      this.selectedLocation = this.droppedPin
+      this.reverseGeocodeLoading = true
+      try {
+        const res = await reverseGeocode(longitude, latitude)
+        if (requestId !== this.reverseGeocodeRequestId) return
+        const data = res?.data || res || {}
+        const address = data.formattedAddress
+          || [data.province, data.city, data.district, data.street, data.streetNumber]
+            .filter(Boolean)
+            .join('')
+        if (address) {
+          this.droppedPin = {
+            ...this.droppedPin,
+            name: address,
+            shortName: this.getShortName(address),
+            detail: data.district || data.street || address,
+            description: address
+          }
+          this.selectedLocation = this.droppedPin
+        }
+      } catch (error) {
+        if (requestId === this.reverseGeocodeRequestId) {
+          this.droppedPin = {
+            ...this.droppedPin,
+            description: '无法解析该点地址，可直接导航'
+          }
+          this.selectedLocation = this.droppedPin
+        }
+      } finally {
+        if (requestId === this.reverseGeocodeRequestId) {
+          this.reverseGeocodeLoading = false
+        }
+      }
+    },
+    clearDroppedPin() {
+      this.droppedPin = null
+      this.reverseGeocodeLoading = false
     },
     onMarkerTap(event) {
       const markerId = Number(event?.detail?.markerId ?? event?.detail?.id)
+      if (markerId === -8888 && this.droppedPin) {
+        this.selectLocation(this.droppedPin)
+        return
+      }
       if (markerId === -9999 && this.tempSearchLocation) {
         this.selectLocation(this.tempSearchLocation)
         return
@@ -966,6 +1297,10 @@ export default {
     },
     onCalloutTap(event) {
       const markerId = Number(event?.detail?.markerId ?? event?.detail?.id)
+      if (markerId === -8888 && this.droppedPin) {
+        this.selectLocation(this.droppedPin)
+        return
+      }
       if (markerId === -9999 && this.tempSearchLocation) {
         this.selectLocation(this.tempSearchLocation)
         return
@@ -1147,6 +1482,7 @@ export default {
         this.navigationPolyline = points
         this.selectedLocation = item
         this.focusRoute(points, item)
+        this.recordNavigationIfNeeded(item, from)
         uni.showToast({ title: `已规划${modeOption.label}路线`, icon: 'none' })
       } catch (error) {
         console.error('路线规划失败', error)
@@ -1160,6 +1496,15 @@ export default {
           }
         })
       }
+    },
+    recordNavigationIfNeeded(item, from) {
+      const markerId = Number(item.id)
+      if (!Number.isFinite(markerId) || markerId <= 0) return
+      startNavigationRecord({
+        fromLongitude: from.longitude,
+        fromLatitude: from.latitude,
+        toMarkerId: markerId
+      }).catch(() => {})
     }
   }
 }
@@ -2030,6 +2375,194 @@ export default {
   border-radius: 50% 50% 50% 0;
   transform: rotate(-45deg);
   box-sizing: border-box;
+}
+
+.map-tool-btn--active {
+  background: rgba(77, 134, 248, 0.14);
+  border-color: rgba(77, 134, 248, 0.32);
+}
+
+.nearby-tool-icon {
+  position: relative;
+  width: 30rpx;
+  height: 30rpx;
+}
+
+.nearby-tool-icon__pin {
+  position: absolute;
+  left: 5rpx;
+  top: 1rpx;
+  width: 20rpx;
+  height: 20rpx;
+  border: 4rpx solid var(--map-icon-gray);
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  box-sizing: border-box;
+}
+
+.nearby-tool-icon__pin::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6rpx;
+  height: 6rpx;
+  border-radius: 50%;
+  background: var(--map-icon-gray);
+  transform: translate(-50%, -50%);
+}
+
+.history-tool-icon {
+  position: relative;
+  width: 30rpx;
+  height: 30rpx;
+}
+
+.history-tool-icon__face {
+  position: absolute;
+  inset: 0;
+  border: 3rpx solid var(--map-icon-gray);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.history-tool-icon__hand {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3rpx;
+  height: 10rpx;
+  background: var(--map-icon-gray);
+  transform-origin: bottom center;
+  transform: translate(-50%, -100%);
+  border-radius: 999rpx;
+}
+
+.history-tool-icon__hand::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 3rpx;
+  height: 7rpx;
+  background: var(--map-icon-gray);
+  transform-origin: bottom center;
+  transform: translate(-50%, 0) rotate(90deg);
+  border-radius: 999rpx;
+}
+
+.nearby-more-arrow--down {
+  transform: rotate(135deg);
+  margin-top: -4rpx;
+}
+
+.nearby-sheet__loading {
+  padding: 30rpx 10rpx;
+  text-align: center;
+  color: #7a8591;
+  font-size: 24rpx;
+  font-weight: 600;
+}
+
+.history-sheet-map {
+  max-height: 560rpx;
+  display: flex;
+  flex-direction: column;
+}
+
+.history-list {
+  max-height: 460rpx;
+  flex: 1;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  padding: 20rpx 6rpx;
+  border-bottom: 1rpx solid rgba(102, 114, 125, 0.06);
+}
+
+.history-item:last-child {
+  border-bottom: none;
+}
+
+.history-item__icon {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 14rpx;
+  background: #eef5ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.history-item__pin {
+  width: 16rpx;
+  height: 16rpx;
+  border: 3rpx solid #5aa7f2;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  box-sizing: border-box;
+}
+
+.history-item__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.history-item__name {
+  color: #202833;
+  font-size: 26rpx;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item__meta {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  color: #7a8591;
+  font-size: 21rpx;
+  font-weight: 600;
+}
+
+.history-item__dot {
+  opacity: 0.6;
+}
+
+.history-item__status {
+  padding: 6rpx 14rpx;
+  border-radius: 999rpx;
+  font-size: 20rpx;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.history-item__status--进行中 {
+  background: rgba(77, 134, 248, 0.12);
+  color: #2f72d6;
+}
+
+.history-item__status--已到达 {
+  background: rgba(35, 183, 170, 0.12);
+  color: #1c9b8f;
+}
+
+.history-item__status--已取消 {
+  background: rgba(120, 130, 140, 0.12);
+  color: #6a7683;
+}
+
+.history-item__status--未知 {
+  background: rgba(120, 130, 140, 0.12);
+  color: #6a7683;
 }
 
 .map-empty-state {

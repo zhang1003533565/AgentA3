@@ -23,11 +23,12 @@ export function getMarkerDetail(id) {
   })
 }
 
-export function searchFacilities(params = {}) {
+export function searchFacilities(params = {}, options = {}) {
   return request({
     url: '/api/v1/map/search',
     method: 'GET',
     params,
+    showError: options.showError !== false,
   })
 }
 
@@ -71,10 +72,49 @@ export function startNavigationRecord(data = {}) {
   })
 }
 
-export function searchPlaces(params = {}) {
+export function arriveNavigation(navigationId) {
   return request({
-    url: '/api/v1/navigation/places/search',
+    url: `/api/v1/map/navigation/${navigationId}/arrive`,
+    method: 'POST',
+  })
+}
+
+export function cancelNavigation(navigationId) {
+  return request({
+    url: `/api/v1/map/navigation/${navigationId}/cancel`,
+    method: 'POST',
+  })
+}
+
+export function getNavigationHistory(params = {}) {
+  return request({
+    url: '/api/v1/map/navigation/history',
     method: 'GET',
     params,
+  })
+}
+
+export function reverseGeocode(longitude, latitude) {
+  return request({
+    url: '/api/v1/map/navigation/reverse-geocode',
+    method: 'GET',
+    params: { longitude, latitude },
+  })
+}
+
+export function geocodeAddress(address, region) {
+  return request({
+    url: '/api/v1/map/navigation/geocode',
+    method: 'GET',
+    params: { address, region },
+  })
+}
+
+export function searchPlaces(params = {}, options = {}) {
+  return request({
+    url: '/api/v1/map/navigation/places/search',
+    method: 'GET',
+    params,
+    showError: options.showError !== false,
   })
 }
