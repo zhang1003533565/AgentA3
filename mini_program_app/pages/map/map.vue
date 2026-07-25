@@ -53,7 +53,7 @@
           </view>
 
           <view class="notice-btn-map" aria-label="地图通知">
-            <image class="bell-icon-img" src="/static/icons/mdi-light--bell.svg" mode="aspectFit" aria-hidden="true" />
+            <image class="bell-icon-img" src="/static/icons/mdi-bell.svg" mode="aspectFit" aria-hidden="true" />
             <view class="notice-dot"></view>
           </view>
         </view>
@@ -1298,8 +1298,8 @@ export default {
 }
 
 .bell-icon-img {
-  width: 36rpx;
-  height: 36rpx;
+  width: 44rpx;
+  height: 44rpx;
 }
 
 .notice-dot {
