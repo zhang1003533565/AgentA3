@@ -290,13 +290,51 @@
   border-color: var(--qb-primary-deep) !important;
 }
 
-/* ============ 新增/编辑题目弹窗 ============ */
-.question-bank-editor-modal .ant-modal-content {
-  border-radius: var(--qb-radius-card, 16px);
+/* ============ 新增/编辑题目抽屉（右侧滑出，玻璃拟态）============ */
+.question-bank-editor-drawer .ant-drawer-content {
+  background: rgba(255, 255, 255, 0.88);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+
+.question-bank-editor-drawer .ant-drawer-header {
+  border-bottom: 1px solid rgba(148, 180, 226, 0.3);
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.question-bank-editor-drawer .ant-drawer-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--qb-text, #1e293b);
+}
+
+.question-bank-editor-drawer .ant-drawer-body {
+  padding: 20px 24px;
+}
+
+/* 底部固定操作栏：左取消、右保存 */
+.question-bank-editor-drawer .ant-drawer-footer {
+  padding: 12px 24px;
+  border-top: 1px solid rgba(148, 180, 226, 0.3);
+  background: rgba(255, 255, 255, 0.65);
+  box-shadow: 0 -4px 14px rgba(15, 40, 80, 0.05);
+}
+
+.qb-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.qb-editor-footer .ant-btn {
+  height: 40px;
+  padding: 0 24px;
+  border-radius: 10px;
+  font-weight: 500;
 }
 
 .question-bank-editor-form .ant-form-item {
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .question-bank-editor-form .ant-form-item-label > label {
@@ -308,7 +346,29 @@
 .question-bank-editor-form .ant-input,
 .question-bank-editor-form .ant-select-selector {
   border-radius: 10px;
-  border-color: #e2e8f0;
+  border-color: rgba(148, 180, 226, 0.45);
+}
+
+/* 输入框统一高度（多行文本域除外） */
+.question-bank-editor-form .ant-input:not(textarea),
+.question-bank-editor-form .ant-select-selector,
+.question-bank-editor-form .ant-input-number {
+  height: 40px;
+}
+
+.question-bank-editor-form .ant-input-number {
+  width: 100%;
+  border-radius: 10px;
+  border-color: rgba(148, 180, 226, 0.45);
+}
+
+.question-bank-editor-form .ant-input-number-input {
+  height: 38px;
+}
+
+.question-bank-editor-form .ant-select-single .ant-select-selector {
+  display: flex;
+  align-items: center;
 }
 
 /* 选项编辑（仅选择题）：序号 + 输入框 + 删除 */

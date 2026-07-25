@@ -752,18 +752,20 @@ function QuestionBank() {
         />
       </Card>
 
-      {/* 新增/编辑题目弹窗 */}
-      <Modal
+      {/* 新增/编辑题目抽屉（右侧滑出，带遮罩，不影响左侧列表） */}
+      <Drawer
         title={editorMode === 'edit' ? '编辑题目' : '新增题目'}
+        width={480}
         open={editorOpen}
-        onOk={handleEditorSave}
-        onCancel={() => setEditorOpen(false)}
-        okText="保存"
-        cancelText="取消"
-        confirmLoading={saving}
-        width={640}
+        onClose={() => setEditorOpen(false)}
         forceRender
-        className="question-bank-editor-modal"
+        className="question-bank-editor-drawer"
+        footer={
+          <div className="qb-editor-footer">
+            <Button onClick={() => setEditorOpen(false)}>取消</Button>
+            <Button type="primary" loading={saving} onClick={handleEditorSave}>保存</Button>
+          </div>
+        }
       >
         <Spin spinning={editorLoading}>
           <Form form={editorForm} layout="vertical" className="question-bank-editor-form">
@@ -824,7 +826,7 @@ function QuestionBank() {
             </Form.Item>
           </Form>
         </Spin>
-      </Modal>
+      </Drawer>
 
       {/* 详情抽屉 */}
       <Drawer
