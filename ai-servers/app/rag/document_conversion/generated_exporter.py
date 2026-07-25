@@ -633,7 +633,7 @@ def _atomic_write_payload(path: Path, writer: Any) -> None:
     try:
         writer(temporary_path)
         with temporary_path.open("rb") as stream:
-            os.fsync(stream.fileno())
+            _fsync_if_supported(stream)
         os.replace(temporary_path, path)
     finally:
         _safe_unlink(temporary_path)
@@ -651,7 +651,7 @@ def _atomic_write_json(path: Path, value: Dict[str, Any]) -> None:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             json.dump(value, stream, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
             stream.flush()
-            os.fsync(stream.fileno())
+            _fsync_if_supported(stream)
         os.replace(temporary_path, path)
     except Exception:
         try:
@@ -661,6 +661,19 @@ def _atomic_write_json(path: Path, value: Dict[str, Any]) -> None:
         raise
     finally:
         _safe_unlink(temporary_path)
+
+
+def _fsync_if_supported(stream: Any) -> None:
+    try:
+        fileno = stream.fileno()
+    except (AttributeError, OSError, ValueError):
+        return
+    try:
+        os.fsync(fileno)
+    except OSError:
+        # Windows can reject fsync on some temporary handles even after a successful write.
+        # The export should still succeed once the payload has been flushed and replaced.
+        pass
 
 
 def _commit_export_manifest(path: Path) -> Dict[str, Any]:

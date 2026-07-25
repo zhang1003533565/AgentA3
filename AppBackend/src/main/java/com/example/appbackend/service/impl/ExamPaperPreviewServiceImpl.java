@@ -13,6 +13,7 @@ import com.example.appbackend.service.exampaper.LibreOfficePreviewConverter;
 import com.example.appbackend.service.exampaper.ExamPaperFingerprint;
 import com.example.appbackend.service.exampaper.ExamPaperFingerprint.FingerprintQuestion;
 import com.example.appbackend.service.exampaper.ExamPaperFingerprint.Fingerprints;
+import com.example.appbackend.service.exampaper.ExamPaperTypeScoreRules;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import jakarta.annotation.PostConstruct;
@@ -89,6 +90,7 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
         if (userId == null) throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
         PaperLayoutConfig layout = layout(request);
         validateSelections(request.getQuestions());
+        validateTypeScoreRules(request);
         List<Long> ids = request.getQuestions().stream().map(SelectedQuestion::getQuestionId).toList();
         List<ExamQuestion> loaded = questionRepository.findAllById(ids);
         Map<Long, ExamQuestion> byId = new HashMap<>();
@@ -247,17 +249,32 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
         }
     }
 
+    private void validateTypeScoreRules(CreateRequest request) {
+        if (request.getTypeScoreRules() == null || !request.getTypeScoreRules().containsKey("multiple_choice")) return;
+        String code = ExamPaperTypeScoreRules.multipleChoiceRuleCode(request);
+        if ("custom".equals(code) && ExamPaperTypeScoreRules.multipleChoiceRuleText(request) == null) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "请填写多选题自定义得分规则");
+        }
+    }
+
     private PaperVO transientPaper(CreateRequest request, PaperLayoutConfig layout, List<FingerprintQuestion> questions) {
         PaperVO paper = new PaperVO(); paper.setTitle(request.getTitle()); paper.setSubtitle(request.getSubtitle());
         paper.setDurationMinutes(request.getDurationMinutes()); paper.setPrecautions(request.getPrecautions());
         paper.setLayout(layout); paper.setHeaderInfo(layout.getHeaderInfo()); paper.setPageSize(layout.getPageSize());
         paper.setOrientation(layout.getOrientation()); paper.setColumnsCount(layout.getColumnsCount());
         paper.setSelectionMode(request.getSelectionMode());
+        String multipleChoiceRuleCode = ExamPaperTypeScoreRules.multipleChoiceRuleCode(request);
+        String multipleChoiceRuleText = ExamPaperTypeScoreRules.multipleChoiceRuleText(request);
         List<QuestionSnapshotVO> snapshots = questions.stream().map(q -> {
             QuestionSnapshotVO vo = new QuestionSnapshotVO(); vo.setQuestionId(q.questionId()); vo.setSortOrder(q.sortOrder());
             vo.setSectionOrder(q.sectionOrder()); vo.setScore(q.score()); vo.setType(q.type()); vo.setStem(q.stem());
             vo.setBodyJson(q.bodyJson()); vo.setAnswerJson(q.answerJson()); vo.setAnalysis(q.analysis());
-            vo.setScoringJson(q.scoringJson()); return vo;
+            String scoringJson = q.scoringJson();
+            if ("multiple_choice".equals(q.type())) {
+                scoringJson = ExamPaperTypeScoreRules.enrichScoringJson(
+                        scoringJson, multipleChoiceRuleCode, multipleChoiceRuleText);
+            }
+            vo.setScoringJson(scoringJson); return vo;
         }).toList();
         paper.setQuestions(snapshots); paper.setQuestionCount(snapshots.size());
         paper.setTotalScore(snapshots.stream().map(QuestionSnapshotVO::getScore).reduce(BigDecimal.ZERO, BigDecimal::add));

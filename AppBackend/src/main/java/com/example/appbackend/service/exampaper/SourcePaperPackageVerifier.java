@@ -19,7 +19,8 @@ import java.util.zip.ZipInputStream;
 public final class SourcePaperPackageVerifier {
 
     public static final Set<String> MUTABLE_PARTS = Set.of(
-            "word/document.xml", "word/header1.xml", "word/header2.xml", "word/settings.xml");
+            "word/document.xml", "word/header1.xml", "word/header2.xml",
+            "word/footer1.xml", "word/footer2.xml", "word/settings.xml");
     private static final Set<String> REQUIRED = Set.of(
             "[Content_Types].xml", "_rels/.rels", "word/document.xml", "word/_rels/document.xml.rels",
             "word/header1.xml", "word/header2.xml", "word/footer1.xml", "word/footer2.xml",
@@ -70,10 +71,13 @@ public final class SourcePaperPackageVerifier {
         }
         referenceCounts.putAll(referenceCounts(document, "headerReference", Set.of("rId8", "rId9")));
         referenceCounts.putAll(referenceCounts(document, "footerReference", Set.of("rId10", "rId11")));
-        boolean allPresent = referenceCounts.values().stream().allMatch(count -> count == 1);
+        boolean firstPageBindingPresent = referenceCounts.get("rId8") == 1
+                && referenceCounts.get("rId9") == 0
+                && referenceCounts.get("rId10") == 1
+                && referenceCounts.get("rId11") == 1;
         boolean allAbsent = referenceCounts.values().stream().allMatch(count -> count == 0);
-        if (!allPresent && !allAbsent) {
-            throw new IllegalArgumentException("页眉页脚引用必须四个完整存在或四个完整缺省");
+        if (!firstPageBindingPresent && !allAbsent) {
+            throw new IllegalArgumentException("页眉页脚引用必须为首页密封栏结构或完整缺省");
         }
     }
 

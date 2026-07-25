@@ -23,6 +23,7 @@ import com.example.appbackend.service.ExamPaperService;
 import com.example.appbackend.service.ExamPaperDocumentGenerator;
 import com.example.appbackend.service.exampaper.ExamPaperDocumentDispatcher;
 import com.example.appbackend.service.exampaper.ExamPaperFingerprint;
+import com.example.appbackend.service.exampaper.ExamPaperTypeScoreRules;
 import com.example.appbackend.service.ExamPaperPreviewService;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -191,6 +192,7 @@ public class ExamPaperServiceImpl implements ExamPaperService {
         PaperLayoutRequest layout = normalizeLayout(request);
         validateLayout(layout);
         validateUniqueSelections(request.getQuestions());
+        validateTypeScoreRules(request);
         List<Long> questionIds = request.getQuestions().stream()
                 .map(SelectedQuestion::getQuestionId)
                 .toList();
@@ -236,10 +238,13 @@ public class ExamPaperServiceImpl implements ExamPaperService {
 
         List<ExamPaperQuestion> snapshots = new ArrayList<>();
         Map<String, Integer> sectionOrders = new LinkedHashMap<>();
+        String multipleChoiceRuleCode = ExamPaperTypeScoreRules.multipleChoiceRuleCode(request);
+        String multipleChoiceRuleText = ExamPaperTypeScoreRules.multipleChoiceRuleText(request);
         for (SelectedQuestion selection : selections) {
             ExamQuestion question = questionsById.get(selection.getQuestionId());
             int sectionOrder = sectionOrders.computeIfAbsent(question.getType(), ignored -> sectionOrders.size() + 1);
-            snapshots.add(snapshot(paper.getId(), selection, question, sectionOrder));
+            snapshots.add(snapshot(paper.getId(), selection, question, sectionOrder,
+                    multipleChoiceRuleCode, multipleChoiceRuleText));
         }
         paperQuestionRepository.saveAll(snapshots);
         return toVO(paper, snapshots);
@@ -400,8 +405,16 @@ public class ExamPaperServiceImpl implements ExamPaperService {
         }
     }
 
+    private void validateTypeScoreRules(CreateRequest request) {
+        if (request.getTypeScoreRules() == null || !request.getTypeScoreRules().containsKey("multiple_choice")) return;
+        String code = ExamPaperTypeScoreRules.multipleChoiceRuleCode(request);
+        if ("custom".equals(code) && ExamPaperTypeScoreRules.multipleChoiceRuleText(request) == null) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "请填写多选题自定义得分规则");
+        }
+    }
+
     private ExamPaperQuestion snapshot(Long paperId, SelectedQuestion selection, ExamQuestion question,
-                                       int sectionOrder) {
+                                       int sectionOrder, String multipleChoiceRuleCode, String multipleChoiceRuleText) {
         ExamPaperQuestion snapshot = new ExamPaperQuestion();
         snapshot.setPaperId(paperId);
         snapshot.setQuestionId(question.getId());
@@ -413,7 +426,12 @@ public class ExamPaperServiceImpl implements ExamPaperService {
         snapshot.setBodyJson(question.getBodyJson());
         snapshot.setAnswerJson(question.getAnswerJson());
         snapshot.setAnalysis(question.getAnalysis());
-        snapshot.setScoringJson(question.getScoringJson());
+        String scoringJson = question.getScoringJson();
+        if ("multiple_choice".equals(question.getType())) {
+            scoringJson = ExamPaperTypeScoreRules.enrichScoringJson(
+                    scoringJson, multipleChoiceRuleCode, multipleChoiceRuleText);
+        }
+        snapshot.setScoringJson(scoringJson);
         return snapshot;
     }
 
