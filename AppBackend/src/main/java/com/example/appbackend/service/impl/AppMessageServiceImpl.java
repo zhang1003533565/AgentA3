@@ -23,6 +23,8 @@ import java.util.stream.Collectors;
 public class AppMessageServiceImpl implements AppMessageService {
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final String EVENT_CHAT_MESSAGE = "CHAT_MESSAGE";
+    private static final String SOURCE_CHAT_MESSAGE = "CHAT_MESSAGE";
 
     @Autowired private AppMessageRepository appMessageRepository;
     @Autowired private MessageRealtimeNotifier realtimeNotifier;
@@ -65,6 +67,35 @@ public class AppMessageServiceImpl implements AppMessageService {
     @Transactional
     public void markAllRead(Long userId) {
         if (appMessageRepository.markAllReadByUserId(userId) > 0) {
+            realtimeNotifier.notifyUser(userId, "app");
+        }
+    }
+
+    @Override
+    @Transactional
+    public void markReadByCategory(AppMessageDTO.ReadByCategoryCommand command, Long userId) {
+        if (command == null || command.getModuleType() == null || command.getEventTypes() == null || command.getEventTypes().isEmpty()) {
+            return;
+        }
+        if (appMessageRepository.markReadByUserIdAndModuleTypeAndEventTypeIn(
+                userId, command.getModuleType(), command.getEventTypes()) > 0) {
+            realtimeNotifier.notifyUser(userId, "app");
+        }
+    }
+
+    @Override
+    @Transactional
+    public void markLostFoundChatMessagesReadBySession(Long sessionId, Long userId) {
+        if (sessionId == null || userId == null) {
+            return;
+        }
+        int updated = appMessageRepository.markChatMessagesReadBySession(
+                userId,
+                sessionId,
+                AppMessage.MODULE_LOST_FOUND,
+                EVENT_CHAT_MESSAGE,
+                SOURCE_CHAT_MESSAGE);
+        if (updated > 0) {
             realtimeNotifier.notifyUser(userId, "app");
         }
     }

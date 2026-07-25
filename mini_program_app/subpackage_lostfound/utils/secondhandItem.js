@@ -98,7 +98,7 @@ export function getMarketConditionLabel(item = {}) {
   if (condition === 'like-new' || condition === 'like_new') return '九成新'
   const text = `${item.name || item.title || ''} ${item.desc || item.description || ''}`
   if (text.includes('全新') || text.includes('未拆')) return '全新'
-  if (text.includes('九成新') || text.includes('很少用')) return '九成新'
+  if (text.includes('九成新') || text.includes('很少使用')) return '九成新'
   return '二手好物'
 }
 

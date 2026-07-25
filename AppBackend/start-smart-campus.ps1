@@ -1,6 +1,55 @@
 $ErrorActionPreference = "Stop"
 
 $ProjectName = "smart-campus"
+$EnvFilePath = Join-Path $PSScriptRoot ".env"
+$RootEnvFilePath = Join-Path (Split-Path $PSScriptRoot -Parent) ".env"
+
+function Import-DotEnv {
+    param([string]$Path)
+
+    if (-not (Test-Path $Path)) {
+        Write-Host "[$ProjectName] No .env file found at '$Path'. Using existing process environment."
+        return
+    }
+
+    $loadedKeys = New-Object System.Collections.Generic.List[string]
+    foreach ($rawLine in Get-Content -Encoding UTF8 $Path) {
+        $line = $rawLine.Trim()
+        if (-not $line -or $line.StartsWith("#")) {
+            continue
+        }
+
+        $separatorIndex = $line.IndexOf("=")
+        if ($separatorIndex -le 0) {
+            continue
+        }
+
+        $name = $line.Substring(0, $separatorIndex).Trim()
+        $value = $line.Substring($separatorIndex + 1).Trim()
+        if (-not ($name -match "^[A-Za-z_][A-Za-z0-9_]*$")) {
+            continue
+        }
+
+        if (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'"))) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
+
+        if (-not [Environment]::GetEnvironmentVariable($name, "Process")) {
+            Set-Item -Path "Env:$name" -Value $value
+            $loadedKeys.Add($name) | Out-Null
+        }
+    }
+
+    if ($loadedKeys.Count -gt 0) {
+        Write-Host "[$ProjectName] Loaded .env keys: $($loadedKeys -join ', ')"
+    } else {
+        Write-Host "[$ProjectName] .env found, but no new process environment keys were loaded."
+    }
+}
+
+Import-DotEnv $RootEnvFilePath
+Import-DotEnv $EnvFilePath
+
 $MysqlService = "mysql"
 $MysqlRootPassword = if ($env:MYSQL_ROOT_PASSWORD) { $env:MYSQL_ROOT_PASSWORD } else { "123456" }
 $MysqlDatabase = if ($env:MYSQL_DATABASE) { $env:MYSQL_DATABASE } else { "smart-campus" }
@@ -209,10 +258,40 @@ function Ensure-BackendTools {
     }
 }
 
+function Test-EnvValue {
+    param([string]$Value)
+    return -not [string]::IsNullOrWhiteSpace($Value)
+}
+
+function Show-CosConfigStatus {
+    $requiredKeys = @(
+        "TENCENT_COS_SECRET_ID",
+        "TENCENT_COS_SECRET_KEY",
+        "TENCENT_COS_REGION",
+        "TENCENT_COS_BUCKET",
+        "TENCENT_COS_DOMAIN"
+    )
+    $missingKeys = @()
+    foreach ($key in $requiredKeys) {
+        if (-not (Test-EnvValue ([Environment]::GetEnvironmentVariable($key, "Process")))) {
+            $missingKeys += $key
+        }
+    }
+
+    if ($missingKeys.Count -gt 0) {
+        Write-Log "Warning: COS config is incomplete. Image upload may fail. Missing: $($missingKeys -join ', ')"
+        Write-Log "Create '$EnvFilePath' or set these environment variables before starting the backend."
+        return
+    }
+
+    Write-Log "COS config loaded. Bucket: $env:TENCENT_COS_BUCKET; Region: $env:TENCENT_COS_REGION; Domain: $env:TENCENT_COS_DOMAIN"
+}
+
 function Start-Backend {
     Write-Log "Backend API: http://localhost:$BackendPort"
     Write-Log "Swagger UI: http://localhost:$BackendPort/swagger-ui.html"
     Write-Log "Adminer: http://localhost:$AdminerPort"
+    Show-CosConfigStatus
     Write-Log "Starting Spring Boot backend..."
     & mvn spring-boot:run
     exit $LASTEXITCODE
