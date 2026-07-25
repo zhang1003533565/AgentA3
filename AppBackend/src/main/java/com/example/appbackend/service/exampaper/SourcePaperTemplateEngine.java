@@ -41,7 +41,7 @@ public final class SourcePaperTemplateEngine {
             Map.entry("%h1wordAbout4%", 1), Map.entry("%h1wordAbout5%", 1),
             Map.entry("%h1wordUpAndDown1%", 1), Map.entry("%h1wordUpAndDown2%", 1),
             Map.entry("%h1wordUpAndDown3%", 1), Map.entry("%h1wordUpAndDown4%", 1),
-            Map.entry("%h1wordUpAndDown5%", 1), Map.entry("%information%", 0));
+            Map.entry("%h1wordUpAndDown5%", 1), Map.entry("%information%", 2));
     private static final Map<String, Integer> HEADER2_TOKEN_COUNTS = Map.ofEntries(
             Map.entry("%h2LineHeight%", 3), Map.entry("%h2LineTop%", 1), Map.entry("%h2LineWidth%", 1),
             Map.entry("%h2wordAbout1%", 1), Map.entry("%h2wordAbout2%", 1),
@@ -96,6 +96,8 @@ public final class SourcePaperTemplateEngine {
         mutable.put("word/header2.xml", header2.getBytes(StandardCharsets.UTF_8));
         byte[] template = resourceBytes(STATIC_TEMPLATE);
         mutable.put("word/settings.xml", settingsWithEvenAndOddHeaders(template));
+        mutable.put("word/footer1.xml", footerWithDirtyPageFields(template, "word/footer1.xml"));
+        mutable.put("word/footer2.xml", footerWithDirtyPageFields(template, "word/footer2.xml"));
         byte[] generated = copyWithReplacements(template, mutable);
         SourcePaperPackageVerifier.verify(generated);
         SourcePaperPackageVerifier.verifyPreservedParts(template, generated);
@@ -195,10 +197,9 @@ public final class SourcePaperTemplateEngine {
 
     private static String headerReferences(boolean binding) {
         if (!binding) return "";
-        return "<w:headerReference w:type=\"even\" r:id=\"rId9\"/>"
-                + "<w:headerReference w:type=\"default\" r:id=\"rId8\"/>"
-                + "<w:footerReference w:type=\"even\" r:id=\"rId11\"/>"
-                + "<w:footerReference w:type=\"default\" r:id=\"rId10\"/>";
+        return "<w:headerReference w:type=\"first\" r:id=\"rId8\"/>"
+                + "<w:footerReference w:type=\"even\" r:id=\"rId10\"/>"
+                + "<w:footerReference w:type=\"default\" r:id=\"rId11\"/>";
     }
 
     private static String paragraph(String value, int fontSize) {
@@ -254,12 +255,37 @@ public final class SourcePaperTemplateEngine {
                         settings = replaceRequired(settings, "</w:settings>",
                                 "<w:evenAndOddHeaders/></w:settings>", 1);
                     }
+                    if (!settings.contains("w:updateFields")) {
+                        settings = replaceRequired(settings, "</w:settings>",
+                                "<w:updateFields w:val=\"true\"/></w:settings>", 1);
+                    }
                     return settings.getBytes(StandardCharsets.UTF_8);
                 }
             }
             throw new IllegalArgumentException("基础模板缺少部件: word/settings.xml");
         } catch (IOException exception) {
             throw new IllegalStateException("读取基础模板 settings 失败", exception);
+        }
+    }
+
+    private static byte[] footerWithDirtyPageFields(byte[] template, String name) {
+        String footer = zipText(template, name);
+        footer = footer.replaceAll("<w:fldChar(?=[^>]*w:fldCharType=\"begin\")(?![^>]*w:dirty=)([^>]*)/>",
+                "<w:fldChar w:dirty=\"true\"$1/>");
+        return footer.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static String zipText(byte[] template, String name) {
+        try (ZipInputStream input = new ZipInputStream(new ByteArrayInputStream(template))) {
+            ZipEntry entry;
+            while ((entry = input.getNextEntry()) != null) {
+                if (entry.getName().equals(name)) {
+                    return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+                }
+            }
+            throw new IllegalArgumentException("基础模板缺少部件: " + name);
+        } catch (IOException exception) {
+            throw new IllegalStateException("读取基础模板部件失败: " + name, exception);
         }
     }
 

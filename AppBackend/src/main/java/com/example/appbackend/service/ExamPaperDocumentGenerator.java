@@ -4,6 +4,7 @@ import com.example.appbackend.dto.ExamPaperDTO.DownloadContent;
 import com.example.appbackend.dto.ExamPaperDTO.PaperLayoutConfig;
 import com.example.appbackend.dto.ExamPaperDTO.PaperVO;
 import com.example.appbackend.dto.ExamPaperDTO.QuestionSnapshotVO;
+import com.example.appbackend.service.exampaper.ExamPaperTypeScoreRules;
 import com.example.appbackend.service.exampaper.SourcePaperLayoutResolver;
 import com.example.appbackend.service.exampaper.SourcePaperLayoutResolver.ResolvedPageLayout;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -171,7 +172,13 @@ public class ExamPaperDocumentGenerator {
                 .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add)
                 .stripTrailingZeros()
                 .toPlainString();
-        run.setText(section.heading() + "（共" + section.questions().size() + "题，" + score + "分）");
+        String title = section.heading() + "（共" + section.questions().size() + "题，" + score + "分";
+        String instruction = scoringInstruction(section);
+        if (instruction != null) {
+            title += "，" + instruction;
+        }
+        title += "）";
+        run.setText(title);
     }
 
     private void writeQuestion(XWPFDocument document, QuestionSnapshotVO question, int number, int fontSize) {
@@ -324,6 +331,13 @@ public class ExamPaperDocumentGenerator {
         var properties = run.getCTR().isSetRPr() ? run.getCTR().getRPr() : run.getCTR().addNewRPr();
         properties.addNewSz().setVal(BigInteger.valueOf(halfPoints));
         properties.addNewSzCs().setVal(BigInteger.valueOf(halfPoints));
+    }
+
+    private String scoringInstruction(QuestionSection section) {
+        if (section.questions().isEmpty()) return null;
+        QuestionSnapshotVO first = section.questions().get(0);
+        if (!"multiple_choice".equals(first.getType())) return null;
+        return ExamPaperTypeScoreRules.paperScoringRuleText(first.getScoringJson());
     }
 
     private record QuestionSection(String heading, List<QuestionSnapshotVO> questions) {
