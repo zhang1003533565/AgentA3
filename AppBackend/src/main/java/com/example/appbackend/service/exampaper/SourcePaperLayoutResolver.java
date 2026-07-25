@@ -17,7 +17,6 @@ public final class SourcePaperLayoutResolver {
     private static final int FOOTER = 692;
     private static final int GUTTER = 0;
     private static final int DOCUMENT_GRID_LINE_PITCH = 312;
-
     public ResolvedPageLayout resolve(PaperLayoutConfig config) {
         validate(config);
 
@@ -187,12 +186,20 @@ public final class SourcePaperLayoutResolver {
                     + "\" w:gutter=\"" + gutter + "\"/>";
         }
 
+        public String pageNumberingXml() {
+            return "<w:pgNumType w:start=\"1\"/>";
+        }
+
         public String columnsXml() {
             if (columnsCount <= 1) {
                 return "";
             }
             return "<w:cols w:num=\"" + columnsCount + "\" w:space=\"" + columnSpace
                     + "\" w:sep=\"1\"/>";
+        }
+
+        public String titlePageXml() {
+            return hasBindingLine ? "<w:titlePg/>" : "";
         }
 
         public String documentGridXml() {

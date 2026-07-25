@@ -42,6 +42,14 @@ public class TradeController {
         return Result.success("购买意向已发送", tradeService.reserveTrade(itemId, getUserId(httpRequest)));
     }
 
+    @PostMapping("/record/session/{sessionId}/ensure")
+    @Operation(summary = "确保交易记录", description = "基于聊天会话创建或复用 TRADING 交易记录，不生成购买意向卡片")
+    public Result<ChatDTO.TradeRecordVO> ensureTradingRecord(
+            @PathVariable Long sessionId,
+            HttpServletRequest httpRequest) {
+        return Result.success("交易记录已准备", tradeService.ensureTradingRecordForSession(sessionId, getUserId(httpRequest)));
+    }
+
     @PostMapping("/record/{id}/confirm")
     @Operation(summary = "卖家确认交易", description = "交易状态从 WAIT_CONFIRM 改为 TRADING，商品仍保持 2-在售")
     public Result<ChatDTO.TradeRecordVO> confirmTrade(

@@ -31,6 +31,9 @@ public interface ForumCommentRepository extends JpaRepository<ForumComment, Long
 
     long countByPostId(Long postId);
 
+    long count();
+    long countByStatus(String status);
+
     @Modifying
     @Query("UPDATE ForumComment c SET c.likeCount = c.likeCount + 1 WHERE c.id = :id")
     void incrementLikeCount(@Param("id") Long id);

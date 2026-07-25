@@ -65,18 +65,71 @@ const difficultyOptions = [
   { value: 'hard', label: '困难' },
 ]
 
+const multipleChoiceScoringOptions = [
+  { value: 'partial', label: '少选得部分分，多选/错选不得分' },
+  { value: 'strict', label: '全对才得分' },
+  { value: 'custom', label: '自定义规则' },
+]
+
+const defaultTypeScoreRules = {
+  multiple_choice: {
+    scoringRule: 'partial',
+    customScoringRule: '',
+  },
+}
+
+const getMultipleChoiceScoringText = (rule = defaultTypeScoreRules.multiple_choice) => {
+  if (rule.scoringRule === 'strict') return '全部选对得满分，少选、多选、错选均不得分'
+  if (rule.scoringRule === 'custom') return rule.customScoringRule?.trim() || ''
+  return '少选得相应分，多选、错选不得分'
+}
+
+const defaultQuestionTypeOrder = [
+  'single_choice',
+  'multiple_choice',
+  'fill_blank',
+  'true_false',
+  'short_answer',
+  'calculation',
+  'programming',
+]
+const userOrderedQuestionTypeSet = new Set(defaultQuestionTypeOrder)
+
 const initialValues = {
   durationMinutes: 60,
   selectionMode: 'manual',
   rules: DEFAULT_RANDOM_RULES.map((rule) => ({ ...rule })),
   layout: { ...SOURCE_LAYOUT_DEFAULTS },
 }
+const FORMAT_AUTO_PREVIEW_DELAY = 1000
 
 const normalizeQuestion = (question) => ({
   ...question,
   questionId: Number(question.questionId ?? question.id),
   score: Number(question.score ?? 0),
 })
+
+const questionOriginalOrder = (question, fallback) => Number.isFinite(Number(question.examPaperOrder))
+  ? Number(question.examPaperOrder)
+  : fallback
+
+const questionTypeRankMap = (customTypeOrder = defaultQuestionTypeOrder) => new Map(
+  customTypeOrder.map((type, index) => [type, index]),
+)
+
+const orderSelectedQuestions = (questions, customTypeOrder = defaultQuestionTypeOrder) => {
+  const typeRank = questionTypeRankMap(customTypeOrder)
+  const fallbackRank = typeRank.size
+  return questions
+  .map((question, index) => ({ ...question, examPaperOrder: questionOriginalOrder(question, index) }))
+  .sort((left, right) => {
+    const leftRank = typeRank.get(left.type) ?? fallbackRank
+    const rightRank = typeRank.get(right.type) ?? fallbackRank
+    return leftRank - rightRank || left.examPaperOrder - right.examPaperOrder
+  })
+}
+
+const canUserOrderQuestion = (question) => userOrderedQuestionTypeSet.has(question.type)
 
 function ExamPaperCreate({ onCreated }) {
   const [form] = Form.useForm()
@@ -95,12 +148,16 @@ function ExamPaperCreate({ onCreated }) {
   const [currentStep, setCurrentStep] = useState(0)
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 })
   const [manualSelection, setManualSelection] = useState(() => new Map())
+  const [typeScoreRules, setTypeScoreRules] = useState(defaultTypeScoreRules)
+  const [customQuestionTypeOrder, setCustomQuestionTypeOrder] = useState(defaultQuestionTypeOrder)
   const questionRequestId = useRef(0)
   const previewRef = useRef(null)
   const selectedQuestionsRef = useRef([])
   const mountedRef = useRef(true)
+  const currentStepRef = useRef(0)
   const previewGenerationRef = useRef(0)
   const previewAbortRef = useRef(null)
+  const autoPreviewTimerRef = useRef(null)
   const selectionMode = Form.useWatch('selectionMode', form) || initialValues.selectionMode
 
   const selectedIds = useMemo(
@@ -110,6 +167,30 @@ function ExamPaperCreate({ onCreated }) {
   const totalScore = useMemo(
     () => selectedQuestions.reduce((sum, question) => sum + Number(question.score || 0), 0),
     [selectedQuestions],
+  )
+  const typeSummaries = useMemo(() => {
+    const grouped = new Map()
+    selectedQuestions.forEach((question) => {
+      const type = question.type || 'unknown'
+      if (!grouped.has(type)) grouped.set(type, [])
+      grouped.get(type).push(question)
+    })
+    return [...grouped.entries()].map(([type, questions]) => {
+      const scores = questions.map((question) => Number(question.score || 0))
+      const firstScore = scores[0]
+      const sameScore = scores.every((score) => score === firstScore)
+      return {
+        type,
+        questions,
+        count: questions.length,
+        totalScore: scores.reduce((sum, score) => sum + score, 0),
+        scorePerQuestion: sameScore ? firstScore : null,
+      }
+    })
+  }, [selectedQuestions])
+  const activeCustomQuestionTypes = useMemo(
+    () => customQuestionTypeOrder.filter((type) => selectedQuestions.some((question) => question.type === type)),
+    [customQuestionTypeOrder, selectedQuestions],
   )
 
   useEffect(() => {
@@ -121,9 +202,15 @@ function ExamPaperCreate({ onCreated }) {
   }, [selectedQuestions])
 
   useEffect(() => {
+    currentStepRef.current = currentStep
+    if (currentStep !== 2) clearAutoPreviewTimer()
+  }, [currentStep])
+
+  useEffect(() => {
     mountedRef.current = true
     return () => {
       mountedRef.current = false
+      if (autoPreviewTimerRef.current) clearTimeout(autoPreviewTimerRef.current)
       previewGenerationRef.current += 1
       previewAbortRef.current?.abort()
       const current = previewRef.current
@@ -131,6 +218,13 @@ function ExamPaperCreate({ onCreated }) {
       if (current?.token) deleteExamPaperPreview(current.token).catch(() => {})
     }
   }, [])
+
+  const clearAutoPreviewTimer = () => {
+    if (autoPreviewTimerRef.current) {
+      clearTimeout(autoPreviewTimerRef.current)
+      autoPreviewTimerRef.current = null
+    }
+  }
 
   const cancelPendingPreview = () => {
     previewGenerationRef.current += 1
@@ -142,6 +236,22 @@ function ExamPaperCreate({ onCreated }) {
     cancelPendingPreview()
     setPreviewLoading(false)
     setPreviewDirty(true)
+  }
+
+  const scheduleFormatAutoPreview = () => {
+    clearAutoPreviewTimer()
+    autoPreviewTimerRef.current = setTimeout(() => {
+      autoPreviewTimerRef.current = null
+      if (!mountedRef.current || currentStepRef.current !== 2) return
+      handleGeneratePreview()
+    }, FORMAT_AUTO_PREVIEW_DELAY)
+  }
+
+  const handleFormValuesChange = (changedValues) => {
+    invalidatePreview()
+    if (changedValues?.layout && currentStepRef.current === 2) {
+      scheduleFormatAutoPreview()
+    }
   }
 
   const fetchQuestions = async (overrides = {}) => {
@@ -188,10 +298,16 @@ function ExamPaperCreate({ onCreated }) {
     invalidatePreview()
     setSelectedQuestions((current) => {
       const merged = new Map(current.map((question) => [question.questionId, question]))
+      let nextOrder = current.reduce((max, question, index) => (
+        Math.max(max, questionOriginalOrder(question, index))
+      ), -1) + 1
       questions.map(normalizeQuestion).forEach((question) => {
-        if (!merged.has(question.questionId)) merged.set(question.questionId, question)
+        if (!merged.has(question.questionId)) {
+          merged.set(question.questionId, { ...question, examPaperOrder: nextOrder })
+          nextOrder += 1
+        }
       })
-      return [...merged.values()]
+      return orderSelectedQuestions([...merged.values()], customQuestionTypeOrder)
     })
   }
 
@@ -253,14 +369,64 @@ function ExamPaperCreate({ onCreated }) {
     )))
   }
 
+  const updateTypeScore = (type, score) => {
+    invalidatePreview()
+    setSelectedQuestions((current) => current.map((question) => (
+      question.type === type ? { ...question, score } : question
+    )))
+  }
+
+  const updateTypeScoreRule = (type, patch) => {
+    invalidatePreview()
+    setTypeScoreRules((current) => ({
+      ...current,
+      [type]: {
+        ...(defaultTypeScoreRules[type] || {}),
+        ...(current[type] || {}),
+        ...patch,
+      },
+    }))
+  }
+
+  const buildTypeScoreRules = () => Object.fromEntries(typeSummaries.map((summary) => {
+    const base = summary.scorePerQuestion == null ? {} : { scorePerQuestion: Number(summary.scorePerQuestion) }
+    if (summary.type !== 'multiple_choice') return [summary.type, base]
+    const rule = typeScoreRules.multiple_choice || defaultTypeScoreRules.multiple_choice
+    return [summary.type, {
+      ...base,
+      scoringRule: rule.scoringRule,
+      customScoringRule: rule.scoringRule === 'custom' ? rule.customScoringRule?.trim() || '' : null,
+      scoringRuleText: getMultipleChoiceScoringText(rule),
+    }]
+  }))
+
+  const moveCustomQuestionType = (type, offset) => {
+    if (!userOrderedQuestionTypeSet.has(type)) return
+    const activeIndex = activeCustomQuestionTypes.indexOf(type)
+    const targetType = activeCustomQuestionTypes[activeIndex + offset]
+    if (!targetType) return
+    invalidatePreview()
+    const nextOrder = [...customQuestionTypeOrder]
+    const index = nextOrder.indexOf(type)
+    const targetIndex = nextOrder.indexOf(targetType)
+    if (index < 0 || targetIndex < 0) return
+    ;[nextOrder[index], nextOrder[targetIndex]] = [nextOrder[targetIndex], nextOrder[index]]
+    setCustomQuestionTypeOrder(nextOrder)
+    setSelectedQuestions((questions) => orderSelectedQuestions(questions, nextOrder))
+  }
+
   const moveQuestion = (index, offset) => {
     invalidatePreview()
     setSelectedQuestions((current) => {
       const target = index + offset
       if (target < 0 || target >= current.length) return current
+      if (current[index].type !== current[target].type) return current
       const next = [...current]
-      ;[next[index], next[target]] = [next[target], next[index]]
-      return next
+      const leftOrder = questionOriginalOrder(next[index], index)
+      const rightOrder = questionOriginalOrder(next[target], target)
+      next[index] = { ...next[index], examPaperOrder: rightOrder }
+      next[target] = { ...next[target], examPaperOrder: leftOrder }
+      return orderSelectedQuestions(next, customQuestionTypeOrder)
     })
   }
 
@@ -283,11 +449,19 @@ function ExamPaperCreate({ onCreated }) {
       message.error('每道题的分值必须大于 0')
       return null
     }
+    if (selectedQuestions.some((question) => question.type === 'multiple_choice')) {
+      const rule = typeScoreRules.multiple_choice || defaultTypeScoreRules.multiple_choice
+      if (rule.scoringRule === 'custom' && !rule.customScoringRule?.trim()) {
+        message.error('请填写多选题自定义得分规则')
+        return null
+      }
+    }
     console.info('[ExamPaper][Validation] paper validation passed', {
       values,
       questionCount: selectedQuestions.length,
     })
-    return { values, request: buildExamPaperRequest(values, selectedQuestions) }
+    const scoreRules = buildTypeScoreRules()
+    return { values, request: buildExamPaperRequest(values, selectedQuestions, undefined, scoreRules), scoreRules }
   }
 
   const clearCurrentPreview = async () => {
@@ -305,13 +479,14 @@ function ExamPaperCreate({ onCreated }) {
   }
 
   const handleGeneratePreview = async () => {
+    clearAutoPreviewTimer()
     console.info('[ExamPaper][Preview] button clicked')
     const paper = await validatePaper()
     if (!paper) {
       console.error('[ExamPaper][Preview] stopped before request: validation failed')
       return
     }
-    const signature = createPreviewSignature(paper.values, selectedQuestions)
+    const signature = createPreviewSignature(paper.values, selectedQuestions, paper.scoreRules)
     let pendingToken = null
     let pendingBlobUrl = null
     cancelPendingPreview()
@@ -322,7 +497,7 @@ function ExamPaperCreate({ onCreated }) {
       currentGeneration: previewGenerationRef.current,
       mounted: mountedRef.current,
       requestedSignature: signature,
-      currentSignature: createPreviewSignature(form.getFieldsValue(true), selectedQuestionsRef.current),
+      currentSignature: createPreviewSignature(form.getFieldsValue(true), selectedQuestionsRef.current, buildTypeScoreRules()),
     })
     const isCurrent = () => shouldAcceptPreviewGeneration(previewState())
 
@@ -405,7 +580,7 @@ function ExamPaperCreate({ onCreated }) {
   const handleSubmit = async () => {
     const paper = await validatePaper()
     if (!paper) return
-    const currentSignature = createPreviewSignature(paper.values, selectedQuestions)
+    const currentSignature = createPreviewSignature(paper.values, selectedQuestions, paper.scoreRules)
     if (!preview || previewDirty || preview.signature !== currentSignature) {
       message.warning('页面或题目已变化，请重新生成预览')
       return
@@ -427,6 +602,13 @@ function ExamPaperCreate({ onCreated }) {
     }
   }
 
+  const canMoveQuestion = (index, offset) => {
+    const target = index + offset
+    return target >= 0
+      && target < selectedQuestions.length
+      && selectedQuestions[index]?.type === selectedQuestions[target]?.type
+  }
+
   const selectedColumns = [
     { title: '顺序', width: 70, render: (_, __, index) => index + 1 },
     { title: '题型', dataIndex: 'type', width: 120, render: (value) => <Tag color="blue">{typeLabels[value] || value}</Tag> },
@@ -441,8 +623,8 @@ function ExamPaperCreate({ onCreated }) {
       title: '操作', width: 150,
       render: (_, record, index) => (
         <Space size={2}>
-          <Button type="text" icon={<ArrowUpOutlined />} disabled={index === 0} onClick={() => moveQuestion(index, -1)} />
-          <Button type="text" icon={<ArrowDownOutlined />} disabled={index === selectedQuestions.length - 1} onClick={() => moveQuestion(index, 1)} />
+          <Button type="text" icon={<ArrowUpOutlined />} disabled={!canMoveQuestion(index, -1)} onClick={() => moveQuestion(index, -1)} />
+          <Button type="text" icon={<ArrowDownOutlined />} disabled={!canMoveQuestion(index, 1)} onClick={() => moveQuestion(index, 1)} />
           <Button type="text" danger icon={<DeleteOutlined />} onClick={() => {
             invalidatePreview()
             setSelectedQuestions((current) => current.filter((item) => item.questionId !== record.questionId))
@@ -467,6 +649,7 @@ function ExamPaperCreate({ onCreated }) {
   const restoreSourceDefaults = () => {
     form.setFieldValue('layout', { ...SOURCE_LAYOUT_DEFAULTS })
     invalidatePreview()
+    if (currentStepRef.current === 2) scheduleFormatAutoPreview()
   }
 
   return (
@@ -475,7 +658,7 @@ function ExamPaperCreate({ onCreated }) {
       layout="vertical"
       initialValues={initialValues}
       className="exam-paper-create"
-      onValuesChange={invalidatePreview}
+      onValuesChange={handleFormValuesChange}
     >
       <Card className="exam-paper-card exam-paper-steps-card">
         <Steps current={currentStep} items={[{ title: '试卷信息与选题' }, { title: '页面格式' }, { title: '预览与确认' }]} />
@@ -522,6 +705,92 @@ function ExamPaperCreate({ onCreated }) {
         title={<Space><span>已选题目</span><Tag color="green">{selectedQuestions.length} 题</Tag><Tag color="gold">{totalScore} 分</Tag></Space>}
         className="exam-paper-card"
       >
+        {typeSummaries.length > 0 && (
+          <div className="exam-paper-type-rules">
+            <div className="exam-paper-type-rules-heading">
+              <Text strong>题型分值与题序</Text>
+            </div>
+            <Space direction="vertical" size={10} className="exam-paper-type-rules-list">
+              {typeSummaries.map((summary) => {
+                const multipleChoiceRule = typeScoreRules.multiple_choice || defaultTypeScoreRules.multiple_choice
+                const customTypeIndex = activeCustomQuestionTypes.indexOf(summary.type)
+                const canMoveTypeUp = customTypeIndex > 0
+                const canMoveTypeDown = customTypeIndex >= 0 && customTypeIndex < activeCustomQuestionTypes.length - 1
+                return (
+                  <div key={summary.type} className="exam-paper-type-rule-item">
+                    <Row gutter={[12, 12]} align="middle">
+                      <Col xs={24} lg={6}>
+                        <Space wrap>
+                          <Tag color="blue">{typeLabels[summary.type] || summary.type}</Tag>
+                          <Text type="secondary">共 {summary.count} 题，合计 {summary.totalScore} 分</Text>
+                          {canUserOrderQuestion({ type: summary.type }) && (
+                            <Space size={0} className="exam-paper-type-order-actions">
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<ArrowUpOutlined />}
+                                title="上移题型"
+                                disabled={!canMoveTypeUp}
+                                onClick={() => moveCustomQuestionType(summary.type, -1)}
+                              />
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<ArrowDownOutlined />}
+                                title="下移题型"
+                                disabled={!canMoveTypeDown}
+                                onClick={() => moveCustomQuestionType(summary.type, 1)}
+                              />
+                            </Space>
+                          )}
+                        </Space>
+                      </Col>
+                      <Col xs={24} sm={12} lg={5}>
+                        <Space>
+                          <Text>每题</Text>
+                          <InputNumber
+                            min={0.01}
+                            precision={2}
+                            value={summary.scorePerQuestion}
+                            placeholder={summary.scorePerQuestion == null ? '混合' : undefined}
+                            onChange={(score) => {
+                              if (score != null) updateTypeScore(summary.type, score)
+                            }}
+                          />
+                          <Text>分</Text>
+                        </Space>
+                      </Col>
+                      {summary.type === 'multiple_choice' && (
+                        <>
+                          <Col xs={24} lg={7}>
+                            <Select
+                              value={multipleChoiceRule.scoringRule}
+                              options={multipleChoiceScoringOptions}
+                              onChange={(scoringRule) => updateTypeScoreRule('multiple_choice', { scoringRule })}
+                              className="exam-paper-multiple-rule-select"
+                            />
+                          </Col>
+                          {multipleChoiceRule.scoringRule === 'custom' && (
+                            <Col xs={24} lg={6}>
+                              <Input
+                                value={multipleChoiceRule.customScoringRule}
+                                maxLength={160}
+                                placeholder="输入多选题得分规则"
+                                onChange={(event) => updateTypeScoreRule('multiple_choice', {
+                                  customScoringRule: event.target.value,
+                                })}
+                              />
+                            </Col>
+                          )}
+                        </>
+                      )}
+                    </Row>
+                  </div>
+                )
+              })}
+            </Space>
+          </div>
+        )}
         <Table rowKey="questionId" columns={selectedColumns} dataSource={selectedQuestions} pagination={false} locale={{ emptyText: <Empty description="尚未选择题目" /> }} scroll={{ x: 760 }} />
       </Card>
 
@@ -541,7 +810,14 @@ function ExamPaperCreate({ onCreated }) {
       <div className={currentStep === 2 ? '' : 'exam-paper-step-hidden'} aria-hidden={currentStep !== 2}>
         {currentStep === 2 && <>
         <Row gutter={[18, 18]} align="top">
-          <Col xs={24} xl={9}><ExamPaperFormatPanel form={form} onRestoreDefaults={restoreSourceDefaults} /></Col>
+          <Col xs={24} xl={9}>
+            <ExamPaperFormatPanel
+              form={form}
+              onRestoreDefaults={restoreSourceDefaults}
+              onApplyPreview={handleGeneratePreview}
+              applyLoading={previewLoading}
+            />
+          </Col>
           <Col xs={24} xl={15}>
             <ExamPaperPreview preview={preview} loading={previewLoading} error={previewError} dirty={previewDirty} onRefresh={handleGeneratePreview} />
           </Col>

@@ -1,0 +1,20 @@
+{
+  "kind": "webpage_snapshot",
+  "url": "https://upload-images.jianshu.io/upload_images/19448733-19c34ab7945946e8.jpg",
+  "final_url": "https://upload-images.jianshu.io/upload_images/19448733-19c34ab7945946e8.jpg",
+  "status": 404,
+  "read_status": "http_error",
+  "content_type": "application/xml",
+  "fetched_at": "2026-07-15T12:36:00.443126600+00:00",
+  "title": "Untitled webpage",
+  "description": "",
+  "site_name": null,
+  "published_at": null,
+  "source_type": "unknown",
+  "text": "",
+  "quote_candidates": [],
+  "word_count": 0,
+  "truncated": false,
+  "blocked": false,
+  "source": "direct_http"
+}

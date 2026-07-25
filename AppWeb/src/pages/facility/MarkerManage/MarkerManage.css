@@ -1,0 +1,531 @@
+/* ===== 标点管理 ===== */
+
+@keyframes marker-fade-in {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes marker-pulse {
+  0%, 100% { box-shadow: 0 6px 18px rgba(37, 99, 235, 0.45); }
+  50%      { box-shadow: 0 6px 28px rgba(37, 99, 235, 0.7); }
+}
+
+@keyframes panel-slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes panel-slide-out {
+  from { transform: translateX(0); opacity: 1; }
+  to   { transform: translateX(100%); opacity: 0; }
+}
+
+.marker-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: marker-fade-in 360ms ease-out;
+}
+
+/* ========== Hero 头部 ========== */
+
+.marker-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 20px 24px;
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.1), transparent 40%),
+    radial-gradient(circle at bottom left, rgba(14, 165, 164, 0.08), transparent 35%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.94));
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.05);
+  flex-wrap: wrap;
+}
+
+.marker-hero__info h2 {
+  margin: 4px 0 6px;
+  font-size: 24px;
+  color: #0f172a;
+}
+
+.marker-hero__info p {
+  max-width: 500px;
+  color: #64748b;
+  font-size: 13px;
+  margin: 0;
+}
+
+/* ========== 统计卡片 ========== */
+
+.marker-stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.marker-stat-card {
+  border: none !important;
+  border-radius: 18px !important;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05) !important;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.marker-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.1) !important;
+}
+
+.marker-stat-card .ant-card-body {
+  padding: 16px 18px !important;
+}
+
+.marker-stat-card__inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.marker-stat-card__icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.marker-stat-card__text strong {
+  display: block;
+  font-size: 20px;
+  color: #0f172a;
+  line-height: 1.2;
+}
+
+.marker-stat-card__text span {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+/* ========== 主区域：全宽地图 ========== */
+
+.marker-body {
+  position: relative;
+  min-height: 580px;
+  border-radius: 22px;
+  overflow: hidden;
+}
+
+.marker-map-card {
+  border: none !important;
+  border-radius: 22px !important;
+  box-shadow: 0 14px 44px rgba(15, 23, 42, 0.08) !important;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  inset: 0;
+}
+
+.marker-map-card .ant-card-body {
+  padding: 0;
+  height: 100%;
+}
+
+.marker-map-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 580px;
+  background: #e8ecf1;
+}
+
+.marker-map-canvas {
+  width: 100%;
+  height: 100%;
+  min-height: 580px;
+}
+
+.marker-map-error {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 5;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(254, 242, 242, 0.96);
+  border: 1px solid rgba(248, 113, 113, 0.22);
+  color: #b91c1c;
+  font-size: 12px;
+}
+
+.marker-map-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(248, 250, 252, 0.65);
+  backdrop-filter: blur(4px);
+  z-index: 5;
+}
+
+/* ========== 图例 ========== */
+
+.marker-legend {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(14px);
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.1);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.marker-legend__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #475569;
+  padding: 4px 7px;
+  border-radius: 8px;
+  transition: background 0.15s, opacity 0.15s;
+  user-select: none;
+}
+
+.marker-legend__item:hover { background: rgba(15, 23, 42, 0.04); }
+
+.marker-legend__item--hidden {
+  opacity: 0.32;
+  text-decoration: line-through;
+}
+
+.marker-legend__item--hidden:hover { opacity: 0.55; }
+
+.marker-legend__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.12);
+}
+
+/* ========== 右侧面板（悬浮抽屉） ========== */
+
+.marker-list-overlay {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 440px;
+  max-width: 92vw;
+  z-index: 20;
+  background: rgba(255, 255, 255, 0.97);
+  backdrop-filter: blur(20px);
+  border-left: 1px solid rgba(148, 163, 184, 0.14);
+  box-shadow: -12px 0 48px rgba(15, 23, 42, 0.12);
+  display: flex;
+  flex-direction: column;
+  animation: panel-slide-in 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.marker-list-overlay--closing {
+  animation: panel-slide-out 0.22s ease-in forwards;
+}
+
+.marker-list-overlay__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.marker-list-overlay__head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.marker-list-overlay__head h3 small {
+  font-weight: 400;
+  color: #94a3b8;
+  font-size: 13px;
+  margin-left: 6px;
+}
+
+.marker-list-overlay__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.06);
+  background: rgba(248, 250, 252, 0.5);
+}
+
+.marker-list-overlay__table {
+  flex: 1;
+  overflow: auto;
+  padding: 0 16px;
+}
+
+.marker-list-overlay__table .ant-table-thead > tr > th {
+  background: #fafbfc;
+  color: #64748b;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 2px solid rgba(148, 163, 184, 0.1);
+  padding: 10px 8px;
+}
+
+.marker-list-overlay__table .ant-table-tbody > tr > td {
+  padding: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.marker-list-overlay__table .ant-table-tbody > tr:hover > td {
+  background: rgba(37, 99, 235, 0.03) !important;
+}
+
+.marker-list-overlay__table .ant-table-tbody > tr.active-row > td {
+  background: rgba(37, 99, 235, 0.07) !important;
+}
+
+.marker-list-overlay__table .ant-table-tbody > tr.active-row {
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+/* ========== 地图上的浮动按钮 ========== */
+
+.marker-float-btn {
+  position: absolute;
+  right: 18px;
+  top: 18px;
+  z-index: 15;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1) !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  color: #475569;
+  transition: all 0.2s ease;
+}
+
+.marker-float-btn:hover {
+  color: #2563eb !important;
+  border-color: #2563eb !important;
+  transform: scale(1.05);
+}
+
+.marker-float-btn .ant-badge-count {
+  box-shadow: none;
+  font-size: 10px;
+  height: 16px;
+  line-height: 16px;
+  min-width: 16px;
+  padding: 0 4px;
+}
+
+/* ========== 详情弹窗 ========== */
+
+.marker-popup-card {
+  position: absolute;
+  bottom: 46px;
+  left: 14px;
+  right: 14px;
+  z-index: 200;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.97);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: 0 -8px 40px rgba(15, 23, 42, 0.15);
+  animation: marker-fade-in 0.24s ease-out;
+  pointer-events: auto;
+}
+
+.marker-popup-card__close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: rgba(15, 23, 42, 0.04);
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.marker-popup-card__close:hover {
+  background: rgba(15, 23, 42, 0.1);
+  color: #0f172a;
+}
+
+/* ========== 搜索浮层 ========== */
+
+.marker-search-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 150px;
+  overflow-y: auto;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(240, 249, 255, 0.85), rgba(255, 255, 255, 0.95));
+  border: 1px solid rgba(125, 211, 252, 0.2);
+}
+
+.marker-search-result {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 200px;
+  flex: 1;
+}
+
+.marker-search-result:hover {
+  border-color: rgba(37, 99, 235, 0.25);
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.08);
+  transform: translateY(-1px);
+}
+
+.marker-search-result.active {
+  border-color: #2563eb;
+  background: rgba(239, 246, 255, 0.98);
+}
+
+.marker-search-result strong { display: block; color: #0f172a; font-size: 13px; }
+.marker-search-result span { margin-top: 3px; color: #64748b; font-size: 11px; line-height: 1.4; }
+.marker-search-result em { margin-top: 4px; display: block; color: #2563eb; font-style: normal; font-size: 11px; font-weight: 600; }
+
+/* ========== 高德 Marker ========== */
+
+.marker-custom-pin {
+  width: 26px; height: 26px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: #fff;
+  border: 2.5px solid #fff;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.2);
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.marker-custom-pin:hover { transform: scale(1.3); }
+.marker-custom-pin--selected { transform: scale(1.35) !important; border-color: #0f172a; box-shadow: 0 8px 24px rgba(0,0,0,0.35); }
+
+.marker-search-pin {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #f97316; border: 3px solid #fff;
+  box-shadow: 0 6px 18px rgba(249,115,22,0.45);
+  animation: marker-pulse 1.4s ease-in-out infinite;
+}
+
+.marker-edit-pin {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: #2563eb; border: 3px solid #fff;
+  box-shadow: 0 6px 18px rgba(37,99,235,0.45);
+  animation: marker-pulse 1.4s ease-in-out infinite;
+}
+
+/* ========== Drawer 编辑器 ========== */
+
+.marker-editor-drawer .ant-drawer-header {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+  padding: 16px 20px;
+}
+
+.marker-editor-drawer .ant-drawer-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.marker-editor-drawer .ant-drawer-body {
+  padding: 18px 20px;
+}
+
+.marker-editor-hint {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(219, 234, 254, 0.65), rgba(239, 246, 255, 0.45));
+  color: #1d4ed8;
+  font-size: 13px;
+  line-height: 1.6;
+  border: 1px solid rgba(96, 165, 250, 0.15);
+}
+
+.marker-thumbnail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.marker-thumbnail__empty { color: #94a3b8; font-size: 12px; }
+
+.marker-coord-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.marker-coord-grid label {
+  display: block;
+  margin-bottom: 5px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ========== 响应式 ========== */
+
+@media (max-width: 760px) {
+  .marker-list-overlay {
+    width: 100vw;
+    max-width: 100vw;
+  }
+
+  .marker-hero {
+    flex-direction: column;
+    padding: 16px;
+  }
+
+  .marker-stats-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .marker-body {
+    min-height: 480px;
+  }
+}
