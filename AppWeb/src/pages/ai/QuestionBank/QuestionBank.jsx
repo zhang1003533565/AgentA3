@@ -632,12 +632,10 @@ function QuestionBank() {
       </div>
 
       {/* 列表卡片（筛选区作为表格 title 渲染在表头上方） */}
-      {/* 列表卡片（筛选区作为表格 title 渲染在表头上方） */}
       <Card className="question-bank-card question-bank-list-card" bordered={false}>
         <Table
           className="question-bank-table"
           rowKey="id"
-          title={renderFilter}
           title={renderFilter}
           columns={columns}
           dataSource={rows}

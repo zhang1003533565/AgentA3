@@ -115,4 +115,19 @@ public class TopicServiceImpl implements TopicService {
         response.setCreateTime(topic.getCreateTime());
         return response;
     }
+
+    @Override
+    public long countAllTopics() {
+        return topicRepository.count();
+    }
+
+    @Override
+    public long countByStatus(String status) {
+        return topicRepository.countByStatus(status);
+    }
+
+    @Override
+    public long countHotTopics() {
+        return topicRepository.countByIsHot(1);
+    }
 }
