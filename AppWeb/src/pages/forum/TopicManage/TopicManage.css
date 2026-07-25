@@ -1,61 +1,202 @@
-.topic-manage-container {
-  padding: 24px;
-  background: #f0f2f5;
+/* ===== 话题管理 — 紫色渐变背景 ===== */
+.tm-container {
   min-height: calc(100vh - 64px);
+  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 40%, #3730a3 100%);
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
 }
 
-.manage-main {
-  max-width: 1400px;
-  margin: 0 auto;
+.tm-bg-orbs {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
 }
 
-/* 统计卡片 */
-.stat-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-  margin-bottom: 20px;
-  max-width: 1400px;
-  margin-left: auto;
-  margin-right: auto;
+.tm-bg-orbs::before {
+  content: '';
+  position: absolute;
+  width: 700px;
+  height: 700px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.12) 0%, transparent 70%);
+  top: -250px;
+  right: -150px;
 }
 
-.stat-card {
-  text-align: center;
-  border-radius: 8px;
-  background: #fff;
+.tm-bg-orbs::after {
+  content: '';
+  position: absolute;
+  width: 400px;
+  height: 400px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.08) 0%, transparent 70%);
+  bottom: -100px;
+  left: -50px;
 }
 
-.stat-card .ant-card-body {
-  padding: 16px 24px;
-}
-
-.stat-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: #1890ff;
-}
-
-.stat-green .stat-value { color: #52c41a; }
-.stat-orange .stat-value { color: #fa8c16; }
-.stat-red .stat-value { color: #f5222d; }
-
-.stat-label {
-  font-size: 13px;
-  color: #8c8c8c;
-  margin-top: 4px;
-}
-
-/* 搜索栏 */
-.search-bar {
+.tm-header {
+  position: relative;
+  z-index: 1;
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  padding: 20px 24px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tm-header-left h1 {
+  margin: 0 0 4px;
+  font-size: 24px;
+  font-weight: 700;
+  color: #ede9fe;
+  letter-spacing: 0.05em;
+}
+
+.tm-header-desc {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(221, 214, 254, 0.7);
+}
+
+.tm-header-stats {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tm-stat-badge {
+  padding: 4px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid;
+}
+
+.tm-badge-purple { color: #a78bfa; border-color: rgba(167, 139, 250, 0.3); background: rgba(167, 139, 250, 0.1); }
+.tm-badge-active { color: #4ade80; border-color: rgba(74, 222, 128, 0.3); background: rgba(74, 222, 128, 0.1); }
+.tm-badge-hot { color: #fbbf24; border-color: rgba(251, 191, 36, 0.3); background: rgba(251, 191, 36, 0.1); }
+
+.tm-stat-row {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
   margin-bottom: 16px;
-  padding: 16px 24px;
-  background: #fff;
-  border-radius: 4px;
-  max-width: 1400px;
-  margin-left: auto;
-  margin-right: auto;
+}
+
+.tm-stat-card {
+  border: none !important;
+  border-radius: 12px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.tm-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2) !important;
+}
+
+.tm-stat-card :global(.ant-card-body) {
+  padding: 16px 18px !important;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.tm-stat-card-icon { font-size: 28px; opacity: 0.8; }
+.tm-stat-card-value { font-size: 28px; font-weight: 700; color: #1e1b4b; line-height: 1; }
+.tm-stat-card-label { font-size: 12px; color: #6b7280; margin-top: 2px; }
+
+.tm-search-card {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 12px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tm-search-card :global(.ant-form-inline) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  flex: 1;
+}
+
+.tm-search-card :global(.ant-form-item) { margin-bottom: 0; margin-right: 0; }
+
+.tm-add-btn {
+  white-space: nowrap;
+}
+
+.tm-table-card {
+  position: relative;
+  z-index: 1;
+  border-radius: 12px !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2) !important;
+  overflow: hidden;
+}
+
+.tm-table-card :global(.ant-table-wrapper) { background: transparent; }
+.tm-table-card :global(.ant-table) { background: transparent; color: #e2e8f0; }
+
+.tm-table-card :global(.ant-table-thead > tr > th) {
+  background: rgba(49, 46, 129, 0.8) !important;
+  color: #c4b5fd !important;
+  font-weight: 600;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+.tm-table-card :global(.ant-table-tbody > tr) {
+  background: rgba(30, 27, 75, 0.3);
+  transition: background 0.15s ease;
+}
+
+.tm-table-card :global(.ant-table-tbody > tr:hover) {
+  background: rgba(139, 92, 246, 0.08) !important;
+}
+
+.tm-table-card :global(.ant-table-tbody > tr > td) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+  color: #e2e8f0;
+}
+
+.tm-table-card :global(.ant-pagination) { background: rgba(49, 46, 129, 0.5); }
+.tm-table-card :global(.ant-pagination-item) {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(30, 27, 75, 0.4);
+}
+.tm-table-card :global(.ant-pagination-item a) { color: #94a3b8; }
+.tm-table-card :global(.ant-pagination-item-active) {
+  background: #7c3aed !important;
+  border-color: #7c3aed !important;
+}
+.tm-table-card :global(.ant-pagination-item-active a) { color: #fff !important; }
+.tm-table-card :global(.ant-pagination-prev .ant-pagination-item-link),
+.tm-table-card :global(.ant-pagination-next .ant-pagination-item-link) {
+  background: rgba(30, 27, 75, 0.4);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+}
+
+@media (max-width: 1200px) { .tm-stat-row { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 768px) {
+  .tm-stat-row { grid-template-columns: 1fr; }
+  .tm-header { flex-direction: column; gap: 12px; }
 }

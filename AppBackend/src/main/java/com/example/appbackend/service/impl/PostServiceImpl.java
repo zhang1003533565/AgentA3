@@ -401,4 +401,14 @@ public class PostServiceImpl implements PostService {
                 .map(user -> user.getRealName() != null && !user.getRealName().isBlank() ? user.getRealName() : user.getUsername())
                 .orElse("匿名用户");
     }
+
+    @Override
+    public long countAllPosts() {
+        return postRepository.count();
+    }
+
+    @Override
+    public long countByStatus(String status) {
+        return postRepository.countByStatus(status);
+    }
 }

@@ -218,4 +218,14 @@ public class CommentServiceImpl implements CommentService {
         }
         return user.getUsername();
     }
+
+    @Override
+    public long countAllComments() {
+        return commentRepository.count();
+    }
+
+    @Override
+    public long countByStatus(String status) {
+        return commentRepository.countByStatus(status);
+    }
 }

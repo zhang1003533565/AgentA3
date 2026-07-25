@@ -38,4 +38,7 @@ public interface PostService {
     void toggleHidden(Long id);
 
     PageResponse<PostListItem> getAdminPostList(Integer pageNum, Integer pageSize, String keyword, String status, String sortBy, Long topicId);
+
+    long countAllPosts();
+    long countByStatus(String status);
 }

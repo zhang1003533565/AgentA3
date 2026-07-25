@@ -19,4 +19,7 @@ public interface CommentService {
     void deleteCommentByAdmin(Long id);
 
     void batchDeleteComments(List<Long> ids);
+
+    long countAllComments();
+    long countByStatus(String status);
 }

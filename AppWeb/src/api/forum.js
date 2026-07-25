@@ -242,3 +242,10 @@ export const deleteTopic = (id) =>
   })
 
 // ========== 审核 / 管理 ==========
+
+// ========== 论坛统计 ==========
+export const getForumStatistics = () =>
+  request({
+    url: '/api/forum/statistics/overview',
+    method: 'get',
+  })

@@ -18,6 +18,10 @@ public interface ForumTopicRepository extends JpaRepository<ForumTopic, Long> {
 
     Page<ForumTopic> findByIsHotAndStatus(Integer isHot, String status, Pageable pageable);
 
+    long count();
+    long countByStatus(String status);
+    long countByIsHot(Integer isHot);
+
     List<ForumTopic> findByStatusOrderByPostCountDesc(String status, Pageable pageable);
 
     @Modifying
