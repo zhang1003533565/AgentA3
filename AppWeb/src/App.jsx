@@ -19,6 +19,7 @@ import ExamPaperHistoryPage from './pages/questionBank/ExamPaperHistoryPage'
 import QuestionBankGeneratePage from './pages/questionBank/QuestionBankGeneratePage'
 import { QUESTION_BANK_ROUTES } from './pages/questionBank/questionBankRoutes'
 import WorkspacePage from './pages/workspace/WorkspacePage'
+import MarkerManage from './pages/facility/MarkerManage/MarkerManage'
 import './App.css'
 
 function App() {
@@ -58,6 +59,7 @@ function App() {
           <Route path="/ai/knowledge/paragraph/:knowledgeId/:documentId" element={<ParagraphManage />} />
           <Route path="/admin/paragraph/:knowledgeId/:documentId" element={<ParagraphManage />} />
           <Route path="/ai/profile-rules" element={<ProfileRules />} />
+          <Route path="/facility/marker" element={<MarkerManage />} />
           {workspaceRoutes}
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
