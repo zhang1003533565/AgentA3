@@ -589,7 +589,11 @@
 
 /* ============ 操作按钮（文字链接）============ */
 .qb-actions {
+  display: flex;
+  align-items: center;
   gap: 16px;
+  white-space: nowrap;
+  flex-wrap: nowrap;
 }
 
 .qb-actions .qb-action-link {
@@ -598,6 +602,9 @@
   text-decoration: none;
   transition: opacity 0.2s;
   padding: 2px 0;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
 }
 
 .qb-actions .qb-action-link:hover {
@@ -614,6 +621,16 @@
 
 .qb-action-delete {
   color: #ef4444 !important;
+}
+
+/* 收藏：浅灰色空心星，图标与文字水平排列 */
+.qb-action-favorite {
+  color: #94a3b8;
+  gap: 4px;
+}
+
+.qb-action-favorite .anticon {
+  font-size: 14px;
 }
 
 /* ============ 分页 - 三段式布局（固定在卡片底部）============ */

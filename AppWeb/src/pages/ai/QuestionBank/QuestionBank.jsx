@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Breadcrumb, Button, Card, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Select, Space, Spin, Table, Tag, Typography, message } from 'antd'
-import { MinusCircleOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
+import { MinusCircleOutlined, PlusOutlined, SearchOutlined, StarOutlined } from '@ant-design/icons'
 import {
   createExamQuestion,
   deleteExamQuestion,
@@ -555,11 +555,13 @@ function QuestionBank() {
     },
     {
       title: '操作',
-      width: 160,
+      width: 200,
       render: (_, record) => (
         <Space size={16} className="qb-actions">
           <a className="qb-action-link qb-action-view" onClick={() => openDetail(record.id)}>查看</a>
           <a className="qb-action-link qb-action-edit" onClick={() => openEdit(record.id)}>编辑</a>
+          {/* 收藏：当前阶段仅展示未收藏态，不实现点击逻辑 */}
+          <a className="qb-action-link qb-action-favorite"><StarOutlined /> 收藏</a>
           <a className="qb-action-link qb-action-delete" onClick={() => handleDelete(record)}>删除</a>
         </Space>
       ),
