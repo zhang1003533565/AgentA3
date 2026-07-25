@@ -39,6 +39,21 @@ class QuestionGenerationServiceImplTest {
     private final ExamQuestionService examQuestionService = mock(ExamQuestionService.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    @Test
+    void preservesImageAnnotationsWhileRemovingUnreadableImageReferences() {
+        String material = "正文内容\n\n"
+                + "图片说明：Python 官网下载页面用于说明安装入口。\n"
+                + "![image.png](./oss/file/lesson/python-install.png)\n\n"
+                + "<img src=\"./oss/file/lesson/other.png\">\n"
+                + "./oss/file/lesson/orphan.png\n\n"
+                + "后续知识点";
+
+        String prepared = QuestionGenerationServiceImpl.prepareMaterialForGeneration(material);
+
+        assertThat(prepared).contains("正文内容", "图片说明：Python 官网下载页面用于说明安装入口。", "后续知识点");
+        assertThat(prepared).doesNotContain("![", "<img", "./oss/file/");
+    }
+
     @BeforeEach
     void setUp() {
         when(systemConfigService.getValue(any(), any())).thenAnswer(invocation ->
@@ -49,7 +64,7 @@ class QuestionGenerationServiceImplTest {
     }
 
     @Test
-    void returnsFiveQuestionTypesAndMarksValidMappingAvailable() {
+    void returnsAllQuestionTypesAndMarksValidMappingAvailable() {
         map("single_choice", "choice_agent");
         catalog(Map.of("choice_agent", descriptor("choice_agent", "选择题专家", true, "ai.service.text.choice")));
         testedModel("ai.service.text.choice");
@@ -57,11 +72,25 @@ class QuestionGenerationServiceImplTest {
         OptionsResponse response = service().getOptions(AUTHORIZATION);
 
         assertThat(response.getQuestionTypes()).extracting(QuestionTypeOption::getType)
-                .containsExactly("single_choice", "multiple_choice", "true_false", "fill_blank", "short_answer");
+                .containsExactly("single_choice", "multiple_choice", "true_false", "fill_blank", "short_answer",
+                        "calculation", "programming");
         assertThat(option(response, "single_choice"))
                 .extracting(QuestionTypeOption::getAgentName, QuestionTypeOption::getAgentRole,
                         QuestionTypeOption::getAvailable, QuestionTypeOption::getUnavailableReason)
                 .containsExactly("choice_agent", "选择题专家", true, null);
+    }
+
+    @Test
+    void optionsRemainUsableForExistingBankWhenAgentCatalogIsOffline() {
+        map("single_choice", "choice_agent");
+        when(pythonAiProxyService.getQuestionGenerationAgentCatalog(AUTHORIZATION))
+                .thenThrow(new IllegalStateException("offline"));
+
+        OptionsResponse response = service().getOptions(AUTHORIZATION);
+
+        assertThat(response.getQuestionTypes()).hasSize(7);
+        assertThat(option(response, "single_choice").getAvailable()).isFalse();
+        assertThat(option(response, "single_choice").getUnavailableReason()).contains("智能体不存在");
     }
 
     @Test
@@ -287,12 +316,12 @@ class QuestionGenerationServiceImplTest {
         request.setProof(generated.getProof());
         request.setQuestions(generated.getQuestions());
         ExamQuestionDTO.ImportResponse imported = new ExamQuestionDTO.ImportResponse();
-        when(examQuestionService.importQuestions(any(), eq("single_choice"), eq(9L))).thenReturn(imported);
+        when(examQuestionService.importPublicQuestions(any(), eq("single_choice"), eq(9L))).thenReturn(imported);
 
         service.importGenerated(request, 9L);
 
         var captor = org.mockito.ArgumentCaptor.forClass(ExamQuestionDTO.ImportRequest.class);
-        verify(examQuestionService).importQuestions(captor.capture(), eq("single_choice"), eq(9L));
+        verify(examQuestionService).importPublicQuestions(captor.capture(), eq("single_choice"), eq(9L));
         assertThat(captor.getValue().getSourceAgent()).isEqualTo("configured_agent");
         assertThat(captor.getValue().getSourceTitle()).isEqualTo("课程第一章");
         assertThat(captor.getValue().getSourceScene()).isEqualTo("question_generation");

@@ -36,13 +36,17 @@ public class MapMarkerController {
     public Result<PageResponse<MarkerResponse>> getMarkerList(
             @Parameter(description = "设施类型：1-餐厅 2-运动场 3-教学楼 4-宿舍")
             @RequestParam(required = false) Integer facilityType,
+            @Parameter(description = "多个设施类型，逗号分隔，如 1,2,3")
+            @RequestParam(required = false) List<Integer> facilityTypes,
             @Parameter(description = "搜索关键字")
             @RequestParam(required = false) String keyword,
             @Parameter(description = "页码，默认1")
             @RequestParam(defaultValue = "1") Integer pageNum,
             @Parameter(description = "每页数量，默认100")
             @RequestParam(defaultValue = "100") Integer pageSize) {
-        PageResponse<MarkerResponse> result = mapService.getMarkerList(facilityType, keyword, pageNum, pageSize);
+        PageResponse<MarkerResponse> result = facilityTypes != null && !facilityTypes.isEmpty()
+                ? mapService.getMarkerListByTypes(facilityTypes.stream().distinct().toList(), keyword, pageNum, pageSize)
+                : mapService.getMarkerList(facilityType, keyword, pageNum, pageSize);
         return Result.success(result);
     }
 

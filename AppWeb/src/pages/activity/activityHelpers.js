@@ -42,7 +42,7 @@ export const parseImageList = (images) => {
     try {
       const parsed = JSON.parse(images)
       return Array.isArray(parsed) ? parsed.filter(Boolean) : []
-    } catch (error) {
+    } catch {
       return []
     }
   }

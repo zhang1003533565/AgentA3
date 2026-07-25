@@ -23,7 +23,7 @@ const parseUploadResponse = (response) => {
   if (typeof response === 'string') {
     try {
       return JSON.parse(response)
-    } catch (error) {
+    } catch {
       return null
     }
   }
@@ -35,7 +35,7 @@ const normalizeCreditRules = (record) => {
   if (typeof source === 'string') {
     try {
       source = JSON.parse(source)
-    } catch (error) {
+    } catch {
       source = []
     }
   }
@@ -544,6 +544,5 @@ function ActivityEditor() {
 }
 
 export default ActivityEditor
-
 
 

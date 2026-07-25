@@ -20,6 +20,8 @@ export const QUESTION_TYPE_OPTIONS = [
   { value: 'true_false', label: '判断题' },
   { value: 'fill_blank', label: '填空题' },
   { value: 'short_answer', label: '简答题' },
+  { value: 'calculation', label: '计算题' },
+  { value: 'programming', label: '编程题' },
 ]
 
 export const buildQuestionGenerationAgentMappings = (configRows = []) => {

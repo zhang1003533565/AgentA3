@@ -60,7 +60,11 @@ def test_generated_exports_are_not_publicly_mounted():
     assert "/uploads/ai-exports" not in mounted_paths
 
 
-def test_internal_download_requires_per_file_capability_and_ignores_authorization(export_root):
+def test_internal_download_requires_per_file_capability_and_ignores_authorization(
+    export_root,
+    monkeypatch,
+):
+    monkeypatch.setenv("AI_INTERNAL_TOKEN", "internal-test-token")
     attachment = _create_export()
     client = TestClient(app)
     path = f"/internal/rag/exports/{attachment['storageKey']}"

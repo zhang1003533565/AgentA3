@@ -78,6 +78,22 @@ CREATE TABLE IF NOT EXISTS campus_facility (
     update_time DATETIME COMMENT '更新时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='校园设施表';
 
+-- 教室是教学楼内部子资源，不参与地图一级点位与分类
+CREATE TABLE IF NOT EXISTS classroom (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '教室 ID',
+    building_id BIGINT NOT NULL COMMENT '所属教学楼设施 ID',
+    room_no VARCHAR(50) NOT NULL COMMENT '教室编号',
+    floor_no INT NOT NULL COMMENT '所在楼层',
+    seat_count INT NOT NULL DEFAULT 0 COMMENT '座位数',
+    is_smart BIT NOT NULL DEFAULT 0 COMMENT '是否多媒体教室',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-空闲 2-使用中 3-维护中',
+    open_time VARCHAR(100) COMMENT '开放时间',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间',
+    UNIQUE KEY uk_classroom_building_room (building_id, room_no),
+    CONSTRAINT fk_classroom_building FOREIGN KEY (building_id) REFERENCES campus_facility(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='教学楼教室子资源';
+
 -- 设施评价表
 CREATE TABLE IF NOT EXISTS facility_review (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '评价ID',
@@ -176,12 +192,34 @@ CREATE TABLE IF NOT EXISTS favorite_destination (
     FOREIGN KEY (marker_id) REFERENCES map_marker(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='收藏目的地表';
 
+-- APP消息中心聚合消息表
+CREATE TABLE IF NOT EXISTS app_message (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '消息ID',
+    user_id BIGINT NOT NULL COMMENT '接收用户ID',
+    module_type VARCHAR(32) NOT NULL COMMENT '模块类型：LOST_FOUND/FORUM/EXAM/MEETING/LEARNING',
+    event_type VARCHAR(64) NOT NULL COMMENT '事件类型',
+    title VARCHAR(128) NOT NULL COMMENT '消息标题',
+    content VARCHAR(512) DEFAULT NULL COMMENT '消息内容',
+    target_page VARCHAR(255) DEFAULT NULL COMMENT '点击跳转页面',
+    target_params VARCHAR(1000) DEFAULT NULL COMMENT '跳转参数JSON',
+    source_id BIGINT DEFAULT NULL COMMENT '来源记录ID',
+    source_type VARCHAR(64) DEFAULT NULL COMMENT '来源类型',
+    is_read TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否已读',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    read_time DATETIME DEFAULT NULL COMMENT '阅读时间',
+    UNIQUE KEY uk_app_message_source_user_event (source_type, source_id, user_id, event_type),
+    KEY idx_app_message_user_time (user_id, create_time),
+    KEY idx_app_message_user_read (user_id, is_read),
+    KEY idx_app_message_module (module_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='APP消息中心聚合消息表';
+
 -- =============================================
 -- 第二部分：清空表数据（注意顺序，先删除有外键依赖的表）
 -- =============================================
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- 先清空地图/导航/评价表
+TRUNCATE TABLE app_message;
 TRUNCATE TABLE favorite_destination;
 TRUNCATE TABLE navigation_log;
 TRUNCATE TABLE map_config;
@@ -215,7 +253,7 @@ INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, 
 -- 教师 (用户名: fjj2, 密码: admin123)
 (3, 'fjj2', 'admin123', '李老师', '13800000003', 'lilaoshi@campus.edu.cn', 2, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000003'),
 -- 学生 (用户名: zzs, 密码: admin123)
-(4, 'zzs', 'admin123', '张三', '13800000004', 'zhangsan@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000004'),
+(4, 'zzs', 'admin123', 'A3演示学生', '13800000000', 'a3-demo@example.invalid', 3, 1, NOW(), NOW(),'','A3DEMO001','2026-02-24','SCH000004'),
 -- 学生 (用户名: lisi, 密码: admin123)
 (5, 'lisi', 'admin123', '李四', '13800000005', 'lisi@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000005'),
 -- 学生 (用户名: wangwu, 密码: admin123)
@@ -451,14 +489,73 @@ CREATE TABLE IF NOT EXISTS secondhand_item (
     original_price DECIMAL(10,2) COMMENT '原价',
     `condition` INT COMMENT '新旧程度: 1-全新 2-几乎全新 3-轻微使用痕迹 4-明显使用痕迹 5-仅限零件',
     location VARCHAR(200) COMMENT '期望交易地点',
+    campus_id VARCHAR(50) COMMENT '校区ID',
+    campus_name VARCHAR(50) COMMENT '校区名称',
+    trade_location VARCHAR(100) COMMENT '交易区域',
+    pickup_point VARCHAR(200) COMMENT '自提点',
     view_count INT DEFAULT 0 COMMENT '浏览量',
     favorite_count INT DEFAULT 0 COMMENT '收藏数',
+    inquiry_count INT DEFAULT 0 COMMENT '咨询次数',
+    heat_score INT DEFAULT 0 COMMENT '热度分 = 浏览*1 + 收藏*3 + 咨询*5',
     status INT NOT NULL DEFAULT 2 COMMENT '状态: 2-在售 3-已售出 4-已下架',
     create_time DATETIME COMMENT '创建时间',
     update_time DATETIME COMMENT '更新时间',
     FOREIGN KEY (user_id) REFERENCES sys_user(id),
     FOREIGN KEY (category_id) REFERENCES secondhand_category(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='二手物品表';
+
+UPDATE secondhand_item SET status = 2 WHERE status = 5;
+
+-- 旧库迁移：为 secondhand_item 添加校区/热度字段（列不存在时自动补列）
+SET @si_db := DATABASE();
+SET @si_sql := (SELECT IF(COUNT(*) > 0,
+    'SELECT 1',
+    'ALTER TABLE secondhand_item ADD COLUMN campus_id VARCHAR(50) COMMENT ''校区ID'' AFTER location')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @si_db AND TABLE_NAME = 'secondhand_item' AND COLUMN_NAME = 'campus_id');
+PREPARE si_stmt FROM @si_sql;
+EXECUTE si_stmt;
+DEALLOCATE PREPARE si_stmt;
+SET @si_sql := (SELECT IF(COUNT(*) > 0,
+    'SELECT 1',
+    'ALTER TABLE secondhand_item ADD COLUMN campus_name VARCHAR(50) COMMENT ''校区名称'' AFTER campus_id')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @si_db AND TABLE_NAME = 'secondhand_item' AND COLUMN_NAME = 'campus_name');
+PREPARE si_stmt FROM @si_sql;
+EXECUTE si_stmt;
+DEALLOCATE PREPARE si_stmt;
+SET @si_sql := (SELECT IF(COUNT(*) > 0,
+    'SELECT 1',
+    'ALTER TABLE secondhand_item ADD COLUMN trade_location VARCHAR(100) COMMENT ''交易区域'' AFTER campus_name')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @si_db AND TABLE_NAME = 'secondhand_item' AND COLUMN_NAME = 'trade_location');
+PREPARE si_stmt FROM @si_sql;
+EXECUTE si_stmt;
+DEALLOCATE PREPARE si_stmt;
+SET @si_sql := (SELECT IF(COUNT(*) > 0,
+    'SELECT 1',
+    'ALTER TABLE secondhand_item ADD COLUMN pickup_point VARCHAR(200) COMMENT ''自提点'' AFTER trade_location')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @si_db AND TABLE_NAME = 'secondhand_item' AND COLUMN_NAME = 'pickup_point');
+PREPARE si_stmt FROM @si_sql;
+EXECUTE si_stmt;
+DEALLOCATE PREPARE si_stmt;
+SET @si_sql := (SELECT IF(COUNT(*) > 0,
+    'SELECT 1',
+    'ALTER TABLE secondhand_item ADD COLUMN inquiry_count INT DEFAULT 0 COMMENT ''咨询次数'' AFTER favorite_count')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @si_db AND TABLE_NAME = 'secondhand_item' AND COLUMN_NAME = 'inquiry_count');
+PREPARE si_stmt FROM @si_sql;
+EXECUTE si_stmt;
+DEALLOCATE PREPARE si_stmt;
+SET @si_sql := (SELECT IF(COUNT(*) > 0,
+    'SELECT 1',
+    'ALTER TABLE secondhand_item ADD COLUMN heat_score INT DEFAULT 0 COMMENT ''热度分'' AFTER inquiry_count')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = @si_db AND TABLE_NAME = 'secondhand_item' AND COLUMN_NAME = 'heat_score');
+PREPARE si_stmt FROM @si_sql;
+EXECUTE si_stmt;
+DEALLOCATE PREPARE si_stmt;
 
 -- 物品收藏表
 CREATE TABLE IF NOT EXISTS secondhand_favorite (
@@ -1411,14 +1508,14 @@ DELETE FROM system_config WHERE config_key IN (
 );
 
 INSERT INTO system_config (id, config_key, config_value, config_group, description, status, create_time, update_time) VALUES
-(1, 'jwt.secret', 'smart-campus-jwt-secret-key-please-change-this-seed-value', 'security', 'JWT 签名密钥', 1, NOW(), NOW()),
+(1, 'jwt.secret', '', 'security', 'JWT 签名密钥', 0, NOW(), NOW()),
 (2, 'jwt.expiration', '86400000', 'security', 'JWT 过期时间，单位毫秒', 1, NOW(), NOW()),
-(3, 'tencent.map.key', 'F2ABZ-VU4LH-BDKDF-W7XCC-RXYX2-4AB52', 'map', '腾讯地图 WebService 密钥', 1, NOW(), NOW()),
+(3, 'tencent.map.key', '', 'map', '腾讯地图 WebService 密钥', 0, NOW(), NOW()),
 (4, 'tencent.map.base-url', 'https://apis.map.qq.com', 'map', '腾讯地图接口基础地址', 1, NOW(), NOW()),
 (5, 'aliyun.oss.endpoint', 'oss-cn-beijing.aliyuncs.com', 'oss', '阿里云 OSS 节点', 1, NOW(), NOW()),
 (6, 'aliyun.oss.bucket-name', 'smart-campus111', 'oss', '阿里云 OSS Bucket 名称', 1, NOW(), NOW()),
-(7, 'aliyun.oss.access-key-id', 'LTAI5tG9NLKEfSZVw3EZ2d1E', 'oss', '阿里云 OSS AccessKeyId', 1, NOW(), NOW()),
-(8, 'aliyun.oss.access-key-secret', 'yagymAoKXBh0rDJT7ArNTeXDUhsuRX', 'oss', '阿里云 OSS AccessKeySecret', 1, NOW(), NOW()),
+(7, 'aliyun.oss.access-key-id', '', 'oss', '阿里云 OSS AccessKeyId', 0, NOW(), NOW()),
+(8, 'aliyun.oss.access-key-secret', '', 'oss', '阿里云 OSS AccessKeySecret', 0, NOW(), NOW()),
 (9, 'aliyun.oss.base-url', 'https://smart-campus111.oss-cn-beijing.aliyuncs.com', 'oss', '阿里云 OSS 访问基础地址', 1, NOW(), NOW()),
 (10, 'browser.headless', 'true', 'browser', '浏览器自动化是否无头运行', 1, NOW(), NOW()),
 (11, 'browser.default-url', 'https://jwx.hebiace.edu.cn/', 'browser', '浏览器自动化默认打开地址', 1, NOW(), NOW()),

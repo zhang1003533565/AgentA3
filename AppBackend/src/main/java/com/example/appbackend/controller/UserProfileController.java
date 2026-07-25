@@ -10,7 +10,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,9 +27,8 @@ public class UserProfileController {
 
     @GetMapping("/radar/my")
     @Operation(summary = "我的画像雷达图快照")
-    public Result<UserProfileDTO.RadarSnapshot> myRadar(HttpServletRequest request,
-                                                        @RequestHeader(value = "Authorization", required = false) String authorization) {
-        return Result.success(userProfileService.getSnapshot(currentUserId(request), authorization));
+    public Result<UserProfileDTO.RadarSnapshot> myRadar(HttpServletRequest request) {
+        return Result.success(userProfileService.getSnapshot(currentUserId(request)));
     }
 
     @GetMapping("/rules")

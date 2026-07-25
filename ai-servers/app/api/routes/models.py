@@ -2,12 +2,17 @@ from typing import Any, Dict, List, Optional
 import json
 import urllib.error
 import urllib.request
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from app.model_providers.catalog import get_model_provider_catalog
+from app.security.internal_auth import require_internal_token
 
-router = APIRouter(prefix="/internal/models", tags=["internal-models"])
+router = APIRouter(
+    prefix="/internal/models",
+    tags=["internal-models"],
+    dependencies=[Depends(require_internal_token)],
+)
 
 
 @router.get("/providers")

@@ -15,7 +15,7 @@ from app.langgraph.state import ConversationState
 from app.models.schemas import ChatRequest, ChatResponse
 from app.model_providers.multimodal import append_image_references_to_text, collect_request_image_references
 from app.model_providers.runtime_config import require_active_llm_config
-from app.multi_agents.catalog import get_agent_profile, normalize_agent_name
+from app.multi_agents.catalog import get_agent_profile, normalize_leader_request_agent
 from app.utils.logger import get_logger, mask_id
 from app.utils.prompts import DEFAULT_SYSTEM_PROMPT
 from app.utils.text_utils import build_session_token
@@ -38,7 +38,7 @@ def run_conversation_graph(request: ChatRequest, authorization: str, user_id: Op
         active_llm_config = require_active_llm_config()
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    requested_agent = normalize_agent_name(request.agentName)
+    requested_agent = normalize_leader_request_agent(request.agentName)
     if request.agentName and not requested_agent:
         raise HTTPException(status_code=400, detail="智能体不存在")
 

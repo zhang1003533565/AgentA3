@@ -22,24 +22,22 @@ class ShortAnswerQuestionAgentTest(unittest.TestCase):
             "questions": [
                 {
                     "id": "SA1",
-                    "question": "简述栈和队列的主要区别。",
+                    "type": "short_answer",
+                    "stem": "简述栈和队列的主要区别。",
+                    "score": 10,
                     "knowledgePoints": ["栈", "队列", "后进先出", "先进先出"],
+                    "tags": ["数据结构"],
                     "difficulty": "easy",
-                    "answerPoints": [
-                        {
-                            "point": "栈只允许在栈顶插入和删除，遵循后进先出原则。",
-                            "sourceBasis": ["输入知识点说明栈只能在栈顶操作，特点是后进先出"],
-                        },
-                        {
-                            "point": "队列只允许在队尾插入、队头删除，遵循先进先出原则。",
-                            "sourceBasis": ["输入知识点说明队列只能在队尾插入、队头删除，特点是先进先出"],
-                        },
-                    ],
-                    "scoringRubric": [
+                    "body": {"answerLengthHint": "80-150字"},
+                    "answer": {
+                        "referenceAnswer": "栈在栈顶操作并遵循后进先出；队列在队尾插入、队头删除并遵循先进先出。",
+                        "answerPoints": ["说明栈的操作端和后进先出特点", "说明队列的操作端和先进先出特点"],
+                    },
+                    "analysis": "重点比较操作位置和数据进出顺序。",
+                    "scoring": {"mode": "rubric", "rubrics": [
                         {"criterion": "说明栈的操作端和后进先出特点", "score": 5},
                         {"criterion": "说明队列的操作端和先进先出特点", "score": 5},
-                    ],
-                    "totalScore": 10,
+                    ]},
                     "sourceBasis": ["输入提供了栈和队列的定义、操作限制和特点"],
                 }
             ],
@@ -55,7 +53,7 @@ class ShortAnswerQuestionAgentTest(unittest.TestCase):
         payload = json.loads(result)
         self.assertEqual(1, len(payload["questions"]))
         self.assertEqual([], payload["missingInfo"])
-        self.assertEqual(10, payload["questions"][0]["totalScore"])
+        self.assertEqual(10, payload["questions"][0]["score"])
 
     def test_allows_missing_info_without_inventing_question(self):
         provider = FakeShortAnswerProvider(json.dumps({
@@ -86,19 +84,16 @@ class ShortAnswerQuestionAgentTest(unittest.TestCase):
             "questions": [
                 {
                     "id": "SA1",
-                    "question": "简述栈的特点。",
+                    "type": "short_answer",
+                    "stem": "简述栈的特点。",
+                    "score": 10,
                     "knowledgePoints": ["栈"],
+                    "tags": ["数据结构"],
                     "difficulty": "easy",
-                    "answerPoints": [
-                        {
-                            "point": "栈遵循后进先出原则。",
-                            "sourceBasis": ["输入知识点说明栈的特点是后进先出"],
-                        }
-                    ],
-                    "scoringRubric": [
-                        {"criterion": "说明后进先出特点", "score": 5},
-                    ],
-                    "totalScore": 10,
+                    "body": {"answerLengthHint": "50字以内"},
+                    "answer": {"referenceAnswer": "栈遵循后进先出原则。", "answerPoints": ["说明后进先出特点"]},
+                    "analysis": "栈的核心特点是后进先出。",
+                    "scoring": {"mode": "rubric", "rubrics": [{"criterion": "说明后进先出特点", "score": 5}]},
                     "sourceBasis": ["输入提供了栈的特点"],
                 }
             ],

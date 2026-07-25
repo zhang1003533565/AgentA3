@@ -14,9 +14,29 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
 
     void deleteBySessionId(Long sessionId);
 
+    boolean existsBySessionIdAndMessageType(Long sessionId, Integer messageType);
+
     Page<ChatMessage> findBySessionIdOrderByCreateTimeDesc(Long sessionId, Pageable pageable);
 
     @Modifying
-    @Query("UPDATE ChatMessage cm SET cm.isRead = true WHERE cm.sessionId = :sessionId AND cm.senderId != :userId AND cm.isRead = false")
+    @Query("UPDATE ChatMessage cm SET cm.isRead = true WHERE cm.sessionId = :sessionId AND cm.senderId != :userId AND cm.messageType <> 0 AND cm.isRead = false")
     void markAllReadBySessionAndUser(@Param("sessionId") Long sessionId, @Param("userId") Long userId);
+
+    @Query("SELECT cm FROM ChatMessage cm JOIN cm.session cs WHERE cm.messageType IN (0, 4) " +
+            "AND (cs.buyerId = :userId OR cs.sellerId = :userId) ORDER BY cm.createTime DESC")
+    Page<ChatMessage> findTradeNotificationsByUser(@Param("userId") Long userId, Pageable pageable);
+
+    @Query("SELECT COUNT(cm) FROM ChatMessage cm JOIN cm.session cs WHERE cm.messageType IN (0, 4) " +
+            "AND cm.senderId <> :userId AND cm.isRead = false " +
+            "AND (cs.buyerId = :userId OR cs.sellerId = :userId)")
+    long countUnreadTradeNotifications(@Param("userId") Long userId);
+
+    @Modifying
+    @Query("UPDATE ChatMessage cm SET cm.isRead = true WHERE cm.messageType IN (0, 4) " +
+            "AND cm.senderId <> :userId AND cm.isRead = false " +
+            "AND cm.sessionId IN (" +
+            "SELECT cs.id FROM ChatSession cs WHERE cs.buyerId = :userId OR cs.sellerId = :userId" +
+            ")")
+    int markAllTradeNotificationsReadByUser(@Param("userId") Long userId);
+
 }

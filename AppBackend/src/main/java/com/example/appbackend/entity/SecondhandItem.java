@@ -54,6 +54,22 @@ public class SecondhandItem {
     @Schema(description = "期望交易地点", example = "图书馆门口")
     private String location;
 
+    @Column(name = "campus_id", length = 50, columnDefinition = "VARCHAR(50) COMMENT '校区ID'")
+    @Schema(description = "校区ID", example = "main")
+    private String campusId;
+
+    @Column(name = "campus_name", length = 50, columnDefinition = "VARCHAR(50) COMMENT '校区名称'")
+    @Schema(description = "校区名称", example = "主校区")
+    private String campusName;
+
+    @Column(name = "trade_location", length = 100, columnDefinition = "VARCHAR(100) COMMENT '交易区域'")
+    @Schema(description = "交易区域", example = "teaching_m")
+    private String tradeLocation;
+
+    @Column(name = "pickup_point", length = 200, columnDefinition = "VARCHAR(200) COMMENT '自提点'")
+    @Schema(description = "自提点", example = "三教门口")
+    private String pickupPoint;
+
     @Column(name = "view_count", columnDefinition = "INT DEFAULT 0 COMMENT '浏览量'")
     @Schema(description = "浏览量", example = "128")
     private Integer viewCount = 0;
@@ -61,6 +77,14 @@ public class SecondhandItem {
     @Column(name = "favorite_count", columnDefinition = "INT DEFAULT 0 COMMENT '收藏数'")
     @Schema(description = "收藏数", example = "15")
     private Integer favoriteCount = 0;
+
+    @Column(name = "inquiry_count", columnDefinition = "INT DEFAULT 0 COMMENT '咨询次数'")
+    @Schema(description = "咨询次数", example = "8")
+    private Integer inquiryCount = 0;
+
+    @Column(name = "heat_score", columnDefinition = "INT DEFAULT 0 COMMENT '热度分 = 浏览*1 + 收藏*3 + 咨询*5'")
+    @Schema(description = "热度分", example = "128")
+    private Integer heatScore = 0;
 
     @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 2 COMMENT '状态: 2-在售 3-已售出 4-已下架'")
     @Schema(description = "状态: 2-在售 3-已售出 4-已下架", example = "2")

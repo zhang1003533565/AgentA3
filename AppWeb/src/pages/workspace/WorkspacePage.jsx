@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Button, Card, Drawer, Empty, Form, Image, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tabs, Tag, Upload, message } from 'antd'
 import { SearchOutlined, UploadOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
@@ -161,7 +161,7 @@ const parseFacilityImages = (images) => {
     try {
       const parsed = JSON.parse(images)
       return Array.isArray(parsed) ? parsed.filter(Boolean) : []
-    } catch (error) {
+    } catch {
       return []
     }
   }
@@ -714,7 +714,7 @@ function markModelTestSuccess(configPrefix, modelId = '') {
       parsedModelIds[modelId] = Date.now()
       localStorage.setItem(AI_TESTED_MODEL_IDS_KEY, JSON.stringify(parsedModelIds))
     }
-  } catch (error) {
+  } catch {
     // ignore storage errors
   }
 }
@@ -724,7 +724,7 @@ function getTestedModelPrefixSet() {
     const raw = localStorage.getItem(AI_TESTED_MODEL_PREFIXES_KEY)
     const parsed = raw ? JSON.parse(raw) : {}
     return new Set(Object.keys(parsed || {}))
-  } catch (error) {
+  } catch {
     return new Set()
   }
 }
@@ -937,7 +937,6 @@ function normalizeMeetingSessionRow(item) {
 
 function WorkspacePage({ pageKey }) {
   const navigate = useNavigate()
-  const location = useLocation()
   const [searchParams] = useSearchParams()
   const page = getWorkspacePage(pageKey)
   const [form] = Form.useForm()
@@ -966,11 +965,11 @@ function WorkspacePage({ pageKey }) {
   const [merchantCategoryOptions, setMerchantCategoryOptions] = useState([])
   const [activityCategoryOptions, setActivityCategoryOptions] = useState([])
   const [forumPostOptions, setForumPostOptions] = useState([])
-  const [contextInput, setContextInput] = useState('')
+  const [, setContextInput] = useState('')
   const [contextId, setContextId] = useState('')
   const [urlStallId, setUrlStallId] = useState('')
   const [urlStallName, setUrlStallName] = useState('')
-  const [mapConfigForm, setMapConfigForm] = useState({
+  const [mapConfigForm] = useState({
     centerLongitude: DEFAULT_MAP_CENTER.longitude,
     centerLatitude: DEFAULT_MAP_CENTER.latitude,
     zoomLevel: DEFAULT_MAP_ZOOM,
@@ -1010,6 +1009,7 @@ function WorkspacePage({ pageKey }) {
   const mapPickerContainerRef = useRef(null)
   const mapPickerAmapRef = useRef(null)
   const mapPickerOverlaysRef = useRef([])
+  const mapPickerInitialPositionRef = useRef(null)
   const markerAmapContainerRef = useRef(null)
   const markerAmapHostRef = useRef(null)
   const markerAmapRef = useRef(null)
@@ -1019,6 +1019,8 @@ function WorkspacePage({ pageKey }) {
     pageSize: 10,
     total: 0,
   })
+  const workspacePage = pagination.current
+  const workspacePageSize = pagination.pageSize
   const stallImagePreview = Form.useWatch('image', form)
   const dishImagePreview = Form.useWatch('imageUrl', form)
   const [facilityTypeOptions, setFacilityTypeOptions] = useState(DEFAULT_FACILITY_TYPE_OPTIONS)
@@ -1026,15 +1028,18 @@ function WorkspacePage({ pageKey }) {
     () => createFacilityTypeLabelGetter(facilityTypeOptions),
     [facilityTypeOptions],
   )
-  const markerRows = Array.isArray(rows) ? rows.map((item) => {
+  const markerRows = useMemo(() => (Array.isArray(rows) ? rows.map((item) => {
     const imageList = parseFacilityImages(item.images)
     return {
       ...item,
       thumbnailUrl: item.thumbnailUrl || imageList[0] || '',
       position: item.longitude && item.latitude ? `${item.longitude}, ${item.latitude}` : '-',
     }
-  }) : []
-  const selectedMarker = markerRows.find((item) => item.id === selectedMarkerId) || null
+  }) : []), [rows])
+  const selectedMarker = useMemo(
+    () => markerRows.find((item) => item.id === selectedMarkerId) || null,
+    [markerRows, selectedMarkerId],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -1078,8 +1083,8 @@ function WorkspacePage({ pageKey }) {
       setLoading(true)
       try {
         const result = await loadWorkspaceData(pageKey, {
-          current: pagination.current,
-          pageSize: pagination.pageSize,
+          current: workspacePage,
+          pageSize: workspacePageSize,
           keyword,
           status,
           contextId,
@@ -1113,7 +1118,7 @@ function WorkspacePage({ pageKey }) {
     return () => {
       cancelled = true
     }
-  }, [contextId, forumPostOptions, page, pageKey, pagination.current, pagination.pageSize, keyword, searchParams, status, urlStallId])
+  }, [contextId, forumPostOptions, page, pageKey, workspacePage, workspacePageSize, keyword, searchParams, status, urlStallId])
 
   // 解析 URL 参数（仅 facility-stall-dish 页面）
   useEffect(() => {
@@ -2823,7 +2828,7 @@ function WorkspacePage({ pageKey }) {
     )
   }
 
-  const columns = useMemo(() => {
+  const columns = (() => {
     if (!page?.columns?.length) return []
     const baseColumns = page.columns.map((column) => ({
       title: column.title,
@@ -2870,23 +2875,33 @@ function WorkspacePage({ pageKey }) {
         render: (_, record) => renderRowActions(record),
       },
     ]
-  }, [page, pageKey, actionLoading, getFacilityTypeLabel])
+  })()
 
-  if (!page) {
-    return <Empty description="页面配置不存在" />
-  }
+  const clearAmapOverlays = useCallback((overlaysRef) => {
+    if (!overlaysRef.current?.length) return
+    overlaysRef.current.forEach((overlay) => {
+      try {
+        overlay.setMap(null)
+      } catch {
+        // 高德地图容器先于覆盖物销毁时，清理接口可能抛错。
+      }
+    })
+    overlaysRef.current = []
+  }, [])
 
-  const destroyAmapMap = (mapRef) => {
+  const destroyAmapMap = useCallback((mapRef) => {
     clearAmapOverlays(markerAmapOverlaysRef)
     if (!mapRef.current) return
     try {
       mapRef.current.destroy()
-    } catch (_) {}
+    } catch {
+      // 地图实例可能已被高德 SDK 内部销毁。
+    }
     mapRef.current = null
     markerAmapHostRef.current = null
-  }
+  }, [clearAmapOverlays])
 
-  const buildAmapMap = (container, mapRef) => {
+  const buildAmapMap = useCallback((container, mapRef) => {
     if (!container || !window.AMap) return null
     if (mapRef.current && markerAmapHostRef.current === container) return mapRef.current
     if (mapRef.current) {
@@ -2902,27 +2917,17 @@ function WorkspacePage({ pageKey }) {
     })
     markerAmapHostRef.current = container
     return mapRef.current
-  }
+  }, [destroyAmapMap, mapConfigForm.centerLatitude, mapConfigForm.centerLongitude, mapConfigForm.zoomLevel])
 
-  const resizeAmapMap = (map) => {
+  const resizeAmapMap = useCallback((map) => {
     if (!map?.resize) return
     requestAnimationFrame(() => {
       map.resize()
       requestAnimationFrame(() => map.resize())
     })
-  }
+  }, [])
 
-  const clearAmapOverlays = (overlaysRef) => {
-    if (!overlaysRef.current?.length) return
-    overlaysRef.current.forEach((overlay) => {
-      try {
-        overlay.setMap(null)
-      } catch (_) {}
-    })
-    overlaysRef.current = []
-  }
-
-  const pickMarkerSearchResult = (poi) => {
+  const pickMarkerSearchResult = useCallback((poi) => {
     setActiveSearchPoi(poi)
     const longitude = roundCoordinate(poi.longitude)
     const latitude = roundCoordinate(poi.latitude)
@@ -2940,7 +2945,7 @@ function WorkspacePage({ pageKey }) {
     if (map && longitude && latitude) {
       map.setZoomAndCenter(Math.max(Number(mapConfigForm.zoomLevel) || DEFAULT_MAP_ZOOM, 17), [Number(longitude), Number(latitude)])
     }
-  }
+  }, [mapConfigForm.zoomLevel])
 
   const handleMarkerSearch = async (rawKeyword) => {
     const searchKeyword = String(rawKeyword ?? markerSearchKeyword).trim()
@@ -3108,12 +3113,12 @@ function WorkspacePage({ pageKey }) {
       map.off('click', clickHandler)
       clearAmapOverlays(markerAmapOverlaysRef)
     }
-  }, [pageKey, mapConfigForm.provider, mapConfigForm.centerLongitude, mapConfigForm.centerLatitude, mapConfigForm.zoomLevel, amapReady, markerRows, selectedMarker, markerEditorOpen, markerDraft, activeSearchPoi])
+  }, [activeSearchPoi, amapReady, buildAmapMap, clearAmapOverlays, mapConfigForm.centerLatitude, mapConfigForm.centerLongitude, mapConfigForm.provider, mapConfigForm.zoomLevel, markerDraft, markerEditorOpen, markerRows, pageKey, resizeAmapMap, selectedMarker])
 
   useEffect(() => {
     if (pageKey !== 'map-marker' && pageKey !== 'facility-marker' || !markerAmapRef.current) return
     resizeAmapMap(markerAmapRef.current)
-  }, [pageKey, markerEditorOpen, pagination.current, pagination.pageSize])
+  }, [markerEditorOpen, pageKey, resizeAmapMap])
 
   useEffect(() => {
     if ((pageKey !== 'map-marker' && pageKey !== 'facility-marker') || typeof ResizeObserver === 'undefined' || !markerAmapContainerRef.current) return undefined
@@ -3124,19 +3129,24 @@ function WorkspacePage({ pageKey }) {
     })
     observer.observe(markerAmapContainerRef.current)
     return () => observer.disconnect()
-  }, [pageKey, markerEditorOpen])
+  }, [markerEditorOpen, pageKey, resizeAmapMap])
 
   useEffect(() => {
     if (pageKey === 'map-marker' || pageKey === 'facility-marker') return undefined
     destroyAmapMap(markerAmapRef)
     return undefined
-  }, [pageKey])
+  }, [destroyAmapMap, pageKey])
 
   useEffect(() => () => {
     destroyAmapMap(markerAmapRef)
-  }, [])
+  }, [destroyAmapMap])
 
   const openMapPicker = (record) => {
+    const initialLongitude = toFiniteNumber(record.longitude)
+    const initialLatitude = toFiniteNumber(record.latitude)
+    mapPickerInitialPositionRef.current = initialLongitude !== null && initialLatitude !== null
+      ? [initialLongitude, initialLatitude]
+      : [DEFAULT_MAP_CENTER.longitude, DEFAULT_MAP_CENTER.latitude]
     setMapPickerRecord(record)
     setMapPickerLng(record.longitude ? String(record.longitude) : '')
     setMapPickerLat(record.latitude ? String(record.latitude) : '')
@@ -3178,6 +3188,8 @@ function WorkspacePage({ pageKey }) {
     }
   }
 
+  const mapPickerFacilityName = mapPickerRecord?.facilityName || ''
+
   // 地图选点 Drawer 内地图初始化
   useEffect(() => {
     if (!mapPickerOpen || !mapPickerAmapReady || !mapPickerContainerRef.current) return undefined
@@ -3185,12 +3197,18 @@ function WorkspacePage({ pageKey }) {
 
     clearAmapOverlays(mapPickerOverlaysRef)
     if (mapPickerAmapRef.current) {
-      try { mapPickerAmapRef.current.destroy() } catch (_) {}
+      try {
+        mapPickerAmapRef.current.destroy()
+      } catch {
+        // 地图实例可能已被高德 SDK 内部销毁。
+      }
       mapPickerAmapRef.current = null
     }
 
-    const lng = toFiniteNumber(mapPickerLng) ?? DEFAULT_MAP_CENTER.longitude
-    const lat = toFiniteNumber(mapPickerLat) ?? DEFAULT_MAP_CENTER.latitude
+    const [lng, lat] = mapPickerInitialPositionRef.current || [
+      DEFAULT_MAP_CENTER.longitude,
+      DEFAULT_MAP_CENTER.latitude,
+    ]
 
     const map = new window.AMap.Map(mapPickerContainerRef.current, {
       zoom: 17,
@@ -3199,16 +3217,6 @@ function WorkspacePage({ pageKey }) {
       mapStyle: 'amap://styles/normal',
     })
     mapPickerAmapRef.current = map
-
-    // 已有位置显示标记
-    if (toFiniteNumber(mapPickerLng) !== null && toFiniteNumber(mapPickerLat) !== null) {
-      const marker = new window.AMap.Marker({
-        map,
-        position: [lng, lat],
-        label: { content: mapPickerRecord?.facilityName || '当前位置', direction: 'top' },
-      })
-      mapPickerOverlaysRef.current = [marker]
-    }
 
     // 点击地图取点
     const clickHandler = (event) => {
@@ -3220,24 +3228,41 @@ function WorkspacePage({ pageKey }) {
       }
       setMapPickerLng(roundCoordinate(rawLng))
       setMapPickerLat(roundCoordinate(rawLat))
-      // 更新标记
-      clearAmapOverlays(mapPickerOverlaysRef)
-      const newMarker = new window.AMap.Marker({
-        map,
-        position: [rawLng, rawLat],
-        label: { content: mapPickerRecord?.facilityName || '新位置', direction: 'top' },
-      })
-      mapPickerOverlaysRef.current = [newMarker]
     }
     map.on('click', clickHandler)
 
     return () => {
       map.off('click', clickHandler)
       clearAmapOverlays(mapPickerOverlaysRef)
-      try { map.destroy() } catch (_) {}
+      try {
+        map.destroy()
+      } catch {
+        // Drawer 卸载时地图容器可能已经销毁。
+      }
       mapPickerAmapRef.current = null
     }
-  }, [mapPickerOpen, mapPickerAmapReady])
+  }, [clearAmapOverlays, mapPickerAmapReady, mapPickerOpen])
+
+  // 坐标变化只同步选点标记，不重建地图实例
+  useEffect(() => {
+    if (!mapPickerOpen || !mapPickerAmapReady || !mapPickerAmapRef.current || !window.AMap) return
+    const lng = toFiniteNumber(mapPickerLng)
+    const lat = toFiniteNumber(mapPickerLat)
+    if (lng === null || lat === null) {
+      clearAmapOverlays(mapPickerOverlaysRef)
+      return
+    }
+
+    const map = mapPickerAmapRef.current
+    clearAmapOverlays(mapPickerOverlaysRef)
+    const marker = new window.AMap.Marker({
+      map,
+      position: [lng, lat],
+      label: { content: mapPickerFacilityName || '当前位置', direction: 'top' },
+    })
+    mapPickerOverlaysRef.current = [marker]
+    map.setCenter([lng, lat])
+  }, [clearAmapOverlays, mapPickerAmapReady, mapPickerFacilityName, mapPickerLat, mapPickerLng, mapPickerOpen])
 
   const renderMapPickerDrawer = () => (
     <Drawer
@@ -3974,6 +3999,10 @@ function WorkspacePage({ pageKey }) {
     </div>
   )
 
+  if (!page) {
+    return <Empty description="页面配置不存在" />
+  }
+
   return (
     <div className="workspace-page">
       {page.title && (
@@ -3992,7 +4021,7 @@ function WorkspacePage({ pageKey }) {
               <p>当前档口 ID：{urlStallId || '未获取到'}</p>
             ) : null}
             {pageKey === 'facility-restaurant' && contextId ? (
-              <p>食堂 ID：{contextId}　·　<Button type="link" size="small" style={{ padding: 0 }} onClick={() => navigate('/facility/canteen')}>← 返回食堂列表</Button></p>
+              <p>食堂 ID：{contextId} · <Button type="link" size="small" style={{ padding: 0 }} onClick={() => navigate('/facility/canteen')}>← 返回食堂列表</Button></p>
             ) : null}
           </div>
         </section>

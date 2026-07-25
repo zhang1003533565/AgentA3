@@ -22,30 +22,28 @@ class ProgrammingQuestionAgentTest(unittest.TestCase):
             "questions": [
                 {
                     "id": "P1",
-                    "title": "实现顺序栈的入栈操作",
+                    "type": "programming",
+                    "stem": "实现顺序栈的入栈操作",
+                    "score": 10,
                     "knowledgePoints": ["顺序栈", "入栈"],
+                    "tags": ["数据结构", "Python"],
                     "difficulty": "easy",
-                    "language": "Python",
-                    "description": "根据输入的栈容量和元素序列，模拟顺序栈入栈。",
-                    "inputFormat": "第一行包含栈容量，第二行包含待入栈整数序列。",
-                    "outputFormat": "输出最终栈内元素。",
-                    "constraints": ["容量为正整数"],
-                    "examples": [
-                        {
-                            "input": "3\n1 2",
-                            "output": "1 2",
-                            "explanation": "两个元素依次入栈。",
-                        }
-                    ],
-                    "testCases": [
-                        {
-                            "input": "3\n1 2",
-                            "expectedOutput": "1 2",
-                            "hidden": False,
-                        }
-                    ],
-                    "solutionOutline": ["读取容量和元素", "依次入栈", "输出栈内元素"],
-                    "referenceSolution": "capacity=int(input())\nitems=list(map(int,input().split()))\nprint(*items[:capacity])",
+                    "body": {
+                        "title": "实现顺序栈的入栈操作",
+                        "language": "Python",
+                        "description": "根据输入的栈容量和元素序列，模拟顺序栈入栈。",
+                        "inputFormat": "第一行包含栈容量，第二行包含待入栈整数序列。",
+                        "outputFormat": "输出最终栈内元素。",
+                        "constraints": ["容量为正整数"],
+                        "examples": [{"input": "3\n1 2", "output": "1 2", "explanation": "两个元素依次入栈。"}],
+                    },
+                    "answer": {
+                        "testCases": [{"input": "3\n1 2", "expectedOutput": "1 2", "hidden": False}],
+                        "solutionOutline": ["读取容量和元素", "依次入栈", "输出栈内元素"],
+                        "referenceSolution": "capacity=int(input())\nitems=list(map(int,input().split()))\nprint(*items[:capacity])",
+                    },
+                    "analysis": "按容量截取待入栈元素即可模拟顺序栈容量限制。",
+                    "scoring": {"mode": "program", "rubrics": [{"criterion": "通过全部测试用例", "score": 10}]},
                     "sourceBasis": ["输入要求生成顺序栈入栈题"],
                 }
             ],
@@ -61,7 +59,7 @@ class ProgrammingQuestionAgentTest(unittest.TestCase):
         payload = json.loads(result)
         self.assertEqual(1, len(payload["questions"]))
         self.assertEqual([], payload["missingInfo"])
-        self.assertEqual("Python", payload["questions"][0]["language"])
+        self.assertEqual("Python", payload["questions"][0]["body"]["language"])
 
     def test_allows_missing_info_without_inventing_question(self):
         provider = FakeProgrammingProvider(json.dumps({
@@ -84,18 +82,28 @@ class ProgrammingQuestionAgentTest(unittest.TestCase):
             "questions": [
                 {
                     "id": "P1",
-                    "title": "测试题",
+                    "type": "programming",
+                    "stem": "测试题",
+                    "score": 10,
                     "knowledgePoints": ["数组"],
+                    "tags": ["数组"],
                     "difficulty": "easy",
-                    "language": "未指定",
-                    "description": "测试题描述",
-                    "inputFormat": "未明确",
-                    "outputFormat": "未明确",
-                    "constraints": ["未明确"],
-                    "examples": [],
-                    "testCases": [],
-                    "solutionOutline": ["读取输入"],
-                    "referenceSolution": "print('hello')",
+                    "body": {
+                        "title": "测试题",
+                        "language": "未指定",
+                        "description": "测试题描述",
+                        "inputFormat": "未明确",
+                        "outputFormat": "未明确",
+                        "constraints": ["未明确"],
+                        "examples": [],
+                    },
+                    "answer": {
+                        "testCases": [],
+                        "solutionOutline": ["读取输入"],
+                        "referenceSolution": "print('hello')",
+                    },
+                    "analysis": "测试解析",
+                    "scoring": {"mode": "program", "rubrics": [{"criterion": "实现正确", "score": 10}]},
                     "sourceBasis": ["用户要求"],
                 }
             ],

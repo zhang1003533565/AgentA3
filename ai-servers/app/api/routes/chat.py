@@ -1,17 +1,22 @@
 import asyncio
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.models.schemas import ChatRequest, ChatResponse
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
 from app.multi_agents.runtime import stream_agent
 from app.services.chat_orchestrator import resolve_user_id, run_chat_core
+from app.security.internal_auth import require_internal_token
 from app.utils.logger import get_logger, mask_id
 from app.utils.sse import build_sse, chunk_answer
 
-router = APIRouter(prefix="/internal", tags=["internal-chat"])
+router = APIRouter(
+    prefix="/internal",
+    tags=["internal-chat"],
+    dependencies=[Depends(require_internal_token)],
+)
 logger = get_logger("api.chat")
 
 

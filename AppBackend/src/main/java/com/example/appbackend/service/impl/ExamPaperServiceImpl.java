@@ -112,13 +112,17 @@ public class ExamPaperServiceImpl implements ExamPaperService {
     }
 
     @Override
-    public PaperVO randomPreview(RandomPreviewRequest request) {
+    public PaperVO randomPreview(RandomPreviewRequest request, Long userId) {
+        if (userId == null) {
+            throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
+        }
         List<List<ExamQuestion>> candidatesByRule = new ArrayList<>();
         List<RuleSlot> slots = new ArrayList<>();
         for (int ruleIndex = 0; ruleIndex < request.getRules().size(); ruleIndex++) {
             RandomRule rule = request.getRules().get(ruleIndex);
             List<ExamQuestion> candidates = new ArrayList<>(
-                    questionRepository.findActiveCandidates(rule.getType(), rule.getDifficulty()));
+                    questionRepository.findVisibleActiveCandidates(
+                            rule.getType(), rule.getDifficulty(), userId));
             shuffle(candidates);
             candidatesByRule.add(candidates);
             for (int slotIndex = 0; slotIndex < rule.getQuantity(); slotIndex++) {
@@ -189,7 +193,7 @@ public class ExamPaperServiceImpl implements ExamPaperService {
         List<Long> questionIds = request.getQuestions().stream()
                 .map(SelectedQuestion::getQuestionId)
                 .toList();
-        List<ExamQuestion> loaded = questionRepository.findAllById(questionIds);
+        List<ExamQuestion> loaded = questionRepository.findAllVisibleById(questionIds, userId);
         if (loaded.size() != questionIds.size()
                 || loaded.stream().anyMatch(question -> !Integer.valueOf(1).equals(question.getStatus()))) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "题目不存在或已停用");
