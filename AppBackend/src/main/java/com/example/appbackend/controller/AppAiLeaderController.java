@@ -18,6 +18,7 @@ import com.example.appbackend.repository.AiLeaderSessionRepository;
 import com.example.appbackend.service.UserProfileService;
 import com.example.appbackend.service.impl.AssistantEnvelopeService;
 import com.example.appbackend.service.impl.PythonAiProxyService;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
@@ -67,7 +68,6 @@ public class AppAiLeaderController {
 
     private static final Logger log = LoggerFactory.getLogger(AppAiLeaderController.class);
     private static final String LEADER_AGENT = "leader_agent";
-    private static final String SAFE_STREAM_FAILURE_MESSAGE = "资源生成失败，请稍后再试。";
     private static final Set<String> STRUCTURED_PAYLOAD_EVENTS = Set.of("generation_start", "error", "done");
 
     private final PythonAiProxyService pythonAiProxyService;
@@ -99,10 +99,11 @@ public class AppAiLeaderController {
     public Result<LlmChatResponse> query(@Valid @RequestBody LlmChatRequest request, HttpServletRequest httpRequest) {
         Long userId = currentUserId(httpRequest);
         AiLeaderSession session = getOrCreateSession(userId, request.getSessionId(), request.getInput());
-        saveMessage(session, AiLeaderMessage.ROLE_USER, request.getInput(), "text");
-        refreshSession(session, request.getInput());
+        String visibleInput = visibleUserInput(request);
+        saveUserMessage(session, request, visibleInput);
+        refreshSession(session, visibleInput);
 
-        Map<String, Object> payload = buildLeaderPayload(request, session.getSessionId(), userId, httpRequest.getHeader("Authorization"));
+        Map<String, Object> payload = buildLeaderPayload(request, session, userId, httpRequest.getHeader("Authorization"));
 
         Object ragResult = pythonAiProxyService.queryRag(payload, httpRequest.getHeader("Authorization"));
         LlmChatResponse response = toChatResponse(session, ragResult);
@@ -121,10 +122,11 @@ public class AppAiLeaderController {
                                   HttpServletRequest httpRequest) {
         Long userId = currentUserId(httpRequest);
         AiLeaderSession session = getOrCreateSession(userId, request.getSessionId(), request.getInput());
-        saveMessage(session, AiLeaderMessage.ROLE_USER, request.getInput(), "text");
-        refreshSession(session, request.getInput());
+        String visibleInput = visibleUserInput(request);
+        saveUserMessage(session, request, visibleInput);
+        refreshSession(session, visibleInput);
 
-        Map<String, Object> payload = buildLeaderPayload(request, session.getSessionId(), userId, authorization);
+        Map<String, Object> payload = buildLeaderPayload(request, session, userId, authorization);
         AtomicReference<AiLeaderMessage> visibleGenerationMessage = new AtomicReference<>();
         AtomicBoolean completed = new AtomicBoolean(false);
         AtomicBoolean poisoned = new AtomicBoolean(false);
@@ -170,22 +172,14 @@ public class AppAiLeaderController {
                     return true;
                 }
                 if ("error".equals(eventName)) {
-                    Map<String, Object> errorResult = new LinkedHashMap<>();
-                    errorResult.put("answer", SAFE_STREAM_FAILURE_MESSAGE);
-                    errorResult.put("answerType", "text");
-                    errorResult.put("outputType", "text");
-                    errorResult.put("outputTypes", List.of("text"));
-                    LlmChatResponse response = toChatResponse(session, errorResult);
-                    AssistantEnvelopeService.PreparedEnvelope envelope = assistantEnvelopeService.prepareLiveResponse(
-                            response, errorResult, request.getInput(), Set.copyOf(internalCapabilities));
-                    AiLeaderMessage existing = visibleGenerationMessage.get();
-                    AiLeaderMessage saved = existing == null
-                            ? saveAssistantMessage(userId, session, response, envelope)
-                            : updateAssistantMessage(userId, session, existing, response, envelope);
-                    visibleGenerationMessage.set(saved);
+                    AiLeaderMessage existing = visibleGenerationMessage.getAndSet(null);
+                    if (existing != null) {
+                        messageRepository.delete(existing);
+                    }
                     completed.set(true);
-                    assistantEnvelopeService.overwriteSsePayload(eventPayload, response);
-                    refreshSession(session, SAFE_STREAM_FAILURE_MESSAGE);
+                    assistantEnvelopeService.sanitizeSseEventPayload(
+                            eventName, eventPayload, Set.copyOf(internalCapabilities));
+                    refreshSession(session, visibleInput);
                     return true;
                 }
                 if (!"done".equals(eventName)) {
@@ -244,9 +238,16 @@ public class AppAiLeaderController {
         detail.setSession(toSessionItem(session));
         List<AiLeaderMessageItem> items = new ArrayList<>();
         String latestUserInput = null;
-        for (AiLeaderMessage message : messageRepository.findByLeaderSessionIdOrderByCreateTimeAsc(session.getId())) {
+        for (AiLeaderMessage message : messageRepository
+                .findByLeaderSessionIdOrderByCreateTimeAscIdAsc(session.getId())) {
             if (AiLeaderMessage.ROLE_USER.equals(message.getRole())) {
-                latestUserInput = message.getContent();
+                Map<String, Object> userMeta = readMap(message.getOutputMetaJson());
+                String originalInput = stringValue(userMeta.get("requestContent"));
+                latestUserInput = message.getAnswerType() != null
+                        && message.getAnswerType().startsWith("action_")
+                        && StringUtils.hasText(originalInput)
+                        ? originalInput
+                        : message.getContent();
             }
             items.add(toMessageItem(message, latestUserInput));
         }
@@ -387,7 +388,7 @@ public class AppAiLeaderController {
         }
     }
 
-    private Map<String, Object> buildLeaderPayload(LlmChatRequest request, String sessionId, Long userId, String authorization) {
+    private Map<String, Object> buildLeaderPayload(LlmChatRequest request, AiLeaderSession session, Long userId, String authorization) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("input", request.getInput());
         payload.put("agentName", LEADER_AGENT);
@@ -396,8 +397,59 @@ public class AppAiLeaderController {
         }
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("source", "app_ai_assistant");
-        metadata.put("sessionId", sessionId == null ? "" : sessionId);
-        metadata.put("profileSnapshot", userProfileService.buildLeaderProfileContext(userId, authorization));
+        metadata.put("sessionId", session == null ? "" : session.getSessionId());
+        String inferredOutputType = inferRequestedOutputType(request.getInput());
+        if (StringUtils.hasText(inferredOutputType)) {
+            metadata.put("requestedOutputType", inferredOutputType);
+            if (session != null) {
+                List<Map<String, Object>> sourceCandidates = messageRepository
+                        .findTop6ByLeaderSessionIdAndRoleOrderByCreateTimeDescIdDesc(
+                                session.getId(), AiLeaderMessage.ROLE_ASSISTANT)
+                        .stream()
+                        .filter(message -> StringUtils.hasText(message.getContent()))
+                        .map(message -> {
+                            Map<String, Object> candidate = new LinkedHashMap<>();
+                            candidate.put("messageId", message.getId());
+                            candidate.put("content", truncate(message.getContent(), 100_000));
+                            candidate.put("answerType", message.getAnswerType());
+                            candidate.put("agentName", message.getAgentName());
+                            return candidate;
+                        })
+                        .toList();
+                if (!sourceCandidates.isEmpty()) {
+                    metadata.put("sourceMessageCandidates", sourceCandidates);
+                    metadata.put("sourceMessageOrigin", "recent_assistant_candidates");
+                }
+            }
+        }
+        if (StringUtils.hasText(request.getInteractionType())) {
+            metadata.put("interactionType", request.getInteractionType().trim());
+            if (StringUtils.hasText(request.getRequestedOutputType())) {
+                metadata.put("requestedOutputType", request.getRequestedOutputType().trim());
+            }
+            if (request.getSourceMessageId() != null) {
+                metadata.put("sourceMessageId", request.getSourceMessageId());
+                messageRepository.findById(request.getSourceMessageId())
+                        .filter(message -> session != null
+                                && session.getId().equals(message.getLeaderSessionId())
+                                && AiLeaderMessage.ROLE_ASSISTANT.equals(message.getRole()))
+                        .map(AiLeaderMessage::getContent)
+                        .filter(StringUtils::hasText)
+                        .ifPresent(content -> metadata.put("sourceMessageContent", truncate(content, 100_000)));
+            }
+        }
+        // Leader chat only reads the compatible saved AI insight (or the local fallback) here.
+        // A missing/stale insight is refreshed in a bounded background executor below, so opening
+        // an SSE stream never waits for profile_summary_agent.
+        long profileContextStartedAt = System.nanoTime();
+        Map<String, Object> profileContext = userProfileService.buildLeaderProfileContext(userId);
+        metadata.put("profileSnapshot", profileContext);
+        metadata.put("profileContextMs", Math.max(0L, (System.nanoTime() - profileContextStartedAt) / 1_000_000L));
+        boolean hasSavedAiSnapshot = "profile_summary_agent".equals(profileContext.get("summaryEngine"));
+        metadata.put("profileContextSource", hasSavedAiSnapshot ? "saved_ai_snapshot" : "local_snapshot");
+        if (!hasSavedAiSnapshot) {
+            userProfileService.refreshLeaderProfileContextAsync(userId, authorization);
+        }
         metadata.put("profileEvidencePolicy", Map.of(
                 "leaderCanUpdateScore", false,
                 "leaderCanSubmitEvidence", true,
@@ -406,6 +458,44 @@ public class AppAiLeaderController {
         ));
         payload.put("metadata", metadata);
         return payload;
+    }
+
+    private String inferRequestedOutputType(String input) {
+        String normalized = input == null ? "" : input.toLowerCase().replaceAll("\\s+", "");
+        boolean exportIntent = List.of("导出", "生成", "转成", "转换成", "整理成", "制作成", "做成", "保存为", "给我")
+                .stream().anyMatch(normalized::contains);
+        if (!exportIntent) {
+            return "";
+        }
+        if (normalized.contains("word") || normalized.contains("docx") || normalized.contains("文档版")) {
+            return "docx";
+        }
+        if (normalized.contains("excel") || normalized.contains("xlsx") || normalized.contains("表格版")) {
+            return "xlsx";
+        }
+        if (normalized.contains("markdown") || normalized.contains("md文件")) {
+            return "md";
+        }
+        if (normalized.contains("pptx") || normalized.contains("ppt") || normalized.contains("幻灯片")) {
+            return "pptx";
+        }
+        return "";
+    }
+
+    private String visibleUserInput(LlmChatRequest request) {
+        if (request != null
+                && StringUtils.hasText(request.getInteractionType())
+                && StringUtils.hasText(request.getDisplayInput())) {
+            return truncate(request.getDisplayInput().trim(), 160);
+        }
+        return request == null ? "" : request.getInput();
+    }
+
+    private String userMessageAnswerType(LlmChatRequest request) {
+        if (request == null || !StringUtils.hasText(request.getInteractionType())) {
+            return "text";
+        }
+        return "action_" + request.getInteractionType().trim();
     }
 
     private void captureLeaderProfileEvidence(Long userId,
@@ -580,12 +670,28 @@ public class AppAiLeaderController {
                 });
     }
 
-    private void saveMessage(AiLeaderSession session, String role, String content, String answerType) {
+    private void saveUserMessage(AiLeaderSession session, LlmChatRequest request, String visibleInput) {
         AiLeaderMessage message = new AiLeaderMessage();
         message.setLeaderSessionId(session.getId());
-        message.setRole(role);
-        message.setContent(content == null ? "" : content);
-        message.setAnswerType(answerType);
+        message.setRole(AiLeaderMessage.ROLE_USER);
+        message.setContent(visibleInput == null ? "" : visibleInput);
+        message.setAnswerType(userMessageAnswerType(request));
+        if (request != null && StringUtils.hasText(request.getInteractionType())) {
+            Map<String, Object> actionMeta = new LinkedHashMap<>();
+            actionMeta.put("interactionType", request.getInteractionType().trim());
+            actionMeta.put("requestContent", request.getInput());
+            if (StringUtils.hasText(request.getRequestedOutputType())) {
+                actionMeta.put("requestedOutputType", request.getRequestedOutputType().trim());
+            }
+            if (request.getSourceMessageId() != null) {
+                actionMeta.put("sourceMessageId", request.getSourceMessageId());
+            }
+            try {
+                message.setOutputMetaJson(objectMapper.writeValueAsString(actionMeta));
+            } catch (JsonProcessingException error) {
+                throw new IllegalStateException("Unable to persist structured assistant action", error);
+            }
+        }
         messageRepository.save(message);
     }
 

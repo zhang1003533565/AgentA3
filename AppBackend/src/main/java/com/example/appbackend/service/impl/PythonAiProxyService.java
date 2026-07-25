@@ -54,6 +54,7 @@ public class PythonAiProxyService {
     private final String pythonBaseUrl;
     private final long timeoutSeconds;
     private final int fileResponseMaxInMemoryBytes;
+    private final String internalToken;
 
     public record AgentDescriptor(String name, String role, boolean enabled, String modelBinding) {
     }
@@ -83,7 +84,8 @@ public class PythonAiProxyService {
                                 SystemConfigRepository systemConfigRepository,
                                 @Value("${ai.python.base-url:http://localhost:8081}") String pythonBaseUrl,
                                 @Value("${ai.python.timeout-seconds:65}") long timeoutSeconds,
-                                @Value("${ai.python.file-response-max-in-memory-bytes:52428800}") int fileResponseMaxInMemoryBytes) {
+                                @Value("${ai.python.file-response-max-in-memory-bytes:52428800}") int fileResponseMaxInMemoryBytes,
+                                @Value("${ai.python.internal-token:}") String internalToken) {
         this.webClientBuilder = webClientBuilder;
         this.objectMapper = objectMapper;
         this.jwtUtil = jwtUtil;
@@ -92,6 +94,7 @@ public class PythonAiProxyService {
         this.pythonBaseUrl = pythonBaseUrl;
         this.timeoutSeconds = timeoutSeconds;
         this.fileResponseMaxInMemoryBytes = fileResponseMaxInMemoryBytes;
+        this.internalToken = internalToken == null ? "" : internalToken.trim();
     }
 
     public LlmChatResponse chat(LlmChatRequest request, String authorization) {
@@ -131,6 +134,7 @@ public class PythonAiProxyService {
                     .get()
                     .uri(buildUri("/internal/rag/exports/" + encodedStorageKey))
                     .header("X-AI-Export-Capability", pythonCapability)
+                    .headers(this::applyInternalToken)
                     .accept(MediaType.APPLICATION_OCTET_STREAM)
                     .exchangeToMono(response -> {
                         int status = response.statusCode().value();
@@ -205,6 +209,7 @@ public class PythonAiProxyService {
         Map<String, Object> request = new HashMap<>();
         request.put("agentName", payload.agentName());
         request.put("input", payload.input());
+        request.put("metadata", Map.of("requestPurpose", "question_generation"));
         if (payload.maxQuestions() != null) {
             request.put("maxQuestions", payload.maxQuestions());
         }
@@ -285,6 +290,27 @@ public class PythonAiProxyService {
             throw new BusinessException(Result.ERROR_CODE, "请选择已测试成功的模型后再执行智能体");
         }
         Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request));
+        return streamPythonObject(
+                "/internal/rag/query/stream",
+                sanitized,
+                authorization,
+                requestedModel,
+                eventHandler
+        );
+    }
+
+    /**
+     * Learning workflow payloads already contain a server-built, closed metadata contract.
+     * Do not mix campus agent/tool toggles into that contract and never accept a client model.
+     */
+    public SseEmitter streamLearningWorkflow(Map<String, Object> request,
+                                             String authorization,
+                                             SseEventHandler eventHandler) {
+        String requestedModel = resolveAgentBoundModel(DEFAULT_AGENT_NAME);
+        if (!StringUtils.hasText(requestedModel)) {
+            throw new BusinessException(Result.ERROR_CODE, "学习工作流模型尚未配置");
+        }
+        Map<String, Object> sanitized = sanitizeRagRequest(request);
         return streamPythonObject(
                 "/internal/rag/query/stream",
                 sanitized,
@@ -762,6 +788,13 @@ public class PythonAiProxyService {
     private void applyPythonAuthHeaders(HttpHeaders headers, String authorization, Long userId) {
         headers.set(HttpHeaders.AUTHORIZATION, authorization);
         headers.set("X-User-Id", userId.toString());
+        applyInternalToken(headers);
+    }
+
+    private void applyInternalToken(HttpHeaders headers) {
+        if (StringUtils.hasText(internalToken)) {
+            headers.set("X-AI-Internal-Token", internalToken);
+        }
     }
 
     private String resolveRequestedModel(Map<String, Object> request) {
@@ -824,12 +857,21 @@ public class PythonAiProxyService {
                     if (!StringUtils.hasText(agentName) || !StringUtils.hasText(configPrefix)) {
                         return;
                     }
+                    String provider = systemConfigService.getValue(configPrefix + ".provider", "");
+                    String baseUrl = systemConfigService.getValue(configPrefix + ".base-url", "");
+                    String apiKey = systemConfigService.getValue(configPrefix + ".api-key", "");
+                    String model = systemConfigService.getValue(configPrefix + ".model", "");
+                    String testedFingerprint = systemConfigService.getValue(configPrefix + ".tested-fingerprint", "");
                     Map<String, Object> config = new HashMap<>();
                     config.put("configPrefix", configPrefix);
-                    config.put("provider", systemConfigService.getValue(configPrefix + ".provider", ""));
-                    config.put("baseUrl", systemConfigService.getValue(configPrefix + ".base-url", ""));
-                    config.put("apiKey", systemConfigService.getValue(configPrefix + ".api-key", ""));
-                    config.put("model", systemConfigService.getValue(configPrefix + ".model", ""));
+                    config.put("provider", provider);
+                    config.put("baseUrl", baseUrl);
+                    config.put("apiKey", apiKey);
+                    config.put("model", model);
+                    config.put("tested", StringUtils.hasText(testedFingerprint)
+                            && testedFingerprint.equals(QuestionGenerationServiceImpl.fingerprint(
+                                    provider, baseUrl, apiKey, model
+                            )));
                     configs.put(agentName, config);
                 });
         return configs;

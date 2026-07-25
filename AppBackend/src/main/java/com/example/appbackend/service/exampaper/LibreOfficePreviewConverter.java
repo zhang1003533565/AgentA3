@@ -58,14 +58,33 @@ public class LibreOfficePreviewConverter {
         return configured;
     }
 
-    private static List<Path> defaultSofficeCandidates() {
+    static List<Path> defaultSofficeCandidates() {
         String home = System.getProperty("user.home", "");
-        return List.of(
-                Path.of("/Applications/LibreOffice.app/Contents/MacOS/soffice"),
-                Path.of("/opt/homebrew/bin/soffice"),
-                Path.of("/usr/local/bin/soffice"),
-                Path.of("/usr/bin/soffice"),
-                Path.of(home, ".cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice"));
+        List<Path> candidates = new ArrayList<>();
+        addWindowsSofficeCandidate(candidates, System.getenv("ProgramFiles"));
+        addWindowsSofficeCandidate(candidates, System.getenv("ProgramFiles(x86)"));
+        String localAppData = System.getenv("LOCALAPPDATA");
+        if (localAppData != null && !localAppData.isBlank()) {
+            candidates.add(Path.of(localAppData, "Programs", "LibreOffice", "program", "soffice.com"));
+            candidates.add(Path.of(localAppData, "Programs", "LibreOffice", "program", "soffice.exe"));
+        }
+        candidates.add(Path.of("C:\\Program Files\\LibreOffice\\program\\soffice.com"));
+        candidates.add(Path.of("C:\\Program Files\\LibreOffice\\program\\soffice.exe"));
+        candidates.add(Path.of("C:\\Program Files (x86)\\LibreOffice\\program\\soffice.com"));
+        candidates.add(Path.of("C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe"));
+        candidates.add(Path.of("/Applications/LibreOffice.app/Contents/MacOS/soffice"));
+        candidates.add(Path.of("/opt/homebrew/bin/soffice"));
+        candidates.add(Path.of("/usr/local/bin/soffice"));
+        candidates.add(Path.of("/usr/bin/soffice"));
+        candidates.add(Path.of(home, ".cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice"));
+        return List.copyOf(candidates);
+    }
+
+    private static void addWindowsSofficeCandidate(List<Path> candidates, String programFiles) {
+        if (programFiles != null && !programFiles.isBlank()) {
+            candidates.add(Path.of(programFiles, "LibreOffice", "program", "soffice.com"));
+            candidates.add(Path.of(programFiles, "LibreOffice", "program", "soffice.exe"));
+        }
     }
 
     static byte[] substituteCjkFontsForPreview(byte[] docx) {

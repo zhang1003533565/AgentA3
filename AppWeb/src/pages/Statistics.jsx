@@ -10,10 +10,10 @@ const { RangePicker } = DatePicker
 function Statistics() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
-  const [dateRange, setDateRange] = useState([null, null])
+  const [, setDateRange] = useState([null, null])
   
   // 统计数据
-  const [stats, setStats] = useState({
+  const [stats] = useState({
     totalUsers: 1256,
     totalActivities: 48,
     totalSignIns: 3256,

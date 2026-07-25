@@ -1,226 +1,195 @@
 import { useState, useEffect } from 'react'
-import { message, Modal, Button, Table, Tag, Space, Popconfirm, Input, Select, Form } from 'antd'
-import { EyeOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons'
-import { getCommentList, deleteComment } from '../../../api/forum'
+import { message, Drawer, Button, Table, Tag, Space, Popconfirm, Input, Select, Form, Card } from 'antd'
+import { EyeOutlined, DeleteOutlined, SearchOutlined, MessageOutlined, LikeOutlined, CommentOutlined, RiseOutlined, UserOutlined, CheckCircleOutlined, InboxOutlined } from '@ant-design/icons'
+import { getCommentList, batchDeleteComments, getForumStatistics } from '../../../api/forum'
 import './CommentManage.css'
 
 const { Option } = Select
 
-// 评论状态映射
 const statusMap = {
   'NORMAL': { text: '正常', color: 'green' },
   'HIDDEN': { text: '已隐藏', color: 'orange' },
-  'DELETED': { text: '已删除', color: 'default' }
+  'DELETED': { text: '已删除', color: 'default' },
 }
+
+const STAT_COLORS = ['#059669', '#10b981', '#f59e0b']
 
 function CommentManage() {
   const [comments, setComments] = useState([])
   const [loading, setLoading] = useState(false)
   const [searchForm] = Form.useForm()
-  const [pagination, setPagination] = useState({
-    current: 1,
-    pageSize: 10,
-    total: 0
-  })
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 })
+  const [selectedRowKeys, setSelectedRowKeys] = useState([])
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [currentComment, setCurrentComment] = useState(null)
+  const [stats, setStats] = useState({ totalComments: 0, normalComments: 0, hiddenComments: 0 })
 
-  // 获取评论列表
   const fetchComments = async (params = {}) => {
     setLoading(true)
     try {
-      const res = await getCommentList({
-        admin: true,
-        page: pagination.current,
-        size: pagination.pageSize,
-        ...params
-      })
+      const res = await getCommentList({ admin: true, page: pagination.current, size: pagination.pageSize, ...params })
       if (res.code === 200) {
-        setComments(res.data?.list || res.data || [])
-        setPagination({
-          ...pagination,
-          total: res.data?.total || 0
+        const records = res.data?.records || res.data?.list || res.data || []
+        setComments(Array.isArray(records) ? records : [])
+        setPagination({ ...pagination, total: res.data?.total || 0 })
+      }
+    } catch (error) { console.error('获取评论列表失败:', error) }
+    finally { setLoading(false) }
+  }
+
+  const fetchStats = async () => {
+    try {
+      const res = await getForumStatistics()
+      if (res.code === 200 && res.data) {
+        setStats({
+          totalComments: res.data.totalComments || 0,
+          normalComments: res.data.normalComments || 0,
+          hiddenComments: res.data.hiddenComments || 0,
         })
       }
-    } catch (error) {
-      console.error('获取评论列表失败:', error)
-    } finally {
-      setLoading(false)
-    }
+    } catch (e) { /* ignore */ }
   }
 
-  useEffect(() => {
-    fetchComments()
-  }, [])
+  useEffect(() => { fetchComments(); fetchStats() }, [])
 
-  // 搜索
-  const handleSearch = (values) => {
-    setPagination({ ...pagination, current: 1 })
-    fetchComments(values)
-  }
+  const handleSearch = (values) => { setPagination({ ...pagination, current: 1 }); fetchComments(values) }
+  const handleReset = () => { searchForm.resetFields(); setPagination({ ...pagination, current: 1 }); fetchComments() }
+  const handleView = (record) => { setCurrentComment(record); setDrawerOpen(true) }
 
-  // 重置搜索
-  const handleReset = () => {
-    searchForm.resetFields()
-    setPagination({ ...pagination, current: 1 })
-    fetchComments()
-  }
-
-  // 查看详情
-  const handleView = (record) => {
-    Modal.info({
-      title: '评论详情',
-      width: 500,
-      content: (
-        <div className="comment-detail">
-          <p><strong>评论ID：</strong>{record.id}</p>
-          <p><strong>所属帖子：</strong>{record.post?.title || '未知'}</p>
-          <p><strong>评论者：</strong>{record.user?.realName || '未知'}</p>
-          {record.replyToUser && (
-            <p><strong>回复对象：</strong>{record.replyToUser.realName}</p>
-          )}
-          <p><strong>点赞数：</strong>{record.likeCount}</p>
-          <p><strong>状态：</strong>{statusMap[record.status]?.text}</p>
-          <p><strong>评论时间：</strong>{record.createTime}</p>
-          <p><strong>内容：</strong></p>
-          <div className="comment-content">{record.content}</div>
-        </div>
-      )
-    })
-  }
-
-  // 删除评论
-  const handleDelete = async (id) => {
+  const handleBatchDelete = async () => {
+    if (selectedRowKeys.length === 0) return
     try {
-      const res = await deleteComment(id)
-      if (res.code === 200) {
-        message.success('删除成功')
-        fetchComments()
-      }
-    } catch (error) {
-      console.error('删除失败:', error)
-    }
+      const res = await batchDeleteComments(selectedRowKeys)
+      if (res.code === 200) { message.success(`已批量删除 ${selectedRowKeys.length} 条评论`); setSelectedRowKeys([]); fetchComments(); fetchStats() }
+    } catch (error) { console.error('批量删除失败:', error) }
   }
 
-  // 表格列定义
   const columns = [
+    { title: 'ID', dataIndex: 'id', width: 60 },
     {
-      title: 'ID',
-      dataIndex: 'id',
-      width: 60
+      title: '所属帖子', dataIndex: 'postTitle', width: 220, ellipsis: true,
+      render: (text, record) => <span title={record.postTitle || record.post?.title || '未知帖子'}>{record.postTitle || record.post?.title || '未知帖子'}</span>,
     },
     {
-      title: '所属帖子',
-      dataIndex: 'post',
-      ellipsis: true,
-      width: 180,
-      render: (post) => post?.title || '未知'
+      title: '评论者', dataIndex: 'username', width: 100,
+      render: (u) => <Space><UserOutlined />{u || '未知'}</Space>,
     },
     {
-      title: '评论者',
-      dataIndex: 'user',
-      width: 100,
-      render: (user) => user?.realName || '未知'
+      title: '评论内容', dataIndex: 'content', ellipsis: { showTitle: false }, width: 320,
+      render: (text) => <div className="cm-comment-text" title={text}>{text || '(空)'}</div>,
     },
     {
-      title: '评论内容',
-      dataIndex: 'content',
-      ellipsis: true,
-      width: 250
+      title: '点赞', dataIndex: 'likeCount', width: 80,
+      render: (c) => <Space><LikeOutlined style={{ color: '#f5222d' }} />{c || 0}</Space>,
     },
     {
-      title: '点赞',
-      dataIndex: 'likeCount',
-      width: 80
+      title: '状态', dataIndex: 'status', width: 90,
+      render: (s) => <Tag color={statusMap[s]?.color}>{statusMap[s]?.text}</Tag>,
     },
+    { title: '评论时间', dataIndex: 'createTime', width: 170 },
     {
-      title: '状态',
-      dataIndex: 'status',
-      width: 90,
-      render: (status) => (
-        <Tag color={statusMap[status]?.color}>
-          {statusMap[status]?.text}
-        </Tag>
-      )
-    },
-    {
-      title: '评论时间',
-      dataIndex: 'createTime',
-      width: 160
-    },
-    {
-      title: '操作',
-      key: 'action',
-      width: 150,
-      fixed: 'right',
+      title: '操作', key: 'action', width: 80, fixed: 'right',
       render: (_, record) => (
-        <Space size="small">
-          <Button 
-            type="text" 
-            icon={<EyeOutlined />} 
-            onClick={() => handleView(record)}
-          >
-            查看
-          </Button>
-          <Popconfirm
-            title="确定删除该评论吗？"
-            onConfirm={() => handleDelete(record.id)}
-            okText="确定"
-            cancelText="取消"
-          >
-            <Button type="text" danger icon={<DeleteOutlined />}>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      )
-    }
+        <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleView(record)}>查看</Button>
+      ),
+    },
+  ]
+
+  const rowSelection = { selectedRowKeys, onChange: (keys) => setSelectedRowKeys(keys) }
+
+  const statItems = [
+    { icon: <CommentOutlined />, label: '评论总数', value: stats.totalComments, color: STAT_COLORS[0], bg: '#ecfdf5' },
+    { icon: <CheckCircleOutlined />, label: '正常', value: stats.normalComments, color: STAT_COLORS[1], bg: '#f0fdf4' },
+    { icon: <InboxOutlined />, label: '已隐藏', value: stats.hiddenComments, color: STAT_COLORS[2], bg: '#fffbeb' },
   ]
 
   return (
-    <div className="comment-manage-container">
-      {/* 主内容 */}
-      <main className="manage-main">
-        {/* 页面标题 */}
-        <div className="page-header">
-          <h2>评论管理</h2>
-        </div>
-        {/* 搜索栏 */}
-        <div className="search-bar">
-          <Form form={searchForm} layout="inline" onFinish={handleSearch}>
-            <Form.Item name="keyword">
-              <Input placeholder="搜索评论内容" prefix={<SearchOutlined />} allowClear />
-            </Form.Item>
-            <Form.Item name="status">
-              <Select placeholder="选择状态" allowClear style={{ width: 120 }}>
-                {Object.entries(statusMap).map(([key, value]) => (
-                  <Option key={key} value={key}>{value.text}</Option>
-                ))}
-              </Select>
-            </Form.Item>
-            <Form.Item>
-              <Button type="primary" htmlType="submit">搜索</Button>
-              <Button onClick={handleReset} style={{ marginLeft: 8 }}>重置</Button>
-            </Form.Item>
-          </Form>
-        </div>
+    <div className="cm-container">
+      <div className="cm-bg-wave" />
 
-        {/* 评论列表 */}
+      <div className="cm-header">
+        <div className="cm-header-left">
+          <h1 className="cm-header-title">💬 评论管理</h1>
+          <p className="cm-header-desc">管理论坛所有评论，支持批量删除与详情查看</p>
+        </div>
+        <div className="cm-header-stats">
+          <span className="cm-stat-badge cm-badge-green">共 {stats.totalComments} 条</span>
+          <span className="cm-stat-badge cm-badge-normal">正常 {stats.normalComments}</span>
+          <span className="cm-stat-badge cm-badge-hidden">隐藏 {stats.hiddenComments}</span>
+        </div>
+      </div>
+
+      <div className="cm-stat-row">
+        {statItems.map((s, i) => (
+          <Card key={i} className="cm-stat-card" style={{ borderTop: `3px solid ${s.color}`, background: s.bg }}>
+            <div className="cm-stat-card-icon" style={{ color: s.color }}>{s.icon}</div>
+            <div className="cm-stat-card-value">{s.value}</div>
+            <div className="cm-stat-card-label">{s.label}</div>
+          </Card>
+        ))}
+      </div>
+
+      <div className="cm-search-card">
+        <Form form={searchForm} layout="inline" onFinish={handleSearch}>
+          <Form.Item name="keyword">
+            <Input placeholder="搜索评论内容" prefix={<SearchOutlined />} allowClear style={{ width: 200 }} />
+          </Form.Item>
+          <Form.Item name="status">
+            <Select placeholder="选择状态" allowClear style={{ width: 130 }}>
+              {Object.entries(statusMap).map(([key, val]) => (<Option key={key} value={key}>{val.text}</Option>))}
+            </Select>
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>搜索</Button>
+            <Button onClick={handleReset} style={{ marginLeft: 8 }}>重置</Button>
+          </Form.Item>
+        </Form>
+      </div>
+
+      {selectedRowKeys.length > 0 && (
+        <div className="cm-batch-bar">
+          <span className="cm-batch-count">已选择 <strong>{selectedRowKeys.length}</strong> 条</span>
+          <Popconfirm title={`确定删除选中的 ${selectedRowKeys.length} 条评论吗？`} onConfirm={handleBatchDelete} okText="确定" cancelText="取消">
+            <Button type="primary" danger size="small" icon={<DeleteOutlined />}>批量删除</Button>
+          </Popconfirm>
+        </div>
+      )}
+
+      <Card className="cm-table-card" bodyStyle={{ padding: 0 }}>
         <Table
+          rowSelection={rowSelection}
           columns={columns}
           dataSource={comments}
           rowKey="id"
           loading={loading}
-          pagination={{
-            ...pagination,
-            showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 条`
-          }}
-          onChange={(pag) => {
-            setPagination({ ...pagination, current: pag.current, pageSize: pag.pageSize })
-            fetchComments({ page: pag.current, size: pag.pageSize })
-          }}
-          scroll={{ x: 1100 }}
+          pagination={{ ...pagination, showSizeChanger: true, showTotal: (t) => `共 ${t} 条`, pageSizeOptions: ['10', '20', '50'] }}
+          onChange={(pag) => { setPagination({ ...pagination, current: pag.current, pageSize: pag.pageSize }); fetchComments({ page: pag.current, size: pag.pageSize }) }}
+          scroll={{ x: 1400 }}
+          size="middle"
         />
-      </main>
+      </Card>
+
+      <Drawer title={<Space><CommentOutlined /> <span>评论详情</span></Space>} placement="right" width={580} open={drawerOpen} onClose={() => setDrawerOpen(false)}>
+        {currentComment && (
+          <div className="cm-drawer">
+            <div className="cm-drawer-section">
+              <h3 className="cm-drawer-title">所属帖子</h3>
+              <p className="cm-post-link">{currentComment.postTitle || currentComment.post?.title || '未知帖子'}</p>
+            </div>
+            <div className="cm-drawer-info">
+              <div className="cm-info-row"><span className="cm-info-label">评论者</span><Space><UserOutlined />{currentComment.username || '未知'}</Space></div>
+              {currentComment.replyToUsername && <div className="cm-info-row"><span className="cm-info-label">回复给</span><Space><RiseOutlined />{currentComment.replyToUsername}</Space></div>}
+              <div className="cm-info-row"><span className="cm-info-label">点赞数</span><Space><LikeOutlined style={{color:'#f5222d'}} />{currentComment.likeCount || 0}</Space></div>
+              <div className="cm-info-row"><span className="cm-info-label">状态</span><Tag color={statusMap[currentComment.status]?.color}>{statusMap[currentComment.status]?.text}</Tag></div>
+              <div className="cm-info-row"><span className="cm-info-label">评论时间</span><span>{currentComment.createTime}</span></div>
+            </div>
+            <div className="cm-drawer-content">
+              <h4 className="cm-drawer-subtitle">💬 评论内容</h4>
+              <div className="cm-content-box">{currentComment.content}</div>
+            </div>
+          </div>
+        )}
+      </Drawer>
     </div>
   )
 }

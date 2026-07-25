@@ -46,6 +46,7 @@ class PythonAiProxyServiceTest {
     @Test
     void chat_shouldForwardAuthorizationAndUserIdAndParseResponse() throws Exception {
         AtomicReference<String> authRef = new AtomicReference<>();
+        AtomicReference<String> internalTokenRef = new AtomicReference<>();
         AtomicReference<String> userIdRef = new AtomicReference<>();
         AtomicReference<String> aiBaseUrlRef = new AtomicReference<>();
         AtomicReference<String> aiApiKeyRef = new AtomicReference<>();
@@ -55,6 +56,7 @@ class PythonAiProxyServiceTest {
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/internal/chat", exchange -> {
             authRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            internalTokenRef.set(exchange.getRequestHeaders().getFirst("X-AI-Internal-Token"));
             userIdRef.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
             aiBaseUrlRef.set(exchange.getRequestHeaders().getFirst("X-AI-Base-Url"));
             aiApiKeyRef.set(exchange.getRequestHeaders().getFirst("X-AI-Api-Key"));
@@ -103,6 +105,7 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals(1, response.getTrace().size());
 
         Assertions.assertEquals("Bearer " + token, authRef.get());
+        Assertions.assertEquals("test-internal-token", internalTokenRef.get());
         Assertions.assertEquals("1001", userIdRef.get());
         Assertions.assertEquals("https://llm.test/v1", aiBaseUrlRef.get());
         Assertions.assertEquals("test-ai-key", aiApiKeyRef.get());
@@ -121,6 +124,7 @@ class PythonAiProxyServiceTest {
     void ragQuery_shouldProxyRequestToPythonRagEndpoint() throws Exception {
         AtomicReference<String> authRef = new AtomicReference<>();
         AtomicReference<String> userIdRef = new AtomicReference<>();
+        AtomicReference<String> internalTokenRef = new AtomicReference<>();
         AtomicReference<String> aiModelRef = new AtomicReference<>();
         AtomicReference<String> requestBodyRef = new AtomicReference<>();
 
@@ -128,6 +132,7 @@ class PythonAiProxyServiceTest {
         server.createContext("/internal/rag/query", exchange -> {
             authRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
             userIdRef.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
+            internalTokenRef.set(exchange.getRequestHeaders().getFirst("X-AI-Internal-Token"));
             aiModelRef.set(exchange.getRequestHeaders().getFirst("X-AI-Model"));
             requestBodyRef.set(readBody(exchange));
 
@@ -163,6 +168,7 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("已生成只读 SQL", responseMap.get("answer"));
         Assertions.assertEquals("Bearer " + token, authRef.get());
         Assertions.assertEquals("1003", userIdRef.get());
+        Assertions.assertEquals("test-internal-token", internalTokenRef.get());
         Assertions.assertEquals("test-model", aiModelRef.get());
 
         ObjectMapper mapper = new ObjectMapper();
@@ -171,6 +177,11 @@ class PythonAiProxyServiceTest {
         Assertions.assertTrue(reqJson.path("ragStrategy").isMissingNode());
         Assertions.assertTrue(reqJson.path("llmModel").isMissingNode());
         Assertions.assertTrue(reqJson.path("embeddingModel").isMissingNode());
+        Assertions.assertTrue(reqJson.path("metadata")
+                .path("agentModelConfigs")
+                .path("ppt_outline_agent")
+                .path("tested")
+                .asBoolean());
     }
 
     @Test
@@ -348,6 +359,8 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals("choice_agent", request.path("agentName").asText());
         Assertions.assertEquals("依据材料出题", request.path("input").asText());
         Assertions.assertEquals("hard", request.path("difficulty").asText());
+        Assertions.assertEquals("question_generation",
+                request.path("metadata").path("requestPurpose").asText());
         Assertions.assertTrue(request.path("maxQuestions").isMissingNode());
     }
 
@@ -419,6 +432,58 @@ class PythonAiProxyServiceTest {
     }
 
     @Test
+    void learningStreamSendsInternalTokenAndRelaysNamedEventsImmediately() throws Exception {
+        AtomicReference<String> internalToken = new AtomicReference<>();
+        AtomicReference<String> model = new AtomicReference<>();
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        CountDownLatch requestArrived = new CountDownLatch(1);
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/rag/query/stream", exchange -> {
+            internalToken.set(exchange.getRequestHeaders().getFirst("X-AI-Internal-Token"));
+            model.set(exchange.getRequestHeaders().getFirst("X-AI-Model"));
+            requestBody.set(readBody(exchange));
+            requestArrived.countDown();
+            exchange.getResponseHeaders().set(
+                    "Content-Type", MediaType.TEXT_EVENT_STREAM_VALUE + ";charset=UTF-8");
+            exchange.sendResponseHeaders(200, 0);
+            exchange.getResponseBody().write(("""
+                    event: accepted
+                    data: {"workflowId":"wf-1","stage":"accepted","progress":0}
+
+                    event: done
+                    data: {"workflowId":"wf-1","stage":"done","progress":100,"status":"completed"}
+
+                    """).getBytes(StandardCharsets.UTF_8));
+            exchange.getResponseBody().flush();
+            exchange.close();
+        });
+        server.start();
+
+        List<String> events = new java.util.concurrent.CopyOnWriteArrayList<>();
+        SseEmitter emitter = newService(server.getAddress().getPort()).streamLearningWorkflow(
+                Map.of("input", "列表切片", "llmModel", "client-controlled-model"),
+                "Bearer " + buildJwtToken(1010L),
+                (name, payload) -> {
+                    events.add(name);
+                    return false;
+                });
+
+        Assertions.assertTrue(requestArrived.await(2, TimeUnit.SECONDS));
+        for (int attempt = 0; attempt < 20 && events.size() < 2; attempt++) {
+            TimeUnit.MILLISECONDS.sleep(25);
+        }
+        Assertions.assertEquals("test-internal-token", internalToken.get());
+        Assertions.assertEquals("test-model", model.get());
+        JsonNode body = new ObjectMapper().readTree(requestBody.get());
+        Assertions.assertEquals("列表切片", body.path("input").asText());
+        Assertions.assertTrue(body.path("llmModel").isMissingNode());
+        Assertions.assertTrue(body.path("agentToggles").isMissingNode());
+        Assertions.assertTrue(body.path("toolToggles").isMissingNode());
+        Assertions.assertEquals(List.of("accepted", "done"), events);
+        emitter.complete();
+    }
+
+    @Test
     void sseEventNamesRejectLogInjectionAndPayloadFragments() {
         Assertions.assertEquals("generation_start", PythonAiProxyService.safeSseEventName("generation_start"));
         Assertions.assertEquals("message", PythonAiProxyService.safeSseEventName(
@@ -458,12 +523,14 @@ class PythonAiProxyServiceTest {
         byte[] payload = new byte[]{0, -1, 1, 2, 0, 127};
         AtomicReference<String> pathRef = new AtomicReference<>();
         AtomicReference<String> capabilityRef = new AtomicReference<>();
+        AtomicReference<String> internalTokenRef = new AtomicReference<>();
         AtomicReference<String> authorizationRef = new AtomicReference<>();
         AtomicReference<String> userIdRef = new AtomicReference<>();
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/internal/rag/exports/export.bin", exchange -> {
             pathRef.set(exchange.getRequestURI().getRawPath());
             capabilityRef.set(exchange.getRequestHeaders().getFirst("X-AI-Export-Capability"));
+            internalTokenRef.set(exchange.getRequestHeaders().getFirst("X-AI-Internal-Token"));
             authorizationRef.set(exchange.getRequestHeaders().getFirst("Authorization"));
             userIdRef.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
             exchange.getResponseHeaders().set("Content-Type", MediaType.APPLICATION_PDF_VALUE);
@@ -482,6 +549,7 @@ class PythonAiProxyServiceTest {
         Assertions.assertEquals(payload.length, response.declaredLength());
         Assertions.assertEquals("/internal/rag/exports/export.bin", pathRef.get());
         Assertions.assertEquals("persisted-capability", capabilityRef.get());
+        Assertions.assertEquals("test-internal-token", internalTokenRef.get());
         Assertions.assertNull(authorizationRef.get());
         Assertions.assertNull(userIdRef.get());
     }
@@ -592,7 +660,8 @@ class PythonAiProxyServiceTest {
                 systemConfigRepository,
                 "http://localhost:" + port,
                 5,
-                maxBytes
+                maxBytes,
+                "test-internal-token"
         );
     }
 
@@ -778,6 +847,11 @@ class PythonAiProxyServiceTest {
             }
             if ("ai.service.text.model".equals(key)) {
                 return "test-model";
+            }
+            if ("ai.service.text.tested-fingerprint".equals(key)) {
+                return QuestionGenerationServiceImpl.fingerprint(
+                        "deepseek", "https://llm.test/v1", "test-ai-key", "test-model"
+                );
             }
             if ("ai.service.embedding.qwen.provider".equals(key)) {
                 return "qwen";

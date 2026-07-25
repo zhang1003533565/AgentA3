@@ -44,6 +44,12 @@ public class ForumPost {
     @Column(length = 20, columnDefinition = "VARCHAR(20) DEFAULT 'PUBLISHED' COMMENT '状态：PUBLISHED-已发布，HIDDEN-已隐藏，DELETED-已删除'")
     private String status = "PUBLISHED";
 
+    @Column(name = "pin_order", columnDefinition = "INT DEFAULT 0 COMMENT '置顶排序值，0表示未置顶'")
+    private Integer pinOrder = 0;
+
+    @Column(name = "highlighted", columnDefinition = "TINYINT(1) DEFAULT 0 COMMENT '是否加精'")
+    private Boolean highlighted = false;
+
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")
     private LocalDateTime createTime;
 
@@ -73,6 +79,12 @@ public class ForumPost {
         }
         if (status == null) {
             status = "PUBLISHED";
+        }
+        if (pinOrder == null) {
+            pinOrder = 0;
+        }
+        if (highlighted == null) {
+            highlighted = false;
         }
     }
 

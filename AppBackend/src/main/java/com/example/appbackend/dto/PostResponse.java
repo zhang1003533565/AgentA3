@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-@Schema(description = "帖子详情响应")
+@Schema(description = "帖子响应")
 public class PostResponse {
 
     private Long id;
@@ -28,6 +28,8 @@ public class PostResponse {
     private Boolean isLiked;
     private Boolean isFavorited;
     private String status;
+    private Integer pinOrder;
+    private Boolean highlighted;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 }

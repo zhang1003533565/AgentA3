@@ -1,28 +1,65 @@
 import json
 import importlib
-import threading
 import unittest
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from app.services.data_store import data_store  # noqa: E402
+from app.services import java_backend as java_backend_module  # noqa: E402
 from app.models.schemas import ChatRequest  # noqa: E402
 from app.services import chat_orchestrator  # noqa: E402
 from app.langgraph.nodes import extract_keyword as extract_keyword_node_module  # noqa: E402
 from app.model_providers.runtime_config import LlmRuntimeConfig, reset_active_llm_config, set_active_llm_config  # noqa: E402
 
 
-class FakeJavaHandler(BaseHTTPRequestHandler):
-    def _send_json(self, payload):
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+class FakeUrlResponse:
+    def __init__(self, payload):
+        self.body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
-    def log_message(self, fmt, *args):
-        return
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+    def read(self):
+        return self.body
+
+
+class FakeJavaUrlopen:
+    def __init__(self):
+        self.calls = []
+        self.path = ""
+        self.status = None
+        self.payload = None
+
+    def __call__(self, request, timeout):
+        parsed = urlparse(request.full_url)
+        self.calls.append({
+            "method": request.get_method(),
+            "url": request.full_url,
+            "path": parsed.path,
+            "query": parse_qs(parsed.query),
+            "authorization": request.get_header("Authorization"),
+            "accept": request.get_header("Accept"),
+            "timeout": timeout,
+        })
+        self.path = request.full_url
+        self.status = None
+        self.payload = None
+        self.do_GET()
+        if self.status != 200 or self.payload is None:
+            raise AssertionError(f"unexpected fake Java request: {request.full_url}")
+        return FakeUrlResponse(self.payload)
+
+    def _send_json(self, payload):
+        self.status = 200
+        self.payload = payload
+
+    def send_response(self, status):
+        self.status = status
+
+    def end_headers(self):
+        return None
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -136,6 +173,17 @@ class FakeLLM:
         if "Leader 智能体" in system_prompt:
             payload = json.loads(user_prompt)
             input_text = payload.get("user_input") or ""
+            if "黄焖鸡" in input_text:
+                return json.dumps({
+                    "intent": "campus_search",
+                    "target_agent": "leader_agent",
+                    "need_retrieval": True,
+                    "rag_strategy": "",
+                    "action": "call_tool",
+                    "tool_name": "java_canteen_api",
+                    "route_reason": "测试 LLM 路由到 Java 食堂数据。",
+                    "answer": "",
+                }, ensure_ascii=False)
             return json.dumps({
                 "intent": "campus_search",
                 "target_agent": "textbook_knowledge_agent",
@@ -146,8 +194,8 @@ class FakeLLM:
                 "route_reason": "测试 LLM 路由到教材知识点智能体。",
                 "answer": "",
             }, ensure_ascii=False)
-        if "思维导图智能体" in system_prompt:
-            return "```mermaid\nmindmap\n  root((操作系统进程调度))\n```"
+        if "思维导图图片提示词智能体" in system_prompt:
+            return "教学用思维导图图片，中心主题为操作系统进程调度，分支清晰，蓝绿配色。"
         return "textbook_knowledge_agent: 已生成，证据数=1"
 
     def extract_search_keyword(self, input_text):
@@ -160,23 +208,15 @@ class FakeLLM:
         yield self.complete(system_prompt, user_prompt)
 
 class JavaReuseIntegrationTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.server = HTTPServer(("127.0.0.1", 0), FakeJavaHandler)
-        cls.port = cls.server.server_port
-        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
-        cls.thread.start()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.server.shutdown()
-        cls.server.server_close()
-        cls.thread.join(timeout=2)
-
     def setUp(self):
         data_store.enabled = True
-        data_store.java_base_url = f"http://127.0.0.1:{self.port}"
+        data_store.java_base_url = "http://java-backend.test"
         data_store.timeout_seconds = 3
+        data_store._retriever.disabled_until = None
+        data_store.clear_tool_cache()
+        self.fake_java_urlopen = FakeJavaUrlopen()
+        self._original_urlopen = java_backend_module.urlopen
+        java_backend_module.urlopen = self.fake_java_urlopen
         self._llm_token = set_active_llm_config(LlmRuntimeConfig(
             provider="deepseek",
             base_url="https://llm.test/v1",
@@ -187,9 +227,18 @@ class JavaReuseIntegrationTest(unittest.TestCase):
         self._patch_model_providers()
 
     def tearDown(self):
+        calls = list(self.fake_java_urlopen.calls)
+        java_backend_module.urlopen = self._original_urlopen
+        data_store.clear_tool_cache()
         for module, old_get_chat_model_provider in reversed(self._patched_modules):
             module.get_chat_model_provider = old_get_chat_model_provider
         reset_active_llm_config(self._llm_token)
+        for call in calls:
+            self.assertEqual("GET", call["method"])
+            self.assertEqual("java-backend.test", urlparse(call["url"]).netloc)
+            self.assertTrue(call["authorization"])
+            self.assertEqual("application/json", call["accept"])
+            self.assertEqual(3, call["timeout"])
 
     def _patch_model_providers(self):
         leader_agent_module = importlib.import_module("app.multi_agents.leader_agent.agent")
@@ -211,6 +260,29 @@ class JavaReuseIntegrationTest(unittest.TestCase):
         self.assertIn("stall", types)
         self.assertIn("dish", types)
         self.assertIn("coupon", types)
+        calls_after_first_search = len(self.fake_java_urlopen.calls)
+        requested_paths = {call["path"] for call in self.fake_java_urlopen.calls}
+        self.assertEqual({
+            "/api/v1/facility/list",
+            "/api/v1/canteen-stall/list",
+            "/api/v1/dish/list",
+            "/api/v1/promotion-coupon/list",
+        }, requested_paths)
+        dish_queries = [
+            call["query"]
+            for call in self.fake_java_urlopen.calls
+            if call["path"] == "/api/v1/dish/list"
+        ]
+        self.assertEqual([
+            {"name": ["黄焖鸡"]},
+            {"category": ["黄焖鸡"]},
+            {"taste": ["黄焖鸡"]},
+        ], dish_queries)
+
+        cached_results = data_store.search_keyword("Bearer t", "黄焖鸡")
+
+        self.assertEqual(results, cached_results)
+        self.assertEqual(calls_after_first_search, len(self.fake_java_urlopen.calls))
 
     def test_search_schedule_via_java_apis(self):
         results = data_store.search_schedule("Bearer t", "本周有什么课")
@@ -235,6 +307,10 @@ class JavaReuseIntegrationTest(unittest.TestCase):
         names = {item.get("name") for item in results}
         self.assertIn("大学英语", names)
         self.assertIn("数据结构", names)
+        self.assertIn(
+            {"allSemesters": ["true"]},
+            [call["query"] for call in self.fake_java_urlopen.calls if call["path"] == "/api/schedule"],
+        )
 
     def test_search_course_teacher_via_java_api(self):
         results = data_store.search_schedule("Bearer t", "linux系统的老师是谁")
@@ -271,11 +347,16 @@ class JavaReuseIntegrationTest(unittest.TestCase):
         self.assertEqual("2024-2025 第 1 学期", java_course.get("semesterLabel"))
         self.assertEqual("all_semesters_fallback", java_course.get("queryScope"))
         self.assertEqual("current_semester_no_course_match", java_course.get("fallbackReason"))
+        self.assertEqual(
+            [{}, {"allSemesters": ["true"]}],
+            [call["query"] for call in self.fake_java_urlopen.calls if call["path"] == "/api/schedule"],
+        )
 
     def test_search_date_and_session_schedule_via_java_api(self):
         results = data_store.search_schedule("Bearer t", "2026年3月4日第3节有什么课")
         self.assertEqual(1, len(results))
         self.assertEqual("数据库原理", results[0].get("name"))
+        self.assertIn("/api/schedule/week/1", [call["path"] for call in self.fake_java_urlopen.calls])
 
     def test_run_chat_core_uses_graph_and_java_data(self):
         req = ChatRequest(sessionId="s1", prompt="你是助手", input="推荐黄焖鸡")
@@ -298,15 +379,28 @@ class JavaReuseIntegrationTest(unittest.TestCase):
     def test_forced_specialist_uses_java_forwarded_llm_config(self):
         req = ChatRequest(
             sessionId="agent-llm",
-            agentName="mind_map_agent",
-            input="操作系统进程调度思维导图",
+            agentName="textbook_knowledge_agent",
+            input="整理操作系统进程调度知识点",
         )
 
         resp = chat_orchestrator.run_chat_core(req, "Bearer token-x", user_id=1001)
 
-        self.assertEqual("mind_map_agent", resp.agentName)
+        self.assertEqual("textbook_knowledge_agent", resp.agentName)
         self.assertEqual("test-model", resp.model)
-        self.assertIn("mindmap", resp.answer)
+        self.assertIn("textbook_knowledge_agent", resp.answer)
+
+    def test_visual_internal_agents_cannot_be_forced_from_chat(self):
+        for agent_name in (
+            "image_agent",
+            "mind_map_agent",
+            "diagram_flowchart_prompt_agent",
+            "knowledge_graph_prompt_agent",
+            "ppt_image_agent",
+        ):
+            with self.subTest(agent_name=agent_name):
+                req = ChatRequest(sessionId=f"internal-{agent_name}", agentName=agent_name, input="生成图片")
+                with self.assertRaisesRegex(Exception, "智能体不存在"):
+                    chat_orchestrator.run_chat_core(req, "Bearer token-x", user_id=1001)
 
 
 if __name__ == "__main__":

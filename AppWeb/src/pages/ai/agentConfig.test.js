@@ -8,7 +8,7 @@ import {
   resolveQuestionGenerationAgentStatus,
 } from './agentConfig.js'
 
-test('exports the question generation agent prefix and five question types', () => {
+test('exports the question generation agent prefix and all supported question types', () => {
   assert.equal(QUESTION_GENERATION_AGENT_PREFIX, 'ai.question-generation.agent.')
   assert.deepEqual(QUESTION_TYPE_OPTIONS.map(({ value }) => value), [
     'single_choice',
@@ -16,6 +16,8 @@ test('exports the question generation agent prefix and five question types', () 
     'true_false',
     'fill_blank',
     'short_answer',
+    'calculation',
+    'programming',
   ])
 })
 

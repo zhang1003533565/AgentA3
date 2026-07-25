@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from app.services.java_backend import JavaBackendRetriever
 
@@ -64,6 +65,18 @@ class FakeScheduleRetriever(JavaBackendRetriever):
 
 
 class JavaBackendScheduleTest(unittest.TestCase):
+    def test_java_backend_url_can_be_injected_for_container_runtime(self):
+        with patch.dict("os.environ", {"JAVA_BACKEND_BASE_URL": "http://backend:8080/"}):
+            retriever = JavaBackendRetriever()
+
+        self.assertEqual("http://backend:8080", retriever.java_base_url)
+
+    def test_blank_java_backend_url_keeps_local_development_default(self):
+        with patch.dict("os.environ", {"JAVA_BACKEND_BASE_URL": ""}):
+            retriever = JavaBackendRetriever()
+
+        self.assertEqual("http://localhost:8080", retriever.java_base_url)
+
     def test_course_lookup_falls_back_to_all_semesters_when_current_semester_misses(self):
         retriever = FakeScheduleRetriever()
 

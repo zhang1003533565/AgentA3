@@ -1,9 +1,28 @@
 import unittest
+from unittest.mock import patch
 
 from app.services.memory_store import MemoryStore
 
 
 class MemoryStoreTest(unittest.TestCase):
+    @patch("app.services.memory_store.redis")
+    @patch.dict("os.environ", {"REDIS_URL": "redis://redis:6379/7"})
+    def test_redis_url_can_be_overridden_for_container_network(self, redis_module):
+        redis_client = redis_module.Redis.from_url.return_value
+
+        store = MemoryStore()
+
+        redis_module.Redis.from_url.assert_called_once_with(
+            "redis://redis:6379/7",
+            decode_responses=True,
+        )
+        redis_client.ping.assert_called_once_with()
+        self.assertIs(redis_client, store._redis_client)
+        self.assertTrue(store.is_redis_ready())
+
+        redis_client.ping.side_effect = RuntimeError("connection lost")
+        self.assertFalse(store.is_redis_ready())
+
     def test_context_turns_are_compacted_and_latest_subject_is_kept(self):
         store = MemoryStore()
         store._redis_client = None

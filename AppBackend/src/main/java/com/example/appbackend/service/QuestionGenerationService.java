@@ -22,4 +22,5 @@ public interface QuestionGenerationService {
 
     GenerationResponse generate(GenerationCommand command, String authorization);
     ExamQuestionDTO.ImportResponse importGenerated(GeneratedImportRequest request, Long userId);
+    ExamQuestionDTO.ImportResponse importGeneratedPrivate(GeneratedImportRequest request, Long userId);
 }

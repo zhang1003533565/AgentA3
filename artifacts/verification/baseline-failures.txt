@@ -1,0 +1,42 @@
+AgentA3 Task9 remediation baseline
+Captured: 2026-07-15 (Asia/Shanghai)
+Purpose: preserve the first diagnostic results before quality-gate remediation.
+
+This file is a normalized record of the observed command summaries, not a
+fabricated raw terminal transcript. Counts below came from the first Task9
+diagnostic runs in this workspace.
+
+1) ai-servers
+Command: cd ai-servers && .venv/bin/python -m pytest -q --tb=no
+Observed summary: 15 failed, 229 passed, 14 errors, 5 warnings
+Environment note: 14 collection/execution errors were Operation not permitted
+from the restricted sandbox denying temporary 127.0.0.1 test servers. They
+were rerun with explicit local-loopback permission; no Internet access was
+needed. The 15 functional failures included stale provider fixtures, restored
+schema/type contracts, route-model bindings, and shared Java-tool cache state.
+
+2) AppWeb
+Command: cd AppWeb && npm run lint
+Observed summary: 33 errors, 13 warnings
+Categories included conditional React Hook calls, parsing/unused-variable
+errors, empty blocks, and irregular whitespace. No blanket ESLint disable was
+used in remediation.
+
+3) AppBackend
+Command: cd AppBackend && mvn test -q
+Observed summary (local-loopback allowed): 388 tests, 0 failures, 1 error,
+1 skipped
+The error was the Spring context test attempting to use a developer MySQL
+database. Remediation introduced an explicit H2 test profile. The skipped test
+was the opt-in visual fixture generator.
+
+Important interpretation
+------------------------
+- Sandbox socket denials are environment errors, not product test passes or
+  product defects; the same tests still had to pass with local-loopback access.
+- Later suites contain additional regression tests, so final test totals are
+  larger and must not be subtracted from this baseline as a simple "bugs fixed"
+  number.
+- The implementation plan mentioned an estimated 18 Python failures; this
+  artifact uses the observed 15-failure/14-environment-error summary instead of
+  rewriting evidence to match the estimate.

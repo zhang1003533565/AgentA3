@@ -31,6 +31,7 @@ public class PostServiceImpl implements PostService {
 
     private static final String STATUS_PUBLISHED = "PUBLISHED";
     private static final String STATUS_DELETED = "DELETED";
+    private static final String STATUS_HIDDEN = "HIDDEN";
 
     @Autowired
     private ForumPostRepository postRepository;
@@ -66,6 +67,8 @@ public class PostServiceImpl implements PostService {
         post.setLikeCount(0);
         post.setCommentCount(0);
         post.setStatus(STATUS_PUBLISHED);
+        post.setPinOrder(0);
+        post.setHighlighted(false);
 
         ForumPost savedPost = postRepository.save(post);
         if (savedPost.getTopicId() != null) {
@@ -199,6 +202,67 @@ public class PostServiceImpl implements PostService {
         return new PageResponse<>(items, likePage.getTotalElements(), safePage, safeSize);
     }
 
+    @Override
+    public void batchDeletePostsByAdmin(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        ids.forEach(id -> postRepository.findById(id).ifPresent(this::softDeletePost));
+    }
+
+    @Override
+    public void togglePin(Long id) {
+        ForumPost post = postRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(404, "帖子不存在"));
+        if (STATUS_DELETED.equals(post.getStatus())) {
+            throw new BusinessException(400, "已删除的帖子不能置顶");
+        }
+        int currentPin = post.getPinOrder() != null ? post.getPinOrder() : 0;
+        int newPin = currentPin > 0 ? 0 : 999999;
+        post.setPinOrder(newPin);
+        postRepository.save(post);
+    }
+
+    @Override
+    public void toggleHighlight(Long id) {
+        ForumPost post = postRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(404, "帖子不存在"));
+        if (STATUS_DELETED.equals(post.getStatus())) {
+            throw new BusinessException(400, "已删除的帖子不能加精");
+        }
+        Boolean current = post.getHighlighted() != null ? post.getHighlighted() : false;
+        post.setHighlighted(!current);
+        postRepository.save(post);
+    }
+
+    @Override
+    public void toggleHidden(Long id) {
+        ForumPost post = postRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(404, "帖子不存在"));
+        if (STATUS_DELETED.equals(post.getStatus())) {
+            throw new BusinessException(400, "已删除的帖子不能隐藏");
+        }
+        if (STATUS_HIDDEN.equals(post.getStatus())) {
+            post.setStatus(STATUS_PUBLISHED);
+        } else {
+            post.setStatus(STATUS_HIDDEN);
+        }
+        postRepository.save(post);
+    }
+
+    @Override
+    public PageResponse<PostListItem> getAdminPostList(Integer pageNum, Integer pageSize, String keyword, String status, String sortBy, Long topicId) {
+        Sort sort = resolveSort(sortBy);
+        int safePage = pageNum == null || pageNum < 1 ? 1 : pageNum;
+        int safeSize = pageSize == null || pageSize < 1 ? 10 : pageSize;
+        PageRequest pageRequest = PageRequest.of(safePage - 1, safeSize, sort);
+        Page<ForumPost> postPage = postRepository.findAdminPosts(topicId, status, keyword, pageRequest);
+        List<PostListItem> items = postPage.getContent().stream()
+                .map(post -> toPostListItem(post, null))
+                .collect(Collectors.toList());
+        return new PageResponse<>(items, postPage.getTotalElements(), safePage, safeSize);
+    }
+
     private ForumPost getVisiblePost(Long id) {
         ForumPost post = postRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(404, "帖子不存在"));
@@ -278,6 +342,8 @@ public class PostServiceImpl implements PostService {
         response.setLikeCount(post.getLikeCount());
         response.setCommentCount(post.getCommentCount());
         response.setStatus(post.getStatus());
+        response.setPinOrder(post.getPinOrder());
+        response.setHighlighted(post.getHighlighted());
         response.setCreateTime(post.getCreateTime());
         response.setUpdateTime(post.getUpdateTime());
         response.setUsername(resolveUserName(post.getUserId()));
@@ -305,6 +371,8 @@ public class PostServiceImpl implements PostService {
         item.setLikeCount(post.getLikeCount());
         item.setCommentCount(post.getCommentCount());
         item.setStatus(post.getStatus());
+        item.setPinOrder(post.getPinOrder());
+        item.setHighlighted(post.getHighlighted());
         item.setCreateTime(post.getCreateTime());
         item.setUsername(resolveUserName(post.getUserId()));
         userRepository.findById(post.getUserId()).ifPresent(user -> item.setAvatar(user.getAvatar()));
@@ -332,5 +400,15 @@ public class PostServiceImpl implements PostService {
         return userRepository.findById(userId)
                 .map(user -> user.getRealName() != null && !user.getRealName().isBlank() ? user.getRealName() : user.getUsername())
                 .orElse("匿名用户");
+    }
+
+    @Override
+    public long countAllPosts() {
+        return postRepository.count();
+    }
+
+    @Override
+    public long countByStatus(String status) {
+        return postRepository.countByStatus(status);
     }
 }
