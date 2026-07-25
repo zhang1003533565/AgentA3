@@ -1,4 +1,5 @@
 import ast
+import base64
 import builtins
 import hashlib
 import hmac
@@ -19,6 +20,8 @@ from typing import Any, BinaryIO, Dict, List, Mapping, Optional, Set
 from xml.sax.saxutils import escape
 
 from docx import Document
+from pptx import Presentation
+from pptx.util import Pt
 
 DEFAULT_EXPORT_TTL_HOURS = 168.0
 DEFAULT_EXPORT_MAX_BYTES = 1024 * 1024 * 1024
@@ -119,6 +122,7 @@ GENERATED_EXPORT_TOOL_NAME = "generated_export_tools"
 MARKDOWN_EXPORT_TOOL_NAME = "markdown_export_tool"
 DOCX_EXPORT_TOOL_NAME = "docx_export_tool"
 EXCEL_EXPORT_TOOL_NAME = "excel_export_tool"
+PPTX_EXPORT_TOOL_NAME = "pptx_export_tool"
 ARCHIVE_EXPORT_TOOL_NAME = "content_archive_tool"
 DIAGRAM_SOURCE_EXPORT_TOOL_NAME = "diagram_source_export_tool"
 KNOWN_EXPORT_TOOL_NAMES = {
@@ -126,6 +130,7 @@ KNOWN_EXPORT_TOOL_NAMES = {
     MARKDOWN_EXPORT_TOOL_NAME,
     DOCX_EXPORT_TOOL_NAME,
     EXCEL_EXPORT_TOOL_NAME,
+    PPTX_EXPORT_TOOL_NAME,
     ARCHIVE_EXPORT_TOOL_NAME,
     DIAGRAM_SOURCE_EXPORT_TOOL_NAME,
 }
@@ -760,9 +765,85 @@ def export_generated_answer(answer: str, answer_type: str, metadata: Optional[Di
     return GeneratedExportResult(diagnostics={"skipped": True, "reason": "not_exportable_answer_type"})
 
 
+def materialize_generated_image_answer(
+    answer: str,
+    *,
+    display_stem: str = "生成图片",
+    tool_name: str = "generate_image_tool",
+) -> tuple[str, List[Dict[str, Any]]]:
+    """Persist image-agent base64 output as private generated exports.
+
+    The returned answer deliberately removes provider URLs and base64 payloads so
+    chat history never depends on a short-lived third-party image URL.
+    """
+    cleanup_generated_exports()
+    payload = _parse_json_object(str(answer or ""))
+    images = payload.get("images") if isinstance(payload, dict) else None
+    if not isinstance(images, list):
+        return answer, []
+
+    attachments: List[Dict[str, Any]] = []
+    sanitized_images: List[Dict[str, Any]] = []
+    for index, raw_image in enumerate(images):
+        if not isinstance(raw_image, dict):
+            continue
+        encoded = str(raw_image.get("base64") or "").strip()
+        content_type = str(raw_image.get("contentType") or "").strip().lower()
+        status = str(raw_image.get("status") or "").strip()
+        sanitized = {
+            "index": raw_image.get("index", index),
+            "status": status,
+            "contentType": content_type,
+        }
+        if raw_image.get("errorMessage"):
+            sanitized["errorMessage"] = str(raw_image.get("errorMessage"))[:500]
+        if encoded and status == "success":
+            try:
+                image_bytes = base64.b64decode(encoded, validate=True)
+                extension = _validated_image_extension(image_bytes, content_type)
+                path = _new_export_path(display_stem, extension)
+                _atomic_write_payload(path, lambda temporary_path: temporary_path.write_bytes(image_bytes))
+                attachment = _attachment_for_file(
+                    path,
+                    tool_name,
+                    "图片",
+                    display_stem if len(images) == 1 else f"{display_stem}-{index + 1}",
+                )
+                attachments.append(attachment)
+                sanitized["fileName"] = attachment["fileName"]
+            except (ValueError, TypeError):
+                sanitized["status"] = "failed"
+                sanitized["errorMessage"] = "图片数据无效，未保存"
+        elif raw_image.get("url"):
+            sanitized["url"] = str(raw_image.get("url"))[:1000]
+        sanitized_images.append(sanitized)
+
+    sanitized_payload = {
+        "status": payload.get("status"),
+        "message": payload.get("message") or ("生成完成" if attachments else "图片生成失败"),
+        "count": len(sanitized_images),
+        "images": sanitized_images,
+    }
+    return json.dumps(sanitized_payload, ensure_ascii=False), attachments
+
+
+def _validated_image_extension(content: bytes, content_type: str) -> str:
+    if not content or len(content) > min(EXPORT_MAX_BYTES, 50 * 1024 * 1024):
+        raise ValueError("generated image is empty or too large")
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if content.startswith((b"GIF87a", b"GIF89a")):
+        return "gif"
+    if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "webp"
+    raise ValueError(f"unsupported generated image type: {content_type or 'unknown'}")
+
+
 def _should_export_markdown(answer_type: str, agent: str, metadata: Dict[str, Any], content: str) -> bool:
     requested = str(metadata.get("requestedOutputType") or metadata.get("preferredOutputType") or "").strip().lower()
-    if requested in {"document", "file", "docx", "word", "excel", "md", "markdown"}:
+    if requested in {"document", "file", "docx", "word", "excel", "md", "markdown", "ppt", "pptx"}:
         return True
     if agent in EXPORTABLE_MARKDOWN_AGENTS:
         return True
@@ -787,6 +868,38 @@ def _parse_enabled_value(value: Any) -> bool:
         return value != 0
     text = str(value or "").strip().lower()
     return text not in {"0", "false", "off", "disabled", "no"}
+
+
+def _requested_export_format(metadata: Dict[str, Any]) -> str:
+    requested = str(metadata.get("requestedOutputType") or metadata.get("preferredOutputType") or "").strip().lower()
+    aliases = {
+        "word": "docx",
+        "excel": "xlsx",
+        "markdown": "md",
+        "ppt": "pptx",
+        "bundle": "zip",
+        "archive": "zip",
+    }
+    return aliases.get(requested, requested)
+
+
+def _wants_export_format(metadata: Dict[str, Any], file_format: str) -> bool:
+    requested = _requested_export_format(metadata)
+    if requested in {"", "document", "file"}:
+        # Preserve the legacy generic document bundle. PPTX is only generated
+        # when the user explicitly asks for it, otherwise every Markdown answer
+        # would unexpectedly gain a presentation attachment.
+        return file_format != "pptx"
+    if requested == "zip":
+        return file_format in {"md", "docx", "xlsx", "pptx", "mmd", "zip"}
+    return requested == file_format
+
+
+def _keep_requested_attachments(attachments: List[Dict[str, Any]], metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
+    requested = _requested_export_format(metadata)
+    if requested == "zip":
+        return [item for item in attachments if str(item.get("ext") or "").lower() == "zip"]
+    return attachments
 
 
 def _disabled_export_tools(metadata: Dict[str, Any]) -> List[str]:
@@ -822,26 +935,27 @@ def _no_enabled_export_format_result(content_kind: str, metadata: Dict[str, Any]
 
 
 def _export_question_bank(payload: Dict[str, Any], metadata: Dict[str, Any]) -> GeneratedExportResult:
-    title = _title_from_metadata(metadata, "题库导出")
+    title = _question_bank_title(payload, metadata)
     slug = _slugify(title or "question-bank")
     markdown = _question_bank_to_markdown(payload, title)
     rows = _question_bank_rows(payload)
     paths: List[Path] = []
     attachments: List[Dict[str, Any]] = []
-    if _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
+    if _wants_export_format(metadata, "md") and _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
         path = _write_text_file(slug, "md", markdown)
         paths.append(path)
-        attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown"))
-    if _is_export_tool_enabled(metadata, DOCX_EXPORT_TOOL_NAME):
+        attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown", title))
+    if _wants_export_format(metadata, "docx") and _is_export_tool_enabled(metadata, DOCX_EXPORT_TOOL_NAME):
         path = _write_question_bank_docx(slug, title, payload)
         paths.append(path)
-        attachments.append(_attachment_for_file(path, DOCX_EXPORT_TOOL_NAME, "Word 文档"))
-    if _is_export_tool_enabled(metadata, EXCEL_EXPORT_TOOL_NAME):
+        attachments.append(_attachment_for_file(path, DOCX_EXPORT_TOOL_NAME, "Word 文档", title))
+    if _wants_export_format(metadata, "xlsx") and _is_export_tool_enabled(metadata, EXCEL_EXPORT_TOOL_NAME):
         path = _write_xlsx(slug, "题库", rows)
         paths.append(path)
-        attachments.append(_attachment_for_file(path, EXCEL_EXPORT_TOOL_NAME, "Excel 表格"))
-    if _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
-        attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件"))
+        attachments.append(_attachment_for_file(path, EXCEL_EXPORT_TOOL_NAME, "Excel 表格", title))
+    if _wants_export_format(metadata, "zip") and _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
+        attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件", title))
+    attachments = _keep_requested_attachments(attachments, metadata)
     if not attachments:
         return _no_enabled_export_format_result(
             "question_bank",
@@ -866,20 +980,25 @@ def _export_markdown_content(content: str, metadata: Dict[str, Any]) -> Generate
     rows = _markdown_rows(content)
     paths: List[Path] = []
     attachments: List[Dict[str, Any]] = []
-    if _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
+    if _wants_export_format(metadata, "md") and _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
         path = _write_text_file(slug, "md", content)
         paths.append(path)
-        attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown"))
-    if _is_export_tool_enabled(metadata, DOCX_EXPORT_TOOL_NAME):
+        attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown", title))
+    if _wants_export_format(metadata, "docx") and _is_export_tool_enabled(metadata, DOCX_EXPORT_TOOL_NAME):
         path = _write_markdown_docx(slug, title, content)
         paths.append(path)
-        attachments.append(_attachment_for_file(path, DOCX_EXPORT_TOOL_NAME, "Word 文档"))
-    if rows and _is_export_tool_enabled(metadata, EXCEL_EXPORT_TOOL_NAME):
+        attachments.append(_attachment_for_file(path, DOCX_EXPORT_TOOL_NAME, "Word 文档", title))
+    if rows and _wants_export_format(metadata, "xlsx") and _is_export_tool_enabled(metadata, EXCEL_EXPORT_TOOL_NAME):
         path = _write_xlsx(slug, "知识清单", rows)
         paths.append(path)
-        attachments.append(_attachment_for_file(path, EXCEL_EXPORT_TOOL_NAME, "Excel 表格"))
-    if _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
-        attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件"))
+        attachments.append(_attachment_for_file(path, EXCEL_EXPORT_TOOL_NAME, "Excel 表格", title))
+    if _wants_export_format(metadata, "pptx") and _is_export_tool_enabled(metadata, PPTX_EXPORT_TOOL_NAME):
+        path = _write_markdown_pptx(slug, title, content)
+        paths.append(path)
+        attachments.append(_attachment_for_file(path, PPTX_EXPORT_TOOL_NAME, "PPT 演示文稿", title))
+    if _wants_export_format(metadata, "zip") and _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
+        attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件", title))
+    attachments = _keep_requested_attachments(attachments, metadata)
     if not attachments:
         return _no_enabled_export_format_result(
             "markdown_content",
@@ -905,16 +1024,17 @@ def _export_diagram_source(content: str, metadata: Dict[str, Any]) -> GeneratedE
     markdown = f"# {title or '图表源码'}\n\n```mermaid\n{mermaid_code}\n```\n"
     paths: List[Path] = []
     attachments: List[Dict[str, Any]] = []
-    if _is_export_tool_enabled(metadata, DIAGRAM_SOURCE_EXPORT_TOOL_NAME):
+    if _wants_export_format(metadata, "mmd") and _is_export_tool_enabled(metadata, DIAGRAM_SOURCE_EXPORT_TOOL_NAME):
         path = _write_text_file(slug, "mmd", mermaid_code.strip() + "\n")
         paths.append(path)
-        attachments.append(_attachment_for_file(path, DIAGRAM_SOURCE_EXPORT_TOOL_NAME, "Mermaid 源文件"))
-    if _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
+        attachments.append(_attachment_for_file(path, DIAGRAM_SOURCE_EXPORT_TOOL_NAME, "Mermaid 源文件", title))
+    if _wants_export_format(metadata, "md") and _is_export_tool_enabled(metadata, MARKDOWN_EXPORT_TOOL_NAME):
         path = _write_text_file(f"{slug}-mermaid", "md", markdown)
         paths.append(path)
-        attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown"))
-    if _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
-        attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件"))
+        attachments.append(_attachment_for_file(path, MARKDOWN_EXPORT_TOOL_NAME, "Markdown", title))
+    if _wants_export_format(metadata, "zip") and _is_export_tool_enabled(metadata, ARCHIVE_EXPORT_TOOL_NAME) and len(paths) >= 2:
+        attachments.append(_attachment_for_file(_write_archive(slug, paths), ARCHIVE_EXPORT_TOOL_NAME, "打包文件", title))
+    attachments = _keep_requested_attachments(attachments, metadata)
     if not attachments:
         return _no_enabled_export_format_result("diagram_source", metadata)
     return GeneratedExportResult(
@@ -1052,6 +1172,49 @@ def _write_xlsx(slug: str, sheet_name: str, rows: List[List[Any]]) -> Path:
     return path
 
 
+def _write_markdown_pptx(slug: str, title: str, content: str) -> Path:
+    path = _new_export_path(slug, "pptx")
+    presentation = Presentation()
+    title_slide = presentation.slides.add_slide(presentation.slide_layouts[0])
+    title_slide.shapes.title.text = title or "演示文稿"
+    if len(title_slide.placeholders) > 1:
+        title_slide.placeholders[1].text = "由文件内容编排智能体整理"
+
+    sections: List[tuple[str, List[str]]] = []
+    current_title = "内容概览"
+    current_items: List[str] = []
+    for raw_line in str(content or "").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("# "):
+            continue
+        if line.startswith("## "):
+            if current_items:
+                sections.append((current_title, current_items))
+            current_title = line[3:].strip() or "内容"
+            current_items = []
+            continue
+        cleaned = re.sub(r"^(?:[-*+]\s+|\d+[.)、]\s*)", "", line).strip()
+        if cleaned and not cleaned.startswith("```"):
+            current_items.append(cleaned)
+    if current_items:
+        sections.append((current_title, current_items))
+    if not sections:
+        sections = [("内容概览", [title or "暂无可展示内容"])]
+
+    for section_title, items in sections[:30]:
+        slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+        slide.shapes.title.text = section_title[:120]
+        text_frame = slide.placeholders[1].text_frame
+        text_frame.clear()
+        for index, item in enumerate(items[:8]):
+            paragraph = text_frame.paragraphs[0] if index == 0 else text_frame.add_paragraph()
+            paragraph.text = item[:500]
+            paragraph.level = 0
+            paragraph.font.size = Pt(20)
+    _atomic_write_payload(path, presentation.save)
+    return path
+
+
 def _write_archive(
     slug: str,
     paths: List[Path],
@@ -1178,13 +1341,24 @@ def _markdown_rows(content: str) -> List[List[Any]]:
     return rows if len(rows) > 1 else []
 
 
-def _attachment_for_file(path: Path, tool_name: str, format_label: str) -> Dict[str, Any]:
+def _attachment_for_file(path: Path, tool_name: str, format_label: str, display_stem: str = "") -> Dict[str, Any]:
     ext = path.suffix.lower().lstrip(".")
-    attachment_type = "docx" if ext == "docx" else "excel" if ext == "xlsx" else "file"
+    attachment_type = (
+        "image" if ext in {"png", "jpg", "jpeg", "gif", "webp"}
+        else "docx" if ext == "docx"
+        else "excel" if ext == "xlsx"
+        else "file"
+    )
     export_metadata = _commit_export_manifest(path)
+    safe_stem = re.sub(
+        r'[\\/:*?"<>|\r\n]+',
+        "-",
+        str(display_stem or format_label or "生成文件"),
+    ).strip(" .-")[:100]
+    display_name = f"{safe_stem or '生成文件'}.{ext}"
     return {
-        "name": path.name,
-        "fileName": path.name,
+        "name": display_name,
+        "fileName": display_name,
         "type": attachment_type,
         "ext": ext,
         "mimeType": export_metadata["mimeType"],
@@ -1223,8 +1397,9 @@ def _atomic_write_payload(path: Path, writer: Any) -> None:
     temporary_path = Path(temporary_name)
     try:
         writer(temporary_path)
-        with temporary_path.open("rb") as stream:
-            os.fsync(stream.fileno())
+        # Windows requires a writable descriptor for fsync; a read-only handle fails with EBADF.
+        with temporary_path.open("rb+") as stream:
+            _fsync_if_supported(stream)
         os.replace(temporary_path, path)
     finally:
         _safe_unlink(temporary_path)
@@ -1242,7 +1417,7 @@ def _atomic_write_json(path: Path, value: Dict[str, Any]) -> None:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             json.dump(value, stream, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
             stream.flush()
-            os.fsync(stream.fileno())
+            _fsync_if_supported(stream)
         os.replace(temporary_path, path)
     except Exception:
         try:
@@ -1252,6 +1427,19 @@ def _atomic_write_json(path: Path, value: Dict[str, Any]) -> None:
         raise
     finally:
         _safe_unlink(temporary_path)
+
+
+def _fsync_if_supported(stream: Any) -> None:
+    try:
+        fileno = stream.fileno()
+    except (AttributeError, OSError, ValueError):
+        return
+    try:
+        os.fsync(fileno)
+    except OSError:
+        # Windows can reject fsync on some temporary handles even after a successful write.
+        # The export should still succeed once the payload has been flushed and replaced.
+        pass
 
 
 def _commit_export_manifest(path: Path) -> Dict[str, Any]:
@@ -1584,6 +1772,19 @@ def _title_from_markdown(content: str) -> str:
     return ""
 
 
+def _question_bank_title(payload: Dict[str, Any], metadata: Dict[str, Any]) -> str:
+    explicit_title = str(payload.get("title") or payload.get("topic") or "").strip()
+    if explicit_title:
+        return explicit_title[:60]
+    questions = payload.get("questions") if isinstance(payload.get("questions"), list) else []
+    first_question = questions[0] if questions and isinstance(questions[0], dict) else {}
+    knowledge_points = first_question.get("knowledgePoints")
+    first_point = str(knowledge_points[0] or "").strip() if isinstance(knowledge_points, list) and knowledge_points else ""
+    if first_point:
+        return f"{first_point}题库"[:60]
+    return _title_from_metadata(metadata, "题库")
+
+
 def _title_from_metadata(metadata: Dict[str, Any], fallback: str) -> str:
     for key in ("sourceTitle", "title", "topic", "intent"):
         value = str(metadata.get(key) or "").strip()
@@ -1727,6 +1928,7 @@ __all__ = [
     "GeneratedExportResult",
     "cleanup_generated_exports",
     "export_generated_answer",
+    "materialize_generated_image_answer",
     "export_python_code_lab",
     "open_generated_export",
 ]

@@ -146,6 +146,28 @@ def test_attachment_becomes_typed_file_resource_without_false_grounding():
     assert "capability" not in json.dumps(bundle, ensure_ascii=False).lower()
 
 
+def test_attachment_preserves_manifest_timestamp_precision_for_secure_download_binding():
+    created_at = "2026-07-19T07:33:47.465200Z"
+    expires_at = "2026-07-26T07:33:47.465200Z"
+    bundle = build_bundle(
+        attachments=[
+            {
+                "fileName": "复习资料.docx",
+                "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "storageKey": "export-1.docx",
+                "size": 1234,
+                "sha256": "a" * 64,
+                "createdAt": created_at,
+                "expiresAt": expires_at,
+            }
+        ]
+    )
+
+    resource = bundle["resources"][0]
+    assert resource["createdAt"] == created_at
+    assert resource["expiresAt"] == expires_at
+
+
 def test_internal_only_attachment_is_ignored_in_favor_of_answer_content():
     bundle = build_bundle(attachments=[{"capability": "internal-only"}])
 

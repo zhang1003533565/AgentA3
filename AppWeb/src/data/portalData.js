@@ -21,6 +21,7 @@ export const portalGroups = [
       { path: '/forum/post', label: '帖子管理', icon: 'message', pageKey: 'forum-post' },
       { path: '/forum/comment', label: '评论管理', icon: 'comment', pageKey: 'forum-comment' },
       { path: '/forum/topic', label: '话题管理', icon: 'tag', pageKey: 'forum-topic' },
+      { path: '/forum/report', label: '举报处理', icon: 'flag', pageKey: 'forum-report' },
     ],
   },
   {
@@ -157,10 +158,19 @@ const columns = {
     { title: '状态', dataIndex: 'status', type: 'status' },
   ],
   facility: [
-    { title: '设施名称', dataIndex: 'facilityName' },
-    { title: '类型', dataIndex: 'facilityType', type: 'tag' },
-    { title: '位置', dataIndex: 'location' },
-    { title: '状态', dataIndex: 'status', type: 'status' },
+    { title: '设施名称', dataIndex: 'facilityName', width: 120 },
+    { title: '类型', dataIndex: 'facilityType', type: 'tag', width: 100 },
+    { title: '位置', dataIndex: 'location', width: 100 },
+    { title: '描述', dataIndex: 'description', type: 'text', width: 200 },
+    { title: '状态', dataIndex: 'status', type: 'status', width: 100 },
+    { title: '图片', dataIndex: 'images', type: 'images', width: 180 },
+  ],
+  sports: [
+    { title: '设施名称', dataIndex: 'facilityName', width: 120 },
+    { title: '类型', dataIndex: 'facilityType', type: 'tag', width: 100 },
+    { title: '描述', dataIndex: 'description', type: 'text', width: 200 },
+    { title: '状态', dataIndex: 'status', type: 'status', width: 100 },
+    { title: '图片', dataIndex: 'images', type: 'images', width: 180 },
   ],
   stall: [
     { title: '照片', dataIndex: 'image', type: 'image' },
@@ -345,6 +355,14 @@ export const workspacePages = {
     filters: ['全部'],
     emptyText: '暂无话题数据',
   }),
+  'forum-report': createPage({
+    title: '',
+    badge: '',
+    description: '',
+    columns: [],
+    filters: ['全部'],
+    emptyText: '暂无举报数据',
+  }),
   'facility-canteen': createPage({
     title: '食堂管理',
     badge: '校园设施',
@@ -364,7 +382,8 @@ export const workspacePages = {
     title: '运动场设置',
     badge: '校园设施',
     description: '管理运动场基本信息与地图标点位置。',
-    columns: columns.facility,
+    columns: columns.sports,
+    filters: ['全部', '球类场地', '水上及特殊场地', '田径及综合场地', '其他'],
     emptyText: '暂无运动场数据',
   }),
   'facility-teaching': createPage({

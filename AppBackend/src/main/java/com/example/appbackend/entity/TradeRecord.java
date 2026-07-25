@@ -57,6 +57,47 @@ public class TradeRecord {
     @Schema(description = "更新时间")
     private LocalDateTime updateTime;
 
+    @Column(name = "contact_exchange_status", length = 20, columnDefinition = "VARCHAR(20) COMMENT '联系方式交换状态: NONE-未发起 REQUESTED-已请求 PARTIAL-部分同意 EXCHANGED-已交换'")
+    @Schema(description = "联系方式交换状态: NONE/REQUESTED/PARTIAL/EXCHANGED")
+    private String contactExchangeStatus;
+
+    @Column(name = "contact_exchange_requester_id", columnDefinition = "BIGINT COMMENT '联系方式交换发起人ID'")
+    @Schema(description = "联系方式交换发起人ID")
+    private Long contactExchangeRequesterId;
+
+    @Column(name = "buyer_contact_agreed", columnDefinition = "TINYINT(1) DEFAULT 0 COMMENT '买家是否同意交换联系方式'")
+    @Schema(description = "买家是否同意交换联系方式")
+    private Boolean buyerContactAgreed = false;
+
+    @Column(name = "seller_contact_agreed", columnDefinition = "TINYINT(1) DEFAULT 0 COMMENT '卖家是否同意交换联系方式'")
+    @Schema(description = "卖家是否同意交换联系方式")
+    private Boolean sellerContactAgreed = false;
+
+    @Column(name = "buyer_contact_content", length = 1000, columnDefinition = "VARCHAR(1000) COMMENT '买家授权联系方式'")
+    @Schema(description = "买家授权联系方式")
+    private String buyerContactContent;
+
+    @Column(name = "seller_contact_content", length = 1000, columnDefinition = "VARCHAR(1000) COMMENT '卖家授权联系方式'")
+    @Schema(description = "卖家授权联系方式")
+    private String sellerContactContent;
+
+    @Column(name = "contact_exchange_confirmer_id", columnDefinition = "BIGINT COMMENT '联系方式交换确认人ID'")
+    @Schema(description = "联系方式交换确认人ID")
+    private Long contactExchangeConfirmerId;
+
+    @Column(name = "requester_contact_content", length = 1000, columnDefinition = "VARCHAR(1000) COMMENT '交换发起人授权联系方式'")
+    @Schema(description = "交换发起人授权联系方式")
+    private String requesterContactContent;
+
+    @Column(name = "confirmer_contact_content", length = 1000, columnDefinition = "VARCHAR(1000) COMMENT '交换确认人授权联系方式'")
+    @Schema(description = "交换确认人授权联系方式")
+    private String confirmerContactContent;
+
+    @Column(name = "contact_exchange_time", columnDefinition = "DATETIME COMMENT '联系方式交换完成时间'")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @Schema(description = "联系方式交换完成时间")
+    private LocalDateTime contactExchangeTime;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "item_id", insertable = false, updatable = false)
     private SecondhandItem item;

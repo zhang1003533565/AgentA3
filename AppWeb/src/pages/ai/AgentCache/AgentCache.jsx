@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Empty, Space, Table, Tag, Typography, message } from 'antd'
-import { ClearOutlined, FireOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { Button, Card, Empty, Popconfirm, Segmented, Space, Table, Tabs, Tag, Typography, message } from 'antd'
+import { ClearOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { clearAgentToolCache, getAgentToolCacheStats } from '../../../api/rag'
 import './AgentCache.css'
 
@@ -54,6 +54,7 @@ function AgentCache() {
   const [loading, setLoading] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [stats, setStats] = useState(null)
+  const [eventFilter, setEventFilter] = useState('all')
 
   const loadStats = useCallback(async () => {
     setLoading(true)
@@ -92,6 +93,13 @@ function AgentCache() {
   const events = useMemo(() => (
     Array.isArray(stats?.recentEvents) ? stats.recentEvents : []
   ), [stats])
+
+  const filteredEvents = useMemo(() => {
+    if (eventFilter === 'hit') return events.filter((item) => item.cacheHit)
+    if (eventFilter === 'miss') return events.filter((item) => !item.cacheHit && item.status !== 'error')
+    if (eventFilter === 'error') return events.filter((item) => item.status === 'error')
+    return events
+  }, [eventFilter, events])
 
   const entries = useMemo(() => (
     Array.isArray(stats?.cacheEntries) ? stats.cacheEntries : []
@@ -134,7 +142,7 @@ function AgentCache() {
     {
       title: '结果',
       dataIndex: 'cacheHit',
-      width: 96,
+      width: 92,
       render: (value, record) => (
         <Tag color={value ? 'green' : record.status === 'error' ? 'red' : 'default'}>
           {value ? '命中' : record.status === 'error' ? '异常' : '未命中'}
@@ -144,42 +152,21 @@ function AgentCache() {
     {
       title: '工具',
       dataIndex: 'toolName',
-      width: 150,
+      width: 140,
       render: (value) => getToolLabel(value),
     },
     {
       title: '接口',
       dataIndex: 'path',
+      width: 240,
       ellipsis: true,
       render: (value) => <Text code>{value || '-'}</Text>,
-    },
-    {
-      title: '参数',
-      dataIndex: 'params',
-      ellipsis: true,
-      render: (value, record) => (
-        <Text className="agent-cache-muted" title={stringifyParams(value, record.query)}>
-          {shortText(stringifyParams(value, record.query), 52)}
-        </Text>
-      ),
     },
     {
       title: '用户问题',
       dataIndex: 'inputPreview',
       ellipsis: true,
       render: (value) => <Text title={value}>{shortText(value, 52)}</Text>,
-    },
-    {
-      title: '缓存码',
-      dataIndex: 'cacheKey',
-      width: 120,
-      render: (value) => <Text code>{value || '-'}</Text>,
-    },
-    {
-      title: '条数',
-      dataIndex: 'dataCount',
-      width: 78,
-      render: formatCount,
     },
     {
       title: '耗时/节省',
@@ -191,7 +178,7 @@ function AgentCache() {
     {
       title: '时间',
       dataIndex: 'time',
-      width: 180,
+      width: 170,
       render: formatTime,
     },
   ], [])
@@ -212,6 +199,7 @@ function AgentCache() {
     {
       title: '接口',
       dataIndex: 'path',
+      width: 240,
       ellipsis: true,
       render: (value) => <Text code>{value || '-'}</Text>,
     },
@@ -225,16 +213,8 @@ function AgentCache() {
         </Text>
       ),
     },
-    {
-      title: '用户问题',
-      dataIndex: 'inputPreview',
-      ellipsis: true,
-      render: (value) => <Text title={value}>{shortText(value, 52)}</Text>,
-    },
     { title: '命中', dataIndex: 'hitCount', width: 82, render: formatCount },
     { title: '条数', dataIndex: 'dataCount', width: 82, render: formatCount },
-    { title: '原耗时', dataIndex: 'originElapsedMs', width: 96, render: formatDuration },
-    { title: '创建时间', dataIndex: 'createdAt', width: 180, render: formatTime },
     { title: '过期时间', dataIndex: 'expiresAt', width: 180, render: formatTime },
   ], [])
 
@@ -259,131 +239,192 @@ function AgentCache() {
     { title: '最近命中', dataIndex: 'lastHitAt', width: 180, render: formatTime },
   ], [])
 
+  const hitEventCount = events.filter((item) => item.cacheHit).length
+  const missEventCount = events.filter((item) => !item.cacheHit && item.status !== 'error').length
+  const errorEventCount = events.filter((item) => item.status === 'error').length
+
   return (
     <div className="agent-cache-page">
       <div className="agent-cache-head">
         <div>
-          <Title level={3}>缓存监控</Title>
+          <Title level={2}>缓存监控</Title>
           <Text type="secondary">查看普通智能体调用校园业务接口时的缓存命中情况。</Text>
         </div>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={loadStats} loading={loading}>刷新</Button>
-          <Button danger icon={<ClearOutlined />} onClick={handleClear} loading={clearing}>清空缓存</Button>
+          <Popconfirm
+            title="清空智能体工具缓存？"
+            description="清空后已有缓存条目会失效，后续请求会重新访问接口。"
+            okText="清空"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+            onConfirm={handleClear}
+          >
+            <Button danger icon={<ClearOutlined />} loading={clearing}>清空缓存</Button>
+          </Popconfirm>
         </Space>
       </div>
 
-      <Alert
-        className="agent-cache-alert"
-        type="info"
-        showIcon
-        message="当前监控的是普通智能体工具缓存"
-        description="它覆盖 App 聊天和后台智能体测试中由 Leader 调用的课表、活动、会议、食堂、设施、旧物等 Java 校园接口；知识库检索缓存暂时不在这里处理。"
-      />
+      <Card className="agent-cache-shell">
+        <Tabs
+          items={[
+            {
+              key: 'overview',
+              label: '总览',
+              children: (
+                <div className="agent-cache-overview">
+                  <div className="agent-cache-metrics">
+                    <div className="agent-cache-metric">
+                      <span>缓存状态</span>
+                      <strong>{stats?.enabled ? '已开启' : '未开启'}</strong>
+                    </div>
+                    <div className="agent-cache-metric">
+                      <span>命中率</span>
+                      <strong>{formatPercent(stats?.hitRate)}</strong>
+                    </div>
+                    <div className="agent-cache-metric">
+                      <span>当前条目</span>
+                      <strong>{formatCount(stats?.entryCount)} / {formatCount(stats?.maxEntries)}</strong>
+                    </div>
+                    <div className="agent-cache-metric">
+                      <span>有效时间</span>
+                      <strong>{formatCount(stats?.ttlSeconds)} 秒</strong>
+                    </div>
+                    <div className="agent-cache-metric">
+                      <span>节省耗时</span>
+                      <strong>{formatDuration(stats?.estimatedSavedMillis)}</strong>
+                    </div>
+                  </div>
 
-      <div className="agent-cache-insights">
-        {insights.map((item) => (
-          <div className="agent-cache-insight" key={item.label}>
-            <span>{item.label}</span>
-            <strong title={item.value}>{shortText(item.value, 42)}</strong>
-            <em>{item.detail}</em>
-          </div>
-        ))}
-      </div>
+                  <div className="agent-cache-diagnosis">
+                    <div className="agent-cache-diagnosis-head">
+                      <Space>
+                        <ThunderboltOutlined />
+                        <span>当前诊断</span>
+                      </Space>
+                      <Tag color={Number(stats?.hitCount || 0) ? 'green' : 'orange'}>
+                        {Number(stats?.hitCount || 0) ? '已有命中' : '暂无命中'}
+                      </Tag>
+                    </div>
+                    <div className="agent-cache-diagnosis-body">
+                      <strong>
+                        {Number(stats?.requestCount || 0)
+                          ? Number(stats?.hitCount || 0)
+                            ? '缓存已经生效，可以继续观察高频接口。'
+                            : '已有请求但暂无命中。'
+                          : '暂无调用数据。'}
+                      </strong>
+                      <Text type="secondary">
+                        {Number(stats?.requestCount || 0)
+                          ? Number(stats?.hitCount || 0)
+                            ? '重点看接口汇总里的高请求、低命中接口，判断参数是否过散。'
+                            : '建议连续用同一个校园业务问题测试两次，例如查询同一天课表或同一个食堂信息。'
+                          : '请先在 App 聊天或智能体测试页触发一次 Leader 调用校园接口。'}
+                      </Text>
+                    </div>
+                  </div>
 
-      <Card
-        className="agent-cache-card"
-        title={(
-          <Space>
-            <ThunderboltOutlined />
-            <span>智能体工具缓存</span>
-            <Tag color={stats?.enabled ? 'green' : 'default'}>{stats?.enabled ? '已开启' : '未开启'}</Tag>
-          </Space>
-        )}
-      >
-        <div className="agent-cache-grid">
-          <div>
-            <span>命中率</span>
-            <strong>{formatPercent(stats?.hitRate)}</strong>
-          </div>
-          <div>
-            <span>总请求</span>
-            <strong>{formatCount(stats?.requestCount)}</strong>
-          </div>
-          <div>
-            <span>命中次数</span>
-            <strong>{formatCount(stats?.hitCount)}</strong>
-          </div>
-          <div>
-            <span>未命中次数</span>
-            <strong>{formatCount(stats?.missCount)}</strong>
-          </div>
-          <div>
-            <span>当前条目</span>
-            <strong>{formatCount(stats?.entryCount)}</strong>
-          </div>
-          <div>
-            <span>最多条目</span>
-            <strong>{formatCount(stats?.maxEntries)}</strong>
-          </div>
-          <div>
-            <span>有效时间</span>
-            <strong>{formatCount(stats?.ttlSeconds)} 秒</strong>
-          </div>
-          <div>
-            <span>节省耗时</span>
-            <strong>{formatDuration(stats?.estimatedSavedMillis)}</strong>
-          </div>
-        </div>
+                  <div className="agent-cache-insights">
+                    {insights.map((item) => (
+                      <div className="agent-cache-insight" key={item.label}>
+                        <span>{item.label}</span>
+                        <strong title={item.value}>{shortText(item.value, 42)}</strong>
+                        <em>{item.detail}</em>
+                      </div>
+                    ))}
+                  </div>
 
-        <div className="agent-cache-foot">
-          <span>最近命中：{formatTime(stats?.lastHitAt)}</span>
-          <span>最近未命中：{formatTime(stats?.lastMissAt)}</span>
-        </div>
-      </Card>
-
-      <Card
-        className="agent-cache-card"
-        title={(
-          <Space>
-            <FireOutlined />
-            <span>最近调用记录</span>
-            <Tag color="blue">可定位具体命中</Tag>
-          </Space>
-        )}
-      >
-        <Table
-          rowKey={(record) => record.id || `${record.cacheKey}-${record.time}-${record.path}`}
-          loading={loading}
-          dataSource={events}
-          columns={eventColumns}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
-          scroll={{ x: 1280 }}
-          rowClassName={(record) => (record.cacheHit ? 'agent-cache-row-hit' : '')}
-          locale={{ emptyText: <Empty description="暂无调用记录" /> }}
-        />
-      </Card>
-
-      <Card className="agent-cache-card" title="当前缓存条目">
-        <Table
-          rowKey={(record) => record.cacheKey}
-          loading={loading}
-          dataSource={entries}
-          columns={entryColumns}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
-          scroll={{ x: 1320 }}
-          locale={{ emptyText: <Empty description="暂无有效缓存条目" /> }}
-        />
-      </Card>
-
-      <Card className="agent-cache-card" title="接口汇总">
-        <Table
-          rowKey={(record) => record.path}
-          loading={loading}
-          dataSource={rows}
-          columns={pathColumns}
-          pagination={false}
-          scroll={{ x: 980 }}
-          locale={{ emptyText: <Empty description="暂无缓存调用记录" /> }}
+                  <div className="agent-cache-foot">
+                    <span>总请求：{formatCount(stats?.requestCount)}</span>
+                    <span>命中：{formatCount(stats?.hitCount)}</span>
+                    <span>未命中：{formatCount(stats?.missCount)}</span>
+                    <span>最近命中：{formatTime(stats?.lastHitAt)}</span>
+                    <span>最近未命中：{formatTime(stats?.lastMissAt)}</span>
+                  </div>
+                </div>
+              ),
+            },
+            {
+              key: 'events',
+              label: `调用记录 ${events.length}`,
+              children: (
+                <div className="agent-cache-tab-panel">
+                  <div className="agent-cache-table-tools">
+                    <Segmented
+                      value={eventFilter}
+                      options={[
+                        { label: `全部 ${events.length}`, value: 'all' },
+                        { label: `命中 ${hitEventCount}`, value: 'hit' },
+                        { label: `未命中 ${missEventCount}`, value: 'miss' },
+                        { label: `异常 ${errorEventCount}`, value: 'error' },
+                      ]}
+                      onChange={setEventFilter}
+                    />
+                    <Text type="secondary">展开行可查看缓存码、参数和返回条数。</Text>
+                  </div>
+                  <Table
+                    rowKey={(record) => record.id || `${record.cacheKey}-${record.time}-${record.path}`}
+                    loading={loading}
+                    dataSource={filteredEvents}
+                    columns={eventColumns}
+                    pagination={{ pageSize: 8, showSizeChanger: false }}
+                    scroll={{ x: 920 }}
+                    rowClassName={(record) => (record.cacheHit ? 'agent-cache-row-hit' : '')}
+                    expandable={{
+                      expandedRowRender: (record) => (
+                        <div className="agent-cache-detail-grid">
+                          <span>缓存码：<Text code>{record.cacheKey || '-'}</Text></span>
+                          <span>参数：{stringifyParams(record.params, record.query)}</span>
+                          <span>条数：{formatCount(record.dataCount)}</span>
+                        </div>
+                      ),
+                    }}
+                    locale={{ emptyText: <Empty description="暂无调用记录" /> }}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: 'entries',
+              label: `缓存条目 ${entries.length}`,
+              children: (
+                <Table
+                  rowKey={(record) => record.cacheKey}
+                  loading={loading}
+                  dataSource={entries}
+                  columns={entryColumns}
+                  pagination={{ pageSize: 8, showSizeChanger: false }}
+                  scroll={{ x: 920 }}
+                  expandable={{
+                    expandedRowRender: (record) => (
+                      <div className="agent-cache-detail-grid">
+                        <span>用户问题：{record.inputPreview || '-'}</span>
+                        <span>参数：{stringifyParams(record.params, record.query)}</span>
+                        <span>原耗时：{formatDuration(record.originElapsedMs)}</span>
+                        <span>创建时间：{formatTime(record.createdAt)}</span>
+                      </div>
+                    ),
+                  }}
+                  locale={{ emptyText: <Empty description="暂无有效缓存条目" /> }}
+                />
+              ),
+            },
+            {
+              key: 'paths',
+              label: `接口汇总 ${rows.length}`,
+              children: (
+                <Table
+                  rowKey={(record) => record.path}
+                  loading={loading}
+                  dataSource={rows}
+                  columns={pathColumns}
+                  pagination={false}
+                  scroll={{ x: 980 }}
+                  locale={{ emptyText: <Empty description="暂无缓存调用记录" /> }}
+                />
+              ),
+            },
+          ]}
         />
       </Card>
     </div>

@@ -845,7 +845,9 @@ def _timestamp(value):
             parsed = datetime.now(timezone.utc)
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    parsed = parsed.astimezone(timezone.utc)
+    timespec = "microseconds" if parsed.microsecond else "seconds"
+    return parsed.isoformat(timespec=timespec).replace("+00:00", "Z")
 
 
 def _optional_timestamp(value):

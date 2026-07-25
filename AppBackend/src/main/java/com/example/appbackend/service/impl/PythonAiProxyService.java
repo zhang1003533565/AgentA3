@@ -209,6 +209,7 @@ public class PythonAiProxyService {
         Map<String, Object> request = new HashMap<>();
         request.put("agentName", payload.agentName());
         request.put("input", payload.input());
+        request.put("metadata", Map.of("requestPurpose", "question_generation"));
         if (payload.maxQuestions() != null) {
             request.put("maxQuestions", payload.maxQuestions());
         }
@@ -856,12 +857,21 @@ public class PythonAiProxyService {
                     if (!StringUtils.hasText(agentName) || !StringUtils.hasText(configPrefix)) {
                         return;
                     }
+                    String provider = systemConfigService.getValue(configPrefix + ".provider", "");
+                    String baseUrl = systemConfigService.getValue(configPrefix + ".base-url", "");
+                    String apiKey = systemConfigService.getValue(configPrefix + ".api-key", "");
+                    String model = systemConfigService.getValue(configPrefix + ".model", "");
+                    String testedFingerprint = systemConfigService.getValue(configPrefix + ".tested-fingerprint", "");
                     Map<String, Object> config = new HashMap<>();
                     config.put("configPrefix", configPrefix);
-                    config.put("provider", systemConfigService.getValue(configPrefix + ".provider", ""));
-                    config.put("baseUrl", systemConfigService.getValue(configPrefix + ".base-url", ""));
-                    config.put("apiKey", systemConfigService.getValue(configPrefix + ".api-key", ""));
-                    config.put("model", systemConfigService.getValue(configPrefix + ".model", ""));
+                    config.put("provider", provider);
+                    config.put("baseUrl", baseUrl);
+                    config.put("apiKey", apiKey);
+                    config.put("model", model);
+                    config.put("tested", StringUtils.hasText(testedFingerprint)
+                            && testedFingerprint.equals(QuestionGenerationServiceImpl.fingerprint(
+                                    provider, baseUrl, apiKey, model
+                            )));
                     configs.put(agentName, config);
                 });
         return configs;

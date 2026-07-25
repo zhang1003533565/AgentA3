@@ -5,9 +5,11 @@ import {
   SOURCE_LAYOUT_DEFAULTS,
   DEFAULT_RANDOM_RULES,
   buildExamPaperRequest,
+  buildStudentHeaderInfo,
   createPreviewSignature,
   createPreviewProof,
   getValidationErrorMessage,
+  normalizeLayoutForRequest,
   shouldAcceptPreviewGeneration,
 } from './examPaperPreviewState.js'
 import { PREVIEW_CREATE_IS_ABORTABLE, PREVIEW_REQUEST_TIMEOUT } from '../../../api/examPaperPreviewConfig.js'
@@ -36,11 +38,41 @@ test('源码默认值保持 A3 横向装订双栏和 425 栏距', () => {
     columnsCount: 2,
     columnSpace: 425,
     hasBindingLine: true,
-    headerInfo: '煤矿___________    部门___________   岗位___________    姓名___________',
+    studentInfoVisible: true,
+    studentInfoFields: ['school', 'className', 'name', 'studentNo'],
+    headerInfo: '学校________  班级________  姓名________  学号________',
     titleFontSize: 50,
     subtitleFontSize: 24,
     bodyFontSize: 21,
   })
+})
+
+test('学生信息栏由固定字段生成最终页眉字符串', () => {
+  assert.equal(
+    buildStudentHeaderInfo({ studentInfoVisible: true, studentInfoFields: ['school', 'grade', 'name'] }),
+    '学校________  年级________  姓名________',
+  )
+  assert.equal(buildStudentHeaderInfo({ studentInfoVisible: false }), '')
+})
+
+test('请求版式只保留后端需要的最终 headerInfo', () => {
+  const layout = normalizeLayoutForRequest({
+    ...SOURCE_LAYOUT_DEFAULTS,
+    studentInfoFields: ['school', 'grade', 'className', 'name', 'studentNo'],
+  })
+
+  assert.equal(layout.headerInfo, '学校________  年级________  班级________  姓名________  学号________')
+  assert.equal('studentInfoVisible' in layout, false)
+  assert.equal('studentInfoFields' in layout, false)
+})
+
+test('旧版自由页眉在没有学生信息栏配置时保持不变', () => {
+  const layout = normalizeLayoutForRequest({
+    pageSize: 'A4',
+    headerInfo: '姓名：________ 学号：________',
+  })
+
+  assert.equal(layout.headerInfo, '姓名：________ 学号：________')
 })
 
 test('预览签名对对象字段顺序稳定但会响应题目顺序和分值变化', () => {
@@ -74,6 +106,38 @@ test('预览签名忽略不影响最终试卷的随机规则临时状态', () =>
     createPreviewSignature(values, questions),
     createPreviewSignature({ ...values, rules: [{ type: 'single_choice', quantity: 99 }] }, questions),
   )
+})
+
+test('题型分值与多选题规则会进入预览签名和请求', () => {
+  const values = {
+    title: '安全考试',
+    durationMinutes: 60,
+    selectionMode: 'manual',
+    layout: { ...SOURCE_LAYOUT_DEFAULTS },
+  }
+  const questions = [{ questionId: 1, score: 4 }]
+  const partialRule = {
+    multiple_choice: {
+      scorePerQuestion: 4,
+      scoringRule: 'partial',
+      scoringRuleText: '少选得相应分，多选、错选不得分',
+    },
+  }
+  const strictRule = {
+    multiple_choice: {
+      scorePerQuestion: 4,
+      scoringRule: 'strict',
+      scoringRuleText: '全部选对得满分，少选、多选、错选均不得分',
+    },
+  }
+
+  assert.notEqual(
+    createPreviewSignature(values, questions, partialRule),
+    createPreviewSignature(values, questions, strictRule),
+  )
+
+  const request = buildExamPaperRequest(values, questions, undefined, partialRule)
+  assert.deepEqual(request.typeScoreRules, partialRule)
 })
 
 test('预览请求不携带 proof，确认请求仅携带服务端返回的 proof 字段', () => {

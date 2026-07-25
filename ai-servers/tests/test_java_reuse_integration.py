@@ -379,15 +379,28 @@ class JavaReuseIntegrationTest(unittest.TestCase):
     def test_forced_specialist_uses_java_forwarded_llm_config(self):
         req = ChatRequest(
             sessionId="agent-llm",
-            agentName="mind_map_agent",
-            input="操作系统进程调度思维导图",
+            agentName="textbook_knowledge_agent",
+            input="整理操作系统进程调度知识点",
         )
 
         resp = chat_orchestrator.run_chat_core(req, "Bearer token-x", user_id=1001)
 
-        self.assertEqual("mind_map_agent", resp.agentName)
+        self.assertEqual("textbook_knowledge_agent", resp.agentName)
         self.assertEqual("test-model", resp.model)
-        self.assertIn("思维导图图片", resp.answer)
+        self.assertIn("textbook_knowledge_agent", resp.answer)
+
+    def test_visual_internal_agents_cannot_be_forced_from_chat(self):
+        for agent_name in (
+            "image_agent",
+            "mind_map_agent",
+            "diagram_flowchart_prompt_agent",
+            "knowledge_graph_prompt_agent",
+            "ppt_image_agent",
+        ):
+            with self.subTest(agent_name=agent_name):
+                req = ChatRequest(sessionId=f"internal-{agent_name}", agentName=agent_name, input="生成图片")
+                with self.assertRaisesRegex(Exception, "智能体不存在"):
+                    chat_orchestrator.run_chat_core(req, "Bearer token-x", user_id=1001)
 
 
 if __name__ == "__main__":

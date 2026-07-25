@@ -111,4 +111,11 @@ public class ChatController {
         chatService.markTradeNotificationRead(id, getUserId(httpRequest));
         return Result.success("标记成功", (Void) null);
     }
+
+    @PutMapping("/trade-notifications/read-all")
+    @Operation(summary = "全部标记交易通知已读")
+    public Result<Void> markAllTradeNotificationsRead(HttpServletRequest httpRequest) {
+        chatService.markAllTradeNotificationsRead(getUserId(httpRequest));
+        return Result.success("标记成功", (Void) null);
+    }
 }

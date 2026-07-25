@@ -2,7 +2,7 @@ name: agent-a3-submission
 
 services:
   config-guard:
-    image: redis:7.4.2-alpine
+    image: ${REDIS_IMAGE:-redis:7.4.2-alpine}
     restart: "no"
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
@@ -25,7 +25,7 @@ services:
         [ "$${#AI_INTERNAL_TOKEN}" -ge 32 ] || { echo "[FAIL] AI_INTERNAL_TOKEN must contain at least 32 characters" >&2; exit 1; }
 
   mysql:
-    image: mysql:8.4.5
+    image: ${MYSQL_IMAGE:-mysql:8.4.5}
     restart: unless-stopped
     depends_on:
       config-guard:
@@ -37,8 +37,6 @@ services:
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
-    ports:
-      - "${MYSQL_BIND_ADDRESS:-127.0.0.1}:${MYSQL_PORT:-3306}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
@@ -49,14 +47,12 @@ services:
       start_period: 20s
 
   redis:
-    image: redis:7.4.2-alpine
+    image: ${REDIS_IMAGE:-redis:7.4.2-alpine}
     restart: unless-stopped
     depends_on:
       config-guard:
         condition: service_completed_successfully
     command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "${REDIS_BIND_ADDRESS:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -102,10 +98,11 @@ services:
       ALIYUN_OSS_ACCESS_KEY_ID: ${ALIYUN_OSS_ACCESS_KEY_ID:-}
       ALIYUN_OSS_ACCESS_KEY_SECRET: ${ALIYUN_OSS_ACCESS_KEY_SECRET:-}
     ports:
-      - "${BACKEND_BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-8080}:8080"
+      - "${BACKEND_BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-18080}:8080"
     volumes:
       - backend-uploads:/app/uploads
-      - backend-preview:/tmp/agent-a3-exam-preview
+    tmpfs:
+      - /tmp/agent-a3-exam-preview
     networks:
       default:
         aliases:
@@ -140,7 +137,7 @@ services:
       AI_TOOL_CACHE_TTL_SECONDS: ${AI_TOOL_CACHE_TTL_SECONDS:-180}
       AI_TOOL_CACHE_MAX_ENTRIES: ${AI_TOOL_CACHE_MAX_ENTRIES:-1000}
     ports:
-      - "${AI_BIND_ADDRESS:-127.0.0.1}:${AI_PORT:-8081}:8081"
+      - "${AI_BIND_ADDRESS:-127.0.0.1}:${AI_PORT:-18081}:8081"
     volumes:
       - ai-exports:/app/data/ai-exports
     healthcheck:
@@ -178,5 +175,4 @@ volumes:
   mysql-data:
   redis-data:
   backend-uploads:
-  backend-preview:
   ai-exports:

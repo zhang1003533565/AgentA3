@@ -381,9 +381,11 @@ class AssistantResourceInteractionServiceTest {
         UserProfileServiceImpl profileService = new UserProfileServiceImpl(
                 mock(UserProfileDimensionRepository.class),
                 mock(UserProfileEvidenceRepository.class),
+                mock(com.example.appbackend.repository.UserProfileSnapshotRepository.class),
                 mock(PythonAiProxyService.class),
                 mock(SystemConfigService.class),
-                new ObjectMapper()
+                new ObjectMapper(),
+                Runnable::run
         );
         var method = UserProfileServiceImpl.class
                 .getDeclaredMethod("sourceReliabilityScore", String.class);
@@ -412,9 +414,11 @@ class AssistantResourceInteractionServiceTest {
         UserProfileServiceImpl profileService = new UserProfileServiceImpl(
                 mock(UserProfileDimensionRepository.class),
                 evidenceRepository,
+                mock(com.example.appbackend.repository.UserProfileSnapshotRepository.class),
                 mock(PythonAiProxyService.class),
                 mock(SystemConfigService.class),
-                new ObjectMapper()
+                new ObjectMapper(),
+                Runnable::run
         );
         var hintsMethod = UserProfileServiceImpl.class
                 .getDeclaredMethod("buildOutputPreferenceHints", Long.class);

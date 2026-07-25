@@ -31,7 +31,8 @@ public class QuestionGenerationController {
     private static final Set<String> SOURCE_TYPES = Set.of("text", "txt", "docx", "file");
     private static final Set<String> DIFFICULTIES = Set.of("easy", "medium", "hard");
     private static final Set<String> QUESTION_TYPES = Set.of(
-            "single_choice", "multiple_choice", "true_false", "fill_blank", "short_answer");
+            "single_choice", "multiple_choice", "true_false", "fill_blank", "short_answer",
+            "calculation", "programming");
 
     private final QuestionGenerationService questionGenerationService;
 

@@ -118,6 +118,8 @@ public class AssistantEnvelopeService {
     private static final Set<String> FORBIDDEN_KEYS = Set.of(
             "userid", "sellerid", "phone", "contact", "memberlist", "participants", "transcript", "token",
             "raw", "authorization", "apikey", "capability", "profile");
+    private static final Set<String> SAFE_DIAGNOSTIC_KEYS = Set.of(
+            "profilems", "profilecontextsource", "firsttokenms");
     private static final Map<String, Set<String>> BUSINESS_FIELDS = Map.of(
             "course", Set.of("businessId", "courseName", "teacherName", "weekday", "startSection", "endSection", "classroom", "weekText"),
             "activity", Set.of("businessId", "title", "category", "startTime", "endTime", "location", "status"),
@@ -2209,6 +2211,9 @@ public class AssistantEnvelopeService {
 
     private boolean forbidden(String key) {
         String normalized = key == null ? "" : key.replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
+        if (SAFE_DIAGNOSTIC_KEYS.contains(normalized)) {
+            return false;
+        }
         return FORBIDDEN_KEYS.stream().anyMatch(normalized::contains);
     }
 

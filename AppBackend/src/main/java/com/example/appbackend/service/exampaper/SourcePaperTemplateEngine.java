@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -27,6 +28,11 @@ public final class SourcePaperTemplateEngine {
     static final String HEADER1_TEMPLATE = "exam-paper-template/head/header1.xml";
     static final String HEADER2_TEMPLATE = "exam-paper-template/head/header2.xml";
     private static final Pattern UNRESOLVED_TOKEN = Pattern.compile("%[^%]+%");
+    private static final Map<String, Integer> DOCUMENT_TOKEN_COUNTS = Map.ofEntries(
+            Map.entry("%TITLE%", 1), Map.entry("%SUBTITLE%", 1), Map.entry("%TIME%", 1),
+            Map.entry("%NAME%", 1), Map.entry("%SCORE%", 1), Map.entry("%PRECAUTIONS%", 1),
+            Map.entry("%QUESTION%", 1), Map.entry("%ANSWER%", 1), Map.entry("%HEADER%", 1),
+            Map.entry("%PageSetting%", 1));
     private static final Map<String, Integer> HEADER1_TOKEN_COUNTS = Map.ofEntries(
             Map.entry("%h1LineHeight%", 3), Map.entry("%h1LineTop%", 1), Map.entry("%h1LineWidth%", 1),
             Map.entry("%h1MarginLeftIn%", 3), Map.entry("%h1MarginLeftInside%", 1),
@@ -35,7 +41,7 @@ public final class SourcePaperTemplateEngine {
             Map.entry("%h1wordAbout4%", 1), Map.entry("%h1wordAbout5%", 1),
             Map.entry("%h1wordUpAndDown1%", 1), Map.entry("%h1wordUpAndDown2%", 1),
             Map.entry("%h1wordUpAndDown3%", 1), Map.entry("%h1wordUpAndDown4%", 1),
-            Map.entry("%h1wordUpAndDown5%", 1), Map.entry("%information%", 0));
+            Map.entry("%h1wordUpAndDown5%", 1), Map.entry("%information%", 2));
     private static final Map<String, Integer> HEADER2_TOKEN_COUNTS = Map.ofEntries(
             Map.entry("%h2LineHeight%", 3), Map.entry("%h2LineTop%", 1), Map.entry("%h2LineWidth%", 1),
             Map.entry("%h2wordAbout1%", 1), Map.entry("%h2wordAbout2%", 1),
@@ -76,18 +82,13 @@ public final class SourcePaperTemplateEngine {
         replacements.put("%ANSWER%", content == DownloadContent.ANSWER ? renderer.renderAnswers(paper, layout) : "");
         replacements.put("%HEADER%", headerReferences(resolved.hasBindingLine()));
         replacements.put("%PageSetting%", renderer.renderPageSettings(resolved));
-        for (Map.Entry<String, String> replacement : replacements.entrySet()) {
-            document = replaceRequired(document, replacement.getKey(), replacement.getValue(), 1);
-        }
+        document = replaceTemplate("document.xml", document, replacements, DOCUMENT_TOKEN_COUNTS);
 
         String header1Template = resourceText(HEADER1_TEMPLATE);
         String header2Template = resourceText(HEADER2_TEMPLATE);
         verifyHeaderTemplateContract(header1Template, header2Template);
         String header1 = replaceHeader(header1Template, layoutResolver.bindingTokens(layout), HEADER1_TOKEN_COUNTS);
         String header2 = replaceHeader(header2Template, layoutResolver.bindingTokens(layout), HEADER2_TOKEN_COUNTS);
-        requireResolved("word/document.xml", document);
-        requireResolved("word/header1.xml", header1);
-        requireResolved("word/header2.xml", header2);
 
         Map<String, byte[]> mutable = new LinkedHashMap<>();
         mutable.put("word/document.xml", document.getBytes(StandardCharsets.UTF_8));
@@ -95,6 +96,8 @@ public final class SourcePaperTemplateEngine {
         mutable.put("word/header2.xml", header2.getBytes(StandardCharsets.UTF_8));
         byte[] template = resourceBytes(STATIC_TEMPLATE);
         mutable.put("word/settings.xml", settingsWithEvenAndOddHeaders(template));
+        mutable.put("word/footer1.xml", footerWithDirtyPageFields(template, "word/footer1.xml"));
+        mutable.put("word/footer2.xml", footerWithDirtyPageFields(template, "word/footer2.xml"));
         byte[] generated = copyWithReplacements(template, mutable);
         SourcePaperPackageVerifier.verify(generated);
         SourcePaperPackageVerifier.verifyPreservedParts(template, generated);
@@ -102,17 +105,16 @@ public final class SourcePaperTemplateEngine {
     }
 
     private String replaceHeader(String template, BindingLayoutTokens tokens, Map<String, Integer> contract) {
-        String result = template;
+        Map<String, String> replacements = new LinkedHashMap<>();
         for (Map.Entry<String, Integer> expected : contract.entrySet()) {
             if (expected.getValue() > 0) {
                 String value = tokens.values().get(expected.getKey());
                 if (value == null) throw new IllegalArgumentException("缺少页眉替换值: " + expected.getKey());
-                result = replaceRequired(result, expected.getKey(),
-                        expected.getKey().equals("%information%") ? escapeXml(value) : value,
-                        expected.getValue());
+                replacements.put(expected.getKey(),
+                        expected.getKey().equals("%information%") ? escapeXml(value) : value);
             }
         }
-        return result;
+        return replaceTemplate("header.xml", template, replacements, contract);
     }
 
     static void verifyHeaderTemplateContract(String header1, String header2) {
@@ -134,6 +136,23 @@ public final class SourcePaperTemplateEngine {
                 throw new IllegalArgumentException(name + " 存在契约外占位符: " + matcher.group());
             }
         }
+    }
+
+    private static String replaceTemplate(String name, String template, Map<String, String> replacements,
+                                          Map<String, Integer> contract) {
+        verifyTokenCounts(name, template, contract);
+        Matcher matcher = UNRESOLVED_TOKEN.matcher(template);
+        StringBuffer output = new StringBuffer(template.length());
+        while (matcher.find()) {
+            String token = matcher.group();
+            String replacement = replacements.get(token);
+            if (replacement == null) {
+                throw new IllegalArgumentException(name + " 缺少模板替换值: " + token);
+            }
+            matcher.appendReplacement(output, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(output);
+        return output.toString();
     }
 
     private static String applyTitleFontSize(String document, int fontSize) {
@@ -178,10 +197,9 @@ public final class SourcePaperTemplateEngine {
 
     private static String headerReferences(boolean binding) {
         if (!binding) return "";
-        return "<w:headerReference w:type=\"even\" r:id=\"rId9\"/>"
-                + "<w:headerReference w:type=\"default\" r:id=\"rId8\"/>"
-                + "<w:footerReference w:type=\"even\" r:id=\"rId11\"/>"
-                + "<w:footerReference w:type=\"default\" r:id=\"rId10\"/>";
+        return "<w:headerReference w:type=\"first\" r:id=\"rId8\"/>"
+                + "<w:footerReference w:type=\"even\" r:id=\"rId10\"/>"
+                + "<w:footerReference w:type=\"default\" r:id=\"rId11\"/>";
     }
 
     private static String paragraph(String value, int fontSize) {
@@ -195,12 +213,6 @@ public final class SourcePaperTemplateEngine {
         if (value == null) return "";
         return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                 .replace("\"", "&quot;").replace("'", "&apos;");
-    }
-
-    private static void requireResolved(String name, String xml) {
-        if (UNRESOLVED_TOKEN.matcher(xml).find()) {
-            throw new IllegalArgumentException(name + " 存在未解析模板占位符");
-        }
     }
 
     private static byte[] copyWithReplacements(byte[] source, Map<String, byte[]> replacements) {
@@ -243,12 +255,37 @@ public final class SourcePaperTemplateEngine {
                         settings = replaceRequired(settings, "</w:settings>",
                                 "<w:evenAndOddHeaders/></w:settings>", 1);
                     }
+                    if (!settings.contains("w:updateFields")) {
+                        settings = replaceRequired(settings, "</w:settings>",
+                                "<w:updateFields w:val=\"true\"/></w:settings>", 1);
+                    }
                     return settings.getBytes(StandardCharsets.UTF_8);
                 }
             }
             throw new IllegalArgumentException("基础模板缺少部件: word/settings.xml");
         } catch (IOException exception) {
             throw new IllegalStateException("读取基础模板 settings 失败", exception);
+        }
+    }
+
+    private static byte[] footerWithDirtyPageFields(byte[] template, String name) {
+        String footer = zipText(template, name);
+        footer = footer.replaceAll("<w:fldChar(?=[^>]*w:fldCharType=\"begin\")(?![^>]*w:dirty=)([^>]*)/>",
+                "<w:fldChar w:dirty=\"true\"$1/>");
+        return footer.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static String zipText(byte[] template, String name) {
+        try (ZipInputStream input = new ZipInputStream(new ByteArrayInputStream(template))) {
+            ZipEntry entry;
+            while ((entry = input.getNextEntry()) != null) {
+                if (entry.getName().equals(name)) {
+                    return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+                }
+            }
+            throw new IllegalArgumentException("基础模板缺少部件: " + name);
+        } catch (IOException exception) {
+            throw new IllegalStateException("读取基础模板部件失败: " + name, exception);
         }
     }
 

@@ -58,13 +58,13 @@ fi
 node --test "${web_tests[@]}"
 (cd AppWeb && npm run lint && npm run build)
 
-echo "[4/6] AppFrontend Node tests"
+echo "[4/6] mini_program_app Node tests"
 app_tests=()
 while IFS= read -r test_file; do
   app_tests+=("$test_file")
-done < <(find AppFrontend -type f -name '*.test.js' -print | LC_ALL=C sort)
+done < <(find mini_program_app -type f -name '*.test.js' -print | LC_ALL=C sort)
 if [[ "${#app_tests[@]}" -eq 0 ]]; then
-  echo "[FAIL] no AppFrontend tests found" >&2
+  echo "[FAIL] no mini_program_app tests found" >&2
   exit 1
 fi
 node --test "${app_tests[@]}"

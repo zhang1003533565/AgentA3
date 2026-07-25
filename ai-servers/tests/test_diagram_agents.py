@@ -1,10 +1,5 @@
 import importlib
-import json
 import unittest
-from types import SimpleNamespace
-from unittest.mock import patch
-
-from fastapi import HTTPException
 
 from app.multi_agents.catalog import get_agent_catalog, normalize_agent_name
 from app.multi_agents.diagram_activity_agent.agent import diagram_activity_agent
@@ -22,26 +17,18 @@ class FakeDiagramProvider:
         return self.answer
 
 
-class FakeImageProvider:
-    def __init__(self):
-        self.requests = []
-
-    def generate(self, request):
-        self.requests.append(request)
-        return SimpleNamespace(model_dump=lambda: {
-            "status": "success",
-            "prompt": request.prompt,
-            "metadata": request.metadata,
-        })
-
-
 class DiagramAgentsTest(unittest.TestCase):
-    def test_catalog_contains_prefixed_diagram_agents(self):
-        names = {item["name"] for item in get_agent_catalog()["agents"]}
-        self.assertIn("diagram_mind_map_agent", names)
-        self.assertIn("diagram_flowchart_agent", names)
-        self.assertIn("diagram_activity_agent", names)
-        self.assertIn("diagram_architecture_agent", names)
+    def test_catalog_contains_text_only_diagram_agents(self):
+        catalog = {item["name"]: item for item in get_agent_catalog()["agents"]}
+        for name in (
+            "diagram_mind_map_agent",
+            "diagram_flowchart_agent",
+            "diagram_activity_agent",
+            "diagram_architecture_agent",
+        ):
+            self.assertIn(name, catalog)
+            self.assertEqual(["text"], catalog[name]["requiredModelModalities"])
+        self.assertEqual(["image"], catalog["image_agent"]["requiredModelModalities"])
 
     def test_aliases_route_to_prefixed_agents(self):
         self.assertEqual("diagram_mind_map_agent", normalize_agent_name("思维导图"))
@@ -50,59 +37,83 @@ class DiagramAgentsTest(unittest.TestCase):
         self.assertEqual("diagram_architecture_agent", normalize_agent_name("架构图"))
         self.assertEqual("mind_map_agent", normalize_agent_name("mind_map_agent"))
 
-    def test_rule_router_prefers_diagram_agents(self):
-        self.assertEqual("diagram_mind_map_agent", leader_agent._plan_with_rules("生成进程调度思维导图").target_agent)
-        self.assertEqual("diagram_flowchart_agent", leader_agent._plan_with_rules("生成括号匹配流程图").target_agent)
-        self.assertEqual("diagram_activity_agent", leader_agent._plan_with_rules("生成会议任务活动图").target_agent)
-        self.assertEqual("diagram_architecture_agent", leader_agent._plan_with_rules("生成系统架构图").target_agent)
-        self.assertEqual("ppt_to_docx_agent", leader_agent._plan_with_rules("把 PPTX 转 DOCX，图片保留").target_agent)
+    def test_rule_router_uses_visual_tools_instead_of_agent_delegation(self):
+        cases = {
+            "生成进程调度思维导图": "generate_mind_map_image_tool",
+            "生成括号匹配流程图": "generate_flowchart_image_tool",
+            "生成会议任务活动图": "generate_activity_image_tool",
+            "生成系统架构图": "generate_architecture_image_tool",
+            "生成操作系统知识图谱": "generate_knowledge_graph_image_tool",
+            "生成一张教学配图": "generate_image_tool",
+            "生成 PPT 封面配图": "generate_ppt_image_tool",
+        }
+        for query, tool_name in cases.items():
+            plan = leader_agent._plan_with_rules(query)
+            self.assertEqual("call_tool", plan.action)
+            self.assertEqual("leader_agent", plan.target_agent)
+            self.assertEqual(tool_name, plan.tool_name)
 
-    def test_diagram_agents_use_current_image_generation_contract(self):
-        mind_map_provider = FakeImageProvider()
-        with patch.object(
-            importlib.import_module("app.multi_agents.diagram_mind_map_agent.agent"),
-            "get_qwen_image_provider",
-            return_value=mind_map_provider,
+    def test_only_image_agent_imports_the_image_provider(self):
+        image_module = importlib.import_module("app.multi_agents.image_agent.agent")
+        self.assertTrue(hasattr(image_module, "get_qwen_image_provider"))
+        for module_name in (
+            "app.api.routes.images",
+            "app.multi_agents.diagram_mind_map_agent.agent",
+            "app.multi_agents.diagram_flowchart_agent.agent",
+            "app.multi_agents.diagram_activity_agent.agent",
+            "app.multi_agents.diagram_architecture_agent.agent",
+            "app.multi_agents.ppt_image_agent.agent",
         ):
-            mind_map = diagram_mind_map_agent.generate_mind_map_image("进程调度")
-        self.assertEqual("success", mind_map["status"])
-        self.assertEqual("mindmap", mind_map_provider.requests[0].metadata["diagramType"])
+            module = importlib.import_module(module_name)
+            self.assertFalse(hasattr(module, "get_qwen_image_provider"), module_name)
 
-        flowchart_provider = FakeImageProvider()
-        with patch.object(
-            importlib.import_module("app.multi_agents.diagram_flowchart_agent.agent"),
-            "get_qwen_image_provider",
-            return_value=flowchart_provider,
-        ):
-            flowchart = json.loads(diagram_flowchart_agent.generate_images_json("括号匹配", []))
-        self.assertEqual("success", flowchart["status"])
-        self.assertEqual("flowchart", flowchart_provider.requests[0].metadata["diagramType"])
+    def test_all_visual_generation_is_registered_as_tools_with_internal_agents_hidden(self):
+        rag_routes = importlib.import_module("app.api.routes.rag")
+        expected = {
+            "generate_image_tool": "",
+            "generate_mind_map_image_tool": "mind_map_agent",
+            "generate_flowchart_image_tool": "diagram_flowchart_prompt_agent",
+            "generate_activity_image_tool": "diagram_activity_prompt_agent",
+            "generate_architecture_image_tool": "architecture_prompt_agent",
+            "generate_knowledge_graph_image_tool": "knowledge_graph_prompt_agent",
+            "generate_ppt_image_tool": "ppt_image_agent",
+        }
+        self.assertEqual(
+            expected,
+            {name: config["promptAgent"] for name, config in rag_routes.VISUAL_GENERATION_TOOL_CONFIG.items()},
+        )
+        callable_catalog = rag_routes._build_leader_callable_catalog()
+        callable_agents = {item["name"] for item in callable_catalog["agents"]}
+        callable_tools = {item["name"] for item in callable_catalog["tools"]}
+        self.assertGreaterEqual(callable_tools, set(expected))
+        self.assertTrue((set(expected.values()) - {""}).isdisjoint(callable_agents))
+        self.assertNotIn("image_agent", callable_agents)
 
-        activity_provider = FakeImageProvider()
-        with patch.object(
-            importlib.import_module("app.multi_agents.diagram_activity_agent.agent"),
-            "get_qwen_image_provider",
-            return_value=activity_provider,
-        ):
-            activity = json.loads(diagram_activity_agent.generate_images_json("任务流程", []))
-        self.assertEqual("success", activity["status"])
-        self.assertEqual("activity", activity_provider.requests[0].metadata["diagramType"])
-
-        architecture_provider = FakeImageProvider()
-        with patch.object(
-            importlib.import_module("app.multi_agents.diagram_architecture_agent.agent"),
-            "get_qwen_image_provider",
-            return_value=architecture_provider,
-        ):
-            architecture = diagram_architecture_agent.generate_images("系统架构", [])
-        self.assertEqual("success", architecture["status"])
-        self.assertEqual("architecture", architecture_provider.requests[0].chartType)
-
-    def test_rejects_empty_diagram_prompt(self):
-        with self.assertRaises(HTTPException):
-            diagram_flowchart_agent.generate_images_json("", [])
-        with self.assertRaises(ValueError):
-            diagram_mind_map_agent.generate_mind_map_image("")
+    def test_diagram_agents_only_return_mermaid_text(self):
+        mind_map = diagram_mind_map_agent.build_mind_map(
+            "进程调度",
+            [],
+            chat_service=FakeDiagramProvider("```mermaid\nmindmap\n  root((进程调度))\n```")
+        )
+        flowchart = diagram_flowchart_agent.build_diagram(
+            "括号匹配",
+            [],
+            chat_service=FakeDiagramProvider("```mermaid\nflowchart TD\n  A --> B\n```")
+        )
+        activity = diagram_activity_agent.build_diagram(
+            "任务流程",
+            [],
+            chat_service=FakeDiagramProvider("```mermaid\nflowchart TD\n  Start --> End\n```")
+        )
+        architecture = diagram_architecture_agent.build_diagram(
+            "系统架构",
+            [],
+            chat_service=FakeDiagramProvider("```mermaid\nflowchart LR\n  Web --> API\n```")
+        )
+        self.assertTrue(mind_map.startswith("```mermaid\nmindmap"))
+        self.assertTrue(flowchart.startswith("```mermaid\nflowchart"))
+        self.assertTrue(activity.startswith("```mermaid\nflowchart"))
+        self.assertTrue(architecture.startswith("```mermaid\nflowchart"))
 
 
 if __name__ == "__main__":

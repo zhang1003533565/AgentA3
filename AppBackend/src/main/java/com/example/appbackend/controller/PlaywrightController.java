@@ -32,6 +32,7 @@ import jakarta.servlet.http.HttpServletRequest;
 public class PlaywrightController {
     private static final Logger log = LoggerFactory.getLogger(PlaywrightController.class);
     private static final Map<Long, Map<String, Object>> IMPORT_PROGRESS = new ConcurrentHashMap<>();
+    private static final String SCHEDULE_IMPORT_FAILURE_MESSAGE = "课表导入服务暂不可用，请稍后重试";
 
     private final PlaywrightService playwrightService;
     private final CourseScheduleService courseScheduleService;
@@ -221,8 +222,8 @@ public class PlaywrightController {
             return Result.success(result);
         } catch (Exception e) {
             log.error("课表自动导入异常，userId={}, message={}", userId, e.getMessage(), e);
-            updateImportProgress(userId, "failed", "failed", "导入失败：" + e.getMessage(), 0);
-            return Result.error("操作失败：" + e.getMessage());
+            updateImportProgress(userId, "failed", "failed", SCHEDULE_IMPORT_FAILURE_MESSAGE, 0);
+            return Result.error(SCHEDULE_IMPORT_FAILURE_MESSAGE);
         } finally {
             playwrightService.closeBrowser(context);
         }
@@ -383,7 +384,8 @@ public class PlaywrightController {
 
             return Result.success(result);
         } catch (Exception e) {
-            return Result.error("操作失败：" + e.getMessage());
+            log.error("课表账号导入异常，username={}, message={}", request.getUsername(), e.getMessage(), e);
+            return Result.error(SCHEDULE_IMPORT_FAILURE_MESSAGE);
         } finally {
             playwrightService.closeBrowser(context);
         }

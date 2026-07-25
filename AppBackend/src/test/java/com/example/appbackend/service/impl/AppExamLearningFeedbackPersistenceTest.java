@@ -39,6 +39,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.Executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -294,6 +295,11 @@ class AppExamLearningFeedbackPersistenceTest {
         @Bean
         SystemConfigService systemConfigService() {
             return mock(SystemConfigService.class);
+        }
+
+        @Bean("profileSummaryExecutor")
+        Executor profileSummaryExecutor() {
+            return Runnable::run;
         }
     }
 }

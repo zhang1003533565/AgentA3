@@ -1,7 +1,6 @@
 import json
 import os
 import unittest
-from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -66,18 +65,14 @@ class SseStreamContractTest(unittest.TestCase):
             "ext": "md",
         }
         original_run_rag_core = rag_route._run_rag_query_core
-        original_export_generated_answer = rag_route.export_generated_answer
         try:
-            rag_route.export_generated_answer = lambda *args, **kwargs: SimpleNamespace(
-                attachments=[dict(attachment)],
-                diagnostics={"skipped": False},
-            )
             rag_route._run_rag_query_core = lambda request, authorization: rag_route._decorate_output_response(
                 RagQueryResponse(
                     strategy="direct_agent",
                     answer="# 导出内容",
                     answerType="markdown",
                     metadata={"executedAgent": "textbook_knowledge_agent"},
+                    attachments=[dict(attachment)],
                 )
             )
             request_payload = {"input": "导出内容", "agentName": "textbook_knowledge_agent"}
@@ -113,7 +108,6 @@ class SseStreamContractTest(unittest.TestCase):
             self.assertEqual(attachment["internalCapability"], stream_attachment["internalCapability"])
         finally:
             rag_route._run_rag_query_core = original_run_rag_core
-            rag_route.export_generated_answer = original_export_generated_answer
 
     def test_build_sse_uses_real_newlines(self):
         event = build_sse("status", {"stage": "processing"})
@@ -155,6 +149,100 @@ class SseStreamContractTest(unittest.TestCase):
             self.assertIn("event: done\n", payload)
         finally:
             chat_route.run_chat_core = original_run_chat_core
+
+    def test_rag_stream_disables_proxy_buffering_and_reports_timings(self):
+        client = self._client()
+        original_run_rag_core = rag_route._run_rag_query_core
+        original_save_context = rag_route._save_conversation_context
+        try:
+            rag_route._run_rag_query_core = lambda request, authorization: RagQueryResponse(
+                strategy="direct_agent",
+                answer="这是立即发送的测试回答。",
+                answerType="text",
+                metadata={"executedAgent": "textbook_knowledge_agent"},
+            )
+            rag_route._save_conversation_context = lambda *_args: rag_route.time.sleep(0.01)
+            with client.stream(
+                "POST",
+                "/internal/rag/query/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "input": "测试流式耗时",
+                    "agentName": "textbook_knowledge_agent",
+                    "metadata": {
+                        "profileContextMs": 7,
+                        "profileContextSource": "local_snapshot",
+                    },
+                },
+            ) as response:
+                self.assertEqual(200, response.status_code)
+                self.assertEqual("no-cache, no-transform", response.headers["cache-control"])
+                self.assertEqual("no", response.headers["x-accel-buffering"])
+                payload = "".join(response.iter_text())
+
+            events = [event for event in payload.split("\n\n") if event.strip()]
+            self.assertTrue(events[0].startswith("event: status\n"))
+            done_event = next(event for event in events if event.startswith("event: done\n"))
+            data_line = next(line for line in done_event.splitlines() if line.startswith("data: "))
+            done_data = json.loads(data_line.removeprefix("data: "))
+            metadata = done_data["retrievalMeta"]
+            timings = metadata["timings"]
+            self.assertEqual(7, timings["profileMs"])
+            self.assertIn("planMs", timings)
+            self.assertIn("executionMs", timings)
+            self.assertIn("finalizeMs", timings)
+            self.assertIn("persistMs", timings)
+            self.assertIn("firstEventMs", timings)
+            self.assertIn("firstTokenMs", timings)
+            self.assertIn("totalMs", timings)
+            self.assertLessEqual(timings["firstEventMs"], timings["firstTokenMs"])
+            self.assertLessEqual(timings["firstTokenMs"], timings["totalMs"])
+            self.assertGreaterEqual(timings["persistMs"], 5)
+            self.assertLessEqual(timings["persistMs"], timings["totalMs"])
+            self.assertEqual("python_processing_including_persistence", metadata["timingScope"])
+            self.assertEqual("local_snapshot", metadata["profileContextSource"])
+        finally:
+            rag_route._run_rag_query_core = original_run_rag_core
+            rag_route._save_conversation_context = original_save_context
+
+    def test_rag_sync_total_timing_is_recorded_after_persistence(self):
+        client = self._client()
+        original_run_rag_core = rag_route._run_rag_query_core
+        original_save_context = rag_route._save_conversation_context
+        observed = {}
+        try:
+            rag_route._run_rag_query_core = lambda request, authorization: RagQueryResponse(
+                strategy="direct_agent",
+                answer="同步耗时测试回答。",
+                answerType="text",
+                metadata={"executedAgent": "textbook_knowledge_agent"},
+            )
+
+            def observe_persistence(request, authorization, response):
+                timings = (response.metadata or {}).get("timings") or {}
+                observed["totalPresentBeforePersistence"] = "totalMs" in timings
+                rag_route.time.sleep(0.01)
+
+            rag_route._save_conversation_context = observe_persistence
+            response = client.post(
+                "/internal/rag/query",
+                headers={"Authorization": "Bearer test-token"},
+                json={"input": "同步耗时测试", "agentName": "textbook_knowledge_agent"},
+            )
+        finally:
+            rag_route._run_rag_query_core = original_run_rag_core
+            rag_route._save_conversation_context = original_save_context
+
+        self.assertEqual(200, response.status_code)
+        metadata = response.json()["metadata"]
+        timings = metadata["timings"]
+        self.assertFalse(observed["totalPresentBeforePersistence"])
+        self.assertIn("finalizeMs", timings)
+        self.assertIn("persistMs", timings)
+        self.assertIn("totalMs", timings)
+        self.assertGreaterEqual(timings["persistMs"], 5)
+        self.assertLessEqual(timings["persistMs"], timings["totalMs"])
+        self.assertEqual("python_processing_including_persistence", metadata["timingScope"])
 
     def test_rag_done_payload_uses_resource_evidence_finalizer(self):
         client = self._client()

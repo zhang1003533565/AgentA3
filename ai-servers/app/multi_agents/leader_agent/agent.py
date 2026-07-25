@@ -1,16 +1,17 @@
 import json
+import os
 import re
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.multi_agents.catalog import DIAGRAM_AGENT_SPECS, MEETING_AGENT_SPECS, PPT_AGENT_SPECS, QUESTION_AGENT_SPECS, get_agent_profile, normalize_agent_name
+from app.multi_agents.catalog import LEADER_CALLABLE_AGENT_ORDER, get_agent_profile, normalize_agent_name
 from app.model_providers.factory import get_chat_model_provider
 from app.multi_agents.runtime import load_agent_prompt
 from app.services.memory_store import memory_store
 from app.utils.logger import get_logger
-from app.utils.text_utils import is_all_semester_schedule_query, is_course_count_query, is_course_teacher_query, is_course_time_query, is_schedule_intent, is_semester_schedule_query, is_smalltalk_intent
+from app.utils.text_utils import is_all_semester_schedule_query, is_course_count_query, is_course_teacher_query, is_course_time_query, is_schedule_intent, is_semester_schedule_query
 
 logger = get_logger("multi_agents.leader")
 
@@ -18,7 +19,16 @@ LEADER_OUTPUT_PUSH_STRATEGIES = [
     {
         "push_type": "image",
         "triggers": ["生成图片", "画一张", "配图", "插图", "封面图", "海报", "图片素材", "架构图", "流程图", "活动图", "思维导图图片"],
-        "target_agents": ["image_agent", "diagram_mind_map_agent", "diagram_architecture_agent", "diagram_flowchart_agent", "diagram_activity_agent", "ppt_image_agent"],
+        "target_agents": [],
+        "target_tools": [
+            "generate_image_tool",
+            "generate_mind_map_image_tool",
+            "generate_flowchart_image_tool",
+            "generate_activity_image_tool",
+            "generate_architecture_image_tool",
+            "generate_knowledge_graph_image_tool",
+            "generate_ppt_image_tool",
+        ],
         "display_policy": "返回图片 URL 或图片生成 JSON 时，App 会话页以图片卡片展示，支持点击预览。",
     },
     {
@@ -44,6 +54,270 @@ CAMPUS_SERVICE_TOOL_NAMES = {
     "java_secondhand_api",
 }
 
+VISUAL_GENERATION_TOOL_NAMES = {
+    "generate_image_tool",
+    "generate_mind_map_image_tool",
+    "generate_flowchart_image_tool",
+    "generate_activity_image_tool",
+    "generate_architecture_image_tool",
+    "generate_knowledge_graph_image_tool",
+    "generate_ppt_image_tool",
+}
+
+# Set to false/0/off to restore the original model-only routing path immediately.
+LEADER_FAST_ROUTE_ENABLED_ENV = "AI_LEADER_FAST_ROUTE_ENABLED"
+
+_FAST_ROUTE_ACTIVITY_TOKENS = (
+    "校园活动",
+    "活动安排",
+    "最近活动",
+    "近期活动",
+    "有什么活动",
+    "有什么讲座",
+    "最近讲座",
+    "近期讲座",
+    "讲座安排",
+    "有什么比赛",
+    "最近比赛",
+    "近期比赛",
+    "比赛安排",
+    "报名活动",
+)
+_FAST_ROUTE_MEETING_TOKENS = (
+    "我的会议",
+    "会议列表",
+    "会议状态",
+    "预约的会议",
+    "已预约会议",
+    "预约会议安排",
+    "有什么会议",
+    "查询会议安排",
+    "查看会议安排",
+    "今天的会议安排",
+    "明天的会议安排",
+    "本周会议安排",
+)
+_FAST_ROUTE_CANTEEN_TOKENS = (
+    "食堂",
+    "档口",
+    "食堂菜单",
+    "餐厅菜单",
+    "有什么菜",
+    "菜品价格",
+    "吃什么",
+    "餐饮优惠",
+    "餐饮信息",
+)
+_FAST_ROUTE_FOLLOWUP_TOKENS = (
+    "刚才",
+    "上一个",
+    "前一个",
+    "那个",
+    "这个呢",
+    "它呢",
+    "那明天",
+    "那后天",
+    "还有吗",
+    "还有哪些",
+    "还有什么",
+    "除此之外",
+    "另外呢",
+    "继续",
+    "同样",
+)
+_FAST_ROUTE_MULTI_INTENT_TOKENS = (
+    "顺便",
+    "同时",
+    "并且",
+    "以及",
+    "再帮我",
+    "然后",
+)
+_EXPLICIT_VISUAL_OUTPUT_TOKENS = (
+    "生成图片", "生成一张", "生成张", "画一张", "画张", "画图", "做一张", "来一张", "配图", "插图", "封面图", "海报",
+    "图片版", "图解版", "文生图", "思维导图", "脑图", "流程图", "活动图", "泳道图", "架构图",
+)
+_VISUAL_GENERATION_AGENTS = frozenset({"image_agent"})
+_FAST_ROUTE_QUERY_ACTION_TOKENS = (
+    "查询",
+    "查看",
+    "查一下",
+    "查查",
+    "看看",
+    "列出",
+    "显示",
+    "帮我查",
+)
+_FAST_ROUTE_QUERY_SCOPE_TOKENS = (
+    "今天",
+    "今日",
+    "明天",
+    "后天",
+    "本周",
+    "这周",
+    "下周",
+    "本月",
+    "最近",
+    "近期",
+    "当前",
+    "本学期",
+    "这学期",
+    "当前学期",
+    "所有学期",
+    "全部学期",
+)
+_FAST_ROUTE_QUESTION_TOKENS = (
+    "有什么",
+    "有哪些",
+    "有没有",
+    "有吗",
+    "多少",
+    "几个",
+    "几场",
+    "什么时候",
+    "几点",
+    "哪天",
+    "哪个",
+    "哪家",
+    "推荐",
+)
+_FAST_ROUTE_META_HARD_TOKENS = (
+    "接口",
+    "api",
+    "sdk",
+    "代码",
+    "源码",
+    "表结构",
+    "字段",
+    "参数",
+    "返回值",
+    "状态码",
+    "架构",
+    "设计原则",
+    "技术方案",
+    "实现原理",
+    "调用链",
+    "路由规则",
+    "缓存策略",
+    "单元测试",
+    "测试用例",
+    "日志",
+    "报错",
+    "错误",
+    "异常",
+    "故障",
+    "bug",
+    "加载失败",
+    "请求失败",
+    "无法加载",
+    "打不开",
+    "没显示",
+    "不显示",
+)
+_FAST_ROUTE_META_PHRASES = (
+    "怎么实现",
+    "如何实现",
+    "怎么开发",
+    "如何开发",
+    "怎么设计",
+    "如何设计",
+    "怎么编写",
+    "如何编写",
+    "怎么接入",
+    "如何接入",
+    "实现方式",
+    "开发方式",
+)
+_FAST_ROUTE_KNOWLEDGE_INTENT_TOKENS = (
+    "介绍",
+    "分析",
+    "科普",
+    "解释",
+    "讲解",
+    "讲讲",
+    "谈谈",
+    "概述",
+    "讨论",
+    "研究",
+    "评价",
+    "解读",
+)
+_FAST_ROUTE_KNOWLEDGE_TOPIC_TOKENS = (
+    "文化",
+    "历史",
+    "意义",
+    "发展",
+    "背景",
+    "起源",
+    "概念",
+    "定义",
+    "原理",
+    "价值",
+    "作用",
+    "影响",
+)
+_FAST_ROUTE_SERVICE_ENTITY_TOKENS = (
+    "课表",
+    "课程安排",
+    "课程列表",
+    "校园活动",
+    "活动安排",
+    "活动",
+    "讲座",
+    "比赛",
+    "会议",
+    "食堂",
+    "档口",
+    "菜单",
+    "菜品",
+    "餐饮",
+)
+_MEETING_NON_QUERY_TOKENS = (
+    "会议总结",
+    "会议纪要",
+    "会议摘要",
+    "会议转写",
+    "语音转写",
+    "成员分析",
+    "资源推荐",
+    "语音播报",
+    "播报脚本",
+    "会议总控",
+    "会议调度",
+    "创建会议",
+    "发起会议",
+    "帮我预约",
+)
+_ACTIVITY_NON_QUERY_TOKENS = (
+    "活动图",
+    "泳道图",
+    "策划",
+    "创建",
+    "发布",
+    "生成活动",
+    "策划活动",
+    "创建活动",
+    "发布活动",
+)
+_SCHEDULE_NON_QUERY_TOKENS = (
+    "生成课表",
+    "制作课表",
+    "设计课表",
+    "制定课程安排",
+    "规划课程安排",
+    "设计课程安排",
+    "怎么安排",
+    "如何安排",
+    "课表设计",
+)
+_CANTEEN_NON_QUERY_TOKENS = (
+    "食堂管理",
+    "餐厅设计",
+    "菜单设计",
+    "生成菜单",
+    "制定菜单",
+)
+
 
 @dataclass
 class LeaderPlan:
@@ -55,6 +329,7 @@ class LeaderPlan:
     tool_name: str = ""
     route_reason: str = ""
     answer: str = ""
+    route_mode: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -82,16 +357,36 @@ class LeaderAgent:
         if learning_plan:
             return learning_plan
 
-        if self._is_callable_catalog_query(input_text):
-            return LeaderPlan(
-                intent="leader_callable_catalog",
-                target_agent="leader_agent",
-                need_retrieval=False,
-                rag_strategy="",
-                action="direct_answer",
-                route_reason="用户询问 Leader 当前可调用的智能体和工具，直接展示后台清单。",
-                answer=self._callable_catalog_answer(callable_catalog),
+        learning_guidance_plan = self._plan_learning_guidance_agent(input_text, callable_catalog)
+        if learning_guidance_plan:
+            return learning_guidance_plan
+
+        knowledge_generation_plan = self._plan_explicit_knowledge_generation_request(input_text, callable_catalog)
+        if knowledge_generation_plan:
+            return knowledge_generation_plan
+
+        file_export_plan = self._plan_explicit_file_export_request(input_text)
+        if file_export_plan:
+            return file_export_plan
+
+        if self._is_explicit_visual_generation_request(input_text):
+            visual_plan = self._plan_with_rules(input_text, rag_strategy)
+            if visual_plan.action == "call_tool" and visual_plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
+                return visual_plan
+
+        fast_plan = self._plan_high_confidence_service_query(
+            input_text,
+            rag_strategy=rag_strategy,
+            callable_catalog=callable_catalog,
+            conversation_context=conversation_context,
+        )
+        if fast_plan:
+            logger.info(
+                "leader fast route intent=%s tool=%s",
+                fast_plan.intent,
+                fast_plan.tool_name,
             )
+            return fast_plan
 
         return self._plan_with_llm(
             input_text,
@@ -124,29 +419,119 @@ class LeaderAgent:
             rag_strategy="",
             action="run_learning_workflow",
             route_reason="Python 课程个性化学习请求进入受控多智能体工作流。",
+            route_mode="workflow",
+        )
+
+    def _plan_learning_guidance_agent(
+        self,
+        input_text: str,
+        callable_catalog: Optional[Dict[str, Any]],
+    ) -> Optional[LeaderPlan]:
+        normalized = self._normalize_fast_route_text(input_text)
+        if not normalized or self._has_explicit_visual_output_request(normalized):
+            return None
+        if not any(token in normalized for token in (
+            "想学", "想学习", "怎么学", "如何学", "如何学习", "学习路线", "入门", "从哪开始",
+        )):
+            return None
+        if not self._catalog_agent_enabled(callable_catalog, "textbook_knowledge_agent"):
+            return None
+        return LeaderPlan(
+            intent="learning_guidance",
+            target_agent="textbook_knowledge_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            action="delegate_agent",
+            route_reason="用户询问学习方法且未明确要求图片，调用教材知识点智能体生成学习建议；画像输出偏好不覆盖当前指令。",
+            route_mode="rules",
+        )
+
+    def _has_explicit_visual_output_request(self, input_text: str) -> bool:
+        normalized = self._normalize_fast_route_text(input_text)
+        if any(token in normalized for token in _EXPLICIT_VISUAL_OUTPUT_TOKENS):
+            return True
+        return "图片" in normalized and any(token in normalized for token in ("生成", "画", "制作", "做成", "转成"))
+
+    def _plan_explicit_knowledge_generation_request(
+        self,
+        input_text: str,
+        callable_catalog: Optional[Dict[str, Any]],
+    ) -> Optional[LeaderPlan]:
+        normalized = self._normalize_fast_route_text(input_text)
+        has_authorization = any(token in normalized for token in (
+            "授权模型", "模型自行生成", "自行生成知识", "自己生成知识", "无需材料", "不用材料",
+        ))
+        has_knowledge_target = any(token in normalized for token in (
+            "知识材料", "知识点", "教材内容", "学习材料",
+        ))
+        if not has_authorization or not has_knowledge_target:
+            return None
+        if not self._catalog_agent_enabled(callable_catalog, "textbook_knowledge_agent"):
+            return None
+        return LeaderPlan(
+            intent="textbook_knowledge",
+            target_agent="textbook_knowledge_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            action="delegate_agent",
+            route_reason="用户已授权模型在无材料时自行生成知识材料，直接调用教材知识点智能体，不再重复确认来源。",
+            route_mode="rules",
+        )
+
+    def _is_explicit_visual_generation_request(self, input_text: str) -> bool:
+        normalized = self._normalize_fast_route_text(input_text)
+        if not self._has_explicit_visual_output_request(normalized):
+            return False
+        return any(token in normalized for token in (
+            "我想生成", "帮我生成", "请生成", "给我生成", "生成一个", "生成一张",
+            "画一个", "画一张", "制作一个", "制作一张", "做一个", "做一张", "转成",
+        ))
+
+    def _plan_explicit_file_export_request(self, input_text: str) -> Optional[LeaderPlan]:
+        normalized = self._normalize_fast_route_text(input_text)
+        if "ppt大纲" in normalized or "pptx大纲" in normalized or "幻灯片大纲" in normalized:
+            return None
+        format_tokens = (
+            "word", "docx", "excel", "xlsx", "markdown", "md文件", "ppt", "pptx",
+            "文档版", "文件版", "表格版", "幻灯片",
+        )
+        action_tokens = (
+            "导出", "生成", "转成", "转换成", "整理成", "制作成", "做成", "保存为", "给我",
+        )
+        if not any(token in normalized for token in format_tokens):
+            return None
+        if not any(token in normalized for token in action_tokens):
+            return None
+        return LeaderPlan(
+            intent="document_export",
+            target_agent="leader_agent",
+            need_retrieval=False,
+            rag_strategy="",
+            action="call_tool",
+            tool_name="generated_export_tools",
+            route_reason="用户明确要求生成指定格式文件，由内容导出工具先调用文件内容编排智能体，再调用对应格式工具。",
+            route_mode="rules",
         )
 
     def _plan_with_rules(self, input_text: str, rag_strategy: str = "") -> LeaderPlan:
+        plan = self._plan_with_rules_impl(input_text, rag_strategy)
+        if not plan.route_mode:
+            plan.route_mode = "rules"
+        return plan
+
+    def _plan_with_rules_impl(self, input_text: str, rag_strategy: str = "") -> LeaderPlan:
         normalized = (input_text or "").strip().lower()
-        if is_smalltalk_intent(input_text):
-            return LeaderPlan(
-                intent="smalltalk",
-                target_agent="leader_agent",
-                need_retrieval=False,
-                rag_strategy="",
-                action="direct_answer",
-                route_reason="命中问候/闲聊意图，Leader 直接回复，不调用工具或本地 RAG。",
-                answer=self._smalltalk_answer(input_text),
-            )
         if is_schedule_intent(input_text):
+            intent, answer = self._schedule_fast_route_response(input_text)
             return LeaderPlan(
-                intent="schedule",
-                target_agent="textbook_knowledge_agent",
+                intent=intent,
+                target_agent="leader_agent",
                 need_retrieval=False,
                 rag_strategy="",
                 action="call_tool",
                 tool_name="java_schedule_api",
                 route_reason="命中课表意图，优先调用 Java 后端课表接口。",
+                answer=answer,
             )
         if self._is_structured_query(normalized):
             return LeaderPlan(
@@ -158,22 +543,27 @@ class LeaderAgent:
                 tool_name="text_to_sql",
                 route_reason="命中统计/查询结构化数据意图，使用 Text-to-SQL 查询接口。",
             )
+        if any(token in normalized for token in ("知识图谱", "实体关系图", "概念关系图", "knowledge graph")):
+            return LeaderPlan("knowledge_graph_image", "leader_agent", False, "", action="call_tool", tool_name="generate_knowledge_graph_image_tool", route_reason="命中知识图谱生成意图，调用知识图谱图片生成工具。")
         if "架构图" in normalized and "提示词" in normalized:
-            return LeaderPlan("architecture_diagram_prompt", "architecture_prompt_agent", False, "", route_reason="命中架构图提示词生成意图，分发给图表架构图提示词智能体。")
+            return LeaderPlan("architecture_diagram_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_architecture_image_tool", route_reason="命中架构图生成意图，调用架构图图片生成工具。")
         if any(token in normalized for token in ("架构图", "系统架构图", "architecture diagram", "architecture")):
-            return LeaderPlan("diagram_architecture", "diagram_architecture_agent", False, "", route_reason="命中架构图生成意图，分发给图表架构图智能体。")
+            return LeaderPlan("diagram_architecture", "leader_agent", False, "", action="call_tool", tool_name="generate_architecture_image_tool", route_reason="命中架构图生成意图，调用架构图图片生成工具。")
         if "活动图" in normalized and "提示词" in normalized:
-            return LeaderPlan("diagram_activity_prompt", "diagram_activity_prompt_agent", False, "", route_reason="命中活动图提示词生成意图，分发给活动图提示词智能体。")
+            return LeaderPlan("diagram_activity_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_activity_image_tool", route_reason="命中活动图生成意图，调用活动图图片生成工具。")
         if any(token in normalized for token in ("活动图", "泳道图", "activity diagram", "任务活动图")):
-            return LeaderPlan("diagram_activity", "diagram_activity_agent", False, "", route_reason="命中活动图生成意图，分发给图表活动图智能体。")
+            return LeaderPlan("diagram_activity", "leader_agent", False, "", action="call_tool", tool_name="generate_activity_image_tool", route_reason="命中活动图生成意图，调用活动图图片生成工具。")
         if "流程图" in normalized and "提示词" in normalized:
-            return LeaderPlan("diagram_flowchart_prompt", "diagram_flowchart_prompt_agent", False, "", route_reason="命中流程图提示词生成意图，分发给流程图提示词智能体。")
+            return LeaderPlan("diagram_flowchart_prompt", "leader_agent", False, "", action="call_tool", tool_name="generate_flowchart_image_tool", route_reason="命中流程图生成意图，调用流程图图片生成工具。")
         if any(token in normalized for token in ("流程图", "flowchart", "流程")):
-            return LeaderPlan("diagram_flowchart", "diagram_flowchart_agent", False, "", route_reason="命中流程图生成意图，分发给图表流程图智能体。")
+            return LeaderPlan("diagram_flowchart", "leader_agent", False, "", action="call_tool", tool_name="generate_flowchart_image_tool", route_reason="命中流程图生成意图，调用流程图图片生成工具。")
         if any(token in normalized for token in ("思维导图", "mindmap", "mind map", "脑图")):
-            return LeaderPlan("diagram_mind_map", "diagram_mind_map_agent", False, "", route_reason="命中思维导图生成意图，分发给图表思维导图智能体。")
-        if any(token in normalized for token in ("生成图片", "画一张", "画张", "配图", "插图", "封面图", "海报", "图片素材", "文生图")):
-            return LeaderPlan("image_generation", "image_agent", False, "", route_reason="命中图片生成/配图意图，分发给图片智能体，并在 App 会话页以图片卡片推送。")
+            return LeaderPlan("diagram_mind_map", "leader_agent", False, "", action="call_tool", tool_name="generate_mind_map_image_tool", route_reason="命中思维导图生成意图，调用思维导图图片生成工具。")
+        if (
+            any(token in normalized for token in ("生成图片", "画一张", "画张", "配图", "插图", "封面图", "海报", "图片素材", "文生图"))
+            and not any(token in normalized for token in ("ppt", "课件", "幻灯片"))
+        ):
+            return LeaderPlan("image_generation", "leader_agent", False, "", action="call_tool", tool_name="generate_image_tool", route_reason="命中图片生成/配图意图，调用通用图片生成工具。")
         if any(token in normalized for token in ("个人画像汇总", "画像汇总", "画像总结", "画像分析", "画像雷达总结", "profile summary")):
             return LeaderPlan("profile_summary", "profile_summary_agent", False, "", route_reason="命中个人画像汇总意图，分发给个人画像汇总智能体。")
         if any(token in normalized for token in ("多选题", "多项选择")):
@@ -212,8 +602,14 @@ class LeaderAgent:
             return LeaderPlan("ppt_review", "ppt_review_agent", False, "", route_reason="命中 PPT 审查/评分意图，分发给 PPT 审查智能体。")
         if any(token in normalized for token in ("ppt布局", "ppt排版", "ppt版式", "排布局", "排版")):
             return LeaderPlan("ppt_layout", "ppt_layout_agent", False, "", route_reason="命中 PPT 布局/排版意图，分发给 PPT 布局智能体。")
-        if any(token in normalized for token in ("ppt图片", "ppt配图", "ppt插图", "ppt封面", "课件配图")):
-            return LeaderPlan("ppt_image", "ppt_image_agent", False, "", route_reason="命中 PPT 图片/配图意图，分发给 PPT 图片智能体。")
+        if (
+            any(token in normalized for token in ("ppt图片", "ppt配图", "ppt插图", "ppt封面", "课件配图"))
+            or (
+                any(token in normalized for token in ("ppt", "课件", "幻灯片"))
+                and any(token in normalized for token in ("图片", "配图", "插图", "封面图", "封面"))
+            )
+        ):
+            return LeaderPlan("ppt_image", "leader_agent", False, "", action="call_tool", tool_name="generate_ppt_image_tool", route_reason="命中 PPT 图片/配图意图，调用 PPT 配图生成工具。")
         if any(token in normalized for token in ("ppt", "幻灯片", "课件", "演示文稿")):
             return LeaderPlan("ppt_outline", "ppt_outline_agent", False, "", route_reason="命中 PPT/课件生成意图，默认分发给 PPT 大纲智能体。")
         if any(token in normalized for token in ("md", "markdown", "知识点提取", "提取知识点", "知识点整理")):
@@ -221,6 +617,302 @@ class LeaderAgent:
         if any(token in normalized for token in ("教材", "课本", "章节", "考点", "知识点", "课程内容")):
             return LeaderPlan("textbook_knowledge", "textbook_knowledge_agent", False, "", route_reason="命中教材/课程知识意图，使用教材知识点智能体直接整理。")
         return LeaderPlan("campus_search", "textbook_knowledge_agent", False, "", route_reason="未命中特定生成类意图，按校园知识查询处理。")
+
+    def _plan_high_confidence_service_query(
+        self,
+        input_text: str,
+        rag_strategy: str = "",
+        callable_catalog: Optional[Dict[str, Any]] = None,
+        conversation_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[LeaderPlan]:
+        if not self._fast_route_enabled() or str(rag_strategy or "").strip():
+            return None
+        try:
+            normalized = self._normalize_fast_route_text(input_text)
+            if not normalized or self._requires_llm_routing(normalized, conversation_context):
+                return None
+
+            domains = self._fast_route_domains(normalized)
+            if len(domains) != 1:
+                return None
+            domain = domains[0]
+            tool_name = {
+                "schedule": "java_schedule_api",
+                "activity": "java_activity_api",
+                "meeting": "java_meeting_api",
+                "canteen": "java_canteen_api",
+            }[domain]
+            if not self._catalog_tool_enabled(callable_catalog, tool_name):
+                return None
+
+            if domain == "schedule":
+                intent, answer = self._schedule_fast_route_response(input_text)
+                return LeaderPlan(
+                    intent=intent,
+                    target_agent="leader_agent",
+                    need_retrieval=False,
+                    rag_strategy="",
+                    action="call_tool",
+                    tool_name=tool_name,
+                    route_reason="高置信度命中明确课表查询，跳过模型路由并调用 Java 后端课表接口。",
+                    answer=answer,
+                    route_mode="rules",
+                )
+
+            labels = {
+                "activity": ("activity_query", "校园活动", "正在为你查询校园活动。"),
+                "meeting": ("meeting_query", "会议安排", "正在为你查询会议安排。"),
+                "canteen": ("canteen_query", "食堂餐饮", "正在为你查询食堂餐饮信息。"),
+            }
+            intent, label, answer = labels[domain]
+            return LeaderPlan(
+                intent=intent,
+                target_agent="leader_agent",
+                need_retrieval=False,
+                rag_strategy="",
+                action="call_tool",
+                tool_name=tool_name,
+                route_reason=f"高置信度命中明确{label}查询，跳过模型路由并调用 Java 后端接口。",
+                answer=answer,
+                route_mode="rules",
+            )
+        except Exception as exc:
+            logger.warning("leader fast route failed; fallback to llm: %s", exc)
+            return None
+
+    def _fast_route_domains(self, normalized: str) -> List[str]:
+        if self._is_service_meta_question(normalized):
+            return []
+
+        domains: List[str] = []
+        if self._is_high_confidence_schedule_query(normalized):
+            domains.append("schedule")
+        if self._is_high_confidence_activity_query(normalized):
+            domains.append("activity")
+        if self._is_high_confidence_meeting_query(normalized):
+            domains.append("meeting")
+        if self._is_high_confidence_canteen_query(normalized):
+            domains.append("canteen")
+        return domains
+
+    def _is_service_meta_question(self, normalized: str) -> bool:
+        if any(token in normalized for token in _FAST_ROUTE_META_HARD_TOKENS):
+            return True
+        if any(phrase in normalized for phrase in _FAST_ROUTE_META_PHRASES):
+            return True
+        if self._is_service_knowledge_question(normalized):
+            return True
+        if "系统" in normalized and any(
+            token in normalized
+            for token in ("为什么", "为何", "实现", "开发", "设计", "原理", "失败", "有问题")
+        ):
+            return True
+        return False
+
+    def _is_service_knowledge_question(self, normalized: str) -> bool:
+        if any(token in normalized for token in _FAST_ROUTE_KNOWLEDGE_INTENT_TOKENS):
+            return True
+        for entity in _FAST_ROUTE_SERVICE_ENTITY_TOKENS:
+            entity_index = normalized.find(entity)
+            if entity_index < 0:
+                continue
+            knowledge_start = entity_index + len(entity)
+            if any(normalized.find(topic, knowledge_start) >= 0 for topic in _FAST_ROUTE_KNOWLEDGE_TOPIC_TOKENS):
+                return True
+        return False
+
+    def _has_explicit_service_query_signal(self, normalized: str) -> bool:
+        return any(token in normalized for token in _FAST_ROUTE_QUERY_ACTION_TOKENS) or any(
+            token in normalized for token in _FAST_ROUTE_QUERY_SCOPE_TOKENS
+        ) or any(token in normalized for token in _FAST_ROUTE_QUESTION_TOKENS)
+
+    def _is_high_confidence_activity_query(self, normalized: str) -> bool:
+        if any(token in normalized for token in _ACTIVITY_NON_QUERY_TOKENS):
+            return False
+        if not any(token in normalized for token in _FAST_ROUTE_ACTIVITY_TOKENS):
+            return False
+        if normalized in {
+            "校园活动",
+            "活动安排",
+            "最近活动",
+            "近期活动",
+            "讲座安排",
+            "比赛安排",
+            "报名活动",
+        }:
+            return True
+        return self._has_explicit_service_query_signal(normalized)
+
+    def _is_high_confidence_meeting_query(self, normalized: str) -> bool:
+        if any(token in normalized for token in _MEETING_NON_QUERY_TOKENS):
+            return False
+        if not any(token in normalized for token in _FAST_ROUTE_MEETING_TOKENS):
+            return False
+        if normalized in {
+            "我的会议",
+            "会议列表",
+            "会议状态",
+            "预约的会议",
+            "已预约会议",
+            "预约会议安排",
+            "有什么会议",
+            "查询会议安排",
+            "查看会议安排",
+            "今天的会议安排",
+            "明天的会议安排",
+            "本周会议安排",
+        }:
+            return True
+        return self._has_explicit_service_query_signal(normalized) or any(
+            token in normalized for token in ("我的会议", "预约的会议", "已预约会议")
+        )
+
+    def _is_high_confidence_canteen_query(self, normalized: str) -> bool:
+        if any(token in normalized for token in _CANTEEN_NON_QUERY_TOKENS):
+            return False
+        if not any(token in normalized for token in _FAST_ROUTE_CANTEEN_TOKENS):
+            return False
+        if normalized in {
+            "食堂",
+            "档口",
+            "食堂菜单",
+            "餐厅菜单",
+            "有什么菜",
+            "菜品价格",
+            "吃什么",
+            "餐饮优惠",
+            "餐饮信息",
+        }:
+            return True
+        if any(token in normalized for token in ("有什么菜", "吃什么")):
+            return True
+        return self._has_explicit_service_query_signal(normalized)
+
+    def _is_high_confidence_schedule_query(self, normalized: str) -> bool:
+        if any(token in normalized for token in _SCHEDULE_NON_QUERY_TOKENS):
+            return False
+        typical_query_tokens = (
+            "下节课",
+            "下一节课",
+            "再下一节课",
+            "后一节课",
+            "下一门课",
+            "再下一门课",
+            "下门课",
+            "今天有什么课",
+            "明天有什么课",
+            "后天有什么课",
+            "今天有课吗",
+            "明天有课吗",
+            "后天有课吗",
+            "今天有没有课",
+            "明天有没有课",
+            "后天有没有课",
+            "本周有没有课",
+            "这周有没有课",
+            "本周有什么课",
+            "这周有什么课",
+            "今日课表",
+            "今天的课表",
+            "明天的课表",
+            "后天的课表",
+            "本周课表",
+            "这周课表",
+            "下周课表",
+            "我的课表",
+        )
+        if any(token in normalized for token in typical_query_tokens):
+            return True
+        if is_semester_schedule_query(normalized) or is_all_semester_schedule_query(normalized):
+            return True
+        if normalized in {
+            "课表",
+            "我的课表",
+            "查询课表",
+            "查看课表",
+            "查课表",
+            "课程安排",
+            "我的课程安排",
+            "课程列表",
+            "全部课程",
+        }:
+            return True
+        has_schedule_entity = any(token in normalized for token in ("课表", "课程安排", "课程列表"))
+        if has_schedule_entity and self._has_explicit_service_query_signal(normalized):
+            return True
+        return bool(
+            re.search(
+                r"(?:第\d+周|周[一二三四五六日天]|星期[一二三四五六日天]).*(?:有|上|没|没有).*课",
+                normalized,
+            )
+        )
+
+    def _requires_llm_routing(
+        self,
+        normalized: str,
+        conversation_context: Optional[Dict[str, Any]],
+    ) -> bool:
+        if any(token in normalized for token in _FAST_ROUTE_MULTI_INTENT_TOKENS):
+            return True
+        context = conversation_context if isinstance(conversation_context, dict) else {}
+        has_context = bool(context.get("summary") or context.get("turns") or context.get("lastSubjects"))
+        if has_context and any(token in normalized for token in _FAST_ROUTE_FOLLOWUP_TOKENS):
+            return True
+        if has_context:
+            subjects = [
+                self._normalize_fast_route_text(subject)
+                for subject in (context.get("lastSubjects") or [])
+                if str(subject or "").strip()
+            ]
+            is_subject_followup = any(subject and subject in normalized for subject in subjects)
+            if is_subject_followup and any(
+                token in normalized
+                for token in ("老师", "教师", "谁教", "几节课", "几次课", "课时", "什么时候", "哪天", "周几", "几点", "在哪", "哪里")
+            ):
+                return True
+        return False
+
+    def _catalog_tool_enabled(self, callable_catalog: Optional[Dict[str, Any]], tool_name: str) -> bool:
+        if not isinstance(callable_catalog, dict):
+            return True
+        tools = callable_catalog.get("tools")
+        if not isinstance(tools, list):
+            return True
+        for item in tools:
+            if not isinstance(item, dict) or str(item.get("name") or "").strip() != tool_name:
+                continue
+            return item.get("enabled") is not False
+        return False
+
+    def _catalog_agent_enabled(self, callable_catalog: Optional[Dict[str, Any]], agent_name: str) -> bool:
+        if not isinstance(callable_catalog, dict):
+            return True
+        agents = callable_catalog.get("agents")
+        if not isinstance(agents, list):
+            return True
+        for item in agents:
+            if not isinstance(item, dict) or str(item.get("name") or "").strip() != agent_name:
+                continue
+            return item.get("enabled") is not False
+        return False
+
+    def _schedule_fast_route_response(self, input_text: str) -> tuple[str, str]:
+        if is_course_teacher_query(input_text):
+            return "course_teacher", "正在为你查询课程老师。"
+        if is_course_count_query(input_text):
+            return "course_count", "正在为你查询课程次数。"
+        if is_course_time_query(input_text):
+            return "course_time", "正在为你查询课程时间。"
+        if is_semester_schedule_query(input_text) or is_all_semester_schedule_query(input_text):
+            return "schedule", "正在为你查询本学期课表。"
+        return "schedule", "正在为你查询课程安排。"
+
+    def _fast_route_enabled(self) -> bool:
+        value = str(os.getenv(LEADER_FAST_ROUTE_ENABLED_ENV, "true") or "").strip().lower()
+        return value not in {"0", "false", "no", "off", "disabled"}
+
+    def _normalize_fast_route_text(self, value: Any) -> str:
+        return re.sub(r"[\s，。！？,.!?？、；;：:（）()\[\]{}\"']", "", str(value or "").strip().lower())
 
     def _plan_with_llm(
         self,
@@ -248,6 +940,7 @@ class LeaderAgent:
         parsed = self._parse_llm_plan(plan, rag_strategy)
         if not parsed:
             raise HTTPException(status_code=502, detail=f"Leader LLM 路由结果字段不合法：{plan}")
+        parsed = self._enforce_current_input_output_intent(parsed, input_text, callable_catalog)
         logger.info(
             "leader llm plan intent=%s action=%s target=%s retrieval=%s",
             parsed.intent,
@@ -257,6 +950,34 @@ class LeaderAgent:
         )
         return parsed
 
+    def _enforce_current_input_output_intent(
+        self,
+        plan: LeaderPlan,
+        input_text: str,
+        callable_catalog: Optional[Dict[str, Any]],
+    ) -> LeaderPlan:
+        if (
+            plan.target_agent not in _VISUAL_GENERATION_AGENTS
+            and plan.tool_name not in VISUAL_GENERATION_TOOL_NAMES
+        ):
+            return plan
+        if self._has_explicit_visual_output_request(input_text):
+            return plan
+        if self._catalog_agent_enabled(callable_catalog, "textbook_knowledge_agent"):
+            return LeaderPlan(
+                intent="textbook_knowledge",
+                target_agent="textbook_knowledge_agent",
+                need_retrieval=False,
+                rag_strategy="",
+                action="delegate_agent",
+                route_reason="当前输入没有明确要求图片或图表，已阻止画像输出偏好覆盖本轮指令，并改由教材知识点智能体处理。",
+                route_mode="rules",
+            )
+        raise HTTPException(
+            status_code=502,
+            detail="Leader 模型选择了与当前输入不符的图片能力，已拒绝生成系统纠偏回复。",
+        )
+
     def _parse_llm_plan(self, plan: Dict[str, Any], requested_rag_strategy: str) -> Optional[LeaderPlan]:
         if not isinstance(plan, dict):
             return None
@@ -264,18 +985,7 @@ class LeaderAgent:
         tool_name = str(plan.get("tool_name") or plan.get("toolName") or "").strip()
         default_target = "leader_agent" if action in {"direct_answer", "call_tool"} else "textbook_knowledge_agent"
         target_agent = normalize_agent_name(str(plan.get("target_agent") or plan.get("targetAgent") or "")) or default_target
-        if target_agent not in {
-            "leader_agent",
-            "profile_summary_agent",
-            "architecture_prompt_agent",
-            *DIAGRAM_AGENT_SPECS.keys(),
-            "mind_map_agent",
-            "textbook_knowledge_agent",
-            *QUESTION_AGENT_SPECS.keys(),
-            *MEETING_AGENT_SPECS.keys(),
-            *PPT_AGENT_SPECS.keys(),
-            "image_agent",
-        }:
+        if target_agent not in {"leader_agent", *LEADER_CALLABLE_AGENT_ORDER}:
             return None
         need_retrieval = bool(plan.get("need_retrieval", plan.get("needRetrieval", False)))
         profile = get_agent_profile(target_agent)
@@ -295,6 +1005,7 @@ class LeaderAgent:
             tool_name=tool_name,
             route_reason=str(plan.get("route_reason") or plan.get("routeReason") or "Leader LLM 完成意图识别。").strip(),
             answer=str(plan.get("answer") or "").strip(),
+            route_mode="llm",
         )
 
     def _plan_for_requested_agent(self, requested_agent: Optional[str], rag_strategy: str) -> Optional[LeaderPlan]:
@@ -310,91 +1021,13 @@ class LeaderAgent:
             need_retrieval=bool(profile["needRetrieval"]),
             rag_strategy="",
             route_reason=f"用户显式选择 {profile['role']}，Leader 按指定智能体执行。",
+            route_mode="forced",
         )
 
     def _is_structured_query(self, normalized_text: str) -> bool:
         query_tokens = ("统计", "数量", "多少", "有多少", "列表", "查询", "查一下", "排名")
         domain_tokens = ("优惠券", "优惠", "满减", "食堂", "餐厅", "档口", "菜品", "课程", "课表")
         return any(token in normalized_text for token in query_tokens) and any(token in normalized_text for token in domain_tokens)
-
-    def _smalltalk_answer(self, input_text: str) -> str:
-        normalized = (input_text or "").strip()
-        if "谢谢" in normalized:
-            return "不客气，我可以继续帮你判断任务该交给哪个智能体，或者直接处理课程资料。"
-        if "再见" in normalized:
-            return "再见，需要继续做思维导图、知识点、题库、PPT 或配图时再叫我就行。"
-        return "你好，我是 Leader 智能体。我会先判断你的意图，再决定直接回答、调用专业智能体，或走 Text-to-SQL 或 Java 后端接口。"
-
-    def _is_callable_catalog_query(self, input_text: str) -> bool:
-        normalized = (input_text or "").strip().lower()
-        if not normalized:
-            return False
-        action_tokens = ("能调用", "会调用", "调用哪些", "调用什么", "有哪些", "有什么", "清单", "列表", "能力")
-        target_tokens = ("智能体", "agent", "工具", "tool", "功能", "能力")
-        return any(token in normalized for token in action_tokens) and any(token in normalized for token in target_tokens)
-
-    def _callable_catalog_answer(self, callable_catalog: Optional[Dict[str, Any]]) -> str:
-        catalog = callable_catalog if isinstance(callable_catalog, dict) else {}
-        agents = [item for item in catalog.get("agents", []) if isinstance(item, dict)]
-        tools = [item for item in catalog.get("tools", []) if isinstance(item, dict)]
-        content_tools = [item for item in catalog.get("contentTools", []) if isinstance(item, dict)]
-        if not agents and not tools:
-            return "当前还没有拿到后台可调用清单。请先确认 AI Server 的智能体目录和工具目录是否正常返回。"
-
-        lines = ["我当前会按后台启用状态调用这些能力：", ""]
-        enabled_agents = [item for item in agents if item.get("enabled") is not False]
-        disabled_agents = [item for item in agents if item.get("enabled") is False]
-        grouped_agents: Dict[str, List[Dict[str, Any]]] = {}
-        for item in enabled_agents:
-            grouped_agents.setdefault(str(item.get("category") or "other"), []).append(item)
-        lines.append("可调用智能体：")
-        for category, items in grouped_agents.items():
-            names = "、".join(f"{item.get('role') or item.get('name')}（{item.get('name')}）" for item in items[:8])
-            overflow = f" 等 {len(items)} 个" if len(items) > 8 else ""
-            lines.append(f"- {self._category_label(category)}：{names}{overflow}")
-        if disabled_agents:
-            lines.append(f"- 已关闭：{len(disabled_agents)} 个，Leader 识别到也不会继续执行。")
-
-        lines.append("")
-        lines.append("Leader 可直接调用的工具：")
-        for item in tools:
-            status = "可用" if item.get("enabled") is not False else "已关闭"
-            lines.append(f"- {self._tool_display_name(item)}（{status}）：{item.get('purpose') or ''}")
-
-        if content_tools:
-            enabled_content_tools = [item for item in content_tools if item.get("enabled") is not False]
-            disabled_content_tools = [item for item in content_tools if item.get("enabled") is False]
-            lines.append("")
-            lines.append("内容整理子工具：")
-            if enabled_content_tools:
-                lines.append("- 可用：" + "、".join(self._tool_display_name(item) for item in enabled_content_tools))
-            if disabled_content_tools:
-                lines.append("- 已关闭：" + "、".join(self._tool_display_name(item) for item in disabled_content_tools))
-
-        lines.append("")
-        lines.append("规则：我只能调用清单里开启的项；关闭的智能体或工具不会被兜底调用。")
-        return "\n".join(lines).strip()
-
-    def _category_label(self, category: str) -> str:
-        labels = {
-            "profile": "画像",
-            "diagram": "图表",
-            "image": "图片",
-            "textbook": "教材知识",
-            "question_bank": "题库",
-            "meeting": "会议",
-            "ppt": "PPT",
-            "other": "其他",
-        }
-        return labels.get(category or "", category or "其他")
-
-    def _tool_display_name(self, tool: Dict[str, Any]) -> str:
-        name = str(tool.get("name") or "").strip()
-        display_name = str(tool.get("displayName") or "").strip()
-        if display_name:
-            return display_name
-        zh_name = str(tool.get("zhName") or "").strip()
-        return f"{zh_name}（{name}）" if zh_name and name else (zh_name or name)
 
     def load_memory(self, session_token: str) -> List[Dict[str, str]]:
         return memory_store.get_history(session_token)
@@ -723,7 +1356,7 @@ def build_leader_router_user_prompt(
             "行为证据实时沉淀，雷达图分数由 Java 后端定时汇总更新。",
             "Leader 不能直接更新画像分数；发现明确证据或冲突时只在 route_reason 中说明，由 Java 按 campus-profile-evidence-v1 记录候选证据。",
             "当前输入与画像冲突时，以当前输入完成本轮回答，并在 route_reason 中说明冲突倾向。",
-            "如果 profile_snapshot.outputPreferenceHints 显示用户稳定偏好文件/图片等输出形式，同类任务默认参考该偏好，并在结尾提示可补另一种形式。",
+            "profile_snapshot.outputPreferenceHints 只能用于提供后续图片版/文件版选项，不能凭偏好把普通学习、解释或问答请求改成生图任务。只有当前 user_input 明确要求图片、图解或具体图表时，才允许选择图片/图表智能体。",
             "如果任务既可做图片又可做文件且没有稳定偏好，先询问用户要图片形式还是文件形式。",
             "用户要求文件版/文档版/Excel/Word/打包下载时，优先路由到能生成知识、题库、会议纪要或 PPT 大纲的专业智能体；AI Server 会自动调用 generated_export_tools 生成附件，不要把长内容只当纯文字回复。",
             "用户要求题库表格或题库 Excel 时，仍先选择对应题型智能体生成严格题库 JSON，再由导出工具转换为 md/docx/xlsx/zip。",
@@ -739,6 +1372,12 @@ def build_leader_router_user_prompt(
             "用户问某门课本学期有几节课、几次课、多少课时或上课次数时，也是课程信息查询，必须优先选择 java_schedule_api。",
             "会议纪要/总结/转写/成员分析仍属于会议专业智能体；活动图/流程图仍属于图表智能体，不要误判为校园活动查询。",
             "路由时只能选择 leader_callable_catalog 中 enabled=true 的 agents/tools；关闭项只可在 route_reason 中说明，不允许绕过后台配置。",
+            "用户询问你有什么功能、是否支持生图/PPT/题库/文档/图表等能力时，只能依据 leader_callable_catalog 中 enabled=true 的项目回答；不得把静态提示词、已知智能体名称或输出策略当成当前可用能力。",
+            "问候、闲聊和能力询问都必须由你在 answer 中直接生成自然回复；系统不会补写固定问候语、能力清单或其他兜底文案。",
+            "回答能力询问时面向普通用户说明可完成的事情，不要主动输出内部 agent/tool 标识；只有用户明确询问技术名称时才可给出。",
+            "某项能力未出现在启用清单中时，必须明确回答当前不可用或尚未完成配置，不得声称可以生成后再执行失败。",
+            "leader_output_push_strategies 只是已启用能力的输出路由提示，不能单独证明某种生成能力当前可用。",
+            "所有图片、思维导图、流程图、活动图、架构图、知识图谱和 PPT 配图请求都必须 action=call_tool，并从 leader_callable_catalog.tools 选择对应 generate_*_image_tool；不得 delegate_agent 到提示词智能体或 image_agent。",
             "target_agent 必须来自 leader_callable_catalog.agents.name；tool_name 必须来自 leader_callable_catalog.tools.name。",
             "action=call_tool 时，answer 必须是一句简短自然的进行中回复，例如“正在为你查询今日课表。”；最终结果会在工具返回后再由模型整理。",
         ],

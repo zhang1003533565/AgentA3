@@ -30,7 +30,7 @@ class ExamPaperPreviewServiceImplTest {
     void createsCreatorOwnedThirtyMinutePreviewWithHashesWithoutPersistingHistory() throws Exception {
         ExamQuestionRepository questions = mock(ExamQuestionRepository.class);
         ExamPaperDocumentDispatcher dispatcher = mock(ExamPaperDocumentDispatcher.class);
-        when(questions.findAllById(List.of(3L))).thenReturn(List.of(question()));
+        when(questions.findAllVisibleById(List.of(3L), 8L)).thenReturn(List.of(question()));
         when(dispatcher.generate(any(), eq(DownloadContent.PAPER), any())).thenReturn(new byte[]{1});
         Instant now = Instant.parse("2026-07-11T12:00:00Z");
         var service = service(questions, dispatcher, Duration.ofMinutes(30), Clock.fixed(now, ZoneOffset.UTC));
@@ -48,14 +48,14 @@ class ExamPaperPreviewServiceImplTest {
         service.deletePreview(preview.getToken(), 8L);
         assertEquals(404, assertThrows(BusinessException.class,
                 () -> service.getPreview(preview.getToken(), 8L)).getCode());
-        verify(questions).findAllById(List.of(3L));
+        verify(questions).findAllVisibleById(List.of(3L), 8L);
     }
 
     @Test
     void expiredPreviewIsRemovedByCleanup() throws Exception {
         ExamQuestionRepository questions = mock(ExamQuestionRepository.class);
         ExamPaperDocumentDispatcher dispatcher = mock(ExamPaperDocumentDispatcher.class);
-        when(questions.findAllById(anyList())).thenReturn(List.of(question()));
+        when(questions.findAllVisibleById(anyList(), any())).thenReturn(List.of(question()));
         when(dispatcher.generate(any(), any(), any())).thenReturn(new byte[]{1});
         AdjustableClock clock = new AdjustableClock(Instant.EPOCH);
         var service = service(questions, dispatcher, Duration.ofSeconds(1), clock);
@@ -71,7 +71,7 @@ class ExamPaperPreviewServiceImplTest {
         ExamQuestionRepository questions = mock(ExamQuestionRepository.class);
         ExamPaperDocumentDispatcher dispatcher = mock(ExamPaperDocumentDispatcher.class);
         LibreOfficePreviewConverter converter = mock(LibreOfficePreviewConverter.class);
-        when(questions.findAllById(anyList())).thenReturn(List.of(question()));
+        when(questions.findAllVisibleById(anyList(), any())).thenReturn(List.of(question()));
         when(dispatcher.generate(any(), any(), any())).thenReturn(new byte[]{1});
         when(converter.convert(any(), any())).thenThrow(new BusinessException(500, "转换失败"));
         var service = new ExamPaperPreviewServiceImpl(questions, dispatcher, converter, root,
@@ -84,7 +84,7 @@ class ExamPaperPreviewServiceImplTest {
     void canonicalHashesAreStableAndChangeForRenderedFields() throws Exception {
         ExamQuestionRepository questions = mock(ExamQuestionRepository.class);
         ExamPaperDocumentDispatcher dispatcher = mock(ExamPaperDocumentDispatcher.class);
-        when(questions.findAllById(anyList())).thenReturn(List.of(question()));
+        when(questions.findAllVisibleById(anyList(), any())).thenReturn(List.of(question()));
         when(dispatcher.generate(any(), any(), any())).thenReturn(new byte[]{1});
         var service = service(questions, dispatcher, Duration.ofMinutes(30), Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
         var first = service.createPreview(request(), 8L);
@@ -94,7 +94,7 @@ class ExamPaperPreviewServiceImplTest {
         CreateRequest changed = request(); changed.setPrecautions("新的注意事项");
         assertNotEquals(first.getConfigurationHash(), service.createPreview(changed, 8L).getConfigurationHash());
         ExamQuestion changedQuestion = question(); changedQuestion.setAnalysis("变化");
-        when(questions.findAllById(anyList())).thenReturn(List.of(changedQuestion));
+        when(questions.findAllVisibleById(anyList(), any())).thenReturn(List.of(changedQuestion));
         assertNotEquals(first.getQuestionHash(), service.createPreview(request(), 8L).getQuestionHash());
     }
 
@@ -102,7 +102,7 @@ class ExamPaperPreviewServiceImplTest {
     void proofRecomputesAndConsumesTokenPreventingReplay() throws Exception {
         ExamQuestionRepository questions = mock(ExamQuestionRepository.class);
         ExamPaperDocumentDispatcher dispatcher = mock(ExamPaperDocumentDispatcher.class);
-        when(questions.findAllById(anyList())).thenReturn(List.of(question()));
+        when(questions.findAllVisibleById(anyList(), any())).thenReturn(List.of(question()));
         when(dispatcher.generate(any(), any(), any())).thenReturn(new byte[]{1});
         var service = service(questions, dispatcher, Duration.ofMinutes(30), Clock.systemUTC());
         CreateRequest request = request(); var response = service.createPreview(request, 8L);
@@ -116,7 +116,7 @@ class ExamPaperPreviewServiceImplTest {
     void proofRejectsChangedConfigurationQuestionContentAndDifferentCreator() throws Exception {
         ExamQuestionRepository questions = mock(ExamQuestionRepository.class);
         ExamPaperDocumentDispatcher dispatcher = mock(ExamPaperDocumentDispatcher.class);
-        when(questions.findAllById(anyList())).thenReturn(List.of(question()));
+        when(questions.findAllVisibleById(anyList(), any())).thenReturn(List.of(question()));
         when(dispatcher.generate(any(), any(), any())).thenReturn(new byte[]{1});
         var service = service(questions, dispatcher, Duration.ofMinutes(30), Clock.systemUTC());
         CreateRequest request = request(); var configPreview = service.createPreview(request, 8L);

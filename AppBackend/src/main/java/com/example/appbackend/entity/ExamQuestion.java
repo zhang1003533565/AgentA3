@@ -11,9 +11,13 @@ import java.time.LocalDateTime;
 @Table(name = "exam_question", indexes = {
         @Index(name = "idx_exam_question_type", columnList = "type"),
         @Index(name = "idx_exam_question_difficulty", columnList = "difficulty"),
-        @Index(name = "idx_exam_question_created_by", columnList = "created_by")
+        @Index(name = "idx_exam_question_created_by", columnList = "created_by"),
+        @Index(name = "idx_exam_question_visibility_owner", columnList = "visibility,owner_user_id")
 })
 public class ExamQuestion {
+
+    public static final String VISIBILITY_PUBLIC = "PUBLIC";
+    public static final String VISIBILITY_PRIVATE = "PRIVATE";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -77,6 +81,13 @@ public class ExamQuestion {
     @Column(name = "created_by", columnDefinition = "BIGINT COMMENT '创建用户ID'")
     private Long createdBy;
 
+    @Column(nullable = false, length = 16,
+            columnDefinition = "VARCHAR(16) NOT NULL DEFAULT 'PUBLIC' COMMENT '可见范围：PUBLIC/PRIVATE'")
+    private String visibility = VISIBILITY_PUBLIC;
+
+    @Column(name = "owner_user_id", columnDefinition = "BIGINT COMMENT '私有题库所有者用户ID'")
+    private Long ownerUserId;
+
     @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 1 COMMENT '状态：1-正常 0-删除'")
     private Integer status = 1;
 
@@ -92,6 +103,9 @@ public class ExamQuestion {
         updateTime = LocalDateTime.now();
         if (status == null) {
             status = 1;
+        }
+        if (visibility == null || visibility.isBlank()) {
+            visibility = VISIBILITY_PUBLIC;
         }
     }
 

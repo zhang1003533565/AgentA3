@@ -42,6 +42,7 @@ class ConfiguredTestClient(TestClient):
                     "baseUrl": "https://llm.test/v1",
                     "apiKey": "test-key",
                     "model": "test-model",
+                    "tested": True,
                 })
             metadata["agentModelConfigs"] = configs
             payload["metadata"] = metadata
@@ -51,6 +52,7 @@ class ConfiguredTestClient(TestClient):
 
 class RagApiRoutesTest(unittest.TestCase):
     def setUp(self):
+        FakeImageProvider.requests.clear()
         self._old_internal_token = os.environ.get("AI_INTERNAL_TOKEN")
         os.environ["AI_INTERNAL_TOKEN"] = "test-internal-token"
         self.client = ConfiguredTestClient(app)
@@ -69,8 +71,9 @@ class RagApiRoutesTest(unittest.TestCase):
                 "baseUrl": "https://llm.test/v1",
                 "apiKey": "test-key",
                 "model": "test-model",
+                "tested": True,
             }
-            for item in ({"name": name} for name in LEADER_CALLABLE_AGENT_ORDER)
+            for item in ({"name": name} for name in AGENT_ORDER)
         }
         self._patched_modules = []
         self._patched_image_modules = []
@@ -109,13 +112,7 @@ class RagApiRoutesTest(unittest.TestCase):
             module.get_chat_model_provider = lambda provider=FakeRagModelProvider(): provider
 
     def _patch_image_provider(self):
-        module_names = [
-            "app.multi_agents.image_agent.agent",
-            "app.multi_agents.diagram_activity_agent.agent",
-            "app.multi_agents.diagram_architecture_agent.agent",
-            "app.multi_agents.diagram_flowchart_agent.agent",
-            "app.multi_agents.diagram_mind_map_agent.agent",
-        ]
+        module_names = ["app.multi_agents.image_agent.agent"]
         for module_name in module_names:
             module = importlib.import_module(module_name)
             self._patched_image_modules.append((module, module.get_qwen_image_provider))
@@ -130,6 +127,242 @@ class RagApiRoutesTest(unittest.TestCase):
             )
         )
         return old
+
+    def test_agent_is_available_only_after_complete_model_config_passes_test(self):
+        request = SimpleNamespace(metadata={
+            "agentToggles": {"image_agent": True},
+            "agentModelConfigs": {
+                "image_agent": {
+                    "provider": "qwen",
+                    "baseUrl": "https://image.test/v1",
+                    "apiKey": "test-key",
+                    "model": "image-model",
+                    "tested": True,
+                },
+            },
+        })
+
+        self.assertTrue(self._rag_routes._is_agent_enabled(request, "image_agent"))
+
+        request.metadata["agentModelConfigs"]["image_agent"]["tested"] = False
+        self.assertFalse(self._rag_routes._is_agent_enabled(request, "image_agent"))
+
+        request.metadata["agentModelConfigs"]["image_agent"]["tested"] = True
+        request.metadata["agentModelConfigs"]["image_agent"]["apiKey"] = ""
+        self.assertFalse(self._rag_routes._is_agent_enabled(request, "image_agent"))
+
+    def test_visual_tool_without_internal_image_binding_is_not_advertised_as_available(self):
+        request = SimpleNamespace(metadata={
+            "agentToggles": {"image_agent": True},
+            "agentModelConfigs": {},
+        })
+
+        catalog = self._rag_routes._build_leader_callable_catalog(request)
+        image_tool = next(item for item in catalog["tools"] if item["name"] == "generate_image_tool")
+
+        self.assertFalse(image_tool["enabled"])
+        self.assertNotIn("image_agent", {item["name"] for item in catalog["agents"]})
+
+    def test_file_export_tool_can_reuse_leader_model_when_planner_has_no_separate_binding(self):
+        request = SimpleNamespace(metadata={
+            "agentToggles": {"file_content_planner_agent": True},
+            "agentModelConfigs": {},
+            "toolToggles": {"generated_export_tools": True},
+        })
+
+        catalog = self._rag_routes._build_leader_callable_catalog(request)
+        export_tool = next(item for item in catalog["tools"] if item["name"] == "generated_export_tools")
+
+        self.assertTrue(export_tool["enabled"])
+
+    def test_file_transform_action_forces_real_export_tool(self):
+        request = SimpleNamespace(metadata={
+            "interactionType": "transform",
+            "requestedOutputType": "docx",
+            "sourceMessageId": 88,
+            "sourceMessageContent": "# 数据结构\n\n- 栈：后进先出",
+        })
+
+        plan = self._rag_routes._requested_file_transform_plan(request)
+
+        self.assertIsNotNone(plan)
+        self.assertEqual("call_tool", plan.action)
+        self.assertEqual("generated_export_tools", plan.tool_name)
+        self.assertEqual("rules", plan.route_mode)
+
+    def test_second_source_option_is_expanded_to_explicit_model_authorization(self):
+        context = {
+            "turns": [{
+                "user": "请生成 Python 发展历史知识点",
+                "assistant": "请选择两种来源方式之一：1. 上传材料或选择知识库内容；2. 授权模型自行生成。",
+                "metadata": {"knowledgeSourceMode": "source_selection_required"},
+            }],
+        }
+
+        expanded = self._rag_routes._contextualize_followup_input("第二种方式", context)
+
+        self.assertIn("明确授权模型", expanded)
+        self.assertIn("Python 发展历史", expanded)
+
+    def test_legacy_third_source_option_is_expanded_to_explicit_model_authorization(self):
+        context = {
+            "turns": [
+                {
+                    "user": "请生成 Python 发展历史知识点",
+                    "assistant": "请选择来源。",
+                    "metadata": {},
+                },
+                {
+                    "user": "第二种方式",
+                    "assistant": "1. 上传材料；2. 选择知识库内容；3. 授权模型自行生成。",
+                    "metadata": {"knowledgeSourceMode": "source_selection_required"},
+                },
+            ],
+        }
+
+        expanded = self._rag_routes._contextualize_followup_input("3", context)
+
+        self.assertIn("明确授权模型", expanded)
+        self.assertIn("Python 发展历史", expanded)
+
+    def test_plain_number_is_not_rewritten_without_source_selection_context(self):
+        self.assertEqual("3", self._rag_routes._contextualize_followup_input("3", {"turns": []}))
+
+    def test_confirmed_model_source_is_reused_for_short_continuation(self):
+        context = {
+            "turns": [{
+                "user": "我授权模型生成 Python 发展历史知识材料",
+                "assistant": "已生成知识材料。",
+                "metadata": {
+                    "knowledgeSourceMode": "model_generated",
+                    "knowledgeTopic": "Python 发展历史",
+                },
+            }],
+        }
+
+        expanded = self._rag_routes._contextualize_followup_input("继续生成", context)
+
+        self.assertIn("此前已经授权模型", expanded)
+        self.assertIn("Python 发展历史", expanded)
+
+    def test_knowledge_source_clarification_does_not_offer_file_export_actions(self):
+        response = self._rag_routes.RagQueryResponse(
+            strategy="direct_agent",
+            answer="请选择材料来源。",
+            answerType="markdown",
+            metadata={
+                "executedAgent": "textbook_knowledge_agent",
+                "intent": "knowledge_source_clarification",
+                "knowledgeSourceMode": "source_selection_required",
+                "toolToggles": {"generated_export_tools": True},
+            },
+        )
+
+        decorated = self._rag_routes._decorate_output_response(response)
+
+        self.assertEqual([], decorated.outputMeta["followUpActions"])
+        self.assertEqual("", decorated.outputMeta["choicePrompt"])
+
+    def test_typed_word_export_without_source_is_clarified_by_content_planner_model(self):
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "给我导出word",
+                "agentName": "leader_agent",
+                "metadata": {"agentModelConfigs": self.agent_model_configs},
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("file_content_planner_agent", payload["metadata"]["executedAgent"])
+        self.assertEqual("file_source_clarification", payload["metadata"]["intent"])
+        self.assertEqual([], payload["attachments"])
+        self.assertIn("哪一段内容", payload["answer"])
+
+    def test_selected_source_runs_content_planner_then_returns_only_requested_word_file(self):
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "给我导出word",
+                "agentName": "leader_agent",
+                "metadata": {
+                    "requestedOutputType": "docx",
+                    "sourceMessageId": 88,
+                    "sourceMessageContent": "# 数据结构\n\n- 栈：后进先出",
+                    "agentModelConfigs": self.agent_model_configs,
+                },
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("generated_export_tools", payload["metadata"]["executedAgent"])
+        self.assertEqual("file_content_planner_agent", payload["metadata"]["promptAgent"])
+        self.assertEqual(["docx"], [item["ext"] for item in payload["attachments"]])
+        self.assertEqual(["leader_route", "agent_answer", "tool_call"], [item["stage"] for item in payload["trace"]])
+
+    def test_free_text_word_export_skips_clarification_message_and_uses_previous_substantive_candidate(self):
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "给我生成word格式",
+                "agentName": "leader_agent",
+                "metadata": {
+                    "sourceMessageCandidates": [
+                        {"messageId": 88, "content": "请选择知识来源方式：1. 上传材料；2. 授权模型自行生成。", "answerType": "text"},
+                        {"messageId": 87, "content": "# Python 发展历史\n\n- 1991 年发布首个公开版本。", "answerType": "markdown"},
+                    ],
+                    "agentModelConfigs": self.agent_model_configs,
+                },
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual(["docx"], [item["ext"] for item in payload["attachments"]])
+        self.assertEqual(87, payload["metadata"]["selectedSourceMessageId"])
+        self.assertEqual("generated_export_tools", payload["metadata"]["executedAgent"])
+
+    def test_file_format_actions_only_include_enabled_real_tools(self):
+        actions = self._rag_routes._file_format_follow_up_actions(
+            "question_bank",
+            {
+                "toolToggles": {
+                    "generated_export_tools": True,
+                    "excel_export_tool": True,
+                    "docx_export_tool": False,
+                    "markdown_export_tool": True,
+                },
+            },
+            "textbook_question_single_choice_agent",
+        )
+
+        self.assertEqual(["Excel 题库", "Markdown 题库"], [item["label"] for item in actions])
+        self.assertEqual(["xlsx", "md"], [item["outputType"] for item in actions])
+
+    def test_agent_answer_does_not_auto_export_every_file_format_before_user_selects_one(self):
+        response = self._rag_routes.RagQueryResponse(
+            strategy="direct_agent",
+            answer="# Python 入门学习路线\n\n- 基础语法\n- 数据结构",
+            answerType="markdown",
+            metadata={
+                "executedAgent": "textbook_knowledge_agent",
+                "toolToggles": {"generated_export_tools": True},
+            },
+        )
+
+        decorated = self._rag_routes._decorate_output_response(response)
+
+        self.assertEqual([], decorated.attachments)
+        self.assertEqual("output_format_not_selected", decorated.outputMeta["generatedExports"]["reason"])
+        self.assertEqual(
+            ["docx", "xlsx", "md", "pptx"],
+            [item["outputType"] for item in decorated.outputMeta["followUpActions"]],
+        )
 
     def test_removed_strategy_routes_return_404(self):
         response = self.client.get("/internal/rag/strategies", headers=self.headers)
@@ -388,8 +621,19 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertTrue(INTERNAL_LEARNING_WORKFLOW_AGENTS.isdisjoint(leader_callable_names))
         self.assertGreaterEqual(
             leader_callable_names,
-            {"textbook_knowledge_agent", "ppt_outline_agent", "diagram_mind_map_agent"},
+            {"textbook_knowledge_agent", "ppt_outline_agent"},
         )
+        self.assertTrue({
+            "image_agent",
+            "mind_map_agent",
+            "architecture_prompt_agent",
+            "diagram_flowchart_prompt_agent",
+            "diagram_activity_prompt_agent",
+            "knowledge_graph_prompt_agent",
+            "ppt_image_agent",
+        }.isdisjoint(leader_callable_names))
+        leader_tool_names = {item["name"] for item in payload["leaderCallableCatalog"]["tools"]}
+        self.assertGreaterEqual(leader_tool_names, set(self._rag_routes.VISUAL_GENERATION_TOOL_NAMES))
         internal_agents = {
             item["name"]: item
             for item in payload["agents"]
@@ -525,12 +769,12 @@ class RagApiRoutesTest(unittest.TestCase):
                         return json.dumps(
                             {
                                 "intent": "diagram_flowchart",
-                                "target_agent": "diagram_flowchart_agent",
+                                "target_agent": "leader_agent",
                                 "need_retrieval": False,
                                 "rag_strategy": "",
-                                "action": "delegate_agent",
-                                "tool_name": "",
-                                "route_reason": "LLM 根据 Leader 可调用清单选择流程图智能体。",
+                                "action": "call_tool",
+                                "tool_name": "generate_flowchart_image_tool",
+                                "route_reason": "LLM 根据 Leader 可调用清单选择流程图图片生成工具。",
                                 "answer": "",
                             },
                             ensure_ascii=False,
@@ -566,8 +810,14 @@ class RagApiRoutesTest(unittest.TestCase):
                     "baseUrl": "https://llm.test/v1",
                     "apiKey": "test-key",
                     "model": "test-model",
+                    "tested": True,
                 }
-                for agent_name in ("ppt_outline_agent", "diagram_flowchart_agent")
+                for agent_name in (
+                    "ppt_outline_agent",
+                    "diagram_flowchart_agent",
+                    "diagram_flowchart_prompt_agent",
+                    "image_agent",
+                )
             }
             ppt_response = self.client.post(
                 "/internal/rag/query",
@@ -594,19 +844,35 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(200, schedule_response.status_code)
         self.assertEqual("java_schedule_api", schedule_response.json()["metadata"]["toolName"])
         self.assertEqual(200, ppt_response.status_code)
-        self.assertEqual("ppt_outline_agent", ppt_response.json()["metadata"]["targetAgent"])
+        self.assertEqual("generated_export_tools", ppt_response.json()["metadata"]["targetAgent"])
+        self.assertEqual(["pptx"], [item["ext"] for item in ppt_response.json()["attachments"]])
         self.assertEqual(200, diagram_response.status_code)
-        self.assertEqual("diagram_flowchart_agent", diagram_response.json()["metadata"]["targetAgent"])
-        self.assertEqual(3, len(provider.callable_catalogs))
+        diagram_payload = diagram_response.json()
+        self.assertEqual("generate_flowchart_image_tool", diagram_payload["metadata"]["targetAgent"])
+        self.assertEqual("generate_flowchart_image_tool", diagram_payload["metadata"]["executedAgent"])
+        self.assertEqual("generate_flowchart_image_tool", diagram_payload["metadata"]["toolName"])
+        self.assertEqual("diagram_flowchart_prompt_agent", diagram_payload["metadata"]["promptAgent"])
+        self.assertEqual("generate_flowchart_image_tool", diagram_payload["strategy"])
+        self.assertEqual(1, len(FakeImageProvider.requests))
+        self.assertEqual(
+            "专业流程图图片提示词：蓝白教学风格，清晰展示开始、处理步骤、判断分支和结束节点。",
+            FakeImageProvider.requests[0].prompt,
+        )
+        # 明确的课表和文件格式请求走规则快速路由；流程图仍由模型读取可调用清单后路由。
+        self.assertEqual(1, len(provider.callable_catalogs))
         for catalog in provider.callable_catalogs:
             callable_names = {item["name"] for item in catalog["agents"]}
+            callable_tools = {item["name"] for item in catalog["tools"]}
             self.assertTrue(INTERNAL_LEARNING_WORKFLOW_AGENTS.isdisjoint(callable_names))
             self.assertGreaterEqual(
                 callable_names,
-                {"textbook_knowledge_agent", "ppt_outline_agent", "diagram_mind_map_agent"},
+                {"ppt_outline_agent"},
             )
+            self.assertIn("generate_flowchart_image_tool", callable_tools)
+            self.assertNotIn("diagram_flowchart_prompt_agent", callable_names)
+            self.assertNotIn("image_agent", callable_names)
 
-    def test_leader_agent_answers_smalltalk_without_rag(self):
+    def test_leader_agent_answers_smalltalk_with_model_without_rag(self):
         response = self.client.post(
             "/internal/rag/query",
             headers=self.headers,
@@ -621,15 +887,19 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("leader_direct_answer", payload["strategy"])
         self.assertEqual("leader_direct_answer", payload["metadata"]["executionMode"])
         self.assertTrue(payload["metadata"]["retrievalSkipped"])
+        self.assertEqual("llm", payload["metadata"]["routeMode"])
         self.assertEqual([], payload["documents"])
-        self.assertIn("LLM 已接入", payload["answer"])
+        self.assertEqual("LLM 已接入：你好", payload["answer"])
+        self.assertEqual([], payload["outputMeta"]["followUpActions"])
+        self.assertEqual("", payload["outputMeta"]["choicePrompt"])
 
     def test_leader_agent_uses_request_llm_config_when_forwarded_from_java(self):
+        input_text = "请用一句话鼓励我"
         response = self.client.post(
             "/internal/rag/query",
             headers=self.headers,
             json={
-                "input": "你好",
+                "input": input_text,
                 "agentName": "leader_agent",
             },
         )
@@ -637,7 +907,8 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         payload = response.json()
         self.assertEqual("leader_direct_answer", payload["strategy"])
-        self.assertEqual("LLM 已接入：你好", payload["answer"])
+        self.assertEqual(f"LLM 已接入：{input_text}", payload["answer"])
+        self.assertEqual("llm", payload["metadata"]["routeMode"])
         self.assertIn("Java 后台模型配置", payload["metadata"]["routeReason"])
 
     def test_query_without_agent_uses_leader_by_default(self):
@@ -687,6 +958,7 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("java_schedule_api", payload["metadata"]["toolName"])
         self.assertEqual("正在为你查询本学期课表。", payload["metadata"]["planningAnswer"])
         self.assertTrue(payload["metadata"]["toolResultSummarized"])
+        self.assertEqual("model", payload["metadata"]["toolResultSummaryMode"])
         self.assertEqual("service_tool_result", payload["answerType"])
         self.assertEqual(["text"], payload["outputTypes"])
         self.assertEqual([], payload["attachments"])
@@ -695,6 +967,132 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertNotIn("周一 1-2节", payload["answer"])
         self.assertEqual("java_schedule_api", calls[0][1])
         self.assertEqual("tool_result_summary", payload["trace"][-1]["stage"])
+
+    def test_leader_empty_schedule_result_is_answered_by_model(self):
+        rag_routes = importlib.import_module("app.api.routes.rag")
+        old_search_service_tool = rag_routes.data_store.search_service_tool_with_meta
+        old_summarize_tool_result = rag_routes.leader_agent.summarize_tool_result
+        summary_calls = []
+        try:
+            rag_routes.data_store.search_service_tool_with_meta = lambda *_args: (
+                [],
+                {
+                    "toolCache": {
+                        "requestCount": 2,
+                        "hitCount": 0,
+                        "missCount": 2,
+                        "events": [{"status": "miss"}, {"status": "miss"}],
+                    }
+                },
+            )
+
+            def summarize_empty_result(**kwargs):
+                summary_calls.append(kwargs)
+                return "模型确认：今天暂未查询到课表安排。"
+
+            rag_routes.leader_agent.summarize_tool_result = summarize_empty_result
+            response = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={
+                    "input": "我今天的课表是什么",
+                    "agentName": "leader_agent",
+                    "metadata": {"profileContextMs": 3},
+                },
+            )
+        finally:
+            rag_routes.data_store.search_service_tool_with_meta = old_search_service_tool
+            rag_routes.leader_agent.summarize_tool_result = old_summarize_tool_result
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual(1, len(summary_calls))
+        self.assertEqual([], summary_calls[0]["tool_results"])
+        self.assertEqual("java_schedule_api", payload["strategy"])
+        self.assertTrue(payload["metadata"]["toolResultSummarized"])
+        self.assertEqual("model", payload["metadata"]["toolResultSummaryMode"])
+        self.assertEqual("rules", payload["metadata"]["routeMode"])
+        self.assertEqual(3, payload["metadata"]["timings"]["profileMs"])
+        self.assertEqual("模型确认：今天暂未查询到课表安排。", payload["answer"])
+        self.assertEqual("model", payload["trace"][-1]["detail"]["summaryMode"])
+
+    def test_leader_empty_tool_result_reports_java_backend_error_instead_of_no_data(self):
+        rag_routes = importlib.import_module("app.api.routes.rag")
+        old_search_service_tool = rag_routes.data_store.search_service_tool_with_meta
+        old_summarize_tool_result = rag_routes.leader_agent.summarize_tool_result
+        summary_calls = []
+        try:
+            rag_routes.data_store.search_service_tool_with_meta = lambda *_args: (
+                [],
+                {
+                    "toolCache": {
+                        "requestCount": 1,
+                        "hitCount": 0,
+                        "missCount": 1,
+                        "events": [{"status": "error", "elapsedMs": 8000}],
+                    }
+                },
+            )
+
+            def summarize_backend_failure(**kwargs):
+                summary_calls.append(kwargs)
+                return "模型确认：课表系统本次调用失败，当前结果不能用于判断是否有数据。"
+
+            rag_routes.leader_agent.summarize_tool_result = summarize_backend_failure
+            response = self.client.post(
+                "/internal/rag/query",
+                headers=self.headers,
+                json={"input": "我今天的课表是什么", "agentName": "leader_agent"},
+            )
+        finally:
+            rag_routes.data_store.search_service_tool_with_meta = old_search_service_tool
+            rag_routes.leader_agent.summarize_tool_result = old_summarize_tool_result
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual(1, len(summary_calls))
+        self.assertEqual("tool_execution_error", summary_calls[0]["tool_results"][0]["type"])
+        self.assertEqual("model", payload["metadata"]["toolResultSummaryMode"])
+        self.assertEqual("request_error", payload["metadata"]["serviceToolBackendStatus"])
+        self.assertTrue(payload["metadata"]["serviceToolBackendFailure"])
+        self.assertIn("本次调用失败", payload["answer"])
+        self.assertIn("不能用于判断是否有数据", payload["answer"])
+        self.assertNotIn("暂未查询到今天的课表安排", payload["answer"])
+        self.assertEqual("model", payload["trace"][-1]["detail"]["summaryMode"])
+        self.assertEqual(
+            "java_backend_request_failed",
+            payload["trace"][-1]["detail"]["backendFailure"]["reason"],
+        )
+
+    def test_service_tool_backend_failure_classifies_auth_timeout_and_circuit_open(self):
+        rag_routes = importlib.import_module("app.api.routes.rag")
+
+        unauthorized = rag_routes._service_tool_backend_failure({
+            "toolCache": {
+                "requestCount": 1,
+                "events": [{"status": "error", "statusCode": 401}],
+            }
+        })
+        timeout = rag_routes._service_tool_backend_failure({
+            "toolCache": {
+                "requestCount": 1,
+                "events": [{"status": "timeout"}],
+            }
+        })
+
+        retriever = rag_routes.data_store._retriever
+        old_disabled_until = retriever.disabled_until
+        try:
+            retriever.disabled_until = rag_routes.time.monotonic() + 10
+            circuit_open = rag_routes._service_tool_backend_failure({
+                "toolCache": {"requestCount": 0, "events": []}
+            })
+        finally:
+            retriever.disabled_until = old_disabled_until
+
+        self.assertEqual("unauthorized", unauthorized["status"])
+        self.assertEqual("timeout", timeout["status"])
+        self.assertEqual("circuit_open", circuit_open["status"])
 
     def test_leader_routes_course_teacher_query_to_schedule_tool(self):
         rag_routes = importlib.import_module("app.api.routes.rag")
@@ -1186,7 +1584,7 @@ class FakeRagModelProvider:
             text = payload.get("user_input") or ""
             rag_strategy = payload.get("requested_rag_strategy") or ""
             return json.dumps(self._build_leader_plan(text, rag_strategy), ensure_ascii=False)
-        return self._specialist_answer(system_prompt)
+        return self._specialist_answer(system_prompt, user_prompt)
 
     def _build_leader_plan(self, input_text, rag_strategy=""):
         text = input_text or ""
@@ -1249,8 +1647,52 @@ class FakeRagModelProvider:
             "answer": f"LLM 已接入：{input_text}",
         }
 
-    def _specialist_answer(self, system_prompt):
-        if "diagram_mind_map_agent" in system_prompt or "思维导图智能体" in system_prompt:
+    def _specialist_answer(self, system_prompt, user_prompt=""):
+        if "文件内容编排智能体" in system_prompt:
+            outer_payload = json.loads(user_prompt)
+            planner_payload = json.loads(outer_payload.get("user_input") or "{}")
+            source_content = str(planner_payload.get("sourceContent") or "").strip()
+            source_candidates = planner_payload.get("sourceCandidates") or []
+            user_request = str(planner_payload.get("userRequest") or "").strip()
+            selected_candidate = next((
+                item for item in source_candidates
+                if isinstance(item, dict)
+                and str(item.get("content") or "").strip()
+                and not any(token in str(item.get("content") or "") for token in (
+                    "请选择知识来源", "需要您确认来源", "资源生成失败", "正在处理",
+                ))
+            ), None)
+            if not source_content and not selected_candidate and user_request.replace(" ", "").lower() in {
+                "给我导出word", "导出word", "生成word", "给我导出docx", "导出docx",
+            }:
+                return json.dumps({
+                    "action": "clarify",
+                    "title": "",
+                    "content": "",
+                    "question": "你希望把哪一段内容转换成 Word？可以指定当前对话中的内容，或直接告诉我主题。",
+                }, ensure_ascii=False)
+            selected_content = str((selected_candidate or {}).get("content") or "").strip()
+            content = source_content or selected_content or f"# {user_request}\n\n## 内容\n\n- 由模型根据用户主题整理"
+            return json.dumps({
+                "action": "export",
+                "title": "数据结构学习资料" if source_content else "主题学习资料",
+                "content": content,
+                "question": "",
+                "selectedSourceMessageId": (selected_candidate or {}).get("messageId"),
+            }, ensure_ascii=False)
+        if "diagram_mind_map_agent" in system_prompt:
+            return "```mermaid\nmindmap\n  root((测试思维导图))\n```"
+        if "diagram_flowchart_prompt_agent" in system_prompt:
+            return "专业流程图图片提示词：蓝白教学风格，清晰展示开始、处理步骤、判断分支和结束节点。"
+        if "diagram_activity_prompt_agent" in system_prompt:
+            return "专业活动图图片提示词：使用泳道清晰展示角色、任务和状态变化。"
+        if "architecture_prompt_agent" in system_prompt:
+            return "专业架构图图片提示词：分层展示客户端、服务层和数据层及其依赖关系。"
+        if "mind_map_agent" in system_prompt:
+            return "专业思维导图图片提示词：中心主题向外分层展开，节点清晰可读。"
+        if "knowledge_graph_prompt_agent" in system_prompt:
+            return "专业知识图谱图片提示词：实体节点分组清晰，关系名称明确，使用带方向箭头连接。"
+        if "思维导图智能体" in system_prompt:
             return "```mermaid\nmindmap\n  root((测试思维导图))\n```"
         if "diagram_flowchart_agent" in system_prompt:
             return "```mermaid\nflowchart TD\n  Start([开始]) --> End([结束])\n```"
@@ -1322,7 +1764,10 @@ class FakeRagModelProvider:
 
 
 class FakeImageProvider:
+    requests = []
+
     def generate(self, request):
+        self.__class__.requests.append(request)
         return SimpleNamespace(model_dump=lambda: {
             "taskId": "fake-image-task",
             "providerTaskId": "fake-provider-task",

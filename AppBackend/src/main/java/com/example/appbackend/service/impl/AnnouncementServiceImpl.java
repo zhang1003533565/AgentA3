@@ -5,6 +5,7 @@ import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.AnnouncementRepository;
 import com.example.appbackend.service.AnnouncementService;
+import com.example.appbackend.service.MessageRealtimeNotifier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,6 +16,8 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
     @Autowired
     private AnnouncementRepository announcementRepository;
+    @Autowired
+    private MessageRealtimeNotifier realtimeNotifier;
 
     @Override
     @Transactional
@@ -31,7 +34,11 @@ public class AnnouncementServiceImpl implements AnnouncementService {
         if (announcement.getEnabled() == null) {
             announcement.setEnabled(true);
         }
-        return announcementRepository.save(announcement);
+        Announcement saved = announcementRepository.save(announcement);
+        if (Boolean.TRUE.equals(saved.getEnabled())) {
+            realtimeNotifier.notifyAll("announcement");
+        }
+        return saved;
     }
 
     @Override
@@ -54,6 +61,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     @Transactional
     public Announcement updateAnnouncement(Long id, String title, String content, Integer sortOrder, Boolean enabled, Boolean isTop) {
         Announcement announcement = getAnnouncementById(id);
+        boolean wasEnabled = Boolean.TRUE.equals(announcement.getEnabled());
 
         if (title != null && !title.trim().isEmpty()) {
             announcement.setTitle(title);
@@ -79,13 +87,21 @@ public class AnnouncementServiceImpl implements AnnouncementService {
             announcement.setIsTop(isTop);
         }
 
-        return announcementRepository.save(announcement);
+        Announcement saved = announcementRepository.save(announcement);
+        if (wasEnabled || Boolean.TRUE.equals(saved.getEnabled())) {
+            realtimeNotifier.notifyAll("announcement");
+        }
+        return saved;
     }
 
     @Override
     @Transactional
     public void deleteAnnouncement(Long id) {
         Announcement announcement = getAnnouncementById(id);
+        boolean wasEnabled = Boolean.TRUE.equals(announcement.getEnabled());
         announcementRepository.delete(announcement);
+        if (wasEnabled) {
+            realtimeNotifier.notifyAll("announcement");
+        }
     }
 }

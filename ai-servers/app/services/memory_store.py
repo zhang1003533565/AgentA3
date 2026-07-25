@@ -190,6 +190,8 @@ class MemoryStore:
             "answerType",
             "strategyLabel",
             "routeReason",
+            "knowledgeSourceMode",
+            "knowledgeTopic",
         )
         return {key: self._clean_text(metadata.get(key), 260) for key in keep if metadata.get(key) is not None}
 

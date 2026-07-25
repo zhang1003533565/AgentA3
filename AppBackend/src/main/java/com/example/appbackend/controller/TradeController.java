@@ -27,7 +27,7 @@ public class TradeController {
     }
 
     @PostMapping("/record")
-    @Operation(summary = "创建交易记录", description = "兼容基础创建入口：为当前用户拍下商品，创建 WAIT_CONFIRM 交易并锁定商品为交易中")
+    @Operation(summary = "创建交易记录", description = "兼容基础创建入口：为当前用户表达购买意向，创建 WAIT_CONFIRM 记录，商品仍保持出售中")
     public Result<ChatDTO.TradeRecordVO> createTradeRecord(
             @Valid @RequestBody ChatDTO.CreateTradeRecordRequest req,
             HttpServletRequest httpRequest) {
@@ -35,15 +35,23 @@ public class TradeController {
     }
 
     @PostMapping("/record/reserve/{itemId}")
-    @Operation(summary = "拍下商品", description = "创建 WAIT_CONFIRM 交易记录，并将商品状态从 2-在售 改为 5-交易中")
+    @Operation(summary = "表达购买意向", description = "创建 WAIT_CONFIRM 购买意向记录，商品仍保持 2-在售")
     public Result<ChatDTO.TradeRecordVO> reserveTrade(
             @PathVariable Long itemId,
             HttpServletRequest httpRequest) {
-        return Result.success("已拍下", tradeService.reserveTrade(itemId, getUserId(httpRequest)));
+        return Result.success("购买意向已发送", tradeService.reserveTrade(itemId, getUserId(httpRequest)));
+    }
+
+    @PostMapping("/record/session/{sessionId}/ensure")
+    @Operation(summary = "确保交易记录", description = "基于聊天会话创建或复用 TRADING 交易记录，不生成购买意向卡片")
+    public Result<ChatDTO.TradeRecordVO> ensureTradingRecord(
+            @PathVariable Long sessionId,
+            HttpServletRequest httpRequest) {
+        return Result.success("交易记录已准备", tradeService.ensureTradingRecordForSession(sessionId, getUserId(httpRequest)));
     }
 
     @PostMapping("/record/{id}/confirm")
-    @Operation(summary = "卖家确认交易", description = "交易状态从 WAIT_CONFIRM 改为 TRADING，商品保持 5-交易中")
+    @Operation(summary = "卖家确认交易", description = "交易状态从 WAIT_CONFIRM 改为 TRADING，商品仍保持 2-在售")
     public Result<ChatDTO.TradeRecordVO> confirmTrade(
             @PathVariable Long id,
             HttpServletRequest httpRequest) {
@@ -51,7 +59,7 @@ public class TradeController {
     }
 
     @PostMapping("/record/{id}/complete")
-    @Operation(summary = "完成交易", description = "交易状态从 TRADING 改为 COMPLETED，商品状态从 5-交易中 改为 3-已售出")
+    @Operation(summary = "完成交易", description = "卖家标记线下交易完成，交易状态从 TRADING 改为 COMPLETED，商品状态从 2-在售改为 3-已售出，并取消同商品其他有效交易")
     public Result<ChatDTO.TradeRecordVO> completeTrade(
             @PathVariable Long id,
             HttpServletRequest httpRequest) {
@@ -59,7 +67,7 @@ public class TradeController {
     }
 
     @PostMapping("/record/{id}/cancel")
-    @Operation(summary = "取消交易", description = "交易状态从 WAIT_CONFIRM/TRADING 改为 CANCELLED，商品状态从 5-交易中 恢复为 2-在售")
+    @Operation(summary = "取消交易", description = "交易状态从 WAIT_CONFIRM/TRADING 改为 CANCELLED，商品状态不变化")
     public Result<ChatDTO.TradeRecordVO> cancelTrade(
             @PathVariable Long id,
             HttpServletRequest httpRequest) {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, Card, Col, Collapse, Empty, Form, Image, Input, Row, Select, Space, Table, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Col, Collapse, Empty, Form, Image, Input, Row, Select, Space, Table, Tabs, Tag, Typography, message } from 'antd'
 import { DatabaseOutlined, PlayCircleOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons'
 import { importExamQuestions } from '../../../api/examQuestion'
 import {
@@ -40,23 +40,37 @@ const evidenceColumns = [
 ]
 
 const buildAgentColumns = () => [
-  { title: '智能体', dataIndex: 'name', render: (value) => <Tag color="geekblue">{value}</Tag> },
-  { title: '状态', dataIndex: 'enabled', width: 110, render: (value, record) => <Tag color={record.name === 'leader_agent' || value !== false ? 'green' : 'default'}>{record.name === 'leader_agent' || value !== false ? '启用' : '关闭'}</Tag> },
-  { title: '角色', dataIndex: 'role' },
-  { title: '职责', dataIndex: 'purpose' },
+  {
+    title: '状态',
+    dataIndex: 'enabled',
+    width: 90,
+    render: (value, record) => (
+      <Tag color={record.name === 'leader_agent' || value !== false ? 'green' : 'default'}>
+        {record.name === 'leader_agent' || value !== false ? '启用' : '关闭'}
+      </Tag>
+    ),
+  },
+  {
+    title: '智能体',
+    dataIndex: 'name',
+    width: 280,
+    render: (value, record) => (
+      <Space direction="vertical" size={4}>
+        <Tag color="geekblue">{value}</Tag>
+        <Text type="secondary">{record.role}</Text>
+      </Space>
+    ),
+  },
   {
     title: '执行方式',
     dataIndex: 'executionModeLabel',
+    width: 150,
     render: (value) => <Tag color="gold">{value || '直接处理'}</Tag>,
   },
   {
-    title: '技能',
-    dataIndex: 'skills',
-    render: (value = []) => (
-      <Space wrap>
-        {value.map((item) => <Tag key={item}>{item}</Tag>)}
-      </Space>
-    ),
+    title: '职责',
+    dataIndex: 'purpose',
+    ellipsis: true,
   },
 ]
 
@@ -711,6 +725,10 @@ function RagManage({ page = 'playground' }) {
     )
   }
 
+  const enabledAgentCount = agents.filter((item) => isAgentEnabled(item)).length
+  const boundAgentCount = agents.filter((item) => agentModelBindings[item.name]).length
+  const agentExampleCount = agents.filter((item) => item.documents?.exampleInput || item.invokeExample?.input).length
+
   const sections = [
     {
       key: 'playground',
@@ -881,20 +899,33 @@ function RagManage({ page = 'playground' }) {
       key: 'agents',
       label: '多智能体',
       children: (
-        <Space direction="vertical" size="large" className="rag-full">
+        <Space direction="vertical" size={16} className="rag-full">
           <Card
+            className="rag-workbench-card"
             title="智能体调用测试"
-            extra={<Tag color="geekblue">参数：agentName</Tag>}
-            className="rag-panel-card"
+            extra={(
+              <Space size={6} wrap>
+                <Tag color="blue">智能体 {agents.length}</Tag>
+                <Tag color={enabledAgentCount === agents.length ? 'green' : 'orange'}>启用 {enabledAgentCount}</Tag>
+                <Tag color={boundAgentCount === agents.length ? 'green' : 'orange'}>已绑定模型 {boundAgentCount}</Tag>
+                <Tag color="geekblue">参数：agentName</Tag>
+              </Space>
+            )}
           >
-            <Row gutter={[20, 20]}>
-              <Col xs={24} lg={9}>
+            <div className="rag-agent-workbench">
+              <section className="rag-agent-input-pane">
+                <div className="rag-pane-head">
+                  <div>
+                    <strong>测试输入</strong>
+                    <Text type="secondary">选择智能体、确认模型并提交材料。</Text>
+                  </div>
+                </div>
                 <Form
                   form={agentTestForm}
                   layout="vertical"
                   onFinish={handleAgentTest}
                 >
-                  <Form.Item name="agentName" label="选择要测试的智能体" rules={[{ required: true, message: '请选择智能体' }]}>
+                  <Form.Item name="agentName" label="智能体" rules={[{ required: true, message: '请选择智能体' }]}>
                     <Select
                       options={agentTestOptions}
                       showSearch
@@ -910,28 +941,35 @@ function RagManage({ page = 'playground' }) {
                     {({ getFieldValue }) => {
                       const selectedAgent = agents.find((item) => item.name === getFieldValue('agentName'))
                       const modelOptions = getModelOptionsForAgent(selectedAgent)
+                      const boundModel = getAgentBoundModel(getFieldValue('agentName'))
                       return (
                         <>
-                          <Alert
-                            className="rag-inline-alert"
-                            type="info"
-                            showIcon
-                            message={`当前智能体需要模型：${getAgentModelRequirementText(selectedAgent)}`}
-                          />
+                          <div className="rag-agent-context">
+                            <Space size={[6, 6]} wrap>
+                              <Tag color={selectedAgent?.name === 'leader_agent' ? 'purple' : 'geekblue'}>
+                                {selectedAgent?.role || selectedAgent?.name || '未选择'}
+                              </Tag>
+                              <Tag color="blue">模型：{getAgentModelRequirementText(selectedAgent)}</Tag>
+                              {boundModel ? <Tag color="green">默认模型已带入</Tag> : <Tag color="orange">未绑定默认模型</Tag>}
+                            </Space>
+                            <Text type="secondary">
+                              {selectedAgent?.name === 'leader_agent'
+                                ? 'Leader 会自动判断直接回答、调用专业智能体或调用接口。'
+                                : selectedAgent?.purpose || '该智能体会直接处理输入内容。'}
+                            </Text>
+                          </div>
                           {!modelOptions.length ? (
                             <Alert
-                              className="rag-inline-alert"
+                              className="rag-compact-alert"
                               type="warning"
                               showIcon
-                              message={`没有可选模型：请到模型配置页测试成功至少一个${getAgentModelRequirementText(selectedAgent)}模型。`}
+                              message={`没有可选模型，请先测试成功至少一个${getAgentModelRequirementText(selectedAgent)}模型。`}
                               action={<Button size="small" type="primary" onClick={() => { window.location.href = '/ai/model' }}>去配置模型</Button>}
                             />
                           ) : null}
                           <Form.Item
-                            label="模型"
-                            extra={getAgentBoundModel(getFieldValue('agentName'))
-                              ? '已自动带入该智能体的默认模型；这里只影响本次测试。'
-                              : `只显示已测试成功的${getAgentModelRequirementText(selectedAgent)}模型。`}
+                            label="本次模型"
+                            extra={boundModel ? '已自动带入默认模型；修改后只影响本次测试。' : `只显示已测试成功的${getAgentModelRequirementText(selectedAgent)}模型。`}
                           >
                             <Form.Item name="llmModel" noStyle rules={[{ required: true, message: '请选择模型' }]}>
                               <Select
@@ -948,30 +986,12 @@ function RagManage({ page = 'playground' }) {
                     }}
                   </Form.Item>
                   <Form.Item
-                    noStyle
-                    shouldUpdate={(prev, next) => prev.agentName !== next.agentName}
-                  >
-                    {({ getFieldValue }) => {
-                      const selectedAgent = agents.find((item) => item.name === getFieldValue('agentName'))
-                      return (
-                        <Alert
-                          className="rag-inline-alert"
-                          type="info"
-                          showIcon
-                          message={selectedAgent?.name === 'leader_agent'
-                            ? 'Leader 会自动判断直接回答、调用专业智能体或调用接口。'
-                            : '该智能体直接处理输入内容；知识库证据由 Java 后端接入后作为上下文提供。'}
-                        />
-                      )
-                    }}
-                  </Form.Item>
-                  <Form.Item
                     name="input"
                     label="测试输入"
-                    extra="这里会自动读取智能体目录下的 example_input.md，编辑后可保存为下次默认示例。"
+                    extra="默认读取智能体目录下的 example_input.md，可编辑后保存为下次示例。"
                     rules={[{ required: true, message: '请输入测试内容' }]}
                   >
-                    <TextArea rows={6} placeholder="输入一段课程内容或任务要求" />
+                    <TextArea rows={8} placeholder="输入一段课程内容、会议记录、PPT 大纲或任务要求" />
                   </Form.Item>
                   <Form.Item
                     noStyle
@@ -994,34 +1014,37 @@ function RagManage({ page = 'playground' }) {
                   <Button type="primary" htmlType="submit" icon={<PlayCircleOutlined />} loading={agentTestLoading} block>
                     调用当前智能体
                   </Button>
-                  <Text type="secondary" className="rag-agent-test-tip">
-                    Leader 用于意图识别、自动分发和工具调用；教材知识点智能体统一处理教材、Markdown 教材文本和知识点整理；第三方知识库由 Java 后端接入。
-                  </Text>
                 </Form>
-              </Col>
-              <Col xs={24} lg={15}>
+              </section>
+
+              <section className="rag-agent-result-pane">
+                <div className="rag-pane-head">
+                  <div>
+                    <strong>执行结果</strong>
+                    <Text type="secondary">查看回答、证据、请求参数和 trace。</Text>
+                  </div>
+                  {!agentTestResult?.error && agentTestResult && getQuestionBankPayloadFromResult(agentTestResult) ? (
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<DatabaseOutlined />}
+                      loading={questionImportLoading}
+                      onClick={handleImportQuestionBank}
+                    >
+                      导入题库
+                    </Button>
+                  ) : null}
+                </div>
                 {agentTestResult ? (
-                  <Space direction="vertical" size="large" className="rag-full">
+                  <Space direction="vertical" size={14} className="rag-full">
                     <div className="rag-agent-test-status">
                       <Tag color={agentTestResult.error ? 'red' : 'green'}>
                         {agentTestResult.error ? '调用失败' : '调用成功'}
                       </Tag>
                       <Tag color="blue">{agentTestResult.agent?.name}</Tag>
-                      <Tag>{agentTestResult.response?.metadata?.agentName || agentTestResult.request?.agentName}</Tag>
                       <Tag color="purple">{getExecutionLabel(agentTestResult.response?.metadata)}</Tag>
                       {agentTestResult.response?.metadata?.executedAgent && <Tag color="geekblue">执行：{agentTestResult.response.metadata.executedAgent}</Tag>}
                       <Tag color="volcano">类型：{agentTestResult.response?.answerType || agentTestResult.response?.metadata?.answerType || 'text'}</Tag>
-                      {!agentTestResult.error && getQuestionBankPayloadFromResult(agentTestResult) ? (
-                        <Button
-                          size="small"
-                          type="primary"
-                          icon={<DatabaseOutlined />}
-                          loading={questionImportLoading}
-                          onClick={handleImportQuestionBank}
-                        >
-                          导入题库
-                        </Button>
-                      ) : null}
                     </div>
                     {agentTestResult.error ? (
                       <div className="rag-answer-box">{agentTestResult.error}</div>
@@ -1038,6 +1061,7 @@ function RagManage({ page = 'playground' }) {
                       </>
                     )}
                     <Collapse
+                      size="small"
                       items={[
                         {
                           key: 'request',
@@ -1056,118 +1080,115 @@ function RagManage({ page = 'playground' }) {
                     />
                   </Space>
                 ) : (
-                  <Empty description="选择一个智能体并点击调用，就能在这里查看回答、证据和 trace" />
+                  <Empty className="rag-result-empty" description="选择智能体并调用后，这里显示回答、证据和 trace" />
                 )}
-              </Col>
-            </Row>
+              </section>
+            </div>
           </Card>
-          <Row gutter={[20, 20]}>
-            <Col xs={24} lg={10}>
-              <Card title="协作流程" className="rag-panel-card">
-                <pre className="rag-code-block">{JSON.stringify(agentWorkflow, null, 2)}</pre>
-              </Card>
-            </Col>
-            <Col xs={24} lg={14}>
-              <Card title="Agent / Skill 目录" className="rag-panel-card">
-                <Table
-                  rowKey="name"
-                  columns={tableAgentColumns}
-                  dataSource={agents}
-                  pagination={{ pageSize: 6 }}
-                />
-              </Card>
-            </Col>
-          </Row>
-          <Card title="每个智能体的职责、输入输出和技能文件" className="rag-panel-card">
-            <Collapse
-              items={agents.map((agent) => ({
-                key: agent.name,
-                label: `${agent.name} · ${agent.role}`,
-                children: (
-                  <Space direction="vertical" className="rag-full">
-                    <Text>{agent.purpose}</Text>
-                    <Card size="small" title="后台调用方式">
-                      <Space direction="vertical" className="rag-full">
-                        <pre className="rag-code-block">{JSON.stringify({
-                          agentName: agent.name,
-                          ...(agent.name === 'leader_agent'
-                            ? { executionMode: 'leader_orchestration' }
-                            : { executionMode: 'direct_agent' }),
-                          input: getAgentExampleInput(agent),
-                        }, null, 2)}</pre>
-                        <TextArea
-                          rows={5}
-                          value={agent.documents?.exampleInput || getAgentExampleInput(agent)}
-                          onChange={(event) => {
-                            const value = event.target.value
-                            setAgents((prev) => prev.map((item) => (
-                              item.name === agent.name
-                                ? {
-                                    ...item,
-                                    documents: { ...(item.documents || {}), exampleInput: value },
-                                    invokeExample: { ...(item.invokeExample || {}), input: value },
-                                  }
-                                : item
-                            )))
-                          }}
-                        />
-                        <Button
-                          icon={<SaveOutlined />}
-                          onClick={() => saveAgentExampleInput(
-                            agent.name,
-                            agent.documents?.exampleInput || getAgentExampleInput(agent),
-                            { updateTestForm: false },
-                          )}
-                        >
-                          保存 example_input.md
-                        </Button>
-                        <Button
-                          icon={<PlayCircleOutlined />}
-                          onClick={() => fillAgentTestForm(agent)}
-                        >
-                          填入上方测试台
-                        </Button>
-                      </Space>
-                    </Card>
-                    <Row gutter={[16, 16]}>
-                      <Col xs={24} md={12}>
-                        <Card size="small" title="输入">
-                          {(agent.inputs || []).map((item) => <Tag key={item}>{item}</Tag>)}
-                        </Card>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <Card size="small" title="输出">
-                          {(agent.outputs || []).map((item) => <Tag key={item}>{item}</Tag>)}
-                        </Card>
-                      </Col>
-                    </Row>
-                    <Collapse
-                      items={[
-                        {
-                          key: 'skill',
-                          label: 'skill.md',
-                          children: <pre className="rag-code-block">{agent.documents?.skill || '暂无 skill 文档'}</pre>,
-                        },
-                        {
-                          key: 'prompt',
-                          label: 'prompt.md',
-                          children: <pre className="rag-code-block">{agent.documents?.prompt || '暂无 prompt 文档'}</pre>,
-                        },
-                        {
-                          key: 'contract',
-                          label: 'contract.md / tools.yaml',
-                          children: <pre className="rag-code-block">{`${agent.documents?.contract || ''}\n\n${agent.documents?.tools || ''}`}</pre>,
-                        },
-                        {
-                          key: 'files',
-                          label: '文件路径',
-                          children: <pre className="rag-code-block">{JSON.stringify(agent.files || {}, null, 2)}</pre>,
-                        },
-                      ]}
+
+          <Card className="rag-agent-info-card">
+            <Tabs
+              className="rag-agent-info-tabs"
+              items={[
+                {
+                  key: 'directory',
+                  label: '智能体目录',
+                  children: (
+                    <Table
+                      rowKey="name"
+                      columns={tableAgentColumns}
+                      dataSource={agents}
+                      pagination={{ pageSize: 8 }}
+                      scroll={{ x: 880 }}
                     />
-                  </Space>
-                ),
-              }))}
+                  ),
+                },
+                {
+                  key: 'workflow',
+                  label: '协作流程',
+                  children: <pre className="rag-code-block">{JSON.stringify(agentWorkflow, null, 2)}</pre>,
+                },
+                {
+                  key: 'documents',
+                  label: `技能文档 ${agentExampleCount}/${agents.length}`,
+                  children: (
+                    <Collapse
+                      items={agents.map((agent) => ({
+                        key: agent.name,
+                        label: `${agent.name} · ${agent.role}`,
+                        children: (
+                          <div className="rag-agent-doc-panel">
+                            <Text>{agent.purpose}</Text>
+                            <Space size={[6, 6]} wrap>
+                              {(agent.inputs || []).map((item) => <Tag key={`input-${item}`}>输入：{item}</Tag>)}
+                              {(agent.outputs || []).map((item) => <Tag color="blue" key={`output-${item}`}>输出：{item}</Tag>)}
+                            </Space>
+                            <TextArea
+                              rows={5}
+                              value={agent.documents?.exampleInput || getAgentExampleInput(agent)}
+                              onChange={(event) => {
+                                const value = event.target.value
+                                setAgents((prev) => prev.map((item) => (
+                                  item.name === agent.name
+                                    ? {
+                                        ...item,
+                                        documents: { ...(item.documents || {}), exampleInput: value },
+                                        invokeExample: { ...(item.invokeExample || {}), input: value },
+                                      }
+                                    : item
+                                )))
+                              }}
+                            />
+                            <Space wrap>
+                              <Button
+                                icon={<SaveOutlined />}
+                                onClick={() => saveAgentExampleInput(
+                                  agent.name,
+                                  agent.documents?.exampleInput || getAgentExampleInput(agent),
+                                  { updateTestForm: false },
+                                )}
+                              >
+                                保存 example_input.md
+                              </Button>
+                              <Button
+                                icon={<PlayCircleOutlined />}
+                                onClick={() => fillAgentTestForm(agent)}
+                              >
+                                填入上方测试台
+                              </Button>
+                            </Space>
+                            <Collapse
+                              size="small"
+                              items={[
+                                {
+                                  key: 'skill',
+                                  label: 'skill.md',
+                                  children: <pre className="rag-code-block">{agent.documents?.skill || '暂无 skill 文档'}</pre>,
+                                },
+                                {
+                                  key: 'prompt',
+                                  label: 'prompt.md',
+                                  children: <pre className="rag-code-block">{agent.documents?.prompt || '暂无 prompt 文档'}</pre>,
+                                },
+                                {
+                                  key: 'contract',
+                                  label: 'contract.md / tools.yaml',
+                                  children: <pre className="rag-code-block">{`${agent.documents?.contract || ''}\n\n${agent.documents?.tools || ''}`}</pre>,
+                                },
+                                {
+                                  key: 'files',
+                                  label: '文件路径',
+                                  children: <pre className="rag-code-block">{JSON.stringify(agent.files || {}, null, 2)}</pre>,
+                                },
+                              ]}
+                            />
+                          </div>
+                        ),
+                      }))}
+                    />
+                  ),
+                },
+              ]}
             />
           </Card>
         </Space>
@@ -1278,11 +1299,10 @@ function RagManage({ page = 'playground' }) {
 
   return (
     <div className="rag-manage">
-      <section className="rag-hero">
-        <div>
-          <span className="rag-kicker">{pageConfig.kicker}</span>
-          <Title level={1}>{pageConfig.title}</Title>
-          <p>{pageConfig.description}</p>
+      <section className="rag-toolbar">
+        <div className="rag-heading">
+          <Title level={2}>{pageConfig.title}</Title>
+          <Text type="secondary">{pageConfig.description}</Text>
         </div>
         <Button icon={<ReloadOutlined />} onClick={refresh} loading={bootLoading}>
           刷新状态
