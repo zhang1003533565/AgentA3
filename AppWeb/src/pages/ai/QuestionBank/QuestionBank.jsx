@@ -588,7 +588,19 @@ function QuestionBank() {
       <Form.Item name="type" label="题型" initialValue="single_choice">
         <Select showSearch optionFilterProp="label" placeholder="请选择题型" options={questionTypeOptions} />
       </Form.Item>
+      {/* 题型（默认选择题，不可清空，始终只筛一种题型） */}
+      <Form.Item name="type" label="题型" initialValue="single_choice">
+        <Select showSearch optionFilterProp="label" placeholder="请选择题型" options={questionTypeOptions} />
+      </Form.Item>
 
+      {/* 难度 */}
+      <Form.Item name="difficulty" label="难度">
+        <Select allowClear showSearch optionFilterProp="label" placeholder="请选择难度" options={[
+          { value: 'easy', label: '简单' },
+          { value: 'medium', label: '中等' },
+          { value: 'hard', label: '困难' },
+        ]} />
+      </Form.Item>
       {/* 难度 */}
       <Form.Item name="difficulty" label="难度">
         <Select allowClear showSearch optionFilterProp="label" placeholder="请选择难度" options={[
@@ -632,10 +644,12 @@ function QuestionBank() {
       </div>
 
       {/* 列表卡片（筛选区作为表格 title 渲染在表头上方） */}
+      {/* 列表卡片（筛选区作为表格 title 渲染在表头上方） */}
       <Card className="question-bank-card question-bank-list-card" bordered={false}>
         <Table
           className="question-bank-table"
           rowKey="id"
+          title={renderFilter}
           title={renderFilter}
           columns={columns}
           dataSource={rows}
