@@ -107,6 +107,23 @@ public class ExamQuestionServiceImpl implements ExamQuestionService {
 
     @Override
     public ExamQuestionDTO.ImportResponse importQuestions(ExamQuestionDTO.ImportRequest request, String expectedType, Long userId) {
+        return importQuestions(request, expectedType, userId,
+                ExamQuestion.VISIBILITY_PRIVATE, userId);
+    }
+
+    @Override
+    public ExamQuestionDTO.ImportResponse importPublicQuestions(
+            ExamQuestionDTO.ImportRequest request, String expectedType, Long adminUserId) {
+        return importQuestions(request, expectedType, adminUserId,
+                ExamQuestion.VISIBILITY_PUBLIC, null);
+    }
+
+    private ExamQuestionDTO.ImportResponse importQuestions(
+            ExamQuestionDTO.ImportRequest request,
+            String expectedType,
+            Long createdBy,
+            String visibility,
+            Long ownerUserId) {
         ExamQuestionDTO.ReviewResponse review = review(request, expectedType);
         if (!Boolean.TRUE.equals(review.getValid())) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "题库 JSON 未通过校验：" + String.join("；", review.getIssues()));
@@ -134,7 +151,9 @@ public class ExamQuestionServiceImpl implements ExamQuestionService {
             entity.setSourceAgent(blankToNull(request.getSourceAgent()));
             entity.setSourceTitle(blankToNull(request.getSourceTitle()));
             entity.setSourceScene(blankToNull(request.getSourceScene()));
-            entity.setCreatedBy(userId);
+            entity.setCreatedBy(createdBy);
+            entity.setVisibility(visibility);
+            entity.setOwnerUserId(ownerUserId);
             ids.add(questionRepository.save(entity).getId());
         }
 
@@ -151,7 +170,11 @@ public class ExamQuestionServiceImpl implements ExamQuestionService {
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<ExamQuestionDTO.QuestionVO> listQuestions(Integer current, Integer size, String type, String difficulty, String keyword) {
+    public PageResponse<ExamQuestionDTO.QuestionVO> listQuestions(
+            Integer current, Integer size, String type, String difficulty, String keyword, Long userId) {
+        if (userId == null) {
+            throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
+        }
         int page = current == null || current < 1 ? 1 : current;
         int pageSize = size == null || size < 1 ? 10 : Math.min(size, 100);
         String normalizedType = blankToNull(type);
@@ -163,14 +186,15 @@ public class ExamQuestionServiceImpl implements ExamQuestionService {
         if (normalizedDifficulty != null && !ALLOWED_DIFFICULTIES.contains(normalizedDifficulty)) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "难度不合法");
         }
-        Page<ExamQuestion> result = questionRepository.search(
+        Page<ExamQuestion> result = questionRepository.searchVisible(
                 normalizedType,
                 normalizedDifficulty,
                 normalizedKeyword,
+                userId,
                 PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.DESC, "id"))
         );
         return new PageResponse<>(
-                result.getContent().stream().map(this::toVO).collect(Collectors.toList()),
+                result.getContent().stream().map(question -> toVO(question, userId)).collect(Collectors.toList()),
                 result.getTotalElements(),
                 page,
                 pageSize
@@ -179,11 +203,13 @@ public class ExamQuestionServiceImpl implements ExamQuestionService {
 
     @Override
     @Transactional(readOnly = true)
-    public ExamQuestionDTO.QuestionVO getQuestion(Long id) {
-        ExamQuestion question = questionRepository.findById(id)
-                .filter(item -> item.getStatus() != null && item.getStatus() == 1)
+    public ExamQuestionDTO.QuestionVO getQuestion(Long id, Long userId) {
+        if (userId == null) {
+            throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
+        }
+        ExamQuestion question = questionRepository.findVisibleById(id, userId)
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "题目不存在"));
-        return toVO(question);
+        return toVO(question, userId);
     }
 
     private ExamQuestionDTO.ReviewResponse buildReviewResponse(
@@ -617,7 +643,7 @@ public class ExamQuestionServiceImpl implements ExamQuestionService {
         }
     }
 
-    private ExamQuestionDTO.QuestionVO toVO(ExamQuestion question) {
+    private ExamQuestionDTO.QuestionVO toVO(ExamQuestion question, Long currentUserId) {
         ExamQuestionDTO.QuestionVO vo = new ExamQuestionDTO.QuestionVO();
         vo.setId(question.getId());
         vo.setSourceQuestionId(question.getSourceQuestionId());
@@ -637,6 +663,10 @@ public class ExamQuestionServiceImpl implements ExamQuestionService {
         vo.setSourceTitle(question.getSourceTitle());
         vo.setSourceScene(question.getSourceScene());
         vo.setCreatedBy(question.getCreatedBy());
+        vo.setVisibility(question.getVisibility());
+        vo.setOwnerUserId(question.getOwnerUserId());
+        vo.setOwnedByCurrentUser(ExamQuestion.VISIBILITY_PRIVATE.equals(question.getVisibility())
+                && Objects.equals(question.getOwnerUserId(), currentUserId));
         vo.setCreateTime(question.getCreateTime());
         vo.setUpdateTime(question.getUpdateTime());
         return vo;

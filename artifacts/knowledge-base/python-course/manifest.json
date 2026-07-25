@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "packVersion": "unreleased",
+  "status": "needs_export",
+  "courseKey": "python",
+  "maxkbVersion": null,
+  "documentCount": null,
+  "paragraphCount": null,
+  "splitConfiguration": null,
+  "courseChapters": [],
+  "sourceIds": [],
+  "sources": [],
+  "exportArtifact": null,
+  "authorizationEvidence": null,
+  "reviewSignoff": null,
+  "updatedAt": null,
+  "limitations": [
+    "当前 Git 工作区没有可核验的 MaxKB 原生导出或可再分发课程源文件。",
+    "在真实导出完成前，不声明文档数、分段数、章节范围、来源 ID 或 MaxKB 版本。"
+  ]
+}

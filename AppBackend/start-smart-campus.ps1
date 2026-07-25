@@ -8,8 +8,21 @@ $MysqlCharset = if ($env:MYSQL_CHARSET) { $env:MYSQL_CHARSET } else { "utf8mb4" 
 $MysqlCollation = if ($env:MYSQL_COLLATION) { $env:MYSQL_COLLATION } else { "utf8mb4_unicode_ci" }
 $MysqlWaitSeconds = if ($env:MYSQL_WAIT_SECONDS) { [int]$env:MYSQL_WAIT_SECONDS } else { 90 }
 $AdminerPort = if ($env:ADMINER_PORT) { [int]$env:ADMINER_PORT } else { 0 }
+$BackendPort = if ($env:SERVER_PORT) { [int]$env:SERVER_PORT } else { 8080 }
+$DataSqlPath = Join-Path $PSScriptRoot "src\main\resources\data.sql"
+$ImportDataSql = $false
+if ($env:IMPORT_DATA_SQL) {
+    $ImportDataSql = @("1", "true", "yes", "on") -contains $env:IMPORT_DATA_SQL.ToLowerInvariant()
+}
 
 Set-Location $PSScriptRoot
+
+function Initialize-ConsoleEncoding {
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [Console]::InputEncoding = $utf8
+    [Console]::OutputEncoding = $utf8
+    $script:OutputEncoding = $utf8
+}
 
 function Write-Log {
     param([string]$Message)
@@ -148,6 +161,44 @@ function Ensure-Database {
     }
 }
 
+function Import-DataSqlIfRequested {
+    if (-not $ImportDataSql) {
+        Write-Log "Skipping data.sql import. Set IMPORT_DATA_SQL=1 only when you need to reset/seed local data."
+        return
+    }
+
+    if (-not (Test-Path $DataSqlPath)) {
+        Stop-WithError "data.sql was not found at '$DataSqlPath'."
+    }
+
+    Write-Log "IMPORT_DATA_SQL=1 detected. Importing data.sql into '$MysqlDatabase'."
+    Write-Log "Warning: data.sql contains TRUNCATE statements and may reset local seed data."
+
+    Get-Content -Raw -Encoding UTF8 $DataSqlPath |
+        Invoke-Compose exec -T -e "MYSQL_PWD=$MysqlRootPassword" $MysqlService mysql --default-character-set=utf8mb4 -uroot $MysqlDatabase
+
+    if ($LASTEXITCODE -ne 0) {
+        Stop-WithError "Failed to import data.sql."
+    }
+
+    Write-Log "data.sql import completed."
+}
+
+function Wait-ForRedis {
+    Write-Log "Waiting for Redis container..."
+    for ($i = 0; $i -lt $MysqlWaitSeconds; $i++) {
+        $ErrorActionPreference = "SilentlyContinue"
+        Invoke-Compose exec -T redis redis-cli ping *> $null
+        $ErrorActionPreference = "Stop"
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+        Start-Sleep -Seconds 1
+    }
+
+    Stop-WithError "Redis did not become ready within ${MysqlWaitSeconds}s."
+}
+
 function Ensure-BackendTools {
     if (-not (Test-Command "java")) {
         Stop-WithError "Java is not available. This backend requires JDK 21. Install Temurin/OpenJDK 21 or run: winget install EclipseAdoptium.Temurin.21.JDK"
@@ -159,11 +210,15 @@ function Ensure-BackendTools {
 }
 
 function Start-Backend {
-    Write-Log "Starting Spring Boot backend at http://localhost:8080 ..."
+    Write-Log "Backend API: http://localhost:$BackendPort"
+    Write-Log "Swagger UI: http://localhost:$BackendPort/swagger-ui.html"
+    Write-Log "Adminer: http://localhost:$AdminerPort"
+    Write-Log "Starting Spring Boot backend..."
     & mvn spring-boot:run
     exit $LASTEXITCODE
 }
 
+Initialize-ConsoleEncoding
 Initialize-Compose
 Start-DockerDesktop
 Set-AdminerPort
@@ -175,6 +230,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Wait-ForMysql
+Wait-ForRedis
 Ensure-Database
+Import-DataSqlIfRequested
 Ensure-BackendTools
 Start-Backend

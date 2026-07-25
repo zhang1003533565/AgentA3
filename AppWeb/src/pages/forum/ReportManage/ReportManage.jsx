@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Button, Descriptions, Form, Input, message, Modal, Select, Space, Table, Tag, Timeline } from 'antd'
 import { CheckCircleOutlined, DeleteOutlined, EyeOutlined, SearchOutlined, StopOutlined } from '@ant-design/icons'
 import { getReportList, getReportLogs, getReportStatistics, handleReport } from '../../../api/forum'
@@ -34,14 +34,16 @@ function ReportManage() {
   const [searchForm] = Form.useForm()
   const [handleForm] = Form.useForm()
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 })
+  const currentPage = pagination.current
+  const currentPageSize = pagination.pageSize
 
-  const fetchReports = async (params = {}) => {
+  const fetchReports = useCallback(async (params = {}) => {
     setLoading(true)
     try {
       const values = searchForm.getFieldsValue()
       const res = await getReportList({
-        page: params.page ?? pagination.current,
-        size: params.size ?? pagination.pageSize,
+        page: params.page ?? currentPage,
+        size: params.size ?? currentPageSize,
         ...values,
         ...params,
       })
@@ -58,21 +60,21 @@ function ReportManage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [currentPage, currentPageSize, searchForm])
 
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     try {
       const res = await getReportStatistics()
       setStats(res?.data || null)
-    } catch (error) {
+    } catch {
       setStats(null)
     }
-  }
+  }, [])
 
   useEffect(() => {
     fetchReports({ page: 1 })
     fetchStats()
-  }, [])
+  }, [fetchReports, fetchStats])
 
   const openDetail = async (record) => {
     setCurrentReport(record)
@@ -80,7 +82,7 @@ function ReportManage() {
     try {
       const res = await getReportLogs(record.id)
       setLogs(res?.data || [])
-    } catch (error) {
+    } catch {
       setLogs([])
     }
   }

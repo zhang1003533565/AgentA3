@@ -2,6 +2,7 @@ package com.example.appbackend.service.impl;
 
 import com.example.appbackend.dto.AssistantResourceInteractionRequest;
 import com.example.appbackend.dto.AssistantResourceInteractionResponse;
+import com.example.appbackend.dto.LearningPathDTO;
 import com.example.appbackend.dto.UserProfileDTO;
 import com.example.appbackend.entity.AiLeaderMessage;
 import com.example.appbackend.entity.AiLeaderSession;
@@ -14,6 +15,7 @@ import com.example.appbackend.repository.AiLeaderSessionRepository;
 import com.example.appbackend.repository.UserProfileDimensionRepository;
 import com.example.appbackend.repository.UserProfileEvidenceRepository;
 import com.example.appbackend.service.SystemConfigService;
+import com.example.appbackend.service.LearningPathService;
 import com.example.appbackend.service.UserProfileService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +40,7 @@ class AssistantResourceInteractionServiceTest {
     private AiLeaderMessageRepository messageRepository;
     private AiLeaderResourceInteractionRepository interactionRepository;
     private UserProfileService userProfileService;
+    private LearningPathService learningPathService;
     private AssistantResourceInteractionService service;
     private ObjectMapper objectMapper;
 
@@ -47,12 +50,14 @@ class AssistantResourceInteractionServiceTest {
         messageRepository = mock(AiLeaderMessageRepository.class);
         interactionRepository = mock(AiLeaderResourceInteractionRepository.class);
         userProfileService = mock(UserProfileService.class);
+        learningPathService = mock(LearningPathService.class);
         objectMapper = new ObjectMapper();
         service = new AssistantResourceInteractionService(
                 sessionRepository,
                 messageRepository,
                 interactionRepository,
                 userProfileService,
+                learningPathService,
                 objectMapper
         );
 
@@ -140,6 +145,105 @@ class AssistantResourceInteractionServiceTest {
 
         assertThat(response.getStatus()).isEqualTo("duplicate");
         assertThat(response.isDuplicate()).isTrue();
+        verify(interactionRepository, never()).save(any());
+        verify(userProfileService, never()).addEvidence(any(), any());
+    }
+
+    @Test
+    void completeUsesOnlyStoredMetadataToResolveAnOwnedActivePythonPathItem() {
+        AiLeaderMessage learningResource = message(109L, """
+                [{
+                  "schemaVersion":"assistant-resource-v1",
+                  "id":"res_python_lab",
+                  "kind":"code_example",
+                  "deliveryType":"bundle",
+                  "title":"Python 列表切片实验",
+                  "metadata":{
+                    "learningPathId":88,
+                    "learningPathItemKey":"review-lists"
+                  }
+                }]
+                """);
+        when(messageRepository.findById(109L)).thenReturn(Optional.of(learningResource));
+        LearningPathDTO.PathView path = activePath(88L, "review-lists", 901L);
+        when(learningPathService.getActivePath(42L, "python")).thenReturn(path);
+
+        AssistantResourceInteractionResponse response = service.record(
+                42L, "session-1", 109L, "res_python_lab", request("complete"));
+
+        assertThat(response.getStatus()).isEqualTo("recorded");
+        ArgumentCaptor<LearningPathDTO.InteractionRequest> requestCaptor =
+                ArgumentCaptor.forClass(LearningPathDTO.InteractionRequest.class);
+        verify(learningPathService).recordResourceInteraction(
+                org.mockito.ArgumentMatchers.eq(42L),
+                org.mockito.ArgumentMatchers.eq(901L),
+                requestCaptor.capture());
+        assertThat(requestCaptor.getValue().getAction()).isEqualTo("complete");
+
+        ArgumentCaptor<UserProfileDTO.EvidenceRequest> evidenceCaptor =
+                ArgumentCaptor.forClass(UserProfileDTO.EvidenceRequest.class);
+        verify(userProfileService).addEvidence(org.mockito.ArgumentMatchers.eq(42L), evidenceCaptor.capture());
+        assertThat(evidenceCaptor.getValue().getAction()).isEqualTo("complete");
+        assertThat(evidenceCaptor.getValue().getEvidence()).contains("完成");
+    }
+
+    @Test
+    void completeRejectsMissingOrForeignStoredPathIdentityBeforeWritingAReceipt() {
+        BusinessException missingMetadata = assertThrows(BusinessException.class,
+                () -> service.record(42L, "session-1", 101L, "res_doc", request("complete")));
+        assertThat(missingMetadata.getCode()).isEqualTo(409);
+
+        AiLeaderMessage foreignPathResource = message(110L, """
+                [{
+                  "schemaVersion":"assistant-resource-v1",
+                  "id":"res_python_foreign",
+                  "kind":"document",
+                  "deliveryType":"document",
+                  "title":"外部路径资源",
+                  "metadata":{
+                    "learningPathId":999,
+                    "learningPathItemKey":"review-lists"
+                  }
+                }]
+                """);
+        when(messageRepository.findById(110L)).thenReturn(Optional.of(foreignPathResource));
+        when(learningPathService.getActivePath(42L, "python"))
+                .thenReturn(activePath(88L, "review-lists", 901L));
+
+        BusinessException foreignPath = assertThrows(BusinessException.class,
+                () -> service.record(
+                        42L, "session-1", 110L, "res_python_foreign", request("complete")));
+
+        assertThat(foreignPath.getCode()).isEqualTo(404);
+        verify(interactionRepository, never()).save(any());
+        verify(learningPathService, never()).recordResourceInteraction(any(), any(), any());
+        verify(userProfileService, never()).addEvidence(any(), any());
+    }
+
+    @Test
+    void duplicateCompleteDoesNotResolveOrCompleteThePathAgain() {
+        AiLeaderMessage learningResource = message(111L, """
+                [{
+                  "schemaVersion":"assistant-resource-v1",
+                  "id":"res_python_done",
+                  "kind":"document",
+                  "deliveryType":"document",
+                  "title":"Python 条件语句讲义",
+                  "metadata":{
+                    "learningPathId":88,
+                    "learningPathItemKey":"review-conditions"
+                  }
+                }]
+                """);
+        when(messageRepository.findById(111L)).thenReturn(Optional.of(learningResource));
+        when(interactionRepository.existsById(any())).thenReturn(true);
+
+        AssistantResourceInteractionResponse response = service.record(
+                42L, "session-1", 111L, "res_python_done", request("complete"));
+
+        assertThat(response.isDuplicate()).isTrue();
+        verify(learningPathService, never()).getActivePath(any(), any());
+        verify(learningPathService, never()).recordResourceInteraction(any(), any(), any());
         verify(interactionRepository, never()).save(any());
         verify(userProfileService, never()).addEvidence(any(), any());
     }
@@ -277,9 +381,11 @@ class AssistantResourceInteractionServiceTest {
         UserProfileServiceImpl profileService = new UserProfileServiceImpl(
                 mock(UserProfileDimensionRepository.class),
                 mock(UserProfileEvidenceRepository.class),
+                mock(com.example.appbackend.repository.UserProfileSnapshotRepository.class),
                 mock(PythonAiProxyService.class),
                 mock(SystemConfigService.class),
-                new ObjectMapper()
+                new ObjectMapper(),
+                Runnable::run
         );
         var method = UserProfileServiceImpl.class
                 .getDeclaredMethod("sourceReliabilityScore", String.class);
@@ -308,9 +414,11 @@ class AssistantResourceInteractionServiceTest {
         UserProfileServiceImpl profileService = new UserProfileServiceImpl(
                 mock(UserProfileDimensionRepository.class),
                 evidenceRepository,
+                mock(com.example.appbackend.repository.UserProfileSnapshotRepository.class),
                 mock(PythonAiProxyService.class),
                 mock(SystemConfigService.class),
-                new ObjectMapper()
+                new ObjectMapper(),
+                Runnable::run
         );
         var hintsMethod = UserProfileServiceImpl.class
                 .getDeclaredMethod("buildOutputPreferenceHints", Long.class);
@@ -338,5 +446,22 @@ class AssistantResourceInteractionServiceTest {
         message.setRole(AiLeaderMessage.ROLE_ASSISTANT);
         message.setResourcesJson(resourcesJson);
         return message;
+    }
+
+    private LearningPathDTO.PathView activePath(Long pathId, String itemKey, Long itemId) {
+        LearningPathDTO.PathItemView item = new LearningPathDTO.PathItemView();
+        item.setId(itemId);
+        item.setPathId(pathId);
+        item.setItemKey(itemKey);
+        item.setKnowledgePoint("python.lists.slicing");
+        item.setStatus("ready");
+
+        LearningPathDTO.PathView path = new LearningPathDTO.PathView();
+        path.setId(pathId);
+        path.setUserId(42L);
+        path.setCourseKey("python");
+        path.setStatus("active");
+        path.setItems(List.of(item));
+        return path;
     }
 }

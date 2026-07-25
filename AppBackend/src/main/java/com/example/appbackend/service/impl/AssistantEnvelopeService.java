@@ -94,12 +94,21 @@ public class AssistantEnvelopeService {
             "internalcapability", "pythoncapability", "exportcapability", "capability");
     private static final Set<String> SAFE_METADATA_KEYS = Set.of(
             "source", "sourceId", "sourceType", "sourceVersion", "retrievedAt", "title", "type", "kind",
-            "time", "location", "route", "status", "legacy", "serverGenerated");
+            "time", "location", "route", "status", "legacy", "serverGenerated",
+            "courseKey", "knowledgePoint", "learningPathId", "learningPathItemKey",
+            "resourceKind", "resourceType", "reviewStatus");
     private static final Set<String> SAFE_STEP_DETAIL_KEYS = Set.of(
             "agentName", "targetAgent", "toolName", "toolDisplayName", "routeReason", "intent",
             "resultCount", "documentCount", "strategy", "summarizedByModel");
     private static final Set<String> DEFAULT_SSE_FIELDS = Set.of(
             "message", "status", "stage", "progress");
+    private static final Set<String> LEARNING_SSE_EVENTS = Set.of(
+            "accepted", "profile", "retrieval", "planning", "agent_start", "agent_done",
+            "agent_failed", "review_start", "review_result", "exporting", "pathing",
+            "persisting", "retrying", "dependency_unavailable", "error");
+    private static final Set<String> LEARNING_SSE_FIELDS = Set.of(
+            "workflowId", "stage", "progress", "agentName", "resourceType",
+            "message", "retryable", "status");
     private static final Map<String, Set<String>> SSE_EVENT_FIELDS = Map.of(
             "status", Set.of("message", "status", "stage", "progress", "agentName"),
             "tool_start", Set.of("message", "status", "stage", "agentName", "toolName", "toolDisplayName"),
@@ -109,6 +118,8 @@ public class AssistantEnvelopeService {
     private static final Set<String> FORBIDDEN_KEYS = Set.of(
             "userid", "sellerid", "phone", "contact", "memberlist", "participants", "transcript", "token",
             "raw", "authorization", "apikey", "capability", "profile");
+    private static final Set<String> SAFE_DIAGNOSTIC_KEYS = Set.of(
+            "profilems", "profilecontextsource", "firsttokenms");
     private static final Map<String, Set<String>> BUSINESS_FIELDS = Map.of(
             "course", Set.of("businessId", "courseName", "teacherName", "weekday", "startSection", "endSection", "classroom", "weekText"),
             "activity", Set.of("businessId", "title", "category", "startTime", "endTime", "location", "status"),
@@ -304,6 +315,74 @@ public class AssistantEnvelopeService {
         target.putAll(safe);
     }
 
+    /**
+     * Learning events use a closed contract and may carry one already-normalized
+     * assistant resource. The ordinary campus SSE allowlists above remain unchanged.
+     */
+    public void sanitizeLearningSseEventPayload(String eventName,
+                                                Object eventPayload,
+                                                Set<String> internalCapabilities) {
+        if (!(eventPayload instanceof Map<?, ?> source) || !LEARNING_SSE_EVENTS.contains(eventName)) {
+            return;
+        }
+        Map<String, Object> safe = new LinkedHashMap<>();
+        for (String key : LEARNING_SSE_FIELDS) {
+            Object value = source.get(key);
+            if (value instanceof Number number && finite(number)) {
+                safe.put(key, value);
+            } else if (value instanceof Boolean) {
+                safe.put(key, value);
+            } else if (value instanceof String text
+                    && text.length() <= 1_000
+                    && !unsafePublicText(text, internalCapabilities)) {
+                safe.put(key, text);
+            }
+        }
+        if ("agent_done".equals(eventName) && source.get("resource") instanceof Map<?, ?> resource) {
+            List<AssistantResourceDTO> sanitized = sanitizeResources(
+                    List.of(resource), false, internalCapabilities);
+            if (!sanitized.isEmpty()) {
+                safe.put("resource", objectMapper.convertValue(
+                        sanitized.getFirst(), new TypeReference<Map<String, Object>>() { }));
+            }
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> target = (Map<String, Object>) source;
+        target.clear();
+        target.putAll(safe);
+    }
+
+    public String sanitizeLearningText(Object value,
+                                       int maxLength,
+                                       String fallback,
+                                       Set<String> internalCapabilities) {
+        String text = value == null ? "" : String.valueOf(value).trim();
+        if (text.length() > maxLength) {
+            text = text.substring(0, maxLength);
+        }
+        return safePublicText(text, fallback,
+                internalCapabilities == null ? Set.of() : internalCapabilities).trim();
+    }
+
+    @Transactional
+    public AiLeaderMessage reserveAssistantMessage(
+            AiLeaderSession session, LlmChatResponse response) {
+        if (session == null || session.getId() == null || response == null) {
+            throw new IllegalArgumentException("assistant message reservation is invalid");
+        }
+        AiLeaderMessage message = new AiLeaderMessage();
+        message.setLeaderSessionId(session.getId());
+        message.setRole(AiLeaderMessage.ROLE_ASSISTANT);
+        fillBaseFields(message, response);
+        clearPublicEnvelope(message);
+        message = messageRepository.save(message);
+        if (message.getId() == null) {
+            throw new IllegalStateException("assistant message id was not generated");
+        }
+        response.setMessageId(message.getId());
+        return message;
+    }
+
     @Transactional
     public AiLeaderMessage persistAssistantMessage(Long userId,
                                                    AiLeaderSession session,
@@ -319,13 +398,9 @@ public class AssistantEnvelopeService {
             throw new IllegalStateException("assistant capability manifest validation failed");
         }
         assertPublicResponseSafe(response, mergedCapabilities.values());
-        AiLeaderMessage message = existing == null ? new AiLeaderMessage() : existing;
+        AiLeaderMessage message = existing;
         if (existing == null) {
-            message.setLeaderSessionId(session.getId());
-            message.setRole(AiLeaderMessage.ROLE_ASSISTANT);
-            fillBaseFields(message, response);
-            clearPublicEnvelope(message);
-            message = messageRepository.save(message);
+            message = reserveAssistantMessage(session, response);
         }
         if (message.getId() == null) {
             throw new IllegalStateException("assistant message id was not generated");
@@ -2136,6 +2211,9 @@ public class AssistantEnvelopeService {
 
     private boolean forbidden(String key) {
         String normalized = key == null ? "" : key.replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
+        if (SAFE_DIAGNOSTIC_KEYS.contains(normalized)) {
+            return false;
+        }
         return FORBIDDEN_KEYS.stream().anyMatch(normalized::contains);
     }
 

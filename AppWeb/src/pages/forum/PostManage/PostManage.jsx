@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useState, useEffect } from 'react'
 import { message, Modal, Button, Table, Tag, Space, Popconfirm, Input, Select, Form } from 'antd'
 import { EyeOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons'
 import { getPostList, deletePost } from '../../../api/forum'
@@ -23,35 +23,37 @@ function PostManage() {
     pageSize: 10,
     total: 0
   })
+  const currentPage = pagination.current
+  const currentPageSize = pagination.pageSize
 
   // 获取帖子列表
-  const fetchPosts = async (params = {}) => {
+  const fetchPosts = useCallback(async (params = {}) => {
     setLoading(true)
     try {
       const res = await getPostList({
-        page: pagination.current,
-        size: pagination.pageSize,
+        page: currentPage,
+        size: currentPageSize,
         ...params
       })
       if (res.code === 200) {
         // 适配分页响应结构 { records: [...], total: ... }
         const records = res.data?.records || res.data?.list || res.data || []
         setPosts(Array.isArray(records) ? records : [])
-        setPagination({
-          ...pagination,
+        setPagination((prev) => ({
+          ...prev,
           total: res.data?.total || 0
-        })
+        }))
       }
     } catch (error) {
       console.error('获取帖子列表失败:', error)
     } finally {
       setLoading(false)
     }
-  }
+  }, [currentPage, currentPageSize])
 
   useEffect(() => {
     fetchPosts()
-  }, [])
+  }, [fetchPosts])
 
   // 搜索
   const handleSearch = (values) => {

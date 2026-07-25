@@ -8,6 +8,8 @@ public interface MapService {
 
     PageResponse<MarkerResponse> getMarkerList(Integer facilityType, String keyword, Integer pageNum, Integer pageSize);
 
+    PageResponse<MarkerResponse> getMarkerListByTypes(List<Integer> facilityTypes, String keyword, Integer pageNum, Integer pageSize);
+
     MarkerResponse getMarkerDetail(Long id);
 
     MarkerResponse createMarker(MarkerRequest request);

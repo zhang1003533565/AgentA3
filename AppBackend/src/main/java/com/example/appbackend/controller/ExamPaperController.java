@@ -44,8 +44,7 @@ public class ExamPaperController {
     @PostMapping("/random-preview")
     public Result<PaperVO> randomPreview(@Valid @RequestBody RandomPreviewRequest request,
                                          HttpServletRequest httpRequest) {
-        getUserId(httpRequest);
-        return Result.success(examPaperService.randomPreview(request));
+        return Result.success(examPaperService.randomPreview(request, getUserId(httpRequest)));
     }
 
     @PostMapping

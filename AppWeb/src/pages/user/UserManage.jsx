@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { message, Modal, Form, Input, Button, Table, Tag, Space, Popconfirm, Select } from 'antd'
+import { useCallback, useState, useEffect } from 'react'
+import { Modal, Form, Input, Button, Table, Tag, Space, Popconfirm, Select } from 'antd'
 import { EditOutlined, LockOutlined, CheckOutlined, StopOutlined, SearchOutlined } from '@ant-design/icons'
 import { getUserList, updateUser, enableUser, disableUser, resetPassword } from '../../api/user'
 import './UserManage.css'
@@ -26,34 +26,36 @@ function UserManage() {
     pageSize: 10,
     total: 0
   })
+  const currentPage = pagination.current
+  const currentPageSize = pagination.pageSize
 
   // 获取用户列表
-  const fetchUsers = async (params = {}) => {
+  const fetchUsers = useCallback(async (params = {}) => {
     setLoading(true)
     try {
       const res = await getUserList({
-        page: pagination.current,
-        size: pagination.pageSize,
+        page: currentPage,
+        size: currentPageSize,
         ...params
       })
       if (res.code === 200) {
         const records = res.data?.records || res.data?.list || res.data || []
         setUsers(Array.isArray(records) ? records : [])
-        setPagination({
-          ...pagination,
+        setPagination((prev) => ({
+          ...prev,
           total: res.data?.total || 0
-        })
+        }))
       }
     } catch (error) {
       console.error('获取用户列表失败:', error)
     } finally {
       setLoading(false)
     }
-  }
+  }, [currentPage, currentPageSize])
 
   useEffect(() => {
     fetchUsers()
-  }, [pagination.current, pagination.pageSize])
+  }, [fetchUsers])
 
   // 搜索
   const handleSearch = (values) => {

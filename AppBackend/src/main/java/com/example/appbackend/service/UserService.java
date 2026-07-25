@@ -6,7 +6,7 @@ import jakarta.validation.Valid;
 
 public interface UserService {
 
-    UserResponse register(RegisterRequest request);
+    UserResponse register(@Valid RegisterRequest request);
 
 
 
@@ -31,4 +31,5 @@ public interface UserService {
     User findByUsername(String username);
 
     void updateAvatar(String username, String avatarUrl);
+
 }

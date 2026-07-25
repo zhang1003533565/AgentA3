@@ -86,8 +86,8 @@ public class SecondhandItem {
     @Schema(description = "热度分", example = "128")
     private Integer heatScore = 0;
 
-    @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 2 COMMENT '状态: 2-在售 3-已售出 4-已下架 5-交易中'")
-    @Schema(description = "状态: 2-在售 3-已售出 4-已下架 5-交易中", example = "2")
+    @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 2 COMMENT '状态: 2-在售 3-已售出 4-已下架'")
+    @Schema(description = "状态: 2-在售 3-已售出 4-已下架", example = "2")
     private Integer status = 2;
 
     @Column(name = "create_time", columnDefinition = "DATETIME COMMENT '创建时间'")

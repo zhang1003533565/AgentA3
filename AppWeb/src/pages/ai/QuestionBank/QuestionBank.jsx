@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Breadcrumb, Button, Card, Descriptions, Drawer, Empty, Form, Input, Select, Space, Table, Tag, Typography, message } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
 import { getExamQuestionDetail, getExamQuestionList } from '../../../api/examQuestion'
@@ -223,10 +223,10 @@ function QuestionBank() {
   const [detail, setDetail] = useState(null)
   const [selectedRowKeys, setSelectedRowKeys] = useState([])
 
-  const fetchList = async (params = {}) => {
+  const fetchList = useCallback(async (params = {}) => {
     const values = form.getFieldsValue()
-    const current = params.current ?? pagination.current
-    const size = params.pageSize ?? pagination.pageSize
+    const current = params.current ?? currentPage
+    const size = params.pageSize ?? currentPageSize
     setLoading(true)
     try {
       const res = await getExamQuestionList({
@@ -248,11 +248,11 @@ function QuestionBank() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [currentPage, currentPageSize, form])
 
   useEffect(() => {
     fetchList({ current: 1 })
-  }, [])
+  }, [fetchList])
 
   const openDetail = async (id) => {
     setDetailOpen(true)

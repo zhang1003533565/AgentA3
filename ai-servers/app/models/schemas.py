@@ -32,7 +32,10 @@ class ChatResponse(BaseModel):
 
 
 class RagQueryRequest(BaseModel):
-    input: str = Field(min_length=1, max_length=4000)
+    # Full textbook chapters are accepted by the trusted question-generation
+    # flow. The RAG routes keep the original 4,000-character limit for every
+    # ordinary request.
+    input: str = Field(min_length=1, max_length=210000)
     keyword: Optional[str] = Field(default=None, max_length=128)
     intent: str = Field(default="campus_search", max_length=64)
     ragStrategy: Optional[str] = Field(default=None, max_length=64)

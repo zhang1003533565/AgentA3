@@ -8,7 +8,7 @@ import com.example.appbackend.dto.PageResponse;
 
 public interface ExamPaperService {
 
-    PaperVO randomPreview(RandomPreviewRequest request);
+    PaperVO randomPreview(RandomPreviewRequest request, Long userId);
 
     PaperVO create(CreateRequest request, Long userId);
 

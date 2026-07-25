@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   AlertOutlined,
@@ -21,6 +21,7 @@ import {
   LogoutOutlined,
   MessageOutlined,
   MinusOutlined,
+  MoreOutlined,
   NotificationOutlined,
   AudioOutlined,
   PieChartOutlined,
@@ -101,6 +102,8 @@ function NavBar({ mobileOpen, onClose }) {
     [location.pathname]
   )
   const [openSections, setOpenSections] = useState(defaultOpen)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const userMenuRef = useRef(null)
 
   useEffect(() => {
     // Keep a section open when navigation activates one of its children.
@@ -111,6 +114,26 @@ function NavBar({ mobileOpen, onClose }) {
     }))
   }, [defaultOpen])
 
+  useEffect(() => {
+    const handlePointerDown = (event) => {
+      if (!userMenuRef.current?.contains(event.target)) {
+        setUserMenuOpen(false)
+      }
+    }
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setUserMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
+
   const toggleSection = (label) => {
     setOpenSections((prev) => ({
       ...prev,
@@ -119,6 +142,7 @@ function NavBar({ mobileOpen, onClose }) {
   }
 
   const handleLogout = () => {
+    setUserMenuOpen(false)
     clearAuth()
     navigate('/')
   }
@@ -139,20 +163,6 @@ function NavBar({ mobileOpen, onClose }) {
           <strong>智慧校园</strong>
           <span>Smart Campus Console</span>
         </div>
-      </div>
-
-      <div className="navbar-user-card">
-        <div className="navbar-user-card-top">
-          <div className="navbar-user-avatar">{(userInfo?.username || 'A').slice(0, 1).toUpperCase()}</div>
-          <div>
-            <strong>{userInfo?.username || '管理员'}</strong>
-            <span>{userInfo?.role || 'System Operator'}</span>
-          </div>
-        </div>
-        <button type="button" className="navbar-logout" onClick={handleLogout}>
-          <LogoutOutlined />
-          <span>退出登录</span>
-        </button>
       </div>
 
       <nav className="navbar-nav">
@@ -190,6 +200,31 @@ function NavBar({ mobileOpen, onClose }) {
           </section>
         ))}
       </nav>
+
+      <div className="navbar-user" ref={userMenuRef}>
+        {userMenuOpen && (
+          <div className="navbar-user-menu" role="menu">
+            <button type="button" role="menuitem" className="navbar-logout" onClick={handleLogout}>
+              <LogoutOutlined />
+              <span>退出登录</span>
+            </button>
+          </div>
+        )}
+        <button
+          type="button"
+          className="navbar-user-trigger"
+          aria-label="打开账号菜单"
+          aria-expanded={userMenuOpen}
+          onClick={() => setUserMenuOpen((open) => !open)}
+        >
+          <div className="navbar-user-avatar">{(userInfo?.username || 'A').slice(0, 1).toUpperCase()}</div>
+          <div className="navbar-user-details">
+            <strong>{userInfo?.username || '管理员'}</strong>
+            <span>{userInfo?.role || 'System Operator'}</span>
+          </div>
+          <MoreOutlined className="navbar-user-more" />
+        </button>
+      </div>
     </aside>
   )
 }

@@ -50,6 +50,17 @@ public class MapServiceImpl implements MapService {
     public PageResponse<MarkerResponse> getMarkerList(Integer facilityType, String keyword, Integer pageNum, Integer pageSize) {
         PageRequest pageRequest = PageRequest.of(pageNum - 1, pageSize, Sort.by(Sort.Direction.DESC, "id"));
         Page<MapMarker> page = mapMarkerRepository.findByConditions(facilityType, keyword, pageRequest);
+        return toMarkerPage(page, pageNum, pageSize);
+    }
+
+    @Override
+    public PageResponse<MarkerResponse> getMarkerListByTypes(List<Integer> facilityTypes, String keyword, Integer pageNum, Integer pageSize) {
+        PageRequest pageRequest = PageRequest.of(pageNum - 1, pageSize, Sort.by(Sort.Direction.DESC, "id"));
+        Page<MapMarker> page = mapMarkerRepository.findByFacilityTypes(facilityTypes, keyword, pageRequest);
+        return toMarkerPage(page, pageNum, pageSize);
+    }
+
+    private PageResponse<MarkerResponse> toMarkerPage(Page<MapMarker> page, Integer pageNum, Integer pageSize) {
         Map<Long, CampusFacility> facilityMap = buildFacilityMap(page.getContent());
         List<MarkerResponse> items = page.getContent().stream()
                 .map(m -> toMarkerResponse(m, facilityMap.get(m.getFacilityId())))

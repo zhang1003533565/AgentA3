@@ -55,7 +55,11 @@ public class ExamQuestionController {
         if ("question_generation".equals(request.getSourceScene())) {
             throw new BusinessException(Result.FORBIDDEN_CODE, "智能生成题目必须使用管理员专用导入接口");
         }
-        return Result.success("导入成功", examQuestionService.importQuestions(request, expectedType, getUserId(httpRequest)));
+        Long userId = getUserId(httpRequest);
+        ExamQuestionDTO.ImportResponse response = "ADMIN".equals(httpRequest.getAttribute("role"))
+                ? examQuestionService.importPublicQuestions(request, expectedType, userId)
+                : examQuestionService.importQuestions(request, expectedType, userId);
+        return Result.success("导入成功", response);
     }
 
     @GetMapping
@@ -67,15 +71,14 @@ public class ExamQuestionController {
             @RequestParam(required = false) String difficulty,
             @RequestParam(required = false) String keyword,
             HttpServletRequest httpRequest) {
-        requireLogin(httpRequest);
-        return Result.success(examQuestionService.listQuestions(current, size, type, difficulty, keyword));
+        Long userId = getUserId(httpRequest);
+        return Result.success(examQuestionService.listQuestions(current, size, type, difficulty, keyword, userId));
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "题目详情")
     public Result<ExamQuestionDTO.QuestionVO> detail(@PathVariable Long id, HttpServletRequest httpRequest) {
-        requireLogin(httpRequest);
-        return Result.success(examQuestionService.getQuestion(id));
+        return Result.success(examQuestionService.getQuestion(id, getUserId(httpRequest)));
     }
 
     private Long getUserId(HttpServletRequest request) {
