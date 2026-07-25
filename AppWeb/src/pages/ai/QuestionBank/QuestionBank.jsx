@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Breadcrumb, Button, Card, Descriptions, Drawer, Empty, Form, Input, Select, Space, Table, Tag, Typography, message } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
 import { getExamQuestionDetail, getExamQuestionList } from '../../../api/examQuestion'
@@ -219,14 +219,15 @@ function QuestionBank() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [rows, setRows] = useState([])
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 })
+  const paginationRef = useRef({ current: 1, pageSize: 10, total: 0 })
   const [detailOpen, setDetailOpen] = useState(false)
   const [detail, setDetail] = useState(null)
   const [selectedRowKeys, setSelectedRowKeys] = useState([])
 
   const fetchList = useCallback(async (params = {}) => {
     const values = form.getFieldsValue()
-    const current = params.current ?? currentPage
-    const size = params.pageSize ?? currentPageSize
+    const current = params.current ?? paginationRef.current.current
+    const size = params.pageSize ?? paginationRef.current.pageSize
     setLoading(true)
     try {
       const res = await getExamQuestionList({
@@ -238,17 +239,19 @@ function QuestionBank() {
       })
       const data = res.data || {}
       setRows(data.records || [])
-      setPagination({
+      const nextPagination = {
         current: data.page || current,
         pageSize: data.size || size,
         total: data.total || 0,
-      })
+      }
+      paginationRef.current = nextPagination
+      setPagination(nextPagination)
     } catch (error) {
       message.error(error.message || '题库列表加载失败')
     } finally {
       setLoading(false)
     }
-  }, [currentPage, currentPageSize, form])
+  }, [form])
 
   useEffect(() => {
     fetchList({ current: 1 })
