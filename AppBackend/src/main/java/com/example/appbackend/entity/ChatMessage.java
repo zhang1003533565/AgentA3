@@ -25,8 +25,8 @@ public class ChatMessage {
     @Schema(description = "发送者ID", example = "3")
     private Long senderId;
 
-    @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 1 COMMENT '消息类型: 1-文本 2-图片 3-位置'")
-    @Schema(description = "消息类型: 1-文本 2-图片 3-位置", example = "1")
+    @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 1 COMMENT '消息类型: 0-系统交易消息 1-文本 2-图片 3-位置 4-交换联系方式'")
+    @Schema(description = "消息类型: 0-系统交易消息 1-文本 2-图片 3-位置 4-交换联系方式", example = "1")
     private Integer messageType = 1;
 
     @Column(nullable = false, length = 1000, columnDefinition = "VARCHAR(1000) NOT NULL COMMENT '消息内容'")

@@ -1,10 +1,15 @@
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from typing import Optional
 
 from app.models.video_generation import VideoBatchRequest, VideoGenerationRequest, VideoGenerationResponse
+from app.security.internal_auth import require_internal_token
 from app.video_generation import get_qwen_video_provider
 
-router = APIRouter(prefix="/internal/videos", tags=["internal-videos"])
+router = APIRouter(
+    prefix="/internal/videos",
+    tags=["internal-videos"],
+    dependencies=[Depends(require_internal_token)],
+)
 
 
 @router.post("/generate", response_model=VideoGenerationResponse)

@@ -26,4 +26,7 @@ public interface UserProfileEvidenceRepository extends JpaRepository<UserProfile
     long countByUserId(Long userId);
 
     long countByUserIdAndStatus(Long userId, String status);
+
+    List<UserProfileEvidence> findByUserIdAndSourceTypeOrderByCreateTimeAsc(
+            Long userId, String sourceType);
 }

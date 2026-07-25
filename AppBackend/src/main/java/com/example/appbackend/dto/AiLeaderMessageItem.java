@@ -20,5 +20,8 @@ public class AiLeaderMessageItem {
     private Map<String, Object> retrievalMeta;
     private List<Map<String, Object>> trace;
     private List<Map<String, Object>> attachments;
+    private List<Map<String, Object>> matchedResults;
+    private List<AssistantResourceDTO> resources;
+    private AssistantEvidenceChainDTO evidenceChain;
     private LocalDateTime createTime;
 }

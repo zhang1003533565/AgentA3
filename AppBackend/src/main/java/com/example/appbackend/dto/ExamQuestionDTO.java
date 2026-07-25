@@ -1,6 +1,7 @@
 package com.example.appbackend.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -52,6 +53,33 @@ public class ExamQuestionDTO {
     }
 
     @Data
+    @Schema(description = "单题新增/编辑请求（题库管理页面手工录题）")
+    public static class SaveRequest {
+        @NotBlank(message = "题型不能为空")
+        @Schema(description = "题型", example = "single_choice")
+        private String type;
+
+        @NotBlank(message = "题目内容不能为空")
+        @Schema(description = "题目内容（题干）")
+        private String content;
+
+        @Size(max = 160, message = "所属题库最多 160 字符")
+        @Schema(description = "所属题库（对应 sourceTitle）")
+        private String bankId;
+
+        @NotBlank(message = "难度不能为空")
+        @Schema(description = "难度：easy/medium/hard", example = "easy")
+        private String difficulty;
+
+        @NotBlank(message = "答案不能为空")
+        @Schema(description = "答案文本")
+        private String answer;
+
+        @Schema(description = "解析（可选）")
+        private String analysis;
+    }
+
+    @Data
     @Schema(description = "题库题目详情")
     public static class QuestionVO {
         private Long id;
@@ -72,6 +100,9 @@ public class ExamQuestionDTO {
         private String sourceTitle;
         private String sourceScene;
         private Long createdBy;
+        private String visibility;
+        private Long ownerUserId;
+        private Boolean ownedByCurrentUser;
         private LocalDateTime createTime;
         private LocalDateTime updateTime;
     }

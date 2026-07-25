@@ -23,6 +23,7 @@ import com.example.appbackend.service.ExamPaperService;
 import com.example.appbackend.service.ExamPaperDocumentGenerator;
 import com.example.appbackend.service.exampaper.ExamPaperDocumentDispatcher;
 import com.example.appbackend.service.exampaper.ExamPaperFingerprint;
+import com.example.appbackend.service.exampaper.ExamPaperTypeScoreRules;
 import com.example.appbackend.service.ExamPaperPreviewService;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +32,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -41,7 +43,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.random.RandomGenerator;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class ExamPaperServiceImpl implements ExamPaperService {
@@ -49,7 +51,7 @@ public class ExamPaperServiceImpl implements ExamPaperService {
     private final ExamQuestionRepository questionRepository;
     private final ExamPaperRepository paperRepository;
     private final ExamPaperQuestionRepository paperQuestionRepository;
-    private final RandomGenerator randomGenerator;
+    private final SecureRandom secureRandom = new SecureRandom();
     private final ExamPaperDocumentGenerator documentGenerator;
     private final ExamPaperDocumentDispatcher documentDispatcher;
     private final ExamPaperPreviewService previewService;
@@ -58,7 +60,7 @@ public class ExamPaperServiceImpl implements ExamPaperService {
                                 ExamPaperRepository paperRepository,
                                 ExamPaperQuestionRepository paperQuestionRepository) {
         this(questionRepository, paperRepository, paperQuestionRepository,
-                RandomGenerator.getDefault(), new ExamPaperDocumentDispatcher());
+                new ExamPaperDocumentDispatcher());
     }
 
     @Autowired
@@ -67,27 +69,24 @@ public class ExamPaperServiceImpl implements ExamPaperService {
                                 ExamPaperQuestionRepository paperQuestionRepository,
                                 ExamPaperPreviewService previewService) {
         this(questionRepository, paperRepository, paperQuestionRepository,
-                RandomGenerator.getDefault(), new ExamPaperDocumentDispatcher(), previewService);
+                new ExamPaperDocumentDispatcher(), previewService);
     }
 
     ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
                                  ExamPaperRepository paperRepository,
                                  ExamPaperQuestionRepository paperQuestionRepository,
-                                 RandomGenerator randomGenerator,
                                  ExamPaperDocumentDispatcher documentDispatcher) {
-        this(questionRepository, paperRepository, paperQuestionRepository, randomGenerator, documentDispatcher, null);
+        this(questionRepository, paperRepository, paperQuestionRepository, documentDispatcher, null);
     }
 
     ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
                          ExamPaperRepository paperRepository,
                          ExamPaperQuestionRepository paperQuestionRepository,
-                         RandomGenerator randomGenerator,
                          ExamPaperDocumentDispatcher documentDispatcher,
                          ExamPaperPreviewService previewService) {
         this.questionRepository = questionRepository;
         this.paperRepository = paperRepository;
         this.paperQuestionRepository = paperQuestionRepository;
-        this.randomGenerator = randomGenerator;
         this.documentGenerator = null;
         this.documentDispatcher = documentDispatcher;
         this.previewService = previewService;
@@ -96,34 +95,35 @@ public class ExamPaperServiceImpl implements ExamPaperService {
     ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
                          ExamPaperRepository paperRepository,
                          ExamPaperQuestionRepository paperQuestionRepository,
-                         RandomGenerator randomGenerator,
                          ExamPaperDocumentGenerator documentGenerator) {
-        this(questionRepository, paperRepository, paperQuestionRepository, randomGenerator, documentGenerator, null);
+        this(questionRepository, paperRepository, paperQuestionRepository, documentGenerator, null);
     }
 
     ExamPaperServiceImpl(ExamQuestionRepository questionRepository,
                          ExamPaperRepository paperRepository,
                          ExamPaperQuestionRepository paperQuestionRepository,
-                         RandomGenerator randomGenerator,
                          ExamPaperDocumentGenerator documentGenerator,
                          ExamPaperPreviewService previewService) {
         this.questionRepository = questionRepository;
         this.paperRepository = paperRepository;
         this.paperQuestionRepository = paperQuestionRepository;
-        this.randomGenerator = randomGenerator;
         this.documentGenerator = documentGenerator;
         this.documentDispatcher = null;
         this.previewService = previewService;
     }
 
     @Override
-    public PaperVO randomPreview(RandomPreviewRequest request) {
+    public PaperVO randomPreview(RandomPreviewRequest request, Long userId) {
+        if (userId == null) {
+            throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
+        }
         List<List<ExamQuestion>> candidatesByRule = new ArrayList<>();
         List<RuleSlot> slots = new ArrayList<>();
         for (int ruleIndex = 0; ruleIndex < request.getRules().size(); ruleIndex++) {
             RandomRule rule = request.getRules().get(ruleIndex);
             List<ExamQuestion> candidates = new ArrayList<>(
-                    questionRepository.findActiveCandidates(rule.getType(), rule.getDifficulty()));
+                    questionRepository.findVisibleActiveCandidates(
+                            rule.getType(), rule.getDifficulty(), userId));
             shuffle(candidates);
             candidatesByRule.add(candidates);
             for (int slotIndex = 0; slotIndex < rule.getQuantity(); slotIndex++) {
@@ -191,10 +191,11 @@ public class ExamPaperServiceImpl implements ExamPaperService {
         PaperLayoutRequest layout = normalizeLayout(request);
         validateLayout(layout);
         validateUniqueSelections(request.getQuestions());
+        validateTypeScoreRules(request);
         List<Long> questionIds = request.getQuestions().stream()
                 .map(SelectedQuestion::getQuestionId)
                 .toList();
-        List<ExamQuestion> loaded = questionRepository.findAllById(questionIds);
+        List<ExamQuestion> loaded = questionRepository.findAllVisibleById(questionIds, userId);
         if (loaded.size() != questionIds.size()
                 || loaded.stream().anyMatch(question -> !Integer.valueOf(1).equals(question.getStatus()))) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "题目不存在或已停用");
@@ -236,10 +237,13 @@ public class ExamPaperServiceImpl implements ExamPaperService {
 
         List<ExamPaperQuestion> snapshots = new ArrayList<>();
         Map<String, Integer> sectionOrders = new LinkedHashMap<>();
+        String multipleChoiceRuleCode = ExamPaperTypeScoreRules.multipleChoiceRuleCode(request);
+        String multipleChoiceRuleText = ExamPaperTypeScoreRules.multipleChoiceRuleText(request);
         for (SelectedQuestion selection : selections) {
             ExamQuestion question = questionsById.get(selection.getQuestionId());
             int sectionOrder = sectionOrders.computeIfAbsent(question.getType(), ignored -> sectionOrders.size() + 1);
-            snapshots.add(snapshot(paper.getId(), selection, question, sectionOrder));
+            snapshots.add(snapshot(paper.getId(), selection, question, sectionOrder,
+                    multipleChoiceRuleCode, multipleChoiceRuleText));
         }
         paperQuestionRepository.saveAll(snapshots);
         return toVO(paper, snapshots);
@@ -311,7 +315,6 @@ public class ExamPaperServiceImpl implements ExamPaperService {
         PaperVO paper = detail(id, userId);
         byte[] bytes;
         if (documentDispatcher == null) {
-            // Compatibility seam for existing service unit tests; production always uses the dispatcher.
             bytes = documentGenerator.generate(paper, content);
         } else {
             bytes = documentDispatcher.generate(paper, content, paper.getLayout());
@@ -321,7 +324,7 @@ public class ExamPaperServiceImpl implements ExamPaperService {
 
     private ExamPaper ownedActivePaper(Long id, Long userId) {
         ExamPaper paper = paperRepository.findByIdAndStatus(id, 1)
-                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "试卷不存在"));
+                .orElseThrow(() -> new BusinessException(Result.BAD_REQUEST_CODE, "试卷不存在"));
         if (!Objects.equals(paper.getCreatedBy(), userId)) {
             throw new BusinessException(Result.FORBIDDEN_CODE, "无权访问该试卷");
         }
@@ -400,8 +403,16 @@ public class ExamPaperServiceImpl implements ExamPaperService {
         }
     }
 
+    private void validateTypeScoreRules(CreateRequest request) {
+        if (request.getTypeScoreRules() == null || !request.getTypeScoreRules().containsKey("multiple_choice")) return;
+        String code = ExamPaperTypeScoreRules.multipleChoiceRuleCode(request);
+        if ("custom".equals(code) && ExamPaperTypeScoreRules.multipleChoiceRuleText(request) == null) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "请填写多选题自定义得分规则");
+        }
+    }
+
     private ExamPaperQuestion snapshot(Long paperId, SelectedQuestion selection, ExamQuestion question,
-                                       int sectionOrder) {
+                                       int sectionOrder, String multipleChoiceRuleCode, String multipleChoiceRuleText) {
         ExamPaperQuestion snapshot = new ExamPaperQuestion();
         snapshot.setPaperId(paperId);
         snapshot.setQuestionId(question.getId());
@@ -413,7 +424,12 @@ public class ExamPaperServiceImpl implements ExamPaperService {
         snapshot.setBodyJson(question.getBodyJson());
         snapshot.setAnswerJson(question.getAnswerJson());
         snapshot.setAnalysis(question.getAnalysis());
-        snapshot.setScoringJson(question.getScoringJson());
+        String scoringJson = question.getScoringJson();
+        if ("multiple_choice".equals(question.getType())) {
+            scoringJson = ExamPaperTypeScoreRules.enrichScoringJson(
+                    scoringJson, multipleChoiceRuleCode, multipleChoiceRuleText);
+        }
+        snapshot.setScoringJson(scoringJson);
         return snapshot;
     }
 
@@ -480,10 +496,10 @@ public class ExamPaperServiceImpl implements ExamPaperService {
 
     private void shuffle(List<ExamQuestion> candidates) {
         for (int i = candidates.size() - 1; i > 0; i--) {
-            int selected = randomGenerator.nextInt(i + 1);
-            ExamQuestion value = candidates.get(i);
+            int selected = secureRandom.nextInt(i + 1);
+            ExamQuestion temp = candidates.get(i);
             candidates.set(i, candidates.get(selected));
-            candidates.set(selected, value);
+            candidates.set(selected, temp);
         }
     }
 

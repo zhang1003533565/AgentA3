@@ -48,6 +48,18 @@ public class SecondhandDTO {
 
         @Schema(description = "期望交易地点", example = "图书馆门口")
         private String location;
+
+        @Schema(description = "校区ID", example = "main")
+        private String campusId;
+
+        @Schema(description = "校区名称", example = "主校区")
+        private String campusName;
+
+        @Schema(description = "交易区域", example = "teaching_m")
+        private String tradeLocation;
+
+        @Schema(description = "自提点", example = "三教门口")
+        private String pickupPoint;
     }
 
     @Data
@@ -67,10 +79,16 @@ public class SecondhandDTO {
         private String location;
         private Integer viewCount;
         private Integer favoriteCount;
+        private Integer inquiryCount;
+        private Integer heatScore;
         private Integer status;
         private String statusText;
         private String createTime;
         private SellerVO seller;
+        private String campusId;
+        private String campusName;
+        private String tradeLocation;
+        private String pickupPoint;
     }
 
     @EqualsAndHashCode(callSuper = false)

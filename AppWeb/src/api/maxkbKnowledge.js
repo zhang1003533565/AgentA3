@@ -1,8 +1,8 @@
 import axios from 'axios'
 import request from '../utils/request'
+import { API_BASE_URL } from '../config/apiBase'
 
 const base = '/api/knowledge/maxkb'
-const apiBase = import.meta.env.VITE_API_BASE_URL || ''
 
 export const getMaxKbEnvironments = () => request.get(`${base}/environments`)
 
@@ -61,7 +61,7 @@ export const getMaxKbAssetUrl = (accountId, path) =>
 
 export const fetchMaxKbAsset = async (accountId, path) => {
   const token = localStorage.getItem('token')
-  const response = await axios.get(`${apiBase}${getMaxKbAssetUrl(accountId, path)}`, {
+  const response = await axios.get(`${API_BASE_URL}${getMaxKbAssetUrl(accountId, path)}`, {
     responseType: 'blob',
     timeout: 30000,
     headers: token ? { Authorization: `Bearer ${token}` } : {},

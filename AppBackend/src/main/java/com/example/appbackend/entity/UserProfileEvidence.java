@@ -27,7 +27,7 @@ public class UserProfileEvidence {
     @Column(name = "dimension_key", nullable = false, length = 80, columnDefinition = "VARCHAR(80) NOT NULL COMMENT '画像维度标识'")
     private String dimensionKey;
 
-    @Column(name = "source_type", nullable = false, length = 60, columnDefinition = "VARCHAR(60) NOT NULL COMMENT '来源类型：chat/meeting/exam/click/profile'")
+    @Column(name = "source_type", nullable = false, length = 60, columnDefinition = "VARCHAR(60) NOT NULL COMMENT '来源类型：chat/meeting/exam/click/assistant_resource/profile'")
     private String sourceType;
 
     @Column(name = "source_id", length = 120, columnDefinition = "VARCHAR(120) COMMENT '来源业务ID'")

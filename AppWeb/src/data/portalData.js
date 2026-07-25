@@ -21,6 +21,7 @@ export const portalGroups = [
       { path: '/forum/post', label: '帖子管理', icon: 'message', pageKey: 'forum-post' },
       { path: '/forum/comment', label: '评论管理', icon: 'comment', pageKey: 'forum-comment' },
       { path: '/forum/topic', label: '话题管理', icon: 'tag', pageKey: 'forum-topic' },
+      { path: '/forum/report', label: '举报处理', icon: 'flag', pageKey: 'forum-report' },
     ],
   },
   {
@@ -353,6 +354,14 @@ export const workspacePages = {
     columns: columns.topic,
     filters: ['全部'],
     emptyText: '暂无话题数据',
+  }),
+  'forum-report': createPage({
+    title: '',
+    badge: '',
+    description: '',
+    columns: [],
+    filters: ['全部'],
+    emptyText: '暂无举报数据',
   }),
   'facility-canteen': createPage({
     title: '食堂管理',

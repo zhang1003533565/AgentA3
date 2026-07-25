@@ -4,36 +4,53 @@ import com.example.appbackend.dto.UserProfileDTO;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.entity.UserProfileDimension;
 import com.example.appbackend.entity.UserProfileEvidence;
+import com.example.appbackend.entity.UserProfileSnapshot;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.UserProfileDimensionRepository;
 import com.example.appbackend.repository.UserProfileEvidenceRepository;
+import com.example.appbackend.repository.UserProfileSnapshotRepository;
 import com.example.appbackend.service.SystemConfigService;
 import com.example.appbackend.service.UserProfileService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.stream.Collectors;
 
 @Service
 public class UserProfileServiceImpl implements UserProfileService {
 
     private static final String EVIDENCE_PROTOCOL_VERSION = "campus-profile-evidence-v1";
+    private static final String PROFILE_SNAPSHOT_VERSION = "profile-snapshot-v1";
     private static final String PROFILE_SUMMARY_AGENT = "profile_summary_agent";
     private static final String AGENT_MODEL_BINDING_PREFIX = "ai.agent-bindings.";
+    private static final int PROFILE_SUMMARY_CACHE_MAX_ENTRIES = 1_000;
+    private static final Duration PROFILE_SUMMARY_CACHE_EXPIRY = Duration.ofHours(6);
     private static final int RECENT_EVIDENCE_DAYS = 30;
     private static final Map<String, Double> SOURCE_RELIABILITY_WEIGHTS = Map.ofEntries(
             Map.entry("profile", 0.90),
@@ -54,6 +71,7 @@ public class UserProfileServiceImpl implements UserProfileService {
             Map.entry("user_statement", 0.70),
             Map.entry("click", 0.55),
             Map.entry("resource", 0.55),
+            Map.entry("assistant_resource", 0.55),
             Map.entry("favorite", 0.55),
             Map.entry("download", 0.55),
             Map.entry("navigation", 0.55),
@@ -70,7 +88,7 @@ public class UserProfileServiceImpl implements UserProfileService {
             "正式更新必须有明确来源、证据内容、置信度和建议变化方向。",
             "低置信度证据留在候选池等待更多同类行为；高置信新证据会在最近一次定时汇总中体现。",
             "每次定时汇总按历史置信度和最新证据置信度计算融合权重，避免一句话大幅改分，也允许真实变化及时体现。",
-            "每次画像快照都会优先调用 profile_summary_agent 基于最新分数、证据数量和置信度生成优势、欠缺和下一步补证建议；智能体不可直接改分。",
+            "画像汇总先生成并保存快照，profile_summary_agent 在后台补充优势、欠缺和下一步建议后更新快照；智能体不可直接改分。",
             "当前输入与历史画像冲突时，以当前输入完成本轮回答，同时把冲突作为新证据沉淀。"
     );
 
@@ -88,7 +106,7 @@ public class UserProfileServiceImpl implements UserProfileService {
             "3. 定时画像汇总任务按用户和维度拉取候选证据，并读取该维度历史分数与历史置信度。",
             "4. 汇总任务把一段时间内的新证据聚合成一次画像更新，按历史-最新融合权重更新 user_profile_dimension。",
             "5. 已参与汇总的证据标记为 applied；低置信、冲突或信息不足的证据继续留在候选池。",
-            "6. 画像快照优先调用 profile_summary_agent 生成智能总结，说明当前强项、欠缺、证据状态和后续补证建议；JSON 不合法时使用后端规则总结兜底。",
+            "6. 汇总任务先保存本地规则快照，profile_summary_agent 在后台生成智能总结并更新快照；JSON 不合法时保留本地规则总结。",
             "7. 移动端雷达图和 Leader 统一读取最新画像快照。"
     );
 
@@ -138,20 +156,32 @@ public class UserProfileServiceImpl implements UserProfileService {
 
     private final UserProfileDimensionRepository dimensionRepository;
     private final UserProfileEvidenceRepository evidenceRepository;
+    private final UserProfileSnapshotRepository snapshotRepository;
     private final PythonAiProxyService pythonAiProxyService;
     private final SystemConfigService systemConfigService;
     private final ObjectMapper objectMapper;
+    private final Executor profileSummaryExecutor;
+    private final ProfileSummaryInsightCache<CachedProfileSummary> profileSummaryCache =
+            new ProfileSummaryInsightCache<>(
+                    PROFILE_SUMMARY_CACHE_MAX_ENTRIES,
+                    PROFILE_SUMMARY_CACHE_EXPIRY,
+                    Clock.systemUTC());
+    private final Set<Long> profileSummaryRefreshInFlight = ConcurrentHashMap.newKeySet();
 
     public UserProfileServiceImpl(UserProfileDimensionRepository dimensionRepository,
                                   UserProfileEvidenceRepository evidenceRepository,
+                                  UserProfileSnapshotRepository snapshotRepository,
                                   PythonAiProxyService pythonAiProxyService,
                                   SystemConfigService systemConfigService,
-                                  ObjectMapper objectMapper) {
+                                  ObjectMapper objectMapper,
+                                  @Qualifier("profileSummaryExecutor") Executor profileSummaryExecutor) {
         this.dimensionRepository = dimensionRepository;
         this.evidenceRepository = evidenceRepository;
+        this.snapshotRepository = snapshotRepository;
         this.pythonAiProxyService = pythonAiProxyService;
         this.systemConfigService = systemConfigService;
         this.objectMapper = objectMapper;
+        this.profileSummaryExecutor = profileSummaryExecutor;
     }
 
     @Override
@@ -163,10 +193,7 @@ public class UserProfileServiceImpl implements UserProfileService {
     @Override
     @Transactional
     public UserProfileDTO.RadarSnapshot getSnapshot(Long userId, String authorization) {
-        List<UserProfileDTO.DimensionSnapshot> dimensions = RULES.values().stream()
-                .map(rule -> toSnapshot(getOrCreateDimension(userId, rule), rule))
-                .toList();
-        return buildSnapshot(userId, dimensions, authorization);
+        return readPersistedSnapshot(userId).orElseGet(() -> rebuildAndPersistSnapshot(userId));
     }
 
     @Override
@@ -258,7 +285,11 @@ public class UserProfileServiceImpl implements UserProfileService {
     @Override
     @Transactional
     public Map<String, Object> buildLeaderProfileContext(Long userId, String authorization) {
-        UserProfileDTO.RadarSnapshot snapshot = getSnapshot(userId, authorization);
+        UserProfileDTO.RadarSnapshot snapshot = getSnapshot(userId);
+        if (StringUtils.hasText(bearerAuthorization(authorization))
+                && !PROFILE_SUMMARY_AGENT.equals(snapshot.getSummaryEngine())) {
+            refreshLeaderProfileContextAsync(userId, authorization);
+        }
         Map<String, Object> context = new LinkedHashMap<>();
         context.put("overallScore", snapshot.getOverallScore());
         context.put("confidenceLevel", snapshot.getConfidenceLevel());
@@ -303,6 +334,38 @@ public class UserProfileServiceImpl implements UserProfileService {
         return context;
     }
 
+    @Override
+    public void refreshLeaderProfileContextAsync(Long userId, String authorization) {
+        String safeAuthorization = bearerAuthorization(authorization);
+        if (userId == null || !StringUtils.hasText(safeAuthorization)
+                || !profileSummaryRefreshInFlight.add(userId)) {
+            return;
+        }
+        try {
+            profileSummaryExecutor.execute(() -> {
+                try {
+                    UserProfileDTO.RadarSnapshot snapshot = getSnapshot(userId);
+                    if (!PROFILE_SUMMARY_AGENT.equals(snapshot.getSummaryEngine())) {
+                        List<UserProfileDTO.DimensionSnapshot> dimensions = snapshot.getDimensions() == null
+                                ? List.of() : snapshot.getDimensions();
+                        String fingerprint = profileSummaryFingerprint(snapshot, dimensions);
+                        applyProfileSummaryAgent(
+                                userId, snapshot, dimensions, safeAuthorization, fingerprint);
+                        if (PROFILE_SUMMARY_AGENT.equals(snapshot.getSummaryEngine())) {
+                            persistSnapshot(userId, snapshot);
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // Background refresh is best-effort. Never expose the authorization or fail the Leader request.
+                } finally {
+                    profileSummaryRefreshInFlight.remove(userId);
+                }
+            });
+        } catch (RejectedExecutionException | IllegalStateException ignored) {
+            profileSummaryRefreshInFlight.remove(userId);
+        }
+    }
+
     @Scheduled(fixedDelayString = "${profile.update.fixed-delay-ms:1800000}", initialDelayString = "${profile.update.initial-delay-ms:60000}")
     @Transactional
     public void refreshProfilesFromEvidencePool() {
@@ -320,14 +383,48 @@ public class UserProfileServiceImpl implements UserProfileService {
                     .computeIfAbsent(evidence.getDimensionKey(), ignored -> new ArrayList<>())
                     .add(evidence);
         }
-        grouped.forEach((userId, byDimension) ->
-                byDimension.forEach((dimensionKey, evidenceList) -> applyEvidenceBatch(userId, dimensionKey, evidenceList))
-        );
+        grouped.forEach((userId, byDimension) -> {
+            byDimension.forEach((dimensionKey, evidenceList) -> applyEvidenceBatch(userId, dimensionKey, evidenceList));
+            rebuildAndPersistSnapshot(userId);
+        });
+    }
+
+    private Optional<UserProfileDTO.RadarSnapshot> readPersistedSnapshot(Long userId) {
+        return snapshotRepository.findByUserId(userId)
+                .filter(entity -> PROFILE_SNAPSHOT_VERSION.equals(entity.getSnapshotVersion()))
+                .flatMap(entity -> {
+                    try {
+                        UserProfileDTO.RadarSnapshot snapshot = objectMapper.readValue(
+                                entity.getSnapshotJson(), UserProfileDTO.RadarSnapshot.class);
+                        return snapshot.getDimensions() == null || snapshot.getDimensions().isEmpty()
+                                ? Optional.empty() : Optional.of(snapshot);
+                    } catch (Exception ignored) {
+                        return Optional.empty();
+                    }
+                });
+    }
+
+    private UserProfileDTO.RadarSnapshot rebuildAndPersistSnapshot(Long userId) {
+        List<UserProfileDTO.DimensionSnapshot> dimensions = RULES.values().stream()
+                .map(rule -> toSnapshot(getOrCreateDimension(userId, rule), rule))
+                .toList();
+        UserProfileDTO.RadarSnapshot snapshot = buildSnapshot(userId, dimensions);
+        persistSnapshot(userId, snapshot);
+        return snapshot;
+    }
+
+    private void persistSnapshot(Long userId, UserProfileDTO.RadarSnapshot snapshot) {
+        UserProfileSnapshot entity = snapshotRepository.findByUserId(userId)
+                .orElseGet(UserProfileSnapshot::new);
+        entity.setUserId(userId);
+        entity.setSnapshotVersion(PROFILE_SNAPSHOT_VERSION);
+        entity.setSnapshotJson(writeJson(snapshot));
+        entity.setGeneratedAt(LocalDateTime.now());
+        snapshotRepository.save(entity);
     }
 
     private UserProfileDTO.RadarSnapshot buildSnapshot(Long userId,
-                                                       List<UserProfileDTO.DimensionSnapshot> dimensions,
-                                                       String authorization) {
+                                                       List<UserProfileDTO.DimensionSnapshot> dimensions) {
         UserProfileDTO.RadarSnapshot snapshot = new UserProfileDTO.RadarSnapshot();
         snapshot.setUserId(userId);
         snapshot.setDimensions(dimensions);
@@ -385,7 +482,8 @@ public class UserProfileServiceImpl implements UserProfileService {
         snapshot.setSummaryEngine("local_profile_summary_v1");
         snapshot.setSummaryUpdatedAt(lastUpdatedAt);
         snapshot.setLastUpdatedAt(lastUpdatedAt);
-        applyProfileSummaryAgent(snapshot, dimensions, authorization);
+        String fingerprint = profileSummaryFingerprint(snapshot, dimensions);
+        applyCachedProfileSummary(userId, snapshot, fingerprint);
         return snapshot;
     }
 
@@ -479,11 +577,16 @@ public class UserProfileServiceImpl implements UserProfileService {
     }
 
     @SuppressWarnings("unchecked")
-    private void applyProfileSummaryAgent(UserProfileDTO.RadarSnapshot snapshot,
+    private void applyProfileSummaryAgent(Long userId,
+                                          UserProfileDTO.RadarSnapshot snapshot,
                                           List<UserProfileDTO.DimensionSnapshot> dimensions,
-                                          String authorization) {
+                                          String authorization,
+                                          String fingerprint) {
+        if (!StringUtils.hasText(authorization)) {
+            return;
+        }
         String modelBinding = resolveProfileSummaryModelBinding();
-        if (!StringUtils.hasText(authorization) || !StringUtils.hasText(modelBinding)) {
+        if (!StringUtils.hasText(modelBinding)) {
             return;
         }
         Map<String, Object> profilePayload = buildProfileSummaryPayload(snapshot, dimensions);
@@ -501,10 +604,53 @@ public class UserProfileServiceImpl implements UserProfileService {
             String answer = String.valueOf(result.getOrDefault("answer", "")).trim();
             if (applyProfileSummaryAgentJson(snapshot, answer)) {
                 snapshot.setSummaryEngine(PROFILE_SUMMARY_AGENT);
+                snapshot.setSummaryUpdatedAt(LocalDateTime.now());
+                profileSummaryCache.put(userId, CachedProfileSummary.from(snapshot, fingerprint));
             }
         } catch (Exception ignored) {
-            snapshot.setSummaryEngine("local_profile_summary_v1");
+            // Keep a compatible cached insight (or the local fallback) when the remote agent is unavailable.
         }
+    }
+
+    private void applyCachedProfileSummary(Long userId,
+                                           UserProfileDTO.RadarSnapshot snapshot,
+                                           String fingerprint) {
+        CachedProfileSummary cached = profileSummaryCache.get(userId);
+        if (cached == null) {
+            return;
+        }
+        if (!Objects.equals(cached.fingerprint(), fingerprint)) {
+            profileSummaryCache.remove(userId);
+            return;
+        }
+        cached.applyTo(snapshot);
+    }
+
+    private String profileSummaryFingerprint(UserProfileDTO.RadarSnapshot snapshot,
+                                             List<UserProfileDTO.DimensionSnapshot> dimensions) {
+        String payload = writeJson(buildProfileSummaryPayload(snapshot, dimensions));
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(payload.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
+    }
+
+    private String bearerAuthorization(String authorization) {
+        if (!StringUtils.hasText(authorization)) {
+            return "";
+        }
+        String value = authorization.trim();
+        if (!value.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            return "";
+        }
+        String token = value.substring(7).trim();
+        if (!StringUtils.hasText(token) || token.chars().anyMatch(Character::isWhitespace)) {
+            return "";
+        }
+        return "Bearer " + token;
     }
 
     private Map<String, Object> buildProfileSummaryPayload(UserProfileDTO.RadarSnapshot snapshot,
@@ -570,14 +716,6 @@ public class UserProfileServiceImpl implements UserProfileService {
             if (!confidenceNotes.isEmpty()) {
                 snapshot.setConfidenceNotes(confidenceNotes);
             }
-            String dataStatusText = jsonText(root, "dataStatusText");
-            if (List.of("真实画像", "证据沉淀中", "默认基线").contains(dataStatusText)) {
-                snapshot.setDataStatusText(dataStatusText);
-            }
-            String dataSourceText = jsonText(root, "dataSourceText");
-            if (StringUtils.hasText(dataSourceText)) {
-                snapshot.setDataSourceText(truncate(dataSourceText, 300));
-            }
             return true;
         } catch (Exception ignored) {
             return false;
@@ -622,25 +760,28 @@ public class UserProfileServiceImpl implements UserProfileService {
                     nullToEmpty(evidence.getMetadataJson())
             ).toLowerCase();
             double confidence = evidence.getConfidence() == null ? 0.5 : evidence.getConfidence();
+            int preferencePolarity = outputPreferencePolarity(evidence);
+            int preferenceWeight = Math.max(1, Math.min(3,
+                    (int) Math.abs((long) (evidence.getSuggestedDelta() == null ? 0 : evidence.getSuggestedDelta()))));
             if (containsAny(signal, "文件", "文档", "word", "docx", "pdf", "ppt", "excel", "表格", "markdown", "md", "下载")) {
-                accumulators.get("document").add(confidence, evidence.getEvidence());
+                accumulators.get("document").add(confidence, evidence.getEvidence(), preferencePolarity, preferenceWeight);
             }
             if (containsAny(signal, "图片", "图解", "配图", "流程图", "思维导图", "架构图", "海报", "image", "png", "jpg")) {
-                accumulators.get("image").add(confidence, evidence.getEvidence());
+                accumulators.get("image").add(confidence, evidence.getEvidence(), preferencePolarity, preferenceWeight);
             }
             if (containsAny(signal, "视频", "video", "mp4")) {
-                accumulators.get("video").add(confidence, evidence.getEvidence());
+                accumulators.get("video").add(confidence, evidence.getEvidence(), preferencePolarity, preferenceWeight);
             }
             if (containsAny(signal, "代码", "code", "示例代码", "案例")) {
-                accumulators.get("code").add(confidence, evidence.getEvidence());
+                accumulators.get("code").add(confidence, evidence.getEvidence(), preferencePolarity, preferenceWeight);
             }
             if (containsAny(signal, "文本", "总结", "要点", "直接说", "文字")) {
-                accumulators.get("text").add(confidence, evidence.getEvidence());
+                accumulators.get("text").add(confidence, evidence.getEvidence(), preferencePolarity, preferenceWeight);
             }
         }
 
         List<Map<String, Object>> formats = accumulators.values().stream()
-                .filter(item -> item.count > 0)
+                .filter(item -> item.count > 0 && item.score() > 0)
                 .sorted(Comparator.comparingDouble(OutputPreferenceAccumulator::score).reversed())
                 .map(OutputPreferenceAccumulator::toMap)
                 .toList();
@@ -663,6 +804,18 @@ public class UserProfileServiceImpl implements UserProfileService {
                 "formats", formats,
                 "usageRule", "高/中置信偏好可作为默认推送形式；回答结尾应轻量提示是否还需要另一种形式。"
         );
+    }
+
+    private int outputPreferencePolarity(UserProfileEvidence evidence) {
+        int delta = evidence.getSuggestedDelta() == null ? 0 : evidence.getSuggestedDelta();
+        if (delta < 0) {
+            return -1;
+        }
+        if (delta > 0) {
+            return 1;
+        }
+        String direction = normalize(evidence.getDirection());
+        return containsAny(direction, "weakness", "negative", "decrease", "下降", "薄弱", "退步") ? -1 : 1;
     }
 
     private List<String> buildResourcePreference(List<UserProfileDTO.DimensionSnapshot> dimensions) {
@@ -1002,7 +1155,7 @@ public class UserProfileServiceImpl implements UserProfileService {
             case "chat", "app_ai_assistant", "user_statement" -> "expressed";
             case "meeting", "meeting_summary", "member_analysis" -> "analyzed";
             case "exam", "question_result", "wrong_question" -> "answered";
-            case "click", "resource", "favorite", "download" -> "interacted";
+            case "click", "resource", "assistant_resource", "favorite", "download" -> "interacted";
             case "profile", "profile_form", "user_profile" -> "declared";
             default -> "observed";
         };
@@ -1016,7 +1169,7 @@ public class UserProfileServiceImpl implements UserProfileService {
             case "chat", "app_ai_assistant", "user_statement", "leader_route" -> "conversation";
             case "meeting", "meeting_summary", "member_analysis" -> "meeting";
             case "exam", "question_result", "wrong_question" -> "question";
-            case "click", "resource", "favorite", "download" -> "resource";
+            case "click", "resource", "assistant_resource", "favorite", "download" -> "resource";
             case "schedule", "course", "grade" -> "course";
             default -> "profile_evidence";
         };
@@ -1159,6 +1312,7 @@ public class UserProfileServiceImpl implements UserProfileService {
             case "meeting" -> "会议总结";
             case "exam" -> "做题记录";
             case "click" -> "资源点击";
+            case "assistant_resource" -> "助手资源互动";
             case "profile" -> "用户资料";
             default -> StringUtils.hasText(sourceType) ? sourceType : "未知来源";
         };
@@ -1709,11 +1863,61 @@ public class UserProfileServiceImpl implements UserProfileService {
     ) {
     }
 
+    private record CachedProfileSummary(
+            String fingerprint,
+            String aiSummary,
+            String strengthSummary,
+            String weaknessSummary,
+            List<String> advantageDimensions,
+            List<String> gapDimensions,
+            List<String> improvementSuggestions,
+            List<String> confidenceNotes,
+            String dataStatusText,
+            String dataSourceText,
+            LocalDateTime updatedAt
+    ) {
+        private static CachedProfileSummary from(UserProfileDTO.RadarSnapshot snapshot, String fingerprint) {
+            return new CachedProfileSummary(
+                    fingerprint,
+                    snapshot.getAiSummary(),
+                    snapshot.getStrengthSummary(),
+                    snapshot.getWeaknessSummary(),
+                    immutableList(snapshot.getAdvantageDimensions()),
+                    immutableList(snapshot.getGapDimensions()),
+                    immutableList(snapshot.getImprovementSuggestions()),
+                    immutableList(snapshot.getConfidenceNotes()),
+                    snapshot.getDataStatusText(),
+                    snapshot.getDataSourceText(),
+                    snapshot.getSummaryUpdatedAt()
+            );
+        }
+
+        private void applyTo(UserProfileDTO.RadarSnapshot snapshot) {
+            snapshot.setAiSummary(aiSummary);
+            snapshot.setStrengthSummary(strengthSummary);
+            snapshot.setWeaknessSummary(weaknessSummary);
+            snapshot.setAdvantageDimensions(advantageDimensions);
+            snapshot.setGapDimensions(gapDimensions);
+            snapshot.setImprovementSuggestions(improvementSuggestions);
+            snapshot.setConfidenceNotes(confidenceNotes);
+            snapshot.setDataStatusText(dataStatusText);
+            snapshot.setDataSourceText(dataSourceText);
+            snapshot.setSummaryEngine(PROFILE_SUMMARY_AGENT);
+            snapshot.setSummaryUpdatedAt(updatedAt);
+        }
+
+        private static List<String> immutableList(List<String> values) {
+            return values == null ? List.of() : List.copyOf(values);
+        }
+    }
+
     private static class OutputPreferenceAccumulator {
         private final String format;
         private final String label;
         private int count;
+        private int negativeCount;
         private double confidenceSum;
+        private double netScore;
         private final List<String> examples = new ArrayList<>();
 
         private OutputPreferenceAccumulator(String format, String label) {
@@ -1721,16 +1925,22 @@ public class UserProfileServiceImpl implements UserProfileService {
             this.label = label;
         }
 
-        private void add(double confidence, String evidence) {
+        private void add(double confidence, String evidence, int polarity, int weight) {
+            double boundedConfidence = Math.max(0, Math.min(1, confidence));
+            netScore += polarity * boundedConfidence * Math.max(1, weight);
+            if (polarity < 0) {
+                negativeCount += 1;
+                return;
+            }
             count += 1;
-            confidenceSum += confidence;
+            confidenceSum += boundedConfidence;
             if (StringUtils.hasText(evidence) && examples.size() < 3) {
                 examples.add(truncate(evidence.trim(), 90));
             }
         }
 
         private double score() {
-            return count * averageConfidence();
+            return netScore;
         }
 
         private double averageConfidence() {
@@ -1742,7 +1952,9 @@ public class UserProfileServiceImpl implements UserProfileService {
             map.put("format", format);
             map.put("label", label);
             map.put("evidenceCount", count);
+            map.put("negativeEvidenceCount", negativeCount);
             map.put("averageConfidence", averageConfidence());
+            map.put("netScore", round2(netScore));
             map.put("examples", examples);
             return map;
         }

@@ -42,7 +42,10 @@ _tool_cache_context_var: contextvars.ContextVar[Dict[str, Any]] = contextvars.Co
 class JavaBackendRetriever:
     def __init__(self) -> None:
         self.enabled = True
-        self.java_base_url = "http://localhost:8080"
+        self.disabled_until: Optional[float] = None
+        self.circuit_open_seconds = 10.0
+        configured_java_url = str(os.getenv("JAVA_BACKEND_BASE_URL", "")).strip().rstrip("/")
+        self.java_base_url = configured_java_url or "http://localhost:8080"
         self.timeout_seconds = 8
         self.cache_enabled = self._env_bool("AI_TOOL_CACHE_ENABLED", True)
         self.cache_ttl_seconds = self._env_int("AI_TOOL_CACHE_TTL_SECONDS", 180)
@@ -61,7 +64,7 @@ class JavaBackendRetriever:
         self._cache_path_stats: Dict[str, Dict[str, Any]] = {}
 
     def _get_json(self, path: str, authorization: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        if not self.enabled:
+        if not self._can_call():
             return {}
 
         query = ""
@@ -89,15 +92,35 @@ class JavaBackendRetriever:
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
                 logger.info("java api ok path=%s elapsed_ms=%s", path, elapsed_ms)
                 payload = json.loads(body)
+                self._record_success()
                 self._record_cache_miss(path, elapsed_ms, cache_key, normalized, user_key, payload)
                 self._write_cache(path, cache_key, payload, elapsed_ms, normalized, user_key)
                 return payload
         except Exception:
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             self._record_cache_miss(path, elapsed_ms, cache_key, normalized, user_key, None, status="error")
-            logger.exception("java api failed path=%s elapsed_ms=%s disable_store=true", path, elapsed_ms)
-            self.enabled = False
+            self._record_failure()
+            logger.exception(
+                "java api failed path=%s elapsed_ms=%s circuit_open_seconds=%s",
+                path,
+                elapsed_ms,
+                self.circuit_open_seconds,
+            )
             return {}
+
+    def _can_call(self) -> bool:
+        if not self.enabled:
+            return False
+        disabled_until = self.disabled_until
+        return disabled_until is None or time.monotonic() >= disabled_until
+
+    def _record_failure(self) -> None:
+        with self._cache_lock:
+            self.disabled_until = time.monotonic() + self.circuit_open_seconds
+
+    def _record_success(self) -> None:
+        with self._cache_lock:
+            self.disabled_until = None
 
     def _env_bool(self, key: str, default: bool) -> bool:
         value = str(os.getenv(key, "")).strip().lower()
@@ -453,7 +476,10 @@ class JavaBackendRetriever:
         course_keyword = parse_schedule_course_keyword(input_text)
         all_semester_scope = is_all_semester_schedule_query(input_text)
         semester_scope = all_semester_scope or is_semester_schedule_query(input_text)
-        course_lookup_scope = bool(course_keyword)
+        # Explicit dates are schedule lookups even when the natural-language
+        # course-keyword parser sees the trailing “有什么课”. Do not widen such
+        # requests to all semesters or collapse them into course summaries.
+        course_lookup_scope = bool(course_keyword) and requested_date is None
 
         if requested_date is not None:
             requested_weekday = requested_date.isoweekday()
@@ -463,10 +489,10 @@ class JavaBackendRetriever:
 
         if all_semester_scope:
             payload = self._get_json("/api/schedule", authorization, params={"allSemesters": "true"})
-        elif semester_scope or course_lookup_scope:
-            payload = self._get_json("/api/schedule", authorization)
         elif requested_week is not None:
             payload = self._get_json(f"/api/schedule/week/{requested_week}", authorization)
+        elif semester_scope or course_lookup_scope:
+            payload = self._get_json("/api/schedule", authorization)
         else:
             payload = self._get_json("/api/schedule/current-week", authorization)
 

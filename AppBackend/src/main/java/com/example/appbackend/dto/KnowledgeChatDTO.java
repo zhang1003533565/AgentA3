@@ -1,5 +1,6 @@
 package com.example.appbackend.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -14,6 +15,28 @@ import java.util.List;
 import java.util.Map;
 
 public class KnowledgeChatDTO {
+
+    @Data
+    @Schema(description = "MaxKB 检索请求")
+    public static class RetrievalRequest {
+        private Long accountId;
+        private String knowledgeId;
+        private String query;
+        private Integer topNumber;
+        private Double similarity;
+        private String searchMode;
+    }
+
+    @Data
+    @Schema(description = "MaxKB 检索结果")
+    public static class RetrievalResult {
+        private List<Reference> references;
+        private CacheInfo retrievalCache;
+
+        @JsonIgnore
+        @Schema(hidden = true)
+        private Object retrievalRaw;
+    }
 
     @Data
     @Schema(description = "Java 知识库智能体聊天请求")

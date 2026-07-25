@@ -31,6 +31,9 @@ for ($i = 0; $i -lt $args.Count; $i++) {
 }
 
 Set-Location $PSScriptRoot
+if (-not $env:UV_LINK_MODE) {
+    $env:UV_LINK_MODE = "copy"
+}
 
 function Write-Log {
     param([string]$Message)
@@ -48,39 +51,26 @@ function Test-Command {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
-function Ensure-Python {
-    if (-not (Test-Command "python")) {
-        Stop-WithError "Python is not available. Install Python 3.11+ first."
+function Ensure-Uv {
+    if (-not (Test-Command "uv")) {
+        Stop-WithError "uv is not available. Install uv first, for example: winget install astral-sh.uv"
     }
 }
 
-function Ensure-Venv {
-    if (-not (Test-Path ".venv")) {
-        Write-Log "Creating Python virtual environment..."
-        & python -m venv .venv
-    }
-    $activate = Join-Path ".venv" "Scripts\Activate.ps1"
-    if (-not (Test-Path $activate)) {
-        Stop-WithError "Virtual environment activation script is missing: $activate"
-    }
-    . $activate
-}
-
-function Install-Requirements {
-    Write-Log "Installing Python dependencies..."
-    & python -m pip install -r requirements.txt
+function Sync-Dependencies {
+    Write-Log "Syncing Python dependencies with uv..."
+    & uv sync
     if ($LASTEXITCODE -ne 0) {
-        Stop-WithError "Failed to install Python dependencies."
+        Stop-WithError "Failed to sync Python dependencies."
     }
 }
 
 function Start-AiServer {
     Write-Log "Starting AI Server at http://${AiServerHost}:$PythonServerPort ..."
-    & python -m uvicorn app.main:app --host $AiServerHost --port $PythonServerPort
+    & uv run python -m uvicorn app.main:app --host $AiServerHost --port $PythonServerPort
     exit $LASTEXITCODE
 }
 
-Ensure-Python
-Ensure-Venv
-Install-Requirements
+Ensure-Uv
+Sync-Dependencies
 Start-AiServer

@@ -7,7 +7,6 @@ import { getFacilityHeat, getNavigationStatistics } from '../../api/map'
 import { getMerchantStatistics } from '../../api/merchant'
 import { getSecondhandStatistics } from '../../api/secondhand'
 import { getUserList } from '../../api/user'
-import { getUserInfo } from '../../utils/storage'
 import './Home.css'
 
 const formatNumber = (value) => {
@@ -47,7 +46,6 @@ function EChart({ option, height = 320 }) {
 }
 
 function Home() {
-  const userInfo = getUserInfo()
   const [loading, setLoading] = useState(true)
   const [dashboard, setDashboard] = useState({
     totalUsers: 0,

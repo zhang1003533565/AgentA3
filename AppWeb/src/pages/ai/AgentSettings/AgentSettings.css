@@ -1,103 +1,173 @@
 .agent-settings-page {
+  display: flex;
   min-height: 100%;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.agent-settings-hero {
+.agent-settings-toolbar {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 24px;
-  padding: 28px;
-  margin-bottom: 20px;
-  color: #13231d;
-  border: 1px solid rgba(47, 88, 67, 0.16);
-  border-radius: 22px;
-  background:
-    radial-gradient(circle at 16% 20%, rgba(239, 180, 92, 0.24), transparent 30%),
-    linear-gradient(135deg, #f7f1e3 0%, #edf6ef 52%, #dbe9ea 100%);
-  box-shadow: 0 18px 48px rgba(37, 58, 47, 0.1);
+  gap: 16px;
+  padding: 16px 18px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
 }
 
-.agent-settings-kicker {
-  display: inline-flex;
-  margin-bottom: 8px;
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 13px;
-  letter-spacing: 0.16em;
-  color: #5d6f41;
+.agent-settings-heading h2 {
+  margin: 0 0 4px;
+  color: #111827;
+  font-size: 24px;
+  line-height: 1.25;
 }
 
-.agent-settings-hero h1 {
+.agent-settings-toolbar .ant-btn {
+  flex: 0 0 auto;
+}
+
+.agent-settings-shell {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.agent-settings-shell > .ant-card-body {
+  padding: 0;
+}
+
+.agent-settings-shell .ant-tabs-nav {
   margin: 0;
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(34px, 5vw, 54px);
-  color: #1b2f26;
+  padding: 0 18px;
+  border-bottom: 1px solid #eef2f7;
 }
 
-.agent-settings-hero p {
-  max-width: 760px;
-  margin: 8px 0 0;
-  color: #536357;
-  font-size: 16px;
+.agent-settings-shell .ant-tabs-tab {
+  padding: 14px 0;
 }
 
-.agent-settings-summary {
+.agent-settings-shell .ant-tabs-content-holder {
+  padding: 18px;
+}
+
+.agent-settings-overview,
+.agent-settings-tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.agent-settings-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 18px;
+  gap: 12px;
 }
 
-.agent-settings-summary .ant-card {
-  border: 1px solid rgba(47, 88, 67, 0.1);
-  border-radius: 16px;
-  box-shadow: 0 12px 28px rgba(37, 58, 47, 0.07);
+.agent-settings-metric {
+  display: flex;
+  min-height: 86px;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
 }
 
-.agent-settings-summary .ant-card-body {
+.agent-settings-metric strong {
+  color: #111827;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.agent-settings-rule-note,
+.agent-settings-empty-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.agent-settings-empty-state {
+  justify-content: center;
+  min-height: 84px;
+  border-color: #dcfce7;
+  background: #f8fff9;
+  color: #15803d;
+}
+
+.agent-settings-issues {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.agent-settings-issues-head,
+.agent-settings-issue {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.agent-settings-issues-head {
+  border-bottom: 1px solid #eef2f7;
+  color: #111827;
+  font-weight: 700;
+}
+
+.agent-settings-issue + .agent-settings-issue {
+  border-top: 1px solid #f1f5f9;
+}
+
+.agent-settings-issue .anticon {
+  color: #d97706;
+}
+
+.agent-settings-table-tools,
+.agent-settings-section-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.agent-settings-summary strong {
-  color: #176f66;
-  font-size: 26px;
+.agent-settings-title-tags .ant-tag {
+  margin-inline-end: 0;
 }
 
-.agent-settings-alert {
-  margin-bottom: 18px;
+.agent-settings-segmented {
+  flex: 0 0 auto;
 }
 
-.agent-settings-card {
-  border: 1px solid rgba(47, 88, 67, 0.1);
-  border-radius: 18px;
-  box-shadow: 0 14px 34px rgba(37, 58, 47, 0.08);
+.agent-settings-clean-table {
+  overflow: hidden;
+  border: 1px solid #eef2f7;
+  border-radius: 8px;
 }
 
-.agent-settings-card + .agent-settings-card {
-  margin-top: 18px;
-}
-
-.agent-settings-callable-head {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  margin-bottom: 14px;
-}
-
-.agent-settings-leader-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(360px, 0.7fr);
-  gap: 18px;
-}
-
-.agent-settings-section-title {
-  margin-bottom: 10px;
-  color: #233a30;
-  font-size: 15px;
+.agent-settings-clean-table .ant-table-thead > tr > th {
+  background: #f8fafc;
+  color: #111827;
   font-weight: 700;
+}
+
+.agent-settings-clean-table .ant-table-cell {
+  vertical-align: middle;
+}
+
+.agent-settings-muted-line {
+  display: block;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-settings-model {
@@ -105,13 +175,8 @@
 }
 
 .agent-settings-model .ant-select {
-  min-width: 260px;
+  min-width: 240px;
   width: 100%;
-}
-
-.agent-settings-card-description {
-  display: block;
-  margin-bottom: 14px;
 }
 
 .agent-settings-question-select {
@@ -119,22 +184,39 @@
   min-width: 260px;
 }
 
-@media (max-width: 960px) {
-  .agent-settings-hero {
-    flex-direction: column;
+@media (max-width: 1100px) {
+  .agent-settings-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
 
-  .agent-settings-summary {
-    grid-template-columns: 1fr;
-  }
-
-  .agent-settings-leader-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .agent-settings-callable-head {
+@media (max-width: 760px) {
+  .agent-settings-toolbar,
+  .agent-settings-table-tools,
+  .agent-settings-section-summary,
+  .agent-settings-issue {
     align-items: flex-start;
     flex-direction: column;
-    gap: 6px;
+  }
+
+  .agent-settings-toolbar {
+    padding: 14px;
+  }
+
+  .agent-settings-shell .ant-tabs-nav {
+    padding: 0 14px;
+  }
+
+  .agent-settings-shell .ant-tabs-content-holder {
+    padding: 14px;
+  }
+
+  .agent-settings-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-settings-segmented {
+    max-width: 100%;
+    overflow-x: auto;
   }
 }

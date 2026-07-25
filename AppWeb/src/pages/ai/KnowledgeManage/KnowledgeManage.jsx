@@ -254,7 +254,7 @@ function KnowledgeManage() {
   const [environmentOptions, setEnvironmentOptions] = useState([])
   const [accounts, setAccounts] = useState([])
   const [accountLoading, setAccountLoading] = useState(false)
-  const [accountPagination, setAccountPagination] = useState({ current: 1, pageSize: 10, total: 0 })
+  const [accountPagination, setAccountPagination] = useState({ current: 1, pageSize: 50, total: 0 })
   const [selectedAccountId, setSelectedAccountId] = useState(null)
   const [accountDrawerOpen, setAccountDrawerOpen] = useState(false)
   const [accountModalOpen, setAccountModalOpen] = useState(false)
@@ -292,7 +292,13 @@ function KnowledgeManage() {
   const accountSelectOptions = useMemo(() => (
     accounts.map((item) => ({
       value: item.id,
-      label: `${item.accountName} · ${item.environmentText || item.environment}`,
+      label: (
+        <span className="maxkb-account-option">
+          <span>{item.accountName}</span>
+          <Tag color={environmentColors[item.environment] || 'default'}>{item.environmentText || item.environment}</Tag>
+          {item.status === 1 ? null : <Tag>已禁用</Tag>}
+        </span>
+      ),
     }))
   ), [accounts])
 
@@ -468,14 +474,20 @@ function KnowledgeManage() {
     const values = await accountForm.validateFields()
     setSavingAccount(true)
     try {
+      let savedAccount = null
       if (editingAccount) {
-        await updateMaxKbAccount(editingAccount.id, values)
+        const res = await updateMaxKbAccount(editingAccount.id, values)
+        savedAccount = res.data
         message.success('MaxKB 账号已更新')
       } else {
-        await createMaxKbAccount(values)
+        const res = await createMaxKbAccount(values)
+        savedAccount = res.data
         message.success('MaxKB 账号已创建')
       }
       setAccountModalOpen(false)
+      if (savedAccount?.id) {
+        setSelectedAccountId(savedAccount.id)
+      }
       fetchAccounts()
     } catch (error) {
       message.error(error.message || '账号保存失败')
@@ -522,6 +534,11 @@ function KnowledgeManage() {
     setActiveMenu('document')
     setDocumentPagination((prev) => ({ ...prev, current: 1 }))
     fetchDocuments(row, { current: 1 })
+  }
+
+  const selectAccount = (accountId) => {
+    setSelectedAccountId(accountId)
+    setActiveMenu('document')
   }
 
   const openUpload = () => {
@@ -928,13 +945,21 @@ function KnowledgeManage() {
                 bordered={false}
               />
             </div>
-            <Select
-              value={selectedAccountId}
-              placeholder="选择 MaxKB 账号"
-              options={accountSelectOptions}
-              onChange={setSelectedAccountId}
-              className="maxkb-account-select"
-            />
+            <div className="maxkb-account-switcher">
+              <Select
+                value={selectedAccountId}
+                placeholder="选择 MaxKB 账号"
+                options={accountSelectOptions}
+                onChange={selectAccount}
+                className="maxkb-account-select"
+              />
+              <Tooltip title="管理 MaxKB 配置">
+                <Button icon={<SettingOutlined />} onClick={() => setAccountDrawerOpen(true)} />
+              </Tooltip>
+              <Tooltip title="新增 MaxKB 配置">
+                <Button type="primary" icon={<PlusOutlined />} onClick={openCreateAccount} />
+              </Tooltip>
+            </div>
           </div>
 
           <div className="maxkb-side-search">
@@ -1054,7 +1079,7 @@ function KnowledgeManage() {
             <Select options={environmentSelectOptions} />
           </Form.Item>
           <Form.Item name="baseUrl" label="MaxKB URL" rules={[{ required: true, message: '请输入 MaxKB 服务地址' }]}>
-            <Input addonBefore={<ApiOutlined />} placeholder="例如：http://localhost:8080 或 https://maxkb.example.com" />
+            <Input addonBefore={<ApiOutlined />} placeholder="例如：http://localhost:8080，不要包含 /openapi/knowledge/v1/..." />
           </Form.Item>
           <Form.Item name="workspaceId" label="工作空间 ID" rules={[{ required: true, message: '请输入工作空间 ID' }]}>
             <Input placeholder="MaxKB OpenAPI Key 对应的 workspace_id" />
