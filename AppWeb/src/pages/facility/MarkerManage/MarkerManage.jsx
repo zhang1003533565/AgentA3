@@ -246,6 +246,46 @@ export default function MarkerManage() {
     return [DEFAULT_CENTER.lng, DEFAULT_CENTER.lat]
   }
 
+  // 快速添加：点击地图直接生成设施 + 标点
+  const quickCreateFacility = async (lng, lat, name) => {
+    try {
+      // 1. 创建设施
+      await apiCreateFacility({
+        facilityName: name,
+        facilityType: 99,
+        location: '',
+        description: '',
+        status: 1,
+        longitude: lng,
+        latitude: lat,
+        imageX: null,
+        imageY: null,
+        images: '[]',
+      })
+      // 2. 刷新设施列表，拿到新设施 ID
+      const facRes = await getFacilityList({ type: 99, page: 1, size: 500 })
+      const newFac = (facRes.data?.records || []).find((f) => f.facilityName === name)
+      if (!newFac) throw new Error('设施创建后未找到')
+      // 3. 创建标点
+      const tok = localStorage.getItem('token') || ''
+      await fetch('/api/v1/map/marker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+        body: JSON.stringify({ facilityId: newFac.id, iconUrl: '', sort: 0 }),
+      })
+      // 4. 刷新标点列表，并选中新标点
+      const markerRes = await getMarkerList({ page: 1, size: 500 })
+      const newMarker = (markerRes.data?.records || []).find((m) => m.markerName === name)
+      setMarkers((markerRes.data?.records || []).map((m) => {
+        const imgs = parseImgs(m.images)
+        return { ...m, thumbnailUrl: m.thumbnailUrl || imgs[0] || '', position: m.longitude && m.latitude ? `${m.longitude}, ${m.latitude}` : '-' }
+      }))
+      if (newMarker) { setSelId(newMarker.id); setPopupMarker(newMarker) }
+      await refreshFacilities()
+      message.success(`已添加: ${name}`)
+    } catch (e) { message.error('快速添加失败: ' + (e?.message || '')) }
+  }
+
   /* ---- 渲染 overlays ---- */
   useEffect(() => {
     if (!amapOk) return
@@ -439,46 +479,6 @@ export default function MarkerManage() {
       if (prevSelId) setSelId(prevSelId)
       message.error('批量删除失败，已恢复')
     }
-  }
-
-  // 快速添加：点击地图直接生成设施 + 标点
-  const quickCreateFacility = async (lng, lat, name) => {
-    try {
-      // 1. 创建设施
-      await apiCreateFacility({
-        facilityName: name,
-        facilityType: 99,
-        location: '',
-        description: '',
-        status: 1,
-        longitude: lng,
-        latitude: lat,
-        imageX: null,
-        imageY: null,
-        images: '[]',
-      })
-      // 2. 刷新设施列表，拿到新设施 ID
-      const facRes = await getFacilityList({ type: 99, page: 1, size: 500 })
-      const newFac = (facRes.data?.records || []).find((f) => f.facilityName === name)
-      if (!newFac) throw new Error('设施创建后未找到')
-      // 3. 创建标点
-      const tok = localStorage.getItem('token') || ''
-      await fetch('/api/v1/map/marker', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
-        body: JSON.stringify({ facilityId: newFac.id, iconUrl: '', sort: 0 }),
-      })
-      // 4. 刷新标点列表，并选中新标点
-      const markerRes = await getMarkerList({ page: 1, size: 500 })
-      const newMarker = (markerRes.data?.records || []).find((m) => m.markerName === name)
-      setMarkers((markerRes.data?.records || []).map((m) => {
-        const imgs = parseImgs(m.images)
-        return { ...m, thumbnailUrl: m.thumbnailUrl || imgs[0] || '', position: m.longitude && m.latitude ? `${m.longitude}, ${m.latitude}` : '-' }
-      }))
-      if (newMarker) { setSelId(newMarker.id); setPopupMarker(newMarker) }
-      await refreshFacilities()
-      message.success(`已添加: ${name}`)
-    } catch (e) { message.error('快速添加失败: ' + (e?.message || '')) }
   }
 
   // 复制坐标
