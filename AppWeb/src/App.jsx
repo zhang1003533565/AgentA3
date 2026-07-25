@@ -19,11 +19,13 @@ import ExamPaperHistoryPage from './pages/questionBank/ExamPaperHistoryPage'
 import QuestionBankGeneratePage from './pages/questionBank/QuestionBankGeneratePage'
 import { QUESTION_BANK_ROUTES } from './pages/questionBank/questionBankRoutes'
 import WorkspacePage from './pages/workspace/WorkspacePage'
+import CanteenManage from './pages/CanteenManage/CanteenManage'
+import StallManage from './pages/StallManage/StallManage'
 import './App.css'
 
 function App() {
   const workspaceRoutes = allNavItems
-    .filter((item) => item.pageKey && item.path !== '/activity/manage')
+    .filter((item) => item.pageKey && item.path !== '/activity/manage' && item.path !== '/facility/canteen')
     .map((item) => (
       <Route
         key={item.path}
@@ -38,6 +40,8 @@ function App() {
         <Route path="/" element={<Login />} />
         <Route element={<Layout />}>
           <Route path="/home" element={<Home />} />
+          <Route path="/facility/canteen" element={<CanteenManage />} />
+          <Route path="/facility/canteen/:canteenId/stalls" element={<StallManage />} />
           <Route path="/activity/manage" element={<ActivityManage />} />
           <Route path="/activity/create" element={<ActivityEditor />} />
           <Route path="/activity/:id/edit" element={<ActivityEditor />} />

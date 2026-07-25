@@ -26,7 +26,7 @@ export const portalGroups = [
   {
     label: '校园设施',
     items: [
-      { path: '/facility/canteen', label: '食堂管理', icon: 'shop', pageKey: 'facility-canteen' },
+      { path: '/facility/canteen', label: '食堂管理', icon: 'shop' },
       { path: '/facility/restaurant', label: '档口管理', icon: 'shop', pageKey: 'facility-restaurant', hidden: true },
       { path: '/facility/stall-dish', label: '档口菜品管理', icon: 'shop', pageKey: 'facility-stall-dish', hidden: true },
       { path: '/facility/sports', label: '运动场设置', icon: 'thunder', pageKey: 'facility-sports' },
