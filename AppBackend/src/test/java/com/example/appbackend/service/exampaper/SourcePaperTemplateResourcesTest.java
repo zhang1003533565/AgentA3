@@ -28,8 +28,8 @@ class SourcePaperTemplateResourcesTest {
             "static/document.docx", "3a403d4baa8160d9f2d688762013dc56bbc72d25f07efcf7403a2270e926302e",
             "document/document.xml", "7e5457e8bf3acb364d3b5f803d5d3570fbc7b7a357539044cbb43945216ad6ef",
             "document/document.xml.rels", "08c44a83333f1b3113aece6d891bea7bb2df6f9a5201f7ad8dff20b3b2cc9595",
-            "head/header1.xml", "d5dacfd3855bce5546d8aeeb5f6205aea2923e994e90545ed3e5e13bac8fc91e",
-            "head/header2.xml", "f4788c4b3fc939dd9b0c58e82e0be21914d46dd8dd226a590cb53259c4f49b4b"
+            "head/header1.xml", "b085cf8f755478369be89f029505a99df41b182223246675a0426b703f3d8e6e",
+            "head/header2.xml", "db298c7df0ae7ed1c3f6ecca19afc3d9dbc6a862294018a436b1883c98f5ffeb"
     );
     private static final List<String> IMPORTED_XML_PARTS = List.of(
             "document/document.xml",

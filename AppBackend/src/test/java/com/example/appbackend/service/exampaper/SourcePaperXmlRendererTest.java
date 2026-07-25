@@ -68,7 +68,10 @@ class SourcePaperXmlRendererTest {
 
         String questions = renderer.renderQuestions(paper, layout());
         assertTrue(questions.contains("A. 甲        B. 乙"));
-        assertTrue(questions.contains("A. 丙        B. 丁"));
+        // 多选题在新版式中按行拆分渲染，但选项标签仍按数组位置重写为 A/B
+        assertFalse(questions.contains("A. 丙        B. 丁"));
+        assertTrue(questions.contains("A. 丙"));
+        assertTrue(questions.contains("B. 丁"));
         assertFalse(questions.contains("X. 甲"));
 
         String answers = renderer.renderAnswers(paper, layout());

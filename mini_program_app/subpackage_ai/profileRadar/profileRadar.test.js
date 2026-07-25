@@ -37,7 +37,7 @@ test('profile radar limits secondary labels and advice to concise sets', () => {
 })
 
 test('profile radar draws only after loading releases and the canvas is mounted', () => {
-  const finallyBlock = source.match(/finally\s*\{([\s\S]*?)\n\s*\}\n\s*\},\n\s*handleEmptyAction/)
+  const finallyBlock = source.match(/finally\s*\{([\s\S]*?)\r?\n\s*\}\r?\n\s*\},\r?\n\s*handleEmptyAction/)
   assert.ok(finallyBlock)
   assert.match(finallyBlock[1], /this\.loading = false/)
   assert.match(finallyBlock[1], /this\.\$nextTick/)
