@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Breadcrumb, Button, Card, Descriptions, Drawer, Empty, Form, Input, Select, Space, Table, Tag, Typography, message } from 'antd'
-import { SearchOutlined } from '@ant-design/icons'
-import { getExamQuestionDetail, getExamQuestionList } from '../../../api/examQuestion'
+import { Breadcrumb, Button, Card, Descriptions, Drawer, Empty, Form, Input, Modal, Select, Space, Spin, Table, Tag, Typography, message } from 'antd'
+import { PlusOutlined, SearchOutlined } from '@ant-design/icons'
+import {
+  createExamQuestion,
+  deleteExamQuestion,
+  getExamBanks,
+  getExamQuestionDetail,
+  getExamQuestionList,
+  updateExamQuestion,
+} from '../../../api/examQuestion'
 import './QuestionBank.css'
 
 const { Text } = Typography
@@ -72,6 +79,38 @@ const asObject = (value) => {
 const listText = (value) => {
   if (!Array.isArray(value) || !value.length) return '-'
   return value.join('、')
+}
+
+// 把结构化答案 JSON 还原为可编辑的纯文本（与后端保存规则对称）
+const answerToPlainText = (type, rawAnswer) => {
+  if (rawAnswer == null) return ''
+  const answer = asObject(rawAnswer)
+  if (!answer) return typeof rawAnswer === 'string' ? rawAnswer : String(rawAnswer)
+  if (type === 'single_choice') return answer.correctOption || ''
+  if (type === 'multiple_choice') {
+    return Array.isArray(answer.correctOptions) ? answer.correctOptions.join('、') : ''
+  }
+  if (type === 'true_false') {
+    const val = answer.correct ?? answer.correctAnswer
+    return val === true ? '正确' : val === false ? '错误' : ''
+  }
+  if (type === 'fill_blank') {
+    const blanks = Array.isArray(answer.blanks) ? answer.blanks : []
+    return blanks
+      .map((blank) => (Array.isArray(blank.answers) ? blank.answers.join('、') : ''))
+      .filter(Boolean)
+      .join('；')
+  }
+  if (type === 'calculation' && answer.finalAnswer != null) return String(answer.finalAnswer)
+  if (answer.referenceAnswer != null) return String(answer.referenceAnswer)
+  // 其他结构（如 AI 生成的要点式答案）取可读字段拼接
+  if (Array.isArray(answer.keyPoints)) {
+    return answer.keyPoints
+      .map((p) => (typeof p === 'string' ? p : p?.point || ''))
+      .filter(Boolean)
+      .join('；')
+  }
+  return Object.values(answer).filter((v) => typeof v === 'string').join('；')
 }
 
 // 选择题选项列表：高亮正确选项
@@ -215,14 +254,24 @@ const renderScoring = (detail) => {
 
 function QuestionBank() {
   const [form] = Form.useForm()
+  const [editorForm] = Form.useForm()
   const [loading, setLoading] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
   const [rows, setRows] = useState([])
+  const rowsRef = useRef([])
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 })
   const paginationRef = useRef({ current: 1, pageSize: 10, total: 0 })
   const [detailOpen, setDetailOpen] = useState(false)
   const [detail, setDetail] = useState(null)
   const [selectedRowKeys, setSelectedRowKeys] = useState([])
+  // 题库下拉选项（接口优先，失败时从列表 sourceTitle 兼容兼并）
+  const [bankOptions, setBankOptions] = useState([])
+  // 新增/编辑弹窗状态
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editorMode, setEditorMode] = useState('create')
+  const [editingId, setEditingId] = useState(null)
+  const [editorLoading, setEditorLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   const fetchList = useCallback(async (params = {}) => {
     const values = form.getFieldsValue()
@@ -236,9 +285,11 @@ function QuestionBank() {
         type: values.type || undefined,
         difficulty: values.difficulty || undefined,
         keyword: values.keyword || undefined,
+        bankId: values.bank || undefined,
       })
       const data = res.data || {}
       setRows(data.records || [])
+      rowsRef.current = data.records || []
       const nextPagination = {
         current: data.page || current,
         pageSize: data.size || size,
@@ -257,6 +308,36 @@ function QuestionBank() {
     fetchList({ current: 1 })
   }, [fetchList])
 
+  // 题库选项：优先请求 /api/exam/banks，接口未就绪时静默降级
+  useEffect(() => {
+    getExamBanks()
+      .then((res) => {
+        const list = Array.isArray(res.data) ? res.data : []
+        const options = list.map((item) => (
+          typeof item === 'string'
+            ? { value: item, label: item }
+            : { value: item.id ?? item.name, label: item.name ?? item.title ?? String(item.id) }
+        ))
+        if (options.length) setBankOptions(options)
+      })
+      .catch(() => {})
+  }, [])
+
+  // 降级兼容：从已加载列表的 sourceTitle 去重补充题库选项
+  useEffect(() => {
+    setBankOptions((prev) => {
+      const known = new Set(prev.map((opt) => opt.value))
+      const additions = []
+      rows.forEach((row) => {
+        if (row.sourceTitle && !known.has(row.sourceTitle)) {
+          known.add(row.sourceTitle)
+          additions.push({ value: row.sourceTitle, label: row.sourceTitle })
+        }
+      })
+      return additions.length ? [...prev, ...additions] : prev
+    })
+  }, [rows])
+
   const openDetail = async (id) => {
     setDetailOpen(true)
     setDetailLoading(true)
@@ -268,6 +349,98 @@ function QuestionBank() {
     } finally {
       setDetailLoading(false)
     }
+  }
+
+  // 打开新增弹窗
+  const openCreate = () => {
+    setEditorMode('create')
+    setEditingId(null)
+    editorForm.resetFields()
+    setEditorOpen(true)
+  }
+
+  // 打开编辑弹窗并回填详情
+  const openEdit = async (id) => {
+    setEditorMode('edit')
+    setEditingId(id)
+    editorForm.resetFields()
+    setEditorOpen(true)
+    setEditorLoading(true)
+    try {
+      const res = await getExamQuestionDetail(id)
+      const data = res.data || {}
+      editorForm.setFieldsValue({
+        type: data.type,
+        bankId: data.sourceTitle || undefined,
+        content: data.stem,
+        difficulty: data.difficulty,
+        answer: answerToPlainText(data.type, data.answer),
+        analysis: data.analysis,
+      })
+    } catch (error) {
+      message.error(error.message || '题目详情加载失败')
+      setEditorOpen(false)
+    } finally {
+      setEditorLoading(false)
+    }
+  }
+
+  // 保存新增/编辑
+  const handleEditorSave = async () => {
+    let values
+    try {
+      values = await editorForm.validateFields()
+    } catch {
+      return
+    }
+    const payload = {
+      type: values.type,
+      content: values.content,
+      bankId: values.bankId || '',
+      difficulty: values.difficulty,
+      answer: values.answer,
+      analysis: values.analysis || '',
+    }
+    setSaving(true)
+    try {
+      if (editorMode === 'edit') {
+        await updateExamQuestion(editingId, payload)
+        message.success('编辑成功')
+        fetchList()
+      } else {
+        await createExamQuestion(payload)
+        message.success('新增成功')
+        fetchList({ current: 1 })
+      }
+      setEditorOpen(false)
+    } catch (error) {
+      message.error(error.message || (editorMode === 'edit' ? '编辑失败' : '新增失败'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // 删除（二次确认）
+  const handleDelete = (record) => {
+    Modal.confirm({
+      title: '删除题目',
+      content: '确定删除该题目吗？',
+      okText: '确定',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await deleteExamQuestion(record.id)
+          message.success('删除成功')
+          // 当页只剩一条时回退一页，避免空页
+          const { current } = paginationRef.current
+          const nextCurrent = rowsRef.current.length === 1 && current > 1 ? current - 1 : current
+          fetchList({ current: nextCurrent })
+        } catch (error) {
+          message.error(error.message || '删除失败')
+        }
+      },
+    })
   }
 
   const columns = useMemo(() => [
@@ -307,8 +480,8 @@ function QuestionBank() {
       render: (_, record) => (
         <Space size={16} className="qb-actions">
           <a className="qb-action-link qb-action-view" onClick={() => openDetail(record.id)}>查看</a>
-          <a className="qb-action-link qb-action-edit">编辑</a>
-          <a className="qb-action-link qb-action-delete">删除</a>
+          <a className="qb-action-link qb-action-edit" onClick={() => openEdit(record.id)}>编辑</a>
+          <a className="qb-action-link qb-action-delete" onClick={() => handleDelete(record)}>删除</a>
         </Space>
       ),
     },
@@ -329,7 +502,7 @@ function QuestionBank() {
 
       {/* 所属题库 */}
       <Form.Item name="bank" label="所属题库">
-        <Select allowClear showSearch optionFilterProp="label" placeholder="请选择所属题库" options={[]} />
+        <Select allowClear showSearch optionFilterProp="label" placeholder="请选择所属题库" options={bankOptions} />
       </Form.Item>
 
       {/* 题型（默认选择题，不可清空，始终只筛一种题型） */}
@@ -360,6 +533,9 @@ function QuestionBank() {
             }}
           >
             重置
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} className="qb-add-btn" onClick={openCreate}>
+            新增题目
           </Button>
         </Space>
       </Form.Item>
@@ -407,6 +583,47 @@ function QuestionBank() {
           }}
         />
       </Card>
+
+      {/* 新增/编辑题目弹窗 */}
+      <Modal
+        title={editorMode === 'edit' ? '编辑题目' : '新增题目'}
+        open={editorOpen}
+        onOk={handleEditorSave}
+        onCancel={() => setEditorOpen(false)}
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={saving}
+        width={640}
+        forceRender
+        className="question-bank-editor-modal"
+      >
+        <Spin spinning={editorLoading}>
+          <Form form={editorForm} layout="vertical" className="question-bank-editor-form">
+            <Form.Item name="type" label="题型" rules={[{ required: true, message: '请选择题型' }]}>
+              <Select showSearch optionFilterProp="label" placeholder="请选择题型" options={questionTypeOptions} />
+            </Form.Item>
+            <Form.Item name="bankId" label="所属题库" rules={[{ required: true, message: '请选择所属题库' }]}>
+              <Select showSearch optionFilterProp="label" placeholder="请选择所属题库" options={bankOptions} />
+            </Form.Item>
+            <Form.Item name="content" label="题目内容" rules={[{ required: true, message: '请输入题目内容' }]}>
+              <Input.TextArea rows={3} placeholder="请输入题目内容" />
+            </Form.Item>
+            <Form.Item name="difficulty" label="难度" rules={[{ required: true, message: '请选择难度' }]}>
+              <Select showSearch optionFilterProp="label" placeholder="请选择难度" options={[
+                { value: 'easy', label: '简单' },
+                { value: 'medium', label: '中等' },
+                { value: 'hard', label: '困难' },
+              ]} />
+            </Form.Item>
+            <Form.Item name="answer" label="答案" rules={[{ required: true, message: '请输入答案' }]}>
+              <Input.TextArea rows={3} placeholder="请输入答案" />
+            </Form.Item>
+            <Form.Item name="analysis" label="解析">
+              <Input.TextArea rows={3} placeholder="请输入解析（可选）" />
+            </Form.Item>
+          </Form>
+        </Spin>
+      </Modal>
 
       {/* 详情抽屉 */}
       <Drawer
