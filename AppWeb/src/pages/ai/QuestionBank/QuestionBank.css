@@ -341,6 +341,44 @@
   border-color: #e2e8f0;
 }
 
+/* 选项编辑（仅选择题）：序号 + 输入框 + 删除 */
+.qb-editor-option-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.qb-editor-option-key {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(21, 101, 192, 0.1);
+  color: #1565c0;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.qb-editor-option-row .ant-input {
+  flex: 1;
+}
+
+.qb-editor-option-remove {
+  flex: none;
+  color: #94a3b8;
+  font-size: 15px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.qb-editor-option-remove:hover {
+  color: #ef4444;
+}
+
 /* ============ 列表卡片（定高，内部列表区域滚动）============ */
 .question-bank-list-card .ant-card-body {
   padding: 0;

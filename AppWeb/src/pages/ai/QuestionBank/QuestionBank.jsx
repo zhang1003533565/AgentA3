@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Breadcrumb, Button, Card, Descriptions, Drawer, Empty, Form, Input, Modal, Select, Space, Spin, Table, Tag, Typography, message } from 'antd'
-import { PlusOutlined, SearchOutlined } from '@ant-design/icons'
+import { Breadcrumb, Button, Card, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Select, Space, Spin, Table, Tag, Typography, message } from 'antd'
+import { MinusCircleOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import {
   createExamQuestion,
   deleteExamQuestion,
@@ -113,12 +113,65 @@ const answerToPlainText = (type, rawAnswer) => {
   return Object.values(answer).filter((v) => typeof v === 'string').join('；')
 }
 
-// 选择题选项列表：高亮正确选项
+// 选项序号（选项编辑/展示统一用字母 key）
+const OPTION_KEYS = 'ABCDEFGHIJKLMNOP'.split('')
+
+// 来源场景展示映射（缺失时默认人工录入）
+const sourceSceneLabels = {
+  manual: '人工录入',
+  test: 'AI 生成',
+  import: '批量导入',
+  question_generation: '智能生成',
+}
+
+// 统一题目数据模型：MySQL 导入题与手工新增题字段不完全一致，
+// 查看详情与编辑弹窗统一走该转换层，缺失字段用默认值填充
+const normalizeQuestion = (raw) => {
+  const data = raw || {}
+  const body = asObject(data.body) || {}
+  const answer = asObject(data.answer)
+  const rawPoints = Array.isArray(data.knowledgePoints) ? data.knowledgePoints : asObject(data.knowledgePoints)
+  const knowledgePoints = Array.isArray(rawPoints) ? rawPoints.filter(Boolean).map(String) : []
+  const rawOptions = Array.isArray(body.options) ? body.options : []
+  const options = rawOptions.map((opt, index) => (
+    typeof opt === 'string'
+      ? { key: OPTION_KEYS[index] || String(index + 1), text: opt }
+      : { key: opt?.key || OPTION_KEYS[index] || String(index + 1), text: opt?.text ?? opt?.content ?? '' }
+  ))
+  return {
+    id: data.id,
+    type: data.type || '',
+    bank: data.sourceTitle || '',
+    content: data.stem || '',
+    score: data.score == null || Number.isNaN(Number(data.score)) ? 5 : Number(data.score),
+    difficulty: data.difficulty || '',
+    knowledgePoints,
+    options,
+    answer,
+    answerText: answerToPlainText(data.type, data.answer),
+    analysis: data.analysis || '',
+    source: sourceSceneLabels[data.sourceScene] || '人工录入',
+    sourceTitle: data.sourceTitle || '',
+    // 评分规则 / 作答说明等附加信息仍按原始结构渲染
+    body: data.body,
+    scoring: data.scoring,
+    sourceAgent: data.sourceAgent || '',
+  }
+}
+
+// 选择题选项列表：高亮正确选项（基于统一模型的 options 字段）
 const renderOptions = (detail) => {
-  const body = asObject(detail.body)
-  const answer = asObject(detail.answer)
-  const options = body?.options
-  if (!Array.isArray(options) || !options.length) return null
+  const isChoice = detail.type === 'single_choice' || detail.type === 'multiple_choice'
+  if (!isChoice) return null
+  const { answer, options } = detail
+  if (!options.length) {
+    return (
+      <div>
+        <Text strong>选项</Text>
+        <div className="qb-detail-box">暂无</div>
+      </div>
+    )
+  }
   const correctKeys = detail.type === 'multiple_choice'
     ? (answer?.correctOptions || [])
     : [answer?.correctOption].filter(Boolean)
@@ -169,7 +222,8 @@ const renderRequirements = (detail) => {
 // 参考答案：按题型转成老师可直接阅读的文字
 const renderAnswer = (detail) => {
   const answer = asObject(detail.answer)
-  if (!answer) return <div className="qb-detail-box">-</div>
+  // 无结构化答案时降级展示纯文本，不显示空白
+  if (!answer) return <div className="qb-detail-box">{detail.answerText || '暂无'}</div>
   const { type } = detail
   if (type === 'single_choice') {
     return <div className="qb-detail-box"><span className="qb-answer-main">正确答案：{answer.correctOption || '-'}</span></div>
@@ -272,6 +326,9 @@ function QuestionBank() {
   const [editingId, setEditingId] = useState(null)
   const [editorLoading, setEditorLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  // 监听编辑弹窗题型：仅选择题展示选项编辑
+  const editorType = Form.useWatch('type', editorForm)
+  const editorIsChoice = editorType === 'single_choice' || editorType === 'multiple_choice'
 
   const fetchList = useCallback(async (params = {}) => {
     const values = form.getFieldsValue()
@@ -343,7 +400,8 @@ function QuestionBank() {
     setDetailLoading(true)
     try {
       const res = await getExamQuestionDetail(id)
-      setDetail(res.data || null)
+      // 统一数据模型：兼容 MySQL 导入题与手工新增题
+      setDetail(res.data ? normalizeQuestion(res.data) : null)
     } catch (error) {
       message.error(error.message || '题目详情加载失败')
     } finally {
@@ -359,7 +417,7 @@ function QuestionBank() {
     setEditorOpen(true)
   }
 
-  // 打开编辑弹窗并回填详情
+  // 打开编辑弹窗并回填详情（经统一模型转换，与查看详情同源）
   const openEdit = async (id) => {
     setEditorMode('edit')
     setEditingId(id)
@@ -368,13 +426,18 @@ function QuestionBank() {
     setEditorLoading(true)
     try {
       const res = await getExamQuestionDetail(id)
-      const data = res.data || {}
+      const data = normalizeQuestion(res.data)
       editorForm.setFieldsValue({
         type: data.type,
-        bankId: data.sourceTitle || undefined,
-        content: data.stem,
+        bankId: data.bank || undefined,
+        content: data.content,
+        options: data.options.length
+          ? data.options.map((opt) => ({ text: opt.text }))
+          : [{ text: '' }, { text: '' }, { text: '' }, { text: '' }],
+        score: data.score,
         difficulty: data.difficulty,
-        answer: answerToPlainText(data.type, data.answer),
+        knowledgePoint: data.knowledgePoints.join('、'),
+        answer: data.answerText,
         analysis: data.analysis,
       })
     } catch (error) {
@@ -393,6 +456,18 @@ function QuestionBank() {
     } catch {
       return
     }
+    const isChoice = values.type === 'single_choice' || values.type === 'multiple_choice'
+    // 选项按顺序自动编号 A/B/C…，过滤空行
+    const options = isChoice
+      ? (values.options || [])
+          .map((opt) => (opt?.text || '').trim())
+          .filter(Boolean)
+          .map((text, index) => ({ key: OPTION_KEYS[index] || String(index + 1), text }))
+      : []
+    if (isChoice && options.length < 2) {
+      message.warning('选择题至少填写两个选项')
+      return
+    }
     const payload = {
       type: values.type,
       content: values.content,
@@ -400,6 +475,10 @@ function QuestionBank() {
       difficulty: values.difficulty,
       answer: values.answer,
       analysis: values.analysis || '',
+      // 统一模型补充字段（接口地址/已有参数不变，后端未声明的字段会被忽略）
+      score: values.score ?? 5,
+      knowledgePoint: (values.knowledgePoint || '').trim(),
+      options,
     }
     setSaving(true)
     try {
@@ -608,12 +687,45 @@ function QuestionBank() {
             <Form.Item name="content" label="题目内容" rules={[{ required: true, message: '请输入题目内容' }]}>
               <Input.TextArea rows={3} placeholder="请输入题目内容" />
             </Form.Item>
+            {/* 选项编辑：仅选择题展示，序号按顺序自动编为 A/B/C… */}
+            {editorIsChoice ? (
+              <Form.Item label="选项" required className="qb-editor-options">
+                <Form.List name="options" initialValue={[{ text: '' }, { text: '' }, { text: '' }, { text: '' }]}>
+                  {(fields, { add, remove }) => (
+                    <>
+                      {fields.map((field, index) => (
+                        <div key={field.key} className="qb-editor-option-row">
+                          <span className="qb-editor-option-key">{OPTION_KEYS[index] || index + 1}</span>
+                          <Form.Item name={[field.name, 'text']} noStyle>
+                            <Input placeholder={`请输入选项 ${OPTION_KEYS[index] || index + 1} 内容`} />
+                          </Form.Item>
+                          {fields.length > 2 ? (
+                            <MinusCircleOutlined className="qb-editor-option-remove" onClick={() => remove(field.name)} />
+                          ) : null}
+                        </div>
+                      ))}
+                      {fields.length < OPTION_KEYS.length ? (
+                        <Button type="dashed" block icon={<PlusOutlined />} onClick={() => add({ text: '' })}>
+                          添加选项
+                        </Button>
+                      ) : null}
+                    </>
+                  )}
+                </Form.List>
+              </Form.Item>
+            ) : null}
+            <Form.Item name="score" label="分值" initialValue={5} rules={[{ required: true, message: '请输入分值' }]}>
+              <InputNumber min={0.5} max={100} step={0.5} placeholder="请输入分值" style={{ width: '100%' }} />
+            </Form.Item>
             <Form.Item name="difficulty" label="难度" rules={[{ required: true, message: '请选择难度' }]}>
               <Select showSearch optionFilterProp="label" placeholder="请选择难度" options={[
                 { value: 'easy', label: '简单' },
                 { value: 'medium', label: '中等' },
                 { value: 'hard', label: '困难' },
               ]} />
+            </Form.Item>
+            <Form.Item name="knowledgePoint" label="知识点">
+              <Input placeholder="请输入知识点，多个用、分隔（可选）" />
             </Form.Item>
             <Form.Item name="answer" label="答案" rules={[{ required: true, message: '请输入答案' }]}>
               <Input.TextArea rows={3} placeholder="请输入答案" />
@@ -640,21 +752,21 @@ function QuestionBank() {
           <Space direction="vertical" size="large" className="question-bank-detail">
             <Descriptions column={1} bordered size="small">
               <Descriptions.Item label="题型">
-                <Tag color="blue">{questionTypeLabels[detail.type] || detail.type}</Tag>
+                <Tag color="blue">{questionTypeLabels[detail.type] || detail.type || '暂无'}</Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="题目内容">{detail.stem}</Descriptions.Item>
+              <Descriptions.Item label="所属题库">{detail.bank || '暂无'}</Descriptions.Item>
+              <Descriptions.Item label="题目内容">{detail.content || '暂无'}</Descriptions.Item>
               <Descriptions.Item label="分值">{detail.score} 分</Descriptions.Item>
               <Descriptions.Item label="难度">
-                <Tag>{difficultyLabels[detail.difficulty] || detail.difficulty}</Tag>
+                <Tag>{difficultyLabels[detail.difficulty] || detail.difficulty || '暂无'}</Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="知识点">{listText(detail.knowledgePoints)}</Descriptions.Item>
-              <Descriptions.Item label="来源场景">
-                <Tag color={detail.sourceScene === 'test' ? 'purple' : 'default'}>
-                  {detail.sourceScene || '未标记'}
-                </Tag>
+              <Descriptions.Item label="知识点">
+                {detail.knowledgePoints.length ? detail.knowledgePoints.join('、') : '暂无'}
               </Descriptions.Item>
-              <Descriptions.Item label="来源智能体">{detail.sourceAgent || '-'}</Descriptions.Item>
-              <Descriptions.Item label="来源标题">{detail.sourceTitle || '-'}</Descriptions.Item>
+              <Descriptions.Item label="来源">
+                <Tag color={detail.source === '人工录入' ? 'default' : 'purple'}>{detail.source}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="来源标题">{detail.sourceTitle || '暂无'}</Descriptions.Item>
             </Descriptions>
 
             {/* 选项（仅选择题），正确选项高亮 */}
@@ -670,7 +782,7 @@ function QuestionBank() {
 
             <div>
               <Text strong>解析</Text>
-              <div className="question-bank-analysis">{detail.analysis || '-'}</div>
+              <div className="question-bank-analysis">{detail.analysis || '暂无'}</div>
             </div>
 
             <div>
