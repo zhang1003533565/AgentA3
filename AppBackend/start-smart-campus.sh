@@ -105,7 +105,20 @@ ensure_database() {
   log "Ensuring database '${MYSQL_DATABASE}' exists..."
   "${COMPOSE[@]}" exec -T "$MYSQL_SERVICE" \
     mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" \
-    -e "CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\` DEFAULT CHARACTER SET ${MYSQL_CHARSET} COLLATE ${MYSQL_COLLATION};"
+    -e "CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\` DEFAULT CHARACTER SET ${MYSQL_CHARSET} COLLATE ${MYSQL_COLLATION};" \
+    || fail "Failed to create or verify database '${MYSQL_DATABASE}'."
+}
+
+wait_for_redis() {
+  log "Waiting for Redis container..."
+  for _ in $(seq 1 "$MYSQL_WAIT_SECONDS"); do
+    if "${COMPOSE[@]}" exec -T redis redis-cli ping >/dev/null 2>&1; then
+      return
+    fi
+    sleep 1
+  done
+
+  fail "Redis did not become ready within ${MYSQL_WAIT_SECONDS}s."
 }
 
 ensure_backend_tools() {
@@ -133,6 +146,7 @@ main() {
   "${COMPOSE[@]}" up -d
 
   wait_for_mysql
+  wait_for_redis
   ensure_database
   ensure_backend_tools
   start_backend

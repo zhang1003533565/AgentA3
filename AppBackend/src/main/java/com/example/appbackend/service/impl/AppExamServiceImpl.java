@@ -1,17 +1,23 @@
 package com.example.appbackend.service.impl;
 
 import com.example.appbackend.dto.AppExamDTO;
+import com.example.appbackend.dto.LearningPathDTO;
+import com.example.appbackend.dto.UserProfileDTO;
 import com.example.appbackend.entity.ExamPaper;
 import com.example.appbackend.entity.ExamPaperAttempt;
 import com.example.appbackend.entity.ExamPaperAttemptAnswer;
 import com.example.appbackend.entity.ExamPaperQuestion;
+import com.example.appbackend.entity.ExamQuestion;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.ExamPaperAttemptAnswerRepository;
 import com.example.appbackend.repository.ExamPaperAttemptRepository;
 import com.example.appbackend.repository.ExamPaperQuestionRepository;
 import com.example.appbackend.repository.ExamPaperRepository;
+import com.example.appbackend.repository.ExamQuestionRepository;
 import com.example.appbackend.service.AppExamService;
+import com.example.appbackend.service.LearningPathService;
+import com.example.appbackend.service.UserProfileService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,16 +30,21 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -41,6 +52,11 @@ import java.util.stream.Collectors;
 public class AppExamServiceImpl implements AppExamService {
     private static final int MAX_ANSWER_BYTES = 64 * 1024;
     private static final int MAX_TEXT_LENGTH = 20_000;
+    private static final Set<String> MANUAL_QUESTION_TYPES = Set.of(
+            "short_answer", "calculation", "programming");
+    private static final String PYTHON = "python";
+    private static final Pattern PYTHON_KNOWLEDGE_POINT = Pattern.compile(
+            "python(?:\\.[a-z0-9_-]+)+");
     private static final Collection<ExamPaperAttempt.Status> COMPLETED_STATUSES = List.of(
             ExamPaperAttempt.Status.SUBMITTED, ExamPaperAttempt.Status.AUTO_SUBMITTED);
 
@@ -48,6 +64,9 @@ public class AppExamServiceImpl implements AppExamService {
     private final ExamPaperQuestionRepository paperQuestionRepository;
     private final ExamPaperAttemptRepository attemptRepository;
     private final ExamPaperAttemptAnswerRepository answerRepository;
+    private final ExamQuestionRepository examQuestionRepository;
+    private final LearningPathService learningPathService;
+    private final UserProfileService userProfileService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
@@ -305,7 +324,7 @@ public class AppExamServiceImpl implements AppExamService {
             case "multiple_choice" -> isTextArray(node.path("selectedOptions"));
             case "true_false" -> node.path("value").isBoolean();
             case "fill_blank" -> isValidBlanks(node.path("blanks"));
-            case "short_answer" -> node.path("text").isTextual();
+            case "short_answer", "calculation", "programming" -> node.path("text").isTextual();
             default -> false;
         };
         if (!valid) throw new BusinessException(Result.BAD_REQUEST_CODE, "答案结构与题型不匹配");
@@ -353,7 +372,8 @@ public class AppExamServiceImpl implements AppExamService {
                 for (JsonNode blank : node.path("blanks")) any |= !blank.path("value").asText().trim().isEmpty();
                 yield any;
             }
-            case "short_answer" -> !node.path("text").asText().trim().isEmpty();
+            case "short_answer", "calculation", "programming" ->
+                    !node.path("text").asText().trim().isEmpty();
             default -> false;
         };
     }
@@ -368,7 +388,7 @@ public class AppExamServiceImpl implements AppExamService {
         List<ExamPaperAttemptAnswer> scoredAnswers = new ArrayList<>();
         for (ExamPaperQuestion question : questions) {
             ExamPaperAttemptAnswer answer = answers.get(question.getId());
-            if ("short_answer".equals(question.getType())) {
+            if (MANUAL_QUESTION_TYPES.contains(question.getType())) {
                 if (answer != null) {
                     answer.setCorrect(null);
                     answer.setScore(null);
@@ -385,6 +405,11 @@ public class AppExamServiceImpl implements AppExamService {
             scoredAnswers.add(answer);
         }
         if (!scoredAnswers.isEmpty()) answerRepository.saveAll(scoredAnswers);
+        AppExamDTO.LearningUpdate learningUpdate = applyLearningFeedback(
+                attempt, questions, answers, now);
+        if (learningUpdate != null) {
+            attempt.setLearningUpdateJson(writeLearningUpdate(learningUpdate));
+        }
         attempt.setObjectiveScore(score);
         attempt.setObjectiveTotalScore(total);
         attempt.setStatus(status);
@@ -469,7 +494,529 @@ public class AppExamServiceImpl implements AppExamService {
         result.setObjectiveScore(attempt.getObjectiveScore());
         result.setObjectiveTotalScore(attempt.getObjectiveTotalScore());
         result.setQuestions(questions.stream().map(question -> toQuestionResult(question, answers.get(question.getId()))).toList());
+        result.setLearningUpdate(readLearningUpdate(attempt.getLearningUpdateJson()));
         return result;
+    }
+
+    private AppExamDTO.LearningUpdate applyLearningFeedback(
+            ExamPaperAttempt attempt,
+            List<ExamPaperQuestion> questions,
+            Map<Long, ExamPaperAttemptAnswer> answers,
+            LocalDateTime now) {
+        List<ExamPaperQuestion> eligibleQuestions = questions.stream()
+                .filter(question -> !MANUAL_QUESTION_TYPES.contains(question.getType()))
+                .filter(question -> question.getQuestionId() != null)
+                .filter(question -> {
+                    ExamPaperAttemptAnswer answer = answers.get(question.getId());
+                    return answer != null
+                            && Boolean.TRUE.equals(answer.getAnswered())
+                            && answer.getCorrect() != null;
+                })
+                .toList();
+        if (eligibleQuestions.isEmpty()) return null;
+
+        List<Long> sourceQuestionIds = eligibleQuestions.stream()
+                .map(ExamPaperQuestion::getQuestionId)
+                .distinct()
+                .toList();
+        List<ExamQuestion> sourceQuestions = examQuestionRepository.findAllById(sourceQuestionIds);
+        if (sourceQuestions == null || sourceQuestions.isEmpty()) return null;
+        Map<Long, ExamQuestion> sourceById = sourceQuestions.stream()
+                .filter(source -> source.getId() != null)
+                .collect(Collectors.toMap(
+                        ExamQuestion::getId,
+                        Function.identity(),
+                        (left, right) -> left));
+
+        LinkedHashMap<String, AssessmentAggregate> assessments = new LinkedHashMap<>();
+        for (ExamPaperQuestion paperQuestion : eligibleQuestions) {
+            ExamQuestion source = sourceById.get(paperQuestion.getQuestionId());
+            if (source == null) continue;
+            ExamPaperAttemptAnswer answer = answers.get(paperQuestion.getId());
+            for (String knowledgePoint : readPythonKnowledgePoints(source.getKnowledgePointsJson())) {
+                assessments.compute(knowledgePoint, (key, existing) -> {
+                    if (existing == null) {
+                        return new AssessmentAggregate(
+                                Boolean.TRUE.equals(answer.getCorrect()), source.getDifficulty());
+                    }
+                    existing.merge(Boolean.TRUE.equals(answer.getCorrect()), source.getDifficulty());
+                    return existing;
+                });
+            }
+        }
+        if (assessments.isEmpty()) return null;
+
+        LearningPathDTO.HomeView homeBefore = learningPathService.getHomeForFeedback(
+                attempt.getUserId(), PYTHON);
+        LearningPathDTO.PathView pathBefore = homeBefore == null ? null : homeBefore.getActivePath();
+        Map<String, LearningPathDTO.MasteryView> masteryBefore = homeBefore == null
+                || homeBefore.getMastery() == null
+                ? Map.of()
+                : homeBefore.getMastery().stream()
+                .filter(item -> item != null && item.getKnowledgePointKey() != null)
+                .collect(Collectors.toMap(
+                        LearningPathDTO.MasteryView::getKnowledgePointKey,
+                        Function.identity(),
+                        (left, right) -> left));
+
+        List<AppExamDTO.MasteryChange> masteryChanges = new ArrayList<>();
+        List<String> assessedKnowledgePoints = new ArrayList<>();
+        List<String> weakKnowledgePoints = new ArrayList<>();
+        int correctKnowledgePoints = 0;
+        for (Map.Entry<String, AssessmentAggregate> entry : assessments.entrySet()) {
+            String knowledgePoint = entry.getKey();
+            AssessmentAggregate aggregate = entry.getValue();
+            LearningPathDTO.AssessmentObservation observation = new LearningPathDTO.AssessmentObservation();
+            observation.setUserId(attempt.getUserId());
+            observation.setAttemptId(attempt.getId());
+            observation.setCourseKey(PYTHON);
+            observation.setKnowledgePointKey(knowledgePoint);
+            observation.setKnowledgePointName(knowledgePoint);
+            observation.setCorrect(aggregate.correct());
+            observation.setDifficulty(aggregate.difficulty());
+
+            LearningPathDTO.MasteryView after = learningPathService.applyAssessment(observation);
+            if (after == null) {
+                throw new IllegalStateException("Learning path service returned no mastery result");
+            }
+            LearningPathDTO.MasteryView before = masteryBefore.get(knowledgePoint);
+            AppExamDTO.MasteryChange change = new AppExamDTO.MasteryChange();
+            change.setKnowledgePointKey(knowledgePoint);
+            change.setCorrect(aggregate.correct());
+            change.setScoreBefore(before == null || before.getScore() == null
+                    ? BigDecimal.ZERO : before.getScore());
+            change.setScoreAfter(after.getScore());
+            change.setStatusBefore(before == null ? "new" : before.getStatus());
+            change.setStatusAfter(after.getStatus());
+            masteryChanges.add(change);
+            assessedKnowledgePoints.add(knowledgePoint);
+            if (aggregate.correct()) {
+                correctKnowledgePoints++;
+            } else {
+                weakKnowledgePoints.add(knowledgePoint);
+            }
+        }
+
+        List<AppExamDTO.ProfileEvidenceUpdate> profileEvidence = recordProfileEvidence(
+                attempt,
+                assessedKnowledgePoints,
+                weakKnowledgePoints,
+                correctKnowledgePoints,
+                now);
+        ReplanResult replan = replanForWeakKnowledgePoints(
+                attempt, pathBefore, weakKnowledgePoints, now);
+
+        AppExamDTO.LearningUpdate update = new AppExamDTO.LearningUpdate();
+        update.setSchemaVersion("exam-learning-update-v1");
+        update.setAssessedKnowledgePoints(List.copyOf(assessedKnowledgePoints));
+        update.setWeakKnowledgePoints(List.copyOf(weakKnowledgePoints));
+        update.setMasteryChanges(List.copyOf(masteryChanges));
+        update.setProfileEvidence(List.copyOf(profileEvidence));
+        update.setEvidenceStatus(profileEvidence.stream()
+                .map(AppExamDTO.ProfileEvidenceUpdate::getStatus)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.joining(",")));
+        update.setPathVersionBefore(pathBefore == null ? null : pathBefore.getVersion());
+        update.setPathVersionAfter(replan.pathAfter() == null
+                ? (pathBefore == null ? null : pathBefore.getVersion())
+                : replan.pathAfter().getVersion());
+        update.setReplanned(replan.replanned());
+        update.setReplanReason(replan.reason());
+        update.setChangedNodes(replan.changedNodes());
+        update.setNextRecommendation(nextRecommendation(
+                replan.pathAfter() == null ? pathBefore : replan.pathAfter()));
+        return update;
+    }
+
+    private List<String> readPythonKnowledgePoints(String json) {
+        if (json == null || json.isBlank()) return List.of();
+        try {
+            JsonNode root = objectMapper.readTree(json);
+            if (root == null || !root.isArray()) return List.of();
+            List<String> result = new ArrayList<>();
+            Set<String> seen = new HashSet<>();
+            for (JsonNode item : root) {
+                if (!item.isTextual()) continue;
+                String key = item.asText().trim();
+                if (key.length() <= 160
+                        && PYTHON_KNOWLEDGE_POINT.matcher(key).matches()
+                        && seen.add(key)) {
+                    result.add(key);
+                }
+            }
+            return result;
+        } catch (JsonProcessingException ignored) {
+            return List.of();
+        }
+    }
+
+    private List<AppExamDTO.ProfileEvidenceUpdate> recordProfileEvidence(
+            ExamPaperAttempt attempt,
+            List<String> assessed,
+            List<String> weak,
+            int correctCount,
+            LocalDateTime now) {
+        List<AppExamDTO.ProfileEvidenceUpdate> updates = new ArrayList<>();
+        if (!weak.isEmpty()) {
+            updates.add(addProfileEvidence(
+                    attempt,
+                    "weak_points",
+                    "wrong_question",
+                    "weakness",
+                    -2,
+                    "本次 Python 测试暴露薄弱知识点：" + String.join("、", weak),
+                    String.join("、", weak),
+                    assessed,
+                    correctCount,
+                    now));
+        }
+        updates.add(addProfileEvidence(
+                attempt,
+                "learning_progress",
+                "exam",
+                "increase",
+                1,
+                "用户完成了一次 Python 客观题测试，共形成 " + assessed.size() + " 个知识点掌握度观察。",
+                "Python 测试提交",
+                assessed,
+                correctCount,
+                now));
+        int abilityDelta = correctCount * 2 >= assessed.size() ? 1 : -1;
+        updates.add(addProfileEvidence(
+                attempt,
+                "ability_performance",
+                "question_result",
+                abilityDelta > 0 ? "increase" : "decrease",
+                abilityDelta,
+                "本次 Python 客观题知识点正确 " + correctCount + "/" + assessed.size()
+                        + "，结果仅作为候选能力证据。",
+                "Python 客观题表现",
+                assessed,
+                correctCount,
+                now));
+        return updates;
+    }
+
+    private AppExamDTO.ProfileEvidenceUpdate addProfileEvidence(
+            ExamPaperAttempt attempt,
+            String dimensionKey,
+            String sourceType,
+            String direction,
+            int suggestedDelta,
+            String evidenceText,
+            String objectName,
+            List<String> assessed,
+            int correctCount,
+            LocalDateTime now) {
+        String sourceId = "exam-attempt-" + attempt.getId() + ":" + dimensionKey;
+        UserProfileDTO.EvidenceRequest request = new UserProfileDTO.EvidenceRequest();
+        request.setDimensionKey(dimensionKey);
+        request.setSourceType(sourceType);
+        request.setSourceId(sourceId);
+        request.setAction("answered");
+        request.setObjectType("exam_attempt");
+        request.setObjectId(String.valueOf(attempt.getId()));
+        request.setObjectName(limit(objectName, 200));
+        request.setResult(limit(correctCount + "/" + assessed.size() + " 个知识点正确", 300));
+        request.setOccurredAt(now);
+        request.setEvidenceTags(assessed.stream().limit(20).toList());
+        request.setEvidence(limit(evidenceText, 1000));
+        request.setDirection(direction);
+        request.setConfidence(0.85);
+        request.setSuggestedDelta(suggestedDelta);
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("submitter", "AppExamServiceImpl");
+        metadata.put("attemptId", attempt.getId());
+        metadata.put("paperId", attempt.getPaperId());
+        metadata.put("courseKey", PYTHON);
+        metadata.put("assessedKnowledgePointCount", assessed.size());
+        metadata.put("correctKnowledgePointCount", correctCount);
+        request.setMetadata(metadata);
+
+        UserProfileDTO.EvidenceResponse response = userProfileService.addEvidence(
+                attempt.getUserId(), request);
+        AppExamDTO.ProfileEvidenceUpdate update = new AppExamDTO.ProfileEvidenceUpdate();
+        update.setDimensionKey(dimensionKey);
+        update.setSourceId(sourceId);
+        update.setStatus(response == null ? "recorded" : response.getStatus());
+        update.setAccepted(response == null ? null : response.getAccepted());
+        return update;
+    }
+
+    private ReplanResult replanForWeakKnowledgePoints(
+            ExamPaperAttempt attempt,
+            LearningPathDTO.PathView pathBefore,
+            List<String> weakKnowledgePoints,
+            LocalDateTime now) {
+        if (weakKnowledgePoints.isEmpty()) {
+            return new ReplanResult(false, "本次未发现新的 Python 薄弱知识点", pathBefore, List.of());
+        }
+        if (pathBefore == null || pathBefore.getItems() == null || pathBefore.getItems().isEmpty()) {
+            return new ReplanResult(
+                    false,
+                    "已识别薄弱点，但当前没有可调整的活动 Python 学习路径",
+                    pathBefore,
+                    List.of());
+        }
+
+        Set<String> weak = new HashSet<>(weakKnowledgePoints);
+        List<LearningPathDTO.PathItemView> ordered = pathBefore.getItems().stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(ArrayList::new));
+        if (ordered.isEmpty()) {
+            return new ReplanResult(
+                    false,
+                    "已识别薄弱点，但当前活动 Python 学习路径没有可调整节点",
+                    pathBefore,
+                    List.of());
+        }
+        ordered.sort((left, right) -> {
+            int weakOrder = Boolean.compare(
+                    !weak.contains(left.getKnowledgePoint()),
+                    !weak.contains(right.getKnowledgePoint()));
+            if (weakOrder != 0) return weakOrder;
+            int leftSequence = left.getSequenceNo() == null ? Integer.MAX_VALUE : left.getSequenceNo();
+            int rightSequence = right.getSequenceNo() == null ? Integer.MAX_VALUE : right.getSequenceNo();
+            int sequenceOrder = Integer.compare(leftSequence, rightSequence);
+            if (sequenceOrder != 0) return sequenceOrder;
+            return clean(left.getItemKey()).compareTo(clean(right.getItemKey()));
+        });
+
+        List<LearningPathDTO.PathItemDraft> itemDrafts = new ArrayList<>();
+        List<AppExamDTO.PathChange> changes = new ArrayList<>();
+        Set<String> existingKnowledgePoints = ordered.stream()
+                .map(LearningPathDTO.PathItemView::getKnowledgePoint)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Set<String> usedItemKeys = ordered.stream()
+                .map(LearningPathDTO.PathItemView::getItemKey)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        int nextSequence = 1;
+        for (String missingKnowledgePoint : weakKnowledgePoints.stream()
+                .filter(point -> !existingKnowledgePoints.contains(point))
+                .toList()) {
+            LearningPathDTO.PathItemDraft added = new LearningPathDTO.PathItemDraft();
+            added.setItemKey(uniqueReviewItemKey(missingKnowledgePoint, usedItemKeys));
+            added.setKnowledgePoint(missingKnowledgePoint);
+            added.setObjective("巩固考试薄弱知识点 " + missingKnowledgePoint);
+            added.setTargetMastery(new BigDecimal("80.00"));
+            added.setPriority(1);
+            added.setSequenceNo(nextSequence);
+            added.setResourceKinds(List.of("knowledge_note", "practice_set"));
+            added.setResourceIds(List.of());
+            added.setStatus("needs_review");
+            added.setDeliveryStatus("pending");
+            added.setSourceMessageId(pathBefore.getSourceMessageId());
+            added.setScheduledAt(now);
+            added.setRationale("考试反馈：路径中缺少该薄弱知识点，已新增优先复习节点");
+            itemDrafts.add(added);
+
+            AppExamDTO.PathChange change = new AppExamDTO.PathChange();
+            change.setItemKey(added.getItemKey());
+            change.setKnowledgePoint(missingKnowledgePoint);
+            change.setSequenceBefore(null);
+            change.setSequenceAfter(nextSequence);
+            change.setStatusBefore(null);
+            change.setStatusAfter("needs_review");
+            change.setReason("客观题答错且原路径缺少该知识点，新增优先复习节点");
+            changes.add(change);
+            nextSequence++;
+        }
+
+        for (LearningPathDTO.PathItemView source : ordered) {
+            int sourceNextSequence = nextSequence++;
+            boolean needsReview = weak.contains(source.getKnowledgePoint());
+            String nextStatus = needsReview ? "needs_review" : source.getStatus();
+            String nextRationale = needsReview
+                    ? appendRationale(source.getRationale(), "考试反馈：该知识点需要优先巩固")
+                    : source.getRationale();
+
+            LearningPathDTO.PathItemDraft draft = new LearningPathDTO.PathItemDraft();
+            draft.setItemKey(source.getItemKey());
+            draft.setKnowledgePoint(source.getKnowledgePoint());
+            draft.setObjective(source.getObjective());
+            draft.setTargetMastery(source.getTargetMastery());
+            draft.setPriority(source.getPriority());
+            draft.setSequenceNo(sourceNextSequence);
+            draft.setResourceKinds(source.getResourceKinds());
+            draft.setResourceIds(source.getResourceIds());
+            draft.setStatus(nextStatus);
+            draft.setDeliveryStatus(source.getDeliveryStatus());
+            draft.setSourceMessageId(source.getSourceMessageId());
+            draft.setScheduledAt(source.getScheduledAt());
+            draft.setRationale(nextRationale);
+            itemDrafts.add(draft);
+
+            boolean changed = !Objects.equals(source.getSequenceNo(), sourceNextSequence)
+                    || !Objects.equals(source.getStatus(), nextStatus)
+                    || !Objects.equals(source.getRationale(), nextRationale);
+            if (changed) {
+                AppExamDTO.PathChange change = new AppExamDTO.PathChange();
+                change.setItemKey(source.getItemKey());
+                change.setKnowledgePoint(source.getKnowledgePoint());
+                change.setSequenceBefore(source.getSequenceNo());
+                change.setSequenceAfter(sourceNextSequence);
+                change.setStatusBefore(source.getStatus());
+                change.setStatusAfter(nextStatus);
+                change.setReason(needsReview ? "客观题答错，提升为优先复习节点" : "随薄弱节点重新排序");
+                changes.add(change);
+            }
+        }
+
+        if (changes.isEmpty()) {
+            return new ReplanResult(
+                    false,
+                    "薄弱节点已处于优先复习状态，学习路径未发生变化",
+                    pathBefore,
+                    List.of());
+        }
+
+        LearningPathDTO.PathDraft draft = new LearningPathDTO.PathDraft();
+        draft.setCourseKey(PYTHON);
+        draft.setGoal(pathBefore.getGoal());
+        draft.setProfileDigest(pathBefore.getProfileDigest());
+        draft.setMasteryDigest(boundedDigest(
+                "考试 " + attempt.getId() + " 反馈薄弱点：" + String.join("、", weakKnowledgePoints),
+                128));
+        draft.setSourceMessageId(pathBefore.getSourceMessageId());
+        draft.setGeneratedAt(now);
+        draft.setNextReplanAt(pathBefore.getNextReplanAt());
+        draft.setItems(itemDrafts);
+        LearningPathDTO.PathView pathAfter = learningPathService.replaceActivePath(
+                attempt.getUserId(), draft);
+        return new ReplanResult(
+                true,
+                "根据考试薄弱点重规划：" + String.join("、", weakKnowledgePoints),
+                pathAfter,
+                List.copyOf(changes));
+    }
+
+    private LearningPathDTO.Recommendation nextRecommendation(LearningPathDTO.PathView path) {
+        if (path == null || path.getItems() == null) return null;
+        return path.getItems().stream()
+                .filter(Objects::nonNull)
+                .filter(item -> !"completed".equals(item.getStatus()))
+                .sorted((left, right) -> Integer.compare(
+                        left.getSequenceNo() == null ? Integer.MAX_VALUE : left.getSequenceNo(),
+                        right.getSequenceNo() == null ? Integer.MAX_VALUE : right.getSequenceNo()))
+                .findFirst()
+                .map(item -> {
+                    LearningPathDTO.Recommendation recommendation = new LearningPathDTO.Recommendation();
+                    recommendation.setItemId(item.getId());
+                    recommendation.setItemKey(item.getItemKey());
+                    recommendation.setKnowledgePoint(item.getKnowledgePoint());
+                    recommendation.setObjective(item.getObjective());
+                    recommendation.setPriority(item.getPriority());
+                    recommendation.setResourceIds(item.getResourceIds());
+                    recommendation.setStatus(item.getStatus());
+                    recommendation.setRationale(item.getRationale());
+                    return recommendation;
+                })
+                .orElse(null);
+    }
+
+    private String appendRationale(String existing, String feedback) {
+        if (existing == null || existing.isBlank()) return feedback;
+        return existing.contains(feedback) ? existing : existing + "；" + feedback;
+    }
+
+    private String uniqueReviewItemKey(String knowledgePoint, Set<String> usedItemKeys) {
+        String base = "exam-review-" + sha256(knowledgePoint);
+        String candidate = base;
+        int suffix = 2;
+        while (!usedItemKeys.add(candidate)) {
+            candidate = base + "-" + suffix++;
+        }
+        return candidate;
+    }
+
+    private String boundedDigest(String value, int maxLength) {
+        if (value.length() <= maxLength) return value;
+        String suffix = "…#" + sha256(value).substring(0, 12);
+        return value.substring(0, maxLength - suffix.length()) + suffix;
+    }
+
+    private String sha256(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 unavailable", error);
+        }
+    }
+
+    private String limit(String value, int maxLength) {
+        String text = value == null ? "" : value;
+        return text.length() <= maxLength ? text : text.substring(0, maxLength);
+    }
+
+    private String writeLearningUpdate(AppExamDTO.LearningUpdate update) {
+        try {
+            return objectMapper.writeValueAsString(update);
+        } catch (JsonProcessingException error) {
+            throw new IllegalStateException("Unable to serialize exam learning update", error);
+        }
+    }
+
+    private AppExamDTO.LearningUpdate readLearningUpdate(String json) {
+        if (json == null || json.isBlank()) return null;
+        try {
+            return objectMapper.readValue(json, AppExamDTO.LearningUpdate.class);
+        } catch (JsonProcessingException error) {
+            throw new IllegalStateException("Stored exam learning update is malformed", error);
+        }
+    }
+
+    private static final class AssessmentAggregate {
+        private boolean correct;
+        private String difficulty;
+
+        private AssessmentAggregate(boolean correct, String difficulty) {
+            this.correct = correct;
+            this.difficulty = normalizeDifficultyValue(difficulty);
+        }
+
+        private void merge(boolean anotherCorrect, String anotherDifficulty) {
+            correct = correct && anotherCorrect;
+            if (difficultyWeight(anotherDifficulty) > difficultyWeight(difficulty)) {
+                difficulty = normalizeDifficultyValue(anotherDifficulty);
+            }
+        }
+
+        private boolean correct() {
+            return correct;
+        }
+
+        private String difficulty() {
+            return difficulty;
+        }
+
+        private static int difficultyWeight(String difficulty) {
+            return switch (normalizeDifficultyValue(difficulty)) {
+                case "hard" -> 3;
+                case "medium" -> 2;
+                default -> 1;
+            };
+        }
+
+        private static String normalizeDifficultyValue(String difficulty) {
+            if (difficulty == null) return "easy";
+            return switch (difficulty.trim().toLowerCase()) {
+                case "hard" -> "hard";
+                case "medium" -> "medium";
+                default -> "easy";
+            };
+        }
+    }
+
+    private record ReplanResult(
+            boolean replanned,
+            String reason,
+            LearningPathDTO.PathView pathAfter,
+            List<AppExamDTO.PathChange> changedNodes) {
     }
 
     private AppExamDTO.QuestionResult toQuestionResult(ExamPaperQuestion question, ExamPaperAttemptAnswer answer) {

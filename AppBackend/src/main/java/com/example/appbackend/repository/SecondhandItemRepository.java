@@ -40,6 +40,18 @@ public interface SecondhandItemRepository extends JpaRepository<SecondhandItem, 
     @Query("UPDATE SecondhandItem s SET s.favoriteCount = s.favoriteCount + :delta WHERE s.id = :id")
     void updateFavoriteCount(@Param("id") Long id, @Param("delta") int delta);
 
+    @Modifying
+    @Query("UPDATE SecondhandItem s SET s.inquiryCount = s.inquiryCount + 1 WHERE s.id = :id")
+    void incrementInquiryCount(@Param("id") Long id);
+
+    @Modifying
+    @Query("UPDATE SecondhandItem s SET s.heatScore = (COALESCE(s.viewCount, 0) * 1 + COALESCE(s.favoriteCount, 0) * 3 + COALESCE(s.inquiryCount, 0) * 5) WHERE s.id = :id")
+    void updateHeatScore(@Param("id") Long id);
+
+    @Modifying
+    @Query("UPDATE SecondhandItem s SET s.status = :toStatus WHERE s.id = :id AND s.status = :fromStatus")
+    int updateStatusIfCurrent(@Param("id") Long id, @Param("fromStatus") Integer fromStatus, @Param("toStatus") Integer toStatus);
+
     @Query("SELECT COUNT(s) FROM SecondhandItem s WHERE s.status = 2")
     long countOnSale();
 

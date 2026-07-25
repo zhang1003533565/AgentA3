@@ -92,7 +92,7 @@ public class ExamPaperPreviewServiceImpl implements ExamPaperPreviewService {
         validateSelections(request.getQuestions());
         validateTypeScoreRules(request);
         List<Long> ids = request.getQuestions().stream().map(SelectedQuestion::getQuestionId).toList();
-        List<ExamQuestion> loaded = questionRepository.findAllById(ids);
+        List<ExamQuestion> loaded = questionRepository.findAllVisibleById(ids, userId);
         Map<Long, ExamQuestion> byId = new HashMap<>();
         loaded.stream().filter(q -> Integer.valueOf(1).equals(q.getStatus())).forEach(q -> byId.put(q.getId(), q));
         if (byId.size() != ids.size()) throw new BusinessException(Result.BAD_REQUEST_CODE, "题目不存在或已停用");

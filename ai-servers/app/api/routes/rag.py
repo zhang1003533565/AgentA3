@@ -1,10 +1,13 @@
 import asyncio
 import hashlib
 import json
+import os
 import re
+import threading
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -16,29 +19,112 @@ from app.models.schemas import (
 )
 from app.model_providers.multimodal import append_image_references_to_text, collect_request_image_references
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
-from app.multi_agents.catalog import AGENT_ORDER, get_agent_catalog, get_agent_detail, get_agent_profile, normalize_agent_name, update_agent_example_input
-from app.multi_agents.leader_agent.agent import leader_agent
+from app.multi_agents.catalog import (
+    LEADER_CALLABLE_AGENT_ORDER,
+    get_agent_catalog,
+    get_agent_detail,
+    get_agent_profile,
+    normalize_agent_name,
+    normalize_leader_request_agent,
+    update_agent_example_input,
+)
+from app.multi_agents.leader_agent.agent import LeaderPlan, leader_agent
 from app.multi_agents.question_bank_schema import review_question_bank_payload
 from app.multi_agents.runner import run_specialist_agent
-from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx, export_generated_answer
+from app.multi_agents.textbook_knowledge_agent import resolve_knowledge_source_mode
+from app.learning_workflow import (
+    LearningWorkflowRequest,
+    export_learning_resources,
+    run_learning_workflow,
+)
+from app.rag.document_conversion import PdfConversionError, PptConversionError, convert_pdf, convert_ppt_to_docx, export_generated_answer, materialize_generated_image_answer
 from app.rag.document_conversion.generated_exporter import GeneratedExportAccessError, open_generated_export
 from app.rag.structured.text_to_sql import TextToSqlService
-from app.services.assistant_resource_builder import finalize_assistant_response
+from app.services.assistant_resource_builder import (
+    build_learning_resource_bundle,
+    finalize_assistant_response,
+)
 from app.services.data_store import data_store
+from app.security.internal_auth import require_internal_token
+from app.safety.learning_content_guard import (
+    LearningContentGuardError,
+    sanitize_learning_references,
+)
 from app.utils.logger import get_logger
 from app.utils.sse import build_sse, chunk_answer
 from app.utils.text_utils import build_session_token, normalize_text
 
-router = APIRouter(prefix="/internal/rag", tags=["internal-rag"])
+router = APIRouter(
+    prefix="/internal/rag",
+    tags=["internal-rag"],
+    dependencies=[Depends(require_internal_token)],
+)
+export_router = APIRouter(prefix="/internal/rag", tags=["internal-rag-exports"])
 logger = get_logger("api.rag")
 
-VISIBLE_GENERATION_AGENTS = {
-    "image_agent",
-    "diagram_mind_map_agent",
-    "diagram_architecture_agent",
-    "diagram_flowchart_agent",
-    "diagram_activity_agent",
+DEFAULT_RAG_INPUT_MAX_LENGTH = 4_000
+QUESTION_GENERATION_INPUT_MAX_LENGTH = 210_000
+
+VISUAL_GENERATION_TOOL_CONFIG = {
+    "generate_image_tool": {
+        "zhName": "通用图片生成工具",
+        "purpose": "根据用户明确提供的图片描述生成图片。",
+        "trigger": "用户明确要求生成普通图片、插图、封面、海报或图片素材。",
+        "promptAgent": "",
+    },
+    "generate_mind_map_image_tool": {
+        "zhName": "思维导图图片生成工具",
+        "purpose": "先生成思维导图专用提示词，再统一调用图片生成入口。",
+        "trigger": "用户要求生成思维导图或脑图图片。",
+        "promptAgent": "mind_map_agent",
+    },
+    "generate_flowchart_image_tool": {
+        "zhName": "流程图图片生成工具",
+        "purpose": "先生成流程图专用提示词，再统一调用图片生成入口。",
+        "trigger": "用户要求生成流程图、算法流程或步骤流程图片。",
+        "promptAgent": "diagram_flowchart_prompt_agent",
+    },
+    "generate_activity_image_tool": {
+        "zhName": "活动图图片生成工具",
+        "purpose": "先生成活动图专用提示词，再统一调用图片生成入口。",
+        "trigger": "用户要求生成活动图、泳道图或角色任务流程图片。",
+        "promptAgent": "diagram_activity_prompt_agent",
+    },
+    "generate_architecture_image_tool": {
+        "zhName": "架构图图片生成工具",
+        "purpose": "先生成架构图专用提示词，再统一调用图片生成入口。",
+        "trigger": "用户要求生成系统架构图、技术架构图或模块依赖图。",
+        "promptAgent": "architecture_prompt_agent",
+    },
+    "generate_knowledge_graph_image_tool": {
+        "zhName": "知识图谱图片生成工具",
+        "purpose": "先生成知识图谱专用提示词，再统一调用图片生成入口。",
+        "trigger": "用户要求生成知识图谱、实体关系图或概念关系图。",
+        "promptAgent": "knowledge_graph_prompt_agent",
+    },
+    "generate_ppt_image_tool": {
+        "zhName": "PPT 配图生成工具",
+        "purpose": "先生成 PPT 配图专用提示词，再统一调用图片生成入口。",
+        "trigger": "用户要求生成 PPT 封面、课件配图或页面插图。",
+        "promptAgent": "ppt_image_agent",
+    },
 }
+
+VISUAL_GENERATION_TOOLS = [
+    {
+        "name": tool_name,
+        "zhName": config["zhName"],
+        "displayName": f"{config['zhName']}（{tool_name}）",
+        "category": "visual_generation",
+        "purpose": config["purpose"],
+        "trigger": config["trigger"],
+        "outputs": ["image"],
+        "status": "implemented",
+        "configurable": True,
+    }
+    for tool_name, config in VISUAL_GENERATION_TOOL_CONFIG.items()
+]
+VISUAL_GENERATION_TOOL_NAMES = frozenset(VISUAL_GENERATION_TOOL_CONFIG)
 
 
 class AgentExecutionError(Exception):
@@ -78,7 +164,7 @@ GENERATED_CONTENT_TOOLS = [
         "category": "content_export",
         "purpose": "内容整理工具总开关。关闭后 Leader 不会调用导出整理能力，自动附件整理也会停止。",
         "trigger": "用户要求文件版、文档版、表格版、源码版，或智能体生成结果适合沉淀为附件。",
-        "outputs": ["md", "docx", "xlsx", "mmd", "zip"],
+        "outputs": ["md", "docx", "xlsx", "pptx", "mmd", "zip"],
         "status": "implemented",
     },
     {
@@ -109,6 +195,16 @@ GENERATED_CONTENT_TOOLS = [
         "purpose": "把题库 JSON 或知识点清单整理成 Excel 表格，方便导入、筛选和二次加工。",
         "trigger": "题库 JSON、知识清单、用户要求 Excel/表格。",
         "outputs": ["xlsx"],
+        "status": "implemented",
+    },
+    {
+        "name": "pptx_export_tool",
+        "zhName": "PPT 导出工具",
+        "displayName": "PPT 导出工具（pptx_export_tool）",
+        "category": "content_export",
+        "purpose": "把文件内容编排智能体生成的逐页大纲转换为真实 PPTX 文件。",
+        "trigger": "用户明确要求 PPT/PPTX/幻灯片文件。",
+        "outputs": ["pptx"],
         "status": "implemented",
     },
     {
@@ -205,6 +301,7 @@ CAMPUS_SERVICE_TOOLS = [
 SERVICE_TOOL_NAMES = {tool["name"] for tool in CAMPUS_SERVICE_TOOLS}
 
 LEADER_CALLABLE_TOOLS = [
+    *VISUAL_GENERATION_TOOLS,
     {
         "name": "text_to_sql",
         "zhName": "结构化查询工具",
@@ -222,9 +319,9 @@ LEADER_CALLABLE_TOOLS = [
         "zhName": "内容整理工具",
         "displayName": "内容整理工具（generated_export_tools）",
         "category": "content_export",
-        "purpose": "把已有 Markdown、普通文本或标准题库 JSON 直接整理成附件。",
-        "trigger": "用户已经提供要导出的内容，并明确要求文件版、文档版、表格版或打包下载。",
-        "outputs": ["md", "docx", "xlsx", "mmd", "zip"],
+        "purpose": "先由文件内容编排智能体确定内容与结构，再调用指定格式工具生成真实附件。",
+        "trigger": "用户明确要求 Word、Excel、Markdown、PPT 文件版，或打包下载。",
+        "outputs": ["md", "docx", "xlsx", "pptx", "mmd", "zip"],
         "status": "implemented",
         "configurable": True,
     },
@@ -251,7 +348,7 @@ class QuestionBankReviewRequest(BaseModel):
     expectedType: Optional[str] = Field(default=None, max_length=64)
 
 
-@router.get("/exports/{storage_key}")
+@export_router.get("/exports/{storage_key}")
 def download_generated_export(
     storage_key: str,
     export_capability: Optional[str] = Header(default=None, alias="X-AI-Export-Capability"),
@@ -330,12 +427,18 @@ def get_rag_capabilities(
         "structuredKnowledge": {
             "textToSql": True,
         },
+        "visualGeneration": {
+            "leaderMode": "tool_only",
+            "tools": VISUAL_GENERATION_TOOLS,
+            "internalAgentsExposedToLeader": False,
+            "imageProviderEntry": "image_agent",
+        },
         "profileSummary": {
             "agent": "profile_summary_agent",
             "purpose": "把 Java 画像快照总结为强项、欠缺、置信依据和补证建议；不修改画像分数。",
             "output": "strict_profile_summary_json",
         },
-        "agents": AGENT_ORDER,
+        "agents": ["leader_agent", *LEADER_CALLABLE_AGENT_ORDER],
         "agentInvocation": {
             "chatParameter": "agentName",
             "ragQueryParameter": "agentName",
@@ -378,6 +481,12 @@ def get_rag_framework(
                 "status": "implemented",
             },
             {
+                "name": "visual_generation_tools",
+                "category": "visual_generation",
+                "purpose": "Leader 只选择视觉工具；工具内部调用专用提示词智能体，再通过唯一图片入口生成图片。",
+                "status": "implemented",
+            },
+            {
                 "name": "profile_summary_agent",
                 "category": "profile",
                 "purpose": "汇总个人画像雷达图强弱、置信度、证据状态和补证建议。",
@@ -385,6 +494,7 @@ def get_rag_framework(
             },
         ],
         "serviceTools": CAMPUS_SERVICE_TOOLS,
+        "visualTools": VISUAL_GENERATION_TOOLS,
         "generatedTools": GENERATED_CONTENT_TOOLS,
         "runtimeFolders": {
             "modelProviders": "app/model_providers",
@@ -539,7 +649,9 @@ def run_rag_query(
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
 ) -> RagQueryResponse:
+    request_started_at = time.perf_counter()
     _require_authorization(authorization)
+    _validate_rag_input_length(request)
     audit = _llm_header_audit_fields(
         provider=x_ai_provider,
         base_url=x_ai_base_url,
@@ -565,8 +677,30 @@ def run_rag_query(
         model=x_ai_model,
     ))
     try:
-        response = _finalize_rag_response(request, _run_rag_query_core(request, authorization or ""))
+        response = _run_rag_query_core(request, authorization or "")
+        finalization_started_at = time.perf_counter()
+        response = _finalize_rag_response(request, response)
+        finalization_ms = _elapsed_ms(finalization_started_at)
+        _merge_response_performance(
+            response,
+            profileMs=_profile_ms_from_request(request),
+            finalizeMs=finalization_ms,
+        )
+        persistence_started_at = time.perf_counter()
         _save_conversation_context(request, authorization or "", response)
+        persistence_ms = _elapsed_ms(persistence_started_at)
+        _merge_response_performance(
+            response,
+            persistMs=persistence_ms,
+            totalMs=_elapsed_ms(request_started_at),
+        )
+        timings = (response.metadata or {}).get("timings") or {}
+        logger.info(
+            "rag query completed agent=%s route_mode=%s timings=%s",
+            request.agentName or "leader_agent",
+            (response.metadata or {}).get("routeMode") or "direct",
+            timings,
+        )
         return response
     finally:
         reset_active_llm_config(token)
@@ -580,38 +714,69 @@ async def run_rag_query_stream(
     x_ai_base_url: Optional[str] = Header(default=None, alias="X-AI-Base-Url"),
     x_ai_api_key: Optional[str] = Header(default=None, alias="X-AI-Api-Key"),
     x_ai_model: Optional[str] = Header(default=None, alias="X-AI-Model"),
+    x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
 ):
+    request_started_at = time.perf_counter()
     _require_authorization(authorization)
+    _validate_rag_input_length(request)
     llm_config = build_llm_runtime_config(
         provider=x_ai_provider,
         base_url=x_ai_base_url,
         api_key=x_ai_api_key,
         model=x_ai_model,
     )
+    learning_workflow = _is_learning_workflow_request(request)
 
     async def event_stream():
-        yield build_sse("status", {"stage": "processing"})
+        stream_started_at = request_started_at
         token = set_active_llm_config(llm_config)
         generation_started = False
+        plan = None
+        plan_ms = 0
+        execution_ms = 0
+        first_event_ms = 0
         try:
+            if learning_workflow:
+                async for event in _stream_learning_workflow(request, x_user_id):
+                    yield event
+                return
+
+            first_event_ms = _elapsed_ms(stream_started_at)
+            yield build_sse("status", {"stage": "processing"})
             request.input = _prepare_request_input(request)
-            requested_agent = normalize_agent_name(request.agentName)
+            requested_agent = normalize_leader_request_agent(request.agentName)
             if request.agentName and not requested_agent:
                 raise HTTPException(status_code=400, detail="智能体不存在")
 
             active_agent = requested_agent or "leader_agent"
             if active_agent == "leader_agent":
+                planning_started_at = time.perf_counter()
                 profile_context = _profile_context_from_request(request)
                 callable_catalog = _build_leader_callable_catalog(request)
                 conversation_context = _apply_conversation_context(request, authorization or "")
-                plan = await asyncio.to_thread(
-                    leader_agent.plan,
-                    request.input,
-                    request.ragStrategy or "",
-                    profile_context=profile_context,
-                    callable_catalog=callable_catalog,
-                    conversation_context=conversation_context,
-                )
+                try:
+                    plan = await asyncio.to_thread(
+                        leader_agent.plan,
+                        request.input,
+                        request.ragStrategy or "",
+                        profile_context=profile_context,
+                        callable_catalog=callable_catalog,
+                        conversation_context=conversation_context,
+                    )
+                except AgentExecutionError:
+                    raise
+                except Exception as exc:
+                    raise AgentExecutionError(
+                        message="Leader 模型规划调用失败，请检查 Leader 智能体的模型配置。",
+                        agent_name="leader_agent",
+                        stage="leader_plan",
+                        status_code=getattr(exc, "status_code", 500) or 500,
+                        raw_message=_exception_message(exc),
+                        model_provider=getattr(llm_config, "provider", "") or "",
+                        model=getattr(llm_config, "model", "") or "",
+                        base_url=getattr(llm_config, "base_url", "") or "",
+                    ) from exc
+                plan_ms = _elapsed_ms(planning_started_at)
                 if getattr(plan, "action", "") == "call_tool" and getattr(plan, "answer", ""):
                     yield build_sse("tool_start", {
                         "stage": "tool_start",
@@ -624,14 +789,36 @@ async def run_rag_query_stream(
                 if _should_emit_generation_start(request, plan.target_agent, plan):
                     yield build_sse("generation_start", _build_generation_start_payload(request, plan))
                     generation_started = True
+                execution_started_at = time.perf_counter()
                 response = await asyncio.to_thread(_execute_leader_plan, request, authorization or "", profile_context, plan)
+                execution_ms = _elapsed_ms(execution_started_at)
             else:
                 if _should_emit_generation_start(request, active_agent):
                     yield build_sse("generation_start", _build_generation_start_payload(request, None, active_agent))
                     generation_started = True
+                execution_started_at = time.perf_counter()
                 response = await asyncio.to_thread(_run_rag_query_core, request, authorization or "")
+                execution_ms = _elapsed_ms(execution_started_at)
+            finalization_started_at = time.perf_counter()
             response = _finalize_rag_response(request, response)
+            finalization_ms = _elapsed_ms(finalization_started_at)
+            if plan is not None:
+                _set_response_route_mode(response, plan)
+            else:
+                response.metadata = dict(response.metadata or {})
+                response.metadata.setdefault("routeMode", "direct")
+            _merge_response_performance(
+                response,
+                profileMs=_profile_ms_from_request(request),
+                planMs=plan_ms,
+                executionMs=execution_ms,
+                finalizeMs=finalization_ms,
+                firstEventMs=first_event_ms,
+            )
             metadata = response.metadata or {}
+            request_metadata = request.metadata if isinstance(request.metadata, dict) else {}
+            if request_metadata.get("profileContextSource"):
+                metadata["profileContextSource"] = request_metadata.get("profileContextSource")
             session_id = str((request.metadata or {}).get("sessionId") or "")
             yield build_sse("session", {
                 "sessionId": session_id,
@@ -645,10 +832,27 @@ async def run_rag_query_stream(
                 "retrievalMeta": metadata,
             })
             if not generation_started:
+                first_token_recorded = False
                 for chunk in chunk_answer(response.answer):
+                    if not first_token_recorded:
+                        _merge_response_performance(response, firstTokenMs=_elapsed_ms(stream_started_at))
+                        first_token_recorded = True
                     yield build_sse("delta", {"content": chunk})
-                    await asyncio.sleep(0.035)
+            persistence_started_at = time.perf_counter()
             _save_conversation_context(request, authorization or "", response)
+            persistence_ms = _elapsed_ms(persistence_started_at)
+            _merge_response_performance(
+                response,
+                persistMs=persistence_ms,
+                totalMs=_elapsed_ms(stream_started_at),
+            )
+            metadata = response.metadata or {}
+            logger.info(
+                "rag stream completed agent=%s route_mode=%s timings=%s",
+                request.agentName or "leader_agent",
+                metadata.get("routeMode") or "direct",
+                metadata.get("timings") or {},
+            )
             yield build_sse("done", {
                 "sessionId": session_id,
                 "answer": response.answer,
@@ -668,16 +872,319 @@ async def run_rag_query_stream(
             })
         except Exception as exc:
             logger.exception("rag stream failed agent=%s", request.agentName or "-")
-            yield build_sse("error", _build_stream_error_payload(request, exc, llm_config))
+            if learning_workflow:
+                yield build_sse("error", _build_learning_error_payload(request, exc))
+            else:
+                yield build_sse("error", _build_stream_error_payload(request, exc, llm_config))
         finally:
             reset_active_llm_config(token)
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+LEARNING_WORKFLOW_INTENTS = frozenset({
+    "resource_package",
+    "learning_plan",
+    "weakness_review",
+    "path_replanning",
+})
+
+
+def _is_learning_workflow_request(request: RagQueryRequest) -> bool:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    return (
+        str(metadata.get("courseKey") or "").strip().lower() == "python"
+        and str(request.intent or "").strip() in LEARNING_WORKFLOW_INTENTS
+    )
+
+
+async def _stream_learning_workflow(
+    request: RagQueryRequest,
+    x_user_id: Optional[str],
+):
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    workflow_id = str(metadata.get("workflowId") or "").strip()
+    yield build_sse("accepted", _learning_event_payload(
+        workflow_id,
+        "accepted",
+        0,
+        "学习资源生成请求已受理",
+    ))
+
+    plan = leader_agent.plan(
+        request.input,
+        request.ragStrategy or "",
+        learning_context={
+            "courseKey": metadata.get("courseKey"),
+            "intent": request.intent,
+        },
+    )
+    if plan.action != "run_learning_workflow":
+        raise LearningContentGuardError("学习请求未进入受控工作流")
+
+    try:
+        user_id = int(str(x_user_id or "").strip())
+    except (TypeError, ValueError) as exc:
+        raise LearningContentGuardError("学习工作流缺少已认证用户身份") from exc
+    if user_id <= 0:
+        raise LearningContentGuardError("学习工作流用户身份无效")
+
+    profile_snapshot = metadata.get("profileSnapshot")
+    mastery_snapshot = metadata.get("masterySnapshot")
+    path_snapshot = metadata.get("pathSnapshot")
+    if not isinstance(profile_snapshot, dict):
+        raise LearningContentGuardError("学习画像快照无效")
+    if not isinstance(mastery_snapshot, list):
+        raise LearningContentGuardError("知识掌握度快照无效")
+    if not isinstance(path_snapshot, dict):
+        raise LearningContentGuardError("学习路径快照无效")
+    yield build_sse("profile", _learning_event_payload(
+        workflow_id,
+        "profiling",
+        5,
+        "已加载动态学习画像与掌握度",
+    ))
+
+    references = sanitize_learning_references(metadata.get("references") or [])
+    yield build_sse("retrieval", {
+        **_learning_event_payload(
+            workflow_id,
+            "retrieving",
+            12,
+            "已接收并净化课程知识证据",
+        ),
+        "evidenceCount": len(references),
+    })
+
+    learning_request = LearningWorkflowRequest.model_validate({
+        "workflowId": workflow_id,
+        "userId": user_id,
+        "courseKey": "python",
+        "topic": request.input,
+        "profileSnapshot": profile_snapshot,
+        "masterySnapshot": mastery_snapshot,
+        "pathSnapshot": path_snapshot,
+        "references": references,
+        "requestedResourceTypes": metadata.get("requestedResourceTypes") or [],
+    })
+
+    loop = asyncio.get_running_loop()
+    queue = asyncio.Queue()
+    callback_lock = threading.Lock()
+    transition_count = 0
+    review_emitted = False
+
+    def event_callback(name: str, payload: Dict[str, Any]) -> None:
+        nonlocal transition_count, review_emitted
+        with callback_lock:
+            event_name = ""
+            progress = 0
+            event_payload = dict(payload or {})
+            if name == "planning_start":
+                event_name, progress = "planning", 18
+            elif name in {"agent_start", "agent_done"}:
+                transition_count += 1
+                event_name = name
+                progress = min(68, 18 + transition_count * 4)
+                # Draft resources have not passed review yet. Keep progress events
+                # deliberately content-free until the final reviewed delivery.
+                event_payload.pop("resource", None)
+            elif name == "review_start":
+                event_name, progress = "review_start", 74
+            elif name == "review_done" and not review_emitted:
+                review_emitted = True
+                event_name, progress = "review_result", 82
+            if not event_name:
+                return
+            event_data = _learning_event_payload(
+                workflow_id,
+                _learning_stage(event_name),
+                progress,
+                str(event_payload.pop("message", "") or _learning_event_message(event_name)),
+                agent_name=str(event_payload.pop("agentName", "") or ""),
+                resource_type=str(event_payload.pop("resourceType", "") or ""),
+            )
+            event_data.update(_jsonable(event_payload))
+            loop.call_soon_threadsafe(queue.put_nowait, (event_name, event_data))
+
+    worker = asyncio.create_task(asyncio.to_thread(
+        run_learning_workflow,
+        learning_request,
+        event_callback=event_callback,
+    ))
+    while not worker.done() or not queue.empty():
+        try:
+            event_name, event_data = await asyncio.wait_for(queue.get(), timeout=0.05)
+        except asyncio.TimeoutError:
+            continue
+        yield build_sse(event_name, event_data)
+    workflow_result = await worker
+
+    yield build_sse("exporting", _learning_event_payload(
+        workflow_id,
+        "exporting",
+        88,
+        "正在生成可直接使用的课程文件",
+    ))
+    attachments_by_type, attachments, failed_resources = await asyncio.to_thread(
+        export_learning_resources,
+        workflow_result,
+    )
+    failed_types = {
+        str(item.get("resourceType") or "")
+        for item in failed_resources
+        if isinstance(item, dict)
+    }
+    delivered_workflow_resources = [
+        item for item in workflow_result.resources
+        if item.resourceType not in failed_types
+    ]
+
+    yield build_sse("pathing", _learning_event_payload(
+        workflow_id,
+        "pathing",
+        93,
+        "个性化学习路径已准备完成",
+    ))
+    bundle = build_learning_resource_bundle(
+        workflow_id=workflow_id,
+        topic=request.input,
+        resources=delivered_workflow_resources,
+        references=references,
+        attachments_by_type=attachments_by_type,
+        resource_metadata=_learning_resource_metadata(path_snapshot, mastery_snapshot),
+    )
+    status = "partial" if failed_resources else "completed"
+    yield build_sse("persisting", {
+        **_learning_event_payload(
+            workflow_id,
+            "persisting",
+            97,
+            "正在向 Java 控制面交付资源与路径",
+            retryable=bool(failed_resources),
+        ),
+        "status": status,
+        "failedResources": failed_resources,
+    })
+    raw_result = workflow_result.model_dump(mode="json")
+    delivery_result = {
+        "workflowId": workflow_id,
+        "status": status,
+        "resources": bundle["resources"],
+        "attachments": attachments,
+        "evidenceChain": bundle["evidenceChain"],
+        "pathDraft": raw_result["pathDraft"],
+        "packageMetadata": raw_result["packageMetadata"],
+        "events": raw_result["events"],
+        "failedResources": failed_resources,
+    }
+    yield build_sse("done", {
+        **_learning_event_payload(
+            workflow_id,
+            "completed" if status == "completed" else "partial",
+            100,
+            "学习资源包已完成" if status == "completed" else "部分资源待重试",
+            retryable=bool(failed_resources),
+        ),
+        **delivery_result,
+        "result": delivery_result,
+    })
+
+
+def _learning_event_payload(
+    workflow_id: str,
+    stage: str,
+    progress: int,
+    message: str,
+    *,
+    agent_name: str = "",
+    resource_type: str = "",
+    retryable: bool = False,
+) -> Dict[str, Any]:
+    return {
+        "workflowId": workflow_id,
+        "stage": stage,
+        "progress": max(0, min(100, int(progress))),
+        "agentName": agent_name,
+        "resourceType": resource_type,
+        "message": message,
+        "retryable": retryable,
+    }
+
+
+def _learning_stage(event_name: str) -> str:
+    return {
+        "planning": "planning",
+        "agent_start": "generating",
+        "agent_done": "generating",
+        "review_start": "reviewing",
+        "review_result": "reviewing",
+    }.get(event_name, event_name)
+
+
+def _learning_event_message(event_name: str) -> str:
+    return {
+        "planning": "正在规划个性化学习路径",
+        "agent_start": "专业学习智能体开始生成资源",
+        "agent_done": "专业学习智能体已完成资源",
+        "review_start": "正在审核资源事实与质量",
+        "review_result": "资源审核已完成",
+    }.get(event_name, "学习工作流正在执行")
+
+
+def _learning_resource_metadata(
+    path_snapshot: Dict[str, Any],
+    mastery_snapshot: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    first_mastery = mastery_snapshot[0] if mastery_snapshot and isinstance(mastery_snapshot[0], dict) else {}
+    return {
+        "learningPathId": path_snapshot.get("learningPathId") or path_snapshot.get("id") or "",
+        "learningPathItemKey": path_snapshot.get("currentItemKey") or path_snapshot.get("currentItem") or "",
+        "knowledgePoint": first_mastery.get("knowledgePointKey") or first_mastery.get("knowledgePoint") or "",
+    }
+
+
+def _jsonable(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return _jsonable(value.model_dump(mode="json"))
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    return value
+
+
+def _build_learning_error_payload(
+    request: RagQueryRequest,
+    exc: Exception,
+) -> Dict[str, Any]:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    if isinstance(exc, LearningContentGuardError):
+        message = str(exc)
+    else:
+        message = "学习资源工作流执行失败，请重试"
+    return {
+        **_learning_event_payload(
+            str(metadata.get("workflowId") or ""),
+            "failed",
+            100,
+            message,
+            retryable=True,
+        ),
+        "errorType": exc.__class__.__name__,
+    }
 
 
 def _run_rag_query_core(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
     request.input = _prepare_request_input(request)
-    requested_agent = normalize_agent_name(request.agentName)
+    requested_agent = normalize_leader_request_agent(request.agentName)
     if request.agentName and not requested_agent:
         raise HTTPException(status_code=400, detail="智能体不存在")
 
@@ -716,18 +1223,181 @@ def _finalize_rag_response(request: RagQueryRequest, response: RagQueryResponse)
     )
 
 
+def _elapsed_ms(started_at: float) -> int:
+    return max(0, int((time.perf_counter() - started_at) * 1000))
+
+
+def _optional_nonnegative_int(value: Any) -> Optional[int]:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return max(0, parsed)
+
+
+def _profile_ms_from_request(request: RagQueryRequest) -> Optional[int]:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    return _optional_nonnegative_int(metadata.get("profileContextMs"))
+
+
+def _merge_response_performance(
+    response: RagQueryResponse,
+    **values: Optional[int],
+) -> RagQueryResponse:
+    metadata = dict(response.metadata or {})
+    timings = dict(metadata.get("timings") or {})
+    for name, value in values.items():
+        normalized = _optional_nonnegative_int(value)
+        if normalized is None:
+            continue
+        timings[name] = normalized
+        # Keep the flat fields for the current App trace panel while also exposing a
+        # grouped object for future observability screens.
+        metadata[name] = normalized
+    metadata["timings"] = timings
+    if "totalMs" in timings:
+        # Both the synchronous and SSE endpoints measure through conversation
+        # context persistence. Socket delivery after the response is yielded is
+        # intentionally outside this Python processing scope.
+        metadata["timingScope"] = "python_processing_including_persistence"
+    response.metadata = metadata
+    return response
+
+
+def _set_response_route_mode(response: RagQueryResponse, plan: Any) -> RagQueryResponse:
+    metadata = dict(response.metadata or {})
+    route_mode = str(getattr(plan, "route_mode", "") or "llm").strip()
+    metadata["routeMode"] = route_mode
+    response.metadata = metadata
+    return response
+
+
+def _feature_enabled(name: str, default: bool = True) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() not in {"0", "false", "no", "off", "disabled"}
+
+
+def _service_tool_backend_failure(cache_meta: Any) -> Dict[str, Any]:
+    """Return failure diagnostics when an empty adapter result is not real empty data.
+
+    The Java adapter intentionally converts transport errors to ``{}``/``[]``.
+    Its per-call cache events are therefore the only non-invasive signal available
+    at this layer: successful calls are ``hit``/``miss`` and failed calls are
+    ``error``. A circuit-open or administratively disabled adapter makes no request,
+    so it produces zero events.
+    """
+    meta = cache_meta if isinstance(cache_meta, dict) else {}
+    tool_cache = meta.get("toolCache") if isinstance(meta.get("toolCache"), dict) else {}
+    events = [event for event in (tool_cache.get("events") or []) if isinstance(event, dict)]
+    failure_events: List[Dict[str, Any]] = []
+    failure_kind = ""
+    for event in events:
+        status = str(event.get("status") or "").strip().lower()
+        status_code = _optional_nonnegative_int(event.get("statusCode") or event.get("httpStatus"))
+        if status_code == 401 or "unauthor" in status:
+            failure_kind = failure_kind or "unauthorized"
+        elif status_code == 403 or "forbidden" in status:
+            failure_kind = failure_kind or "forbidden"
+        elif status_code in {408, 504} or "timeout" in status or "timed_out" in status:
+            failure_kind = failure_kind or "timeout"
+        elif status_code is not None and status_code >= 400:
+            failure_kind = failure_kind or "request_error"
+        elif status in {"error", "failed", "failure", "circuit_open", "disabled"}:
+            failure_kind = failure_kind or (status if status != "error" else "request_error")
+        else:
+            continue
+        failure_events.append(event)
+
+    if failure_events:
+        return {
+            "status": failure_kind or "request_error",
+            "reason": "java_backend_request_failed",
+            "errorCount": len(failure_events),
+        }
+
+    successful_event_count = sum(
+        1
+        for event in events
+        if str(event.get("status") or "").strip().lower() in {"hit", "miss"}
+    )
+    if successful_event_count > 0:
+        return {}
+
+    request_count = _optional_nonnegative_int(tool_cache.get("requestCount"))
+    if request_count is None:
+        request_count = len(events)
+    if request_count > 0:
+        return {
+            "status": "unverified",
+            "reason": "java_backend_result_status_missing",
+            "errorCount": 0,
+        }
+
+    retriever = getattr(data_store, "_retriever", None)
+    if not bool(getattr(data_store, "enabled", True)):
+        status = "disabled"
+        reason = "java_backend_disabled"
+    else:
+        disabled_until = getattr(retriever, "disabled_until", None)
+        if isinstance(disabled_until, (int, float)) and disabled_until > time.monotonic():
+            status = "circuit_open"
+            reason = "java_backend_circuit_open"
+        else:
+            status = "not_called"
+            reason = "java_backend_request_not_executed"
+    return {"status": status, "reason": reason, "errorCount": 0}
+
+
 def _run_leader_orchestration(request: RagQueryRequest, authorization: str) -> RagQueryResponse:
+    planning_started_at = time.perf_counter()
     profile_context = _profile_context_from_request(request)
     callable_catalog = _build_leader_callable_catalog(request)
     conversation_context = _apply_conversation_context(request, authorization)
-    plan = leader_agent.plan(
-        request.input,
-        request.ragStrategy or "",
-        profile_context=profile_context,
-        callable_catalog=callable_catalog,
-        conversation_context=conversation_context,
+    plan = _requested_file_transform_plan(request)
+    if plan is None:
+        plan = leader_agent.plan(
+            request.input,
+            request.ragStrategy or "",
+            profile_context=profile_context,
+            callable_catalog=callable_catalog,
+            conversation_context=conversation_context,
+        )
+    plan_ms = _elapsed_ms(planning_started_at)
+    execution_started_at = time.perf_counter()
+    response = _execute_leader_plan(request, authorization, profile_context, plan)
+    execution_ms = _elapsed_ms(execution_started_at)
+    _set_response_route_mode(response, plan)
+    return _merge_response_performance(
+        response,
+        profileMs=_profile_ms_from_request(request),
+        planMs=plan_ms,
+        executionMs=execution_ms,
     )
-    return _execute_leader_plan(request, authorization, profile_context, plan)
+
+
+def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderPlan]:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    interaction_type = str(metadata.get("interactionType") or "").strip().lower()
+    requested_output_type = str(metadata.get("requestedOutputType") or "").strip().lower()
+    supported_file_types = {"document", "file", "docx", "word", "xlsx", "excel", "md", "markdown", "ppt", "pptx", "mmd", "zip"}
+    if requested_output_type not in supported_file_types:
+        return None
+    if interaction_type == "transform" and (
+        not metadata.get("sourceMessageId") or not str(metadata.get("sourceMessageContent") or "").strip()
+    ):
+        return None
+    return LeaderPlan(
+        intent="document_export",
+        target_agent="leader_agent",
+        need_retrieval=False,
+        rag_strategy="",
+        action="call_tool",
+        tool_name="generated_export_tools",
+        route_reason=f"用户选择将当前消息生成 {requested_output_type} 文件，直接调用已启用的内容导出工具。",
+        route_mode="rules",
+    )
 
 
 def _prepare_request_input(request: RagQueryRequest) -> str:
@@ -788,6 +1458,9 @@ def _bounded_conversation_context(context: Dict[str, Any]) -> Dict[str, Any]:
 def _contextualize_followup_input(input_text: str, context: Dict[str, Any]) -> str:
     text = str(input_text or "").strip()
     compact = normalize_text(text)
+    knowledge_source_choice = _contextualize_knowledge_source_choice(text, compact, context)
+    if knowledge_source_choice:
+        return knowledge_source_choice
     if _has_explicit_current_schedule_intent(compact):
         return text
     if not text or not _is_contextual_followup(compact):
@@ -804,6 +1477,85 @@ def _contextualize_followup_input(input_text: str, context: Dict[str, Any]) -> s
     if any(token in compact for token in ("在哪", "哪里", "哪儿", "教室", "地点")):
         return f"{subject}在哪里上课？"
     return f"{subject} {text}"
+
+
+def _contextualize_knowledge_source_choice(input_text: str, compact_text: str, context: Dict[str, Any]) -> str:
+    if not compact_text:
+        return ""
+    turns = [turn for turn in (context.get("turns") or []) if isinstance(turn, dict)]
+    authorized_turn = next(
+        (
+            turn for turn in reversed(turns)
+            if str((turn.get("metadata") or {}).get("knowledgeSourceMode") or "").strip() == "model_generated"
+        ),
+        None,
+    )
+    contextual_continue = compact_text in {
+        "继续", "继续生成", "接着生成", "按这个生成", "就这样生成", "可以", "确认", "确定",
+    }
+    if authorized_turn and contextual_continue:
+        authorized_topic = str((authorized_turn.get("metadata") or {}).get("knowledgeTopic") or "").strip()
+        authorized_topic = authorized_topic or str(authorized_turn.get("user") or "").strip() or "当前主题"
+        return f"用户此前已经授权模型在无材料时自行生成知识材料，无需再次确认来源。请继续处理原始主题：{authorized_topic}"
+
+    selection_turn = next(
+        (
+            turn for turn in reversed(turns)
+            if str((turn.get("metadata") or {}).get("knowledgeSourceMode") or "").strip() == "source_selection_required"
+            or _looks_like_knowledge_source_prompt(str(turn.get("assistant") or ""))
+        ),
+        None,
+    )
+    if not selection_turn:
+        return ""
+
+    assistant_prompt = str(selection_turn.get("assistant") or "")
+    explicit_model_choice = any(token in compact_text for token in (
+        "授权模型", "模型自行生成", "自行生成", "自己生成", "直接生成", "不用材料", "无需材料",
+    ))
+    second_choice = compact_text in {"2", "选2", "选择2", "第二种", "第二种方式", "方式二", "第二项", "选第二个"}
+    third_choice = compact_text in {"3", "选3", "选择3", "第三种", "第三种方式", "方式三", "第三项", "选第三个"}
+    third_model_option = any(token in assistant_prompt for token in (
+        "3. 授权", "3、授权", "3.授权", "3．授权", "第三种方式",
+    ))
+    second_is_model = second_choice and (
+        "两种" in assistant_prompt
+        or "2. 授权" in assistant_prompt
+        or "2、授权" in assistant_prompt
+        or "2.授权" in assistant_prompt
+        or "第二种方式" in assistant_prompt
+        or not third_model_option
+    )
+    third_is_model = third_choice and third_model_option
+    if not (explicit_model_choice or second_is_model or third_is_model):
+        return ""
+
+    topic = str((selection_turn.get("metadata") or {}).get("knowledgeTopic") or "").strip()
+    if not topic:
+        for turn in reversed(turns):
+            candidate = str(turn.get("user") or "").strip()
+            candidate_compact = normalize_text(candidate)
+            if candidate and candidate != input_text and not _is_bare_source_choice(candidate_compact):
+                topic = candidate
+                break
+    topic = topic or _latest_context_subject(context) or "当前主题"
+    return f"我明确授权模型在没有上传材料或知识库证据时自行生成知识材料。请继续处理原始主题：{topic}"
+
+
+def _looks_like_knowledge_source_prompt(answer: str) -> bool:
+    normalized = normalize_text(answer)
+    return (
+        any(token in normalized for token in ("知识来源", "来源方式", "上传材料", "知识库内容"))
+        and any(token in normalized for token in ("授权模型", "自行生成", "自己生成"))
+    )
+
+
+def _is_bare_source_choice(compact_text: str) -> bool:
+    return compact_text in {
+        "1", "2", "3", "选1", "选2", "选3", "选择1", "选择2", "选择3",
+        "第一种", "第二种", "第三种", "第一种方式", "第二种方式", "第三种方式",
+        "方式一", "方式二", "方式三", "第一项", "第二项", "第三项",
+    }
 
 
 def _is_contextual_followup(compact_text: str) -> bool:
@@ -934,6 +1686,8 @@ def _execute_leader_plan(
             return _run_service_tool(request, authorization, plan)
         if plan.tool_name == "generated_export_tools":
             return _run_generated_export_tool(request, plan)
+        if plan.tool_name in VISUAL_GENERATION_TOOL_NAMES:
+            return _run_visual_generation_tool(request, plan)
         raise HTTPException(status_code=502, detail=f"Leader 选择了未注册工具：{plan.tool_name or '空'}，已停止执行。")
 
     agent_profile = get_agent_profile(plan.target_agent)
@@ -947,14 +1701,10 @@ def _execute_leader_plan(
 
 
 def _should_emit_generation_start(request: RagQueryRequest, agent_name: Optional[str], plan=None) -> bool:
-    normalized = normalize_agent_name(agent_name)
-    if normalized not in VISIBLE_GENERATION_AGENTS:
-        return False
-    if plan is not None and getattr(plan, "action", "") != "delegate_agent":
-        return False
-    if not _is_agent_enabled(request, normalized):
-        return False
-    return get_agent_profile(normalized) is not None
+    if plan is not None and getattr(plan, "action", "") == "call_tool":
+        tool_name = str(getattr(plan, "tool_name", "") or "").strip()
+        return tool_name in VISUAL_GENERATION_TOOL_NAMES and _visual_tool_dependencies_enabled(request, tool_name)
+    return False
 
 
 def _build_generation_start_payload(
@@ -962,20 +1712,30 @@ def _build_generation_start_payload(
     plan=None,
     agent_name: Optional[str] = None,
 ) -> Dict[str, Any]:
-    target_agent = normalize_agent_name(agent_name or getattr(plan, "target_agent", "")) or ""
-    profile = get_agent_profile(target_agent) or {}
-    runtime_config, config_prefix = _require_agent_runtime_config(request, target_agent, leader_plan=plan)
+    visual_tool_name = ""
+    if plan is not None and getattr(plan, "action", "") == "call_tool":
+        candidate = str(getattr(plan, "tool_name", "") or "").strip()
+        if candidate in VISUAL_GENERATION_TOOL_NAMES:
+            visual_tool_name = candidate
+    requested_agent = normalize_agent_name(agent_name or getattr(plan, "target_agent", "")) or ""
+    prompt_agent = str(VISUAL_GENERATION_TOOL_CONFIG[visual_tool_name].get("promptAgent") or "") if visual_tool_name else ""
+    target_agent = visual_tool_name or requested_agent
+    profile = get_agent_profile("image_agent") or {}
+    runtime_config, config_prefix = _require_agent_runtime_config(request, "image_agent", leader_plan=plan)
     model_metadata = _agent_model_metadata(runtime_config, config_prefix)
     session_id = str((request.metadata or {}).get("sessionId") or "")
     intent = getattr(plan, "intent", "") or profile.get("intent") or ""
     route_reason = getattr(plan, "route_reason", "") or profile.get("purpose") or ""
-    answer_type = _answer_type_for_agent(target_agent)
+    answer_type = "image_generation" if visual_tool_name else _answer_type_for_agent(target_agent)
     role = str(profile.get("role") or target_agent or "图片智能体")
     answer = f"已识别到你要生成图片，正在调用「{role}」处理中。你可以继续提问，生成完成后我会把结果更新到这里。"
     metadata = {
         "agentName": "leader_agent" if plan else target_agent,
         "targetAgent": target_agent,
         "executedAgent": target_agent,
+        "promptAgent": prompt_agent,
+        "imageAgent": "image_agent" if visual_tool_name else "",
+        "toolName": visual_tool_name,
         "intent": intent,
         "needRetrieval": False,
         "retrievalSkipped": True,
@@ -1040,9 +1800,26 @@ def _is_agent_enabled(request: RagQueryRequest, agent_name: Optional[str]) -> bo
     if not normalized or normalized == "leader_agent":
         return True
     toggles = _agent_toggles_from_request(request)
-    if normalized not in toggles:
-        return True
-    return _parse_agent_enabled_value(toggles.get(normalized))
+    if normalized in toggles and not _parse_agent_enabled_value(toggles.get(normalized)):
+        return False
+    return _is_agent_model_ready(request, normalized)
+
+
+def _is_agent_model_ready(request: RagQueryRequest, agent_name: str) -> bool:
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    configs = metadata.get("agentModelConfigs")
+    if not isinstance(configs, dict):
+        return False
+    config = configs.get(agent_name)
+    if not isinstance(config, dict) or config.get("tested") is not True:
+        return False
+    required_fields = (
+        config.get("provider"),
+        config.get("baseUrl") or config.get("base_url"),
+        config.get("apiKey") or config.get("api_key"),
+        config.get("model"),
+    )
+    return all(str(value or "").strip() for value in required_fields)
 
 
 def _parse_agent_enabled_value(value: Any) -> bool:
@@ -1079,8 +1856,7 @@ def _require_tool_enabled(request: RagQueryRequest, tool_name: str) -> None:
 def _build_leader_callable_catalog(request: Optional[RagQueryRequest] = None) -> Dict[str, Any]:
     agents = [
         _leader_callable_agent_item(agent_name, request)
-        for agent_name in AGENT_ORDER
-        if agent_name != "leader_agent"
+        for agent_name in LEADER_CALLABLE_AGENT_ORDER
     ]
     agents = [item for item in agents if item]
     tools = [_leader_callable_tool_item(tool, request) for tool in LEADER_CALLABLE_TOOLS]
@@ -1108,7 +1884,10 @@ def _leader_callable_agent_item(agent_name: str, request: Optional[RagQueryReque
     profile = get_agent_profile(agent_name)
     if not profile:
         return {}
-    enabled = True if request is None else _is_agent_enabled(request, agent_name)
+    if request is None:
+        enabled = True
+    else:
+        enabled = _is_agent_enabled(request, agent_name)
     return {
         "name": agent_name,
         "role": profile.get("role") or agent_name,
@@ -1124,12 +1903,22 @@ def _leader_callable_agent_item(agent_name: str, request: Optional[RagQueryReque
 def _leader_callable_tool_item(tool: Dict[str, Any], request: Optional[RagQueryRequest]) -> Dict[str, Any]:
     name = str(tool.get("name") or "").strip()
     enabled = True if request is None else _is_tool_enabled(request, name)
+    if enabled and request is not None and name in VISUAL_GENERATION_TOOL_NAMES:
+        enabled = _visual_tool_dependencies_enabled(request, name)
     return {
         **tool,
         "zhName": tool.get("zhName") or _tool_zh_name(name),
         "displayName": tool.get("displayName") or _tool_display_name(name),
         "enabled": enabled,
     }
+
+
+def _visual_tool_dependencies_enabled(request: RagQueryRequest, tool_name: str) -> bool:
+    config = VISUAL_GENERATION_TOOL_CONFIG.get(str(tool_name or "").strip())
+    if not config or not _is_agent_enabled(request, "image_agent"):
+        return False
+    prompt_agent = str(config.get("promptAgent") or "").strip()
+    return not prompt_agent or _is_agent_enabled(request, prompt_agent)
 
 
 def _leader_agent_category(agent_name: str) -> str:
@@ -1158,61 +1947,7 @@ def _run_disabled_agent_response(
     normalized = normalize_agent_name(agent_name) or str(agent_name or "").strip()
     profile = get_agent_profile(normalized) or {}
     role = profile.get("role") or normalized or "目标智能体"
-    if leader_plan:
-        answer = (
-            f"Leader 已识别到需要调用「{role}（{normalized}）」；"
-            "但后台开关当前为关闭，所以本次已跳过该智能体，没有继续执行。"
-        )
-        execution_mode = "leader_skipped_disabled_agent"
-        execution_label = "Leader 跳过已关闭智能体"
-    else:
-        answer = (
-            f"你选择的「{role}（{normalized}）」当前未开启，"
-            "所以本次没有执行该智能体。请在后台多智能体页面开启后再使用。"
-        )
-        execution_mode = "direct_disabled_agent"
-        execution_label = "已关闭智能体未执行"
-
-    metadata = {
-        "agentName": "leader_agent" if leader_plan else normalized,
-        "targetAgent": normalized,
-        "executedAgent": None,
-        "disabledAgent": normalized,
-        "agentDisabled": True,
-        "needRetrieval": False,
-        "retrievalSkipped": True,
-        "strategyLabel": "智能体已关闭，跳过执行",
-        "executionMode": execution_mode,
-        "executionModeLabel": execution_label,
-        "answerType": "text",
-    }
-    if leader_plan:
-        metadata.update({
-            "intent": leader_plan.intent,
-            "leaderAction": leader_plan.action,
-            "leaderActionLabel": _leader_action_label(leader_plan.action),
-            "routeReason": leader_plan.route_reason,
-        })
-
-    trace = []
-    if leader_plan:
-        trace.append(RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)))
-    trace.append(RagTraceResponse(
-        stage="agent_skipped",
-        detail={
-            "agentName": normalized,
-            "reason": "agent_disabled",
-            "message": "后台智能体开关关闭，跳过执行",
-        },
-    ))
-    return _decorate_output_response(RagQueryResponse(
-        strategy="agent_disabled",
-        answer=answer,
-        answerType="text",
-        documents=[],
-        trace=trace,
-        metadata=metadata,
-    ))
+    raise HTTPException(status_code=403, detail=f"智能体 {role}（{normalized}）已在后台关闭，本次未执行。")
 
 
 def _profile_context_from_request(request: RagQueryRequest) -> Dict[str, Any]:
@@ -1477,6 +2212,102 @@ def _run_leader_direct_answer(plan, profile_context: Optional[Dict[str, Any]] = 
     ))
 
 
+def _run_visual_generation_tool(
+    request: RagQueryRequest,
+    leader_plan,
+) -> RagQueryResponse:
+    tool_name = str(getattr(leader_plan, "tool_name", "") or "").strip()
+    config = VISUAL_GENERATION_TOOL_CONFIG.get(tool_name)
+    if not config:
+        raise HTTPException(status_code=502, detail=f"未注册的视觉生成工具：{tool_name or '空'}")
+    prompt_agent = str(config.get("promptAgent") or "").strip()
+    if not _is_agent_enabled(request, "image_agent"):
+        return _run_disabled_tool_response(request, tool_name, leader_plan=leader_plan)
+    if prompt_agent and not _is_agent_enabled(request, prompt_agent):
+        return _run_disabled_tool_response(request, tool_name, leader_plan=leader_plan)
+
+    evidence = _profile_evidence_from_request(request)
+    prompt_text = request.input
+    prompt_model_metadata: Dict[str, Any] = {}
+    if prompt_agent:
+        prompt_text, prompt_model_metadata = _run_specialist_agent_with_bound_model(
+            request,
+            prompt_agent,
+            request.input,
+            evidence,
+            leader_plan=leader_plan,
+        )
+    image_answer, image_model_metadata = _run_specialist_agent_with_bound_model(
+        request,
+        "image_agent",
+        prompt_text,
+        [],
+        leader_plan=leader_plan,
+    )
+    image_answer, image_attachments = materialize_generated_image_answer(
+        image_answer,
+        display_stem=str(config.get("zhName") or "生成图片").removesuffix("工具"),
+        tool_name=tool_name,
+    )
+    metadata = {
+        "agentName": "leader_agent",
+        "targetAgent": tool_name,
+        "executedAgent": tool_name,
+        "toolName": tool_name,
+        "toolDisplayName": _tool_display_name(tool_name),
+        "promptAgent": prompt_agent,
+        "imageAgent": "image_agent",
+        "intent": getattr(leader_plan, "intent", "") or "image_generation",
+        "needRetrieval": False,
+        "retrievalSkipped": True,
+        "strategyLabel": config.get("purpose") or _tool_display_name(tool_name),
+        "executionMode": "leader_call_tool",
+        "executionModeLabel": "Leader 调用视觉生成工具",
+        "answerType": "image_generation",
+        "profileContextUsed": bool(evidence),
+        "outputPreferenceHints": _output_preference_hints_from_request(request),
+        "toolToggles": _tool_toggles_from_request(request),
+        "leaderAction": leader_plan.action,
+        "leaderActionLabel": _leader_action_label(leader_plan.action),
+        "routeReason": leader_plan.route_reason,
+        "promptModelProvider": prompt_model_metadata.get("modelProvider") or "",
+        "promptModel": prompt_model_metadata.get("model") or "",
+        **image_model_metadata,
+    }
+    metadata.update(_context_metadata_from_request(request))
+    trace = [
+        RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+        RagTraceResponse(stage="tool_call", detail={
+            "toolName": tool_name,
+            "toolDisplayName": _tool_display_name(tool_name),
+            "promptAgent": prompt_agent,
+            "imageAgent": "image_agent",
+        }),
+    ]
+    if prompt_agent:
+        trace.append(RagTraceResponse(stage="prompt_agent", detail={
+            "agentName": prompt_agent,
+            "output": "image_prompt",
+            "answerLength": len(prompt_text or ""),
+            **prompt_model_metadata,
+        }))
+    trace.append(RagTraceResponse(stage="image_generation_tool", detail={
+        "agentName": "image_agent",
+        "input": "prompt_agent_output" if prompt_agent else "user_input",
+        "answerLength": len(image_answer or ""),
+        **image_model_metadata,
+    }))
+    return _decorate_output_response(RagQueryResponse(
+        strategy=tool_name,
+        answer=image_answer,
+        answerType="image_generation",
+        documents=[],
+        trace=trace,
+        metadata=metadata,
+        attachments=image_attachments,
+    ))
+
+
 def _run_direct_agent(
     request: RagQueryRequest,
     agent_profile: Dict[str, Any],
@@ -1484,6 +2315,11 @@ def _run_direct_agent(
 ) -> RagQueryResponse:
     agent_name = agent_profile["name"]
     profile_evidence = _profile_evidence_from_request(request)
+    knowledge_source_mode = (
+        resolve_knowledge_source_mode(request.input, profile_evidence)
+        if agent_name == "textbook_knowledge_agent"
+        else ""
+    )
     answer, model_metadata = _run_specialist_agent_with_bound_model(
         request,
         agent_name,
@@ -1496,7 +2332,7 @@ def _run_direct_agent(
         "agentName": "leader_agent" if leader_plan else agent_name,
         "targetAgent": agent_name,
         "executedAgent": agent_name,
-        "intent": agent_profile["intent"],
+        "intent": "knowledge_source_clarification" if knowledge_source_mode == "source_selection_required" else agent_profile["intent"],
         "needRetrieval": False,
         "retrievalSkipped": True,
         "strategyLabel": "直接处理（不使用 RAG）",
@@ -1508,6 +2344,17 @@ def _run_direct_agent(
         "toolToggles": _tool_toggles_from_request(request),
         **model_metadata,
     }
+    if knowledge_source_mode:
+        metadata.update({
+            "knowledgeSourceMode": knowledge_source_mode,
+            "knowledgeTopic": request.input,
+            "modelGeneratedMaterial": knowledge_source_mode == "model_generated",
+            "materialSourceLabel": {
+                "provided_material": "用户材料或知识库证据",
+                "model_generated": "模型根据用户主题生成",
+                "source_selection_required": "等待用户选择材料来源",
+            }[knowledge_source_mode],
+        })
     metadata.update(_context_metadata_from_request(request))
     if leader_plan:
         metadata.update({
@@ -1565,14 +2412,7 @@ def _exception_message(exc: Exception) -> str:
 def _friendly_agent_failure_message(raw_message: str, agent_name: str = "") -> str:
     message = str(raw_message or "").strip()
     lowered = message.lower()
-    is_image_agent = agent_name in {
-        "image_agent",
-        "diagram_mind_map_agent",
-        "diagram_architecture_agent",
-        "diagram_flowchart_agent",
-        "diagram_activity_agent",
-        "ppt_image_agent",
-    }
+    is_image_agent = agent_name == "image_agent"
     if is_image_agent and "api.deepseek.com" in lowered and "services/aigc" in lowered:
         return (
             "图片模型服务配置不匹配：当前把 Qwen/DashScope 图片生成接口请求发到了 DeepSeek 地址。"
@@ -1606,7 +2446,7 @@ def _build_stream_error_payload(
         base_url = exc.base_url or ("" if is_specialist_failure else getattr(llm_config, "base_url", "") or "")
         model_config_prefix = exc.model_config_prefix or ""
     else:
-        agent_name = normalize_agent_name(request.agentName) or "leader_agent"
+        agent_name = normalize_leader_request_agent(request.agentName) or "leader_agent"
         intent = ""
         route_reason = ""
         message = _exception_message(exc)
@@ -1684,12 +2524,17 @@ def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResp
         "readonly": bool(result.sql),
         "error": result.error,
     }
-    answer = _format_text_to_sql_answer(metadata)
-    if not answer:
-        raise HTTPException(
-            status_code=502,
-            detail=metadata.get("error") or "Text-to-SQL 未生成可执行 SQL 或可展示结果，已禁止本地兜底回答",
+    try:
+        answer = leader_agent.summarize_tool_result(
+            input_text=request.input,
+            plan=leader_plan,
+            tool_display_name=_tool_display_name(leader_plan.tool_name),
+            tool_results=[{"type": "text_to_sql_result", **metadata}],
         )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="模型未能生成 Text-to-SQL 结果回复，已禁止系统兜底回复。") from exc
+    if not str(answer or "").strip():
+        raise HTTPException(status_code=502, detail="模型返回空的 Text-to-SQL 结果回复，已禁止系统兜底回复。")
     metadata.update({
         "agentName": "leader_agent",
         "targetAgent": "text_to_sql",
@@ -1725,6 +2570,10 @@ def _run_text_to_sql_tool(request: RagQueryRequest, leader_plan) -> RagQueryResp
 
 
 def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQueryResponse:
+    request_metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    requested_output_type = _normalize_requested_file_type(
+        request_metadata.get("requestedOutputType") or _requested_file_type_from_text(request.input) or "document"
+    )
     metadata = {
         "agentName": "leader_agent",
         "targetAgent": "generated_export_tools",
@@ -1741,14 +2590,73 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
         "executionMode": "leader_call_tool",
         "executionModeLabel": "Leader 调用内容导出工具",
         "answerType": "document_export",
-        "requestedOutputType": "document",
+        "requestedOutputType": requested_output_type,
         "allowGeneratedExportTool": True,
         "toolToggles": _tool_toggles_from_request(request),
     }
     metadata.update(_context_metadata_from_request(request))
-    parsed_input = _try_parse_json_object(request.input)
+    source_content = str(request_metadata.get("sourceMessageContent") or "").strip()
+    planner_payload = json.dumps({
+        "userRequest": str((request.metadata or {}).get("contextOriginalInput") or request.input or ""),
+        "targetFormat": requested_output_type,
+        "sourceContent": source_content,
+        "sourceCandidates": request_metadata.get("sourceMessageCandidates") or [],
+        "conversationContext": request_metadata.get("conversationContext") or {},
+    }, ensure_ascii=False)
+    planner_answer, planner_model_metadata = _run_file_content_planner(
+        request,
+        planner_payload,
+        leader_plan,
+    )
+    planner_result = _try_parse_json_object(planner_answer)
+    planner_action = str(planner_result.get("action") or "").strip().lower()
+    if planner_action == "clarify":
+        question = str(planner_result.get("question") or "").strip()
+        if not question:
+            raise HTTPException(status_code=502, detail="文件内容编排智能体要求澄清，但没有返回问题。")
+        clarification_metadata = {
+            **metadata,
+            **planner_model_metadata,
+            "targetAgent": "file_content_planner_agent",
+            "executedAgent": "file_content_planner_agent",
+            "intent": "file_source_clarification",
+            "answerType": "text",
+            "fileContentPlannerAction": "clarify",
+        }
+        return _decorate_output_response(RagQueryResponse(
+            strategy="file_content_planner_agent",
+            answer=question,
+            answerType="text",
+            documents=[],
+            trace=[
+                RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+                RagTraceResponse(stage="agent_answer", detail={
+                    "agentName": "file_content_planner_agent",
+                    "action": "clarify",
+                    **planner_model_metadata,
+                }),
+            ],
+            metadata=clarification_metadata,
+        ))
+    if planner_action != "export":
+        raise HTTPException(status_code=502, detail="文件内容编排智能体返回了无效 action。")
+    export_content = str(planner_result.get("content") or "").strip()
+    export_title = str(planner_result.get("title") or "").strip()
+    if not export_content or not export_title:
+        raise HTTPException(status_code=502, detail="文件内容编排智能体没有返回完整的标题和内容。")
+    metadata.update({
+        **planner_model_metadata,
+        "sourceTitle": export_title,
+        "promptAgent": "file_content_planner_agent",
+        "fileContentPlannerAction": "export",
+        "sourceMessageOrigin": request_metadata.get("sourceMessageOrigin") or ("selected_message" if source_content else "user_request"),
+    })
+    selected_source_message_id = planner_result.get("selectedSourceMessageId")
+    if selected_source_message_id is not None:
+        metadata["selectedSourceMessageId"] = selected_source_message_id
+    parsed_input = _try_parse_json_object(export_content)
     export_answer_type = "question_bank" if isinstance(parsed_input.get("questions"), list) else "markdown"
-    export_result = export_generated_answer(request.input, export_answer_type, metadata)
+    export_result = export_generated_answer(export_content, export_answer_type, metadata)
     if not export_result.attachments:
         reason = export_result.diagnostics.get("reason") if isinstance(export_result.diagnostics, dict) else ""
         if reason == "tool_disabled":
@@ -1768,6 +2676,12 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
         documents=[],
         trace=[
             RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
+            RagTraceResponse(stage="agent_answer", detail={
+                "agentName": "file_content_planner_agent",
+                "action": "export",
+                "title": export_title,
+                **planner_model_metadata,
+            }),
             RagTraceResponse(stage="tool_call", detail={"toolName": leader_plan.tool_name, "toolDisplayName": _tool_display_name(leader_plan.tool_name), **export_result.diagnostics}),
         ],
         metadata=metadata,
@@ -1775,70 +2689,54 @@ def _run_generated_export_tool(request: RagQueryRequest, leader_plan) -> RagQuer
     ))
 
 
-def _format_text_to_sql_answer(metadata: Dict[str, Any]) -> str:
-    sql = str(metadata.get("sql") or "").strip()
-    if not sql:
-        return ""
-    rows = metadata.get("rows")
-    if not isinstance(rows, list):
-        rows = []
-    if not rows:
-        return f"已生成只读 SQL：{sql}\n当前查询结果为空。"
-    previews = []
-    for row in rows[:8]:
-        if isinstance(row, dict):
-            previews.append("，".join(f"{key}={value}" for key, value in row.items()))
-        else:
-            previews.append(str(row))
-    return f"已生成只读 SQL：{sql}\n查询到 {len(rows)} 条结果：\n" + "\n".join(
-        f"{index}. {text}" for index, text in enumerate(previews, start=1)
+def _run_file_content_planner(request: RagQueryRequest, planner_payload: str, leader_plan) -> Tuple[str, Dict[str, Any]]:
+    config_agent = (
+        "file_content_planner_agent"
+        if _is_agent_model_ready(request, "file_content_planner_agent")
+        else "leader_agent"
     )
+    runtime_config, config_prefix = _require_agent_runtime_config(request, config_agent, leader_plan=leader_plan)
+    token = set_active_llm_config(runtime_config)
+    try:
+        answer = run_specialist_agent("file_content_planner_agent", planner_payload, [], chat_service=None)
+    except Exception as exc:
+        _raise_agent_execution_error(
+            exc,
+            "file_content_planner_agent",
+            leader_plan=leader_plan,
+            runtime_config=runtime_config,
+            config_prefix=config_prefix,
+        )
+    finally:
+        reset_active_llm_config(token)
+    model_metadata = _agent_model_metadata(runtime_config, config_prefix)
+    model_metadata["plannerModelConfigAgent"] = config_agent
+    return answer, model_metadata
+
+
+def _requested_file_type_from_text(input_text: str) -> str:
+    normalized = normalize_text(input_text)
+    if "word" in normalized or "docx" in normalized or "文档版" in normalized:
+        return "docx"
+    if "excel" in normalized or "xlsx" in normalized or "表格版" in normalized:
+        return "xlsx"
+    if "markdown" in normalized or "md文件" in normalized:
+        return "md"
+    if "pptx" in normalized or "ppt" in normalized or "幻灯片" in normalized:
+        return "pptx"
+    return ""
+
+
+def _normalize_requested_file_type(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    aliases = {"word": "docx", "excel": "xlsx", "markdown": "md", "ppt": "pptx"}
+    return aliases.get(normalized, normalized)
 
 
 def _run_disabled_tool_response(request: RagQueryRequest, tool_name: str, leader_plan) -> RagQueryResponse:
     normalized = str(tool_name or "").strip()
     display_name = _tool_display_name(normalized) or "目标工具"
-    answer = (
-        f"Leader 已识别到需要调用「{display_name}」；"
-        "但后台工具开关当前为关闭，所以本次已跳过，没有继续调用，也没有改用其他兜底能力。"
-    )
-    metadata = {
-        "agentName": "leader_agent",
-        "targetAgent": normalized,
-        "executedAgent": None,
-        "disabledTool": normalized,
-        "toolDisabled": True,
-        "intent": leader_plan.intent,
-        "needRetrieval": False,
-        "retrievalSkipped": True,
-        "leaderAction": leader_plan.action,
-        "leaderActionLabel": _leader_action_label(leader_plan.action),
-        "toolName": normalized,
-        "toolDisplayName": display_name,
-        "routeReason": leader_plan.route_reason,
-        "strategyLabel": "工具已关闭，跳过执行",
-        "executionMode": "leader_skipped_disabled_tool",
-        "executionModeLabel": "Leader 跳过已关闭工具",
-        "answerType": "text",
-        "toolToggles": _tool_toggles_from_request(request),
-    }
-    metadata.update(_context_metadata_from_request(request))
-    return _decorate_output_response(RagQueryResponse(
-        strategy="tool_disabled",
-        answer=answer,
-        answerType="text",
-        documents=[],
-        trace=[
-            RagTraceResponse(stage="leader_route", detail=_leader_plan_detail(leader_plan)),
-            RagTraceResponse(stage="tool_call", detail={
-                "toolName": normalized,
-                "toolDisplayName": display_name,
-                "reason": "tool_disabled",
-                "message": "后台工具开关关闭，跳过执行",
-            }),
-        ],
-        metadata=metadata,
-    ))
+    raise HTTPException(status_code=403, detail=f"工具 {display_name}（{normalized}）已在后台关闭，本次未执行。")
 
 
 def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan) -> RagQueryResponse:
@@ -1846,7 +2744,10 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
     tool_display_name = _tool_display_name(tool_name)
     planning_answer = str(getattr(leader_plan, "answer", "") or "").strip()
     answer_type = "service_tool_result"
+    tool_started_at = time.perf_counter()
     results, cache_meta = data_store.search_service_tool_with_meta(authorization, tool_name, request.input)
+    results = results or []
+    tool_ms = _elapsed_ms(tool_started_at)
     tool_cache = cache_meta.get("toolCache", {}) if isinstance(cache_meta, dict) else {}
     retrieval_meta = {
         "javaBackendCount": len(results),
@@ -1859,27 +2760,32 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
         "toolCacheMissCount": int(tool_cache.get("missCount") or 0),
     }
     documents = [_tool_result_to_document(item, index) for index, item in enumerate(results, start=1)]
-    summary_error = ""
-    summarized_by_model = False
+    backend_failure = _service_tool_backend_failure(cache_meta) if not results else {}
+    summary_results = results
+    if backend_failure:
+        summary_results = [{
+            "type": "tool_execution_error",
+            "status": backend_failure.get("status"),
+            "reason": backend_failure.get("reason"),
+            "statusCode": backend_failure.get("statusCode"),
+            "message": "工具调用失败，当前结果不能用于判断是否存在业务数据。",
+        }]
+    summary_started_at = time.perf_counter()
     try:
         answer = leader_agent.summarize_tool_result(
             input_text=request.input,
             plan=leader_plan,
             tool_display_name=tool_display_name,
-            tool_results=results,
+            tool_results=summary_results,
         )
-        summarized_by_model = bool(answer)
     except Exception as exc:
         logger.warning("leader tool result summarization failed tool=%s error=%s", tool_name, exc)
-        answer = ""
-        summary_error = str(exc)
-    if not answer and results:
-        answer = _format_service_tool_answer(tool_name, results)
-    elif not answer:
-        answer = (
-            f"Leader 已识别为「{_tool_zh_name(tool_name)}」，并调用了对应 Java 后端接口；"
-            "但当前没有返回可展示的数据。请确认 Java 服务、登录态或该业务数据是否正常。"
-        )
+        raise HTTPException(status_code=502, detail="模型未能生成工具结果回复，已禁止系统兜底回复。") from exc
+    summary_ms = _elapsed_ms(summary_started_at)
+    if not str(answer or "").strip():
+        raise HTTPException(status_code=502, detail="模型返回空的工具结果回复，已禁止系统兜底回复。")
+    summarized_by_model = True
+    summary_mode = "model"
     metadata = {
         "agentName": "leader_agent",
         "targetAgent": tool_name,
@@ -1898,13 +2804,14 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
         "executionModeLabel": "Leader 调用 Java 后端接口并整理结果",
         "answerType": answer_type,
         "toolResultSummarized": summarized_by_model,
+        "toolResultSummaryMode": summary_mode,
+        "serviceToolBackendStatus": str(backend_failure.get("status") or "ok"),
+        "serviceToolBackendFailure": bool(backend_failure),
         "toolToggles": _tool_toggles_from_request(request),
         **retrieval_meta,
     }
     metadata.update(_context_metadata_from_request(request))
-    if summary_error:
-        metadata["toolResultSummaryError"] = summary_error
-    return _decorate_output_response(RagQueryResponse(
+    return _merge_response_performance(_decorate_output_response(RagQueryResponse(
         strategy=tool_name,
         answer=answer,
         answerType=answer_type,
@@ -1915,6 +2822,7 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
                 "toolName": tool_name,
                 "toolDisplayName": tool_display_name,
                 "planningAnswer": planning_answer,
+                "toolMs": tool_ms,
                 **retrieval_meta,
             }),
             RagTraceResponse(stage="tool_result_summary", detail={
@@ -1922,72 +2830,15 @@ def _run_service_tool(request: RagQueryRequest, authorization: str, leader_plan)
                 "toolName": tool_name,
                 "toolDisplayName": tool_display_name,
                 "summarizedByModel": summarized_by_model,
+                "summaryMode": summary_mode,
+                "summaryMs": summary_ms,
                 "resultCount": len(results),
-                **({"error": summary_error} if summary_error else {}),
+                "serviceToolBackendStatus": str(backend_failure.get("status") or "ok"),
+                **({"backendFailure": backend_failure} if backend_failure else {}),
             }),
         ],
         metadata=metadata,
-    ))
-
-
-def _format_service_tool_answer(tool_name: str, results: List[Dict[str, Any]]) -> str:
-    title = _tool_zh_name(tool_name)
-    lines = [f"## {title}结果"]
-    for item in results[:8]:
-        lines.append(f"- {_format_service_tool_item(item)}")
-    if len(results) > 8:
-        lines.append(f"- 另有 {len(results) - 8} 条结果未展开。")
-    return "\n".join(lines)
-
-
-def _format_service_tool_item(item: Dict[str, Any]) -> str:
-    item_type = str(item.get("type") or "")
-    name = item.get("name") or item.get("courseName") or item.get("title") or "未命名"
-    if item_type == "course_schedule":
-        return (
-            f"{item.get('weekdayText') or ''} {item.get('classSessions') or ''}：{name}"
-            f"（{item.get('location') or '地点待补充'}，{item.get('teacherName') or '教师待补充'}）"
-        )
-    if item_type == "course_schedule_summary":
-        schedule_items = item.get("scheduleItems") if isinstance(item.get("scheduleItems"), list) else []
-        schedule_text = "；".join(str(value) for value in schedule_items[:3] if str(value or "").strip())
-        if len(schedule_items) > 3:
-            schedule_text += f"；另有 {len(schedule_items) - 3} 次安排"
-        suffix = _join_non_empty(item.get("teacherName"), item.get("assessmentType"), f"{item.get('credit')} 学分" if item.get("credit") not in (None, "") else "")
-        detail = f"（{suffix}）" if suffix else ""
-        semester_label = str(item.get("semesterLabel") or "").strip()
-        prefix = f"[{semester_label}] " if semester_label else ""
-        return f"{prefix}{name}{detail}" + (f"：{schedule_text}" if schedule_text else "")
-    if item_type == "activity":
-        time_text = _join_non_empty(item.get("startTime"), item.get("endTime"), separator=" - ")
-        suffix = _join_non_empty(time_text, item.get("location"), item.get("organizerName"))
-        return f"{name}" + (f"（{suffix}）" if suffix else "")
-    if item_type == "meeting":
-        suffix = _join_non_empty(item.get("scheduledStartTime"), item.get("status"), item.get("roomCode"))
-        return f"{name}" + (f"（{suffix}）" if suffix else "")
-    if item_type in {"restaurant", "stall", "dish", "coupon"}:
-        suffix = _join_non_empty(item.get("location"), item.get("category"), item.get("avgPrice") or item.get("price") or item.get("pickupLocation"))
-        return f"{name}" + (f"（{suffix}）" if suffix else "")
-    if item_type in {"facility", "facility_location"}:
-        suffix = _join_non_empty(item.get("location"), item.get("facilityTypeName"), _coordinate_text(item))
-        return f"{name}" + (f"（{suffix}）" if suffix else "")
-    if item_type == "secondhand_item":
-        suffix = _join_non_empty(item.get("price"), item.get("condition"), item.get("sellerName"), item.get("location"))
-        return f"{name}" + (f"（{suffix}）" if suffix else "")
-    return str(name)
-
-
-def _join_non_empty(*values: Any, separator: str = "，") -> str:
-    parts = [str(value).strip() for value in values if value is not None and str(value).strip()]
-    return separator.join(parts)
-
-
-def _coordinate_text(item: Dict[str, Any]) -> str:
-    longitude = item.get("longitude")
-    latitude = item.get("latitude")
-    if longitude is None or latitude is None:
-        return ""
-    return f"{longitude},{latitude}"
+    )), toolMs=tool_ms, summaryMs=summary_ms)
 
 
 def _decorate_output_response(response: RagQueryResponse) -> RagQueryResponse:
@@ -1995,10 +2846,24 @@ def _decorate_output_response(response: RagQueryResponse) -> RagQueryResponse:
         response.metadata = {}
     existing_attachments = response.attachments if isinstance(response.attachments, list) else []
     extracted_attachments = _extract_response_attachments(response.answer)
-    export_result = export_generated_answer(response.answer, response.answerType, response.metadata)
-    attachments = _merge_attachments(existing_attachments, extracted_attachments, export_result.attachments)
-    export_diagnostics = export_result.diagnostics
-    if not export_result.attachments and isinstance(response.metadata.get("generatedExports"), dict):
+    requested_output_type = str(response.metadata.get("requestedOutputType") or "").strip().lower()
+    concrete_export_types = {"docx", "word", "xlsx", "excel", "md", "markdown", "ppt", "pptx", "mmd", "zip"}
+    planner_is_clarifying = (
+        str(response.metadata.get("fileContentPlannerAction") or "").strip().lower() == "clarify"
+        or str(response.metadata.get("intent") or "").strip().lower() == "file_source_clarification"
+    )
+    if requested_output_type in concrete_export_types and not planner_is_clarifying:
+        export_result = export_generated_answer(response.answer, response.answerType, response.metadata)
+        generated_attachments = export_result.attachments
+        export_diagnostics = export_result.diagnostics
+    else:
+        generated_attachments = []
+        export_diagnostics = {
+            "skipped": True,
+            "reason": "file_source_clarification" if planner_is_clarifying else "output_format_not_selected",
+        }
+    attachments = _merge_attachments(existing_attachments, extracted_attachments, generated_attachments)
+    if not generated_attachments and isinstance(response.metadata.get("generatedExports"), dict):
         export_diagnostics = response.metadata["generatedExports"]
     output_types = _infer_output_types(response.answerType, response.metadata, attachments)
     follow_up_actions = _follow_up_actions_for_output(response.answerType, response.metadata, output_types)
@@ -2049,13 +2914,7 @@ def _infer_output_types(answer_type: str, metadata: Dict[str, Any], attachments:
         types.append("document")
     normalized_answer_type = str(answer_type or "").strip()
     agent = str((metadata or {}).get("executedAgent") or (metadata or {}).get("targetAgent") or "").strip()
-    if normalized_answer_type in {"image_generation", "image_prompt", "ppt_image_prompt"} or agent in {
-        "image_agent",
-        "diagram_mind_map_agent",
-        "diagram_architecture_agent",
-        "diagram_flowchart_agent",
-        "diagram_activity_agent",
-    }:
+    if normalized_answer_type == "image_generation" or agent == "image_agent":
         if "image" not in types:
             types.append("image")
     if normalized_answer_type == "document_conversion" or agent == "ppt_to_docx_agent":
@@ -2096,6 +2955,12 @@ def _push_strategy_for_output(answer_type: str, metadata: Dict[str, Any], output
 def _follow_up_actions_for_output(answer_type: str, metadata: Dict[str, Any], output_types: List[str]) -> List[Dict[str, Any]]:
     metadata = metadata or {}
     agent = str(metadata.get("executedAgent") or metadata.get("targetAgent") or "").strip()
+    intent = str(metadata.get("intent") or "").strip().lower()
+    if intent in {
+        "smalltalk", "greeting", "leader_callable_catalog", "capability_inquiry",
+        "file_source_clarification", "knowledge_source_clarification",
+    }:
+        return []
     hints = metadata.get("outputPreferenceHints") if isinstance(metadata.get("outputPreferenceHints"), dict) else {}
     preferred_format = str(hints.get("preferredFormat") or "").strip()
     confidence_level = str(hints.get("confidenceLevel") or "").strip()
@@ -2113,22 +2978,58 @@ def _follow_up_actions_for_output(answer_type: str, metadata: Dict[str, Any], ou
     }
 
     actions: List[Dict[str, Any]] = []
+    file_actions = _file_format_follow_up_actions(answer_type, metadata, agent)
     if "document" in output_types:
         actions.append(_follow_up_action("再来图片版", "请在当前内容基础上，再生成图片形式或图解版。", "image", "secondary"))
     elif "image" in output_types:
-        actions.append(_follow_up_action("生成文件版", "请在当前内容基础上，整理成文件或文档形式。", "document", "secondary"))
+        actions.extend(file_actions)
     elif agent in convertible_agents or str(answer_type or "").startswith("mermaid"):
         if preferred_format == "document" and confidence_level in {"high", "medium"}:
-            actions.append(_follow_up_action("生成文件版", "请把刚才的内容整理成文件或文档形式。", "document", "primary"))
-            actions.append(_follow_up_action("再来图片版", "请把刚才的内容再生成图片形式或图解版。", "image", "secondary"))
+            actions.extend(file_actions)
         elif preferred_format == "image" and confidence_level in {"high", "medium"}:
             actions.append(_follow_up_action("生成图片版", "请把刚才的内容生成图片形式或图解版。", "image", "primary"))
-            actions.append(_follow_up_action("再来文件版", "请把刚才的内容整理成文件或文档形式。", "document", "secondary"))
+            actions.extend(file_actions)
         else:
-            actions.append(_follow_up_action("生成文件版", "请把刚才的内容整理成文件或文档形式。", "document", "primary"))
-            actions.append(_follow_up_action("生成图片版", "请把刚才的内容生成图片形式或图解版。", "image", "primary"))
+            actions.extend(file_actions)
 
-    return actions[:3]
+    return actions[:4]
+
+
+def _file_format_follow_up_actions(answer_type: str, metadata: Dict[str, Any], agent: str) -> List[Dict[str, Any]]:
+    if not _metadata_tool_enabled(metadata, "generated_export_tools"):
+        return []
+    is_diagram = str(answer_type or "").startswith("mermaid") or agent.startswith("diagram_")
+    is_question_bank = str(answer_type or "") == "question_bank" or agent.startswith("textbook_question_")
+    if is_diagram:
+        candidates = (
+            ("Mermaid 源文件", "请把当前消息原内容生成 Mermaid 源文件。", "mmd", "diagram_source_export_tool"),
+            ("Markdown 文件", "请把当前消息原内容生成 Markdown 文件。", "md", "markdown_export_tool"),
+        )
+    elif is_question_bank:
+        candidates = (
+            ("Excel 题库", "请把当前消息原内容生成 Excel 题库文件。", "xlsx", "excel_export_tool"),
+            ("Word 题库", "请把当前消息原内容生成 Word 题库文件。", "docx", "docx_export_tool"),
+            ("Markdown 题库", "请把当前消息原内容生成 Markdown 题库文件。", "md", "markdown_export_tool"),
+        )
+    else:
+        candidates = (
+            ("Word 文件", "请把当前消息原内容生成 Word 文件。", "docx", "docx_export_tool"),
+            ("Excel 表格", "请把当前消息原内容生成 Excel 表格。", "xlsx", "excel_export_tool"),
+            ("Markdown 文件", "请把当前消息原内容生成 Markdown 文件。", "md", "markdown_export_tool"),
+            ("PPT 文件", "请把当前消息原内容生成 PPT 文件。", "pptx", "pptx_export_tool"),
+        )
+    return [
+        _follow_up_action(label, prompt, output_type, "primary")
+        for label, prompt, output_type, tool_name in candidates
+        if _metadata_tool_enabled(metadata, tool_name)
+    ]
+
+
+def _metadata_tool_enabled(metadata: Dict[str, Any], tool_name: str) -> bool:
+    toggles = metadata.get("toolToggles") if isinstance(metadata, dict) else None
+    if not isinstance(toggles, dict) or tool_name not in toggles:
+        return True
+    return _parse_agent_enabled_value(toggles.get(tool_name))
 
 
 def _follow_up_action(label: str, prompt: str, output_type: str, style: str) -> Dict[str, Any]:
@@ -2144,6 +3045,13 @@ def _follow_up_action(label: str, prompt: str, output_type: str, style: str) -> 
 def _choice_prompt_for_output(metadata: Dict[str, Any], output_types: List[str], follow_up_actions: List[Dict[str, Any]]) -> str:
     if not follow_up_actions:
         return ""
+    file_actions = [
+        str(item.get("label") or "").strip()
+        for item in follow_up_actions
+        if str(item.get("outputType") or "").strip().lower() in {"docx", "xlsx", "md", "pptx", "mmd", "zip"}
+    ]
+    if file_actions:
+        return "请选择需要生成的文件格式：" + "、".join(file_actions) + "。"
     hints = metadata.get("outputPreferenceHints") if isinstance((metadata or {}).get("outputPreferenceHints"), dict) else {}
     preferred_format = str(hints.get("preferredFormat") or "").strip()
     confidence_level = str(hints.get("confidenceLevel") or "").strip()
@@ -2342,6 +3250,10 @@ def _strategy_label(strategy_name: str) -> str:
         "java_secondhand_api": "旧物查询工具",
         "generated_export_tools": "内容导出工具",
         "text_to_sql": "Text-to-SQL",
+        **{
+            tool_name: config["zhName"]
+            for tool_name, config in VISUAL_GENERATION_TOOL_CONFIG.items()
+        },
     }
     if strategy_name in custom_labels:
         return custom_labels[strategy_name]
@@ -2361,8 +3273,13 @@ def _tool_zh_name(tool_name: str) -> str:
         "markdown_export_tool": "Markdown 导出工具",
         "docx_export_tool": "Word 导出工具",
         "excel_export_tool": "Excel 导出工具",
+        "pptx_export_tool": "PPT 导出工具",
         "content_archive_tool": "附件打包工具",
         "diagram_source_export_tool": "图表源码导出工具",
+        **{
+            tool_name: config["zhName"]
+            for tool_name, config in VISUAL_GENERATION_TOOL_CONFIG.items()
+        },
     }
     return labels.get(str(tool_name or "").strip(), str(tool_name or "").strip())
 
@@ -2379,8 +3296,11 @@ def _answer_type_for_agent(agent_name: str) -> str:
     mapping = {
         "leader_agent": "text",
         "profile_summary_agent": "profile_summary_json",
-        "mind_map_agent": "mermaid_mindmap",
-        "diagram_architecture_agent": "image_generation",
+        "mind_map_agent": "image_prompt",
+        "diagram_mind_map_agent": "mermaid_mindmap",
+        "diagram_flowchart_agent": "mermaid_flowchart",
+        "diagram_activity_agent": "mermaid_activity_flowchart",
+        "diagram_architecture_agent": "mermaid_architecture",
         "textbook_knowledge_agent": "markdown",
         "ppt_outline_agent": "ppt_outline",
         "ppt_layout_agent": "ppt_layout",
@@ -2476,6 +3396,7 @@ def text_to_sql_execute(
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ) -> Dict[str, Any]:
     _require_authorization(authorization)
+    _validate_rag_input_length(request)
     service = TextToSqlService()
     schema = service.introspect_sqlite_schema()
     result = service.plan(request.input, schema=schema)
@@ -2486,6 +3407,21 @@ def text_to_sql_execute(
         "readonly": bool(result.sql),
         "error": result.error,
     }
+
+
+def _validate_rag_input_length(request: RagQueryRequest) -> None:
+    input_length = len(request.input or "")
+    purpose = str((request.metadata or {}).get("requestPurpose") or "").strip()
+    maximum = (
+        QUESTION_GENERATION_INPUT_MAX_LENGTH
+        if purpose == "question_generation"
+        else DEFAULT_RAG_INPUT_MAX_LENGTH
+    )
+    if input_length > maximum:
+        raise HTTPException(
+            status_code=422,
+            detail=f"input exceeds the allowed {maximum} characters for this request",
+        )
 
 
 def _require_authorization(authorization: Optional[str]) -> None:

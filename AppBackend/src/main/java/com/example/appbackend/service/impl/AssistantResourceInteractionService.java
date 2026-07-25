@@ -2,6 +2,7 @@ package com.example.appbackend.service.impl;
 
 import com.example.appbackend.dto.AssistantResourceInteractionRequest;
 import com.example.appbackend.dto.AssistantResourceInteractionResponse;
+import com.example.appbackend.dto.LearningPathDTO;
 import com.example.appbackend.dto.UserProfileDTO;
 import com.example.appbackend.entity.AiLeaderMessage;
 import com.example.appbackend.entity.AiLeaderResourceInteraction;
@@ -11,6 +12,7 @@ import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.AiLeaderMessageRepository;
 import com.example.appbackend.repository.AiLeaderResourceInteractionRepository;
 import com.example.appbackend.repository.AiLeaderSessionRepository;
+import com.example.appbackend.service.LearningPathService;
 import com.example.appbackend.service.UserProfileService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,7 +35,7 @@ import java.util.regex.Pattern;
 public class AssistantResourceInteractionService {
 
     private static final Set<String> ACTIONS = Set.of(
-            "view", "open", "download", "preview", "follow_up", "dismiss");
+            "view", "open", "download", "preview", "follow_up", "dismiss", "complete");
     private static final Pattern CHAIN_ID = Pattern.compile(
             "[A-Za-z0-9][A-Za-z0-9._:-]{0,159}");
     private static final Map<String, String> ACTION_LABELS = Map.of(
@@ -42,24 +44,28 @@ public class AssistantResourceInteractionService {
             "download", "下载",
             "preview", "预览",
             "follow_up", "继续提问",
-            "dismiss", "忽略"
+            "dismiss", "忽略",
+            "complete", "完成"
     );
 
     private final AiLeaderSessionRepository sessionRepository;
     private final AiLeaderMessageRepository messageRepository;
     private final AiLeaderResourceInteractionRepository interactionRepository;
     private final UserProfileService userProfileService;
+    private final LearningPathService learningPathService;
     private final ObjectMapper objectMapper;
 
     public AssistantResourceInteractionService(AiLeaderSessionRepository sessionRepository,
                                                AiLeaderMessageRepository messageRepository,
                                                AiLeaderResourceInteractionRepository interactionRepository,
                                                UserProfileService userProfileService,
+                                               LearningPathService learningPathService,
                                                ObjectMapper objectMapper) {
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
         this.interactionRepository = interactionRepository;
         this.userProfileService = userProfileService;
+        this.learningPathService = learningPathService;
         this.objectMapper = objectMapper;
     }
 
@@ -91,6 +97,9 @@ public class AssistantResourceInteractionService {
         if (interactionRepository.existsById(sourceId)) {
             return new AssistantResourceInteractionResponse("duplicate", true, sourceId, null);
         }
+        Long pathItemId = "complete".equals(action)
+                ? resolveOwnedPathItem(userId, resource)
+                : null;
 
         AiLeaderResourceInteraction receipt = new AiLeaderResourceInteraction();
         receipt.setId(sourceId);
@@ -101,6 +110,12 @@ public class AssistantResourceInteractionService {
         receipt.setAction(action);
         receipt.setCreateTime(LocalDateTime.now());
         interactionRepository.save(receipt);
+
+        if (pathItemId != null) {
+            LearningPathDTO.InteractionRequest interaction = new LearningPathDTO.InteractionRequest();
+            interaction.setAction("complete");
+            learningPathService.recordResourceInteraction(userId, pathItemId, interaction);
+        }
 
         UserProfileDTO.EvidenceRequest evidence = buildEvidence(
                 sessionId, message, resource, sourceId, action);
@@ -125,7 +140,8 @@ public class AssistantResourceInteractionService {
         evidence.setResult("assistant_resource_interaction");
         evidence.setEvidence("用户对助手资源「" + resource.title() + "」执行了" + ACTION_LABELS.get(action));
         evidence.setDirection(dismissed ? "decrease" : "increase");
-        evidence.setSuggestedDelta(dismissed ? -1 : Set.of("download", "follow_up").contains(action) ? 2 : 1);
+        evidence.setSuggestedDelta(dismissed ? -1
+                : Set.of("download", "follow_up", "complete").contains(action) ? 2 : 1);
         evidence.setOccurredAt(LocalDateTime.now());
         evidence.setEvidenceTags(List.of(resource.kind(), resource.deliveryType(), action));
         Map<String, Object> metadata = new LinkedHashMap<>();
@@ -135,6 +151,10 @@ public class AssistantResourceInteractionService {
         metadata.put("resourceKind", resource.kind());
         metadata.put("deliveryType", resource.deliveryType());
         metadata.put("chainId", readChainId(message));
+        if (resource.learningPathId() != null) {
+            metadata.put("learningPathId", resource.learningPathId());
+            metadata.put("learningPathItemKey", resource.learningPathItemKey());
+        }
         evidence.setMetadata(metadata);
         return evidence;
     }
@@ -168,7 +188,14 @@ public class AssistantResourceInteractionService {
                         schemaVersion, resourceId, kind, deliveryType, title)) {
                     throw malformedResources();
                 }
-                found = new ResourceSnapshot(resourceId, kind, deliveryType, title);
+                LearningBinding binding = readLearningBinding(item.get("metadata"));
+                found = new ResourceSnapshot(
+                        resourceId,
+                        kind,
+                        deliveryType,
+                        title,
+                        binding == null ? null : binding.pathId(),
+                        binding == null ? null : binding.itemKey());
             }
             if (found == null) {
                 throw notFound();
@@ -195,6 +222,51 @@ public class AssistantResourceInteractionService {
             // Resource ownership is authoritative even when an old evidence snapshot has no chain id.
         }
         return "";
+    }
+
+    private LearningBinding readLearningBinding(JsonNode metadata) {
+        if (metadata == null || !metadata.isObject()) return null;
+        JsonNode pathId = metadata.get("learningPathId");
+        JsonNode itemKey = metadata.get("learningPathItemKey");
+        if (pathId == null || itemKey == null
+                || !pathId.isIntegralNumber()
+                || !pathId.canConvertToLong()
+                || pathId.longValue() <= 0
+                || !itemKey.isTextual()) {
+            return null;
+        }
+        String normalizedItemKey = itemKey.asText().trim();
+        if (normalizedItemKey.isEmpty()
+                || normalizedItemKey.length() > 160
+                || normalizedItemKey.chars().anyMatch(Character::isISOControl)) {
+            return null;
+        }
+        return new LearningBinding(pathId.longValue(), normalizedItemKey);
+    }
+
+    private Long resolveOwnedPathItem(Long userId, ResourceSnapshot resource) {
+        if (resource.learningPathId() == null
+                || !StringUtils.hasText(resource.learningPathItemKey())) {
+            throw new BusinessException(409, "助手资源未绑定学习路径");
+        }
+        LearningPathDTO.PathView activePath = learningPathService.getActivePath(userId, "python");
+        if (activePath == null
+                || !resource.learningPathId().equals(activePath.getId())
+                || !userId.equals(activePath.getUserId())
+                || !"python".equals(activePath.getCourseKey())
+                || !"active".equals(activePath.getStatus())
+                || activePath.getItems() == null) {
+            throw new BusinessException(Result.NOT_FOUND_CODE, "学习路径资源不存在");
+        }
+        List<LearningPathDTO.PathItemView> matches = activePath.getItems().stream()
+                .filter(item -> item != null
+                        && resource.learningPathId().equals(item.getPathId())
+                        && resource.learningPathItemKey().equals(item.getItemKey()))
+                .toList();
+        if (matches.size() != 1 || matches.getFirst().getId() == null) {
+            throw new BusinessException(Result.NOT_FOUND_CODE, "学习路径资源不存在");
+        }
+        return matches.getFirst().getId();
     }
 
     private String interactionSourceId(Long userId,
@@ -225,6 +297,15 @@ public class AssistantResourceInteractionService {
         return new BusinessException(409, "助手资源记录不可用");
     }
 
-    private record ResourceSnapshot(String id, String kind, String deliveryType, String title) {
+    private record LearningBinding(Long pathId, String itemKey) {
+    }
+
+    private record ResourceSnapshot(
+            String id,
+            String kind,
+            String deliveryType,
+            String title,
+            Long learningPathId,
+            String learningPathItemKey) {
     }
 }

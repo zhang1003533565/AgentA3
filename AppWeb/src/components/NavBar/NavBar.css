@@ -11,7 +11,7 @@
     radial-gradient(circle at top right, rgba(14, 165, 164, 0.32), transparent 30%);
   color: rgba(255, 255, 255, 0.92);
   border-right: 1px solid rgba(148, 163, 184, 0.12);
-  overflow-y: auto;
+  overflow: hidden;
   z-index: 10;
 }
 
@@ -23,6 +23,7 @@
   border-radius: 22px;
   cursor: pointer;
   background: rgba(255, 255, 255, 0.04);
+  flex-shrink: 0;
 }
 
 .navbar-brand-mark {
@@ -37,29 +38,42 @@
 }
 
 .navbar-brand strong,
-.navbar-user-card strong {
+.navbar-user-details strong {
   display: block;
   font-size: 18px;
 }
 
 .navbar-brand span,
-.navbar-user-card span,
+.navbar-user-details span,
 .navbar-section h4 {
   color: rgba(226, 232, 240, 0.7);
 }
 
-.navbar-user-card {
-  padding: 16px;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(148, 163, 184, 0.08);
+.navbar-user {
+  position: relative;
+  flex-shrink: 0;
+  padding-top: 14px;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
 }
 
-.navbar-user-card-top {
+.navbar-user-trigger {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: #f8fafc;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.2s ease;
+}
+
+.navbar-user-trigger:hover,
+.navbar-user-trigger[aria-expanded='true'] {
+  background: rgba(255, 255, 255, 0.07);
 }
 
 .navbar-user-avatar {
@@ -70,26 +84,87 @@
   border-radius: 14px;
   background: rgba(20, 184, 166, 0.18);
   font-weight: 700;
+  flex-shrink: 0;
+}
+
+.navbar-user-details {
+  min-width: 0;
+  flex: 1;
+}
+
+.navbar-user-details strong,
+.navbar-user-details span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.navbar-user-details strong {
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.navbar-user-details span {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+.navbar-user-more {
+  flex-shrink: 0;
+  color: rgba(226, 232, 240, 0.58);
+}
+
+.navbar-user-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 10px);
+  padding: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 14px;
+  background: #243147;
+  box-shadow: 0 14px 32px rgba(2, 6, 23, 0.28);
 }
 
 .navbar-logout {
   width: 100%;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
-  height: 40px;
+  height: 38px;
+  padding: 0 12px;
   border: none;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #f8fafc;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(248, 250, 252, 0.9);
   cursor: pointer;
+}
+
+.navbar-logout:hover {
+  background: rgba(248, 113, 113, 0.1);
+  color: #fecaca;
 }
 
 .navbar-nav {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.24) transparent;
+}
+
+.navbar-nav::-webkit-scrollbar {
+  width: 4px;
+}
+
+.navbar-nav::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.24);
 }
 
 .navbar-section h4 {

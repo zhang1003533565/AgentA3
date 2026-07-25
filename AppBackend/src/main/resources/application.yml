@@ -1,7 +1,21 @@
+# ============================================
+# 环境变量说明
+# ============================================
+# 敏感配置已迁移至环境变量，不在代码中硬编码
+# 本地开发时可通过以下方式设置：
+# 1. 设置系统环境变量
+# 2. 在项目根目录创建 .env 文件（已被 .gitignore 忽略）
+# 3. 使用 IDE 的 Run Configuration 设置环境变量
+# ============================================
+
 server:
   port: ${SERVER_PORT:8080}
   servlet:
     context-path: /
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
 
 spring:
   application:
@@ -11,7 +25,7 @@ spring:
       mode: ${SPRING_SQL_INIT_MODE:never}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/smart-campus?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/smart-campus?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai}
     username: ${SPRING_DATASOURCE_USERNAME:root}
     password: ${SPRING_DATASOURCE_PASSWORD:123456}
   jpa:
@@ -30,37 +44,59 @@ spring:
     multipart:
       max-file-size: 200MB
       max-request-size: 200MB
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:2s}
+      timeout: ${REDIS_COMMAND_TIMEOUT:2s}
 
+# JWT 认证配置
+# JWT_SECRET: JWT 签名密钥，生产环境务必修改
+# JWT_EXPIRATION_MS: Token 过期时间（毫秒）
 jwt:
-  secret: your-256-bit-secret-key-here-make-it-long-enough-for-hs256
-  expiration: 86400000
+  secret: ${JWT_SECRET:dev-local-jwt-secret-change-before-production-2026}
+  expiration: ${JWT_EXPIRATION_MS:86400000}
 
+# 腾讯云配置
+# TENCENT_MAP_KEY: 腾讯地图 API Key
+# TENCENT_COS_SECRET_ID/SECRET_KEY: COS 存储密钥
+# TENCENT_COS_BUCKET/DOMAIN: COS Bucket 名称和域名
 tencent:
   map:
-    key: F2ABZ-VU4LH-BDKDF-W7XCC-RXYX2-4AB52
+    key: ${TENCENT_MAP_KEY:}
     base-url: https://apis.map.qq.com
   cos:
-    secret-id: AKIDsjNo2b1EF3d5MPEqEPM6buzrVxCE2e5K
-    secret-key: 6yc3GF0XszsXzDH7j8KK6f193kEWaQ3a
-    region: ap-beijing
-    bucket: luke-1332125786
-    domain: https://luke-1332125786.cos.ap-beijing.myqcloud.com
+    secret-id: ${TENCENT_COS_SECRET_ID:}
+    secret-key: ${TENCENT_COS_SECRET_KEY:}
+    region: ${TENCENT_COS_REGION:ap-beijing}
+    bucket: ${TENCENT_COS_BUCKET:}
+    domain: ${TENCENT_COS_DOMAIN:}
     upload-prefix: smart-campus/media
     map-buildings-prefix: smart-campus/map-buildings
 
+# 高德地图配置
+# AMAP_APP_KEY: 移动端 API Key
+# AMAP_WEB_KEY: Web 端 API Key
 amap:
   app:
-    key: e4cbde60bc0dc20719889d7f585d9452
+    key: ${AMAP_APP_KEY:}
   web:
-    key: 64bc139adb6a611277fb8f6821b371ac
+    key: ${AMAP_WEB_KEY:}
     base-url: https://restapi.amap.com
 
 ai:
   python:
     base-url: ${AI_PYTHON_BASE_URL:http://localhost:8081}
     timeout-seconds: ${AI_PYTHON_TIMEOUT_SECONDS:65}
+    file-response-max-in-memory-bytes: ${AI_PYTHON_FILE_RESPONSE_MAX_IN_MEMORY_BYTES:52428800}
+    internal-token: ${AI_INTERNAL_TOKEN:dev-internal-token-change-me-32chars}
   assistant:
     public-resource-hosts: ${AI_ASSISTANT_PUBLIC_RESOURCE_HOSTS:}
+  learning:
+    workflow:
+      fallback-max-entries: ${AI_LEARNING_WORKFLOW_FALLBACK_MAX_ENTRIES:1024}
 
 knowledge:
   maxkb:
@@ -70,13 +106,17 @@ knowledge:
       ttl-seconds: ${KNOWLEDGE_MAXKB_RETRIEVAL_CACHE_TTL_SECONDS:300}
       max-entries: ${KNOWLEDGE_MAXKB_RETRIEVAL_CACHE_MAX_ENTRIES:500}
 
+# 阿里云 OSS 配置
+# ALIYUN_OSS_BUCKET_NAME: OSS Bucket 名称
+# ALIYUN_OSS_ACCESS_KEY_ID/ACCESS_KEY_SECRET: OSS 密钥
+# ALIYUN_OSS_BASE_URL: OSS 访问域名
 aliyun:
   oss:
-    endpoint: oss-cn-beijing.aliyuncs.com
-    bucket-name: smart-campus111
-    access-key-id: LTAI5tG9NLKEfSZVw3EZ2d1E
-    access-key-secret: yagymAoKXBh0rDJT7ArNTeXDUhsuRX
-    base-url: https://smart-campus111.oss-cn-beijing.aliyuncs.com
+    endpoint: ${ALIYUN_OSS_ENDPOINT:oss-cn-beijing.aliyuncs.com}
+    bucket-name: ${ALIYUN_OSS_BUCKET_NAME:}
+    access-key-id: ${ALIYUN_OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${ALIYUN_OSS_ACCESS_KEY_SECRET:}
+    base-url: ${ALIYUN_OSS_BASE_URL:}
 
 file:
   upload-dir: uploads

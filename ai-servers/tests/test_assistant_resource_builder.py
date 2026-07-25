@@ -9,6 +9,8 @@ from app.services.assistant_resource_builder import (
     BUSINESS_CARD_FIELDS,
     MAX_ENVELOPE_BYTES,
     build_assistant_resource_bundle,
+    build_learning_resource_bundle,
+    verify_assistant_resource_bundle,
     verify_evidence_integrity,
 )
 
@@ -144,6 +146,28 @@ def test_attachment_becomes_typed_file_resource_without_false_grounding():
     assert "capability" not in json.dumps(bundle, ensure_ascii=False).lower()
 
 
+def test_attachment_preserves_manifest_timestamp_precision_for_secure_download_binding():
+    created_at = "2026-07-19T07:33:47.465200Z"
+    expires_at = "2026-07-26T07:33:47.465200Z"
+    bundle = build_bundle(
+        attachments=[
+            {
+                "fileName": "复习资料.docx",
+                "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "storageKey": "export-1.docx",
+                "size": 1234,
+                "sha256": "a" * 64,
+                "createdAt": created_at,
+                "expiresAt": expires_at,
+            }
+        ]
+    )
+
+    resource = bundle["resources"][0]
+    assert resource["createdAt"] == created_at
+    assert resource["expiresAt"] == expires_at
+
+
 def test_internal_only_attachment_is_ignored_in_favor_of_answer_content():
     bundle = build_bundle(attachments=[{"capability": "internal-only"}])
 
@@ -259,6 +283,86 @@ def test_source_digests_and_ids_are_deterministic_and_metadata_is_safe():
     serialized = json.dumps(first, ensure_ascii=False).lower()
     for forbidden in ("authorization", "apikey", "bearer secret", "完整画像原文", '"token"'):
         assert forbidden not in serialized
+
+
+def test_learning_resource_metadata_uses_exact_public_allowlist():
+    bundle = build_bundle(
+        metadata={
+            "courseKey": "python",
+            "knowledgePoint": "loops",
+            "learningPathId": "path-1",
+            "learningPathItemKey": "loop-basics",
+            "resourceKind": "practice_set",
+            "reviewStatus": "passed",
+            "userId": 7,
+            "profile": {"level": "beginner"},
+            "authorization": "Bearer secret",
+            "internalPrompt": "drop-me",
+        }
+    )
+
+    assert bundle["resources"][0]["metadata"] == {
+        "courseKey": "python",
+        "knowledgePoint": "loops",
+        "learningPathId": "path-1",
+        "learningPathItemKey": "loop-basics",
+        "resourceKind": "practice_set",
+        "reviewStatus": "passed",
+    }
+    serialized = json.dumps(bundle, ensure_ascii=False).lower()
+    for forbidden in ("userid", "authorization", "bearer secret", "internalprompt"):
+        assert forbidden not in serialized
+
+
+def test_learning_workflow_resources_are_converted_to_one_verified_envelope():
+    bundle = build_learning_resource_bundle(
+        workflow_id="workflow-1",
+        topic="Python 循环",
+        resources=[
+            {
+                "resourceType": "knowledge_note",
+                "agentName": "textbook_knowledge_agent",
+                "content": "# 循环讲义\n\nfor 会遍历序列。",
+                "evidenceIds": ["ev-loop"],
+                "reviewStatus": "passed",
+            },
+            {
+                "resourceType": "code_lab",
+                "agentName": "python_code_lab_agent",
+                "content": "```python\nfor value in range(3):\n    print(value)\n```",
+                "evidenceIds": ["ev-loop"],
+                "reviewStatus": "passed",
+            },
+        ],
+        references=[
+            {
+                "id": "ev-loop",
+                "source": "maxkb",
+                "content": "for 会依次遍历可迭代对象。",
+            }
+        ],
+        attachments_by_type={
+            "code_lab": [
+                {
+                    "name": "lab.py",
+                    "storageKey": "11111111-1111-4111-8111-111111111111.py",
+                    "sha256": "a" * 64,
+                    "size": 18,
+                    "createdAt": "2026-07-15T10:00:00Z",
+                    "expiresAt": "2026-07-22T10:00:00Z",
+                    "mimeType": "text/x-python",
+                }
+            ]
+        },
+    )
+
+    assert verify_assistant_resource_bundle(bundle)
+    assert {item["metadata"]["resourceKind"] for item in bundle["resources"]} == {
+        "knowledge_note",
+        "code_lab",
+    }
+    assert all(item["groundingStatus"] == "grounded" for item in bundle["resources"])
+    assert len(bundle["resources"]) == 3
 
 
 def test_positional_tool_document_ids_do_not_become_persistent_evidence_ids():

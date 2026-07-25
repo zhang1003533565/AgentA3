@@ -24,6 +24,15 @@ public interface MapMarkerRepository extends JpaRepository<MapMarker, Long> {
             @Param("keyword") String keyword,
             Pageable pageable);
 
+    @Query("SELECT m FROM MapMarker m WHERE " +
+           "m.facilityId IN (SELECT f.id FROM CampusFacility f WHERE f.facilityType IN :facilityTypes) " +
+           "AND (:keyword IS NULL OR m.facilityId IN " +
+           "  (SELECT f.id FROM CampusFacility f WHERE f.facilityName LIKE %:keyword%))")
+    Page<MapMarker> findByFacilityTypes(
+            @Param("facilityTypes") List<Integer> facilityTypes,
+            @Param("keyword") String keyword,
+            Pageable pageable);
+
     @Query("SELECT m FROM MapMarker m WHERE m.facilityId = :facilityId")
     Optional<MapMarker> findByFacilityId(@Param("facilityId") Long facilityId);
 

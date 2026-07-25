@@ -24,6 +24,51 @@ export const buildGenerationFormData = (values, file) => {
   return formData
 }
 
+export const unwrapKnowledgePayload = (response) => {
+  let payload = response?.data ?? response
+  if (payload && typeof payload === 'object' && 'data' in payload && ('code' in payload || 'msg' in payload || 'message' in payload)) {
+    payload = payload.data
+  }
+  return payload
+}
+
+export const normalizeKnowledgePage = (response) => {
+  const payload = unwrapKnowledgePayload(response)
+  if (Array.isArray(payload)) {
+    return { records: payload, total: payload.length }
+  }
+  const records = payload?.records || payload?.list || payload?.items || payload?.rows || []
+  return {
+    records: Array.isArray(records) ? records : [],
+    total: Number(payload?.total ?? payload?.count ?? records.length ?? 0),
+  }
+}
+
+const firstText = (...values) => {
+  const value = values.find((item) => item !== undefined && item !== null && String(item).trim())
+  return value === undefined ? '' : String(value).trim()
+}
+
+export const buildKnowledgeMaterial = (knowledge, selectedDocuments, paragraphGroups) => {
+  const knowledgeName = firstText(knowledge?.name, knowledge?.knowledge_name, knowledge?.title, knowledge?.id, '知识库')
+  const sections = (selectedDocuments || []).map((document, index) => {
+    const documentId = String(document?.id ?? document?.document_id ?? '')
+    const documentName = firstText(document?.name, document?.title, document?.file_name, documentId, `文档 ${index + 1}`)
+    const paragraphs = paragraphGroups?.[documentId] || []
+    const content = paragraphs
+      .map((item) => firstText(item?.content, item?.text))
+      .filter(Boolean)
+      .join('\n\n')
+    return content ? `## ${documentName}\n\n${content}` : ''
+  }).filter(Boolean)
+  const text = [`# ${knowledgeName}`, ...sections].join('\n\n').trim()
+  return {
+    text,
+    sourceTitle: knowledgeName,
+    documentCount: sections.length,
+  }
+}
+
 export const buildImportPayload = (draft, questions) => ({
   proof: draft.proof,
   questions,

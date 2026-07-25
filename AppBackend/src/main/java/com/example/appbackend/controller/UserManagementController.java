@@ -126,4 +126,31 @@ public class UserManagementController {
         userService.resetPassword(id, requestBody.getNewPassword());
         return Result.success();
     }
+
+    @Operation(summary = "管理端注册", description = "管理员创建新的管理员或商家账号，需要管理员权限")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "注册成功"),
+        @ApiResponse(responseCode = "400", description = "参数错误或用户名已存在"),
+        @ApiResponse(responseCode = "401", description = "未登录"),
+        @ApiResponse(responseCode = "403", description = "无权限")
+    })
+    @PostMapping("/register")
+    public Result<UserResponse> adminRegister(
+            HttpServletRequest request,
+            @Parameter(description = "注册信息", required = true)
+            @Valid @RequestBody RegisterRequest requestBody) {
+        checkAdminRole(request);
+        // 管理端注册仅允许 ADMIN 或 MERCHANT 角色
+        String role = requestBody.getRole();
+        if (role == null || role.isEmpty()) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "请选择注册角色");
+        }
+        role = role.toUpperCase();
+        if (!"ADMIN".equals(role) && !"MERCHANT".equals(role)) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "管理端注册仅支持 ADMIN 或 MERCHANT 角色");
+        }
+        requestBody.setRole(role);
+        UserResponse response = userService.register(requestBody);
+        return Result.success(response);
+    }
 }

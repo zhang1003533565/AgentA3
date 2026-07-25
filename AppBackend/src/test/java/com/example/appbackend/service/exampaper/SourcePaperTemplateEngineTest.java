@@ -96,6 +96,23 @@ class SourcePaperTemplateEngineTest {
     }
 
     @Test
+    void preservesPercentagesAndPlaceholderLikeTextFromPaperContent() throws Exception {
+        PaperVO paper = paper();
+        paper.setTitle("达标率 80%，优秀率 20%");
+        paper.setPrecautions("请保留字面文本 %TITLE%，不要把它当成模板指令");
+        paper.setHeaderInfo("完成率 100%  姓名________");
+        paper.getQuestions().getFirst().setStem("某班及格率为 75%，优秀率为 25%；保留 %QUESTION% 字样。");
+
+        String document = text(entries(engine.generate(
+                paper, DownloadContent.PAPER, new PaperLayoutConfig())), "word/document.xml");
+
+        assertTrue(document.contains("80%"));
+        assertTrue(document.contains("20%"));
+        assertTrue(document.contains("%TITLE%"));
+        assertTrue(document.contains("%QUESTION%"));
+    }
+
+    @Test
     void dispatcherKeepsSimpleModeAndRoutesTemplateMode() throws Exception {
         ExamPaperDocumentDispatcher dispatcher = new ExamPaperDocumentDispatcher(
                 new ExamPaperDocumentGenerator(), engine);
