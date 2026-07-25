@@ -314,6 +314,58 @@ function QuestionBank() {
     },
   ], [])
 
+  // 筛选区域：通过 Table title 渲染在表格容器内、表头上方
+  const renderFilter = () => (
+    <Form
+      form={form}
+      className="question-bank-filter"
+      layout="vertical"
+      onFinish={() => fetchList({ current: 1 })}
+    >
+      {/* 搜索框 - 无 label */}
+      <Form.Item name="keyword" label=" " colon={false}>
+        <Input allowClear suffix={<SearchOutlined />} placeholder="搜索题目内容" />
+      </Form.Item>
+
+      {/* 所属题库 */}
+      <Form.Item name="bank" label="所属题库">
+        <Select allowClear showSearch optionFilterProp="label" placeholder="请选择所属题库" options={[]} />
+      </Form.Item>
+
+      {/* 题型（默认选择题，不可清空，始终只筛一种题型） */}
+      <Form.Item name="type" label="题型" initialValue="single_choice">
+        <Select showSearch optionFilterProp="label" placeholder="请选择题型" options={questionTypeOptions} />
+      </Form.Item>
+
+      {/* 难度 */}
+      <Form.Item name="difficulty" label="难度">
+        <Select allowClear showSearch optionFilterProp="label" placeholder="请选择难度" options={[
+          { value: 'easy', label: '简单' },
+          { value: 'medium', label: '中等' },
+          { value: 'hard', label: '困难' },
+        ]} />
+      </Form.Item>
+
+      {/* 按钮组 */}
+      <Form.Item label=" " colon={false} className="question-bank-filter-actions">
+        <Space size={12}>
+          <Button type="primary" htmlType="submit" icon={<SearchOutlined />} className="qb-search-btn">
+            查询
+          </Button>
+          <Button
+            className="qb-reset-btn"
+            onClick={() => {
+              form.resetFields()
+              fetchList({ current: 1 })
+            }}
+          >
+            重置
+          </Button>
+        </Space>
+      </Form.Item>
+    </Form>
+  )
+
   return (
     <div className="question-bank-page">
       {/* 面包屑 */}
@@ -324,63 +376,12 @@ function QuestionBank() {
         </Breadcrumb>
       </div>
 
-      {/* 筛选区域 */}
-      <Card className="question-bank-card question-bank-filter-card" bordered={false}>
-        <Form
-          form={form}
-          className="question-bank-filter"
-          layout="vertical"
-          onFinish={() => fetchList({ current: 1 })}
-        >
-          {/* 搜索框 - 无 label */}
-          <Form.Item name="keyword" label=" " colon={false}>
-            <Input allowClear suffix={<SearchOutlined />} placeholder="搜索题目内容" />
-          </Form.Item>
-
-          {/* 所属题库 */}
-          <Form.Item name="bank" label="所属题库">
-            <Select allowClear placeholder="请选择所属题库" options={[]} />
-          </Form.Item>
-
-          {/* 题型 */}
-          <Form.Item name="type" label="题型">
-            <Select allowClear placeholder="请选择题型" options={questionTypeOptions} />
-          </Form.Item>
-
-          {/* 难度 */}
-          <Form.Item name="difficulty" label="难度">
-            <Select allowClear placeholder="请选择难度" options={[
-              { value: 'easy', label: '简单' },
-              { value: 'medium', label: '中等' },
-              { value: 'hard', label: '困难' },
-            ]} />
-          </Form.Item>
-
-          {/* 按钮组 */}
-          <Form.Item label=" " colon={false} className="question-bank-filter-actions">
-            <Space size={12}>
-              <Button type="primary" htmlType="submit" icon={<SearchOutlined />} className="qb-search-btn">
-                查询
-              </Button>
-              <Button
-                className="qb-reset-btn"
-                onClick={() => {
-                  form.resetFields()
-                  fetchList({ current: 1 })
-                }}
-              >
-                重置
-              </Button>
-            </Space>
-          </Form.Item>
-        </Form>
-      </Card>
-
-      {/* 列表卡片 */}
+      {/* 列表卡片（筛选区作为表格 title 渲染在表头上方） */}
       <Card className="question-bank-card question-bank-list-card" bordered={false}>
         <Table
           className="question-bank-table"
           rowKey="id"
+          title={renderFilter}
           columns={columns}
           dataSource={rows}
           loading={loading}
