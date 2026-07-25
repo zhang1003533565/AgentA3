@@ -1,16 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Breadcrumb, Button, Card, Descriptions, Drawer, Empty, Form, Input, Select, Space, Table, Tag, Typography, message } from 'antd'
-import {
-  PlusOutlined,
-  DownloadOutlined,
-  ImportOutlined,
-  DeleteOutlined,
-  UnorderedListOutlined,
-  AppstoreOutlined,
-  ReloadOutlined,
-  SearchOutlined,
-  EyeOutlined,
-} from '@ant-design/icons'
+import { SearchOutlined } from '@ant-design/icons'
 import { getExamQuestionDetail, getExamQuestionList } from '../../../api/examQuestion'
 import './QuestionBank.css'
 
@@ -57,18 +47,170 @@ const difficultyTagClass = {
   hard: 'qb-tag-diff-hard',
 }
 
-const formatJson = (value) => {
-  if (value === null || value === undefined || value === '') return '-'
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
+// 评分方式展示映射（面向老师/管理员的可读文案）
+const scoringModeLabels = {
+  exact: '按标准答案判分',
+  blank: '按空给分',
+  rubric: '按评分点给分',
+  step: '按解题步骤给分',
+  manual: '人工评分',
+}
+
+// 兼容对象 / JSON 字符串两种形式的字段
+const asObject = (value) => {
+  if (!value) return null
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value)
+    } catch {
+      return null
+    }
   }
+  return typeof value === 'object' ? value : null
 }
 
 const listText = (value) => {
   if (!Array.isArray(value) || !value.length) return '-'
   return value.join('、')
+}
+
+// 选择题选项列表：高亮正确选项
+const renderOptions = (detail) => {
+  const body = asObject(detail.body)
+  const answer = asObject(detail.answer)
+  const options = body?.options
+  if (!Array.isArray(options) || !options.length) return null
+  const correctKeys = detail.type === 'multiple_choice'
+    ? (answer?.correctOptions || [])
+    : [answer?.correctOption].filter(Boolean)
+  return (
+    <div>
+      <Text strong>选项</Text>
+      <div className="qb-option-list">
+        {options.map((opt) => {
+          const isCorrect = correctKeys.includes(opt.key)
+          return (
+            <div key={opt.key} className={`qb-option-item${isCorrect ? ' qb-option-correct' : ''}`}>
+              <span className="qb-option-key">{opt.key}</span>
+              <span className="qb-option-text">{opt.text}</span>
+              {isCorrect ? <span className="qb-option-badge">正确答案</span> : null}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// 作答要求（简答/计算等题型的补充信息）
+const renderRequirements = (detail) => {
+  const body = asObject(detail.body)
+  const groups = []
+  if (Array.isArray(body?.given) && body.given.length) groups.push(['已知条件', body.given])
+  if (Array.isArray(body?.requirements) && body.requirements.length) groups.push(['作答要求', body.requirements])
+  if (body?.answerLengthHint) groups.push(['篇幅建议', [body.answerLengthHint]])
+  if (!groups.length) return null
+  return (
+    <div>
+      <Text strong>作答说明</Text>
+      <div className="qb-detail-box">
+        {groups.map(([label, items]) => (
+          <div key={label} className="qb-require-group">
+            <span className="qb-require-label">{label}：</span>
+            <ul className="qb-point-list">
+              {items.map((item) => <li key={item}>{item}</li>)}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// 参考答案：按题型转成老师可直接阅读的文字
+const renderAnswer = (detail) => {
+  const answer = asObject(detail.answer)
+  if (!answer) return <div className="qb-detail-box">-</div>
+  const { type } = detail
+  if (type === 'single_choice') {
+    return <div className="qb-detail-box"><span className="qb-answer-main">正确答案：{answer.correctOption || '-'}</span></div>
+  }
+  if (type === 'multiple_choice') {
+    return <div className="qb-detail-box"><span className="qb-answer-main">正确答案：{listText(answer.correctOptions)}</span></div>
+  }
+  if (type === 'true_false') {
+    const val = answer.correct ?? answer.correctAnswer
+    const text = val === true ? '正确' : val === false ? '错误' : '-'
+    return <div className="qb-detail-box"><span className="qb-answer-main">正确答案：{text}</span></div>
+  }
+  if (type === 'fill_blank') {
+    const blanks = Array.isArray(answer.blanks) ? answer.blanks : []
+    if (!blanks.length) return <div className="qb-detail-box">-</div>
+    return (
+      <div className="qb-detail-box">
+        {blanks.map((blank, index) => (
+          <div key={blank.id || index} className="qb-answer-line">
+            第 {blank.index ?? index + 1} 空：{listText(blank.answers)}
+            {Array.isArray(blank.answers) && blank.answers.length > 1 ? '（任写其一即可）' : ''}
+          </div>
+        ))}
+        {answer.caseSensitive === false ? <div className="qb-answer-note">英文答案不区分大小写</div> : null}
+      </div>
+    )
+  }
+  if (type === 'calculation') {
+    const steps = Array.isArray(answer.steps) ? answer.steps : []
+    return (
+      <div className="qb-detail-box">
+        <div className="qb-answer-main">最终答案：{answer.finalAnswer ?? '-'}</div>
+        {steps.length ? (
+          <>
+            <div className="qb-answer-sub">解题步骤</div>
+            <ol className="qb-point-list">
+              {steps.map((step) => <li key={step}>{step}</li>)}
+            </ol>
+          </>
+        ) : null}
+      </div>
+    )
+  }
+  // 简答/论述：参考答案 + 答题要点
+  const points = answer.answerPoints || answer.keyPoints
+  return (
+    <div className="qb-detail-box">
+      <div className="qb-answer-text">{answer.referenceAnswer || '-'}</div>
+      {Array.isArray(points) && points.length ? (
+        <>
+          <div className="qb-answer-sub">答题要点</div>
+          <ul className="qb-point-list">
+            {points.map((point) => <li key={point}>{point}</li>)}
+          </ul>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+// 评分规则：评分方式 + 评分点列表
+const renderScoring = (detail) => {
+  const scoring = asObject(detail.scoring)
+  if (!scoring) return <div className="qb-detail-box">按标准答案判分</div>
+  const rubrics = Array.isArray(scoring.rubrics) ? scoring.rubrics : []
+  return (
+    <div className="qb-detail-box">
+      <div className="qb-answer-main">评分方式：{scoringModeLabels[scoring.mode] || '按标准答案判分'}</div>
+      {rubrics.length ? (
+        <div className="qb-rubric-list">
+          {rubrics.map((rubric, index) => (
+            <div key={rubric.criterion || index} className="qb-rubric-item">
+              <span className="qb-rubric-name">{rubric.criterion}</span>
+              <span className="qb-rubric-score">{rubric.score} 分</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function QuestionBank() {
@@ -79,7 +221,6 @@ function QuestionBank() {
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 })
   const [detailOpen, setDetailOpen] = useState(false)
   const [detail, setDetail] = useState(null)
-  const [viewMode, setViewMode] = useState('list')
   const [selectedRowKeys, setSelectedRowKeys] = useState([])
 
   const fetchList = async (params = {}) => {
@@ -172,15 +313,12 @@ function QuestionBank() {
 
   return (
     <div className="question-bank-page">
-      {/* 面包屑 + 刷新 */}
+      {/* 面包屑 */}
       <div className="question-bank-header">
         <Breadcrumb>
           <Breadcrumb.Item>题库管理</Breadcrumb.Item>
           <Breadcrumb.Item><span className="qb-breadcrumb-active">题库</span></Breadcrumb.Item>
         </Breadcrumb>
-        <a className="qb-refresh-top" onClick={() => fetchList()}>
-          <ReloadOutlined /> 刷新
-        </a>
       </div>
 
       {/* 筛选区域 */}
@@ -188,12 +326,12 @@ function QuestionBank() {
         <Form
           form={form}
           className="question-bank-filter"
-          layout="horizontal"
+          layout="vertical"
           onFinish={() => fetchList({ current: 1 })}
         >
           {/* 搜索框 - 无 label */}
-          <Form.Item name="keyword" colon={false}>
-            <Input allowClear suffix={<SearchOutlined />} placeholder="搜索问题内容" />
+          <Form.Item name="keyword" label=" " colon={false}>
+            <Input allowClear suffix={<SearchOutlined />} placeholder="搜索题目内容" />
           </Form.Item>
 
           {/* 所属题库 */}
@@ -216,7 +354,7 @@ function QuestionBank() {
           </Form.Item>
 
           {/* 按钮组 */}
-          <Form.Item className="question-bank-filter-actions">
+          <Form.Item label=" " colon={false} className="question-bank-filter-actions">
             <Space size={12}>
               <Button type="primary" htmlType="submit" icon={<SearchOutlined />} className="qb-search-btn">
                 查询
@@ -234,30 +372,6 @@ function QuestionBank() {
           </Form.Item>
         </Form>
       </Card>
-
-      {/* 操作栏 - 仅保留视图切换 */}
-      <div className="question-bank-toolbar">
-        <div className="qb-toolbar-right">
-          <div className="qb-view-toggle">
-            <button
-              type="button"
-              className={`qb-view-btn ${viewMode === 'list' ? 'is-active' : ''}`}
-              onClick={() => setViewMode('list')}
-              aria-label="列表视图"
-            >
-              <UnorderedListOutlined />
-            </button>
-            <button
-              type="button"
-              className={`qb-view-btn ${viewMode === 'grid' ? 'is-active' : ''}`}
-              onClick={() => setViewMode('grid')}
-              aria-label="卡片视图"
-            >
-              <AppstoreOutlined />
-            </button>
-          </div>
-        </div>
-      </div>
 
       {/* 列表卡片 */}
       <Card className="question-bank-card question-bank-list-card" bordered={false}>
@@ -279,6 +393,7 @@ function QuestionBank() {
             showSizeChanger: true,
             showQuickJumper: true,
             showTotal: (total) => `共 ${total} 道题`,
+            size: 'default',
           }}
           onChange={(nextPagination) => {
             fetchList({
@@ -321,26 +436,25 @@ function QuestionBank() {
               <Descriptions.Item label="来源标题">{detail.sourceTitle || '-'}</Descriptions.Item>
             </Descriptions>
 
+            {/* 选项（仅选择题），正确选项高亮 */}
+            {renderOptions(detail)}
+
+            {/* 作答说明（简答/计算等题型） */}
+            {renderRequirements(detail)}
+
+            <div>
+              <Text strong>参考答案</Text>
+              {renderAnswer(detail)}
+            </div>
+
             <div>
               <Text strong>解析</Text>
               <div className="question-bank-analysis">{detail.analysis || '-'}</div>
             </div>
 
             <div>
-              <Text strong>题型内容</Text>
-              <pre className="question-bank-json">{formatJson(detail.body)}</pre>
-            </div>
-            <div>
-              <Text strong>标准答案</Text>
-              <pre className="question-bank-json">{formatJson(detail.answer)}</pre>
-            </div>
-            <div>
               <Text strong>评分规则</Text>
-              <pre className="question-bank-json">{formatJson(detail.scoring)}</pre>
-            </div>
-            <div>
-              <Text strong>原始题目 JSON</Text>
-              <pre className="question-bank-json">{formatJson(detail.rawQuestion)}</pre>
+              {renderScoring(detail)}
             </div>
           </Space>
         ) : (
