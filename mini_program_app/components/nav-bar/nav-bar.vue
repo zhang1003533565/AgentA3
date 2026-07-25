@@ -11,9 +11,7 @@
           <slot name="left">
             <view
               v-if="showBack"
-              class="nav-action nav-back"
-              :class="{ 'nav-action--wechat': theme === 'wechat' }"
-              :style="actionStyle"
+              class="market-back-button"
               @click="onBack"
             >
               <text class="nav-back-icon" :style="{ color: iconColorValue }">{{ backIcon }}</text>
@@ -61,7 +59,7 @@
             <view
               v-else-if="rightText || rightIcon"
               class="nav-action nav-right"
-              :style="actionStyle"
+              :style="rightActionStyle"
               @click="$emit('right-click')"
             >
               <text v-if="rightIcon" class="nav-right-icon" :style="{ color: iconColorValue }">{{ rightIcon }}</text>
@@ -167,7 +165,7 @@ export default {
       }
       return '112rpx'
     },
-    actionStyle() {
+    rightActionStyle() {
       if (this.showDefaultCapsule) {
         return {
           minWidth: '72rpx'

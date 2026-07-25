@@ -14,6 +14,10 @@ import RagManage from './pages/ai/RagManage/RagManage'
 import AgentSettings from './pages/ai/AgentSettings/AgentSettings'
 import AgentCache from './pages/ai/AgentCache/AgentCache'
 import Login from './pages/Login/Login'
+import ReportManage from './pages/forum/ReportManage/ReportManage'
+import PostManage from './pages/forum/PostManage/PostManage'
+import CommentManage from './pages/forum/CommentManage/CommentManage'
+import TopicManage from './pages/forum/TopicManage/TopicManage'
 import ExamPaperCreatePage from './pages/questionBank/ExamPaperCreatePage'
 import ExamPaperHistoryPage from './pages/questionBank/ExamPaperHistoryPage'
 import QuestionBankGeneratePage from './pages/questionBank/QuestionBankGeneratePage'
@@ -21,9 +25,13 @@ import { QUESTION_BANK_ROUTES } from './pages/questionBank/questionBankRoutes'
 import WorkspacePage from './pages/workspace/WorkspacePage'
 import './App.css'
 
+// 论坛独立页面路径集合（不走 WorkspacePage）
+const FORUM_INDEPENDENT_PATHS = new Set(['/forum/post', '/forum/comment', '/forum/topic', '/forum/report'])
+
 function App() {
+  // 过滤掉论坛相关路由，避免与独立页面冲突
   const workspaceRoutes = allNavItems
-    .filter((item) => item.pageKey && item.path !== '/activity/manage')
+    .filter((item) => item.pageKey && item.path !== '/activity/manage' && !FORUM_INDEPENDENT_PATHS.has(item.path))
     .map((item) => (
       <Route
         key={item.path}
@@ -42,6 +50,11 @@ function App() {
           <Route path="/activity/create" element={<ActivityEditor />} />
           <Route path="/activity/:id/edit" element={<ActivityEditor />} />
           <Route path="/activity/:id" element={<ActivityDetail />} />
+          {/* 论坛独立美化页面 */}
+          <Route path="/forum/post" element={<PostManage />} />
+          <Route path="/forum/comment" element={<CommentManage />} />
+          <Route path="/forum/topic" element={<TopicManage />} />
+          <Route path="/forum/report" element={<ReportManage />} />
           <Route path="/ai/rag" element={<Navigate to="/ai/rag/agents" replace />} />
           <Route path="/ai/rag/strategy" element={<Navigate to="/ai/rag/agents" replace />} />
           <Route path="/ai/rag/agents" element={<RagManage page="agents" />} />

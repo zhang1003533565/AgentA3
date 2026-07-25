@@ -504,7 +504,7 @@ export default {
   bottom: 0;
   left: 0;
   width: 100%;
-  background: linear-gradient(180deg, #dff0ff 0%, #eaf5ff 100%);
+  background: #F6F6F6;
   box-sizing: border-box;
   overflow-x: hidden;
   opacity: 0;
@@ -521,7 +521,7 @@ export default {
 .publish-shell {
   width: 100%;
   height: 100vh;
-  background: linear-gradient(180deg, #dff0ff 0%, #eaf5ff 100%);
+  background: #F6F6F6;
   box-sizing: border-box;
   position: relative;
   display: flex;
@@ -537,6 +537,7 @@ export default {
   width: 100%;
   height: auto;
   padding: 24rpx 24rpx 24rpx;
+  background: #F6F6F6;
   box-sizing: border-box;
   overflow-y: auto;
   overflow-x: hidden;

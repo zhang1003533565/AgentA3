@@ -3,6 +3,8 @@ package com.example.appbackend.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import java.util.List;
+
 @Schema(description = "APP消息中心 DTO")
 public class AppMessageDTO {
 
@@ -44,5 +46,12 @@ public class AppMessageDTO {
         private String targetParams;
         private Long sourceId;
         private String sourceType;
+    }
+
+    @Data
+    @Schema(description = "按模块和事件类型批量已读命令")
+    public static class ReadByCategoryCommand {
+        private String moduleType;
+        private List<String> eventTypes;
     }
 }

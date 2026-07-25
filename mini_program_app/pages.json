@@ -322,15 +322,6 @@
 					}
 				},
 				{
-					"path": "lostfoundPublish/lostfoundPublish",
-					"style": {
-						"navigationBarTitleText": "发布信息",
-						"navigationStyle": "custom",
-						"navigationBarBackgroundColor": "#FFFFFF",
-						"navigationBarTextStyle": "black"
-					}
-				},
-				{
 					"path": "myItems/myItems",
 					"style": {
 						"navigationBarTitleText": "我的市集",
