@@ -50,6 +50,18 @@
                 <view class="voice-icon__stem"></view>
               </view>
             </view>
+            <view v-if="searchSuggestions.length" class="search-suggest-panel">
+              <view
+                v-for="(item, index) in searchSuggestions"
+                :key="item.id"
+                class="search-suggest-item"
+                :class="{ active: index === searchHighlightIndex }"
+                @click.stop="selectSuggestion(item)"
+              >
+                <view class="search-suggest-name">{{ item.markerName || item.name }}</view>
+                <view v-if="item.location || item.detail" class="search-suggest-desc">{{ item.location || item.detail }}</view>
+              </view>
+            </view>
           </view>
 
           <view class="notice-btn-map" aria-label="地图通知">
@@ -177,7 +189,7 @@
 import AiFloatAssistant from '@/components/ai-float-assistant/ai-float-assistant.vue'
 import PoiDetailCard from '@/components/poi-detail-card/poi-detail-card.vue'
 import { getFacilityTypes } from '@/api/facility'
-import { getMarkerList, getNavigationRoute, searchPlaces } from '@/api/map'
+import { getMarkerList, getNavigationRoute, searchFacilities, searchPlaces } from '@/api/map'
 import {
   applyFacilityTypeLabels,
   buildFacilityDetailRoute,
@@ -288,7 +300,11 @@ export default {
       tempSearchLocation: null,
       categoryPanelExpanded: false,
       markerCache: {},
-      mapDataRequestId: 0
+      mapDataRequestId: 0,
+      searchSuggestions: [],
+      searchHighlightIndex: -1,
+      searchDebounceTimer: null,
+      searchRequestId: 0
     }
   },
   computed: {
@@ -768,17 +784,27 @@ export default {
     clearSearch() {
       this.searchKeyword = ''
       this.tempSearchLocation = null
+      this.closeSuggestPanel()
       this.refreshSelectedLocation()
     },
     async handleSearch() {
       const keyword = (this.searchKeyword || '').trim()
       if (!keyword) {
         this.tempSearchLocation = null
+        this.closeSuggestPanel()
         this.refreshSelectedLocation()
         return
       }
+      // 优先用建议列表中高亮或第一项
+      const suggestion = this.searchSuggestions[this.searchHighlightIndex >= 0 ? this.searchHighlightIndex : 0]
+      if (suggestion) {
+        this.selectSuggestion(suggestion, { keepKeyword: true })
+        return
+      }
+      // 本地过滤命中，直接定位第一个
       if (this.visibleLocations.length) {
         this.tempSearchLocation = null
+        this.closeSuggestPanel()
         const firstVisible = this.visibleLocations[0]
         this.mapCenter = {
           longitude: Number(firstVisible.longitude),
@@ -787,6 +813,7 @@ export default {
         this.mapScale = 17
         return
       }
+      // 校内设施未匹配，fallback 到腾讯 POI 搜索
       try {
         const res = await searchPlaces({
           keyword,
@@ -819,6 +846,7 @@ export default {
         }
         this.tempSearchLocation = item
         this.selectedLocation = null
+        this.closeSuggestPanel()
         this.mapCenter = {
           longitude: Number(item.longitude),
           latitude: Number(item.latitude)
@@ -833,6 +861,64 @@ export default {
     handleKeywordInput() {
       this.tempSearchLocation = null
       this.refreshSelectedLocation()
+      const keyword = (this.searchKeyword || '').trim()
+      if (!keyword) {
+        this.closeSuggestPanel()
+        return
+      }
+      if (this.searchDebounceTimer) {
+        clearTimeout(this.searchDebounceTimer)
+      }
+      this.searchDebounceTimer = setTimeout(() => {
+        this.fetchSearchSuggestions(keyword)
+      }, 300)
+    },
+    async fetchSearchSuggestions(keyword) {
+      const requestId = ++this.searchRequestId
+      try {
+        const res = await searchFacilities({ keyword, limit: 8 })
+        if (requestId !== this.searchRequestId) return
+        const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : [])
+        this.searchSuggestions = list.filter((item) => item.longitude != null && item.latitude != null)
+        this.searchHighlightIndex = this.searchSuggestions.length ? 0 : -1
+      } catch (error) {
+        if (requestId === this.searchRequestId) {
+          this.searchSuggestions = []
+          this.searchHighlightIndex = -1
+        }
+      }
+    },
+    selectSuggestion(item, options = {}) {
+      if (!item) return
+      const keepKeyword = !!options.keepKeyword
+      this.searchKeyword = keepKeyword ? this.searchKeyword : (item.markerName || item.name || '')
+      this.searchSuggestions = []
+      this.searchHighlightIndex = -1
+      this.tempSearchLocation = null
+      const target = {
+        id: item.id || item.markerId || item.facilityId,
+        name: item.markerName || item.name,
+        shortName: this.getShortName(item.markerName || item.name),
+        icon: '',
+        coverImage: '',
+        facilityType: item.facilityType,
+        facilityId: item.facilityId,
+        category: 0,
+        typeClass: 'search',
+        distance: item.distance != null ? this.formatDistance(Number(item.longitude), Number(item.latitude)) : '--',
+        detail: item.location || '',
+        description: item.description || '',
+        route: item.facilityId ? buildFacilityDetailRoute(item.facilityType, item.facilityId) : '',
+        longitude: Number(item.longitude),
+        latitude: Number(item.latitude)
+      }
+      this.selectedLocation = target
+      this.mapCenter = { longitude: target.longitude, latitude: target.latitude }
+      this.mapScale = 17
+    },
+    closeSuggestPanel() {
+      this.searchSuggestions = []
+      this.searchHighlightIndex = -1
     },
     showMoreCategories() {
       uni.showToast({ title: '可左右滑动查看更多分类', icon: 'none' })
@@ -865,6 +951,7 @@ export default {
     closePopup() {
       this.selectedLocation = null
       this.navigationPolyline = []
+      this.closeSuggestPanel()
     },
     onMarkerTap(event) {
       const markerId = Number(event?.detail?.markerId ?? event?.detail?.id)
@@ -1181,6 +1268,49 @@ export default {
   border: 1rpx solid rgba(102, 114, 125, 0.08);
   box-shadow: 0 14rpx 38rpx rgba(42, 72, 103, 0.1);
   backdrop-filter: blur(16rpx);
+}
+
+.search-suggest-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 8rpx);
+  z-index: 60;
+  max-height: 560rpx;
+  overflow-y: auto;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1rpx solid rgba(102, 114, 125, 0.08);
+  box-shadow: 0 18rpx 44rpx rgba(42, 72, 103, 0.14);
+  backdrop-filter: blur(16rpx);
+}
+
+.search-suggest-item {
+  padding: 20rpx 28rpx;
+  border-bottom: 1rpx solid rgba(102, 114, 125, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.search-suggest-item:last-child {
+  border-bottom: none;
+}
+
+.search-suggest-item.active {
+  background: rgba(77, 134, 248, 0.08);
+}
+
+.search-suggest-name {
+  font-size: 28rpx;
+  color: #1d1d1f;
+  line-height: 1.4;
+}
+
+.search-suggest-desc {
+  font-size: 22rpx;
+  color: rgba(102, 114, 125, 0.9);
+  line-height: 1.4;
 }
 
 .search-icon {
