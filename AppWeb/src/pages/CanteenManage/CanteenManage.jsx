@@ -22,11 +22,27 @@ const STATUS_MAP = {
 function Carousel({ images }) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const timerRef = useRef(null)
+  const imageCount = images?.length ?? 0
 
-  if (!images || images.length === 0) return null
+  // 多张图片自动轮播
+  useEffect(() => {
+    if (imageCount <= 1) return undefined
+
+    timerRef.current = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % imageCount)
+    }, 3000)
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+      }
+    }
+  }, [imageCount])
+
+  if (imageCount === 0) return null
 
   // 单张图片直接展示，不轮播
-  if (images.length === 1) {
+  if (imageCount === 1) {
     return (
       <img
         src={images[0]}
@@ -35,19 +51,6 @@ function Carousel({ images }) {
       />
     )
   }
-
-  // 多张图片自动轮播
-  useEffect(() => {
-    timerRef.current = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % images.length)
-    }, 3000)
-
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current)
-      }
-    }
-  }, [images.length])
 
   return (
     <div className="canteen-carousel">
