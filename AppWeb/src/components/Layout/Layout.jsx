@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Navigate, Outlet, useLocation } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import { Button } from 'antd'
 import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
 import NavBar from '../NavBar/NavBar'
@@ -9,16 +9,11 @@ import { getUserInfo } from '../../utils/storage'
 import './Layout.css'
 
 function Layout() {
-  const userInfo = getUserInfo()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const pageMeta = useMemo(() => getNavMetaByPath(location.pathname), [location.pathname])
   const breadcrumb = useMemo(() => getBreadcrumbByPath(location.pathname), [location.pathname])
   const hidePageHeading = location.pathname !== '/home'
-
-  if (!userInfo) {
-    return <Navigate to="/" replace />
-  }
 
   return (
     <div className={`layout ${mobileOpen ? 'sidebar-open' : ''}`}>

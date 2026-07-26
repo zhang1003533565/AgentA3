@@ -14,7 +14,8 @@ import './MarkerManage.css'
 /* ============================================================
    常量
    ============================================================ */
-const AMAP_WEB_KEY = '64bc139adb6a611277fb8f6821b371ac'
+const AMAP_WEB_KEY = import.meta.env.VITE_AMAP_WEB_KEY || '64bc139adb6a611277fb8f6821b371ac'
+const AMAP_SECURITY_JS_CODE = import.meta.env.VITE_AMAP_SECURITY_JS_CODE || ''
 const DEFAULT_CENTER = { lng: 114.897014, lat: 40.755502 }
 const DEFAULT_ZOOM = 16
 
@@ -108,6 +109,12 @@ const isMarkerUnlocated = (marker) => (
 let amapPromise = null
 const loadAmap = () => {
   if (typeof window === 'undefined') return Promise.reject(new Error('浏览器不可用'))
+  if (AMAP_SECURITY_JS_CODE) {
+    window._AMapSecurityConfig = {
+      ...window._AMapSecurityConfig,
+      securityJsCode: AMAP_SECURITY_JS_CODE,
+    }
+  }
   if (window.AMap) return Promise.resolve(window.AMap)
   if (amapPromise) return amapPromise
   amapPromise = new Promise((rs, rj) => {
@@ -254,8 +261,8 @@ export default function MarkerManage() {
     resizeMap(map)
 
     const clickH = (e) => {
-      // 点击空白处关闭详情弹窗
-      setSelId(null)
+      // 非编辑状态下点击空白处才取消列表选择；编辑时必须保留当前设施。
+      if (!editorOpen) setSelId(null)
 
       const pix = e?.pixel
       const cv = pix && typeof map.containerToLngLat === 'function' ? map.containerToLngLat(pix) : null
@@ -540,21 +547,51 @@ export default function MarkerManage() {
     const q = (kw ?? searchKw).trim()
     if (!editorOpen || !selMarker) { message.info('请先从设施列表选择一个设施并进入位置编辑'); return }
     if (!q) { message.warning('请输入关键词'); return }
-    if (!amapOk) { message.warning('地图未就绪'); return }
+    if (!amapOk) { message.warning('地图未就绪，请稍后再试'); return }
+    if (!AMAP_SECURITY_JS_CODE) {
+      message.error('未配置高德 JS API 安全密钥，请设置 VITE_AMAP_SECURITY_JS_CODE 后重启前端')
+      return
+    }
     setSearchBusy(true)
     try {
       await amapPlugin('AMap.PlaceSearch')
-      const ps = new window.AMap.PlaceSearch({ pageSize: 10, pageIndex: 1, citylimit: false })
-      const pois = await new Promise((rs, rj) => {
-        ps.search(q, (s, r) => { if (s !== 'complete') { rj(new Error(r?.info || '搜索失败')); return } rs(Array.isArray(r?.poiList?.pois) ? r.poiList.pois : []) })
+      const placeSearch = new window.AMap.PlaceSearch({
+        pageSize: 15,
+        pageIndex: 1,
+        city: '张家口',
+        citylimit: false,
+      })
+      const pois = await new Promise((resolve, reject) => {
+        placeSearch.search(q, (status, result) => {
+          if (status === 'complete') {
+            resolve(Array.isArray(result?.poiList?.pois) ? result.poiList.pois : [])
+            return
+          }
+          if (status === 'no_data') {
+            resolve([])
+            return
+          }
+          reject(new Error(result?.info || '高德地点搜索不可用'))
+        })
       })
       const items = pois.map((p, i) => {
-        const [ln, la] = [toNum(p.location?.lng ?? p.location?.getLng?.()), toNum(p.location?.lat ?? p.location?.getLat?.())]
+        const [ln, la] = [
+          toNum(p.location?.getLng?.() ?? p.location?.lng),
+          toNum(p.location?.getLat?.() ?? p.location?.lat),
+        ]
         if (ln == null || la == null) return null
-        return { id: p.id || `p-${i}`, name: p.name || `地点${i + 1}`, address: [p.pname, p.cityname, p.adname, p.address].filter(Boolean).join(' '), longitude: ln, latitude: la }
+        return {
+          id: p.id || `p-${i}`,
+          name: p.name || `地点${i + 1}`,
+          address: [p.pname, p.cityname, p.adname, p.address].filter(Boolean).join(' '),
+          longitude: ln,
+          latitude: la,
+          distance: toNum(p.distance),
+        }
       }).filter(Boolean)
       setSearchHits(items)
-      if (items.length) pickPoi(items[0]); else message.info('未找到')
+      setActivePoi(null)
+      if (!items.length) message.info('没有找到相关地点，请更换关键词')
     } catch (e) { message.error(e?.message || '搜索失败'); setSearchHits([]) } finally { setSearchBusy(false) }
   }
 
@@ -769,13 +806,6 @@ export default function MarkerManage() {
      ============================================================ */
   return (
     <div className="marker-page">
-      <section className="marker-toolbar">
-        <div className="marker-toolbar__copy">
-          <h2>标点管理</h2>
-          <p>编辑既有设施的点位与区域围栏</p>
-        </div>
-      </section>
-
       <section className="marker-summary" aria-label="设施位置统计">
         <div className="marker-summary__primary"><span>设施总数</span><strong>{markers.length}</strong></div>
         <div className="marker-summary__primary">
@@ -810,10 +840,19 @@ export default function MarkerManage() {
 
       <section className="marker-workspace">
         <div className="marker-map-pane">
-          <div className="marker-map-shell">
+          <div className={`marker-map-shell${editorOpen ? ' is-editing' : ''}`}>
             <div ref={containerRef} className="marker-map-canvas" />
             {amapErr ? <div className="marker-map-error">{amapErr}</div> : null}
             {!amapOk && !amapErr ? <div className="marker-map-loading"><Skeleton active paragraph={{ rows: 1 }} title={false} /></div> : null}
+            {editorOpen ? (
+              <div className="marker-map-edit-status">
+                <EnvironmentOutlined />
+                <span>
+                  正在编辑 <strong>{draft.facilityName || '当前设施'}</strong>
+                  · {draft.geometryType === 'AREA' ? '在地图上依次点击围栏顶点' : '点击地图选择位置'}
+                </span>
+              </div>
+            ) : null}
 
             {typeOptions.length > 0 ? (
               <div className="marker-legend">
@@ -838,16 +877,6 @@ export default function MarkerManage() {
               <Button className={satellite ? 'is-active' : ''} icon={<GlobalOutlined />} onClick={toggleSatellite} title={satellite ? '切换普通地图' : '切换卫星地图'} />
             </div>
 
-            {searchHits.length > 0 ? (
-              <div className="marker-search-results">
-                <div className="marker-search-results__head">高德地点搜索结果 <button type="button" onClick={() => setSearchHits([])}>收起</button></div>
-                {searchHits.map((point) => (
-                  <button key={point.id} type="button" className={`marker-search-result${activePoi?.id === point.id ? ' active' : ''}`} onClick={() => pickPoi(point)}>
-                    <strong>{point.name}</strong><span>{point.address}</span><em>{point.longitude}, {point.latitude}</em>
-                  </button>
-                ))}
-              </div>
-            ) : null}
           </div>
         </div>
 
@@ -891,14 +920,22 @@ export default function MarkerManage() {
         title="编辑设施位置"
         placement="right" width={430}
         open={editorOpen} onClose={closeEditor}
+        mask={false}
+        push={false}
+        rootStyle={{ pointerEvents: 'none' }}
+        styles={{ wrapper: { pointerEvents: 'auto' } }}
         rootClassName="marker-editor-drawer"
         footer={<div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
           <Button onClick={closeEditor} style={{ borderRadius: 12 }}>取消</Button>
           <Button type="primary" loading={saving} onClick={saveDraft} style={{ borderRadius: 12, fontWeight: 600 }}>保存位置</Button>
         </div>}
       >
-        <div className="marker-editor-hint">
-          此处只编辑设施的地图位置。名称、类型和业务信息请在对应设施管理页面维护。
+        <div className="marker-editor-hint marker-editor-hint--interactive">
+          <EnvironmentOutlined />
+          <div>
+            <strong>{draft.geometryType === 'AREA' ? '保持面板打开，在左侧地图绘制围栏' : '保持面板打开，在左侧地图点击落点'}</strong>
+            <span>地图仍可拖动和缩放；名称、类型等业务信息请在对应设施页面维护。</span>
+          </div>
         </div>
         <div className="marker-editor-facility">
           <span className="marker-editor-facility__icon" style={{ background: tmeta(draft.facilityType).color }}>
@@ -920,6 +957,26 @@ export default function MarkerManage() {
                   onSearch={doSearch}
                   loading={searchBusy}
                 />
+                {searchHits.length > 0 ? (
+                  <div className="marker-editor-search-results">
+                    <div className="marker-editor-search-results__head">
+                      <span>找到 {searchHits.length} 个地点</span>
+                      <button type="button" onClick={() => setSearchHits([])}>清空</button>
+                    </div>
+                    {searchHits.map((point) => (
+                      <button
+                        key={point.id}
+                        type="button"
+                        className={`marker-editor-search-result${activePoi?.id === point.id ? ' active' : ''}`}
+                        onClick={() => pickPoi(point)}
+                      >
+                        <strong>{point.name}</strong>
+                        <span>{point.address || '暂无地址'}</span>
+                        <em>{point.distance != null ? `距地图中心 ${point.distance} 米` : `${point.longitude}, ${point.latitude}`}</em>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </Form.Item>
               <Form.Item label="位置形态" required>
                 <Segmented

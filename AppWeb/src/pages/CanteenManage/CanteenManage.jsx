@@ -10,6 +10,7 @@ import {
   Select,
   Spin,
   Tag,
+  Upload,
   message,
 } from 'antd'
 import {
@@ -19,6 +20,7 @@ import {
   PlusOutlined,
   SearchOutlined,
   ShopOutlined,
+  UploadOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import SidePanel from '../../components/SidePanel/SidePanel'
@@ -28,6 +30,7 @@ import {
   getFacilityList,
   updateFacility,
 } from '../../api/facility'
+import { MAP_BUILDING_UPLOAD_FOLDER, uploadImage } from '../../api/upload'
 import './CanteenManage.css'
 
 const STATUS_MAP = {
@@ -95,6 +98,8 @@ function Carousel({ images }) {
 
 function CanteenEditor({ open, canteen, saving, onClose, onSave }) {
   const [form] = Form.useForm()
+  const [images, setImages] = useState([])
+  const [uploading, setUploading] = useState(false)
   const isEdit = Boolean(canteen)
 
   useEffect(() => {
@@ -105,14 +110,38 @@ function CanteenEditor({ open, canteen, saving, onClose, onSave }) {
       status: canteen?.status ?? 1,
       description: canteen?.description || '',
     })
+    setImages(parseImages(canteen?.images))
   }, [canteen, form, open])
 
   const submit = async () => {
     try {
-      onSave(await form.validateFields())
+      const values = await form.validateFields()
+      onSave({ ...values, images })
     } catch {
       // Ant Design 会在字段旁显示校验结果。
     }
+  }
+
+  const beforeUpload = async (file) => {
+    if (!file.type?.startsWith('image/')) {
+      message.warning('请选择图片文件')
+      return false
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      message.warning('单张图片不能超过 10MB')
+      return false
+    }
+    setUploading(true)
+    try {
+      const url = await uploadImage(file, MAP_BUILDING_UPLOAD_FOLDER)
+      setImages((previous) => [...previous, url])
+      message.success('图片上传成功')
+    } catch (error) {
+      message.error(error?.message || '图片上传失败')
+    } finally {
+      setUploading(false)
+    }
+    return false
   }
 
   return (
@@ -124,7 +153,7 @@ function CanteenEditor({ open, canteen, saving, onClose, onSave }) {
       footer={(
         <>
           <Button onClick={onClose}>取消</Button>
-          <Button type="primary" loading={saving} onClick={submit}>保存</Button>
+          <Button type="primary" loading={saving || uploading} onClick={submit}>保存</Button>
         </>
       )}
     >
@@ -140,6 +169,32 @@ function CanteenEditor({ open, canteen, saving, onClose, onSave }) {
         </Form.Item>
         <Form.Item label="设施说明" name="description">
           <Input.TextArea rows={4} placeholder="介绍开放范围、服务内容等" />
+        </Form.Item>
+        <Form.Item label="食堂图片">
+          <Upload
+            listType="picture-card"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            fileList={images.map((url, index) => ({
+              uid: `${index}-${url}`,
+              name: `食堂图片${index + 1}`,
+              status: 'done',
+              url,
+            }))}
+            beforeUpload={beforeUpload}
+            onRemove={(file) => {
+              setImages((previous) => previous.filter((url) => url !== file.url))
+            }}
+            showUploadList={{ showPreviewIcon: true, showRemoveIcon: true }}
+            disabled={uploading || images.length >= 3}
+          >
+            {images.length < 3 ? (
+              <div className="canteen-image-upload__trigger">
+                <UploadOutlined />
+                <span>{uploading ? '上传中' : '上传图片'}</span>
+              </div>
+            ) : null}
+          </Upload>
+          <div className="canteen-image-upload__tip">最多上传 3 张，支持 JPG、PNG、WebP、GIF，单张不超过 10MB。</div>
         </Form.Item>
         <div className="canteen-location-tip">
           <EnvironmentOutlined />
@@ -234,6 +289,7 @@ export default function CanteenManage() {
         location: values.location?.trim() || '',
         description: values.description?.trim() || '',
         status: values.status,
+        images: JSON.stringify(values.images || []),
       }
       if (editingCanteen) {
         await updateFacility(editingCanteen.id, payload)
