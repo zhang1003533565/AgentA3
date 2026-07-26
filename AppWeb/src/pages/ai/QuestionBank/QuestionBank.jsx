@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Breadcrumb, Button, Card, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Select, Space, Spin, Table, Tag, Typography, message } from 'antd'
+import { Button, Card, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Select, Space, Spin, Table, Tag, Typography, message } from 'antd'
 import { MinusCircleOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import {
   createExamQuestion,
@@ -9,6 +9,7 @@ import {
   getExamQuestionList,
   updateExamQuestion,
 } from '../../../api/examQuestion'
+import PageHeader from '../../../components/PageHeader/PageHeader'
 import './QuestionBank.css'
 
 const { Text } = Typography
@@ -588,19 +589,7 @@ function QuestionBank() {
       <Form.Item name="type" label="题型" initialValue="single_choice">
         <Select showSearch optionFilterProp="label" placeholder="请选择题型" options={questionTypeOptions} />
       </Form.Item>
-      {/* 题型（默认选择题，不可清空，始终只筛一种题型） */}
-      <Form.Item name="type" label="题型" initialValue="single_choice">
-        <Select showSearch optionFilterProp="label" placeholder="请选择题型" options={questionTypeOptions} />
-      </Form.Item>
 
-      {/* 难度 */}
-      <Form.Item name="difficulty" label="难度">
-        <Select allowClear showSearch optionFilterProp="label" placeholder="请选择难度" options={[
-          { value: 'easy', label: '简单' },
-          { value: 'medium', label: '中等' },
-          { value: 'hard', label: '困难' },
-        ]} />
-      </Form.Item>
       {/* 难度 */}
       <Form.Item name="difficulty" label="难度">
         <Select allowClear showSearch optionFilterProp="label" placeholder="请选择难度" options={[
@@ -635,21 +624,14 @@ function QuestionBank() {
 
   return (
     <div className="question-bank-page">
-      {/* 面包屑 */}
-      <div className="question-bank-header">
-        <Breadcrumb>
-          <Breadcrumb.Item>题库管理</Breadcrumb.Item>
-          <Breadcrumb.Item><span className="qb-breadcrumb-active">题库</span></Breadcrumb.Item>
-        </Breadcrumb>
-      </div>
+      {/* 页面标题（通用面包屑组件） */}
+      <PageHeader items={['题库管理', '题库']} />
 
-      {/* 列表卡片（筛选区作为表格 title 渲染在表头上方） */}
       {/* 列表卡片（筛选区作为表格 title 渲染在表头上方） */}
       <Card className="question-bank-card question-bank-list-card" bordered={false}>
         <Table
           className="question-bank-table"
           rowKey="id"
-          title={renderFilter}
           title={renderFilter}
           columns={columns}
           dataSource={rows}

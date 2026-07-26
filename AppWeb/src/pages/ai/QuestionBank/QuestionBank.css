@@ -10,9 +10,9 @@
   --qb-success: #22c55e;
   --qb-success-deep: #16a34a;
   --qb-success-soft: #e7f7ec;
-  /* 玻璃拟态卡片 */
-  --qb-card: rgba(255, 255, 255, 0.75);
-  --qb-card-border: rgba(255, 255, 255, 0.35);
+  /* 白色卡片（浅色页面背景） */
+  --qb-card: #ffffff;
+  --qb-card-border: rgba(226, 232, 240, 0.9);
   --qb-text: #1e293b;
   --qb-text-muted: #64748b;
   --qb-text-micro: #94a3b8;
@@ -20,11 +20,7 @@
   --qb-radius-card: 16px;
   --qb-radius-control: 10px;
   --qb-radius-pill: 999px;
-  --qb-shadow-card: 0 18px 45px rgba(11, 59, 143, 0.28);
-  /* 背景板（深蓝科技渐变壳） */
-  --qb-board-radius: 24px;
-  --qb-board-shadow: 0 24px 60px rgba(11, 59, 143, 0.35);
-  --qb-board-border: rgba(255, 255, 255, 0.22);
+  --qb-shadow-card: 0 10px 28px rgba(15, 23, 42, 0.06);
 
   /* 页面定高：视口高度 - 外层 Layout 上下留白（22 + 32 + 28px），
      列表数据量不再撑开页面，窗口过矮时由 min-height 兜底 */
@@ -32,92 +28,13 @@
   min-height: 560px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding: 24px;
-  position: relative;
-  overflow: hidden;
-  border-radius: var(--qb-board-radius);
-  /* 蓝色光晕 + 深蓝→科技蓝→浅蓝渐变（蓝色占比 > 60%） */
-  background:
-    radial-gradient(900px 480px at 82% -8%, rgba(96, 165, 250, 0.45), transparent 60%),
-    radial-gradient(720px 460px at 6% 32%, rgba(59, 130, 246, 0.38), transparent 65%),
-    radial-gradient(640px 400px at 50% 108%, rgba(191, 219, 254, 0.55), transparent 70%),
-    linear-gradient(180deg, #0b3b8f 0%, #1565c0 54%, #e8f3ff 100%);
-  box-shadow: var(--qb-board-shadow);
-  border: 1px solid var(--qb-board-border);
+  gap: 12px;
 }
 
-/* 科技网格：顶部清晰、向下淡出 */
-.question-bank-page::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
-  background-size: 44px 44px;
-  -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.25) 55%, transparent 85%);
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.25) 55%, transparent 85%);
-}
-
-/* 柔和粒子：若干白色光点散布在蓝色区域 */
-.question-bank-page::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    radial-gradient(circle at 12% 16%, rgba(255, 255, 255, 0.55) 0 2px, transparent 3px),
-    radial-gradient(circle at 28% 44%, rgba(255, 255, 255, 0.35) 0 1.5px, transparent 2.5px),
-    radial-gradient(circle at 46% 10%, rgba(255, 255, 255, 0.45) 0 2px, transparent 3px),
-    radial-gradient(circle at 63% 34%, rgba(255, 255, 255, 0.3) 0 1.5px, transparent 2.5px),
-    radial-gradient(circle at 78% 14%, rgba(255, 255, 255, 0.5) 0 2px, transparent 3px),
-    radial-gradient(circle at 90% 40%, rgba(255, 255, 255, 0.3) 0 1.5px, transparent 2.5px),
-    radial-gradient(circle at 38% 58%, rgba(255, 255, 255, 0.22) 0 1.5px, transparent 2.5px);
-}
-
-/* 内容抬到背景装饰层之上 */
-.question-bank-page > * {
-  position: relative;
-  z-index: 1;
-}
-
-/* ============ 顶部 Header（面包屑 + 刷新）============ */
-.question-bank-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 0 8px;
-  margin-top: 8px;
-}
-
-.question-bank-header .ant-breadcrumb {
-  font-size: 14px;
-  line-height: 1;
-}
-
-/* 面包屑坐在深蓝背景上，改用浅色文字 */
-.question-bank-header .ant-breadcrumb a,
-.question-bank-header .ant-breadcrumb li:not(:last-child) .ant-breadcrumb-link {
-  color: rgba(255, 255, 255, 0.75);
-}
-
-.question-bank-header .ant-breadcrumb-separator {
-  color: rgba(255, 255, 255, 0.45);
-}
-
-.question-bank-header .ant-breadcrumb .qb-breadcrumb-active {
-  color: #ffffff;
-  font-weight: 600;
-}
-
-/* ============ 卡片通用（玻璃拟态）============ */
+/* ============ 卡片通用 ============ */
 .question-bank-page .question-bank-card.ant-card {
   border-radius: var(--qb-radius-card);
   background: var(--qb-card);
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
   box-shadow: var(--qb-shadow-card);
   border: 1px solid var(--qb-card-border);
 }
@@ -186,13 +103,13 @@
   display: inline-block;
 }
 
-/* 控件统一高度 40px（玻璃卡内半透明白，避免大面积纯白） */
+/* 控件统一高度 40px */
 .question-bank-filter .ant-input-affix-wrapper,
 .question-bank-filter .ant-select-selector {
   height: 40px !important;
   border-radius: var(--qb-radius-control);
-  background: rgba(255, 255, 255, 0.72) !important;
-  border-color: rgba(148, 180, 226, 0.45);
+  background: #ffffff !important;
+  border-color: #e2e8f0;
   box-shadow: none;
 }
 
@@ -281,8 +198,8 @@
   height: 40px;
   padding: 0 20px;
   border-radius: var(--qb-radius-control);
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(148, 180, 226, 0.45);
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
   color: #475569;
   font-weight: 500;
   font-size: 14px;
@@ -295,7 +212,7 @@
 .qb-reset-btn:hover {
   color: var(--qb-primary) !important;
   border-color: rgba(59, 130, 246, 0.5) !important;
-  background: rgba(255, 255, 255, 0.9) !important;
+  background: #ffffff !important;
 }
 
 /* 新增题目按钮（与查询按钮同主色蓝圆角风格） */
@@ -449,10 +366,8 @@
 
 .question-bank-table .ant-table-thead > tr > th {
   height: 44px;
-  /* 近乎不透明 + 毛玻璃，避免滚动时下方行文字透出 */
-  background: rgba(228, 240, 254, 0.92);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
+  /* 近乎不透明，避免滚动时下方行文字透出 */
+  background: #f1f6fd;
   color: #64748b;
   font-weight: 600;
   font-size: 13px;
@@ -886,12 +801,6 @@
     flex: none;
     min-height: 320px;
     max-height: 60vh;
-  }
-
-  .question-bank-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
   }
 
   .question-bank-filter.ant-form {
