@@ -1,13 +1,14 @@
 /** 本地兜底字典；运行时优先使用 GET /api/v1/facility/types */
-export const FACILITY_TYPE_OTHER = 99
+export const FACILITY_TYPE_OTHER = 5
 
 export const DEFAULT_FACILITY_TYPES = [
   { value: 1, label: '食堂' },
-  { value: 2, label: '运动场' },
-  { value: 3, label: '教学楼' },
-  { value: 4, label: '综合服务' },
-  { value: 5, label: '校内商铺' },
+  { value: 2, label: '球类场地' },
+  { value: 3, label: '水上及特殊场地' },
+  { value: 4, label: '田径及综合场地' },
   { value: FACILITY_TYPE_OTHER, label: '其他' },
+  { value: 6, label: '教学楼' },
+  { value: 7, label: '宿舍' },
 ]
 
 export const FACILITY_TYPE_OPTIONS = toFacilityTypeOptions(DEFAULT_FACILITY_TYPES)

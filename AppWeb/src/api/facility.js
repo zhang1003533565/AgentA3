@@ -25,6 +25,12 @@ export const getFacilityList = (params = {}) =>
     },
   })
 
+export const getFacilityDetail = (id) =>
+  request({
+    url: `/api/v1/facility/${id}`,
+    method: 'get',
+  })
+
 export const createFacility = (data) =>
   request({
     url: '/api/v1/facility',

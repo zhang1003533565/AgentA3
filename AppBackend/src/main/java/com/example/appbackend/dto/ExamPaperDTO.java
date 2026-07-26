@@ -7,6 +7,7 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 public final class ExamPaperDTO {
 
@@ -129,7 +130,25 @@ public final class ExamPaperDTO {
         private List<SelectedQuestion> questions;
 
         @Valid
+        private Map<String, TypeScoreRuleRequest> typeScoreRules;
+
+        @Valid
         private PreviewProof previewProof;
+    }
+
+    @Data
+    public static class TypeScoreRuleRequest {
+        @DecimalMin("0.01")
+        private BigDecimal scorePerQuestion;
+
+        @Size(max = 40)
+        private String scoringRule;
+
+        @Size(max = 160)
+        private String customScoringRule;
+
+        @Size(max = 200)
+        private String scoringRuleText;
     }
 
     @Data

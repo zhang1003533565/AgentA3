@@ -348,7 +348,7 @@ export default {
   align-items: center;
   gap: 16rpx;
   padding: 18rpx 28rpx 20rpx;
-  background: #FFFFFF;
+  background: #F7F7F9;
   border-bottom: 1rpx solid #EEEEEE;
 }
 

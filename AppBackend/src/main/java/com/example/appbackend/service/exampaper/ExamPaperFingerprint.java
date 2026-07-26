@@ -43,6 +43,7 @@ public final class ExamPaperFingerprint {
         StringBuilder out = new StringBuilder("exam-paper-config-v1");
         append(out, request.getTitle()); append(out, request.getSubtitle()); append(out, request.getDurationMinutes());
         append(out, request.getPrecautions()); append(out, request.getSelectionMode());
+        appendTypeScoreRules(out, request.getTypeScoreRules());
         append(out, layout.getRenderMode()); append(out, layout.getPageSize()); append(out, layout.getOrientation());
         append(out, layout.getMarginPreset()); append(out, layout.getCustomMarginTop()); append(out, layout.getCustomMarginRight());
         append(out, layout.getCustomMarginBottom()); append(out, layout.getCustomMarginLeft()); append(out, layout.getColumnsCount());
@@ -65,6 +66,28 @@ public final class ExamPaperFingerprint {
     private static void append(StringBuilder out, Object value) {
         String text = value == null ? "" : String.valueOf(value);
         out.append('|').append(text.length()).append(':').append(text);
+    }
+
+    private static void appendTypeScoreRules(StringBuilder out, Map<String, TypeScoreRuleRequest> rules) {
+        if (rules == null || rules.isEmpty()) {
+            append(out, "");
+            return;
+        }
+        rules.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(entry -> {
+                    TypeScoreRuleRequest rule = entry.getValue();
+                    append(out, entry.getKey());
+                    if (rule == null) {
+                        append(out, "");
+                    } else {
+                        append(out, rule.getScorePerQuestion() == null ? null
+                                : rule.getScorePerQuestion().stripTrailingZeros().toPlainString());
+                        append(out, rule.getScoringRule());
+                        append(out, rule.getCustomScoringRule());
+                        append(out, rule.getScoringRuleText());
+                    }
+                });
     }
 
     private static String hash(String value) {

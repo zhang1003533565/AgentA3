@@ -363,17 +363,18 @@ export default {
 .search-shell {
   display: flex;
   align-items: center;
-  gap: 16rpx;
-  padding: 12rpx 28rpx 20rpx;
-  background: #FFFFFF;
-  border-bottom: 1rpx solid #EEEEEE;
+  gap: 18rpx;
+  padding: 28rpx 28rpx 34rpx;
+  background: #F7F7F9;
 }
 
 .search-bar {
   flex: 1;
-  height: 76rpx;
-  border-radius: 38rpx;
-  background: #F5F5F5;
+  height: 82rpx;
+  border-radius: 42rpx;
+  background: #FFFFFF;
+  border: 1rpx solid rgba(218, 228, 238, 0.9);
+  box-shadow: 0 10rpx 24rpx rgba(92, 122, 153, 0.12);
   display: flex;
   align-items: center;
   gap: 12rpx;
@@ -382,18 +383,18 @@ export default {
 }
 
 .search-icon {
-  width: 36rpx;
-  height: 36rpx;
+  width: 38rpx;
+  height: 38rpx;
   flex-shrink: 0;
-  opacity: 0.7;
+  opacity: 0.58;
 }
 
 .search-input {
   flex: 1;
   min-width: 0;
-  height: 76rpx;
-  font-size: 26rpx;
-  line-height: 76rpx;
+  height: 82rpx;
+  font-size: 27rpx;
+  line-height: 82rpx;
   color: #111111;
   padding: 0;
   margin: 0;
@@ -418,14 +419,20 @@ export default {
 }
 
 .search-action {
-  width: 76rpx;
+  width: 82rpx;
+  height: 82rpx;
   flex-shrink: 0;
   box-sizing: border-box;
   font-size: 26rpx;
   font-weight: 700;
   color: #4A6278;
-  padding: 0 4rpx;
+  padding: 0;
   text-align: center;
+  line-height: 82rpx;
+  border-radius: 50%;
+  background: #FFFFFF;
+  border: 1rpx solid rgba(218, 228, 238, 0.9);
+  box-shadow: 0 10rpx 24rpx rgba(92, 122, 153, 0.12);
 }
 
 .page-body {

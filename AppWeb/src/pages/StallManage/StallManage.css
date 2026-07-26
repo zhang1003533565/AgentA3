@@ -1,0 +1,248 @@
+/* ===== 页面容器 ===== */
+.stall-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ===== 顶部区域 ===== */
+.stall-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 20px 24px;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top left, rgba(14, 165, 164, 0.10), transparent 30%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.92));
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+}
+
+.stall-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stall-header-left .ant-btn-text {
+  padding: 4px 8px;
+  margin: -4px -8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.stall-header-left .ant-btn-text:hover {
+  color: var(--brand);
+  background: rgba(14, 165, 164, 0.06);
+}
+
+.back-arrow {
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.stall-header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stall-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.stall-subtitle {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.stall-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* ===== 统计信息 ===== */
+.stall-stats {
+  display: flex;
+  gap: 12px;
+}
+
+.stall-stat-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 18px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  flex: 1;
+  min-width: 120px;
+}
+
+.stall-stat-label {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.stall-stat-num {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--brand-deep);
+}
+
+.stall-stat-success {
+  color: #22c55e;
+}
+
+.stall-stat-warning {
+  color: #f59e0b;
+}
+
+/* ===== 筛选栏 ===== */
+.stall-filter-bar {
+  display: flex;
+  gap: 8px;
+}
+
+/* ===== 档口卡片网格 ===== */
+.stall-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+/* ===== 档口卡片 ===== */
+.stall-card {
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+  transition: box-shadow 0.25s ease, transform 0.25s ease, border-color 0.25s ease;
+  background: #fff;
+}
+
+.stall-card:hover {
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.10);
+  transform: translateY(-2px);
+  border-color: rgba(14, 165, 164, 0.25);
+}
+
+.stall-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.stall-number {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--brand);
+  background: rgba(14, 165, 164, 0.08);
+  padding: 2px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.stall-name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #0f172a;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stall-status-tag {
+  margin: 0;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 6px;
+}
+
+.stall-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-soft);
+  margin-bottom: 12px;
+}
+
+.stall-info-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.stall-info-label {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.stall-info-value {
+  color: var(--text-main);
+  font-weight: 500;
+}
+
+.stall-card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.stall-card-actions .ant-btn {
+  flex: 1;
+  height: 34px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+/* ===== 空状态 ===== */
+.stall-empty {
+  padding: 40px 0;
+}
+
+.stall-empty .ant-empty-description {
+  color: var(--text-muted);
+}
+
+/* ===== 响应式 ===== */
+@media (max-width: 1200px) {
+  .stall-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .stall-header {
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px 18px;
+  }
+
+  .stall-header-right {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .stall-stats {
+    flex-direction: column;
+  }
+
+  .stall-grid {
+    grid-template-columns: 1fr;
+  }
+}

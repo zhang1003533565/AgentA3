@@ -19,4 +19,8 @@ public interface TopicService {
     PageResponse<TopicResponse> getTopicList(Integer pageNum, Integer pageSize, Integer isHot, String status);
 
     List<TopicResponse> getHotTopics(Integer limit);
+
+    long countAllTopics();
+    long countByStatus(String status);
+    long countHotTopics();
 }

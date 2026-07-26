@@ -34,7 +34,7 @@
 
 <script>
 import MarketPublishOverlay from '@/components/market-publish-overlay/market-publish-overlay.vue'
-import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore'
+import { getMessageState, subscribeMessageStore } from '@/utils/messageStore'
 
 export default {
   name: 'MarketBottomBar',
@@ -58,7 +58,6 @@ export default {
     this.unsubscribeMessageStore = subscribeMessageStore((state) => {
       this.applyMessageState(state)
     })
-    refreshMessageState('bottom-bar-mounted')
   },
   beforeDestroy() {
     if (this.publishOverlayTimer) {
@@ -68,11 +67,6 @@ export default {
     if (this.unsubscribeMessageStore) {
       this.unsubscribeMessageStore()
       this.unsubscribeMessageStore = null
-    }
-  },
-  pageLifetimes: {
-    show() {
-      refreshMessageState('bottom-bar-show')
     }
   },
   methods: {

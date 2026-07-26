@@ -1,0 +1,14 @@
+/* ===== 通用删除确认弹窗（保持现有样式，需要统一调整时改这里）===== */
+.app-confirm-delete .ant-modal-content {
+  border-radius: 12px;
+}
+
+.app-confirm-delete .ant-modal-confirm-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.app-confirm-delete .ant-modal-confirm-content {
+  color: #475569;
+}

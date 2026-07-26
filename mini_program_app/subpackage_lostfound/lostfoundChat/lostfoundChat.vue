@@ -317,10 +317,10 @@ import {
   completeTradeRecord,
   confirmTradeRecord,
   createOrGetChatSession,
+  ensureTradeRecordBySession,
   getChatMessages,
   getChatSessions,
   getTradeRecords,
-  reserveSecondhandItem,
   sendChatMessage
 } from '@/api/secondhand'
 import { getUploadErrorMessage, uploadImage } from '@/utils/upload'
@@ -386,7 +386,7 @@ function normalizeMessage(item) {
 }
 
 const TRADE_TEXT = {
-  WAIT_CONFIRM: '购买意向待确认',
+  WAIT_CONFIRM: '交易待确认',
   TRADING: '双方已确认线下交易',
   COMPLETED: '交易已完成',
   CANCELLED: '本次交易已取消'
@@ -502,7 +502,7 @@ export default {
       return this.contactExchange?.status || 'NONE'
     },
     showContactQuickAction() {
-      return !!(this.tradeInfo && this.tradeInfo.status === 'TRADING')
+      return !!this.curChat
     },
     contactPillText() {
       if (this.contactExchangeStatus === 'EXCHANGED') return '✓ 已交换联系方式'
@@ -517,32 +517,15 @@ export default {
     },
     tradeMenuActions() {
       if (!this.curChat) return []
-      const itemStatus = Number(this.curChat.itemStatus)
-      if (!this.tradeInfo) {
-        if (!this.curChat.isSeller && itemStatus === 2) return [{ type: 'intent', label: '我想购买' }]
-        return []
+      const actions = []
+      if (this.tradeInfo?.isSeller || this.curChat.isSeller) {
+        actions.push({ type: 'complete', label: '标记完成', class: 'success' })
       }
-      if (this.tradeInfo.status === 'CANCELLED') {
-        if (!this.curChat.isSeller && itemStatus === 2) return [{ type: 'intent', label: '我想购买' }]
-        return []
-      }
-      if (!ACTIVE_TRADE_CARD_STATUSES.includes(this.tradeInfo.status)) return []
-      if (this.tradeInfo.status === 'WAIT_CONFIRM') {
-        const actions = []
-        if (this.tradeInfo.isSeller) actions.push({ type: 'confirm', label: '确认交易' })
-        actions.push({ type: 'cancel', label: '取消交易', class: 'danger' })
-        return actions
-      }
-      if (this.tradeInfo.status === 'TRADING') {
-        const actions = []
-        if (this.tradeInfo.isSeller) actions.push({ type: 'complete', label: '标记完成', class: 'success' })
-        actions.push({ type: 'cancel', label: '取消交易', class: 'danger' })
-        return actions
-      }
-      return []
+      actions.push({ type: 'cancel', label: '取消交易', class: 'danger' })
+      return actions
     },
     contactExchangeStateCard() {
-      if (!this.tradeInfo || this.tradeInfo.status !== 'TRADING') return null
+      if (!this.tradeInfo) return null
       const exchange = this.contactExchange
       const status = exchange?.status || 'NONE'
       if (!['REQUESTED', 'PARTIAL', 'PENDING'].includes(status)) return null
@@ -564,42 +547,7 @@ export default {
       }
     },
     standaloneTradeCards() {
-      const actions = this.tradeMenuActions
-      if (!actions.length) return []
-      if (this.tradeInfo && this.tradeInfo.status !== 'CANCELLED' && !ACTIVE_TRADE_CARD_STATUSES.includes(this.tradeInfo.status)) return []
-      const hasHostCard = this.messages.some((message) => {
-        if (this.tradeInfo?.status === 'WAIT_CONFIRM') return message.tradeAction === 'TRADE_INTENT'
-        return false
-      })
-      if (hasHostCard) return []
-      if (!this.tradeInfo || this.tradeInfo.status === 'CANCELLED') {
-        return [{
-          type: 'intent',
-          tag: '我发起',
-          time: '',
-          iconClass: 'icon-intent',
-          title: '购买意向',
-          desc: '对这个商品感兴趣，可以先向卖家表达购买意向。',
-          note: '发起意向不代表已成交，双方可进一步沟通确认。',
-          noteClass: 'note-info',
-          cardClass: 'mine-card intent-card',
-          actions
-        }]
-      }
-      if (this.tradeInfo.status === 'WAIT_CONFIRM') {
-        return [{
-          type: 'confirm',
-          tag: '对方发起',
-          time: '',
-          iconClass: 'icon-intent',
-          title: '购买意向',
-          desc: '买家希望购买该商品，请确认是否进入线下交易沟通。',
-          note: '确认前可与对方沟通商品细节、价格等信息。',
-          noteClass: 'note-warning',
-          cardClass: 'other-card intent-card',
-          actions
-        }]
-      }
+      if (!this.tradeInfo) return []
       if (this.tradeInfo.status === 'TRADING') {
         return this.contactExchangeStateCard ? [this.contactExchangeStateCard] : []
       }
@@ -815,10 +763,6 @@ export default {
         uni.showToast({ title: type === 'contactDone' ? '已交换联系方式' : '等待对方确认', icon: 'none' })
         return
       }
-      if (type === 'intent') {
-        await this.expressPurchaseIntent()
-        return
-      }
       if (type === 'shareContact') {
         await this.sendContactInfo()
         return
@@ -831,7 +775,6 @@ export default {
         await this.declineContactExchange()
         return
       }
-      if (!this.tradeInfo || !this.tradeInfo.id) return
       const actions = {
         confirm: confirmTradeRecord,
         complete: completeTradeRecord,
@@ -841,7 +784,16 @@ export default {
       if (!action) return
       try {
         this.acting = true
-        await action(this.tradeInfo.id)
+        let tradeId = this.tradeInfo?.id
+        if (!tradeId && type === 'complete') {
+          const ensured = await ensureTradeRecordBySession(this.sessionId)
+          tradeId = ensured?.data?.id
+        }
+        if (!tradeId) {
+          uni.showToast({ title: '当前暂无可操作的交易记录', icon: 'none' })
+          return
+        }
+        await action(tradeId)
         uni.showToast({ title: '状态已更新', icon: 'success' })
         await this.loadSession()
         await this.loadTradeInfo()
@@ -874,28 +826,7 @@ export default {
       this.completeConfirmVisible = false
       await this.runTradeAction('complete')
     },
-    async expressPurchaseIntent() {
-      if (!this.curChat || !this.curChat.itemId || this.acting) return
-      try {
-        this.acting = true
-        await reserveSecondhandItem(this.curChat.itemId)
-        uni.showToast({ title: '购买意向已发送', icon: 'success' })
-        await this.loadSession()
-        await this.loadTradeInfo()
-        await this.loadMessages()
-        await refreshMessageState('trade-intent')
-      } catch (e) {
-        console.error('发送购买意向失败', e)
-        uni.showToast({ title: e?.data?.msg || e?.msg || '发送失败', icon: 'none' })
-      } finally {
-        this.acting = false
-      }
-    },
     async sendContactInfo() {
-      if (!this.tradeInfo || this.tradeInfo.status !== 'TRADING') {
-        uni.showToast({ title: '双方确认交易后才能交换联系方式', icon: 'none' })
-        return
-      }
       if (this.hasContactExchange) {
         uni.showToast({ title: '已交换联系方式', icon: 'none' })
         return
@@ -949,7 +880,7 @@ export default {
       }
     },
     async declineContactExchange() {
-      if (!this.tradeInfo || this.tradeInfo.status !== 'TRADING' || this.hasContactExchange) return
+      if (this.hasContactExchange) return
       try {
         this.acting = true
         await sendChatMessage({
@@ -1001,19 +932,6 @@ export default {
       if (this.selectedContactFields.includes('phone') && contact.phone) parts.push(`手机号：${contact.phone}`)
       if (this.selectedContactFields.includes('qq') && contact.qq) parts.push(`QQ：${contact.qq}`)
       return parts.join('\n')
-    },
-    async sendMyContact() {
-      if (!this.canShareContact) {
-        const title = this.hasContactExchange
-          ? '已交换联系方式'
-          : this.isContactExchangeRequestedByMe
-            ? '等待对方确认'
-            : '确认交易后才能交换联系方式'
-        uni.showToast({ title, icon: 'none' })
-        return
-      }
-      this.contactMode = this.contactTemplates.length ? 'template' : 'custom'
-      this.contactVisible = true
     },
     normalizeContactForm() {
       return {
@@ -1092,7 +1010,6 @@ export default {
     },
     tradeActionTitle(action) {
       const map = {
-        TRADE_INTENT: '购买意向',
         TRADE_CONFIRM: '已确认交易',
         CONTACT_EXCHANGE_DONE: '✓ 已交换联系方式',
         TRADE_COMPLETE: '交易完成',
@@ -1103,7 +1020,6 @@ export default {
     tradeActionDesc(message) {
       const mine = !!message.isMine
       const map = {
-        TRADE_INTENT: mine ? '你表达了购买意向，等待卖家确认。' : '买家希望购买该商品，请确认是否进入线下交易沟通。',
         TRADE_CONFIRM: '双方已进入交易阶段，可交换联系方式并约定交易地点。',
         CONTACT_EXCHANGE_DONE: '双方已交换联系方式，可进行线下沟通交易。',
         TRADE_COMPLETE: mine ? '你已标记该商品交易完成。' : '该商品交易已完成。',
@@ -1112,9 +1028,7 @@ export default {
       return map[message.tradeAction] || message.content
     },
     tradeActionNote(message) {
-      const mine = !!message.isMine
       const map = {
-        TRADE_INTENT: mine ? '发起意向不代表已成交，双方可进一步沟通确认。' : '确认前可与对方沟通商品细节、价格等信息。',
         TRADE_CONFIRM: '建议双方确认交易后，再交换联系方式并约定线下交易。',
         CONTACT_EXCHANGE_DONE: '请线下沟通交易细节，注意人身与财产安全。'
       }
@@ -1122,7 +1036,6 @@ export default {
     },
     tradeActionNoteClass(message) {
       const map = {
-        TRADE_INTENT: message.isMine ? 'note-info' : 'note-warning',
         TRADE_CONFIRM: 'note-info',
         CONTACT_EXCHANGE_DONE: 'note-success'
       }
@@ -1130,7 +1043,6 @@ export default {
     },
     tradeIconClass(action) {
       const map = {
-        TRADE_INTENT: 'icon-intent',
         TRADE_CONFIRM: 'icon-confirm',
         CONTACT_EXCHANGE_DONE: 'icon-contact',
         TRADE_COMPLETE: 'icon-done',
@@ -1147,7 +1059,6 @@ export default {
     tradeCardClass(message) {
       const actorClass = message.isMine ? 'mine-card' : 'other-card'
       const actionClassMap = {
-        TRADE_INTENT: 'intent-card',
         TRADE_CONFIRM: 'confirm-card',
         CONTACT_EXCHANGE_DONE: 'contact-share-card',
         TRADE_COMPLETE: 'done-card',
@@ -1155,12 +1066,9 @@ export default {
       }
       return `${actorClass} ${actionClassMap[message.tradeAction] || 'system-card'}`
     },
-    cardActions(message) {
+    cardActions() {
       if (!this.tradeInfo) return []
       if (!ACTIVE_TRADE_CARD_STATUSES.includes(this.tradeInfo.status)) return []
-      if (message.tradeAction === 'TRADE_INTENT' && this.tradeInfo.status === 'WAIT_CONFIRM' && this.tradeInfo.isSeller) {
-        return [{ type: 'confirm', label: '确认交易' }]
-      }
       return []
     },
     systemLineText(message) {
@@ -1169,7 +1077,7 @@ export default {
         return '双方暂未交换联系方式，可继续通过平台聊天。'
       }
       const map = {
-        TRADE_INTENT: mine ? '你表达了购买意向' : '买家表达了购买意向',
+        TRADE_INTENT: mine ? '你发起了交易请求' : '对方发起了交易请求',
         TRADE_CONFIRM: mine ? '你已确认线下交易' : '对方已确认与你交易',
         CONTACT_EXCHANGE_DONE: '双方已交换联系方式，可进行线下沟通交易。',
         TRADE_COMPLETE: '商品交易已完成',
@@ -1180,7 +1088,7 @@ export default {
     systemLineIconClass(message) {
       if (message.content === '双方可以继续在平台内交流。') return 'icon-contact-lock'
       const map = {
-        TRADE_INTENT: 'icon-purchase-intent',
+        TRADE_INTENT: 'icon-info',
         TRADE_CONFIRM: 'icon-deal',
         CONTACT_EXCHANGE_DONE: 'icon-link',
         TRADE_COMPLETE: 'icon-deal',
@@ -1509,10 +1417,6 @@ export default {
   border-left: 8rpx solid #d79a3d;
 }
 
-.intent-card {
-  border-left: 8rpx solid #2f6dbb;
-}
-
 .confirm-card {
   border-left: 8rpx solid #d79a3d;
 }
@@ -1597,11 +1501,6 @@ export default {
   color: #9e671f;
 }
 
-.intent-card .trade-icon {
-  background: #edf5ff;
-  color: #255f9f;
-}
-
 .contact-share-card .trade-icon,
 .done-card .trade-icon {
   background: #eaf7ed;
@@ -1627,42 +1526,6 @@ export default {
 .trade-icon,
 .system-line-icon {
   position: relative;
-}
-
-.icon-intent::before {
-  left: 27rpx;
-  top: 35rpx;
-  width: 32rpx;
-  height: 28rpx;
-  border: 4rpx solid currentColor;
-  border-radius: 7rpx;
-}
-
-.icon-intent::after {
-  left: 34rpx;
-  top: 23rpx;
-  width: 18rpx;
-  height: 17rpx;
-  border: 4rpx solid currentColor;
-  border-bottom: 0;
-  border-radius: 16rpx 16rpx 0 0;
-}
-
-.system-line-icon.icon-intent::before {
-  left: 5rpx;
-  top: 10rpx;
-  width: 18rpx;
-  height: 14rpx;
-  border-width: 2rpx;
-  border-radius: 4rpx;
-}
-
-.system-line-icon.icon-intent::after {
-  left: 9rpx;
-  top: 5rpx;
-  width: 10rpx;
-  height: 8rpx;
-  border-width: 2rpx;
 }
 
 .icon-confirm::before,
@@ -1845,27 +1708,6 @@ export default {
   border-left: 2rpx solid currentColor;
   border-bottom: 2rpx solid currentColor;
   transform: rotate(45deg);
-  background: transparent;
-}
-
-.system-line-icon.icon-purchase-intent::before {
-  left: 5rpx;
-  top: 7rpx;
-  width: 18rpx;
-  height: 15rpx;
-  border: 2rpx solid currentColor;
-  border-radius: 5rpx;
-  background: transparent;
-}
-
-.system-line-icon.icon-purchase-intent::after {
-  left: 10rpx;
-  top: 4rpx;
-  width: 8rpx;
-  height: 7rpx;
-  border: 2rpx solid currentColor;
-  border-bottom: 0;
-  border-radius: 999rpx 999rpx 0 0;
   background: transparent;
 }
 
@@ -2290,11 +2132,6 @@ export default {
   font-weight: 900;
   line-height: 62rpx;
   box-shadow: 0 8rpx 18rpx rgba(48, 100, 170, 0.18);
-}
-
-.trade-card-btn.intent {
-  background: #2f6dbb;
-  color: #fff;
 }
 
 .trade-card-btn.confirm {

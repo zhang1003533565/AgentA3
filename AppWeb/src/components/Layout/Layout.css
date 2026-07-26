@@ -27,6 +27,11 @@
   gap: 16px;
 }
 
+/* 面包屑页题嵌入顶栏时去掉自身底部间距，由顶栏统一控制间距 */
+.layout-topbar .app-page-header {
+  padding: 0;
+}
+
 .layout-menu-trigger {
   display: none;
   width: 44px;
