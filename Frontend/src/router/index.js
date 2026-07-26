@@ -13,13 +13,13 @@ import { getToken } from '../utils/auth'
 const routes = [
   { path: '/', redirect: '/home' },
   { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
-  { path: '/home', name: 'home', component: HomeView },
-  { path: '/map', name: 'map', component: MapView },
-  { path: '/meetings', name: 'meetings', component: MeetingsView },
-  { path: '/ai', name: 'ai', component: AiAssistantView },
-  { path: '/ai-tools', name: 'ai-tools', component: AiToolsView },
-  { path: '/mine', name: 'mine', component: MineView },
-  { path: '/resume', name: 'resume', component: ResumeView },
+  { path: '/home', name: 'home', component: HomeView, meta: { public: true } },
+  { path: '/map', name: 'map', component: MapView, meta: { public: true } },
+  { path: '/meetings', name: 'meetings', component: MeetingsView, meta: { public: true } },
+  { path: '/ai', name: 'ai', component: AiAssistantView, meta: { public: true } },
+  { path: '/ai-tools', name: 'ai-tools', component: AiToolsView, meta: { public: true } },
+  { path: '/mine', name: 'mine', component: MineView, meta: { public: true } },
+  { path: '/resume', name: 'resume', component: ResumeView, meta: { public: true } },
 ]
 
 const router = createRouter({
