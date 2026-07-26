@@ -11,7 +11,6 @@ import MineActivitiesView from '../views/MineActivitiesView.vue'
 import MineAiHistoryView from '../views/MineAiHistoryView.vue'
 import MineMeetingScheduleView from '../views/MineMeetingScheduleView.vue'
 import MineMessagesView from '../views/MineMessagesView.vue'
-import MinePapersView from '../views/MinePapersView.vue'
 import MineScheduleView from '../views/MineScheduleView.vue'
 import MineView from '../views/MineView.vue'
 import ExamPapersView from '../views/ExamPapersView.vue'
@@ -39,7 +38,11 @@ const routes = [
   { path: '/mine/meeting-schedule', name: 'mine-meeting-schedule', component: MineMeetingScheduleView },
   { path: '/mine/activities', name: 'mine-activities', component: MineActivitiesView },
   { path: '/mine/ai-history', name: 'mine-ai-history', component: MineAiHistoryView },
-  { path: '/mine/papers', name: 'mine-papers', component: MinePapersView },
+  { path: '/mine/papers', name: 'mine-papers', component: ExamPapersView },
+  { path: '/mine/papers/attempts/:attemptId', name: 'exam-taking', component: ExamTakingView },
+  { path: '/mine/papers/:paperId/history', name: 'exam-history', component: ExamHistoryView },
+  { path: '/mine/papers/results/:attemptId', name: 'exam-result', component: ExamResultView },
+  { path: '/mine/papers/results/:attemptId/details', name: 'exam-detail', component: ExamDetailView },
   { path: '/resume', name: 'resume', component: ResumeView, meta: { public: true } },
   { path: '/resume/designer', name: 'resume-designer', component: ResumeDesigner, meta: { public: true } },
   { path: '/resume/wizard', name: 'resume-wizard', component: ResumeWizard, meta: { public: true } },
