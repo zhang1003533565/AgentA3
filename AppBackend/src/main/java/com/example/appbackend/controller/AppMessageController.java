@@ -55,4 +55,12 @@ public class AppMessageController {
         appMessageService.markAllRead(getUserId(httpRequest));
         return Result.success("标记成功", (Void) null);
     }
+
+    @PutMapping("/read-by-category")
+    @Operation(summary = "按模块和事件类型批量标记已读")
+    public Result<Void> markReadByCategory(@RequestBody AppMessageDTO.ReadByCategoryCommand command,
+                                           HttpServletRequest httpRequest) {
+        appMessageService.markReadByCategory(command, getUserId(httpRequest));
+        return Result.success("标记成功", (Void) null);
+    }
 }

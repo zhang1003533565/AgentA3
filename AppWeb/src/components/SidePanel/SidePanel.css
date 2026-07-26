@@ -1,0 +1,35 @@
+/* ===== 通用右侧面板（查看/新增/编辑统一样式）===== */
+
+/* 内容区：与题目详情一致的留白 */
+.app-side-panel .ant-drawer-body {
+  padding: 24px;
+}
+
+/* 标题 */
+.app-side-panel .ant-drawer-header-title .ant-drawer-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+/* 底部操作栏：按钮右对齐 */
+.app-side-panel .ant-drawer-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 12px 24px;
+}
+
+/* 内容里的图片 / 视频自适应面板宽度 */
+.app-side-panel .ant-drawer-body img,
+.app-side-panel .ant-drawer-body video {
+  max-width: 100%;
+}
+
+/* 窄屏下占满视口宽度 */
+@media (max-width: 768px) {
+  .app-side-panel.ant-drawer-content-wrapper,
+  .app-side-panel .ant-drawer-content-wrapper {
+    max-width: 100vw;
+  }
+}

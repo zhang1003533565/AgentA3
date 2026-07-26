@@ -321,6 +321,38 @@ class GeneratedExporterTest(unittest.TestCase):
             with zipfile.ZipFile(generated_exporter.EXPORT_ROOT / xlsx_key) as archive:
                 self.assertIn("xl/worksheets/sheet1.xml", archive.namelist())
 
+    def test_question_bank_export_tolerates_fsync_failures(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            generated_exporter.EXPORT_ROOT = Path(temp_dir)
+            payload = {
+                "questions": [
+                    {
+                        "id": "SC1",
+                        "type": "single_choice",
+                        "stem": "什么结构满足后进先出？",
+                        "body": {
+                            "options": [
+                                {"key": "A", "text": "栈"},
+                                {"key": "B", "text": "队列"},
+                            ],
+                        },
+                        "answer": {"correctOption": "A"},
+                    },
+                ],
+                "missingInfo": [],
+            }
+
+            with patch.object(generated_exporter.os, "fsync", side_effect=OSError(9, "Bad file descriptor")):
+                result = generated_exporter.export_generated_answer(
+                    json.dumps(payload, ensure_ascii=False),
+                    "question_bank",
+                    {"executedAgent": "textbook_question_single_choice_agent"},
+                )
+
+            self.assertEqual(["md", "docx", "xlsx", "zip"], [item["ext"] for item in result.attachments])
+            for attachment in result.attachments:
+                self.assertTrue((generated_exporter.EXPORT_ROOT / attachment["storageKey"]).exists())
+
     def test_markdown_exports_reading_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             generated_exporter.EXPORT_ROOT = Path(temp_dir)

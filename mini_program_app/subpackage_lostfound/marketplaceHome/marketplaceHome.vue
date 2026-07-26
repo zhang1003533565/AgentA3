@@ -4,11 +4,7 @@
       <view class="container">
         <view class="page-content">
           <!-- ===== 1. Header: location + message ===== -->
-          <common-page-header title="首页" :fixed="true" :placeholder="true" :showBack="false">
-            <template #left>
-              <view class="market-back-button" @click="onBackToApp">‹</view>
-            </template>
-          </common-page-header>
+          <common-page-header title="首页" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="onBackToApp" />
 
           <!-- ===== 2. Search (fixed outside scroll content) ===== -->
           <view class="search-block search-block--sticky">
@@ -249,7 +245,6 @@ export default {
     }
   },
   onLoad() {
-    this.loadItems()
     this.startBannerAuto()
   },
   onShow() {
@@ -294,7 +289,7 @@ export default {
             categoryLevel2Id: r.categoryLevel2Id || r.categoryId || '',
             categoryLevel2Name: r.categoryLevel2Name || r.categoryName || '',
             location,
-            tradeLocation: r.tradeLocation || r.trade_location || location,
+            tradeLocation: r.tradeLocation || r.trade_location || '',
             campusId: r.campusId || '',
             campusName: r.campusName || '',
             schoolId: r.schoolId || seller.schoolId || '',
@@ -681,11 +676,10 @@ export default {
   right: 0;
   left: 0;
   height: var(--search-transition-surface-top, calc(var(--status-bar-height) + 196rpx));
-  background: #FFFFFF;
+  background: transparent;
   opacity: 0;
   z-index: 2;
-  transition: opacity 260ms ease-out;
-  will-change: opacity;
+  transition: none;
 }
 
 .search-transition-surface {
@@ -703,7 +697,7 @@ export default {
   transform-origin: left top;
   opacity: 0;
   transform: translate3d(0, 0, 0) scale3d(1, 0.01, 1);
-  transition: transform 320ms ease-out, opacity 320ms ease-out;
+  transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease-out;
   will-change: transform, opacity;
 }
 
@@ -724,7 +718,14 @@ export default {
   box-sizing: border-box;
   z-index: 3;
   opacity: 0;
-  transition: opacity 160ms ease-out;
+  transform: translate3d(0, 8rpx, 0) scale3d(0.985, 0.985, 1);
+  transform-origin: center center;
+  transition:
+    opacity 180ms ease-out,
+    transform 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 340ms ease-out;
+  will-change: transform, opacity;
 }
 
 .search-transition-icon {
@@ -757,11 +758,12 @@ export default {
 }
 
 .search-transition-mask--active .search-transition-top-panel {
-  opacity: 1;
+  opacity: 0;
 }
 
 .search-transition-mask--active .search-transition-bar {
   opacity: 1;
+  transform: translate3d(0, 0, 0) scale3d(1, 1, 1);
 }
 
 .hot-push-transition {
@@ -1467,5 +1469,5 @@ export default {
   flex-shrink: 0;
 }
 
-.page-bottom-spacer { height: 48rpx; }
+.page-bottom-spacer { height: calc(180rpx + env(safe-area-inset-bottom)); }
 </style>

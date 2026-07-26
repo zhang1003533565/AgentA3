@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { CloudUploadOutlined, DownloadOutlined, EyeOutlined, StopOutlined } from '@ant-design/icons'
-import { Button, Card, Descriptions, Drawer, Empty, Input, Popconfirm, Space, Table, Tag, Typography, message } from 'antd'
+import { Button, Card, Descriptions, Empty, Input, Popconfirm, Space, Table, Tag, Typography, message } from 'antd'
 import { downloadExamPaper, getExamPaperDetail, getExamPaperList, publishExamPaper, unpublishExamPaper } from '../../../api/examPaper'
+import SidePanel from '../../../components/SidePanel/SidePanel'
 import { getExamPaperPublishAction, getExamPaperPublishState, getPublishRefreshArgs } from './examPaperPublishState'
 
 const { Text, Title } = Typography
@@ -207,9 +208,9 @@ function ExamPaperHistory({ refreshKey = 0 }) {
         scroll={{ x: 1180 }}
       />
 
-      <Drawer
+      {/* 试卷详情：统一侧面板组件 */}
+      <SidePanel
         title="试卷详情"
-        width="min(920px, 100vw)"
         open={detailOpen}
         loading={detailLoading}
         onClose={() => {
@@ -234,7 +235,7 @@ function ExamPaperHistory({ refreshKey = 0 }) {
             <Table rowKey="id" columns={snapshotColumns} dataSource={snapshotRows} pagination={false} scroll={{ x: 640 }} />
           </Space>
         )}
-      </Drawer>
+      </SidePanel>
     </Card>
   )
 }
