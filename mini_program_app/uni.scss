@@ -4,6 +4,12 @@
  */
 @import "@/theme.scss";
 
+// 覆盖全局主题色：浅薄荷绿低饱和版
+$color-primary: #86C9A8;
+$color-primary-light: #A8DDC2;
+$color-primary-bg: #E8F8F2;
+$color-primary-text: #57A77D;
+
 $page-bg: $color-bg-canvas;
 $card-bg: $color-bg-block;
 $module-bg: $color-bg-block;

@@ -70,15 +70,47 @@ public class ExamQuestionController {
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String difficulty,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String bankId,
             HttpServletRequest httpRequest) {
         Long userId = getUserId(httpRequest);
-        return Result.success(examQuestionService.listQuestions(current, size, type, difficulty, keyword, userId));
+        return Result.success(examQuestionService.listQuestions(current, size, type, difficulty, keyword, bankId, userId));
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "题目详情")
     public Result<ExamQuestionDTO.QuestionVO> detail(@PathVariable Long id, HttpServletRequest httpRequest) {
         return Result.success(examQuestionService.getQuestion(id, getUserId(httpRequest)));
+    }
+
+    @PostMapping
+    @Operation(summary = "新增题目", description = "题库管理页面手工录题")
+    public Result<ExamQuestionDTO.QuestionVO> create(
+            @Valid @RequestBody ExamQuestionDTO.SaveRequest request,
+            HttpServletRequest httpRequest) {
+        Long userId = getUserId(httpRequest);
+        return Result.success("新增成功", examQuestionService.createQuestion(request, userId, isAdmin(httpRequest)));
+    }
+
+    @PutMapping("/{id}")
+    @Operation(summary = "编辑题目")
+    public Result<ExamQuestionDTO.QuestionVO> update(
+            @PathVariable Long id,
+            @Valid @RequestBody ExamQuestionDTO.SaveRequest request,
+            HttpServletRequest httpRequest) {
+        Long userId = getUserId(httpRequest);
+        return Result.success("保存成功", examQuestionService.updateQuestion(id, request, userId, isAdmin(httpRequest)));
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "删除题目", description = "软删除，不影响历史组卷")
+    public Result<Void> delete(@PathVariable Long id, HttpServletRequest httpRequest) {
+        Long userId = getUserId(httpRequest);
+        examQuestionService.deleteQuestion(id, userId, isAdmin(httpRequest));
+        return Result.success("删除成功", null);
+    }
+
+    private boolean isAdmin(HttpServletRequest request) {
+        return "ADMIN".equals(request.getAttribute("role"));
     }
 
     private Long getUserId(HttpServletRequest request) {

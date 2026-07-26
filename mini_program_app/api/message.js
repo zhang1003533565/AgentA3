@@ -37,3 +37,11 @@ export function markAllAppMessagesRead() {
     method: 'PUT'
   })
 }
+
+export function markAppMessagesReadByCategory(data = {}) {
+  return request({
+    url: '/api/app-message/read-by-category',
+    method: 'PUT',
+    data
+  })
+}

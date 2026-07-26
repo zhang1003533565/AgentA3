@@ -54,6 +54,14 @@ public class CampusFacility {
     @Schema(description = "地图图片纵向坐标(0-1)", example = "0.387500")
     private BigDecimal imageY;
 
+    @Column(name = "geometry_type", nullable = false, length = 16, columnDefinition = "VARCHAR(16) NOT NULL DEFAULT 'POINT' COMMENT '空间形态: POINT-点位 AREA-区域围栏'")
+    @Schema(description = "空间形态: POINT-点位 AREA-区域围栏", example = "POINT")
+    private String geometryType = "POINT";
+
+    @Column(name = "boundary_points", columnDefinition = "TEXT COMMENT '区域围栏坐标(JSON二维数组)'")
+    @Schema(description = "区域围栏坐标(JSON二维数组)", example = "[[114.897,40.755],[114.898,40.755],[114.898,40.756]]")
+    private String boundaryPoints;
+
     @Column(columnDefinition = "TEXT COMMENT '图片列表(JSON数组)'")
     @Schema(description = "图片列表(JSON数组)", example = "[\"https://xxx.com/img1.jpg\",\"https://xxx.com/img2.jpg\"]")
     private String images;

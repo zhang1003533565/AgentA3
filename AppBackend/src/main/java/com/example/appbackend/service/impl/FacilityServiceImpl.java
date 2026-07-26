@@ -34,6 +34,7 @@ public class FacilityServiceImpl implements FacilityService {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final TypeReference<List<Map<String, Object>>> CONTROL_POINT_TYPE = new TypeReference<>() {};
+    private static final TypeReference<List<List<BigDecimal>>> BOUNDARY_POINT_TYPE = new TypeReference<>() {};
 
     @Autowired
     private FacilityRepository facilityRepository;
@@ -79,6 +80,7 @@ public class FacilityServiceImpl implements FacilityService {
         facility.setImageY(request.getImageY());
         facility.setImages(request.getImages());
         facility.setStatus(request.getStatus() != null ? request.getStatus() : 1);
+        applyGeometry(facility, request);
         applyMapImageCoordinates(facility);
         facility.setCreateTime(LocalDateTime.now());
         facility.setUpdateTime(LocalDateTime.now());
@@ -108,9 +110,88 @@ public class FacilityServiceImpl implements FacilityService {
         if (request.getImageY() != null) facility.setImageY(request.getImageY());
         if (request.getImages() != null) facility.setImages(request.getImages());
         if (request.getStatus() != null) facility.setStatus(request.getStatus());
+        applyGeometry(facility, request);
         applyMapImageCoordinates(facility);
         facility.setUpdateTime(LocalDateTime.now());
         return facilityRepository.save(facility);
+    }
+
+    private void applyGeometry(CampusFacility facility, FacilityRequest request) {
+        boolean geometryTypeProvided = request.getGeometryType() != null;
+        String sourceType = geometryTypeProvided ? request.getGeometryType() : facility.getGeometryType();
+        String geometryType = normalizeGeometryType(sourceType);
+        facility.setGeometryType(geometryType);
+
+        if ("POINT".equals(geometryType)) {
+            if (geometryTypeProvided) {
+                facility.setBoundaryPoints(null);
+            }
+            return;
+        }
+
+        String rawBoundary = request.getBoundaryPoints() != null
+                ? request.getBoundaryPoints()
+                : facility.getBoundaryPoints();
+        List<List<BigDecimal>> boundary = parseBoundaryPoints(rawBoundary);
+        facility.setBoundaryPoints(writeBoundaryPoints(boundary));
+
+        BigDecimal longitudeSum = BigDecimal.ZERO;
+        BigDecimal latitudeSum = BigDecimal.ZERO;
+        for (List<BigDecimal> point : boundary) {
+            longitudeSum = longitudeSum.add(point.get(0));
+            latitudeSum = latitudeSum.add(point.get(1));
+        }
+        BigDecimal count = BigDecimal.valueOf(boundary.size());
+        facility.setLongitude(longitudeSum.divide(count, 14, RoundingMode.HALF_UP));
+        facility.setLatitude(latitudeSum.divide(count, 14, RoundingMode.HALF_UP));
+    }
+
+    private String normalizeGeometryType(String geometryType) {
+        if (geometryType == null || geometryType.isBlank() || "POINT".equalsIgnoreCase(geometryType)) {
+            return "POINT";
+        }
+        if ("AREA".equalsIgnoreCase(geometryType)) {
+            return "AREA";
+        }
+        throw new BusinessException(400, "空间形态仅支持 POINT 或 AREA");
+    }
+
+    private List<List<BigDecimal>> parseBoundaryPoints(String rawBoundary) {
+        if (rawBoundary == null || rawBoundary.isBlank()) {
+            throw new BusinessException(400, "区域围栏至少需要3个坐标点");
+        }
+        try {
+            List<List<BigDecimal>> points = OBJECT_MAPPER.readValue(rawBoundary, BOUNDARY_POINT_TYPE);
+            if (points == null || points.size() < 3) {
+                throw new BusinessException(400, "区域围栏至少需要3个坐标点");
+            }
+            for (List<BigDecimal> point : points) {
+                if (point == null || point.size() < 2 || point.get(0) == null || point.get(1) == null) {
+                    throw new BusinessException(400, "区域围栏坐标格式不正确");
+                }
+                BigDecimal longitude = point.get(0);
+                BigDecimal latitude = point.get(1);
+                if (longitude.compareTo(BigDecimal.valueOf(-180)) < 0
+                        || longitude.compareTo(BigDecimal.valueOf(180)) > 0
+                        || latitude.compareTo(BigDecimal.valueOf(-90)) < 0
+                        || latitude.compareTo(BigDecimal.valueOf(90)) > 0) {
+                    throw new BusinessException(400, "区域围栏坐标超出有效范围");
+                }
+            }
+            return points;
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new BusinessException(400, "区域围栏坐标格式不正确");
+        }
+    }
+
+    private String writeBoundaryPoints(List<List<BigDecimal>> points) {
+        try {
+            return OBJECT_MAPPER.writeValueAsString(points);
+        } catch (Exception exception) {
+            throw new BusinessException(400, "区域围栏坐标序列化失败");
+        }
     }
 
     @Override

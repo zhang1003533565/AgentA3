@@ -13,23 +13,40 @@
 				<view class="input-wrap">
 					<input v-model="roomCode" class="join-input" maxlength="11" placeholder="请输入9–11位会议号" placeholder-class="placeholder" />
 					<view v-if="roomCode" class="clear" @click="roomCode = ''">×</view>
-					<view class="scan-mini"></view>
 				</view>
 			</view>
 
 			<view class="field-block field-block--name">
 				<text class="field-title">入会名称（使用登录身份）</text>
 				<input v-model="displayName" class="name-input" disabled placeholder="登录后自动读取" />
+				<!-- 改为圆形勾选框，不再使用switch -->
+				<view class="save-name-row" @click="saveDisplayName = !saveDisplayName">
+					<view class="circle-check" :class="{active: saveDisplayName}">
+						<text v-if="saveDisplayName">✓</text>
+					</view>
+					<text class="save-name-text">后续会议都使用此名称</text>
+				</view>
 			</view>
 
 			<view class="option-title">入会选项</view>
 			<view class="option-row">
 				<text>开启麦克风</text>
-				<switch :checked="micOn" color="#23866d" @change="micOn = $event.detail.value" />
+				<switch :checked="micOn" color="#86C9A8" @change="micOn = $event.detail.value" />
+			</view>
+			<view class="option-row">
+				<text>开启扬声器</text>
+				<switch :checked="speakerOn" color="#86C9A8" @change="speakerOn = $event.detail.value" />
+			</view>
+			<view class="option-row">
+				<text>开启视频</text>
+				<switch :checked="videoOn" color="#86C9A8" @change="videoOn = $event.detail.value" />
 			</view>
 
-			<view class="main-button" @click="joinNow">加入会议</view>
 			<view class="device-link">♙ 从会议室设备加入</view>
+		</view>
+
+		<view class="bottom-button-wrap">
+			<view class="main-button" @click="joinNow">加入会议</view>
 		</view>
 	</view>
 </template>
@@ -40,7 +57,14 @@ import { getCurrentDisplayName } from '@/utils/meetingUser.js'
 
 export default {
 	data() {
-		return { roomCode: '', displayName: '', micOn: true }
+		return {
+			roomCode: '',
+			displayName: '',
+			micOn: true,
+			videoOn: false,
+			speakerOn: true,
+			saveDisplayName: true
+		}
 	},
 	onLoad(options) {
 		if (options?.roomCode) this.roomCode = decodeURIComponent(options.roomCode)
@@ -58,7 +82,7 @@ export default {
 				const res = await joinMeeting({ roomCode: compactCode, displayName: this.displayName || getCurrentDisplayName() })
 				const session = res?.data?.session || {}
 				uni.redirectTo({
-					url: `/subpackage_meeting/meetingLive/meetingLive?title=${encodeURIComponent(session.title || '会议')}&roomCode=${encodeURIComponent(session.roomCode || compactCode)}&sessionId=${encodeURIComponent(session.sessionId || '')}&micOn=${this.micOn ? '1' : '0'}`
+					url: `/subpackage_meeting/meetingLive/meetingLive?title=${encodeURIComponent(session.title || '会议')}&roomCode=${encodeURIComponent(session.roomCode || compactCode)}&sessionId=${encodeURIComponent(session.sessionId || '')}&micOn=${this.micOn ? '1' : '0'}&videoOn=${this.videoOn ? '1' : '0'}&speakerOn=${this.speakerOn ? '1' : '0'}`
 				})
 			} catch (error) {
 				uni.showToast({ title: '加入会议失败，请检查会议号', icon: 'none' })
@@ -82,10 +106,56 @@ export default {
 .join-input { flex: 1; height: 88rpx; font-size: 26rpx; color: #1c272d; }
 .placeholder { color: #b0b6ba; }
 .clear { width: 30rpx; height: 30rpx; border-radius: 50%; border: 2rpx solid #a9b0b4; color: #a9b0b4; display: flex; align-items: center; justify-content: center; font-size: 26rpx; line-height: 1; }
-.scan-mini { width: 32rpx; height: 32rpx; border: 3rpx solid #111a20; border-radius: 6rpx; box-sizing: border-box; }
 .name-input { height: 88rpx; border-radius: 16rpx; background: #f7f7f7; padding: 0 24rpx; font-size: 27rpx; color: #1b252b; }
+
+/* 自定义圆形勾选 */
+.save-name-row {
+	margin-top: 24rpx;
+	display: flex;
+	align-items: center;
+	gap: 16rpx;
+}
+.circle-check {
+	width: 36rpx;
+	height: 36rpx;
+	border-radius: 50%;
+	border: 2rpx solid #c8cdcf;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 24rpx;
+	color: #fff;
+	transition: all 0.2s;
+}
+.circle-check.active {
+	background-color: #86C9A8;
+	border-color: #86C9A8;
+}
+.save-name-text {
+	font-size: 26rpx;
+	color: #444;
+}
+
 .option-title { margin: 46rpx 0 24rpx; font-size: 27rpx; font-weight: 850; }
 .option-row { height: 82rpx; display: flex; align-items: center; justify-content: space-between; font-size: 26rpx; }
-.main-button { margin-top: 44rpx; height: 88rpx; border-radius: 16rpx; background: #23866d; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 29rpx; font-weight: 900; box-shadow: 0 16rpx 34rpx rgba(35,134,109,.18); }
 .device-link { margin-top: 34rpx; text-align: center; color: #58636a; font-size: 25rpx; }
+
+.bottom-button-wrap {
+	position: fixed;
+	left: 24rpx;
+	right: 24rpx;
+	bottom: calc(env(safe-area-inset-bottom) + 40rpx);
+}
+.main-button {
+	height: 88rpx;
+	border-radius: 16rpx;
+	background: #86C9A8;
+	color: #fff;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 29rpx;
+	font-weight: 900;
+	box-shadow: 0 16rpx 34rpx rgba(134, 201, 168, .18);
+}
 </style>

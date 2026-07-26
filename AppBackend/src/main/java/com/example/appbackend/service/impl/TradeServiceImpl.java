@@ -3,6 +3,7 @@ package com.example.appbackend.service.impl;
 import com.example.appbackend.dto.AppMessageDTO;
 import com.example.appbackend.dto.ChatDTO;
 import com.example.appbackend.dto.PageResponse;
+import com.example.appbackend.entity.ChatSession;
 import com.example.appbackend.entity.SecondhandItem;
 import com.example.appbackend.entity.TradeRecord;
 import com.example.appbackend.entity.TradeRecord.TradeStatus;
@@ -73,6 +74,14 @@ public class TradeServiceImpl implements TradeService {
         tradeRecord = tradeRecordRepository.save(tradeRecord);
         createTradeMessage(tradeRecord, currentUserId, "你表达了购买意向，等待对方确认");
         createLostFoundAppMessage(tradeRecord, tradeRecord.getSellerId(), "TRADE_INTENT", "收到购买意向", "有人想购买你的商品");
+        return toVO(tradeRecord, currentUserId);
+    }
+
+    @Override
+    public ChatDTO.TradeRecordVO ensureTradingRecordForSession(Long sessionId, Long currentUserId) {
+        ChatSession session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new BusinessException(404, "会话不存在"));
+        TradeRecord tradeRecord = ensureTradingRecord(session, currentUserId);
         return toVO(tradeRecord, currentUserId);
     }
 
@@ -154,6 +163,42 @@ public class TradeServiceImpl implements TradeService {
         if (!Objects.equals(currentUserId, tradeRecord.getBuyerId()) && !Objects.equals(currentUserId, tradeRecord.getSellerId())) {
             throw new BusinessException(403, "无权限访问该交易记录");
         }
+    }
+
+    private TradeRecord ensureTradingRecord(ChatSession session, Long currentUserId) {
+        if (!Objects.equals(currentUserId, session.getBuyerId()) && !Objects.equals(currentUserId, session.getSellerId())) {
+            throw new BusinessException(403, "无权限操作该交易");
+        }
+        return tradeRecordRepository.findByItemIdAndBuyerIdAndStatusIn(
+                session.getItemId(),
+                session.getBuyerId(),
+                ACTIVE_STATUSES)
+                .map(tradeRecord -> {
+                    if (tradeRecord.getStatus() == TradeStatus.WAIT_CONFIRM) {
+                        tradeRecord.setStatus(TradeStatus.TRADING);
+                        return tradeRecordRepository.save(tradeRecord);
+                    }
+                    return tradeRecord;
+                })
+                .orElseGet(() -> createTradingRecord(session));
+    }
+
+    private TradeRecord createTradingRecord(ChatSession session) {
+        SecondhandItem item = itemRepository.findById(session.getItemId())
+                .orElseThrow(() -> new BusinessException(404, "商品不存在"));
+        if (!Objects.equals(item.getUserId(), session.getSellerId())) {
+            throw new BusinessException(400, "聊天会话与商品发布者不匹配");
+        }
+        if (!Integer.valueOf(ITEM_ON_SALE).equals(item.getStatus())) {
+            throw new BusinessException(400, "商品当前不可交易");
+        }
+        TradeRecord tradeRecord = new TradeRecord();
+        tradeRecord.setItemId(session.getItemId());
+        tradeRecord.setBuyerId(session.getBuyerId());
+        tradeRecord.setSellerId(session.getSellerId());
+        tradeRecord.setStatus(TradeStatus.TRADING);
+        tradeRecord.setContactExchangeStatus(CONTACT_EXCHANGE_NONE);
+        return tradeRecordRepository.save(tradeRecord);
     }
 
     private void ensureItemStatus(Long itemId, Integer expectedStatus, String message) {
