@@ -49,7 +49,8 @@ import {
 import { getWorkspacePage } from '../../data/portalData'
 import './WorkspacePage.css'
 
-const AMAP_WEB_KEY = '64bc139adb6a611277fb8f6821b371ac'
+const AMAP_WEB_KEY = import.meta.env.VITE_AMAP_WEB_KEY || '64bc139adb6a611277fb8f6821b371ac'
+const AMAP_SECURITY_JS_CODE = import.meta.env.VITE_AMAP_SECURITY_JS_CODE || ''
 const DEFAULT_MAP_CENTER = {
   longitude: 104.0736,
   latitude: 30.6667,
@@ -100,6 +101,12 @@ let amapLoaderPromise = null
 
 const loadAmapScript = () => {
   if (typeof window === 'undefined') return Promise.reject(new Error('浏览器环境不可用'))
+  if (AMAP_SECURITY_JS_CODE) {
+    window._AMapSecurityConfig = {
+      ...window._AMapSecurityConfig,
+      securityJsCode: AMAP_SECURITY_JS_CODE,
+    }
+  }
   if (window.AMap) return Promise.resolve(window.AMap)
   if (amapLoaderPromise) return amapLoaderPromise
 
@@ -3239,6 +3246,10 @@ function WorkspacePage({ pageKey }) {
     }
     if (!amapReady || !window.AMap) {
       message.warning('高德地图尚未加载完成')
+      return
+    }
+    if (!AMAP_SECURITY_JS_CODE) {
+      message.error('未配置高德 JS API 安全密钥，请设置 VITE_AMAP_SECURITY_JS_CODE 后重启前端')
       return
     }
 
