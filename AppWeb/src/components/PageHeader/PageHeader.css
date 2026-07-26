@@ -25,6 +25,16 @@
   font-weight: 600;
 }
 
+/* 可点击的父级面包屑 */
+.app-page-header .app-page-header-link {
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.app-page-header .app-page-header-link:hover {
+  color: #2563eb;
+}
+
 .app-page-header-extra {
   display: flex;
   align-items: center;

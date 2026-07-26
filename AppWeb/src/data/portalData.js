@@ -518,8 +518,27 @@ export const getNavMetaByPath = (path) => {
   }
 }
 
-// 按路由取面包屑文案（分组名 / 菜单名），供布局顶栏统一渲染页面标题
+// 下钻页面的面包屑规则：带 path 的父级可点击返回（match 支持正则匹配动态路由）
+const drilldownBreadcrumbs = [
+  {
+    match: /^\/facility\/canteen\/[^/]+\/stalls$/,
+    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口管理'],
+  },
+  {
+    match: /^\/facility\/restaurant$/,
+    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口管理'],
+  },
+  {
+    match: /^\/facility\/stall-dish$/,
+    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口菜品管理'],
+  },
+]
+
+// 按路由取面包屑（分组名 / 菜单名，或下钻多级），供布局顶栏统一渲染页面标题
 export const getBreadcrumbByPath = (path) => {
+  const drilldown = drilldownBreadcrumbs.find((rule) => rule.match.test(path))
+  if (drilldown) return drilldown.items
+
   for (const group of portalGroups) {
     const item = group.items.find((navItem) => navItem.path === path)
     if (item) return [group.label, item.label]

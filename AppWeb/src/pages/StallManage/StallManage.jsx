@@ -6,7 +6,7 @@ import {
   PlusOutlined,
   SearchOutlined,
 } from '@ant-design/icons'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { canteenData } from '../CanteenManage/canteenData'
 import './StallManage.css'
 
@@ -206,7 +206,6 @@ function StallFormModal({ stall, open, onClose, onSave, canteenId }) {
 /* ========== 主页面 ========== */
 export default function StallManage() {
   const { canteenId } = useParams()
-  const navigate = useNavigate()
   const canteen = canteenData.find((c) => String(c.id) === canteenId)
 
   // 档口数据（本地可变状态）
@@ -276,17 +275,13 @@ export default function StallManage() {
     }
   }
 
-  // 返回食堂管理
-  const goBack = () => navigate('/facility/canteen')
+  // 返回入口已由布局顶栏面包屑提供
 
   return (
     <div className="stall-page">
-      {/* 顶部导航 + 标题 */}
+      {/* 顶部标题（返回入口由布局顶栏面包屑提供，这里保留食堂名动态上下文） */}
       <div className="stall-header">
         <div className="stall-header-left">
-          <Button type="text" icon={<span className="back-arrow" onClick={goBack}>←</span>} onClick={goBack}>
-            返回食堂管理
-          </Button>
           <div className="stall-header-info">
             <h1 className="stall-title">{canteen?.name || '未知食堂'}</h1>
             <p className="stall-subtitle">管理该食堂下所有档口信息</p>
