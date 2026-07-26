@@ -22,9 +22,9 @@
   --qb-radius-pill: 999px;
   --qb-shadow-card: 0 10px 28px rgba(15, 23, 42, 0.06);
 
-  /* 页面定高：视口高度 - 外层 Layout 上下留白（22 + 32 + 28px），
+  /* 页面定高：视口高度 - 外层 Layout 留白与顶栏（含面包屑页题，约 104px），
      列表数据量不再撑开页面，窗口过矮时由 min-height 兜底 */
-  height: calc(100vh - 82px);
+  height: calc(100vh - 104px);
   min-height: 560px;
   display: flex;
   flex-direction: column;
@@ -790,7 +790,7 @@
      改回自然高度，数据区保底 320px、最高 60vh 内部滚动 */
   .question-bank-page {
     height: auto;
-    min-height: calc(100vh - 62px);
+    min-height: calc(100vh - 92px);
   }
 
   .question-bank-table .ant-table-container {

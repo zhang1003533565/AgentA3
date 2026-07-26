@@ -9,7 +9,6 @@ import {
   getExamQuestionList,
   updateExamQuestion,
 } from '../../../api/examQuestion'
-import PageHeader from '../../../components/PageHeader/PageHeader'
 import SidePanel from '../../../components/SidePanel/SidePanel'
 import confirmDelete from '../../../components/ConfirmDelete/confirmDelete'
 import './QuestionBank.css'
@@ -623,9 +622,6 @@ function QuestionBank() {
 
   return (
     <div className="question-bank-page">
-      {/* 页面标题（通用面包屑组件） */}
-      <PageHeader items={['题库管理', '题库']} />
-
       {/* 列表卡片（筛选区作为表格 title 渲染在表头上方） */}
       <Card className="question-bank-card question-bank-list-card" bordered={false}>
         <Table

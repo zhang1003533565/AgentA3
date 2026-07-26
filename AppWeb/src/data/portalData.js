@@ -517,3 +517,12 @@ export const getNavMetaByPath = (path) => {
     badge: page?.badge || '',
   }
 }
+
+// 按路由取面包屑文案（分组名 / 菜单名），供布局顶栏统一渲染页面标题
+export const getBreadcrumbByPath = (path) => {
+  for (const group of portalGroups) {
+    const item = group.items.find((navItem) => navItem.path === path)
+    if (item) return [group.label, item.label]
+  }
+  return null
+}
