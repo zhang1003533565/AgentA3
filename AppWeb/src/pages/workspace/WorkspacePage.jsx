@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Button, Card, Drawer, Empty, Form, Image, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tabs, Tag, Upload, message } from 'antd'
 import { SearchOutlined, UploadOutlined } from '@ant-design/icons'
+import SidePanel from '../../components/SidePanel/SidePanel'
 import * as echarts from 'echarts'
 import { createActivity, deleteActivity, getActivityList, publishActivity, updateActivity } from '../../api/activity'
 import { createCategory, getCategoryList, updateCategory } from '../../api/category'
@@ -4436,20 +4437,25 @@ function WorkspacePage({ pageKey }) {
         )}
       </section>
 
-      <Modal
+      {/* 新增/编辑：统一侧面板组件 */}
+      <SidePanel
         open={modalOpen}
         title={modalMode === 'create'
           ? `新增${pageKey === 'system-config' ? '模型配置' : page.title}`
           : `编辑${pageKey === 'system-config' ? (editingRecord?.configKind === 'asr' ? '讯飞实时转写配置' : '模型配置') : pageKey === 'voice-model-config' ? '语音模型配置' : page.title}`}
-        onCancel={() => setModalOpen(false)}
-        onOk={submitModal}
-        confirmLoading={actionLoading}
+        onClose={() => setModalOpen(false)}
         destroyOnHidden
+        footer={(
+          <>
+            <Button onClick={() => setModalOpen(false)}>取消</Button>
+            <Button type="primary" loading={actionLoading} onClick={submitModal}>保存</Button>
+          </>
+        )}
       >
         <Form form={form} layout="vertical">
           {renderModalFields()}
         </Form>
-      </Modal>
+      </SidePanel>
 
       <Drawer
         open={meetingDetailOpen}

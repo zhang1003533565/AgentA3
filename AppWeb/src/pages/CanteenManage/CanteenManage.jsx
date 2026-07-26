@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Button, Card, Col, Descriptions, Empty, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Tag, message } from 'antd'
+import { Button, Card, Col, Descriptions, Empty, Form, Input, InputNumber, Popconfirm, Row, Select, Space, Tag, message } from 'antd'
 import {
   DeleteOutlined,
   EnvironmentOutlined,
@@ -8,6 +8,7 @@ import {
   ShopOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
+import SidePanel from '../../components/SidePanel/SidePanel'
 import { canteenData } from './canteenData'
 import './CanteenManage.css'
 
@@ -101,14 +102,16 @@ function EditCanteenModal({ open, onClose, canteen, onSave }) {
   }
 
   return (
-    <Modal
+    <SidePanel
       title="编辑食堂"
       open={open}
-      onCancel={onClose}
-      onOk={handleSubmit}
-      width={640}
-      okText="保存"
-      cancelText="取消"
+      onClose={onClose}
+      footer={(
+        <>
+          <Button onClick={onClose}>取消</Button>
+          <Button type="primary" onClick={handleSubmit}>保存</Button>
+        </>
+      )}
     >
       <Form form={form} layout="vertical">
         <Form.Item
@@ -206,21 +209,19 @@ function EditCanteenModal({ open, onClose, canteen, onSave }) {
           <InputNumber min={0} style={{ width: '100%' }} placeholder="个" />
         </Form.Item>
       </Form>
-    </Modal>
+    </SidePanel>
   )
 }
 
-/* ========== 详情弹窗 ========== */
+/* ========== 详情侧面板 ========== */
 function DetailModal({ open, onClose, canteen }) {
   if (!canteen) return null
 
   return (
-    <Modal
+    <SidePanel
       title="食堂详情"
       open={open}
-      onCancel={onClose}
-      footer={null}
-      width={640}
+      onClose={onClose}
     >
       <Descriptions bordered column={1} size="small">
         <Descriptions.Item label="食堂名称">{canteen.name}</Descriptions.Item>
@@ -260,7 +261,7 @@ function DetailModal({ open, onClose, canteen }) {
           </Button>
         </Descriptions.Item>
       </Descriptions>
-    </Modal>
+    </SidePanel>
   )
 }
 

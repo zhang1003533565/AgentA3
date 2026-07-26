@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button, Card, Empty, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Tag, message } from 'antd'
+import { Button, Card, Empty, Form, Input, InputNumber, Popconfirm, Select, Space, Tag, message } from 'antd'
 import {
   DeleteOutlined,
   EditOutlined,
@@ -7,6 +7,7 @@ import {
   SearchOutlined,
 } from '@ant-design/icons'
 import { useParams } from 'react-router-dom'
+import SidePanel from '../../components/SidePanel/SidePanel'
 import { canteenData } from '../CanteenManage/canteenData'
 import './StallManage.css'
 
@@ -146,14 +147,16 @@ function StallFormModal({ stall, open, onClose, onSave, canteenId }) {
   }
 
   return (
-    <Modal
+    <SidePanel
       title={isEdit ? `编辑 ${stall?.name || ''}` : '新增档口'}
       open={open}
-      onCancel={onClose}
-      onOk={handleSubmit}
-      width={520}
-      okText="保存"
-      cancelText="取消"
+      onClose={onClose}
+      footer={(
+        <>
+          <Button onClick={onClose}>取消</Button>
+          <Button type="primary" onClick={handleSubmit}>保存</Button>
+        </>
+      )}
     >
       <Form form={form} layout="vertical">
         <Form.Item
@@ -199,7 +202,7 @@ function StallFormModal({ stall, open, onClose, onSave, canteenId }) {
           <Input placeholder="手机号码" maxLength={11} />
         </Form.Item>
       </Form>
-    </Modal>
+    </SidePanel>
   )
 }
 
