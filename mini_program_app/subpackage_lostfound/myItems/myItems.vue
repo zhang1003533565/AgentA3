@@ -17,8 +17,14 @@
 
       <scroll-view scroll-y class="page-body" :show-scrollbar="false">
         <view v-if="myItems.length === 0" class="empty">
-          <view class="empty-i"></view>
-          <view class="empty-t">{{ emptyText }}</view>
+          <image class="empty-illustration" src="/static/illustrations/market-empty-publish.svg" mode="aspectFit" />
+          <view class="empty-title">{{ emptyTitle }}</view>
+          <view class="empty-subtitle">{{ emptySubtitle }}</view>
+          <button class="empty-primary-btn" @click="goToPublish">去发布商品</button>
+          <view class="empty-link" @click="goToHotList">
+            <text>看看热门商品</text>
+            <view class="empty-link-arrow"></view>
+          </view>
         </view>
 
         <view v-for="item in myItems" :key="item.id" class="publish-card">
@@ -60,11 +66,17 @@
         </view>
       </scroll-view>
     </view>
+    <market-publish-overlay
+      v-if="publishOverlayMounted"
+      :visible="publishOverlayVisible"
+      @close="closePublishOverlay"
+    />
   </view>
 </template>
 
 <script>
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
+import MarketPublishOverlay from '@/components/market-publish-overlay/market-publish-overlay.vue'
 import { getChatSessions, getMySecondhandItems, getTradeRecords, offlineSecondhandItem, onlineSecondhandItem } from '@/api/secondhand'
 import { getToken, getUserInfo } from '@/utils/storage.js'
 
@@ -218,7 +230,8 @@ function createTradeMap(records = []) {
 
 export default {
   components: {
-    CommonPageHeader
+    CommonPageHeader,
+    MarketPublishOverlay
   },
   data() {
     return {
@@ -226,7 +239,10 @@ export default {
       loading: false,
       currentUserId: '',
       activeFilter: 'all',
-      filters: FILTERS
+      filters: FILTERS,
+      publishOverlayMounted: false,
+      publishOverlayVisible: false,
+      publishOverlayTimer: null
     }
   },
   computed: {
@@ -247,15 +263,29 @@ export default {
     emptyText() {
       const current = this.filters.find((item) => item.key === this.activeFilter)
       return this.activeFilter === 'all' ? '还没有发布过' : `暂无${current?.label || ''}商品`
+    },
+    emptyTitle() {
+      return this.items.length === 0 ? '还没有发布过' : this.emptyText
+    },
+    emptySubtitle() {
+      return this.items.length === 0 ? '发布闲置好物，快速找到需要它的人' : '切换状态或稍后再看看'
     }
   },
   async onLoad() {
+    uni.$on('secondhand:item:published', this.handleItemPublished)
     this.loadCurrentUser()
     await this.loadItems()
   },
   async onShow() {
     this.loadCurrentUser()
     await this.loadItems()
+  },
+  onUnload() {
+    uni.$off('secondhand:item:published', this.handleItemPublished)
+    if (this.publishOverlayTimer) {
+      clearTimeout(this.publishOverlayTimer)
+      this.publishOverlayTimer = null
+    }
   },
   methods: {
     goBack() {
@@ -439,6 +469,40 @@ export default {
       uni.navigateTo({
         url: `/subpackage_lostfound/lostfoundDetail/lostfoundDetail?id=${id}`
       })
+    },
+    goToPublish() {
+      if (this.publishOverlayMounted) return
+      if (this.publishOverlayTimer) {
+        clearTimeout(this.publishOverlayTimer)
+        this.publishOverlayTimer = null
+      }
+      this.publishOverlayMounted = true
+      this.$nextTick(() => {
+        this.publishOverlayTimer = setTimeout(() => {
+          this.publishOverlayVisible = true
+          this.publishOverlayTimer = null
+        }, 20)
+      })
+    },
+    closePublishOverlay() {
+      if (!this.publishOverlayMounted) return
+      if (this.publishOverlayTimer) {
+        clearTimeout(this.publishOverlayTimer)
+        this.publishOverlayTimer = null
+      }
+      this.publishOverlayVisible = false
+      this.publishOverlayTimer = setTimeout(() => {
+        this.publishOverlayMounted = false
+        this.publishOverlayTimer = null
+      }, 300)
+    },
+    async handleItemPublished() {
+      await this.loadItems()
+    },
+    goToHotList() {
+      uni.navigateTo({
+        url: '/subpackage_lostfound/marketHotList/marketHotList'
+      })
     }
   }
 }
@@ -463,9 +527,12 @@ export default {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   align-items: center;
-  height: 138rpx;
-  padding: 20rpx 24rpx 22rpx;
+  height: 112rpx;
+  margin: 20rpx 18rpx 0;
+  padding: 12rpx 14rpx;
   background: #FFFFFF;
+  border-radius: 24rpx;
+  box-shadow: 0 16rpx 40rpx rgba(48, 71, 112, 0.08);
   box-sizing: border-box;
 }
 
@@ -476,77 +543,102 @@ export default {
   align-items: center;
   justify-content: center;
   border-radius: 999rpx;
-  color: #6E788A;
-  font-size: 28rpx;
+  color: #343A46;
+  font-size: 27rpx;
   font-weight: 800;
   box-sizing: border-box;
 }
 
 .filter-tab.active {
-  background: #EAF3FF;
-  color: #2F73E0;
+  background: #F0F5FF;
+  color: #416FF0;
 }
 
 .filter-tab.active::after {
   content: '';
   position: absolute;
   left: 50%;
-  bottom: -4rpx;
-  width: 38rpx;
+  bottom: 4rpx;
+  width: 32rpx;
   height: 6rpx;
   border-radius: 999rpx;
-  background: #2F73E0;
+  background: #416FF0;
   transform: translateX(-50%);
 }
 
 .page-body {
-  height: calc(100vh - 226rpx - var(--status-bar-height));
+  height: calc(100vh - 220rpx - var(--status-bar-height));
   padding: 26rpx 18rpx 34rpx;
   box-sizing: border-box;
   background: #F7F8FA;
 }
 
 .empty {
-  padding: 120rpx 0;
+  min-height: calc(100vh - 380rpx - var(--status-bar-height));
+  padding: 118rpx 0 80rpx;
   text-align: center;
-}
-
-.empty-i {
-  position: relative;
-  width: 86rpx;
-  height: 64rpx;
-  margin: 0 auto 24rpx;
-  border: 3rpx solid #A5AFBF;
-  border-top: 0;
-  border-radius: 8rpx 8rpx 14rpx 14rpx;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
-.empty-i::before {
-  content: '';
-  position: absolute;
-  left: -3rpx;
-  top: -20rpx;
-  width: 86rpx;
-  height: 24rpx;
-  border: 3rpx solid #A5AFBF;
-  border-bottom: 0;
-  border-radius: 12rpx 12rpx 0 0;
-  box-sizing: border-box;
+.empty-illustration {
+  width: 350rpx;
+  height: 276rpx;
+  margin-bottom: 48rpx;
 }
 
-.empty-i::after {
-  content: '';
-  position: absolute;
-  left: 22rpx;
-  right: 22rpx;
-  top: 20rpx;
-  border-top: 3rpx solid #A5AFBF;
+.empty-title {
+  color: #1D2430;
+  font-size: 34rpx;
+  font-weight: 900;
+  line-height: 1.25;
 }
 
-.empty-t {
-  color: #8A94A6;
-  font-size: 27rpx;
+.empty-subtitle {
+  margin-top: 22rpx;
+  color: #9AA2AE;
+  font-size: 25rpx;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.empty-primary-btn {
+  width: 236rpx;
+  height: 72rpx;
+  margin: 58rpx 0 0;
+  padding: 0;
+  border-radius: 999rpx;
+  background: #4D77F3;
+  color: #FFFFFF;
+  font-size: 26rpx;
+  font-weight: 800;
+  line-height: 72rpx;
+  box-shadow: 0 14rpx 30rpx rgba(77, 119, 243, 0.26);
+}
+
+.empty-primary-btn::after {
+  border: none;
+}
+
+.empty-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-top: 44rpx;
+  color: #4D77F3;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+
+.empty-link-arrow {
+  width: 12rpx;
+  height: 12rpx;
+  border-top: 3rpx solid currentColor;
+  border-right: 3rpx solid currentColor;
+  border-radius: 2rpx;
+  transform: rotate(45deg);
 }
 
 .publish-card {

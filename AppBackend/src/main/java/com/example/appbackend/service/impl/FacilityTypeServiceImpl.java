@@ -31,22 +31,19 @@ public class FacilityTypeServiceImpl implements FacilityTypeService {
 
     private static final List<FacilityTypeItem> DEFAULT_TYPES = List.of(
             new FacilityTypeItem(1, "食堂"),
-            new FacilityTypeItem(2, "运动场"),
-            new FacilityTypeItem(3, "教学楼"),
-            new FacilityTypeItem(4, "综合服务"),
-            new FacilityTypeItem(5, "校内商铺"),
-            new FacilityTypeItem(OTHER, "其他")
+            new FacilityTypeItem(2, "球类场地"),
+            new FacilityTypeItem(3, "水上及特殊场地"),
+            new FacilityTypeItem(4, "田径及综合场地"),
+            new FacilityTypeItem(5, "其他"),
+            new FacilityTypeItem(6, "教学楼"),
+            new FacilityTypeItem(7, "宿舍")
     );
 
     @Autowired
     private MapConfigRepository mapConfigRepository;
 
     private volatile Map<Integer, String> labelCache = buildLabelMap(DEFAULT_TYPES);
-
-    @PostConstruct
-    public void init() {
-        loadTypesFromConfig();
-    }
+    private volatile boolean loaded = false;
 
     @Override
     public List<FacilityTypeItem> listTypes() {
@@ -89,11 +86,32 @@ public class FacilityTypeServiceImpl implements FacilityTypeService {
     }
 
     private List<FacilityTypeItem> loadTypesFromConfig() {
-        return mapConfigRepository.findByConfigKey(CONFIG_KEY)
-                .map(MapConfig::getConfigValue)
-                .filter(raw -> raw != null && !raw.isBlank())
-                .map(this::parseTypes)
-                .orElse(DEFAULT_TYPES);
+        if (!loaded) {
+            synchronized (this) {
+                if (!loaded) {
+                    try {
+                        mapConfigRepository.findByConfigKey(CONFIG_KEY)
+                                .map(MapConfig::getConfigValue)
+                                .filter(raw -> raw != null && !raw.isBlank())
+                                .ifPresent(raw -> {
+                                    try {
+                                        List<FacilityTypeItem> parsed = OBJECT_MAPPER.readValue(raw, TYPE_LIST);
+                                        List<FacilityTypeItem> normalized = normalizeTypes(parsed);
+                                        labelCache = buildLabelMap(normalized);
+                                    } catch (Exception ignored) {
+                                        labelCache = buildLabelMap(DEFAULT_TYPES);
+                                    }
+                                });
+                    } catch (Exception ignored) {
+                        labelCache = buildLabelMap(DEFAULT_TYPES);
+                    }
+                    loaded = true;
+                }
+            }
+        }
+        return labelCache.entrySet().stream()
+                .map(e -> new FacilityTypeItem(e.getKey(), e.getValue()))
+                .collect(Collectors.toList());
     }
 
     private List<FacilityTypeItem> parseTypes(String raw) {

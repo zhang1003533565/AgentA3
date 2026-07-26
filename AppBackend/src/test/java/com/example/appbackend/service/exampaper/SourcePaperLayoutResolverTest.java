@@ -104,7 +104,9 @@ class SourcePaperLayoutResolverTest {
 
         assertEquals("<w:pgSz w:w=\"23814\" w:h=\"16840\" w:orient=\"landscape\"/>", layout.pageSizeXml());
         assertEquals("<w:pgMar w:top=\"1134\" w:right=\"998\" w:bottom=\"1134\" w:left=\"2500\" w:header=\"851\" w:footer=\"692\" w:gutter=\"0\"/>", layout.pageMarginsXml());
+        assertEquals("<w:pgNumType w:start=\"1\"/>", layout.pageNumberingXml());
         assertEquals("<w:cols w:num=\"2\" w:space=\"425\" w:sep=\"1\"/>", layout.columnsXml());
+        assertEquals("<w:titlePg/>", layout.titlePageXml());
         assertEquals("<w:docGrid w:linePitch=\"312\"/>", layout.documentGridXml());
     }
 

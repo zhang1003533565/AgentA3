@@ -84,8 +84,10 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getAppMessages, getAppMessageUnreadCount, markAppMessageRead } from '@/api/message'
+import { getAppMessages, getAppMessageUnreadCount, markAppMessageRead, markAppMessagesReadByCategory } from '@/api/message'
 import { refreshMessageState } from '@/utils/messageStore'
+
+const LOST_FOUND_TRADE_EVENTS = ['TRADE_INTENT', 'TRADE_CONFIRM', 'TRADE_COMPLETE', 'TRADE_CANCEL']
 
 export default {
   components: { NavBar },
@@ -132,6 +134,7 @@ export default {
       const chatUnread = this.countUnread(this.chatMessages)
       const tradeUnread = this.countUnread(this.tradeMessages)
       const systemUnread = this.countUnread(this.systemMessages)
+      const latestSystemMessage = this.latestMessage(this.systemMessages)
       return [
         {
           type: 'chat',
@@ -161,6 +164,8 @@ export default {
           latestTime: this.latestTime(this.systemMessages),
           timeText: this.formatTime(this.latestTime(this.systemMessages)),
           iconClass: 'system-icon',
+          message: latestSystemMessage,
+          url: this.messageTargetUrl(latestSystemMessage),
           disabled: this.systemMessages.length === 0
         }
       ]
@@ -198,6 +203,12 @@ export default {
       if (!entry || entry.disabled) {
         uni.showToast({ title: '暂无相关消息', icon: 'none' })
         return
+      }
+      if (entry.type === 'trade' && entry.unreadCount > 0) {
+        await this.markLostFoundTradeMessagesRead()
+      }
+      if (entry.type === 'system' && entry.unreadCount > 0) {
+        await this.markLostFoundSystemMessagesRead()
       }
       if (entry.id && !entry.isRead) {
         try {
@@ -243,8 +254,49 @@ export default {
         return current > latest ? current : latest
       }, 0)
     },
+    latestMessage(list) {
+      return list.reduce((latest, item) => {
+        return this.timeValue(item.createTime) > this.timeValue(latest?.createTime) ? item : latest
+      }, null)
+    },
     isTradeEvent(type) {
-      return ['TRADE_INTENT', 'TRADE_CONFIRM', 'TRADE_COMPLETE', 'TRADE_CANCEL'].includes(type)
+      return LOST_FOUND_TRADE_EVENTS.includes(type)
+    },
+    async markLostFoundTradeMessagesRead() {
+      try {
+        await markAppMessagesReadByCategory({
+          moduleType: 'LOST_FOUND',
+          eventTypes: LOST_FOUND_TRADE_EVENTS
+        })
+        this.messages = this.messages.map((item) => (
+          item.moduleType === 'LOST_FOUND' && this.isTradeEvent(item.eventType)
+            ? { ...item, isRead: true }
+            : item
+        ))
+        await this.loadUnreadCount()
+        await refreshMessageState('lost-found-trade-app-messages-read')
+      } catch (error) {
+        console.warn('批量标记旧物交易提醒已读失败', error)
+      }
+    },
+    async markLostFoundSystemMessagesRead() {
+      try {
+        const eventTypes = [...new Set(this.systemMessages.map((item) => item.eventType).filter(Boolean))]
+        if (!eventTypes.length) return
+        await markAppMessagesReadByCategory({
+          moduleType: 'LOST_FOUND',
+          eventTypes
+        })
+        this.messages = this.messages.map((item) => (
+          item.moduleType === 'LOST_FOUND' && eventTypes.includes(item.eventType)
+            ? { ...item, isRead: true }
+            : item
+        ))
+        await this.loadUnreadCount()
+        await refreshMessageState('lost-found-system-app-messages-read')
+      } catch (error) {
+        console.warn('批量标记旧物其他提醒已读失败', error)
+      }
     },
     formatCount(value) {
       const count = Number(value || 0)

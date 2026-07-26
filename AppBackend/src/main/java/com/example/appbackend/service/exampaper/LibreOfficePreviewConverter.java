@@ -3,8 +3,14 @@ package com.example.appbackend.service.exampaper;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.exception.BusinessException;
 import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.font.PDFont;
+import org.apache.pdfbox.pdmodel.font.PDType0Font;
 
+import java.awt.Color;
 import java.io.IOException;
 import java.io.File;
 import java.io.ByteArrayInputStream;
@@ -154,6 +160,7 @@ public class LibreOfficePreviewConverter {
         Path profile = safeWork.resolve(UUID.randomUUID().toString());
         Process process = null;
         try {
+            boolean logicalTwoUpFooter = hasLogicalTwoUpFooter(docx);
             createSafeDirectory(profile);
             installPreviewCjkFont(profile);
             Files.write(input, substituteCjkFontsForPreview(docx), StandardOpenOption.CREATE_NEW);
@@ -173,6 +180,7 @@ public class LibreOfficePreviewConverter {
             try (PDDocument document = Loader.loadPDF(pdf)) {
                 int pageCount = document.getNumberOfPages();
                 if (pageCount < 1) throw new IOException("PDF has no pages");
+                if (logicalTwoUpFooter) pdf = stampLogicalTwoUpFooter(document, pageCount);
                 return new ConversionResult(pdf, pageCount);
             } catch (IOException malformed) {
                 throw new BusinessException(Result.ERROR_CODE, "试卷预览转换结果不是有效 PDF");
@@ -192,6 +200,92 @@ public class LibreOfficePreviewConverter {
         }
     }
 
+    private static boolean hasLogicalTwoUpFooter(byte[] docx) {
+        try (ZipInputStream input = new ZipInputStream(new ByteArrayInputStream(docx))) {
+            ZipEntry entry;
+            while ((entry = input.getNextEntry()) != null) {
+                String name = entry.getName();
+                if (!name.startsWith("word/footer") || !name.endsWith(".xml")) continue;
+                String footer = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+                if (footer.contains("SECTIONPAGES") && footer.contains("*2")) return true;
+            }
+            return false;
+        } catch (IOException exception) {
+            throw new BusinessException(Result.ERROR_CODE, "试卷预览页脚检查失败");
+        }
+    }
+
+    private static byte[] stampLogicalTwoUpFooter(PDDocument document, int physicalPageCount) throws IOException {
+        PDFont font = loadPreviewFooterFont(document);
+        int logicalTotal = physicalPageCount * 2;
+        float fontSize = 7.5f;
+        for (int i = 0; i < physicalPageCount; i++) {
+            PDPage page = document.getPage(i);
+            PDRectangle box = page.getCropBox() != null ? page.getCropBox() : page.getMediaBox();
+            float x = box.getLowerLeftX();
+            float y = box.getLowerLeftY();
+            float width = box.getWidth();
+            float leftCenter = x + width / 4f;
+            float rightCenter = x + width * 3f / 4f;
+            float footerY = y + 52f;
+            String left = "第" + (i * 2 + 1) + "页 共" + logicalTotal + "页";
+            String right = "第" + (i * 2 + 2) + "页 共" + logicalTotal + "页";
+            try (PDPageContentStream content = new PDPageContentStream(document, page,
+                    PDPageContentStream.AppendMode.APPEND, true, true)) {
+                // 密封线区域约79pt，留充足余量从150pt处开始绘制白色背景，确保密封线完整露出
+                float bindingLineOffset = 150f;
+                content.setNonStrokingColor(Color.WHITE);
+                content.addRect(x + bindingLineOffset, y + 18f, width - bindingLineOffset, 55f);
+                content.fill();
+                content.setNonStrokingColor(Color.BLACK);
+                writeBoldText(content, font, fontSize, left, leftCenter - textWidth(font, fontSize, left) / 2f, footerY);
+                writeBoldText(content, font, fontSize, "◎", (leftCenter + rightCenter) / 2f - textWidth(font, fontSize, "◎") / 2f, footerY);
+                writeBoldText(content, font, fontSize, right, rightCenter - textWidth(font, fontSize, right) / 2f, footerY);
+            }
+        }
+        ByteArrayOutputStream stamped = new ByteArrayOutputStream();
+        document.save(stamped);
+        return stamped.toByteArray();
+    }
+
+    private static void writeBoldText(PDPageContentStream content, PDFont font, float fontSize,
+            String text, float x, float y) throws IOException {
+        content.beginText();
+        content.setFont(font, fontSize);
+        content.newLineAtOffset(x, y);
+        content.showText(text);
+        content.endText();
+        content.beginText();
+        content.setFont(font, fontSize);
+        content.newLineAtOffset(x + 0.3f, y);
+        content.showText(text);
+        content.endText();
+    }
+
+    private static void writeText(PDPageContentStream content, PDFont font, float fontSize,
+            String text, float x, float y) throws IOException {
+        content.beginText();
+        content.setFont(font, fontSize);
+        content.newLineAtOffset(x, y);
+        content.showText(text);
+        content.endText();
+    }
+
+    private static float textWidth(PDFont font, float fontSize, String text) throws IOException {
+        return font.getStringWidth(text) / 1000f * fontSize;
+    }
+
+    private static PDFont loadPreviewFooterFont(PDDocument document) throws IOException {
+        for (Path candidate : previewFooterFontCandidates()) {
+            if (!Files.isRegularFile(candidate, LinkOption.NOFOLLOW_LINKS)) continue;
+            try {
+                return PDType0Font.load(document, candidate.toFile());
+            } catch (IOException | RuntimeException ignored) {
+            }
+        }
+        throw new IOException("No CJK footer font available");
+    }
+
     private void installPreviewCjkFont(Path profile) throws IOException {
         String commandName = Path.of(sofficePath).getFileName().toString().toLowerCase(java.util.Locale.ROOT);
         if (!commandName.equals("soffice") && !commandName.equals("soffice.exe")) return;
@@ -206,6 +300,23 @@ public class LibreOfficePreviewConverter {
 
     private static List<Path> previewCjkFontCandidates() {
         return List.of(
+                Path.of("C:/Windows/Fonts/NotoSansSC-VF.ttf"),
+                Path.of("C:/Windows/Fonts/Deng.ttf"),
+                Path.of("C:/Windows/Fonts/simhei.ttf"),
+                Path.of("/System/Library/Fonts/Hiragino Sans GB.ttc"),
+                Path.of("/System/Library/Fonts/Supplemental/Songti.ttc"),
+                Path.of("/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),
+                Path.of("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+                Path.of("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
+                Path.of("/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc"));
+    }
+
+    private static List<Path> previewFooterFontCandidates() {
+        return List.of(
+                Path.of("C:/Windows/Fonts/NotoSansSC-VF.ttf"),
+                Path.of("C:/Windows/Fonts/Deng.ttf"),
+                Path.of("C:/Windows/Fonts/simhei.ttf"),
+                Path.of("C:/Windows/Fonts/simsun.ttc"),
                 Path.of("/System/Library/Fonts/Hiragino Sans GB.ttc"),
                 Path.of("/System/Library/Fonts/Supplemental/Songti.ttc"),
                 Path.of("/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),

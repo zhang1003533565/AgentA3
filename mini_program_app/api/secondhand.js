@@ -154,6 +154,13 @@ export function cancelTradeRecord(id) {
   })
 }
 
+export function ensureTradeRecordBySession(sessionId) {
+  return request({
+    url: `/api/trade/record/session/${sessionId}/ensure`,
+    method: 'POST'
+  })
+}
+
 export function reserveSecondhandItem(itemId) {
   return request({
     url: `/api/trade/record/reserve/${itemId}`,

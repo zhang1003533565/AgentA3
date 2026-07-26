@@ -1,7 +1,4 @@
 .qbg-page { max-width: 1180px; margin: 0 auto; padding: 28px 24px 56px; }
-.qbg-hero { padding: 12px 4px 20px; }
-.qbg-hero > span { color: #1677ff; font-size: 12px; font-weight: 700; letter-spacing: .18em; }
-.qbg-hero h1 { margin: 8px 0; }
 .qbg-panel { margin-bottom: 20px; border-radius: 14px; box-shadow: 0 8px 30px rgba(15, 23, 42, .05); }
 .qbg-form-grid, .qbg-editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
 .qbg-primary { margin-top: 20px; }

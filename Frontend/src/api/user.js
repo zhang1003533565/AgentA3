@@ -19,3 +19,21 @@ export function register(data) {
   })
 }
 
+// ========== 消息中心 ==========
+
+export function getMessages(current = 1, size = 100) {
+  return request({ url: '/api/app-message/list', method: 'GET', params: { current, size } })
+}
+
+export function getUnreadCount() {
+  return request({ url: '/api/app-message/unread/count', method: 'GET' })
+}
+
+export function markMessageRead(id) {
+  return request({ url: `/api/app-message/${id}/read`, method: 'PUT' })
+}
+
+export function markAllMessagesRead() {
+  return request({ url: '/api/app-message/read-all', method: 'PUT' })
+}
+

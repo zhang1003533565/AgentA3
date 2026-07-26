@@ -31,15 +31,25 @@
 			<text class="panel-title">会议设置</text>
 			<view class="field-block">
 				<text class="field-label">会议主题</text>
-				<input v-model="meetingTitle" class="plain-input" placeholder="项目进度同步会" />
+				<view class="input-box">
+					<input v-model="meetingTitle" class="plain-input" placeholder="项目进度同步会" />
+				</view>
 			</view>
 			<view class="setting-row">
 				<text>开启麦克风</text>
-				<switch :checked="micOn" color="#23866d" @change="micOn = $event.detail.value" />
+				<switch :checked="micOn" color="#86C9A8" @change="micOn = $event.detail.value" />
+			</view>
+			<view class="setting-row">
+				<text>开启视频</text>
+				<switch :checked="cameraOn" color="#86C9A8" @change="cameraOn = $event.detail.value" />
+			</view>
+			<view class="setting-row">
+				<view class="label-help"><text>共享屏幕</text><text class="info">ⓘ</text></view>
+				<switch :checked="shareScreen" color="#86C9A8" @change="shareScreen = $event.detail.value" />
 			</view>
 			<view class="setting-row">
 				<view class="label-help"><text>使用个人会议号</text><text class="info">ⓘ</text></view>
-				<switch :checked="personalId" color="#23866d" @change="personalId = $event.detail.value" />
+				<switch :checked="personalId" color="#86C9A8" @change="personalId = $event.detail.value" />
 			</view>
 		</view>
 
@@ -58,17 +68,48 @@ export default {
 		return {
 			meetingTitle: '项目进度同步会',
 			micOn: true,
+			cameraOn: true,
+			shareScreen: false,
 			personalId: false,
 			creating: false
 		}
 	},
 	methods: {
 		back() { uni.navigateBack() },
+		// 仅此处进行修改：navigateTo → redirectTo
 		goReserveMeeting() {
-			uni.navigateTo({ url: '/subpackage_meeting/reserveMeeting/reserveMeeting' })
+			uni.redirectTo({ url: '/subpackage_meeting/reserveMeeting/reserveMeeting' })
+		},
+		// 媒体权限预校验
+		async checkMediaPermission() {
+			let authAudio = true;
+			let authVideo = true;
+			// 麦克风权限校验
+			if(this.micOn) {
+				try {
+					await uni.requestPermission({scope: 'scope.record'})
+				} catch(err) {
+					uni.showToast({title: '未授予麦克风权限，无法开启音频', icon:'none'})
+					authAudio = false;
+				}
+			}
+			// 摄像头权限校验
+			if(this.cameraOn) {
+				try {
+					await uni.requestPermission({scope: 'scope.camera'})
+				} catch(err) {
+					uni.showToast({title: '未授予摄像头权限，无法开启视频', icon:'none'})
+					authVideo = false;
+				}
+			}
+			return authAudio && authVideo;
 		},
 		async startNow() {
 			if (this.creating) return
+			// 先校验权限
+			const hasAuth = await this.checkMediaPermission()
+			if(!hasAuth) return;
+
 			this.creating = true
 			try {
 				const res = await createQuickMeeting({
@@ -77,7 +118,7 @@ export default {
 				})
 				const session = res?.data?.session || {}
 				uni.redirectTo({
-					url: `/subpackage_meeting/meetingLive/meetingLive?title=${encodeURIComponent(session.title || this.meetingTitle || '快速会议')}&roomCode=${encodeURIComponent(session.roomCode || '')}&sessionId=${encodeURIComponent(session.sessionId || '')}&micOn=${this.micOn ? '1' : '0'}`
+					url: `/subpackage_meeting/meetingLive/meetingLive?title=${encodeURIComponent(session.title || this.meetingTitle || '快速会议')}&roomCode=${encodeURIComponent(session.roomCode || '')}&sessionId=${encodeURIComponent(session.sessionId || '')}&micOn=${this.micOn ? '1' : '0'}&cameraOn=${this.cameraOn ? '1' : '0'}&shareScreen=${this.shareScreen ? '1' : '0'}`
 				})
 			} catch (error) {
 				uni.showToast({ title: '会议创建失败，请稍后重试', icon: 'none' })
@@ -100,21 +141,34 @@ export default {
 .panel { margin-top: 24rpx; padding: 28rpx; border-radius: 24rpx; background: #fff; box-shadow: 0 18rpx 52rpx rgba(31, 42, 48, .08); }
 .panel-title { display: block; font-size: 27rpx; font-weight: 900; margin-bottom: 24rpx; color: #192328; }
 .type-card { min-height: 96rpx; padding: 20rpx 22rpx; border-radius: 18rpx; background: #f7f7f7; display: flex; align-items: center; gap: 20rpx; margin-bottom: 18rpx; }
-.type-card--active { background: linear-gradient(90deg, rgba(230,246,237,.96), rgba(248,251,249,.95)); }
-.type-icon { width: 54rpx; height: 54rpx; border-radius: 16rpx; background: #cdeedc; color: #1e8a70; display: flex; align-items: center; justify-content: center; font-size: 30rpx; }
-.type-icon--clock { background: #ece9ff; color: #8b7ce8; }
+.type-card--active { background: linear-gradient(90deg, #E8F8F2, #f8fbf9); }
+.type-icon { width: 54rpx; height: 54rpx; border-radius: 16rpx; background: #E8F8F2; color: #57A77D; display: flex; align-items: center; justify-content: center; font-size: 30rpx; }
+.type-icon--clock { background: #E8F8F2; color: #57A77D; }
 .type-copy { flex: 1; display: flex; flex-direction: column; gap: 7rpx; }
 .type-name { font-size: 27rpx; font-weight: 850; color: #172228; }
 .type-desc { font-size: 22rpx; color: #8b9499; }
-.check-dot { width: 40rpx; height: 40rpx; border-radius: 50%; background: #2b8d75; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 24rpx; font-weight: 900; }
+.check-dot { width: 40rpx; height: 40rpx; border-radius: 50%; background: #86C9A8; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 24rpx; font-weight: 900; }
 .chevron { color: #8c969b; font-size: 42rpx; }
 .field-block { padding-bottom: 28rpx; }
 .field-label { display: block; color: #29343a; font-size: 25rpx; margin-bottom: 16rpx; }
-.plain-input { height: 52rpx; color: #1b252a; font-size: 27rpx; }
+.input-box {
+	height: 88rpx;
+	background: #f7f7f7;
+	border-radius: 16rpx;
+	padding: 0 24rpx;
+	display: flex;
+	align-items: center;
+}
+.plain-input {
+	flex: 1;
+	height: 88rpx;
+	color: #1b252a;
+	font-size: 26rpx;
+}
 .setting-row { height: 82rpx; display: flex; align-items: center; justify-content: space-between; font-size: 26rpx; color: #1c272d; }
 .label-help { display: flex; align-items: center; gap: 8rpx; }
 .info { color: #9aa3a8; font-size: 22rpx; }
 .bottom-button-wrap { position: fixed; left: 24rpx; right: 24rpx; bottom: calc(env(safe-area-inset-bottom) + 24rpx); padding: 18rpx 0; background: rgba(255,255,255,.92); }
-.main-button { height: 86rpx; border-radius: 16rpx; background: #23866d; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 29rpx; font-weight: 900; box-shadow: 0 16rpx 32rpx rgba(35,134,109,.18); }
+.main-button { height: 86rpx; border-radius: 16rpx; background: #86C9A8; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 29rpx; font-weight: 900; box-shadow: 0 16rpx 32rpx rgba(134,201,168,.18); }
 .main-button--disabled { opacity: .65; }
 </style>
