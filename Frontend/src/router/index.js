@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import AiAssistantView from '../views/AiAssistantView.vue'
+import EduAccountView from '../views/EduAccountView.vue'
 import AiToolsView from '../views/AiToolsView.vue'
 import CampusActivitiesView from '../views/CampusActivitiesView.vue'
 import HomeView from '../views/HomeView.vue'
@@ -14,6 +15,9 @@ import MineMessagesView from '../views/MineMessagesView.vue'
 import MinePapersView from '../views/MinePapersView.vue'
 import MineScheduleView from '../views/MineScheduleView.vue'
 import MineView from '../views/MineView.vue'
+import PeriodTimeConfigView from '../views/PeriodTimeConfigView.vue'
+import ScheduleSettingsView from '../views/ScheduleSettingsView.vue'
+import SemesterManageView from '../views/SemesterManageView.vue'
 import ResumeView from '../views/ResumeView.vue'
 import ResumeDesigner from '../views/ResumeDesigner.vue'
 import ResumeWizard from '../views/ResumeWizard.vue'
@@ -31,6 +35,10 @@ const routes = [
   { path: '/mine', name: 'mine', component: MineView },
   { path: '/mine/messages', name: 'mine-messages', component: MineMessagesView },
   { path: '/mine/schedule', name: 'mine-schedule', component: MineScheduleView },
+  { path: '/mine/schedule-settings', name: 'mine-schedule-settings', component: ScheduleSettingsView },
+  { path: '/mine/period-time', name: 'mine-period-time', component: PeriodTimeConfigView },
+  { path: '/mine/semester', name: 'mine-semester', component: SemesterManageView },
+  { path: '/mine/edu-account', name: 'mine-edu-account', component: EduAccountView },
   { path: '/mine/meeting-schedule', name: 'mine-meeting-schedule', component: MineMeetingScheduleView },
   { path: '/mine/activities', name: 'mine-activities', component: MineActivitiesView },
   { path: '/mine/ai-history', name: 'mine-ai-history', component: MineAiHistoryView },
