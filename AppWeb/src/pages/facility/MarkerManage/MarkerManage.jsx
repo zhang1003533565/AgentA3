@@ -546,13 +546,8 @@ export default function MarkerManage() {
   return (
     <div className="marker-page">
 
-      {/* ---- Hero ---- */}
+      {/* ---- 顶部工具栏（页题由布局顶栏面包屑统一渲染） ---- */}
       <section className="marker-hero">
-        <div className="marker-hero__info">
-          <span className="workspace-badge" style={{ display: 'inline-flex', marginBottom: 4 }}>校园设施</span>
-          <h2>标点管理</h2>
-          <p>管理校园地图设施标点 — 搜索地点、新增标点、编辑位置与缩略图</p>
-        </div>
         <Space wrap>
           <Input.Search allowClear placeholder="搜索高德地点..." value={searchKw} onChange={(e) => setSearchKw(e.target.value)} onSearch={doSearch} loading={searchBusy} style={{ width: 220 }} />
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} style={{ borderRadius: 12, fontWeight: 600 }}>新增标点</Button>

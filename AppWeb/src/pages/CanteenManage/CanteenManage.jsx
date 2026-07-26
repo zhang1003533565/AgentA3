@@ -330,12 +330,8 @@ export default function CanteenManage() {
 
   return (
     <div className="canteen-manage-page">
-      {/* 页面头部 */}
+      {/* 页面头部（页题由布局顶栏面包屑统一渲染） */}
       <header className="canteen-header">
-        <div className="canteen-header-left">
-          <h1 className="canteen-title">食堂管理</h1>
-          <p className="canteen-subtitle">管理校内各食堂基本信息与地图标点</p>
-        </div>
         <div className="canteen-header-right">
           <div className="canteen-search">
             <Input

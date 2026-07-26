@@ -4313,7 +4313,8 @@ function WorkspacePage({ pageKey }) {
 
   return (
     <div className="workspace-page">
-      {page.title && (
+      {/* 页头仅保留带动态上下文的档口页（档口名、返回入口），普通页题由布局顶栏面包屑统一渲染 */}
+      {page.title && (pageKey === 'facility-stall-dish' || pageKey === 'facility-restaurant') && (
         <section className={`workspace-hero ${pageKey === 'facility-sports' ? 'workspace-hero-sports' : ''}`}>
           <div className="workspace-hero-content">
             <span className="workspace-badge">{page.badge}</span>

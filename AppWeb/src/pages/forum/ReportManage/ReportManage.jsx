@@ -105,13 +105,6 @@ function ReportManage() {
     <div className="rm-container">
       <div className="rm-bg-fire" />
 
-      <div className="rm-header">
-        <div className="rm-header-left">
-          <h1 className="rm-header-title">🚨 举报处理中心</h1>
-          <p className="rm-header-desc">处理用户提交的举报，维护论坛内容安全与秩序</p>
-        </div>
-      </div>
-
       {/* 论坛全局概览 */}
       {forumStats && (
         <div className="rm-overview-bar">
