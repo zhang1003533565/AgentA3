@@ -237,11 +237,7 @@
   border-color: var(--qb-primary-deep) !important;
 }
 
-/* ============ 新增/编辑题目弹窗 ============ */
-.question-bank-editor-modal .ant-modal-content {
-  border-radius: var(--qb-radius-card, 16px);
-}
-
+/* ============ 新增/编辑题目面板（通用 SidePanel 内的表单）============ */
 .question-bank-editor-form .ant-form-item {
   margin-bottom: 16px;
 }

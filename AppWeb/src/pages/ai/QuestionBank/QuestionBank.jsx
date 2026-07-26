@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Card, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Select, Space, Spin, Table, Tag, Typography, message } from 'antd'
+import { Button, Card, Descriptions, Empty, Form, Input, InputNumber, Modal, Select, Space, Spin, Table, Tag, Typography, message } from 'antd'
 import { MinusCircleOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import {
   createExamQuestion,
@@ -10,6 +10,7 @@ import {
   updateExamQuestion,
 } from '../../../api/examQuestion'
 import PageHeader from '../../../components/PageHeader/PageHeader'
+import SidePanel from '../../../components/SidePanel/SidePanel'
 import './QuestionBank.css'
 
 const { Text } = Typography
@@ -659,18 +660,18 @@ function QuestionBank() {
         />
       </Card>
 
-      {/* 新增/编辑题目弹窗 */}
-      <Modal
+      {/* 新增/编辑题目面板（与详情同尺寸的通用右侧面板） */}
+      <SidePanel
         title={editorMode === 'edit' ? '编辑题目' : '新增题目'}
         open={editorOpen}
-        onOk={handleEditorSave}
-        onCancel={() => setEditorOpen(false)}
-        okText="保存"
-        cancelText="取消"
-        confirmLoading={saving}
-        width={640}
+        onClose={() => setEditorOpen(false)}
         forceRender
-        className="question-bank-editor-modal"
+        footer={(
+          <>
+            <Button onClick={() => setEditorOpen(false)}>取消</Button>
+            <Button type="primary" loading={saving} onClick={handleEditorSave}>保存</Button>
+          </>
+        )}
       >
         <Spin spinning={editorLoading}>
           <Form form={editorForm} layout="vertical" className="question-bank-editor-form">
@@ -731,12 +732,11 @@ function QuestionBank() {
             </Form.Item>
           </Form>
         </Spin>
-      </Modal>
+      </SidePanel>
 
-      {/* 详情抽屉 */}
-      <Drawer
+      {/* 详情面板 */}
+      <SidePanel
         title="题目详情"
-        width={720}
         open={detailOpen}
         onClose={() => {
           setDetailOpen(false)
@@ -789,7 +789,7 @@ function QuestionBank() {
         ) : (
           <Empty description="暂无题目详情" />
         )}
-      </Drawer>
+      </SidePanel>
     </div>
   )
 }
