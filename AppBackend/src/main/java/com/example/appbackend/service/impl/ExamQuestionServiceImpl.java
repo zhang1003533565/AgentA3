@@ -171,7 +171,7 @@ public class ExamQuestionServiceImpl implements ExamQuestionService {
     @Override
     @Transactional(readOnly = true)
     public PageResponse<ExamQuestionDTO.QuestionVO> listQuestions(
-            Integer current, Integer size, String type, String difficulty, String keyword, Long userId) {
+            Integer current, Integer size, String type, String difficulty, String keyword, String bankId, Long userId) {
         if (userId == null) {
             throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
         }
@@ -180,16 +180,18 @@ public class ExamQuestionServiceImpl implements ExamQuestionService {
         String normalizedType = blankToNull(type);
         String normalizedDifficulty = blankToNull(difficulty);
         String normalizedKeyword = blankToNull(keyword);
+        String normalizedBank = blankToNull(bankId);
         if (normalizedType != null && !ALLOWED_TYPES.contains(normalizedType)) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "题型不合法");
         }
         if (normalizedDifficulty != null && !ALLOWED_DIFFICULTIES.contains(normalizedDifficulty)) {
             throw new BusinessException(Result.BAD_REQUEST_CODE, "难度不合法");
         }
-        Page<ExamQuestion> result = questionRepository.searchVisible(
+        Page<ExamQuestion> result = questionRepository.searchVisibleWithBank(
                 normalizedType,
                 normalizedDifficulty,
                 normalizedKeyword,
+                normalizedBank,
                 userId,
                 PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.DESC, "id"))
         );
@@ -210,6 +212,123 @@ public class ExamQuestionServiceImpl implements ExamQuestionService {
         ExamQuestion question = questionRepository.findVisibleById(id, userId)
                 .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "题目不存在"));
         return toVO(question, userId);
+    }
+
+    @Override
+    public ExamQuestionDTO.QuestionVO createQuestion(ExamQuestionDTO.SaveRequest request, Long userId, boolean admin) {
+        if (userId == null) {
+            throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
+        }
+        validateSaveRequest(request);
+        ExamQuestion entity = new ExamQuestion();
+        applySaveRequest(entity, request);
+        entity.setScore(BigDecimal.valueOf(5));
+        entity.setSourceScene("manual");
+        entity.setCreatedBy(userId);
+        // 与导入接口保持一致：管理员录题公开，普通用户录题私有
+        entity.setVisibility(admin ? ExamQuestion.VISIBILITY_PUBLIC : ExamQuestion.VISIBILITY_PRIVATE);
+        entity.setOwnerUserId(admin ? null : userId);
+        entity.setRawQuestionJson(toJson(Map.of(
+                "type", request.getType(),
+                "stem", request.getContent(),
+                "difficulty", request.getDifficulty(),
+                "answer", request.getAnswer(),
+                "analysis", request.getAnalysis() == null ? "" : request.getAnalysis(),
+                "source", "manual"
+        )));
+        return toVO(questionRepository.save(entity), userId);
+    }
+
+    @Override
+    public ExamQuestionDTO.QuestionVO updateQuestion(Long id, ExamQuestionDTO.SaveRequest request, Long userId, boolean admin) {
+        if (userId == null) {
+            throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
+        }
+        validateSaveRequest(request);
+        ExamQuestion entity = questionRepository.findVisibleById(id, userId)
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "题目不存在"));
+        requireEditable(entity, userId, admin);
+        applySaveRequest(entity, request);
+        return toVO(questionRepository.save(entity), userId);
+    }
+
+    @Override
+    public void deleteQuestion(Long id, Long userId, boolean admin) {
+        if (userId == null) {
+            throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
+        }
+        ExamQuestion entity = questionRepository.findVisibleById(id, userId)
+                .orElseThrow(() -> new BusinessException(Result.NOT_FOUND_CODE, "题目不存在"));
+        requireEditable(entity, userId, admin);
+        // 软删除，不动历史数据
+        entity.setStatus(0);
+        questionRepository.save(entity);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<String> listBanks(Long userId) {
+        if (userId == null) {
+            throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
+        }
+        return questionRepository.findVisibleBankTitles(userId);
+    }
+
+    // 单题保存请求的枚举校验
+    private void validateSaveRequest(ExamQuestionDTO.SaveRequest request) {
+        if (request == null) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "请求体不能为空");
+        }
+        if (!ALLOWED_TYPES.contains(request.getType())) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "题型不合法");
+        }
+        if (!ALLOWED_DIFFICULTIES.contains(request.getDifficulty())) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "难度不合法");
+        }
+    }
+
+    // 编辑权限：管理员可操作全部，普通用户仅可操作自己创建/拥有的题目
+    private void requireEditable(ExamQuestion entity, Long userId, boolean admin) {
+        if (admin) {
+            return;
+        }
+        boolean owned = userId.equals(entity.getOwnerUserId()) || userId.equals(entity.getCreatedBy());
+        if (!owned) {
+            throw new BusinessException(Result.FORBIDDEN_CODE, "无权操作该题目");
+        }
+    }
+
+    // 把单题表单字段写入实体（body/answer/scoring 按题型生成最小结构）
+    private void applySaveRequest(ExamQuestion entity, ExamQuestionDTO.SaveRequest request) {
+        entity.setType(request.getType());
+        entity.setStem(request.getContent());
+        entity.setDifficulty(request.getDifficulty());
+        entity.setAnalysis(blankToNull(request.getAnalysis()));
+        entity.setSourceTitle(blankToNull(request.getBankId()));
+        if (entity.getBodyJson() == null || entity.getBodyJson().isBlank()) {
+            entity.setBodyJson("{}");
+        }
+        entity.setAnswerJson(toJson(buildAnswerPayload(request.getType(), request.getAnswer())));
+        if (entity.getScoringJson() == null || entity.getScoringJson().isBlank()) {
+            entity.setScoringJson(toJson(Map.of("mode", "manual")));
+        }
+        if (entity.getRawQuestionJson() == null || entity.getRawQuestionJson().isBlank()) {
+            entity.setRawQuestionJson("{}");
+        }
+    }
+
+    // 按题型把答案文本映射为前端详情抽屉可读的结构
+    private Map<String, Object> buildAnswerPayload(String type, String answer) {
+        String text = answer == null ? "" : answer.trim();
+        return switch (type) {
+            case "single_choice" -> Map.of("correctOption", text);
+            case "multiple_choice" -> Map.of("correctOptions", Arrays.stream(text.split("[,，、\\s]+"))
+                    .filter(s -> !s.isBlank()).collect(Collectors.toList()));
+            case "true_false" -> Map.of("correct", Set.of("对", "正确", "true", "T", "√", "是").contains(text));
+            case "fill_blank" -> Map.of("blanks", List.of(Map.of("index", 1, "answers", List.of(text))));
+            case "calculation" -> Map.of("finalAnswer", text);
+            default -> Map.of("referenceAnswer", text);
+        };
     }
 
     private ExamQuestionDTO.ReviewResponse buildReviewResponse(

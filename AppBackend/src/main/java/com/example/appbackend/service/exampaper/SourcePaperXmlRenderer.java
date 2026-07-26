@@ -72,10 +72,11 @@ public final class SourcePaperXmlRenderer {
     public String renderSectionHeader(String title) {
         String grader = "<w:tbl><w:tblPr><w:tblW w:w=\"1938\" w:type=\"dxa\"/>" + singleBorders() + "</w:tblPr>"
                 + graderRow("阅卷人") + graderRow("得分") + "</w:tbl>";
-        return "<w:tbl><w:tblPr><w:tblW w:w=\"0\" w:type=\"auto\"/>" + noneBorders() + "</w:tblPr><w:tr>"
-                + "<w:tc><w:tcPr><w:tcW w:w=\"2164\" w:type=\"dxa\"/>" + cellNoneBorders() + "</w:tcPr>"
+        return "<w:tbl><w:tblPr><w:tblW w:w=\"0\" w:type=\"auto\"/><w:tblLayout w:type=\"fixed\"/>"
+                + noneBorders() + "</w:tblPr><w:tblGrid><w:gridCol w:w=\"1938\"/><w:gridCol w:w=\"7426\"/></w:tblGrid><w:tr>"
+                + "<w:tc><w:tcPr><w:tcW w:w=\"1938\" w:type=\"dxa\"/>" + cellNoneBorders() + "</w:tcPr>"
                 + grader + "<w:p/></w:tc>"
-                + "<w:tc><w:tcPr><w:tcW w:w=\"3040\" w:type=\"dxa\"/><w:vAlign w:val=\"center\"/>"
+                + "<w:tc><w:tcPr><w:tcW w:w=\"7426\" w:type=\"dxa\"/><w:vAlign w:val=\"center\"/>"
                 + cellNoneBorders() + "</w:tcPr>" + paragraph(title, true, 21, "left", 0, 0) + "</w:tc>"
                 + "</w:tr></w:tbl>";
     }
@@ -88,14 +89,22 @@ public final class SourcePaperXmlRenderer {
         for (int index = 0; index < sections.size(); index++) {
             QuestionSection section = sections.get(index);
             String title = toChineseNumber(index + 1) + "、" + typeName(section.type()) + "(共"
-                    + section.questions().size() + "题, 共" + score(section.questions()) + "分)";
+                    + section.questions().size() + "题, 共" + score(section.questions()) + "分";
+            String instruction = scoringInstruction(section);
+            if (instruction != null) {
+                title += "，" + instruction;
+            }
+            title += ")";
             xml.append(renderSectionHeader(title));
             for (QuestionSnapshotVO question : section.questions()) {
                 questionNumber++;
                 if (isChoice(question.getType())) {
-                    xml.append(choiceQuestion(questionNumber, question, layout.getBodyFontSize(), false));
+                    boolean singleChoice = normalizedType(question.getType()).equals("single_choice")
+                            || normalizedType(question.getType()).equals("single")
+                            || normalizedType(question.getType()).equals("1");
+                    xml.append(choiceQuestion(questionNumber, question, layout.getBodyFontSize(), false, singleChoice));
                 } else if (isJudgment(question.getType())) {
-                    xml.append(choiceQuestion(questionNumber, question, layout.getBodyFontSize(), true));
+                    xml.append(choiceQuestion(questionNumber, question, layout.getBodyFontSize(), true, true));
                 } else if (isFillBlank(question.getType())) {
                     xml.append(fillBlankQuestion(questionNumber, question, layout.getBodyFontSize()));
                 } else if (isSubjective(question.getType())) {
@@ -135,10 +144,11 @@ public final class SourcePaperXmlRenderer {
 
     public String renderPageSettings(ResolvedPageLayout layout) {
         Objects.requireNonNull(layout, "layout");
-        return layout.pageSizeXml() + layout.pageMarginsXml() + layout.columnsXml() + layout.documentGridXml();
+        return layout.pageSizeXml() + layout.pageMarginsXml() + layout.pageNumberingXml()
+                + layout.columnsXml() + layout.titlePageXml() + layout.documentGridXml();
     }
 
-    private String choiceQuestion(int number, QuestionSnapshotVO question, int fontSize, boolean judgment) {
+    private String choiceQuestion(int number, QuestionSnapshotVO question, int fontSize, boolean judgment, boolean singleChoice) {
         StringBuilder xml = new StringBuilder(paragraph(number + "．" + cleanHtml(question.getStem()) + "(" + plainScore(question) + "分)",
                 false, fontSize, "left", 80, 0));
         List<Option> options = judgment
@@ -146,9 +156,15 @@ public final class SourcePaperXmlRenderer {
                 : options(question.getBodyJson());
         if (!options.isEmpty()) {
             int maxLength = options.stream().mapToInt(option -> cleanHtml(option.text()).length()).max().orElse(0);
-            if (judgment || (maxLength < 15 && options.size() <= 4)) {
-                xml.append(paragraph(options.stream().map(this::optionText).reduce((left, right) -> left + "        " + right).orElse(""),
-                        false, fontSize, "left", 80, 420));
+            if (judgment || (singleChoice && maxLength < 15 && options.size() <= 4)) {
+                // 单选题每行放2个选项，避免一行放不下4个时出现3+1的尴尬换行
+                for (int i = 0; i < options.size(); i += 2) {
+                    List<String> row = new ArrayList<>();
+                    for (int j = i; j < Math.min(i + 2, options.size()); j++) {
+                        row.add(optionText(options.get(j)));
+                    }
+                    xml.append(paragraph(String.join("        ", row), false, fontSize, "left", 80, 420));
+                }
             } else {
                 options.forEach(option -> xml.append(paragraph(optionText(option), false, fontSize, "left", 80, 420)));
             }
@@ -296,7 +312,17 @@ public final class SourcePaperXmlRenderer {
         }
         return "<w:p>" + properties + "<w:r><w:rPr><w:rFonts w:eastAsia=\"宋体\" w:hint=\"eastAsia\"/>"
                 + (bold ? "<w:b/>" : "") + "<w:sz w:val=\"" + fontSize + "\"/><w:szCs w:val=\"" + fontSize
-                + "\"/></w:rPr><w:t>" + escapeXml(text) + "</w:t></w:r></w:p>";
+                + "\"/></w:rPr>" + textWithLineBreaks(text) + "</w:r></w:p>";
+    }
+
+    private String textWithLineBreaks(String text) {
+        String[] lines = (text == null ? "" : text).split("\\R", -1);
+        StringBuilder xml = new StringBuilder();
+        for (int index = 0; index < lines.length; index++) {
+            if (index > 0) xml.append("<w:br/>");
+            xml.append("<w:t>").append(escapeXml(lines[index])).append("</w:t>");
+        }
+        return xml.toString();
     }
 
     private String tableCell(String text, int width, boolean bold, int fontSize) {
@@ -340,6 +366,11 @@ public final class SourcePaperXmlRenderer {
         BigDecimal result = questions.stream().map(QuestionSnapshotVO::getScore).filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         return result.stripTrailingZeros().toPlainString();
+    }
+
+    private String scoringInstruction(QuestionSection section) {
+        if (!normalizedType(section.type()).equals("multiple_choice") || section.questions().isEmpty()) return null;
+        return ExamPaperTypeScoreRules.paperScoringRuleText(section.questions().get(0).getScoringJson());
     }
 
     static String cleanHtml(String value) {

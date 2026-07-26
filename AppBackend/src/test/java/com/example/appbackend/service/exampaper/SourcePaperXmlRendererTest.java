@@ -31,8 +31,10 @@ class SourcePaperXmlRendererTest {
 
         String section = renderer.renderSectionHeader("二、简答题(共2题, 共20分)");
         parse(section);
-        assertTrue(section.contains("w:tcW w:w=\"2164\""));
-        assertTrue(section.contains("w:tcW w:w=\"3040\""));
+        assertTrue(section.contains("<w:tblLayout w:type=\"fixed\"/>"));
+        assertTrue(section.contains("<w:tblGrid><w:gridCol w:w=\"1938\"/><w:gridCol w:w=\"7426\"/></w:tblGrid>"));
+        assertTrue(section.contains("w:tcW w:w=\"1938\""));
+        assertTrue(section.contains("w:tcW w:w=\"7426\""));
         assertEquals(4, occurrences(section, "w:tcW w:w=\"969\""));
         assertEquals(2, occurrences(section, "w:trHeight w:val=\"549\" w:hRule=\"atLeast\""));
         assertTrue(section.contains("<w:top w:val=\"none\"/>"));
@@ -66,12 +68,31 @@ class SourcePaperXmlRendererTest {
 
         String questions = renderer.renderQuestions(paper, layout());
         assertTrue(questions.contains("A. 甲        B. 乙"));
-        assertTrue(questions.contains("A. 丙        B. 丁"));
+        // 多选题在新版式中按行拆分渲染，但选项标签仍按数组位置重写为 A/B
+        assertFalse(questions.contains("A. 丙        B. 丁"));
+        assertTrue(questions.contains("A. 丙"));
+        assertTrue(questions.contains("B. 丁"));
         assertFalse(questions.contains("X. 甲"));
 
         String answers = renderer.renderAnswers(paper, layout());
         assertTrue(answers.contains("1．答案:B"));
         assertTrue(answers.contains("2．答案:B,A"));
+    }
+
+    @Test
+    void rendersMultipleChoiceScoringInstructionInsideSectionHeaderParentheses() throws Exception {
+        QuestionSnapshotVO multipleChoice = question(1, 1, "multiple_choice", "规则题",
+                options("甲", "乙"), "{\"correctOptions\":[\"A\"]}");
+        multipleChoice.setScoringJson("{\"paperScoringRuleText\":\"少选得部分分，多选/错选不得分\"}");
+        PaperVO paper = paper(List.of(multipleChoice));
+
+        String questions = renderer.renderQuestions(paper, layout());
+        parse(questions);
+
+        assertTrue(questions.contains("一、多项选择题(共1题, 共5分，少选得部分分，多选/错选不得分)"));
+        assertFalse(questions.contains("评分说明"));
+        assertTrue(questions.contains("<w:b/><w:sz w:val=\"21\"/><w:szCs w:val=\"21\"/></w:rPr>"
+                + "<w:t>一、多项选择题(共1题, 共5分，少选得部分分，多选/错选不得分)</w:t>"));
     }
 
     @Test
@@ -176,10 +197,10 @@ class SourcePaperXmlRendererTest {
         // 可配置标题/副标题/正文字号是产品明确要求迁移的源码配置能力。
         assertTrue(subtitle.contains("w:sz w:val=\"24\""));
         assertTrue(subtitle.contains("全卷 &lt;100&gt; &amp; 60分钟"));
-
         String page = renderer.renderPageSettings(resolved);
         parse(page);
-        assertEquals(resolved.pageSizeXml() + resolved.pageMarginsXml() + resolved.columnsXml() + resolved.documentGridXml(), page);
+        assertEquals(resolved.pageSizeXml() + resolved.pageMarginsXml() + resolved.pageNumberingXml()
+                + resolved.columnsXml() + resolved.titlePageXml() + resolved.documentGridXml(), page);
     }
 
     private static PaperVO paper(List<QuestionSnapshotVO> questions) {

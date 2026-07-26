@@ -1,8 +1,10 @@
 <template>
 	<view class="live-page">
 		<view class="status-bar"></view>
+
+		<!-- 顶部导航栏 对齐参考布局 -->
 		<view class="live-top">
-			<text class="speaker">◔</text>
+			<view class="top-left-empty"></view>
 			<view class="live-title-wrap">
 				<text class="live-title">{{ title }}</text>
 				<text class="live-time">{{ elapsedText }}</text>
@@ -10,70 +12,100 @@
 			<text class="end-text" @click="confirmEndMeeting">结束</text>
 		</view>
 
-		<view class="agent-top-toggle" :class="{ 'agent-top-toggle--active': agentEnabled }" @click="setAgentSummary(!agentEnabled)">
-			<view class="agent-top-copy">
-				<text class="agent-top-title">智能体会议总结</text>
-				<text class="agent-top-desc">{{ agentEnabled ? '已开启：下方显示 AI 实时总结流' : '未开启：点击切换为 AI 实时总结' }}</text>
-			</view>
-			<view class="agent-top-switch" :class="{ 'agent-top-switch--active': agentEnabled }">
-				<view class="agent-top-knob"></view>
-			</view>
-		</view>
-
-		<view class="member-grid">
-			<view v-for="member in visibleMembers" :key="member.name" class="member-card" :class="member.className">
-				<view class="face">
-					<view class="hair"></view>
-					<view class="head"></view>
-					<view class="body"></view>
+		<!-- 中间主区域：参会画面居中（核心视觉） -->
+		<view class="main-view-area">
+			<view class="member-grid">
+				<view v-for="member in visibleMembers" :key="member.name" class="member-card" :class="member.className">
+					<view class="face">
+						<view class="hair"></view>
+						<view class="head"></view>
+						<view class="body"></view>
+					</view>
+					<view class="name-chip">{{ member.name }}</view>
 				</view>
-				<view class="name-chip">{{ member.name }}</view>
 			</view>
 		</view>
 
-		<view class="asr-barrage-area">
-			<view class="asr-head">
-				<text class="asr-title">{{ livePanelTitle }}</text>
-				<text class="asr-status" :class="{ 'asr-status--live': asrRecording || agentEnabled }">{{ livePanelStatus }}</text>
+		<!-- 底部固定操作栏 -->
+		<view class="live-bottom">
+			<view class="control-row">
+				<view class="control-item" :class="{ 'control-item--active': muted }" @click="toggleMute">
+					<view class="control-icon">♩</view>
+					<text>{{ muted ? '解除静音' : '静音' }}</text>
+				</view>
+				<view class="control-item" :class="{ 'control-item--active': cameraOpen }" @click="toggleCamera">
+					<view class="control-icon">◎</view>
+					<text>{{ cameraOpen ? '关闭视频' : '开启视频' }}</text>
+				</view>
+				<view class="control-item" :class="{ 'control-item--active': shareScreenOpen }" @click="toggleShareScreen">
+					<view class="control-icon">▣</view>
+					<text>{{ shareScreenOpen ? '停止共享' : '共享屏幕' }}</text>
+				</view>
+				<view class="control-item" @click="showMembers">
+					<view class="control-icon">♟</view>
+					<text>成员({{ members.length }})</text>
+				</view>
+				<view class="control-item" @click="showMore">
+					<view class="control-icon">•••</view>
+					<text>更多</text>
+				</view>
+			</view>
+		</view>
+
+		<!-- 语音/AI总结 独立底部弹窗，不再常驻页面 -->
+		<view v-if="asrPanelVisible" class="panel-mask" @click="closeAsrPanel"></view>
+		<view v-if="asrPanelVisible" class="sheet-panel asr-panel">
+			<view class="sheet-handle"></view>
+			<view class="sheet-title-row">
+				<text class="sheet-title">{{ livePanelTitle }}</text>
+				<text class="sheet-close" @click="closeAsrPanel">×</text>
 			</view>
 			<view class="asr-mode-row">
 				<view class="asr-mode-pill" :class="{ 'asr-mode-pill--active': !agentEnabled }" @click="setAgentSummary(false)">语音弹幕</view>
 				<view class="asr-mode-pill" :class="{ 'asr-mode-pill--active': agentEnabled }" @click="setAgentSummary(true)">AI总结</view>
 			</view>
+			<view class="agent-top-toggle" :class="{ 'agent-top-toggle--active': agentEnabled }" @click="setAgentSummary(!agentEnabled)">
+				<view class="agent-top-copy">
+					<text class="agent-top-title">智能体会议总结</text>
+					<text class="agent-top-desc">{{ agentEnabled ? '已开启：下方显示 AI 实时总结流' : '未开启：点击切换为 AI 实时总结' }}</text>
+				</view>
+				<view class="agent-top-switch" :class="{ 'agent-top-switch--active': agentEnabled }">
+					<view class="agent-top-knob"></view>
+				</view>
+			</view>
+			<view class="asr-status-line">
+				<text class="asr-title">{{ livePanelTitle }}</text>
+				<text class="asr-status" :class="{ 'asr-status--live': asrRecording || agentEnabled }">{{ livePanelStatus }}</text>
+			</view>
 			<view v-if="asrReconnectVisible" class="asr-reconnect" @click="reconnectAsr">重新连接识别</view>
-			<view v-if="agentEnabled && aiSummaryItems.length === 0" class="asr-empty">{{ livePanelEmptyText }}</view>
-			<view v-else-if="agentEnabled" class="ai-summary-stream">
-				<view v-for="item in aiSummaryItems" :key="item.id" class="ai-summary-card">
-					<view class="ai-summary-meta">
-						<text>AI 总结</text>
-						<text>{{ item.time }}</text>
+
+			<scroll-view class="asr-scroll" scroll-y>
+				<view v-if="agentEnabled && aiSummaryItems.length === 0" class="asr-empty">{{ livePanelEmptyText }}</view>
+				<view v-else-if="agentEnabled" class="ai-summary-stream">
+					<view v-for="item in aiSummaryItems" :key="item.id" class="ai-summary-card">
+						<view class="ai-summary-meta">
+							<text>AI 总结</text>
+							<text>{{ item.time }}</text>
+						</view>
+						<text class="ai-summary-text">{{ item.text }}</text>
 					</view>
-					<text class="ai-summary-text">{{ item.text }}</text>
 				</view>
-			</view>
-			<view v-else-if="asrItems.length === 0" class="asr-empty">{{ livePanelEmptyText }}</view>
-			<view v-else class="asr-stream">
-				<view
-					v-for="item in asrItems"
-					:key="item.id"
-					class="asr-bubble"
-					:class="{ 'asr-bubble--partial': !item.isFinal, 'asr-bubble--self': item.isSelf }"
-				>
-					<text class="asr-speaker">{{ item.speaker }}</text>
-					<text class="asr-text">{{ item.text }}</text>
+				<view v-else-if="asrItems.length === 0" class="asr-empty">{{ livePanelEmptyText }}</view>
+				<view v-else class="asr-stream">
+					<view
+						v-for="item in asrItems"
+						:key="item.id"
+						class="asr-bubble"
+						:class="{ 'asr-bubble--partial': !item.isFinal, 'asr-bubble--self': item.isSelf }"
+					>
+						<text class="asr-speaker">{{ item.speaker }}</text>
+						<text class="asr-text">{{ item.text }}</text>
+					</view>
 				</view>
-			</view>
+			</scroll-view>
 		</view>
 
-		<view class="live-bottom">
-			<view class="handle"></view>
-			<view class="control-row">
-				<view class="control-item" :class="{ 'control-item--active': muted }" @click="toggleMute"><view class="control-icon">♩</view><text>{{ muted ? '解除静音' : '静音' }}</text></view>
-				<view class="control-item" @click="showMembers"><view class="control-icon">♟</view><text>成员({{ members.length }})</text></view>
-				<view class="control-item" @click="showMore"><view class="control-icon">•••</view><text>更多</text></view>
-			</view>
-		</view>
-
+		<!-- 原有底部弹窗：成员 / 更多 -->
 		<view v-if="panelVisible" class="panel-mask" @click="closePanel"></view>
 		<view v-if="memberPanelVisible" class="sheet-panel">
 			<view class="sheet-handle"></view>
@@ -99,7 +131,11 @@
 				<text class="sheet-close" @click="closePanel">×</text>
 			</view>
 			<view class="more-list">
-				<view class="more-row more-row--switch"><text>智能体总结</text><switch :checked="agentEnabled" color="#23866d" @change="toggleAgentSummary" /></view>
+				<view class="more-row" @click="openAsrPanel">
+					<text>语音识别 & AI总结</text>
+					<text>打开实时转写面板</text>
+				</view>
+				<view class="more-row more-row--switch"><text>智能体总结</text><switch :checked="agentEnabled" color="#86C9A8" @change="toggleAgentSummary" /></view>
 				<view class="more-row" @click="copyRoomCode"><text>复制会议号</text><text>{{ roomCode || '未生成' }}</text></view>
 				<view class="more-row" @click="shareMeeting"><text>分享会议</text><text>复制邀请文案</text></view>
 				<view class="more-row" @click="openMeetingDetail"><text>会议详情</text><text>查看会议号与参会人</text></view>
@@ -121,6 +157,8 @@ export default {
 			title: '项目进度同步会',
 			roomCode: '',
 			muted: false,
+			cameraOpen: false,
+			shareScreenOpen: false,
 			elapsedSeconds: 0,
 			timer: null,
 			asrSocket: null,
@@ -155,6 +193,7 @@ export default {
 			meetingTranscriptLines: [],
 			memberPanelVisible: false,
 			morePanelVisible: false,
+			asrPanelVisible: false,
 			members: []
 		}
 	},
@@ -163,6 +202,9 @@ export default {
 		if (options?.title) this.title = decodeURIComponent(options.title)
 		if (options?.roomCode) this.roomCode = decodeURIComponent(options.roomCode)
 		if (options?.micOn === '0' || options?.micOn === 'false') this.muted = true
+		if (options?.cameraOn === '1') this.cameraOpen = true
+		if (options?.shareScreen === '1') this.shareScreenOpen = true
+
 		this.initCurrentMember()
 		this.startTimer()
 		this.loadMeeting()
@@ -180,7 +222,7 @@ export default {
 			return `${hours}:${minutes}:${seconds}`
 		},
 		panelVisible() {
-			return this.memberPanelVisible || this.morePanelVisible
+			return this.memberPanelVisible || this.morePanelVisible || this.asrPanelVisible
 		},
 		compactRoomCode() {
 			return (this.roomCode || '').replace(/\s+/g, '')
@@ -202,6 +244,14 @@ export default {
 		}
 	},
 	methods: {
+		// 新增：打开ASR弹窗
+		openAsrPanel() {
+			this.closePanel()
+			this.asrPanelVisible = true
+		},
+		closeAsrPanel() {
+			this.asrPanelVisible = false
+		},
 		startTimer() {
 			this.stopTimer()
 			this.timer = setInterval(() => {
@@ -239,6 +289,22 @@ export default {
 				this.startAsr()
 			}
 			uni.showToast({ title: this.muted ? '已静音' : '已解除静音', icon: 'none' })
+		},
+		toggleCamera() {
+			this.cameraOpen = !this.cameraOpen
+			if(this.cameraOpen){
+				uni.showToast({title: '正在启动摄像头', icon:'none'})
+			}else{
+				uni.showToast({title: '已关闭视频', icon:'none'})
+			}
+		},
+		toggleShareScreen() {
+			this.shareScreenOpen = !this.shareScreenOpen
+			if(this.shareScreenOpen){
+				uni.showToast({title: '请求开启屏幕共享', icon:'none'})
+			}else{
+				uni.showToast({title: '停止屏幕共享', icon:'none'})
+			}
 		},
 		initAsr() {
 			if (!this.sessionId) {
@@ -616,10 +682,10 @@ export default {
 		isSelfSpeaker(payload) {
 			const user = getUserInfo()
 			const currentId = user?.id || user?.userId || ''
-			if (currentId && payload.speakerUserId && String(currentId) === String(payload.speakerUserId)) {
+			const currentName = getCurrentDisplayName()
+			if (currentId && payload.speakerUserId && String(currentId) === String(currentId)) {
 				return true
 			}
-			const currentName = getCurrentDisplayName()
 			return !!currentName && payload.speaker === currentName
 		},
 		upsertAsrItem(item) {
@@ -857,78 +923,347 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-.live-page { min-height: 100vh; background: radial-gradient(circle at 20% 8%, #222a38 0, #111725 34%, #080d18 100%); padding: 0 22rpx 160rpx; box-sizing: border-box; color: #fff; }
+.live-page {
+	min-height: 100vh;
+	background: #ffffff;
+	color: #151f25;
+}
 .status-bar { height: var(--status-bar-height); min-height: 42rpx; }
-.live-top { height: 98rpx; display: grid; grid-template-columns: 70rpx 1fr 70rpx; align-items: center; }
-.speaker { font-size: 34rpx; color: #fff; }
-.live-title-wrap { display: flex; flex-direction: column; align-items: center; gap: 6rpx; }
-.live-title { font-size: 27rpx; font-weight: 850; color: #fff; }
-.live-time { font-size: 20rpx; color: rgba(255,255,255,.72); }
+
+/* 顶部导航 */
+.live-top {
+	display: grid;
+	grid-template-columns: 70rpx 1fr 70rpx;
+	height: 98rpx;
+	align-items: center;
+	padding: 0 22rpx;
+}
+.top-left-empty{}
+.live-title-wrap {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 6rpx;
+}
+.live-title { font-size: 27rpx; font-weight: 850; color: #0f1a20; }
+.live-time { font-size: 20rpx; color: #5c6470; }
 .end-text { color: #ff5f55; font-size: 25rpx; text-align: right; }
-.agent-top-toggle { margin-top: 14rpx; min-height: 86rpx; padding: 16rpx 18rpx; border-radius: 22rpx; background: linear-gradient(135deg, rgba(255,255,255,.1), rgba(255,255,255,.04)); border: 2rpx solid rgba(255,255,255,.1); display: flex; align-items: center; justify-content: space-between; box-shadow: 0 14rpx 30rpx rgba(0,0,0,.18); }
-.agent-top-toggle--active { background: linear-gradient(135deg, rgba(45, 188, 142, .34), rgba(75, 224, 176, .14)); border-color: rgba(126, 226, 192, .5); }
-.agent-top-copy { display: flex; flex-direction: column; gap: 8rpx; }
-.agent-top-title { color: #fff; font-size: 27rpx; font-weight: 950; }
-.agent-top-desc { color: rgba(255,255,255,.62); font-size: 21rpx; }
-.agent-top-switch { width: 88rpx; height: 48rpx; padding: 5rpx; border-radius: 999rpx; background: rgba(255,255,255,.16); box-sizing: border-box; display: flex; justify-content: flex-start; }
-.agent-top-switch--active { justify-content: flex-end; background: #42d39f; }
-.agent-top-knob { width: 38rpx; height: 38rpx; border-radius: 50%; background: #fff; box-shadow: 0 5rpx 12rpx rgba(0,0,0,.22); }
-.member-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10rpx; margin-top: 18rpx; }
-.member-card { position: relative; height: 230rpx; border-radius: 10rpx; overflow: hidden; background: linear-gradient(180deg, #e9eeef, #bec8ca); display: flex; align-items: flex-end; justify-content: center; }
+
+/* 中间主画面区域 */
+.main-view-area {
+	flex:1;
+	display: flex;
+	justify-content: center;
+	padding: 60rpx 40rpx;
+	min-height: calc(100vh - 320rpx);
+	box-sizing: border-box;
+}
+.member-grid {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 24rpx;
+	width: 100%;
+	max-width: 620rpx;
+}
+.member-card {
+	position: relative;
+	height: 280rpx;
+	border-radius: 24rpx;
+	overflow: hidden;
+	background: linear-gradient(180deg, #e9eeef, #bec8ca);
+	display: flex;
+	align-items: flex-end;
+	justify-content: center;
+}
 .avatar-b { background: linear-gradient(180deg, #e2ecee, #a7c0c8); }
 .avatar-c { background: linear-gradient(180deg, #e9ecec, #ccd2d3); }
 .avatar-d { background: linear-gradient(180deg, #f0eeea, #d9c8bd); }
-.asr-barrage-area { margin-top: 22rpx; min-height: 420rpx; padding: 22rpx 18rpx; border-radius: 24rpx; background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.025)); border: 1rpx solid rgba(255,255,255,.08); box-sizing: border-box; overflow: hidden; }
-.asr-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18rpx; }
-.asr-title { color: rgba(255,255,255,.88); font-size: 24rpx; font-weight: 850; }
-.asr-status { height: 34rpx; padding: 0 16rpx; border-radius: 999rpx; background: rgba(255,255,255,.08); color: rgba(255,255,255,.62); font-size: 19rpx; display: flex; align-items: center; }
-.asr-status--live { background: rgba(92, 223, 179, .16); color: #79e6c2; }
-.asr-mode-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10rpx; margin-bottom: 18rpx; padding: 6rpx; border-radius: 18rpx; background: rgba(255,255,255,.06); }
-.asr-mode-pill { height: 50rpx; border-radius: 14rpx; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.58); font-size: 22rpx; font-weight: 850; }
-.asr-mode-pill--active { background: rgba(126, 226, 192, .2); color: #7ee2c0; box-shadow: 0 8rpx 18rpx rgba(0,0,0,.14); }
-.asr-reconnect { height: 54rpx; margin-bottom: 18rpx; border-radius: 16rpx; background: rgba(255, 95, 85, .16); color: #ffb3ad; border: 1rpx solid rgba(255, 95, 85, .28); display: flex; align-items: center; justify-content: center; font-size: 22rpx; font-weight: 900; }
-.asr-empty { margin-top: 128rpx; text-align: center; color: rgba(255,255,255,.35); font-size: 23rpx; }
-.asr-stream { display: flex; flex-direction: column; gap: 14rpx; }
-.ai-summary-stream { display: flex; flex-direction: column; gap: 16rpx; }
-.ai-summary-card { padding: 18rpx 20rpx; border-radius: 22rpx; background: linear-gradient(135deg, rgba(103, 222, 181, .16), rgba(255,255,255,.08)); border: 1rpx solid rgba(126, 226, 192, .18); box-shadow: 0 12rpx 28rpx rgba(0,0,0,.16); animation: asr-pop .26s ease-out both; }
-.ai-summary-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10rpx; color: #7ee2c0; font-size: 20rpx; font-weight: 900; }
-.ai-summary-text { color: rgba(255,255,255,.92); font-size: 24rpx; line-height: 1.55; white-space: pre-wrap; }
-.asr-bubble { max-width: 92%; align-self: flex-start; padding: 13rpx 17rpx; border-radius: 20rpx 20rpx 20rpx 8rpx; background: rgba(255,255,255,.12); box-shadow: 0 10rpx 24rpx rgba(0,0,0,.16); animation: asr-pop .24s ease-out both; }
-.asr-bubble--self { align-self: flex-end; border-radius: 20rpx 20rpx 8rpx 20rpx; background: rgba(97, 185, 153, .18); }
-.asr-bubble--partial { opacity: .72; }
-.asr-speaker { margin-right: 12rpx; color: #7ee2c0; font-size: 20rpx; font-weight: 900; }
-.asr-text { color: rgba(255,255,255,.9); font-size: 23rpx; line-height: 1.45; }
-@keyframes asr-pop { from { opacity: 0; transform: translateY(14rpx) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
-.name-chip { position: absolute; left: 12rpx; bottom: 12rpx; min-width: 48rpx; height: 28rpx; padding: 0 10rpx; border-radius: 14rpx; background: rgba(22, 29, 36, .48); color: #fff; font-size: 18rpx; display: flex; align-items: center; justify-content: center; }
-.face { position: relative; width: 138rpx; height: 190rpx; margin-bottom: 0; }
-.head { position: absolute; left: 38rpx; top: 28rpx; width: 64rpx; height: 76rpx; border-radius: 34rpx 34rpx 28rpx 28rpx; background: #f4c9a6; z-index: 2; }
-.hair { position: absolute; left: 32rpx; top: 18rpx; width: 76rpx; height: 54rpx; border-radius: 42rpx 42rpx 18rpx 18rpx; background: #242424; z-index: 3; }
-.body { position: absolute; left: 8rpx; bottom: 0; width: 122rpx; height: 86rpx; border-radius: 38rpx 38rpx 0 0; background: #f7f7f7; z-index: 1; }
+
+.name-chip {
+	position: absolute;
+	left: 16rpx;
+	bottom: 16rpx;
+	min-width: 48rpx;
+	height: 32rpx;
+	padding: 0 14rpx;
+	border-radius: 16rpx;
+	background: rgba(22, 29, 36, .48);
+	color: #fff;
+	font-size: 20rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+.face { position: relative; width: 160rpx; height: 220rpx; margin-bottom: 0; }
+.head {
+	position: absolute;
+	left: 44rpx;
+	top: 32rpx;
+	width: 72rpx;
+	height: 84rpx;
+	border-radius: 38rpx 38rpx 32rpx 32rpx;
+	background: #f4c9a6;
+	z-index: 2;
+}
+.hair {
+	position: absolute;
+	left: 36rpx;
+	top: 20rpx;
+	width: 84rpx;
+	height: 60rpx;
+	border-radius: 46rpx 46rpx 20rpx 20rpx;
+	background: #242424;
+	z-index: 3;
+}
+.body {
+	position: absolute;
+	left: 10rpx;
+	bottom: 0;
+	width: 136rpx;
+	height: 96rpx;
+	border-radius: 42rpx 42rpx 0 0;
+	background: #f7f7f7;
+	z-index: 1;
+}
 .avatar-b .body { background: #316f8e; }
 .avatar-c .hair { background: #1e1d1c; }
 .avatar-c .body { background: #dfe6ea; }
 .avatar-d .hair { background: #3c2d26; }
 .avatar-d .body { background: #efe7df; }
-.live-bottom { position: fixed; left: 0; right: 0; bottom: 0; height: 150rpx; padding: 16rpx 22rpx calc(env(safe-area-inset-bottom) + 18rpx); background: rgba(23, 28, 36, .92); border-radius: 30rpx 30rpx 0 0; box-sizing: content-box; }
-.handle { width: 74rpx; height: 8rpx; border-radius: 999rpx; background: rgba(255,255,255,.08); margin: 0 auto 20rpx; }
-.control-row { display: grid; grid-template-columns: repeat(3, 1fr); }
-.control-item { display: flex; flex-direction: column; align-items: center; gap: 8rpx; color: #fff; font-size: 19rpx; }
-.control-item--active { color: #6ee0bc; }
-.control-icon { width: 52rpx; height: 52rpx; display: flex; align-items: center; justify-content: center; font-size: 30rpx; }
-.panel-mask { position: fixed; inset: 0; background: rgba(0, 0, 0, .24); z-index: 30; }
-.sheet-panel { position: fixed; left: 0; right: 0; bottom: 0; padding: 16rpx 28rpx calc(env(safe-area-inset-bottom) + 34rpx); border-radius: 32rpx 32rpx 0 0; background: #171e29; box-shadow: 0 -18rpx 48rpx rgba(0,0,0,.28); z-index: 31; }
-.sheet-handle { width: 72rpx; height: 8rpx; border-radius: 999rpx; background: rgba(255,255,255,.12); margin: 0 auto 24rpx; }
-.sheet-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18rpx; }
-.sheet-title { color: #fff; font-size: 30rpx; font-weight: 900; }
-.sheet-close { color: rgba(255,255,255,.72); font-size: 36rpx; }
+
+/* 底部操作栏 */
+.live-bottom {
+	padding: 20rpx 22rpx calc(env(safe-area-inset-bottom) + 20rpx);
+}
+.control-row {
+	display: grid;
+	grid-template-columns: repeat(5, 1fr);
+	gap: 8rpx;
+}
+.control-item {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 10rpx;
+	color: #1c272d;
+	font-size: 20rpx;
+}
+.control-item--active { color: #86C9A8; }
+.control-icon {
+	width: 56rpx;
+	height: 56rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 34rpx;
+}
+
+/* 通用底部弹窗 */
+.panel-mask {
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, .24);
+	z-index: 30;
+}
+.sheet-panel {
+	position: fixed;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	padding: 16rpx 28rpx calc(env(safe-area-inset-bottom) + 34rpx);
+	border-radius: 32rpx 32rpx 0 0;
+	background: #ffffff;
+	box-shadow: 0 -18rpx 48rpx rgba(31,42,48,.12);
+	z-index: 31;
+	max-height: 75vh;
+	display: flex;
+	flex-direction: column;
+}
+.asr-panel {
+	min-height: 60vh;
+}
+.sheet-handle {
+	width: 72rpx;
+	height: 8rpx;
+	border-radius: 999rpx;
+	background: rgba(134, 201, 168, .12);
+	margin: 0 auto 24rpx;
+}
+.sheet-title-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 18rpx;
+}
+.sheet-title { color: #151f25; font-size: 30rpx; font-weight: 900; }
+.sheet-close { color: #666; font-size: 36rpx; }
+
+/* ASR弹窗内样式 */
+.agent-top-toggle {
+	margin: 12rpx 0 16rpx;
+	min-height: 86rpx;
+	padding: 16rpx 18rpx;
+	border-radius: 22rpx;
+	background: #f7f7f7;
+	border: 2rpx solid #efefef;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	box-shadow: 0 14rpx 30rpx rgba(31,42,48,.06);
+}
+.agent-top-toggle--active {
+	background: rgba(134, 201, 168, .12);
+	border-color: rgba(134, 201, 168, .35);
+}
+.agent-top-copy { display: flex; flex-direction: column; gap: 8rpx; }
+.agent-top-title { color: #151f25; font-size: 27rpx; font-weight: 950; }
+.agent-top-desc { color: #58636a; font-size: 21rpx; }
+.agent-top-switch {
+	width: 88rpx;
+	height: 48rpx;
+	padding: 5rpx;
+	border-radius: 999rpx;
+	background: #e4e4e4;
+	box-sizing: border-box;
+	display: flex;
+	justify-content: flex-start;
+}
+.agent-top-switch--active {
+	justify-content: flex-end;
+	background: #86C9A8;
+}
+.agent-top-knob {
+	width: 38rpx;
+	height: 38rpx;
+	border-radius: 50%;
+	background: #fff;
+	box-shadow: 0 5rpx 12rpx rgba(0,0,0,.18);
+}
+
+.asr-mode-row {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 10rpx;
+	margin-bottom: 18rpx;
+	padding: 6rpx;
+	border-radius: 18rpx;
+	background: #ececec;
+}
+.asr-mode-pill {
+	height: 50rpx;
+	border-radius: 14rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: #777;
+	font-size: 22rpx;
+	font-weight: 850;
+}
+.asr-mode-pill--active {
+	background: #fff;
+	color: #86C9A8;
+	box-shadow: 0 8rpx 18rpx rgba(31,42,48,.06);
+}
+.asr-status-line {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 16rpx;
+}
+.asr-title { color: #1c272d; font-size: 24rpx; font-weight: 850; }
+.asr-status {
+	height: 34rpx;
+	padding: 0 16rpx;
+	border-radius: 999rpx;
+	background: #e9e9e9;
+	color: #666;
+	font-size: 19rpx;
+	display: flex;
+	align-items: center;
+}
+.asr-status--live {
+	background: rgba(134, 201, 168, .14);
+	color: #86C9A8;
+}
+.asr-reconnect {
+	height: 54rpx;
+	margin-bottom: 18rpx;
+	border-radius: 16rpx;
+	background: rgba(255, 95, 85, .12);
+	color: #e05046;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 22rpx;
+	font-weight: 900;
+}
+.asr-scroll {
+	flex: 1;
+}
+.asr-empty {
+	margin-top: 128rpx;
+	text-align: center;
+	color: #999;
+	font-size: 23rpx;
+}
+.asr-stream { display: flex; flex-direction: column; gap: 14rpx; }
+.ai-summary-stream { display: flex; flex-direction: column; gap: 16rpx; }
+.ai-summary-card {
+	padding: 18rpx 20rpx;
+	border-radius: 22rpx;
+	background: rgba(134, 201, 168, .08);
+	border: 1rpx solid rgba(134, 201, 168, .16);
+	box-shadow: 0 12rpx 28rpx rgba(31,42,48,.05);
+}
+.ai-summary-meta {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 10rpx;
+	color: #86C9A8;
+	font-size: 20rpx;
+	font-weight: 900;
+}
+.ai-summary-text {
+	color: #151f25;
+	font-size: 24rpx;
+	line-height: 1.55;
+	white-space: pre-wrap;
+}
+.asr-bubble {
+	max-width: 92%;
+	align-self: flex-start;
+	padding: 13rpx 17rpx;
+	border-radius: 20rpx 20rpx 20rpx 8rpx;
+	background: #ebebeb;
+}
+.asr-bubble--self {
+	align-self: flex-end;
+	border-radius: 20rpx 20rpx 8rpx 20rpx;
+	background: rgba(134, 201, 168, .16);
+}
+.asr-bubble--partial { opacity: .72; }
+.asr-speaker {
+	margin-right: 12rpx;
+	color: #86C9A8;
+	font-size: 20rpx;
+	font-weight: 900;
+}
+.asr-text {
+	color: #151f25;
+	font-size: 23rpx;
+	line-height: 1.45;
+}
+
+/* 成员弹窗样式 */
 .member-list, .more-list { display: flex; flex-direction: column; gap: 12rpx; }
-.member-row, .more-row { min-height: 78rpx; border-radius: 18rpx; background: rgba(255,255,255,.06); display: flex; align-items: center; padding: 0 20rpx; }
+.member-row, .more-row { min-height: 78rpx; border-radius: 18rpx; background: #f7f7f7; display: flex; align-items: center; padding: 0 20rpx; }
 .member-row { gap: 18rpx; }
-.member-avatar { width: 48rpx; height: 48rpx; border-radius: 50%; background: #2b8d75; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 22rpx; font-weight: 900; }
+.member-avatar { width: 48rpx; height: 48rpx; border-radius: 50%; background: #86C9A8; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 22rpx; font-weight: 900; }
 .member-info { flex: 1; display: flex; flex-direction: column; gap: 4rpx; }
-.member-name { color: #fff; font-size: 25rpx; font-weight: 800; }
-.member-role, .member-mic { color: rgba(255,255,255,.58); font-size: 21rpx; }
-.more-row { justify-content: space-between; color: #fff; font-size: 25rpx; }
+.member-name { color: #151f25; font-size: 25rpx; font-weight: 800; }
+.member-role, .member-mic { color: #666; font-size: 21rpx; }
+.more-row { justify-content: space-between; color: #151f25; font-size: 25rpx; }
 .more-row--switch { min-height: 88rpx; }
-.more-row text:last-child { color: rgba(255,255,255,.58); font-size: 22rpx; }
+.more-row text:last-child { color: #666; font-size: 22rpx; }
 </style>

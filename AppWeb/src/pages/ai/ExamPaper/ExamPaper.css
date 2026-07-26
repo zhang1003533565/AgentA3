@@ -13,7 +13,25 @@
 .exam-paper-submit-between { justify-content: space-between; gap: 12px; padding-top: 18px; }
 .exam-paper-steps-card .ant-card-body { padding: 18px 24px; }
 .exam-paper-step-hidden { display: none; }
-.exam-paper-format-grid { margin-top: 18px; }
+.exam-paper-format-card .ant-card-body { display: flex; flex-direction: column; gap: 16px; }
+.exam-paper-format-stack { display: flex; flex-direction: column; gap: 16px; }
+.exam-paper-format-section { padding-top: 14px; border-top: 1px solid rgba(47, 88, 67, .1); }
+.exam-paper-format-section:first-child { padding-top: 0; border-top: 0; }
+.exam-paper-format-section > .ant-typography { display: block; margin-bottom: 12px; }
+.exam-paper-format-grid .ant-form-item { margin-bottom: 8px; }
+.exam-paper-format-control { margin-bottom: 0; }
+.exam-paper-format-control .ant-radio-group { display: flex; width: 100%; }
+.exam-paper-format-control .ant-radio-button-wrapper { flex: 1; text-align: center; }
+.exam-paper-format-section .ant-form-item-label { padding-bottom: 4px; white-space: nowrap; }
+.exam-paper-student-fields { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.exam-paper-student-info-preview { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; line-height: 1.7; }
+.exam-paper-format-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; padding-top: 2px; }
+.exam-paper-type-rules { margin-bottom: 16px; padding: 14px; border: 1px solid rgba(47, 88, 67, .12); border-radius: 10px; background: #fbfcfb; }
+.exam-paper-type-rules-heading { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+.exam-paper-type-rules-list { width: 100%; }
+.exam-paper-type-rule-item { padding: 12px; border: 1px solid rgba(47, 88, 67, .1); border-radius: 8px; background: #fff; }
+.exam-paper-type-order-actions .ant-btn { width: 26px; height: 26px; }
+.exam-paper-multiple-rule-select { width: 100%; min-width: 220px; }
 .exam-paper-preview-card { min-height: 720px; }
 .exam-paper-preview-card > .ant-card-body { display: flex; flex-direction: column; gap: 14px; }
 .exam-paper-preview-state { display: grid; min-height: 560px; place-items: center; }

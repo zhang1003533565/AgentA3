@@ -1,7 +1,6 @@
 <template>
   <view class="poi-detail-sheet" :class="{ 'poi-detail-sheet--show': visible }" @click.stop>
     <view v-if="visible" class="poi-detail-sheet__card">
-      <!-- 方案 4：有图 — 全景大图 + 底部渐变叠字 -->
       <view v-if="showCoverImage" class="poi-detail-sheet__hero">
         <image
           class="poi-detail-sheet__hero-img"
@@ -10,21 +9,17 @@
           @error="onImageError"
         />
         <view class="poi-detail-sheet__hero-gradient" />
-        <view class="poi-detail-sheet__hero-caption">
-          <text class="poi-detail-sheet__hero-name">{{ name }}</text>
-          <text v-if="distance" class="poi-detail-sheet__hero-distance">{{ distance }}</text>
-        </view>
-      </view>
-
-      <!-- 无图退化：标题与距离回到下方常规区域 -->
-      <view v-else class="poi-detail-sheet__fallback-head">
-        <view class="poi-detail-sheet__fallback-row">
-          <text class="poi-detail-sheet__fallback-name">{{ name }}</text>
-          <text v-if="distance" class="poi-detail-sheet__fallback-distance">{{ distance }}</text>
-        </view>
       </view>
 
       <view class="poi-detail-sheet__body">
+        <view class="poi-detail-sheet__title-row">
+          <view class="poi-detail-sheet__title-main">
+            <text class="poi-detail-sheet__name">{{ name }}</text>
+            <text v-if="zone" class="poi-detail-sheet__zone">{{ zone }}</text>
+          </view>
+          <text v-if="distance" class="poi-detail-sheet__distance">{{ distance }}</text>
+        </view>
+
         <view class="poi-detail-sheet__bento">
           <view class="poi-detail-sheet__bento-box poi-detail-sheet__bento-box--desc">
             <text class="poi-detail-sheet__bento-label">详细介绍</text>
@@ -36,7 +31,6 @@
             @click.stop="onBentoServiceClick"
           >
             <text class="poi-detail-sheet__bento-label">位置与服务</text>
-            <text v-if="zone" class="poi-detail-sheet__bento-zone">{{ zone }}</text>
             <view v-if="serviceLine" class="poi-detail-sheet__bento-service">
               <text v-if="secondaryEmoji" class="poi-detail-sheet__bento-emoji">{{ secondaryEmoji }}</text>
               <text class="poi-detail-sheet__bento-service-text">{{ serviceLine }}</text>
@@ -188,11 +182,10 @@ $poi-radius-sheet: 32rpx;
   box-shadow: 0 -8rpx 48rpx rgba(29, 29, 31, 0.1);
 }
 
-/* —— 全景大图区 —— */
 .poi-detail-sheet__hero {
   position: relative;
   width: 100%;
-  height: 320rpx;
+  height: 220rpx;
   overflow: hidden;
   border-radius: $poi-radius-sheet $poi-radius-sheet 0 0;
 }
@@ -219,85 +212,72 @@ $poi-radius-sheet: 32rpx;
   pointer-events: none;
 }
 
-.poi-detail-sheet__hero-caption {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 20rpx $spacing-md-rpx 24rpx;
-  display: flex;
-  flex-direction: column;
-  gap: 6rpx;
-  z-index: 1;
-}
-
-.poi-detail-sheet__hero-name {
-  font-size: $font-size-h1-rpx;
-  font-weight: $font-weight-h1;
-  color: #ffffff;
-  line-height: 1.3;
-}
-
-.poi-detail-sheet__hero-distance {
-  font-size: $font-size-body-rpx;
-  font-weight: $font-weight-body;
-  color: rgba(255, 255, 255, 0.88);
-  line-height: 1.35;
-}
-
-/* —— 无图退化头部 —— */
-.poi-detail-sheet__fallback-head {
-  padding: $spacing-md-rpx $spacing-md-rpx 8rpx;
-  background: $color-bg-block;
-}
-
-.poi-detail-sheet__fallback-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: $spacing-sm-rpx;
-}
-
-.poi-detail-sheet__fallback-name {
-  flex: 1;
-  min-width: 0;
-  font-size: $font-size-h1-rpx;
-  font-weight: $font-weight-h1;
-  color: $color-text-title;
-  line-height: 1.35;
-}
-
-.poi-detail-sheet__fallback-distance {
-  flex-shrink: 0;
-  font-size: $font-size-body-rpx;
-  color: $color-text-secondary;
-}
-
-/* —— Bento 区 + 主按钮 —— */
 .poi-detail-sheet__body {
-  padding: $spacing-md-rpx;
+  padding: 28rpx $spacing-md-rpx $spacing-md-rpx;
   padding-bottom: calc(#{$spacing-md-rpx} + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: $spacing-md-rpx;
 }
 
+.poi-detail-sheet__title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+
+.poi-detail-sheet__title-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.poi-detail-sheet__name {
+  font-size: 36rpx;
+  font-weight: 900;
+  color: $color-text-title;
+  line-height: 1.28;
+  word-break: break-word;
+}
+
+.poi-detail-sheet__zone {
+  font-size: 24rpx;
+  font-weight: 500;
+  color: $color-text-secondary;
+  line-height: 1.4;
+}
+
+.poi-detail-sheet__distance {
+  flex-shrink: 0;
+  margin-top: 4rpx;
+  padding: 8rpx 14rpx;
+  border-radius: 999rpx;
+  background: #eef3f7;
+  color: #526b7e;
+  font-size: 23rpx;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
 .poi-detail-sheet__bento {
   display: flex;
-  gap: $spacing-sm-rpx;
+  gap: 14rpx;
   align-items: stretch;
 }
 
 .poi-detail-sheet__bento-box {
   flex: 1;
   min-width: 0;
-  padding: 20rpx;
-  border-radius: $radius-base-rpx;
-  background: $color-bg-canvas;
+  padding: 18rpx;
+  border-radius: 16rpx;
+  background: #f7f9fb;
   border: 1rpx solid $color-divider;
   display: flex;
   flex-direction: column;
-  gap: 10rpx;
+  gap: 8rpx;
 }
 
 .poi-detail-sheet__bento-box--clickable:active {
@@ -305,30 +285,23 @@ $poi-radius-sheet: 32rpx;
 }
 
 .poi-detail-sheet__bento-label {
-  font-size: $font-size-secondary-rpx;
+  font-size: 22rpx;
   font-weight: $font-weight-h2;
   color: $color-text-secondary;
   line-height: 1.3;
 }
 
 .poi-detail-sheet__bento-desc {
-  font-size: $font-size-body-rpx;
+  font-size: 25rpx;
   font-weight: $font-weight-body;
   color: $color-text-body;
-  line-height: 1.55;
+  line-height: 1.5;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
   text-overflow: ellipsis;
   word-break: break-all;
-}
-
-.poi-detail-sheet__bento-zone {
-  font-size: $font-size-body-rpx;
-  color: $color-text-title;
-  font-weight: $font-weight-h2;
-  line-height: 1.45;
 }
 
 .poi-detail-sheet__bento-service {
@@ -345,24 +318,24 @@ $poi-radius-sheet: 32rpx;
 }
 
 .poi-detail-sheet__bento-service-text {
-  font-size: $font-size-secondary-rpx;
-  color: $color-primary;
+  font-size: 24rpx;
+  color: #526b7e;
   font-weight: $font-weight-h2;
   line-height: 1.4;
 }
 
 .poi-detail-sheet__btn-primary {
   width: 100%;
-  height: 92rpx;
-  line-height: 92rpx;
+  height: 84rpx;
+  line-height: 84rpx;
   margin: 0;
   padding: 0;
-  border-radius: $radius-base-rpx;
-  font-size: 30rpx;
+  border-radius: 18rpx;
+  font-size: 29rpx;
   font-weight: $font-weight-h2;
-  border: 2rpx solid $tag-primary-text;
-  background: linear-gradient(90deg, #6b8ba4, $color-primary);
-  color: $color-bg-header;
+  border: 1rpx solid rgba(49, 83, 111, 0.18);
+  background: #5f7f99;
+  color: #ffffff;
 }
 
 .poi-detail-sheet__btn-primary::after {

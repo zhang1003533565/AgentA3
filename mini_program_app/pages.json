@@ -61,18 +61,18 @@
 				"navigationBarBackgroundColor": "#FFFFFF",
 				"navigationBarTextStyle": "black"
 			}
-			},
-			{
-				"path": "pages/market/message/message",
-				"style": {
-					"navigationBarTitleText": "消息",
-					"navigationStyle": "custom",
-					"navigationBarBackgroundColor": "#FFFFFF",
-					"navigationBarTextStyle": "black"
-				}
+		},
+		{
+			"path": "pages/market/message/message",
+			"style": {
+				"navigationBarTitleText": "消息",
+				"navigationStyle": "custom",
+				"navigationBarBackgroundColor": "#FFFFFF",
+				"navigationBarTextStyle": "black"
 			}
-		],
-		"subPackages": [
+		}
+	],
+	"subPackages": [
 		{
 			"root": "subpackage_promotion",
 			"pages": [
@@ -226,43 +226,43 @@
 						"navigationBarTextStyle": "black"
 					}
 				},
-					{
-						"path": "scheduleSettings/scheduleSettings",
-						"style": {
-							"navigationBarTitleText": "学期管理",
-							"navigationStyle": "custom",
-							"navigationBarBackgroundColor": "#FFFFFF",
-							"navigationBarTextStyle": "black"
-						}
-					},
-					{
-						"path": "scheduleAccountSettings/scheduleAccountSettings",
-						"style": {
-							"navigationBarTitleText": "教务账号设置",
-							"navigationStyle": "custom",
-							"navigationBarBackgroundColor": "#FFFFFF",
-							"navigationBarTextStyle": "black"
-						}
-					},
-					{
-						"path": "scheduleGeneralSettings/scheduleGeneralSettings",
-						"style": {
-							"navigationBarTitleText": "课表设置",
-							"navigationStyle": "custom",
-							"navigationBarBackgroundColor": "#FFFFFF",
-							"navigationBarTextStyle": "black"
-						}
-					},
-					{
-						"path": "schedulePeriodSettings/schedulePeriodSettings",
-						"style": {
-							"navigationBarTitleText": "节次时间设置",
-							"navigationStyle": "custom",
-							"navigationBarBackgroundColor": "#FFFFFF",
-							"navigationBarTextStyle": "black"
-						}
+				{
+					"path": "scheduleSettings/scheduleSettings",
+					"style": {
+						"navigationBarTitleText": "学期管理",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
 					}
-				]
+				},
+				{
+					"path": "scheduleAccountSettings/scheduleAccountSettings",
+					"style": {
+						"navigationBarTitleText": "教务账号设置",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "scheduleGeneralSettings/scheduleGeneralSettings",
+					"style": {
+						"navigationBarTitleText": "课表设置",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "schedulePeriodSettings/schedulePeriodSettings",
+					"style": {
+						"navigationBarTitleText": "节次时间设置",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				}
+			]
 		},
 		{
 			"root": "subpackage_lostfound",
@@ -316,15 +316,6 @@
 					"path": "lostfoundChat/lostfoundChat",
 					"style": {
 						"navigationBarTitleText": "聊天",
-						"navigationStyle": "custom",
-						"navigationBarBackgroundColor": "#FFFFFF",
-						"navigationBarTextStyle": "black"
-					}
-				},
-				{
-					"path": "lostfoundPublish/lostfoundPublish",
-					"style": {
-						"navigationBarTitleText": "发布信息",
 						"navigationStyle": "custom",
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
@@ -801,6 +792,15 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
 					}
+				},
+				{
+					"path": "meetingHistory/meetingHistory",
+					"style": {
+						"navigationBarTitleText": "历史会议",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
 				}
 			]
 		},
@@ -823,23 +823,38 @@
 			"pages": [
 				{
 					"path": "paperList/paperList",
-					"style": { "navigationBarTitleText": "我的试卷", "navigationStyle": "custom" }
+					"style": {
+						"navigationBarTitleText": "我的试卷",
+						"navigationStyle": "custom"
+					}
 				},
 				{
 					"path": "paperDetail/paperDetail",
-					"style": { "navigationBarTitleText": "试卷详情", "navigationStyle": "custom" }
+					"style": {
+						"navigationBarTitleText": "试卷详情",
+						"navigationStyle": "custom"
+					}
 				},
 				{
 					"path": "attempt/attempt",
-					"style": { "navigationBarTitleText": "在线答题", "navigationStyle": "custom" }
+					"style": {
+						"navigationBarTitleText": "在线答题",
+						"navigationStyle": "custom"
+					}
 				},
 				{
 					"path": "attemptHistory/attemptHistory",
-					"style": { "navigationBarTitleText": "答题历史", "navigationStyle": "custom" }
+					"style": {
+						"navigationBarTitleText": "答题历史",
+						"navigationStyle": "custom"
+					}
 				},
 				{
 					"path": "attemptResult/attemptResult",
-					"style": { "navigationBarTitleText": "答题结果", "navigationStyle": "custom" }
+					"style": {
+						"navigationBarTitleText": "答题结果",
+						"navigationStyle": "custom"
+					}
 				}
 			]
 		},
@@ -848,19 +863,34 @@
 			"pages": [
 				{
 					"path": "pythonHome/pythonHome",
-					"style": { "navigationBarTitleText": "Python 个性化学习", "navigationStyle": "custom", "enablePullDownRefresh": true }
+					"style": {
+						"navigationBarTitleText": "Python 个性化学习",
+						"navigationStyle": "custom",
+						"enablePullDownRefresh": true
+					}
 				},
 				{
 					"path": "resourceGenerate/resourceGenerate",
-					"style": { "navigationBarTitleText": "个性化资源包", "navigationStyle": "custom" }
+					"style": {
+						"navigationBarTitleText": "个性化资源包",
+						"navigationStyle": "custom"
+					}
 				},
 				{
 					"path": "learningPath/learningPath",
-					"style": { "navigationBarTitleText": "Python 学习路径", "navigationStyle": "custom", "enablePullDownRefresh": true }
+					"style": {
+						"navigationBarTitleText": "Python 学习路径",
+						"navigationStyle": "custom",
+						"enablePullDownRefresh": true
+					}
 				},
 				{
 					"path": "recommendations/recommendations",
-					"style": { "navigationBarTitleText": "Python 精准推荐", "navigationStyle": "custom", "enablePullDownRefresh": true }
+					"style": {
+						"navigationBarTitleText": "Python 精准推荐",
+						"navigationStyle": "custom",
+						"enablePullDownRefresh": true
+					}
 				}
 			]
 		}

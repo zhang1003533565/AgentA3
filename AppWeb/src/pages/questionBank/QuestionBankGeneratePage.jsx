@@ -33,7 +33,7 @@ import {
 } from './questionGenerationState'
 import './QuestionBankGeneratePage.css'
 
-const { Title, Paragraph, Text } = Typography
+const { Text } = Typography
 const { TextArea } = Input
 
 const TYPE_LABELS = {
@@ -474,7 +474,6 @@ export default function QuestionBankGeneratePage() {
 
   return (
     <div className="qbg-page">
-      <section className="qbg-hero"><span>QUESTION GENERATOR</span><Title level={1}>题库智能生成</Title><Paragraph>从文本、课程文件或知识库文档生成题目，逐题编辑并复审后导入题库。</Paragraph></section>
       {!importResult && <Card title="1. 选择来源与生成参数" className="qbg-panel">
         {optionsError && <Alert className="qbg-options-error" type="error" showIcon message={optionsError} action={<Button size="small" onClick={loadOptions} loading={optionsLoading}>重试</Button>} />}
         <Spin spinning={optionsLoading}>

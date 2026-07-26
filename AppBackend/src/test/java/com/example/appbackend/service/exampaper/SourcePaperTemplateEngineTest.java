@@ -39,18 +39,35 @@ class SourcePaperTemplateEngineTest {
         String document = text(entries, "word/document.xml");
         String header1 = text(entries, "word/header1.xml");
         String header2 = text(entries, "word/header2.xml");
+        String footer1 = text(entries, "word/footer1.xml");
+        String footer2 = text(entries, "word/footer2.xml");
         String settings = text(entries, "word/settings.xml");
         assertFalse(document.matches("(?s).*%[^%]+%.*"));
         assertFalse(header1.matches("(?s).*%[^%]+%.*"));
         assertFalse(header2.matches("(?s).*%[^%]+%.*"));
         assertTrue(document.contains("w:w=\"23814\" w:h=\"16840\" w:orient=\"landscape\""));
         assertTrue(document.contains("w:left=\"2500\""));
+        assertTrue(document.contains("<w:pgNumType w:start=\"1\"/>"));
         assertTrue(document.contains("w:num=\"2\" w:space=\"425\" w:sep=\"1\""));
-        assertTrue(document.contains("w:type=\"default\" r:id=\"rId8\""));
-        assertTrue(document.contains("w:type=\"even\" r:id=\"rId9\""));
+        assertTrue(document.contains("<w:headerReference w:type=\"first\" r:id=\"rId8\"/>"));
+        assertFalse(document.contains("<w:headerReference w:type=\"default\" r:id=\"rId8\"/>"));
+        assertFalse(document.contains("<w:headerReference w:type=\"even\" r:id=\"rId9\"/>"));
+        assertTrue(document.contains("<w:footerReference w:type=\"even\" r:id=\"rId10\"/>"));
+        assertTrue(document.contains("<w:footerReference w:type=\"default\" r:id=\"rId11\"/>"));
         assertTrue(settings.contains("w:evenAndOddHeaders"));
-        assertFalse(header1.contains("矿井甲"), "权威 header1.xml 没有 information 插槽");
+        assertTrue(settings.contains("<w:updateFields w:val=\"true\"/>"));
+        assertTrue(header1.contains("矿井甲"));
         assertTrue(header2.contains("矿井甲"));
+        assertFalse(header1.contains("外…………○…………装"));
+        assertFalse(header2.contains("外…………○…………装"));
+        assertTrue(header1.contains("…………○…………装…………○…………订…………○…………线…………○…………"));
+        assertTrue(header2.contains("…………○…………装…………○…………订…………○…………线…………○…………"));
+        assertTrue(footer1.contains("w:dirty=\"true\""));
+        assertTrue(footer2.contains("w:dirty=\"true\""));
+        assertTrue(footer1.contains("SECTIONPAGES"));
+        assertTrue(footer2.contains("SECTIONPAGES"));
+        assertTrue(footer1.contains("PAGE"));
+        assertTrue(footer2.contains("PAGE"));
 
         Map<String, byte[]> source = entries(resource("exam-paper-template/static/document.docx"));
         for (String name : source.keySet()) {
@@ -207,7 +224,7 @@ class SourcePaperTemplateEngineTest {
         Map<String, byte[]> parts = entries(valid);
         String document = text(parts, "word/document.xml");
         String withoutOneReference = document.replace(
-                "<w:headerReference w:type=\"default\" r:id=\"rId8\"/>", "");
+                "<w:headerReference w:type=\"first\" r:id=\"rId8\"/>", "");
         assertThrows(IllegalArgumentException.class, () -> SourcePaperPackageVerifier.verify(replaceEntry(
                 valid, "word/document.xml", withoutOneReference.getBytes(StandardCharsets.UTF_8))));
     }
@@ -216,8 +233,8 @@ class SourcePaperTemplateEngineTest {
     void verifierRejectsExtraAndCrossKindHeaderFooterReferences() throws Exception {
         byte[] valid = engine.generate(paper(), DownloadContent.PAPER, new PaperLayoutConfig());
         String document = text(entries(valid), "word/document.xml");
-        String defaultHeader = "<w:headerReference w:type=\"default\" r:id=\"rId8\"/>";
-        String defaultFooter = "<w:footerReference w:type=\"default\" r:id=\"rId10\"/>";
+        String defaultHeader = "<w:headerReference w:type=\"first\" r:id=\"rId8\"/>";
+        String defaultFooter = "<w:footerReference w:type=\"default\" r:id=\"rId11\"/>";
 
         assertThrows(IllegalArgumentException.class, () -> SourcePaperPackageVerifier.verify(replaceEntry(valid,
                 "word/document.xml", document.replace(defaultHeader,

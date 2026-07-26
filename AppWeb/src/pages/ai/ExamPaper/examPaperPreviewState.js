@@ -1,3 +1,44 @@
+export const STUDENT_HEADER_FIELDS = Object.freeze([
+  { value: 'school', label: '学校' },
+  { value: 'grade', label: '年级' },
+  { value: 'className', label: '班级' },
+  { value: 'name', label: '姓名' },
+  { value: 'studentNo', label: '学号' },
+])
+
+export const DEFAULT_STUDENT_HEADER_FIELDS = Object.freeze(['school', 'className', 'name', 'studentNo'])
+
+const studentHeaderFieldLabels = Object.freeze(Object.fromEntries(
+  STUDENT_HEADER_FIELDS.map(({ value, label }) => [value, label]),
+))
+
+export const buildStudentHeaderInfo = (layout = {}) => {
+  if (layout.studentInfoVisible === false) return ''
+  const fields = Array.isArray(layout.studentInfoFields)
+    ? layout.studentInfoFields
+    : DEFAULT_STUDENT_HEADER_FIELDS
+  return fields
+    .map((field) => studentHeaderFieldLabels[field])
+    .filter(Boolean)
+    .map((label) => `${label}________`)
+    .join('  ')
+}
+
+export const normalizeLayoutForRequest = (layout = {}) => {
+  const {
+    studentInfoVisible,
+    studentInfoFields,
+    ...requestLayout
+  } = layout
+  const hasStudentInfoConfig = 'studentInfoVisible' in layout || 'studentInfoFields' in layout
+  return {
+    ...requestLayout,
+    headerInfo: hasStudentInfoConfig
+      ? buildStudentHeaderInfo({ studentInfoVisible, studentInfoFields })
+      : requestLayout.headerInfo || '',
+  }
+}
+
 export const SOURCE_LAYOUT_DEFAULTS = Object.freeze({
   renderMode: 'TEMPLATE',
   pageSize: 'A3',
@@ -10,7 +51,9 @@ export const SOURCE_LAYOUT_DEFAULTS = Object.freeze({
   columnsCount: 2,
   columnSpace: 425,
   hasBindingLine: true,
-  headerInfo: '煤矿___________    部门___________   岗位___________    姓名___________',
+  studentInfoVisible: true,
+  studentInfoFields: DEFAULT_STUDENT_HEADER_FIELDS,
+  headerInfo: '学校________  班级________  姓名________  学号________',
   titleFontSize: 50,
   subtitleFontSize: 24,
   bodyFontSize: 21,
@@ -35,15 +78,16 @@ const stableValue = (value) => {
   return value
 }
 
-export const createPreviewSignature = (values, questions) => JSON.stringify(stableValue({
+export const createPreviewSignature = (values, questions, typeScoreRules = {}) => JSON.stringify(stableValue({
   form: {
     title: values.title?.trim() || '',
     subtitle: values.subtitle?.trim() || null,
     durationMinutes: values.durationMinutes,
     precautions: values.precautions?.trim() || null,
-    layout: values.layout,
+    layout: normalizeLayoutForRequest(values.layout),
     selectionMode: values.selectionMode?.toUpperCase() || null,
   },
+  typeScoreRules,
   questions: questions.map(({ questionId, score }, index) => ({
     questionId: Number(questionId),
     score: Number(score),
@@ -62,13 +106,14 @@ export const getValidationErrorMessage = (error) => (
   || '请检查试卷信息和页面格式'
 )
 
-export const buildExamPaperRequest = (values, questions, previewProof) => ({
+export const buildExamPaperRequest = (values, questions, previewProof, typeScoreRules = {}) => ({
   title: values.title.trim(),
   subtitle: values.subtitle?.trim() || null,
   durationMinutes: values.durationMinutes,
   precautions: values.precautions?.trim() || null,
-  layout: { ...values.layout },
+  layout: normalizeLayoutForRequest(values.layout),
   selectionMode: values.selectionMode.toUpperCase(),
+  typeScoreRules,
   questions: questions.map((question, index) => ({
     questionId: Number(question.questionId),
     score: Number(question.score),
