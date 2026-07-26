@@ -23,6 +23,8 @@ import ExamPaperHistoryPage from './pages/questionBank/ExamPaperHistoryPage'
 import QuestionBankGeneratePage from './pages/questionBank/QuestionBankGeneratePage'
 import { QUESTION_BANK_ROUTES } from './pages/questionBank/questionBankRoutes'
 import WorkspacePage from './pages/workspace/WorkspacePage'
+import CanteenManage from './pages/CanteenManage/CanteenManage'
+import StallManage from './pages/StallManage/StallManage'
 import MarkerManage from './pages/facility/MarkerManage/MarkerManage'
 import './App.css'
 
@@ -32,6 +34,7 @@ const FORUM_INDEPENDENT_PATHS = new Set(['/forum/post', '/forum/comment', '/foru
 function App() {
   // 过滤掉论坛相关路由，避免与独立页面冲突
   const workspaceRoutes = allNavItems
+    .filter((item) => item.pageKey && item.path !== '/activity/manage' && item.path !== '/facility/canteen')
     .filter((item) => item.pageKey && item.path !== '/activity/manage' && !FORUM_INDEPENDENT_PATHS.has(item.path))
     .map((item) => (
       <Route
@@ -47,6 +50,8 @@ function App() {
         <Route path="/" element={<Login />} />
         <Route element={<Layout />}>
           <Route path="/home" element={<Home />} />
+          <Route path="/facility/canteen" element={<CanteenManage />} />
+          <Route path="/facility/canteen/:canteenId/stalls" element={<StallManage />} />
           <Route path="/activity/manage" element={<ActivityManage />} />
           <Route path="/activity/create" element={<ActivityEditor />} />
           <Route path="/activity/:id/edit" element={<ActivityEditor />} />

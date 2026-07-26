@@ -201,6 +201,13 @@ function ExamPaperCreate({ onCreated }) {
     selectedQuestionsRef.current = selectedQuestions
   }, [selectedQuestions])
 
+  const clearAutoPreviewTimer = () => {
+    if (autoPreviewTimerRef.current) {
+      clearTimeout(autoPreviewTimerRef.current)
+      autoPreviewTimerRef.current = null
+    }
+  }
+
   useEffect(() => {
     currentStepRef.current = currentStep
     if (currentStep !== 2) clearAutoPreviewTimer()
@@ -218,13 +225,6 @@ function ExamPaperCreate({ onCreated }) {
       if (current?.token) deleteExamPaperPreview(current.token).catch(() => {})
     }
   }, [])
-
-  const clearAutoPreviewTimer = () => {
-    if (autoPreviewTimerRef.current) {
-      clearTimeout(autoPreviewTimerRef.current)
-      autoPreviewTimerRef.current = null
-    }
-  }
 
   const cancelPendingPreview = () => {
     previewGenerationRef.current += 1

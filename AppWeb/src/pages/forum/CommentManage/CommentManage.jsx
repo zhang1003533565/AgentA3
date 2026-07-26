@@ -47,7 +47,7 @@ function CommentManage() {
           hiddenComments: res.data.hiddenComments || 0,
         })
       }
-    } catch { /* ignore */ }
+    } catch (e) { /* ignore */ }
   }
 
   useEffect(() => { fetchComments(); fetchStats() }, [])
@@ -107,11 +107,8 @@ function CommentManage() {
     <div className="cm-container">
       <div className="cm-bg-wave" />
 
+      {/* 顶部统计区（页题由布局顶栏面包屑统一渲染） */}
       <div className="cm-header">
-        <div className="cm-header-left">
-          <h1 className="cm-header-title">💬 评论管理</h1>
-          <p className="cm-header-desc">管理论坛所有评论，支持批量删除与详情查看</p>
-        </div>
         <div className="cm-header-stats">
           <span className="cm-stat-badge cm-badge-green">共 {stats.totalComments} 条</span>
           <span className="cm-stat-badge cm-badge-normal">正常 {stats.normalComments}</span>

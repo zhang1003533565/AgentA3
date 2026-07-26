@@ -60,7 +60,7 @@ function PostManage() {
           deletedPosts: res.data.deletedPosts || 0,
         })
       }
-    } catch { /* ignore */ }
+    } catch (e) { /* ignore */ }
   }
 
   useEffect(() => {
@@ -194,12 +194,8 @@ function PostManage() {
       {/* 背景装饰 */}
       <div className="pm-bg-shapes" />
 
-      {/* 顶部标题区 */}
+      {/* 顶部统计区（页题由布局顶栏面包屑统一渲染） */}
       <div className="pm-header">
-        <div className="pm-header-left">
-          <h1 className="pm-header-title">📋 帖子管理</h1>
-          <p className="pm-header-desc">管理论坛所有帖子的发布、置顶、加精及隐藏操作</p>
-        </div>
         <div className="pm-header-stats">
           <span className="pm-stat-badge pm-badge-blue">共 {stats.totalPosts} 篇</span>
           <span className="pm-stat-badge pm-badge-green">发布 {stats.publishedPosts}</span>

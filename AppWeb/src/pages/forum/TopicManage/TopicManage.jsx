@@ -39,7 +39,7 @@ function TopicManage() {
           hotTopics: res.data.hotTopics || 0,
         })
       }
-    } catch { /* ignore */ }
+    } catch (e) { /* ignore */ }
   }
 
   useEffect(() => { fetchTopics(); fetchStats() }, [])
@@ -131,11 +131,8 @@ function TopicManage() {
     <div className="tm-container">
       <div className="tm-bg-orbs" />
 
+      {/* 顶部统计区（页题由布局顶栏面包屑统一渲染） */}
       <div className="tm-header">
-        <div className="tm-header-left">
-          <h1 className="tm-header-title">🏷️ 话题管理</h1>
-          <p className="tm-header-desc">管理论坛话题分类，支持创建、编辑、设为热门</p>
-        </div>
         <div className="tm-header-stats">
           <span className="tm-stat-badge tm-badge-purple">共 {stats.totalTopics} 个</span>
           <span className="tm-stat-badge tm-badge-active">启用 {stats.activeTopics}</span>

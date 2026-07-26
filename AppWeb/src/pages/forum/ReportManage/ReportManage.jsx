@@ -39,14 +39,14 @@ function ReportManage() {
     try {
       const res = await getReportStatistics()
       setStats(res?.data || null)
-    } catch { setStats(null) }
+    } catch (error) { setStats(null) }
   }
 
   const fetchForumStats = async () => {
     try {
       const res = await getForumStatistics()
       if (res.code === 200) setForumStats(res.data)
-    } catch { /* ignore */ }
+    } catch (e) { /* ignore */ }
   }
 
   useEffect(() => { fetchReports({ page: 1 }); fetchStats(); fetchForumStats() }, [])
@@ -57,7 +57,7 @@ function ReportManage() {
     try {
       const res = await getReportLogs(record.id)
       setLogs(res?.data || [])
-    } catch { setLogs([]) }
+    } catch (error) { setLogs([]) }
   }
 
   const openHandle = (record, action) => {
@@ -104,13 +104,6 @@ function ReportManage() {
   return (
     <div className="rm-container">
       <div className="rm-bg-fire" />
-
-      <div className="rm-header">
-        <div className="rm-header-left">
-          <h1 className="rm-header-title">🚨 举报处理中心</h1>
-          <p className="rm-header-desc">处理用户提交的举报，维护论坛内容安全与秩序</p>
-        </div>
-      </div>
 
       {/* 论坛全局概览 */}
       {forumStats && (

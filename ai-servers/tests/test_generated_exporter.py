@@ -351,7 +351,7 @@ class GeneratedExporterTest(unittest.TestCase):
 
             self.assertEqual(["md", "docx", "xlsx", "zip"], [item["ext"] for item in result.attachments])
             for attachment in result.attachments:
-                self.assertTrue((generated_exporter.EXPORT_ROOT / attachment["name"]).exists())
+                self.assertTrue((generated_exporter.EXPORT_ROOT / attachment["storageKey"]).exists())
 
     def test_markdown_exports_reading_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:

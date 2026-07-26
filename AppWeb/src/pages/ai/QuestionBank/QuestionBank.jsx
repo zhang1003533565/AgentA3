@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Breadcrumb, Button, Card, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Select, Space, Spin, Table, Tag, Typography, message } from 'antd'
+import { Button, Card, Descriptions, Empty, Form, Input, InputNumber, Select, Space, Spin, Table, Tag, Typography, message } from 'antd'
 import { DeleteOutlined, MinusCircleOutlined, PlusOutlined, SearchOutlined, StarFilled, StarOutlined } from '@ant-design/icons'
 import {
   createExamQuestion,
@@ -9,6 +9,8 @@ import {
   getExamQuestionList,
   updateExamQuestion,
 } from '../../../api/examQuestion'
+import SidePanel from '../../../components/SidePanel/SidePanel'
+import confirmDelete from '../../../components/ConfirmDelete/confirmDelete'
 import './QuestionBank.css'
 
 const { Text } = Typography
@@ -539,12 +541,10 @@ function QuestionBank() {
   // 批量删除：二次确认后仅前端移除列表数据，不调接口
   const handleBatchDelete = () => {
     const count = selectedRowKeys.length
-    Modal.confirm({
+    confirmDelete({
       title: '批量删除',
       content: `确定删除选中的 ${count} 道题吗？`,
       okText: '确认删除',
-      cancelText: '取消',
-      okButtonProps: { danger: true },
       onOk: () => {
         setRows((prev) => {
           const nextRows = prev.filter((row) => !selectedRowKeys.includes(row.id))
@@ -563,14 +563,11 @@ function QuestionBank() {
     })
   }
 
-  // 删除（二次确认）
+  // 删除（通用删除确认组件）
   const handleDelete = (record) => {
-    Modal.confirm({
+    confirmDelete({
       title: '删除题目',
       content: '确定删除该题目吗？',
-      okText: '确定',
-      cancelText: '取消',
-      okButtonProps: { danger: true },
       onOk: async () => {
         try {
           await deleteExamQuestion(record.id)
@@ -712,14 +709,6 @@ function QuestionBank() {
 
   return (
     <div className="question-bank-page">
-      {/* 面包屑 */}
-      <div className="question-bank-header">
-        <Breadcrumb>
-          <Breadcrumb.Item>题库管理</Breadcrumb.Item>
-          <Breadcrumb.Item><span className="qb-breadcrumb-active">题库</span></Breadcrumb.Item>
-        </Breadcrumb>
-      </div>
-
       {/* 列表卡片（筛选区作为表格 title 渲染在表头上方） */}
       <Card className="question-bank-card question-bank-list-card" bordered={false}>
         <Table
@@ -752,20 +741,19 @@ function QuestionBank() {
         />
       </Card>
 
-      {/* 新增/编辑题目抽屉（右侧滑出，带遮罩，不影响左侧列表） */}
-      <Drawer
+      {/* 新增/编辑题目面板（与详情同尺寸的通用右侧面板） */}
+      <SidePanel
         title={editorMode === 'edit' ? '编辑题目' : '新增题目'}
         width={480}
         open={editorOpen}
         onClose={() => setEditorOpen(false)}
         forceRender
-        className="question-bank-editor-drawer"
-        footer={
-          <div className="qb-editor-footer">
+        footer={(
+          <>
             <Button onClick={() => setEditorOpen(false)}>取消</Button>
             <Button type="primary" loading={saving} onClick={handleEditorSave}>保存</Button>
-          </div>
-        }
+          </>
+        )}
       >
         <Spin spinning={editorLoading}>
           <Form form={editorForm} layout="vertical" className="question-bank-editor-form">
@@ -826,12 +814,11 @@ function QuestionBank() {
             </Form.Item>
           </Form>
         </Spin>
-      </Drawer>
+      </SidePanel>
 
-      {/* 详情抽屉 */}
-      <Drawer
+      {/* 详情面板 */}
+      <SidePanel
         title="题目详情"
-        width={720}
         open={detailOpen}
         onClose={() => {
           setDetailOpen(false)
@@ -884,7 +871,7 @@ function QuestionBank() {
         ) : (
           <Empty description="暂无题目详情" />
         )}
-      </Drawer>
+      </SidePanel>
     </div>
   )
 }

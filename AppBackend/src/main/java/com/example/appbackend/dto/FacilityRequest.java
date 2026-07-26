@@ -27,12 +27,10 @@ public class FacilityRequest {
     @Schema(description = "位置描述")
     private String location;
 
-    @NotNull(message = "经度不能为空")
-    @Schema(description = "经度")
+    @Schema(description = "经度（通过地图标点设置）")
     private BigDecimal longitude;
 
-    @NotNull(message = "纬度不能为空")
-    @Schema(description = "纬度")
+    @Schema(description = "纬度（通过地图标点设置）")
     private BigDecimal latitude;
 
     @Schema(description = "地图图片横向坐标(0-1)，为空时由系统根据经纬度自动计算")
