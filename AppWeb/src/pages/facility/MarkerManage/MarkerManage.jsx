@@ -254,8 +254,8 @@ export default function MarkerManage() {
     resizeMap(map)
 
     const clickH = (e) => {
-      // 点击空白处关闭详情弹窗
-      setSelId(null)
+      // 非编辑状态下点击空白处才取消列表选择；编辑时必须保留当前设施。
+      if (!editorOpen) setSelId(null)
 
       const pix = e?.pixel
       const cv = pix && typeof map.containerToLngLat === 'function' ? map.containerToLngLat(pix) : null
@@ -810,10 +810,19 @@ export default function MarkerManage() {
 
       <section className="marker-workspace">
         <div className="marker-map-pane">
-          <div className="marker-map-shell">
+          <div className={`marker-map-shell${editorOpen ? ' is-editing' : ''}`}>
             <div ref={containerRef} className="marker-map-canvas" />
             {amapErr ? <div className="marker-map-error">{amapErr}</div> : null}
             {!amapOk && !amapErr ? <div className="marker-map-loading"><Skeleton active paragraph={{ rows: 1 }} title={false} /></div> : null}
+            {editorOpen ? (
+              <div className="marker-map-edit-status">
+                <EnvironmentOutlined />
+                <span>
+                  正在编辑 <strong>{draft.facilityName || '当前设施'}</strong>
+                  · {draft.geometryType === 'AREA' ? '在地图上依次点击围栏顶点' : '点击地图选择位置'}
+                </span>
+              </div>
+            ) : null}
 
             {typeOptions.length > 0 ? (
               <div className="marker-legend">
@@ -891,14 +900,22 @@ export default function MarkerManage() {
         title="编辑设施位置"
         placement="right" width={430}
         open={editorOpen} onClose={closeEditor}
+        mask={false}
+        push={false}
+        rootStyle={{ pointerEvents: 'none' }}
+        styles={{ wrapper: { pointerEvents: 'auto' } }}
         rootClassName="marker-editor-drawer"
         footer={<div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
           <Button onClick={closeEditor} style={{ borderRadius: 12 }}>取消</Button>
           <Button type="primary" loading={saving} onClick={saveDraft} style={{ borderRadius: 12, fontWeight: 600 }}>保存位置</Button>
         </div>}
       >
-        <div className="marker-editor-hint">
-          此处只编辑设施的地图位置。名称、类型和业务信息请在对应设施管理页面维护。
+        <div className="marker-editor-hint marker-editor-hint--interactive">
+          <EnvironmentOutlined />
+          <div>
+            <strong>{draft.geometryType === 'AREA' ? '保持面板打开，在左侧地图绘制围栏' : '保持面板打开，在左侧地图点击落点'}</strong>
+            <span>地图仍可拖动和缩放；名称、类型等业务信息请在对应设施页面维护。</span>
+          </div>
         </div>
         <div className="marker-editor-facility">
           <span className="marker-editor-facility__icon" style={{ background: tmeta(draft.facilityType).color }}>

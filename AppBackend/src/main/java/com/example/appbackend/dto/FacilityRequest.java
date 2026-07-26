@@ -10,11 +10,14 @@ import java.math.BigDecimal;
 @Schema(description = "设施创建/更新请求")
 public class FacilityRequest {
 
-    @NotNull(message = "设施名称不能为空")
+    public interface Create {
+    }
+
+    @NotNull(message = "设施名称不能为空", groups = Create.class)
     @Schema(description = "设施名称")
     private String facilityName;
 
-    @NotNull(message = "设施类型不能为空")
+    @NotNull(message = "设施类型不能为空", groups = Create.class)
     @Schema(description = "设施类型：1-餐厅 2-运动场 3-教学楼 4-宿舍")
     private Integer facilityType;
 

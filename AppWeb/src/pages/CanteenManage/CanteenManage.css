@@ -335,6 +335,30 @@
   line-height: 1.6;
 }
 
+.canteen-image-upload__trigger {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-muted, #64748b);
+}
+
+.canteen-image-upload__trigger .anticon {
+  font-size: 20px;
+}
+
+.canteen-image-upload__tip {
+  margin-top: 6px;
+  color: var(--text-muted, #64748b);
+  font-size: 12px;
+}
+
+.canteen-manage-page .ant-upload-wrapper.ant-upload-picture-card-wrapper .ant-upload-list-item-container,
+.canteen-manage-page .ant-upload-wrapper.ant-upload-picture-card-wrapper .ant-upload-select {
+  width: 104px;
+  height: 104px;
+}
+
 /* 空状态 */
 .canteen-empty {
   grid-column: 1 / -1;

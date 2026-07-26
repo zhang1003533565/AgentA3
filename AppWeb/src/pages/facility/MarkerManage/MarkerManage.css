@@ -787,6 +787,11 @@
   padding: 18px 20px;
 }
 
+.marker-editor-drawer .ant-drawer-content-wrapper {
+  pointer-events: auto;
+  box-shadow: -8px 0 28px rgba(23, 32, 51, 0.14);
+}
+
 .marker-editor-hint {
   margin-bottom: 16px;
   padding: 11px 13px;
@@ -796,6 +801,61 @@
   background: #f5f8fd;
   font-size: 12px;
   line-height: 1.6;
+}
+
+.marker-editor-hint--interactive {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.marker-editor-hint--interactive > .anticon {
+  margin-top: 3px;
+  font-size: 15px;
+}
+
+.marker-editor-hint--interactive div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.marker-editor-hint--interactive strong {
+  color: #1f4f91;
+  font-size: 13px;
+}
+
+.marker-editor-hint--interactive span {
+  color: #59739a;
+}
+
+.marker-map-edit-status {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  z-index: 31;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  max-width: calc(100% - 420px);
+  padding: 9px 14px;
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  border-radius: 8px;
+  color: #27456f;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 4px 14px rgba(23, 32, 51, 0.1);
+  font-size: 12px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+
+.marker-map-edit-status strong {
+  color: #172033;
+}
+
+.marker-map-shell.is-editing .amap-maps {
+  cursor: crosshair !important;
 }
 
 .marker-editor-hint--compact {
