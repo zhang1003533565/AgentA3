@@ -73,10 +73,45 @@ CREATE TABLE IF NOT EXISTS campus_facility (
     latitude DECIMAL(18,14) COMMENT '纬度',
     image_x DECIMAL(8,6) COMMENT '地图图片横向坐标(0-1)',
     image_y DECIMAL(8,6) COMMENT '地图图片纵向坐标(0-1)',
+    geometry_type VARCHAR(16) NOT NULL DEFAULT 'POINT' COMMENT '空间形态: POINT-点位 AREA-区域围栏',
+    boundary_points TEXT COMMENT '区域围栏坐标(JSON二维数组)',
     images TEXT COMMENT '图片列表(JSON数组)',
     create_time DATETIME COMMENT '创建时间',
     update_time DATETIME COMMENT '更新时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='校园设施表';
+
+-- 兼容旧库：补充设施空间形态与区域围栏字段
+SET @geometry_type_exists = (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'campus_facility'
+      AND COLUMN_NAME = 'geometry_type'
+);
+SET @add_geometry_type_sql = IF(
+    @geometry_type_exists > 0,
+    'SELECT 1',
+    'ALTER TABLE campus_facility ADD COLUMN geometry_type VARCHAR(16) NOT NULL DEFAULT ''POINT'' COMMENT ''空间形态: POINT-点位 AREA-区域围栏'' AFTER image_y'
+);
+PREPARE add_geometry_type_stmt FROM @add_geometry_type_sql;
+EXECUTE add_geometry_type_stmt;
+DEALLOCATE PREPARE add_geometry_type_stmt;
+
+SET @boundary_points_exists = (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'campus_facility'
+      AND COLUMN_NAME = 'boundary_points'
+);
+SET @add_boundary_points_sql = IF(
+    @boundary_points_exists > 0,
+    'SELECT 1',
+    'ALTER TABLE campus_facility ADD COLUMN boundary_points TEXT COMMENT ''区域围栏坐标(JSON二维数组)'' AFTER geometry_type'
+);
+PREPARE add_boundary_points_stmt FROM @add_boundary_points_sql;
+EXECUTE add_boundary_points_stmt;
+DEALLOCATE PREPARE add_boundary_points_stmt;
 
 -- 教室是教学楼内部子资源，不参与地图一级点位与分类
 CREATE TABLE IF NOT EXISTS classroom (

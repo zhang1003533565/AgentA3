@@ -1064,7 +1064,7 @@ function WorkspacePage({ pageKey }) {
   const [amapLoadError, setAmapLoadError] = useState('')
   const [selectedMarkerId, setSelectedMarkerId] = useState(null)
   const [markerEditorOpen, setMarkerEditorOpen] = useState(false)
-  const [markerEditorMode, setMarkerEditorMode] = useState('create')
+  const [markerEditorMode, setMarkerEditorMode] = useState('reposition')
   const [markerEditorSaving, setMarkerEditorSaving] = useState(false)
   const [markerSearchKeyword, setMarkerSearchKeyword] = useState('')
   const [markerSearchLoading, setMarkerSearchLoading] = useState(false)
@@ -2444,7 +2444,7 @@ function WorkspacePage({ pageKey }) {
             </Button>
             <Button
               size="small"
-              onClick={() => openMapPicker(record)}
+              onClick={() => navigate(`/facility/marker?facilityId=${record.id}`)}
             >
               地图标点
             </Button>
@@ -2473,7 +2473,7 @@ function WorkspacePage({ pageKey }) {
             </Button>
             <Button
               size="small"
-              onClick={() => openMapPicker(record)}
+              onClick={() => navigate(`/facility/marker?facilityId=${record.id}`)}
             >
               地图标点
             </Button>
@@ -3952,25 +3952,6 @@ function WorkspacePage({ pageKey }) {
     )
   }
 
-  const openMarkerCreate = () => {
-    setMarkerEditorMode('create')
-    setMarkerSearchResults([])
-    setActiveSearchPoi(null)
-    setMarkerDraft({
-      facilityName: '',
-      facilityType: 1,
-      location: '',
-      description: '',
-      status: 1,
-      longitude: '',
-      latitude: '',
-      imageX: '',
-      imageY: '',
-      thumbnailUrl: '',
-    })
-    setMarkerEditorOpen(true)
-  }
-
   const openMarkerImageEditor = () => {
     if (!selectedMarker) {
       message.warning('请先在右侧表格中选中一个标记')
@@ -4044,23 +4025,13 @@ function WorkspacePage({ pageKey }) {
         imageY: null,
         images: buildFacilityImagesJson(markerDraft.thumbnailUrl),
       }
-      if (markerEditorMode === 'create') {
-        await createFacility(payload)
-      } else {
-        await updateFacility(selectedMarker.facilityId, payload)
-      }
+      await updateFacility(selectedMarker.facilityId, payload)
       await refreshPageData()
       setPagination((prev) => ({ ...prev, current: 1 }))
       setMarkerEditorOpen(false)
-      message.success(
-        markerEditorMode === 'create'
-          ? '标点新增成功'
-          : markerEditorMode === 'image'
-            ? '建筑缩略图已更新'
-            : '标点位置已更新',
-      )
+      message.success(markerEditorMode === 'image' ? '建筑缩略图已更新' : '标点位置已更新')
     } catch (error) {
-      message.error(error?.message || (markerEditorMode === 'create' ? '标点新增失败' : '位置更新失败'))
+      message.error(error?.message || '位置更新失败')
     } finally {
       setMarkerEditorSaving(false)
     }
@@ -4086,7 +4057,6 @@ function WorkspacePage({ pageKey }) {
         </div>
         <div className="workspace-marker-toolbar__actions">
           <span className="workspace-marker-toolbar__meta">已加载 {markerRows.length} 个标点</span>
-          <Button type="primary" onClick={openMarkerCreate}>新增标点</Button>
           <Button onClick={openMarkerReposition} disabled={!selectedMarker}>设置位置</Button>
           <Button onClick={openMarkerImageEditor} disabled={!selectedMarker}>上传缩略图</Button>
         </div>
@@ -4175,11 +4145,9 @@ function WorkspacePage({ pageKey }) {
       {/* 编辑 Drawer — mask 关闭，挂载在当前容器内，不遮挡地图点击 */}
       <Drawer
         title={
-          markerEditorMode === 'create'
-            ? '新增标点'
-            : markerEditorMode === 'image'
-              ? '上传建筑缩略图'
-              : '设置标点位置'
+          markerEditorMode === 'image'
+            ? '上传建筑缩略图'
+            : '设置标点位置'
         }
         placement="right"
         width={420}

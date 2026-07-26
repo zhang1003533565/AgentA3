@@ -47,6 +47,9 @@
 }
 
 .stat-item {
+  appearance: none;
+  font: inherit;
+  text-align: left;
   background: var(--surface, #fff);
   border-radius: 8px;
   padding: 12px 20px;
@@ -161,6 +164,10 @@
   align-items: center;
   justify-content: center;
   color: var(--text-muted, #94a3b8);
+}
+
+.canteen-card-image-placeholder .anticon {
+  font-size: 42px;
 }
 
 /* 轮播 */
@@ -309,6 +316,23 @@
 
 .canteen-card-actions .ant-btn {
   flex: 1;
+}
+
+.canteen-card-actions .ant-btn:last-child {
+  flex: 0 0 36px;
+}
+
+.canteen-location-tip {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 8px;
+  color: var(--text-muted, #64748b);
+  background: var(--surface-soft, #f8fafc);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 /* 空状态 */

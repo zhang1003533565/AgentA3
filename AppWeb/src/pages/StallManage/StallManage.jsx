@@ -8,7 +8,7 @@ import {
 } from '@ant-design/icons'
 import { useParams } from 'react-router-dom'
 import SidePanel from '../../components/SidePanel/SidePanel'
-import { canteenData } from '../CanteenManage/canteenData'
+import { getFacilityDetail } from '../../api/facility'
 import './StallManage.css'
 
 /* ========== 模拟数据 ========== */
@@ -209,7 +209,21 @@ function StallFormModal({ stall, open, onClose, onSave, canteenId }) {
 /* ========== 主页面 ========== */
 export default function StallManage() {
   const { canteenId } = useParams()
-  const canteen = canteenData.find((c) => String(c.id) === canteenId)
+  const [canteen, setCanteen] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    getFacilityDetail(canteenId)
+      .then((response) => {
+        if (!cancelled) setCanteen(response.data)
+      })
+      .catch(() => {
+        if (!cancelled) setCanteen(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [canteenId])
 
   // 档口数据（本地可变状态）
   const [stalls, setStalls] = useState(() => {
@@ -286,7 +300,7 @@ export default function StallManage() {
       <div className="stall-header">
         <div className="stall-header-left">
           <div className="stall-header-info">
-            <h1 className="stall-title">{canteen?.name || '未知食堂'}</h1>
+            <h1 className="stall-title">{canteen?.facilityName || '未知食堂'}</h1>
             <p className="stall-subtitle">管理该食堂下所有档口信息</p>
           </div>
         </div>

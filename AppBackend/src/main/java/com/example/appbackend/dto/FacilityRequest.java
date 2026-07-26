@@ -39,6 +39,12 @@ public class FacilityRequest {
     @Schema(description = "地图图片纵向坐标(0-1)，为空时由系统根据经纬度自动计算")
     private BigDecimal imageY;
 
+    @Schema(description = "空间形态: POINT-点位 AREA-区域围栏")
+    private String geometryType;
+
+    @Schema(description = "区域围栏坐标(JSON二维数组)，AREA 至少需要3个坐标点")
+    private String boundaryPoints;
+
     @Schema(description = "图片列表（JSON数组）")
     private String images;
 }
