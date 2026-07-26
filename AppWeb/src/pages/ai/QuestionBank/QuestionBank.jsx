@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Card, Descriptions, Empty, Form, Input, InputNumber, Modal, Select, Space, Spin, Table, Tag, Typography, message } from 'antd'
+import { Button, Card, Descriptions, Empty, Form, Input, InputNumber, Select, Space, Spin, Table, Tag, Typography, message } from 'antd'
 import { MinusCircleOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import {
   createExamQuestion,
@@ -11,6 +11,7 @@ import {
 } from '../../../api/examQuestion'
 import PageHeader from '../../../components/PageHeader/PageHeader'
 import SidePanel from '../../../components/SidePanel/SidePanel'
+import confirmDelete from '../../../components/ConfirmDelete/confirmDelete'
 import './QuestionBank.css'
 
 const { Text } = Typography
@@ -501,14 +502,11 @@ function QuestionBank() {
     }
   }
 
-  // 删除（二次确认）
+  // 删除（通用删除确认组件）
   const handleDelete = (record) => {
-    Modal.confirm({
+    confirmDelete({
       title: '删除题目',
       content: '确定删除该题目吗？',
-      okText: '确定',
-      cancelText: '取消',
-      okButtonProps: { danger: true },
       onOk: async () => {
         try {
           await deleteExamQuestion(record.id)
