@@ -6,6 +6,7 @@ import HomeView from '../views/HomeView.vue'
 import LoginView from '../views/LoginView.vue'
 import MapView from '../views/MapView.vue'
 import MeetingsView from '../views/MeetingsView.vue'
+import MessageView from '../views/MessageView.vue'
 import MineView from '../views/MineView.vue'
 import ResumeView from '../views/ResumeView.vue'
 import ResumeDesigner from '../views/ResumeDesigner.vue'
@@ -21,6 +22,7 @@ const routes = [
   { path: '/ai', name: 'ai', component: AiAssistantView },
   { path: '/ai-tools', name: 'ai-tools', component: AiToolsView },
   { path: '/mine', name: 'mine', component: MineView },
+  { path: '/messages', name: 'messages', component: MessageView },
   { path: '/resume', name: 'resume', component: ResumeView, meta: { public: true } },
   { path: '/resume/designer', name: 'resume-designer', component: ResumeDesigner, meta: { public: true } },
   { path: '/resume/wizard', name: 'resume-wizard', component: ResumeWizard, meta: { public: true } },

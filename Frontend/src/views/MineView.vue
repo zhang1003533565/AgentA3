@@ -41,7 +41,7 @@ function logout() {
       </section>
 
       <section class="menu-card card">
-        <button v-for="item in menuItems" :key="item" class="menu-row" type="button">
+        <button v-for="item in menuItems" :key="item" class="menu-row" type="button" @click="item === '我的消息' && router.push('/messages')">
           <span>{{ item }}</span>
           <span class="arrow">›</span>
         </button>
