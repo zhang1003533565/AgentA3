@@ -62,6 +62,11 @@ public class ExamPaperAttempt {
     @Column(name = "question_count", nullable = false)
     private Integer questionCount;
 
+    /** Ordered paper-question ids selected once for this attempt. */
+    @Lob
+    @Column(name = "selected_question_ids_json", columnDefinition = "LONGTEXT")
+    private String selectedQuestionIdsJson;
+
     /** Immutable response snapshot created with the first successful submission. */
     @Lob
     @Column(name = "learning_update_json", columnDefinition = "LONGTEXT COMMENT '考试学习闭环结果快照'")

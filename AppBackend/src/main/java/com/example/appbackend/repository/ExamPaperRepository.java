@@ -12,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.Optional;
 
 public interface ExamPaperRepository extends JpaRepository<ExamPaper, Long> {
+    Optional<ExamPaper> findFirstByTitleAndStatus(String title, Integer status);
 
     Optional<ExamPaper> findByIdAndStatus(Long id, Integer status);
 
