@@ -26,6 +26,16 @@ public interface ForumPostRepository extends JpaRepository<ForumPost, Long> {
             @Param("keyword") String keyword,
             Pageable pageable);
 
+    @Query("SELECT p FROM ForumPost p WHERE " +
+           "(:topicId IS NULL OR p.topicId = :topicId) " +
+           "AND (:status IS NULL OR p.status = :status) " +
+           "AND (:keyword IS NULL OR p.title LIKE %:keyword% OR p.content LIKE %:keyword%)")
+    Page<ForumPost> findAdminPosts(
+            @Param("topicId") Long topicId,
+            @Param("status") String status,
+            @Param("keyword") String keyword,
+            Pageable pageable);
+
     @Query("SELECT p FROM ForumPost p WHERE p.status = 'PUBLISHED' ORDER BY p.likeCount DESC, p.viewCount DESC")
     Page<ForumPost> findHotPosts(Pageable pageable);
 
@@ -33,6 +43,9 @@ public interface ForumPostRepository extends JpaRepository<ForumPost, Long> {
 
     @Query("SELECT p FROM ForumPost p WHERE p.userId = :userId AND p.status = 'PUBLISHED' ORDER BY p.createTime DESC")
     Page<ForumPost> findUserPosts(@Param("userId") Long userId, Pageable pageable);
+
+    long count();
+    long countByStatus(String status);
 
     @Modifying
     @Query("UPDATE ForumPost p SET p.status = :status WHERE p.id = :id")

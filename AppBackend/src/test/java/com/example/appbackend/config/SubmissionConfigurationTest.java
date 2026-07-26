@@ -77,7 +77,7 @@ class SubmissionConfigurationTest {
 
     @Test
     void appFrontendKeepsRemovedMapKeyExportsAndReferencesAbsent() throws Exception {
-        Path frontendRoot = Path.of("../AppFrontend").toAbsolutePath().normalize();
+        Path frontendRoot = Path.of("../mini_program_app").toAbsolutePath().normalize();
         String config = Files.readString(frontendRoot.resolve("utils/config.js"));
         assertFalse(config.contains("export const AMAP_APP_KEY"));
         assertFalse(config.contains("export const AMAP_WEB_KEY"));

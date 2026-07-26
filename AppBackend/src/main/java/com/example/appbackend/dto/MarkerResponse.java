@@ -38,6 +38,12 @@ public class MarkerResponse {
     @Schema(description = "地图图片纵向坐标(0-1)")
     private BigDecimal imageY;
 
+    @Schema(description = "空间形态: POINT-点位 AREA-区域围栏")
+    private String geometryType;
+
+    @Schema(description = "区域围栏坐标(JSON二维数组)")
+    private String boundaryPoints;
+
     @Schema(description = "图标URL")
     private String iconUrl;
 

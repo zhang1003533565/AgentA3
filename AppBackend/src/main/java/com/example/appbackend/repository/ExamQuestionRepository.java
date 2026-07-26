@@ -41,6 +41,32 @@ public interface ExamQuestionRepository extends JpaRepository<ExamQuestion, Long
 
     @Query("""
             SELECT q FROM ExamQuestion q
+            WHERE q.status = 1
+              AND (:type IS NULL OR q.type = :type)
+              AND (:difficulty IS NULL OR q.difficulty = :difficulty)
+              AND (:keyword IS NULL OR q.stem LIKE CONCAT('%', :keyword, '%'))
+              AND (:bank IS NULL OR q.sourceTitle = :bank)
+              AND (q.visibility = 'PUBLIC' OR (q.visibility = 'PRIVATE' AND q.ownerUserId = :userId))
+            """)
+    Page<ExamQuestion> searchVisibleWithBank(
+            @Param("type") String type,
+            @Param("difficulty") String difficulty,
+            @Param("keyword") String keyword,
+            @Param("bank") String bank,
+            @Param("userId") Long userId,
+            Pageable pageable);
+
+    @Query("""
+            SELECT DISTINCT q.sourceTitle FROM ExamQuestion q
+            WHERE q.status = 1
+              AND q.sourceTitle IS NOT NULL
+              AND (q.visibility = 'PUBLIC' OR (q.visibility = 'PRIVATE' AND q.ownerUserId = :userId))
+            ORDER BY q.sourceTitle
+            """)
+    List<String> findVisibleBankTitles(@Param("userId") Long userId);
+
+    @Query("""
+            SELECT q FROM ExamQuestion q
             WHERE q.id = :id
               AND q.status = 1
               AND (q.visibility = 'PUBLIC' OR (q.visibility = 'PRIVATE' AND q.ownerUserId = :userId))

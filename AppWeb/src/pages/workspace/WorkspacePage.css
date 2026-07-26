@@ -7,37 +7,128 @@
 .workspace-hero {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 24px;
-  padding: 28px 32px;
-  border-radius: 28px;
+  padding: 32px 40px;
+  border-radius: 32px;
   background:
-    radial-gradient(circle at top left, rgba(15, 118, 110, 0.24), transparent 35%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.94));
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
+    radial-gradient(ellipse at top left, rgba(59, 130, 246, 0.25), transparent 45%),
+    radial-gradient(ellipse at bottom right, rgba(139, 92, 246, 0.15), transparent 35%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.99), rgba(248, 250, 252, 0.96));
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  box-shadow: 
+    0 32px 80px rgba(15, 23, 42, 0.08),
+    0 1px 3px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  position: relative;
+  overflow: hidden;
+}
+
+.workspace-hero-sports {
+  background: linear-gradient(135deg, #fefce8 0%, #fff7ed 30%, #fff 60%, #f0f9ff 100%);
+  border: 1px solid rgba(249, 115, 22, 0.15);
+  box-shadow: 
+    0 10px 40px rgba(249, 115, 22, 0.08),
+    0 2px 10px rgba(59, 130, 246, 0.05);
+}
+
+.workspace-hero-sports::before {
+  content: '⚽';
+  position: absolute;
+  top: 20px;
+  right: 80px;
+  font-size: 48px;
+  opacity: 0.15;
+  transform: rotate(15deg);
+  pointer-events: none;
+}
+
+.workspace-hero-sports::after {
+  content: '🏃';
+  position: absolute;
+  bottom: 20px;
+  right: 150px;
+  font-size: 56px;
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+.workspace-hero-content {
+  position: relative;
+  z-index: 1;
 }
 
 .workspace-hero h1 {
-  margin: 10px 0 10px;
+  margin: 12px 0 12px;
   font-size: 32px;
-  line-height: 1.1;
+  line-height: 1.15;
+  font-weight: 700;
+  background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.02em;
+}
+
+.workspace-hero-sports h1 {
+  font-size: 36px;
+  font-weight: 800;
+  color: #1e293b;
+  letter-spacing: -0.02em;
 }
 
 .workspace-hero p {
   max-width: 720px;
   color: var(--text-muted);
   font-size: 15px;
+  line-height: 1.7;
+  margin: 0;
+}
+
+.workspace-hero-sports p {
+  color: #64748b;
+  font-size: 16px;
+  font-weight: 500;
 }
 
 .workspace-badge {
   display: inline-flex;
-  padding: 6px 12px;
+  align-items: center;
+  padding: 8px 16px;
   border-radius: 999px;
-  background: rgba(15, 118, 110, 0.12);
-  color: var(--brand-deep);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(139, 92, 246, 0.12));
+  color: #3b82f6;
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+  transition: all 0.3s ease;
+}
+
+.workspace-hero-sports .workspace-badge {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  color: white;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 
+    0 4px 12px rgba(249, 115, 22, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.workspace-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+}
+
+.workspace-hero-sports .workspace-badge:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 
+    0 8px 20px rgba(249, 115, 22, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .workspace-actions {
@@ -101,8 +192,57 @@
 .workspace-table-card,
 .workspace-side .ant-card {
   border: none;
-  border-radius: 24px;
-  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.06);
+  border-radius: 28px;
+  box-shadow: 
+    0 24px 60px rgba(15, 23, 42, 0.06),
+    0 1px 3px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.workspace-table-card .ant-card-body {
+  padding: 0;
+}
+
+.workspace-table-card .ant-table {
+  margin: 0;
+}
+
+.workspace-table-card .ant-table-thead > tr > th {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  padding: 16px 20px;
+  font-weight: 700;
+  font-size: 13px;
+  color: #64748b;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.workspace-table-card .ant-table-tbody > tr {
+  transition: all 0.25s ease;
+}
+
+.workspace-table-card .ant-table-tbody > tr:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.03) 0%, rgba(139, 92, 246, 0.02) 100%);
+  transform: translateY(-1px);
+}
+
+.workspace-table-card .ant-table-tbody > tr > td {
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+  font-size: 14px;
+  color: #334155;
+}
+
+.workspace-table-card .ant-table-tbody > tr:last-child > td {
+  border-bottom: none;
+}
+
+.workspace-table-card .ant-table-pagination {
+  padding: 16px 20px;
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
+  background: #fafbfc;
 }
 
 .workspace-side {

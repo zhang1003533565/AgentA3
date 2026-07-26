@@ -1,0 +1,372 @@
+.canteen-manage-page {
+  padding: 24px;
+  background: var(--surface-soft, #f8fafc);
+  min-height: 100vh;
+}
+
+/* 页面头部 */
+.canteen-header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.canteen-header-left h1 {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+  margin: 0 0 4px 0;
+}
+
+.canteen-header-left p {
+  font-size: 14px;
+  color: var(--text-muted, #475569);
+  margin: 0;
+}
+
+.canteen-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.canteen-search .ant-input {
+  border-radius: 8px;
+}
+
+/* 统计卡片 */
+.canteen-stats {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.stat-item {
+  appearance: none;
+  font: inherit;
+  text-align: left;
+  background: var(--surface, #fff);
+  border-radius: 8px;
+  padding: 12px 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid var(--border-light, #e2e8f0);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 120px;
+}
+
+.stat-item:hover {
+  border-color: var(--brand, #0f766e);
+  box-shadow: 0 2px 8px rgba(15, 118, 110, 0.1);
+}
+
+.stat-item.active {
+  border-color: var(--brand, #0f766e);
+  background: linear-gradient(135deg, rgba(15, 118, 110, 0.05), rgba(15, 118, 110, 0.02));
+}
+
+.stat-number {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--brand, #0f766e);
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: 14px;
+  color: var(--text-muted, #475569);
+}
+
+/* 卡片网格 */
+.canteen-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+@media (max-width: 1200px) {
+  .canteen-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .canteen-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .canteen-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .canteen-header-right {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .canteen-search .ant-input {
+    width: 100% !important;
+  }
+}
+
+/* 食堂卡片 */
+.canteen-card {
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  background: var(--surface, #fff);
+}
+
+.canteen-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+}
+
+.canteen-card.deleting {
+  animation: fadeOut 0.3s ease forwards;
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.95); }
+}
+
+.canteen-card-body {
+  padding: 16px;
+}
+
+/* 图片区域 */
+.canteen-card-image {
+  position: relative;
+  width: 100%;
+  padding-top: 56.25%; /* 16:9 */
+  overflow: hidden;
+  background: var(--surface-soft, #f1f5f9);
+}
+
+.canteen-card-image-placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted, #94a3b8);
+}
+
+.canteen-card-image-placeholder .anticon {
+  font-size: 42px;
+}
+
+/* 轮播 */
+.canteen-carousel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.canteen-carousel-image {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  z-index: 1;
+}
+
+.canteen-carousel-image.active {
+  opacity: 1;
+  z-index: 2;
+}
+
+/* 单张图片覆盖默认 opacity:0，使其可见 */
+.canteen-carousel-image-single {
+  opacity: 1;
+  z-index: 2;
+}
+
+.canteen-carousel-dots {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  z-index: 2;
+}
+
+.canteen-carousel-dots .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  transition: all 0.3s ease;
+}
+
+.canteen-carousel-dots .dot.active {
+  background: #fff;
+  width: 20px;
+  border-radius: 4px;
+}
+
+/* 基本信息 */
+.canteen-card-info {
+  padding: 16px;
+}
+
+.canteen-card-title {
+  margin-bottom: 12px;
+}
+
+.canteen-main-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.canteen-sub-name {
+  font-size: 13px;
+  color: var(--text-muted, #64748b);
+  display: block;
+}
+
+.canteen-card-tags {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.area-tag {
+  background: var(--surface-soft, #f1f5f9);
+  color: var(--text-secondary, #334155);
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 12px;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+.status-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  display: inline-block;
+}
+
+/* 详细信息 */
+.canteen-card-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.detail-label {
+  color: var(--text-muted, #64748b);
+}
+
+.detail-value {
+  color: var(--text-secondary, #334155);
+  font-weight: 500;
+}
+
+/* 操作按钮 */
+.canteen-card-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 16px;
+  position: relative;
+}
+
+.canteen-card-actions .ant-btn {
+  flex: 1;
+}
+
+.canteen-card-actions .ant-btn:last-child {
+  flex: 0 0 36px;
+}
+
+.canteen-location-tip {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 8px;
+  color: var(--text-muted, #64748b);
+  background: var(--surface-soft, #f8fafc);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* 空状态 */
+.canteen-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 60px 0;
+}
+
+/* 上传提示 */
+.canteen-upload-tip {
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  margin-top: 8px;
+}
+
+/* 模态框样式 */
+.ant-modal .ant-modal-body {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .canteen-manage-page {
+    padding: 16px;
+  }
+  
+  .canteen-stats {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .stat-item {
+    justify-content: space-between;
+  }
+}

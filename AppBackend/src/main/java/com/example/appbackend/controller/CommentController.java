@@ -11,6 +11,8 @@ import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/forum/comments")
 public class CommentController {
@@ -58,6 +60,16 @@ public class CommentController {
         checkAdmin(request);
         commentService.deleteCommentByAdmin(id);
         return Result.success("删除成功", null);
+    }
+
+    @DeleteMapping("/admin/batch")
+    public Result<Void> batchDeleteComments(@RequestBody List<Long> ids, HttpServletRequest request) {
+        if (getCurrentUserId(request) == null) {
+            return Result.unauthorized("请先登录");
+        }
+        checkAdmin(request);
+        commentService.batchDeleteComments(ids);
+        return Result.success("批量删除成功", null);
     }
 
     @GetMapping
