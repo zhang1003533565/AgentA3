@@ -53,9 +53,9 @@ const routes = [
   { path: '/mine/papers/:paperId/history', name: 'exam-history', component: ExamHistoryView },
   { path: '/mine/papers/results/:attemptId', name: 'exam-result', component: ExamResultView },
   { path: '/mine/papers/results/:attemptId/details', name: 'exam-detail', component: ExamDetailView },
-  { path: '/resume', name: 'resume', component: ResumeView, meta: { public: true } },
-  { path: '/resume/designer', name: 'resume-designer', component: ResumeDesigner, meta: { public: true } },
-  { path: '/resume/wizard', name: 'resume-wizard', component: ResumeWizard, meta: { public: true } },
+  { path: '/resume', name: 'resume', component: ResumeView },
+  { path: '/resume/designer', name: 'resume-designer', component: ResumeDesigner },
+  { path: '/resume/wizard', name: 'resume-wizard', component: ResumeWizard },
 ]
 
 const router = createRouter({
