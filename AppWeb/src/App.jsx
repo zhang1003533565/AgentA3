@@ -23,19 +23,21 @@ import ExamPaperHistoryPage from './pages/questionBank/ExamPaperHistoryPage'
 import QuestionBankGeneratePage from './pages/questionBank/QuestionBankGeneratePage'
 import { QUESTION_BANK_ROUTES } from './pages/questionBank/questionBankRoutes'
 import WorkspacePage from './pages/workspace/WorkspacePage'
-import CanteenManage from './pages/CanteenManage/CanteenManage'
 import StallManage from './pages/StallManage/StallManage'
 import MarkerManage from './pages/facility/MarkerManage/MarkerManage'
+import FacilityPlaceManage from './pages/facility/FacilityPlaceManage/FacilityPlaceManage'
 import './App.css'
 
 // 论坛独立页面路径集合（不走 WorkspacePage）
 const FORUM_INDEPENDENT_PATHS = new Set(['/forum/post', '/forum/comment', '/forum/topic', '/forum/report'])
+const FACILITY_PLACE_PATHS = new Set(['/facility/sports', '/facility/teaching', '/facility/dormitory'])
 
 function App() {
   // 过滤掉论坛相关路由，避免与独立页面冲突
   const workspaceRoutes = allNavItems
     .filter((item) => item.pageKey && item.path !== '/activity/manage' && item.path !== '/facility/canteen')
     .filter((item) => item.pageKey && item.path !== '/activity/manage' && !FORUM_INDEPENDENT_PATHS.has(item.path))
+    .filter((item) => !FACILITY_PLACE_PATHS.has(item.path))
     .map((item) => (
       <Route
         key={item.path}
@@ -50,7 +52,10 @@ function App() {
         <Route path="/" element={<Login />} />
         <Route element={<Layout />}>
           <Route path="/home" element={<Home />} />
-          <Route path="/facility/canteen" element={<CanteenManage />} />
+          <Route path="/facility/canteen" element={<FacilityPlaceManage sceneType="CANTEEN" />} />
+          <Route path="/facility/sports" element={<FacilityPlaceManage sceneType="SPORTS" />} />
+          <Route path="/facility/teaching" element={<FacilityPlaceManage sceneType="TEACHING" />} />
+          <Route path="/facility/dormitory" element={<FacilityPlaceManage sceneType="DORMITORY" />} />
           <Route path="/facility/canteen/:canteenId/stalls" element={<StallManage />} />
           <Route path="/activity/manage" element={<ActivityManage />} />
           <Route path="/activity/create" element={<ActivityEditor />} />
