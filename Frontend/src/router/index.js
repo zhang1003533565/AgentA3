@@ -8,6 +8,7 @@ import HomeView from '../views/HomeView.vue'
 import LoginView from '../views/LoginView.vue'
 import MapView from '../views/MapView.vue'
 import MeetingsView from '../views/MeetingsView.vue'
+import MessageView from '../views/MessageView.vue'
 import MineActivitiesView from '../views/MineActivitiesView.vue'
 import MineAiHistoryView from '../views/MineAiHistoryView.vue'
 import MineMeetingScheduleView from '../views/MineMeetingScheduleView.vue'
@@ -37,6 +38,7 @@ const routes = [
   { path: '/ai', name: 'ai', component: AiAssistantView },
   { path: '/ai-tools', name: 'ai-tools', component: AiToolsView },
   { path: '/mine', name: 'mine', component: MineView },
+  { path: '/messages', name: 'messages', component: MessageView },
   { path: '/mine/messages', name: 'mine-messages', component: MineMessagesView },
   { path: '/mine/schedule', name: 'mine-schedule', component: MineScheduleView },
   { path: '/mine/schedule-settings', name: 'mine-schedule-settings', component: ScheduleSettingsView },
@@ -51,9 +53,9 @@ const routes = [
   { path: '/mine/papers/:paperId/history', name: 'exam-history', component: ExamHistoryView },
   { path: '/mine/papers/results/:attemptId', name: 'exam-result', component: ExamResultView },
   { path: '/mine/papers/results/:attemptId/details', name: 'exam-detail', component: ExamDetailView },
-  { path: '/resume', name: 'resume', component: ResumeView, meta: { public: true } },
-  { path: '/resume/designer', name: 'resume-designer', component: ResumeDesigner, meta: { public: true } },
-  { path: '/resume/wizard', name: 'resume-wizard', component: ResumeWizard, meta: { public: true } },
+  { path: '/resume', name: 'resume', component: ResumeView },
+  { path: '/resume/designer', name: 'resume-designer', component: ResumeDesigner },
+  { path: '/resume/wizard', name: 'resume-wizard', component: ResumeWizard },
 ]
 
 const router = createRouter({
