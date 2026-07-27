@@ -32,6 +32,17 @@ public interface SecondhandItemRepository extends JpaRepository<SecondhandItem, 
                                         @Param("maxPrice") java.math.BigDecimal maxPrice,
                                         Pageable pageable);
 
+    @Query("SELECT s FROM SecondhandItem s WHERE " +
+           "(:status IS NULL OR s.status = :status) " +
+           "AND (:categoryId IS NULL OR s.categoryId = :categoryId) " +
+           "AND (:userId IS NULL OR s.userId = :userId) " +
+           "AND (:keyword IS NULL OR s.title LIKE CONCAT('%', :keyword, '%') OR s.description LIKE CONCAT('%', :keyword, '%'))")
+    Page<SecondhandItem> findAdminList(@Param("status") Integer status,
+                                       @Param("categoryId") Long categoryId,
+                                       @Param("userId") Long userId,
+                                       @Param("keyword") String keyword,
+                                       Pageable pageable);
+
     @Modifying
     @Query("UPDATE SecondhandItem s SET s.viewCount = s.viewCount + 1 WHERE s.id = :id")
     void incrementViewCount(@Param("id") Long id);

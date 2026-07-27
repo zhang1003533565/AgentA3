@@ -21,13 +21,12 @@ export const portalGroups = [
       { path: '/forum/post', label: '帖子管理', icon: 'message', pageKey: 'forum-post' },
       { path: '/forum/comment', label: '评论管理', icon: 'comment', pageKey: 'forum-comment' },
       { path: '/forum/topic', label: '话题管理', icon: 'tag', pageKey: 'forum-topic' },
-      { path: '/forum/report', label: '举报处理', icon: 'flag', pageKey: 'forum-report' },
     ],
   },
   {
     label: '校园设施',
     items: [
-      { path: '/facility/canteen', label: '食堂管理', icon: 'shop' },
+      { path: '/facility/canteen', label: '食堂管理', icon: 'shop', pageKey: 'facility-canteen' },
       { path: '/facility/restaurant', label: '档口管理', icon: 'shop', pageKey: 'facility-restaurant', hidden: true },
       { path: '/facility/stall-dish', label: '档口菜品管理', icon: 'shop', pageKey: 'facility-stall-dish', hidden: true },
       { path: '/facility/sports', label: '运动场设置', icon: 'thunder', pageKey: 'facility-sports' },
@@ -158,19 +157,10 @@ const columns = {
     { title: '状态', dataIndex: 'status', type: 'status' },
   ],
   facility: [
-    { title: '设施名称', dataIndex: 'facilityName', width: 120 },
-    { title: '类型', dataIndex: 'facilityType', type: 'tag', width: 100 },
-    { title: '位置', dataIndex: 'location', width: 100 },
-    { title: '描述', dataIndex: 'description', type: 'text', width: 200 },
-    { title: '状态', dataIndex: 'status', type: 'status', width: 100 },
-    { title: '图片', dataIndex: 'images', type: 'images', width: 180 },
-  ],
-  sports: [
-    { title: '设施名称', dataIndex: 'facilityName', width: 120 },
-    { title: '类型', dataIndex: 'facilityType', type: 'tag', width: 100 },
-    { title: '描述', dataIndex: 'description', type: 'text', width: 200 },
-    { title: '状态', dataIndex: 'status', type: 'status', width: 100 },
-    { title: '图片', dataIndex: 'images', type: 'images', width: 180 },
+    { title: '设施名称', dataIndex: 'facilityName' },
+    { title: '类型', dataIndex: 'facilityType', type: 'tag' },
+    { title: '位置', dataIndex: 'location' },
+    { title: '状态', dataIndex: 'status', type: 'status' },
   ],
   stall: [
     { title: '照片', dataIndex: 'image', type: 'image' },
@@ -203,16 +193,20 @@ const columns = {
     { title: '状态', dataIndex: 'status', type: 'status' },
   ],
   secondhandItem: [
-    { title: '标题', dataIndex: 'title' },
+    { title: '封面', dataIndex: 'coverImage', type: 'image', width: 80 },
+    { title: '标题', dataIndex: 'title', width: 220 },
     { title: '分类', dataIndex: 'categoryName', type: 'tag' },
-    { title: '价格', dataIndex: 'price' },
-    { title: '发布者', dataIndex: 'publisherName' },
-    { title: '状态', dataIndex: 'statusText', type: 'status' },
+    { title: '成色', dataIndex: 'conditionText', type: 'tag' },
+    { title: '价格', dataIndex: 'priceText', width: 120 },
+    { title: '地点', dataIndex: 'location', width: 140 },
+    { title: '发布者', dataIndex: 'publisherName', width: 120 },
+    { title: '热度', dataIndex: 'heatMeta', width: 140 },
+    { title: '状态', dataIndex: 'statusText', type: 'status', width: 100 },
   ],
   secondhandCategory: [
-    { title: '分类名称', dataIndex: 'categoryName' },
-    { title: '排序', dataIndex: 'sort' },
-    { title: '状态', dataIndex: 'statusText', type: 'status' },
+    { title: '分类', dataIndex: 'categoryName', type: 'tag', width: 180 },
+    { title: '排序', dataIndex: 'sortText', width: 100 },
+    { title: '关联物品', dataIndex: 'itemCountText', width: 120 },
   ],
   merchant: [
     { title: '商家名称', dataIndex: 'merchantName' },
@@ -355,14 +349,6 @@ export const workspacePages = {
     filters: ['全部'],
     emptyText: '暂无话题数据',
   }),
-  'forum-report': createPage({
-    title: '',
-    badge: '',
-    description: '',
-    columns: [],
-    filters: ['全部'],
-    emptyText: '暂无举报数据',
-  }),
   'facility-canteen': createPage({
     title: '食堂管理',
     badge: '校园设施',
@@ -382,8 +368,7 @@ export const workspacePages = {
     title: '运动场设置',
     badge: '校园设施',
     description: '管理运动场基本信息与地图标点位置。',
-    columns: columns.sports,
-    filters: ['全部', '球类场地', '水上及特殊场地', '田径及综合场地', '其他'],
+    columns: columns.facility,
     emptyText: '暂无运动场数据',
   }),
   'facility-teaching': createPage({
@@ -437,16 +422,17 @@ export const workspacePages = {
     emptyText: '暂无导航统计数据',
   }),
   'market-item': createPage({
-    title: '',
-    badge: '',
-    description: '',
+    title: '物品管理',
+    badge: '旧物交易',
+    description: '管理员可查看详情、下架与删除，不可编辑用户发布内容。',
     columns: columns.secondhandItem,
+    filters: ['全部', '在售', '已售出', '已下架'],
     emptyText: '暂无物品数据',
   }),
   'market-category': createPage({
-    title: '',
-    badge: '',
-    description: '',
+    title: '分类管理',
+    badge: '旧物交易',
+    description: '维护校园旧物分类、排序与关联物品规模。',
     columns: columns.secondhandCategory,
     emptyText: '暂无旧物分类数据',
   }),
@@ -516,32 +502,4 @@ export const getNavMetaByPath = (path) => {
     description: page?.description || '',
     badge: page?.badge || '',
   }
-}
-
-// 下钻页面的面包屑规则：带 path 的父级可点击返回（match 支持正则匹配动态路由）
-const drilldownBreadcrumbs = [
-  {
-    match: /^\/facility\/canteen\/[^/]+\/stalls$/,
-    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口管理'],
-  },
-  {
-    match: /^\/facility\/restaurant$/,
-    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口管理'],
-  },
-  {
-    match: /^\/facility\/stall-dish$/,
-    items: ['校园设施', { label: '食堂管理', path: '/facility/canteen' }, '档口菜品管理'],
-  },
-]
-
-// 按路由取面包屑（分组名 / 菜单名，或下钻多级），供布局顶栏统一渲染页面标题
-export const getBreadcrumbByPath = (path) => {
-  const drilldown = drilldownBreadcrumbs.find((rule) => rule.match.test(path))
-  if (drilldown) return drilldown.items
-
-  for (const group of portalGroups) {
-    const item = group.items.find((navItem) => navItem.path === path)
-    if (item) return [group.label, item.label]
-  }
-  return null
 }
