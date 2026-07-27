@@ -60,44 +60,42 @@ const shortcutItems = [
         <RouterLink to="/meetings">会议</RouterLink>
         <RouterLink to="/ai">AI 助手</RouterLink>
         <RouterLink to="/ai-tools">AI 工具</RouterLink>
-        <RouterLink to="/mine">我的页面</RouterLink>
         <RouterLink to="/resume">我的简历</RouterLink>
       </nav>
 
-      <RouterLink class="app-site-header__login" to="/login">登录 / 注册</RouterLink>
-    </div>
-    <div class="app-tab-nav__profile">
-      <button class="app-tab-nav__avatar" type="button" aria-label="个人头像" @click="toggleProfilePanel">
-        <img v-if="avatarUrl" :src="avatarUrl" alt="" />
-        <span v-else>{{ avatarText }}</span>
-      </button>
-      <transition name="profile-panel">
-        <div v-if="showProfilePanel" class="app-tab-nav__panel">
-          <section class="app-tab-nav__panel-section">
-            <p class="app-tab-nav__name">{{ displayName }}</p>
-            <p class="app-tab-nav__student">学号 {{ studentId }}</p>
-          </section>
+      <div class="app-tab-nav__profile">
+        <button class="app-tab-nav__avatar" type="button" aria-label="个人头像" @click="toggleProfilePanel">
+          <img v-if="avatarUrl" :src="avatarUrl" alt="" />
+          <span v-else>{{ avatarText }}</span>
+        </button>
+        <transition name="profile-panel">
+          <div v-if="showProfilePanel" class="app-tab-nav__panel">
+            <section class="app-tab-nav__panel-section">
+              <p class="app-tab-nav__name">{{ displayName }}</p>
+              <p class="app-tab-nav__student">学号 {{ studentId }}</p>
+            </section>
 
-          <section class="app-tab-nav__panel-section app-tab-nav__panel-section--list">
-            <button
-              v-for="item in shortcutItems"
-              :key="item.to"
-              class="app-tab-nav__panel-row"
-              type="button"
-              @click="openProfileRoute(item.to)"
-            >
-              <span>{{ item.label }}</span>
-              <span class="app-tab-nav__panel-arrow">›</span>
-            </button>
-          </section>
+            <section class="app-tab-nav__panel-section app-tab-nav__panel-section--list">
+              <button
+                v-for="item in shortcutItems"
+                :key="item.to"
+                class="app-tab-nav__panel-row"
+                type="button"
+                @click="openProfileRoute(item.to)"
+              >
+                <span>{{ item.label }}</span>
+                <span class="app-tab-nav__panel-arrow">›</span>
+              </button>
+            </section>
 
-          <section class="app-tab-nav__panel-section">
-            <button class="app-tab-nav__logout" type="button" @click="handleLogout">
-              退出登录
-            </button>
-          </section>
-        </div>
-      </transition>
+            <section class="app-tab-nav__panel-section">
+              <button class="app-tab-nav__logout" type="button" @click="handleLogout">
+                退出登录
+              </button>
+            </section>
+          </div>
+        </transition>
+      </div>
     </div>
   </header>
 </template>
@@ -106,7 +104,7 @@ const shortcutItems = [
 .app-site-header {
   position: fixed;
   inset: 0 0 auto;
-  z-index: 20;
+  z-index: 1000;
   height: 60px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: #1e2b4c;
@@ -177,22 +175,6 @@ const shortcutItems = [
   background: rgba(0, 180, 255, 0.2);
 }
 
-.app-site-header__login {
-  flex: 0 0 auto;
-  padding: 8px 18px;
-  border-radius: 4px;
-  background: #00b4ff;
-  color: #ffffff;
-  font-size: 14px;
-  font-weight: 700;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.app-site-header__login:hover {
-  background: #009ee0;
-}
-
 @media (max-width: 680px) {
   .app-site-header__inner {
     width: min(100%, calc(100% - 24px));
@@ -201,10 +183,6 @@ const shortcutItems = [
 
   .app-site-header__brand {
     font-size: 16px;
-  }
-
-  .app-site-header__login {
-    padding-inline: 12px;
   }
 }
 </style>

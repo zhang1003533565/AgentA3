@@ -2,6 +2,8 @@
 import { computed, h, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
+import AppTabBar from '../components/AppTabBar.vue'
+
 const IconLine = (props) => {
   const paths = {
     logo: 'M12 2a4 4 0 0 0-4 4v2H6a4 4 0 0 0-4 4v4a4 4 0 0 0 4 4h2v2h8v-2h2a4 4 0 0 0 4-4v-4a4 4 0 0 0-4-4h-2V6a4 4 0 0 0-4-4Zm-2 6V6a2 2 0 0 1 4 0v2h-4Zm-2 2h8v8H8v-8Zm-4 2a2 2 0 0 1 2-2v8a2 2 0 0 1-2-2v-4Zm14-2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2v-8Z',
@@ -675,6 +677,7 @@ function handleUpload(event) {
 </script>
 
 <template>
+  <AppTabBar />
   <div class="campus-ai" :data-theme="darkMode ? 'dark' : 'light'">
     <aside :class="['side-nav', { collapsed: sidebarCollapsed }]">
       <button
@@ -1133,6 +1136,7 @@ function handleUpload(event) {
   --shadow: 0 10px 28px rgba(30, 58, 95, 0.08);
   min-width: 320px;
   min-height: 100vh;
+  padding-top: 60px;
   color: var(--text);
   background: var(--bg);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
@@ -1163,7 +1167,7 @@ function handleUpload(event) {
 
 .side-nav {
   position: fixed;
-  inset: 0 auto 0 0;
+  inset: 60px auto 0 0;
   z-index: 30;
   display: flex;
   width: 252px;
@@ -1300,11 +1304,11 @@ function handleUpload(event) {
 }
 .avatar { width: 34px; height: 34px; }
 
-.app-area { min-height: 100vh; margin-left: 252px; transition: margin-left .24s ease; }
+.app-area { min-height: calc(100vh - 60px); margin-left: 252px; transition: margin-left .24s ease; }
 .app-area.sidebar-collapsed { margin-left: 76px; }
 .global-header {
   position: fixed;
-  inset: 0 0 auto 252px;
+  inset: 60px 0 auto 252px;
   z-index: 20;
   display: flex;
   height: 68px;
@@ -1367,12 +1371,12 @@ function handleUpload(event) {
 .user-popover button { display: flex; width: 100%; align-items: center; gap: 9px; padding: 9px; border-radius: 7px; background: transparent; text-align: left; font-size: 13px; }
 .user-popover button:hover { background: var(--primary-soft); }
 
-.main-content { min-height: 100vh; padding-top: 68px; }
-.module-page { min-height: calc(100vh - 68px); }
+.main-content { min-height: calc(100vh - 60px); padding-top: 68px; }
+.module-page { min-height: calc(100vh - 128px); }
 .page-enter { animation: page-fade .28s ease both; }
 @keyframes page-fade { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
 
-.chat-page { position: relative; height: calc(100vh - 68px); min-height: 600px; overflow: hidden; }
+.chat-page { position: relative; height: calc(100vh - 128px); min-height: 600px; overflow: hidden; }
 .chat-scroll { height: 100%; overflow-y: auto; padding: 42px clamp(24px, 6vw, 88px) 230px; }
 .welcome-block { width: min(860px, 100%); margin: 0 auto 38px; }
 .eyebrow { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .13em; }
@@ -1726,7 +1730,7 @@ function handleUpload(event) {
   .header-actions { position: static; }
   .desktop-avatar { display: none; }
   .main-content { padding-top: 58px; padding-bottom: 66px; }
-  .module-page { min-height: calc(100vh - 124px); }
+  .module-page { min-height: calc(100vh - 184px); }
   .mobile-tabs {
     position: fixed;
     inset: auto 0 0;
@@ -1741,7 +1745,7 @@ function handleUpload(event) {
   }
   .mobile-tabs button { display: grid; place-items: center; align-content: center; gap: 3px; border-radius: 9px; color: var(--subtle); background: transparent; font-size: 10px; }
   .mobile-tabs button.active { color: var(--primary); background: var(--primary-soft); }
-  .chat-page { height: calc(100vh - 124px); min-height: 520px; }
+  .chat-page { height: calc(100vh - 184px); min-height: 520px; }
   .chat-scroll { padding: 25px 14px 212px; }
   .welcome-block { margin-bottom: 28px; }
   .welcome-block h1 { font-size: 26px; }
