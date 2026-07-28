@@ -4,7 +4,15 @@
 
     <view class="screen">
       <view class="container">
-        <scroll-view scroll-y class="page-body" :show-scrollbar="false">
+        <scroll-view
+          scroll-y
+          class="page-body"
+          :show-scrollbar="false"
+          refresher-enabled
+          :refresher-triggered="refreshing"
+          refresher-background="#F7F8FA"
+          @refresherrefresh="refreshPage"
+        >
           <!-- 通知卡片（固定第一行，不参与排序） -->
           <view class="notify-card" @click="goToNotifications">
             <view class="notify-left">
@@ -40,7 +48,10 @@
             <text class="empty-text">暂无消息</text>
           </view>
           <view v-for="s in sessions" :key="s.id" class="session-card" @click="openChat(s)">
-            <view class="sess-avatar">{{ s.otherName ? s.otherName[0] : '用' }}</view>
+            <view class="sess-avatar">
+              <image v-if="s.otherAvatar" class="sess-avatar-img" :src="s.otherAvatar" mode="aspectFill" />
+              <text v-else>{{ s.otherName ? s.otherName[0] : '用' }}</text>
+            </view>
             <view class="sess-body">
               <view class="sess-top-row">
                 <text class="sess-name">{{ s.otherName || '用户' }}</text>
@@ -70,12 +81,34 @@ import { getChatSessions, getTradeNotificationUnreadCount } from '@/api/secondha
 import { getEnabledAnnouncements } from '@/api/notice'
 import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore'
 
+function firstText(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined) continue
+    const text = String(value).trim()
+    if (text) return text
+  }
+  return ''
+}
+
+function pickOtherAvatar(item = {}) {
+  return firstText(
+    item.otherAvatar,
+    item.otherAvatarUrl,
+    item.otherUserAvatar,
+    item.sellerAvatar,
+    item.buyerAvatar,
+    item.avatar,
+    item.avatarUrl
+  )
+}
+
 function normalizeSession(item) {
   return {
     id: item.sessionId,
     itemId: item.itemId,
     itemTitle: item.itemTitle || '',
     otherName: item.otherUsername || item.sellerName || '用户',
+    otherAvatar: pickOtherAvatar(item),
     lastMsg: item.lastMessage || '',
     lastTime: item.lastTime || '',
     unread: item.unreadCount || 0
@@ -89,6 +122,7 @@ export default {
       sessions: [],
       unreadAnnounceCount: 0,
       unreadTradeCount: 0,
+      refreshing: false,
       unsubscribeMessageStore: null
     }
   },
@@ -122,6 +156,16 @@ export default {
         this.checkAnnouncements()
       ])
       await refreshMessageState('message-page-load')
+    },
+    async refreshPage() {
+      if (this.refreshing) return
+      this.refreshing = true
+      try {
+        await this.loadData()
+        uni.showToast({ title: '已刷新', icon: 'none', duration: 900 })
+      } finally {
+        this.refreshing = false
+      }
     },
     applyMessageState(state = {}) {
       this.unreadTradeCount = Number(state.unreadTradeCount || 0)
@@ -170,8 +214,11 @@ export default {
       }
     },
     openChat(session) {
+      const params = [`sessionId=${session.id}`]
+      if (session.otherName) params.push(`otherName=${encodeURIComponent(session.otherName)}`)
+      if (session.otherAvatar) params.push(`otherAvatar=${encodeURIComponent(session.otherAvatar)}`)
       uni.navigateTo({
-        url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?sessionId=${session.id}`
+        url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?${params.join('&')}`
       })
     },
     goToNotifications() {
@@ -358,6 +405,13 @@ export default {
   font-size: 34rpx;
   font-weight: 700;
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.sess-avatar-img {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .sess-body {

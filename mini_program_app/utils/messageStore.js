@@ -50,6 +50,8 @@ function buildSignature(nextState) {
   const sessionPart = (nextState.sessions || [])
     .map((item) => [
       item.sessionId,
+      item.otherUsername,
+      item.otherAvatar,
       item.lastMessage,
       item.lastTime,
       item.unreadCount,
