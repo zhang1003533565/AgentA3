@@ -4,7 +4,14 @@
       <view class="container">
         <common-page-header title="交易通知" :fixed="true" :placeholder="true" :showBack="true" />
 
-        <scroll-view scroll-y class="page-body">
+        <scroll-view
+          scroll-y
+          class="page-body"
+          refresher-enabled
+          :refresher-triggered="refreshing"
+          refresher-background="#F7F8FA"
+          @refresherrefresh="refreshPage"
+        >
           <view v-if="notifications.length === 0" class="empty">
             <view class="empty-icon">交</view>
             <view class="empty-title">暂无交易通知</view>
@@ -76,6 +83,7 @@ export default {
     return {
       notifications: [],
       loading: false,
+      refreshing: false,
       unsubscribeMessageStore: null
     }
   },
@@ -121,6 +129,17 @@ export default {
         uni.showToast({ title: '通知加载失败', icon: 'none' })
       } finally {
         this.loading = false
+      }
+    },
+    async refreshPage() {
+      if (this.refreshing) return
+      this.refreshing = true
+      try {
+        await this.loadNotifications()
+        await this.markAllNotificationsRead()
+        uni.showToast({ title: '已刷新', icon: 'none', duration: 900 })
+      } finally {
+        this.refreshing = false
       }
     },
     async markAllNotificationsRead() {

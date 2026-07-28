@@ -11,9 +11,14 @@ export const DEFAULT_MARKET_FILTER = {
 }
 
 const CONDITION_ALIASES = {
-  new: ['new', '全新'],
-  'like-new': ['like_new', 'like-new', '九成新', '很少用'],
-  used: ['used', 'good', '二手', '正常使用', '有瑕疵']
+  '1': ['1', 'new', '全新', '未使用'],
+  '2': ['2', 'like_new', 'like-new', '很新', '几乎全新', '九成新', '很少用', '使用很少'],
+  '3': ['3', 'used', 'good', 'normal', '正常使用', '轻微使用', '轻微使用痕迹', '二手'],
+  '4': ['4', 'worn', 'obvious', '明显使用', '较多使用痕迹', '有瑕疵'],
+  '5': ['5', 'parts', '配件', '零件', '仅限零件'],
+  new: ['1', 'new', '全新', '未使用'],
+  'like-new': ['2', 'like_new', 'like-new', '很新', '几乎全新', '九成新', '很少用', '使用很少'],
+  used: ['3', '4', 'used', 'good', 'normal', '二手', '正常使用', '明显使用', '有瑕疵']
 }
 
 const LOCATION_ALIASES = {

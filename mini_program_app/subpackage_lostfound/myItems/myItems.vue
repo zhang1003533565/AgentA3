@@ -15,7 +15,15 @@
         </view>
       </view>
 
-      <scroll-view scroll-y class="page-body" :show-scrollbar="false">
+      <scroll-view
+        scroll-y
+        class="page-body"
+        :show-scrollbar="false"
+        refresher-enabled
+        :refresher-triggered="refreshing"
+        refresher-background="#F7F8FA"
+        @refresherrefresh="refreshPage"
+      >
         <view v-if="myItems.length === 0" class="empty">
           <image class="empty-illustration" src="/static/illustrations/market-empty-publish.svg" mode="aspectFit" />
           <view class="empty-title">{{ emptyTitle }}</view>
@@ -237,6 +245,7 @@ export default {
     return {
       items: [],
       loading: false,
+      refreshing: false,
       currentUserId: '',
       activeFilter: 'all',
       filters: FILTERS,
@@ -358,6 +367,17 @@ export default {
         console.error('加载数据失败', e)
       } finally {
         this.loading = false
+      }
+    },
+    async refreshPage() {
+      if (this.refreshing) return
+      this.refreshing = true
+      try {
+        this.loadCurrentUser()
+        await this.loadItems()
+        uni.showToast({ title: '已刷新', icon: 'none', duration: 900 })
+      } finally {
+        this.refreshing = false
       }
     },
     fmt(ts) {
@@ -511,16 +531,22 @@ export default {
 <style lang="scss">
 .page-root {
   width: 100%;
+  height: 100vh;
   min-height: 100vh;
   background: #F7F8FA;
+  overflow: hidden;
 }
 
 .screen {
   width: 100%;
   max-width: 430px;
+  height: 100vh;
   min-height: 100vh;
   margin: 0 auto;
   background: #F7F8FA;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .filter-tabs {
@@ -567,14 +593,17 @@ export default {
 }
 
 .page-body {
-  height: calc(100vh - 220rpx - var(--status-bar-height));
+  flex: 1;
+  min-height: 0;
+  height: 0;
   padding: 26rpx 18rpx 34rpx;
   box-sizing: border-box;
   background: #F7F8FA;
+  overflow-y: auto;
 }
 
 .empty {
-  min-height: calc(100vh - 380rpx - var(--status-bar-height));
+  min-height: calc(100vh - 380rpx - var(--status-bar-height, 0px));
   padding: 118rpx 0 80rpx;
   text-align: center;
   box-sizing: border-box;

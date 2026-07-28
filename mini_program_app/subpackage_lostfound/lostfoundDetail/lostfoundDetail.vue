@@ -76,7 +76,16 @@
           </view>
 
           <view class="card seller-card" @click="contactSeller">
-            <view class="avatar">{{ sellerInitial }}</view>
+            <view class="avatar">
+              <image
+                v-if="item.sellerAvatar"
+                class="avatar-image"
+                :src="item.sellerAvatar"
+                mode="aspectFill"
+                @error="handleSellerAvatarError"
+              />
+              <text v-else class="avatar-initial">{{ sellerInitial }}</text>
+            </view>
             <view class="seller-info">
               <view class="seller-name">{{ item.sellerName || '校园用户' }}</view>
               <view class="seller-time">{{ formatTime(item.createTime) }}发布</view>
@@ -128,6 +137,7 @@ import {
   unfavoriteSecondhandItem
 } from '@/api/secondhand'
 import { getToken, getUserInfo } from '@/utils/storage'
+import { buildDefaultAvatar, pickOtherAvatar } from '@/subpackage_lostfound/utils/avatar.js'
 import { getMarketCategoryLabel, getMarketSubcategoryLabel } from '../utils/marketCategories'
 
 const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
@@ -219,6 +229,18 @@ function normalizeItem(raw = {}) {
     viewCount: Number(raw.viewCount || 0),
     sellerId: normalizeId(raw.sellerId) || normalizeId(seller) || normalizeId(raw.userId) || normalizeId(raw.ownerId) || normalizeId(raw.publisherId),
     sellerName: seller.username || raw.sellerName || raw.userName || '',
+    sellerAvatar: pickOtherAvatar({
+      otherAvatar: seller.avatar,
+      otherAvatarUrl: seller.avatarUrl,
+      otherUserAvatar: seller.userAvatar,
+      sellerAvatar: raw.sellerAvatar,
+      sellerAvatarUrl: raw.sellerAvatarUrl,
+      userAvatar: raw.userAvatar,
+      avatar: raw.avatar,
+      avatarUrl: raw.avatarUrl
+    }) || buildDefaultAvatar({
+      username: seller.username || raw.sellerName || raw.userName || 'seller'
+    }),
     isFavorited: Boolean(raw.isFavorited),
     createTime: raw.createTime || raw.ctime || ''
   }
@@ -491,6 +513,9 @@ export default {
         console.error('下架商品失败', e)
         uni.showToast({ title: e?.data?.msg || e?.msg || '下架失败', icon: 'none' })
       }
+    },
+    handleSellerAvatarError() {
+      this.item.sellerAvatar = ''
     },
     formatTime(value) {
       if (!value) return ''
@@ -833,6 +858,7 @@ export default {
   width: 88rpx;
   height: 88rpx;
   border-radius: 50%;
+  overflow: hidden;
   background: linear-gradient(135deg, #82aee0, #5f8fc4);
   color: #fff;
   display: flex;
@@ -840,6 +866,16 @@ export default {
   justify-content: center;
   font-size: 34rpx;
   font-weight: 900;
+}
+
+.avatar-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.avatar-initial {
+  line-height: 1;
 }
 
 .seller-info {
