@@ -36,7 +36,13 @@
           </view>
           <view v-for="c in chats" :key="c.id" class="mscard" @click="openChat(c)">
             <view class="msava">
-              <image v-if="c.otherAvatar" class="msava-img" :src="c.otherAvatar" mode="aspectFill" />
+              <image
+                v-if="c.otherAvatar"
+                class="msava-img"
+                :src="c.otherAvatar"
+                mode="aspectFill"
+                @error="handleChatAvatarError(c)"
+              />
               <text v-else>{{ c.otherName[0] }}</text>
             </view>
             <view class="msbody">
@@ -61,34 +67,15 @@ import CommonPageHeader from '@/components/common-page-header/common-page-header
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { getChatSessions, getTradeNotificationUnreadCount } from '@/api/secondhand'
 import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore'
-
-function firstText(...values) {
-  for (const value of values) {
-    if (value === null || value === undefined) continue
-    const text = String(value).trim()
-    if (text) return text
-  }
-  return ''
-}
-
-function pickOtherAvatar(item = {}) {
-  return firstText(
-    item.otherAvatar,
-    item.otherAvatarUrl,
-    item.otherUserAvatar,
-    item.sellerAvatar,
-    item.buyerAvatar,
-    item.avatar,
-    item.avatarUrl
-  )
-}
+import { buildDefaultAvatar, pickOtherAvatar } from '@/subpackage_lostfound/utils/avatar.js'
 
 function normalizeSession(item) {
+  const otherName = item.otherUsername || item.sellerName || '用户'
   return {
     id: item.sessionId,
     itemTitle: item.itemTitle || '商品',
-    otherName: item.otherUsername || item.sellerName || '用户',
-    otherAvatar: pickOtherAvatar(item),
+    otherName,
+    otherAvatar: pickOtherAvatar(item) || buildDefaultAvatar({ username: otherName || 'chat-other' }),
     lastMsg: item.lastMessage || '暂无消息',
     lastTime: item.lastTime || '',
     unread: item.unreadCount || 0,
@@ -154,6 +141,9 @@ export default {
       if (Array.isArray(state.sessions)) {
         this.chats = state.sessions.map(normalizeSession)
       }
+    },
+    handleChatAvatarError(chat) {
+      if (chat) chat.otherAvatar = ''
     },
     async loadSessions() {
       try {
