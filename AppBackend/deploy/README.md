@@ -20,7 +20,7 @@ chmod +x AppBackend/deploy/deploy-on-server.sh deploy/verify.sh
 ./AppBackend/deploy/deploy-on-server.sh
 ```
 
-The script updates the selected branch, renders the submission manifest, runs the `config-guard`, pulls all six service images (including the guard image), removes the previous Compose containers and orphans while preserving volumes, force-releases the configured host ports, starts the stack, executes `deploy/verify.sh`, and then prunes unused Docker images/build cache older than `DEPLOY_PRUNE_UNTIL` without touching volumes.
+The script updates the selected branch, renders the submission manifest, prunes all unused Docker images and build cache, runs the `config-guard`, pulls all six service images (including the guard image), removes the previous Compose containers and orphans while preserving volumes, force-releases the configured host ports, starts the stack, executes `deploy/verify.sh`, and then prunes unused Docker images and build cache again without touching volumes.
 
 ## GitHub configuration
 
@@ -32,7 +32,7 @@ Required repository secrets:
 
 Optional repository secret `SMOKE_TOKEN` enables authenticated verification for `/api/auth/current-user` and the Python `/internal/models/providers` catalog during deployment. Use a short-lived real JWT when possible.
 
-Optional repository variables `BACKEND_IMAGE`, `AI_SERVER_IMAGE` and `WEB_IMAGE` override the default ACR image paths. `BACKEND_PORT` and `AI_PORT` publish backend and Python health-check endpoints on localhost only and default to `18080` and `18081` to avoid common host conflicts with existing Java services. `DEPLOY_FORCE_RELEASE_PORTS` defaults to `true`; `DEPLOY_RELEASE_PORTS` defaults to `8080 8081 18080 18081 3000` so single-purpose servers kill old project processes before startup. `DEPLOY_PRUNE_DOCKER` defaults to `true`; `DEPLOY_PRUNE_UNTIL` defaults to `24h` and can be raised, for example to `168h`, when the server has enough disk for rollback images. Every published image uses the immutable Git commit SHA as `IMAGE_TAG`. CI passes the same JWT and AI internal token values into Docker Compose; the latter is shared by Java and Python.
+Optional repository variables `BACKEND_IMAGE`, `AI_SERVER_IMAGE` and `WEB_IMAGE` override the default ACR image paths. `BACKEND_PORT` and `AI_PORT` publish backend and Python health-check endpoints on localhost only and default to `18080` and `18081` to avoid common host conflicts with existing Java services. `DEPLOY_FORCE_RELEASE_PORTS` defaults to `true`; `DEPLOY_RELEASE_PORTS` defaults to `8080 8081 18080 18081 3000` so single-purpose servers kill old project processes before startup. `DEPLOY_PRUNE_DOCKER` defaults to `true`; each deployment removes all unused local images and build cache before pulling and after successful verification. Running images and volumes are preserved, and rollback images can be pulled again by immutable Git SHA. Every published image uses the immutable Git commit SHA as `IMAGE_TAG`. CI passes the same JWT and AI internal token values into Docker Compose; the latter is shared by Java and Python.
 
 ## Verification
 

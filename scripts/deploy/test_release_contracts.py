@@ -113,7 +113,7 @@ class SubmissionReleaseContractTest(unittest.TestCase):
         server_script = (ROOT / "AppBackend/deploy/deploy-on-server.sh").read_text(encoding="utf-8")
 
         self.assertIn("DEPLOY_PRUNE_DOCKER", server_script)
-        self.assertIn("DEPLOY_PRUNE_UNTIL", server_script)
+        self.assertNotIn("DEPLOY_PRUNE_UNTIL", server_script)
         self.assertIn("DEPLOY_FORCE_RELEASE_PORTS", server_script)
         self.assertIn("DEPLOY_RELEASE_PORTS", server_script)
         self.assertIn('env_file_value BACKEND_PORT', server_script)
@@ -140,8 +140,17 @@ class SubmissionReleaseContractTest(unittest.TestCase):
         self.assertIn('ps -a', server_script)
         self.assertIn('docker ps --format', server_script)
         self.assertIn('if ! "${compose[@]}" up -d --remove-orphans', server_script)
-        self.assertIn("docker image prune -af --filter", server_script)
-        self.assertIn("docker builder prune -af --filter", server_script)
+        self.assertIn("docker image prune -af", server_script)
+        self.assertIn("docker builder prune -af", server_script)
+        self.assertNotIn('--filter "until=', server_script)
+        self.assertLess(
+            server_script.index('prune_docker_artifacts "before image pull"'),
+            server_script.index('"${compose[@]}" pull config-guard mysql redis backend ai-server web'),
+        )
+        self.assertLess(
+            server_script.index('bash deploy/verify.sh'),
+            server_script.index('prune_docker_artifacts "after successful deployment"'),
+        )
         self.assertNotIn("docker system prune -af --volumes", server_script)
         self.assertNotIn("docker volume prune", server_script)
         self.assertNotIn("down --volumes", server_script)
