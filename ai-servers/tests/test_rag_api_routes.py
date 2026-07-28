@@ -175,6 +175,26 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertTrue(export_tool["enabled"])
 
+    def test_ai_ppt_tool_is_configurable_but_not_leader_callable_before_wiring(self):
+        request = SimpleNamespace(metadata={
+            "toolToggles": {"ai_ppt_generation_tool": False},
+        })
+
+        catalog = self._rag_routes._build_leader_callable_catalog(request)
+        content_tool = next(
+            item
+            for item in catalog["contentTools"]
+            if item["name"] == "ai_ppt_generation_tool"
+        )
+
+        self.assertFalse(content_tool["enabled"])
+        self.assertEqual("unwired", content_tool["invocation"])
+        self.assertEqual("registered", content_tool["status"])
+        self.assertNotIn(
+            "ai_ppt_generation_tool",
+            {item["name"] for item in catalog["tools"]},
+        )
+
     def test_file_transform_action_forces_real_export_tool(self):
         request = SimpleNamespace(metadata={
             "interactionType": "transform",

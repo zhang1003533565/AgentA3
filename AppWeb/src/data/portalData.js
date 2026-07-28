@@ -503,3 +503,72 @@ export const getNavMetaByPath = (path) => {
     badge: page?.badge || '',
   }
 }
+
+const normalizePortalPath = (path) => {
+  const normalized = String(path || '').split(/[?#]/, 1)[0].replace(/\/+$/, '')
+  return normalized || '/'
+}
+
+export const getBreadcrumbByPath = (path) => {
+  const normalizedPath = normalizePortalPath(path)
+
+  for (const section of navigationSections) {
+    const item = section.items.find((navItem) => normalizePortalPath(navItem.path) === normalizedPath)
+    if (item) {
+      return [
+        section.label,
+        { label: item.label },
+      ]
+    }
+  }
+
+  if (/^\/facility\/canteen\/[^/]+\/stalls$/.test(normalizedPath)) {
+    return [
+      '校园设施',
+      { label: '食堂管理', path: '/facility/canteen' },
+      { label: '档口管理' },
+    ]
+  }
+
+  if (normalizedPath === '/activity/create') {
+    return [
+      '校园活动',
+      { label: '活动管理', path: '/activity/manage' },
+      { label: '新建活动' },
+    ]
+  }
+
+  if (/^\/activity\/[^/]+\/edit$/.test(normalizedPath)) {
+    return [
+      '校园活动',
+      { label: '活动管理', path: '/activity/manage' },
+      { label: '编辑活动' },
+    ]
+  }
+
+  if (/^\/activity\/[^/]+$/.test(normalizedPath)) {
+    return [
+      '校园活动',
+      { label: '活动管理', path: '/activity/manage' },
+      { label: '活动详情' },
+    ]
+  }
+
+  if (/^\/ai\/knowledge\/paragraph\/[^/]+\/[^/]+$/.test(normalizedPath)) {
+    return [
+      'AI 模块',
+      { label: '知识库管理', path: '/ai/knowledge' },
+      { label: '段落管理' },
+    ]
+  }
+
+  if (/^\/admin\/paragraph\/[^/]+\/[^/]+$/.test(normalizedPath)) {
+    return [
+      'AI 模块',
+      { label: '知识库聊天', path: '/admin/knowledge-chat' },
+      { label: '段落管理' },
+    ]
+  }
+
+  return null
+}

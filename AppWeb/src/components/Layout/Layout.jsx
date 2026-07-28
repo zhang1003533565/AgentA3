@@ -5,7 +5,6 @@ import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
 import NavBar from '../NavBar/NavBar'
 import PageHeader from '../PageHeader/PageHeader'
 import { getNavMetaByPath, getBreadcrumbByPath } from '../../data/portalData'
-import { getUserInfo } from '../../utils/storage'
 import './Layout.css'
 
 function Layout() {

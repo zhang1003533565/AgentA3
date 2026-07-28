@@ -35,6 +35,7 @@ const getToolCategoryLabel = (category) => {
     structured_query: '结构化查询',
     content_export: '内容整理',
     diagram_export: '图表导出',
+    presentation_generation: 'PPT 生成',
   }
   return labels[category] || category || '-'
 }
