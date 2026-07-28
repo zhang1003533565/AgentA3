@@ -58,6 +58,8 @@ $MysqlCollation = if ($env:MYSQL_COLLATION) { $env:MYSQL_COLLATION } else { "utf
 $MysqlWaitSeconds = if ($env:MYSQL_WAIT_SECONDS) { [int]$env:MYSQL_WAIT_SECONDS } else { 90 }
 $AdminerPort = if ($env:ADMINER_PORT) { [int]$env:ADMINER_PORT } else { 0 }
 $BackendPort = if ($env:SERVER_PORT) { [int]$env:SERVER_PORT } else { 8080 }
+# Host port mapped from container's 3306 (see docker-compose.yml). Defaults to 3307.
+$MysqlHostPort = if ($env:MYSQL_HOST_PORT) { [int]$env:MYSQL_HOST_PORT } else { 3307 }
 $DataSqlPath = Join-Path $PSScriptRoot "src\main\resources\data.sql"
 $ImportDataSql = $false
 if ($env:IMPORT_DATA_SQL) {
@@ -287,11 +289,30 @@ function Show-CosConfigStatus {
     Write-Log "COS config loaded. Bucket: $env:TENCENT_COS_BUCKET; Region: $env:TENCENT_COS_REGION; Domain: $env:TENCENT_COS_DOMAIN"
 }
 
+function Set-DataSourceUrl {
+    # Host MySQL port (3307) is mapped from container's 3306 via docker-compose.yml.
+    # characterEncoding must use the Java charset name "UTF-8" (NOT "utf8mb4" --
+    # MySQL Connector/J rejects MySQL charset names here with UnsupportedEncodingException).
+    # Connector/J 8.0.26+ automatically uses utf8mb4 on the server side when UTF-8 is given.
+    # URL must NOT contain connectionCollation (triggers MySQL error 1059 "Identifier too long").
+    $existing = [Environment]::GetEnvironmentVariable("SPRING_DATASOURCE_URL", "Process")
+    if ($existing) {
+        Write-Log "Using configured SPRING_DATASOURCE_URL: $existing"
+        return
+    }
+
+    $url = "jdbc:mysql://localhost:${MysqlHostPort}/${MysqlDatabase}?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai"
+    $env:SPRING_DATASOURCE_URL = $url
+    Write-Log "Using default SPRING_DATASOURCE_URL: $url"
+    Write-Log "Tip: Override by setting SPRING_DATASOURCE_URL in .env or your shell environment."
+}
+
 function Start-Backend {
     Write-Log "Backend API: http://localhost:$BackendPort"
     Write-Log "Swagger UI: http://localhost:$BackendPort/swagger-ui.html"
     Write-Log "Adminer: http://localhost:$AdminerPort"
     Show-CosConfigStatus
+    Set-DataSourceUrl
     Write-Log "Starting Spring Boot backend..."
     & mvn spring-boot:run
     exit $LASTEXITCODE
