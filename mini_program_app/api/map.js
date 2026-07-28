@@ -1,26 +1,82 @@
 import { request } from '@/utils/request'
 
+const SCENE_FACILITY_TYPE = {
+  CANTEEN: 1,
+  SPORTS: 2,
+  TEACHING: 3,
+  DORMITORY: 4,
+}
+
+const adaptRequest = (task, transform) => {
+  const adapted = task.then(transform)
+  adapted.abort = (...args) => task.abort?.(...args)
+  adapted.done = adapted
+  return adapted
+}
+
+const toLegacyMarker = (place) => {
+  const facilityType = SCENE_FACILITY_TYPE[place.sceneType] || 99
+  const imageUrls = (place.images || []).map((item) => item.imageUrl).filter(Boolean)
+  return {
+    id: place.id,
+    facilityId: place.id,
+    markerName: place.name,
+    facilityName: place.name,
+    facilityType,
+    facilityTypeName: place.placeType,
+    status: place.status === 'ENABLED' ? 1 : 3,
+    description: place.description,
+    location: place.locationDesc,
+    longitude: place.longitude,
+    latitude: place.latitude,
+    geometryType: place.fence?.geometryType,
+    boundaryPoints: place.fence?.geometryData,
+    images: JSON.stringify(imageUrls),
+    thumbnailUrl: imageUrls[0] || '',
+  }
+}
+
 export function getFacilityList(params = {}) {
-  return request({
-    url: '/api/v1/facility/list',
+  const task = request({
+    url: '/api/v1/map-places',
     method: 'GET',
-    params,
+    params: { keyword: params.keyword || params.name },
+  })
+  return adaptRequest(task, (response) => {
+    const records = (response.data || [])
+      .filter((item) => item.parentId == null)
+      .map(toLegacyMarker)
+      .filter((item) => params.type == null || Number(params.type) === item.facilityType)
+    return { ...response, data: { records, total: records.length, page: 1, size: records.length } }
   })
 }
 
 export function getMarkerList(params = {}) {
-  return request({
-    url: '/api/v1/map/marker/list',
+  const task = request({
+    url: '/api/v1/map-places',
     method: 'GET',
-    params,
+    params: { keyword: params.keyword },
+  })
+  return adaptRequest(task, (response) => {
+    const selectedTypes = String(params.facilityTypes || params.facilityType || '')
+      .split(',')
+      .map(Number)
+      .filter(Number.isFinite)
+    const records = (response.data || [])
+      .filter((item) => item.mapVisible !== false)
+      .map(toLegacyMarker)
+      .filter((item) => item.longitude != null && item.latitude != null)
+      .filter((item) => !selectedTypes.length || selectedTypes.includes(item.facilityType))
+    return { ...response, data: { records, total: records.length, page: 1, size: records.length } }
   })
 }
 
 export function getMarkerDetail(id) {
-  return request({
-    url: `/api/v1/map/marker/${id}`,
+  const task = request({
+    url: `/api/v1/map-places/${id}`,
     method: 'GET',
   })
+  return adaptRequest(task, (response) => ({ ...response, data: toLegacyMarker(response.data) }))
 }
 
 export function searchFacilities(params = {}, options = {}) {

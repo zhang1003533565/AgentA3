@@ -208,6 +208,18 @@ GENERATED_CONTENT_TOOLS = [
         "status": "implemented",
     },
     {
+        "name": "ai_ppt_generation_tool",
+        "zhName": "AI 复习 PPT 生成工具",
+        "displayName": "AI 复习 PPT 生成工具（ai_ppt_generation_tool）",
+        "category": "presentation_generation",
+        "purpose": "接收已确认的大纲、逐页内容、公共提示词和单页私有提示词，生成可预览、可导出的复习资料 PPT 任务结果。",
+        "trigger": "仅供 AIPPT 专用流程显式调用；当前只注册工具与开关，暂未接入 Leader 或工作流调用。",
+        "outputs": ["outline_json", "slide_json", "preview", "pptx", "pdf"],
+        "status": "registered",
+        "configurable": True,
+        "invocation": "unwired",
+    },
+    {
         "name": "content_archive_tool",
         "zhName": "附件打包工具",
         "displayName": "附件打包工具（content_archive_tool）",

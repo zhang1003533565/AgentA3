@@ -4,7 +4,15 @@
 
     <view class="screen">
       <view class="container">
-        <scroll-view scroll-y class="page-body" :show-scrollbar="false">
+        <scroll-view
+          scroll-y
+          class="page-body"
+          :show-scrollbar="false"
+          refresher-enabled
+          :refresher-triggered="refreshing"
+          refresher-background="#F7F8FA"
+          @refresherrefresh="refreshPage"
+        >
           <!-- 通知卡片（固定第一行，不参与排序） -->
           <view class="notify-card" @click="goToNotifications">
             <view class="notify-left">
@@ -40,7 +48,16 @@
             <text class="empty-text">暂无消息</text>
           </view>
           <view v-for="s in sessions" :key="s.id" class="session-card" @click="openChat(s)">
-            <view class="sess-avatar">{{ s.otherName ? s.otherName[0] : '用' }}</view>
+            <view class="sess-avatar">
+              <image
+                v-if="s.otherAvatar"
+                class="sess-avatar-img"
+                :src="s.otherAvatar"
+                mode="aspectFill"
+                @error="handleSessionAvatarError(s)"
+              />
+              <text v-else>{{ s.otherName ? s.otherName[0] : '用' }}</text>
+            </view>
             <view class="sess-body">
               <view class="sess-top-row">
                 <text class="sess-name">{{ s.otherName || '用户' }}</text>
@@ -69,13 +86,16 @@ import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vu
 import { getChatSessions, getTradeNotificationUnreadCount } from '@/api/secondhand'
 import { getEnabledAnnouncements } from '@/api/notice'
 import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore'
+import { buildDefaultAvatar, pickOtherAvatar } from '@/subpackage_lostfound/utils/avatar.js'
 
 function normalizeSession(item) {
+  const otherName = item.otherUsername || item.sellerName || '用户'
   return {
     id: item.sessionId,
     itemId: item.itemId,
     itemTitle: item.itemTitle || '',
-    otherName: item.otherUsername || item.sellerName || '用户',
+    otherName,
+    otherAvatar: pickOtherAvatar(item) || buildDefaultAvatar({ username: otherName || 'chat-other' }),
     lastMsg: item.lastMessage || '',
     lastTime: item.lastTime || '',
     unread: item.unreadCount || 0
@@ -89,6 +109,7 @@ export default {
       sessions: [],
       unreadAnnounceCount: 0,
       unreadTradeCount: 0,
+      refreshing: false,
       unsubscribeMessageStore: null
     }
   },
@@ -123,6 +144,16 @@ export default {
       ])
       await refreshMessageState('message-page-load')
     },
+    async refreshPage() {
+      if (this.refreshing) return
+      this.refreshing = true
+      try {
+        await this.loadData()
+        uni.showToast({ title: '已刷新', icon: 'none', duration: 900 })
+      } finally {
+        this.refreshing = false
+      }
+    },
     applyMessageState(state = {}) {
       this.unreadTradeCount = Number(state.unreadTradeCount || 0)
       this.loadSessionsFromStore(state)
@@ -131,6 +162,9 @@ export default {
       if (Array.isArray(state.sessions)) {
         this.sessions = state.sessions.map(normalizeSession)
       }
+    },
+    handleSessionAvatarError(session) {
+      if (session) session.otherAvatar = ''
     },
     async loadSessions() {
       try {
@@ -170,8 +204,11 @@ export default {
       }
     },
     openChat(session) {
+      const params = [`sessionId=${session.id}`]
+      if (session.otherName) params.push(`otherName=${encodeURIComponent(session.otherName)}`)
+      if (session.otherAvatar) params.push(`otherAvatar=${encodeURIComponent(session.otherAvatar)}`)
       uni.navigateTo({
-        url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?sessionId=${session.id}`
+        url: `/subpackage_lostfound/lostfoundChat/lostfoundChat?${params.join('&')}`
       })
     },
     goToNotifications() {
@@ -358,6 +395,13 @@ export default {
   font-size: 34rpx;
   font-weight: 700;
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.sess-avatar-img {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .sess-body {

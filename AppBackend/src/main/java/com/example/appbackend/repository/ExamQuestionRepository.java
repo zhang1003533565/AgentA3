@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Optional;
 
 public interface ExamQuestionRepository extends JpaRepository<ExamQuestion, Long> {
+    List<ExamQuestion> findBySourceAgentAndStatusOrderByIdAsc(String sourceAgent, Integer status);
 
     @Query("""
             SELECT q FROM ExamQuestion q

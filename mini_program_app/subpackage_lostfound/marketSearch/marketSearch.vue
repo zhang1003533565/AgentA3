@@ -19,7 +19,15 @@
       <view class="search-action" @click="submitSearch">搜索</view>
     </view>
 
-    <scroll-view scroll-y class="page-body" :show-scrollbar="false">
+    <scroll-view
+      scroll-y
+      class="page-body"
+      :show-scrollbar="false"
+      refresher-enabled
+      :refresher-triggered="refreshing"
+      refresher-background="#F7F7F9"
+      @refresherrefresh="refreshPage"
+    >
       <view v-if="!hasSearched" class="history-section">
         <view class="section-head">
           <text class="section-title">搜索历史</text>
@@ -107,7 +115,7 @@
               </view>
             </view>
             <view class="filter-group">
-              <view class="filter-group-title">成色</view>
+              <view class="filter-group-title">商品成色</view>
               <scroll-view scroll-x class="category-scroll" :show-scrollbar="false">
                 <view class="category-row">
                   <view
@@ -190,6 +198,7 @@ export default {
       activeKeyword: '',
       hasSearched: false,
       loading: false,
+      refreshing: false,
       items: [],
       historyList: [],
       categories: MARKET_CATEGORIES,
@@ -263,6 +272,20 @@ export default {
         this.items = []
       } finally {
         this.loading = false
+      }
+    },
+    async refreshPage() {
+      if (this.refreshing) return
+      this.refreshing = true
+      try {
+        this.loadHistory()
+        await this.loadItems()
+        if (this.hasSearched) {
+          this.categoryFilterExpanded = false
+        }
+        uni.showToast({ title: '已刷新', icon: 'none', duration: 900 })
+      } finally {
+        this.refreshing = false
       }
     },
     loadHistory() {
@@ -441,7 +464,9 @@ export default {
 
 .history-section,
 .result-section {
+  min-height: calc(100vh - 180rpx);
   padding-top: 28rpx;
+  box-sizing: border-box;
 }
 
 .category-filter-shell {

@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -79,7 +80,7 @@ public class FacilityController {
     @PostMapping
     @Operation(summary = "新增设施", description = "创建新设施，自动创建关联地图标记")
     public Result<CampusFacility> createFacility(
-            @Valid @RequestBody FacilityRequest request,
+            @Validated(FacilityRequest.Create.class) @RequestBody FacilityRequest request,
             HttpServletRequest httpRequest) {
         checkAdminRole(httpRequest);
         CampusFacility facility = facilityService.createFacility(request);

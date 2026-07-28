@@ -54,7 +54,14 @@ export default {
       const cur = pages[pages.length - 1];
       const curRoute = cur ? ('/' + cur.route) : '';
       if (curRoute === url) return;
-      uni.reLaunch({ url });
+      uni.redirectTo({
+        url,
+        animationType: 'none',
+        animationDuration: 0,
+        fail: () => {
+          uni.reLaunch({ url });
+        }
+      });
     }
   }
 };

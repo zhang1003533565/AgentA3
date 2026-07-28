@@ -20,9 +20,9 @@ public interface SecondhandService {
     void updateItem(Long id, SecondhandDTO.ItemRequest req, Long userId);
     void deleteItem(Long id, Long userId, boolean isAdmin);
     PageResponse<SecondhandDTO.ItemVO> getMyItems(Long userId, Integer current, Integer size, Integer status);
-    void offlineItem(Long id, Long userId);
-    void onlineItem(Long id, Long userId);
-    void soldItem(Long id, Long userId);
+    void offlineItem(Long id, Long userId, boolean isAdmin);
+    void onlineItem(Long id, Long userId, boolean isAdmin);
+    void soldItem(Long id, Long userId, boolean isAdmin);
     PageResponse<SecondhandDTO.ItemVO> getAdminList(Integer current, Integer size, String keyword,
                                                      Long categoryId, Integer status, Long userId);
     void batchOperation(SecondhandDTO.BatchRequest req);

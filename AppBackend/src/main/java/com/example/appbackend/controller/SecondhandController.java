@@ -151,7 +151,7 @@ public class SecondhandController {
     public Result<Void> offlineItem(
             @PathVariable Long id,
             HttpServletRequest httpRequest) {
-        secondhandService.offlineItem(id, getUserId(httpRequest));
+        secondhandService.offlineItem(id, getUserId(httpRequest), isAdmin(httpRequest));
         return Result.success("下架成功", (Void) null);
     }
 
@@ -160,7 +160,7 @@ public class SecondhandController {
     public Result<Void> onlineItem(
             @PathVariable Long id,
             HttpServletRequest httpRequest) {
-        secondhandService.onlineItem(id, getUserId(httpRequest));
+        secondhandService.onlineItem(id, getUserId(httpRequest), isAdmin(httpRequest));
         return Result.success("重新上架成功", (Void) null);
     }
 
@@ -169,7 +169,7 @@ public class SecondhandController {
     public Result<Void> soldItem(
             @PathVariable Long id,
             HttpServletRequest httpRequest) {
-        secondhandService.soldItem(id, getUserId(httpRequest));
+        secondhandService.soldItem(id, getUserId(httpRequest), isAdmin(httpRequest));
         return Result.success("已标记为已售出", (Void) null);
     }
 

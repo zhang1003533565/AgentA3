@@ -2,6 +2,9 @@
   <view class="learning-page">
     <nav-bar title="个性化资源包" :showBack="true" fixed placeholder />
 
+    <ai-presentation-flow v-if="isPresentationMode" :initial-topic="topic" />
+
+    <template v-else>
     <view class="request-card">
       <text class="request-card__title">这次想攻克什么？</text>
       <textarea v-model="topic" class="request-card__input" placeholder="例如：理解 Python 列表切片，并能完成常见编程题" :maxlength="500" auto-height />
@@ -47,11 +50,13 @@
       <text>{{ currentStateCopy.description }}</text>
       <button @tap="retryGeneration">重试失败资源</button>
     </view>
+    </template>
   </view>
 </template>
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
+import AiPresentationFlow from './AIPresentationFlow.vue'
 import LearningResourceViewer from '@/components/learning-resource-viewer/learning-resource-viewer.vue'
 import { downloadAssistantResource } from '@/api/ai.js'
 import { getLearningWorkflow, retryLearningResource, streamLearningResources } from '@/api/learning.js'
@@ -62,10 +67,11 @@ const WORKFLOW_STORAGE_KEY = 'pythonLearningWorkflowId'
 const CORE_RESOURCE_TYPES = ['knowledge_note', 'mind_map', 'practice_set', 'code_lab', 'presentation', 'extended_reading']
 
 export default {
-  components: { NavBar, LearningResourceViewer },
+  components: { NavBar, AiPresentationFlow, LearningResourceViewer },
   data() {
     return {
       topic: '',
+      isPresentationMode: false,
       selectedResourceTypes: [...CORE_RESOURCE_TYPES],
       pageState: 'empty',
       errorMessage: '',
@@ -95,6 +101,7 @@ export default {
   onLoad(options = {}) {
     this.topic = this.decodeOption(options.topic || options.prompt || '')
     const requestedType = this.decodeOption(options.resourceType || '')
+    this.isPresentationMode = requestedType === 'presentation'
     if (CORE_RESOURCE_TYPES.includes(requestedType)) this.selectedResourceTypes = [requestedType]
     const workflowId = this.decodeOption(options.workflowId || '') || uni.getStorageSync(WORKFLOW_STORAGE_KEY) || ''
     if (workflowId) {

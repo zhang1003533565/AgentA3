@@ -32,9 +32,11 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
@@ -53,12 +55,15 @@ public class AppExamServiceImpl implements AppExamService {
     private static final int MAX_ANSWER_BYTES = 64 * 1024;
     private static final int MAX_TEXT_LENGTH = 20_000;
     private static final Set<String> MANUAL_QUESTION_TYPES = Set.of(
-            "short_answer", "calculation", "programming");
+            "short_answer", "essay", "material_analysis", "calculation", "programming");
+    private static final Set<String> RUBRIC_QUESTION_TYPES = Set.of(
+            "short_answer", "essay", "material_analysis", "calculation");
     private static final String PYTHON = "python";
     private static final Pattern PYTHON_KNOWLEDGE_POINT = Pattern.compile(
             "python(?:\\.[a-z0-9_-]+)+");
     private static final Collection<ExamPaperAttempt.Status> COMPLETED_STATUSES = List.of(
             ExamPaperAttempt.Status.SUBMITTED, ExamPaperAttempt.Status.AUTO_SUBMITTED);
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final ExamPaperRepository paperRepository;
     private final ExamPaperQuestionRepository paperQuestionRepository;
@@ -127,9 +132,45 @@ public class AppExamServiceImpl implements AppExamService {
         created.setActiveMarker(1);
         created.setStartedAt(now);
         created.setDeadlineAt(now.plusMinutes(paper.getDurationMinutes()));
-        created.setQuestionCount(paper.getQuestionCount());
+        List<ExamPaperQuestion> pool = paperQuestionRepository
+                .findByPaperIdOrderBySortOrderAscIdAsc(paperId);
+        List<ExamPaperQuestion> selected = selectAttemptQuestions(pool, paper.getQuestionCount());
+        List<Long> selectedIds = selected.stream().map(ExamPaperQuestion::getId).toList();
+        created.setSelectedQuestionIdsJson(writeQuestionIds(selectedIds));
+        created.setQuestionCount(selectedIds.size());
         created = attemptRepository.save(created);
         return toAttemptDetail(created, now);
+    }
+
+    private List<ExamPaperQuestion> selectAttemptQuestions(
+            List<ExamPaperQuestion> pool, int requestedCount) {
+        if (requestedCount == 84) {
+            Map<String, Integer> quotas = new LinkedHashMap<>();
+            quotas.put("single_choice", 40);
+            quotas.put("multiple_choice", 10);
+            quotas.put("true_false", 20);
+            quotas.put("fill_blank", 10);
+            quotas.put("calculation", 1);
+            quotas.put("essay", 1);
+            quotas.put("short_answer", 1);
+            quotas.put("material_analysis", 1);
+            boolean sufficient = quotas.entrySet().stream().allMatch(entry ->
+                    pool.stream().filter(question -> entry.getKey().equals(question.getType())).count()
+                            >= entry.getValue());
+            if (sufficient) {
+                List<ExamPaperQuestion> selected = new ArrayList<>();
+                for (Map.Entry<String, Integer> quota : quotas.entrySet()) {
+                    List<ExamPaperQuestion> candidates = new ArrayList<>(pool.stream()
+                            .filter(question -> quota.getKey().equals(question.getType())).toList());
+                    Collections.shuffle(candidates, RANDOM);
+                    selected.addAll(candidates.subList(0, quota.getValue()));
+                }
+                return selected;
+            }
+        }
+        List<ExamPaperQuestion> shuffled = new ArrayList<>(pool);
+        Collections.shuffle(shuffled, RANDOM);
+        return shuffled.subList(0, Math.min(requestedCount, shuffled.size()));
     }
 
     @Override
@@ -162,6 +203,10 @@ public class AppExamServiceImpl implements AppExamService {
         }
         ExamPaperQuestion question = paperQuestionRepository.findByIdAndPaperId(paperQuestionId, attempt.getPaperId())
                 .orElseThrow(() -> new BusinessException(Result.BAD_REQUEST_CODE, "题目不属于该试卷"));
+        List<Long> selectedQuestionIds = selectedQuestionIds(attempt);
+        if (!selectedQuestionIds.isEmpty() && !selectedQuestionIds.contains(question.getId())) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "题目不属于本次随机试卷");
+        }
         JsonNode answerNode = validateAnswer(question.getType(), request.getAnswerJson());
 
         ExamPaperAttemptAnswer answer = answerRepository
@@ -249,8 +294,7 @@ public class AppExamServiceImpl implements AppExamService {
     }
 
     private AppExamDTO.AttemptDetail toAttemptDetail(ExamPaperAttempt attempt, LocalDateTime serverNow) {
-        List<ExamPaperQuestion> questions = paperQuestionRepository
-                .findByPaperIdOrderBySortOrderAscIdAsc(attempt.getPaperId());
+        List<ExamPaperQuestion> questions = attemptQuestions(attempt);
         Map<Long, ExamPaperAttemptAnswer> answers = answerRepository.findByAttemptId(attempt.getId()).stream()
                 .collect(Collectors.toMap(ExamPaperAttemptAnswer::getPaperQuestionId, Function.identity()));
 
@@ -324,7 +368,8 @@ public class AppExamServiceImpl implements AppExamService {
             case "multiple_choice" -> isTextArray(node.path("selectedOptions"));
             case "true_false" -> node.path("value").isBoolean();
             case "fill_blank" -> isValidBlanks(node.path("blanks"));
-            case "short_answer", "calculation", "programming" -> node.path("text").isTextual();
+            case "short_answer", "essay", "material_analysis", "calculation", "programming" ->
+                    node.path("text").isTextual();
             default -> false;
         };
         if (!valid) throw new BusinessException(Result.BAD_REQUEST_CODE, "答案结构与题型不匹配");
@@ -372,15 +417,14 @@ public class AppExamServiceImpl implements AppExamService {
                 for (JsonNode blank : node.path("blanks")) any |= !blank.path("value").asText().trim().isEmpty();
                 yield any;
             }
-            case "short_answer", "calculation", "programming" ->
+            case "short_answer", "essay", "material_analysis", "calculation", "programming" ->
                     !node.path("text").asText().trim().isEmpty();
             default -> false;
         };
     }
 
     private void scoreAndSubmit(ExamPaperAttempt attempt, ExamPaperAttempt.Status status, LocalDateTime now) {
-        List<ExamPaperQuestion> questions = paperQuestionRepository
-                .findByPaperIdOrderBySortOrderAscIdAsc(attempt.getPaperId());
+        List<ExamPaperQuestion> questions = attemptQuestions(attempt);
         Map<Long, ExamPaperAttemptAnswer> answers = answerRepository.findByAttemptId(attempt.getId()).stream()
                 .collect(Collectors.toMap(ExamPaperAttemptAnswer::getPaperQuestionId, Function.identity()));
         BigDecimal score = BigDecimal.ZERO;
@@ -388,6 +432,17 @@ public class AppExamServiceImpl implements AppExamService {
         List<ExamPaperAttemptAnswer> scoredAnswers = new ArrayList<>();
         for (ExamPaperQuestion question : questions) {
             ExamPaperAttemptAnswer answer = answers.get(question.getId());
+            if (RUBRIC_QUESTION_TYPES.contains(question.getType()) && hasScoringRubrics(question)) {
+                total = total.add(question.getScore());
+                if (answer != null) {
+                    BigDecimal rubricScore = scoreByRubric(question, answer.getAnswerJson());
+                    answer.setScore(rubricScore);
+                    answer.setCorrect(rubricScore.compareTo(question.getScore()) == 0);
+                    score = score.add(rubricScore);
+                    scoredAnswers.add(answer);
+                }
+                continue;
+            }
             if (MANUAL_QUESTION_TYPES.contains(question.getType())) {
                 if (answer != null) {
                     answer.setCorrect(null);
@@ -416,6 +471,38 @@ public class AppExamServiceImpl implements AppExamService {
         attempt.setSubmittedAt(now);
         attempt.setActiveMarker(null);
         attemptRepository.save(attempt);
+    }
+
+    private boolean hasScoringRubrics(ExamPaperQuestion question) {
+        try {
+            JsonNode rubrics = objectMapper.readTree(question.getScoringJson()).path("rubrics");
+            return rubrics.isArray() && !rubrics.isEmpty();
+        } catch (JsonProcessingException | RuntimeException invalid) {
+            return false;
+        }
+    }
+
+    private BigDecimal scoreByRubric(ExamPaperQuestion question, String userAnswerJson) {
+        try {
+            String text = objectMapper.readTree(userAnswerJson).path("text").asText("").toLowerCase();
+            JsonNode rubrics = objectMapper.readTree(question.getScoringJson()).path("rubrics");
+            if (text.isBlank() || !rubrics.isArray()) return BigDecimal.ZERO;
+            BigDecimal result = BigDecimal.ZERO;
+            for (JsonNode rubric : rubrics) {
+                JsonNode keywords = rubric.path("keywords");
+                boolean matched = keywords.isArray() && keywords.size() > 0;
+                for (JsonNode keyword : keywords) {
+                    if (!text.contains(keyword.asText("").toLowerCase())) {
+                        matched = false;
+                        break;
+                    }
+                }
+                if (matched) result = result.add(rubric.path("score").decimalValue());
+            }
+            return result.min(question.getScore());
+        } catch (JsonProcessingException | RuntimeException invalid) {
+            return BigDecimal.ZERO;
+        }
     }
 
     private boolean isCorrect(ExamPaperQuestion question, String userAnswerJson) {
@@ -480,8 +567,7 @@ public class AppExamServiceImpl implements AppExamService {
     }
 
     private AppExamDTO.AttemptResult toAttemptResult(ExamPaperAttempt attempt) {
-        List<ExamPaperQuestion> questions = paperQuestionRepository
-                .findByPaperIdOrderBySortOrderAscIdAsc(attempt.getPaperId());
+        List<ExamPaperQuestion> questions = attemptQuestions(attempt);
         Map<Long, ExamPaperAttemptAnswer> answers = answerRepository.findByAttemptId(attempt.getId()).stream()
                 .collect(Collectors.toMap(ExamPaperAttemptAnswer::getPaperQuestionId, Function.identity()));
         AppExamDTO.AttemptResult result = new AppExamDTO.AttemptResult();
@@ -496,6 +582,40 @@ public class AppExamServiceImpl implements AppExamService {
         result.setQuestions(questions.stream().map(question -> toQuestionResult(question, answers.get(question.getId()))).toList());
         result.setLearningUpdate(readLearningUpdate(attempt.getLearningUpdateJson()));
         return result;
+    }
+
+    private List<ExamPaperQuestion> attemptQuestions(ExamPaperAttempt attempt) {
+        List<ExamPaperQuestion> all = paperQuestionRepository
+                .findByPaperIdOrderBySortOrderAscIdAsc(attempt.getPaperId());
+        List<Long> selected = selectedQuestionIds(attempt);
+        if (selected.isEmpty()) return all;
+        Map<Long, ExamPaperQuestion> byId = all.stream().collect(Collectors.toMap(
+                ExamPaperQuestion::getId, Function.identity()));
+        return selected.stream().map(byId::get).filter(Objects::nonNull).toList();
+    }
+
+    private List<Long> selectedQuestionIds(ExamPaperAttempt attempt) {
+        String json = attempt.getSelectedQuestionIdsJson();
+        if (json == null || json.isBlank()) return List.of();
+        try {
+            JsonNode root = objectMapper.readTree(json);
+            if (!root.isArray()) return List.of();
+            List<Long> ids = new ArrayList<>();
+            root.forEach(node -> {
+                if (node.canConvertToLong()) ids.add(node.asLong());
+            });
+            return ids;
+        } catch (JsonProcessingException ignored) {
+            return List.of();
+        }
+    }
+
+    private String writeQuestionIds(List<Long> ids) {
+        try {
+            return objectMapper.writeValueAsString(ids);
+        } catch (JsonProcessingException impossible) {
+            throw new IllegalStateException("无法保存随机题目快照", impossible);
+        }
     }
 
     private AppExamDTO.LearningUpdate applyLearningFeedback(

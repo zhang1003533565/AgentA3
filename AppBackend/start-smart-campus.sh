@@ -9,6 +9,8 @@ MYSQL_CHARSET="${MYSQL_CHARSET:-utf8mb4}"
 MYSQL_COLLATION="${MYSQL_COLLATION:-utf8mb4_unicode_ci}"
 MYSQL_WAIT_SECONDS="${MYSQL_WAIT_SECONDS:-90}"
 ADMINER_PORT="${ADMINER_PORT:-}"
+# Host port mapped from container's 3306 (see docker-compose.yml). Defaults to 3307.
+MYSQL_HOST_PORT="${MYSQL_HOST_PORT:-3307}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -131,6 +133,22 @@ ensure_backend_tools() {
   fi
 }
 
+ensure_datasource_url() {
+  # Host MySQL port (3307) is mapped from container's 3306 via docker-compose.yml.
+  # characterEncoding must use the Java charset name "UTF-8" (NOT "utf8mb4" --
+  # MySQL Connector/J rejects MySQL charset names here with UnsupportedEncodingException).
+  # Connector/J 8.0.26+ automatically uses utf8mb4 on the server side when UTF-8 is given.
+  # URL must NOT contain connectionCollation (triggers MySQL error 1059 "Identifier too long").
+  if [[ -n "${SPRING_DATASOURCE_URL:-}" ]]; then
+    log "Using configured SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL}"
+    return
+  fi
+
+  export SPRING_DATASOURCE_URL="jdbc:mysql://localhost:${MYSQL_HOST_PORT}/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai"
+  log "Using default SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL}"
+  log "Tip: Override by setting SPRING_DATASOURCE_URL in .env or your shell environment."
+}
+
 start_backend() {
   log "Starting Spring Boot backend at http://localhost:8080 ..."
   exec mvn spring-boot:run
@@ -149,6 +167,7 @@ main() {
   wait_for_redis
   ensure_database
   ensure_backend_tools
+  ensure_datasource_url
   start_backend
 }
 

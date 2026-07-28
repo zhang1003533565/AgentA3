@@ -191,30 +191,30 @@ public class SecondhandServiceImpl implements SecondhandService {
     }
 
     @Override
-    public void offlineItem(Long id, Long userId) {
+    public void offlineItem(Long id, Long userId, boolean isAdmin) {
         SecondhandItem item = itemRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(404, "物品不存在"));
-        if (!item.getUserId().equals(userId)) throw new BusinessException(403, "无权限");
+        if (!isAdmin && !item.getUserId().equals(userId)) throw new BusinessException(403, "无权限");
         if (item.getStatus() != 2) throw new BusinessException(400, "只有在售物品才能下架");
         item.setStatus(4);
         itemRepository.save(item);
     }
 
     @Override
-    public void onlineItem(Long id, Long userId) {
+    public void onlineItem(Long id, Long userId, boolean isAdmin) {
         SecondhandItem item = itemRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(404, "物品不存在"));
-        if (!item.getUserId().equals(userId)) throw new BusinessException(403, "无权限");
+        if (!isAdmin && !item.getUserId().equals(userId)) throw new BusinessException(403, "无权限");
         if (item.getStatus() != 4) throw new BusinessException(400, "只有已下架物品才能重新上架");
         item.setStatus(2);
         itemRepository.save(item);
     }
 
     @Override
-    public void soldItem(Long id, Long userId) {
+    public void soldItem(Long id, Long userId, boolean isAdmin) {
         SecondhandItem item = itemRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(404, "物品不存在"));
-        if (!item.getUserId().equals(userId)) throw new BusinessException(403, "无权限");
+        if (!isAdmin && !item.getUserId().equals(userId)) throw new BusinessException(403, "无权限");
         item.setStatus(3);
         itemRepository.save(item);
     }
@@ -224,11 +224,10 @@ public class SecondhandServiceImpl implements SecondhandService {
                                                              Long categoryId, Integer status, Long userId) {
         if (current == null) current = 1;
         if (size == null) size = 10;
+        String normalizedKeyword = (keyword == null || keyword.isBlank()) ? null : keyword.trim();
         PageRequest pageRequest = PageRequest.of(current - 1, size, Sort.by(Sort.Direction.DESC, "id"));
-        Page<SecondhandItem> page = itemRepository.findPublicList(categoryId, keyword, null, null, null, pageRequest);
+        Page<SecondhandItem> page = itemRepository.findAdminList(status, categoryId, userId, normalizedKeyword, pageRequest);
         List<SecondhandDTO.ItemVO> records = page.getContent().stream()
-                .filter(i -> status == null || i.getStatus().equals(status))
-                .filter(i -> userId == null || i.getUserId().equals(userId))
                 .map(this::toItemVO).collect(Collectors.toList());
         return new PageResponse<>(records, page.getTotalElements(), current, size);
     }
@@ -325,12 +324,10 @@ public class SecondhandServiceImpl implements SecondhandService {
         List<CountItem> dist = new ArrayList<>();
         for (SecondhandCategory cat : categories) {
             long cnt = categoryRepository.countByCategoryId(cat.getId());
-            if (cnt > 0) {
-                CountItem item = new CountItem();
-                item.setName(cat.getCategoryName());
-                item.setValue((int) cnt);
-                dist.add(item);
-            }
+            CountItem item = new CountItem();
+            item.setName(cat.getCategoryName());
+            item.setValue((int) cnt);
+            dist.add(item);
         }
         vo.setCategoryDistribution(dist);
         return vo;

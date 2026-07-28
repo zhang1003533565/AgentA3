@@ -243,11 +243,11 @@ INSERT INTO sys_role (id, name) VALUES
 (4, 'MERCHANT');
 
 -- =============================================
--- 2. 用户数据 (密码都是 admin123)
+-- 2. 用户数据 (管理员本地开发密码: 123456；其余账号默认 admin123)
 -- =============================================
 INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, status, create_time, update_time,jwx_password,jwx_student_id,semester_start,share_code) VALUES
--- 管理员 (用户名: admin, 密码: admin123)
-(1, 'admin', 'admin123', '系统管理员', '13800000001', 'admin@campus.edu.cn', 1, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000001'),
+-- 管理员 (用户名: admin, 密码: 123456)
+(1, 'admin', '123456', '系统管理员', '13800000001', 'admin@campus.edu.cn', 1, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000001'),
 -- 教师 (用户名: fjj, 密码: admin123)
 (2, 'fjj', 'admin123', '张老师', '13800000002', 'zhanglaoshi@campus.edu.cn', 2, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000002'),
 -- 教师 (用户名: fjj2, 密码: admin123)
