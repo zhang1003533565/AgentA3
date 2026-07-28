@@ -1,10 +1,16 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 
 import AppTabBar from '../components/AppTabBar.vue'
+import { getCampusCourses } from '../api/campusCourse'
 
+const router = useRouter()
 const activeTab = ref('hot')
 const selectedTool = ref(null)
+const campusCourses = ref([])
+const campusLoading = ref(false)
+const campusError = ref('')
 
 const quickActions = [
   { name: 'AI对话', tone: '问答协作', color: '#3b82f6' },
@@ -17,7 +23,7 @@ const quickActions = [
 const tabs = [
   { key: 'hot', label: '热门工具' },
   { key: 'format', label: '格式转换' },
-  { key: 'campus', label: '校园必备' },
+  { key: 'campus', label: '校园课程' },
   { key: 'work', label: '职场创意' },
   { key: 'social', label: '社交媒体' },
 ]
@@ -39,14 +45,7 @@ const toolCategories = {
     { name: 'PDF转Word', desc: 'PDF转Word快准稳', color: '#0ea5e9' },
     { name: 'Word转PDF', desc: 'Word转PDF快准稳', color: '#2563eb' },
   ],
-  campus: [
-    { name: '实践报告', desc: '轻松搞定实践报告', color: '#ef4444' },
-    { name: '课程报告', desc: '课程报告助力提升', color: '#f97316' },
-    { name: '英语作文', desc: '轻松写出高分作文', color: '#8b5cf6' },
-    { name: '活动总结', desc: '快速完成活动复盘', color: '#06b6d4' },
-    { name: '学科出题', desc: '一键出题精准教学', color: '#64748b' },
-    { name: '学习计划', desc: '定制计划高效学习', color: '#10b981' },
-  ],
+  campus: [],
   work: [
     { name: 'PPT大纲', desc: '智能规划PPT要点', color: '#ef4444' },
     { name: '简历制作', desc: '轻松打造吸睛简历', color: '#64748b' },
@@ -65,9 +64,35 @@ const toolCategories = {
   ],
 }
 
-const currentTools = computed(() => toolCategories[activeTab.value] || [])
+const currentTools = computed(() => activeTab.value === 'campus'
+  ? campusCourses.value
+  : toolCategories[activeTab.value] || [])
+
+watch(activeTab, async (tab) => {
+  if (tab !== 'campus' || campusLoading.value) return
+  campusLoading.value = true
+  campusError.value = ''
+  try {
+    const response = await getCampusCourses()
+    campusCourses.value = (response.data || []).map((course, index) => ({
+      courseId: course.id,
+      name: course.name,
+      desc: `${course.currentChapterTitle || course.bookTitle} · ${course.progressPercent || 0}%`,
+      color: index % 2 ? '#64748b' : '#2563eb',
+    }))
+  } catch (error) {
+    campusCourses.value = []
+    campusError.value = error.message || '课程加载失败'
+  } finally {
+    campusLoading.value = false
+  }
+})
 
 function selectTool(tool) {
+  if (tool.courseId) {
+    router.push(`/courses/${tool.courseId}`)
+    return
+  }
   selectedTool.value = tool
 }
 </script>
@@ -131,6 +156,9 @@ function selectTool(tool) {
       </section>
 
       <section class="tools-grid">
+        <p v-if="activeTab === 'campus' && campusLoading" class="course-state">正在加载校园课程...</p>
+        <p v-else-if="activeTab === 'campus' && campusError" class="course-state">{{ campusError }}</p>
+        <p v-else-if="activeTab === 'campus' && !currentTools.length" class="course-state">管理员暂未发布课程</p>
         <button
           v-for="tool in currentTools"
           :key="tool.name"
@@ -309,6 +337,13 @@ function selectTool(tool) {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-top: 16px;
+}
+
+.course-state {
+  grid-column: 1 / -1;
+  padding: 40px 16px;
+  color: #64748b;
+  text-align: center;
 }
 
 .tool-card {

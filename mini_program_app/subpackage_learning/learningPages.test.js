@@ -16,7 +16,7 @@ async function sourceModule(relativePath) {
   return import(`data:text/javascript;base64,${Buffer.from(text).toString('base64')}`)
 }
 
-test('learning package registers all four student pages without disturbing existing preload order', () => {
+test('learning package registers student learning pages without disturbing existing preload order', () => {
   const config = json('../pages.json')
   const learning = config.subPackages.find(item => item.root === 'subpackage_learning')
   assert.ok(learning)
@@ -24,7 +24,8 @@ test('learning package registers all four student pages without disturbing exist
     'pythonHome/pythonHome',
     'resourceGenerate/resourceGenerate',
     'learningPath/learningPath',
-    'recommendations/recommendations'
+    'recommendations/recommendations',
+    'campusCourseDetail/campusCourseDetail'
   ])
 
   assert.deepEqual(config.preloadRule['pages/index/index'].packages.slice(0, 14), [
