@@ -159,10 +159,16 @@
                   </view>
                   <view class="mtime mtime-s">{{ formatClock(m.time) }}</view>
                 </view>
-                <view class="mava mava-s">我</view>
+                <view class="mava mava-s">
+                  <image v-if="ownMessageAvatar(m)" class="mava-img" :src="ownMessageAvatar(m)" mode="aspectFill" />
+                  <text v-else>我</text>
+                </view>
               </view>
               <view v-else class="msg-content-r">
-                <view class="mava mava-r">{{ otherInitial }}</view>
+                <view class="mava mava-r">
+                  <image v-if="messageAvatar(m)" class="mava-img" :src="messageAvatar(m)" mode="aspectFill" />
+                  <text v-else>{{ otherInitial }}</text>
+                </view>
                 <view class="msg-bubble-group">
                   <view class="mbub mbub-r" :class="{ 'mbub-img': m.messageType === 2 }">
                     <image v-if="m.messageType === 2" class="chat-img" :src="m.content" mode="widthFix" @click="previewImage(m.content)" />
@@ -330,6 +336,22 @@ import {
   setActiveChatSession,
   subscribeMessageStore
 } from '@/utils/messageStore'
+import { getUserInfo } from '@/utils/storage'
+import {
+  buildDefaultAvatar,
+  pickAvatar,
+  pickOtherAvatar,
+  pickSenderAvatar
+} from '@/subpackage_lostfound/utils/avatar.js'
+
+function decodeOptionText(value) {
+  if (!value) return ''
+  try {
+    return decodeURIComponent(String(value))
+  } catch {
+    return String(value)
+  }
+}
 
 function normalizeSession(item) {
   return {
@@ -342,6 +364,7 @@ function normalizeSession(item) {
     itemStatusText: item.itemStatusText || '',
     otherUserId: item.otherUserId,
     otherName: item.otherUsername || item.sellerName || '用户',
+    otherAvatar: pickOtherAvatar(item),
     lastMsg: item.lastMessage || '',
     lastTime: item.lastTime || '',
     isSeller: item.isSeller,
@@ -362,7 +385,9 @@ function normalizeMessage(item) {
       tradeAction: item.tradeAction || '',
       content: item.content,
       time: item.createTime || '',
-      isMine: !!item.isMine
+      isMine: !!item.isMine,
+      senderName: item.senderName || '',
+      senderAvatar: pickSenderAvatar(item)
     }
   }
   if (Number(item.messageType) === 4) {
@@ -373,7 +398,9 @@ function normalizeMessage(item) {
       tradeAction: item.tradeAction || 'CONTACT_EXCHANGE_DONE',
       content: item.content,
       time: item.createTime || '',
-      isMine: !!item.isMine
+      isMine: !!item.isMine,
+      senderName: item.senderName || '',
+      senderAvatar: pickSenderAvatar(item)
     }
   }
   return {
@@ -381,7 +408,9 @@ function normalizeMessage(item) {
     type: item.isMine ? 's' : 'r',
     messageType: Number(item.messageType || 1),
     content: item.content,
-    time: item.createTime || ''
+    time: item.createTime || '',
+    senderName: item.senderName || '',
+    senderAvatar: pickSenderAvatar(item)
   }
 }
 
@@ -403,7 +432,10 @@ export default {
       itemId: null,
       targetUserId: null,
       sessionId: null,
+      currentUserInfo: null,
       curChat: null,
+      routeOtherName: '',
+      routeOtherAvatar: '',
       tradeInfo: null,
       messages: [],
       messageInput: '',
@@ -438,6 +470,10 @@ export default {
     },
     otherInitial() {
       return this.curChat && this.curChat.otherName ? this.curChat.otherName[0] : ''
+    },
+    ownAvatarUrl() {
+      if (!this.currentUserInfo) return ''
+      return pickAvatar(this.currentUserInfo) || buildDefaultAvatar(this.currentUserInfo)
     },
     chatMessages() {
       return this.messages
@@ -555,9 +591,12 @@ export default {
     }
   },
   async onLoad(options) {
+    this.loadCurrentUser()
     this.itemId = options.itemId
     this.targetUserId = options.targetUserId || options.buyerId || options.sellerId || null
     this.sessionId = options.sessionId
+    this.routeOtherName = decodeOptionText(options.otherName)
+    this.routeOtherAvatar = decodeOptionText(options.otherAvatar)
     await this.initChat()
     if (this.sessionId) {
       setActiveChatSession(this.sessionId)
@@ -570,6 +609,9 @@ export default {
       await refreshMessageState('chat-open')
     }
   },
+  onShow() {
+    this.loadCurrentUser()
+  },
   onUnload() {
     if (this.unsubscribeMessageStore) {
       this.unsubscribeMessageStore()
@@ -579,6 +621,28 @@ export default {
     refreshMessageState('chat-close')
   },
   methods: {
+    loadCurrentUser() {
+      const userInfo = getUserInfo() || null
+      const nestedUser = userInfo ? (userInfo.user || userInfo.profile || userInfo.data || {}) : {}
+      this.currentUserInfo = userInfo
+        ? {
+            ...userInfo,
+            avatar: pickAvatar(userInfo) || pickAvatar(nestedUser)
+          }
+        : null
+    },
+    messageAvatar(message) {
+      if (!message) return ''
+      return pickSenderAvatar(message) ||
+        this.curChat?.otherAvatar ||
+        this.routeOtherAvatar ||
+        buildDefaultAvatar({
+          username: message.senderName || this.curChat?.otherName || 'chat-other'
+        })
+    },
+    ownMessageAvatar(message) {
+      return pickSenderAvatar(message) || this.ownAvatarUrl
+    },
     async syncActiveChat(reason = 'message-sync') {
       if (!this.sessionId || this.messageSyncing) return
       this.messageSyncing = true
@@ -614,7 +678,25 @@ export default {
       const sessionListRes = await getChatSessions({ current: 1, size: 100 })
       const sessions = Array.isArray(sessionListRes?.data?.records) ? sessionListRes.data.records : []
       const matched = sessions.find((item) => Number(item.sessionId) === Number(this.sessionId))
-      this.curChat = matched ? normalizeSession(matched) : { id: this.sessionId, otherName: '聊天' }
+      const fallback = {
+        ...(this.curChat || {}),
+        id: this.sessionId,
+        itemId: this.itemId || this.curChat?.itemId,
+        otherUserId: this.targetUserId || this.curChat?.otherUserId,
+        otherName: this.routeOtherName || this.curChat?.otherName || '聊天',
+        otherAvatar: this.routeOtherAvatar || this.curChat?.otherAvatar || ''
+      }
+      if (!matched) {
+        this.curChat = fallback
+        return
+      }
+      const session = normalizeSession(matched)
+      this.curChat = {
+        ...fallback,
+        ...session,
+        otherName: session.otherName || fallback.otherName,
+        otherAvatar: session.otherAvatar || fallback.otherAvatar
+      }
     },
     async loadTradeInfo() {
       if (!this.curChat || !this.curChat.itemId) {
@@ -2399,6 +2481,13 @@ export default {
   font-size: 26rpx;
   font-weight: 700;
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.mava-img {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .mbub {

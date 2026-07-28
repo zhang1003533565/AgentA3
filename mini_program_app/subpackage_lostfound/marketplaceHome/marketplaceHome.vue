@@ -17,7 +17,15 @@
             </view>
           </view>
 
-          <scroll-view scroll-y class="page-body" :show-scrollbar="false">
+          <scroll-view
+            scroll-y
+            class="page-body"
+            :show-scrollbar="false"
+            refresher-enabled
+            :refresher-triggered="refreshing"
+            refresher-background="#F7F7F9"
+            @refresherrefresh="refreshPage"
+          >
             <!-- ===== 3. Banner ===== -->
             <view class="banner-block">
               <view
@@ -213,6 +221,7 @@ export default {
       productTints: PRODUCT_TINTS,
       bannerTimer: null,
       hotLoading: true,
+      refreshing: false,
       searchTransitioning: false,
       searchTransitionNavigating: false,
       searchTransitionRect: {
@@ -263,8 +272,9 @@ export default {
     }
   },
   methods: {
-    async loadItems() {
-      this.hotLoading = true
+    async loadItems(options = {}) {
+      const showLoading = options.showLoading !== false
+      if (showLoading) this.hotLoading = true
       try {
         const res = await getSecondhandItemList({ current: 1, size: 20, sort: 'hot' })
         const records = Array.isArray(res?.data?.records) ? res.data.records : []
@@ -316,7 +326,17 @@ export default {
       } catch (e) {
         console.error('loadItems', e)
       } finally {
-        this.hotLoading = false
+        if (showLoading) this.hotLoading = false
+      }
+    },
+    async refreshPage() {
+      if (this.refreshing) return
+      this.refreshing = true
+      try {
+        await this.loadItems({ showLoading: false })
+        uni.showToast({ title: '已刷新', icon: 'none', duration: 900 })
+      } finally {
+        this.refreshing = false
       }
     },
     itemEmoji(id) {
@@ -519,7 +539,7 @@ export default {
   flex: 1;
   min-height: 0;
   height: 0;
-  overflow: hidden;
+  overflow-y: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
