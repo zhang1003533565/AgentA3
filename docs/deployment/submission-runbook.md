@@ -21,7 +21,7 @@ openssl rand -hex 32
 
 `AI_INTERNAL_TOKEN` 在 Compose 中以同一值注入 Java 与 Python。Python 会拒绝没有 `X-AI-Internal-Token` 的 `/internal/**` 请求；健康检查 `/healthz` 不受影响。本地开发未配置该变量时，Java 与 Python 使用同一个开发默认值 `dev-internal-token-change-me-32chars`，生产 Compose 仍由 `config-guard` 强制提供真实非空令牌。
 
-GitHub 发布工作流与服务器脚本也只使用本清单。工作流以提交 SHA 作为 `IMAGE_TAG`，默认把三个镜像推送到 ACR；如镜像路径不同，可设置仓库变量 `BACKEND_IMAGE`、`AI_SERVER_IMAGE`、`WEB_IMAGE` 覆盖。服务器上的 `deploy/.env` 仍是手工复现的来源，CI 注入的镜像、`JWT_SECRET`、`AI_INTERNAL_TOKEN`、MySQL 密码按 Compose 规则优先覆盖同名值。部署脚本默认在验收通过后执行 Docker 镜像与 build cache 清理，`DEPLOY_PRUNE_UNTIL` 默认 `24h`，可按磁盘和回滚需求调整；该清理不删除 volume。
+GitHub 发布工作流与服务器脚本也只使用本清单。工作流以提交 SHA 作为 `IMAGE_TAG`，默认把三个镜像推送到 ACR；如镜像路径不同，可设置仓库变量 `BACKEND_IMAGE`、`AI_SERVER_IMAGE`、`WEB_IMAGE` 覆盖。服务器上的 `deploy/.env` 仍是手工复现的来源，CI 注入的镜像、`JWT_SECRET`、`AI_INTERNAL_TOKEN`、MySQL 密码按 Compose 规则优先覆盖同名值。部署脚本默认在拉取镜像前和验收通过后清理全部未使用的 Docker 镜像与 build cache；当前运行镜像和 volume 不会被删除，旧版本可按不可变提交 SHA 从 ACR 重新拉取。
 
 AppWeb 本地开发默认 `VITE_API_MODE=local`，浏览器请求 `http://localhost:8080`。Docker 生产镜像默认 `VITE_API_MODE=relative`，浏览器请求当前站点的 `/api/**`，再由 Nginx 代理到 Java；Java 调 Python 仍使用 Compose 内网 `http://ai-server:8081`。
 
@@ -95,8 +95,8 @@ docker compose --env-file deploy/.env -f deploy/compose.submission.yml down
 自动部署脚本默认执行：
 
 ```bash
-docker image prune -af --filter "until=${DEPLOY_PRUNE_UNTIL:-24h}"
-docker builder prune -af --filter "until=${DEPLOY_PRUNE_UNTIL:-24h}"
+docker image prune -af
+docker builder prune -af
 ```
 
 如需临时保留所有旧镜像，可在 GitHub 仓库变量或服务器环境中设置 `DEPLOY_PRUNE_DOCKER=false`。不要在自动部署中加入 `--volumes`。
