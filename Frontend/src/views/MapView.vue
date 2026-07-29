@@ -2,30 +2,70 @@
 /* ═══════════════════════════════════════════════════
    校园导航页 — 高德地图 JS API 2.0 + 纯前端扩展功能
    功能：高德地图/搜索/快捷按钮/聊天助手/暗色模式/
-         打卡/留言板/随机漫步/校园贴士/失物招领
+         打卡/留言板/随机漫步/失物招领
    ═══════════════════════════════════════════════════ */
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import AppTabBar from '../components/AppTabBar.vue'
+import { getMapPlaceDetail, getMapPlaceList } from '../api/map'
+import markerCanteen from '../assets/map/marker-canteen.svg'
+import markerDormitory from '../assets/map/marker-dormitory.svg'
+import markerOther from '../assets/map/marker-other.svg'
+import markerSports from '../assets/map/marker-sports.svg'
+import markerTeaching from '../assets/map/marker-teaching.svg'
 
 /* ── 高德地图配置 ── */
 const AMAP_KEY = 'e1790a70dfc91f2d3daf1895c0e9f87a'
 const AMAP_SECURITY = 'f3eda2c1d4c4c76bdb907d570b69d8c'
-const MAP_CENTER = [104.146034, 30.675658]  /* 成都理工大学 */
+const MAP_CENTER = [114.897014, 40.755502]
 const MAP_ZOOM = 17
 
-/* ── 预设校园点位（成都理工大学，含真实经纬度） ── */
-const POI_DATA = [
-  { id: 'teaching1', name: '第一教学楼',   icon: '📚', lng: 104.142483, lat: 30.675342, desc: '一教，日常授课与自习',       tag: '教学区域' },
-  { id: 'teaching2', name: '第二教学楼',   icon: '📖', lng: 104.141622, lat: 30.676215, desc: '二教，多间阶梯教室',         tag: '教学区域' },
-  { id: 'e1',        name: '东区E1教学楼', icon: '🏛️', lng: 104.149226, lat: 30.677241, desc: '东区 E1 教学楼',               tag: '教学区域' },
-  { id: 'e2',        name: '东区E2教学楼', icon: '🏫', lng: 104.150114, lat: 30.676833, desc: '东区 E2 教学楼',               tag: '教学区域' },
-  { id: 'library',   name: '逸夫图书馆',   icon: '📖', lng: 104.144156, lat: 30.673821, desc: '藏书 50 万册，自习室/电子阅览室', tag: '学习空间' },
-  { id: 'lake',      name: '砚湖',         icon: '🌊', lng: 104.143120, lat: 30.675103, desc: '校园中心湖，休闲散步好去处', tag: '校园地标' },
-  { id: 'gate',      name: '主校门',       icon: '🚪', lng: 104.147862, lat: 30.678354, desc: '学校正门，进出校园主要通道', tag: '校园地标' },
-  { id: 'stadium',   name: '运动场',       icon: '🏟️', lng: 104.151231, lat: 30.674672, desc: '400m 标准田径场、篮球/排球场', tag: '体育运动' },
-  { id: 'canteen',   name: '香樟餐厅',     icon: '🍽️', lng: 104.145217, lat: 30.672966, desc: '校内主要食堂，提供早中晚三餐', tag: '生活服务' },
-  { id: 'teaching9', name: '第九教学楼',   icon: '🔬', lng: 104.140835, lat: 30.673412, desc: '九教，实验与科研用房',       tag: '教学区域' },
-]
+const mapPlaces = ref([])
+const placeLoading = ref(false)
+
+const SCENE_META = {
+  CANTEEN: { label: '食堂', color: '#f97316', icon: markerCanteen },
+  SPORTS: { label: '运动场', color: '#10b981', icon: markerSports },
+  TEACHING: { label: '教学楼', color: '#3b82f6', icon: markerTeaching },
+  DORMITORY: { label: '宿舍', color: '#8b5cf6', icon: markerDormitory },
+}
+const DEFAULT_SCENE_META = { label: '其他点位', color: '#64748b', icon: markerOther }
+const sceneMeta = (sceneType) => SCENE_META[sceneType] || DEFAULT_SCENE_META
+
+const toCoordinate = (value) => {
+  if (value === null || value === undefined || value === '') return null
+  const coordinate = Number(value)
+  return Number.isFinite(coordinate) ? coordinate : null
+}
+
+const toMapPoi = (place) => ({
+  id: place.id,
+  name: place.name || '未命名点位',
+  lng: toCoordinate(place.longitude),
+  lat: toCoordinate(place.latitude),
+  desc: place.description || place.locationDesc || '暂无详细介绍',
+  tag: place.placeType || sceneMeta(place.sceneType).label,
+  sceneType: place.sceneType,
+  placeType: place.placeType,
+  locationDesc: place.locationDesc || '',
+  status: place.status,
+  images: Array.isArray(place.images) ? place.images : [],
+})
+
+async function loadMapPlaces() {
+  placeLoading.value = true
+  try {
+    const response = await getMapPlaceList({ status: 'ENABLED' })
+    mapPlaces.value = (Array.isArray(response?.data) ? response.data : [])
+      .filter(place => place.mapVisible !== false)
+      .map(toMapPoi)
+      .filter(place => Number.isFinite(place.lng) && Number.isFinite(place.lat))
+  } catch (error) {
+    mapError.value = error.message || '校园点位加载失败'
+    mapPlaces.value = []
+  } finally {
+    placeLoading.value = false
+  }
+}
 
 const activePoi = ref(null)          /* 当前选中点位 */
 const selectedNotice = ref('')       /* 搜索选中提示 */
@@ -51,13 +91,12 @@ const searchFocused = ref(false)
 const filteredPois = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return []
-  return POI_DATA.filter(p => p.name.includes(q) || p.desc.toLowerCase().includes(q))
+  return mapPlaces.value.filter(p => p.name.includes(q) || p.desc.toLowerCase().includes(q))
 })
 function selectSearchResult(poi) {
   searchQuery.value = poi.name
   searchFocused.value = false
-  selectedNotice.value = `已定位到「${poi.icon} ${poi.name}」— ${poi.desc}`
-  activePoi.value = poi
+  selectedNotice.value = `已定位到「${poi.name}」— ${poi.desc}`
   flyToPoi(poi) /* 地图自动移动到目标地点 */
   setTimeout(() => { selectedNotice.value = '' }, 4000)
 }
@@ -71,6 +110,44 @@ const mapError = ref('')
 let mapInstance = null        /* AMap.Map 实例 */
 const markerMap = {}          /* poi.id → AMap.Marker 映射 */
 let infoWindow = null         /* 全局信息窗 */
+
+function createInfoWindowContent(poi) {
+  const root = document.createElement('div')
+  root.className = 'map-info-window'
+
+  const heading = document.createElement('div')
+  heading.className = 'map-info-window__heading'
+  const pin = document.createElement('img')
+  pin.className = 'map-info-window__pin'
+  pin.src = sceneMeta(poi.sceneType).icon
+  pin.alt = ''
+  const name = document.createElement('strong')
+  name.textContent = poi.name
+  heading.append(pin, name)
+
+  const type = document.createElement('span')
+  type.className = 'map-info-window__type'
+  type.textContent = poi.tag
+  const description = document.createElement('p')
+  description.textContent = poi.desc
+
+  root.append(heading, type, description)
+  return root
+}
+
+async function selectPoi(poi, marker) {
+  try {
+    const response = await getMapPlaceDetail(poi.id)
+    const detail = response?.data ? toMapPoi(response.data) : poi
+    activePoi.value = detail
+    if (infoWindow && mapInstance) {
+      infoWindow.setContent(createInfoWindowContent(detail))
+      infoWindow.open(mapInstance, marker?.getPosition?.() || [detail.lng, detail.lat])
+    }
+  } catch (error) {
+    mapError.value = error.message || '点位详情加载失败'
+  }
+}
 
 /* 动态加载高德 JS API 脚本 */
 function loadAMapScript() {
@@ -93,48 +170,42 @@ async function initMap() {
     const AMap = window.AMap
     if (!AMap) throw new Error('AMap 未定义')
 
+    const firstPlace = mapPlaces.value[0]
     mapInstance = new AMap.Map('container', {
       zoom: MAP_ZOOM,
-      center: MAP_CENTER,
+      center: firstPlace ? [firstPlace.lng, firstPlace.lat] : MAP_CENTER,
       viewMode: '2D',
       resizeEnable: true,
     })
 
     /* 全局信息窗实例 */
     infoWindow = new AMap.InfoWindow({
-      offset: new AMap.Pixel(0, -30),
+      offset: new AMap.Pixel(0, -43),
       closeWhenClickMap: true,
     })
 
-    /* 为每个 POI 添加标记 */
-    POI_DATA.forEach(poi => {
+    /* 为接口返回的真实点位添加标记 */
+    mapPlaces.value.forEach(poi => {
+      const meta = sceneMeta(poi.sceneType)
+      const markerContent = document.createElement('div')
+      markerContent.className = 'real-map-marker'
+      const markerTitle = document.createElement('span')
+      markerTitle.className = 'real-map-marker__title'
+      markerTitle.textContent = poi.name
+      const markerIcon = document.createElement('img')
+      markerIcon.className = 'real-map-marker__icon'
+      markerIcon.src = meta.icon
+      markerIcon.alt = ''
+      markerContent.append(markerTitle, markerIcon)
       const marker = new AMap.Marker({
         position: [poi.lng, poi.lat],
         title: poi.name,
-        content: `<div style="
-          display:flex;align-items:center;gap:4px;
-          padding:4px 10px;border-radius:16px;
-          background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.18);
-          font-size:13px;font-weight:600;color:#1e40af;
-          white-space:nowrap;cursor:pointer;
-        ">${poi.icon} ${poi.name}</div>`,
-        offset: new AMap.Pixel(-40, -16),
+        content: markerContent,
+        offset: new AMap.Pixel(-70, -64),
       })
 
-      /* 信息窗内容 */
-      const iwContent = `
-        <div style="padding:10px 14px;min-width:170px;font-family:system-ui,sans-serif;">
-          <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:4px;">
-            ${poi.icon} ${poi.name}
-          </div>
-          <div style="font-size:12px;color:#3b82f6;margin-bottom:6px;">${poi.tag}</div>
-          <div style="font-size:13px;color:#64748b;line-height:1.5;">${poi.desc}</div>
-        </div>`
-
       marker.on('click', () => {
-        activePoi.value = poi
-        infoWindow.setContent(iwContent)
-        infoWindow.open(mapInstance, marker.getPosition())
+        selectPoi(poi, marker)
       })
 
       markerMap[poi.id] = marker
@@ -142,6 +213,7 @@ async function initMap() {
     })
 
     mapReady.value = true
+    if (mapPlaces.value.length > 1) mapInstance.setFitView(Object.values(markerMap), false, [80, 80, 100, 80], 18)
   } catch (err) {
     mapError.value = err.message || '地图初始化失败'
     console.error('[MapInit]', err)
@@ -149,30 +221,18 @@ async function initMap() {
 }
 
 /* 地图飞行到指定点位并打开信息窗 */
-function flyToPoi(poi) {
+async function flyToPoi(poi) {
   if (!mapInstance) return
   mapInstance.setZoomAndCenter(17, [poi.lng, poi.lat], false, 500)
   const marker = markerMap[poi.id]
-  if (marker && infoWindow) {
-    const iwContent = `
-      <div style="padding:10px 14px;min-width:170px;font-family:system-ui,sans-serif;">
-        <div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:4px;">
-          ${poi.icon} ${poi.name}
-        </div>
-        <div style="font-size:12px;color:#3b82f6;margin-bottom:6px;">${poi.tag}</div>
-        <div style="font-size:13px;color:#64748b;line-height:1.5;">${poi.desc}</div>
-      </div>`
-    infoWindow.setContent(iwContent)
-    infoWindow.open(mapInstance, marker.getPosition())
-  }
+  await selectPoi(poi, marker)
 }
 
 /* ═══════════════════════════════════════
    ③ 快捷按钮 / 导航
    ═══════════════════════════════════════ */
 function flyTo(poi) {
-  activePoi.value = poi
-  selectedNotice.value = `正在查看「${poi.icon} ${poi.name}」`
+  selectedNotice.value = `正在查看「${poi.name}」`
   flyToPoi(poi)
   setTimeout(() => { selectedNotice.value = '' }, 3000)
 }
@@ -200,7 +260,7 @@ function sendChat() {
 }
 function genReply(s) {
   const l = s.toLowerCase()
-  for (const p of POI_DATA) if (l.includes(p.name)) return `${p.icon} ${p.name}：${p.desc}。点击下方快捷按钮可快速定位。`
+  for (const p of mapPlaces.value) if (l.includes(p.name.toLowerCase())) return `${p.name}：${p.desc}。点击下方快捷按钮可快速定位。`
   if (/路线|怎么走|在哪|位置/.test(l)) return '在搜索框输入地点名，或点击底部快捷按钮即可定位。'
   if (/打卡/.test(l)) return '点击底部快捷按钮选中地点，在弹出的地点面板中点击"打卡"按钮即可。'
   if (/失物|丢|捡/.test(l)) return '请点击右下角助手面板，切换到"失物招领"标签页查看或发布信息。'
@@ -213,24 +273,6 @@ function scrollChat() { if (chatBodyRef.value) chatBodyRef.value.scrollTop = cha
    ⑤ 校园打卡系统
    ═══════════════════════════════════════ */
 const checkins = reactive(JSON.parse(localStorage.getItem('campus-checkins') || '{}'))
-const ACHIEVEMENTS = {
-  canteen:   { label: '美食探险家', icon: '🍴' },
-  stadium:   { label: '运动达人',   icon: '💪' },
-  library:   { label: '学霸先锋',   icon: '🎓' },
-  teaching1: { label: '求知行者',   icon: '📝' },
-  teaching2: { label: '勤学好问',   icon: '📝' },
-  e1:        { label: '东区探索者', icon: '🧭' },
-  e2:        { label: '东区先锋',   icon: '🌟' },
-  lake:      { label: '砚湖漫步',   icon: '🌸' },
-  gate:      { label: '校园门户',   icon: '🚩' },
-  teaching9: { label: '科研达人',   icon: '🔬' },
-}
-const earnedBadges = computed(() => {
-  const b = []
-  for (const [k, v] of Object.entries(ACHIEVEMENTS)) if (checkins[k]) b.push({ ...v, id: k })
-  if (Object.keys(checkins).length === POI_DATA.length) b.push({ label: '校园全能王', icon: '👑', id: 'all' })
-  return b
-})
 function doCheckin(poi) {
   if (checkins[poi.id]) return
   checkins[poi.id] = { time: Date.now() }
@@ -275,22 +317,11 @@ function postLost() {
    ═══════════════════════════════════════ */
 const randomPoi = ref(null)
 function randomWalk() {
-  const pick = POI_DATA[Math.floor(Math.random() * POI_DATA.length)]
+  if (!mapPlaces.value.length) return
+  const pick = mapPlaces.value[Math.floor(Math.random() * mapPlaces.value.length)]
   randomPoi.value = pick
-  activePoi.value = pick
   flyToPoi(pick) /* 随机漫步也移动地图 */
 }
-
-/* ═══════════════════════════════════════
-   ⑨ 校园小贴士
-   ═══════════════════════════════════════ */
-const tipsVisible = ref(false)
-const TIPS = [
-  { icon: '🍽️', title: '香樟餐厅高峰', text: '午餐 11:30-12:30 最拥挤，建议错峰就餐' },
-  { icon: '📖', title: '逸夫图书馆开放', text: '周一至周五 8:00-22:00，周末 9:00-21:00' },
-  { icon: '🌊', title: '砚湖散步',       text: '傍晚时分湖边风景最佳，适合休闲放松' },
-  { icon: '🏟️', title: '运动场开放',     text: '田径场全天开放，夜间有灯光照明' },
-]
 
 /* ═══════════════════════════════════════
    全局事件
@@ -299,10 +330,12 @@ function onDocClick(e) {
   if (!e.target.closest('.search-wrapper')) searchFocused.value = false
   if (!e.target.closest('.random-modal') && !e.target.closest('.random-btn')) randomPoi.value = null
 }
-onMounted(() => {
+onMounted(async () => {
   applyTheme()
   document.addEventListener('click', onDocClick)
-  nextTick(() => initMap()) /* 初始化高德地图 */
+  await loadMapPlaces()
+  await nextTick()
+  initMap()
 })
 onUnmounted(() => {
   document.removeEventListener('click', onDocClick)
@@ -343,7 +376,7 @@ onUnmounted(() => {
         </div>
         <div v-if="searchFocused && filteredPois.length" class="search-dropdown">
           <div v-for="p in filteredPois" :key="p.id" class="search-item" @click="selectSearchResult(p)">
-            <span class="si-icon">{{ p.icon }}</span>
+            <img class="si-icon" :src="sceneMeta(p.sceneType).icon" alt="" />
             <div><div class="si-name">{{ p.name }}</div><div class="si-desc">{{ p.desc }}</div></div>
           </div>
         </div>
@@ -354,30 +387,17 @@ onUnmounted(() => {
         <div v-if="selectedNotice" class="notice-bar">{{ selectedNotice }}</div>
       </Transition>
 
-      <!-- 顶部工具栏：暗色切换 + 贴士 + 随机漫步 -->
+      <!-- 顶部工具栏 -->
       <div class="top-tools">
         <button class="tool-btn" @click="toggleDark" :title="isDark ? '日间模式' : '夜间模式'">
           {{ isDark ? '☀️' : '🌙' }}
         </button>
-        <button class="tool-btn" @click="tipsVisible = !tipsVisible" title="校园贴士">💡</button>
         <button class="tool-btn random-btn" @click="randomWalk" title="随机漫步">🎲</button>
       </div>
-
-      <!-- 校园贴士卡片 -->
-      <Transition name="fade">
-        <div v-if="tipsVisible" class="tips-card">
-          <div class="tips-title">📋 校园小贴士</div>
-          <div v-for="(t, i) in TIPS" :key="i" class="tips-row">
-            <span>{{ t.icon }} <b>{{ t.title }}</b></span>
-            <span>{{ t.text }}</span>
-          </div>
-        </div>
-      </Transition>
 
       <!-- 随机漫步弹窗 -->
       <Transition name="fade">
         <div v-if="randomPoi" class="random-modal">
-          <div class="random-icon">{{ randomPoi.icon }}</div>
           <div class="random-name">{{ randomPoi.name }}</div>
           <div class="random-desc">{{ randomPoi.desc }}</div>
           <div class="random-hint">去这里走走吧！</div>
@@ -387,21 +407,31 @@ onUnmounted(() => {
 
       <!-- ③ 底部快捷按钮 -->
       <div class="quick-bar">
-        <button v-for="p in POI_DATA" :key="p.id" class="quick-btn"
+        <button v-for="p in mapPlaces" :key="p.id" class="quick-btn"
           :class="{ active: activePoi?.id === p.id }" @click="flyTo(p)">
-          <span class="quick-icon">{{ p.icon }}</span>
+          <img class="quick-icon" :src="sceneMeta(p.sceneType).icon" alt="" />
           <span class="quick-label">{{ p.name }}</span>
         </button>
+        <span v-if="!placeLoading && !mapPlaces.length" class="quick-empty">暂无已设置位置的校园点位</span>
       </div>
 
       <!-- 选中点位详情面板 -->
       <Transition name="slide-up">
         <div v-if="activePoi" class="poi-panel">
           <div class="poi-header">
-            <span class="poi-name">{{ activePoi.icon }} {{ activePoi.name }}</span>
+            <span class="poi-name">{{ activePoi.name }}</span>
             <button class="poi-close" @click="activePoi = null">✕</button>
           </div>
+          <div class="poi-type">{{ activePoi.tag }}</div>
+          <img
+            v-if="activePoi.images?.length"
+            class="poi-cover"
+            :src="activePoi.images[0].imageUrl"
+            :alt="activePoi.name"
+            :style="{ objectPosition: `${activePoi.images[0].focusX ?? 50}% ${activePoi.images[0].focusY ?? 50}%` }"
+          />
           <div class="poi-desc">{{ activePoi.desc }}</div>
+          <div v-if="activePoi.locationDesc" class="poi-location">{{ activePoi.locationDesc }}</div>
 
           <!-- 打卡 -->
           <div class="poi-section">
@@ -410,14 +440,6 @@ onUnmounted(() => {
               立即打卡
             </button>
             <span v-else class="checkin-done">✅ 已打卡 {{ fmtTime(checkins[activePoi.id].time) }}</span>
-          </div>
-
-          <!-- 成就 -->
-          <div v-if="earnedBadges.length" class="poi-section">
-            <div class="section-label">🏆 已解锁成就</div>
-            <div class="badges">
-              <span v-for="b in earnedBadges" :key="b.id" class="badge">{{ b.icon }} {{ b.label }}</span>
-            </div>
           </div>
 
           <!-- 留言板 -->
@@ -545,6 +567,39 @@ onUnmounted(() => {
 }
 .map-fallback { color: #ef4444; }
 .map-fallback small { font-size: 13px; font-weight: 400; color: var(--text2); }
+.map-canvas :global(.real-map-marker) {
+  display: flex; width: 140px; height: 64px; align-items: center;
+  flex-direction: column; justify-content: flex-end; cursor: pointer;
+  transform-origin: 50% 100%; transition: transform .16s ease;
+}
+.map-canvas :global(.real-map-marker:hover) { transform: translateY(-2px) scale(1.05); }
+.map-canvas :global(.real-map-marker__title) {
+  overflow: hidden; max-width: 136px; margin-bottom: 3px; padding: 4px 9px;
+  border: 1px solid rgba(15,23,42,.1); border-radius: 5px;
+  color: #172033; background: rgba(255,255,255,.97);
+  box-shadow: 0 2px 8px rgba(15,23,42,.16); font-size: 13px;
+  font-weight: 600; line-height: 18px; text-overflow: ellipsis; white-space: nowrap;
+}
+.map-canvas :global(.real-map-marker__icon) {
+  display: block; width: 28px; height: 36px; filter: drop-shadow(0 3px 4px rgba(15,23,42,.22));
+}
+.map-canvas :global(.map-info-window) {
+  min-width: 190px; max-width: 260px; padding: 10px 14px;
+  color: #334155; font-family: system-ui, sans-serif;
+}
+.map-canvas :global(.map-info-window__heading) {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 5px;
+}
+.map-canvas :global(.map-info-window__heading strong) { color: #111827; font-size: 16px; }
+.map-canvas :global(.map-info-window__pin) {
+  width: 16px; height: 21px; flex: 0 0 auto;
+}
+.map-canvas :global(.map-info-window__type) {
+  display: block; margin-bottom: 5px; color: #3b82f6; font-size: 12px;
+}
+.map-canvas :global(.map-info-window p) {
+  margin: 0; color: #64748b; font-size: 13px; line-height: 1.5;
+}
 .spinner {
   width: 32px; height: 32px;
   border: 3px solid #bfdbfe; border-top-color: var(--primary);
@@ -583,7 +638,7 @@ onUnmounted(() => {
 }
 .search-item:hover { background: var(--primary-light); }
 .search-item + .search-item { border-top: 1px solid var(--border); }
-.si-icon { font-size: 20px; }
+.si-icon { width: 16px; height: 21px; flex: 0 0 auto; }
 .si-name { font-size: 14px; font-weight: 600; color: var(--text); }
 .si-desc { font-size: 12px; color: var(--text2); margin-top: 2px; }
 .notice-bar {
@@ -602,19 +657,6 @@ onUnmounted(() => {
   cursor: pointer; transition: transform .15s;
 }
 .tool-btn:hover { transform: scale(1.1); }
-
-/* ═══ 校园贴士 ═══ */
-.tips-card {
-  position: absolute; top: 64px; right: 16px; z-index: 12;
-  width: 280px; padding: 16px; background: var(--surface);
-  border-radius: 14px; box-shadow: 0 6px 24px var(--shadow);
-}
-.tips-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
-.tips-row {
-  display: flex; flex-direction: column; gap: 2px; padding: 8px 0;
-  border-top: 1px solid var(--border); font-size: 13px; color: var(--text2);
-}
-.tips-row b { color: var(--text); }
 
 /* ═══ 随机漫步 ═══ */
 .random-modal {
@@ -649,9 +691,10 @@ onUnmounted(() => {
 }
 .quick-btn:hover { background: var(--primary-light); }
 .quick-btn.active { background: var(--primary-light); }
-.quick-icon { font-size: 22px; line-height: 1; }
+.quick-icon { width: 16px; height: 21px; }
 .quick-label { font-size: 11px; font-weight: 600; color: var(--text2); }
 .quick-btn.active .quick-label { color: var(--primary); }
+.quick-empty { padding: 12px 18px; color: var(--text2); font-size: 13px; white-space: nowrap; }
 
 /* ═══ 点位详情面板 ═══ */
 .poi-panel {
@@ -663,12 +706,20 @@ onUnmounted(() => {
 }
 .poi-header { display: flex; justify-content: space-between; align-items: center; }
 .poi-name { font-size: 18px; font-weight: 700; color: var(--text); }
+.poi-type { margin-top: 5px; color: var(--primary); font-size: 12px; }
+.poi-cover {
+  width: 100%; height: 150px; margin-top: 12px; border-radius: 10px;
+  object-fit: cover;
+}
 .poi-close {
   width: 28px; height: 28px; display: grid; place-items: center;
   border-radius: 50%; border: none; background: var(--primary-light);
   color: var(--text2); cursor: pointer; font-size: 14px;
 }
 .poi-desc { font-size: 13px; color: var(--text2); margin: 8px 0 12px; line-height: 1.5; }
+.poi-location {
+  margin-top: -4px; color: var(--text2); font-size: 12px; line-height: 1.5;
+}
 .poi-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .section-label { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
 .checkin-btn {
@@ -677,11 +728,6 @@ onUnmounted(() => {
 }
 .checkin-btn:hover { opacity: .85; }
 .checkin-done { font-size: 13px; color: #16a34a; font-weight: 600; }
-.badges { display: flex; flex-wrap: wrap; gap: 6px; }
-.badge {
-  padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;
-  background: var(--primary-light); color: var(--primary);
-}
 .board-list { max-height: 120px; overflow-y: auto; margin-bottom: 8px; }
 .board-msg {
   padding: 6px 0; font-size: 13px; border-bottom: 1px solid var(--border);
@@ -826,7 +872,6 @@ onUnmounted(() => {
   .quick-icon { font-size: 18px; } .quick-label { font-size: 10px; }
   .poi-panel { left: 8px; right: 8px; bottom: 70px; }
   .search-wrapper { width: calc(100% - 80px); }
-  .tips-card { right: 8px; width: calc(100% - 16px); max-width: 320px; }
   .random-modal { width: calc(100% - 48px); padding: 20px; }
 }
 </style>
