@@ -658,7 +658,7 @@ export default {
   min-height: 0;
   width: 100%;
   height: 0;
-  padding: 18rpx 18rpx 26rpx;
+  padding: 18rpx 18rpx 0;
   background: #F3F5F8;
   box-sizing: border-box;
   overflow-y: auto;
@@ -879,11 +879,11 @@ export default {
 .title-icon-edit::before {
   content: '';
   position: absolute;
-  left: 5rpx;
+  left: 6rpx;
   top: 8rpx;
-  width: 20rpx;
+  width: 18rpx;
   height: 20rpx;
-  border: 4rpx solid currentColor;
+  border: 3rpx solid currentColor;
   border-radius: 5rpx;
   box-sizing: border-box;
 }
@@ -891,10 +891,10 @@ export default {
 .title-icon-edit::after {
   content: '';
   position: absolute;
-  right: 4rpx;
-  top: 5rpx;
-  width: 17rpx;
-  height: 4rpx;
+  right: 5rpx;
+  top: 7rpx;
+  width: 18rpx;
+  height: 5rpx;
   border-radius: 999rpx;
   background: currentColor;
   transform: rotate(-45deg);
@@ -1946,7 +1946,7 @@ export default {
   margin-bottom: 0;
   padding: 16rpx 22rpx calc(22rpx + env(safe-area-inset-bottom));
   border-radius: 24rpx 24rpx 0 0;
-  box-shadow: 0 -8rpx 20rpx rgba(15, 23, 42, 0.055);
+  box-shadow: none;
 }
 
 .pbtn {
@@ -2155,6 +2155,6 @@ export default {
 }
 
 .bottom-spacer {
-  height: calc(34rpx + env(safe-area-inset-bottom));
+  height: 0;
 }
 </style>

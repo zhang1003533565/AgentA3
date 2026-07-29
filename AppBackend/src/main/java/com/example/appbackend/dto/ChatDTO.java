@@ -92,6 +92,8 @@ public class ChatDTO {
         private Long itemId;
         private Long buyerId;
         private Long sellerId;
+        private String buyerName;
+        private String sellerName;
         private String status;
         private String statusText;
         private String createTime;
