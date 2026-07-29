@@ -6,11 +6,11 @@ import {
   EyeOutlined,
   PlusOutlined,
   SendOutlined,
+  UploadOutlined,
 } from '@ant-design/icons'
 import {
   Button,
   Descriptions,
-  Drawer,
   Empty,
   Form,
   Input,
@@ -27,6 +27,7 @@ import {
   Tabs,
   Tag,
   Typography,
+  Upload,
 } from 'antd'
 import {
   createCampusCourse,
@@ -43,6 +44,8 @@ import {
   updateCampusCourseChapter,
 } from '../../api/campusCourse'
 import { getExamPaperList } from '../../api/examPaper'
+import { uploadImage } from '../../api/upload'
+import SidePanel from '../../components/SidePanel/SidePanel'
 import './CampusCourseManage.css'
 
 const { TextArea } = Input
@@ -51,12 +54,6 @@ const statusMeta = {
   PUBLISHED: { label: '已发布', color: 'green' },
   OFFLINE: { label: '已下架', color: 'orange' },
 }
-const audienceMeta = {
-  ALL: '全部学生',
-  CLASS: '指定班级',
-  STUDENT: '指定学生',
-}
-
 function CampusCourseManage() {
   const [courses, setCourses] = useState([])
   const [loading, setLoading] = useState(false)
@@ -74,6 +71,10 @@ function CampusCourseManage() {
   const [examForm] = Form.useForm()
   const [paperOptions, setPaperOptions] = useState([])
   const [submitting, setSubmitting] = useState(false)
+  const [coverUploading, setCoverUploading] = useState(false)
+  const [displayImageUploading, setDisplayImageUploading] = useState(false)
+  const coverUrl = Form.useWatch('coverUrl', courseForm)
+  const displayImageUrl = Form.useWatch('displayImageUrl', courseForm)
 
   const loadCourses = useCallback(async () => {
     setLoading(true)
@@ -112,11 +113,8 @@ function CampusCourseManage() {
     courseForm.resetFields()
     courseForm.setFieldsValue(course ? {
       ...course,
-      audienceValues: course.audienceValues || '',
     } : {
-      audienceType: 'ALL',
       sortOrder: 0,
-      estimatedHours: 32,
     })
     setCourseModalOpen(true)
   }
@@ -138,6 +136,50 @@ function CampusCourseManage() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const uploadCourseCover = async (file) => {
+    if (!file.type?.startsWith('image/')) {
+      message.warning('请选择图片文件')
+      return false
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      message.warning('课程封面不能超过 10MB')
+      return false
+    }
+    setCoverUploading(true)
+    try {
+      const url = await uploadImage(file)
+      courseForm.setFieldValue('coverUrl', url)
+      message.success('课程封面上传成功')
+    } catch (error) {
+      message.error(error?.message || '课程封面上传失败')
+    } finally {
+      setCoverUploading(false)
+    }
+    return false
+  }
+
+  const uploadCourseDisplayImage = async (file) => {
+    if (!file.type?.startsWith('image/')) {
+      message.warning('请选择图片文件')
+      return false
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      message.warning('App 展示图不能超过 10MB')
+      return false
+    }
+    setDisplayImageUploading(true)
+    try {
+      const url = await uploadImage(file)
+      courseForm.setFieldValue('displayImageUrl', url)
+      message.success('App 展示图上传成功')
+    } catch (error) {
+      message.error(error?.message || 'App 展示图上传失败')
+    } finally {
+      setDisplayImageUploading(false)
+    }
+    return false
   }
 
   const changeStatus = async (course, action) => {
@@ -237,16 +279,14 @@ function CampusCourseManage() {
       key: 'course',
       render: (_, record) => (
         <div className="course-name-cell">
-          <div className="course-cover-mini"><BookOutlined /></div>
+          <div className="course-cover-mini">
+            {record.coverUrl
+              ? <img src={record.coverUrl} alt={`${record.name}课程封面`} />
+              : <BookOutlined />}
+          </div>
           <div><strong>{record.name}</strong><span>{record.bookTitle}</span></div>
         </div>
       ),
-    },
-    { title: '学期', dataIndex: 'semester', width: 130, render: (value) => value || '未设置' },
-    {
-      title: '学习范围',
-      width: 130,
-      render: (_, record) => audienceMeta[record.audienceType] || record.audienceType,
     },
     {
       title: '内容',
@@ -360,14 +400,17 @@ function CampusCourseManage() {
         <Table rowKey="id" columns={columns} dataSource={filteredCourses} loading={loading} pagination={{ pageSize: 10 }} />
       </div>
 
-      <Modal
+      <SidePanel
         title={editingCourse ? '编辑课程' : '创建课程'}
         open={courseModalOpen}
-        onOk={saveCourse}
-        confirmLoading={submitting}
-        onCancel={() => setCourseModalOpen(false)}
+        onClose={() => setCourseModalOpen(false)}
         width={720}
-        okText="保存"
+        footer={(
+          <>
+            <Button onClick={() => setCourseModalOpen(false)}>取消</Button>
+            <Button type="primary" loading={submitting || coverUploading || displayImageUploading} onClick={saveCourse}>保存</Button>
+          </>
+        )}
       >
         <Form form={courseForm} layout="vertical" className="course-form">
           <div className="course-form-grid">
@@ -377,35 +420,74 @@ function CampusCourseManage() {
             <Form.Item name="bookTitle" label="课程书名称" rules={[{ required: true, message: '请输入课程书名称' }]}>
               <Input placeholder="例如：《Python程序设计基础》" maxLength={160} />
             </Form.Item>
-            <Form.Item name="semester" label="学期"><Input placeholder="例如：2026-2027-1" /></Form.Item>
-            <Form.Item name="estimatedHours" label="预计学时"><InputNumber min={1} max={10000} style={{ width: '100%' }} /></Form.Item>
-            <Form.Item name="audienceType" label="学习范围" rules={[{ required: true }]}>
-              <Select options={[
-                { value: 'ALL', label: '全部学生' },
-                { value: 'CLASS', label: '指定班级' },
-                { value: 'STUDENT', label: '指定学生' },
-              ]} />
-            </Form.Item>
             <Form.Item name="sortOrder" label="展示顺序"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item>
           </div>
-          <Form.Item noStyle shouldUpdate={(prev, next) => prev.audienceType !== next.audienceType}>
-            {({ getFieldValue }) => getFieldValue('audienceType') === 'ALL' ? null : (
-              <Form.Item
-                name="audienceValues"
-                label={getFieldValue('audienceType') === 'CLASS' ? '班级名称' : '学生账号/学号'}
-                rules={[{ required: true, message: '请填写学习范围' }]}
-                extra="支持使用逗号或换行分隔多个值"
+          <Form.Item name="coverUrl" hidden><Input /></Form.Item>
+          <Form.Item name="displayImageUrl" hidden><Input /></Form.Item>
+          <div className="course-image-fields">
+            <Form.Item label="课程封面">
+              <Upload
+                listType="picture-card"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                fileList={coverUrl ? [{
+                  uid: 'course-cover',
+                  name: '课程封面',
+                  status: 'done',
+                  url: coverUrl,
+                }] : []}
+                beforeUpload={uploadCourseCover}
+                onRemove={() => {
+                  courseForm.setFieldValue('coverUrl', '')
+                  return true
+                }}
+                showUploadList={{ showPreviewIcon: true, showRemoveIcon: true }}
+                disabled={coverUploading}
+                maxCount={1}
               >
-                <TextArea rows={2} placeholder={getFieldValue('audienceType') === 'CLASS' ? '例如：计231，计232' : '例如：20233090117'} />
-              </Form.Item>
-            )}
-          </Form.Item>
-          <Form.Item name="coverUrl" label="封面图片地址"><Input placeholder="可选，填写可访问的图片 URL" /></Form.Item>
+                {!coverUrl ? (
+                  <div className="course-cover-upload__trigger">
+                    <UploadOutlined />
+                    <span>{coverUploading ? '上传中' : '上传封面'}</span>
+                  </div>
+                ) : null}
+              </Upload>
+              <div className="course-cover-upload__tip">建议使用竖版书封，图片不超过 10MB。</div>
+            </Form.Item>
+            <Form.Item label="App 展示图">
+              <Upload
+                className="course-display-upload"
+                listType="picture-card"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                fileList={displayImageUrl ? [{
+                  uid: 'course-display-image',
+                  name: 'App 展示图',
+                  status: 'done',
+                  url: displayImageUrl,
+                }] : []}
+                beforeUpload={uploadCourseDisplayImage}
+                onRemove={() => {
+                  courseForm.setFieldValue('displayImageUrl', '')
+                  return true
+                }}
+                showUploadList={{ showPreviewIcon: true, showRemoveIcon: true }}
+                disabled={displayImageUploading}
+                maxCount={1}
+              >
+                {!displayImageUrl ? (
+                  <div className="course-cover-upload__trigger">
+                    <UploadOutlined />
+                    <span>{displayImageUploading ? '上传中' : '上传展示图'}</span>
+                  </div>
+                ) : null}
+              </Upload>
+              <div className="course-cover-upload__tip">建议使用 16:9 横图，App 课程页优先展示。</div>
+            </Form.Item>
+          </div>
           <Form.Item name="description" label="课程简介"><TextArea rows={4} maxLength={2000} showCount /></Form.Item>
         </Form>
-      </Modal>
+      </SidePanel>
 
-      <Drawer
+      <SidePanel
         title={detail ? `${detail.name} · 内容配置` : '课程内容配置'}
         width={820}
         open={detailOpen}
@@ -426,8 +508,6 @@ function CampusCourseManage() {
               <Descriptions column={2} size="small">
                 <Descriptions.Item label="课程书">{detail.bookTitle}</Descriptions.Item>
                 <Descriptions.Item label="负责人">{detail.ownerName}</Descriptions.Item>
-                <Descriptions.Item label="学习范围">{audienceMeta[detail.audienceType]}</Descriptions.Item>
-                <Descriptions.Item label="学期">{detail.semester || '未设置'}</Descriptions.Item>
               </Descriptions>
               <Progress percent={detail.chapterCount ? 100 : 0} showInfo={false} />
               <Typography.Text type="secondary">已配置 {detail.chapterCount} 个章节、{detail.examCount} 场考试</Typography.Text>
@@ -438,7 +518,7 @@ function CampusCourseManage() {
             ]} />
           </>
         )}
-      </Drawer>
+      </SidePanel>
 
       <Modal
         title={editingChapter ? '编辑章节' : '添加章节'}

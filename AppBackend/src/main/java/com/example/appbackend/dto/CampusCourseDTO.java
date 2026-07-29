@@ -21,13 +21,8 @@ public final class CampusCourseDTO {
         @NotBlank
         private String bookTitle;
         private String coverUrl;
+        private String displayImageUrl;
         private String description;
-        private String semester;
-        @Min(1)
-        @Max(10000)
-        private Integer estimatedHours;
-        private String audienceType = "ALL";
-        private String audienceValues;
         private Integer sortOrder = 0;
     }
 
@@ -67,6 +62,7 @@ public final class CampusCourseDTO {
         private String name;
         private String bookTitle;
         private String coverUrl;
+        private String displayImageUrl;
         private String description;
         private String semester;
         private Integer estimatedHours;

@@ -86,7 +86,10 @@
           </view>
           <view v-else class="tools-grid">
             <view class="tool-item" v-for="tool in currentTools" :key="tool.courseId || tool.name" @tap="handleToolTap(tool)">
-              <view class="icon-wrapper" :style="{ '--light-color': tool.lightColor, '--theme-color': tool.themeColor }">
+              <view v-if="tool.courseId" class="course-cover-wrapper">
+                <image class="course-cover-image" :src="tool.icon" mode="aspectFill"></image>
+              </view>
+              <view v-else class="icon-wrapper" :style="{ '--light-color': tool.lightColor, '--theme-color': tool.themeColor }">
                 <view class="icon-inner">
                   <image class="tool-icon" :src="tool.icon" mode="aspectFit"></image>
                 </view>
@@ -104,7 +107,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { resolveAiToolDestination } from '@/subpackage_learning/aiToolRoutes.js'
 import { getCampusCourses } from '@/api/campusCourse.js'
@@ -113,7 +116,6 @@ import { getCampusCourses } from '@/api/campusCourse.js'
 const activeTab = ref(0)
 const campusCourses = ref([])
 const campusLoading = ref(false)
-const campusLoaded = ref(false)
 const campusError = ref('')
 
 // Tab 列表
@@ -187,7 +189,7 @@ const currentTools = computed(() => {
 // 方法：切换 Tab
 const switchTab = (index) => {
   activeTab.value = index
-  if (index === 2 && !campusLoaded.value) loadCampusCourses()
+  if (index === 2) loadCampusCourses()
 }
 
 const loadCampusCourses = async () => {
@@ -207,7 +209,6 @@ const loadCampusCourses = async () => {
       themeColor: index % 2 === 0 ? '#2563EB' : '#64748B',
       lightColor: index % 2 === 0 ? 'rgba(37, 99, 235, 0.25)' : 'rgba(100, 116, 139, 0.25)'
     }))
-    campusLoaded.value = true
   } catch (error) {
     campusCourses.value = []
     campusError.value = error?.msg || error?.message || '课程加载失败'
@@ -215,6 +216,10 @@ const loadCampusCourses = async () => {
     campusLoading.value = false
   }
 }
+
+onMounted(() => {
+  loadCampusCourses()
+})
 
 const goToSmartWriting = () => {
   handleToolTap({ name: '智能写作', desc: 'Deepseek赋能' })
@@ -276,6 +281,21 @@ const handleToolTap = (tool) => {
 
 .course-state-action {
   color: #2563eb;
+}
+
+.course-cover-wrapper {
+  width: 72rpx;
+  height: 92rpx;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 6rpx 12rpx 12rpx 6rpx;
+  background: #e8eef3;
+  box-shadow: inset 6rpx 0 rgba(82, 111, 136, 0.2), 0 5rpx 12rpx rgba(30, 41, 59, 0.12);
+}
+
+.course-cover-image {
+  width: 100%;
+  height: 100%;
 }
 
 /* ========== 1. 顶部三大核心卡片区 ========== */

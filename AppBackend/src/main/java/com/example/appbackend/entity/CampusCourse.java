@@ -32,6 +32,9 @@ public class CampusCourse {
     @Column(name = "cover_url", length = 500)
     private String coverUrl;
 
+    @Column(name = "display_image_url", length = 500)
+    private String displayImageUrl;
+
     @Column(length = 2000)
     private String description;
 

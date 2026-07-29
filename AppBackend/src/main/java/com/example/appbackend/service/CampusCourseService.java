@@ -230,6 +230,7 @@ public class CampusCourseService {
         view.setName(course.getName());
         view.setBookTitle(course.getBookTitle());
         view.setCoverUrl(course.getCoverUrl());
+        view.setDisplayImageUrl(course.getDisplayImageUrl());
         view.setDescription(course.getDescription());
         view.setSemester(course.getSemester());
         view.setEstimatedHours(course.getEstimatedHours());
@@ -294,21 +295,12 @@ public class CampusCourseService {
         course.setName(required(request.getName(), "课程名称", 120));
         course.setBookTitle(required(request.getBookTitle(), "课程书名称", 160));
         course.setCoverUrl(trim(request.getCoverUrl(), 500));
+        course.setDisplayImageUrl(trim(request.getDisplayImageUrl(), 500));
         course.setDescription(trim(request.getDescription(), 2000));
-        course.setSemester(trim(request.getSemester(), 40));
-        course.setEstimatedHours(request.getEstimatedHours());
-        String audienceType = firstNonBlank(request.getAudienceType(), CampusCourse.AUDIENCE_ALL)
-                .toUpperCase(Locale.ROOT);
-        if (!Set.of(CampusCourse.AUDIENCE_ALL, CampusCourse.AUDIENCE_CLASS,
-                CampusCourse.AUDIENCE_STUDENT).contains(audienceType)) {
-            throw new BusinessException(400, "学习范围类型不合法");
-        }
-        String audienceValues = normalizeAudience(request.getAudienceValues());
-        if (!CampusCourse.AUDIENCE_ALL.equals(audienceType) && audienceValues == null) {
-            throw new BusinessException(400, "请填写班级或学生范围");
-        }
-        course.setAudienceType(audienceType);
-        course.setAudienceValues(CampusCourse.AUDIENCE_ALL.equals(audienceType) ? null : audienceValues);
+        course.setSemester(null);
+        course.setEstimatedHours(null);
+        course.setAudienceType(CampusCourse.AUDIENCE_ALL);
+        course.setAudienceValues(null);
         course.setSortOrder(value(request.getSortOrder(), 0));
     }
 
@@ -358,6 +350,7 @@ public class CampusCourseService {
         target.setName(source.getName());
         target.setBookTitle(source.getBookTitle());
         target.setCoverUrl(source.getCoverUrl());
+        target.setDisplayImageUrl(source.getDisplayImageUrl());
         target.setDescription(source.getDescription());
         target.setSemester(source.getSemester());
         target.setEstimatedHours(source.getEstimatedHours());
@@ -374,16 +367,6 @@ public class CampusCourseService {
         target.setCurrentChapterTitle(source.getCurrentChapterTitle());
         target.setPublishTime(source.getPublishTime());
         target.setUpdateTime(source.getUpdateTime());
-    }
-
-    private String normalizeAudience(String text) {
-        if (text == null) return null;
-        String normalized = Arrays.stream(text.split("[,，;；\\n\\r]+"))
-                .map(String::trim)
-                .filter(item -> !item.isBlank())
-                .distinct()
-                .collect(java.util.stream.Collectors.joining(","));
-        return normalized.isBlank() ? null : normalized;
     }
 
     private String required(String text, String label, int max) {

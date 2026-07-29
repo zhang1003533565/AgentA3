@@ -78,12 +78,48 @@
   background: #edf3f8;
   color: #52708c;
   box-shadow: inset 3px 0 #cbd8e5;
+  overflow: hidden;
+}
+
+.course-cover-mini img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .course-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 18px;
+}
+
+.course-cover-upload__trigger {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  color: #64748b;
+}
+
+.course-cover-upload__trigger span,
+.course-cover-upload__tip {
+  font-size: 12px;
+}
+
+.course-image-fields {
+  display: grid;
+  grid-template-columns: 180px minmax(280px, 1fr);
+  gap: 24px;
+}
+
+.course-display-upload .ant-upload-list-item-container,
+.course-display-upload .ant-upload-select {
+  width: 240px !important;
+  height: 135px !important;
+}
+
+.course-cover-upload__tip {
+  margin-top: 8px;
+  color: #98a2b3;
 }
 
 .course-detail-summary {
@@ -132,6 +168,10 @@
   }
 
   .course-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .course-image-fields {
     grid-template-columns: 1fr;
   }
 }
