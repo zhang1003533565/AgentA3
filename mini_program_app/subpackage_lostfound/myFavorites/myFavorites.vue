@@ -2,10 +2,23 @@
   <view class="page-root">
     <view class="container">
       <common-page-header title="我的收藏" :fixed="true" :placeholder="true" :showBack="true" />
-      <scroll-view scroll-y class="page-body" refresher-enabled :refresher-triggered="refreshing" @refresherrefresh="refresh">
+      <scroll-view
+        scroll-y
+        class="page-body"
+        :class="{ 'is-empty': !loading && items.length === 0 }"
+        refresher-enabled
+        :refresher-triggered="refreshing"
+        @refresherrefresh="refresh"
+      >
         <view v-if="!loading && items.length === 0" class="empty">
-          <view class="empty-icon">☆</view>
+          <image
+            class="empty-illustration"
+            src="/static/illustrations/market-empty-favorites.svg"
+            mode="aspectFit"
+          />
           <view class="empty-title">还没有收藏商品</view>
+          <view class="empty-desc">遇到喜欢的商品，记得点击收藏哦</view>
+          <button class="empty-action" hover-class="empty-action-hover" @click="goBrowse">去逛逛</button>
         </view>
         <view v-for="item in items" :key="item.id" class="item-card" @click="goDetail(item.id)">
           <image v-if="item.images.length" class="cover" :src="item.images[0]" mode="aspectFill" />
@@ -56,18 +69,61 @@ export default {
     },
     priceText(value) { const price = Number(value); return Number.isFinite(price) ? price.toFixed(price % 1 === 0 ? 0 : 2) : '--' },
     emoji(id) { return EMOJIS[(Number(id) || 0) % EMOJIS.length] },
-    goDetail(id) { uni.navigateTo({ url: `/subpackage_lostfound/lostfoundDetail/lostfoundDetail?id=${id}` }) }
+    goDetail(id) { uni.navigateTo({ url: `/subpackage_lostfound/lostfoundDetail/lostfoundDetail?id=${id}` }) },
+    goBrowse() {
+      uni.redirectTo({ url: '/subpackage_lostfound/lostfoundList/lostfoundList' })
+    }
   }
 }
 </script>
 
 <style scoped>
-.page-root { min-height: 100vh; background: #f0f5fa; }
-.container { width: 100%; max-width: 430px; min-height: 100vh; margin: 0 auto; padding: 0 16rpx; box-sizing: border-box; background: #e8f0f8; }
+.page-root { min-height: 100vh; background: #f6fbff; }
+.container { width: 100%; max-width: 430px; min-height: 100vh; margin: 0 auto; padding: 0 16rpx; box-sizing: border-box; background: linear-gradient(180deg, #eaf6ff 0%, #f7fbff 280rpx, #f8fbff 100%); }
 .page-body { height: calc(100vh - 88rpx); padding: 24rpx 0; box-sizing: border-box; }
-.empty { padding: 160rpx 0; text-align: center; color: #8aa1b2; }
-.empty-icon { font-size: 72rpx; margin-bottom: 20rpx; }
-.empty-title { font-size: 28rpx; font-weight: 800; }
+.page-body.is-empty { padding: 0; }
+.empty {
+  min-height: calc(100vh - 88rpx);
+  padding: 280rpx 0 120rpx;
+  box-sizing: border-box;
+  text-align: center;
+  color: #8aa1b2;
+}
+.empty-illustration {
+  width: 430rpx;
+  height: 310rpx;
+  margin: 0 auto 42rpx;
+  display: block;
+}
+.empty-title {
+  color: #182230;
+  font-size: 44rpx;
+  font-weight: 900;
+  line-height: 1.25;
+}
+.empty-desc {
+  margin-top: 24rpx;
+  color: #9aa3ad;
+  font-size: 30rpx;
+  font-weight: 500;
+  line-height: 1.35;
+}
+.empty-action {
+  width: 260rpx;
+  height: 88rpx;
+  margin: 54rpx auto 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999rpx;
+  background: #5d93f2;
+  color: #ffffff;
+  font-size: 34rpx;
+  font-weight: 900;
+  line-height: 88rpx;
+  box-shadow: 0 16rpx 30rpx rgba(61, 126, 255, 0.18);
+}
+.empty-action::after { border: 0; }
+.empty-action-hover { opacity: 0.88; transform: translateY(2rpx); }
 .item-card { display: flex; gap: 20rpx; padding: 20rpx; margin-bottom: 18rpx; background: #fff; border-radius: 18rpx; box-shadow: 0 6rpx 18rpx rgba(43, 68, 94, 0.08); }
 .cover { width: 150rpx; height: 150rpx; border-radius: 14rpx; background: #edf4fa; flex-shrink: 0; }
 .placeholder { display: flex; align-items: center; justify-content: center; font-size: 48rpx; }

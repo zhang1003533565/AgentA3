@@ -1266,8 +1266,8 @@ export default {
 }
 
 .market-list-header ::v-deep .nav-placeholder {
-  background: linear-gradient(180deg, #dff0ff 0%, #eaf5ff 100%);
-  box-shadow: 0 1px 0 #eaf5ff;
+  background: transparent;
+  box-shadow: none;
 }
 
 .screen {

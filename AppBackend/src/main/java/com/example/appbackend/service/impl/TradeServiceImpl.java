@@ -226,6 +226,12 @@ public class TradeServiceImpl implements TradeService {
             vo.setItemTitle(tradeRecord.getItem().getTitle());
             vo.setItemPrice(tradeRecord.getItem().getPrice());
         }
+        if (tradeRecord.getBuyer() != null) {
+            vo.setBuyerName(tradeRecord.getBuyer().getUsername());
+        }
+        if (tradeRecord.getSeller() != null) {
+            vo.setSellerName(tradeRecord.getSeller().getUsername());
+        }
         if (tradeRecord.getBuyer() != null && Objects.equals(vo.getOtherUserId(), tradeRecord.getBuyerId())) {
             vo.setOtherUsername(tradeRecord.getBuyer().getUsername());
             vo.setOtherAvatar(tradeRecord.getBuyer().getAvatar());
