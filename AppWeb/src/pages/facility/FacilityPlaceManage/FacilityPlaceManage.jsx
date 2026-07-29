@@ -43,9 +43,11 @@ import {
   saveFloorPlan,
   saveIndoorPosition,
   saveMapPlaceFence,
+  updateMapPlaceImage,
   updateMapPlace,
 } from '../../../api/mapPlace'
 import { MAP_BUILDING_UPLOAD_FOLDER, uploadImage } from '../../../api/upload'
+import SidePanel from '../../../components/SidePanel/SidePanel'
 import './FacilityPlaceManage.css'
 
 const SCENE_CONFIG = {
@@ -139,6 +141,8 @@ const normalizeFileList = (images = []) =>
     status: 'done',
     url: item.imageUrl,
     imageId: item.id,
+    focusX: item.focusX ?? 50,
+    focusY: item.focusY ?? 50,
   }))
 
 function CanteenCarousel({ images = [] }) {
@@ -168,6 +172,7 @@ function CanteenCarousel({ images = [] }) {
           src={image.imageUrl}
           alt="食堂"
           className={index === currentIndex % images.length ? 'active' : ''}
+          style={{ objectPosition: `${image.focusX ?? 50}% ${image.focusY ?? 50}%` }}
         />
       ))}
       {images.length > 1 ? (
@@ -197,6 +202,7 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
   const [editing, setEditing] = useState(null)
   const [parent, setParent] = useState(null)
   const [fileList, setFileList] = useState([])
+  const [previewImageUid, setPreviewImageUid] = useState(null)
   const [planOpen, setPlanOpen] = useState(false)
   const [planFloor, setPlanFloor] = useState(null)
   const [plan, setPlan] = useState(null)
@@ -277,6 +283,7 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
     setEditing(null)
     setParent(parentPlace)
     setFileList([])
+    setPreviewImageUid(null)
     const allowed = getAllowedChildTypes(sceneType, parentPlace)
     form.resetFields()
     form.setFieldsValue({
@@ -297,7 +304,9 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
       const detail = response.data
       setEditing(detail)
       setParent(flatPlaces.find((item) => item.id === detail.parentId) || null)
-      setFileList(normalizeFileList(detail.images))
+      const normalizedImages = normalizeFileList(detail.images)
+      setFileList(normalizedImages)
+      setPreviewImageUid(normalizedImages[0]?.uid || null)
       form.resetFields()
       form.setFieldsValue({
         ...detail,
@@ -317,28 +326,45 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
       [...previousIds].filter((id) => !retainedIds.has(id)).map((id) => deleteMapPlaceImage(id)),
     )
     const newFiles = fileList.filter((item) => !item.imageId && item.url)
-    await Promise.all(
-      newFiles.map((item, index) =>
-        addMapPlaceImage(placeId, { imageUrl: item.url, sortOrder: index }),
+    const retainedFiles = fileList.filter((item) => item.imageId)
+    await Promise.all([
+      ...retainedFiles.map((item, index) =>
+        updateMapPlaceImage(item.imageId, {
+          imageUrl: item.url,
+          sortOrder: index,
+          focusX: item.focusX ?? 50,
+          focusY: item.focusY ?? 50,
+        }),
       ),
-    )
+      ...newFiles.map((item, index) =>
+        addMapPlaceImage(placeId, {
+          imageUrl: item.url,
+          sortOrder: retainedFiles.length + index,
+          focusX: item.focusX ?? 50,
+          focusY: item.focusY ?? 50,
+        }),
+      ),
+    ])
   }
 
   const savePlace = async () => {
     const values = await form.validateFields()
+    const usesSeparateLocationPanel = sceneType === 'CANTEEN' && !rootPlaceId
     setSaving(true)
     try {
       const payload = {
         parentId: editing ? (editing.parentId ?? null) : (parent?.id ?? null),
         sceneType,
-        placeType: values.placeType,
+        placeType: values.placeType || editing?.placeType || getAllowedChildTypes(sceneType, parent)[0],
         name: values.name,
         description: values.description || '',
         status: values.status,
-        longitude: values.longitude ?? null,
-        latitude: values.latitude ?? null,
-        locationDesc: values.locationDesc || '',
-        mapVisible: Boolean(values.mapVisible),
+        longitude: usesSeparateLocationPanel ? (editing?.longitude ?? null) : (values.longitude ?? null),
+        latitude: usesSeparateLocationPanel ? (editing?.latitude ?? null) : (values.latitude ?? null),
+        locationDesc: usesSeparateLocationPanel ? (editing?.locationDesc || '') : (values.locationDesc || ''),
+        mapVisible: usesSeparateLocationPanel
+          ? (editing ? Boolean(editing.mapVisible) : true)
+          : Boolean(values.mapVisible),
         sortOrder: values.sortOrder || 0,
       }
       const response = editing
@@ -346,12 +372,12 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
         : await createMapPlace(payload)
       const placeId = response.data.id
       await syncImages(placeId)
-      if (values.geometryData?.trim()) {
+      if (!usesSeparateLocationPanel && values.geometryData?.trim()) {
         await saveMapPlaceFence(placeId, {
           geometryType: values.geometryType,
           geometryData: values.geometryData.trim(),
         })
-      } else if (editing?.fence) {
+      } else if (!usesSeparateLocationPanel && editing?.fence) {
         await deleteMapPlaceFence(placeId)
       }
       message.success(editing ? '点位已更新' : '点位已创建')
@@ -371,19 +397,48 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
   const uploadFile = async (file) => {
     try {
       const url = await uploadImage(file, MAP_BUILDING_UPLOAD_FOLDER)
+      const uid = `new-${Date.now()}`
       setFileList((previous) => [
         ...previous,
         {
-          uid: `new-${Date.now()}`,
+          uid,
           name: file.name,
           status: 'done',
           url,
+          focusX: 50,
+          focusY: 50,
         },
       ])
+      setPreviewImageUid(uid)
     } catch (error) {
       message.error(error?.message || '图片上传失败')
     }
     return false
+  }
+
+  const previewImage = fileList.find((item) => item.uid === previewImageUid) || null
+
+  const updatePreviewFocus = (event) => {
+    if (!previewImage || (event.type === 'pointermove' && event.buttons !== 1)) return
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const focusX = Math.round(Math.max(0, Math.min(100, ((event.clientX - bounds.left) / bounds.width) * 100)))
+    const focusY = Math.round(Math.max(0, Math.min(100, ((event.clientY - bounds.top) / bounds.height) * 100)))
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    setFileList((previous) => previous.map((item) =>
+      item.uid === previewImage.uid ? { ...item, focusX, focusY } : item,
+    ))
+  }
+
+  const resetPreviewFocus = () => {
+    if (!previewImage) return
+    setFileList((previous) => previous.map((item) =>
+      item.uid === previewImage.uid ? { ...item, focusX: 50, focusY: 50 } : item,
+    ))
+  }
+
+  const removeImageFile = (file) => {
+    setFileList((previous) => previous.filter((item) => item.uid !== file.uid))
+    if (previewImageUid === file.uid) setPreviewImageUid(null)
   }
 
   const openPlan = async (floor) => {
@@ -637,19 +692,19 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
                       <h2>{canteen.name}</h2>
                       <p>{canteen.description || '暂无食堂介绍'}</p>
                       <div className="facility-canteen-tags">
-                        <Tag>{canteen.locationDesc || '未填写位置'}</Tag>
                         <Tag color={canteen.status === 'ENABLED' ? 'success' : 'default'}>
                           {canteen.status === 'ENABLED' ? '启用' : '停用'}
                         </Tag>
                       </div>
-                      <div className="facility-canteen-details">
+                      <div className={`facility-canteen-location${hasLocation ? ' is-set' : ' is-unset'}`}>
+                        <EnvironmentOutlined />
                         <div>
-                          <span>点位编号</span>
-                          <strong>#{canteen.id}</strong>
-                        </div>
-                        <div>
-                          <span>地图位置</span>
-                          <strong>{hasLocation ? '已设置' : '未设置'}</strong>
+                          <strong>{hasLocation ? '位置已设置' : '位置尚未设置'}</strong>
+                          <span>
+                            {hasLocation
+                              ? (canteen.locationDesc || '已在标点管理中设置')
+                              : '请点击“位置管理”补充食堂所在位置'}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -660,6 +715,12 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
                         onClick={() => navigate(`/facility/canteen/${canteen.id}/stalls`)}
                       >
                         进入档口
+                      </Button>
+                      <Button
+                        icon={<EnvironmentOutlined />}
+                        onClick={() => navigate(`/facility/marker?mapPlaceId=${canteen.id}`)}
+                      >
+                        位置管理
                       </Button>
                       <Button icon={<EditOutlined />} onClick={() => openEdit(canteen)}>
                         编辑
@@ -697,29 +758,40 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
         </Card>
       )}
 
-      <Modal
-        width={760}
+      <SidePanel
         title={editing ? '编辑点位' : parent ? `在“${parent.name}”下新增` : '新增顶级设施'}
         open={editorOpen}
-        confirmLoading={saving}
-        onCancel={() => setEditorOpen(false)}
-        onOk={savePlace}
-        forceRender
+        onClose={() => setEditorOpen(false)}
+        destroyOnHidden
+        footer={(
+          <>
+            <Button onClick={() => setEditorOpen(false)}>取消</Button>
+            <Button type="primary" loading={saving} onClick={savePlace}>保存</Button>
+          </>
+        )}
       >
         <Form form={form} layout="vertical">
-          <div className="place-form-grid">
+          {isCanteenOverview ? (
             <Form.Item name="name" label="点位名称" rules={[{ required: true, message: '请输入点位名称' }]}>
               <Input />
             </Form.Item>
-            <Form.Item name="placeType" label="点位类型" rules={[{ required: true }]}>
-              <Select
-                disabled={Boolean(editing)}
-                options={getAllowedChildTypes(sceneType, parent).map((value) => ({
-                  value,
-                  label: TYPE_LABELS[value] || value,
-                }))}
-              />
-            </Form.Item>
+          ) : (
+            <div className="place-form-grid">
+              <Form.Item name="name" label="点位名称" rules={[{ required: true, message: '请输入点位名称' }]}>
+                <Input />
+              </Form.Item>
+              <Form.Item name="placeType" label="点位类型" rules={[{ required: true }]}>
+                <Select
+                  disabled={Boolean(editing)}
+                  options={getAllowedChildTypes(sceneType, parent).map((value) => ({
+                    value,
+                    label: TYPE_LABELS[value] || value,
+                  }))}
+                />
+              </Form.Item>
+            </div>
+          )}
+          <div className="place-form-grid">
             <Form.Item name="status" label="状态">
               <Select options={STATUS_OPTIONS} />
             </Form.Item>
@@ -730,47 +802,91 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={2} />
           </Form.Item>
-          <Form.Item name="locationDesc" label="位置说明">
-            <Input placeholder="例如：东区体育馆北侧" />
-          </Form.Item>
-          <div className="place-form-grid">
-            <Form.Item name="longitude" label="经度">
-              <InputNumber min={-180} max={180} precision={7} style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="latitude" label="纬度">
-              <InputNumber min={-90} max={90} precision={7} style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="mapVisible" label="室外地图显示" valuePropName="checked">
-              <Switch />
-            </Form.Item>
-          </div>
+          {!isCanteenOverview ? (
+            <>
+              <Form.Item name="locationDesc" label="位置说明">
+                <Input placeholder="例如：东区体育馆北侧" />
+              </Form.Item>
+              <div className="place-form-grid">
+                <Form.Item name="longitude" label="经度">
+                  <InputNumber min={-180} max={180} precision={7} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="latitude" label="纬度">
+                  <InputNumber min={-90} max={90} precision={7} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="mapVisible" label="室外地图显示" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+              </div>
+            </>
+          ) : null}
           <Form.Item label="图片">
             <Upload
               listType="picture-card"
               fileList={fileList}
               beforeUpload={uploadFile}
-              onRemove={(file) => setFileList((previous) => previous.filter((item) => item.uid !== file.uid))}
+              onPreview={(file) => setPreviewImageUid(file.uid)}
+              onRemove={removeImageFile}
             >
               <div><UploadOutlined /><div>上传</div></div>
             </Upload>
+            {isCanteenOverview ? (
+              <div className="facility-image-preview-tip">
+                点击已上传图片，可调整它在食堂卡片中的展示位置。
+              </div>
+            ) : null}
           </Form.Item>
-          <div className="place-form-grid">
-            <Form.Item name="geometryType" label="户外围栏类型">
-              <Select options={[
-                { value: 'POLYGON', label: '区域 Polygon' },
-                { value: 'LINESTRING', label: '路线 LineString' },
-              ]} />
-            </Form.Item>
-          </div>
-          <Form.Item
-            name="geometryData"
-            label="围栏 GeoJSON"
-            extra="可留空；坐标顺序统一为 [经度, 纬度]。"
-          >
-            <Input.TextArea rows={5} placeholder='{"type":"Polygon","coordinates":[...]}' />
-          </Form.Item>
+          {isCanteenOverview && previewImage ? (
+            <div className="facility-image-position-editor">
+              <div className="facility-image-position-editor__header">
+                <div>
+                  <strong>卡片展示预览</strong>
+                  <span>在图片上点击或拖动，选择希望重点展示的位置</span>
+                </div>
+                <Button size="small" onClick={resetPreviewFocus}>恢复居中</Button>
+              </div>
+              <div
+                className="facility-image-position-preview"
+                role="application"
+                aria-label="拖动设置图片展示位置"
+                onPointerDown={updatePreviewFocus}
+                onPointerMove={updatePreviewFocus}
+              >
+                <img
+                  src={previewImage.url}
+                  alt="食堂卡片展示预览"
+                  draggable={false}
+                  style={{ objectPosition: `${previewImage.focusX ?? 50}% ${previewImage.focusY ?? 50}%` }}
+                />
+                <span
+                  className="facility-image-focus-point"
+                  style={{ left: `${previewImage.focusX ?? 50}%`, top: `${previewImage.focusY ?? 50}%` }}
+                />
+              </div>
+              <p>保存后，食堂卡片会按照当前预览位置裁切图片；原图文件不会被修改。</p>
+            </div>
+          ) : null}
+          {!isCanteenOverview ? (
+            <>
+              <div className="place-form-grid">
+                <Form.Item name="geometryType" label="户外围栏类型">
+                  <Select options={[
+                    { value: 'POLYGON', label: '区域 Polygon' },
+                    { value: 'LINESTRING', label: '路线 LineString' },
+                  ]} />
+                </Form.Item>
+              </div>
+              <Form.Item
+                name="geometryData"
+                label="围栏 GeoJSON"
+                extra="可留空；坐标顺序统一为 [经度, 纬度]。"
+              >
+                <Input.TextArea rows={5} placeholder='{"type":"Polygon","coordinates":[...]}' />
+              </Form.Item>
+            </>
+          ) : null}
         </Form>
-      </Modal>
+      </SidePanel>
 
       <Modal
         title={`楼层平面图 · ${planFloor?.name || ''}`}

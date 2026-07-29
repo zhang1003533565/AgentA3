@@ -6,8 +6,14 @@ import {
   UndoOutlined, WarningOutlined,
 } from '@ant-design/icons'
 import { useSearchParams } from 'react-router-dom'
-import { getMarkerList } from '../../../api/map'
-import { updateFacility as apiUpdateFacility, getFacilityTypes } from '../../../api/facility'
+import { getFacilityTypes } from '../../../api/facility'
+import {
+  deleteMapPlaceFence,
+  getMapPlaceDetail,
+  getMapPlaceList,
+  saveMapPlaceFence,
+  updateMapPlace,
+} from '../../../api/mapPlace'
 import { toFacilityTypeOptions, createFacilityTypeLabelGetter } from '../../../config/facilityType'
 import './MarkerManage.css'
 
@@ -105,6 +111,46 @@ const isMarkerUnlocated = (marker) => (
     : toNum(marker.longitude) == null || toNum(marker.latitude) == null
 )
 
+const parseMapPlaceBoundary = (fence) => {
+  if (!fence?.geometryData || fence.geometryType !== 'POLYGON') return []
+  try {
+    const geometry = typeof fence.geometryData === 'string'
+      ? JSON.parse(fence.geometryData)
+      : fence.geometryData
+    const points = Array.isArray(geometry?.coordinates?.[0]) ? geometry.coordinates[0] : []
+    const normalized = parseBoundaryPoints(points)
+    if (normalized.length > 1) {
+      const first = normalized[0]
+      const last = normalized[normalized.length - 1]
+      if (first[0] === last[0] && first[1] === last[1]) return normalized.slice(0, -1)
+    }
+    return normalized
+  } catch {
+    return []
+  }
+}
+
+const mapPlaceToMarker = (place) => ({
+  id: `map-place-${place.id}`,
+  mapPlaceId: place.id,
+  markerName: place.name,
+  facilityType: ({
+    CANTEEN: 1,
+    SPORTS: 2,
+    TEACHING: 3,
+    DORMITORY: 4,
+  })[place.sceneType] || 99,
+  facilityTypeName: place.placeType,
+  location: place.locationDesc || '',
+  description: place.description || '',
+  status: place.status === 'ENABLED' ? 1 : 3,
+  longitude: place.longitude,
+  latitude: place.latitude,
+  geometryType: place.fence?.geometryType === 'POLYGON' ? 'AREA' : 'POINT',
+  boundaryPoints: parseMapPlaceBoundary(place.fence),
+  rawPlace: place,
+})
+
 /* ---- 高德 ---- */
 let amapPromise = null
 const loadAmap = () => {
@@ -140,6 +186,9 @@ const amapPlugin = (name) => new Promise((rs, rj) => {
 export default function MarkerManage() {
   const [searchParams] = useSearchParams()
   const requestedFacilityIdRef = useRef(searchParams.get('facilityId'))
+  const mapPlaceIdParam = searchParams.get('mapPlaceId')
+  const requestedMapPlaceIdRef = useRef(mapPlaceIdParam)
+  const mapPlaceMode = Boolean(mapPlaceIdParam)
 
   /* ---- 数据 ---- */
   const [markers, setMarkers] = useState([])
@@ -154,6 +203,8 @@ export default function MarkerManage() {
   const mapRef = useRef(null)
   const hostRef = useRef(null)
   const ovsRef = useRef([])
+  const infoWindowRef = useRef(null)
+  const detailRequestRef = useRef(0)
 
   /* ---- 选择 & 编辑 ---- */
   const [selId, setSelId] = useState(null)
@@ -172,6 +223,10 @@ export default function MarkerManage() {
 
   /* ---- 图例 ---- */
   const [hiddenTypes, setHiddenTypes] = useState(new Set())
+
+  /* ---- 详情 ---- */
+  const [placeDetail, setPlaceDetail] = useState(null)
+  const [detailPosition, setDetailPosition] = useState(null)
 
   /* ---- 地图图层 ---- */
   const [satellite, setSatellite] = useState(false)
@@ -214,18 +269,38 @@ export default function MarkerManage() {
   /* ---- 加载 ---- */
   const refreshMarkers = useCallback(async () => {
     try {
-      const { data } = await getMarkerList({ page: 1, size: 500 })
-      const rows = (data?.records || []).map((m) => {
-        return {
-          ...m,
-          geometryType: m.geometryType === 'AREA' ? 'AREA' : 'POINT',
-          boundaryPoints: parseBoundaryPoints(m.boundaryPoints),
-          position: m.longitude && m.latitude ? `${m.longitude}, ${m.latitude}` : '-',
-        }
-      })
-      setMarkers(rows)
+      if (mapPlaceMode) {
+        const { data } = await getMapPlaceDetail(mapPlaceIdParam)
+        setMarkers(data ? [mapPlaceToMarker(data)] : [])
+        return
+      }
+      const { data } = await getMapPlaceList()
+      const rootPlaces = (Array.isArray(data) ? data : []).filter((place) => place.parentId == null)
+      const details = await Promise.all(rootPlaces.map((place) => getMapPlaceDetail(place.id)))
+      setMarkers(details.map((response) => mapPlaceToMarker(response.data)).filter(Boolean))
     } catch (e) { message.error(e?.message || '加载失败') }
-  }, [])
+  }, [mapPlaceIdParam, mapPlaceMode])
+
+  const openPlaceDetail = useCallback(async (marker) => {
+    if (!marker?.mapPlaceId) return
+    const point = [toNum(marker.longitude), toNum(marker.latitude)]
+    const position = point.every((value) => value != null)
+      ? point
+      : getBoundaryCenter(parseBoundaryPoints(marker.boundaryPoints))
+    if (!position) return
+    const requestId = detailRequestRef.current + 1
+    detailRequestRef.current = requestId
+    setSelId(marker.id)
+    setPlaceDetail(null)
+    setDetailPosition(position)
+    try {
+      const { data } = await getMapPlaceDetail(marker.mapPlaceId)
+      if (detailRequestRef.current === requestId) setPlaceDetail(data || null)
+    } catch (error) {
+      if (detailRequestRef.current === requestId) setDetailPosition(null)
+      message.error(error?.message || '加载点位详情失败')
+    }
+  }, [setDetailPosition, setPlaceDetail, setSelId])
 
   useEffect(() => {
     let cancelled = false
@@ -240,7 +315,16 @@ export default function MarkerManage() {
 
   /* ---- 地图生命周期 ---- */
   useEffect(() => { let c = false; loadAmap().then(() => { if (!c) { setAmapOk(true); setAmapErr('') } }).catch((e) => { if (!c) setAmapErr(e?.message || '加载失败') }); return () => { c = true } }, [])
-  useEffect(() => () => { if (mapRef.current) { try { mapRef.current.destroy() } catch {} mapRef.current = null } }, [])
+  useEffect(() => () => {
+    if (infoWindowRef.current) {
+      try { infoWindowRef.current.close() } catch {}
+      infoWindowRef.current = null
+    }
+    if (mapRef.current) {
+      try { mapRef.current.destroy() } catch {}
+      mapRef.current = null
+    }
+  }, [])
 
   const clearOvs = () => { ovsRef.current.forEach((o) => { try { o.setMap(null) } catch {} }); ovsRef.current = [] }
 
@@ -319,20 +403,45 @@ export default function MarkerManage() {
         polygon.on('click', () => {
           setSelId(m.id)
           if (typeof map.setFitView === 'function') map.setFitView([polygon], false, [80, 80, 80, 80], 18)
+          openPlaceDetail(m)
         })
         ovs.push(polygon)
-        return
       }
       const [l, a] = [toNum(m.longitude), toNum(m.latitude)]; if (l == null || a == null) return
       pointRows.push({ marker: m, lng: l, lat: a, meta, selected: sel })
     })
 
+    const createMarkerContent = (item) => {
+      const wrapper = document.createElement('div')
+      wrapper.className = `marker-map-place${item.selected ? ' marker-map-place--selected' : ''}`
+      wrapper.title = item.marker.markerName || ''
+
+      const label = document.createElement('span')
+      label.className = 'marker-map-place__label'
+      label.textContent = item.marker.markerName || '未命名点位'
+
+      const pin = document.createElement('span')
+      pin.className = 'marker-map-place__pin'
+      pin.style.setProperty('--marker-color', item.meta.color)
+
+      wrapper.append(label, pin)
+      return wrapper
+    }
+
     const addPointMarker = ({ marker: m, lng: l, lat: a, meta, selected: sel }) => {
-      const el = document.createElement('div')
-      el.className = `marker-custom-pin${sel ? ' marker-custom-pin--selected' : ''}`
-      el.style.background = meta.color; el.textContent = meta.short; el.title = m.markerName || ''
-      const mk = new window.AMap.Marker({ map, position: [l, a], content: el, offset: new window.AMap.Pixel(-13, -13), zIndex: sel ? 140 : 100 })
-      mk.on('click', () => { setSelId(m.id); map.setZoomAndCenter(Math.max(map.getZoom() || 16, 17), [l, a]) })
+      const item = { marker: m, lng: l, lat: a, meta, selected: sel }
+      const mk = new window.AMap.Marker({
+        map,
+        position: [l, a],
+        content: createMarkerContent(item),
+        offset: new window.AMap.Pixel(-70, -57),
+        zIndex: sel ? 140 : 100,
+        bubble: false,
+      })
+      mk.on('click', () => {
+        map.setZoomAndCenter(Math.max(map.getZoom() || 16, 17), [l, a])
+        openPlaceDetail(m)
+      })
       ovs.push(mk)
     }
     if (pointRows.length < 30) {
@@ -359,21 +468,23 @@ export default function MarkerManage() {
               const position = context.marker.getPosition?.()
               const key = `${toNum(position?.getLng?.() ?? position?.lng)},${toNum(position?.getLat?.() ?? position?.lat)}`
               const item = pointByPosition.get(key)
-              const node = document.createElement('div')
-              node.className = `marker-custom-pin${item?.selected ? ' marker-custom-pin--selected' : ''}`
-              node.style.background = item?.meta?.color || TYPE_META[99].color
-              node.textContent = item?.meta?.short || TYPE_META[99].short
-              node.title = item?.marker?.markerName || ''
+              const node = item
+                ? createMarkerContent(item)
+                : createMarkerContent({
+                  marker: { markerName: '未命名点位' },
+                  meta: TYPE_META[99],
+                  selected: false,
+                })
               context.marker.setContent(node)
-              context.marker.setOffset(new window.AMap.Pixel(-13, -13))
+              context.marker.setOffset(new window.AMap.Pixel(-70, -57))
               if (item && !context.marker.__markerManageBound) {
                 context.marker.__markerManageBound = true
                 context.marker.setExtData(item)
                 context.marker.on('click', () => {
                   const current = context.marker.getExtData()
                   if (!current) return
-                  setSelId(current.marker.id)
                   map.setZoomAndCenter(Math.max(map.getZoom() || 16, 17), [current.lng, current.lat])
+                  openPlaceDetail(current.marker)
                 })
               } else if (item) {
                 context.marker.setExtData(item)
@@ -529,7 +640,66 @@ export default function MarkerManage() {
 
     ovsRef.current = ovs
     return () => { cancelled = true; map.off('click', clickH); clearOvs() }
-  }, [amapOk, visMarkers, selId, editorOpen, draft, activePoi, fenceDrawing])
+  }, [amapOk, visMarkers, selId, editorOpen, draft, activePoi, fenceDrawing, openPlaceDetail])
+
+  useEffect(() => {
+    if (!amapOk || !mapRef.current || !placeDetail || !detailPosition) return
+
+    if (infoWindowRef.current) {
+      try { infoWindowRef.current.close() } catch {}
+    }
+
+    const content = document.createElement('article')
+    content.className = 'marker-place-info-window'
+
+    const closeButton = document.createElement('button')
+    closeButton.type = 'button'
+    closeButton.className = 'marker-place-info-window__close'
+    closeButton.setAttribute('aria-label', '关闭详情')
+    closeButton.textContent = '×'
+
+    const heading = document.createElement('div')
+    heading.className = 'marker-place-info-window__heading'
+    const icon = document.createElement('span')
+    icon.className = 'marker-place-info-window__icon'
+    icon.style.setProperty('--marker-color', tmeta(mapPlaceToMarker(placeDetail).facilityType).color)
+    const title = document.createElement('strong')
+    title.textContent = placeDetail.name || '未命名点位'
+    heading.append(icon, title)
+
+    const type = document.createElement('span')
+    type.className = 'marker-place-info-window__type'
+    type.textContent = placeDetail.placeType || '其他点位'
+
+    const description = document.createElement('p')
+    description.textContent = placeDetail.description || placeDetail.locationDesc || '暂无详细介绍'
+
+    content.append(closeButton, heading, type, description)
+
+    const infoWindow = new window.AMap.InfoWindow({
+      isCustom: true,
+      content,
+      offset: new window.AMap.Pixel(0, -46),
+      closeWhenClickMap: true,
+    })
+    const closeInfoWindow = () => {
+      infoWindow.close()
+      setPlaceDetail(null)
+      setDetailPosition(null)
+    }
+    closeButton.addEventListener('click', closeInfoWindow)
+    infoWindow.on('close', () => {
+      if (infoWindowRef.current === infoWindow) infoWindowRef.current = null
+    })
+    infoWindow.open(mapRef.current, detailPosition)
+    infoWindowRef.current = infoWindow
+
+    return () => {
+      closeButton.removeEventListener('click', closeInfoWindow)
+      try { infoWindow.close() } catch {}
+      if (infoWindowRef.current === infoWindow) infoWindowRef.current = null
+    }
+  }, [amapOk, detailPosition, placeDetail])
 
   useEffect(() => {
     if (!containerRef.current || typeof ResizeObserver === 'undefined') return
@@ -630,6 +800,17 @@ export default function MarkerManage() {
   }
 
   useEffect(() => {
+    const requestedMapPlaceId = requestedMapPlaceIdRef.current
+    if (requestedMapPlaceId && markers.length) {
+      const marker = markers.find((item) => String(item.mapPlaceId) === String(requestedMapPlaceId))
+      requestedMapPlaceIdRef.current = null
+      if (marker) {
+        openEdit(marker)
+      } else {
+        message.warning('未找到该点位')
+      }
+      return
+    }
     const requestedFacilityId = requestedFacilityIdRef.current
     if (!requestedFacilityId || !markers.length) return
     const marker = markers.find((item) => String(item.facilityId) === String(requestedFacilityId))
@@ -687,8 +868,36 @@ export default function MarkerManage() {
         geometryType: draft.geometryType,
         boundaryPoints: draft.geometryType === 'AREA' ? JSON.stringify(boundaryPoints) : '[]',
       }
-      if (!selMarker?.facilityId) throw new Error('设施数据不存在，无法保存位置')
-      await apiUpdateFacility(selMarker.facilityId, payload)
+      if (!selMarker?.mapPlaceId) throw new Error('新点位数据不存在，无法保存位置')
+      const place = selMarker.rawPlace
+      const locationDesc = activePoi
+        ? [activePoi.name, activePoi.address].filter(Boolean).join(' · ')
+        : (place.locationDesc || '')
+      await updateMapPlace(selMarker.mapPlaceId, {
+        parentId: place.parentId ?? null,
+        sceneType: place.sceneType,
+        placeType: place.placeType,
+        name: place.name,
+        description: place.description || '',
+        status: place.status,
+        longitude: payload.longitude,
+        latitude: payload.latitude,
+        locationDesc,
+        mapVisible: true,
+        sortOrder: place.sortOrder || 0,
+      })
+      if (draft.geometryType === 'AREA') {
+        const closedBoundary = [...boundaryPoints, boundaryPoints[0]]
+        await saveMapPlaceFence(selMarker.mapPlaceId, {
+          geometryType: 'POLYGON',
+          geometryData: JSON.stringify({
+            type: 'Polygon',
+            coordinates: [closedBoundary],
+          }),
+        })
+      } else if (place.fence) {
+        await deleteMapPlaceFence(selMarker.mapPlaceId)
+      }
       await refreshMarkers()
       closeEditor()
       message.success('位置已更新')

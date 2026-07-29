@@ -29,6 +29,9 @@ export const deleteMapPlace = (id) =>
 export const addMapPlaceImage = (placeId, data) =>
   request({ url: `/api/v1/map-places/${placeId}/images`, method: 'post', data })
 
+export const updateMapPlaceImage = (imageId, data) =>
+  request({ url: `/api/v1/map-places/images/${imageId}`, method: 'put', data })
+
 export const deleteMapPlaceImage = (imageId) =>
   request({ url: `/api/v1/map-places/images/${imageId}`, method: 'delete' })
 
