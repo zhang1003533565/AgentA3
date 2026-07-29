@@ -49,7 +49,13 @@
           </view>
           <view v-for="s in sessions" :key="s.id" class="session-card" @click="openChat(s)">
             <view class="sess-avatar">
-              <image v-if="s.otherAvatar" class="sess-avatar-img" :src="s.otherAvatar" mode="aspectFill" />
+              <image
+                v-if="s.otherAvatar"
+                class="sess-avatar-img"
+                :src="s.otherAvatar"
+                mode="aspectFill"
+                @error="handleSessionAvatarError(s)"
+              />
               <text v-else>{{ s.otherName ? s.otherName[0] : '用' }}</text>
             </view>
             <view class="sess-body">
@@ -80,35 +86,16 @@ import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vu
 import { getChatSessions, getTradeNotificationUnreadCount } from '@/api/secondhand'
 import { getEnabledAnnouncements } from '@/api/notice'
 import { getMessageState, refreshMessageState, subscribeMessageStore } from '@/utils/messageStore'
-
-function firstText(...values) {
-  for (const value of values) {
-    if (value === null || value === undefined) continue
-    const text = String(value).trim()
-    if (text) return text
-  }
-  return ''
-}
-
-function pickOtherAvatar(item = {}) {
-  return firstText(
-    item.otherAvatar,
-    item.otherAvatarUrl,
-    item.otherUserAvatar,
-    item.sellerAvatar,
-    item.buyerAvatar,
-    item.avatar,
-    item.avatarUrl
-  )
-}
+import { buildDefaultAvatar, pickOtherAvatar } from '@/subpackage_lostfound/utils/avatar.js'
 
 function normalizeSession(item) {
+  const otherName = item.otherUsername || item.sellerName || '用户'
   return {
     id: item.sessionId,
     itemId: item.itemId,
     itemTitle: item.itemTitle || '',
-    otherName: item.otherUsername || item.sellerName || '用户',
-    otherAvatar: pickOtherAvatar(item),
+    otherName,
+    otherAvatar: pickOtherAvatar(item) || buildDefaultAvatar({ username: otherName || 'chat-other' }),
     lastMsg: item.lastMessage || '',
     lastTime: item.lastTime || '',
     unread: item.unreadCount || 0
@@ -175,6 +162,9 @@ export default {
       if (Array.isArray(state.sessions)) {
         this.sessions = state.sessions.map(normalizeSession)
       }
+    },
+    handleSessionAvatarError(session) {
+      if (session) session.otherAvatar = ''
     },
     async loadSessions() {
       try {
