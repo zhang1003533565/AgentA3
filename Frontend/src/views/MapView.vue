@@ -37,6 +37,28 @@ const toCoordinate = (value) => {
   return Number.isFinite(coordinate) ? coordinate : null
 }
 
+const parseFence = (fence) => {
+  if (!fence?.geometryData) return null
+  try {
+    const geometry = typeof fence.geometryData === 'string'
+      ? JSON.parse(fence.geometryData)
+      : fence.geometryData
+    const geometryType = String(fence.geometryType || geometry?.type || '').toUpperCase()
+    const coordinates = geometryType === 'POLYGON'
+      ? geometry?.coordinates?.[0]
+      : geometry?.coordinates
+    if (!Array.isArray(coordinates)) return null
+    const path = coordinates
+      .map(point => [toCoordinate(point?.[0]), toCoordinate(point?.[1])])
+      .filter(point => point[0] !== null && point[1] !== null)
+    if (geometryType === 'POLYGON' && path.length >= 3) return { geometryType, path }
+    if (geometryType === 'LINESTRING' && path.length >= 2) return { geometryType, path }
+    return null
+  } catch {
+    return null
+  }
+}
+
 const toMapPoi = (place) => ({
   id: place.id,
   name: place.name || '未命名点位',
@@ -49,14 +71,24 @@ const toMapPoi = (place) => ({
   locationDesc: place.locationDesc || '',
   status: place.status,
   images: Array.isArray(place.images) ? place.images : [],
+  fence: parseFence(place.fence),
 })
 
 async function loadMapPlaces() {
   placeLoading.value = true
   try {
     const response = await getMapPlaceList({ status: 'ENABLED' })
-    mapPlaces.value = (Array.isArray(response?.data) ? response.data : [])
+    const places = (Array.isArray(response?.data) ? response.data : [])
       .filter(place => place.mapVisible !== false)
+    const detailResponses = await Promise.all(places.map(async place => {
+      try {
+        const detail = await getMapPlaceDetail(place.id)
+        return detail?.data || place
+      } catch {
+        return place
+      }
+    }))
+    mapPlaces.value = detailResponses
       .map(toMapPoi)
       .filter(place => Number.isFinite(place.lng) && Number.isFinite(place.lat))
   } catch (error) {
@@ -109,6 +141,7 @@ const mapReady = ref(false)
 const mapError = ref('')
 let mapInstance = null        /* AMap.Map 实例 */
 const markerMap = {}          /* poi.id → AMap.Marker 映射 */
+const mapOverlays = []
 let infoWindow = null         /* 全局信息窗 */
 
 function createInfoWindowContent(poi) {
@@ -187,6 +220,33 @@ async function initMap() {
     /* 为接口返回的真实点位添加标记 */
     mapPlaces.value.forEach(poi => {
       const meta = sceneMeta(poi.sceneType)
+      let fenceOverlay = null
+      if (poi.fence?.geometryType === 'POLYGON') {
+        fenceOverlay = new AMap.Polygon({
+          path: poi.fence.path,
+          strokeColor: meta.color,
+          strokeWeight: 3,
+          strokeOpacity: 0.95,
+          fillColor: meta.color,
+          fillOpacity: 0.2,
+          zIndex: 80,
+          bubble: false,
+        })
+      } else if (poi.fence?.geometryType === 'LINESTRING') {
+        fenceOverlay = new AMap.Polyline({
+          path: poi.fence.path,
+          strokeColor: meta.color,
+          strokeWeight: 4,
+          strokeOpacity: 0.95,
+          zIndex: 80,
+          bubble: false,
+        })
+      }
+      if (fenceOverlay) {
+        mapInstance.add(fenceOverlay)
+        mapOverlays.push(fenceOverlay)
+      }
+
       const markerContent = document.createElement('div')
       markerContent.className = 'real-map-marker'
       const markerTitle = document.createElement('span')
@@ -207,13 +267,18 @@ async function initMap() {
       marker.on('click', () => {
         selectPoi(poi, marker)
       })
+      fenceOverlay?.on('click', () => {
+        mapInstance.setZoomAndCenter(Math.max(mapInstance.getZoom() || MAP_ZOOM, MAP_ZOOM), [poi.lng, poi.lat])
+        selectPoi(poi, marker)
+      })
 
       markerMap[poi.id] = marker
       mapInstance.add(marker)
     })
 
     mapReady.value = true
-    if (mapPlaces.value.length > 1) mapInstance.setFitView(Object.values(markerMap), false, [80, 80, 100, 80], 18)
+    const visibleOverlays = [...mapOverlays, ...Object.values(markerMap)]
+    if (visibleOverlays.length > 1) mapInstance.setFitView(visibleOverlays, false, [80, 80, 100, 80], 18)
   } catch (err) {
     mapError.value = err.message || '地图初始化失败'
     console.error('[MapInit]', err)
@@ -339,6 +404,7 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   document.removeEventListener('click', onDocClick)
+  mapOverlays.splice(0, mapOverlays.length)
   if (mapInstance) { mapInstance.destroy(); mapInstance = null }
 })
 </script>
