@@ -177,6 +177,22 @@ public class MapPlaceServiceImpl implements MapPlaceService {
         image.setPlaceId(placeId);
         image.setImageUrl(request.getImageUrl().trim());
         image.setSortOrder(request.getSortOrder() == null ? 0 : request.getSortOrder());
+        image.setFocusX(normalizeFocus(request.getFocusX()));
+        image.setFocusY(normalizeFocus(request.getFocusY()));
+        return imageRepository.save(image);
+    }
+
+    @Override
+    public MapPlaceImage updateImage(Long imageId, MapPlaceImageRequest request) {
+        MapPlaceImage image = imageRepository.findById(imageId)
+                .orElseThrow(() -> new BusinessException(404, "图片不存在"));
+        if (request == null || request.getImageUrl() == null || request.getImageUrl().isBlank()) {
+            throw new BusinessException(400, "图片地址不能为空");
+        }
+        image.setImageUrl(request.getImageUrl().trim());
+        image.setSortOrder(request.getSortOrder() == null ? image.getSortOrder() : request.getSortOrder());
+        image.setFocusX(normalizeFocus(request.getFocusX()));
+        image.setFocusY(normalizeFocus(request.getFocusY()));
         return imageRepository.save(image);
     }
 
@@ -186,6 +202,10 @@ public class MapPlaceServiceImpl implements MapPlaceService {
             throw new BusinessException(404, "图片不存在");
         }
         imageRepository.deleteById(imageId);
+    }
+
+    private int normalizeFocus(Integer value) {
+        return value == null ? 50 : Math.max(0, Math.min(100, value));
     }
 
     @Override

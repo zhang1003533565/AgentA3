@@ -16,6 +16,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.util.Map;
 import java.util.Set;
@@ -47,6 +50,12 @@ public class UploadController {
     @Value("${tencent.cos.map-buildings-prefix:smart-campus/map-buildings}")
     private String mapBuildingsPrefix;
 
+    @Value("${file.upload-dir:uploads}")
+    private String localUploadDir;
+
+    @Value("${file.base-url:http://localhost:8080}")
+    private String fileBaseUrl;
+
     public UploadController(COSClient cosClient) {
         this.cosClient = cosClient;
     }
@@ -76,6 +85,10 @@ public class UploadController {
         } catch (IllegalArgumentException error) {
             return Result.badRequest(error.getMessage());
         }
+        if (!StringUtils.hasText(bucket) || !StringUtils.hasText(domain)) {
+            return saveLocally(file, objectKey);
+        }
+
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(file.getSize());
         metadata.setContentType(file.getContentType());
@@ -85,11 +98,26 @@ public class UploadController {
         } catch (Exception error) {
             return Result.error("腾讯云 COS 上传失败: " + error.getMessage());
         }
-
         String normalizedDomain = domain.endsWith("/") ? domain.substring(0, domain.length() - 1) : domain;
         String fileUrl = normalizedDomain + "/" + objectKey;
 
         return Result.success(Map.of("url", fileUrl));
+    }
+
+    private Result<Map<String, String>> saveLocally(MultipartFile file, String objectKey) throws IOException {
+        Path uploadRoot = Paths.get(localUploadDir).toAbsolutePath().normalize();
+        Path target = uploadRoot.resolve(objectKey).normalize();
+        if (!target.startsWith(uploadRoot)) {
+            return Result.badRequest("上传路径不合法");
+        }
+        Files.createDirectories(target.getParent());
+        file.transferTo(target);
+
+        String normalizedBaseUrl = StringUtils.hasText(fileBaseUrl)
+                ? fileBaseUrl.trim().replaceAll("/+$", "")
+                : "";
+        String normalizedObjectKey = objectKey.replace('\\', '/');
+        return Result.success(Map.of("url", normalizedBaseUrl + "/uploads/" + normalizedObjectKey));
     }
 
     private String buildObjectKey(String extension, String folder) {

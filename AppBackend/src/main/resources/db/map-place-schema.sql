@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS map_place_image (
     place_id BIGINT NOT NULL,
     image_url VARCHAR(500) NOT NULL,
     sort_order INT NOT NULL DEFAULT 0,
+    focus_x INT NOT NULL DEFAULT 50,
+    focus_y INT NOT NULL DEFAULT 50,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_map_place_image_place (place_id),
     CONSTRAINT fk_map_place_image_place FOREIGN KEY (place_id) REFERENCES map_place(id)

@@ -61,6 +61,12 @@ export const portalGroups = [
     ],
   },
   {
+    label: '课程学习',
+    items: [
+      { path: '/learning/courses', label: '校园课程管理', icon: 'book' },
+    ],
+  },
+  {
     label: '题库管理',
     items: [
       { path: QUESTION_BANK_ROUTES.questions, label: '题库', icon: 'appstore' },

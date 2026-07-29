@@ -891,6 +891,13 @@
 						"navigationStyle": "custom",
 						"enablePullDownRefresh": true
 					}
+				},
+				{
+					"path": "campusCourseDetail/campusCourseDetail",
+					"style": {
+						"navigationBarTitleText": "校园课程",
+						"navigationStyle": "custom"
+					}
 				}
 			]
 		}

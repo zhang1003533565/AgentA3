@@ -26,6 +26,7 @@ import SemesterManageView from '../views/SemesterManageView.vue'
 import ResumeView from '../views/ResumeView.vue'
 import ResumeDesigner from '../views/ResumeDesigner.vue'
 import ResumeWizard from '../views/ResumeWizard.vue'
+import CampusCourseView from '../views/CampusCourseView.vue'
 import { getToken } from '../utils/auth'
 
 const routes = [
@@ -37,6 +38,7 @@ const routes = [
   { path: '/meetings', name: 'meetings', component: MeetingsView },
   { path: '/ai', name: 'ai', component: AiAssistantView },
   { path: '/ai-tools', name: 'ai-tools', component: AiToolsView },
+  { path: '/courses/:courseId', name: 'campus-course', component: CampusCourseView },
   { path: '/mine', name: 'mine', component: MineView },
   { path: '/messages', name: 'messages', component: MessageView },
   { path: '/mine/messages', name: 'mine-messages', component: MineMessagesView },
