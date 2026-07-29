@@ -17,7 +17,11 @@ from app.models.schemas import (
     RagQueryResponse,
     RagTraceResponse,
 )
-from app.model_providers.multimodal import append_image_references_to_text, collect_request_image_references
+from app.model_providers.multimodal import (
+    append_attachment_references_to_text,
+    append_image_references_to_text,
+    collect_request_image_references,
+)
 from app.model_providers.runtime_config import build_llm_runtime_config, reset_active_llm_config, set_active_llm_config
 from app.multi_agents.catalog import (
     LEADER_CALLABLE_AGENT_ORDER,
@@ -1413,7 +1417,8 @@ def _requested_file_transform_plan(request: RagQueryRequest) -> Optional[LeaderP
 
 
 def _prepare_request_input(request: RagQueryRequest) -> str:
-    return append_image_references_to_text(request.input, collect_request_image_references(request))
+    with_images = append_image_references_to_text(request.input, collect_request_image_references(request))
+    return append_attachment_references_to_text(with_images, request.attachments)
 
 
 def _apply_conversation_context(request: RagQueryRequest, authorization: str) -> Dict[str, Any]:

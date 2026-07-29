@@ -70,10 +70,22 @@ public final class LearningPathDTO {
         private String activeResourceType;
         private Map<String, AssistantResourceDTO> resources;
         private Map<String, WorkflowError> errors;
+        private List<WorkflowTraceEvent> trace;
         private PathView path;
         private Long messageId;
         private LocalDateTime startedAt;
         private LocalDateTime updatedAt;
+    }
+
+    @Data
+    public static class WorkflowTraceEvent {
+        private Integer sequence;
+        private String eventName;
+        private String agentName;
+        private String resourceType;
+        private String status;
+        private String message;
+        private LocalDateTime occurredAt;
     }
 
     @Data

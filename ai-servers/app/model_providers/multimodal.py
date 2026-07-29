@@ -121,6 +121,30 @@ def append_image_references_to_text(input_text: str, image_urls: Iterable[str]) 
     return f"{input_text.rstrip()}\n\n" + "\n".join(lines)
 
 
+def append_attachment_references_to_text(input_text: str, attachments: Any) -> str:
+    """Expose non-image uploads to text-only agents without duplicating image inputs."""
+    if not isinstance(attachments, (list, tuple)):
+        return input_text
+    lines: List[str] = []
+    seen = set()
+    for raw in attachments[:MAX_IMAGE_REFERENCES]:
+        if not isinstance(raw, dict):
+            continue
+        kind = str(raw.get("type") or raw.get("kind") or "file").strip().lower()
+        mime_type = str(raw.get("mimeType") or raw.get("contentType") or "").strip().lower()
+        if kind == "image" or mime_type.startswith("image/"):
+            continue
+        url = str(raw.get("url") or raw.get("fileUrl") or raw.get("href") or "").strip()
+        name = str(raw.get("name") or raw.get("fileName") or raw.get("title") or "未命名资源").strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        lines.append(f"- {name}（{kind or 'file'}）：{url}")
+    if not lines:
+        return input_text
+    return f"{input_text.rstrip()}\n\n用户随本次提问上传的参考资源：\n" + "\n".join(lines)
+
+
 def build_multimodal_human_content(text: str) -> Any:
     cleaned_text, image_urls = extract_image_references(text)
     if not image_urls:

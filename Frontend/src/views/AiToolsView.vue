@@ -93,6 +93,25 @@ function selectTool(tool) {
     router.push(`/courses/${tool.courseId}`)
     return
   }
+  const routeByName = {
+    '智能写作': 'writing',
+    'AI对话': 'writing',
+    'AI伪原创': 'writing',
+    '文案提取': 'writing',
+    'AI玩图': 'image',
+    '试卷生成': 'exam',
+    'PPT生成': 'presentation',
+    'AIPPT': 'presentation',
+    '思维导图': 'mind_map',
+    '架构图': 'architecture',
+    '流程图': 'flowchart',
+    '复习资料': 'writing',
+  }
+  const target = routeByName[tool.name]
+  if (target) {
+    router.push(`/ai-studio/${target}`)
+    return
+  }
   selectedTool.value = tool
 }
 </script>

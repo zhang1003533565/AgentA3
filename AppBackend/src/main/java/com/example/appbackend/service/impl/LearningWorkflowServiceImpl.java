@@ -940,6 +940,7 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
         view.setMessageId(assistant.getId());
         view.setResources(restoredResources);
         view.setErrors(persistedErrors);
+        view.setTrace(restoreTrace(restored.getTrace()));
         view.setPath(restoredPath);
         view.setStartedAt(session.getCreateTime());
         view.setUpdatedAt(session.getUpdateTime());
@@ -1070,6 +1071,7 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
                                      String eventName,
                                      Map<String, Object> payload,
                                      int progress) {
+        appendTrace(view, eventName, payload);
         view.setStage(eventName);
         view.setProgress(progress);
         view.setStatus(switch (eventName) {
@@ -1098,6 +1100,7 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
                                           String eventName,
                                           Map<String, Object> payload,
                                           int progress) {
+        appendTrace(view, eventName, payload);
         view.setStatus("partial");
         view.setStage("agent_failed".equals(eventName) ? "retrying" : eventName);
         view.setProgress(progress);
@@ -1169,6 +1172,7 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
         view.setMessage("学习工作流已受理");
         view.setResources(new LinkedHashMap<>());
         view.setErrors(new LinkedHashMap<>());
+        view.setTrace(new ArrayList<>());
         view.setStartedAt(now);
         view.setUpdatedAt(now);
 
@@ -1182,6 +1186,51 @@ public class LearningWorkflowServiceImpl implements LearningWorkflowService {
         state.setContext(Map.of());
         stateStore.save(state);
         return state;
+    }
+
+    private List<LearningPathDTO.WorkflowTraceEvent> restoreTrace(
+            List<Map<String, Object>> rawTrace) {
+        List<LearningPathDTO.WorkflowTraceEvent> trace = new ArrayList<>();
+        for (Map<String, Object> raw : rawTrace == null ? List.<Map<String, Object>>of() : rawTrace) {
+            LearningPathDTO.WorkflowTraceEvent item = new LearningPathDTO.WorkflowTraceEvent();
+            item.setSequence(integer(raw.get("sequence"), trace.size() + 1));
+            item.setEventName(firstNonBlank(
+                    text(raw.get("eventName"), 64),
+                    text(raw.get("stage"), 64),
+                    "event"));
+            item.setAgentName(text(raw.get("agentName"), 80));
+            item.setResourceType(text(raw.get("resourceType"), 64));
+            item.setStatus(firstNonBlank(text(raw.get("status"), 32), "completed"));
+            item.setMessage(text(raw.get("message"), 1_000));
+            item.setOccurredAt(null);
+            trace.add(item);
+        }
+        return trace.size() > 100
+                ? new ArrayList<>(trace.subList(trace.size() - 100, trace.size()))
+                : trace;
+    }
+
+    private void appendTrace(LearningPathDTO.WorkflowView view,
+                             String eventName,
+                             Map<String, Object> payload) {
+        List<LearningPathDTO.WorkflowTraceEvent> trace = view.getTrace() == null
+                ? new ArrayList<>() : new ArrayList<>(view.getTrace());
+        LearningPathDTO.WorkflowTraceEvent item = new LearningPathDTO.WorkflowTraceEvent();
+        item.setSequence(trace.size() + 1);
+        item.setEventName(text(eventName, 64));
+        item.setAgentName(text(payload.get("agentName"), 80));
+        item.setResourceType(text(payload.get("resourceType"), 64));
+        item.setStatus(Set.of("error", "agent_failed", "generation_failed").contains(eventName)
+                ? "failed"
+                : Set.of("agent_done", "planning_done", "review_done",
+                        "packaging_done", "done", "completed").contains(eventName)
+                ? "completed" : "running");
+        item.setMessage(text(payload.get("message"), 1_000));
+        item.setOccurredAt(LocalDateTime.now());
+        trace.add(item);
+        view.setTrace(trace.size() > 100
+                ? new ArrayList<>(trace.subList(trace.size() - 100, trace.size()))
+                : trace);
     }
 
     private AiLeaderSession createWorkflowSession(Long userId, String workflowId, String topic) {

@@ -893,6 +893,14 @@
 					}
 				},
 				{
+					"path": "knowledgeGraph/knowledgeGraph",
+					"style": {
+						"navigationBarTitleText": "Python 知识图谱",
+						"navigationStyle": "custom",
+						"enablePullDownRefresh": true
+					}
+				},
+				{
 					"path": "campusCourseDetail/campusCourseDetail",
 					"style": {
 						"navigationBarTitleText": "校园课程",

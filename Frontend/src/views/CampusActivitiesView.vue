@@ -246,8 +246,9 @@ function getActivitiesForDay(day) {
     <main class="page">
       <div class="container">
         <div class="page-header">
-          <h2>校园活动</h2>
-          <p class="header-desc">探索精彩校园生活，参与有趣活动</p>
+          <div><h2>校园活动</h2>
+          <p class="header-desc">探索精彩校园生活，参与有趣活动</p></div>
+          <button class="publish-entry" type="button" @click="$router.push('/activities/publish')">发布活动</button>
         </div>
         
         <div class="filter-section">
@@ -418,6 +419,7 @@ function getActivitiesForDay(day) {
                   <span class="signup-deadline">截止: {{ formatDate(item.signupEndTime) }}</span>
                   <div class="card-actions">
                     <button class="action-btn" @click="handleShare(item, $event)">🔗</button>
+                    <button class="action-btn" @click.stop="$router.push(`/activities/${item.id}/sign-in`)">签到</button>
                     <button
                       v-if="getActivityStatus(item).text === '可报名'"
                       class="action-btn primary"
@@ -476,6 +478,7 @@ function getActivitiesForDay(day) {
                       {{ favorites.has(item.id) ? '❤️' : '🤍' }}
                     </button>
                     <button class="icon-btn" @click="handleShare(item, $event)">🔗</button>
+                    <button class="list-detail-btn" @click.stop="$router.push(`/activities/${item.id}/sign-in`)">签到</button>
                     <button class="list-detail-btn" @click.stop="handleCardClick(item.id)">
                       {{ getActivityStatus(item).text === '可报名' ? '立即报名' : '查看详情' }}
                     </button>
@@ -1297,5 +1300,16 @@ function getActivitiesForDay(day) {
   .day-activity {
     font-size: 10px;
   }
+}
+</style>
+
+<style scoped>
+.publish-entry {
+  min-height: 40px;
+  padding: 0 18px;
+  border-radius: 8px;
+  color: #fff;
+  background: #315f8c;
+  font-weight: 700;
 }
 </style>

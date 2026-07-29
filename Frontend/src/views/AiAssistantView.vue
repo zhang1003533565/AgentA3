@@ -3,6 +3,8 @@ import { computed, h, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppTabBar from '../components/AppTabBar.vue'
+import { queryLeaderAgent } from '../api/aiGeneration'
+import { AI_RESOURCE_ACCEPT, uploadAiResource } from '../api/upload'
 
 const IconLine = (props) => {
   const paths = {
@@ -94,6 +96,8 @@ const conversations = ref([
 const activeConversationId = ref(1)
 const chatDraft = ref('')
 const chatBusy = ref(false)
+const resourceInput = ref(null)
+const pendingResources = ref([])
 const onlineSearch = ref(true)
 const deepThinking = ref(false)
 const messageList = ref(null)
@@ -183,26 +187,97 @@ function switchConversation(id) {
   }]
 }
 
-function sendMessage(text = chatDraft.value) {
-  const value = text.trim()
-  if (!value || chatBusy.value) return
+function resourceEntry(file) {
+  return {
+    localId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    file,
+    name: file.name,
+    size: file.size,
+    status: 'uploading',
+    resource: null,
+    error: '',
+  }
+}
 
-  messages.value.push({ id: Date.now(), role: 'user', content: value })
+async function uploadEntry(entry) {
+  entry.status = 'uploading'
+  entry.error = ''
+  try {
+    entry.resource = await uploadAiResource(entry.file)
+    entry.status = 'success'
+  } catch (cause) {
+    entry.status = 'error'
+    entry.error = cause.message || '上传失败'
+  }
+}
+
+function chooseResources() {
+  resourceInput.value?.click()
+}
+
+function handleResourceSelect(event) {
+  const remaining = 8 - pendingResources.value.length
+  const files = Array.from(event.target.files || []).slice(0, Math.max(0, remaining))
+  if (!files.length) return
+  const entries = files.map(resourceEntry)
+  pendingResources.value.push(...entries)
+  entries.forEach((entry) => void uploadEntry(entry))
+  event.target.value = ''
+}
+
+function removeResource(localId) {
+  pendingResources.value = pendingResources.value.filter((item) => item.localId !== localId)
+}
+
+function formatFileSize(size) {
+  if (!size) return '0 KB'
+  return size >= 1024 * 1024
+    ? `${(size / 1024 / 1024).toFixed(1)} MB`
+    : `${Math.ceil(size / 1024)} KB`
+}
+
+async function sendMessage(text = chatDraft.value) {
+  const value = text.trim()
+  const uploading = pendingResources.value.some((item) => item.status === 'uploading')
+  const attachments = pendingResources.value
+    .filter((item) => item.status === 'success')
+    .map((item) => item.resource)
+  if ((!value && !attachments.length) || chatBusy.value || uploading) return
+
+  const requestText = value || '请分析我上传的资源'
+  messages.value.push({ id: Date.now(), role: 'user', content: requestText, attachments })
   const conversation = conversations.value.find((item) => item.id === activeConversationId.value)
-  if (conversation?.title === '新对话') conversation.title = value.slice(0, 18)
+  if (conversation?.title === '新对话') conversation.title = requestText.slice(0, 18)
   chatDraft.value = ''
+  pendingResources.value = []
   chatBusy.value = true
   void scrollMessages()
 
-  window.setTimeout(() => {
+  try {
+    const response = await queryLeaderAgent({
+      input: requestText,
+      attachments,
+      metadata: {
+        onlineSearch: onlineSearch.value,
+        deepThinking: deepThinking.value,
+        source: 'web_ai_assistant',
+      },
+    })
     messages.value.push({
       id: Date.now() + 1,
       role: 'assistant',
-      ...buildChatReply(value),
+      content: response?.answer || response?.content || 'AI 已处理本次请求。',
     })
+  } catch (cause) {
+    messages.value.push({
+      id: Date.now() + 1,
+      role: 'assistant',
+      content: cause.message || 'AI 请求失败，请稍后重试。',
+    })
+  } finally {
     chatBusy.value = false
     void scrollMessages()
-  }, deepThinking.value ? 1300 : 700)
+  }
 }
 
 function regenerate(message) {
@@ -804,6 +879,11 @@ function handleUpload(event) {
                 <div class="message-wrap">
                   <div class="message-bubble">
                     <p>{{ message.content }}</p>
+                    <div v-if="message.attachments?.length" class="message-attachments">
+                      <span v-for="item in message.attachments" :key="item.id || item.url">
+                        <IconLine name="file" :size="14" />{{ item.name }}
+                      </span>
+                    </div>
                     <pre v-if="message.code"><code>{{ message.code }}</code></pre>
                     <div v-if="message.table?.rows?.length" class="response-table">
                         <table>
@@ -836,6 +916,17 @@ function handleUpload(event) {
           </div>
 
           <div class="composer-zone">
+            <div v-if="pendingResources.length" class="upload-queue">
+              <div v-for="item in pendingResources" :key="item.localId" class="upload-item">
+                <IconLine name="file" :size="16" />
+                <span>
+                  <strong>{{ item.name }}</strong>
+                  <small>{{ formatFileSize(item.size) }} · {{ item.status === 'uploading' ? '上传中' : item.status === 'error' ? item.error : '已就绪' }}</small>
+                </span>
+                <button v-if="item.status === 'error'" type="button" @click="uploadEntry(item)">重试</button>
+                <button type="button" title="移除" @click="removeResource(item.localId)"><IconLine name="x" :size="15" /></button>
+              </div>
+            </div>
             <div class="composer-tools">
               <button :class="{ active: onlineSearch }" type="button" @click="onlineSearch = !onlineSearch">
                 <IconLine name="globe" :size="16" />联网搜索
@@ -847,6 +938,7 @@ function handleUpload(event) {
               </button>
             </div>
             <form class="chat-composer" @submit.prevent="sendMessage()">
+              <input ref="resourceInput" class="resource-input" type="file" multiple :accept="AI_RESOURCE_ACCEPT" @change="handleResourceSelect" />
               <textarea
                 v-model="chatDraft"
                 class="chat-input"
@@ -855,8 +947,9 @@ function handleUpload(event) {
                 @keydown.enter.exact.prevent="sendMessage()"
               ></textarea>
               <div class="composer-actions">
+                <button class="icon-button" type="button" title="上传资源" :disabled="pendingResources.length >= 8" @click="chooseResources"><IconLine name="plus" /></button>
                 <button class="icon-button" type="button" title="语音输入"><IconLine name="mic" /></button>
-                <button class="send-button" type="submit" :disabled="!chatDraft.trim() || chatBusy" title="发送">
+                <button class="send-button" type="submit" :disabled="(!chatDraft.trim() && !pendingResources.some(item => item.status === 'success')) || pendingResources.some(item => item.status === 'uploading') || chatBusy" title="发送">
                   <IconLine name="send" :size="19" />
                 </button>
               </div>
@@ -1430,6 +1523,16 @@ function handleUpload(event) {
 .mini-switch i { display: block; width: 10px; height: 10px; border-radius: 50%; background: #fff; transition: transform .2s ease; }
 .composer-tools button.active .mini-switch { background: #356c9f; }
 .composer-tools button.active .mini-switch i { transform: translateX(10px); }
+.resource-input { display: none; }
+.upload-queue { display: flex; width: min(860px, 100%); gap: 8px; margin: 0 auto 8px; overflow-x: auto; }
+.upload-item { display: flex; min-width: 210px; max-width: 280px; align-items: center; gap: 8px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.upload-item > span { min-width: 0; flex: 1; }
+.upload-item strong, .upload-item small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-item strong { font-size: 12px; }
+.upload-item small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.upload-item > button { color: var(--primary); background: transparent; font-size: 11px; }
+.message-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.message-attachments span { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; font-size: 11px; }
 .chat-composer {
   display: flex;
   width: min(860px, 100%);
