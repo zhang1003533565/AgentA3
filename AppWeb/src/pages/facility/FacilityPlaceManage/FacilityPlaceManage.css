@@ -24,6 +24,12 @@
   color: #64748b;
 }
 
+.facility-place-back {
+  height: auto;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
 .facility-place-card {
   border: 1px solid #e4e9f0;
   box-shadow: none;
@@ -88,6 +94,190 @@
   transform: translate(-50%, -50%);
 }
 
+.facility-canteen-stats {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.facility-canteen-stats button {
+  display: flex;
+  min-width: 120px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #64748b;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.facility-canteen-stats button:hover,
+.facility-canteen-stats button.active {
+  border-color: #486b88;
+  box-shadow: 0 2px 8px rgb(72 107 136 / 10%);
+}
+
+.facility-canteen-stats button.active {
+  background: #f4f7f9;
+}
+
+.facility-canteen-stats button span {
+  color: #36566f;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.facility-canteen-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.facility-canteen-card {
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: none;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.facility-canteen-card:hover {
+  border-color: #cbd8e2;
+  box-shadow: 0 6px 18px rgb(15 23 42 / 8%);
+  transform: translateY(-2px);
+}
+
+.facility-canteen-card-image {
+  position: relative;
+  width: 100%;
+  padding-top: 56.25%;
+  overflow: hidden;
+  background: #f1f5f9;
+}
+
+.facility-canteen-card-placeholder,
+.facility-canteen-carousel {
+  position: absolute;
+  inset: 0;
+}
+
+.facility-canteen-card-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+}
+
+.facility-canteen-card-placeholder .anticon {
+  font-size: 46px;
+}
+
+.facility-canteen-carousel img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+
+.facility-canteen-carousel img.active {
+  opacity: 1;
+}
+
+.facility-canteen-carousel-dots {
+  position: absolute;
+  bottom: 9px;
+  left: 50%;
+  display: flex;
+  gap: 6px;
+  transform: translateX(-50%);
+}
+
+.facility-canteen-carousel-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 60%);
+  transition: width 0.2s ease, background 0.2s ease;
+}
+
+.facility-canteen-carousel-dots span.active {
+  width: 20px;
+  background: #fff;
+}
+
+.facility-canteen-card-info {
+  padding: 16px;
+}
+
+.facility-canteen-card-info h2 {
+  margin: 0 0 5px;
+  overflow: hidden;
+  color: #172033;
+  font-size: 18px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.facility-canteen-card-info > p {
+  min-height: 20px;
+  margin: 0 0 12px;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.facility-canteen-tags {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.facility-canteen-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.facility-canteen-details div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13px;
+}
+
+.facility-canteen-details span {
+  color: #64748b;
+}
+
+.facility-canteen-details strong {
+  color: #334155;
+  font-weight: 550;
+}
+
+.facility-canteen-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 16px;
+}
+
+.facility-canteen-actions .ant-btn:not(:last-child) {
+  flex: 1;
+}
+
 @media (max-width: 760px) {
   .facility-place-page {
     padding: 16px;
@@ -100,5 +290,24 @@
 
   .place-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .facility-canteen-stats {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .facility-canteen-stats button {
+    justify-content: space-between;
+  }
+
+  .facility-canteen-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 761px) and (max-width: 1200px) {
+  .facility-canteen-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

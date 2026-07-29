@@ -7,6 +7,13 @@ export const getMapPlaceTree = (sceneType) =>
     params: { sceneType },
   })
 
+export const getMapPlaceList = (params = {}) =>
+  request({
+    url: '/api/v1/map-places',
+    method: 'get',
+    params,
+  })
+
 export const getMapPlaceDetail = (id) =>
   request({ url: `/api/v1/map-places/${id}`, method: 'get' })
 

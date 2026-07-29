@@ -24,8 +24,10 @@ import {
   EnvironmentOutlined,
   FileImageOutlined,
   PlusOutlined,
+  ShopOutlined,
   UploadOutlined,
 } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import {
   addMapPlaceImage,
   createMapPlace,
@@ -36,6 +38,7 @@ import {
   deleteMapPlaceImage,
   getFloorPlan,
   getMapPlaceDetail,
+  getMapPlaceList,
   getMapPlaceTree,
   saveFloorPlan,
   saveIndoorPosition,
@@ -138,8 +141,52 @@ const normalizeFileList = (images = []) =>
     imageId: item.id,
   }))
 
-export default function FacilityPlaceManage({ sceneType }) {
+function CanteenCarousel({ images = [] }) {
+  const [currentIndex, setCurrentIndex] = useState(0)
+
+  useEffect(() => {
+    if (images.length <= 1) return undefined
+    const timer = window.setInterval(() => {
+      setCurrentIndex((previous) => (previous + 1) % images.length)
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [images])
+
+  if (!images.length) {
+    return (
+      <div className="facility-canteen-card-placeholder">
+        <ShopOutlined />
+      </div>
+    )
+  }
+
+  return (
+    <div className="facility-canteen-carousel">
+      {images.map((image, index) => (
+        <img
+          key={image.id || image.imageUrl}
+          src={image.imageUrl}
+          alt="食堂"
+          className={index === currentIndex % images.length ? 'active' : ''}
+        />
+      ))}
+      {images.length > 1 ? (
+        <div className="facility-canteen-carousel-dots">
+          {images.map((image, index) => (
+            <span
+              key={image.id || image.imageUrl}
+              className={index === currentIndex % images.length ? 'active' : ''}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
   const config = SCENE_CONFIG[sceneType]
+  const navigate = useNavigate()
   const [form] = Form.useForm()
   const [planForm] = Form.useForm()
   const [positionForm] = Form.useForm()
@@ -157,22 +204,55 @@ export default function FacilityPlaceManage({ sceneType }) {
   const [positionPlace, setPositionPlace] = useState(null)
   const [positionPlan, setPositionPlan] = useState(null)
   const [keyword, setKeyword] = useState('')
+  const [rootPlace, setRootPlace] = useState(null)
+  const [statusFilter, setStatusFilter] = useState('ALL')
   const planImageUrl = Form.useWatch('imageUrl', planForm)
   const positionX = Form.useWatch('xRatio', positionForm)
   const positionY = Form.useWatch('yRatio', positionForm)
   const positionId = Form.useWatch('positionId', positionForm)
 
-  const flatPlaces = useMemo(() => flattenTree(tree), [tree])
+  const flatPlaces = useMemo(
+    () => flattenTree(rootPlace ? [{ ...rootPlace, children: tree }] : tree),
+    [rootPlace, tree],
+  )
 
   const loadTree = useCallback(async () => {
     setLoading(true)
     try {
+      if (rootPlaceId) {
+        const loadChildren = async (parentId) => {
+          const response = await getMapPlaceList({ sceneType, parentId })
+          const children = Array.isArray(response.data) ? response.data : []
+          return Promise.all(
+            children.map(async (child) => ({
+              ...child,
+              children: getAllowedChildTypes(sceneType, child).length
+                ? await loadChildren(child.id)
+                : [],
+            })),
+          )
+        }
+        const [rootResponse, children] = await Promise.all([
+          getMapPlaceDetail(rootPlaceId),
+          loadChildren(rootPlaceId),
+        ])
+        setRootPlace(rootResponse.data || null)
+        setTree(children)
+        return
+      }
+      if (sceneType === 'CANTEEN') {
+        const response = await getMapPlaceList({ sceneType, placeType: config.rootType })
+        setRootPlace(null)
+        setTree(Array.isArray(response.data) ? response.data : [])
+        return
+      }
       const response = await getMapPlaceTree(sceneType)
+      setRootPlace(null)
       setTree(Array.isArray(response.data) ? response.data : [])
     } finally {
       setLoading(false)
     }
-  }, [sceneType])
+  }, [config.rootType, rootPlaceId, sceneType])
 
   useEffect(() => {
     loadTree()
@@ -180,17 +260,18 @@ export default function FacilityPlaceManage({ sceneType }) {
 
   const filteredTree = useMemo(() => {
     const query = keyword.trim().toLowerCase()
-    if (!query) return tree
     const filterNodes = (nodes) =>
       nodes.reduce((result, node) => {
         const children = filterNodes(node.children || [])
-        if (node.name.toLowerCase().includes(query) || children.length) {
+        const matchesStatus = statusFilter === 'ALL' || node.status === statusFilter
+        const matchesKeyword = !query || node.name.toLowerCase().includes(query)
+        if ((matchesStatus && matchesKeyword) || children.length) {
           result.push({ ...node, children })
         }
         return result
       }, [])
     return filterNodes(tree)
-  }, [keyword, tree])
+  }, [keyword, statusFilter, tree])
 
   const openCreate = (parentPlace = null) => {
     setEditing(null)
@@ -248,7 +329,7 @@ export default function FacilityPlaceManage({ sceneType }) {
     setSaving(true)
     try {
       const payload = {
-        parentId: values.parentId ?? null,
+        parentId: editing ? (editing.parentId ?? null) : (parent?.id ?? null),
         sceneType,
         placeType: values.placeType,
         name: values.name,
@@ -429,7 +510,17 @@ export default function FacilityPlaceManage({ sceneType }) {
           record.parentId && flatPlaces.find((item) => item.id === record.parentId)?.placeType === 'FLOOR'
         return (
           <Space wrap>
-            {childTypes.length ? (
+            {!rootPlaceId && sceneType === 'CANTEEN' && record.placeType === 'CANTEEN' ? (
+              <Button
+                type="primary"
+                ghost
+                size="small"
+                icon={<ShopOutlined />}
+                onClick={() => navigate(`/facility/canteen/${record.id}/stalls`)}
+              >
+                进入档口
+              </Button>
+            ) : childTypes.length ? (
               <Button size="small" icon={<PlusOutlined />} onClick={() => openCreate(record)}>
                 新增下级
               </Button>
@@ -462,12 +553,40 @@ export default function FacilityPlaceManage({ sceneType }) {
 
   if (!config) return <Empty description="未知设施场景" />
 
+  const pageTitle = rootPlace ? `${rootPlace.name} · 档口管理` : config.title
+  const pageDescription = rootPlace
+    ? '进入食堂后单独加载并管理楼层、档口和就餐区域。'
+    : sceneType === 'CANTEEN'
+      ? '这里只展示顶级食堂；点击“进入档口”后再加载下级点位。'
+      : config.description
+  const createParent = rootPlace || null
+  const createLabel = rootPlace
+    ? '新增楼层'
+    : sceneType === 'CANTEEN'
+      ? '新增食堂'
+      : '新增顶级设施'
+  const isCanteenOverview = sceneType === 'CANTEEN' && !rootPlaceId
+  const canteenCounts = {
+    ALL: tree.length,
+    ENABLED: tree.filter((item) => item.status === 'ENABLED').length,
+    DISABLED: tree.filter((item) => item.status === 'DISABLED').length,
+  }
+
   return (
     <div className="facility-place-page">
       <div className="facility-place-toolbar">
         <div>
-          <h1>{config.title}</h1>
-          <p>{config.description}</p>
+          {rootPlace ? (
+            <Button
+              type="link"
+              className="facility-place-back"
+              onClick={() => navigate('/facility/canteen')}
+            >
+              ← 返回食堂列表
+            </Button>
+          ) : null}
+          <h1>{pageTitle}</h1>
+          <p>{pageDescription}</p>
         </div>
         <Space>
           <Input.Search
@@ -476,24 +595,107 @@ export default function FacilityPlaceManage({ sceneType }) {
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
           />
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreate()}>
-            新增顶级设施
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreate(createParent)}>
+            {createLabel}
           </Button>
         </Space>
       </div>
 
-      <Card className="facility-place-card">
-        <Table
-          rowKey="id"
-          columns={columns}
-          dataSource={filteredTree}
-          loading={loading}
-          pagination={false}
-          expandable={{ defaultExpandAllRows: true }}
-          locale={{ emptyText: '暂无设施点位' }}
-          scroll={{ x: 1080 }}
-        />
-      </Card>
+      {isCanteenOverview ? (
+        <>
+          <div className="facility-canteen-stats">
+            {[
+              ['ALL', '全部食堂'],
+              ['ENABLED', '启用'],
+              ['DISABLED', '停用'],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={statusFilter === value ? 'active' : ''}
+                onClick={() => setStatusFilter(value)}
+              >
+                <span>{canteenCounts[value]}</span>
+                {label}
+              </button>
+            ))}
+          </div>
+          {filteredTree.length ? (
+            <div className="facility-canteen-grid">
+              {filteredTree.map((canteen) => {
+                const hasLocation = canteen.longitude != null && canteen.latitude != null
+                return (
+                  <Card
+                    key={canteen.id}
+                    className="facility-canteen-card"
+                    styles={{ body: { padding: 0 } }}
+                  >
+                    <div className="facility-canteen-card-image">
+                      <CanteenCarousel images={canteen.images} />
+                    </div>
+                    <div className="facility-canteen-card-info">
+                      <h2>{canteen.name}</h2>
+                      <p>{canteen.description || '暂无食堂介绍'}</p>
+                      <div className="facility-canteen-tags">
+                        <Tag>{canteen.locationDesc || '未填写位置'}</Tag>
+                        <Tag color={canteen.status === 'ENABLED' ? 'success' : 'default'}>
+                          {canteen.status === 'ENABLED' ? '启用' : '停用'}
+                        </Tag>
+                      </div>
+                      <div className="facility-canteen-details">
+                        <div>
+                          <span>点位编号</span>
+                          <strong>#{canteen.id}</strong>
+                        </div>
+                        <div>
+                          <span>地图位置</span>
+                          <strong>{hasLocation ? '已设置' : '未设置'}</strong>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="facility-canteen-actions">
+                      <Button
+                        type="primary"
+                        icon={<ShopOutlined />}
+                        onClick={() => navigate(`/facility/canteen/${canteen.id}/stalls`)}
+                      >
+                        进入档口
+                      </Button>
+                      <Button icon={<EditOutlined />} onClick={() => openEdit(canteen)}>
+                        编辑
+                      </Button>
+                      <Popconfirm
+                        title={`确定删除“${canteen.name}”吗？`}
+                        description="存在下级点位时不能删除。"
+                        onConfirm={() => removePlace(canteen)}
+                      >
+                        <Button danger icon={<DeleteOutlined />} aria-label={`删除${canteen.name}`} />
+                      </Popconfirm>
+                    </div>
+                  </Card>
+                )
+              })}
+            </div>
+          ) : (
+            <Card className="facility-place-card">
+              <Empty description={loading ? '正在加载食堂' : '暂无符合条件的食堂'} />
+            </Card>
+          )}
+        </>
+      ) : (
+        <Card className="facility-place-card">
+          <Table
+            rowKey="id"
+            columns={columns}
+            dataSource={filteredTree}
+            loading={loading}
+            pagination={false}
+            expandable={rootPlaceId ? { defaultExpandAllRows: true } : undefined}
+            locale={{ emptyText: rootPlaceId ? '该食堂暂无楼层或档口' : '暂无设施点位' }}
+            scroll={{ x: 1080 }}
+          />
+        </Card>
+      )}
 
       <Modal
         width={760}
