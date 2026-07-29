@@ -4,12 +4,15 @@ import com.example.appbackend.dto.KnowledgeGraphDTO;
 import com.example.appbackend.dto.LearningPathDTO;
 import com.example.appbackend.service.LearningPathService;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -76,6 +79,28 @@ class PythonKnowledgeGraphServiceImplTest {
         assertThat(node(graph, "python.expression.arithmetic").getStatus()).isEqualTo("available");
         assertThat(node(graph, "python.data_type.collection").getStatus()).isEqualTo("locked");
         assertThat(graph.getSummary().getLocked()).isGreaterThan(0);
+    }
+
+    @Test
+    void fallsBackToBuiltInTopologyWhenNeo4jIsTemporarilyUnavailable() {
+        LearningPathService learningPathService = mock(LearningPathService.class);
+        LearningPathDTO.HomeView home = new LearningPathDTO.HomeView();
+        home.setMastery(List.of());
+        when(learningPathService.getHome(11L, "python")).thenReturn(home);
+
+        Neo4jKnowledgeGraphStore store = mock(Neo4jKnowledgeGraphStore.class);
+        when(store.syncAndLoad(anyString(), anyList()))
+                .thenThrow(new IllegalStateException("Neo4j unavailable"));
+        @SuppressWarnings("unchecked")
+        ObjectProvider<Neo4jKnowledgeGraphStore> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(store);
+
+        KnowledgeGraphDTO.GraphView graph =
+                new PythonKnowledgeGraphServiceImpl(learningPathService, provider).getGraph(11L);
+
+        assertThat(graph.getNodes()).hasSize(7);
+        assertThat(graph.getEdges()).hasSize(6);
+        assertThat(node(graph, "python.expression.arithmetic").getStatus()).isEqualTo("available");
     }
 
     private LearningPathDTO.MasteryView mastery(

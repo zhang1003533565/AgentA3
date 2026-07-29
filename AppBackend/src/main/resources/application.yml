@@ -45,12 +45,20 @@ spring:
       max-file-size: 200MB
       max-request-size: 200MB
   data:
+    neo4j:
+      repositories:
+        type: none
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
       connect-timeout: ${REDIS_CONNECT_TIMEOUT:2s}
       timeout: ${REDIS_COMMAND_TIMEOUT:2s}
+  neo4j:
+    uri: ${NEO4J_URI:bolt://localhost:7687}
+    authentication:
+      username: ${NEO4J_USERNAME:neo4j}
+      password: ${NEO4J_PASSWORD:neo4j-dev-password}
 
 # JWT 认证配置
 # JWT_SECRET: JWT 签名密钥，生产环境务必修改
@@ -99,6 +107,9 @@ ai:
       fallback-max-entries: ${AI_LEARNING_WORKFLOW_FALLBACK_MAX_ENTRIES:1024}
 
 knowledge:
+  graph:
+    neo4j:
+      enabled: ${NEO4J_ENABLED:false}
   maxkb:
     timeout-seconds: ${KNOWLEDGE_MAXKB_TIMEOUT_SECONDS:30}
     file-response-max-in-memory-bytes: ${KNOWLEDGE_MAXKB_FILE_RESPONSE_MAX_IN_MEMORY_BYTES:52428800}

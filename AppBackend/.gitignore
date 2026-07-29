@@ -5,6 +5,7 @@ target/
 !**/src/test/**/target/
 .data/
 .redis-data/
+.neo4j-data/
 
 
 # Spring Boot

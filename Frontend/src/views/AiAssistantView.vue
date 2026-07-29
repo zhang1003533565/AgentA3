@@ -3,7 +3,7 @@ import { computed, h, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppTabBar from '../components/AppTabBar.vue'
-import { queryLeaderAgent } from '../api/aiGeneration'
+import { queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
 import { AI_RESOURCE_ACCEPT, uploadAiResource } from '../api/upload'
 
 const IconLine = (props) => {
@@ -94,6 +94,7 @@ const conversations = ref([
   { id: 2, title: '校园活动策划建议' },
 ])
 const activeConversationId = ref(1)
+const conversationSessionIds = ref({})
 const chatDraft = ref('')
 const chatBusy = ref(false)
 const resourceInput = ref(null)
@@ -103,6 +104,7 @@ const deepThinking = ref(false)
 const messageList = ref(null)
 const quickPrompts = ['查课表', '图书馆时间', '奖学金申请', '校园卡补办']
 const feedback = ref({})
+let activeStreamTask = null
 
 const messages = ref([
   {
@@ -169,6 +171,7 @@ async function scrollMessages() {
 }
 
 function createConversation() {
+  activeStreamTask?.abort?.('conversation_changed')
   const item = { id: ++conversationSeed, title: '新对话' }
   conversations.value.unshift(item)
   activeConversationId.value = item.id
@@ -178,6 +181,7 @@ function createConversation() {
 }
 
 function switchConversation(id) {
+  activeStreamTask?.abort?.('conversation_changed')
   activeConversationId.value = id
   const conversation = conversations.value.find((item) => item.id === id)
   messages.value = [{
@@ -236,48 +240,185 @@ function formatFileSize(size) {
     : `${Math.ceil(size / 1024)} KB`
 }
 
-async function sendMessage(text = chatDraft.value) {
-  const value = text.trim()
+function syncConversationSession(conversationId, sessionId) {
+  const value = String(sessionId || '').trim()
+  if (!value) return
+  conversationSessionIds.value = {
+    ...conversationSessionIds.value,
+    [conversationId]: value,
+  }
+}
+
+function updateChatMessage(id, patch) {
+  const target = messages.value.find((item) => item.id === id)
+  if (target) Object.assign(target, patch)
+  return target
+}
+
+async function sendMessage(text) {
+  const hasExplicitText = typeof text === 'string'
+  const value = String(hasExplicitText ? text : chatDraft.value).trim()
   const uploading = pendingResources.value.some((item) => item.status === 'uploading')
-  const attachments = pendingResources.value
-    .filter((item) => item.status === 'success')
-    .map((item) => item.resource)
+  const attachments = hasExplicitText
+    ? []
+    : pendingResources.value
+      .filter((item) => item.status === 'success')
+      .map((item) => item.resource)
   if ((!value && !attachments.length) || chatBusy.value || uploading) return
 
   const requestText = value || '请分析我上传的资源'
   messages.value.push({ id: Date.now(), role: 'user', content: requestText, attachments })
   const conversation = conversations.value.find((item) => item.id === activeConversationId.value)
   if (conversation?.title === '新对话') conversation.title = requestText.slice(0, 18)
-  chatDraft.value = ''
-  pendingResources.value = []
+  if (!hasExplicitText) {
+    chatDraft.value = ''
+    pendingResources.value = []
+  }
+
+  const assistantMessageId = Date.now() + 1
+  const requestConversationId = activeConversationId.value
+  messages.value.push({
+    id: assistantMessageId,
+    role: 'assistant',
+    content: attachments.length ? '正在读取并分析上传的资源…' : '正在思考…',
+    streaming: true,
+  })
   chatBusy.value = true
   void scrollMessages()
 
+  const requestPayload = {
+    sessionId: conversationSessionIds.value[requestConversationId] || undefined,
+    input: requestText,
+    ...(attachments.length ? { attachments } : {}),
+    metadata: {
+      onlineSearch: onlineSearch.value,
+      deepThinking: deepThinking.value,
+      source: 'web_ai_assistant',
+    },
+  }
+  let streamTouched = false
+  let streamCompleted = false
+
   try {
-    const response = await queryLeaderAgent({
-      input: requestText,
-      attachments,
-      metadata: {
-        onlineSearch: onlineSearch.value,
-        deepThinking: deepThinking.value,
-        source: 'web_ai_assistant',
+    const streamTask = streamLeaderAgent(requestPayload, {
+      onEvent(eventName, payload) {
+        streamTouched = true
+        syncConversationSession(requestConversationId, payload?.sessionId)
+        if (eventName === 'generation_start' && payload?.answer) {
+          updateChatMessage(assistantMessageId, {
+            content: payload.answer,
+            streaming: true,
+          })
+        } else if (eventName === 'tool_start' && payload?.message) {
+          updateChatMessage(assistantMessageId, {
+            content: payload.message,
+            streaming: true,
+          })
+        }
+        void scrollMessages()
+      },
+      onSession(payload) {
+        streamTouched = true
+        syncConversationSession(requestConversationId, payload?.sessionId)
+      },
+      onSearch(payload) {
+        streamTouched = true
+        const current = messages.value.find((item) => item.id === assistantMessageId)
+        if (current?.streaming) {
+          updateChatMessage(assistantMessageId, {
+            content: payload?.searchKeyword
+              ? `正在检索“${payload.searchKeyword}”…`
+              : '正在检索相关资料…',
+          })
+        }
+        void scrollMessages()
+      },
+      onDelta(content) {
+        if (!content) return
+        streamTouched = true
+        const current = messages.value.find((item) => item.id === assistantMessageId)
+        const previous = current?.receivedDelta ? current.content : ''
+        updateChatMessage(assistantMessageId, {
+          content: `${previous}${content}`,
+          receivedDelta: true,
+          streaming: true,
+        })
+        void scrollMessages()
+      },
+      onDone(payload) {
+        streamTouched = true
+        streamCompleted = true
+        syncConversationSession(requestConversationId, payload?.sessionId)
+        const current = messages.value.find((item) => item.id === assistantMessageId)
+        const finalContent = String(payload?.answer || current?.content || '').trim()
+        updateChatMessage(assistantMessageId, {
+          content: finalContent || 'AI 已完成本次资源分析。',
+          attachments: payload?.attachments || [],
+          resources: payload?.resources || [],
+          streaming: false,
+          receivedDelta: false,
+          answerType: payload?.answerType || 'text',
+        })
+        void scrollMessages()
+      },
+      onError(payload) {
+        const error = new Error(payload?.message || '流式请求失败')
+        error.payload = payload
+        throw error
       },
     })
-    messages.value.push({
-      id: Date.now() + 1,
-      role: 'assistant',
-      content: response?.answer || response?.content || 'AI 已处理本次请求。',
-    })
+    activeStreamTask = streamTask
+    await streamTask
+
+    if (!streamCompleted) {
+      const current = messages.value.find((item) => item.id === assistantMessageId)
+      if (current?.receivedDelta && String(current.content || '').trim()) {
+        updateChatMessage(assistantMessageId, { streaming: false, receivedDelta: false })
+      } else {
+        throw new Error('AI 未返回完整结果')
+      }
+    }
   } catch (cause) {
-    messages.value.push({
-      id: Date.now() + 1,
-      role: 'assistant',
-      content: cause.message || 'AI 请求失败，请稍后重试。',
-    })
+    if (cause?.name === 'AbortError') {
+      const current = messages.value.find((item) => item.id === assistantMessageId)
+      updateChatMessage(assistantMessageId, {
+        content: current?.receivedDelta && current.content
+          ? `${current.content}\n\n已停止生成。`
+          : '已停止生成。',
+        streaming: false,
+        receivedDelta: false,
+      })
+    } else if (cause?.fallbackToNormalRequest && !streamTouched) {
+      try {
+        const response = await queryLeaderAgent(requestPayload)
+        syncConversationSession(requestConversationId, response?.sessionId)
+        updateChatMessage(assistantMessageId, {
+          content: response?.answer || response?.content || 'AI 已完成本次资源分析。',
+          attachments: response?.attachments || [],
+          resources: response?.resources || [],
+          streaming: false,
+        })
+      } catch (fallbackError) {
+        updateChatMessage(assistantMessageId, {
+          content: fallbackError.message || 'AI 请求失败，请稍后重试。',
+          streaming: false,
+        })
+      }
+    } else {
+      updateChatMessage(assistantMessageId, {
+        content: cause.message || 'AI 请求失败，请稍后重试。',
+        streaming: false,
+      })
+    }
   } finally {
+    activeStreamTask = null
     chatBusy.value = false
     void scrollMessages()
   }
+}
+
+function stopGeneration() {
+  activeStreamTask?.abort?.('user_cancelled')
 }
 
 function regenerate(message) {
@@ -727,6 +868,7 @@ async function startMicrophone() {
 }
 
 onBeforeUnmount(stopMicrophone)
+onBeforeUnmount(() => activeStreamTask?.abort?.('page_unload'))
 
 function createMeeting() {
   const item = {
@@ -908,10 +1050,6 @@ function handleUpload(event) {
                   </div>
                 </div>
               </article>
-              <article v-if="chatBusy" class="message-row assistant">
-                <span class="ai-avatar"><IconLine name="logo" :size="17" /></span>
-                <div class="message-bubble typing-bubble"><i></i><i></i><i></i></div>
-              </article>
             </div>
           </div>
 
@@ -947,9 +1085,12 @@ function handleUpload(event) {
                 @keydown.enter.exact.prevent="sendMessage()"
               ></textarea>
               <div class="composer-actions">
-                <button class="icon-button" type="button" title="上传资源" :disabled="pendingResources.length >= 8" @click="chooseResources"><IconLine name="plus" /></button>
+                <button class="icon-button" type="button" title="上传资源" :disabled="chatBusy || pendingResources.length >= 8" @click="chooseResources"><IconLine name="plus" /></button>
                 <button class="icon-button" type="button" title="语音输入"><IconLine name="mic" /></button>
-                <button class="send-button" type="submit" :disabled="(!chatDraft.trim() && !pendingResources.some(item => item.status === 'success')) || pendingResources.some(item => item.status === 'uploading') || chatBusy" title="发送">
+                <button v-if="chatBusy" class="send-button stop-button" type="button" title="停止生成" @click="stopGeneration">
+                  <IconLine name="x" :size="18" />
+                </button>
+                <button v-else class="send-button" type="submit" :disabled="(!chatDraft.trim() && !pendingResources.some(item => item.status === 'success')) || pendingResources.some(item => item.status === 'uploading')" title="发送">
                   <IconLine name="send" :size="19" />
                 </button>
               </div>
@@ -1552,6 +1693,7 @@ function handleUpload(event) {
 .icon-button { color: var(--muted); background: transparent; }
 .icon-button:hover { background: var(--primary-soft); transform: scale(1.04); }
 .send-button { color: #fff !important; background: #1e3a5f; }
+.stop-button { background: #40546b; }
 .send-button:disabled { cursor: not-allowed; opacity: .4; }
 .composer-zone > small { display: block; margin-top: 7px; color: var(--subtle); font-size: 10px; text-align: center; }
 

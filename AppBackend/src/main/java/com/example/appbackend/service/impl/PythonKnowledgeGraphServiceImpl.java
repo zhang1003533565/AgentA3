@@ -4,6 +4,10 @@ import com.example.appbackend.dto.KnowledgeGraphDTO;
 import com.example.appbackend.dto.LearningPathDTO;
 import com.example.appbackend.service.LearningPathService;
 import com.example.appbackend.service.PythonKnowledgeGraphService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -22,6 +26,7 @@ import java.util.stream.Collectors;
 
 @Service
 public class PythonKnowledgeGraphServiceImpl implements PythonKnowledgeGraphService {
+    private static final Logger log = LoggerFactory.getLogger(PythonKnowledgeGraphServiceImpl.class);
     private static final String PYTHON = "python";
     private static final BigDecimal UNLOCK_SCORE = new BigDecimal("60");
 
@@ -46,10 +51,23 @@ public class PythonKnowledgeGraphServiceImpl implements PythonKnowledgeGraphServ
                     "python.function.syntax")
     );
 
+    static List<CatalogNode> defaultTopology() {
+        return CATALOG;
+    }
+
     private final LearningPathService learningPathService;
+    private final ObjectProvider<Neo4jKnowledgeGraphStore> neo4jStoreProvider;
 
     public PythonKnowledgeGraphServiceImpl(LearningPathService learningPathService) {
+        this(learningPathService, null);
+    }
+
+    @Autowired
+    public PythonKnowledgeGraphServiceImpl(
+            LearningPathService learningPathService,
+            ObjectProvider<Neo4jKnowledgeGraphStore> neo4jStoreProvider) {
         this.learningPathService = learningPathService;
+        this.neo4jStoreProvider = neo4jStoreProvider;
     }
 
     @Override
@@ -70,7 +88,8 @@ public class PythonKnowledgeGraphServiceImpl implements PythonKnowledgeGraphServ
                         (left, right) -> left,
                         LinkedHashMap::new));
 
-        Map<String, CatalogNode> catalogById = CATALOG.stream()
+        List<CatalogNode> topology = loadTopology();
+        Map<String, CatalogNode> catalogById = topology.stream()
                 .collect(Collectors.toMap(CatalogNode::id, Function.identity(),
                         (left, right) -> left, LinkedHashMap::new));
         Set<String> allIds = new LinkedHashSet<>(catalogById.keySet());
@@ -88,7 +107,7 @@ public class PythonKnowledgeGraphServiceImpl implements PythonKnowledgeGraphServ
                 .thenComparing(KnowledgeGraphDTO.NodeView::getOrder)
                 .thenComparing(KnowledgeGraphDTO.NodeView::getId));
 
-        List<KnowledgeGraphDTO.EdgeView> edges = CATALOG.stream()
+        List<KnowledgeGraphDTO.EdgeView> edges = topology.stream()
                 .flatMap(target -> target.prerequisites().stream()
                         .map(source -> edge(source, target.id())))
                 .toList();
@@ -99,6 +118,24 @@ public class PythonKnowledgeGraphServiceImpl implements PythonKnowledgeGraphServ
         graph.setEdges(edges);
         graph.setSummary(summary(nodes));
         return graph;
+    }
+
+    private List<CatalogNode> loadTopology() {
+        if (neo4jStoreProvider == null) {
+            return CATALOG;
+        }
+        Neo4jKnowledgeGraphStore store = neo4jStoreProvider.getIfAvailable();
+        if (store == null) {
+            return CATALOG;
+        }
+        try {
+            List<CatalogNode> stored = store.syncAndLoad(PYTHON, CATALOG);
+            return stored.isEmpty() ? CATALOG : stored;
+        } catch (RuntimeException error) {
+            log.warn("Neo4j knowledge graph unavailable; using the built-in topology: {}",
+                    error.getMessage());
+            return CATALOG;
+        }
     }
 
     private KnowledgeGraphDTO.NodeView toNode(
@@ -204,7 +241,7 @@ public class PythonKnowledgeGraphServiceImpl implements PythonKnowledgeGraphServ
         return values == null ? List.of() : values;
     }
 
-    private record CatalogNode(
+    record CatalogNode(
             String id,
             String title,
             String description,
