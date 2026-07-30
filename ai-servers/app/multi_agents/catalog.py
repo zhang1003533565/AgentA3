@@ -6,6 +6,7 @@ from fastapi import HTTPException
 ALL_RAG_STRATEGIES: list[str] = []
 TEXT_MODEL_MODALITY = ["text"]
 IMAGE_MODEL_MODALITY = ["image"]
+VISION_MODEL_MODALITY = ["vision"]
 VIDEO_MODEL_MODALITY = ["video"]
 EXAMPLE_INPUT_FILENAME = "example_input.md"
 
@@ -94,6 +95,7 @@ DIAGRAM_AGENT_SPECS = {
 AGENT_ORDER = [
     "leader_agent",
     "profile_summary_agent",
+    "vision_agent",
     "architecture_prompt_agent",
     *DIAGRAM_AGENT_SPECS.keys(),
     "mind_map_agent",
@@ -114,6 +116,7 @@ DIAGRAM_SOURCE_AGENTS = frozenset({
     "diagram_architecture_agent",
 })
 INTERNAL_VISUAL_AGENTS = frozenset({
+    "vision_agent",
     "image_agent",
     "mind_map_agent",
     "architecture_prompt_agent",
@@ -333,6 +336,22 @@ AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         "exampleInput": "把刚才关于 Python 发展历史的内容整理成 Word 文档",
         "requiredModelModalities": TEXT_MODEL_MODALITY,
     },
+    "vision_agent": {
+        "role": "图片识别智能体",
+        "purpose": "使用视觉理解模型识别聊天中上传的图片，结合用户问题描述画面、读取可见文字、分析图表或界面，并明确不确定内容。",
+        "inputs": ["user_query", "image_urls", "image_attachments", "conversation_context"],
+        "outputs": ["image_analysis_text"],
+        "skills": ["image understanding", "visual question answering", "ocr", "chart analysis", "screenshot analysis"],
+        "intent": "image_understanding",
+        "needRetrieval": False,
+        "executionMode": "tool_internal",
+        "executionModeLabel": "由识图工具调用视觉理解模型",
+        "defaultRagStrategy": "",
+        "supportedRagStrategies": [],
+        "aliases": ["vision", "vision_agent", "图片识别智能体", "识图智能体", "图片理解", "识图"],
+        "exampleInput": "请识别我上传的图片，概括画面内容并回答图片中的问题",
+        "requiredModelModalities": VISION_MODEL_MODALITY,
+    },
     **{
         agent_name: _diagram_profile(agent_name, *spec)
         for agent_name, spec in DIAGRAM_AGENT_SPECS.items()
@@ -482,6 +501,7 @@ def get_agent_catalog() -> Dict[str, Any]:
         "workflow": {
             "default": ["leader_agent", "textbook_knowledge_agent"],
             "profileSummary": ["profile_summary_agent"],
+            "imageUnderstanding": ["leader_agent", "recognize_image_tool", "vision_agent"],
             "mindMap": ["leader_agent", "textbook_knowledge_agent", "diagram_mind_map_agent"],
             "mindMapImage": ["leader_agent", "textbook_knowledge_agent", "mind_map_agent"],
             "architecturePrompt": ["leader_agent", "textbook_knowledge_agent", "architecture_prompt_agent", "diagram_architecture_agent"],

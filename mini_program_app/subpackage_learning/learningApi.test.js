@@ -9,6 +9,7 @@ function loadLearningApi(request, streamSse) {
     .replace(/export const /g, 'const ')
   const names = [
     'getPythonHome', 'submitProfileAnswer', 'getPythonPath', 'getPythonRecommendations',
+    'getPythonKnowledgeGraph',
     'getLearningWorkflow', 'retryLearningResource', 'startPathItem', 'completePathItem',
     'replanPythonPath', 'recordRecommendationInteraction', 'streamLearningResources'
   ]
@@ -48,6 +49,7 @@ test('learning API exposes the authenticated Python learning facade', async () =
   await api.submitProfileAnswer({ questionId: 'python_goal', answer: '掌握切片' })
   await api.getPythonPath()
   await api.getPythonRecommendations()
+  await api.getPythonKnowledgeGraph()
   await api.getLearningWorkflow('wf /1')
   await api.retryLearningResource('wf /1', 'code_lab')
   await api.startPathItem(12)
@@ -60,6 +62,7 @@ test('learning API exposes the authenticated Python learning facade', async () =
     ['POST', '/api/app/learning/courses/python/profile-answers'],
     ['GET', '/api/app/learning/courses/python/path'],
     ['GET', '/api/app/learning/courses/python/recommendations'],
+    ['GET', '/api/app/learning/courses/python/knowledge-graph'],
     ['GET', '/api/app/learning/workflows/wf%20%2F1'],
     ['POST', '/api/app/learning/workflows/wf%20%2F1/resources/code_lab/retry'],
     ['POST', '/api/app/learning/path-items/12/start'],

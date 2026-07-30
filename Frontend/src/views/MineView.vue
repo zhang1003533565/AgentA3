@@ -15,6 +15,8 @@ const menuItems = [
   { label: '我的活动', to: '/mine/activities' },
   { label: 'AI 会话历史', to: '/mine/ai-history' },
   { label: '我的试卷', to: '/mine/papers' },
+  { label: '个人画像', to: '/profile-radar' },
+  { label: '账户设置', to: '/mine/account-settings' },
 ]
 
 function openMenuItem(item) {

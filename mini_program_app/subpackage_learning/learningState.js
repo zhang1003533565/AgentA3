@@ -40,6 +40,7 @@ export function createLearningState(workflowId = '') {
     message: '',
     resources: {},
     errors: {},
+    trace: [],
     updatedAt: 0
   }
 }
@@ -61,6 +62,20 @@ export function reduceLearningEvent(current, eventName, payload = {}) {
     resources[resourceType] = event.resource
   }
   const errors = { ...objectValue(state.errors), ...objectValue(event.errors) }
+  const trace = Array.isArray(state.trace) ? [...state.trace] : []
+  if (!['session', 'message'].includes(name)) {
+    trace.push({
+      sequence: trace.length + 1,
+      eventName: name,
+      agentName: String(event.agentName || ''),
+      resourceType,
+      status: FAILURE_EVENTS.has(name)
+        ? 'failed'
+        : TERMINAL_READY_EVENTS.has(name) || /_done$/.test(name) ? 'completed' : 'running',
+      message: String(event.message || ''),
+      occurredAt: event.occurredAt || new Date().toISOString()
+    })
+  }
   let status = state.status === 'idle' ? 'generating' : state.status
 
   if (resourceType && ['agent_start', 'retrying'].includes(name)) {
@@ -92,6 +107,7 @@ export function reduceLearningEvent(current, eventName, payload = {}) {
     message: String(event.message || state.message || ''),
     resources,
     errors,
+    trace: trace.slice(-100),
     updatedAt: Date.now()
   }
 }
@@ -108,6 +124,7 @@ export function restoreLearningState(current, snapshot = {}) {
     progress: Math.max(state.progress, boundedProgress(server.progress, 0)),
     resources: { ...objectValue(state.resources), ...resourceMap(server.resources) },
     errors: { ...objectValue(state.errors), ...objectValue(server.errors) },
+    trace: Array.isArray(server.trace) ? server.trace : (Array.isArray(state.trace) ? state.trace : []),
     updatedAt: Date.now()
   }
 }

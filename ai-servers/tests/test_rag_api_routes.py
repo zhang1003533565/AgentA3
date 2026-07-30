@@ -702,6 +702,52 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertEqual("direct_agent", payload["trace"][-1]["stage"])
         self.assertEqual("direct_agent", payload["metadata"]["executionMode"])
 
+    def test_image_attachment_automatically_calls_bound_vision_tool(self):
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "请分析这张图片",
+                "agentName": "leader_agent",
+                "attachments": [{
+                    "type": "image",
+                    "mimeType": "image/png",
+                    "name": "screen.png",
+                    "url": "https://files.test/screen.png",
+                }],
+                "metadata": {"agentModelConfigs": self.agent_model_configs},
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("recognize_image_tool", payload["strategy"])
+        self.assertEqual("image_analysis", payload["answerType"])
+        self.assertEqual("vision_agent", payload["metadata"]["boundAgent"])
+        self.assertEqual("attachment", payload["metadata"]["routeMode"])
+
+    def test_stream_image_attachment_uses_same_vision_tool_route(self):
+        response = self.client.post(
+            "/internal/rag/query/stream",
+            headers=self.headers,
+            json={
+                "input": "请分析这张图片",
+                "agentName": "leader_agent",
+                "attachments": [{
+                    "type": "image",
+                    "mimeType": "image/png",
+                    "name": "screen.png",
+                    "url": "https://files.test/screen.png",
+                }],
+                "metadata": {"agentModelConfigs": self.agent_model_configs},
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn('"ragStrategy": "recognize_image_tool"', response.text)
+        self.assertIn('"answerType": "image_analysis"', response.text)
+        self.assertIn('"boundAgent": "vision_agent"', response.text)
+
     def test_ppt_layout_normalizer_rewrites_legacy_fields(self):
         raw = """## PPT 布局方案
 ### 第 1 页：封面布局

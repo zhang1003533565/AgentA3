@@ -67,6 +67,14 @@ public class MapPlaceController {
         return Result.success("图片添加成功", mapPlaceService.addImage(placeId, request));
     }
 
+    @PutMapping("/images/{imageId}")
+    public Result<MapPlaceImage> updateImage(
+            @PathVariable Long imageId,
+            @RequestBody MapPlaceImageRequest request
+    ) {
+        return Result.success("图片展示位置更新成功", mapPlaceService.updateImage(imageId, request));
+    }
+
     @DeleteMapping("/images/{imageId}")
     public Result<Void> deleteImage(@PathVariable Long imageId) {
         mapPlaceService.deleteImage(imageId);

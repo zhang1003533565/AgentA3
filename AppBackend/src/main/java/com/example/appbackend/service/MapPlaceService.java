@@ -18,6 +18,7 @@ public interface MapPlaceService {
 
     List<MapPlaceImage> listImages(Long placeId);
     MapPlaceImage addImage(Long placeId, MapPlaceImageRequest request);
+    MapPlaceImage updateImage(Long imageId, MapPlaceImageRequest request);
     void deleteImage(Long imageId);
 
     MapPlaceFence getFence(Long placeId);

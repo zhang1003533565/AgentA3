@@ -178,3 +178,66 @@ export async function uploadImages(filePaths, loadingText = '图片上传中...'
     uni.hideLoading()
   }
 }
+
+/**
+ * 上传 AI 对话资源。资源可以是选择器返回的临时文件对象或临时路径。
+ */
+export function uploadAiResource(resource) {
+  const token = getToken()
+  const filePath = typeof resource === 'string'
+    ? resource
+    : (resource?.path || resource?.tempFilePath || '')
+  const fileName = typeof resource === 'object' && resource?.name
+    ? resource.name
+    : (String(filePath).split('/').pop() || 'resource')
+
+  return new Promise((resolve, reject) => {
+    // #ifdef H5
+    const source = typeof File !== 'undefined' && resource instanceof File
+      ? Promise.resolve(resource)
+      : fetch(filePath).then((response) => response.blob())
+    source
+      .then((blob) => {
+        const formData = new FormData()
+        formData.append('file', blob, fileName)
+        return fetch(`${BASE_URL}/api/upload/resource`, {
+          method: 'POST',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData
+        })
+      })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.code === 200) resolve(data.data)
+        else reject(normalizeUploadError(data))
+      })
+      .catch((error) => reject(normalizeUploadError(error)))
+    // #endif
+
+    // #ifndef H5
+    uni.uploadFile({
+      url: `${BASE_URL}/api/upload/resource`,
+      filePath,
+      name: 'file',
+      header: token ? { Authorization: `Bearer ${token}` } : {},
+      success: (response) => {
+        try {
+          const data = JSON.parse(response.data || '{}')
+          if (response.statusCode >= 200 && response.statusCode < 300 && data.code === 200) {
+            resolve(data.data)
+            return
+          }
+          reject(normalizeUploadError(data))
+        } catch (error) {
+          reject(normalizeUploadError(error))
+        }
+      },
+      fail: (error) => reject(normalizeUploadError(error))
+    })
+    // #endif
+  })
+}
+
+export function uploadAiResources(resources) {
+  return Promise.all((resources || []).map(uploadAiResource))
+}

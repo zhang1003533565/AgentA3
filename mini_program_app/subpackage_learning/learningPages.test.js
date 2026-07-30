@@ -16,7 +16,7 @@ async function sourceModule(relativePath) {
   return import(`data:text/javascript;base64,${Buffer.from(text).toString('base64')}`)
 }
 
-test('learning package registers all four student pages without disturbing existing preload order', () => {
+test('learning package registers student learning pages without disturbing existing preload order', () => {
   const config = json('../pages.json')
   const learning = config.subPackages.find(item => item.root === 'subpackage_learning')
   assert.ok(learning)
@@ -24,7 +24,9 @@ test('learning package registers all four student pages without disturbing exist
     'pythonHome/pythonHome',
     'resourceGenerate/resourceGenerate',
     'learningPath/learningPath',
-    'recommendations/recommendations'
+    'recommendations/recommendations',
+    'knowledgeGraph/knowledgeGraph',
+    'campusCourseDetail/campusCourseDetail'
   ])
 
   assert.deepEqual(config.preloadRule['pages/index/index'].packages.slice(0, 14), [
@@ -96,6 +98,7 @@ test('learning pages wire home, recoverable resources, backend-owned path and al
   assert.match(home, /resourceGenerate\/resourceGenerate/)
   assert.match(home, /learningPath\/learningPath/)
   assert.match(home, /recommendations\/recommendations/)
+  assert.match(home, /knowledgeGraph\/knowledgeGraph/)
 
   const resources = source('resourceGenerate/resourceGenerate.vue')
   for (const name of ['streamLearningResources', 'getLearningWorkflow', 'retryLearningResource', 'restoreLearningState']) {
@@ -137,6 +140,32 @@ test('learning resources render reviewed evidence through safe markdown and expo
   assert.match(viewer, /evidenceIds|evidenceChain/)
   assert.match(viewer, /\$emit\(['"]retry['"]/)
   assert.doesNotMatch(viewer, /v-html/)
+})
+
+test('knowledge graph exposes evidence-backed filtering and node actions', async () => {
+  const { filterGraphNodes, graphLevels, graphStatus } = await sourceModule('knowledgeGraphView.js')
+  const nodes = [
+    { id: 'python.a', title: '基础', level: 0, order: 0, status: 'mastered' },
+    { id: 'python.b', title: '列表切片', level: 1, order: 0, status: 'weak' }
+  ]
+  assert.equal(filterGraphNodes(nodes, '切片', 'all').length, 1)
+  assert.equal(filterGraphNodes(nodes, '', 'weak')[0].id, 'python.b')
+  assert.equal(graphLevels(nodes).length, 2)
+  assert.equal(graphStatus('mastered').label, '已掌握')
+
+  const page = source('knowledgeGraph/knowledgeGraph.vue')
+  assert.match(page, /getPythonKnowledgeGraph/)
+  assert.match(page, /prerequisiteIds/)
+  assert.match(page, /resourceGenerate\/resourceGenerate/)
+  assert.match(page, /subpackage_exam\/paperList/)
+  assert.doesNotMatch(page, /v-html/)
+})
+
+test('resource generation displays the persisted multi-agent trace', () => {
+  const resources = source('resourceGenerate/resourceGenerate.vue')
+  assert.match(resources, /智能体协作链路/)
+  assert.match(resources, /learningState\.trace/)
+  assert.match(resources, /traceStatus/)
 })
 
 test('course resources never display review success when grounding still says model-only', async () => {

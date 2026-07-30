@@ -28,12 +28,13 @@
           <view class="record-meta">
             <view class="meta-item">
               <view class="meta-icon buyer-icon"></view>
-              <text>买家: {{ record.buyerName || record.buyerId || '-' }}</text>
+              <text class="meta-label">买家</text>
+              <text class="meta-name">{{ displayBuyerName(record) }}</text>
             </view>
-            <text class="meta-dot">·</text>
             <view class="meta-item">
               <view class="meta-icon seller-icon"></view>
-              <text>卖家: {{ record.sellerName || record.sellerId || '-' }}</text>
+              <text class="meta-label">卖家</text>
+              <text class="meta-name">{{ displaySellerName(record) }}</text>
             </view>
           </view>
 
@@ -55,6 +56,75 @@
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketBottomBar from '@/components/market-bottom-bar/market-bottom-bar.vue'
 import { getTradeRecords } from '@/api/secondhand'
+import { getToken, getUserInfo } from '@/utils/storage.js'
+
+function firstValue(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== '')
+}
+
+function normalizeText(value) {
+  if (value === undefined || value === null) return ''
+  return String(value).trim()
+}
+
+function decodeBase64Url(value) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
+  const input = `${value || ''}`.replace(/-/g, '+').replace(/_/g, '/')
+  let output = ''
+  let buffer = 0
+  let bits = 0
+  for (let i = 0; i < input.length; i += 1) {
+    const index = chars.indexOf(input.charAt(i))
+    if (input.charAt(i) === '=') break
+    if (index < 0) continue
+    buffer = (buffer << 6) | index
+    bits += 6
+    if (bits >= 8) {
+      bits -= 8
+      output += String.fromCharCode((buffer >> bits) & 0xff)
+    }
+  }
+  return output
+}
+
+function decodeTokenPayload(token) {
+  if (!token) return {}
+  try {
+    const payload = token.split('.')[1]
+    return payload ? JSON.parse(decodeBase64Url(payload)) : {}
+  } catch (e) {
+    return {}
+  }
+}
+
+function getUserDisplayName(userInfo = {}, tokenPayload = {}) {
+  const nestedUser = userInfo.user || userInfo.profile || userInfo.data || {}
+  return normalizeText(firstValue(
+    userInfo.nickname,
+    userInfo.nickName,
+    userInfo.username,
+    userInfo.realName,
+    nestedUser.nickname,
+    nestedUser.nickName,
+    nestedUser.username,
+    nestedUser.realName,
+    tokenPayload.nickname,
+    tokenPayload.nickName,
+    tokenPayload.username,
+    tokenPayload.sub
+  ))
+}
+
+function getNestedDisplayName(value) {
+  if (!value || typeof value !== 'object') return ''
+  return normalizeText(firstValue(
+    value.nickname,
+    value.nickName,
+    value.username,
+    value.realName,
+    value.name
+  ))
+}
 
 export default {
   components: { CommonPageHeader, MarketBottomBar },
@@ -62,6 +132,7 @@ export default {
     return {
       activeStatus: 'ALL',
       records: [],
+      currentUserName: '',
       tabs: [
         { label: '全部', value: 'ALL' },
         { label: '待确认', value: 'WAIT_CONFIRM' },
@@ -78,9 +149,22 @@ export default {
     }
   },
   onShow() {
+    this.loadCurrentUserName()
     this.loadRecords()
   },
   methods: {
+    loadCurrentUserName() {
+      let userInfo = getUserInfo() || {}
+      const raw = uni.getStorageSync('userInfo')
+      if (raw && typeof raw === 'object') {
+        userInfo = raw
+      } else if (raw && typeof raw === 'string') {
+        try {
+          userInfo = JSON.parse(raw)
+        } catch (e) {}
+      }
+      this.currentUserName = getUserDisplayName(userInfo, decodeTokenPayload(getToken()))
+    },
     async loadRecords() {
       try {
         const res = await getTradeRecords({ current: 1, size: 100 })
@@ -96,6 +180,28 @@ export default {
     },
     statusClass(status) {
       return `is-${String(status || '').toLowerCase().replace(/_/g, '-')}`
+    },
+    displayBuyerName(record = {}) {
+      return normalizeText(firstValue(
+        record.buyerName,
+        record.buyerUsername,
+        record.buyerNickname,
+        getNestedDisplayName(record.buyer),
+        getNestedDisplayName(record.buyerUser),
+        record.isSeller ? record.otherUsername : this.currentUserName,
+        record.buyerId
+      )) || '-'
+    },
+    displaySellerName(record = {}) {
+      return normalizeText(firstValue(
+        record.sellerName,
+        record.sellerUsername,
+        record.sellerNickname,
+        getNestedDisplayName(record.seller),
+        getNestedDisplayName(record.sellerUser),
+        record.isSeller ? this.currentUserName : record.otherUsername,
+        record.sellerId
+      )) || '-'
     },
     openDetail(itemId) {
       if (itemId) uni.navigateTo({ url: `/subpackage_lostfound/lostfoundDetail/lostfoundDetail?id=${itemId}` })
@@ -241,8 +347,8 @@ export default {
 .record-meta {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 12rpx;
+  flex-direction: column;
+  gap: 14rpx;
   margin-top: 20rpx;
   color: #667282;
   font-size: 24rpx;
@@ -250,14 +356,30 @@ export default {
 }
 
 .meta-item {
-  display: inline-flex;
+  width: 100%;
+  display: flex;
   align-items: center;
   gap: 10rpx;
+  min-width: 0;
 }
 
-.meta-dot {
-  color: #8D97A5;
+.meta-label {
+  flex-shrink: 0;
+  width: 58rpx;
+  color: #667282;
   font-size: 24rpx;
+  font-weight: 800;
+}
+
+.meta-name {
+  flex: 1;
+  min-width: 0;
+  color: #475467;
+  font-size: 24rpx;
+  font-weight: 800;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .meta-icon {
