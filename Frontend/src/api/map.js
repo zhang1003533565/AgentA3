@@ -15,3 +15,17 @@ export function getMapPlaceDetail(id) {
   })
 }
 
+export function getFloorPlan(floorPlaceId) {
+  return request({
+    url: `/api/v1/map-places/floors/${floorPlaceId}/plan`,
+    method: 'GET',
+  })
+}
+
+export function getFloorPlanPositions(floorPlanId) {
+  return request({
+    url: `/api/v1/map-places/floor-plans/${floorPlanId}/positions`,
+    method: 'GET',
+  })
+}
+
