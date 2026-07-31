@@ -58,6 +58,7 @@ function App() {
           <Route path="/facility/teaching" element={<FacilityPlaceManage sceneType="TEACHING" />} />
           <Route path="/facility/dormitory" element={<FacilityPlaceManage sceneType="DORMITORY" />} />
           <Route path="/facility/canteen/:canteenId/stalls" element={<StallManage />} />
+          <Route path="/facility/canteen/:canteenId/stalls/:stallId/dishes" element={<StallManage />} />
           <Route path="/activity/manage" element={<ActivityManage />} />
           <Route path="/activity/create" element={<ActivityEditor />} />
           <Route path="/activity/:id/edit" element={<ActivityEditor />} />

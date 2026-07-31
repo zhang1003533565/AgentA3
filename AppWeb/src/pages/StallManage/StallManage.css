@@ -58,6 +58,91 @@
   width: 280px;
 }
 
+.stall-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.stall-list-card {
+  overflow: hidden;
+  border-color: #e3e9f0;
+  box-shadow: none;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.stall-list-card:hover {
+  border-color: #b9c9dc;
+  transform: translateY(-2px);
+}
+
+.stall-list-card .ant-card-body {
+  padding: 16px;
+}
+
+.stall-card-image {
+  display: block;
+  width: 100%;
+  object-fit: cover;
+}
+
+.stall-card-placeholder {
+  display: flex;
+  height: 150px;
+  align-items: center;
+  justify-content: center;
+  background: #f3f6f9;
+  color: #9aa8b8;
+  font-size: 38px;
+}
+
+.stall-card-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.stall-card-title-row h3 {
+  margin: 0;
+  overflow: hidden;
+  color: #1f2937;
+  font-size: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stall-card-meta {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 9px;
+  color: #758398;
+  font-size: 13px;
+}
+
+.stall-card-meta strong {
+  overflow: hidden;
+  color: #344054;
+  font-weight: 500;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stall-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #edf0f4;
+}
+
+.stall-card-actions .ant-btn:first-child {
+  flex: 1;
+}
+
 .dish-search {
   width: 240px;
 }
@@ -120,9 +205,22 @@
 .stall-form-image {
   width: 100%;
   max-height: 260px;
-  margin: -8px 0 20px;
+  margin: 12px 0 20px;
   border-radius: 8px;
   object-fit: cover;
+}
+
+.stall-image-upload-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: -10px;
+}
+
+.stall-image-upload-tip {
+  color: #8a96a8;
+  font-size: 12px;
 }
 
 .category-manager-intro {
@@ -180,6 +278,18 @@
   .stall-form-grid {
     grid-template-columns: 1fr;
     gap: 0;
+  }
+
+  .stall-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stall-card-actions {
+    flex-wrap: wrap;
+  }
+
+  .stall-image-upload-tip {
+    flex-basis: 100%;
   }
 
   .category-manager-toolbar {

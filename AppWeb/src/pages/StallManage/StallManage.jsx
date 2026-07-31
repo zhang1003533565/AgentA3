@@ -14,6 +14,7 @@ import {
   Table,
   Tag,
   Tabs,
+  Upload,
   message,
 } from 'antd'
 import {
@@ -23,6 +24,7 @@ import {
   PlusOutlined,
   SettingOutlined,
   ShopOutlined,
+  UploadOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
@@ -43,6 +45,11 @@ import {
   updateMapPlace,
 } from '../../api/mapPlace'
 import SidePanel from '../../components/SidePanel/SidePanel'
+import {
+  CANTEEN_STALL_UPLOAD_FOLDER,
+  DISH_UPLOAD_FOLDER,
+  uploadImage,
+} from '../../api/upload'
 import './StallManage.css'
 
 const STALL_STATUS_OPTIONS = [
@@ -70,20 +77,23 @@ const renderStallStatus = (status) => {
 }
 
 export default function StallManage() {
-  const { canteenId } = useParams()
+  const { canteenId, stallId } = useParams()
   const navigate = useNavigate()
+  const dishMode = Boolean(stallId)
   const [stallForm] = Form.useForm()
   const [dishForm] = Form.useForm()
   const [categoryForm] = Form.useForm()
   const [canteen, setCanteen] = useState(null)
   const [stalls, setStalls] = useState([])
   const [dishes, setDishes] = useState([])
-  const [selectedStallId, setSelectedStallId] = useState(null)
+  const [selectedStallId, setSelectedStallId] = useState(stallId || null)
   const [stallKeyword, setStallKeyword] = useState('')
   const [dishKeyword, setDishKeyword] = useState('')
   const [loading, setLoading] = useState(false)
   const [dishLoading, setDishLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [stallImageUploading, setStallImageUploading] = useState(false)
+  const [dishImageUploading, setDishImageUploading] = useState(false)
   const [stallEditorOpen, setStallEditorOpen] = useState(false)
   const [dishEditorOpen, setDishEditorOpen] = useState(false)
   const [editingStall, setEditingStall] = useState(null)
@@ -174,9 +184,10 @@ export default function StallManage() {
       setCuisines(getRows(cuisineResponse))
       setStalls(rows)
       setSelectedStallId((current) => {
-        const expected = preferredStallId ?? current
+        if (!dishMode) return null
+        const expected = preferredStallId ?? stallId ?? current
         if (rows.some((item) => String(item.id) === String(expected))) return expected
-        return rows[0]?.id ?? null
+        return null
       })
     } catch (error) {
       if (!error?.showMessage) {
@@ -187,10 +198,10 @@ export default function StallManage() {
     } finally {
       setLoading(false)
     }
-  }, [canteenId])
+  }, [canteenId, dishMode, stallId])
 
   const loadDishes = useCallback(async () => {
-    if (!selectedStallId) {
+    if (!dishMode || !selectedStallId) {
       setDishes([])
       return
     }
@@ -201,7 +212,7 @@ export default function StallManage() {
     } finally {
       setDishLoading(false)
     }
-  }, [selectedStallId])
+  }, [dishMode, selectedStallId])
 
   useEffect(() => {
     loadStalls()
@@ -210,6 +221,47 @@ export default function StallManage() {
   useEffect(() => {
     loadDishes()
   }, [loadDishes])
+
+  const uploadManagedImage = async (file, form, setUploading, folder, label) => {
+    if (!file.type?.startsWith('image/')) {
+      message.warning('请选择图片文件')
+      return false
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      message.warning('单张图片不能超过 10MB')
+      return false
+    }
+
+    setUploading(true)
+    try {
+      const url = await uploadImage(file, folder)
+      form.setFieldValue('imageUrl', url)
+      message.success(`${label}上传成功`)
+    } catch (error) {
+      message.error(error?.message || `${label}上传失败`)
+    } finally {
+      setUploading(false)
+    }
+    return false
+  }
+
+  const uploadStallImage = (file) =>
+    uploadManagedImage(
+      file,
+      stallForm,
+      setStallImageUploading,
+      CANTEEN_STALL_UPLOAD_FOLDER,
+      '档口图片',
+    )
+
+  const uploadDishImage = (file) =>
+    uploadManagedImage(
+      file,
+      dishForm,
+      setDishImageUploading,
+      DISH_UPLOAD_FOLDER,
+      '菜品图片',
+    )
 
   const openCreateStall = () => {
     setEditingStall(null)
@@ -364,6 +416,8 @@ export default function StallManage() {
     await loadCategories()
   }
 
+  /* The former table columns are kept here temporarily for reference while the
+     card layout settles.
   const stallColumns = [
     {
       title: '档口名称',
@@ -432,6 +486,7 @@ export default function StallManage() {
     },
   ]
 
+  */
   const dishColumns = [
     {
       title: '菜品',
@@ -566,12 +621,22 @@ export default function StallManage() {
             type="link"
             icon={<ArrowLeftOutlined />}
             className="stall-back-button"
-            onClick={() => navigate('/facility/canteen')}
+            onClick={() => navigate(
+              dishMode
+                ? `/facility/canteen/${canteenId}/stalls`
+                : '/facility/canteen',
+            )}
           >
-            返回食堂列表
+            {dishMode ? '返回档口列表' : '返回食堂列表'}
           </Button>
-          <h1>{canteen?.name || '食堂'} · 档口与菜品</h1>
-          <p>档口按业务列表维护；菜品归属当前档口，不作为地图点位。</p>
+          <h1>
+            {canteen?.name || '食堂'} · {dishMode ? `${selectedStall?.name || '档口'}菜品管理` : '档口管理'}
+          </h1>
+          <p>
+            {dishMode
+              ? '菜品归属当前档口，可在这里维护菜系、价格、口味和上下架状态。'
+              : '档口以卡片列表展示，进入指定档口后再管理其菜品。'}
+          </p>
         </div>
         <Space>
           <Button
@@ -581,15 +646,22 @@ export default function StallManage() {
               loadCategories()
             }}
           >
-            楼层与菜系
+            {dishMode ? '菜系管理' : '楼层与菜系'}
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateStall}>
-            新增档口
-          </Button>
+          {dishMode ? (
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDish} disabled={!selectedStall}>
+              新增菜品
+            </Button>
+          ) : (
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateStall}>
+              新增档口
+            </Button>
+          )}
         </Space>
       </div>
 
-      <Card className="stall-section-card">
+      {!dishMode && (
+      <Card className="stall-section-card" loading={loading}>
         <div className="stall-section-heading">
           <div>
             <h2>档口列表</h2>
@@ -603,6 +675,65 @@ export default function StallManage() {
             className="stall-search"
           />
         </div>
+        <div className="stall-card-grid">
+          {filteredStalls.map((record) => (
+            <Card
+              key={record.id}
+              className="stall-list-card"
+              cover={record.imageUrl ? (
+                <Image
+                  src={record.imageUrl}
+                  height={150}
+                  preview={false}
+                  className="stall-card-image"
+                />
+              ) : (
+                <div className="stall-card-placeholder">
+                  <ShopOutlined />
+                </div>
+              )}
+            >
+              <div className="stall-card-title-row">
+                <h3>{record.name}</h3>
+                {renderStallStatus(record.stallStatus)}
+              </div>
+              <div className="stall-card-meta">
+                <span>位置</span>
+                <strong>{[record.floorName, record.locationDesc].filter(Boolean).join(' · ') || '-'}</strong>
+              </div>
+              <div className="stall-card-meta">
+                <span>营业时间</span>
+                <strong>{record.businessHours || '-'}</strong>
+              </div>
+              <div className="stall-card-meta">
+                <span>人均</span>
+                <strong>{record.avgPrice == null ? '-' : `¥${Number(record.avgPrice).toFixed(2)}`}</strong>
+              </div>
+              <div className="stall-card-actions">
+                <Button
+                  type="primary"
+                  onClick={() => navigate(`/facility/canteen/${canteenId}/stalls/${record.id}/dishes`)}
+                >
+                  管理菜品
+                </Button>
+                <Button icon={<EditOutlined />} onClick={() => openEditStall(record)}>
+                  编辑
+                </Button>
+                <Popconfirm
+                  title="确定删除该档口吗？"
+                  description="请先确认该档口下没有需要保留的菜品。"
+                  onConfirm={() => removeStall(record)}
+                >
+                  <Button danger icon={<DeleteOutlined />}>删除</Button>
+                </Popconfirm>
+              </div>
+            </Card>
+          ))}
+        </div>
+        {!loading && filteredStalls.length === 0 ? (
+          <Empty description="该食堂暂无档口" className="stall-empty" />
+        ) : null}
+        {/* The stall table was replaced by the card grid.
         <Table
           rowKey="id"
           columns={stallColumns}
@@ -615,9 +746,11 @@ export default function StallManage() {
           onRow={(record) => ({ onClick: () => setSelectedStallId(record.id) })}
           locale={{ emptyText: '该食堂暂无档口' }}
           scroll={{ x: 1080 }}
-        />
+        /> */}
       </Card>
+      )}
 
+      {dishMode && (
       <Card className="stall-section-card dish-section-card">
         <div className="stall-section-heading">
           <div>
@@ -656,6 +789,7 @@ export default function StallManage() {
           <Empty description="选择档口后在这里管理菜品" className="stall-empty" />
         )}
       </Card>
+      )}
 
       <SidePanel
         title={`${canteen?.name || '校园设施'} · 楼层与菜系`}
@@ -691,7 +825,14 @@ export default function StallManage() {
         footer={(
           <>
             <Button onClick={() => setStallEditorOpen(false)}>取消</Button>
-            <Button type="primary" loading={saving} onClick={saveStall}>保存</Button>
+            <Button
+              type="primary"
+              loading={saving || stallImageUploading}
+              disabled={stallImageUploading}
+              onClick={saveStall}
+            >
+              保存
+            </Button>
           </>
         )}
       >
@@ -734,6 +875,24 @@ export default function StallManage() {
           <Form.Item name="imageUrl" label="档口图片地址">
             <Input placeholder="请输入图片 URL" />
           </Form.Item>
+          <div className="stall-image-upload-actions">
+            <Upload
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              showUploadList={false}
+              beforeUpload={uploadStallImage}
+              disabled={stallImageUploading}
+            >
+              <Button icon={<UploadOutlined />} loading={stallImageUploading}>
+                {stallImage ? '替换档口图片' : '上传档口图片'}
+              </Button>
+            </Upload>
+            {stallImage ? (
+              <Button danger onClick={() => stallForm.setFieldValue('imageUrl', '')}>
+                移除图片
+              </Button>
+            ) : null}
+            <span className="stall-image-upload-tip">支持 JPG、PNG、WebP、GIF，最大 10MB</span>
+          </div>
           {stallImage ? <Image src={stallImage} className="stall-form-image" /> : null}
           <Form.Item name="sortOrder" label="排序">
             <InputNumber min={0} style={{ width: '100%' }} />
@@ -749,7 +908,14 @@ export default function StallManage() {
         footer={(
           <>
             <Button onClick={() => setDishEditorOpen(false)}>取消</Button>
-            <Button type="primary" loading={saving} onClick={saveDish}>保存</Button>
+            <Button
+              type="primary"
+              loading={saving || dishImageUploading}
+              disabled={dishImageUploading}
+              onClick={saveDish}
+            >
+              保存
+            </Button>
           </>
         )}
       >
@@ -791,6 +957,24 @@ export default function StallManage() {
           <Form.Item name="imageUrl" label="菜品图片地址">
             <Input placeholder="请输入图片 URL" />
           </Form.Item>
+          <div className="stall-image-upload-actions">
+            <Upload
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              showUploadList={false}
+              beforeUpload={uploadDishImage}
+              disabled={dishImageUploading}
+            >
+              <Button icon={<UploadOutlined />} loading={dishImageUploading}>
+                {dishImage ? '替换菜品图片' : '上传菜品图片'}
+              </Button>
+            </Upload>
+            {dishImage ? (
+              <Button danger onClick={() => dishForm.setFieldValue('imageUrl', '')}>
+                移除图片
+              </Button>
+            ) : null}
+            <span className="stall-image-upload-tip">支持 JPG、PNG、WebP、GIF，最大 10MB</span>
+          </div>
           {dishImage ? <Image src={dishImage} className="stall-form-image" /> : null}
           <Form.Item name="stallPlaceId" hidden><Input /></Form.Item>
         </Form>
