@@ -19,6 +19,7 @@ import {
 } from 'antd'
 import {
   ArrowLeftOutlined,
+  AimOutlined,
   DeleteOutlined,
   EditOutlined,
   PlusOutlined,
@@ -39,15 +40,19 @@ import {
 } from '../../api/dish'
 import {
   createMapPlace,
+  deleteFloorPlan,
   deleteMapPlace,
+  getFloorPlan,
   getMapPlaceDetail,
   getMapPlaceList,
+  saveFloorPlan,
   updateMapPlace,
 } from '../../api/mapPlace'
 import SidePanel from '../../components/SidePanel/SidePanel'
 import {
   CANTEEN_STALL_UPLOAD_FOLDER,
   DISH_UPLOAD_FOLDER,
+  MAP_BUILDING_UPLOAD_FOLDER,
   uploadImage,
 } from '../../api/upload'
 import './StallManage.css'
@@ -83,17 +88,20 @@ export default function StallManage() {
   const [stallForm] = Form.useForm()
   const [dishForm] = Form.useForm()
   const [categoryForm] = Form.useForm()
+  const [floorPlanForm] = Form.useForm()
   const [canteen, setCanteen] = useState(null)
   const [stalls, setStalls] = useState([])
   const [dishes, setDishes] = useState([])
   const [selectedStallId, setSelectedStallId] = useState(stallId || null)
   const [stallKeyword, setStallKeyword] = useState('')
+  const [floorFilter, setFloorFilter] = useState('ALL')
   const [dishKeyword, setDishKeyword] = useState('')
   const [loading, setLoading] = useState(false)
   const [dishLoading, setDishLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [stallImageUploading, setStallImageUploading] = useState(false)
   const [dishImageUploading, setDishImageUploading] = useState(false)
+  const [floorPlanUploading, setFloorPlanUploading] = useState(false)
   const [stallEditorOpen, setStallEditorOpen] = useState(false)
   const [dishEditorOpen, setDishEditorOpen] = useState(false)
   const [editingStall, setEditingStall] = useState(null)
@@ -104,8 +112,12 @@ export default function StallManage() {
   const [categoryEditorOpen, setCategoryEditorOpen] = useState(false)
   const [categoryKind, setCategoryKind] = useState('floor')
   const [editingCategory, setEditingCategory] = useState(null)
+  const [floorPlanOpen, setFloorPlanOpen] = useState(false)
+  const [floorPlanFloor, setFloorPlanFloor] = useState(null)
+  const [floorPlan, setFloorPlan] = useState(null)
   const stallImage = Form.useWatch('imageUrl', stallForm)
   const dishImage = Form.useWatch('imageUrl', dishForm)
+  const floorPlanImage = Form.useWatch('imageUrl', floorPlanForm)
 
   const selectedStall = useMemo(
     () => stalls.find((item) => String(item.id) === String(selectedStallId)) || null,
@@ -114,12 +126,14 @@ export default function StallManage() {
 
   const filteredStalls = useMemo(() => {
     const keyword = stallKeyword.trim().toLowerCase()
-    if (!keyword) return stalls
-    return stalls.filter((item) =>
-      [item.name, item.floorName, item.locationDesc]
-        .some((value) => String(value || '').toLowerCase().includes(keyword)),
-    )
-  }, [stallKeyword, stalls])
+    return stalls.filter((item) => {
+      const matchesFloor = floorFilter === 'ALL'
+        || String(item.parentId) === String(floorFilter)
+      const matchesKeyword = !keyword || [item.name, item.floorName, item.locationDesc]
+        .some((value) => String(value || '').toLowerCase().includes(keyword))
+      return matchesFloor && matchesKeyword
+    })
+  }, [floorFilter, stallKeyword, stalls])
 
   const filteredDishes = useMemo(() => {
     const keyword = dishKeyword.trim().toLowerCase()
@@ -262,6 +276,49 @@ export default function StallManage() {
       DISH_UPLOAD_FOLDER,
       '菜品图片',
     )
+
+  const openFloorPlan = async (floor) => {
+    setFloorPlanFloor(floor)
+    floorPlanForm.resetFields()
+    setSaving(true)
+    try {
+      const response = await getFloorPlan(floor.id)
+      setFloorPlan(response.data || null)
+      floorPlanForm.setFieldValue('imageUrl', response.data?.imageUrl || '')
+      setFloorPlanOpen(true)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const uploadFloorPlan = (file) =>
+    uploadManagedImage(
+      file,
+      floorPlanForm,
+      setFloorPlanUploading,
+      MAP_BUILDING_UPLOAD_FOLDER,
+      '楼层平面图',
+    )
+
+  const submitFloorPlan = async () => {
+    const values = await floorPlanForm.validateFields()
+    setSaving(true)
+    try {
+      const response = await saveFloorPlan(floorPlanFloor.id, values)
+      setFloorPlan(response.data || null)
+      message.success('楼层平面图已保存')
+      setFloorPlanOpen(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const removeFloorPlan = async () => {
+    await deleteFloorPlan(floorPlanFloor.id)
+    setFloorPlan(null)
+    floorPlanForm.resetFields()
+    message.success('楼层平面图已删除')
+  }
 
   const openCreateStall = () => {
     setEditingStall(null)
@@ -591,9 +648,14 @@ export default function StallManage() {
             {
               title: '操作',
               key: 'actions',
-              width: 150,
+              width: isFloor ? 240 : 150,
               render: (_, record) => (
                 <Space size="small">
+                  {isFloor ? (
+                    <Button size="small" onClick={() => openFloorPlan(record)}>
+                      平面图
+                    </Button>
+                  ) : null}
                   <Button size="small" onClick={() => openCategoryEditor(kind, record)}>编辑</Button>
                   <Popconfirm
                     title={`确定删除该${isFloor ? '楼层' : '菜系'}吗？`}
@@ -639,6 +701,14 @@ export default function StallManage() {
           </p>
         </div>
         <Space>
+          {!dishMode ? (
+            <Button
+              icon={<AimOutlined />}
+              onClick={() => navigate(`/facility/canteen/${canteenId}/stalls/indoor`)}
+            >
+              楼层档口定位
+            </Button>
+          ) : null}
           <Button
             icon={<SettingOutlined />}
             onClick={() => {
@@ -667,13 +737,24 @@ export default function StallManage() {
             <h2>档口列表</h2>
             <p>档口本身就是食堂下的点位，维护其楼层、位置和营业信息。</p>
           </div>
-          <Input.Search
-            allowClear
-            placeholder="搜索档口、楼层或位置"
-            value={stallKeyword}
-            onChange={(event) => setStallKeyword(event.target.value)}
-            className="stall-search"
-          />
+          <Space className="stall-filter-tools">
+            <Select
+              value={floorFilter}
+              onChange={setFloorFilter}
+              className="stall-floor-filter"
+              options={[
+                { value: 'ALL', label: '全部楼层' },
+                ...floors.map((floor) => ({ value: floor.id, label: floor.name })),
+              ]}
+            />
+            <Input.Search
+              allowClear
+              placeholder="搜索档口、楼层或位置"
+              value={stallKeyword}
+              onChange={(event) => setStallKeyword(event.target.value)}
+              className="stall-search"
+            />
+          </Space>
         </div>
         <div className="stall-card-grid">
           {filteredStalls.map((record) => (
@@ -979,6 +1060,50 @@ export default function StallManage() {
           <Form.Item name="stallPlaceId" hidden><Input /></Form.Item>
         </Form>
       </SidePanel>
+
+      <Modal
+        title={`楼层平面图 · ${floorPlanFloor?.name || ''}`}
+        open={floorPlanOpen}
+        confirmLoading={saving || floorPlanUploading}
+        okButtonProps={{ disabled: floorPlanUploading }}
+        onCancel={() => setFloorPlanOpen(false)}
+        onOk={submitFloorPlan}
+        forceRender
+      >
+        <Form form={floorPlanForm} layout="vertical">
+          <Form.Item
+            name="imageUrl"
+            label="平面图地址"
+            rules={[{ required: true, message: '请上传楼层平面图' }]}
+          >
+            <Input placeholder="上传后自动填写，也可以直接输入图片 URL" />
+          </Form.Item>
+          <div className="floor-plan-upload-actions">
+            <Upload
+              accept="image/jpeg,image/png,image/webp"
+              showUploadList={false}
+              beforeUpload={uploadFloorPlan}
+              disabled={floorPlanUploading}
+            >
+              <Button icon={<UploadOutlined />} loading={floorPlanUploading}>
+                {floorPlanImage ? '更换平面图' : '上传平面图'}
+              </Button>
+            </Upload>
+            <span>建议上传清晰的楼层俯视平面图，最大 10MB</span>
+          </div>
+          {floorPlanImage ? (
+            <Image className="floor-plan-image-preview" src={floorPlanImage} />
+          ) : null}
+          {floorPlan ? (
+            <Popconfirm
+              title="确定删除该平面图及其室内定位信息吗？"
+              onConfirm={removeFloorPlan}
+            >
+              <Button danger className="floor-plan-delete-button">删除平面图</Button>
+            </Popconfirm>
+          ) : null}
+        </Form>
+      </Modal>
 
       <Modal
         title={`${editingCategory ? '编辑' : '新增'}${categoryKind === 'floor' ? '楼层点位' : '菜品菜系'}`}

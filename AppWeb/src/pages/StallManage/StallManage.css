@@ -58,6 +58,14 @@
   width: 280px;
 }
 
+.stall-filter-tools {
+  display: flex;
+}
+
+.stall-floor-filter {
+  width: 140px;
+}
+
 .stall-card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -223,6 +231,32 @@
   font-size: 12px;
 }
 
+.floor-plan-upload-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: -8px;
+}
+
+.floor-plan-upload-actions span {
+  color: #8a96a8;
+  font-size: 12px;
+}
+
+.floor-plan-image-preview {
+  width: 100%;
+  max-height: 360px;
+  margin-top: 16px;
+  border: 1px solid #e4e9f0;
+  border-radius: 8px;
+  background: #f7f9fb;
+  object-fit: contain;
+}
+
+.floor-plan-delete-button {
+  margin-top: 14px;
+}
+
 .category-manager-intro {
   margin-bottom: 16px;
   padding: 12px 14px;
@@ -266,6 +300,16 @@
     width: 100%;
   }
 
+  .stall-filter-tools {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .stall-floor-filter {
+    width: 100%;
+  }
+
   .stall-section-heading > .ant-space {
     display: flex;
     width: 100%;
@@ -290,6 +334,11 @@
 
   .stall-image-upload-tip {
     flex-basis: 100%;
+  }
+
+  .floor-plan-upload-actions {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .category-manager-toolbar {
