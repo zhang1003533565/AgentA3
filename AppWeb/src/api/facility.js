@@ -50,3 +50,57 @@ export const deleteFacility = (id) =>
     url: `/api/v1/facility/${id}`,
     method: 'delete',
   })
+
+export const getFacilityFloors = (facilityId) =>
+  request({
+    url: '/api/v1/facility/floors',
+    method: 'get',
+    params: { facilityId },
+  })
+
+export const createFacilityFloor = (data) =>
+  request({
+    url: '/api/v1/facility/floors',
+    method: 'post',
+    data,
+  })
+
+export const updateFacilityFloor = (id, data) =>
+  request({
+    url: `/api/v1/facility/floors/${id}`,
+    method: 'put',
+    data,
+  })
+
+export const deleteFacilityFloor = (id) =>
+  request({
+    url: `/api/v1/facility/floors/${id}`,
+    method: 'delete',
+  })
+
+export const getStallCuisines = (restaurantId) =>
+  request({
+    url: '/api/v1/facility/stall-cuisines',
+    method: 'get',
+    params: { restaurantId },
+  })
+
+export const createStallCuisine = (data) =>
+  request({
+    url: '/api/v1/facility/stall-cuisines',
+    method: 'post',
+    data,
+  })
+
+export const updateStallCuisine = (id, data) =>
+  request({
+    url: `/api/v1/facility/stall-cuisines/${id}`,
+    method: 'put',
+    data,
+  })
+
+export const deleteStallCuisine = (id) =>
+  request({
+    url: `/api/v1/facility/stall-cuisines/${id}`,
+    method: 'delete',
+  })

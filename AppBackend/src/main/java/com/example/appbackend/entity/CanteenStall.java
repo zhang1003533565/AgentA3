@@ -23,8 +23,14 @@ public class CanteenStall {
     @Column(name = "floor", length = 20, columnDefinition = "VARCHAR(20) COMMENT '楼层'")
     private String floor;
 
+    @Column(name = "floor_id")
+    private Long floorId;
+
     @Column(name = "category", length = 50, columnDefinition = "VARCHAR(50) COMMENT '品类/菜系'")
     private String category;
+
+    @Column(name = "cuisine_id")
+    private Long cuisineId;
 
     @Column(name = "location", length = 200, columnDefinition = "VARCHAR(200) COMMENT '位置描述'")
     private String location;
@@ -76,4 +82,12 @@ public class CanteenStall {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "restaurant_id", insertable = false, updatable = false)
     private CampusFacility restaurant;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "floor_id", insertable = false, updatable = false)
+    private FacilityFloor floorCategory;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cuisine_id", insertable = false, updatable = false)
+    private StallCuisine cuisine;
 }

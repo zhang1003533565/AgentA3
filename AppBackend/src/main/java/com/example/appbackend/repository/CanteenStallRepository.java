@@ -16,4 +16,12 @@ public interface CanteenStallRepository extends JpaRepository<CanteenStall, Long
     List<CanteenStall> findByCategory(String category);
 
     List<CanteenStall> findByFloor(String floor);
+
+    List<CanteenStall> findByFloorId(Long floorId);
+
+    boolean existsByFloorId(Long floorId);
+
+    List<CanteenStall> findByCuisineId(Long cuisineId);
+
+    boolean existsByCuisineId(Long cuisineId);
 }
