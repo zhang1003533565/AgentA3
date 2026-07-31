@@ -26,27 +26,22 @@ import {
 } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
+  createDishCuisine,
   createDish,
-  createStall,
+  deleteDishCuisine,
   deleteDish,
-  deleteStall,
-  getCanteenStallList,
+  getDishCuisines,
   getDishList,
+  updateDishCuisine,
   updateDish,
-  updateStall,
 } from '../../api/dish'
 import {
-  createFacilityFloor,
-  createStallCuisine,
-  deleteFacilityFloor,
-  deleteStallCuisine,
-  getFacilityFloors,
-  getFacilityList,
-  getStallCuisines,
-  updateFacilityFloor,
-  updateStallCuisine,
-} from '../../api/facility'
-import { getMapPlaceDetail } from '../../api/mapPlace'
+  createMapPlace,
+  deleteMapPlace,
+  getMapPlaceDetail,
+  getMapPlaceList,
+  updateMapPlace,
+} from '../../api/mapPlace'
 import SidePanel from '../../components/SidePanel/SidePanel'
 import './StallManage.css'
 
@@ -68,8 +63,6 @@ const getRows = (response) => {
   return []
 }
 
-const normalizeName = (value = '') => value.trim().replace(/\s+/g, '')
-
 const renderStallStatus = (status) => {
   const option = STALL_STATUS_OPTIONS.find((item) => item.value === Number(status))
   const color = Number(status) === 1 ? 'success' : Number(status) === 2 ? 'warning' : 'default'
@@ -83,7 +76,6 @@ export default function StallManage() {
   const [dishForm] = Form.useForm()
   const [categoryForm] = Form.useForm()
   const [canteen, setCanteen] = useState(null)
-  const [restaurantId, setRestaurantId] = useState(null)
   const [stalls, setStalls] = useState([])
   const [dishes, setDishes] = useState([])
   const [selectedStallId, setSelectedStallId] = useState(null)
@@ -102,7 +94,7 @@ export default function StallManage() {
   const [categoryEditorOpen, setCategoryEditorOpen] = useState(false)
   const [categoryKind, setCategoryKind] = useState('floor')
   const [editingCategory, setEditingCategory] = useState(null)
-  const stallImage = Form.useWatch('image', stallForm)
+  const stallImage = Form.useWatch('imageUrl', stallForm)
   const dishImage = Form.useWatch('imageUrl', dishForm)
 
   const selectedStall = useMemo(
@@ -114,7 +106,7 @@ export default function StallManage() {
     const keyword = stallKeyword.trim().toLowerCase()
     if (!keyword) return stalls
     return stalls.filter((item) =>
-      [item.stallName, item.category, item.floor, item.location]
+      [item.name, item.floorName, item.locationDesc]
         .some((value) => String(value || '').toLowerCase().includes(keyword)),
     )
   }, [stallKeyword, stalls])
@@ -140,33 +132,20 @@ export default function StallManage() {
   const floorOptions = useMemo(
     () => floors.map((item) => ({
       value: item.id,
-      label: item.floorName,
-      disabled: Number(item.status) !== 1,
+      label: item.name,
+      disabled: item.status !== 'ENABLED',
     })),
     [floors],
   )
 
-  const resolveRestaurant = useCallback(async (mapPlace) => {
-    const response = await getFacilityList({ type: 1, pageNum: 1, pageSize: 200 })
-    const restaurants = getRows(response)
-    const name = normalizeName(mapPlace?.name)
-    const matched = restaurants.find((item) => normalizeName(item.facilityName) === name)
-    return Number(matched?.id || canteenId)
-  }, [canteenId])
-
-  const loadCategories = useCallback(async (targetRestaurantId) => {
-    if (!targetRestaurantId) {
-      setFloors([])
-      setCuisines([])
-      return
-    }
+  const loadCategories = useCallback(async () => {
     const [floorResponse, cuisineResponse] = await Promise.all([
-      getFacilityFloors(targetRestaurantId),
-      getStallCuisines(targetRestaurantId),
+      getMapPlaceList({ sceneType: 'CANTEEN', parentId: canteenId }),
+      getDishCuisines(canteenId),
     ])
-    setFloors(getRows(floorResponse))
+    setFloors(getRows(floorResponse).filter((item) => item.placeType === 'FLOOR'))
     setCuisines(getRows(cuisineResponse))
-  }, [])
+  }, [canteenId])
 
   const loadStalls = useCallback(async (preferredStallId = null) => {
     setLoading(true)
@@ -174,25 +153,41 @@ export default function StallManage() {
       const mapResponse = await getMapPlaceDetail(canteenId)
       const mapPlace = mapResponse.data || null
       setCanteen(mapPlace)
-      const resolvedRestaurantId = await resolveRestaurant(mapPlace)
-      setRestaurantId(resolvedRestaurantId)
-      await loadCategories(resolvedRestaurantId)
-
-      // 查询完整列表后在前端按餐厅过滤，保证“休息中/已关闭”的档口也能在管理端看到。
-      const stallResponse = await getCanteenStallList()
-      const rows = getRows(stallResponse)
-        .filter((item) => Number(item.restaurantId) === resolvedRestaurantId)
-        .sort((left, right) => (left.sort || 0) - (right.sort || 0))
+      const floorResponse = await getMapPlaceList({ sceneType: 'CANTEEN', parentId: canteenId })
+      const floorRows = getRows(floorResponse).filter((item) => item.placeType === 'FLOOR')
+      setFloors(floorRows)
+      const childResponses = await Promise.all(
+        floorRows.map((floor) => getMapPlaceList({ sceneType: 'CANTEEN', parentId: floor.id })),
+      )
+      const directResponse = await getMapPlaceList({ sceneType: 'CANTEEN', parentId: canteenId })
+      const rows = [
+        ...getRows(directResponse),
+        ...childResponses.flatMap(getRows),
+      ].filter((item) => item.placeType === 'CANTEEN_STALL')
+        .map((item) => ({
+          ...item,
+          floorName: floorRows.find((floor) => String(floor.id) === String(item.parentId))?.name || '-',
+          stallStatus: item.stallStatus ?? (item.status === 'ENABLED' ? 1 : 3),
+        }))
+        .sort((left, right) => (left.sortOrder || 0) - (right.sortOrder || 0))
+      const cuisineResponse = await getDishCuisines(canteenId)
+      setCuisines(getRows(cuisineResponse))
       setStalls(rows)
       setSelectedStallId((current) => {
         const expected = preferredStallId ?? current
         if (rows.some((item) => String(item.id) === String(expected))) return expected
         return rows[0]?.id ?? null
       })
+    } catch (error) {
+      if (!error?.showMessage) {
+        message.error(error?.message || '档口数据加载失败')
+      }
+      setStalls([])
+      setSelectedStallId(null)
     } finally {
       setLoading(false)
     }
-  }, [canteenId, loadCategories, resolveRestaurant])
+  }, [canteenId])
 
   const loadDishes = useCallback(async () => {
     if (!selectedStallId) {
@@ -201,11 +196,8 @@ export default function StallManage() {
     }
     setDishLoading(true)
     try {
-      // 管理端需要同时看到上架和下架菜品，因此取完整列表后按档口归属过滤。
-      const response = await getDishList()
-      setDishes(getRows(response).filter(
-        (item) => String(item.stallId) === String(selectedStallId),
-      ))
+      const response = await getDishList({ stallPlaceId: selectedStallId })
+      setDishes(getRows(response))
     } finally {
       setDishLoading(false)
     }
@@ -223,9 +215,8 @@ export default function StallManage() {
     setEditingStall(null)
     stallForm.resetFields()
     stallForm.setFieldsValue({
-      restaurantId,
-      status: 1,
-      sort: stalls.length,
+      stallStatus: 1,
+      sortOrder: stalls.length,
     })
     setStallEditorOpen(true)
   }
@@ -235,8 +226,8 @@ export default function StallManage() {
     stallForm.resetFields()
     stallForm.setFieldsValue({
       ...record,
-      floorId: record.floorId || floors.find((item) => item.floorName === record.floor)?.id,
-      cuisineId: record.cuisineId || cuisines.find((item) => item.cuisineName === record.category)?.id,
+      floorId: record.parentId,
+      location: record.locationDesc,
     })
     setStallEditorOpen(true)
   }
@@ -245,10 +236,24 @@ export default function StallManage() {
     const values = await stallForm.validateFields()
     setSaving(true)
     try {
-      const payload = { ...editingStall, ...values, restaurantId }
+      const payload = {
+        parentId: values.floorId,
+        sceneType: 'CANTEEN',
+        placeType: 'CANTEEN_STALL',
+        name: values.name,
+        description: values.description || '',
+        status: Number(values.stallStatus) === 3 ? 'DISABLED' : 'ENABLED',
+        locationDesc: values.location || '',
+        mapVisible: false,
+        sortOrder: values.sortOrder || 0,
+        stallStatus: values.stallStatus,
+        businessHours: values.businessHours || '',
+        avgPrice: values.avgPrice,
+        imageUrl: values.imageUrl || '',
+      }
       const response = editingStall
-        ? await updateStall(editingStall.id, payload)
-        : await createStall(payload)
+        ? await updateMapPlace(editingStall.id, payload)
+        : await createMapPlace(payload)
       const savedId = response.data?.id || editingStall?.id
       message.success(editingStall ? '档口已更新' : '档口已新增')
       setStallEditorOpen(false)
@@ -259,7 +264,7 @@ export default function StallManage() {
   }
 
   const removeStall = async (record) => {
-    await deleteStall(record.id)
+    await deleteMapPlace(record.id)
     message.success('档口已删除')
     await loadStalls()
   }
@@ -269,7 +274,7 @@ export default function StallManage() {
     setEditingDish(null)
     dishForm.resetFields()
     dishForm.setFieldsValue({
-      stallId: selectedStall.id,
+      stallPlaceId: selectedStall.id,
       isAvailable: true,
     })
     setDishEditorOpen(true)
@@ -278,7 +283,10 @@ export default function StallManage() {
   const openEditDish = (record) => {
     setEditingDish(record)
     dishForm.resetFields()
-    dishForm.setFieldsValue(record)
+    dishForm.setFieldsValue({
+      ...record,
+      cuisineId: record.cuisineId || cuisines.find((item) => item.cuisineName === record.category)?.id,
+    })
     setDishEditorOpen(true)
   }
 
@@ -286,7 +294,7 @@ export default function StallManage() {
     const values = await dishForm.validateFields()
     setSaving(true)
     try {
-      const payload = { ...editingDish, ...values, stallId: selectedStall.id }
+      const payload = { ...editingDish, ...values, stallId: null, stallPlaceId: selectedStall.id }
       if (editingDish) await updateDish(editingDish.id, payload)
       else await createDish(payload)
       message.success(editingDish ? '菜品已更新' : '菜品已新增')
@@ -308,8 +316,8 @@ export default function StallManage() {
     setEditingCategory(record)
     categoryForm.resetFields()
     categoryForm.setFieldsValue({
-      name: kind === 'floor' ? record?.floorName : record?.cuisineName,
-      status: record?.status ?? 1,
+      name: kind === 'floor' ? record?.name : record?.cuisineName,
+      status: kind === 'floor' ? (record?.status === 'DISABLED' ? 0 : 1) : (record?.status ?? 1),
       sortOrder: record?.sortOrder ?? 0,
     })
     setCategoryEditorOpen(true)
@@ -318,25 +326,31 @@ export default function StallManage() {
   const saveCategory = async () => {
     const values = await categoryForm.validateFields()
     const payload = categoryKind === 'floor'
-      ? { ...values, facilityId: restaurantId }
-      : { ...values, restaurantId }
+      ? {
+          parentId: Number(canteenId),
+          sceneType: 'CANTEEN',
+          placeType: 'FLOOR',
+          name: values.name,
+          status: Number(values.status) === 1 ? 'ENABLED' : 'DISABLED',
+          mapVisible: false,
+          sortOrder: values.sortOrder || 0,
+        }
+      : { ...values, canteenPlaceId: Number(canteenId) }
     setSaving(true)
     try {
       const response = categoryKind === 'floor'
         ? editingCategory
-          ? await updateFacilityFloor(editingCategory.id, payload)
-          : await createFacilityFloor(payload)
+          ? await updateMapPlace(editingCategory.id, payload)
+          : await createMapPlace(payload)
         : editingCategory
-          ? await updateStallCuisine(editingCategory.id, payload)
-          : await createStallCuisine(payload)
+          ? await updateDishCuisine(editingCategory.id, payload)
+          : await createDishCuisine(payload)
       message.success(editingCategory ? '分类已更新' : '分类已新增')
       setCategoryEditorOpen(false)
-      await loadCategories(restaurantId)
-      if (!editingCategory && stallEditorOpen) {
-        stallForm.setFieldValue(
-          categoryKind === 'floor' ? 'floorId' : 'cuisineId',
-          response.data?.id,
-        )
+      await loadCategories()
+      if (!editingCategory) {
+        if (categoryKind === 'floor' && stallEditorOpen) stallForm.setFieldValue('floorId', response.data?.id)
+        if (categoryKind === 'cuisine' && dishEditorOpen) dishForm.setFieldValue('cuisineId', response.data?.id)
       }
     } finally {
       setSaving(false)
@@ -344,16 +358,16 @@ export default function StallManage() {
   }
 
   const removeCategory = async (kind, record) => {
-    if (kind === 'floor') await deleteFacilityFloor(record.id)
-    else await deleteStallCuisine(record.id)
+    if (kind === 'floor') await deleteMapPlace(record.id)
+    else await deleteDishCuisine(record.id)
     message.success('分类已删除')
-    await loadCategories(restaurantId)
+    await loadCategories()
   }
 
   const stallColumns = [
     {
       title: '档口名称',
-      dataIndex: 'stallName',
+      dataIndex: 'name',
       width: 210,
       render: (value, record) => (
         <button
@@ -367,15 +381,9 @@ export default function StallManage() {
       ),
     },
     {
-      title: '菜系',
-      dataIndex: 'category',
-      width: 130,
-      render: (value) => value ? <Tag color="blue">{value}</Tag> : '-',
-    },
-    {
       title: '档口位置',
       key: 'location',
-      render: (_, record) => [record.floor, record.location].filter(Boolean).join(' · ') || '-',
+      render: (_, record) => [record.floorName, record.locationDesc].filter(Boolean).join(' · ') || '-',
     },
     {
       title: '营业时间',
@@ -391,7 +399,7 @@ export default function StallManage() {
     },
     {
       title: '状态',
-      dataIndex: 'status',
+      dataIndex: 'stallStatus',
       width: 100,
       render: renderStallStatus,
     },
@@ -445,7 +453,7 @@ export default function StallManage() {
       ),
     },
     {
-      title: '分类',
+      title: '菜系',
       dataIndex: 'category',
       width: 130,
       render: (value) => value ? <Tag>{value}</Tag> : '-',
@@ -491,7 +499,7 @@ export default function StallManage() {
     return (
       <div className="category-manager-section">
         <div className="category-manager-toolbar">
-          <p>{isFloor ? '楼层用于标识档口所在区域。' : '菜系用于统一归类档口经营类型。'}</p>
+          <p>{isFloor ? '楼层是食堂的下级点位，档口绑定到具体楼层。' : '菜系由菜品引用，同一档口可拥有多种菜系。'}</p>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => openCategoryEditor(kind)}>
             {isFloor ? '新增楼层' : '新增菜系'}
           </Button>
@@ -505,7 +513,7 @@ export default function StallManage() {
           columns={[
             {
               title: isFloor ? '楼层名称' : '菜系名称',
-              dataIndex: isFloor ? 'floorName' : 'cuisineName',
+              dataIndex: isFloor ? 'name' : 'cuisineName',
             },
             {
               title: '排序',
@@ -516,11 +524,14 @@ export default function StallManage() {
               title: '状态',
               dataIndex: 'status',
               width: 90,
-              render: (value) => (
-                <Tag color={Number(value) === 1 ? 'success' : 'default'}>
-                  {Number(value) === 1 ? '启用' : '停用'}
+              render: (value) => {
+                const enabled = isFloor ? value === 'ENABLED' : Number(value) === 1
+                return (
+                <Tag color={enabled ? 'success' : 'default'}>
+                  {enabled ? '启用' : '停用'}
                 </Tag>
-              ),
+                )
+              },
             },
             {
               title: '操作',
@@ -531,7 +542,9 @@ export default function StallManage() {
                   <Button size="small" onClick={() => openCategoryEditor(kind, record)}>编辑</Button>
                   <Popconfirm
                     title={`确定删除该${isFloor ? '楼层' : '菜系'}吗？`}
-                    description="已被档口使用时不能删除，可以改为停用。"
+                    description={isFloor
+                      ? '楼层下存在档口时不能删除，可以改为停用。'
+                      : '已被菜品使用时不能删除，可以改为停用。'}
                     onConfirm={() => removeCategory(kind, record)}
                   >
                     <Button size="small" danger>删除</Button>
@@ -565,13 +578,12 @@ export default function StallManage() {
             icon={<SettingOutlined />}
             onClick={() => {
               setCategoryManagerOpen(true)
-              loadCategories(restaurantId)
+              loadCategories()
             }}
-            disabled={!restaurantId}
           >
             楼层与菜系
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateStall} disabled={!restaurantId}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateStall}>
             新增档口
           </Button>
         </Space>
@@ -581,11 +593,11 @@ export default function StallManage() {
         <div className="stall-section-heading">
           <div>
             <h2>档口列表</h2>
-            <p>维护档口的菜系、楼层、具体位置和营业信息。</p>
+            <p>档口本身就是食堂下的点位，维护其楼层、位置和营业信息。</p>
           </div>
           <Input.Search
             allowClear
-            placeholder="搜索档口、菜系或位置"
+            placeholder="搜索档口、楼层或位置"
             value={stallKeyword}
             onChange={(event) => setStallKeyword(event.target.value)}
             className="stall-search"
@@ -612,7 +624,7 @@ export default function StallManage() {
             <h2>菜品管理</h2>
             <p>
               {selectedStall
-                ? `当前档口：${selectedStall.stallName} · ${selectedStall.category || '未设置菜系'} · ${[selectedStall.floor, selectedStall.location].filter(Boolean).join(' / ') || '未设置位置'}`
+                ? `当前档口：${selectedStall.name} · ${[selectedStall.floorName, selectedStall.locationDesc].filter(Boolean).join(' / ') || '未设置位置'}`
                 : '请先在上方选择一个档口'}
             </p>
           </div>
@@ -653,18 +665,18 @@ export default function StallManage() {
         destroyOnHidden
       >
         <div className="category-manager-intro">
-          楼层属于校园设施的通用基础数据，可供食堂、教学楼等建筑绑定；菜系用于当前食堂的档口分类。
+          楼层和档口均复用设施点位层级；菜系属于菜品，同一档口的不同菜品可以选择不同菜系。
         </div>
         <Tabs
           items={[
             {
               key: 'floor',
-              label: `设施楼层（${floors.length}）`,
+              label: `楼层点位（${floors.length}）`,
               children: renderCategoryTable('floor'),
             },
             {
               key: 'cuisine',
-              label: `档口菜系（${cuisines.length}）`,
+              label: `菜品菜系（${cuisines.length}）`,
               children: renderCategoryTable('cuisine'),
             },
           ]}
@@ -684,28 +696,13 @@ export default function StallManage() {
         )}
       >
         <Form form={stallForm} layout="vertical">
-          <Form.Item name="stallName" label="档口名称" rules={[{ required: true, message: '请输入档口名称' }]}>
+          <Form.Item name="name" label="档口名称" rules={[{ required: true, message: '请输入档口名称' }]}>
             <Input placeholder="例如：兰州拉面" />
           </Form.Item>
           <div className="stall-form-grid">
-            <Form.Item
-              name="cuisineId"
-              label="菜系"
-              rules={[{ required: true, message: '请选择菜系' }]}
-              extra={<Button type="link" size="small" onClick={() => setCategoryManagerOpen(true)}>管理菜系</Button>}
-            >
-              <Select
-                allowClear
-                options={cuisineOptions}
-                placeholder="请选择已配置的菜系"
-                notFoundContent="请先在“楼层与菜系”中新增"
-              />
-            </Form.Item>
-            <Form.Item name="status" label="营业状态" rules={[{ required: true }]}>
+            <Form.Item name="stallStatus" label="营业状态" rules={[{ required: true }]}>
               <Select options={STALL_STATUS_OPTIONS} />
             </Form.Item>
-          </div>
-          <div className="stall-form-grid">
             <Form.Item
               name="floorId"
               label="所在楼层"
@@ -734,18 +731,18 @@ export default function StallManage() {
           <Form.Item name="description" label="档口介绍">
             <Input.TextArea rows={3} />
           </Form.Item>
-          <Form.Item name="image" label="档口图片地址">
+          <Form.Item name="imageUrl" label="档口图片地址">
             <Input placeholder="请输入图片 URL" />
           </Form.Item>
           {stallImage ? <Image src={stallImage} className="stall-form-image" /> : null}
-          <Form.Item name="sort" label="排序">
+          <Form.Item name="sortOrder" label="排序">
             <InputNumber min={0} style={{ width: '100%' }} />
           </Form.Item>
         </Form>
       </SidePanel>
 
       <SidePanel
-        title={editingDish ? '编辑菜品' : `新增菜品 · ${selectedStall?.stallName || ''}`}
+        title={editingDish ? '编辑菜品' : `新增菜品 · ${selectedStall?.name || ''}`}
         open={dishEditorOpen}
         onClose={() => setDishEditorOpen(false)}
         destroyOnHidden
@@ -758,7 +755,7 @@ export default function StallManage() {
       >
         <Form form={dishForm} layout="vertical">
           <Form.Item label="所属档口">
-            <Input value={selectedStall?.stallName} disabled />
+            <Input value={selectedStall?.name} disabled />
           </Form.Item>
           <Form.Item name="name" label="菜品名称" rules={[{ required: true, message: '请输入菜品名称' }]}>
             <Input />
@@ -772,8 +769,17 @@ export default function StallManage() {
             </Form.Item>
           </div>
           <div className="stall-form-grid">
-            <Form.Item name="category" label="菜品分类">
-              <Input placeholder="例如：招牌、主食、小吃" />
+            <Form.Item
+              name="cuisineId"
+              label="菜系"
+              rules={[{ required: true, message: '请选择菜系' }]}
+              extra={<Button type="link" size="small" onClick={() => setCategoryManagerOpen(true)}>管理菜系</Button>}
+            >
+              <Select
+                options={cuisineOptions}
+                placeholder="请选择菜品所属菜系"
+                notFoundContent="请先新增菜系"
+              />
             </Form.Item>
             <Form.Item name="taste" label="口味">
               <Input placeholder="例如：清淡、麻辣" />
@@ -786,12 +792,12 @@ export default function StallManage() {
             <Input placeholder="请输入图片 URL" />
           </Form.Item>
           {dishImage ? <Image src={dishImage} className="stall-form-image" /> : null}
-          <Form.Item name="stallId" hidden><Input /></Form.Item>
+          <Form.Item name="stallPlaceId" hidden><Input /></Form.Item>
         </Form>
       </SidePanel>
 
       <Modal
-        title={`${editingCategory ? '编辑' : '新增'}${categoryKind === 'floor' ? '设施楼层' : '档口菜系'}`}
+        title={`${editingCategory ? '编辑' : '新增'}${categoryKind === 'floor' ? '楼层点位' : '菜品菜系'}`}
         open={categoryEditorOpen}
         confirmLoading={saving}
         onCancel={() => setCategoryEditorOpen(false)}

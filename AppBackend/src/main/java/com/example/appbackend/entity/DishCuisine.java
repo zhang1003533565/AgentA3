@@ -9,29 +9,29 @@ import java.time.LocalDateTime;
 @Data
 @Entity
 @Table(
-        name = "facility_floor",
+        name = "dish_cuisine",
         uniqueConstraints = @UniqueConstraint(
-                name = "uk_facility_floor_facility_name",
-                columnNames = {"facility_id", "floor_name"}
+                name = "uk_dish_cuisine_canteen_name",
+                columnNames = {"canteen_place_id", "cuisine_name"}
         ),
-        indexes = @Index(name = "idx_facility_floor_facility", columnList = "facility_id")
+        indexes = @Index(name = "idx_dish_cuisine_canteen", columnList = "canteen_place_id")
 )
-public class FacilityFloor {
+public class DishCuisine {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "facility_id", nullable = false)
-    private Long facilityId;
+    @Column(name = "canteen_place_id", nullable = false)
+    private Long canteenPlaceId;
 
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "facility_id", insertable = false, updatable = false)
-    private CampusFacility facility;
+    @JoinColumn(name = "canteen_place_id", insertable = false, updatable = false)
+    private MapPlace canteenPlace;
 
-    @Column(name = "floor_name", nullable = false, length = 30)
-    private String floorName;
+    @Column(name = "cuisine_name", nullable = false, length = 50)
+    private String cuisineName;
 
     @Column(nullable = false)
     private Integer status = 1;

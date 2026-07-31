@@ -2,14 +2,10 @@ package com.example.appbackend.service.impl;
 
 import com.example.appbackend.dto.CanteenStallDTO;
 import com.example.appbackend.entity.CanteenStall;
-import com.example.appbackend.entity.FacilityFloor;
 import com.example.appbackend.entity.CampusFacility;
-import com.example.appbackend.entity.StallCuisine;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.CanteenStallRepository;
 import com.example.appbackend.repository.FacilityRepository;
-import com.example.appbackend.repository.FacilityFloorRepository;
-import com.example.appbackend.repository.StallCuisineRepository;
 import com.example.appbackend.service.CanteenStallService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,12 +23,6 @@ public class CanteenStallServiceImpl implements CanteenStallService {
 
     @Autowired
     private FacilityRepository facilityRepository;
-
-    @Autowired
-    private FacilityFloorRepository facilityFloorRepository;
-
-    @Autowired
-    private StallCuisineRepository stallCuisineRepository;
 
     @Override
     public List<CanteenStallDTO> getStallListByRestaurantId(Long restaurantId) {
@@ -62,7 +52,6 @@ public class CanteenStallServiceImpl implements CanteenStallService {
         facilityRepository.findById(request.getRestaurantId())
                 .orElseThrow(() -> new BusinessException(404, "所属餐厅不存在"));
 
-        applyDiningCategories(stall, request);
         canteenStallRepository.save(stall);
         return convertToDTO(stall);
     }
@@ -112,7 +101,6 @@ public class CanteenStallServiceImpl implements CanteenStallService {
             stall.setSort(request.getSort());
         }
 
-        applyDiningCategories(stall, request);
         canteenStallRepository.save(stall);
         return convertToDTO(stall);
     }
@@ -152,55 +140,4 @@ public class CanteenStallServiceImpl implements CanteenStallService {
         return dto;
     }
 
-    private void applyDiningCategories(CanteenStall stall, CanteenStallDTO request) {
-        Long restaurantId = stall.getRestaurantId();
-
-        if (request.getFloorId() != null) {
-            FacilityFloor floor = facilityFloorRepository.findById(request.getFloorId())
-                    .orElseThrow(() -> new BusinessException(404, "所选楼层不存在"));
-            if (!restaurantId.equals(floor.getFacilityId())) {
-                throw new BusinessException(400, "所选楼层不属于当前食堂设施");
-            }
-            stall.setFloorId(floor.getId());
-            stall.setFloor(floor.getFloorName());
-        } else if (request.getFloor() != null && !request.getFloor().isBlank()) {
-            String floorName = request.getFloor().trim();
-            FacilityFloor floor = facilityFloorRepository
-                    .findByFacilityIdAndFloorName(restaurantId, floorName)
-                    .orElseGet(() -> {
-                        FacilityFloor created = new FacilityFloor();
-                        created.setFacilityId(restaurantId);
-                        created.setFloorName(floorName);
-                        created.setStatus(1);
-                        created.setSortOrder(0);
-                        return facilityFloorRepository.save(created);
-                    });
-            stall.setFloorId(floor.getId());
-            stall.setFloor(floor.getFloorName());
-        }
-
-        if (request.getCuisineId() != null) {
-            StallCuisine cuisine = stallCuisineRepository.findById(request.getCuisineId())
-                    .orElseThrow(() -> new BusinessException(404, "所选菜系不存在"));
-            if (!restaurantId.equals(cuisine.getRestaurantId())) {
-                throw new BusinessException(400, "所选菜系不属于当前食堂");
-            }
-            stall.setCuisineId(cuisine.getId());
-            stall.setCategory(cuisine.getCuisineName());
-        } else if (request.getCategory() != null && !request.getCategory().isBlank()) {
-            String cuisineName = request.getCategory().trim();
-            StallCuisine cuisine = stallCuisineRepository
-                    .findByRestaurantIdAndCuisineName(restaurantId, cuisineName)
-                    .orElseGet(() -> {
-                        StallCuisine created = new StallCuisine();
-                        created.setRestaurantId(restaurantId);
-                        created.setCuisineName(cuisineName);
-                        created.setStatus(1);
-                        created.setSortOrder(0);
-                        return stallCuisineRepository.save(created);
-                    });
-            stall.setCuisineId(cuisine.getId());
-            stall.setCategory(cuisine.getCuisineName());
-        }
-    }
 }

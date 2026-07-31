@@ -334,6 +334,10 @@ public class MapPlaceServiceImpl implements MapPlaceService {
         if (creating || request.getSortOrder() != null) {
             place.setSortOrder(request.getSortOrder() == null ? 0 : request.getSortOrder());
         }
+        if (request.getStallStatus() != null) place.setStallStatus(request.getStallStatus());
+        if (request.getBusinessHours() != null) place.setBusinessHours(request.getBusinessHours().trim());
+        if (request.getAvgPrice() != null) place.setAvgPrice(request.getAvgPrice());
+        if (request.getImageUrl() != null) place.setImageUrl(request.getImageUrl().trim());
     }
 
     private void validateHierarchy(MapPlace place, Long currentId) {
@@ -389,6 +393,10 @@ public class MapPlaceServiceImpl implements MapPlaceService {
         response.setLocationDesc(place.getLocationDesc());
         response.setMapVisible(place.getMapVisible());
         response.setSortOrder(place.getSortOrder());
+        response.setStallStatus(place.getStallStatus());
+        response.setBusinessHours(place.getBusinessHours());
+        response.setAvgPrice(place.getAvgPrice());
+        response.setImageUrl(place.getImageUrl());
         response.setCreatedAt(place.getCreatedAt());
         response.setUpdatedAt(place.getUpdatedAt());
         response.setImages(imageRepository.findByPlaceIdOrderBySortOrderAscIdAsc(place.getId()));
@@ -478,4 +486,5 @@ public class MapPlaceServiceImpl implements MapPlaceService {
             throw new BusinessException(400, "GeoJSON 格式不合法");
         }
     }
+
 }

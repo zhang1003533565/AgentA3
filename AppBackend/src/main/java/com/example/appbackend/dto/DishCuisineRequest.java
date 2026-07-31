@@ -5,10 +5,10 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 @Data
-public class FacilityCategoryRequest {
+public class DishCuisineRequest {
 
-    @NotNull(message = "所属食堂 ID 不能为空")
-    private Long restaurantId;
+    @NotNull(message = "所属食堂点位 ID 不能为空")
+    private Long canteenPlaceId;
 
     @NotBlank(message = "分类名称不能为空")
     private String name;

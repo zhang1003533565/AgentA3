@@ -962,34 +962,6 @@ INSERT INTO discount_activity (id, merchant_id, title, description, cover_image,
 -- 第十阶段：食堂档口模块数据
 -- =============================================
 
--- 校园设施通用楼层：食堂、教学楼、宿舍楼等建筑均可拥有多个楼层
-CREATE TABLE IF NOT EXISTS facility_floor (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '设施楼层 ID',
-    facility_id BIGINT NOT NULL COMMENT '所属校园设施 ID',
-    floor_name VARCHAR(30) NOT NULL COMMENT '楼层名称',
-    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-启用 0-停用',
-    sort_order INT NOT NULL DEFAULT 0 COMMENT '排序值',
-    create_time DATETIME COMMENT '创建时间',
-    update_time DATETIME COMMENT '更新时间',
-    UNIQUE KEY uk_facility_floor_facility_name (facility_id, floor_name),
-    INDEX idx_facility_floor_facility (facility_id),
-    FOREIGN KEY (facility_id) REFERENCES campus_facility(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='校园设施通用楼层表';
-
--- 档口菜系分类：按食堂维护
-CREATE TABLE IF NOT EXISTS stall_cuisine (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '档口菜系 ID',
-    restaurant_id BIGINT NOT NULL COMMENT '所属食堂设施 ID',
-    cuisine_name VARCHAR(50) NOT NULL COMMENT '菜系名称',
-    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-启用 0-停用',
-    sort_order INT NOT NULL DEFAULT 0 COMMENT '排序值',
-    create_time DATETIME COMMENT '创建时间',
-    update_time DATETIME COMMENT '更新时间',
-    UNIQUE KEY uk_stall_cuisine_restaurant_name (restaurant_id, cuisine_name),
-    INDEX idx_stall_cuisine_restaurant (restaurant_id),
-    FOREIGN KEY (restaurant_id) REFERENCES campus_facility(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='食堂档口菜系表';
-
 -- =============================================
 -- 食堂档口表
 -- =============================================
@@ -998,9 +970,7 @@ CREATE TABLE IF NOT EXISTS canteen_stall (
     stall_name VARCHAR(100) NOT NULL COMMENT '档口名称',
     restaurant_id BIGINT NOT NULL COMMENT '所属餐厅 ID',
     floor VARCHAR(20) COMMENT '楼层',
-    floor_id BIGINT COMMENT '关联设施楼层 ID',
     category VARCHAR(50) COMMENT '品类/菜系',
-    cuisine_id BIGINT COMMENT '关联档口菜系 ID',
     location VARCHAR(200) COMMENT '位置描述',
     score DECIMAL(3,2) DEFAULT 0 COMMENT '评分 (0-5)',
     review_count INT DEFAULT 0 COMMENT '评价总数',
@@ -1013,9 +983,7 @@ CREATE TABLE IF NOT EXISTS canteen_stall (
     sort INT DEFAULT 0 COMMENT '排序值',
     create_time DATETIME COMMENT '创建时间',
     update_time DATETIME COMMENT '更新时间',
-    FOREIGN KEY (restaurant_id) REFERENCES campus_facility(id),
-    FOREIGN KEY (floor_id) REFERENCES facility_floor(id),
-    FOREIGN KEY (cuisine_id) REFERENCES stall_cuisine(id)
+    FOREIGN KEY (restaurant_id) REFERENCES campus_facility(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='食堂档口表';
 
 -- =============================================
@@ -1338,12 +1306,27 @@ UPDATE forum_topic SET post_count = 0 WHERE id IN (5, 8);
 -- =============================================
 DROP TABLE IF EXISTS dish_review;
 DROP TABLE IF EXISTS dish;
+CREATE TABLE IF NOT EXISTS dish_cuisine (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '菜系 ID',
+    canteen_place_id BIGINT NOT NULL COMMENT '所属食堂点位 ID',
+    cuisine_name VARCHAR(50) NOT NULL COMMENT '菜系名称',
+    status INT NOT NULL DEFAULT 1 COMMENT '状态: 1-启用 0-停用',
+    sort_order INT NOT NULL DEFAULT 0 COMMENT '排序值',
+    create_time DATETIME COMMENT '创建时间',
+    update_time DATETIME COMMENT '更新时间',
+    UNIQUE KEY uk_dish_cuisine_canteen_name (canteen_place_id, cuisine_name),
+    INDEX idx_dish_cuisine_canteen (canteen_place_id),
+    FOREIGN KEY (canteen_place_id) REFERENCES map_place(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='菜品菜系表';
+
 CREATE TABLE IF NOT EXISTS dish (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '菜品 ID',
     name VARCHAR(100) NOT NULL COMMENT '菜品名称',
-    stall_id BIGINT NOT NULL COMMENT '所属档口 ID',
+    stall_id BIGINT COMMENT '旧档口业务 ID（兼容字段）',
+    stall_place_id BIGINT COMMENT '所属档口点位 ID',
     price DECIMAL(10,2) NOT NULL COMMENT '菜品价格',
     category VARCHAR(50) COMMENT '菜品分类',
+    cuisine_id BIGINT COMMENT '菜系分类 ID',
     image_url VARCHAR(255) COMMENT '菜品图片 URL',
     rating DECIMAL(3,2) DEFAULT 0 COMMENT '菜品评分 (0-5)',
     sold_count INT DEFAULT 0 COMMENT '销量',
@@ -1352,7 +1335,9 @@ CREATE TABLE IF NOT EXISTS dish (
     description TEXT COMMENT '菜品描述',
     create_time DATETIME COMMENT '创建时间',
     update_time DATETIME COMMENT '更新时间',
-    FOREIGN KEY (stall_id) REFERENCES canteen_stall(id)
+    FOREIGN KEY (stall_id) REFERENCES canteen_stall(id),
+    FOREIGN KEY (stall_place_id) REFERENCES map_place(id),
+    FOREIGN KEY (cuisine_id) REFERENCES dish_cuisine(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='菜品表';
 
 -- =============================================

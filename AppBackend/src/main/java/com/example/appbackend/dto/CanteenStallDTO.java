@@ -18,11 +18,7 @@ public class CanteenStallDTO {
 
     private String floor;
 
-    private Long floorId;
-
     private String category;
-
-    private Long cuisineId;
 
     private String location;
 
