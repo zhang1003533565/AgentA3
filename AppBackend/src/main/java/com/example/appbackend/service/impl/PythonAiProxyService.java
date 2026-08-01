@@ -15,6 +15,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -276,6 +277,68 @@ public class PythonAiProxyService {
         }
         Map<String, Object> sanitized = sanitizeRagRequest(withAgentToggles(request));
         return postRagObject("/internal/rag/query", sanitized, authorization, requestedModel);
+    }
+
+    public Object generatePptOutline(Map<String, Object> request, String authorization) {
+        return postRagObject("/internal/rag/ppt-generation/outlines", request, authorization,
+                requirePptGenerationModel());
+    }
+
+    public Object generatePptSlides(Map<String, Object> request, String authorization) {
+        return postRagObject("/internal/rag/ppt-generation/slides", request, authorization,
+                requirePptGenerationModel());
+    }
+
+    public Object createPptTask(Map<String, Object> request, String authorization) {
+        return postRagObject("/internal/rag/ppt-generation/tasks", request, authorization,
+                requirePptGenerationModel());
+    }
+
+    public Object getPptTask(String taskId, String authorization) {
+        return getPythonAuthObject("/internal/rag/ppt-generation/tasks/" + taskId,
+                authorization, "PPT 任务查询失败");
+    }
+
+    public GeneratedExportResponse downloadPptTaskArtifact(String artifactPath, String authorization) {
+        validateAuthorization(authorization);
+        if (!StringUtils.hasText(artifactPath) || artifactPath.contains("..")) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 文件路径无效");
+        }
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            ResponseEntity<byte[]> response = buildFileResponseWebClient().get()
+                    .uri(buildUri("/internal/rag/ppt-generation/tasks/" + artifactPath))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .retrieve()
+                    .toEntity(byte[].class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+            if (response == null || response.getBody() == null) {
+                throw new BusinessException(502, "Python PPT 文件响应为空");
+            }
+            MediaType contentType = response.getHeaders().getContentType();
+            return new GeneratedExportResponse(response.getBody(),
+                    contentType == null ? MediaType.APPLICATION_OCTET_STREAM : contentType,
+                    response.getHeaders().getContentLength());
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(e.getStatusCode().value(), "PPT 文件读取失败: " + extractRemoteMessage(e));
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(502, "PPT 文件读取失败: " + e.getMessage());
+        }
+    }
+
+    private String requirePptGenerationModel() {
+        String model = resolveAgentBoundModel("ppt_outline_agent");
+        if (!StringUtils.hasText(model)) {
+            model = resolveAgentBoundModel(DEFAULT_AGENT_NAME);
+        }
+        if (!StringUtils.hasText(model)) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 生成模型尚未配置");
+        }
+        return model;
     }
 
     public SseEmitter streamRag(Map<String, Object> request, String authorization) {

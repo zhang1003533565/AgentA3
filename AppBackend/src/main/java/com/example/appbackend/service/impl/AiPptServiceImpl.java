@@ -1,0 +1,124 @@
+package com.example.appbackend.service.impl;
+
+import com.example.appbackend.dto.AiPptDTO;
+import com.example.appbackend.entity.Result;
+import com.example.appbackend.exception.BusinessException;
+import com.example.appbackend.service.AiPptService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+
+@Service
+public class AiPptServiceImpl implements AiPptService {
+    private static final long SSE_TIMEOUT_MILLIS = 10 * 60 * 1000L;
+
+    private final PythonAiProxyService pythonAiProxyService;
+    private final ObjectMapper objectMapper;
+
+    public AiPptServiceImpl(PythonAiProxyService pythonAiProxyService, ObjectMapper objectMapper) {
+        this.pythonAiProxyService = pythonAiProxyService;
+        this.objectMapper = objectMapper;
+    }
+
+    @Override
+    public Object generateOutline(Long userId, AiPptDTO.OutlineRequest request, String authorization) {
+        requireUser(userId);
+        return pythonAiProxyService.generatePptOutline(objectMapper.convertValue(request, Map.class), authorization);
+    }
+
+    @Override
+    public Object generateSlides(Long userId, AiPptDTO.SlidesRequest request, String authorization) {
+        requireUser(userId);
+        return pythonAiProxyService.generatePptSlides(objectMapper.convertValue(request, Map.class), authorization);
+    }
+
+    @Override
+    public Object createTask(Long userId, AiPptDTO.TaskRequest request, String authorization) {
+        requireUser(userId);
+        return pythonAiProxyService.createPptTask(objectMapper.convertValue(request, Map.class), authorization);
+    }
+
+    @Override
+    public Object getTask(Long userId, String taskId, String authorization) {
+        requireTask(userId, taskId);
+        return pythonAiProxyService.getPptTask(taskId.trim(), authorization);
+    }
+
+    @Override
+    public SseEmitter streamTask(Long userId, String taskId, String authorization) {
+        requireTask(userId, taskId);
+        SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MILLIS);
+        CompletableFuture.runAsync(() -> {
+            String previousMarker = "";
+            try {
+                while (true) {
+                    Object value = getTask(userId, taskId, authorization);
+                    Map<?, ?> task = value instanceof Map<?, ?> map ? map : Map.of("status", "unknown");
+                    String status = String.valueOf(task.containsKey("status") ? task.get("status") : "unknown");
+                    String stage = String.valueOf(task.containsKey("stage") ? task.get("stage") : "message");
+                    String marker = status + ":" + task.get("progress") + ":" + stage;
+                    if (!marker.equals(previousMarker)) {
+                        emitter.send(SseEmitter.event().name(safeEventName(stage)).data(task, MediaType.APPLICATION_JSON));
+                        previousMarker = marker;
+                    }
+                    if ("completed".equals(status) || "failed".equals(status)) {
+                        emitter.complete();
+                        return;
+                    }
+                    Thread.sleep(400L);
+                }
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                emitter.completeWithError(error);
+            } catch (Exception error) {
+                emitter.completeWithError(error);
+            }
+        });
+        return emitter;
+    }
+
+    @Override
+    public PythonAiProxyService.GeneratedExportResponse downloadFile(
+            Long userId, String taskId, String format, String authorization) {
+        requireTask(userId, taskId);
+        if (!"pptx".equals(format) && !"pdf".equals(format)) {
+            throw new BusinessException(Result.ERROR_CODE, "仅支持下载 pptx 或 pdf");
+        }
+        return pythonAiProxyService.downloadPptTaskArtifact(
+                taskId.trim() + "/files/" + format, authorization);
+    }
+
+    @Override
+    public PythonAiProxyService.GeneratedExportResponse downloadPreview(
+            Long userId, String taskId, Integer slideIndex, String authorization) {
+        requireTask(userId, taskId);
+        if (slideIndex == null || slideIndex < 1) {
+            throw new BusinessException(Result.ERROR_CODE, "预览页码必须大于 0");
+        }
+        return pythonAiProxyService.downloadPptTaskArtifact(
+                taskId.trim() + "/previews/" + slideIndex, authorization);
+    }
+
+    private void requireTask(Long userId, String taskId) {
+        requireUser(userId);
+        if (!StringUtils.hasText(taskId) || !taskId.matches("ppt_task_[a-f0-9]{32}")) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 任务编号无效");
+        }
+    }
+
+    private void requireUser(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
+        }
+    }
+
+    private String safeEventName(String stage) {
+        return StringUtils.hasText(stage) && stage.matches("[A-Za-z][A-Za-z0-9_-]{0,39}")
+                ? stage : "message";
+    }
+}
