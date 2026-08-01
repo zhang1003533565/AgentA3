@@ -1,0 +1,143 @@
+项目需求文档：校园课程管理模块重构（独立开发版）
+
+============================================================
+完成状态总览（最后更新：2026-07-31）
+============================================================
+整体进度：后端 §1-§3 + §6 ✅ 100% / 管理端 Web §4 ✅ 完成 / 小程序 §5 ❌ 未开始
+
+✅ §1 核心设计原则        — 三项约束全部满足
+✅ §2 数据库变更          — 3 张表全部通过 JPA 实体创建/补列
+✅ §3 后端接口            — AdminMaterialController + AppProgressController 全部实现
+✅ §4 管理端 Web UI       — CampusCourseManage.jsx 资料池 Tab + 章节资料绑定完成
+    排序方式为 ▲▼ 箭头按钮（非拖拽，因项目未引入 dnd 库，符合最小依赖原则）
+    文件夹上传为点击触发 webkitdirectory（非拖拽到区域，效果等价）
+❌ §5 小程序端 UI          — 暂未修改（用户指示："小程序前端先不动"）
+✅ §6 防坑逻辑            — 并发控制 / Jackson JSON / 旧打卡兼容 / 配置化 全部完成
+============================================================
+
+1. 核心设计原则（约束条件）【✅ 已完成】
+代码隔离（最小必要改动）：不修改 AdminCampusCourseController、UploadController、CampusCourseService、AppCampusCourseController 等现有控制器与服务。所有新功能仅通过新建 AdminMaterialController、AppProgressController 和对应 Service 实现，只新增、不改他人现有代码。
+
+数据隔离：旧表 campus_course_chapter 的原有字段（含 resource_url、resource_type）全部保留不动，仅新增 material_ids 一列；旧表 campus_course_progress 维持原样（布尔打卡），新增专属表来实现精细进度。
+
+存储复用：不改动 UploadController。新建独立的 FileStorageService，在新模块内自包含实现本地/腾讯云 COS 双模式存储逻辑（逻辑参照 UploadController 但独立编写），复用 application.yml 中已有的 tencent.cos.* 与 file.upload-dir 配置，避免侵入他人代码。
+
+2. 数据库变更（JPA 实体驱动）【✅ 已完成】
+说明：本项目使用 Spring Data JPA + hibernate.ddl-auto=update，表结构由 @Entity 实体自动创建/补列，sql.init.mode=never（不会执行手写 DDL）。因此下列 SQL 仅作为字段设计参考，实际以新增 JPA 实体 + JpaRepository 实现；创建/更新时间使用 @PrePersist/@PreUpdate（与现有实体一致），无需依赖数据库 DEFAULT/ON UPDATE。
+
+2.1 新建：课程资料池表（campus_course_material）【✅ 已完成 — CampusCourseMaterial.java】
+
+sql
+CREATE TABLE campus_course_material (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    course_id BIGINT NOT NULL COMMENT '所属课程ID',
+    file_name VARCHAR(255) NOT NULL COMMENT '原始文件名',
+    file_url VARCHAR(500) NOT NULL COMMENT '存储路径（COS或本地相对路径）',
+    file_size BIGINT NOT NULL COMMENT '文件字节大小',
+    file_type VARCHAR(20) NOT NULL COMMENT '扩展名（mp4/pdf/ppt等）',
+    mime_type VARCHAR(50),
+    duration_seconds INT DEFAULT 0 COMMENT '视频/音频总时长（秒），文档可存总页数；默认0表示不做自动完成判定（见 3.3 两阶段说明）',
+    deleted TINYINT DEFAULT 0 COMMENT '软删除标记：0-正常 1-已下架（保留文件与 URL）',
+    upload_batch_id VARCHAR(64) COMMENT '批次ID，用于追踪同一文件夹上传的文件',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_course_id (course_id)
+);
+2.2 修改：章节表（campus_course_chapter）【✅ 已完成 — CampusCourseChapter 新增 materialIds 字段】
+
+操作：保留旧字段 resource_url、resource_type 不动（它们仍被现有 CampusCourseService/DTO 使用，删除会破坏现有功能，且 ddl-auto=update 也不会自动删列），仅在 CampusCourseChapter 实体新增 material_ids 字段，由 Hibernate 自动补列。
+
+sql（参考，实际由实体新增字段自动生成）
+ALTER TABLE campus_course_chapter 
+ADD COLUMN material_ids TEXT NULL COMMENT '引用的资料ID数组，JSON格式如 [1,2,3]';
+2.3 新建：精细进度表（learning_material_progress）【✅ 已完成 — LearningMaterialProgress.java】
+
+sql
+CREATE TABLE learning_material_progress (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    material_id BIGINT NOT NULL,
+    watch_seconds INT DEFAULT 0 COMMENT '已观看秒数/已读页数',
+    status TINYINT DEFAULT 0 COMMENT '0-未开始 1-学习中 2-已完成',
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_user_material (user_id, material_id)
+);
+3. 后端接口开发任务（新建 Controller）【✅ 已完成】
+请新建 AdminMaterialController 和 AppProgressController，完成以下 API：
+（新增辅助端点：GET /api/admin/materials 资料池列表、GET/PUT /api/admin/materials/chapter/{chapterId} 章节资料读写，用于 §4 Web UI 对接）
+
+3.1 文件夹上传与预检接口（高性能）【✅ 已完成 — AdminMaterialController.folderUpload + CourseMaterialService】
+
+POST /api/admin/materials/folder/upload
+
+入参：courseId，List<MultipartFile> files（前端平铺传递文件夹内文件）。
+
+核心逻辑：
+
+类型检索（白名单）：仅允许 mp4, avi, pdf, ppt, pptx, doc, docx, xls, xlsx, png, jpg, jpeg, gif, webp, mp3, txt。如果包含不在白名单的文件，立即抛出异常并提示具体文件名，拒绝整个文件夹上传。
+
+总大小约束：累加所有文件大小，超过 2GB 则抛出异常拒绝上传。
+
+存储：校验通过后，遍历文件，调用新建的 FileStorageService.store() 方法保存（本地/COS 双模式，独立实现，不改动 UploadController），并批量写入 campus_course_material 表。生成一个随机的 upload_batch_id 标记本次批次。
+
+请求体积说明：application.yml 当前 multipart.max-request-size=200MB。2GB 上限指同一文件夹（同一 upload_batch_id）的累计大小，需前端分批上传、后端按 upload_batch_id 跨请求累加校验；单批请求体须小于 multipart 上限。上限与白名单配置化（见第 6 节）。
+
+3.2 资料引用检查（安全删除）【✅ 已完成 — checkReference / delete】
+
+GET /api/admin/materials/{id}/check
+
+逻辑：查询所有章节的 material_ids 字段（JSON数组），判断该 id 是否被引用。返回被引用的章节名称列表。
+
+DELETE /api/admin/materials/{id}
+
+逻辑（默认软删除）：先调用检查逻辑；若有引用，前端强制确认后，后端遍历所有章节将 material_ids 中的该 ID 剔除（Jackson 过滤），再将该资料 deleted 置为 1（软删除，保留文件与 URL），被引用章节仍可查看并提示“资料已下架”。物理删除文件（或调用 COS 删除接口，不可逆）仅作为管理员二次确认后的可选强操作，默认不执行。
+
+3.3 精细化进度上报与查询（不与旧打卡冲突）【✅ 已完成 — MaterialProgressService】
+
+POST /api/app/progress/material/report：接收 materialId 和 watchSeconds，更新 learning_material_progress 表（累加或更新）。
+时长来源分两阶段：第一阶段（当前版本）duration_seconds 默认 0，表示不做自动完成判定，仅累加 watch_seconds，完成状态靠用户手动打卡；第二阶段（待扩展）再解析元数据——PDF/Office 页数可用项目已内置的 PDFBox/POI 解析，视频/音频时长需另引入 ffmpeg 或 Apache Tika，届时当 watch_seconds ≥ duration_seconds 时自动将 status 置为 2。
+
+GET /api/app/progress/course/{courseId}：查询当前用户在该课程下所有资料的进度，并解析各章节 material_ids 一并返回资料列表（每条含 name/url/type/duration_seconds，过滤 deleted=1 的资料），聚合计算章节级进度（章节内资料完成数/总资料数）和课程总进度。
+双数据源适配：旧接口 GET /api/app/campus-courses/{courseId} 仍只读 resource_url，保持不动以向后兼容；小程序新版详情/进度 UI 统一改用本新接口获取“资料列表 + 精细进度”，从而单一数据源、避免与旧 resource_url 冲突，也无需 AOP 侵入旧返回体。
+关键：当检测到某章节所有资料完成时，由新 Service 注入并直接调用 CampusCourseService.updateProgress(courseId, chapterId, userId, true)（而非后端自调 HTTP 接口，规避 JWT 鉴权与循环调用问题），将旧表 completed 置为 true，确保旧逻辑流转；此处仅调用他人 Service 的现有方法，不修改其内部实现。
+
+4. 管理端 Web UI 开发任务（操作人性化）【✅ 已完成】
+修改 CampusCourseManage.jsx，重构章节编辑交互：
+
+页面布局：采用"资料池（上/左）"与"章节编排（下/右）"的分离布局。
+→ ✅ 内容配置 SidePanel 内新增"课程资料"Tab（资料池），章节编辑 Modal 内新增"关联资料池资料"区块。
+
+文件夹上传：支持点击或拖拽上传文件夹（利用 webkitdirectory 属性）。上传前，前端先扫描并提示文件总数和总大小，过滤掉非法类型（不给后端添乱），点击确认后分批并发上传（每批最多 8-10 个文件）。
+→ ✅ 隐藏 <input webkitdirectory> 点击触发；Modal.confirm 扫描提示；每批 8 个顺序上传（同一 uploadBatchId 跨请求累计）。
+
+章节关联：编辑章节时，提供一个多选下拉框（或穿梭框），从当前课程的"资料池"中勾选资料。保存时将选中的 ID 数组存入 material_ids。支持在章节内拖拽调整资料顺序。
+→ ✅ antd Select mode="multiple" 多选；保存调 bindChapterMaterials；排序用 ▲▼ 箭头按钮（无 dnd 库，等价实现）。
+→ ⚠️ 排序实现方式与需求原文"拖拽"不同：项目 package.json 未引入 react-dnd 等拖拽库，采用上下箭头按钮替代，功能等价。
+
+资料管理：在资料池列表中，支持独立删除（触发检查引用）、按类型筛选。
+→ ✅ deleteMaterial 前调 checkMaterialReference 弹确认框（列引用章节）；Select 按扩展名归类筛选（视频/音频/图片/PDF/课件/文档/表格/文本/其他）。
+
+5. 小程序端 UI 开发任务（进度展示）【❌ 未完成】
+修改 campusCourseDetail 页面（学生端）：
+
+列表展示：章节卡片上展示精细环形进度条（调用新的 GET 接口），而非旧系统的“已完成/未完成”文字。
+
+详情页：点击章节进入后，展示该章节关联的所有资料列表。每个文件下方显示独立进度条（视频显示已看秒数/总秒数，文档显示已阅状态）。
+
+上报逻辑：视频组件监听 onTimeUpdate，每 5 秒节流上报一次 watchSeconds 到新接口。
+
+6. 特别强调的"防坑"逻辑（务必实现）【✅ 已完成】
+并发控制：后端上传接口需校验 courseId 是否存在，防止脏数据。
+→ ✅ CourseMaterialService.requireCourse(courseId) / folderUpload 入口校验。
+
+JSON 处理：操作 material_ids 时，统一使用项目已内置的 Jackson（ObjectMapper）进行安全读写；本项目未引入 fastjson，禁止使用 com.alibaba.fastjson。注意空指针（NULL 或 []）。
+→ ✅ MaterialIdsCodec 使用 Jackson ObjectMapper，空值处理（parse 遇 NULL 返回空 List）。
+
+旧打卡兼容：仅当用户手动点击“完成章节”或进度达到 100% 时，才触发调用 CampusCourseService.updateProgress()，禁止循环调用，避免死锁。
+→ ✅ MaterialProgressService.syncChapterCompletion() 直接注入 CampusCourseService 调用（非 HTTP 自调），仅章节全部资料完成时触发。
+
+配置化：文件夹大小上限（2GB）和白名单列表写在 application.yml 中，方便后期调整；如需单请求上传超大文件，另需调整 spring.servlet.multipart 上限。
+→ ✅ CourseMaterialProperties 读取 application.yml course-material 配置段。
+
+范围说明：本次不涉及“考试配置”（linkExam / 课程考试关联）相关服务，AdminCampusCourseController 与 CampusCourseService 的考试逻辑保持不变。
+→ ✅ 未触碰任何考试相关代码。

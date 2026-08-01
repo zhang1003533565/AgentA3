@@ -33,6 +33,13 @@ public class CampusCourseChapter {
     @Column(name = "resource_url", length = 500)
     private String resourceUrl;
 
+    /**
+     * 引用的资料池 ID 数组，JSON 格式如 [1,2,3]。
+     * 由新模块（资料/进度）维护，旧的 CampusCourseService 不读写此字段。
+     */
+    @Column(name = "material_ids", columnDefinition = "TEXT")
+    private String materialIds;
+
     @Column(name = "estimated_minutes")
     private Integer estimatedMinutes;
 

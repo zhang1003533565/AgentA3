@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  ArrowDownOutlined,
+  ArrowUpOutlined,
   BookOutlined,
+  CloseOutlined,
   DeleteOutlined,
   EditOutlined,
   EyeOutlined,
+  FileOutlined,
+  FolderOpenOutlined,
   PlusOutlined,
   SendOutlined,
   UploadOutlined,
@@ -22,6 +27,7 @@ import {
   Progress,
   Select,
   Space,
+  Spin,
   Switch,
   Table,
   Tabs,
@@ -45,6 +51,15 @@ import {
 } from '../../api/campusCourse'
 import { getExamPaperList } from '../../api/examPaper'
 import { uploadImage } from '../../api/upload'
+import {
+  bindChapterMaterials,
+  checkMaterialReference,
+  deleteMaterial,
+  getChapterMaterials,
+  getCourseMaterials,
+  uploadMaterialBatch,
+} from '../../api/campusMaterial'
+import { API_BASE_URL } from '../../config/apiBase'
 import SidePanel from '../../components/SidePanel/SidePanel'
 import './CampusCourseManage.css'
 
@@ -54,6 +69,61 @@ const statusMeta = {
   PUBLISHED: { label: '已发布', color: 'green' },
   OFFLINE: { label: '已下架', color: 'orange' },
 }
+
+// 与后端 course-material 白名单保持一致
+const MATERIAL_WHITELIST = ['mp4', 'avi', 'pdf', 'ppt', 'pptx', 'doc', 'docx', 'xls', 'xlsx', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp3', 'txt']
+const MAX_FOLDER_BYTES = 2 * 1024 * 1024 * 1024
+const UPLOAD_BATCH_SIZE = 8
+
+const materialTypeMeta = {
+  VIDEO: { label: '视频', color: 'blue' },
+  AUDIO: { label: '音频', color: 'gold' },
+  IMAGE: { label: '图片', color: 'green' },
+  PDF: { label: 'PDF', color: 'red' },
+  PPT: { label: '课件', color: 'purple' },
+  DOC: { label: '文档', color: 'geekblue' },
+  SHEET: { label: '表格', color: 'cyan' },
+  TEXT: { label: '文本', color: 'default' },
+  OTHER: { label: '其他', color: 'default' },
+}
+const materialTypeOptions = [
+  { value: 'ALL', label: '全部类型' },
+  { value: 'VIDEO', label: '视频' },
+  { value: 'AUDIO', label: '音频' },
+  { value: 'IMAGE', label: '图片' },
+  { value: 'PDF', label: 'PDF' },
+  { value: 'PPT', label: '课件' },
+  { value: 'DOC', label: '文档' },
+  { value: 'SHEET', label: '表格' },
+  { value: 'TEXT', label: '文本' },
+  { value: 'OTHER', label: '其他' },
+]
+
+const fileExt = (name = '') => {
+  const dot = name.lastIndexOf('.')
+  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : ''
+}
+const extCategory = (ext = '') => {
+  const value = String(ext).toLowerCase()
+  if (['mp4', 'avi'].includes(value)) return 'VIDEO'
+  if (value === 'mp3') return 'AUDIO'
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(value)) return 'IMAGE'
+  if (value === 'pdf') return 'PDF'
+  if (['ppt', 'pptx'].includes(value)) return 'PPT'
+  if (['doc', 'docx'].includes(value)) return 'DOC'
+  if (['xls', 'xlsx'].includes(value)) return 'SHEET'
+  if (value === 'txt') return 'TEXT'
+  return 'OTHER'
+}
+const formatBytes = (bytes) => {
+  const n = Number(bytes) || 0
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+const resolveFileUrl = (url = '') => (/^https?:\/\//.test(url) ? url : `${API_BASE_URL}${url}`)
+
 function CampusCourseManage() {
   const [courses, setCourses] = useState([])
   const [loading, setLoading] = useState(false)
@@ -75,6 +145,13 @@ function CampusCourseManage() {
   const [displayImageUploading, setDisplayImageUploading] = useState(false)
   const coverUrl = Form.useWatch('coverUrl', courseForm)
   const displayImageUrl = Form.useWatch('displayImageUrl', courseForm)
+  const [materials, setMaterials] = useState([])
+  const [materialsLoading, setMaterialsLoading] = useState(false)
+  const [materialTypeFilter, setMaterialTypeFilter] = useState('ALL')
+  const [uploading, setUploading] = useState(false)
+  const [uploadInfo, setUploadInfo] = useState(null)
+  const [chapterMaterialIds, setChapterMaterialIds] = useState([])
+  const folderInputRef = useRef(null)
 
   const loadCourses = useCallback(async () => {
     setLoading(true)
@@ -90,12 +167,26 @@ function CampusCourseManage() {
     loadCourses()
   }, [loadCourses])
 
+  const loadMaterials = useCallback(async (courseId) => {
+    if (!courseId) return
+    setMaterialsLoading(true)
+    try {
+      const res = await getCourseMaterials(courseId)
+      setMaterials(res.data || [])
+    } catch (error) {
+      message.error(error?.message || '加载资料池失败')
+    } finally {
+      setMaterialsLoading(false)
+    }
+  }, [])
+
   const loadDetail = async (courseId, open = true) => {
     setDetailLoading(true)
     if (open) setDetailOpen(true)
     try {
       const response = await getCampusCourse(courseId)
       setDetail(response.data)
+      await loadMaterials(courseId)
     } finally {
       setDetailLoading(false)
     }
@@ -107,6 +198,17 @@ function CampusCourseManage() {
     return courses.filter((item) =>
       `${item.name || ''} ${item.bookTitle || ''}`.toLowerCase().includes(text))
   }, [courses, keyword])
+
+  const materialMap = useMemo(() => {
+    const map = new Map()
+    materials.forEach((item) => map.set(item.id, item))
+    return map
+  }, [materials])
+
+  const filteredMaterials = useMemo(() => {
+    if (materialTypeFilter === 'ALL') return materials
+    return materials.filter((item) => extCategory(item.fileType) === materialTypeFilter)
+  }, [materials, materialTypeFilter])
 
   const openCourseForm = (course = null) => {
     setEditingCourse(course)
@@ -200,7 +302,109 @@ function CampusCourseManage() {
     await loadCourses()
   }
 
-  const openChapterForm = (chapter = null) => {
+  const runBatchUpload = async (files) => {
+    setUploading(true)
+    setUploadInfo({ done: 0, total: files.length })
+    let batchId
+    let done = 0
+    try {
+      for (let i = 0; i < files.length; i += UPLOAD_BATCH_SIZE) {
+        const slice = files.slice(i, i + UPLOAD_BATCH_SIZE)
+        const result = await uploadMaterialBatch(detail.id, slice, batchId)
+        batchId = result?.uploadBatchId || batchId
+        done += slice.length
+        setUploadInfo({ done, total: files.length })
+      }
+      message.success(`成功上传 ${done} 个资料`)
+    } catch (error) {
+      message.error(error?.message || '资料上传失败')
+    } finally {
+      setUploading(false)
+      setUploadInfo(null)
+      if (detail?.id) await loadMaterials(detail.id)
+    }
+  }
+
+  const handleFolderChange = (event) => {
+    const picked = Array.from(event.target.files || [])
+    event.target.value = ''
+    if (!detail?.id || !picked.length) return
+
+    const valid = []
+    let skipped = 0
+    picked.forEach((file) => {
+      const ext = fileExt(file.name)
+      if (ext && MATERIAL_WHITELIST.includes(ext)) valid.push(file)
+      else skipped += 1
+    })
+    if (!valid.length) {
+      message.warning('所选文件夹内没有支持的文件类型')
+      return
+    }
+    const totalBytes = valid.reduce((sum, file) => sum + (file.size || 0), 0)
+    if (totalBytes > MAX_FOLDER_BYTES) {
+      message.error(`所选文件合计 ${formatBytes(totalBytes)}，超过 ${formatBytes(MAX_FOLDER_BYTES)} 上限`)
+      return
+    }
+    Modal.confirm({
+      title: '确认上传文件夹资料',
+      content: (
+        <div className="material-upload-confirm">
+          <p>共 <strong>{valid.length}</strong> 个有效文件，合计 <strong>{formatBytes(totalBytes)}</strong>。</p>
+          {skipped > 0 ? <p className="material-upload-confirm__warn">已自动过滤 {skipped} 个不支持的文件。</p> : null}
+          <p>将分批上传（每批 {UPLOAD_BATCH_SIZE} 个），上传期间请勿关闭页面。</p>
+        </div>
+      ),
+      okText: '开始上传',
+      cancelText: '取消',
+      onOk: () => runBatchUpload(valid),
+    })
+  }
+
+  const handleDeleteMaterial = async (material) => {
+    let check
+    try {
+      const res = await checkMaterialReference(material.id)
+      check = res.data
+    } catch (error) {
+      message.error(error?.message || '引用检查失败')
+      return
+    }
+    const titles = check?.chapterTitles || []
+    Modal.confirm({
+      title: `删除资料「${material.fileName}」`,
+      content: check?.referenced
+        ? (
+          <div>
+            <p>该资料被以下章节引用，删除后将自动从这些章节移除：</p>
+            <p className="material-upload-confirm__warn">{titles.join('、')}</p>
+          </div>
+        )
+        : '该资料未被任何章节引用，确认下架吗？',
+      okText: '确认删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        await deleteMaterial(material.id, false)
+        message.success('资料已删除')
+        await loadMaterials(detail.id)
+      },
+    })
+  }
+
+  const moveChapterMaterial = (index, dir) => {
+    setChapterMaterialIds((prev) => {
+      const target = index + dir
+      if (target < 0 || target >= prev.length) return prev
+      const next = [...prev]
+      ;[next[index], next[target]] = [next[target], next[index]]
+      return next
+    })
+  }
+  const removeChapterMaterial = (id) =>
+    setChapterMaterialIds((prev) => prev.filter((item) => item !== id))
+
+  const openChapterForm = async (chapter = null) => {
     setEditingChapter(chapter)
     chapterForm.resetFields()
     chapterForm.setFieldsValue(chapter ? {
@@ -212,6 +416,16 @@ function CampusCourseManage() {
       estimatedMinutes: 30,
       resourceType: 'TEXT',
     })
+    if (chapter) {
+      try {
+        const res = await getChapterMaterials(detail.id, chapter.id)
+        setChapterMaterialIds((res.data || []).map((item) => item.id))
+      } catch {
+        setChapterMaterialIds([])
+      }
+    } else {
+      setChapterMaterialIds([])
+    }
     setChapterModalOpen(true)
   }
 
@@ -219,10 +433,16 @@ function CampusCourseManage() {
     const values = await chapterForm.validateFields()
     setSubmitting(true)
     try {
+      let chapterId
       if (editingChapter) {
         await updateCampusCourseChapter(detail.id, editingChapter.id, values)
+        chapterId = editingChapter.id
       } else {
-        await createCampusCourseChapter(detail.id, values)
+        const res = await createCampusCourseChapter(detail.id, values)
+        chapterId = res.data?.id
+      }
+      if (chapterId) {
+        await bindChapterMaterials(detail.id, chapterId, chapterMaterialIds)
       }
       message.success(editingChapter ? '章节已保存' : '章节已添加')
       setChapterModalOpen(false)
@@ -381,6 +601,64 @@ function CampusCourseManage() {
     </div>
   )
 
+  const materialTab = (
+    <div>
+      <div className="course-tab-toolbar">
+        <Typography.Text type="secondary">上传课程资料到资料池，再在各章节中选择关联。</Typography.Text>
+        <Space>
+          <Select
+            value={materialTypeFilter}
+            onChange={setMaterialTypeFilter}
+            style={{ width: 120 }}
+            options={materialTypeOptions}
+          />
+          <Button
+            type="primary"
+            icon={<FolderOpenOutlined />}
+            loading={uploading}
+            onClick={() => folderInputRef.current?.click()}
+          >
+            {uploading
+              ? (uploadInfo ? `上传中 ${uploadInfo.done}/${uploadInfo.total}` : '上传中')
+              : '上传文件夹'}
+          </Button>
+        </Space>
+      </div>
+      <input
+        ref={folderInputRef}
+        type="file"
+        multiple
+        hidden
+        webkitdirectory=""
+        directory=""
+        onChange={handleFolderChange}
+      />
+      <Spin spinning={materialsLoading}>
+        {filteredMaterials.length ? (
+          <List
+            className="course-material-list"
+            dataSource={filteredMaterials}
+            renderItem={(item) => {
+              const meta = materialTypeMeta[extCategory(item.fileType)] || materialTypeMeta.OTHER
+              return (
+                <List.Item actions={[
+                  <a key="view" href={resolveFileUrl(item.fileUrl)} target="_blank" rel="noreferrer">查看</a>,
+                  <Button key="del" type="link" danger onClick={() => handleDeleteMaterial(item)}>删除</Button>,
+                ]}>
+                  <List.Item.Meta
+                    avatar={<span className="material-type-badge"><FileOutlined /></span>}
+                    title={<Space><span>{item.fileName}</span><Tag color={meta.color}>{meta.label}</Tag></Space>}
+                    description={`${formatBytes(item.fileSize)} · ${(item.fileType || '').toUpperCase()}`}
+                  />
+                </List.Item>
+              )
+            }}
+          />
+        ) : <Empty description="资料池暂无资料，点击“上传文件夹”添加" />}
+      </Spin>
+    </div>
+  )
+
   return (
     <div className="campus-course-manage">
       <div className="course-page-heading">
@@ -514,6 +792,7 @@ function CampusCourseManage() {
             </div>
             <Tabs items={[
               { key: 'chapters', label: `课程章节（${detail.chapterCount}）`, children: chapterTab },
+              { key: 'materials', label: `课程资料（${materials.length}）`, children: materialTab },
               { key: 'exams', label: `课程考试（${detail.examCount}）`, children: examTab },
             ]} />
           </>
@@ -549,6 +828,40 @@ function CampusCourseManage() {
               ]} />
             </Form.Item>
             <Form.Item name="resourceUrl" label="附加资料地址"><Input placeholder="可选，填写资料 URL" /></Form.Item>
+          </div>
+          <div className="chapter-material-block">
+            <div className="chapter-material-block__head">
+              <Typography.Text strong>关联资料池资料</Typography.Text>
+              <Typography.Text type="secondary">从资料池选择，并调整学习顺序</Typography.Text>
+            </div>
+            <Select
+              mode="multiple"
+              allowClear
+              style={{ width: '100%' }}
+              placeholder={materials.length ? '从资料池选择资料' : '资料池为空，请先在“课程资料”中上传'}
+              value={chapterMaterialIds}
+              onChange={setChapterMaterialIds}
+              optionFilterProp="label"
+              options={materials.map((item) => ({ value: item.id, label: item.fileName }))}
+            />
+            {chapterMaterialIds.length ? (
+              <ul className="chapter-material-order">
+                {chapterMaterialIds.map((id, index) => {
+                  const item = materialMap.get(id)
+                  return (
+                    <li key={id}>
+                      <span className="chapter-material-order__idx">{index + 1}</span>
+                      <span className="chapter-material-order__name">{item ? item.fileName : `资料#${id}`}</span>
+                      <Space size={4}>
+                        <Button size="small" type="text" icon={<ArrowUpOutlined />} disabled={index === 0} onClick={() => moveChapterMaterial(index, -1)} />
+                        <Button size="small" type="text" icon={<ArrowDownOutlined />} disabled={index === chapterMaterialIds.length - 1} onClick={() => moveChapterMaterial(index, 1)} />
+                        <Button size="small" type="text" danger icon={<CloseOutlined />} onClick={() => removeChapterMaterial(id)} />
+                      </Space>
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : null}
           </div>
         </Form>
       </Modal>
