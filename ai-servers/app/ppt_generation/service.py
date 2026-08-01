@@ -1,5 +1,6 @@
 import copy
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -14,6 +15,7 @@ import fitz
 from fastapi import HTTPException
 
 from app.model_providers.runtime_config import reset_active_llm_config, set_active_llm_config
+from app.multi_agents.ppt_layout_agent.agent import normalize_ppt_layout_answer
 from app.multi_agents.runner import run_specialist_agent
 from app.rag.document_conversion import export_presentation
 from app.rag.document_conversion import generated_exporter
@@ -21,6 +23,7 @@ from app.rag.document_conversion import generated_exporter
 
 _PAGE_HEADING = re.compile(r"###\s*第\s*(\d+)\s*页", re.IGNORECASE)
 _FIELD = re.compile(r"^-\s*([^：:]+)[：:]\s*(.*)$")
+logger = logging.getLogger(__name__)
 
 
 class PptGenerationService:
@@ -44,7 +47,16 @@ class PptGenerationService:
         evidence = [{"id": "uploaded-material", "source": request.get("sourceName"), "content": source[:12000]}]
         token = set_active_llm_config(llm_config)
         try:
-            markdown = run_specialist_agent("ppt_outline_agent", prompt, evidence)
+            try:
+                markdown = run_specialist_agent("ppt_outline_agent", prompt, evidence)
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.exception("ppt outline generation failed")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"PPT 大纲模型调用失败：{_safe_error_message(exc)}",
+                ) from exc
         finally:
             reset_active_llm_config(token)
         return {
@@ -66,14 +78,34 @@ class PptGenerationService:
             raise HTTPException(status_code=422, detail="outline.items 不能为空")
         settings = request.get("settings") if isinstance(request.get("settings"), Mapping) else {}
         outline_markdown = str(outline.get("outlineMarkdown") or _items_to_markdown(items))
-        layout_prompt = json.dumps({
-            "ppt_outline": outline_markdown,
-            "theme": settings.get("pptStyle") or "simple",
-            "constraints": settings,
-        }, ensure_ascii=False)
+        # Keep the outline as real Markdown instead of embedding it in a JSON
+        # string.  The layout normalizer uses page headings as a deterministic
+        # fallback when the model returns a slightly different format.
+        layout_prompt = "\n".join([
+            "请根据下面已经确认的 PPT 大纲生成逐页布局方案。",
+            f"主题风格：{settings.get('pptStyle') or 'simple'}",
+            f"其他约束：{json.dumps(dict(settings), ensure_ascii=False)}",
+            "",
+            outline_markdown,
+        ])
         token = set_active_llm_config(llm_config)
         try:
-            layout_markdown = run_specialist_agent("ppt_layout_agent", layout_prompt, [])
+            try:
+                layout_markdown = run_specialist_agent("ppt_layout_agent", layout_prompt, [])
+            except HTTPException as exc:
+                if exc.status_code == 502 and "返回内容不符合约定格式" in str(exc.detail):
+                    logger.warning(
+                        "ppt layout agent returned a non-contract answer; using outline-based fallback"
+                    )
+                    layout_markdown = normalize_ppt_layout_answer("", layout_prompt)
+                else:
+                    raise
+            except Exception as exc:
+                logger.exception("ppt slide layout generation failed")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"PPT 布局模型调用失败：{_safe_error_message(exc)}",
+                ) from exc
         finally:
             reset_active_llm_config(token)
         slides = []
@@ -120,6 +152,7 @@ class PptGenerationService:
             "exportFormats": list(request.get("exportFormats") or ["pptx"]),
             "previews": [],
             "attachments": [],
+            "formatErrors": {},
             "error": None,
         }
         with self._lock:
@@ -179,13 +212,18 @@ class PptGenerationService:
             attachment = {**attachment, "type": "pptx"}
             attachments = [attachment]
             previews: List[Dict[str, Any]] = []
+            format_errors: Dict[str, str] = {}
             requested = {str(value).lower() for value in request.get("exportFormats") or ["pptx"]}
             if "pdf" in requested:
                 self._update(task_id, stage="rendering", progress=78, message="正在生成 PDF 和页面预览")
-                pdf_attachment, previews = _render_pdf_and_previews(attachment)
-                attachments.append(pdf_attachment)
+                try:
+                    pdf_attachment, previews = _render_pdf_and_previews(attachment)
+                    attachments.append(pdf_attachment)
+                except Exception as exc:
+                    format_errors["pdf"] = str(exc)
             self._update(task_id, status="completed", stage="completed", progress=100,
-                         message="PPT 生成完成", attachments=attachments, previews=previews)
+                         message="PPT 生成完成", attachments=attachments, previews=previews,
+                         formatErrors=format_errors)
         except Exception as exc:
             self._update(task_id, status="failed", stage="failed", message="PPT 生成失败",
                          error={"type": exc.__class__.__name__, "message": str(exc)})
@@ -267,3 +305,9 @@ def _render_pdf_and_previews(ppt_attachment: Mapping[str, Any]):
 
 
 ppt_generation_service = PptGenerationService()
+
+
+def _safe_error_message(error: Exception) -> str:
+    message = re.sub(r"(?i)(api[-_ ]?key|authorization|token)\s*[:=]\s*\S+", r"\1=[已隐藏]", str(error or ""))
+    message = re.sub(r"https?://[^\s]+", "[模型服务地址]", message)
+    return (message.strip() or error.__class__.__name__)[:300]

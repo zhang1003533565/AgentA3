@@ -258,7 +258,7 @@ export function streamLlmChat(data, handlers = {}) {
   return streamSse('/api/llm/chat/stream', data, handlers, '当前运行环境暂不支持流式总结')
 }
 
-export function streamSse(url, data, handlers = {}, unsupportedMessage = '当前运行环境暂不支持流式响应') {
+export function streamSse(url, data, handlers = {}, unsupportedMessage = '当前运行环境暂不支持流式响应', method = 'POST') {
   const controller = typeof AbortController === 'function' ? new AbortController() : null
   const done = (async () => {
     if (typeof fetch !== 'function' || !controller) {
@@ -267,13 +267,14 @@ export function streamSse(url, data, handlers = {}, unsupportedMessage = '当前
       throw error
     }
     const token = getToken()
+    const normalizedMethod = String(method || 'POST').toUpperCase()
     const response = await fetch(`${BASE_URL}${url}`, {
-      method: 'POST',
+      method: normalizedMethod,
       headers: {
-        'Content-Type': 'application/json',
+        ...(normalizedMethod === 'GET' ? {} : { 'Content-Type': 'application/json' }),
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       },
-      body: JSON.stringify(data || {}),
+      ...(normalizedMethod === 'GET' ? {} : { body: JSON.stringify(data || {}) }),
       signal: controller.signal
     })
     if (!response.ok) {

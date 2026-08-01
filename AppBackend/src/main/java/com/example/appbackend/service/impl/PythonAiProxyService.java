@@ -280,17 +280,17 @@ public class PythonAiProxyService {
     }
 
     public Object generatePptOutline(Map<String, Object> request, String authorization) {
-        return postRagObject("/internal/rag/ppt-generation/outlines", request, authorization,
+        return postPptObject("/internal/rag/ppt-generation/outlines", request, authorization,
                 requirePptGenerationModel());
     }
 
     public Object generatePptSlides(Map<String, Object> request, String authorization) {
-        return postRagObject("/internal/rag/ppt-generation/slides", request, authorization,
+        return postPptObject("/internal/rag/ppt-generation/slides", request, authorization,
                 requirePptGenerationModel());
     }
 
     public Object createPptTask(Map<String, Object> request, String authorization) {
-        return postRagObject("/internal/rag/ppt-generation/tasks", request, authorization,
+        return postPptObject("/internal/rag/ppt-generation/tasks", request, authorization,
                 requirePptGenerationModel());
     }
 
@@ -339,6 +339,35 @@ public class PythonAiProxyService {
             throw new BusinessException(Result.ERROR_CODE, "PPT 生成模型尚未配置");
         }
         return model;
+    }
+
+    private Object postPptObject(String path,
+                                 Map<String, Object> request,
+                                 String authorization,
+                                 String requestedModel) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            return webClientBuilder.build()
+                    .post()
+                    .uri(buildUri(path))
+                    .headers(headers -> applyPythonHeaders(headers, authorization, userId, requestedModel))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(request == null ? Map.of() : request)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            int remoteStatus = e.getStatusCode().value();
+            int status = remoteStatus >= 400 && remoteStatus < 500 ? remoteStatus : 502;
+            throw new BusinessException(status, "PPT AI 服务调用失败: " + extractRemoteMessage(e));
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(502, "PPT AI 服务调用失败: " + e.getMessage());
+        }
     }
 
     public SseEmitter streamRag(Map<String, Object> request, String authorization) {

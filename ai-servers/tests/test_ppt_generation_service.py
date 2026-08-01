@@ -1,6 +1,7 @@
 import time
 
 import pytest
+from fastapi import HTTPException
 
 from app.ppt_generation.service import PptGenerationService, _outline_items
 
@@ -60,3 +61,60 @@ def test_task_is_owner_scoped_and_creates_real_pptx(tmp_path, monkeypatch):
     with pytest.raises(Exception) as error:
         service.get_task("7", task_id)
     assert error.value.status_code == 403
+
+
+def test_outline_provider_failure_returns_actionable_gateway_error(monkeypatch):
+    service = PptGenerationService()
+    monkeypatch.setattr(
+        "app.ppt_generation.service.run_specialist_agent",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("connection refused at http://model.test/v1 token=secret")),
+    )
+
+    with pytest.raises(HTTPException) as error:
+        service.generate_outline({
+            "sourceName": "a.txt",
+            "sourceContent": "复习资料",
+            "topic": "测试",
+            "pageCount": 5,
+        }, llm_config=None)
+
+    assert error.value.status_code == 502
+    assert "PPT 大纲模型调用失败" in error.value.detail
+    assert "secret" not in error.value.detail
+    assert "http://model.test" not in error.value.detail
+
+
+def test_slides_fall_back_to_outline_when_layout_agent_breaks_contract(monkeypatch):
+    service = PptGenerationService()
+    monkeypatch.setattr(
+        "app.ppt_generation.service.run_specialist_agent",
+        lambda *args, **kwargs: (_ for _ in ()).throw(HTTPException(
+            status_code=502,
+            detail="ppt_layout_agent 返回内容不符合约定格式，且自动规范化失败",
+        )),
+    )
+
+    result = service.generate_slides({
+        "outline": {
+            "title": "数据结构复习",
+            "items": [
+                {
+                    "title": "数据结构概述",
+                    "type": "内容页",
+                    "objective": "理解基本概念",
+                    "keyPoints": ["逻辑结构", "存储结构"],
+                },
+                {
+                    "title": "线性表",
+                    "type": "内容页",
+                    "objective": "掌握线性表",
+                    "keyPoints": ["顺序表", "链表"],
+                },
+            ],
+        },
+        "settings": {"pptStyle": "simple"},
+    }, llm_config=None)
+
+    assert [slide["title"] for slide in result["slides"]] == ["数据结构概述", "线性表"]
+    assert all(slide["layout"] != "content_default" for slide in result["slides"])
+    assert result["layoutMarkdown"].startswith("## PPT 布局方案")
