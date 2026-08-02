@@ -102,7 +102,7 @@
       </view>
       <view class="bottom-actions">
         <button class="secondary-button" @tap="goPrevious">上一步</button>
-        <button class="primary-button" @tap="prepareOutline">下一步</button>
+        <button class="primary-button" :disabled="apiBusy" @tap="prepareOutline">{{ apiBusy ? '正在生成大纲…' : '下一步' }}</button>
       </view>
     </view>
 
@@ -234,7 +234,7 @@
 
       <view class="bottom-actions">
         <button class="secondary-button" @tap="goPrevious">上一步</button>
-        <button class="primary-button" @tap="prepareSlides">编辑页面内容</button>
+        <button class="primary-button" :disabled="apiBusy" @tap="prepareSlides">{{ apiBusy ? '正在生成页面…' : '编辑页面内容' }}</button>
       </view>
     </view>
 
@@ -304,7 +304,7 @@
 
       <view class="bottom-actions">
         <button class="secondary-button" @tap="goPrevious">返回设置</button>
-        <button class="primary-button" @tap="startMockGeneration">确认并生成</button>
+        <button class="primary-button" :disabled="apiBusy" @tap="startGeneration">{{ apiBusy ? '正在创建任务…' : '确认并生成' }}</button>
       </view>
     </view>
 
@@ -396,7 +396,7 @@
       </view>
 
       <button class="primary-button primary-button--full" :disabled="exportPreparing" @tap="prepareExport">
-        {{ exportPreparing ? '正在生成下载文件…' : exportReady ? '下载文件' : '生成下载文件' }}
+        {{ exportPreparing ? '正在下载文件…' : '下载文件' }}
       </button>
 
       <view v-if="exportReady" class="download-ready">
@@ -406,7 +406,7 @@
         </view>
         <text class="download-ready__title">文件已生成</text>
         <text class="download-ready__name">{{ downloadFileName }}</text>
-        <text class="download-ready__hint">当前为前端页面演示，接入后端后可下载真实文件</text>
+        <text class="download-ready__hint">文件已下载，可使用 PowerPoint、WPS 或系统阅读器打开</text>
       </view>
 
       <button class="back-result-button" @tap="currentStep = 7">返回生成结果</button>
@@ -417,7 +417,7 @@
         <view class="history-drawer__head">
           <view>
             <text class="history-drawer__title">历史记录</text>
-            <text class="history-drawer__desc">保存在当前设备，仅用于前端演示</text>
+            <text class="history-drawer__desc">大纲和生成配置保存在当前设备</text>
           </view>
           <view class="history-drawer__close" @tap="historyOpen = false">×</view>
         </view>
@@ -448,7 +448,7 @@
           <view v-else class="history-empty">
             <view class="history-empty__icon"><text></text><text></text><text></text></view>
             <text class="history-empty__title">{{ historyTab === 'outline' ? '暂无大纲记录' : '暂无生成记录' }}</text>
-            <text class="history-empty__desc">{{ historyTab === 'outline' ? '保存过的大纲会显示在这里' : '完成一次前端生成后会显示在这里' }}</text>
+            <text class="history-empty__desc">{{ historyTab === 'outline' ? '保存过的大纲会显示在这里' : '完成一次 PPT 生成后会显示在这里' }}</text>
           </view>
         </scroll-view>
       </view>
@@ -457,6 +457,16 @@
 </template>
 
 <script>
+import {
+  createPptTask,
+  downloadPptPreview,
+  downloadPptTaskFile,
+  generatePptOutline,
+  generatePptSlides,
+  getPptTask,
+  streamPptTask
+} from '@/api/ppt.js'
+
 export default {
   name: 'AiPresentationFlow',
   props: {
@@ -470,6 +480,8 @@ export default {
       outlineMode: 'ai_outline',
       outlineName: '',
       outlineItems: [],
+      outlineDocument: null,
+      layoutMarkdown: '',
       outlineSavedAt: '',
       outlineLevels: [
         { value: 1, label: '章节' },
@@ -491,6 +503,11 @@ export default {
       },
       progress: 0,
       generationTimer: null,
+      generationStream: null,
+      generationRunId: 0,
+      taskId: '',
+      taskResult: null,
+      apiBusy: false,
       showAllSlides: false,
       exportFormat: 'pptx',
       exportPreparing: false,
@@ -688,17 +705,49 @@ export default {
     toggleSetting(key, event) {
       this.settings[key] = Boolean(event?.detail?.value)
     },
-    prepareOutline() {
+    async prepareOutline() {
       if (!this.fileInfo) return
-      const detected = this.detectOutlineItems()
-      this.outlineItems = detected.length ? detected : [
-        this.createOutlineItem(this.resultName, 1),
-        this.createOutlineItem('资料核心内容', 2),
-        this.createOutlineItem('复习总结', 2)
-      ]
-      this.outlineName = `${this.resultName}大纲`
-      this.outlineSavedAt = ''
-      this.currentStep = 3
+      if (this.outlineMode === 'original_outline') {
+        const detected = this.detectOutlineItems()
+        this.outlineItems = detected.length ? detected : [
+          this.createOutlineItem(this.resultName, 1),
+          this.createOutlineItem('资料核心内容', 2),
+          this.createOutlineItem('复习总结', 2)
+        ]
+        this.outlineDocument = { title: this.resultName, items: this.outlineItems }
+        this.outlineName = `${this.resultName}大纲`
+        this.outlineSavedAt = ''
+        this.currentStep = 3
+        return
+      }
+      this.apiBusy = true
+      try {
+        const response = await generatePptOutline({
+          sourceName: this.fileInfo.name,
+          sourceContent: this.fileContent,
+          outlineMode: this.outlineMode,
+          pageCount: this.pageCount,
+          scene: 'review',
+          topic: this.initialTopic || this.resultName
+        })
+        const outline = this.responseData(response)
+        const items = Array.isArray(outline.items) ? outline.items : []
+        if (!items.length) throw new Error('AI 未返回可编辑的大纲')
+        this.outlineItems = items.map((item, index) => ({
+          ...item,
+          id: item.id || `outline-${Date.now()}-${index}`,
+          level: Number(item.level || 1),
+          title: String(item.title || '')
+        }))
+        this.outlineDocument = { ...outline, items: this.outlineItems }
+        this.outlineName = `${outline.title || this.resultName}大纲`
+        this.outlineSavedAt = ''
+        this.currentStep = 3
+      } catch (error) {
+        uni.showToast({ title: this.errorMessage(error, '大纲生成失败'), icon: 'none' })
+      } finally {
+        this.apiBusy = false
+      }
     },
     detectOutlineItems() {
       const lines = String(this.fileContent || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
@@ -761,47 +810,125 @@ export default {
       this.outlineSavedAt = this.formatTime()
       if (showFeedback) uni.showToast({ title: sameAsPrevious ? '大纲已是最新' : '大纲已保存', icon: 'none' })
     },
-    prepareSlides() {
+    async prepareSlides() {
       const outlines = this.validOutlineItems
       if (!outlines.length) {
         this.currentStep = 3
         return
       }
-      const contentLines = String(this.fileContent || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
-      this.slides = Array.from({ length: this.pageCount }, (_, index) => {
-        const outline = outlines[Math.min(Math.max(index - 1, 0), outlines.length - 1)]
-        let title = outline?.title || `第 ${index + 1} 页`
-        if (index === 0 && this.settings.includeCover) title = this.resultName
-        else if (index === 1 && this.settings.includeCatalog) title = '内容目录'
-        else if (index === this.pageCount - 1 && this.settings.includeSummary) title = '复习总结'
-        const related = contentLines.filter(line => outline?.title && (line.includes(outline.title) || outline.title.includes(line))).slice(0, 3)
-        const fallback = contentLines.slice(Math.max(0, (index - 1) * 2), Math.max(0, (index - 1) * 2) + 3)
-        return {
-          id: `slide-${Date.now()}-${index}`,
-          title,
-          content: (related.length ? related : fallback).join('\n'),
-          privatePrompt: ''
+      this.apiBusy = true
+      try {
+        const outline = {
+          ...(this.outlineDocument || {}),
+          title: this.outlineName || this.resultName,
+          items: outlines.map(item => ({ ...item }))
         }
-      })
-      this.activeSlideIndex = 0
-      this.currentStep = 5
+        const response = await generatePptSlides({
+          outline,
+          sourceContent: this.fileContent,
+          settings: this.buildSettings(),
+          sharedPrompt: this.sharedPrompt
+        })
+        const result = this.responseData(response)
+        const slides = Array.isArray(result.slides) ? result.slides : []
+        if (slides.length < 2) throw new Error('生成的页面数量不足，请调整大纲后重试')
+        this.slides = slides.map((slide, index) => ({
+          ...slide,
+          id: slide.id || `slide-${Date.now()}-${index}`,
+          title: String(slide.title || `第 ${index + 1} 页`),
+          content: Array.isArray(slide.content) ? slide.content.join('\n') : String(slide.content || ''),
+          privatePrompt: String(slide.privatePrompt || '')
+        }))
+        this.layoutMarkdown = String(result.layoutMarkdown || '')
+        if (result.sharedPrompt) this.sharedPrompt = String(result.sharedPrompt)
+        this.pageCount = this.slides.length
+        this.activeSlideIndex = 0
+        this.currentStep = 5
+      } catch (error) {
+        uni.showToast({ title: this.errorMessage(error, '页面内容生成失败'), icon: 'none' })
+      } finally {
+        this.apiBusy = false
+      }
     },
-    startMockGeneration() {
+    async startGeneration() {
+      if (this.apiBusy || this.slides.length < 2) return
       this.clearTimers()
+      const runId = ++this.generationRunId
+      this.apiBusy = true
       this.currentStep = 6
-      this.progress = 4
-      this.generationTimer = setInterval(() => {
-        const increment = this.progress < 40 ? 5 : this.progress < 80 ? 4 : 3
-        this.progress = Math.min(100, this.progress + increment)
-        if (this.progress >= 100) {
-          clearInterval(this.generationTimer)
-          this.generationTimer = setTimeout(() => {
-            this.recordGenerationHistory()
-            this.currentStep = 7
-            this.generationTimer = null
-          }, 500)
-        }
-      }, 320)
+      this.progress = 2
+      this.taskResult = null
+      try {
+        const response = await createPptTask({
+          sourceName: this.fileInfo?.name || `${this.resultName}.txt`,
+          outline: {
+            ...(this.outlineDocument || {}),
+            title: this.outlineName || this.resultName,
+            items: this.validOutlineItems.map(item => ({ ...item }))
+          },
+          slides: this.slides.map(slide => ({
+            ...slide,
+            content: String(slide.content || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+          })),
+          sharedPrompt: this.sharedPrompt,
+          settings: this.buildSettings(),
+          exportFormats: ['pptx', 'pdf']
+        })
+        const created = this.responseData(response)
+        this.taskId = String(created.taskId || '')
+        if (!this.taskId) throw new Error('服务端未返回 PPT 任务编号')
+        this.apiBusy = false
+        await this.followGenerationTask(runId)
+      } catch (error) {
+        if (runId !== this.generationRunId) return
+        this.apiBusy = false
+        this.currentStep = 5
+        this.progress = 0
+        uni.showToast({ title: this.errorMessage(error, 'PPT 生成失败'), icon: 'none' })
+      }
+    },
+    async followGenerationTask(runId) {
+      try {
+        this.generationStream = streamPptTask(this.taskId, {
+          onEvent: (eventName, payload) => this.applyTaskSnapshot(payload, runId),
+          onDone: payload => this.applyTaskSnapshot(payload, runId),
+          onError: payload => this.applyTaskSnapshot(payload, runId)
+        })
+        await this.generationStream
+        const response = await getPptTask(this.taskId)
+        this.applyTaskSnapshot(this.responseData(response), runId)
+      } catch (error) {
+        if (runId !== this.generationRunId) return
+        await this.pollGenerationTask(runId)
+      } finally {
+        this.generationStream = null
+      }
+    },
+    async pollGenerationTask(runId) {
+      for (let attempt = 0; attempt < 300 && runId === this.generationRunId; attempt += 1) {
+        const response = await getPptTask(this.taskId)
+        const task = this.responseData(response)
+        this.applyTaskSnapshot(task, runId)
+        if (['completed', 'failed'].includes(String(task.status || ''))) return
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+      if (runId === this.generationRunId) throw new Error('PPT 生成等待超时，可稍后重新进入查看')
+    },
+    applyTaskSnapshot(task, runId) {
+      if (!task || runId !== this.generationRunId) return
+      this.taskResult = task
+      this.progress = Math.max(this.progress, Math.min(100, Number(task.progress || 0)))
+      if (task.status === 'failed') {
+        const message = task.error?.message || task.message || 'PPT 生成失败'
+        this.currentStep = 5
+        this.progress = 0
+        throw new Error(message)
+      }
+      if (task.status === 'completed' && this.currentStep === 6) {
+        this.progress = 100
+        this.recordGenerationHistory()
+        this.currentStep = 7
+      }
     },
     generationStatusClass(index) {
       if (index < this.activeGenerationIndex) return 'generation-item__dot--done'
@@ -814,6 +941,7 @@ export default {
     },
     cancelGeneration() {
       this.clearTimers()
+      this.generationRunId += 1
       this.progress = 0
       this.currentStep = 5
     },
@@ -825,8 +953,21 @@ export default {
     slideTitle(slide) {
       return this.slides[slide - 1]?.title || `第 ${slide} 页`
     },
-    openSlidePreview(slide) {
-      uni.showToast({ title: `正在查看第 ${slide} 页`, icon: 'none' })
+    async openSlidePreview(slide) {
+      const preview = (this.taskResult?.previews || []).find(item => Number(item.slideIndex) === Number(slide))
+      if (!this.taskId || !preview) {
+        uni.showToast({ title: '当前环境未生成页面预览图', icon: 'none' })
+        return
+      }
+      try {
+        uni.showLoading({ title: '正在读取预览' })
+        const path = await downloadPptPreview(this.taskId, slide)
+        uni.previewImage({ urls: [path], current: path })
+      } catch (error) {
+        uni.showToast({ title: this.errorMessage(error, '预览读取失败'), icon: 'none' })
+      } finally {
+        uni.hideLoading()
+      }
     },
     selectExportFormat(format) {
       if (this.exportFormat !== format) {
@@ -834,18 +975,31 @@ export default {
         this.exportReady = false
       }
     },
-    prepareExport() {
-      if (this.exportReady) {
-        uni.showToast({ title: '前端演示暂不提供真实文件', icon: 'none' })
+    async prepareExport() {
+      if (!this.taskId) {
+        uni.showToast({ title: 'PPT 任务不存在，请重新生成', icon: 'none' })
+        return
+      }
+      const attachment = (this.taskResult?.attachments || []).find(item => item.type === this.exportFormat)
+      if (!attachment) {
+        const detail = this.taskResult?.formatErrors?.[this.exportFormat]
+        uni.showToast({ title: detail || `当前任务未生成 ${this.exportFormat.toUpperCase()} 文件`, icon: 'none' })
         return
       }
       this.exportPreparing = true
-      clearTimeout(this.exportTimer)
-      this.exportTimer = setTimeout(() => {
-        this.exportPreparing = false
+      try {
+        const path = await downloadPptTaskFile(this.taskId, this.exportFormat)
         this.exportReady = true
-        this.exportTimer = null
-      }, 900)
+        uni.openDocument({
+          filePath: path,
+          showMenu: true,
+          fail: () => uni.showToast({ title: '文件已下载，请从下载列表打开', icon: 'none' })
+        })
+      } catch (error) {
+        uni.showToast({ title: this.errorMessage(error, '文件下载失败'), icon: 'none' })
+      } finally {
+        this.exportPreparing = false
+      }
     },
     openHistory(tab) {
       this.historyTab = tab
@@ -861,7 +1015,8 @@ export default {
         contentLevel: this.contentLevel,
         outlineMode: this.outlineMode,
         settings: { ...this.settings },
-        sharedPrompt: this.sharedPrompt
+        sharedPrompt: this.sharedPrompt,
+        taskId: this.taskId
       }
       this.generationHistory = [item, ...this.generationHistory].slice(0, 30)
       this.persistHistories()
@@ -909,6 +1064,22 @@ export default {
         })
       } catch (error) {}
     },
+    buildSettings() {
+      return {
+        ...this.settings,
+        pageCount: this.pageCount,
+        pptStyle: this.pptStyle,
+        contentLevel: this.contentLevel
+      }
+    },
+    responseData(response) {
+      return response && typeof response === 'object' && Object.prototype.hasOwnProperty.call(response, 'data')
+        ? (response.data || {})
+        : (response || {})
+    },
+    errorMessage(error, fallback) {
+      return String(error?.msg || error?.message || error?.data?.msg || fallback || '操作失败').slice(0, 80)
+    },
     formatNow() {
       const date = new Date()
       const pad = value => String(value).padStart(2, '0')
@@ -919,6 +1090,8 @@ export default {
       return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
     },
     clearTimers() {
+      if (this.generationStream?.abort) this.generationStream.abort('ppt_generation_cancelled')
+      this.generationStream = null
       if (this.generationTimer) {
         clearInterval(this.generationTimer)
         clearTimeout(this.generationTimer)

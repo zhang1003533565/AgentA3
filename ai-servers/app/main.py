@@ -9,6 +9,7 @@ from app.api.routes.models import router as models_router
 from app.api.routes.rag import export_router as rag_export_router
 from app.api.routes.rag import router as rag_router
 from app.api.routes.videos import router as videos_router
+from app.ppt_generation import router as ppt_generation_router
 from app.rag.document_conversion import EXPORT_ROOT
 from app.security.internal_auth import get_configured_internal_token
 from app.services.memory_store import memory_store
@@ -24,6 +25,7 @@ app.include_router(models_router)
 app.include_router(rag_router)
 app.include_router(rag_export_router)
 app.include_router(videos_router)
+app.include_router(ppt_generation_router)
 
 
 def _is_export_capability_route(method: str, path: str, raw_path: bytes = b"") -> bool:

@@ -19,6 +19,8 @@ public interface DishRepository extends JpaRepository<Dish, Long> {
      */
     List<Dish> findByStallIdAndIsAvailable(Long stallId, Boolean isAvailable);
 
+    List<Dish> findByStallPlaceId(Long stallPlaceId);
+
     /**
      * 根据菜品分类查询
      */
@@ -33,4 +35,8 @@ public interface DishRepository extends JpaRepository<Dish, Long> {
      * 根据菜品名称模糊查询
      */
     List<Dish> findByNameContaining(String name);
+
+    List<Dish> findByCuisineId(Long cuisineId);
+
+    boolean existsByCuisineId(Long cuisineId);
 }

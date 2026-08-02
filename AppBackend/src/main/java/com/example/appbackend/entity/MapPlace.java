@@ -53,6 +53,18 @@ public class MapPlace {
     @Column(name = "sort_order", nullable = false)
     private Integer sortOrder = 0;
 
+    @Column(name = "stall_status")
+    private Integer stallStatus;
+
+    @Column(name = "business_hours", length = 100)
+    private String businessHours;
+
+    @Column(name = "avg_price", precision = 10, scale = 2)
+    private BigDecimal avgPrice;
+
+    @Column(name = "image_url", length = 500)
+    private String imageUrl;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

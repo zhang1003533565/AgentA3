@@ -168,6 +168,22 @@ test('resource generation displays the persisted multi-agent trace', () => {
   assert.match(resources, /traceStatus/)
 })
 
+test('AIPPT uses real outline, slide, task, progress, preview and download APIs', () => {
+  const container = source('resourceGenerate/resourceGenerate.vue')
+  const page = source('resourceGenerate/AIPresentationFlow.vue')
+  for (const name of [
+    'generatePptOutline', 'generatePptSlides', 'createPptTask', 'streamPptTask',
+    'getPptTask', 'downloadPptPreview', 'downloadPptTaskFile'
+  ]) {
+    assert.match(page, new RegExp(`\\b${name}\\b`))
+  }
+  assert.doesNotMatch(page, /startMockGeneration|前端演示暂不提供真实文件/)
+  assert.match(page, /exportFormats:\s*\['pptx', 'pdf'\]/)
+  assert.match(page, /fallback[\s\S]*pollGenerationTask|pollGenerationTask/)
+  assert.match(container, /if \(this\.isPresentationMode\) return[\s\S]*uni\.getStorageSync\(WORKFLOW_STORAGE_KEY\)/)
+  assert.match(container, /for \(let index = 0; index < 2; index \+= 1\)[\s\S]*decodeURIComponent\(decoded\)/)
+})
+
 test('course resources never display review success when grounding still says model-only', async () => {
   const { learningResourceReviewStatus } = await sourceModule('learningView.js')
   assert.equal(learningResourceReviewStatus({

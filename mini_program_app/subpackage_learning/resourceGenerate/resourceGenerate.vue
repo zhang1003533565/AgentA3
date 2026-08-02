@@ -124,6 +124,7 @@ export default {
     const requestedType = this.decodeOption(options.resourceType || '')
     this.isPresentationMode = requestedType === 'presentation'
     if (CORE_RESOURCE_TYPES.includes(requestedType)) this.selectedResourceTypes = [requestedType]
+    if (this.isPresentationMode) return
     const workflowId = this.decodeOption(options.workflowId || '') || uni.getStorageSync(WORKFLOW_STORAGE_KEY) || ''
     if (workflowId) {
       this.learningState = createLearningState(workflowId)
@@ -132,7 +133,17 @@ export default {
   },
   methods: {
     decodeOption(value) {
-      try { return decodeURIComponent(String(value || '')) } catch (error) { return String(value || '') }
+      let decoded = String(value || '')
+      for (let index = 0; index < 2; index += 1) {
+        try {
+          const next = decodeURIComponent(decoded)
+          if (next === decoded) break
+          decoded = next
+        } catch (error) {
+          break
+        }
+      }
+      return decoded
     },
     stageName(value) {
       const labels = { accepted: '工作流受理', planning_start: '路径规划开始', planning_done: '路径规划完成', agent_start: '资源生成开始', agent_done: '资源生成完成', review_start: '内容审核开始', review_done: '内容审核完成', packaging_start: '资源组装开始', packaging_done: '资源组装完成', done: '工作流完成', completed: '工作流完成' }

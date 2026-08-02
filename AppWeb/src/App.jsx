@@ -24,6 +24,7 @@ import QuestionBankGeneratePage from './pages/questionBank/QuestionBankGenerateP
 import { QUESTION_BANK_ROUTES } from './pages/questionBank/questionBankRoutes'
 import WorkspacePage from './pages/workspace/WorkspacePage'
 import StallManage from './pages/StallManage/StallManage'
+import StallIndoorManage from './pages/StallManage/StallIndoorManage'
 import MarkerManage from './pages/facility/MarkerManage/MarkerManage'
 import FacilityPlaceManage from './pages/facility/FacilityPlaceManage/FacilityPlaceManage'
 import CampusCourseManage from './pages/learning/CampusCourseManage'
@@ -58,6 +59,8 @@ function App() {
           <Route path="/facility/teaching" element={<FacilityPlaceManage sceneType="TEACHING" />} />
           <Route path="/facility/dormitory" element={<FacilityPlaceManage sceneType="DORMITORY" />} />
           <Route path="/facility/canteen/:canteenId/stalls" element={<StallManage />} />
+          <Route path="/facility/canteen/:canteenId/stalls/indoor" element={<StallIndoorManage />} />
+          <Route path="/facility/canteen/:canteenId/stalls/:stallId/dishes" element={<StallManage />} />
           <Route path="/activity/manage" element={<ActivityManage />} />
           <Route path="/activity/create" element={<ActivityEditor />} />
           <Route path="/activity/:id/edit" element={<ActivityEditor />} />

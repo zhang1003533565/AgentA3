@@ -7,6 +7,8 @@ export const getUploadUrl = (folder) => {
 }
 
 export const MAP_BUILDING_UPLOAD_FOLDER = 'map-buildings'
+export const CANTEEN_STALL_UPLOAD_FOLDER = 'canteen-stalls'
+export const DISH_UPLOAD_FOLDER = 'dishes'
 
 export const uploadImage = async (file, folder) => {
   const formData = new FormData()

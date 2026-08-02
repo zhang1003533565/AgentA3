@@ -76,4 +76,5 @@ public class CanteenStall {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "restaurant_id", insertable = false, updatable = false)
     private CampusFacility restaurant;
+
 }

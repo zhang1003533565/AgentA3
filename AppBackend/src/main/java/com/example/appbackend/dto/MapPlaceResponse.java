@@ -25,6 +25,10 @@ public class MapPlaceResponse {
     private String locationDesc;
     private Boolean mapVisible;
     private Integer sortOrder;
+    private Integer stallStatus;
+    private String businessHours;
+    private BigDecimal avgPrice;
+    private String imageUrl;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private List<MapPlaceImage> images = new ArrayList<>();
