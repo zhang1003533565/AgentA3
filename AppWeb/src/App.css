@@ -2,3 +2,11 @@
   width: 100%;
   min-height: 100vh;
 }
+
+/* 全局内容面板：用于需要白底、圆角和轻阴影的页面或区域。 */
+.app-content-surface {
+  border: 1px solid rgb(226 232 240 / 90%);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgb(15 23 42 / 6%);
+}

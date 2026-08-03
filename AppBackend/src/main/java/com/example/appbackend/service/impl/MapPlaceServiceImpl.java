@@ -386,7 +386,9 @@ public class MapPlaceServiceImpl implements MapPlaceService {
         response.setSceneType(place.getSceneType());
         response.setPlaceType(place.getPlaceType());
         response.setName(place.getName());
-        response.setDescription(place.getDescription());
+        if (includeDetails) {
+            response.setDescription(place.getDescription());
+        }
         response.setStatus(place.getStatus());
         response.setLongitude(place.getLongitude());
         response.setLatitude(place.getLatitude());
@@ -397,6 +399,9 @@ public class MapPlaceServiceImpl implements MapPlaceService {
         response.setBusinessHours(place.getBusinessHours());
         response.setAvgPrice(place.getAvgPrice());
         response.setImageUrl(place.getImageUrl());
+        if ("CANTEEN".equals(place.getPlaceType())) {
+            response.setStallCount(placeRepository.countCanteenStalls(place.getId()));
+        }
         response.setCreatedAt(place.getCreatedAt());
         response.setUpdatedAt(place.getUpdatedAt());
         response.setImages(imageRepository.findByPlaceIdOrderBySortOrderAscIdAsc(place.getId()));
