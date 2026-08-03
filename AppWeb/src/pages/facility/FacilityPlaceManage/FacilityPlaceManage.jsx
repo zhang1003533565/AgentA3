@@ -22,9 +22,9 @@ import {
   ApartmentOutlined,
   DeleteOutlined,
   EditOutlined,
+  EllipsisOutlined,
   EnvironmentOutlined,
   FileImageOutlined,
-  MoreOutlined,
   PlusOutlined,
   ShopOutlined,
   UploadOutlined,
@@ -745,7 +745,7 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
                       >
                         <Button
                           className="facility-canteen-more"
-                          icon={<MoreOutlined />}
+                          icon={<EllipsisOutlined />}
                           aria-label={`${canteen.name}更多操作`}
                         />
                       </Dropdown>
