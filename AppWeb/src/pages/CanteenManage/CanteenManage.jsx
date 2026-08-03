@@ -3,10 +3,11 @@ import {
   Button,
   Card,
   Descriptions,
+  Dropdown,
   Empty,
   Form,
   Input,
-  Popconfirm,
+  Modal,
   Select,
   Spin,
   Tag,
@@ -17,6 +18,7 @@ import {
   DeleteOutlined,
   EditOutlined,
   EnvironmentOutlined,
+  MoreOutlined,
   PlusOutlined,
   SearchOutlined,
   ShopOutlined,
@@ -27,6 +29,7 @@ import SidePanel from '../../components/SidePanel/SidePanel'
 import {
   createFacility,
   deleteFacility,
+  getFacilityDetail,
   getFacilityList,
   updateFacility,
 } from '../../api/facility'
@@ -34,9 +37,9 @@ import { MAP_BUILDING_UPLOAD_FOLDER, uploadImage } from '../../api/upload'
 import './CanteenManage.css'
 
 const STATUS_MAP = {
-  1: { color: 'success', text: '营业中' },
-  2: { color: 'warning', text: '维护中' },
-  3: { color: 'default', text: '已停用' },
+  1: { color: 'success', text: '启用' },
+  2: { color: 'default', text: '停用' },
+  3: { color: 'default', text: '停用' },
 }
 
 const STATUS_OPTIONS = [
@@ -262,7 +265,8 @@ export default function CanteenManage() {
   const filtered = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase()
     return canteens.filter((canteen) => {
-      const matchesStatus = statusFilter === 'ALL' || canteen.status === Number(statusFilter)
+      const matchesStatus = statusFilter === 'ALL'
+        || (statusFilter === 'ENABLED' ? canteen.status === 1 : canteen.status !== 1)
       const matchesKeyword = !keyword
         || canteen.facilityName?.toLowerCase().includes(keyword)
         || canteen.location?.toLowerCase().includes(keyword)
@@ -324,11 +328,31 @@ export default function CanteenManage() {
     navigate(`/facility/marker?facilityId=${canteen.id}`)
   }
 
+  const openDetail = async (canteen) => {
+    try {
+      const response = await getFacilityDetail(canteen.id)
+      setDetailCanteen(toCanteen(response.data || canteen))
+      setDetailOpen(true)
+    } catch (error) {
+      message.error(error?.message || '食堂详情加载失败')
+    }
+  }
+
+  const confirmRemove = (canteen) => {
+    Modal.confirm({
+      title: `确认删除 ${canteen.facilityName}？`,
+      content: '将同时删除关联地图标记，操作不可恢复',
+      okText: '确认',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: () => removeCanteen(canteen),
+    })
+  }
+
   const counts = {
     ALL: canteens.length,
-    1: canteens.filter((item) => item.status === 1).length,
-    2: canteens.filter((item) => item.status === 2).length,
-    3: canteens.filter((item) => item.status === 3).length,
+    ENABLED: canteens.filter((item) => item.status === 1).length,
+    DISABLED: canteens.filter((item) => item.status !== 1).length,
   }
 
   return (
@@ -351,10 +375,9 @@ export default function CanteenManage() {
 
       <div className="canteen-stats">
         {[
-          ['ALL', '全部食堂'],
-          ['1', '营业中'],
-          ['2', '维护中'],
-          ['3', '已停用'],
+          ['ALL', '全部'],
+          ['ENABLED', '启用'],
+          ['DISABLED', '停用'],
         ].map(([value, label]) => (
           <button
             key={value}
@@ -362,8 +385,8 @@ export default function CanteenManage() {
             className={`stat-item${statusFilter === value ? ' active' : ''}`}
             onClick={() => setStatusFilter(value)}
           >
-            <span className="stat-number">{counts[value]}</span>
             <span className="stat-label">{label}</span>
+            <span className="stat-number">{counts[value]}</span>
           </button>
         ))}
       </div>
@@ -385,49 +408,56 @@ export default function CanteenManage() {
                   ) : (
                     <div className="canteen-card-image-placeholder"><ShopOutlined /></div>
                   )}
+                  <div className="canteen-card-image-shade" />
+                  <div className="canteen-card-heading">
+                    <h2>{canteen.facilityName}</h2>
+                    <Tag color={status.color} className="status-tag">{status.text}</Tag>
+                  </div>
                 </div>
                 <div className="canteen-card-info">
-                  <div className="canteen-card-title">
-                    <span className="canteen-main-name">{canteen.facilityName}</span>
-                    <span className="canteen-sub-name">设施编号 #{canteen.id}</span>
+                  <div className="canteen-summary-row">
+                    <ShopOutlined />
+                    <span><strong>{canteen.stallCount ?? 0}</strong> 个档口</span>
                   </div>
-                  <div className="canteen-card-tags">
-                    <Tag className="area-tag">{canteen.location || '未填写位置说明'}</Tag>
-                    <Tag color={status.color} className="status-tag">{status.text}</Tag>
-                    <Tag color={hasLocation ? 'blue' : 'orange'}>{hasLocation ? '已定位' : '待定位'}</Tag>
-                  </div>
-                  <div className="canteen-card-details">
-                    <div className="detail-row">
-                      <span className="detail-label">空间形态</span>
-                      <span className="detail-value">{canteen.geometryType === 'AREA' ? '区域围栏' : '单点位置'}</span>
-                    </div>
-                    <div className="detail-row">
-                      <span className="detail-label">地图坐标</span>
-                      <span className="detail-value">{hasLocation ? `${canteen.longitude}, ${canteen.latitude}` : '未设置'}</span>
-                    </div>
-                    <div className="detail-row">
-                      <span className="detail-label">更新时间</span>
-                      <span className="detail-value">{canteen.updateTime || '—'}</span>
-                    </div>
+                  <div className="canteen-summary-row">
+                    <EnvironmentOutlined />
+                    <span>{hasLocation ? '点位已配置' : '暂未配置点位'}</span>
                   </div>
                 </div>
                 <div className="canteen-card-actions">
-                  <Button icon={<EditOutlined />} onClick={() => openEdit(canteen)}>编辑</Button>
-                  <Button icon={<EnvironmentOutlined />} onClick={() => editLocation(canteen)}>地图位置</Button>
-                  <Button onClick={() => {
-                    setDetailCanteen(canteen)
-                    setDetailOpen(true)
-                  }}>详情</Button>
-                  <Popconfirm
-                    title={`确认删除 ${canteen.facilityName}？`}
-                    description="将同时删除关联地图标记，操作不可恢复"
-                    onConfirm={() => removeCanteen(canteen)}
-                    okText="确认"
-                    cancelText="取消"
-                    okButtonProps={{ danger: true }}
+                  <Button
+                    type="primary"
+                    icon={<ShopOutlined />}
+                    onClick={() => navigate(`/facility/canteen/${canteen.id}/stalls`)}
                   >
-                    <Button danger loading={deletingId === canteen.id} icon={<DeleteOutlined />} />
-                  </Popconfirm>
+                    进入档口管理
+                  </Button>
+                  <Dropdown
+                    trigger={['click']}
+                    placement="bottomRight"
+                    menu={{
+                      items: [
+                        { key: 'location', icon: <EnvironmentOutlined />, label: '位置管理' },
+                        { key: 'detail', label: '查看详情' },
+                        { key: 'edit', icon: <EditOutlined />, label: '编辑食堂' },
+                        { type: 'divider' },
+                        { key: 'delete', icon: <DeleteOutlined />, label: '删除食堂', danger: true },
+                      ],
+                      onClick: ({ key }) => {
+                        if (key === 'location') editLocation(canteen)
+                        if (key === 'detail') openDetail(canteen)
+                        if (key === 'edit') openEdit(canteen)
+                        if (key === 'delete') confirmRemove(canteen)
+                      },
+                    }}
+                  >
+                    <Button
+                      className="canteen-more-button"
+                      loading={deletingId === canteen.id}
+                      icon={<MoreOutlined />}
+                      aria-label={`${canteen.facilityName}更多操作`}
+                    />
+                  </Dropdown>
                 </div>
               </Card>
             )

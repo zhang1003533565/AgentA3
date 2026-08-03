@@ -676,85 +676,58 @@ export default function StallManage() {
   }
 
   return (
-    <div className="stall-page">
-      <div className="stall-page-header">
-        <div>
-          <Button
-            type="link"
-            icon={<ArrowLeftOutlined />}
-            className="stall-back-button"
-            onClick={() => navigate(
-              dishMode
-                ? `/facility/canteen/${canteenId}/stalls`
-                : '/facility/canteen',
-            )}
-          >
-            {dishMode ? '返回档口列表' : '返回食堂列表'}
-          </Button>
-          <h1>
-            {canteen?.name || '食堂'} · {dishMode ? `${selectedStall?.name || '档口'}菜品管理` : '档口管理'}
-          </h1>
-          <p>
-            {dishMode
-              ? '菜品归属当前档口，可在这里维护菜系、价格、口味和上下架状态。'
-              : '档口以卡片列表展示，进入指定档口后再管理其菜品。'}
-          </p>
-        </div>
-        <Space>
-          {!dishMode ? (
-            <Button
-              icon={<AimOutlined />}
-              onClick={() => navigate(`/facility/canteen/${canteenId}/stalls/indoor`)}
-            >
-              楼层档口定位
-            </Button>
-          ) : null}
-          <Button
-            icon={<SettingOutlined />}
-            onClick={() => {
-              setCategoryManagerOpen(true)
-              loadCategories()
-            }}
-          >
-            {dishMode ? '菜系管理' : '楼层与菜系'}
-          </Button>
-          {dishMode ? (
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDish} disabled={!selectedStall}>
-              新增菜品
-            </Button>
-          ) : (
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateStall}>
-              新增档口
-            </Button>
-          )}
-        </Space>
-      </div>
-
+    <div className={`stall-page${!dishMode ? ' stall-overview-page' : ''}`}>
       {!dishMode && (
       <Card className="stall-section-card" loading={loading}>
         <div className="stall-section-heading">
-          <div>
-            <h2>档口列表</h2>
-            <p>档口本身就是食堂下的点位，维护其楼层、位置和营业信息。</p>
+          <Button
+            type="link"
+            icon={<ArrowLeftOutlined />}
+            className="stall-section-back"
+            onClick={() => navigate('/facility/canteen')}
+          >
+            返回食堂列表
+          </Button>
+          <div className="stall-section-tools">
+            <Space>
+              <Button
+                icon={<AimOutlined />}
+                onClick={() => navigate(`/facility/canteen/${canteenId}/stalls/indoor`)}
+              >
+                楼层档口定位
+              </Button>
+              <Button
+                icon={<SettingOutlined />}
+                onClick={() => {
+                  setCategoryManagerOpen(true)
+                  loadCategories()
+                }}
+              >
+                楼层与菜系
+              </Button>
+              <Button type="primary" icon={<PlusOutlined />} onClick={openCreateStall}>
+                新增档口
+              </Button>
+            </Space>
+            <Space className="stall-filter-tools">
+              <Select
+                value={floorFilter}
+                onChange={setFloorFilter}
+                className="stall-floor-filter"
+                options={[
+                  { value: 'ALL', label: '全部楼层' },
+                  ...floors.map((floor) => ({ value: floor.id, label: floor.name })),
+                ]}
+              />
+              <Input.Search
+                allowClear
+                placeholder="搜索档口、楼层或位置"
+                value={stallKeyword}
+                onChange={(event) => setStallKeyword(event.target.value)}
+                className="stall-search"
+              />
+            </Space>
           </div>
-          <Space className="stall-filter-tools">
-            <Select
-              value={floorFilter}
-              onChange={setFloorFilter}
-              className="stall-floor-filter"
-              options={[
-                { value: 'ALL', label: '全部楼层' },
-                ...floors.map((floor) => ({ value: floor.id, label: floor.name })),
-              ]}
-            />
-            <Input.Search
-              allowClear
-              placeholder="搜索档口、楼层或位置"
-              value={stallKeyword}
-              onChange={(event) => setStallKeyword(event.target.value)}
-              className="stall-search"
-            />
-          </Space>
         </div>
         <div className="stall-card-grid">
           {filteredStalls.map((record) => (
@@ -834,27 +807,38 @@ export default function StallManage() {
       {dishMode && (
       <Card className="stall-section-card dish-section-card">
         <div className="stall-section-heading">
-          <div>
-            <h2>菜品管理</h2>
-            <p>
-              {selectedStall
-                ? `当前档口：${selectedStall.name} · ${[selectedStall.floorName, selectedStall.locationDesc].filter(Boolean).join(' / ') || '未设置位置'}`
-                : '请先在上方选择一个档口'}
-            </p>
+          <Button
+            type="link"
+            icon={<ArrowLeftOutlined />}
+            className="stall-section-back"
+            onClick={() => navigate(`/facility/canteen/${canteenId}/stalls`)}
+          >
+            返回档口列表
+          </Button>
+          <div className="stall-section-tools">
+            <Space>
+              <Button
+                icon={<SettingOutlined />}
+                onClick={() => {
+                  setCategoryManagerOpen(true)
+                  loadCategories()
+                }}
+              >
+                菜系管理
+              </Button>
+              <Input.Search
+                allowClear
+                placeholder="搜索菜品、分类或口味"
+                value={dishKeyword}
+                onChange={(event) => setDishKeyword(event.target.value)}
+                className="dish-search"
+                disabled={!selectedStall}
+              />
+              <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDish} disabled={!selectedStall}>
+                新增菜品
+              </Button>
+            </Space>
           </div>
-          <Space>
-            <Input.Search
-              allowClear
-              placeholder="搜索菜品、分类或口味"
-              value={dishKeyword}
-              onChange={(event) => setDishKeyword(event.target.value)}
-              className="dish-search"
-              disabled={!selectedStall}
-            />
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDish} disabled={!selectedStall}>
-              新增菜品
-            </Button>
-          </Space>
         </div>
         {selectedStall ? (
           <Table

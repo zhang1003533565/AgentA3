@@ -536,6 +536,16 @@ export const getBreadcrumbByPath = (path) => {
     ]
   }
 
+  const dishManagementMatch = normalizedPath.match(/^\/facility\/canteen\/([^/]+)\/stalls\/[^/]+\/dishes$/)
+  if (dishManagementMatch) {
+    return [
+      '校园设施',
+      { label: '食堂管理', path: '/facility/canteen' },
+      { label: '档口管理', path: `/facility/canteen/${dishManagementMatch[1]}/stalls` },
+      { label: '菜品管理' },
+    ]
+  }
+
   if (normalizedPath === '/activity/create') {
     return [
       '校园活动',

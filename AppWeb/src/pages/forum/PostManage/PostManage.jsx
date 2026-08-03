@@ -191,8 +191,6 @@ function PostManage() {
 
   return (
     <div className="pm-container">
-      {/* 背景装饰 */}
-      <div className="pm-bg-shapes" />
 
       {/* 顶部统计区（页题由布局顶栏面包屑统一渲染） */}
       <div className="pm-header">
