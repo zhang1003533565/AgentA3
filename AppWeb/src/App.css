@@ -10,3 +10,69 @@
   background: #fff;
   box-shadow: 0 10px 28px rgb(15 23 42 / 6%);
 }
+
+/* 后台路由统一由布局提供内容面板，页面自身不再绘制独立底色。 */
+.layout-content.app-content-surface {
+  overflow: hidden;
+}
+
+.layout-content.app-content-surface > [class*="-page"],
+.layout-content.app-content-surface > [class*="-container"] {
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+/* 论坛管理页统一为浅色内容区，避免各模块重新定义整页深色主题。 */
+:is(.pm-header, .tm-header, .cm-header, .rm-header),
+:is(.pm-search-card, .tm-search-card, .cm-search-card, .rm-search-card),
+.rm-overview-bar {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  backdrop-filter: none;
+}
+
+.rm-overview-bar,
+.rm-overview-label {
+  color: #64748b;
+}
+
+:is(.pm-table-card, .tm-table-card, .cm-table-card, .rm-table-card).ant-card {
+  border-color: #e2e8f0 !important;
+  box-shadow: none !important;
+}
+
+:is(.pm-table-card, .tm-table-card, .cm-table-card, .rm-table-card) .ant-table {
+  background: #fff;
+  color: #334155;
+}
+
+:is(.pm-table-card, .tm-table-card, .cm-table-card, .rm-table-card) .ant-table-thead > tr > th {
+  border-bottom-color: #e2e8f0 !important;
+  background: #f8fafc !important;
+  color: #475569 !important;
+}
+
+:is(.pm-table-card, .tm-table-card, .cm-table-card, .rm-table-card) .ant-table-tbody > tr {
+  background: #fff;
+}
+
+:is(.pm-table-card, .tm-table-card, .cm-table-card, .rm-table-card) .ant-table-tbody > tr:hover > td {
+  background: #f8fafc !important;
+}
+
+:is(.pm-table-card, .tm-table-card, .cm-table-card, .rm-table-card) .ant-table-tbody > tr > td {
+  border-bottom-color: #eef2f7 !important;
+  color: #334155;
+}
+
+:is(.pm-table-card, .tm-table-card, .cm-table-card, .rm-table-card) .ant-pagination,
+:is(.pm-table-card, .tm-table-card, .cm-table-card, .rm-table-card) .ant-pagination-item,
+:is(.pm-table-card, .tm-table-card, .cm-table-card, .rm-table-card) .ant-pagination-prev .ant-pagination-item-link,
+:is(.pm-table-card, .tm-table-card, .cm-table-card, .rm-table-card) .ant-pagination-next .ant-pagination-item-link {
+  border-color: #e2e8f0;
+  background: #fff;
+}
+
+.cm-comment-text {
+  color: #334155;
+}

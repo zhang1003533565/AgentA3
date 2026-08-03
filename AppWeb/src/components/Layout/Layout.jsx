@@ -40,7 +40,7 @@ function Layout() {
 
         </header>
 
-        <main className="layout-content">
+        <main className="layout-content app-content-surface">
           <Outlet />
         </main>
       </div>

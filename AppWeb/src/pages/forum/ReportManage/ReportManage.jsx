@@ -103,7 +103,6 @@ function ReportManage() {
 
   return (
     <div className="rm-container">
-      <div className="rm-bg-fire" />
 
       {/* 论坛全局概览 */}
       {forumStats && (

@@ -129,7 +129,6 @@ function TopicManage() {
 
   return (
     <div className="tm-container">
-      <div className="tm-bg-orbs" />
 
       {/* 顶部统计区（页题由布局顶栏面包屑统一渲染） */}
       <div className="tm-header">

@@ -641,7 +641,7 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
   }
 
   return (
-    <div className={`facility-place-page${isCanteenOverview ? ' facility-canteen-overview-page app-content-surface' : ''}`}>
+    <div className={`facility-place-page${isCanteenOverview ? ' facility-canteen-overview-page' : ''}`}>
       <div className="facility-place-toolbar">
         <div>
           {rootPlace ? (
