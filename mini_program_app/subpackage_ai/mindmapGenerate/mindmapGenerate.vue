@@ -1,14 +1,12 @@
 <template>
   <view class="page">
-    <view class="nav-bar">
-      <view class="nav-action nav-action--left" @tap="goBack">
-        <text class="nav-back">‹</text>
-      </view>
-      <text class="nav-title">AI 思维导图</text>
-      <view class="nav-action nav-action--right" @tap="openHistory">
+    <nav-bar title="AI 思维导图" :showBack="true" :border="false">
+      <template #right>
+        <view class="nav-history-action" @tap="openHistory">
         <image class="nav-history-icon" src="/static/icons/diagram/history.svg" mode="aspectFit" />
       </view>
-    </view>
+      </template>
+    </nav-bar>
 
     <scroll-view class="content" scroll-y>
       <view class="input-card">
@@ -22,7 +20,7 @@
         <view class="input-card__footer">
           <view class="import-btn" @tap="importDocument">
             <image class="import-icon" src="/static/icons/diagram/import-file.svg" mode="aspectFit" />
-            <text>导入 PPT/Word/PDF</text>
+            <text>{{ isUploading ? '解析中...' : '导入 PPT/Word/PDF' }}</text>
           </view>
           <text class="char-count">{{ topic.length }}/2000</text>
         </view>
@@ -93,13 +91,13 @@
       <view class="recent-section">
         <text class="recent-title">最近生成</text>
         <view class="recent-list">
-          <view class="recent-item" v-for="item in recentItems" :key="item.title" @tap="openRecent(item)">
+          <view class="recent-item" v-for="item in recentItems" :key="item.id" @tap="openRecent(item)">
             <view class="recent-icon-wrap">
               <image class="recent-icon" src="/static/icons/diagram/mindmap-purple.svg" mode="aspectFit" />
             </view>
             <view class="recent-info">
               <text class="recent-name">{{ item.title }}</text>
-              <text class="recent-meta">{{ item.meta }}</text>
+              <text class="recent-meta">{{ item.preview || item.createTime }}</text>
             </view>
             <image class="recent-arrow" src="/static/icons/icon-forward.svg" mode="aspectFit" />
           </view>
@@ -110,15 +108,22 @@
     <view class="bottom-bar">
       <view class="generate-btn" @tap="generateMindmap">
         <image class="generate-icon" src="/static/icons/diagram/spark-white.svg" mode="aspectFit" />
-        <text>{{ isGenerating ? 'AI 生成中...' : 'AI 生成思维导图' }}</text>
+        <text>{{ isGenerating ? '正在分析内容...' : 'AI 生成思维导图' }}</text>
       </view>
     </view>
   </view>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { buildMindmapPayload, generateMindmap as requestGenerateMindmap, mockGenerateMindmap } from '@/api/aiDiagram.js'
+import { onMounted, ref } from 'vue'
+import NavBar from '@/components/nav-bar/nav-bar.vue'
+import {
+  buildMindmapPayload,
+  generateMindmap as requestGenerateMindmap,
+  getErrorMessage,
+  getMindmapHistory,
+  uploadMindmapFile
+} from '@/api/aiDiagram.js'
 
 const topic = ref('')
 const centerTopic = ref('')
@@ -126,6 +131,9 @@ const selectedDepth = ref('auto')
 const selectedStructure = ref('auto')
 const selectedExpand = ref('standard')
 const isGenerating = ref(false)
+const isUploading = ref(false)
+const uploadedFile = ref(null)
+const recentItems = ref([])
 
 const depthOptions = [
   { key: 'auto', label: '自动' },
@@ -148,64 +156,93 @@ const expandOptions = [
   { key: 'detail', label: '详细' }
 ]
 
-const recentItems = [
-  { title: '大学计算机课程体系', meta: '2023-11-24 · 3层 · 知识梳理' },
-  { title: '中国近代史时间轴', meta: '2023-11-23 · 4层 · 复习提纲' }
-]
-
-const goBack = () => { uni.navigateBack() }
 const openHistory = () => { uni.showToast({ title: '历史记录预留', icon: 'none' }) }
-const importDocument = () => { uni.showToast({ title: '导入接口预留', icon: 'none' }) }
 
-const openRecent = (item) => {
-  uni.navigateTo({
-    url: `/subpackage_ai/mindmapPreview/mindmapPreview?topic=${encodeURIComponent(item.title)}&structure=${selectedStructure.value}&style=fresh`
+const getOptionLabel = (options, key, fallback = '') => {
+  return options.find(item => item.key === key)?.label || fallback || key
+}
+
+const chooseDocumentFile = () => {
+  const extensions = ['pdf', 'doc', 'docx', 'ppt', 'pptx']
+  return new Promise((resolve, reject) => {
+    if (typeof uni.chooseFile === 'function') {
+      uni.chooseFile({
+        count: 1,
+        extension: extensions,
+        success: (res) => resolve(res.tempFiles?.[0] || null),
+        fail: reject
+      })
+      return
+    }
+    if (typeof uni.chooseMessageFile === 'function') {
+      uni.chooseMessageFile({
+        count: 1,
+        type: 'file',
+        extension: extensions,
+        success: (res) => resolve(res.tempFiles?.[0] || null),
+        fail: reject
+      })
+      return
+    }
+    reject(new Error('当前平台不支持文件选择'))
   })
 }
 
+const importDocument = async () => {
+  if (isUploading.value) return
+  try {
+    const file = await chooseDocumentFile()
+    const filePath = file?.path || file?.tempFilePath
+    if (!filePath) return
+    isUploading.value = true
+    uni.showLoading({ title: '解析中...' })
+    const result = await uploadMindmapFile(filePath, file.name || '')
+    uploadedFile.value = result
+    if (!centerTopic.value && result.fileName) {
+      centerTopic.value = result.fileName.replace(/\.(pdf|docx?|pptx?)$/i, '')
+    }
+    uni.showToast({ title: '文件解析完成', icon: 'none' })
+  } catch (error) {
+    uni.showToast({ title: getErrorMessage(error, '文件解析失败'), icon: 'none' })
+  } finally {
+    isUploading.value = false
+    uni.hideLoading()
+  }
+}
+
+const openRecent = (item) => {
+  uni.navigateTo({
+    url: `/subpackage_ai/mindmapViewer/mindmapViewer?id=${encodeURIComponent(item.id)}`
+  })
+}
+
+const loadRecentItems = async () => {
+  try {
+    recentItems.value = await getMindmapHistory()
+  } catch (error) {
+    recentItems.value = []
+  }
+}
+
 const generateMindmap = async () => {
-  const finalTopic = centerTopic.value.trim() || topic.value.trim()
-  if (!finalTopic) {
+  const finalTopic = centerTopic.value.trim() || topic.value.trim() || uploadedFile.value?.fileName || ''
+  const sourceText = uploadedFile.value?.text || ''
+  if (!finalTopic && !sourceText) {
     uni.showToast({ title: '请输入主题或导入文档', icon: 'none' })
     return
   }
   if (isGenerating.value) return
   isGenerating.value = true
-  try {
-    const payload = buildMindmapPayload({
-      prompt: topic.value.trim() || finalTopic,
-      centerTopic: finalTopic,
-      depth: selectedDepth.value,
-      structure: selectedStructure.value,
-      expand: selectedExpand.value
-    })
-    let result
-    try {
-      result = await requestGenerateMindmap(payload)
-    } catch (error) {
-      if (error?.code || error?.statusCode) {
-        throw error
-      }
-      console.warn('AI mindmap backend unavailable, fallback to local mock.', error)
-      result = await mockGenerateMindmap(payload)
-    }
-    uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
-    uni.navigateTo({
-      url: [
-        '/subpackage_ai/mindmapPreview/mindmapPreview',
-        `?topic=${encodeURIComponent(result.title)}`,
-        `&resultId=${encodeURIComponent(result.id)}`,
-        `&structure=${encodeURIComponent(selectedStructure.value)}`,
-        `&depth=${encodeURIComponent(selectedDepth.value)}`,
-        `&expand=${encodeURIComponent(selectedExpand.value)}`
-      ].join('')
-    })
-  } catch (error) {
-    uni.showToast({ title: error?.message || '生成失败', icon: 'none' })
-  } finally {
-    isGenerating.value = false
-  }
+  // 跳转到 AI 生成过程页面，由该页面负责调用 API 和展示动画
+  uni.navigateTo({
+    url: `/subpackage_ai/mindmapGenerating/mindmapGenerating?topic=${encodeURIComponent(topic.value.trim() || finalTopic)}&centerTopic=${encodeURIComponent(finalTopic)}&depth=${selectedDepth.value}&structure=${encodeURIComponent(getOptionLabel(structureOptions, selectedStructure.value, '知识梳理'))}&detail=${encodeURIComponent(selectedExpand.value)}&sourceText=${encodeURIComponent(sourceText)}&sourceFile=${encodeURIComponent(uploadedFile.value?.sourceFile || '')}&fileId=${encodeURIComponent(uploadedFile.value?.fileId || '')}`
+  })
+  isGenerating.value = false
 }
+
+onMounted(() => {
+  loadRecentItems()
+})
 </script>
 
 <style lang="scss" scoped>
@@ -215,47 +252,19 @@ const generateMindmap = async () => {
   color: #18273F;
 }
 
-.nav-bar {
-  position: relative;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  height: 88rpx;
-  padding: 0 30rpx;
-  background: #FFFFFF;
-  box-sizing: border-box;
-  box-shadow: 0 2rpx 10rpx rgba(35, 43, 58, 0.04);
-}
-
-.nav-action {
+.nav-history-action {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48rpx;
-  height: 48rpx;
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 999rpx;
+  transition: background-color 0.18s ease, transform 0.12s ease;
 }
 
-.nav-action--left {
-  margin-right: 12rpx;
-}
-
-.nav-action--right {
-  margin-left: auto;
-}
-
-.nav-back {
-  color: #405878;
-  font-size: 52rpx;
-  font-weight: 300;
-  line-height: 1;
-  transform: translateY(-2rpx);
-}
-
-.nav-title {
-  color: #30425F;
-  font-size: 36rpx;
-  font-weight: 800;
-  letter-spacing: 1rpx;
+.nav-history-action:active {
+  background: rgba(15, 23, 42, 0.06);
+  transform: scale(0.96);
 }
 
 .nav-history-icon {
