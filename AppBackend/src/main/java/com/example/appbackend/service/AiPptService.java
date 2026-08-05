@@ -5,6 +5,8 @@ import com.example.appbackend.service.impl.PythonAiProxyService;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 public interface AiPptService {
+    AiPptDTO.OptionsResponse getOptions(Long userId);
+
     Object generateOutline(Long userId, AiPptDTO.OutlineRequest request, String authorization);
 
     Object generateSlides(Long userId, AiPptDTO.SlidesRequest request, String authorization);

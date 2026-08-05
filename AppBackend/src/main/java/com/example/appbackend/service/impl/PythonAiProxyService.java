@@ -54,6 +54,7 @@ public class PythonAiProxyService {
     private final SystemConfigRepository systemConfigRepository;
     private final String pythonBaseUrl;
     private final long timeoutSeconds;
+    private final long pptTimeoutSeconds;
     private final int fileResponseMaxInMemoryBytes;
     private final String internalToken;
 
@@ -85,6 +86,7 @@ public class PythonAiProxyService {
                                 SystemConfigRepository systemConfigRepository,
                                 @Value("${ai.python.base-url:http://localhost:8081}") String pythonBaseUrl,
                                 @Value("${ai.python.timeout-seconds:65}") long timeoutSeconds,
+                                @Value("${ai.python.ppt-timeout-seconds:300}") long pptTimeoutSeconds,
                                 @Value("${ai.python.file-response-max-in-memory-bytes:52428800}") int fileResponseMaxInMemoryBytes,
                                 @Value("${ai.python.internal-token:}") String internalToken) {
         this.webClientBuilder = webClientBuilder;
@@ -94,6 +96,7 @@ public class PythonAiProxyService {
         this.systemConfigRepository = systemConfigRepository;
         this.pythonBaseUrl = pythonBaseUrl;
         this.timeoutSeconds = timeoutSeconds;
+        this.pptTimeoutSeconds = pptTimeoutSeconds;
         this.fileResponseMaxInMemoryBytes = fileResponseMaxInMemoryBytes;
         this.internalToken = internalToken == null ? "" : internalToken.trim();
     }
@@ -357,7 +360,7 @@ public class PythonAiProxyService {
                     .bodyValue(request == null ? Map.of() : request)
                     .retrieve()
                     .bodyToMono(Object.class)
-                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .timeout(Duration.ofSeconds(pptTimeoutSeconds))
                     .block();
         } catch (WebClientResponseException e) {
             int remoteStatus = e.getStatusCode().value();
