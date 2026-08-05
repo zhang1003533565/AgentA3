@@ -37,3 +37,18 @@ export function listQuestionFolderQuestions(id, { current = 1, size = 20 } = {})
     data: { current, size }
   })
 }
+
+export function addQuestionToFolder(folderId, questionId) {
+  return request({
+    url: `${BASE}/${folderId}/questions`,
+    method: 'POST',
+    data: { questionId }
+  })
+}
+
+export function removeQuestionFromFolder(folderId, questionId) {
+  return request({
+    url: `${BASE}/${folderId}/questions/${questionId}`,
+    method: 'DELETE'
+  })
+}

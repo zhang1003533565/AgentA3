@@ -23,13 +23,17 @@
           创建者：{{ detail.ownerUsername }}
           <text v-if="detail.ownerPersonalNumber"> · 学号 {{ detail.ownerPersonalNumber }}</text>
         </view>
+        <view v-if="canEdit" class="info-actions">
+          <view class="primary-btn" @tap="goAdd">添加题目</view>
+        </view>
       </view>
 
       <view class="section-title">题目列表</view>
 
       <view v-if="!questions.length" class="state-block state-block--soft">
         <text>暂无题目</text>
-        <text class="state-desc">可从题库生成或录题后加入此收藏夹</text>
+        <text class="state-desc">{{ canEdit ? '点击上方「添加题目」，从系统题库挑选加入' : '收藏夹内还没有题目' }}</text>
+        <view v-if="canEdit" class="retry" @tap="goAdd">添加题目</view>
       </view>
 
       <view v-for="(q, index) in questions" :key="q.id || index" class="q-card">
@@ -38,6 +42,9 @@
           <text class="q-diff">{{ difficultyLabel(q.difficulty) }}</text>
         </view>
         <text class="q-stem">{{ q.stem || '（无题干）' }}</text>
+        <view v-if="canEdit" class="q-actions" @tap.stop>
+          <text class="link danger" @tap="confirmRemove(q)">移出收藏夹</text>
+        </view>
       </view>
     </block>
   </view>
@@ -45,7 +52,12 @@
 
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getQuestionFolderDetail, listQuestionFolderQuestions } from '@/api/questionFolder.js'
+import { getUserInfo } from '@/utils/storage.js'
+import {
+  getQuestionFolderDetail,
+  listQuestionFolderQuestions,
+  removeQuestionFromFolder
+} from '@/api/questionFolder.js'
 
 const TYPE_LABELS = {
   single_choice: '单选题',
@@ -67,12 +79,25 @@ export default {
       detail: null,
       questions: [],
       loading: false,
-      errorMessage: ''
+      errorMessage: '',
+      isAdmin: false
+    }
+  },
+  computed: {
+    canEdit() {
+      if (!this.detail) return false
+      if (this.isAdmin) return true
+      return Boolean(this.detail.ownedByCurrentUser)
     }
   },
   onLoad(query) {
+    const info = getUserInfo() || {}
+    this.isAdmin = String(info.role || '').toUpperCase() === 'ADMIN'
     this.folderId = query?.id || ''
     this.loadDetail()
+  },
+  onShow() {
+    if (this.folderId && this.detail) this.loadDetail()
   },
   methods: {
     async loadDetail() {
@@ -97,6 +122,28 @@ export default {
       } finally {
         this.loading = false
       }
+    },
+    goAdd() {
+      uni.navigateTo({
+        url: `/subpackage_exam/questionFolderAdd/questionFolderAdd?folderId=${encodeURIComponent(this.folderId)}`
+      })
+    },
+    confirmRemove(q) {
+      if (!q?.id) return
+      uni.showModal({
+        title: '移出收藏夹',
+        content: '确定将这道题移出当前收藏夹吗？不会删除系统题库中的原题。',
+        success: async (res) => {
+          if (!res.confirm) return
+          try {
+            await removeQuestionFromFolder(this.folderId, q.id)
+            uni.showToast({ title: '已移出', icon: 'success' })
+            this.loadDetail()
+          } catch (error) {
+            // request toast
+          }
+        }
+      })
     },
     typeLabel(type) {
       return TYPE_LABELS[type] || type || '题目'
@@ -169,6 +216,21 @@ export default {
   color: #667085;
 }
 
+.info-actions {
+  margin-top: 20rpx;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.primary-btn {
+  padding: 12rpx 22rpx;
+  border-radius: 999rpx;
+  background: #5e7387;
+  color: #ffffff;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+
 .section-title {
   margin: 12rpx 0 16rpx;
   font-size: 28rpx;
@@ -188,6 +250,20 @@ export default {
   font-size: 26rpx;
   line-height: 1.6;
   color: #4b5d71;
+}
+
+.q-actions {
+  margin-top: 20rpx;
+  padding-top: 18rpx;
+  border-top: 1px solid #eef2f5;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.link.danger {
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #b42318;
 }
 
 .state-block {

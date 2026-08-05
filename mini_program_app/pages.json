@@ -869,6 +869,13 @@
 						"navigationBarTitleText": "收藏夹详情",
 						"navigationStyle": "custom"
 					}
+				},
+				{
+					"path": "questionFolderAdd/questionFolderAdd",
+					"style": {
+						"navigationBarTitleText": "添加题目",
+						"navigationStyle": "custom"
+					}
 				}
 			]
 		},
