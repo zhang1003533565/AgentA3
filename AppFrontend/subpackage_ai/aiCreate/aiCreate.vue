@@ -202,6 +202,10 @@ const goToImageGenerate = () => {
 
 const handleToolTap = (tool) => {
   const name = tool?.name || ''
+  if (name === '学科出题') {
+    uni.navigateTo({ url: '/subpackage_ai/paperHome/paperHome' })
+    return
+  }
   if (name.includes('AI玩图') || name.includes('文生图')) {
     goToImageGenerate()
   }
