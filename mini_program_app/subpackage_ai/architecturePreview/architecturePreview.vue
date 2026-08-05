@@ -123,34 +123,12 @@
       </scroll-view>
     </view>
 
-    <!-- 底部操作栏（仿 mindmap 胶囊） -->
-    <view class="bottom-bar">
-      <view class="bottom-pill">
-        <!-- 重新生成 -->
-        <view class="bottom-action" @tap="regenerate">
-          <view class="action-icon-box action-icon-box--regen">
-            <view class="regen-icon-shape"></view>
-          </view>
-          <text class="action-label action-label--regen">重新生成</text>
-        </view>
-        <view class="bottom-divider"></view>
-        <!-- 保存图片 -->
-        <view class="bottom-action" @tap="exportImage">
-          <view class="action-icon-box">
-            <view class="save-icon-shape"></view>
-          </view>
-          <text class="action-label">保存图片</text>
-        </view>
-        <view class="bottom-divider"></view>
-        <!-- 分享 -->
-        <view class="bottom-action" @tap="share">
-          <view class="action-icon-box">
-            <view class="share-icon-shape"></view>
-          </view>
-          <text class="action-label">分享</text>
-        </view>
-      </view>
-    </view>
+    <!-- 底部操作栏 -->
+    <AiResultBar
+      @export="exportImage"
+      @optimize="regenerate"
+      @share="share"
+    />
   </view>
 </template>
 
@@ -158,6 +136,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import ArchIcon from './ArchIcon.vue'
+import AiResultBar from '../components/AiResultBar.vue'
 import { DEFAULT_ARCHITECTURE_DATA } from './architectureData.js'
 import { getArchitectureDetail, normalizeArchitectureResult } from '@/api/architecture.js'
 
@@ -563,10 +542,11 @@ loadArchitecture()
   background: #FAFBFC;
 }
 
+/* canvas-content 尺寸 = stage × scale，padding-bottom 200rpx 避让底部 AiResultBar */
 .canvas-content {
   position: relative;
   flex-shrink: 0;
-  padding-bottom: 160rpx;
+  padding-bottom: 200rpx;
 }
 
 .diagram-stage {
@@ -807,167 +787,6 @@ loadArchitecture()
 .zoom-btn-text { font-size: 30rpx; color: #58728c; line-height: 1; }
 .zoom-value { font-size: 20rpx; color: #8290a1; }
 
-/* ===== 底部操作栏（仿 mindmap 胶囊） ===== */
-.bottom-bar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 100;
-  display: flex;
-  justify-content: center;
-  align-items: flex-end;
-  padding: 16rpx 24rpx calc(20rpx + env(safe-area-inset-bottom));
-  background: linear-gradient(180deg, rgba(250, 251, 252, 0) 0%, rgba(250, 251, 252, 0.85) 40%, rgba(250, 251, 252, 0.95) 100%);
-  box-sizing: border-box;
-  pointer-events: none;
-}
-
-.bottom-pill {
-  pointer-events: auto;
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  width: 100%;
-  max-width: 680rpx;
-  height: 110rpx;
-  background: #FFFFFF;
-  border-radius: 55rpx;
-  box-shadow: 0 4rpx 24rpx rgba(0, 0, 0, 0.08);
-  padding: 0 20rpx;
-  box-sizing: border-box;
-}
-
-.bottom-action {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4rpx;
-  padding: 10rpx 0;
-}
-
-.bottom-action:active {
-  opacity: 0.65;
-}
-
-.bottom-divider {
-  width: 1rpx;
-  height: 40rpx;
-  background: #ECECF0;
-  flex-shrink: 0;
-}
-
-.action-icon-box {
-  width: 60rpx;
-  height: 60rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-.action-icon-box--regen {
-  background: radial-gradient(circle, rgba(139, 92, 246, 0.12) 0%, transparent 70%);
-}
-
-/* 保存图标 — 软盘 */
-.save-icon-shape {
-  width: 26px;
-  height: 26px;
-  border: 2px solid #5A5D7E;
-  border-radius: 3px;
-  position: relative;
-  box-sizing: border-box;
-}
-
-.save-icon-shape::before {
-  content: '';
-  position: absolute;
-  top: 4px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 10px;
-  height: 8px;
-  border: 2px solid #5A5D7E;
-  border-radius: 1px;
-}
-
-.save-icon-shape::after {
-  content: '';
-  position: absolute;
-  bottom: 3px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 14px;
-  height: 7px;
-  background: #5A5D7E;
-  border-radius: 1px;
-}
-
-/* 重新生成图标 — 循环箭头 */
-.regen-icon-shape {
-  width: 26px;
-  height: 26px;
-  border: 2.5px solid #7C5FE0;
-  border-top-color: transparent;
-  border-radius: 50%;
-  position: relative;
-  box-sizing: border-box;
-}
-
-.regen-icon-shape::before {
-  content: '';
-  position: absolute;
-  top: -2px;
-  right: -1px;
-  width: 0;
-  height: 0;
-  border-left: 7px solid #7C5FE0;
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
-}
-
-/* 分享图标 — 链接 */
-.share-icon-shape {
-  width: 26px;
-  height: 26px;
-  position: relative;
-}
-
-.share-icon-shape::before {
-  content: '';
-  position: absolute;
-  top: 1px;
-  right: 1px;
-  width: 11px;
-  height: 11px;
-  border: 2px solid #5A5D7E;
-  border-radius: 50%;
-}
-
-.share-icon-shape::after {
-  content: '';
-  position: absolute;
-  bottom: 1px;
-  left: 1px;
-  width: 11px;
-  height: 11px;
-  border: 2px solid #5A5D7E;
-  border-radius: 50%;
-}
-
-.action-label {
-  font-size: 22rpx;
-  color: #5A5D7E;
-  font-weight: 400;
-}
-
-.action-label--regen {
-  color: #7C5FE0;
-  font-weight: 500;
-}
+/* 底部操作栏样式已抽到 subpackage_ai/components/AiResultBar.vue
+   这里不再写底部栏 CSS，由组件提供 */
 </style>
