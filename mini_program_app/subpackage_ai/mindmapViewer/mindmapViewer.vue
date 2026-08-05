@@ -129,7 +129,9 @@ import OptimizeMindMapSheet from './OptimizeMindMapSheet.vue'
 import AiResultBar from '../components/AiResultBar.vue'
 import AiThinkWindow from '../components/AiThinkWindow.vue'
 import { getErrorMessage, getMindmapDetail, optimizeMindmap } from '@/api/aiDiagram.js'
-import { exportMindmapAsPNG } from './mindmapExporter.js'
+// #ifdef H5
+import { domToPng } from '../components/domToPng.js'
+// #endif
 
 // 布局参数
 const ROOT_WIDTH = 200
@@ -594,7 +596,12 @@ function saveMindmap() {
     return
   }
   uni.showLoading({ title: '导出中...' })
-  exportMindmapAsPNG(layout.value, mindmap.title)
+  domToPng('.mindmap-stage', {
+    width: layout.value.width,
+    height: layout.value.height,
+    title: mindmap.title,
+    filename: mindmap.title
+  })
     .then(() => {
       uni.hideLoading()
       uni.showToast({ title: '已导出 PNG', icon: 'success' })

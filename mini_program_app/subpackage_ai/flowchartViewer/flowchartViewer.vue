@@ -86,6 +86,9 @@ import { computed, getCurrentInstance, onMounted, ref } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getErrorMessage, getFlowchartDetail, getFlowchartHistory } from '@/api/aiDiagram.js'
 import { layoutFlowchart, FLOW_NODE_W, FLOW_NODE_H } from '../flowchartLayout.js'
+// #ifdef H5
+import { domToPng } from '../components/domToPng.js'
+// #endif
 
 const NODE_WIDTH = 210
 const NODE_HEIGHT = 78
@@ -356,6 +359,29 @@ function drawExportCanvas() {
 }
 
 function exportImage() {
+  // #ifdef H5
+  if (!positionedNodes.value.length) {
+    uni.showToast({ title: '暂无数据', icon: 'none' })
+    return
+  }
+  uni.showLoading({ title: '导出中...' })
+  domToPng('.diagram-canvas', {
+    width: canvasSize.value.width,
+    height: canvasSize.value.height,
+    title: chart.value.title,
+    filename: chart.value.title
+  })
+    .then(() => {
+      uni.hideLoading()
+      uni.showToast({ title: '已导出 PNG', icon: 'success' })
+    })
+    .catch(err => {
+      uni.hideLoading()
+      console.error('[导出失败]', err)
+      uni.showToast({ title: '导出失败，请重试', icon: 'none' })
+    })
+  // #endif
+  // #ifndef H5
   drawExportCanvas()
   setTimeout(() => {
     uni.canvasToTempFilePath({
@@ -372,6 +398,7 @@ function exportImage() {
       fail: () => uni.showToast({ title: '图片导出失败', icon: 'none' })
     }, instance?.proxy)
   }, 80)
+  // #endif
 }
 
 onMounted(() => {

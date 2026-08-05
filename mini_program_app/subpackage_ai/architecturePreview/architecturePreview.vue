@@ -139,6 +139,9 @@ import ArchIcon from './ArchIcon.vue'
 import AiResultBar from '../components/AiResultBar.vue'
 import { DEFAULT_ARCHITECTURE_DATA } from './architectureData.js'
 import { getArchitectureDetail, normalizeArchitectureResult } from '@/api/architecture.js'
+// #ifdef H5
+import { domToPng } from '../components/domToPng.js'
+// #endif
 
 // 缩放参数（参考 mindmapViewer）
 const MIN_SCALE = 0.4
@@ -351,7 +354,33 @@ function onCardTap(layer, node) {
 
 function share() { uni.showToast({ title: '分享能力预留', icon: 'none' }) }
 function regenerate() { uni.navigateBack() }
-function exportImage() { uni.showToast({ title: '导出功能预留', icon: 'none' }) }
+function exportImage() {
+  // #ifdef H5
+  if (!architectureData.value.layers?.length) {
+    uni.showToast({ title: '暂无数据', icon: 'none' })
+    return
+  }
+  uni.showLoading({ title: '导出中...' })
+  domToPng('.diagram-stage', {
+    width: stageSize.value.width,
+    height: stageSize.value.height,
+    title: architectureData.value.title,
+    filename: architectureData.value.title
+  })
+    .then(() => {
+      uni.hideLoading()
+      uni.showToast({ title: '已导出 PNG', icon: 'success' })
+    })
+    .catch(err => {
+      uni.hideLoading()
+      console.error('[导出失败]', err)
+      uni.showToast({ title: '导出失败，请重试', icon: 'none' })
+    })
+  // #endif
+  // #ifndef H5
+  uni.showToast({ title: '请在 H5 端导出', icon: 'none' })
+  // #endif
+}
 
 // 加载后端数据
 async function loadArchitecture() {
