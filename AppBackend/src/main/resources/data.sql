@@ -289,6 +289,8 @@ INSERT INTO sys_user (id, username, password, real_name, phone, email, role_id, 
 (3, 'fjj2', 'admin123', '李老师', '13800000003', 'lilaoshi@campus.edu.cn', 2, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000003'),
 -- 学生 (用户名: zzs, 密码: admin123)
 (4, 'zzs', 'admin123', 'A3演示学生', '13800000000', 'a3-demo@example.invalid', 3, 1, NOW(), NOW(),'','A3DEMO001','2026-02-24','SCH000004'),
+-- 学生 (用户名: qb_peer, 密码: admin123) — 题库公私可见性对照账号
+(13, 'qb_peer', 'admin123', '题库对照学生', '13900000099', 'qb_peer@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'','QBPEER001','2026-02-24','SCHQBPEER1'),
 -- 学生 (用户名: lisi, 密码: admin123)
 (5, 'lisi', 'admin123', '李四', '13800000005', 'lisi@stu.campus.edu.cn', 3, 1, NOW(), NOW(),'313','32132313','2026-02-24','SCH000005'),
 -- 学生 (用户名: wangwu, 密码: admin123)
