@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button,
   Card,
+  Dropdown,
   Empty,
   Form,
   Image,
@@ -21,6 +22,7 @@ import {
   ApartmentOutlined,
   DeleteOutlined,
   EditOutlined,
+  EllipsisOutlined,
   EnvironmentOutlined,
   FileImageOutlined,
   PlusOutlined,
@@ -394,6 +396,17 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
     await loadTree()
   }
 
+  const confirmRemovePlace = (record) => {
+    Modal.confirm({
+      title: `确定删除“${record.name}”吗？`,
+      content: '存在下级点位时不能删除。',
+      okText: '删除',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: () => removePlace(record),
+    })
+  }
+
   const uploadFile = async (file) => {
     try {
       const url = await uploadImage(file, MAP_BUILDING_UPLOAD_FOLDER)
@@ -612,7 +625,7 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
   const pageDescription = rootPlace
     ? '进入食堂后单独加载并管理楼层、档口和就餐区域。'
     : sceneType === 'CANTEEN'
-      ? '这里只展示顶级食堂；点击“进入档口”后再加载下级点位。'
+      ? ''
       : config.description
   const createParent = rootPlace || null
   const createLabel = rootPlace
@@ -628,7 +641,7 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
   }
 
   return (
-    <div className="facility-place-page">
+    <div className={`facility-place-page${isCanteenOverview ? ' facility-canteen-overview-page' : ''}`}>
       <div className="facility-place-toolbar">
         <div>
           {rootPlace ? (
@@ -640,8 +653,8 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
               ← 返回食堂列表
             </Button>
           ) : null}
-          <h1>{pageTitle}</h1>
-          <p>{pageDescription}</p>
+          {!isCanteenOverview ? <h1>{pageTitle}</h1> : null}
+          {pageDescription ? <p>{pageDescription}</p> : null}
         </div>
         <Space>
           <Input.Search
@@ -660,7 +673,7 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
         <>
           <div className="facility-canteen-stats">
             {[
-              ['ALL', '全部食堂'],
+              ['ALL', '全部'],
               ['ENABLED', '启用'],
               ['DISABLED', '停用'],
             ].map(([value, label]) => (
@@ -670,8 +683,8 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
                 className={statusFilter === value ? 'active' : ''}
                 onClick={() => setStatusFilter(value)}
               >
-                <span>{canteenCounts[value]}</span>
                 {label}
+                <span>{canteenCounts[value]}</span>
               </button>
             ))}
           </div>
@@ -687,25 +700,22 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
                   >
                     <div className="facility-canteen-card-image">
                       <CanteenCarousel images={canteen.images} />
-                    </div>
-                    <div className="facility-canteen-card-info">
-                      <h2>{canteen.name}</h2>
-                      <p>{canteen.description || '暂无食堂介绍'}</p>
-                      <div className="facility-canteen-tags">
+                      <div className="facility-canteen-image-shade" />
+                      <div className="facility-canteen-heading">
+                        <h2>{canteen.name}</h2>
                         <Tag color={canteen.status === 'ENABLED' ? 'success' : 'default'}>
                           {canteen.status === 'ENABLED' ? '启用' : '停用'}
                         </Tag>
                       </div>
-                      <div className={`facility-canteen-location${hasLocation ? ' is-set' : ' is-unset'}`}>
+                    </div>
+                    <div className="facility-canteen-card-info">
+                      <div className="facility-canteen-summary-row">
+                        <ShopOutlined />
+                        <span><strong>{canteen.stallCount ?? 0}</strong> 个档口</span>
+                      </div>
+                      <div className="facility-canteen-summary-row">
                         <EnvironmentOutlined />
-                        <div>
-                          <strong>{hasLocation ? '位置已设置' : '位置尚未设置'}</strong>
-                          <span>
-                            {hasLocation
-                              ? (canteen.locationDesc || '已在标点管理中设置')
-                              : '请点击“位置管理”补充食堂所在位置'}
-                          </span>
-                        </div>
+                        <span>{hasLocation ? '点位已配置' : '暂未配置点位'}</span>
                       </div>
                     </div>
                     <div className="facility-canteen-actions">
@@ -714,24 +724,31 @@ export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
                         icon={<ShopOutlined />}
                         onClick={() => navigate(`/facility/canteen/${canteen.id}/stalls`)}
                       >
-                        进入档口
+                        进入档口管理
                       </Button>
-                      <Button
-                        icon={<EnvironmentOutlined />}
-                        onClick={() => navigate(`/facility/marker?mapPlaceId=${canteen.id}`)}
+                      <Dropdown
+                        trigger={['click']}
+                        placement="bottomRight"
+                        menu={{
+                          items: [
+                            { key: 'location', icon: <EnvironmentOutlined />, label: '位置管理' },
+                            { key: 'edit', icon: <EditOutlined />, label: '编辑食堂' },
+                            { type: 'divider' },
+                            { key: 'delete', icon: <DeleteOutlined />, label: '删除食堂', danger: true },
+                          ],
+                          onClick: ({ key }) => {
+                            if (key === 'location') navigate(`/facility/marker?mapPlaceId=${canteen.id}`)
+                            if (key === 'edit') openEdit(canteen)
+                            if (key === 'delete') confirmRemovePlace(canteen)
+                          },
+                        }}
                       >
-                        位置管理
-                      </Button>
-                      <Button icon={<EditOutlined />} onClick={() => openEdit(canteen)}>
-                        编辑
-                      </Button>
-                      <Popconfirm
-                        title={`确定删除“${canteen.name}”吗？`}
-                        description="存在下级点位时不能删除。"
-                        onConfirm={() => removePlace(canteen)}
-                      >
-                        <Button danger icon={<DeleteOutlined />} aria-label={`删除${canteen.name}`} />
-                      </Popconfirm>
+                        <Button
+                          className="facility-canteen-more"
+                          icon={<EllipsisOutlined />}
+                          aria-label={`${canteen.name}更多操作`}
+                        />
+                      </Dropdown>
                     </div>
                   </Card>
                 )

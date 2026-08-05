@@ -48,9 +48,8 @@ export const portalGroups = [
     label: '校园特惠',
     items: [
       { path: '/discount/merchant', label: '商家管理', icon: 'shop', pageKey: 'discount-merchant' },
-      { path: '/discount/activity', label: '优惠活动', icon: 'gift', pageKey: 'discount-activity' },
+      { path: '/discount/activity', label: '活动管理', icon: 'gift', pageKey: 'discount-activity' },
       { path: '/discount/category', label: '分类管理', icon: 'tags', pageKey: 'discount-category' },
-      { path: '/discount/analytics', label: '特惠统计', icon: 'fund', pageKey: 'discount-analytics' },
     ],
   },
   {
@@ -463,13 +462,6 @@ export const workspacePages = {
     columns: columns.merchantCategory,
     emptyText: '暂无商家分类数据',
   }),
-  'discount-analytics': createPage({
-    title: '',
-    badge: '',
-    description: '',
-    columns: columns.summary,
-    emptyText: '暂无特惠统计数据',
-  }),
   'system-config': createPage({
     title: '',
     badge: '',
@@ -533,6 +525,16 @@ export const getBreadcrumbByPath = (path) => {
       '校园设施',
       { label: '食堂管理', path: '/facility/canteen' },
       { label: '档口管理' },
+    ]
+  }
+
+  const dishManagementMatch = normalizedPath.match(/^\/facility\/canteen\/([^/]+)\/stalls\/[^/]+\/dishes$/)
+  if (dishManagementMatch) {
+    return [
+      '校园设施',
+      { label: '食堂管理', path: '/facility/canteen' },
+      { label: '档口管理', path: `/facility/canteen/${dishManagementMatch[1]}/stalls` },
+      { label: '菜品管理' },
     ]
   }
 

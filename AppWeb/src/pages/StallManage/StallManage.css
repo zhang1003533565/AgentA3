@@ -11,6 +11,28 @@
   gap: 20px;
 }
 
+.stall-page-header > .ant-space,
+.stall-section-heading > .stall-filter-tools {
+  margin-left: auto;
+}
+
+.stall-overview-page .stall-section-card {
+  margin-top: -8px;
+}
+
+.stall-section-back {
+  height: 32px;
+  padding: 0;
+}
+
+.stall-section-tools {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
 .stall-page-header h1 {
   margin: 8px 0 4px;
   color: #172033;
@@ -317,6 +339,18 @@
 
   .stall-section-heading > .ant-space .ant-input-search {
     flex: 1;
+  }
+
+  .stall-section-tools {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+    margin-left: 0;
+  }
+
+  .stall-section-tools > .ant-space {
+    display: flex;
+    width: 100%;
   }
 
   .stall-form-grid {

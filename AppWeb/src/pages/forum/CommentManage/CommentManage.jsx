@@ -105,7 +105,6 @@ function CommentManage() {
 
   return (
     <div className="cm-container">
-      <div className="cm-bg-wave" />
 
       {/* 顶部统计区（页题由布局顶栏面包屑统一渲染） */}
       <div className="cm-header">

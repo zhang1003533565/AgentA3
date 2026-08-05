@@ -248,6 +248,9 @@ public class MeetingServiceImpl implements MeetingService {
     @Transactional
     public MeetingDTO.SessionDetail endMeeting(Long userId, String sessionId, String authorization) {
         MeetingSession session = findAccessibleSession(userId, sessionId);
+        if (userId == null || !userId.equals(session.getUserId())) {
+            throw new BusinessException(Result.FORBIDDEN_CODE, "只有会议发起人才可以结束会议");
+        }
         session.setStatus(MeetingSession.STATUS_ENDED);
         session.setEndTime(LocalDateTime.now());
         refreshCounters(session);
@@ -699,6 +702,7 @@ public class MeetingServiceImpl implements MeetingService {
     private MeetingDTO.SessionItem toSessionItem(MeetingSession session) {
         MeetingDTO.SessionItem item = new MeetingDTO.SessionItem();
         item.setSessionId(session.getSessionId());
+        item.setCreatorId(session.getUserId());
         item.setRoomCode(session.getRoomCode());
         item.setTitle(session.getTitle());
         item.setMeetingType(session.getMeetingType());

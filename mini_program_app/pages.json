@@ -654,7 +654,25 @@
 					}
 				},
 				{
+					"path": "mindmapGenerating/mindmapGenerating",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#F8F7FC",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "mindmapPreview/mindmapPreview",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "mindmapViewer/mindmapViewer",
 					"style": {
 						"navigationBarTitleText": "",
 						"navigationStyle": "custom",
@@ -690,6 +708,15 @@
 					}
 				},
 				{
+					"path": "architectureGenerating/architectureGenerating",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "architecturePreview/architecturePreview",
 					"style": {
 						"navigationBarTitleText": "",
@@ -708,7 +735,25 @@
 					}
 				},
 				{
+					"path": "flowchartGenerating/flowchartGenerating",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "flowchartPreview/flowchartPreview",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "flowchartViewer/flowchartViewer",
 					"style": {
 						"navigationBarTitleText": "",
 						"navigationStyle": "custom",

@@ -117,7 +117,7 @@
 .rm-stat-value { font-size: 32px; font-weight: 700; line-height: 1; }
 .rm-stat-label { font-size: 13px; color: #6b7280; font-weight: 500; }
 
-.rm-card-total .rm-stat-icon { color: #6366f1; }
+.rm-card-total .rm-stat-icon { color: #4a7fad; }
 .rm-card-total .rm-stat-value { color: #4338ca; }
 
 .rm-card-pending .rm-stat-icon { color: #f59e0b; }
