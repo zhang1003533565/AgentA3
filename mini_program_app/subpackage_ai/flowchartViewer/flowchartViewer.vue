@@ -73,10 +73,26 @@
     </movable-area>
 
     <view class="bottom-tip">双指缩放 · 单指拖动查看完整流程</view>
-    <view class="bottom-actions">
-      <view class="action-btn action-btn--sec" @tap="regenerate"><text>重新生成</text></view>
-      <view class="action-btn action-btn--pri" @tap="refine"><text>优化流程描述</text></view>
-    </view>
+
+    <!-- 底部操作栏（统一组件） -->
+    <AiResultBar @export="exportImage" @optimize="openOptimizeSheet" @share="shareFlow" />
+
+    <!-- 优化弹窗 -->
+    <OptimizeMindMapSheet
+      title="优化流程图"
+      :visible="showOptimizeSheet"
+      :currentMindMap="currentChartData"
+      @close="showOptimizeSheet = false"
+      @optimize="onOptimize"
+    />
+
+    <!-- AI 优化思考窗 -->
+    <AiThinkWindow
+      :visible="showThinkWindow"
+      type="flowchart"
+      :doneSub="optimizeDoneSub"
+      @view="onThinkView"
+    />
     <canvas canvas-id="flowchartExportCanvas" class="export-canvas" :style="exportCanvasStyle" />
   </view>
 </template>
@@ -84,8 +100,10 @@
 <script setup>
 import { computed, getCurrentInstance, onMounted, ref } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { getErrorMessage, getFlowchartDetail, getFlowchartHistory } from '@/api/aiDiagram.js'
-import { layoutFlowchart, FLOW_NODE_W, FLOW_NODE_H } from '../flowchartLayout.js'
+import AiResultBar from '../components/AiResultBar.vue'
+import AiThinkWindow from '../components/AiThinkWindow.vue'
+import OptimizeMindMapSheet from '../mindmapViewer/OptimizeMindMapSheet.vue'
+import { getErrorMessage, getFlowchartDetail, getFlowchartHistory, generateFlowchart } from '@/api/aiDiagram.js'
 // #ifdef H5
 import { domToPng } from '../components/domToPng.js'
 // #endif
@@ -108,28 +126,7 @@ function readPageOptions() {
   return current.options || current.$page?.options || {}
 }
 
-const hasLanes = computed(() => {
-  const nodes = chart.value.nodes || []
-  const laneNames = (chart.value.lanes || []).map(lane => lane.name).filter(Boolean)
-  nodes.forEach(node => {
-    if (node.lane && !laneNames.includes(node.lane)) laneNames.push(node.lane)
-  })
-  return laneNames.length > 0
-})
-const flowLayout = computed(() => layoutFlowchart(chart.value))
-
 const positionedNodes = computed(() => {
-  // 无泳道：自上而下竖排（与生成动画页坐标一致）
-  if (!hasLanes.value) {
-    return flowLayout.value.nodes.map(node => ({
-      ...node,
-      x: node.cx - FLOW_NODE_W / 2,
-      y: node.cy - FLOW_NODE_H / 2,
-      w: FLOW_NODE_W,
-      h: FLOW_NODE_H,
-      style: { left: `${node.cx - FLOW_NODE_W / 2}px`, top: `${node.cy - FLOW_NODE_H / 2}px`, width: `${FLOW_NODE_W}px`, minHeight: `${FLOW_NODE_H}px` }
-    }))
-  }
   const nodes = chart.value.nodes || []
   const edges = chart.value.edges || []
   const nodeMap = new Map(nodes.map(node => [String(node.id), node]))
@@ -176,9 +173,6 @@ const positionedNodes = computed(() => {
 })
 
 const canvasSize = computed(() => {
-  if (!hasLanes.value) {
-    return { width: flowLayout.value.canvasW + 80, height: flowLayout.value.canvasH + 80 }
-  }
   const nodes = positionedNodes.value
   const maxX = Math.max(760, ...nodes.map(node => node.x + NODE_WIDTH + 100))
   const maxY = Math.max(500, ...nodes.map(node => node.y + NODE_HEIGHT + 110))
@@ -203,22 +197,6 @@ const laneBands = computed(() => {
 })
 
 const positionedEdges = computed(() => {
-  // 无泳道：使用共享布局的锚点（含回流虚线）
-  if (!hasLanes.value) {
-    return flowLayout.value.edges.map(edge => {
-      const deltaX = edge.x2 - edge.x1
-      const deltaY = edge.y2 - edge.y1
-      const width = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
-      const angle = Math.atan2(deltaY, deltaX) * 180 / Math.PI
-      return {
-        key: edge.key,
-        label: edge.label,
-        back: edge.kind === 'back',
-        lineStyle: { left: `${edge.x1}px`, top: `${edge.y1}px`, width: `${width}px`, transform: `rotate(${angle}deg)` },
-        labelStyle: { left: `${(edge.x1 + edge.x2) / 2}px`, top: `${(edge.y1 + edge.y2) / 2 - 20}px` }
-      }
-    })
-  }
   const nodeMap = new Map(positionedNodes.value.map(node => [String(node.id), node]))
   return (chart.value.edges || []).map((edge, index) => {
     const source = nodeMap.get(String(edge.source))
@@ -304,14 +282,73 @@ function refine() {
   goGenerate()
 }
 
+// 泳道数据扁平化：SWIMLANE 时节点可能嵌套在 lanes 内，需摊平到顶层才能渲染
+function flattenLanes(data) {
+  if (!data) return data
+  const top = Array.isArray(data.nodes) ? data.nodes : []
+  if (top.length) return data
+  if (!Array.isArray(data.lanes)) return data
+  const flat = []
+  data.lanes.forEach(lane => {
+    (lane.nodes || []).forEach(n => {
+      if (n && typeof n === 'object') flat.push({ ...n, lane: n.lane || lane.name })
+      else flat.push({ id: String(n), name: String(n), lane: lane.name, type: 'action' })
+    })
+  })
+  return flat.length ? { ...data, nodes: flat } : data
+}
+
+// ===== 优化（弹窗 + 思考窗 + 带指令重生成） =====
+const showOptimizeSheet = ref(false)
+const showThinkWindow = ref(false)
+const optimizeDoneSub = ref('结构已更新')
+const optimizePending = ref(null)
+const currentChartData = ref({})
+
+function openOptimizeSheet() {
+  currentChartData.value = { title: chart.value.title, nodes: chart.value.nodes }
+  showOptimizeSheet.value = true
+}
+function shareFlow() {
+  uni.showToast({ title: '分享能力预留', icon: 'none' })
+}
+
+async function onOptimize(payload) {
+  showOptimizeSheet.value = false
+  optimizePending.value = null
+  showThinkWindow.value = true
+  try {
+    const base = uni.getStorageSync('aiFlowchartPendingPayload') || {}
+    const desc = base.description || chart.value.title || ''
+    const newPayload = { ...base, description: payload.userInstruction ? `${desc}\n优化要求：${payload.userInstruction}` : desc }
+    const result = flattenLanes(await generateFlowchart(newPayload))
+    uni.setStorageSync(`aiFlowchartResult:${result.id}`, result)
+    optimizePending.value = result
+    optimizeDoneSub.value = `已更新「${result.title || '流程图'}」`
+  } catch (error) {
+    showThinkWindow.value = false
+    uni.showToast({ title: getErrorMessage(error, '优化失败'), icon: 'none' })
+  }
+}
+
+function onThinkView() {
+  showThinkWindow.value = false
+  const r = optimizePending.value
+  if (r) {
+    chart.value = r
+    resultId.value = r.id
+    uni.showToast({ title: '已更新流程图', icon: 'success' })
+  }
+}
+
 async function loadDiagram(id) {
   if (!id) return
   resultId.value = String(id)
   const cached = uni.getStorageSync(`aiFlowchartResult:${resultId.value}`)
-  if (cached?.nodes?.length) chart.value = cached
-  loading.value = !cached?.nodes?.length
+  if (cached?.nodes?.length || cached?.lanes?.length) chart.value = flattenLanes(cached)
+  loading.value = !(cached?.nodes?.length || cached?.lanes?.length)
   try {
-    chart.value = await getFlowchartDetail(resultId.value)
+    chart.value = flattenLanes(await getFlowchartDetail(resultId.value))
     uni.setStorageSync(`aiFlowchartResult:${resultId.value}`, chart.value)
   } catch (error) {
     if (!cached?.nodes?.length) {

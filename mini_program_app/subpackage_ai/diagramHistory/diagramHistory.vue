@@ -173,8 +173,8 @@ onShow(() => { load() })
 .nav-right { display: flex; gap: 16rpx; align-items: center; }
 .nav-ico { width: 56rpx; height: 56rpx; display: flex; align-items: center; justify-content: center; }
 .ni { width: 38rpx; height: 38rpx; stroke: #1D1D1F; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.search-bar { display: flex; align-items: center; padding: 16rpx 32rpx; background: #fff; }
-.search-input { flex: 1; height: 72rpx; background: #F5F6FA; border-radius: 16rpx; padding: 0 24rpx; font-size: 26rpx; }
+.search-bar { display: flex; align-items: center; padding: 16rpx 32rpx; background: #F5F6FA; }
+.search-input { flex: 1; height: 72rpx; background: #fff; border-radius: 16rpx; padding: 0 24rpx; font-size: 26rpx; box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.04); }
 
 .tabs { display: flex; gap: 20rpx; margin: 16rpx 24rpx 8rpx; padding: 12rpx; background: #fff; border-radius: 24rpx; box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.03); }
 .tab { flex: 1; display: flex; align-items: center; justify-content: center; gap: 14rpx; height: 88rpx; border-radius: 24rpx; background: #F5F6FA; font-size: 28rpx; font-weight: 600; color: #333; }
