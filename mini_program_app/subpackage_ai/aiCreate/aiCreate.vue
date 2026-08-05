@@ -118,6 +118,7 @@ const quickActions = ref([
 const toolCategories = {
   hot: [
     { name: '试卷生成', desc: '智能生成标准化试卷', icon: '/static/icons/ai create/exam.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
+    { name: '题库生成', desc: '资料一键生成练习题', icon: '/static/icons/ai create/exam.png', themeColor: '#5E7387', lightColor: 'rgba(94, 115, 135, 0.35)' },
     { name: 'PPT生成', desc: '一键生成演示文稿', icon: '/static/icons/ai create/ppt-pdf.png', themeColor: '#FF9F43', lightColor: 'rgba(255, 159, 67, 0.35)' },
     { name: '思维导图', desc: '知识梳理思维导图', icon: '/static/icons/ai create/outline.png', themeColor: '#A55EEA', lightColor: 'rgba(165, 94, 234, 0.35)' },
     { name: '活动图', desc: '业务流程活动图', icon: '/static/icons/ai create/summary.png', themeColor: '#48DBFB', lightColor: 'rgba(72, 219, 251, 0.35)' },
@@ -142,6 +143,7 @@ const toolCategories = {
     { name: '英语作文', desc: '轻松写出高分作文', icon: '/static/icons/ai create/english.png', themeColor: '#A55EEA', lightColor: 'rgba(165, 94, 234, 0.35)' },
     { name: '活动总结', desc: '快速完成活动复盘', icon: '/static/icons/ai create/summary.png', themeColor: '#FF6B6B', lightColor: 'rgba(255, 107, 107, 0.35)' },
     { name: '学科出题', desc: '一键出题精准教学', icon: '/static/icons/ai create/exam.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
+    { name: '题库生成', desc: '资料一键生成练习题', icon: '/static/icons/ai create/exam.png', themeColor: '#5E7387', lightColor: 'rgba(94, 115, 135, 0.35)' },
     { name: '学习计划', desc: '定制计划高效学习', icon: '/static/icons/ai create/plan.png', themeColor: '#1DD1A1', lightColor: 'rgba(29, 209, 161, 0.35)' },
     { name: '考研题目', desc: '一键生成考研好题', icon: '/static/icons/ai create/graduate.png', themeColor: '#5C7A99', lightColor: 'rgba(92, 122, 153, 0.35)' },
     { name: '文章主题大纲', desc: '轻松搞定文章框架', icon: '/static/icons/ai create/outline.png', themeColor: '#1DD1A1', lightColor: 'rgba(29, 209, 161, 0.35)' },
