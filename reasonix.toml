@@ -1,0 +1,2 @@
+[permissions]
+allow = ["Edit", "Bash=cd /e/zzs/github/AgentA3/AppWeb && npm run build 2>&1 | tail -6", "Bash=cd /e/zzs/github/AgentA3/AppWeb && npm run build 2>&1 | tail -4"]
