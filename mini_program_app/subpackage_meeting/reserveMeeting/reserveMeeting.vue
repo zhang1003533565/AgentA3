@@ -15,7 +15,7 @@
 					<text class="type-name">快速会议</text>
 					<text class="type-desc">立即开始会议</text>
 				</view>
-				<text class="chevron">›</text>
+				<view class="radio-dot"></view>
 			</view>
 			<view class="type-card type-card--active">
 				<view class="type-icon type-icon--clock">◷</view>
@@ -121,6 +121,8 @@ export default {
 .type-name { font-size: 27rpx; font-weight: 850; color: #172228; }
 .type-desc { font-size: 22rpx; color: #8b9499; }
 .check-dot { width: 40rpx; height: 40rpx; border-radius: 50%; background: #86C9A8; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 24rpx; font-weight: 900; }
+/* 未选中圆圈 - 图二圈选样式 */
+.radio-dot { width: 40rpx; height: 40rpx; border-radius: 50%; border: 3rpx solid #d1d5db; background: transparent; box-sizing: border-box; }
 .chevron { color: #8c969b; font-size: 42rpx; }
 .field-block { padding-bottom: 28rpx; }
 .field-block--inline { display: flex; align-items: center; justify-content: space-between; gap: 24rpx; }
