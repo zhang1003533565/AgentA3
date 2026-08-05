@@ -356,7 +356,14 @@
           </view>
 
           <view v-if="importResult" class="card">
-            <view class="banner banner--success">已导入 {{ importResult.importedCount ?? questions.length }} 道题到题库。</view>
+            <view class="banner banner--success">
+              已导入 {{ importResult.importedCount ?? questions.length }} 道题。
+              <text v-if="syncedFolderName">并已放入收藏夹「{{ syncedFolderName }}」。</text>
+              <text v-else-if="syncFolderError">题目已入库，但加入收藏夹失败：{{ syncFolderError }}</text>
+            </view>
+            <view class="ops" style="margin-top: 16rpx;">
+              <view class="primary-mini" @tap="goMyQuestionBank">去我的题库查看</view>
+            </view>
           </view>
         </block>
       </block>
@@ -400,6 +407,12 @@ import {
   importGeneratedQuestions,
   reviewGeneratedQuestions
 } from '@/api/questionGeneration.js'
+import {
+  addQuestionToFolder,
+  createQuestionFolder,
+  listQuestionFolders
+} from '@/api/questionFolder.js'
+import { getUserInfo } from '@/utils/storage.js'
 import { request } from '@/utils/request.js'
 
 const TYPE_LABELS = {
@@ -459,6 +472,8 @@ const review = ref({ valid: false, issues: [], warnings: [] })
 const reviewing = ref(false)
 const importing = ref(false)
 const importResult = ref(null)
+const syncedFolderName = ref('')
+const syncFolderError = ref('')
 const editingIndex = ref(-1)
 const editDraft = reactive({ stem: '', analysis: '', answerText: '' })
 
@@ -871,6 +886,8 @@ async function startGenerate() {
   generating.value = true
   generateError.value = ''
   importResult.value = null
+  syncedFolderName.value = ''
+  syncFolderError.value = ''
   startProgressAnimation()
 
   try {
@@ -934,6 +951,8 @@ async function startGenerate() {
 
 function continueGenerate() {
   importResult.value = null
+  syncedFolderName.value = ''
+  syncFolderError.value = ''
   draft.value = {}
   questions.value = []
   review.value = { valid: false, issues: [], warnings: [] }
@@ -1013,6 +1032,48 @@ function confirmDelete(index) {
   })
 }
 
+async function syncImportedToFolder(questionIds) {
+  syncedFolderName.value = ''
+  syncFolderError.value = ''
+  const ids = (questionIds || []).filter((id) => id != null)
+  if (!ids.length) {
+    syncFolderError.value = '未返回题目 ID'
+    return
+  }
+  const info = getUserInfo() || {}
+  const isAdmin = String(info.role || '').toUpperCase() === 'ADMIN'
+  const visibility = isAdmin ? 'PUBLIC' : 'PRIVATE'
+  const folderName = '题库生成'
+  try {
+    const listRes = await listQuestionFolders({ visibility })
+    const folders = listRes?.data || []
+    let folder = folders.find((item) => item.name === folderName && item.ownedByCurrentUser)
+    if (!folder) {
+      const created = await createQuestionFolder({ name: folderName, visibility })
+      folder = created?.data
+    }
+    if (!folder?.id) {
+      syncFolderError.value = '无法创建收藏夹'
+      return
+    }
+    for (const questionId of ids) {
+      await addQuestionToFolder(folder.id, questionId)
+    }
+    syncedFolderName.value = folder.name || folderName
+  } catch (error) {
+    syncFolderError.value = error?.msg || error?.message || '请稍后在收藏夹中手动添加'
+  }
+}
+
+function goMyQuestionBank() {
+  const info = getUserInfo() || {}
+  const isAdmin = String(info.role || '').toUpperCase() === 'ADMIN'
+  const visibility = isAdmin ? 'PUBLIC' : 'PRIVATE'
+  uni.navigateTo({
+    url: `/subpackage_exam/myQuestionBank/myQuestionBank?visibility=${visibility}`
+  })
+}
+
 async function handleImport() {
   if (!canImport.value || importing.value || importResult.value) return
   importing.value = true
@@ -1023,7 +1084,11 @@ async function handleImport() {
       missingInfo: draft.value.missingInfo || []
     })
     importResult.value = res?.data || { importedCount: questions.value.length }
-    uni.showToast({ title: '导入成功', icon: 'success' })
+    await syncImportedToFolder(importResult.value.questionIds || [])
+    uni.showToast({
+      title: syncedFolderName.value ? '已导入并加入收藏夹' : '导入成功',
+      icon: 'success'
+    })
   } catch (error) {
     // toast already from request
   } finally {

@@ -114,9 +114,13 @@ export default {
       return '创建私有收藏夹后，仅自己可见'
     }
   },
-  onLoad() {
+  onLoad(query) {
     const info = getUserInfo() || {}
     this.isAdmin = String(info.role || '').toUpperCase() === 'ADMIN'
+    const visibility = String(query?.visibility || '').toUpperCase()
+    if (visibility === 'PUBLIC' || visibility === 'PRIVATE') {
+      this.visibility = visibility
+    }
     this.refresh()
   },
   onShow() {
