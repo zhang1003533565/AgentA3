@@ -56,6 +56,26 @@ public class MaterialDTO {
         private List<Long> materialIds;
     }
 
+    /** 章节附加资料绑定请求：将资料 ID 数组写入章节 additional_material_ids。 */
+    @Data
+    public static class AdditionalChapterBindRequest {
+        @NotNull(message = "courseId 不能为空")
+        private Long courseId;
+
+        /** 选中的附加下载资料 ID 列表，顺序即章节内展示顺序；允许为空表示清空。 */
+        private List<Long> materialIds;
+    }
+
+    /** 章节 Word 文本资料绑定请求：将资料 ID 数组写入章节 word_material_ids。 */
+    @Data
+    public static class WordChapterBindRequest {
+        @NotNull(message = "courseId 不能为空")
+        private Long courseId;
+
+        /** 选中的 Word 资料 ID 列表，顺序即章节内展示顺序；允许为空表示清空。 */
+        private List<Long> materialIds;
+    }
+
     /** 进度上报请求。 */
     @Data
     public static class ProgressReportRequest {

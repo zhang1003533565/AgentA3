@@ -16,6 +16,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -28,6 +29,12 @@ import java.util.UUID;
  */
 @Service
 public class CourseMaterialService {
+
+    /** 视频文件扩展名集合（用于资料池类型校验）。 */
+    private static final Set<String> VIDEO_EXTENSIONS = Set.of("mp4", "mov", "webm", "avi", "mkv", "flv", "m3u8");
+
+    /** Word 文档扩展名集合。 */
+    private static final Set<String> WORD_EXTENSIONS = Set.of("doc", "docx");
 
     private final CampusCourseRepository courseRepository;
     private final CampusCourseMaterialRepository materialRepository;
@@ -106,9 +113,9 @@ public class CourseMaterialService {
             material.setFileName(safeName(file.getOriginalFilename()));
             material.setFileUrl(url);
             material.setFileSize(file.getSize());
-            material.setFileType(fileStorageService.extensionOf(file.getOriginalFilename()));
-            material.setMimeType(StringUtils.hasText(file.getContentType())
-                    ? file.getContentType() : "application/octet-stream");
+            String ext = fileStorageService.extensionOf(file.getOriginalFilename());
+            material.setFileType(ext);
+            material.setMimeType(FileStorageService.resolveContentType(ext));
             material.setDurationSeconds(0);
             material.setDeleted(false);
             material.setUploadBatchId(batchId);
@@ -187,8 +194,8 @@ public class CourseMaterialService {
 
     /**
      * 绑定章节资料：将选中的资料 ID 数组（保留顺序）写入章节 material_ids。
-     * 校验章节归属课程、资料归属同一课程且未下架；允许传空以清空绑定。
-     * 仅写入本模块拥有的 material_ids 列，不触碰 CampusCourseService。
+     * 校验章节归属课程、资料归属同一课程且未下架；仅允许视频类型，且最多一个。
+     * 允许传空以清空绑定。
      */
     @Transactional
     public List<MaterialDTO.MaterialView> setChapterMaterials(
@@ -205,6 +212,9 @@ public class CourseMaterialService {
                 }
             }
         }
+        if (ordered.size() > 1) {
+            throw new BusinessException(400, "关联资料池仅允许添加一个视频资料");
+        }
         if (!ordered.isEmpty()) {
             Map<Long, CampusCourseMaterial> valid = new HashMap<>();
             materialRepository.findByIdInAndDeletedFalse(ordered)
@@ -214,12 +224,142 @@ public class CourseMaterialService {
                 if (material == null || !Objects.equals(material.getCourseId(), courseId)) {
                     throw new BusinessException(400, "资料不存在、已下架或不属于当前课程：" + id);
                 }
+                String ext = (material.getFileType() == null ? "" : material.getFileType()).toLowerCase();
+                if (!VIDEO_EXTENSIONS.contains(ext)) {
+                    throw new BusinessException(400, "关联资料池仅允许添加视频类型资料：" + material.getFileName());
+                }
             }
         }
 
         chapter.setMaterialIds(materialIdsCodec.write(ordered));
         chapterRepository.save(chapter);
         return getChapterMaterials(courseId, chapterId);
+    }
+
+    /** 查询某章节已绑定的附加资料列表（非视频类型，按 additional_material_ids 存储顺序）。 */
+    @Transactional(readOnly = true)
+    public List<MaterialDTO.MaterialView> getChapterAdditionalMaterials(Long courseId, Long chapterId) {
+        requireCourse(courseId);
+        CampusCourseChapter chapter = requireChapter(courseId, chapterId);
+        List<Long> ids = materialIdsCodec.parse(chapter.getAdditionalMaterialIds());
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, CampusCourseMaterial> map = new HashMap<>();
+        materialRepository.findByIdInAndDeletedFalse(ids).forEach(item -> map.put(item.getId(), item));
+        List<MaterialDTO.MaterialView> views = new ArrayList<>();
+        for (Long id : ids) {
+            CampusCourseMaterial material = map.get(id);
+            if (material != null) {
+                views.add(toView(material));
+            }
+        }
+        return views;
+    }
+
+    /**
+     * 绑定章节附加资料：将选中的资料 ID 数组写入章节 additional_material_ids。
+     * 仅允许非视频类型资料（文本/PDF/文档等），可多个。允许传空以清空。
+     */
+    @Transactional
+    public List<MaterialDTO.MaterialView> setChapterAdditionalMaterials(
+            Long courseId, Long chapterId, List<Long> materialIds
+    ) {
+        requireCourse(courseId);
+        CampusCourseChapter chapter = requireChapter(courseId, chapterId);
+
+        List<Long> ordered = new ArrayList<>();
+        if (materialIds != null) {
+            Set<Long> seen = new LinkedHashSet<>();
+            for (Long id : materialIds) {
+                if (id != null) {
+                    seen.add(id);
+                }
+            }
+            ordered.addAll(seen);
+        }
+        if (!ordered.isEmpty()) {
+            Map<Long, CampusCourseMaterial> valid = new HashMap<>();
+            materialRepository.findByIdInAndDeletedFalse(ordered)
+                    .forEach(item -> valid.put(item.getId(), item));
+            for (Long id : ordered) {
+                CampusCourseMaterial material = valid.get(id);
+                if (material == null || !Objects.equals(material.getCourseId(), courseId)) {
+                    throw new BusinessException(400, "资料不存在、已下架或不属于当前课程：" + id);
+                }
+                String ext = (material.getFileType() == null ? "" : material.getFileType()).toLowerCase();
+                if (VIDEO_EXTENSIONS.contains(ext)) {
+                    throw new BusinessException(400, "附加资料不允许视频类型，请使用关联资料池：" + material.getFileName());
+                }
+            }
+        }
+
+        chapter.setAdditionalMaterialIds(materialIdsCodec.write(ordered));
+        chapterRepository.save(chapter);
+        return getChapterAdditionalMaterials(courseId, chapterId);
+    }
+
+    /** 查询某章节已绑定的 Word 文本资料列表（仅 doc/docx）。 */
+    @Transactional(readOnly = true)
+    public List<MaterialDTO.MaterialView> getChapterWordMaterials(Long courseId, Long chapterId) {
+        requireCourse(courseId);
+        CampusCourseChapter chapter = requireChapter(courseId, chapterId);
+        List<Long> ids = materialIdsCodec.parse(chapter.getWordMaterialIds());
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, CampusCourseMaterial> map = new HashMap<>();
+        materialRepository.findByIdInAndDeletedFalse(ids).forEach(item -> map.put(item.getId(), item));
+        List<MaterialDTO.MaterialView> views = new ArrayList<>();
+        for (Long id : ids) {
+            CampusCourseMaterial material = map.get(id);
+            if (material != null) {
+                views.add(toView(material));
+            }
+        }
+        return views;
+    }
+
+    /**
+     * 绑定章节 Word 文本资料：将选中的资料 ID 数组写入章节 word_material_ids。
+     * 仅允许 Word 类型（doc/docx），可多个。允许传空以清空。
+     */
+    @Transactional
+    public List<MaterialDTO.MaterialView> setChapterWordMaterials(
+            Long courseId, Long chapterId, List<Long> materialIds
+    ) {
+        requireCourse(courseId);
+        CampusCourseChapter chapter = requireChapter(courseId, chapterId);
+
+        List<Long> ordered = new ArrayList<>();
+        if (materialIds != null) {
+            Set<Long> seen = new LinkedHashSet<>();
+            for (Long id : materialIds) {
+                if (id != null) {
+                    seen.add(id);
+                }
+            }
+            ordered.addAll(seen);
+        }
+        if (!ordered.isEmpty()) {
+            Map<Long, CampusCourseMaterial> valid = new HashMap<>();
+            materialRepository.findByIdInAndDeletedFalse(ordered)
+                    .forEach(item -> valid.put(item.getId(), item));
+            for (Long id : ordered) {
+                CampusCourseMaterial material = valid.get(id);
+                if (material == null || !Objects.equals(material.getCourseId(), courseId)) {
+                    throw new BusinessException(400, "资料不存在、已下架或不属于当前课程：" + id);
+                }
+                String ext = (material.getFileType() == null ? "" : material.getFileType()).toLowerCase();
+                if (!WORD_EXTENSIONS.contains(ext)) {
+                    throw new BusinessException(400, "关联文本资料仅允许 Word 类型（doc/docx）：" + material.getFileName());
+                }
+            }
+        }
+
+        chapter.setWordMaterialIds(materialIdsCodec.write(ordered));
+        chapterRepository.save(chapter);
+        return getChapterWordMaterials(courseId, chapterId);
     }
 
     private CampusCourseChapter requireChapter(Long courseId, Long chapterId) {

@@ -901,9 +901,30 @@
 					}
 				},
 				{
-					"path": "campusCourseDetail/campusCourseDetail",
+					"path": "campusCourseList/campusCourseList",
 					"style": {
 						"navigationBarTitleText": "校园课程",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "campusCourseDetail/campusCourseDetail",
+					"style": {
+						"navigationBarTitleText": "课程详情",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "chapterLearn/chapterLearn",
+					"style": {
+						"navigationBarTitleText": "章节学习",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "myCourses/myCourses",
+					"style": {
+						"navigationBarTitleText": "我的课程",
 						"navigationStyle": "custom"
 					}
 				}

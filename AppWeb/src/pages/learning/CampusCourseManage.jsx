@@ -52,10 +52,14 @@ import {
 import { getExamPaperList } from '../../api/examPaper'
 import { uploadImage } from '../../api/upload'
 import {
+  bindChapterAdditionalMaterials,
   bindChapterMaterials,
+  bindChapterWordMaterials,
   checkMaterialReference,
   deleteMaterial,
+  getChapterAdditionalMaterials,
   getChapterMaterials,
+  getChapterWordMaterials,
   getCourseMaterials,
   uploadMaterialBatch,
 } from '../../api/campusMaterial'
@@ -70,8 +74,25 @@ const statusMeta = {
   OFFLINE: { label: '已下架', color: 'orange' },
 }
 
+const COURSE_TYPE_OPTIONS = [
+  { value: '', label: '未设置' },
+  { value: 'REQUIRED', label: '必修课' },
+  { value: 'ELECTIVE', label: '选修课' },
+  { value: 'PUBLIC', label: '公共课' },
+  { value: 'LAB', label: '实验课' },
+]
+
+const COURSE_TYPE_META = {
+  REQUIRED: { label: '必修课', color: 'blue' },
+  ELECTIVE: { label: '选修课', color: 'green' },
+  PUBLIC: { label: '公共课', color: 'purple' },
+  LAB: { label: '实验课', color: 'orange' },
+}
+
 // 与后端 course-material 白名单保持一致
 const MATERIAL_WHITELIST = ['mp4', 'avi', 'pdf', 'ppt', 'pptx', 'doc', 'docx', 'xls', 'xlsx', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp3', 'txt']
+const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'webm', 'avi', 'mkv', 'flv', 'm3u8'])
+const WORD_EXTENSIONS = new Set(['doc', 'docx'])
 const MAX_FOLDER_BYTES = 2 * 1024 * 1024 * 1024
 const UPLOAD_BATCH_SIZE = 8
 
@@ -105,8 +126,8 @@ const fileExt = (name = '') => {
 }
 const extCategory = (ext = '') => {
   const value = String(ext).toLowerCase()
-  if (['mp4', 'avi'].includes(value)) return 'VIDEO'
-  if (value === 'mp3') return 'AUDIO'
+  if (['mp4', 'mov', 'webm', 'avi'].includes(value)) return 'VIDEO'
+  if (['mp3', 'wav', 'm4a', 'ogg'].includes(value)) return 'AUDIO'
   if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(value)) return 'IMAGE'
   if (value === 'pdf') return 'PDF'
   if (['ppt', 'pptx'].includes(value)) return 'PPT'
@@ -151,6 +172,8 @@ function CampusCourseManage() {
   const [uploading, setUploading] = useState(false)
   const [uploadInfo, setUploadInfo] = useState(null)
   const [chapterMaterialIds, setChapterMaterialIds] = useState([])
+  const [chapterAdditionalMaterialIds, setChapterAdditionalMaterialIds] = useState([])
+  const [chapterWordMaterialIds, setChapterWordMaterialIds] = useState([])
   const folderInputRef = useRef(null)
 
   const loadCourses = useCallback(async () => {
@@ -209,6 +232,18 @@ function CampusCourseManage() {
     if (materialTypeFilter === 'ALL') return materials
     return materials.filter((item) => extCategory(item.fileType) === materialTypeFilter)
   }, [materials, materialTypeFilter])
+
+  const videoMaterials = useMemo(() =>
+    materials.filter((item) => VIDEO_EXTENSIONS.has((item.fileType || '').toLowerCase())),
+  [materials])
+
+  const nonVideoMaterials = useMemo(() =>
+    materials.filter((item) => !VIDEO_EXTENSIONS.has((item.fileType || '').toLowerCase())),
+  [materials])
+
+  const wordMaterials = useMemo(() =>
+    materials.filter((item) => WORD_EXTENSIONS.has((item.fileType || '').toLowerCase())),
+  [materials])
 
   const openCourseForm = (course = null) => {
     setEditingCourse(course)
@@ -392,18 +427,6 @@ function CampusCourseManage() {
     })
   }
 
-  const moveChapterMaterial = (index, dir) => {
-    setChapterMaterialIds((prev) => {
-      const target = index + dir
-      if (target < 0 || target >= prev.length) return prev
-      const next = [...prev]
-      ;[next[index], next[target]] = [next[target], next[index]]
-      return next
-    })
-  }
-  const removeChapterMaterial = (id) =>
-    setChapterMaterialIds((prev) => prev.filter((item) => item !== id))
-
   const openChapterForm = async (chapter = null) => {
     setEditingChapter(chapter)
     chapterForm.resetFields()
@@ -414,17 +437,26 @@ function CampusCourseManage() {
       required: true,
       sortOrder: (detail?.chapters?.length || 0) + 1,
       estimatedMinutes: 30,
-      resourceType: 'TEXT',
     })
     if (chapter) {
       try {
-        const res = await getChapterMaterials(detail.id, chapter.id)
-        setChapterMaterialIds((res.data || []).map((item) => item.id))
+        const [videoRes, additionalRes, wordRes] = await Promise.all([
+          getChapterMaterials(detail.id, chapter.id),
+          getChapterAdditionalMaterials(detail.id, chapter.id),
+          getChapterWordMaterials(detail.id, chapter.id),
+        ])
+        setChapterMaterialIds((videoRes.data || []).map((item) => item.id))
+        setChapterAdditionalMaterialIds((additionalRes.data || []).map((item) => item.id))
+        setChapterWordMaterialIds((wordRes.data || []).map((item) => item.id))
       } catch {
         setChapterMaterialIds([])
+        setChapterAdditionalMaterialIds([])
+        setChapterWordMaterialIds([])
       }
     } else {
       setChapterMaterialIds([])
+      setChapterAdditionalMaterialIds([])
+      setChapterWordMaterialIds([])
     }
     setChapterModalOpen(true)
   }
@@ -442,7 +474,11 @@ function CampusCourseManage() {
         chapterId = res.data?.id
       }
       if (chapterId) {
-        await bindChapterMaterials(detail.id, chapterId, chapterMaterialIds)
+        await Promise.all([
+          bindChapterMaterials(detail.id, chapterId, chapterMaterialIds),
+          bindChapterAdditionalMaterials(detail.id, chapterId, chapterAdditionalMaterialIds),
+          bindChapterWordMaterials(detail.id, chapterId, chapterWordMaterialIds),
+        ])
       }
       message.success(editingChapter ? '章节已保存' : '章节已添加')
       setChapterModalOpen(false)
@@ -512,6 +548,15 @@ function CampusCourseManage() {
       title: '内容',
       width: 150,
       render: (_, record) => `${record.chapterCount || 0} 章 · ${record.examCount || 0} 场考试`,
+    },
+    {
+      title: '类型',
+      dataIndex: 'courseType',
+      width: 90,
+      render: (type) => {
+        const meta = COURSE_TYPE_META[type]
+        return meta ? <Tag color={meta.color}>{meta.label}</Tag> : <span>-</span>
+      },
     },
     {
       title: '状态',
@@ -699,6 +744,9 @@ function CampusCourseManage() {
               <Input placeholder="例如：《Python程序设计基础》" maxLength={160} />
             </Form.Item>
             <Form.Item name="sortOrder" label="展示顺序"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item>
+            <Form.Item name="courseType" label="课程类型">
+              <Select allowClear placeholder="选择课程类型" options={COURSE_TYPE_OPTIONS} />
+            </Form.Item>
           </div>
           <Form.Item name="coverUrl" hidden><Input /></Form.Item>
           <Form.Item name="displayImageUrl" hidden><Input /></Form.Item>
@@ -817,51 +865,116 @@ function CampusCourseManage() {
           </div>
           <Form.Item name="summary" label="章节说明"><Input maxLength={1000} /></Form.Item>
           <Form.Item name="content" label="课程正文"><TextArea rows={8} placeholder="录入学生需要阅读的课程内容" /></Form.Item>
-          <div className="course-form-grid">
-            <Form.Item name="resourceType" label="附加资料类型">
-              <Select allowClear options={[
-                { value: 'TEXT', label: '正文' },
-                { value: 'PDF', label: 'PDF' },
-                { value: 'PPT', label: 'PPT课件' },
-                { value: 'VIDEO', label: '视频' },
-                { value: 'LINK', label: '外部链接' },
-              ]} />
-            </Form.Item>
-            <Form.Item name="resourceUrl" label="附加资料地址"><Input placeholder="可选，填写资料 URL" /></Form.Item>
-          </div>
           <div className="chapter-material-block">
             <div className="chapter-material-block__head">
-              <Typography.Text strong>关联资料池资料</Typography.Text>
-              <Typography.Text type="secondary">从资料池选择，并调整学习顺序</Typography.Text>
+              <Typography.Text strong>附加下载资料</Typography.Text>
+              <Typography.Text type="secondary">从资料池选择非视频类型资料（文本/PDF/文档等），可多选</Typography.Text>
             </div>
             <Select
               mode="multiple"
               allowClear
               style={{ width: '100%' }}
-              placeholder={materials.length ? '从资料池选择资料' : '资料池为空，请先在“课程资料”中上传'}
-              value={chapterMaterialIds}
-              onChange={setChapterMaterialIds}
+              placeholder={nonVideoMaterials.length ? '选择附加资料（非视频）' : '资料池中没有非视频类型资料，请先在"课程资料"中上传'}
+              value={chapterAdditionalMaterialIds}
+              onChange={setChapterAdditionalMaterialIds}
               optionFilterProp="label"
-              options={materials.map((item) => ({ value: item.id, label: item.fileName }))}
+              options={nonVideoMaterials.map((item) => ({ value: item.id, label: item.fileName }))}
             />
-            {chapterMaterialIds.length ? (
+            {chapterAdditionalMaterialIds.length ? (
               <ul className="chapter-material-order">
-                {chapterMaterialIds.map((id, index) => {
+                {chapterAdditionalMaterialIds.map((id, index) => {
                   const item = materialMap.get(id)
                   return (
                     <li key={id}>
                       <span className="chapter-material-order__idx">{index + 1}</span>
                       <span className="chapter-material-order__name">{item ? item.fileName : `资料#${id}`}</span>
                       <Space size={4}>
-                        <Button size="small" type="text" icon={<ArrowUpOutlined />} disabled={index === 0} onClick={() => moveChapterMaterial(index, -1)} />
-                        <Button size="small" type="text" icon={<ArrowDownOutlined />} disabled={index === chapterMaterialIds.length - 1} onClick={() => moveChapterMaterial(index, 1)} />
-                        <Button size="small" type="text" danger icon={<CloseOutlined />} onClick={() => removeChapterMaterial(id)} />
+                        <Button size="small" type="text" icon={<ArrowUpOutlined />} disabled={index === 0} onClick={() => {
+                          setChapterAdditionalMaterialIds((prev) => {
+                            const next = [...prev]
+                            ;[next[index], next[index - 1]] = [next[index - 1], next[index]]
+                            return next
+                          })
+                        }} />
+                        <Button size="small" type="text" icon={<ArrowDownOutlined />} disabled={index === chapterAdditionalMaterialIds.length - 1} onClick={() => {
+                          setChapterAdditionalMaterialIds((prev) => {
+                            const next = [...prev]
+                            ;[next[index], next[index + 1]] = [next[index + 1], next[index]]
+                            return next
+                          })
+                        }} />
+                        <Button size="small" type="text" danger icon={<CloseOutlined />} onClick={() =>
+                          setChapterAdditionalMaterialIds((prev) => prev.filter((item) => item !== id))
+                        } />
                       </Space>
                     </li>
                   )
                 })}
               </ul>
             ) : null}
+          </div>
+          <div className="chapter-material-block">
+            <div className="chapter-material-block__head">
+              <Typography.Text strong>关联文本资料</Typography.Text>
+              <Typography.Text type="secondary">从资料池选择 Word 类型资料（doc/docx），可多选</Typography.Text>
+            </div>
+            <Select
+              mode="multiple"
+              allowClear
+              style={{ width: '100%' }}
+              placeholder={wordMaterials.length ? '选择 Word 文本资料' : '资料池中没有 Word 类型资料，请先在"课程资料"中上传'}
+              value={chapterWordMaterialIds}
+              onChange={setChapterWordMaterialIds}
+              optionFilterProp="label"
+              options={wordMaterials.map((item) => ({ value: item.id, label: item.fileName }))}
+            />
+            {chapterWordMaterialIds.length ? (
+              <ul className="chapter-material-order">
+                {chapterWordMaterialIds.map((id, index) => {
+                  const item = materialMap.get(id)
+                  return (
+                    <li key={id}>
+                      <span className="chapter-material-order__idx">{index + 1}</span>
+                      <span className="chapter-material-order__name">{item ? item.fileName : `资料#${id}`}</span>
+                      <Space size={4}>
+                        <Button size="small" type="text" icon={<ArrowUpOutlined />} disabled={index === 0} onClick={() => {
+                          setChapterWordMaterialIds((prev) => {
+                            const next = [...prev]
+                            ;[next[index], next[index - 1]] = [next[index - 1], next[index]]
+                            return next
+                          })
+                        }} />
+                        <Button size="small" type="text" icon={<ArrowDownOutlined />} disabled={index === chapterWordMaterialIds.length - 1} onClick={() => {
+                          setChapterWordMaterialIds((prev) => {
+                            const next = [...prev]
+                            ;[next[index], next[index + 1]] = [next[index + 1], next[index]]
+                            return next
+                          })
+                        }} />
+                        <Button size="small" type="text" danger icon={<CloseOutlined />} onClick={() =>
+                          setChapterWordMaterialIds((prev) => prev.filter((item) => item !== id))
+                        } />
+                      </Space>
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : null}
+          </div>
+          <div className="chapter-material-block">
+            <div className="chapter-material-block__head">
+              <Typography.Text strong>关联视频资料</Typography.Text>
+              <Typography.Text type="secondary">从资料池选择一个视频资料（仅允许一个）</Typography.Text>
+            </div>
+            <Select
+              allowClear
+              style={{ width: '100%' }}
+              placeholder={videoMaterials.length ? '选择视频资料' : '资料池中没有视频类型资料，请先在"课程资料"中上传'}
+              value={chapterMaterialIds.length ? chapterMaterialIds[0] : undefined}
+              onChange={(value) => setChapterMaterialIds(value ? [value] : [])}
+              optionFilterProp="label"
+              options={videoMaterials.map((item) => ({ value: item.id, label: item.fileName }))}
+            />
           </div>
         </Form>
       </Modal>

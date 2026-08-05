@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -29,8 +30,33 @@ public class FileStorageService {
 
     private static final Logger log = LoggerFactory.getLogger(FileStorageService.class);
 
+    private static final Map<String, String> EXTENSION_MIME = Map.ofEntries(
+            Map.entry("mp4", "video/mp4"),
+            Map.entry("mov", "video/quicktime"),
+            Map.entry("webm", "video/webm"),
+            Map.entry("avi", "video/x-msvideo"),
+            Map.entry("mp3", "audio/mpeg"),
+            Map.entry("wav", "audio/wav"),
+            Map.entry("m4a", "audio/mp4"),
+            Map.entry("ogg", "audio/ogg"),
+            Map.entry("jpg", "image/jpeg"),
+            Map.entry("jpeg", "image/jpeg"),
+            Map.entry("png", "image/png"),
+            Map.entry("webp", "image/webp"),
+            Map.entry("gif", "image/gif"),
+            Map.entry("pdf", "application/pdf"),
+            Map.entry("ppt", "application/vnd.ms-powerpoint"),
+            Map.entry("pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+            Map.entry("doc", "application/msword"),
+            Map.entry("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+            Map.entry("xls", "application/vnd.ms-excel"),
+            Map.entry("xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            Map.entry("txt", "text/plain")
+    );
+
     private final COSClient cosClient;
     private final CourseMaterialProperties properties;
+    private final VideoTranscodeService videoTranscodeService;
 
     @Value("${tencent.cos.bucket:}")
     private String bucket;
@@ -44,9 +70,11 @@ public class FileStorageService {
     @Value("${file.base-url:http://localhost:8080}")
     private String fileBaseUrl;
 
-    public FileStorageService(COSClient cosClient, CourseMaterialProperties properties) {
+    public FileStorageService(COSClient cosClient, CourseMaterialProperties properties,
+                              VideoTranscodeService videoTranscodeService) {
         this.cosClient = cosClient;
         this.properties = properties;
+        this.videoTranscodeService = videoTranscodeService;
     }
 
     /** 保存文件，返回可访问 URL。COS 未配置时自动降级为本地存储。 */
@@ -56,9 +84,7 @@ public class FileStorageService {
         if (cosEnabled()) {
             ObjectMetadata metadata = new ObjectMetadata();
             metadata.setContentLength(file.getSize());
-            if (StringUtils.hasText(file.getContentType())) {
-                metadata.setContentType(file.getContentType());
-            }
+            metadata.setContentType(resolveContentType(extension));
             try (InputStream inputStream = file.getInputStream()) {
                 cosClient.putObject(new PutObjectRequest(bucket, objectKey, inputStream, metadata));
             }
@@ -103,6 +129,12 @@ public class FileStorageService {
         return filename.substring(filename.lastIndexOf(".") + 1).toLowerCase();
     }
 
+    /** 根据扩展名确定正确的 MIME 类型，不信任浏览器上报的 Content-Type。 */
+    public static String resolveContentType(String extension) {
+        String key = extension == null ? "" : extension.toLowerCase();
+        return EXTENSION_MIME.getOrDefault(key, "application/octet-stream");
+    }
+
     private boolean cosEnabled() {
         return StringUtils.hasText(bucket) && StringUtils.hasText(domain);
     }
@@ -115,6 +147,13 @@ public class FileStorageService {
         }
         Files.createDirectories(target.getParent());
         file.transferTo(target);
+
+        // 视频文件自动检测编码并转码为 H.264，解决浏览器 H.265 不兼容问题
+        String originalName = file.getOriginalFilename();
+        if (videoTranscodeService != null && videoTranscodeService.isVideoFile(originalName)) {
+            videoTranscodeService.ensureH264(target);
+        }
+
         String base = StringUtils.hasText(fileBaseUrl) ? fileBaseUrl.trim().replaceAll("/+$", "") : "";
         return base + "/uploads/" + objectKey.replace('\\', '/');
     }

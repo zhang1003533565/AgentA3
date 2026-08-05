@@ -13,13 +13,29 @@ export const checkMaterialReference = (id) => request.get(`${base}/${id}/check`)
 export const deleteMaterial = (id, physical = false) =>
   request.delete(`${base}/${id}`, { params: { physical } })
 
-// 查询章节已绑定资料（按存储顺序）
+// 查询章节已绑定资料（按存储顺序，仅视频）
 export const getChapterMaterials = (courseId, chapterId) =>
   request.get(`${base}/chapter/${chapterId}`, { params: { courseId } })
 
-// 绑定章节资料：写入章节 material_ids（保留传入顺序）
+// 绑定章节资料：写入章节 material_ids（仅允许视频类型，最多一个）
 export const bindChapterMaterials = (courseId, chapterId, materialIds) =>
   request.put(`${base}/chapter/${chapterId}`, { courseId, materialIds })
+
+// 查询章节已绑定附加资料（非视频类型）
+export const getChapterAdditionalMaterials = (courseId, chapterId) =>
+  request.get(`${base}/chapter/${chapterId}/additional`, { params: { courseId } })
+
+// 绑定章节附加资料：写入章节 additional_material_ids（仅允许非视频类型）
+export const bindChapterAdditionalMaterials = (courseId, chapterId, materialIds) =>
+  request.put(`${base}/chapter/${chapterId}/additional`, { courseId, materialIds })
+
+// 查询章节已绑定 Word 文本资料（仅 doc/docx）
+export const getChapterWordMaterials = (courseId, chapterId) =>
+  request.get(`${base}/chapter/${chapterId}/word`, { params: { courseId } })
+
+// 绑定章节 Word 文本资料：写入章节 word_material_ids（仅允许 doc/docx）
+export const bindChapterWordMaterials = (courseId, chapterId, materialIds) =>
+  request.put(`${base}/chapter/${chapterId}/word`, { courseId, materialIds })
 
 /**
  * 文件夹分批上传（multipart）。同一 uploadBatchId 跨请求由后端累计校验总大小。

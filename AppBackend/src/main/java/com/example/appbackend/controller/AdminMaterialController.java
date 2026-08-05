@@ -72,7 +72,7 @@ public class AdminMaterialController {
         return Result.success(materialService.getChapterMaterials(courseId, chapterId));
     }
 
-    /** 绑定章节资料：将选中资料 ID 数组（保留顺序）写入章节 material_ids。 */
+    /** 绑定章节资料：将选中资料 ID 数组（保留顺序）写入章节 material_ids（仅允许视频，最多一个）。 */
     @PutMapping("/chapter/{chapterId}")
     public Result<?> bindChapterMaterials(@PathVariable Long chapterId,
                                           @Valid @RequestBody MaterialDTO.ChapterBindRequest body,
@@ -80,6 +80,44 @@ public class AdminMaterialController {
         requireAdmin(request);
         return Result.success("章节资料已保存",
                 materialService.setChapterMaterials(body.getCourseId(), chapterId, body.getMaterialIds()));
+    }
+
+    /** 查询某章节已绑定的附加资料列表（非视频类型）。 */
+    @GetMapping("/chapter/{chapterId}/additional")
+    public Result<?> chapterAdditionalMaterials(@PathVariable Long chapterId,
+                                                @RequestParam Long courseId,
+                                                HttpServletRequest request) {
+        requireAdmin(request);
+        return Result.success(materialService.getChapterAdditionalMaterials(courseId, chapterId));
+    }
+
+    /** 绑定章节附加资料：将选中资料 ID 数组写入章节 additional_material_ids（仅允许非视频类型）。 */
+    @PutMapping("/chapter/{chapterId}/additional")
+    public Result<?> bindChapterAdditionalMaterials(@PathVariable Long chapterId,
+                                                    @Valid @RequestBody MaterialDTO.AdditionalChapterBindRequest body,
+                                                    HttpServletRequest request) {
+        requireAdmin(request);
+        return Result.success("章节附加下载资料已保存",
+                materialService.setChapterAdditionalMaterials(body.getCourseId(), chapterId, body.getMaterialIds()));
+    }
+
+    /** 查询某章节已绑定的 Word 文本资料列表（仅 doc/docx）。 */
+    @GetMapping("/chapter/{chapterId}/word")
+    public Result<?> chapterWordMaterials(@PathVariable Long chapterId,
+                                          @RequestParam Long courseId,
+                                          HttpServletRequest request) {
+        requireAdmin(request);
+        return Result.success(materialService.getChapterWordMaterials(courseId, chapterId));
+    }
+
+    /** 绑定章节 Word 文本资料：将选中资料 ID 数组写入章节 word_material_ids（仅允许 doc/docx）。 */
+    @PutMapping("/chapter/{chapterId}/word")
+    public Result<?> bindChapterWordMaterials(@PathVariable Long chapterId,
+                                              @Valid @RequestBody MaterialDTO.WordChapterBindRequest body,
+                                              HttpServletRequest request) {
+        requireAdmin(request);
+        return Result.success("章节 Word 文本资料已保存",
+                materialService.setChapterWordMaterials(body.getCourseId(), chapterId, body.getMaterialIds()));
     }
 
     private void requireAdmin(HttpServletRequest request) {
