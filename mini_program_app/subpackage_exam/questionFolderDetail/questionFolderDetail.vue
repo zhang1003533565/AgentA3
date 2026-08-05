@@ -24,6 +24,9 @@
           <text v-if="detail.ownerPersonalNumber"> · 学号 {{ detail.ownerPersonalNumber }}</text>
         </view>
         <view v-if="canEdit" class="info-actions">
+          <view class="ghost-btn" @tap="toggleVisibility">
+            {{ detail.visibility === 'PUBLIC' ? '改为私有' : '改为公共' }}
+          </view>
           <view class="primary-btn" @tap="goAdd">添加题目</view>
         </view>
       </view>
@@ -39,10 +42,11 @@
       <view v-for="(q, index) in questions" :key="q.id || index" class="q-card">
         <view class="q-head">
           <text class="q-no">{{ index + 1 }}. {{ typeLabel(q.type) }}</text>
-          <text class="q-diff">{{ difficultyLabel(q.difficulty) }}</text>
+          <text class="q-diff">{{ difficultyLabel(q.difficulty) }} · {{ q.visibility === 'PUBLIC' ? '公开题' : '私有题' }}</text>
         </view>
         <text class="q-stem">{{ q.stem || '（无题干）' }}</text>
         <view v-if="canEdit" class="q-actions" @tap.stop>
+          <text class="link" @tap="goPush(q)">推送到收藏夹</text>
           <text class="link danger" @tap="confirmRemove(q)">移出收藏夹</text>
         </view>
       </view>
@@ -56,7 +60,8 @@ import { getUserInfo } from '@/utils/storage.js'
 import {
   getQuestionFolderDetail,
   listQuestionFolderQuestions,
-  removeQuestionFromFolder
+  removeQuestionFromFolder,
+  changeQuestionFolderVisibility
 } from '@/api/questionFolder.js'
 
 const TYPE_LABELS = {
@@ -126,6 +131,45 @@ export default {
     goAdd() {
       uni.navigateTo({
         url: `/subpackage_exam/questionFolderAdd/questionFolderAdd?folderId=${encodeURIComponent(this.folderId)}`
+      })
+    },
+    goPush(q) {
+      if (!q?.id) return
+      uni.navigateTo({
+        url: `/subpackage_exam/questionFolderPush/questionFolderPush?folderId=${encodeURIComponent(this.folderId)}&questionIds=${encodeURIComponent(String(q.id))}`
+      })
+    },
+    async applyVisibility(visibility, publishContainedQuestions) {
+      try {
+        await changeQuestionFolderVisibility(this.folderId, {
+          visibility,
+          publishContainedQuestions: Boolean(publishContainedQuestions)
+        })
+        uni.showToast({ title: visibility === 'PUBLIC' ? '已改为公共' : '已改为私有', icon: 'success' })
+        this.loadDetail()
+      } catch (error) {
+        // request toast
+      }
+    },
+    toggleVisibility() {
+      if (!this.detail) return
+      const toPublic = this.detail.visibility !== 'PUBLIC'
+      if (!toPublic) {
+        uni.showModal({
+          title: '改为私有收藏夹',
+          content: '改为私有后，仅你（及管理员）可见该收藏夹。',
+          success: (res) => {
+            if (res.confirm) this.applyVisibility('PRIVATE', false)
+          }
+        })
+        return
+      }
+      uni.showActionSheet({
+        itemList: ['改为公共（题目可见性不变）', '改为公共并公开夹内私有题'],
+        success: (res) => {
+          if (res.tapIndex === 0) this.applyVisibility('PUBLIC', false)
+          if (res.tapIndex === 1) this.applyVisibility('PUBLIC', true)
+        }
       })
     },
     confirmRemove(q) {
@@ -220,6 +264,16 @@ export default {
   margin-top: 20rpx;
   display: flex;
   justify-content: flex-end;
+  gap: 16rpx;
+}
+
+.ghost-btn {
+  padding: 12rpx 22rpx;
+  border-radius: 999rpx;
+  background: #e8eef3;
+  color: #304152;
+  font-size: 24rpx;
+  font-weight: 700;
 }
 
 .primary-btn {
@@ -258,6 +312,13 @@ export default {
   border-top: 1px solid #eef2f5;
   display: flex;
   justify-content: flex-end;
+  gap: 28rpx;
+}
+
+.link {
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #5e7387;
 }
 
 .link.danger {

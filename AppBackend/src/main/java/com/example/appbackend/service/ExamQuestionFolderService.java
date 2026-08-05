@@ -25,6 +25,12 @@ public interface ExamQuestionFolderService {
             Long userId,
             boolean admin);
 
+    ExamQuestionFolderDTO.FolderVO changeVisibility(
+            Long folderId,
+            ExamQuestionFolderDTO.VisibilityRequest request,
+            Long userId,
+            boolean admin);
+
     void deleteFolder(Long folderId, Long userId, boolean admin);
 
     ExamQuestionFolderDTO.FolderDetailVO getFolderDetail(Long folderId, Long userId, boolean admin);
@@ -39,4 +45,10 @@ public interface ExamQuestionFolderService {
     void addQuestion(Long folderId, Long questionId, Long userId, boolean admin);
 
     void removeQuestion(Long folderId, Long questionId, Long userId, boolean admin);
+
+    ExamQuestionFolderDTO.PushQuestionsResult pushQuestions(
+            Long sourceFolderId,
+            ExamQuestionFolderDTO.PushQuestionsRequest request,
+            Long userId,
+            boolean admin);
 }

@@ -52,3 +52,19 @@ export function removeQuestionFromFolder(folderId, questionId) {
     method: 'DELETE'
   })
 }
+
+export function changeQuestionFolderVisibility(id, data) {
+  return request({
+    url: `${BASE}/${id}/visibility`,
+    method: 'PUT',
+    data
+  })
+}
+
+export function pushQuestionsToFolder(sourceFolderId, data) {
+  return request({
+    url: `${BASE}/${sourceFolderId}/questions/push`,
+    method: 'POST',
+    data
+  })
+}

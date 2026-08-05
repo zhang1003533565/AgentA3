@@ -885,6 +885,13 @@
 						"navigationBarTitleText": "添加题目",
 						"navigationStyle": "custom"
 					}
+				},
+				{
+					"path": "questionFolderPush/questionFolderPush",
+					"style": {
+						"navigationBarTitleText": "推送到收藏夹",
+						"navigationStyle": "custom"
+					}
 				}
 			]
 		},

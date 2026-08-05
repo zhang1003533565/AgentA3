@@ -62,6 +62,17 @@ public class ExamQuestionFolderController {
         return Result.success("已重命名", folderService.renameFolder(id, body, getUserId(request), isAdmin(request)));
     }
 
+    @PutMapping("/{id}/visibility")
+    @Operation(summary = "切换收藏夹公共/私有")
+    public Result<ExamQuestionFolderDTO.FolderVO> changeVisibility(
+            @PathVariable Long id,
+            @Valid @RequestBody ExamQuestionFolderDTO.VisibilityRequest body,
+            HttpServletRequest request) {
+        return Result.success(
+                "可见范围已更新",
+                folderService.changeVisibility(id, body, getUserId(request), isAdmin(request)));
+    }
+
     @DeleteMapping("/{id}")
     @Operation(summary = "删除收藏夹")
     public Result<Void> delete(@PathVariable Long id, HttpServletRequest request) {
@@ -96,6 +107,17 @@ public class ExamQuestionFolderController {
             HttpServletRequest request) {
         folderService.addQuestion(id, body.getQuestionId(), getUserId(request), isAdmin(request));
         return Result.success("已添加", null);
+    }
+
+    @PostMapping("/{id}/questions/push")
+    @Operation(summary = "将题目推送到其他收藏夹", description = "支持公共↔私有；推到公共夹时可同步公开私有题")
+    public Result<ExamQuestionFolderDTO.PushQuestionsResult> pushQuestions(
+            @PathVariable Long id,
+            @Valid @RequestBody ExamQuestionFolderDTO.PushQuestionsRequest body,
+            HttpServletRequest request) {
+        return Result.success(
+                "推送成功",
+                folderService.pushQuestions(id, body, getUserId(request), isAdmin(request)));
     }
 
     @DeleteMapping("/{id}/questions/{questionId}")

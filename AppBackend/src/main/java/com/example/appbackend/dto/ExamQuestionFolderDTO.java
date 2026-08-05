@@ -31,9 +31,44 @@ public final class ExamQuestionFolderDTO {
     }
 
     @Data
+    public static class VisibilityRequest {
+        @NotBlank(message = "可见范围不能为空")
+        private String visibility;
+
+        /** 切到 PUBLIC 时，是否同步把夹内自己可编辑的私有题改为公开 */
+        private Boolean publishContainedQuestions;
+    }
+
+    @Data
     public static class AddQuestionRequest {
         @NotNull(message = "题目ID不能为空")
         private Long questionId;
+    }
+
+    @Data
+    public static class PushQuestionsRequest {
+        @NotNull(message = "目标收藏夹不能为空")
+        private Long targetFolderId;
+
+        @NotNull(message = "题目列表不能为空")
+        @Size(min = 1, message = "至少选择一道题")
+        private List<Long> questionIds;
+
+        /** 推送后是否从源收藏夹移除 */
+        private Boolean removeFromSource;
+
+        /** 目标为公共夹且题目为私有时，是否一并公开题目 */
+        private Boolean publishQuestions;
+    }
+
+    @Data
+    public static class PushQuestionsResult {
+        private Long targetFolderId;
+        private String targetFolderName;
+        private String targetVisibility;
+        private Integer pushedCount;
+        private Integer publishedCount;
+        private Integer removedFromSourceCount;
     }
 
     @Data

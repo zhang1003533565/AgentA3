@@ -1,7 +1,9 @@
 package com.example.appbackend.service.impl;
 
+import com.example.appbackend.dto.ExamQuestionDTO;
 import com.example.appbackend.dto.ExamQuestionFolderDTO;
 import com.example.appbackend.entity.ExamQuestionFolder;
+import com.example.appbackend.entity.ExamQuestionFolderItem;
 import com.example.appbackend.entity.User;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.ExamQuestionFolderItemRepository;
@@ -134,5 +136,63 @@ class ExamQuestionFolderServiceImplTest {
         assertEquals(1, list.size());
         assertEquals(2L, list.get(0).getQuestionCount());
         assertEquals("zzs", list.get(0).getOwnerUsername());
+    }
+
+    @Test
+    void ownerCanSwitchPrivateFolderToPublic() {
+        ExamQuestionFolder folder = new ExamQuestionFolder();
+        folder.setId(8L);
+        folder.setName("草稿");
+        folder.setVisibility(ExamQuestionFolder.VISIBILITY_PRIVATE);
+        folder.setOwnerUserId(7L);
+        folder.setStatus(1);
+        when(folderRepository.findByIdAndStatus(8L, 1)).thenReturn(Optional.of(folder));
+        when(folderRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(itemRepository.countByFolderId(8L)).thenReturn(0L);
+        when(userRepository.findById(7L)).thenReturn(Optional.of(new User()));
+
+        ExamQuestionFolderDTO.VisibilityRequest request = new ExamQuestionFolderDTO.VisibilityRequest();
+        request.setVisibility("PUBLIC");
+        ExamQuestionFolderDTO.FolderVO vo = service.changeVisibility(8L, request, 7L, false);
+
+        assertEquals(ExamQuestionFolder.VISIBILITY_PUBLIC, vo.getVisibility());
+        assertEquals("公共", vo.getVisibilityLabel());
+    }
+
+    @Test
+    void pushPrivateQuestionToPublicFolderRequiresPublishFlag() {
+        ExamQuestionFolder source = new ExamQuestionFolder();
+        source.setId(1L);
+        source.setName("私有夹");
+        source.setVisibility(ExamQuestionFolder.VISIBILITY_PRIVATE);
+        source.setOwnerUserId(7L);
+        source.setStatus(1);
+        ExamQuestionFolder target = new ExamQuestionFolder();
+        target.setId(2L);
+        target.setName("公共夹");
+        target.setVisibility(ExamQuestionFolder.VISIBILITY_PUBLIC);
+        target.setOwnerUserId(7L);
+        target.setStatus(1);
+        when(folderRepository.findByIdAndStatus(1L, 1)).thenReturn(Optional.of(source));
+        when(folderRepository.findByIdAndStatus(2L, 1)).thenReturn(Optional.of(target));
+
+        ExamQuestionFolderItem membership = new ExamQuestionFolderItem();
+        membership.setFolderId(1L);
+        membership.setQuestionId(99L);
+        when(itemRepository.findByFolderIdAndQuestionId(1L, 99L)).thenReturn(Optional.of(membership));
+
+        ExamQuestionDTO.QuestionVO question = new ExamQuestionDTO.QuestionVO();
+        question.setId(99L);
+        question.setVisibility("PRIVATE");
+        when(examQuestionService.getQuestion(99L, 7L)).thenReturn(question);
+
+        ExamQuestionFolderDTO.PushQuestionsRequest request = new ExamQuestionFolderDTO.PushQuestionsRequest();
+        request.setTargetFolderId(2L);
+        request.setQuestionIds(List.of(99L));
+        request.setPublishQuestions(false);
+
+        BusinessException error = assertThrows(BusinessException.class, () ->
+                service.pushQuestions(1L, request, 7L, false));
+        assertEquals(400, error.getCode());
     }
 }

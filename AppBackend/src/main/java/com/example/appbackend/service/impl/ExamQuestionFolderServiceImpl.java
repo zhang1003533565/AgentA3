@@ -3,6 +3,7 @@ package com.example.appbackend.service.impl;
 import com.example.appbackend.dto.ExamQuestionDTO;
 import com.example.appbackend.dto.ExamQuestionFolderDTO;
 import com.example.appbackend.dto.PageResponse;
+import com.example.appbackend.entity.ExamQuestion;
 import com.example.appbackend.entity.ExamQuestionFolder;
 import com.example.appbackend.entity.ExamQuestionFolderItem;
 import com.example.appbackend.entity.Result;
@@ -117,6 +118,34 @@ public class ExamQuestionFolderServiceImpl implements ExamQuestionFolderService 
 
     @Override
     @Transactional
+    public ExamQuestionFolderDTO.FolderVO changeVisibility(
+            Long folderId,
+            ExamQuestionFolderDTO.VisibilityRequest request,
+            Long userId,
+            boolean admin) {
+        ExamQuestionFolder folder = requireEditableFolder(folderId, userId, admin);
+        String visibility = normalizeVisibility(request.getVisibility());
+        folder.setVisibility(visibility);
+        folderRepository.save(folder);
+
+        if (ExamQuestionFolder.VISIBILITY_PUBLIC.equals(visibility)
+                && Boolean.TRUE.equals(request.getPublishContainedQuestions())) {
+            Page<ExamQuestionFolderItem> items = itemRepository.findByFolderIdOrderByCreateTimeDescIdDesc(
+                    folderId, PageRequest.of(0, 500));
+            for (ExamQuestionFolderItem item : items.getContent()) {
+                try {
+                    examQuestionService.setQuestionVisibility(
+                            item.getQuestionId(), ExamQuestion.VISIBILITY_PUBLIC, userId, admin);
+                } catch (BusinessException ignored) {
+                    // skip questions the operator cannot publish
+                }
+            }
+        }
+        return toFolderVo(folder, itemRepository.countByFolderId(folderId), userId, loadUser(folder.getOwnerUserId()));
+    }
+
+    @Override
+    @Transactional
     public void deleteFolder(Long folderId, Long userId, boolean admin) {
         ExamQuestionFolder folder = requireEditableFolder(folderId, userId, admin);
         folder.setStatus(0);
@@ -185,6 +214,79 @@ public class ExamQuestionFolderServiceImpl implements ExamQuestionFolderService 
         requireEditableFolder(folderId, userId, admin);
         itemRepository.findByFolderIdAndQuestionId(folderId, questionId)
                 .ifPresent(itemRepository::delete);
+    }
+
+    @Override
+    @Transactional
+    public ExamQuestionFolderDTO.PushQuestionsResult pushQuestions(
+            Long sourceFolderId,
+            ExamQuestionFolderDTO.PushQuestionsRequest request,
+            Long userId,
+            boolean admin) {
+        ExamQuestionFolder source = requireEditableFolder(sourceFolderId, userId, admin);
+        if (request.getTargetFolderId() == null || request.getTargetFolderId().equals(sourceFolderId)) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "请选择与源收藏夹不同的目标收藏夹");
+        }
+        ExamQuestionFolder target = requireEditableFolder(request.getTargetFolderId(), userId, admin);
+        List<Long> questionIds = request.getQuestionIds() == null
+                ? List.of()
+                : request.getQuestionIds().stream().filter(Objects::nonNull).distinct().toList();
+        if (questionIds.isEmpty()) {
+            throw new BusinessException(Result.BAD_REQUEST_CODE, "至少选择一道题");
+        }
+
+        boolean targetPublic = ExamQuestionFolder.VISIBILITY_PUBLIC.equals(target.getVisibility());
+        boolean publishQuestions = Boolean.TRUE.equals(request.getPublishQuestions());
+        boolean removeFromSource = Boolean.TRUE.equals(request.getRemoveFromSource());
+        int pushed = 0;
+        int published = 0;
+        int removed = 0;
+
+        for (Long questionId : questionIds) {
+            itemRepository.findByFolderIdAndQuestionId(sourceFolderId, questionId)
+                    .orElseThrow(() -> new BusinessException(Result.BAD_REQUEST_CODE, "题目不在源收藏夹中: " + questionId));
+
+            ExamQuestionDTO.QuestionVO question = examQuestionService.getQuestion(questionId, userId);
+            boolean questionPrivate = ExamQuestion.VISIBILITY_PRIVATE.equalsIgnoreCase(
+                    question.getVisibility() == null ? "" : question.getVisibility());
+
+            if (targetPublic && questionPrivate) {
+                if (!publishQuestions) {
+                    throw new BusinessException(
+                            Result.BAD_REQUEST_CODE,
+                            "目标为公共收藏夹，私有题目需勾选「同步公开题目」后再推送");
+                }
+                examQuestionService.setQuestionVisibility(
+                        questionId, ExamQuestion.VISIBILITY_PUBLIC, userId, admin);
+                published++;
+            }
+
+            if (!itemRepository.existsByFolderIdAndQuestionId(target.getId(), questionId)) {
+                ExamQuestionFolderItem item = new ExamQuestionFolderItem();
+                item.setFolderId(target.getId());
+                item.setQuestionId(questionId);
+                itemRepository.save(item);
+            }
+            pushed++;
+
+            if (removeFromSource) {
+                itemRepository.findByFolderIdAndQuestionId(sourceFolderId, questionId)
+                        .ifPresent(itemRepository::delete);
+                removed++;
+            }
+        }
+
+        folderRepository.save(source);
+        folderRepository.save(target);
+
+        ExamQuestionFolderDTO.PushQuestionsResult result = new ExamQuestionFolderDTO.PushQuestionsResult();
+        result.setTargetFolderId(target.getId());
+        result.setTargetFolderName(target.getName());
+        result.setTargetVisibility(target.getVisibility());
+        result.setPushedCount(pushed);
+        result.setPublishedCount(published);
+        result.setRemovedFromSourceCount(removed);
+        return result;
     }
 
     private List<Long> resolveOwnerIds(String ownerKeyword) {

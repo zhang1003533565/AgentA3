@@ -75,8 +75,11 @@
           <text v-if="item.ownerPersonalNumber"> · 学号 {{ item.ownerPersonalNumber }}</text>
         </view>
         <view class="card-actions" @tap.stop>
-          <text class="link" @tap="openRename(item)">重命名</text>
-          <text class="link danger" @tap="confirmDelete(item)">删除</text>
+          <text v-if="canManage(item)" class="link" @tap="toggleVisibility(item)">
+            {{ item.visibility === 'PUBLIC' ? '改为私有' : '改为公共' }}
+          </text>
+          <text v-if="canManage(item)" class="link" @tap="openRename(item)">重命名</text>
+          <text v-if="canManage(item)" class="link danger" @tap="confirmDelete(item)">删除</text>
         </view>
       </view>
       <view class="list-footer"></view>
@@ -91,7 +94,8 @@ import {
   listQuestionFolders,
   createQuestionFolder,
   renameQuestionFolder,
-  deleteQuestionFolder
+  deleteQuestionFolder,
+  changeQuestionFolderVisibility
 } from '@/api/questionFolder.js'
 
 export default {
@@ -179,6 +183,43 @@ export default {
           } catch (error) {
             // request toast
           }
+        }
+      })
+    },
+    canManage(item) {
+      return this.isAdmin || item.ownedByCurrentUser
+    },
+    async applyVisibility(item, visibility, publishContainedQuestions) {
+      try {
+        await changeQuestionFolderVisibility(item.id, {
+          visibility,
+          publishContainedQuestions: Boolean(publishContainedQuestions)
+        })
+        uni.showToast({ title: visibility === 'PUBLIC' ? '已改为公共' : '已改为私有', icon: 'success' })
+        // switch tab to the new visibility so user sees the folder
+        this.visibility = visibility
+        this.refresh()
+      } catch (error) {
+        // request toast
+      }
+    },
+    toggleVisibility(item) {
+      const toPublic = item.visibility !== 'PUBLIC'
+      if (!toPublic) {
+        uni.showModal({
+          title: '改为私有收藏夹',
+          content: '改为私有后，仅你（及管理员）可见该收藏夹。',
+          success: (res) => {
+            if (res.confirm) this.applyVisibility(item, 'PRIVATE', false)
+          }
+        })
+        return
+      }
+      uni.showActionSheet({
+        itemList: ['改为公共（题目可见性不变）', '改为公共并公开夹内私有题'],
+        success: (res) => {
+          if (res.tapIndex === 0) this.applyVisibility(item, 'PUBLIC', false)
+          if (res.tapIndex === 1) this.applyVisibility(item, 'PUBLIC', true)
         }
       })
     },
