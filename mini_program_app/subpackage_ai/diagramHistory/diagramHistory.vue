@@ -1,13 +1,13 @@
 <template>
   <view class="page">
-    <view class="nav">
-      <view class="nav-back" @tap="goBack"><text class="nav-back-icon">‹</text></view>
-      <text class="nav-title">历史记录</text>
-      <view class="nav-right">
-        <view class="nav-ico" @tap="toggleSearch"><svg class="ni" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></view>
-        <view class="nav-ico" @tap="toast('筛选')"><svg class="ni" viewBox="0 0 24 24"><path d="M3 5h18M6 12h12M10 19h4"/></svg></view>
-      </view>
-    </view>
+    <nav-bar title="历史记录" :showBack="true" :border="false">
+      <template #right>
+        <view class="nav-right">
+          <view class="nav-ico" @tap="toggleSearch"><svg class="ni" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></view>
+          <view class="nav-ico" @tap="toast('筛选')"><svg class="ni" viewBox="0 0 24 24"><path d="M3 5h18M6 12h12M10 19h4"/></svg></view>
+        </view>
+      </template>
+    </nav-bar>
 
     <view v-if="searchOn" class="search-bar">
       <input class="search-input" v-model="keyword" placeholder="搜索标题" focus @input="applyFilter" />
@@ -92,6 +92,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
+import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getMindmapHistory } from '@/api/aiDiagram.js'
 import { getFlowchartHistory } from '@/api/aiDiagram.js'
 import { getArchitectureHistory } from '@/api/architecture.js'
@@ -169,17 +170,13 @@ onShow(() => { load() })
 
 <style lang="scss" scoped>
 .page { height: 100vh; background: #F5F6FA; display: flex; flex-direction: column; overflow: hidden; }
-.nav { height: 96rpx; display: flex; align-items: center; justify-content: center; position: relative; background: #fff; }
-.nav-back { position: absolute; left: 32rpx; width: 56rpx; height: 56rpx; display: flex; align-items: center; justify-content: center; }
-.nav-back-icon { font-size: 40rpx; color: #111; }
-.nav-title { font-size: 32rpx; font-weight: 700; }
-.nav-right { position: absolute; right: 32rpx; display: flex; gap: 24rpx; }
-.nav-ico { width: 44rpx; height: 44rpx; display: flex; align-items: center; justify-content: center; }
-.ni { width: 38rpx; height: 38rpx; stroke: #111; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.search-bar { padding: 0 32rpx 16rpx; background: #fff; }
-.search-input { height: 72rpx; background: #F5F6FA; border-radius: 16rpx; padding: 0 24rpx; font-size: 26rpx; }
+.nav-right { display: flex; gap: 16rpx; align-items: center; }
+.nav-ico { width: 56rpx; height: 56rpx; display: flex; align-items: center; justify-content: center; }
+.ni { width: 38rpx; height: 38rpx; stroke: #1D1D1F; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.search-bar { display: flex; align-items: center; padding: 16rpx 32rpx; background: #fff; }
+.search-input { flex: 1; height: 72rpx; background: #F5F6FA; border-radius: 16rpx; padding: 0 24rpx; font-size: 26rpx; }
 
-.tabs { display: flex; gap: 20rpx; padding: 12rpx 32rpx 28rpx; background: #fff; }
+.tabs { display: flex; gap: 20rpx; margin: 16rpx 24rpx 8rpx; padding: 12rpx; background: #fff; border-radius: 24rpx; box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.03); }
 .tab { flex: 1; display: flex; align-items: center; justify-content: center; gap: 14rpx; height: 88rpx; border-radius: 24rpx; background: #F5F6FA; font-size: 28rpx; font-weight: 600; color: #333; }
 .tab-ic { width: 34rpx; height: 34rpx; }
 .tab.on { background: #16181D; color: #fff; }
@@ -187,8 +184,8 @@ onShow(() => { load() })
 .count-row { display: flex; align-items: center; justify-content: space-between; padding: 24rpx 40rpx 16rpx; font-size: 26rpx; color: #666; }
 .sort { color: #888; }
 
-.list { flex: 1; padding: 8rpx 32rpx 160rpx; }
-.card { background: #fff; border-radius: 32rpx; padding: 28rpx; display: flex; gap: 24rpx; margin-bottom: 24rpx; position: relative; box-shadow: 0 4rpx 16rpx rgba(0,0,0,.03); }
+.list { flex: 1; height: 0; padding: 8rpx 0 160rpx; }
+.card { background: #fff; border-radius: 32rpx; padding: 28rpx; display: flex; gap: 24rpx; margin: 0 32rpx 24rpx; box-sizing: border-box; position: relative; box-shadow: 0 4rpx 16rpx rgba(0,0,0,.03); }
 .thumb { width: 236rpx; height: 176rpx; border-radius: 20rpx; background: #FAFAFD; border: 2rpx solid #F0F0F4; position: relative; overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
 .thumb svg { width: 100%; height: 100%; }
 .type-badge { position: absolute; left: 12rpx; top: 12rpx; width: 52rpx; height: 52rpx; border-radius: 16rpx; display: flex; align-items: center; justify-content: center; }

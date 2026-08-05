@@ -1,32 +1,7 @@
 <template>
   <view class="page">
-    <!-- 顶部 -->
-    <view v-if="pageState !== 'error'" class="header">
-      <view class="header-back" @tap="goBack">
-        <text class="header-back-icon">‹</text>
-      </view>
-      <view v-if="!isCompleted" class="header-center">
-        <view class="header-title-row">
-          <text class="header-sparkle">✦</text>
-          <text class="header-title-text">AI正在生成思维导图</text>
-        </view>
-        <text class="header-subtitle-text">AI 正在为您智能构建专属知识图谱</text>
-      </view>
-      <view v-else class="header-center">
-        <view class="header-title-row">
-          <text class="header-done-icon">✓</text>
-          <text class="header-title-text header-title-text--done">思维导图生成完成</text>
-        </view>
-        <text class="header-subtitle-text header-subtitle-text--done">您的知识图谱已准备就绪</text>
-      </view>
-    </view>
-
-    <!-- 错误状态头部 -->
-    <view v-else class="header header--error">
-      <view class="header-back" @tap="goBack">
-        <text class="header-back-icon">‹</text>
-      </view>
-    </view>
+    <!-- 顶部（共用 nav-bar 浅蓝风格） -->
+    <nav-bar :title="navTitle" :subtitle="navSubtitle" :showBack="true" :border="false" />
 
     <!-- AI 生成日志卡片时间线 -->
     <view v-if="pageState !== 'error'" class="timeline-area">
@@ -73,6 +48,7 @@
 import { ref, computed, reactive, nextTick, onUnmounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import MindMapGenerateTimeline from './MindMapGenerateTimeline.vue'
+import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { buildMindmapPayload, generateMindmap as requestGenerateMindmap, getMindmapDetail } from '@/api/aiDiagram.js'
 
 const topicText = ref('')
@@ -105,6 +81,16 @@ const state = reactive({ resultData: null })
 const isCompleted = ref(false)
 const pageState = ref('loading') // loading | animating | completed | error
 const errorMessage = ref('')
+
+// 共用 nav-bar 动态标题
+const navTitle = computed(() => {
+  if (pageState.value === 'error') return '生成失败'
+  return isCompleted.value ? '思维导图生成完成' : 'AI正在生成思维导图'
+})
+const navSubtitle = computed(() => {
+  if (pageState.value === 'error') return errorMessage.value || ''
+  return isCompleted.value ? '您的知识体系已准备就绪' : `主题： ${centerTopic.value || topicText.value || 'AI主题'}`
+})
 
 const aiFinished = ref(false)        // AI 是否返回数据
 const animationFinished = ref(false) // 时间线动画是否播放完
