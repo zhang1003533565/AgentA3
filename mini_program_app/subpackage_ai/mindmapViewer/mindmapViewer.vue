@@ -110,6 +110,14 @@
       @close="showOptimizeSheet = false"
       @optimize="onOptimize"
     />
+
+    <!-- AI 优化思考窗（原地刷新，不跳整图重播） -->
+    <AiThinkWindow
+      :visible="showThinkWindow"
+      type="mindmap"
+      done-sub="结构已更新"
+      @view="onThinkView"
+    />
   </view>
 </template>
 
@@ -118,6 +126,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import OptimizeMindMapSheet from './OptimizeMindMapSheet.vue'
 import AiResultBar from '../components/AiResultBar.vue'
+import AiThinkWindow from '../components/AiThinkWindow.vue'
 import { getErrorMessage, getMindmapDetail, optimizeMindmap } from '@/api/aiDiagram.js'
 import { exportMindmapAsPNG } from './mindmapExporter.js'
 
@@ -160,6 +169,7 @@ const canvasRef = ref(null)
 
 // 优化弹窗相关
 const showOptimizeSheet = ref(false)
+const showThinkWindow = ref(false)
 const currentMindMapData = ref({})
 
 const treeData = computed(() => toTreeData(mindmap))
@@ -615,21 +625,26 @@ function openOptimizeSheet() {
   showOptimizeSheet.value = true
 }
 
-// 处理优化提交
+// 处理优化提交：弹窗 → 思考窗 → 原地刷新（不再跳整图重播）
 async function onOptimize(payload) {
+  showOptimizeSheet.value = false
+  showThinkWindow.value = true
   try {
-    showOptimizeSheet.value = false
-    uni.showLoading({ title: '优化中...' })
     const result = await optimizeMindmap(payload)
-    uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
-    uni.navigateTo({
-      url: `/subpackage_ai/mindmapGenerating/mindmapGenerating?id=${encodeURIComponent(result.id)}`
-    })
+    if (result?.id) {
+      uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
+    }
+    // 原地刷新思维导图，思考窗继续走完
+    applyMindmap(result)
   } catch (error) {
+    showThinkWindow.value = false
     uni.showToast({ title: getErrorMessage(error, '优化失败'), icon: 'none' })
-  } finally {
-    uni.hideLoading()
   }
+}
+
+// 思考窗走完，用户点"查看优化结果" → 关闭思考窗
+function onThinkView() {
+  showThinkWindow.value = false
 }
 
 onMounted(() => {
