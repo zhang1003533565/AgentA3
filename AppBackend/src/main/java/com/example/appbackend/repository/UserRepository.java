@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificationExecutor<User> {
@@ -39,4 +40,13 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 
     @Query("SELECT u.role.name FROM User u WHERE u.id = :userId")
     String findRoleNameById(@Param("userId") Long userId);
+
+    Optional<User> findByPersonalNumber(String personalNumber);
+
+    @Query("""
+            SELECT u.id FROM User u
+            WHERE LOWER(u.username) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(COALESCE(u.personalNumber, '')) LIKE LOWER(CONCAT('%', :keyword, '%'))
+            """)
+    List<Long> findIdsByUsernameOrPersonalNumber(@Param("keyword") String keyword);
 }

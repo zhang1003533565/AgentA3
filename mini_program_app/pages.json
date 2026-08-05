@@ -855,6 +855,20 @@
 						"navigationBarTitleText": "答题结果",
 						"navigationStyle": "custom"
 					}
+				},
+				{
+					"path": "myQuestionBank/myQuestionBank",
+					"style": {
+						"navigationBarTitleText": "我的题库",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "questionFolderDetail/questionFolderDetail",
+					"style": {
+						"navigationBarTitleText": "收藏夹详情",
+						"navigationStyle": "custom"
+					}
 				}
 			]
 		},
