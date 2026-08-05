@@ -26,7 +26,7 @@
       </view>
       <view v-else-if="!loading && !questions.length" class="state-block">
         <text>暂无可添加题目</text>
-        <text class="state-desc">请先通过管理端「题库生成」导入系统题库，或等待已有公共题目</text>
+        <text class="state-desc">请先在「AI 创造 → 题库生成」导入题目，或等待已有公共题目</text>
       </view>
 
       <view v-for="q in questions" :key="q.id" class="q-card">
