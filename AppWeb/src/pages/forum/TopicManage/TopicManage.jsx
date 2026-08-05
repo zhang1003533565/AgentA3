@@ -122,7 +122,7 @@ function TopicManage() {
   ]
 
   const statItems = [
-    { icon: <TagOutlined />, label: '话题总数', value: stats.totalTopics, color: '#7c3aed', bg: '#f5f3ff' },
+    { icon: <TagOutlined />, label: '话题总数', value: stats.totalTopics, color: '#4a7fad', bg: '#eef4fa' },
     { icon: <CheckCircleOutlined />, label: '启用中', value: stats.activeTopics, color: '#059669', bg: '#ecfdf5' },
     { icon: <FireFilled />, label: '热门话题', value: stats.hotTopics, color: '#dc2626', bg: '#fef2f2' },
   ]

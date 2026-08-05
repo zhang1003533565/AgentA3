@@ -1,2 +1,2 @@
 [permissions]
-allow = ["Edit", "Bash=cd /e/zzs/github/AgentA3/AppWeb && npm run build 2>&1 | tail -6", "Bash=cd /e/zzs/github/AgentA3/AppWeb && npm run build 2>&1 | tail -4"]
+allow = ["Edit", "Bash=cd /e/zzs/github/AgentA3/AppWeb && npm run build 2>&1 | tail -6", "Bash=cd /e/zzs/github/AgentA3/AppWeb && npm run build 2>&1 | tail -4", "explore", "Bash=cd /e/zzs/github/AgentA3/AppWeb && npx eslint src/main.jsx 2>&1 | tail -5; echo \"---\"; netstat -ano | grep -E ':5174.*LISTEN' | head -2"]
