@@ -51,7 +51,7 @@
 								<text>{{ meetingTime(meeting) }}</text>
 							</view>
 							<view class="meeting-meta">
-								<view class="code-icon" />
+								<image class="meta-icon" src="@/static/icons/line/id-card.svg" mode="aspectFit" />
 								<text>会议号 {{ formatRoomCode(meeting.roomCode) }}</text>
 							</view>
 						</view>
@@ -91,7 +91,7 @@
 								<text>{{ historyTime(meeting) }}</text>
 							</view>
 							<view class="meeting-meta">
-								<view class="code-icon" />
+								<image class="meta-icon" src="@/static/icons/line/id-card.svg" mode="aspectFit" />
 								<text>会议号 {{ formatRoomCode(meeting.roomCode) }}</text>
 							</view>
 						</view>
@@ -315,7 +315,7 @@ $card-radius: 24rpx;
 /* 会议列表项 */
 .meeting-item {
 	display: flex;
-	align-items: flex-start;
+	align-items: flex-end;
 	gap: 18rpx;
 	padding: 28rpx;
 	margin-bottom: 20rpx;
@@ -371,6 +371,7 @@ $card-radius: 24rpx;
 	display: flex;
 	align-items: center;
 	gap: 10rpx;
+	padding-left: 30rpx;
 	font-size: 24rpx;
 	color: $text-secondary;
 	margin-bottom: 8rpx;
@@ -385,23 +386,14 @@ $card-radius: 24rpx;
 	height: 24rpx;
 }
 
-.code-icon {
-	width: 22rpx;
-	height: 16rpx;
-	border-radius: 4rpx;
-	border: 2rpx solid $text-muted;
-	box-sizing: border-box;
-	flex-shrink: 0;
-}
-
 /* 右侧操作 */
 .action-side {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	justify-content: center;
-	gap: 10rpx;
-	min-width: 110rpx;
+	justify-content: flex-end;
+	gap: 14rpx;
+	min-width: 100rpx;
 }
 
 .action-status {
@@ -411,17 +403,21 @@ $card-radius: 24rpx;
 }
 
 .action-btn {
-	height: 52rpx;
-	padding: 0 26rpx;
-	border-radius: 999rpx;
+	min-width: 96rpx;
+	height: 50rpx;
+	padding: 0 24rpx;
+	border-radius: 12rpx;
+	border: 2rpx solid #16A34A;
+	background: transparent;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	font-size: 24rpx;
+	font-size: 26rpx;
 	font-weight: 700;
+	color: #16A34A;
 
 	&--primary {
-		background: #DCFCE7;
+		background: transparent;
 		color: #16A34A;
 	}
 }
