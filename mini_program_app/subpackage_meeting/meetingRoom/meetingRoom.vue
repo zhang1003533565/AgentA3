@@ -55,17 +55,23 @@
 								<text>会议号 {{ formatRoomCode(meeting.roomCode) }}</text>
 							</view>
 						</view>
+						<!-- 右侧操作区 - 固定宽度保证对齐 -->
 						<view class="action-side">
-							<template v-if="meeting.status === 'active'">
-								<text class="action-status">进行中</text>
-								<view
-									class="action-btn action-btn--primary"
-									@click.stop="enterMeeting(meeting)"
-								>
-									<text>进入</text>
-								</view>
-							</template>
-							<text v-else class="action-text action-text--pending">待开始</text>
+							<!-- 统一容器，所有内容在这个高度内靠右排列 -->
+							<view class="action-content">
+								<template v-if="meeting.status === 'active'">
+									<!-- 状态标签 -->
+									<view class="status-tag">进行中</view>
+									<!-- 进入按钮 -->
+									<view
+										class="action-btn action-btn--primary"
+										@click.stop="enterMeeting(meeting)"
+									>
+										<text>进入</text>
+									</view>
+								</template>
+								<text v-else class="action-text action-text--pending">待开始</text>
+							</view>
 						</view>
 					</view>
 				</view>
@@ -95,8 +101,12 @@
 								<text>会议号 {{ formatRoomCode(meeting.roomCode) }}</text>
 							</view>
 						</view>
+						<!-- 右侧操作区 - 固定宽度保证对齐 -->
 						<view class="action-side">
-							<text class="action-text action-text--ended">已结束</text>
+							<!-- 统一容器，所有内容在这个高度内居中 -->
+							<view class="action-content">
+								<text class="action-text action-text--ended">已结束</text>
+							</view>
 						</view>
 					</view>
 				</view>
@@ -315,7 +325,7 @@ $card-radius: 24rpx;
 /* 会议列表项 */
 .meeting-item {
 	display: flex;
-	align-items: flex-end;
+	align-items: center; /* 【关键】整体垂直居中 - 左侧信息和右侧状态在卡片内垂直居中对齐 */
 	gap: 18rpx;
 	padding: 28rpx;
 	margin-bottom: 20rpx;
@@ -386,26 +396,43 @@ $card-radius: 24rpx;
 	height: 24rpx;
 }
 
-/* 右侧操作 */
+/* 右侧操作区 - 固定宽度保证所有卡片对齐 */
 .action-side {
 	display: flex;
 	flex-direction: column;
-	align-items: center;
-	justify-content: flex-end;
-	gap: 14rpx;
-	min-width: 100rpx;
+	align-items: center; /* 【关键】水平居中 */
+	justify-content: center; /* 垂直居中 */
+	width: 140rpx; /* 【关键】固定宽度，确保所有卡片右侧对齐在同一竖列 */
+	flex-shrink: 0; /* 【关键】防止被压缩 */
+}
+
+/* 右侧内容的统一容器 - 控制内部元素的对齐 */
+.action-content {
+	display: flex;
+	flex-direction: column;
+	align-items: center; /* 【关键】内容水平居中（与图 2 一致）*/
+	justify-content: flex-start; /* 【关键】内容从顶部开始排列 */
+	gap: 16rpx; /* 【关键】增大间距，与图 2 更接近 */
+}
+
+/* "进行中" 状态标签 - 与 "待开始" 字体大小一致 */
+.status-tag {
+	font-size: 24rpx; /* 【关键】与 "待开始" 一致的字体大小 */
+	font-weight: 400; /* 【关键】使用常规字重，不要太粗 */
+	color: #16A34A; /* 绿色 */
+	line-height: 1;
+	margin-bottom: 8rpx; /* 【关键】给状态标签底部留出间距 */
 }
 
 .action-status {
-	font-size: 22rpx;
-	font-weight: 600;
+	font-size: 24rpx; /* 保持与 status-tag 一致 */
+	font-weight: 400;
 	color: #16A34A;
 }
 
 .action-btn {
-	min-width: 96rpx;
 	height: 50rpx;
-	padding: 0 24rpx;
+	padding: 0 24rpx; /* 固定 padding，避免过大 */
 	border-radius: 12rpx;
 	border: 2rpx solid #16A34A;
 	background: transparent;
@@ -413,18 +440,17 @@ $card-radius: 24rpx;
 	align-items: center;
 	justify-content: center;
 	font-size: 26rpx;
-	font-weight: 700;
+	font-weight: 400; /* 【关键】降低字重，更加克制 */
 	color: #16A34A;
-
-	&--primary {
-		background: transparent;
-		color: #16A34A;
-	}
+	min-width: 96rpx; /* 【关键】设置最小宽度，但不会无限扩大 */
+	box-sizing: border-box; /* 【关键】包含 padding 在内的总宽度 */
+	width: 100%; /* 【关键】按钮占满容器宽度 */
 }
 
 .action-text {
 	font-size: 24rpx;
 	font-weight: 600;
+	line-height: 1; /* 【关键】消除行高影响，保证垂直居中 */
 
 	&--pending {
 		color: $primary;
