@@ -38,6 +38,7 @@ import ResumeView from '../views/ResumeView.vue'
 import ResumeDesigner from '../views/ResumeDesigner.vue'
 import ResumeWizard from '../views/ResumeWizard.vue'
 import CampusCourseView from '../views/CampusCourseView.vue'
+import CampusDiscountView from '../views/CampusDiscountView.vue'
 import { getToken } from '../utils/auth'
 
 const routes = [
@@ -61,6 +62,7 @@ const routes = [
   { path: '/forum/posts/:postId', name: 'forum-post', component: ForumPostView },
   { path: '/forum/users/:userId', name: 'forum-profile', component: ForumProfileView },
   { path: '/campus-services', name: 'campus-services', component: CampusServicesView },
+  { path: '/discount', name: 'discount', component: CampusDiscountView },
   { path: '/activities/publish', name: 'activity-publish', component: ActivityPublishView },
   { path: '/activities/:activityId/sign-in', name: 'activity-sign-in', component: ActivitySignInView },
   { path: '/courses/:courseId', name: 'campus-course', component: CampusCourseView },
