@@ -627,6 +627,15 @@
 					}
 				},
 				{
+					"path": "questionBankGenerate/questionBankGenerate",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "pptGenerate/pptGenerate",
 					"style": {
 						"navigationBarTitleText": "",
