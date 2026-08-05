@@ -97,6 +97,7 @@ public class MeetingDTO {
     @Schema(description = "会议列表项")
     public static class SessionItem {
         private String sessionId;
+        private Long creatorId;
         private String roomCode;
         private String title;
         private String meetingType;
