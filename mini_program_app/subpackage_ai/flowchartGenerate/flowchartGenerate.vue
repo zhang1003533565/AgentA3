@@ -214,7 +214,7 @@ const generateFlowchart = () => {
 </script>
 
 <style lang="scss" scoped>
-.page { min-height: 100vh; background: #F4F6F9; color: #1e344f; }
+.page { min-height: 100vh; background: #FCFAFC; color: #1e344f; }
 
 .nav-history-action { display: flex; align-items: center; justify-content: center; width: 64rpx; height: 64rpx; border-radius: 999rpx; }
 .nav-history-icon { width: 32rpx; height: 32rpx; opacity: 0.72; }
@@ -256,7 +256,7 @@ const generateFlowchart = () => {
 .ready-card { display: flex; align-items: center; gap: 14rpx; margin-top: 32rpx; padding: 24rpx 28rpx; border-radius: 28rpx; background: #eef4fb; border: 2rpx solid #dbe7f3; color: #3E6A9C; font-size: 25rpx; }
 .ready-icon { width: 30rpx; height: 30rpx; flex-shrink: 0; }
 
-.bottom-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; padding: 20rpx 28rpx 30rpx; background: linear-gradient(180deg, rgba(244, 246, 249, 0), #F4F6F9 30%); }
+.bottom-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; padding: 20rpx 28rpx 30rpx; background: linear-gradient(180deg, rgba(252, 250, 252, 0), #FCFAFC 30%); }
 .generate-btn { display: flex; align-items: center; justify-content: center; gap: 12rpx; height: 88rpx; border-radius: 28rpx; background: #5081B8; color: #fff; font-size: 30rpx; font-weight: 700; box-shadow: 0 12rpx 32rpx rgba(80, 129, 184, 0.3); }
 .generate-icon { width: 32rpx; height: 32rpx; }
 </style>

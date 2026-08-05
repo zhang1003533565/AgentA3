@@ -248,7 +248,7 @@ onMounted(() => {
 <style lang="scss" scoped>
 .page {
   min-height: 100vh;
-  background: #F3F3F4;
+  background: #FCFAFC;
   color: #18273F;
 }
 
@@ -536,7 +536,7 @@ onMounted(() => {
   bottom: 0;
   z-index: 20;
   padding: 22rpx 30rpx 24rpx;
-  background: rgba(243, 243, 244, 0.96);
+  background: rgba(252, 250, 252, 0.96);
   box-sizing: border-box;
 }
 
