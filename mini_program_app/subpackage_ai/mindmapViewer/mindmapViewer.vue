@@ -116,6 +116,7 @@
       :visible="showThinkWindow"
       type="mindmap"
       done-sub="结构已更新"
+      :done="thinkDone"
       @view="onThinkView"
     />
   </view>
@@ -170,6 +171,7 @@ const canvasRef = ref(null)
 // 优化弹窗相关
 const showOptimizeSheet = ref(false)
 const showThinkWindow = ref(false)
+const thinkDone = ref(false) // 思考窗 API 完成信号：optimizeMindmap 返回后置 true，驱动思考窗切成功态
 const currentMindMapData = ref({})
 
 const treeData = computed(() => toTreeData(mindmap))
@@ -625,19 +627,23 @@ function openOptimizeSheet() {
   showOptimizeSheet.value = true
 }
 
-// 处理优化提交：弹窗 → 思考窗 → 原地刷新（不再跳整图重播）
+// 处理优化提交：弹窗 → 思考窗 → API 返回后原地刷新并通知思考窗切成功态
 async function onOptimize(payload) {
   showOptimizeSheet.value = false
+  thinkDone.value = false
   showThinkWindow.value = true
   try {
     const result = await optimizeMindmap(payload)
     if (result?.id) {
       uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
     }
-    // 原地刷新思维导图，思考窗继续走完
+    // 原地刷新思维导图
     applyMindmap(result)
+    // 通知思考窗：API 已完成，可切成功态显示"查看优化结果"
+    thinkDone.value = true
   } catch (error) {
     showThinkWindow.value = false
+    thinkDone.value = false
     uni.showToast({ title: getErrorMessage(error, '优化失败'), icon: 'none' })
   }
 }
@@ -645,6 +651,7 @@ async function onOptimize(payload) {
 // 思考窗走完，用户点"查看优化结果" → 关闭思考窗
 function onThinkView() {
   showThinkWindow.value = false
+  thinkDone.value = false
 }
 
 onMounted(() => {

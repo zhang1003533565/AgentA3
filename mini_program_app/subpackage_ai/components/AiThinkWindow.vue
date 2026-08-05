@@ -28,7 +28,10 @@ import { ref, watch, computed } from 'vue'
 const props = defineProps({
   visible: { type: Boolean, default: false },
   type: { type: String, default: 'mindmap' }, // mindmap | flowchart | architecture
-  doneSub: { type: String, default: '结构已更新' }
+  doneSub: { type: String, default: '结构已更新' },
+  // 外部 API 完成信号：思考窗 9 步日志走完后，必须等 done=true 才切成功态显示"查看优化结果"
+  // 防止固定时长动画与真实 API 耗时脱钩导致用户点查看时画布还是旧图
+  done: { type: Boolean, default: false }
 })
 const emit = defineEmits(['view', 'finished'])
 
@@ -72,6 +75,7 @@ const lines = computed(() => THINK_LINES[props.type] || THINK_LINES.mindmap)
 
 const shownLines = ref([])
 const finished = ref(false)
+const linesDone = ref(false) // 9 步日志动画是否走完
 const scrollTop = ref(0)
 const progress = ref(0)
 let timer = null
@@ -80,6 +84,7 @@ function reset() {
   clearInterval(timer)
   shownLines.value = []
   finished.value = false
+  linesDone.value = false
   progress.value = 0
   scrollTop.value = 0
 }
@@ -91,7 +96,11 @@ watch(() => props.visible, val => {
   timer = setInterval(() => {
     if (i >= lines.value.length) {
       clearInterval(timer)
-      setTimeout(() => { finished.value = true; emit('finished') }, 300)
+      linesDone.value = true
+      // 日志走完：仅当 API 已完成（done=true）才切成功态；否则停在"日志满+100%"等待
+      if (props.done) {
+        setTimeout(() => { finished.value = true; emit('finished') }, 300)
+      }
       return
     }
     shownLines.value.push(lines.value[i])
@@ -99,6 +108,13 @@ watch(() => props.visible, val => {
     progress.value = Math.round(((i + 1) / lines.value.length) * 100)
     i++
   }, 400)
+})
+
+// API 完成信号到达：若日志已走完则切成功态（处理 API 慢于 3.6s 的情况）
+watch(() => props.done, val => {
+  if (val && linesDone.value && !finished.value) {
+    setTimeout(() => { finished.value = true; emit('finished') }, 300)
+  }
 })
 </script>
 
