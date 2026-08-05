@@ -11,11 +11,15 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.Map;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 @Service
 public class AiPptServiceImpl implements AiPptService {
     private static final long SSE_TIMEOUT_MILLIS = 10 * 60 * 1000L;
+    private static final long OPTIONS_CACHE_TTL_SECONDS = 24 * 60 * 60L;
+    private static final Set<String> SUPPORTED_SCENES = Set.of("review");
 
     private final PythonAiProxyService pythonAiProxyService;
     private final ObjectMapper objectMapper;
@@ -26,8 +30,29 @@ public class AiPptServiceImpl implements AiPptService {
     }
 
     @Override
+    public AiPptDTO.OptionsResponse getOptions(Long userId) {
+        requireUser(userId);
+        AiPptDTO.SceneOption review = new AiPptDTO.SceneOption();
+        review.setValue("review");
+        review.setLabel("复习资料");
+        review.setDescription("将学习资料整理成结构清晰的复习 PPT");
+        review.setEnabled(true);
+        review.setDefaultOption(true);
+
+        AiPptDTO.OptionsResponse response = new AiPptDTO.OptionsResponse();
+        response.setScenes(List.of(review));
+        response.setCacheTtlSeconds(OPTIONS_CACHE_TTL_SECONDS);
+        return response;
+    }
+
+    @Override
     public Object generateOutline(Long userId, AiPptDTO.OutlineRequest request, String authorization) {
         requireUser(userId);
+        String scene = StringUtils.hasText(request.getScene()) ? request.getScene().trim() : "review";
+        if (!SUPPORTED_SCENES.contains(scene)) {
+            throw new BusinessException(Result.ERROR_CODE, "不支持的 PPT 学习场景: " + scene);
+        }
+        request.setScene(scene);
         return pythonAiProxyService.generatePptOutline(objectMapper.convertValue(request, Map.class), authorization);
     }
 

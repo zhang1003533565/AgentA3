@@ -1,5 +1,6 @@
 package com.example.appbackend.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -13,6 +14,22 @@ import java.util.Map;
 
 public final class AiPptDTO {
     private AiPptDTO() {
+    }
+
+    @Data
+    public static class OptionsResponse {
+        private List<SceneOption> scenes;
+        private long cacheTtlSeconds;
+    }
+
+    @Data
+    public static class SceneOption {
+        private String value;
+        private String label;
+        private String description;
+        private boolean enabled;
+        @JsonProperty("default")
+        private boolean defaultOption;
     }
 
     @Data

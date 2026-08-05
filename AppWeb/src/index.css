@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+
 * {
   margin: 0;
   padding: 0;
@@ -5,21 +7,69 @@
 }
 
 :root {
-  font-family: 'Avenir Next', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  /* ===== MASTER.md Design Tokens ===== */
+  /* 色彩 */
+  --color-primary: #4a7fad;
+  --color-on-primary: #ffffff;
+  --color-secondary: #7fa8cc;
+  --color-accent: #6fa9d6;
+  --color-background: #f2f7fc;
+  --color-foreground: #0f172a;
+  --color-muted: #eef4fa;
+  --color-border: #e2ecf6;
+  --color-destructive: #dc2626;
+  --color-ring: #4a7fad;
+
+  /* 文字层级 */
+  --text-primary: #0f172a;
+  --text-secondary: #4b5563;
+  --text-muted: #6b7280;
+  --text-faint: #9ca3af;
+
+  /* 字体 */
+  --font-family: 'Plus Jakarta Sans', 'Avenir Next', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+
+  /* 间距 */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+
+  /* 圆角 */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.08);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.1);
+
+  /* 过渡 */
+  --transition-fast: 150ms ease;
+  --transition-base: 200ms ease;
+
+  /* 兼容旧变量名（迁移期 alias，指向新 token） */
+  --brand: var(--color-primary);
+  --brand-deep: #33618f;
+  --surface: #ffffff;
+  --surface-soft: var(--color-muted);
+  --text-soft: var(--text-muted);
+
+  font-family: var(--font-family);
   line-height: 1.5;
   font-weight: 400;
-  color: #0f172a;
-  background-color: #f3f7f8;
+  color: var(--text-primary);
+  background-color: var(--color-background);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --brand: #0f766e;
-  --brand-deep: #115e59;
-  --surface: #ffffff;
-  --surface-soft: #f8fafc;
-  --text-muted: #475569;
-  --text-soft: #64748b;
 }
 
 html,
@@ -30,7 +80,7 @@ body {
 
 body {
   overflow-x: hidden;
-  background: #f3f7f8;
+  background: var(--color-background);
 }
 
 a {
@@ -50,4 +100,10 @@ h4,
 h5,
 h6 {
   margin: 0;
+}
+
+/* 键盘可达性：所有可聚焦元素必须可见焦点态 */
+:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
 }
