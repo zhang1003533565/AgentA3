@@ -84,15 +84,6 @@
                       </view>
                     </view>
                   </view>
-
-                  <!-- 层间连接箭头（右侧） -->
-                  <view
-                    v-if="layerIdx < architectureData.layers.length - 1"
-                    class="layer-arrow"
-                  >
-                    <view class="layer-arrow-line"></view>
-                    <view class="layer-arrow-head">▼</view>
-                  </view>
                 </template>
               </view>
 
@@ -589,8 +580,8 @@ loadArchitecture()
 .diagram-wrap {
   position: relative;
   display: flex;
-  flex-direction: row;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: stretch;
   gap: 16rpx;
   padding: 16rpx 24rpx;
   box-sizing: border-box;
@@ -721,47 +712,24 @@ loadArchitecture()
   line-height: 1.3;
 }
 
-.layer-arrow {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: flex-end;
-  height: 32rpx;
-  padding-right: 60rpx;
-}
-
-.layer-arrow-line {
-  width: 2rpx;
-  height: 14rpx;
-  background: #9CA3AF;
-  opacity: 0.6;
-  margin-right: 4rpx;
-}
-
-.layer-arrow-head {
-  font-size: 22rpx;
-  color: #9CA3AF;
-  line-height: 1;
-  font-weight: 600;
-}
-
 .third-party {
-  width: 180rpx;
+  width: 100%;
   flex-shrink: 0;
   background: #FFFFFF;
   border-radius: 16rpx;
   border: 2rpx solid #E5E7EB;
-  padding: 20rpx 12rpx;
+  padding: 20rpx;
   box-sizing: border-box;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 20rpx;
+  gap: 16rpx;
   box-shadow: 0 2rpx 8rpx rgba(15, 23, 42, 0.04);
-  border-left: 2rpx dashed #9CA3AF;
 }
 
 .third-party-title {
+  width: 100%;
   font-size: 24rpx;
   font-weight: 700;
   color: #1F2937;
@@ -770,37 +738,68 @@ loadArchitecture()
 
 .third-party-item {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 6rpx;
-  width: 100%;
+  gap: 12rpx;
+  background: #F9FAFB;
+  border: 1rpx solid #EEF1F4;
+  border-radius: 12rpx;
+  padding: 10rpx 16rpx;
 }
 
 .third-party-icon {
-  width: 56rpx;
-  height: 56rpx;
+  width: 44rpx;
+  height: 44rpx;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .third-party-name {
   font-size: 22rpx;
   font-weight: 700;
   color: #1F2937;
-  text-align: center;
+  text-align: left;
   line-height: 1.3;
 }
 
 .third-party-desc {
-  font-size: 18rpx;
-  color: #6B7280;
-  text-align: center;
-  line-height: 1.4;
-  white-space: pre-line;
-  word-break: break-all;
+  display: none;
 }
+
+/* ===== 底部特性标签（居中胶囊） ===== */
+.features-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;
+  padding: 8rpx 24rpx 24rpx;
+}
+.feature-item {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  background: #FFFFFF;
+  border: 1rpx solid #E5E7EB;
+  border-radius: 999rpx;
+  padding: 8rpx 20rpx;
+}
+.feature-check {
+  width: 30rpx;
+  height: 30rpx;
+  border-radius: 50%;
+  background: #E8F8F0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.feature-check-icon { color: #10B981; font-size: 20rpx; line-height: 1; }
+.feature-text { font-size: 22rpx; color: #374151; font-weight: 600; }
+.feature-dot { display: none; }
 
 /* ===== 缩放控制（悬浮右上角） ===== */
 .zoom-controls { position: fixed; top: 200rpx; right: 24rpx; z-index: 90; display: flex; flex-direction: column; align-items: center; gap: 10rpx; background: #fff; border-radius: 16rpx; padding: 12rpx 10rpx; box-shadow: 0 4rpx 20rpx rgba(0, 0, 0, 0.08); }
