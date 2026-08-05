@@ -1,14 +1,12 @@
 <template>
   <view class="page page--architecture">
-    <view class="nav-bar">
-      <view class="nav-action nav-action--left" @tap="goBack">
-        <text class="nav-back">‹</text>
-      </view>
-      <text class="nav-title">AI 架构图</text>
-      <view class="nav-action nav-action--right" @tap="openHistory">
+    <nav-bar title="AI 架构图" :showBack="true" :border="false">
+      <template #right>
+        <view class="nav-history-action" @tap="openHistory">
         <image class="nav-history-icon" src="/static/icons/diagram/history.svg" mode="aspectFit" />
       </view>
-    </view>
+      </template>
+    </nav-bar>
 
     <scroll-view class="content" scroll-y>
       <view class="input-card">
@@ -108,25 +106,80 @@
           </view>
         </view>
       </view>
+
+      <!-- 最近生成（仿 mindmap 列表） -->
+      <view class="recent-section" v-if="recentItems.length">
+        <text class="recent-title">最近生成</text>
+        <view class="recent-list">
+          <view
+            class="recent-item"
+            v-for="item in recentItems"
+            :key="item.id"
+            @tap="openRecent(item)"
+          >
+            <view class="recent-icon-wrap">
+              <image class="recent-icon" src="/static/icons/diagram/app-grid.svg" mode="aspectFit" />
+            </view>
+            <view class="recent-info">
+              <text class="recent-name">{{ item.title || '未命名架构' }}</text>
+              <text class="recent-meta">{{ item.preview || formatTime(item.createTime) }}</text>
+            </view>
+            <image class="recent-arrow" src="/static/icons/icon-forward.svg" mode="aspectFit" />
+          </view>
+        </view>
+      </view>
     </scroll-view>
 
     <view class="bottom-bar">
       <view class="generate-btn" @tap="generateArchitecture">
         <image class="generate-icon" src="/static/icons/diagram/spark-blue.svg" mode="aspectFit" />
-        <text>AI 生成架构图</text>
+        <text>{{ isGenerating ? 'AI 生成中...' : 'AI 生成架构图' }}</text>
       </view>
     </view>
   </view>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
+import NavBar from '@/components/nav-bar/nav-bar.vue'
+import {
+  buildArchitecturePayload,
+  getArchitectureHistory
+} from '@/api/architecture.js'
 
 const description = ref('')
 const selectedSystemType = ref('web')
 const selectedLayer = ref('auto')
 const selectedContents = ref(['frontend', 'backend'])
 const selectedRelation = ref('auto')
+const isGenerating = ref(false)
+const recentItems = ref([])
+
+// UI 选项 key → 后端枚举值 映射
+const SYSTEM_TYPE_MAP = {
+  web: 'WEB',
+  app: 'APP',
+  mini: 'MINI_PROGRAM',
+  admin: 'ADMIN'
+}
+const LAYER_MAP = {
+  auto: [],
+  client: ['ACCESS'],
+  application: ['APPLICATION'],
+  service: ['SERVICE'],
+  data: ['DATA']
+}
+const CONTENT_MAP = {
+  frontend: 'FRONTEND',
+  backend: 'BACKEND',
+  storage: 'DATABASE',
+  thirdParty: 'THIRD_PARTY'
+}
+const RELATION_MAP = {
+  auto: 'AUTO',
+  module: 'MODULE',
+  data: 'DATA_FLOW'
+}
 
 const systemTypes = [
   { key: 'web', label: 'Web系统' },
@@ -156,8 +209,40 @@ const relationOptions = [
   { key: 'data', label: '数据流向', desc: '着重展示信息的传递与存储路径' }
 ]
 
-const goBack = () => { uni.navigateBack() }
-const openHistory = () => { uni.showToast({ title: '历史记录预留', icon: 'none' }) }
+const openHistory = () => { uni.showToast({ title: '历史记录已展示在下方', icon: 'none' }) }
+
+// 加载最近生成的架构图列表
+const loadRecentItems = async () => {
+  try {
+    const data = await getArchitectureHistory({ page: 1, size: 10 })
+    const records = (data && data.records) || []
+    recentItems.value = records.map(item => ({
+      id: item.id,
+      title: item.title || '未命名架构',
+      preview: item.preview || item.description || '',
+      createTime: item.createTime || item.createdAt || ''
+    }))
+  } catch (error) {
+    recentItems.value = []
+  }
+}
+
+// 格式化时间（YYYY-MM-DD HH:mm）
+const formatTime = (timeStr = '') => {
+  if (!timeStr) return ''
+  const date = new Date(timeStr)
+  if (Number.isNaN(date.getTime())) return timeStr
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+// 点击最近生成项 → 进入架构图结果页
+const openRecent = (item) => {
+  if (!item || item.id == null) return
+  uni.navigateTo({
+    url: `/subpackage_ai/architecturePreview/architecturePreview?recordId=${encodeURIComponent(item.id)}`
+  })
+}
 const importVoice = () => { uni.showToast({ title: '导入接口预留', icon: 'none' }) }
 
 const toggleContent = (key) => {
@@ -168,15 +253,28 @@ const toggleContent = (key) => {
   selectedContents.value = [...selectedContents.value, key]
 }
 
-const generateArchitecture = () => {
+const generateArchitecture = async () => {
   if (!description.value.trim()) {
     uni.showToast({ title: '请输入架构描述', icon: 'none' })
     return
   }
-  uni.navigateTo({
-    url: `/subpackage_ai/architecturePreview/architecturePreview?desc=${encodeURIComponent(description.value)}&type=${selectedSystemType.value}&style=blue&complexity=${selectedLayer.value}&relation=${selectedRelation.value}&contents=${encodeURIComponent(selectedContents.value.join(','))}`
+  if (isGenerating.value) return
+  // 组装 payload 并跳转生成动画页（由动画页负责调用 API 与播放生长动画）
+  const payload = buildArchitecturePayload({
+    description: description.value.trim(),
+    systemType: SYSTEM_TYPE_MAP[selectedSystemType.value] || 'WEB',
+    architectureStyle: 'AUTO',
+    layers: LAYER_MAP[selectedLayer.value] || [],
+    displayContent: selectedContents.value.map(key => CONTENT_MAP[key]).filter(Boolean),
+    relationType: RELATION_MAP[selectedRelation.value] || 'AUTO'
   })
+  uni.setStorageSync('aiArchitecturePendingPayload', payload)
+  uni.navigateTo({ url: '/subpackage_ai/architectureGenerating/architectureGenerating' })
 }
+
+onMounted(() => {
+  loadRecentItems()
+})
 </script>
 
 <style lang="scss" scoped>
@@ -186,45 +284,19 @@ const generateArchitecture = () => {
   color: #15233A;
 }
 
-.nav-bar {
-  position: relative;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  height: 88rpx;
-  padding: 0 30rpx;
-  background: #FFFFFF;
-  box-sizing: border-box;
-}
-
-.nav-action {
+.nav-history-action {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48rpx;
-  height: 48rpx;
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 999rpx;
+  transition: background-color 0.18s ease, transform 0.12s ease;
 }
 
-.nav-action--left {
-  margin-right: 12rpx;
-}
-
-.nav-action--right {
-  margin-left: auto;
-}
-
-.nav-back {
-  color: #2A3A52;
-  font-size: 52rpx;
-  font-weight: 300;
-  line-height: 1;
-  transform: translateY(-2rpx);
-}
-
-.nav-title {
-  color: #1E304B;
-  font-size: 36rpx;
-  font-weight: 800;
+.nav-history-action:active {
+  background: rgba(15, 23, 42, 0.06);
+  transform: scale(0.96);
 }
 
 .nav-history-icon {
@@ -496,6 +568,91 @@ const generateArchitecture = () => {
 
 .relation-radio--active {
   border: 8rpx solid #3AA3F5;
+}
+
+/* ===== 最近生成 ===== */
+.recent-section {
+  margin-top: 36rpx;
+  margin-bottom: 40rpx;
+}
+
+.recent-title {
+  display: block;
+  margin: 0 0 18rpx 8rpx;
+  color: #545B67;
+  font-size: 24rpx;
+  font-weight: 500;
+}
+
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  height: 130rpx;
+  padding: 0 30rpx;
+  border-radius: 18rpx;
+  background: #FFFFFF;
+  box-sizing: border-box;
+  box-shadow: 0 4rpx 12rpx rgba(35, 43, 58, 0.03);
+}
+
+.recent-item:active {
+  background: #F4F8FC;
+}
+
+.recent-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 68rpx;
+  height: 68rpx;
+  margin-right: 24rpx;
+  border-radius: 12rpx;
+  background: #E8F4FE;
+}
+
+.recent-icon {
+  width: 36rpx;
+  height: 36rpx;
+}
+
+.recent-info {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.recent-name {
+  color: #1E2B3D;
+  font-size: 26rpx;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-meta {
+  margin-top: 4rpx;
+  color: #2D4664;
+  font-size: 20rpx;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-arrow {
+  width: 32rpx;
+  height: 32rpx;
+  opacity: 0.3;
+  flex-shrink: 0;
 }
 
 .bottom-bar {
