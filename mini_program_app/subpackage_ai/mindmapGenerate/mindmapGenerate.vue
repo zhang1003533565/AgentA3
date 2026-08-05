@@ -156,7 +156,7 @@ const expandOptions = [
   { key: 'detail', label: '详细' }
 ]
 
-const openHistory = () => { uni.showToast({ title: '历史记录预留', icon: 'none' }) }
+const openHistory = () => { uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory' }) }
 
 const getOptionLabel = (options, key, fallback = '') => {
   return options.find(item => item.key === key)?.label || fallback || key

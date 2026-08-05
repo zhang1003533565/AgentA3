@@ -209,7 +209,7 @@ const relationOptions = [
   { key: 'data', label: '数据流向', desc: '着重展示信息的传递与存储路径' }
 ]
 
-const openHistory = () => { uni.showToast({ title: '历史记录已展示在下方', icon: 'none' }) }
+const openHistory = () => { uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory' }) }
 
 // 加载最近生成的架构图列表
 const loadRecentItems = async () => {

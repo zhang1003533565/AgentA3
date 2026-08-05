@@ -600,6 +600,15 @@
 					}
 				},
 				{
+					"path": "diagramHistory/diagramHistory",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "profileRadar/profileRadar",
 					"style": {
 						"navigationBarTitleText": "个人画像",

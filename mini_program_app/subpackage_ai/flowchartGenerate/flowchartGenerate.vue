@@ -155,27 +155,8 @@ const laneOptions = [
   { key: 'department', label: '按部门', icon: '/static/icons/diagram/users-line.svg' }
 ]
 
-const openHistory = async () => {
-  try {
-    const records = await getFlowchartHistory()
-    if (!records.length) {
-      uni.showToast({ title: '暂无生成记录', icon: 'none' })
-      return
-    }
-    uni.showActionSheet({
-      itemList: records.slice(0, 6).map(item => `${item.title} · ${item.type || 'FLOWCHART'}`),
-      success: ({ tapIndex }) => {
-        const record = records[tapIndex]
-        if (record?.id) {
-          uni.navigateTo({
-            url: `/subpackage_ai/flowchartViewer/flowchartViewer?id=${encodeURIComponent(record.id)}`
-          })
-        }
-      }
-    })
-  } catch (error) {
-    uni.showToast({ title: getErrorMessage(error, '加载历史失败'), icon: 'none' })
-  }
+const openHistory = () => {
+  uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory' })
 }
 
 const importDocument = () => {
