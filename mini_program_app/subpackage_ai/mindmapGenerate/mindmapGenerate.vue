@@ -85,7 +85,7 @@
         </view>
       </view>
 
-      <view class="recent-section">
+      <view class="recent-section" v-if="recentItems.length">
         <text class="recent-title">最近生成</text>
         <view class="recent-list">
           <view class="recent-item" v-for="item in recentItems" :key="item.id" @tap="openRecent(item)">
@@ -93,8 +93,8 @@
               <image class="recent-icon" src="/static/icons/diagram/mindmap-purple.svg" mode="aspectFit" />
             </view>
             <view class="recent-info">
-              <text class="recent-name">{{ item.title }}</text>
-              <text class="recent-meta">{{ item.preview || item.createTime }}</text>
+              <text class="recent-name">{{ item.title || '未命名思维导图' }}</text>
+              <text class="recent-meta">{{ item.preview || formatTime(item.createTime) }}</text>
             </view>
             <image class="recent-arrow" src="/static/icons/icon-forward.svg" mode="aspectFit" />
           </view>
@@ -209,6 +209,7 @@ const importDocument = async () => {
 }
 
 const openRecent = (item) => {
+  if (!item || item.id == null) return
   uni.navigateTo({
     url: `/subpackage_ai/mindmapViewer/mindmapViewer?id=${encodeURIComponent(item.id)}`
   })
@@ -216,10 +217,26 @@ const openRecent = (item) => {
 
 const loadRecentItems = async () => {
   try {
-    recentItems.value = await getMindmapHistory()
+    const list = await getMindmapHistory()
+    const records = Array.isArray(list) ? list : []
+    recentItems.value = records.map(item => ({
+      id: item.id,
+      title: item.title || '未命名思维导图',
+      preview: item.preview || item.description || '',
+      createTime: item.createTime || item.createdAt || ''
+    }))
   } catch (error) {
     recentItems.value = []
   }
+}
+
+// 格式化时间（YYYY-MM-DD HH:mm）
+const formatTime = (timeStr = '') => {
+  if (!timeStr) return ''
+  const date = new Date(timeStr)
+  if (Number.isNaN(date.getTime())) return timeStr
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 const generateMindmap = async () => {
@@ -437,7 +454,8 @@ onMounted(() => {
 }
 
 .recent-section {
-  margin-top: 24rpx;
+  margin-top: 36rpx;
+  margin-bottom: 40rpx;
 }
 
 .recent-title {
@@ -463,6 +481,10 @@ onMounted(() => {
   background: #FFFFFF;
   box-sizing: border-box;
   box-shadow: 0 4rpx 12rpx rgba(35, 43, 58, 0.03);
+}
+
+.recent-item:active {
+  background: #F4F8FC;
 }
 
 .recent-icon-wrap {
@@ -493,6 +515,9 @@ onMounted(() => {
   font-size: 26rpx;
   font-weight: 500;
   line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .recent-meta {
@@ -500,12 +525,16 @@ onMounted(() => {
   color: #2D4664;
   font-size: 20rpx;
   line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .recent-arrow {
   width: 32rpx;
   height: 32rpx;
   opacity: 0.3;
+  flex-shrink: 0;
 }
 
 .bottom-bar {
