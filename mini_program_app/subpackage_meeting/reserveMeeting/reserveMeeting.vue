@@ -32,7 +32,10 @@
 			<view class="field-block">
 				<text class="field-label">会议主题</text>
 				<view class="input-box">
-					<input v-model="meetingTitle" class="plain-input" placeholder="项目进度同步会" />
+					<input v-model="meetingTitle" class="plain-input" placeholder="" />
+					<view class="clear-btn" @click="clearTitle">
+						<text class="clear-icon">×</text>
+					</view>
 				</view>
 			</view>
 			<view class="field-block field-block--inline">
@@ -47,9 +50,11 @@
 					<view class="picker-value">{{ scheduledTime }}</view>
 				</picker>
 			</view>
-			<view class="setting-row">
-				<view class="label-help"><text>使用个人会议号</text><text class="info">ⓘ</text></view>
-				<switch :checked="personalId" color="#86C9A8" @change="personalId = $event.detail.value" />
+			<view class="field-block field-block--inline">
+				<text class="field-label">预计时长</text>
+				<picker mode="selector" :range="durationOptions" :value="durationIndex" @change="durationIndex = $event.detail.value">
+					<view class="picker-value">{{ durationOptions[durationIndex] }}</view>
+				</picker>
 			</view>
 		</view>
 
@@ -73,12 +78,14 @@ export default {
 			meetingTitle: '项目进度同步会',
 			scheduledDate: date,
 			scheduledTime: time,
-			personalId: false,
+			durationOptions: ['15分钟', '30分钟', '45分钟', '1小时', '1.5小时', '2小时'],
+			durationIndex: 1,
 			creating: false
 		}
 	},
 	methods: {
 		back() { uni.navigateBack() },
+		clearTitle() { this.meetingTitle = '' },
 		goStartMeeting() { uni.redirectTo({ url: '/subpackage_meeting/startMeeting/startMeeting' }) },
 		async reserveNow() {
 			if (this.creating) return
@@ -144,8 +151,23 @@ export default {
 	color: #1b252a;
 	font-size: 26rpx;
 }
+.clear-btn {
+	width: 40rpx;
+	height: 40rpx;
+	border-radius: 50%;
+	background: #d1d5db;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	margin-left: 16rpx;
+	flex-shrink: 0;
+}
+.clear-icon { color: #fff; font-size: 28rpx; line-height: 1; font-weight: 500; }
 
 .picker-value { min-width: 190rpx; height: 88rpx; padding: 0 18rpx; border-radius: 16rpx; background: #f7f7f7; color: #1b252a; font-size: 26rpx; display: flex; align-items: center; justify-content: center; }
+.picker-value--arrow { gap: 8rpx; }
+.picker-value--placeholder { color: #9aa3a8; }
+.picker-arrow { color: #8c969b; font-size: 36rpx; line-height: 1; }
 .setting-row { height: 82rpx; display: flex; align-items: center; justify-content: space-between; font-size: 26rpx; color: #1c272d; }
 .label-help { display: flex; align-items: center; gap: 8rpx; }
 .info { color: #9aa3a8; font-size: 22rpx; }
