@@ -1,9 +1,18 @@
 import { request } from '../utils/request.js'
+import { BASE_URL } from '../utils/config.js'
+import { getToken } from '../utils/storage.js'
 
 /**
  * AI 架构图相关接口封装。
- * 对应后端 /api/ai/architecture/* 三个端点。
+ * 对应后端 /api/ai/architecture/* 四个端点（generate/upload/history/detail）。
  */
+
+export const AI_ARCHITECTURE_ENDPOINTS = {
+  generate: '/api/ai/architecture/generate',
+  upload: '/api/ai/architecture/upload',
+  history: '/api/ai/architecture/history',
+  detail: id => `/api/ai/architecture/${encodeURIComponent(id)}`
+}
 
 // POST /api/ai/architecture/generate
 // 请求体字段与后端 ArchitectureDTO.GenerateRequest 对齐（camelCase）
@@ -13,7 +22,10 @@ export function buildArchitecturePayload({
   architectureStyle = 'AUTO',
   layers = [],
   displayContent = [],
-  relationType = 'AUTO'
+  relationType = 'AUTO',
+  sourceText = '',
+  fileId = '',
+  sourceFile = ''
 } = {}) {
   return {
     description: String(description || '').trim(),
@@ -21,8 +33,47 @@ export function buildArchitecturePayload({
     architectureStyle,
     layers,
     displayContent,
-    relationType
+    relationType,
+    sourceText: String(sourceText || '').trim(),
+    fileId: String(fileId || '').trim(),
+    sourceFile: String(sourceFile || '').trim()
   }
+}
+
+/**
+ * 上传文档并解析为文本（供 AI 生成架构图使用）。
+ * 对应后端 POST /api/ai/architecture/upload，返回 { fileId, fileName, sourceFile, text }。
+ */
+export function uploadArchitectureFile(filePath, fileName = '') {
+  const token = getToken()
+  return new Promise((resolve, reject) => {
+    uni.uploadFile({
+      url: `${BASE_URL}${AI_ARCHITECTURE_ENDPOINTS.upload}`,
+      filePath,
+      name: 'file',
+      fileName,
+      header: token ? { Authorization: `Bearer ${token}` } : {},
+      success: (res) => {
+        let body = res.data
+        try {
+          body = typeof body === 'string' ? JSON.parse(body) : body
+        } catch (error) {
+          reject(new Error('文件上传响应解析失败'))
+          return
+        }
+        if (res.statusCode >= 200 && res.statusCode < 300 && body?.code === 200) {
+          resolve(body.data)
+          return
+        }
+        reject({
+          code: body?.code,
+          statusCode: res.statusCode,
+          msg: body?.msg || body?.message || '文件上传失败'
+        })
+      },
+      fail: reject
+    })
+  })
 }
 
 /**
