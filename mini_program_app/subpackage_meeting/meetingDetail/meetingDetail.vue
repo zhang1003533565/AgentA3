@@ -27,8 +27,8 @@
 				</view>
 			</view>
 
-			<!-- 会议信息 -->
-			<view class="section-card">
+			<!-- 会议信息：仅非历史记录（已结束）会议展示 -->
+			<view v-if="status !== 'ended'" class="section-card">
 				<view class="section-title">会议信息</view>
 				<view class="info-row">
 					<text class="info-label">会议号</text>
@@ -47,21 +47,23 @@
 			</view>
 
 			<!-- 参会人 -->
-			<view class="section-card">
-				<view class="section-title" @click="openAllMemberPopup">
-					<text>参会人 ({{ participants.length }})</text>
-					<text v-if="participants.length > 1" class="more-link">查看全部 ></text>
-				</view>
-				<view class="participant-list">
-					<view v-for="(name, index) in displayedParticipants" :key="index" class="participant-item">
-						<view class="participant-avatar">{{ name.slice(0, 1) }}</view>
-						<view class="participant-info">
-							<view class="participant-name-row">
-								<text class="participant-name">{{ name }}</text>
-								<view v-if="index === 0" class="host-tag">主持人</view>
-							</view>
-							<text class="participant-status">已参会</text>
+			<view class="section-card participant-summary-card">
+				<view class="section-title">参会人（{{ participants.length }}）</view>
+				<view class="participant-summary" @click="goMeetingHistory">
+					<view class="participant-avatars">
+						<view
+							v-for="(name, index) in displayedParticipants"
+							:key="index"
+							class="summary-avatar"
+							:style="{ zIndex: displayedParticipants.length - index }"
+						>
+							{{ name.slice(0, 1) }}
 						</view>
+					</view>
+					<text class="participant-summary-text">{{ participantSummaryText }}</text>
+					<view class="record-link">
+						<text>查看参会记录</text>
+						<text class="record-link-arrow">></text>
 					</view>
 				</view>
 			</view>
@@ -183,7 +185,13 @@ export default {
 			return `${month}-${day} ${hour}:${minute}`
 		},
 		displayedParticipants() {
-			return this.participants.slice(0, 3)
+			return this.participants.slice(0, 4)
+		},
+		participantSummaryText() {
+			const total = this.participants.length
+			if (total === 0) return '暂无参会人'
+			const firstTwo = this.participants.slice(0, 2).join('、')
+			return `${firstTwo} 等 ${total} 人`
 		},
 		hasResults() {
 			return this.results.length > 0
@@ -304,6 +312,11 @@ export default {
 		},
 		sourceLabel(source) {
 			return source === 'transcription' ? '实时转写' : '手动记录'
+		},
+		goMeetingHistory() {
+			uni.navigateTo({
+				url: `/subpackage_meeting/participantRecord/participantRecord?sessionId=${encodeURIComponent(this.sessionId)}&title=${encodeURIComponent(this.title)}`
+			})
 		},
 		openAllMemberPopup() {
 			if (this.participants.length <= 1) return
@@ -443,6 +456,69 @@ $card-radius: 24rpx;
 	font-size: 24rpx;
 	color: $text-muted;
 	font-weight: 500;
+}
+
+/* 参会人汇总卡片 */
+.participant-summary-card {
+	padding-bottom: 24rpx;
+}
+
+.participant-summary {
+	display: flex;
+	align-items: center;
+	gap: 20rpx;
+}
+
+.participant-avatars {
+	display: flex;
+	align-items: center;
+	flex-shrink: 0;
+}
+
+.summary-avatar {
+	width: 64rpx;
+	height: 64rpx;
+	border-radius: 50%;
+	background: #e5e7eb;
+	color: #6b7280;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 26rpx;
+	font-weight: 700;
+	border: 4rpx solid #fff;
+	margin-left: -16rpx;
+	box-sizing: border-box;
+
+	&:first-child {
+		margin-left: 0;
+		background: #86c9a8;
+		color: #fff;
+	}
+}
+
+.participant-summary-text {
+	flex: 1;
+	min-width: 0;
+	font-size: 26rpx;
+	color: $text-main;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.record-link {
+	display: flex;
+	align-items: center;
+	gap: 6rpx;
+	font-size: 24rpx;
+	color: #86c9a8;
+	font-weight: 700;
+	flex-shrink: 0;
+}
+
+.record-link-arrow {
+	font-size: 22rpx;
 }
 
 /* 会议信息行 */
