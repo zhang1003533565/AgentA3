@@ -281,6 +281,16 @@ async function play() {
   progressPct.value = 28
   await waitForAIData(8000)
   limitBranches()
+  // AI 未返回时使用兜底结构，保证动画完整不空屏
+  if (!realBranches.value.length) {
+    realRoot.value = realRoot.value || centerTopic.value || topicText.value || 'AI主题'
+    realBranches.value = [
+      { name: '核心概念', children: ['定义', '特点', '应用'] },
+      { name: '关键方法', children: ['步骤一', '步骤二'] },
+      { name: '常见问题', children: ['误区', '对策'] },
+      { name: '实践场景', children: ['案例', '练习'] }
+    ]
+  }
   Object.assign(bounds, computeBounds())
   applyView(growthScale(), true)
   await sleep(300); if (!alive()) return
@@ -421,12 +431,15 @@ async function run() {
       return
     }
     const payload = buildMindmapPayload({ topic: topicText.value || centerTopic.value, centerTopic: centerTopic.value })
-    // 先取数据再播放（与 demo 一致：数据就绪才播），并加超时防止请求挂起导致无限等待
-    const result = await withTimeout(requestGenerateMindmap(payload), 20000)
-    uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
-    state.resultData = result
-    handleAIData(result)
+    // 动画立即开始（不阻塞等待服务器）；AI 数据到达后填充，失败/超时则用兜底完成
     play()
+    requestGenerateMindmap(payload).then(result => {
+      uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
+      state.resultData = result
+      handleAIData(result)
+    }).catch(error => {
+      console.warn('[mindmapGenerating] AI 生成失败，使用兜底数据:', error && (error.msg || error.message))
+    })
   } catch (error) {
     if (runToken) runToken.cancelled = true
     errorMessage.value = (error && (error.msg || error.message)) || '生成失败，请重试'
