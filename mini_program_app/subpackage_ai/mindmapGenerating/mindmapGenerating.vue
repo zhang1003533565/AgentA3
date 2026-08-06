@@ -427,7 +427,7 @@ onUnload(() => clearTimers())
 .line-sweep { stroke-dasharray: 1; stroke-dashoffset: 1; animation: sweepLine 0.4s ease-in-out forwards; }
 @keyframes sweepLine { 0% { stroke-dashoffset: 1; opacity: 0.75; } 70% { stroke-dashoffset: 0; opacity: 0.75; } 100% { stroke-dashoffset: 0; opacity: 0; } }
 
-.node { position: absolute; z-index: 2; white-space: nowrap; width: max-content; max-width: none; display: flex; align-items: center; gap: 6px; animation: flyIn 0.38s cubic-bezier(0.34, 1.56, 0.64, 1); will-change: transform, opacity; }
+.node { position: absolute; z-index: 2; white-space: nowrap; width: max-content; max-width: none; display: flex; align-items: center; gap: 6px; transform: translate(-50%, -50%); animation: flyIn 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; will-change: transform, opacity; }
 @keyframes flyIn { from { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.3); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
 .node-root { padding: 8px 18px; background: #1E293B; border-radius: 15px; box-shadow: 0 4px 16px rgba(30,41,59,.28); }
 .node-branch { padding: 6px 13px; background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
