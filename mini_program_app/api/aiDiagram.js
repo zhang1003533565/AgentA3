@@ -1,109 +1,220 @@
 import { request } from '../utils/request.js'
+import { BASE_URL } from '../utils/config.js'
+import { getToken } from '../utils/storage.js'
 
-// Frontend contract for AI diagram generation.
-// Mind map is wired to backend; other diagram endpoints are reserved.
-
-export const AI_DIAGRAM_ENDPOINTS = {
-  mindmap: {
-    method: 'POST',
-    url: '/api/app/ai/diagrams/mindmap'
-  },
-  activity: {
-    method: 'POST',
-    url: '/api/app/ai/diagrams/activity'
-  },
-  flowchart: {
-    method: 'POST',
-    url: '/api/app/ai/diagrams/flowchart'
-  },
-  architecture: {
-    method: 'POST',
-    url: '/api/app/ai/diagrams/architecture'
-  }
+export const AI_MINDMAP_ENDPOINTS = {
+  generate: '/api/ai/mindmap/generate',
+  optimize: '/api/ai/mindmap/optimize',
+  upload: '/api/ai/mindmap/upload',
+  history: '/api/ai/mindmap/history',
+  detail: id => `/api/ai/mindmap/${encodeURIComponent(id)}`
 }
 
-export function getAiDiagramEndpoint(type) {
-  return AI_DIAGRAM_ENDPOINTS[type] || null
+export const AI_FLOWCHART_ENDPOINTS = {
+  generate: '/api/ai/flowchart/generate',
+  upload: '/api/ai/flowchart/upload',
+  history: '/api/ai/flowchart/history',
+  detail: id => `/api/ai/flowchart/${encodeURIComponent(id)}`
 }
 
 export function buildMindmapPayload({
-  prompt,
+  topic = '',
   centerTopic = '',
   depth = 'auto',
-  structure = 'auto',
-  expand = 'standard',
-  sourceFileUrl = ''
+  structure = '知识梳理',
+  detail = 'standard',
+  sourceText = '',
+  sourceFile = '',
+  fileId = ''
 } = {}) {
-  const finalPrompt = String(prompt || centerTopic || '').trim()
+  const finalTopic = String(centerTopic || topic || '').trim()
   return {
-    type: 'mindmap',
-    prompt: finalPrompt,
-    centerTopic: String(centerTopic || finalPrompt).trim(),
-    options: {
-      depth,
-      structure,
-      expand
-    },
-    sourceFileUrl,
-    output: {
-      format: 'image',
-      imageType: 'svg',
-      includeMermaid: true
-    }
+    topic: finalTopic,
+    depth: String(depth || 'auto'),
+    structure: String(structure || '知识梳理'),
+    detail: String(detail || 'standard'),
+    sourceText: String(sourceText || '').trim(),
+    sourceFile: String(sourceFile || '').trim(),
+    fileId: String(fileId || '').trim()
   }
 }
 
 export async function generateMindmap(payload = {}) {
-  const endpoint = getAiDiagramEndpoint('mindmap')
   const response = await request({
-    url: endpoint.url,
-    method: endpoint.method,
+    url: AI_MINDMAP_ENDPOINTS.generate,
+    method: 'POST',
     data: payload,
-    showError: false
+    showError: false,
+    timeout: 120000
   })
-  return normalizeGenerateResult(response?.data || response)
+  return normalizeMindmap(response?.data || response)
 }
 
-export function normalizeGenerateResult(result = {}) {
+export async function optimizeMindmap(payload = {}) {
+  const response = await request({
+    url: AI_MINDMAP_ENDPOINTS.optimize,
+    method: 'POST',
+    data: payload,
+    showError: false,
+    timeout: 120000
+  })
+  return normalizeMindmap(response?.data || response)
+}
+
+export async function getMindmapHistory() {
+  const response = await request({
+    url: AI_MINDMAP_ENDPOINTS.history,
+    method: 'GET',
+    showError: false
+  })
+  return Array.isArray(response?.data) ? response.data : []
+}
+
+export async function getMindmapDetail(id) {
+  const response = await request({
+    url: AI_MINDMAP_ENDPOINTS.detail(id),
+    method: 'GET',
+    showError: false
+  })
+  return normalizeMindmap(response?.data || response)
+}
+
+export function uploadMindmapFile(filePath, fileName = '') {
+  const token = getToken()
+  const uploadUrl = `${BASE_URL}${AI_MINDMAP_ENDPOINTS.upload}`
+  return new Promise((resolve, reject) => {
+    uni.uploadFile({
+      url: uploadUrl,
+      filePath,
+      name: 'file',
+      fileName,
+      header: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      success: (res) => {
+        let body = res.data
+        try {
+          body = typeof body === 'string' ? JSON.parse(body) : body
+        } catch (error) {
+          reject(new Error('文件上传响应解析失败'))
+          return
+        }
+        if (res.statusCode >= 200 && res.statusCode < 300 && body?.code === 200) {
+          resolve(body.data)
+          return
+        }
+        reject({
+          code: body?.code,
+          statusCode: res.statusCode,
+          msg: body?.msg || body?.message || '文件上传失败'
+        })
+      },
+      fail: (error) => {
+        reject(error)
+      }
+    })
+  })
+}
+
+export function normalizeMindmap(result = {}) {
   return {
-    id: String(result.id || `mindmap_${Date.now()}`),
-    type: result.type || 'mindmap',
+    id: String(result.id || ''),
     title: result.title || 'AI 思维导图',
-    status: result.status || 'success',
-    mermaid: result.mermaid || '',
-    imageUrl: result.imageUrl || '',
-    outline: Array.isArray(result.outline) ? result.outline : [],
-    createdAt: result.createdAt || new Date().toISOString(),
-    metadata: result.metadata || {}
+    nodes: Array.isArray(result.nodes) ? result.nodes : [],
+    createTime: result.createTime || result.createdAt || ''
   }
 }
 
-export function mockGenerateMindmap(payload = {}) {
-  const title = payload.centerTopic || payload.prompt || 'AI 思维导图'
-  return Promise.resolve(normalizeGenerateResult({
-    id: `mock_mindmap_${Date.now()}`,
-    type: 'mindmap',
-    title,
-    status: 'success',
-    mermaid: [
-      'mindmap',
-      `  root((${title}))`,
-      '    基础课程',
-      '      程序设计',
-      '      计算机导论',
-      '    核心能力',
-      '      数据结构',
-      '      操作系统',
-      '    应用方向',
-      '      Web 开发',
-      '      人工智能'
-    ].join('\n'),
-    imageUrl: '/static/mock/mindmap-generated-sample.svg',
-    outline: [
-      { title: '基础课程', children: ['程序设计', '计算机导论'] },
-      { title: '核心能力', children: ['数据结构', '操作系统'] },
-      { title: '应用方向', children: ['Web 开发', '人工智能'] }
-    ],
-    createdAt: new Date().toISOString()
-  }))
+export function getErrorMessage(error, fallback = '生成失败') {
+  const candidates = [
+    error?.msg,
+    error?.message,
+    error?.detail,
+    error?.data?.msg,
+    error?.data?.message,
+    error?.data?.detail
+  ]
+  const useful = candidates.find(item => {
+    const text = String(item || '').trim()
+    return text && text !== 'request:ok'
+  })
+  if (useful) return useful
+  if (error?.statusCode === 401 || error?.code === 401) return '请先登录'
+  if (error?.statusCode === 404) return '思维导图接口不可用，请确认后端已启动并更新到最新代码'
+  if (error?.statusCode >= 500) return '服务器处理失败，请查看后端日志'
+  if (error?.errMsg && error.errMsg !== 'request:ok') return error.errMsg
+  return fallback
+}
+
+export async function generateFlowchart(payload = {}) {
+  const response = await request({
+    url: AI_FLOWCHART_ENDPOINTS.generate,
+    method: 'POST',
+    data: payload,
+    showError: false,
+    timeout: 120000
+  })
+  return normalizeFlowchart(response?.data || response)
+}
+
+export async function getFlowchartHistory() {
+  const response = await request({
+    url: AI_FLOWCHART_ENDPOINTS.history,
+    method: 'GET',
+    showError: false
+  })
+  return Array.isArray(response?.data) ? response.data : []
+}
+
+export async function getFlowchartDetail(id) {
+  const response = await request({
+    url: AI_FLOWCHART_ENDPOINTS.detail(id),
+    method: 'GET',
+    showError: false
+  })
+  return normalizeFlowchart(response?.data || response)
+}
+
+export function uploadFlowchartFile(filePath, fileName = '') {
+  const token = getToken()
+  return new Promise((resolve, reject) => {
+    uni.uploadFile({
+      url: `${BASE_URL}${AI_FLOWCHART_ENDPOINTS.upload}`,
+      filePath,
+      name: 'file',
+      fileName,
+      header: token ? { Authorization: `Bearer ${token}` } : {},
+      success: (res) => {
+        let body = res.data
+        try {
+          body = typeof body === 'string' ? JSON.parse(body) : body
+        } catch (error) {
+          reject(new Error('文件上传响应解析失败'))
+          return
+        }
+        if (res.statusCode >= 200 && res.statusCode < 300 && body?.code === 200) {
+          resolve(body.data)
+          return
+        }
+        reject({
+          code: body?.code,
+          statusCode: res.statusCode,
+          msg: body?.msg || body?.message || '文件上传失败'
+        })
+      },
+      fail: reject
+    })
+  })
+}
+
+export function normalizeFlowchart(result = {}) {
+  return {
+    id: String(result.id || ''),
+    title: result.title || 'AI 流程图',
+    type: result.type || 'FLOWCHART',
+    lanes: Array.isArray(result.lanes) ? result.lanes : [],
+    nodes: Array.isArray(result.nodes) ? result.nodes : [],
+    edges: Array.isArray(result.edges) ? result.edges : [],
+    createTime: result.createTime || ''
+  }
 }
