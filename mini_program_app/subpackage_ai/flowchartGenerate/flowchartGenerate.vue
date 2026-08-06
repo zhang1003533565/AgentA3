@@ -98,6 +98,23 @@
         <image class="ready-icon" src="/static/icons/diagram/spark-blue.svg" mode="aspectFit" />
         <text>AI 已就绪，点击生成后将构建流程骨架并逐节点生长</text>
       </view>
+
+      <!-- 最近生成 -->
+      <view class="recent-section" v-if="recentItems.length">
+        <text class="recent-title">最近生成</text>
+        <view class="recent-list">
+          <view class="recent-item" v-for="item in recentItems" :key="item.id" @tap="openRecent(item)">
+            <view class="recent-icon-wrap">
+              <image class="recent-icon" src="/static/icons/diagram/flow-white.svg" mode="aspectFit" />
+            </view>
+            <view class="recent-info">
+              <text class="recent-name">{{ item.title || '未命名流程图' }}</text>
+              <text class="recent-meta">{{ item.preview || formatTime(item.createTime) }}</text>
+            </view>
+            <image class="recent-arrow" src="/static/icons/icon-forward.svg" mode="aspectFit" />
+          </view>
+        </view>
+      </view>
     </scroll-view>
 
     <view class="bottom-bar">
@@ -256,4 +273,89 @@ const generateFlowchart = () => {
 .bottom-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; padding: 20rpx 28rpx 30rpx; background: linear-gradient(180deg, rgba(252, 250, 252, 0), #FCFAFC 30%); }
 .generate-btn { display: flex; align-items: center; justify-content: center; gap: 12rpx; height: 88rpx; border-radius: 28rpx; background: #5081B8; color: #fff; font-size: 30rpx; font-weight: 700; box-shadow: 0 12rpx 32rpx rgba(80, 129, 184, 0.3); }
 .generate-icon { width: 32rpx; height: 32rpx; }
+
+/* ===== 最近生成 ===== */
+.recent-section {
+  margin-top: 36rpx;
+  margin-bottom: 40rpx;
+}
+
+.recent-title {
+  display: block;
+  margin: 0 0 18rpx 8rpx;
+  color: #545B67;
+  font-size: 24rpx;
+  font-weight: 500;
+}
+
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  height: 130rpx;
+  padding: 0 30rpx;
+  border-radius: 18rpx;
+  background: #FFFFFF;
+  box-sizing: border-box;
+  box-shadow: 0 4rpx 12rpx rgba(35, 43, 58, 0.03);
+}
+
+.recent-item:active {
+  background: #F4F8FC;
+}
+
+.recent-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 68rpx;
+  height: 68rpx;
+  margin-right: 24rpx;
+  border-radius: 12rpx;
+  background: #E8F4FE;
+}
+
+.recent-icon {
+  width: 36rpx;
+  height: 36rpx;
+}
+
+.recent-info {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.recent-name {
+  color: #1E2B3D;
+  font-size: 26rpx;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-meta {
+  margin-top: 4rpx;
+  color: #2D4664;
+  font-size: 20rpx;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-arrow {
+  width: 32rpx;
+  height: 32rpx;
+  opacity: 0.3;
+  flex-shrink: 0;
+}
 </style>

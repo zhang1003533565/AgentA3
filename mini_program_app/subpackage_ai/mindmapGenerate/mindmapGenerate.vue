@@ -453,6 +453,7 @@ onMounted(() => {
   color: #FFFFFF;
 }
 
+/* ===== 最近生成 ===== */
 .recent-section {
   margin-top: 36rpx;
   margin-bottom: 40rpx;
@@ -495,7 +496,7 @@ onMounted(() => {
   height: 68rpx;
   margin-right: 24rpx;
   border-radius: 12rpx;
-  background: #F0E9FA;
+  background: #E8F4FE;
 }
 
 .recent-icon {
