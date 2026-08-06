@@ -13,12 +13,6 @@
         <text>{{ chart.title }}</text>
         <text class="diagram-type">{{ chart.type }}</text>
       </view>
-      <view class="toolbar-actions">
-        <view class="tool-button" @tap="zoomOut">−</view>
-        <text class="zoom-value">{{ Math.round(zoom * 100) }}%</text>
-        <view class="tool-button" @tap="zoomIn">+</view>
-        <view class="export-button" @tap="exportImage">导出图片</view>
-      </view>
     </view>
 
     <view v-if="loading" class="loading-state">正在加载流程图...</view>
@@ -30,10 +24,10 @@
         :scale-min="0.5"
         :scale-max="2"
         :scale-value="zoom"
-        :style="canvasStyle"
+        :style="outerStyle"
         @scale="syncScale"
       >
-        <view class="diagram-canvas" :style="canvasStyle">
+        <view class="diagram-canvas" :style="innerStyle">
           <view
             v-for="lane in laneBands"
             :key="lane.name"
@@ -72,7 +66,7 @@
       </movable-view>
     </movable-area>
 
-    <view class="bottom-tip">双指缩放 · 单指拖动查看完整流程</view>
+    <view class="bottom-tip">Ctrl+滚轮缩放 · 双指缩放 · 单指拖动查看完整流程</view>
 
     <!-- 底部操作栏（统一组件） -->
     <AiResultBar @export="exportImage" @optimize="openOptimizeSheet" @share="shareFlow" />
@@ -98,12 +92,13 @@
 </template>
 
 <script setup>
-import { computed, getCurrentInstance, onMounted, ref } from 'vue'
+import { computed, getCurrentInstance, onMounted, onUnmounted, nextTick, ref } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import AiResultBar from '../components/AiResultBar.vue'
 import AiThinkWindow from '../components/AiThinkWindow.vue'
 import OptimizeMindMapSheet from '../mindmapViewer/OptimizeMindMapSheet.vue'
 import { getErrorMessage, getFlowchartDetail, getFlowchartHistory, generateFlowchart } from '@/api/aiDiagram.js'
+import { computeLevels } from '../flowchartLayout.js'
 // #ifdef H5
 import { domToPng } from '../components/domToPng.js'
 // #endif
@@ -170,6 +165,17 @@ const canvasStyle = computed(() => ({
   height: `${canvasSize.value.height}px`
 }))
 
+// movable-view 外框 = 画布 × 缩放（决定可拖动范围）；内层画布用 CSS transform 缩放（H5 可用）
+const outerStyle = computed(() => ({
+  width: `${Math.round(canvasSize.value.width * zoom.value)}px`,
+  height: `${Math.round(canvasSize.value.height * zoom.value)}px`
+}))
+const innerStyle = computed(() => ({
+  width: `${canvasSize.value.width}px`,
+  height: `${canvasSize.value.height}px`,
+  transform: `scale(${zoom.value})`
+}))
+
 const laneBands = computed(() => {
   const lanes = (chart.value.lanes || []).filter(lane => lane.name)
   return lanes.map((lane, index) => ({
@@ -232,20 +238,24 @@ function zoomOut() {
   zoom.value = Math.max(0.5, Number((zoom.value - 0.1).toFixed(2)))
 }
 
-async function openHistory() {
-  try {
-    const records = await getFlowchartHistory()
-    if (!records.length) {
-      uni.showToast({ title: '暂无生成记录', icon: 'none' })
-      return
-    }
-    uni.showActionSheet({
-      itemList: records.slice(0, 6).map(item => `${item.title} · ${item.type || 'FLOWCHART'}`),
-      success: ({ tapIndex }) => loadDiagram(records[tapIndex]?.id)
-    })
-  } catch (error) {
-    uni.showToast({ title: getErrorMessage(error, '加载历史失败'), icon: 'none' })
-  }
+// ===== H5：Ctrl/⌘ + 滚轮缩放（手机端仍用 movable-view 双指缩放） =====
+function onWheel(e) {
+  if (!e.ctrlKey && !e.metaKey) return
+  e.preventDefault()
+  const delta = e.deltaY > 0 ? -0.1 : 0.1
+  zoom.value = Math.max(0.5, Math.min(2, Number((zoom.value + delta).toFixed(2))))
+}
+// #ifdef H5
+onMounted(() => {
+  if (typeof document !== 'undefined') document.addEventListener('wheel', onWheel, { passive: false })
+})
+onUnmounted(() => {
+  if (typeof document !== 'undefined') document.removeEventListener('wheel', onWheel)
+})
+// #endif
+
+function openHistory() {
+  uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory' })
 }
 
 function goGenerate() {

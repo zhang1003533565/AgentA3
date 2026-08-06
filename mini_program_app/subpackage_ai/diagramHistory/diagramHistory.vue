@@ -184,7 +184,7 @@ onShow(() => { load() })
 .count-row { display: flex; align-items: center; justify-content: space-between; padding: 24rpx 40rpx 16rpx; font-size: 26rpx; color: #666; }
 .sort { color: #888; }
 
-.list { flex: 1; height: 0; padding: 8rpx 0 160rpx; }
+.list { flex: 1; height: 0; padding: 8rpx 0 24rpx; }
 .card { background: #fff; border-radius: 32rpx; padding: 28rpx; display: flex; gap: 24rpx; margin: 0 32rpx 24rpx; box-sizing: border-box; position: relative; box-shadow: 0 4rpx 16rpx rgba(0,0,0,.03); }
 .thumb { width: 236rpx; height: 176rpx; border-radius: 20rpx; background: #FAFAFD; border: 2rpx solid #F0F0F4; position: relative; overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
 .thumb svg { width: 100%; height: 100%; }
