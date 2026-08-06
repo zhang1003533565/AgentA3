@@ -192,6 +192,13 @@ function computeLayout(branches) {
 let timers = []
 function clearTimers() { timers.forEach(t => clearTimeout(t)); timers = [] }
 function sleep(ms) { return new Promise(r => timers.push(setTimeout(r, ms))) }
+// 给异步请求加超时：到点未返回即 reject，避免请求挂起导致页面无限等待
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('AI 响应超时，请重试')), ms)
+    promise.then(v => { clearTimeout(t); resolve(v) }, e => { clearTimeout(t); reject(e) })
+  })
+}
 let runToken = null
 const alive = () => runToken && !runToken.cancelled
 
@@ -354,18 +361,19 @@ async function run() {
   try {
     if (resultId.value) {
       let cached = uni.getStorageSync(`aiMindmapResult:${resultId.value}`)
-      if (!cached || !cached.nodes) cached = await getMindmapDetail(resultId.value)
+      if (!cached || !cached.nodes) cached = await withTimeout(getMindmapDetail(resultId.value), 15000)
       state.resultData = cached
       handleAIData(cached)
       play()
       return
     }
     const payload = buildMindmapPayload({ topic: topicText.value || centerTopic.value, centerTopic: centerTopic.value })
-    play()
-    const result = await requestGenerateMindmap(payload)
+    // 先取数据再播放（与 demo 一致：数据就绪才播），并加超时防止请求挂起导致无限等待
+    const result = await withTimeout(requestGenerateMindmap(payload), 20000)
     uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
     state.resultData = result
     handleAIData(result)
+    play()
   } catch (error) {
     if (runToken) runToken.cancelled = true
     errorMessage.value = (error && (error.msg || error.message)) || '生成失败，请重试'
