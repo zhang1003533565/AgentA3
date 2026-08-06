@@ -25,5 +25,7 @@ export function resolveAiToolDestination(tool = {}) {
   if (name === 'Python代码实验') return resourceRoute('code_lab', name)
   if (name === '学习计划') return '/subpackage_learning/learningPath/learningPath'
   if (['活动图', '架构图', '流程图'].includes(name)) return conversationRoute(tool)
+  if (name === 'PDF转Word') return '/subpackage_ai/documentConvertDetail/documentConvertDetail?convertType=pdf_to_docx'
+  if (name === 'PPT转Word') return '/subpackage_ai/documentConvertDetail/documentConvertDetail?convertType=ppt_to_docx'
   return conversationRoute(tool)
 }

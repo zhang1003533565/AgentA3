@@ -715,6 +715,24 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
 					}
+				},
+				{
+					"path": "documentConvert/documentConvert",
+					"style": {
+						"navigationBarTitleText": "格式转换",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "documentConvertDetail/documentConvertDetail",
+					"style": {
+						"navigationBarTitleText": "文档转换",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
 				}
 			]
 		},
