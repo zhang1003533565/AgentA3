@@ -229,12 +229,18 @@ function isTerminal(node) { return nodeType(node) === 'start' || nodeType(node) 
 function nodeType(node) { return node.type || 'action' }
 
 function centerOn() {
-  offset.x = Math.round(canvasW.value / 2 * (1 - scale.value))
-  cameraY.value = Math.round(canvasH.value / 2 * (1 - scale.value))
+  // 内容实际居中在 laid.canvasW × laid.canvasH，需平移到显示画布中心
+  const contentW = state.laid?.canvasW || canvasW.value
+  const contentH = state.laid?.canvasH || canvasH.value
+  offset.x = Math.round(canvasW.value / 2 - contentW / 2 * scale.value)
+  cameraY.value = Math.round(canvasH.value / 2 - contentH / 2 * scale.value)
 }
 function fitToView() {
+  // 用实际内容尺寸计算 scale，避免内容小于画布时被缩得过小
+  const contentW = state.laid?.canvasW || canvasW.value
+  const contentH = state.laid?.canvasH || canvasH.value
   const view = { w: SCREEN_W, h: Math.max(360, SCREEN_H - 400 * rpx2px) }
-  const fit = Math.min(view.w / canvasW.value, view.h / canvasH.value, 1)
+  const fit = Math.min(view.w / contentW, view.h / contentH, 1)
   scale.value = Math.max(0.3, Math.min(fit, 1))
   centerOn()
 }
