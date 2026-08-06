@@ -129,22 +129,8 @@ function readPageOptions() {
 const positionedNodes = computed(() => {
   const nodes = chart.value.nodes || []
   const edges = chart.value.edges || []
-  const nodeMap = new Map(nodes.map(node => [String(node.id), node]))
-  const level = new Map(nodes.map(node => [String(node.id), 0]))
-  for (let index = 0; index < nodes.length; index += 1) {
-    let changed = false
-    edges.forEach(edge => {
-      const source = String(edge.source)
-      const target = String(edge.target)
-      if (!nodeMap.has(source) || !nodeMap.has(target)) return
-      const nextLevel = (level.get(source) || 0) + 1
-      if (nextLevel > (level.get(target) || 0)) {
-        level.set(target, nextLevel)
-        changed = true
-      }
-    })
-    if (!changed) break
-  }
+  // 使用 DFS 回边感知的分层，避免"驳回/返回"等环边导致层级爆炸、节点跑出画布
+  const { level } = computeLevels(nodes, edges)
 
   const laneNames = (chart.value.lanes || []).map(lane => lane.name).filter(Boolean)
   nodes.forEach(node => {
