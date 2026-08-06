@@ -1,29 +1,77 @@
 import { request } from '@/utils/request.js'
-import { BASE_URL } from '@/utils/config.js'
+import { BASE_URL, PPT_OPTIONS_BYPASS_CACHE } from '@/utils/config.js'
 import { getToken } from '@/utils/storage.js'
 import { streamSse } from './ai.js'
 
 const base = '/api/app/ai/ppt'
+const PPT_OPTIONS_CACHE_KEY = 'aiPptOptions:v1'
+const DEFAULT_OPTIONS_CACHE_TTL = 24 * 60 * 60 * 1000
+const PPT_GENERATION_TIMEOUT = 5 * 60 * 1000
+let pptOptionsRequest = null
+
+export function getPptOptions({ forceRefresh = false } = {}) {
+  const bypassCache = forceRefresh || PPT_OPTIONS_BYPASS_CACHE
+  if (PPT_OPTIONS_BYPASS_CACHE) {
+    try {
+      uni.removeStorageSync(PPT_OPTIONS_CACHE_KEY)
+    } catch (error) {}
+  }
+  if (!bypassCache) {
+    const cached = readPptOptionsCache()
+    if (cached) return Promise.resolve(cached)
+  }
+  if (pptOptionsRequest) return pptOptionsRequest
+  pptOptionsRequest = request({
+    url: `${base}/options`,
+    method: 'GET',
+    showError: false
+  }).then(response => {
+    const data = response && typeof response === 'object' && Object.prototype.hasOwnProperty.call(response, 'data')
+      ? (response.data || {})
+      : (response || {})
+    if (!Array.isArray(data.scenes) || !data.scenes.length) throw new Error('PPT 场景配置为空')
+    const ttl = Math.max(60000, Number(data.cacheTtlSeconds || 0) * 1000 || DEFAULT_OPTIONS_CACHE_TTL)
+    if (!bypassCache) {
+      try {
+        uni.setStorageSync(PPT_OPTIONS_CACHE_KEY, { data, expiresAt: Date.now() + ttl })
+      } catch (error) {}
+    }
+    return data
+  }).finally(() => {
+    pptOptionsRequest = null
+  })
+  return pptOptionsRequest
+}
+
+function readPptOptionsCache() {
+  try {
+    const cached = uni.getStorageSync(PPT_OPTIONS_CACHE_KEY)
+    if (!cached || Number(cached.expiresAt || 0) <= Date.now()) return null
+    return Array.isArray(cached.data?.scenes) && cached.data.scenes.length ? cached.data : null
+  } catch (error) {
+    return null
+  }
+}
 
 export const generatePptOutline = data => request({
   url: `${base}/outlines`,
   method: 'POST',
   data,
-  timeout: 120000
+  timeout: PPT_GENERATION_TIMEOUT
 })
 
 export const generatePptSlides = data => request({
   url: `${base}/slides`,
   method: 'POST',
   data,
-  timeout: 120000
+  timeout: PPT_GENERATION_TIMEOUT
 })
 
 export const createPptTask = data => request({
   url: `${base}/tasks`,
   method: 'POST',
   data,
-  timeout: 120000
+  timeout: PPT_GENERATION_TIMEOUT
 })
 
 export const getPptTask = taskId => request({

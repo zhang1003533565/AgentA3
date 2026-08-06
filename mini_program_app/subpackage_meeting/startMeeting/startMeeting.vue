@@ -23,7 +23,7 @@
 					<text class="type-name">预约会议</text>
 					<text class="type-desc">选择时间并设置会议</text>
 				</view>
-				<text class="chevron">›</text>
+				<view class="radio-dot"></view>
 			</view>
 		</view>
 
@@ -32,24 +32,15 @@
 			<view class="field-block">
 				<text class="field-label">会议主题</text>
 				<view class="input-box">
-					<input v-model="meetingTitle" class="plain-input" placeholder="项目进度同步会" />
+					<input v-model="meetingTitle" class="plain-input" placeholder="" />
+					<view class="clear-btn" @click="clearTitle">
+						<text class="clear-icon">×</text>
+					</view>
 				</view>
 			</view>
 			<view class="setting-row">
 				<text>开启麦克风</text>
 				<switch :checked="micOn" color="#86C9A8" @change="micOn = $event.detail.value" />
-			</view>
-			<view class="setting-row">
-				<text>开启视频</text>
-				<switch :checked="cameraOn" color="#86C9A8" @change="cameraOn = $event.detail.value" />
-			</view>
-			<view class="setting-row">
-				<view class="label-help"><text>共享屏幕</text><text class="info">ⓘ</text></view>
-				<switch :checked="shareScreen" color="#86C9A8" @change="shareScreen = $event.detail.value" />
-			</view>
-			<view class="setting-row">
-				<view class="label-help"><text>使用个人会议号</text><text class="info">ⓘ</text></view>
-				<switch :checked="personalId" color="#86C9A8" @change="personalId = $event.detail.value" />
 			</view>
 		</view>
 
@@ -68,41 +59,26 @@ export default {
 		return {
 			meetingTitle: '项目进度同步会',
 			micOn: true,
-			cameraOn: true,
-			shareScreen: false,
-			personalId: false,
 			creating: false
 		}
 	},
 	methods: {
 		back() { uni.navigateBack() },
+		clearTitle() { this.meetingTitle = '' },
 		// 仅此处进行修改：navigateTo → redirectTo
 		goReserveMeeting() {
 			uni.redirectTo({ url: '/subpackage_meeting/reserveMeeting/reserveMeeting' })
 		},
-		// 媒体权限预校验
+		// 麦克风权限预校验
 		async checkMediaPermission() {
-			let authAudio = true;
-			let authVideo = true;
-			// 麦克风权限校验
-			if(this.micOn) {
-				try {
-					await uni.requestPermission({scope: 'scope.record'})
-				} catch(err) {
-					uni.showToast({title: '未授予麦克风权限，无法开启音频', icon:'none'})
-					authAudio = false;
-				}
+			if(!this.micOn) return true;
+			try {
+				await uni.requestPermission({scope: 'scope.record'})
+				return true;
+			} catch(err) {
+				uni.showToast({title: '未授予麦克风权限，无法开启音频', icon:'none'})
+				return false;
 			}
-			// 摄像头权限校验
-			if(this.cameraOn) {
-				try {
-					await uni.requestPermission({scope: 'scope.camera'})
-				} catch(err) {
-					uni.showToast({title: '未授予摄像头权限，无法开启视频', icon:'none'})
-					authVideo = false;
-				}
-			}
-			return authAudio && authVideo;
 		},
 		async startNow() {
 			if (this.creating) return
@@ -118,7 +94,7 @@ export default {
 				})
 				const session = res?.data?.session || {}
 				uni.redirectTo({
-					url: `/subpackage_meeting/meetingLive/meetingLive?title=${encodeURIComponent(session.title || this.meetingTitle || '快速会议')}&roomCode=${encodeURIComponent(session.roomCode || '')}&sessionId=${encodeURIComponent(session.sessionId || '')}&micOn=${this.micOn ? '1' : '0'}&cameraOn=${this.cameraOn ? '1' : '0'}&shareScreen=${this.shareScreen ? '1' : '0'}`
+					url: `/subpackage_meeting/meetingLive/meetingLive?title=${encodeURIComponent(session.title || this.meetingTitle || '快速会议')}&roomCode=${encodeURIComponent(session.roomCode || '')}&sessionId=${encodeURIComponent(session.sessionId || '')}&micOn=${this.micOn ? '1' : '0'}&cameraOn=0&shareScreen=0`
 				})
 			} catch (error) {
 				uni.showToast({ title: '会议创建失败，请稍后重试', icon: 'none' })
@@ -148,6 +124,8 @@ export default {
 .type-name { font-size: 27rpx; font-weight: 850; color: #172228; }
 .type-desc { font-size: 22rpx; color: #8b9499; }
 .check-dot { width: 40rpx; height: 40rpx; border-radius: 50%; background: #86C9A8; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 24rpx; font-weight: 900; }
+/* 未选中圆圈 - 图二圈选样式 */
+.radio-dot { width: 40rpx; height: 40rpx; border-radius: 50%; border: 3rpx solid #d1d5db; background: transparent; box-sizing: border-box; }
 .chevron { color: #8c969b; font-size: 42rpx; }
 .field-block { padding-bottom: 28rpx; }
 .field-label { display: block; color: #29343a; font-size: 25rpx; margin-bottom: 16rpx; }
@@ -165,6 +143,18 @@ export default {
 	color: #1b252a;
 	font-size: 26rpx;
 }
+.clear-btn {
+	width: 40rpx;
+	height: 40rpx;
+	border-radius: 50%;
+	background: #d1d5db;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	margin-left: 16rpx;
+	flex-shrink: 0;
+}
+.clear-icon { color: #fff; font-size: 28rpx; line-height: 1; font-weight: 500; }
 .setting-row { height: 82rpx; display: flex; align-items: center; justify-content: space-between; font-size: 26rpx; color: #1c272d; }
 .label-help { display: flex; align-items: center; gap: 8rpx; }
 .info { color: #9aa3a8; font-size: 22rpx; }

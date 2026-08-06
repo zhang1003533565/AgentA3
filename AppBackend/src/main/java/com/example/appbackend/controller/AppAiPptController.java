@@ -32,6 +32,11 @@ public class AppAiPptController {
         this.aiPptService = aiPptService;
     }
 
+    @GetMapping("/options")
+    public Result<AiPptDTO.OptionsResponse> getOptions(HttpServletRequest request) {
+        return Result.success(aiPptService.getOptions(requireUserId(request)));
+    }
+
     @PostMapping("/outlines")
     public Result<Object> generateOutline(@Valid @RequestBody AiPptDTO.OutlineRequest body,
                                          @RequestHeader(value = "Authorization", required = false) String authorization,

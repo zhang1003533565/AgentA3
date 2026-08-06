@@ -40,3 +40,4 @@ Thumbs.db
 # Runtime logs
 logs/
 AppBackend/logs/
+.reasonix/
