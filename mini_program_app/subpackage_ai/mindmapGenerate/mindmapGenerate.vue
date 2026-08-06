@@ -18,10 +18,7 @@
           :maxlength="2000"
         />
         <view class="input-card__footer">
-          <view class="import-btn" @tap="importDocument">
-            <image class="import-icon" src="/static/icons/diagram/import-file.svg" mode="aspectFit" />
-            <text>{{ isUploading ? '解析中...' : '导入 PPT/Word/PDF' }}</text>
-          </view>
+          <ImportFileButton :loading="isUploading" @click="importDocument" />
           <text class="char-count">{{ topic.length }}/2000</text>
         </view>
       </view>
@@ -124,6 +121,7 @@ import {
   getMindmapHistory,
   uploadMindmapFile
 } from '@/api/aiDiagram.js'
+import ImportFileButton from '../components/ImportFileButton.vue'
 
 const topic = ref('')
 const centerTopic = ref('')
@@ -306,25 +304,6 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.import-btn {
-  display: flex;
-  align-items: center;
-  height: 54rpx;
-  padding: 0 22rpx;
-  border-radius: 28rpx;
-  background: #F6F5F8;
-  color: #2D4566;
-  font-size: 24rpx;
-  font-weight: 700;
-  box-sizing: border-box;
-}
-
-.import-icon {
-  width: 24rpx;
-  height: 24rpx;
-  margin-right: 10rpx;
 }
 
 .char-count {

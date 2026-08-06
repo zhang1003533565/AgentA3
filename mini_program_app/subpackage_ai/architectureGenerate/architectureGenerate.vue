@@ -19,10 +19,7 @@
           :maxlength="500"
         />
         <view class="input-footer">
-          <view class="voice-import" @tap="importVoice">
-            <image class="voice-icon" src="/static/icons/diagram/import-file.svg" mode="aspectFit" />
-            <text>导入文档/语音</text>
-          </view>
+          <ImportFileButton :loading="isUploading" @click="importDocument" />
           <text class="char-count">{{ description.length }} / 500</text>
         </view>
       </view>
@@ -144,8 +141,11 @@ import { onMounted, ref } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import {
   buildArchitecturePayload,
-  getArchitectureHistory
+  getArchitectureHistory,
+  uploadArchitectureFile
 } from '@/api/architecture.js'
+import { getErrorMessage } from '@/api/aiDiagram.js'
+import ImportFileButton from '../components/ImportFileButton.vue'
 
 const description = ref('')
 const selectedSystemType = ref('web')
@@ -153,6 +153,8 @@ const selectedLayer = ref('auto')
 const selectedContents = ref(['frontend', 'backend'])
 const selectedRelation = ref('auto')
 const isGenerating = ref(false)
+const isUploading = ref(false)
+const uploadedFile = ref(null)
 const recentItems = ref([])
 
 // UI 选项 key → 后端枚举值 映射
@@ -243,7 +245,51 @@ const openRecent = (item) => {
     url: `/subpackage_ai/architecturePreview/architecturePreview?recordId=${encodeURIComponent(item.id)}`
   })
 }
-const importVoice = () => { uni.showToast({ title: '导入接口预留', icon: 'none' }) }
+const chooseDocumentFile = () => {
+  const extensions = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'md', 'markdown']
+  return new Promise((resolve, reject) => {
+    if (typeof uni.chooseFile === 'function') {
+      uni.chooseFile({
+        count: 1,
+        extension: extensions,
+        success: (res) => resolve(res.tempFiles?.[0] || null),
+        fail: reject
+      })
+      return
+    }
+    if (typeof uni.chooseMessageFile === 'function') {
+      uni.chooseMessageFile({
+        count: 1,
+        type: 'file',
+        extension: extensions,
+        success: (res) => resolve(res.tempFiles?.[0] || null),
+        fail: reject
+      })
+      return
+    }
+    reject(new Error('当前平台不支持文件选择'))
+  })
+}
+
+const importDocument = async () => {
+  if (isUploading.value) return
+  try {
+    const file = await chooseDocumentFile()
+    const filePath = file?.path || file?.tempFilePath
+    if (!filePath) return
+    isUploading.value = true
+    const result = await uploadArchitectureFile(filePath, file.name || '')
+    uploadedFile.value = result
+    if (!description.value.trim() && result.fileName) {
+      description.value = `根据文档《${result.fileName}》生成架构图`
+    }
+    uni.showToast({ title: '文件解析完成', icon: 'none' })
+  } catch (error) {
+    uni.showToast({ title: getErrorMessage(error, '文件解析失败'), icon: 'none' })
+  } finally {
+    isUploading.value = false
+  }
+}
 
 const toggleContent = (key) => {
   if (selectedContents.value.includes(key)) {
@@ -266,7 +312,10 @@ const generateArchitecture = async () => {
     architectureStyle: 'AUTO',
     layers: LAYER_MAP[selectedLayer.value] || [],
     displayContent: selectedContents.value.map(key => CONTENT_MAP[key]).filter(Boolean),
-    relationType: RELATION_MAP[selectedRelation.value] || 'AUTO'
+    relationType: RELATION_MAP[selectedRelation.value] || 'AUTO',
+    sourceText: uploadedFile.value?.text || '',
+    fileId: uploadedFile.value?.fileId || '',
+    sourceFile: uploadedFile.value?.sourceFile || ''
   })
   uni.setStorageSync('aiArchitecturePendingPayload', payload)
   uni.navigateTo({ url: '/subpackage_ai/architectureGenerating/architectureGenerating' })
@@ -345,20 +394,6 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.voice-import {
-  display: flex;
-  align-items: center;
-  color: #2394F2;
-  font-size: 22rpx;
-  font-weight: 700;
-}
-
-.voice-icon {
-  width: 24rpx;
-  height: 24rpx;
-  margin-right: 8rpx;
 }
 
 .char-count {

@@ -20,10 +20,7 @@
         />
         <view class="input-footer">
           <text class="char-count">{{ flowDescription.length }} / 500</text>
-          <view class="import-btn" @tap="importDocument">
-            <image class="import-icon" src="/static/icons/diagram/import-file.svg" mode="aspectFit" />
-            <text>导入文档</text>
-          </view>
+          <ImportFileButton :loading="isUploading" @click="importDocument" />
         </view>
       </view>
 
@@ -120,6 +117,7 @@ import {
   getFlowchartHistory,
   uploadFlowchartFile
 } from '@/api/aiDiagram.js'
+import ImportFileButton from '../components/ImportFileButton.vue'
 
 const flowDescription = ref('')
 const selectedScene = ref('administrative')
@@ -127,6 +125,7 @@ const selectedGranularity = ref('auto')
 const selectedJudge = ref('auto')
 const selectedLane = ref('auto')
 const uploadedDocument = ref(null)
+const isUploading = ref(false)
 
 const sceneOptions = [
   { key: 'administrative', label: '行政流程' },
@@ -173,7 +172,7 @@ const importDocument = () => {
         uni.showToast({ title: '仅支持 PDF、Word、PPT、Markdown', icon: 'none' })
         return
       }
-      uni.showLoading({ title: '解析中...', mask: true })
+      isUploading.value = true
       try {
         const result = await uploadFlowchartFile(filePath, fileName)
         uploadedDocument.value = result
@@ -184,7 +183,7 @@ const importDocument = () => {
       } catch (error) {
         uni.showToast({ title: getErrorMessage(error, '文件解析失败'), icon: 'none' })
       } finally {
-        uni.hideLoading()
+        isUploading.value = false
       }
     }
   })
@@ -226,8 +225,6 @@ const generateFlowchart = () => {
 .prompt-placeholder { color: #a9b6c4; font-size: 27rpx; line-height: 1.6; }
 .input-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 10rpx; }
 .char-count { color: #8290a1; font-size: 22rpx; }
-.import-btn { display: flex; align-items: center; gap: 8rpx; font-size: 24rpx; color: #3E6A9C; padding: 10rpx 20rpx; border: 2rpx solid #d8e2ec; border-radius: 999rpx; }
-.import-icon { width: 26rpx; height: 26rpx; }
 
 .section-title { display: flex; align-items: center; gap: 10rpx; margin: 32rpx 4rpx 16rpx; font-size: 26rpx; font-weight: 700; color: #1e344f; }
 .section-icon { width: 28rpx; height: 28rpx; }
