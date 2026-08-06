@@ -4,18 +4,7 @@
     <nav-bar :title="navTitle" :subtitle="navSubtitle" :showBack="true" :border="false" />
 
     <!-- 画布 -->
-    <view
-      v-if="pageState !== 'error'"
-      class="canvas-area"
-      id="canvasArea"
-      @touchstart="onTouchStart"
-      @touchmove="onTouchMove"
-      @touchend="onTouchEnd"
-      @mousedown="onMouseDown"
-      @mousemove="onMouseMove"
-      @mouseup="onMouseUp"
-      @mouseleave="onMouseUp"
-    >
+    <view v-if="pageState !== 'error'" class="canvas-area" id="canvasArea">
       <view class="canvas-stage" :class="{ smooth: smooth }" :style="stageStyle">
         <svg class="lines-svg" :width="CW" :height="CH" :viewBox="`0 0 ${CW} ${CH}`">
           <path
@@ -103,9 +92,9 @@
 
 <script setup>
 import { ref, computed, reactive } from 'vue'
-import { onLoad, onUnload, onMounted } from '@dcloudio/uni-app'
+import { onLoad, onUnload } from '@dcloudio/uni-app'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { buildMindmapPayload, generateMindmap as requestGenerateMindmap, getMindmapDetail, getErrorMessage } from '@/api/aiDiagram.js'
+import { buildMindmapPayload, generateMindmap as requestGenerateMindmap, getMindmapDetail } from '@/api/aiDiagram.js'
 
 const CW = 560, CH = 640, CX = 280, CY = 320
 const BR_X = 140, CH_X = 95
@@ -118,6 +107,7 @@ const state = reactive({ resultData: null })
 const isCompleted = ref(false)
 const pageState = ref('loading')
 const errorMessage = ref('')
+const aiFinished = ref(false)
 
 const realRoot = ref('')
 const realBranches = ref([])
@@ -164,55 +154,16 @@ function stepState(i) {
 
 // 视图适配
 let areaW = 375, areaH = 500
-const bounds = reactive({ w: 560, h: 640, cx: 280, cy: 320 })
 function measureArea() {
   uni.createSelectorQuery().select('#canvasArea').boundingClientRect(r => {
     if (r && r.width && r.height) { areaW = r.width; areaH = r.height }
   }).exec()
 }
-// 按内容实际边界计算，避免长节点溢出被裁切
-function computeBounds() {
-  const L = computeLayout(realBranches.value)
-  const hw = { root: 84, branch: 64, child: 58 }, hh = { root: 26, branch: 20, child: 16 }
-  let minX = CX - hw.root, maxX = CX + hw.root, minY = CY - hh.root, maxY = CY + hh.root
-  L.branchPos.forEach(p => { minX = Math.min(minX, p.x - hw.branch); maxX = Math.max(maxX, p.x + hw.branch); minY = Math.min(minY, p.y - hh.branch); maxY = Math.max(maxY, p.y + hh.branch) })
-  L.childPos.forEach(p => { minX = Math.min(minX, p.x - hw.child); maxX = Math.max(maxX, p.x + hw.child); minY = Math.min(minY, p.y - hh.child); maxY = Math.max(maxY, p.y + hh.child) })
-  return { w: maxX - minX, h: maxY - minY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 }
-}
-function fitScale() { return Math.min(areaW / bounds.w, areaH / bounds.h, 1) }
+function fitScale() { return Math.min(areaW / CW, areaH / CH, 1) }
 function growthScale() { return Math.min(fitScale() * 1.05, 1) }
 function applyView(s, center) {
   scale.value = s
-  if (center) { offset.x = areaW / 2 - bounds.cx * s; offset.y = areaH / 2 - bounds.cy * s }
-}
-function clampScale(v) { return Math.max(0.3, Math.min(2, v)) }
-
-// ===== 拖动 / 双指 / 滚轮 移动缩放 =====
-let drag = null, pinch = null
-function touchDist(ts) { const dx = ts[0].clientX - ts[1].clientX, dy = ts[0].clientY - ts[1].clientY; return Math.sqrt(dx * dx + dy * dy) }
-function onTouchStart(e) {
-  const ts = e.touches
-  if (ts.length === 1) drag = { x: ts[0].clientX, y: ts[0].clientY, ox: offset.x, oy: offset.y }
-  else if (ts.length === 2) { pinch = { d: touchDist(ts), s: scale.value }; drag = null }
-}
-function onTouchMove(e) {
-  const ts = e.touches
-  if (ts.length === 2 && pinch) {
-    scale.value = clampScale(pinch.s * touchDist(ts) / pinch.d)
-    offset.x = areaW / 2 - bounds.cx * scale.value; offset.y = areaH / 2 - bounds.cy * scale.value
-  } else if (ts.length === 1 && drag) {
-    offset.x = drag.ox + (ts[0].clientX - drag.x); offset.y = drag.oy + (ts[0].clientY - drag.y)
-  }
-}
-function onTouchEnd(e) { if (e.touches.length === 0) { drag = null; pinch = null } }
-function onMouseDown(e) { drag = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y } }
-function onMouseMove(e) { if (drag) { offset.x = drag.ox + (e.clientX - drag.x); offset.y = drag.oy + (e.clientY - drag.y) } }
-function onMouseUp() { drag = null }
-function onWheel(e) {
-  if (!e.ctrlKey && !e.metaKey) return
-  e.preventDefault()
-  scale.value = clampScale(scale.value + (e.deltaY > 0 ? -0.1 : 0.1))
-  offset.x = areaW / 2 - bounds.cx * scale.value; offset.y = areaH / 2 - bounds.cy * scale.value
+  if (center) { offset.x = areaW / 2 - CX * s; offset.y = areaH / 2 - CY * s }
 }
 
 // 布局
@@ -241,6 +192,13 @@ function computeLayout(branches) {
 let timers = []
 function clearTimers() { timers.forEach(t => clearTimeout(t)); timers = [] }
 function sleep(ms) { return new Promise(r => timers.push(setTimeout(r, ms))) }
+// 给异步请求加超时：到点未返回即 reject，避免请求挂起导致页面无限等待
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('AI 响应超时，请重试')), ms)
+    promise.then(v => { clearTimeout(t); resolve(v) }, e => { clearTimeout(t); reject(e) })
+  })
+}
 let runToken = null
 const alive = () => runToken && !runToken.cancelled
 
@@ -271,7 +229,8 @@ async function play() {
   await sleep(1000); if (!alive()) return
   floatMsg.value = '正在提取核心知识点…'; navSubtitle.value = '正在提取核心知识点…'
   progressPct.value = 28
-  applyView(growthScale(), true)
+  await waitForAIData(8000)
+  limitBranches()
   await sleep(300); if (!alive()) return
 
   // 根节点
@@ -344,7 +303,6 @@ function skipAnimation() {
   if (runToken) runToken.cancelled = true
   clearTimers()
   limitBranches()
-  Object.assign(bounds, computeBounds())
   const layout = computeLayout(realBranches.value)
   revealedLines.value = []; revealedNodes.value = []
   revealedNodes.value.push({ key: 'root', kind: 'root', label: realRoot.value, color: null, x: CX, y: CY, fx: CX, fy: CY })
@@ -365,6 +323,22 @@ function skipAnimation() {
 }
 
 // ===== 数据 =====
+function waitForAIData(timeout = 8000) {
+  return new Promise(resolve => {
+    const start = Date.now()
+    const tick = () => {
+      if (aiFinished.value) return resolve(true)
+      if (Date.now() - start > timeout) return resolve(false)
+      timers.push(setTimeout(tick, 100))
+    }
+    tick()
+  })
+}
+function handleAIData(result) {
+  if (aiFinished.value) return
+  aiFinished.value = true
+  extractAnimationData(result)
+}
 function extractAnimationData(result) {
   if (!result) return
   const data = result.mindmap || result.data || result
@@ -382,46 +356,36 @@ async function run() {
   pageState.value = 'loading'
   errorMessage.value = ''
   isCompleted.value = false
+  aiFinished.value = false
   realBranches.value = []; realRoot.value = ''
   try {
-    let result
     if (resultId.value) {
       let cached = uni.getStorageSync(`aiMindmapResult:${resultId.value}`)
-      if (!cached || !cached.nodes) cached = await getMindmapDetail(resultId.value)
-      result = cached
-    } else {
-      const payload = buildMindmapPayload({ topic: topicText.value || centerTopic.value, centerTopic: centerTopic.value })
-      result = await requestGenerateMindmap(payload)
-      uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
+      if (!cached || !cached.nodes) cached = await withTimeout(getMindmapDetail(resultId.value), 15000)
+      state.resultData = cached
+      handleAIData(cached)
+      play()
+      return
     }
-    startAnimation(result)
+    const payload = buildMindmapPayload({ topic: topicText.value || centerTopic.value, centerTopic: centerTopic.value })
+    // 先取数据再播放（与 demo 一致：数据就绪才播），并加超时防止请求挂起导致无限等待
+    const result = await withTimeout(requestGenerateMindmap(payload), 20000)
+    uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
+    state.resultData = result
+    handleAIData(result)
+    play()
   } catch (error) {
-    errorMessage.value = getErrorMessage(error, '生成失败，请重试')
+    if (runToken) runToken.cancelled = true
+    errorMessage.value = (error && (error.msg || error.message)) || '生成失败，请重试'
     pageState.value = 'error'
-    uni.showToast({ title: errorMessage.value, icon: 'none', duration: 2500 })
   }
-}
-
-// 与流程图/架构图一致：拿到数据再播，数据无效走统一错误态
-function startAnimation(result) {
-  state.resultData = result
-  extractAnimationData(result)
-  limitBranches()
-  if (!realBranches.value.length) {
-    errorMessage.value = 'AI 未生成有效内容，请稍后重试'
-    pageState.value = 'error'
-    return
-  }
-  Object.assign(bounds, computeBounds())
-  pageState.value = 'animating'
-  play()
 }
 
 function viewResult() {
   const id = state.resultData?.id
   if (id != null) uni.redirectTo({ url: `/subpackage_ai/mindmapViewer/mindmapViewer?id=${encodeURIComponent(id)}` })
 }
-function regenerate() { clearTimers(); run() }
+function regenerate() { clearTimers(); aiFinished.value = false; run() }
 function goBack() { clearTimers(); uni.navigateBack() }
 
 onLoad(options => {
@@ -430,15 +394,7 @@ onLoad(options => {
   resultId.value = decodeURIComponent(options?.id || '')
   run()
 })
-// #ifdef H5
-onMounted(() => {
-  if (typeof document !== 'undefined') document.addEventListener('wheel', onWheel, { passive: false })
-})
-// #endif
-onUnload(() => {
-  clearTimers()
-  if (typeof document !== 'undefined') document.removeEventListener('wheel', onWheel)
-})
+onUnload(() => clearTimers())
 </script>
 
 <style lang="scss" scoped>
