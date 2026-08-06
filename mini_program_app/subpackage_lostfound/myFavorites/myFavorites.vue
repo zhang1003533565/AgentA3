@@ -20,13 +20,30 @@
           <view class="empty-desc">遇到喜欢的商品，记得点击收藏哦</view>
           <button class="empty-action" hover-class="empty-action-hover" @click="goBrowse">去逛逛</button>
         </view>
-        <view v-for="item in items" :key="item.id" class="item-card" @click="goDetail(item.id)">
-          <image v-if="item.images.length" class="cover" :src="item.images[0]" mode="aspectFill" />
-          <view v-else class="cover placeholder">{{ emoji(item.id) }}</view>
-          <view class="body">
-            <view class="title">{{ item.title || '未命名商品' }}</view>
-            <view class="price">¥{{ priceText(item.price) }}</view>
-            <view class="meta">{{ item.campusName || '校内' }} · {{ item.pickupPoint || item.tradeLocation || item.location || '校内自提' }}</view>
+        <view v-else class="item-grid">
+          <view v-for="item in items" :key="item.id" class="item-card" @click="goDetail(item.id)">
+            <view class="card-cover">
+              <image v-if="item.images && item.images.length" :src="item.images[0]" mode="aspectFill" class="cover-img" />
+              <view v-else class="cover-placeholder">
+                <text class="cover-emoji">{{ itemEmoji(item.id) }}</text>
+              </view>
+              <view class="card-badge-type" :class="'card-badge-type--' + (item.tradeType || 'sell')">
+                {{ item.tradeType === 'buy' ? '收' : '出' }}
+              </view>
+            </view>
+            <view class="card-body">
+              <view class="card-title">{{ item.title }}</view>
+              <view class="card-price">¥{{ priceText(item.price) }}</view>
+              <view class="card-location-row" v-if="item.pickupPoint || item.location">
+                <view class="loc-icon"></view>
+                <text class="card-location">{{ item.pickupPoint || item.location }}</text>
+              </view>
+              <view class="card-user">
+                <view class="user-avatar">{{ item.sellerName ? item.sellerName[0] : '同' }}</view>
+                <text class="user-name">{{ item.sellerName || '同学' }}</text>
+                <text class="user-time">{{ fmt(item.ctime) }}</text>
+              </view>
+            </view>
           </view>
         </view>
       </scroll-view>
@@ -37,24 +54,32 @@
 <script>
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import { getMyFavorites } from '@/api/secondhand'
-const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '📦']
+
+const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
+
 function normalize(raw = {}) {
+  const seller = raw.seller || {}
   return {
     id: raw.id,
     title: raw.title || raw.name || '',
     price: raw.price,
     images: Array.isArray(raw.images) ? raw.images : [],
-    campusName: raw.campusName || '',
-    tradeLocation: raw.tradeLocation || '',
+    tradeType: raw.tradeType || raw.trade_type || 'sell',
     pickupPoint: raw.pickupPoint || '',
-    location: raw.location || ''
+    location: raw.location || '',
+    sellerName: raw.sellerName || seller.username || seller.nickname || raw.userName || '',
+    ctime: raw.createTime || raw.ctime || ''
   }
 }
+
 export default {
   components: { CommonPageHeader },
   data() { return { loading: false, refreshing: false, items: [] } },
   onShow() { this.loadItems() },
   methods: {
+    itemEmoji(id) {
+      return EMOJIS[(id || 0) % EMOJIS.length]
+    },
     async refresh() { this.refreshing = true; await this.loadItems(); this.refreshing = false },
     async loadItems() {
       try {
@@ -68,7 +93,11 @@ export default {
       } finally { this.loading = false }
     },
     priceText(value) { const price = Number(value); return Number.isFinite(price) ? price.toFixed(price % 1 === 0 ? 0 : 2) : '--' },
-    emoji(id) { return EMOJIS[(Number(id) || 0) % EMOJIS.length] },
+    fmt(value) {
+      if (!value) return ''
+      const str = String(value).replace('T', ' ')
+      return str.split(' ')[0] || ''
+    },
     goDetail(id) { uni.navigateTo({ url: `/subpackage_lostfound/lostfoundDetail/lostfoundDetail?id=${id}` }) },
     goBrowse() {
       uni.redirectTo({ url: '/subpackage_lostfound/lostfoundList/lostfoundList' })
@@ -78,10 +107,11 @@ export default {
 </script>
 
 <style scoped>
-.page-root { min-height: 100vh; background: #f6fbff; }
-.container { width: 100%; max-width: 430px; min-height: 100vh; margin: 0 auto; padding: 0 16rpx; box-sizing: border-box; background: linear-gradient(180deg, #eaf6ff 0%, #f7fbff 280rpx, #f8fbff 100%); }
-.page-body { height: calc(100vh - 88rpx); padding: 24rpx 0; box-sizing: border-box; }
+.page-root { min-height: 100vh; background: #F7F8FA; }
+.container { width: 100%; max-width: 430px; min-height: 100vh; margin: 0 auto; padding: 0 12rpx; box-sizing: border-box; background: #F7F8FA; }
+.page-body { height: calc(100vh - 88rpx); padding: 26rpx 12rpx 34rpx; box-sizing: border-box; }
 .page-body.is-empty { padding: 0; }
+
 .empty {
   min-height: calc(100vh - 88rpx);
   padding: 280rpx 0 120rpx;
@@ -89,46 +119,209 @@ export default {
   text-align: center;
   color: #8aa1b2;
 }
-.empty-illustration {
-  width: 430rpx;
-  height: 310rpx;
-  margin: 0 auto 42rpx;
-  display: block;
+.empty-illustration { width: 350rpx; height: 276rpx; margin: 0 auto 42rpx; display: block; }
+.empty-title { color: #1D2430; font-size: 34rpx; font-weight: 900; line-height: 1.25; }
+.empty-desc { margin-top: 22rpx; color: #9AA2AE; font-size: 25rpx; font-weight: 500; line-height: 1.4; }
+.empty-action { width: 236rpx; height: 72rpx; margin: 58rpx auto 0; padding: 0; border-radius: 999rpx; background: #4D77F3; color: #FFFFFF; font-size: 26rpx; font-weight: 800; line-height: 72rpx; box-shadow: 0 14rpx 30rpx rgba(77, 119, 243, 0.26); }
+.empty-action::after { border: none; }
+.empty-action-hover { opacity: 0.88; }
+
+.item-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12rpx;
 }
-.empty-title {
-  color: #182230;
-  font-size: 44rpx;
+
+.item-card {
+  display: flex;
+  flex-direction: column;
+  background: #FFFFFF;
+  border-radius: 16rpx;
+  overflow: hidden;
+  box-shadow: 0 4rpx 16rpx rgba(30, 41, 59, 0.06);
+  box-sizing: border-box;
+}
+
+.card-cover {
+  position: relative;
+  width: 100%;
+  padding-top: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #EEF2F7;
+  overflow: hidden;
+}
+
+.cover-img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.cover-placeholder {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14rpx;
+  color: #8E8E93;
+}
+
+.cover-emoji {
+  font-size: 58rpx;
+  line-height: 1;
+}
+
+.card-badge-type {
+  position: absolute;
+  left: 14rpx;
+  top: 14rpx;
+  min-width: 40rpx;
+  height: 40rpx;
+  padding: 0 8rpx;
+  border-radius: 10rpx;
+  color: #FFFFFF;
+  font-size: 22rpx;
+  font-weight: 800;
+  line-height: 40rpx;
+  text-align: center;
+  box-shadow: 0 4rpx 10rpx rgba(0, 0, 0, 0.2);
+}
+
+.card-badge-type--sell {
+  background: #FF6B35;
+  box-shadow: 0 4rpx 10rpx rgba(255, 107, 53, 0.35);
+}
+
+.card-badge-type--buy {
+  background: #4A90E2;
+  box-shadow: 0 4rpx 10rpx rgba(74, 144, 226, 0.35);
+}
+
+.card-body {
+  padding: 14rpx 16rpx 18rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.card-title {
+  color: #1D2430;
+  font-size: 24rpx;
+  font-weight: 800;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-price {
+  color: #FF4D2E;
+  font-size: 28rpx;
   font-weight: 900;
-  line-height: 1.25;
+  line-height: 1.2;
 }
-.empty-desc {
-  margin-top: 24rpx;
-  color: #9aa3ad;
-  font-size: 30rpx;
+
+.card-location-row {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  color: #8A94A6;
+  font-size: 20rpx;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loc-icon {
+  position: relative;
+  width: 18rpx;
+  height: 18rpx;
+  flex-shrink: 0;
+}
+
+.loc-icon::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12rpx;
+  height: 12rpx;
+  margin-left: -6rpx;
+  margin-top: -12rpx;
+  border: 2rpx solid #8A94A6;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  box-sizing: border-box;
+}
+
+.loc-icon::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4rpx;
+  height: 4rpx;
+  margin-left: -2rpx;
+  margin-top: -2rpx;
+  background: #8A94A6;
+  border-radius: 50%;
+}
+
+.card-location {
+  font-size: 20rpx;
+  color: #8A94A6;
   font-weight: 500;
-  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.empty-action {
-  width: 260rpx;
-  height: 88rpx;
-  margin: 54rpx auto 0;
-  padding: 0;
-  border: 0;
-  border-radius: 999rpx;
-  background: #5d93f2;
-  color: #ffffff;
-  font-size: 34rpx;
-  font-weight: 900;
-  line-height: 88rpx;
-  box-shadow: 0 16rpx 30rpx rgba(61, 126, 255, 0.18);
+
+.card-user {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  padding-top: 10rpx;
+  border-top: 1rpx solid #F0F2F5;
 }
-.empty-action::after { border: 0; }
-.empty-action-hover { opacity: 0.88; transform: translateY(2rpx); }
-.item-card { display: flex; gap: 20rpx; padding: 20rpx; margin-bottom: 18rpx; background: #fff; border-radius: 18rpx; box-shadow: 0 6rpx 18rpx rgba(43, 68, 94, 0.08); }
-.cover { width: 150rpx; height: 150rpx; border-radius: 14rpx; background: #edf4fa; flex-shrink: 0; }
-.placeholder { display: flex; align-items: center; justify-content: center; font-size: 48rpx; }
-.body { flex: 1; min-width: 0; }
-.title { color: #172331; font-size: 28rpx; font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.price { margin-top: 14rpx; color: #d56b55; font-size: 30rpx; font-weight: 900; }
-.meta { margin-top: 14rpx; color: #7d8c9c; font-size: 23rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.user-avatar {
+  width: 34rpx;
+  height: 34rpx;
+  border-radius: 50%;
+  background: rgba(92, 122, 153, 0.12);
+  color: #5C7A99;
+  font-size: 18rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.user-name {
+  font-size: 21rpx;
+  color: #666A70;
+  font-weight: 600;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-time {
+  font-size: 18rpx;
+  color: #9AA2AE;
+  font-weight: 500;
+  margin-left: auto;
+}
 </style>

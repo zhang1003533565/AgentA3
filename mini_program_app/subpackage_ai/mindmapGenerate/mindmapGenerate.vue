@@ -18,10 +18,7 @@
           :maxlength="2000"
         />
         <view class="input-card__footer">
-          <view class="import-btn" @tap="importDocument">
-            <image class="import-icon" src="/static/icons/diagram/import-file.svg" mode="aspectFit" />
-            <text>{{ isUploading ? '解析中...' : '导入 PPT/Word/PDF' }}</text>
-          </view>
+          <ImportFileButton :loading="isUploading" @click="importDocument" />
           <text class="char-count">{{ topic.length }}/2000</text>
         </view>
       </view>
@@ -88,7 +85,7 @@
         </view>
       </view>
 
-      <view class="recent-section">
+      <view class="recent-section" v-if="recentItems.length">
         <text class="recent-title">最近生成</text>
         <view class="recent-list">
           <view class="recent-item" v-for="item in recentItems" :key="item.id" @tap="openRecent(item)">
@@ -96,8 +93,8 @@
               <image class="recent-icon" src="/static/icons/diagram/mindmap-purple.svg" mode="aspectFit" />
             </view>
             <view class="recent-info">
-              <text class="recent-name">{{ item.title }}</text>
-              <text class="recent-meta">{{ item.preview || item.createTime }}</text>
+              <text class="recent-name">{{ item.title || '未命名思维导图' }}</text>
+              <text class="recent-meta">{{ formatTime(item.createTime) }}</text>
             </view>
             <image class="recent-arrow" src="/static/icons/icon-forward.svg" mode="aspectFit" />
           </view>
@@ -124,6 +121,7 @@ import {
   getMindmapHistory,
   uploadMindmapFile
 } from '@/api/aiDiagram.js'
+import ImportFileButton from '../components/ImportFileButton.vue'
 
 const topic = ref('')
 const centerTopic = ref('')
@@ -156,7 +154,7 @@ const expandOptions = [
   { key: 'detail', label: '详细' }
 ]
 
-const openHistory = () => { uni.showToast({ title: '历史记录预留', icon: 'none' }) }
+const openHistory = () => { uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory' }) }
 
 const getOptionLabel = (options, key, fallback = '') => {
   return options.find(item => item.key === key)?.label || fallback || key
@@ -211,6 +209,7 @@ const importDocument = async () => {
 }
 
 const openRecent = (item) => {
+  if (!item || item.id == null) return
   uni.navigateTo({
     url: `/subpackage_ai/mindmapViewer/mindmapViewer?id=${encodeURIComponent(item.id)}`
   })
@@ -218,10 +217,26 @@ const openRecent = (item) => {
 
 const loadRecentItems = async () => {
   try {
-    recentItems.value = await getMindmapHistory()
+    const list = await getMindmapHistory()
+    const records = Array.isArray(list) ? list : []
+    recentItems.value = records.map(item => ({
+      id: item.id,
+      title: item.title || '未命名思维导图',
+      preview: item.preview || item.description || '',
+      createTime: item.createTime || item.createdAt || ''
+    }))
   } catch (error) {
     recentItems.value = []
   }
+}
+
+// 格式化时间（YYYY-MM-DD HH:mm）
+const formatTime = (timeStr = '') => {
+  if (!timeStr) return ''
+  const date = new Date(timeStr)
+  if (Number.isNaN(date.getTime())) return timeStr
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 const generateMindmap = async () => {
@@ -248,7 +263,7 @@ onMounted(() => {
 <style lang="scss" scoped>
 .page {
   min-height: 100vh;
-  background: #F3F3F4;
+  background: #FCFAFC;
   color: #18273F;
 }
 
@@ -306,25 +321,6 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.import-btn {
-  display: flex;
-  align-items: center;
-  height: 54rpx;
-  padding: 0 22rpx;
-  border-radius: 28rpx;
-  background: #F6F5F8;
-  color: #2D4566;
-  font-size: 24rpx;
-  font-weight: 700;
-  box-sizing: border-box;
-}
-
-.import-icon {
-  width: 24rpx;
-  height: 24rpx;
-  margin-right: 10rpx;
 }
 
 .char-count {
@@ -457,8 +453,10 @@ onMounted(() => {
   color: #FFFFFF;
 }
 
+/* ===== 最近生成 ===== */
 .recent-section {
-  margin-top: 24rpx;
+  margin-top: 36rpx;
+  margin-bottom: 40rpx;
 }
 
 .recent-title {
@@ -486,6 +484,10 @@ onMounted(() => {
   box-shadow: 0 4rpx 12rpx rgba(35, 43, 58, 0.03);
 }
 
+.recent-item:active {
+  background: #F4F8FC;
+}
+
 .recent-icon-wrap {
   display: flex;
   align-items: center;
@@ -494,7 +496,7 @@ onMounted(() => {
   height: 68rpx;
   margin-right: 24rpx;
   border-radius: 12rpx;
-  background: #F0E9FA;
+  background: #E8F4FE;
 }
 
 .recent-icon {
@@ -514,6 +516,9 @@ onMounted(() => {
   font-size: 26rpx;
   font-weight: 500;
   line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .recent-meta {
@@ -521,12 +526,16 @@ onMounted(() => {
   color: #2D4664;
   font-size: 20rpx;
   line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .recent-arrow {
   width: 32rpx;
   height: 32rpx;
   opacity: 0.3;
+  flex-shrink: 0;
 }
 
 .bottom-bar {
@@ -536,7 +545,7 @@ onMounted(() => {
   bottom: 0;
   z-index: 20;
   padding: 22rpx 30rpx 24rpx;
-  background: rgba(243, 243, 244, 0.96);
+  background: rgba(252, 250, 252, 0.96);
   box-sizing: border-box;
 }
 

@@ -27,11 +27,26 @@ public class CampusCourseChapter {
     @Column(columnDefinition = "LONGTEXT")
     private String content;
 
-    @Column(name = "resource_type", length = 30)
-    private String resourceType;
+    /**
+     * 引用的资料池 ID 数组，JSON 格式如 [1,2,3]。
+     * 仅允许视频类型资料，且最多一个。由 CourseMaterialService 维护。
+     */
+    @Column(name = "material_ids", columnDefinition = "TEXT")
+    private String materialIds;
 
-    @Column(name = "resource_url", length = 500)
-    private String resourceUrl;
+    /**
+     * 附加下载资料 ID 数组，JSON 格式如 [1,2,3]。
+     * 允许非视频类型资料（文本/PDF/文档等），可多个。
+     */
+    @Column(name = "additional_material_ids", columnDefinition = "TEXT")
+    private String additionalMaterialIds;
+
+    /**
+     * Word 文本资料 ID 数组，JSON 格式如 [1,2,3]。
+     * 仅允许 Word 类型（doc/docx），可多个。
+     */
+    @Column(name = "word_material_ids", columnDefinition = "TEXT")
+    private String wordMaterialIds;
 
     @Column(name = "estimated_minutes")
     private Integer estimatedMinutes;

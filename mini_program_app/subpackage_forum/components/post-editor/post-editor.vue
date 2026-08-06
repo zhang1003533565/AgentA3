@@ -1,13 +1,18 @@
 <template>
   <view class="post-editor">
     <view class="title-section">
-      <input
-        class="title-input"
-        v-model="form.title"
-        placeholder="添加标题（选填）"
-        :maxlength="50"
-      />
-      <text class="char-count">{{ (form.title || '').length }}/50</text>
+      <view class="title-with-required">
+        <input
+          class="title-input"
+          v-model="form.title"
+          placeholder="添加标题"
+          :maxlength="50"
+        />
+        <view class="char-count-wrapper">
+          <text class="char-count-required">*</text>
+          <text class="char-count">{{ (form.title || '').length }}/50</text>
+        </view>
+      </view>
     </view>
 
     <view class="content-section">
@@ -54,26 +59,10 @@
             :class="{ active: form.topicId === item.id }"
             @click="selectTopic(item.id)"
           >
-            # {{ item.name }}
+            <text class="topic-icon">{{ item.icon }}</text> # {{ item.name }}
           </view>
         </view>
       </scroll-view>
-    </view>
-
-    <view class="setting-section">
-      <view
-        class="setting-item"
-        :class="{ 'setting-item--pressed': switchPressed }"
-        @click="toggleAnonymous"
-        @touchstart="switchPressed = true"
-        @touchend="switchPressed = false"
-        @touchcancel="switchPressed = false"
-      >
-        <text class="setting-label">匿名发布</text>
-        <view class="setting-switch" :class="{ active: !!form.isAnonymous }">
-          <view class="setting-switch-thumb"></view>
-        </view>
-      </view>
     </view>
   </view>
 </template>
@@ -94,7 +83,6 @@ export default {
   },
   data() {
     return {
-      switchPressed: false
     }
   },
   methods: {
@@ -124,9 +112,6 @@ export default {
     },
     selectTopic(topicId) {
       this.$set(this.form, 'topicId', this.form.topicId === topicId ? null : topicId)
-    },
-    toggleAnonymous() {
-      this.$set(this.form, 'isAnonymous', !this.form.isAnonymous)
     }
   }
 }
@@ -142,17 +127,36 @@ export default {
   border-bottom: 1rpx solid #F0F0F0;
   position: relative;
 
+  .title-with-required {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+  }
+
   .title-input {
     font-size: 36rpx;
     font-weight: 600;
     color: #1D1D1F;
     width: 100%;
+    display: block;
+  }
+
+  .char-count-wrapper {
+    position: absolute;
+    right: 30rpx;
+    top: 24rpx;
+    display: flex;
+    align-items: center;
+  }
+
+  .char-count-required {
+    color: #FF2E26;
+    font-size: 36rpx;
+    font-weight: 600;
+    margin-right: 8rpx;
   }
 
   .char-count {
-    position: absolute;
-    right: 30rpx;
-    bottom: 24rpx;
     font-size: 22rpx;
     color: #8E8E93;
   }
@@ -169,6 +173,7 @@ export default {
     font-size: 30rpx;
     color: #1D1D1F;
     line-height: 1.8;
+    display: block;
   }
 
   .char-count {
@@ -270,7 +275,8 @@ export default {
   }
 
   .topic-item {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
     padding: 12rpx 28rpx;
     margin-right: 16rpx;
     font-size: 26rpx;
@@ -278,61 +284,13 @@ export default {
     background-color: #F5F5F7;
     border-radius: 32rpx;
 
+    .topic-icon {
+      margin-right: 8rpx;
+    }
+
     &.active {
       color: #FFFFFF;
       background-color: #5C7A99;
-    }
-  }
-}
-
-.setting-section {
-  padding: 0 30rpx;
-
-  .setting-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 28rpx 0;
-    border-bottom: 1rpx solid #F0F0F0;
-    transition: opacity 0.15s ease, transform 0.15s ease;
-
-    &.setting-item--pressed {
-      opacity: 0.85;
-      transform: scale(0.99);
-    }
-
-    .setting-label {
-      font-size: 28rpx;
-      color: #1D1D1F;
-    }
-
-    .setting-switch {
-      position: relative;
-      width: 88rpx;
-      height: 48rpx;
-      background-color: #E5E5EA;
-      border-radius: 24rpx;
-      transition: background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-
-      &.active {
-        background-color: #5C7A99;
-      }
-    }
-
-    .setting-switch-thumb {
-      position: absolute;
-      left: 4rpx;
-      top: 4rpx;
-      width: 40rpx;
-      height: 40rpx;
-      border-radius: 50%;
-      background-color: #FFFFFF;
-      box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.15);
-      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .setting-switch.active .setting-switch-thumb {
-      transform: translateX(40rpx);
     }
   }
 }

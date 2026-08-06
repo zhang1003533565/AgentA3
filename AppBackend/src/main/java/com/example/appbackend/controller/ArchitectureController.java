@@ -8,7 +8,9 @@ import com.example.appbackend.service.ArchitectureService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * AI 架构图生成接口。
@@ -39,6 +41,14 @@ public class ArchitectureController {
         String authorization = httpRequest.getHeader("Authorization");
         ArchitectureDTO.GenerateResponse data = architectureService.generate(request, userId, authorization);
         return Result.success(data);
+    }
+
+    @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "上传文档解析", description = "上传 pdf/word/ppt/md 文档，解析为文本供 AI 生成架构图使用")
+    public Result<ArchitectureDTO.UploadResponse> upload(@RequestParam("file") MultipartFile file,
+                                                          HttpServletRequest httpRequest) {
+        Long userId = currentUserId(httpRequest);
+        return Result.success(architectureService.uploadAndParse(userId, file));
     }
 
     @GetMapping("/history")

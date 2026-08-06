@@ -111,6 +111,7 @@ export const getSecondhandAdminList = (params = {}) =>
       keyword: params.keyword,
       categoryId: params.categoryId,
       status: params.status,
+      tradeType: params.tradeType,
       userId: params.userId,
     },
   })
@@ -127,4 +128,36 @@ export const getSecondhandStatistics = (params = {}) =>
     url: '/api/secondhand/statistics',
     method: 'get',
     params,
+  })
+
+// ========== 举报管理 ==========
+
+export const getSecondhandReportList = (params = {}) =>
+  request({
+    url: '/api/secondhand/reports',
+    method: 'get',
+    params: {
+      page: params.page ?? 1,
+      size: params.size ?? 10,
+      status: params.status,
+    },
+  })
+
+export const getSecondhandReportDetail = (id) =>
+  request({
+    url: `/api/secondhand/reports/${id}`,
+    method: 'get',
+  })
+
+export const handleSecondhandReport = (id, data) =>
+  request({
+    url: `/api/secondhand/reports/${id}/handle`,
+    method: 'put',
+    data,
+  })
+
+export const getSecondhandReportStatistics = () =>
+  request({
+    url: '/api/secondhand/reports/statistics',
+    method: 'get',
   })

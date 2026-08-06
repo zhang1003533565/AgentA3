@@ -1,6 +1,7 @@
 package com.example.appbackend.controller;
 
 import com.example.appbackend.entity.Result;
+import com.example.appbackend.service.FileStorageService;
 import com.qcloud.cos.COSClient;
 import com.qcloud.cos.model.ObjectMetadata;
 import com.qcloud.cos.model.PutObjectRequest;
@@ -180,7 +181,8 @@ public class UploadController {
         }
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(file.getSize());
-        metadata.setContentType(file.getContentType());
+        String ext = extensionOf(objectKey);
+        metadata.setContentType(FileStorageService.resolveContentType(ext.startsWith(".") ? ext.substring(1) : ext));
         try (InputStream inputStream = file.getInputStream()) {
             cosClient.putObject(new PutObjectRequest(bucket, objectKey, inputStream, metadata));
         }

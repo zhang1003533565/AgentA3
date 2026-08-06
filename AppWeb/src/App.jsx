@@ -18,6 +18,7 @@ import ReportManage from './pages/forum/ReportManage/ReportManage'
 import PostManage from './pages/forum/PostManage/PostManage'
 import CommentManage from './pages/forum/CommentManage/CommentManage'
 import TopicManage from './pages/forum/TopicManage/TopicManage'
+import SecondhandReportManage from './pages/market/SecondhandReportManage/SecondhandReportManage'
 import ExamPaperCreatePage from './pages/questionBank/ExamPaperCreatePage'
 import ExamPaperHistoryPage from './pages/questionBank/ExamPaperHistoryPage'
 import QuestionBankGeneratePage from './pages/questionBank/QuestionBankGeneratePage'
@@ -33,6 +34,7 @@ import './App.css'
 // 论坛独立页面路径集合（不走 WorkspacePage）
 const FORUM_INDEPENDENT_PATHS = new Set(['/forum/post', '/forum/comment', '/forum/topic', '/forum/report'])
 const FACILITY_PLACE_PATHS = new Set(['/facility/sports', '/facility/teaching', '/facility/dormitory'])
+const SECONDHAND_INDEPENDENT_PATHS = new Set(['/market/report'])
 
 function App() {
   // 过滤掉论坛相关路由，避免与独立页面冲突
@@ -40,6 +42,7 @@ function App() {
     .filter((item) => item.pageKey && item.path !== '/activity/manage' && item.path !== '/facility/canteen')
     .filter((item) => item.pageKey && item.path !== '/activity/manage' && !FORUM_INDEPENDENT_PATHS.has(item.path))
     .filter((item) => !FACILITY_PLACE_PATHS.has(item.path))
+    .filter((item) => !SECONDHAND_INDEPENDENT_PATHS.has(item.path))
     .map((item) => (
       <Route
         key={item.path}
@@ -70,6 +73,7 @@ function App() {
           <Route path="/forum/comment" element={<CommentManage />} />
           <Route path="/forum/topic" element={<TopicManage />} />
           <Route path="/forum/report" element={<ReportManage />} />
+          <Route path="/market/report" element={<SecondhandReportManage />} />
           <Route path="/ai/rag" element={<Navigate to="/ai/rag/agents" replace />} />
           <Route path="/ai/rag/strategy" element={<Navigate to="/ai/rag/agents" replace />} />
           <Route path="/ai/rag/agents" element={<RagManage page="agents" />} />
