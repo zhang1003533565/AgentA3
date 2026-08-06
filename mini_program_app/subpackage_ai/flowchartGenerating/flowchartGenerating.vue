@@ -74,6 +74,7 @@
             class="fn fn-in"
             :class="['fn--' + nodeType(node), { settle: settleOn }]"
             :style="nodeBox(node)"
+            :data-level="node.level"
           >
             <text class="fn-name">{{ node.name }}</text>
           </view>
@@ -203,11 +204,12 @@ const canvasStyle = computed(() => ({ width: canvasW.value + 'px', height: canva
 
 const scale = ref(1)
 const offset = reactive({ x: 0, y: 0 })
+const cameraY = ref(0)
 const smooth = ref(false)
 const stageStyle = computed(() => ({
   width: canvasW.value + 'px',
   height: canvasH.value + 'px',
-  transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale.value})`,
+  transform: `translate(${offset.x}px, ${cameraY.value}px) scale(${scale.value})`,
   transformOrigin: '0 0',
   transition: smooth.value ? 'transform 0.6s cubic-bezier(0.22,1,0.36,1)' : 'none'
 }))
@@ -228,13 +230,35 @@ function nodeType(node) { return node.type || 'action' }
 
 function centerOn() {
   offset.x = Math.round(canvasW.value / 2 * (1 - scale.value))
-  offset.y = Math.round(canvasH.value / 2 * (1 - scale.value))
+  cameraY.value = Math.round(canvasH.value / 2 * (1 - scale.value))
 }
 function fitToView() {
   const view = { w: SCREEN_W, h: Math.max(360, SCREEN_H - 400 * rpx2px) }
   const fit = Math.min(view.w / canvasW.value, view.h / canvasH.value, 1)
   scale.value = Math.max(0.3, Math.min(fit, 1))
   centerOn()
+}
+
+// 镜头跟随：让目标 level 的节点行对齐 canvas-area 垂直中心偏上 1/3 位
+// 只在换 level 时调用，避免同层节点生成时频繁抖动
+function followCameraLevel(level) {
+  return new Promise(resolve => {
+    const nodeSel = `.fn[data-level="${level}"]`
+    uni.createSelectorQuery()
+      .select('.canvas-area').boundingClientRect()
+      .select(nodeSel).boundingClientRect()
+      .exec(res => {
+        const canvas = res && res[0]
+        const node = res && res[1]
+        if (!canvas || !node) { resolve(); return }
+        // 节点中心相对 canvas-area 顶部的偏移（已含 scale）
+        const nodeCenterY = (node.top - canvas.top) + node.height / 2
+        // 目标：节点中心对齐 canvas-area 垂直 1/3 位（偏上，露出下一行）
+        const targetCameraY = canvas.height / 3 - nodeCenterY
+        cameraY.value = targetCameraY
+        resolve()
+      })
+  })
 }
 
 // ===== 动画流程 =====
@@ -263,11 +287,19 @@ async function runAnimation() {
 
   // 阶段2 墨实
   stageIndex.value = 2
+  let lastFollowLevel = -1
   for (const item of state.seq) {
     if (item.node) {
       inkedIds[item.node.id] = true
       inkedCount.value += 1
       if (inkedCount.value / laidNodes.value.length > 0.5) stageIndex.value = 2
+      // 换 level 时镜头跟随到当前节点行
+      if (item.node.level !== lastFollowLevel) {
+        smooth.value = true
+        await followCameraLevel(item.node.level)
+        lastFollowLevel = item.node.level
+        await sleep(120)
+      }
       await sleep(170)
     } else {
       drawnKeys[item.edge.key] = true
@@ -283,6 +315,7 @@ async function runAnimation() {
   // 阶段4 布局
   stageIndex.value = 4
   smooth.value = true
+  // 镜头回到全景
   fitToView()
   await sleep(650)
 
