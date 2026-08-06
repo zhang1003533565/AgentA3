@@ -1,525 +1,259 @@
 <template>
   <view class="page">
-    <!-- 导航栏 -->
-    <view class="nav-bar">
-      <view class="nav-back" @tap="goBack">
-        <text class="nav-back-icon">‹</text>
-      </view>
-      <text class="nav-title">流程图生成</text>
-      <view class="nav-placeholder"></view>
-    </view>
-
-    <view class="content">
-      <!-- 输入内容 -->
-      <view class="form-section">
-        <view class="section-header">
-          <view class="section-title-wrapper">
-            <view class="section-icon">
-              <text class="section-icon-text">📋</text>
-            </view>
-            <text class="section-title">输入内容</text>
-          </view>
+    <nav-bar title="AI 流程图" :showBack="true" :border="false">
+      <template #right>
+        <view class="nav-history-action" @tap="openHistory">
+          <image class="nav-history-icon" src="/static/icons/diagram/history.svg" mode="aspectFit" />
         </view>
+      </template>
+    </nav-bar>
 
-        <!-- 步骤/流程描述 -->
-        <view class="desc-header">
-          <text class="desc-label">步骤/流程描述</text>
-          <view class="clear-btn" @tap="clearDesc">
-            <text class="clear-icon">✕</text>
-            <text class="clear-text">清空</text>
-          </view>
-        </view>
-        <text class="desc-hint">输入要整理的步骤、算法或业务过程</text>
-        <view class="textarea-wrapper">
-          <textarea
-            class="desc-input"
-            v-model="flowDescription"
-            placeholder="1. 用户提交订单&#10;2. 系统验证库存&#10;3. 库存充足则进入支付流程&#10;4. 用户完成支付&#10;5. 生成订单并扣减库存&#10;6. 发送订单确认通知"
-            :maxlength="1000"
-          />
-          <text class="char-count">{{ flowDescription.length }}/1000</text>
-        </view>
-
-        <!-- 边界说明 -->
-        <view class="info-box">
-          <view class="info-icon">
-            <text class="info-icon-text">🛡</text>
-          </view>
-          <view class="info-content">
-            <text class="info-title">边界说明</text>
-            <text class="info-text">仅基于输入内容生成流程图，不会补充输入之外的节点或判断条件</text>
-          </view>
+    <scroll-view class="content" scroll-y>
+      <!-- 描述卡片 -->
+      <view class="input-card">
+        <textarea
+          class="prompt-input"
+          v-model="flowDescription"
+          placeholder="例如：生成请假申请流程，包含员工提交、主管审批、人事备案三个环节。如果主管拒绝，则返回修改。"
+          placeholder-class="prompt-placeholder"
+          :maxlength="500"
+        />
+        <view class="input-footer">
+          <text class="char-count">{{ flowDescription.length }} / 500</text>
+          <ImportFileButton :loading="isUploading" @click="importDocument" />
         </view>
       </view>
 
-      <!-- 图表类型 -->
-      <view class="form-section">
-        <view class="section-title">图表类型</view>
-        <view class="type-list">
-          <view
-            class="type-item"
-            :class="{ 'type-item--active': selectedType === 'flowchart' }"
-            @tap="selectedType = 'flowchart'"
-          >
-            <view class="type-radio" :class="{ 'type-radio--active': selectedType === 'flowchart' }">
-              <view class="type-radio-dot" v-if="selectedType === 'flowchart'"></view>
-            </view>
-            <view class="type-info">
-              <text class="type-name">流程图 (flowchart)</text>
-              <text class="type-desc">用于步骤顺序、业务流程</text>
-            </view>
-          </view>
-          <view
-            class="type-item"
-            :class="{ 'type-item--active': selectedType === 'graph' }"
-            @tap="selectedType = 'graph'"
-          >
-            <view class="type-radio" :class="{ 'type-radio--active': selectedType === 'graph' }">
-              <view class="type-radio-dot" v-if="selectedType === 'graph'"></view>
-            </view>
-            <view class="type-info">
-              <text class="type-name">关系图 (graph)</text>
-              <text class="type-desc">用于元素关系、网络结构</text>
-            </view>
-          </view>
-        </view>
+      <!-- 流程场景 -->
+      <view class="section-title">
+        <image class="section-icon" src="/static/icons/diagram/app-grid.svg" mode="aspectFit" />
+        <text>流程场景</text>
       </view>
-
-      <!-- 风格主题 -->
-      <view class="form-section">
-        <view class="section-title">风格主题</view>
-        <view class="style-list">
+      <view class="card">
+        <view class="chip-row">
           <view
-            class="style-item"
-            :class="{ 'style-item--active': selectedStyle === item.key }"
-            v-for="item in styles"
+            v-for="item in sceneOptions"
             :key="item.key"
-            @tap="selectedStyle = item.key"
+            class="chip"
+            :class="{ 'chip--on': selectedScene === item.key }"
+            @tap="selectedScene = item.key"
           >
-            <view class="style-preview" :style="{ background: item.previewBg }">
-              <view class="style-check" v-if="selectedStyle === item.key">
-                <text class="style-check-icon">✓</text>
-              </view>
-            </view>
-            <text class="style-label" :class="{ 'style-label--active': selectedStyle === item.key }">{{ item.label }}</text>
+            <text>{{ item.label }}</text>
           </view>
         </view>
       </view>
 
-      <!-- 方向布局 -->
-      <view class="form-section">
-        <view class="section-title">方向布局</view>
-        <view class="direction-list">
+      <!-- 节点粒度 -->
+      <view class="section-title">
+        <image class="section-icon" src="/static/icons/diagram/layer.svg" mode="aspectFit" />
+        <text>节点粒度</text>
+      </view>
+      <view class="card">
+        <view class="seg">
           <view
-            class="direction-item"
-            :class="{ 'direction-item--active': selectedDirection === item }"
-            v-for="item in directions"
-            :key="item"
-            @tap="selectedDirection = item"
+            v-for="item in granularityOptions"
+            :key="item.key"
+            class="seg-item"
+            :class="{ 'seg-item--on': selectedGranularity === item.key }"
+            @tap="selectedGranularity = item.key"
           >
-            <text class="direction-text">{{ item }}</text>
+            <text>{{ item.label }}</text>
           </view>
         </view>
       </view>
 
-      <!-- 生成按钮 -->
-      <view class="generate-btn" @tap="generateFlowchart">
-        <text class="generate-btn-text">✦ 生成流程图</text>
+      <!-- 判断节点 -->
+      <view class="section-title">
+        <image class="section-icon" src="/static/icons/diagram/database.svg" mode="aspectFit" />
+        <text>判断节点</text>
+      </view>
+      <view class="card">
+        <view v-for="item in judgeOptions" :key="item.key" class="radio-row" @tap="selectedJudge = item.key">
+          <text class="radio-text">{{ item.label }}</text>
+          <view class="radio" :class="{ 'radio--on': selectedJudge === item.key }"></view>
+        </view>
       </view>
 
+      <!-- 角色泳道 -->
+      <view class="section-title">
+        <image class="section-icon" src="/static/icons/diagram/user-line.svg" mode="aspectFit" />
+        <text>角色泳道</text>
+      </view>
+      <view class="card">
+        <view class="lane-grid">
+          <view
+            v-for="item in laneOptions"
+            :key="item.key"
+            class="lane-item"
+            :class="{ 'lane-item--on': selectedLane === item.key }"
+            @tap="selectedLane = item.key"
+          >
+            <image class="lane-icon" :src="item.icon" mode="aspectFit" />
+            <text>{{ item.label }}</text>
+          </view>
+        </view>
+      </view>
 
+      <view class="ready-card">
+        <image class="ready-icon" src="/static/icons/diagram/spark-blue.svg" mode="aspectFit" />
+        <text>AI 已就绪，点击生成后将构建流程骨架并逐节点生长</text>
+      </view>
+    </scroll-view>
+
+    <view class="bottom-bar">
+      <view class="generate-btn" @tap="generateFlowchart">
+        <image class="generate-icon" src="/static/icons/diagram/flow-white.svg" mode="aspectFit" />
+        <text>AI 生成流程图</text>
+      </view>
     </view>
   </view>
 </template>
 
 <script setup>
 import { ref } from 'vue'
+import NavBar from '@/components/nav-bar/nav-bar.vue'
+import {
+  getErrorMessage,
+  getFlowchartHistory,
+  uploadFlowchartFile
+} from '@/api/aiDiagram.js'
+import ImportFileButton from '../components/ImportFileButton.vue'
 
-const flowDescription = ref('1. 用户提交订单\n2. 系统验证库存\n3. 库存充足则进入支付流程\n4. 用户完成支付\n5. 生成订单并扣减库存\n6. 发送订单确认通知')
-const selectedType = ref('flowchart')
-const selectedStyle = ref('default')
-const selectedDirection = ref('自上而下')
+const flowDescription = ref('')
+const selectedScene = ref('administrative')
+const selectedGranularity = ref('auto')
+const selectedJudge = ref('auto')
+const selectedLane = ref('auto')
+const uploadedDocument = ref(null)
+const isUploading = ref(false)
 
-const styles = [
-  { key: 'default', label: '默认简洁', previewBg: 'linear-gradient(135deg, #F0F4FF 0%, #FFF 50%, #F0F4FF 100%)' },
-  { key: 'fresh', label: '清新明快', previewBg: 'linear-gradient(135deg, #F0FFF4 0%, #FFF 50%, #F0FFF4 100%)' },
-  { key: 'business', label: '商务专业', previewBg: 'linear-gradient(135deg, #FFF8F0 0%, #FFF 50%, #FFF8F0 100%)' },
-  { key: 'dark', label: '深色模式', previewBg: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)' },
+const sceneOptions = [
+  { key: 'administrative', label: '行政流程' },
+  { key: 'business', label: '业务流程' },
+  { key: 'study', label: '学习流程' },
+  { key: 'life', label: '生活流程' }
 ]
 
-const directions = ['自上而下', '自左而右', '自下而上', '自右而左']
+const granularityOptions = [
+  { key: 'auto', label: '自动' },
+  { key: 'simple', label: '简略' },
+  { key: 'standard', label: '标准' },
+  { key: 'detail', label: '详细' }
+]
 
-const goBack = () => { uni.navigateBack() }
-const clearDesc = () => { flowDescription.value = '' }
+const judgeOptions = [
+  { key: 'auto', label: '自动识别内容' },
+  { key: 'force', label: '强制包含判断框' },
+  { key: 'none', label: '不包含' }
+]
 
+const laneOptions = [
+  { key: 'auto', label: '自动', icon: '/static/icons/diagram/role-auto-orange.svg' },
+  { key: 'hidden', label: '不显示', icon: '/static/icons/diagram/eye-off.svg' },
+  { key: 'role', label: '按角色', icon: '/static/icons/diagram/user-line.svg' },
+  { key: 'department', label: '按部门', icon: '/static/icons/diagram/users-line.svg' }
+]
+
+const openHistory = () => {
+  uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory' })
+}
+
+const importDocument = () => {
+  uni.chooseMessageFile({
+    count: 1,
+    type: 'file',
+    extension: ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'md', 'markdown'],
+    success: async ({ tempFiles }) => {
+      const file = tempFiles?.[0]
+      const filePath = file?.path || file?.tempFilePath
+      const fileName = file?.name || ''
+      const extension = fileName.includes('.') ? fileName.split('.').pop().toLowerCase() : ''
+      if (!filePath || !['pdf', 'doc', 'docx', 'ppt', 'pptx', 'md', 'markdown'].includes(extension)) {
+        uni.showToast({ title: '仅支持 PDF、Word、PPT、Markdown', icon: 'none' })
+        return
+      }
+      isUploading.value = true
+      try {
+        const result = await uploadFlowchartFile(filePath, fileName)
+        uploadedDocument.value = result
+        if (!flowDescription.value.trim()) {
+          flowDescription.value = `根据文档《${result.fileName || fileName}》生成流程图`
+        }
+        uni.showToast({ title: '文档解析完成', icon: 'success' })
+      } catch (error) {
+        uni.showToast({ title: getErrorMessage(error, '文件解析失败'), icon: 'none' })
+      } finally {
+        isUploading.value = false
+      }
+    }
+  })
+}
+
+// 组装请求体并跳转生成动画页（由动画页负责调用 API 与播放生长动画）
 const generateFlowchart = () => {
   if (!flowDescription.value.trim()) {
     uni.showToast({ title: '请输入流程描述', icon: 'none' })
     return
   }
-  uni.navigateTo({
-    url: `/subpackage_ai/flowchartPreview/flowchartPreview?desc=${encodeURIComponent(flowDescription.value)}&type=${selectedType.value}&style=${selectedStyle.value}&direction=${encodeURIComponent(selectedDirection.value)}`
-  })
+  const payload = {
+    description: flowDescription.value.trim(),
+    processType: ({ administrative: 'ADMIN', business: 'BUSINESS', study: 'LEARNING', life: 'LIFE' })[selectedScene.value] || 'BUSINESS',
+    diagramType: ['role', 'department'].includes(selectedLane.value) ? 'SWIMLANE' : 'AUTO',
+    nodeLevel: ({ auto: 'AUTO', simple: 'SIMPLE', standard: 'STANDARD', detail: 'DETAIL' })[selectedGranularity.value] || 'AUTO',
+    decisionMode: ({ auto: 'AUTO', force: 'INCLUDE_DECISION', none: 'LINEAR' })[selectedJudge.value] || 'AUTO',
+    swimlane: ({ auto: 'AUTO', hidden: 'NONE', role: 'ROLE', department: 'DEPARTMENT' })[selectedLane.value] || 'AUTO',
+    displayItems: ['STEP', 'ROLE', 'INPUT_OUTPUT', 'EXCEPTION', 'DATA'],
+    sourceText: uploadedDocument.value?.text || '',
+    sourceFile: uploadedDocument.value?.sourceFile || '',
+    fileId: uploadedDocument.value?.fileId || ''
+  }
+  uni.setStorageSync('aiFlowchartPendingPayload', payload)
+  uni.navigateTo({ url: '/subpackage_ai/flowchartGenerating/flowchartGenerating' })
 }
 </script>
 
 <style lang="scss" scoped>
-.page {
-  min-height: 100vh;
-  background-color: #F6F8FB;
-}
+.page { min-height: 100vh; background: #FCFAFC; color: #1e344f; }
 
-/* 导航栏 */
-.nav-bar {
-  display: flex;
-  align-items: center;
-  padding: 20rpx 24rpx;
-  background: #FFF;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  gap: 16rpx;
-}
+.nav-history-action { display: flex; align-items: center; justify-content: center; width: 64rpx; height: 64rpx; border-radius: 999rpx; }
+.nav-history-icon { width: 32rpx; height: 32rpx; opacity: 0.72; }
 
-.nav-back {
-  width: 60rpx;
-  height: 60rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
+.content { height: calc(100vh - 88rpx); padding: 24rpx 28rpx 160rpx; box-sizing: border-box; }
 
-.nav-back-icon {
-  font-size: 48rpx;
-  color: #333;
-  font-weight: 300;
-}
+.input-card { background: #fff; border-radius: 28rpx; padding: 24rpx; box-shadow: 0 4rpx 20rpx rgba(30, 52, 79, 0.05); }
+.prompt-input { width: 100%; height: 180rpx; color: #1e344f; font-size: 27rpx; line-height: 1.6; }
+.prompt-placeholder { color: #a9b6c4; font-size: 27rpx; line-height: 1.6; }
+.input-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 10rpx; }
+.char-count { color: #8290a1; font-size: 22rpx; }
 
-.nav-title {
-  font-size: 34rpx;
-  font-weight: 700;
-  color: #222;
-  flex: 1;
-  text-align: center;
-}
+.section-title { display: flex; align-items: center; gap: 10rpx; margin: 32rpx 4rpx 16rpx; font-size: 26rpx; font-weight: 700; color: #1e344f; }
+.section-icon { width: 28rpx; height: 28rpx; }
 
-.nav-placeholder {
-  width: 60rpx;
-  flex-shrink: 0;
-}
+.card { background: #fff; border-radius: 28rpx; padding: 24rpx; box-shadow: 0 4rpx 20rpx rgba(30, 52, 79, 0.05); }
 
-.content {
-  padding: 20rpx 24rpx 40rpx;
-}
+.chip-row { display: flex; flex-wrap: wrap; gap: 16rpx; }
+.chip { padding: 14rpx 28rpx; border-radius: 999rpx; background: #f1f4f8; color: #58728c; font-size: 25rpx; }
+.chip--on { background: #5081B8; color: #fff; font-weight: 600; }
 
-/* 表单区块 */
-.form-section {
-  background: #FFF;
-  border-radius: 16rpx;
-  padding: 28rpx 24rpx;
-  margin-bottom: 20rpx;
-}
+.seg { display: flex; background: #f1f4f8; border-radius: 20rpx; padding: 6rpx; }
+.seg-item { flex: 1; display: flex; align-items: center; justify-content: center; padding: 14rpx 0; border-radius: 16rpx; font-size: 25rpx; color: #58728c; }
+.seg-item--on { background: #fff; color: #3E6A9C; font-weight: 700; box-shadow: 0 2rpx 8rpx rgba(30, 52, 79, 0.12); }
 
-.section-header {
-  margin-bottom: 20rpx;
-}
+.radio-row { display: flex; align-items: center; justify-content: space-between; padding: 18rpx 4rpx; }
+.radio-row + .radio-row { border-top: 2rpx solid #eef1f6; }
+.radio-text { font-size: 26rpx; color: #1e344f; }
+.radio { width: 32rpx; height: 32rpx; border-radius: 50%; border: 4rpx solid #c6d2de; box-sizing: border-box; }
+.radio--on { border-color: #5081B8; background: #fff; box-shadow: inset 0 0 0 6rpx #fff; background-color: #5081B8; }
 
-.section-title-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-}
+.lane-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14rpx; }
+.lane-item { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 18rpx 0; border: 2rpx solid transparent; border-radius: 20rpx; background: #f1f4f8; font-size: 22rpx; color: #18273F; }
+.lane-item--on { border-color: #5081B8; background: #fff; color: #3E6A9C; font-weight: 600; }
+.lane-icon { width: 30rpx; height: 30rpx; margin-bottom: 8rpx; }
 
-.section-icon {
-  width: 48rpx;
-  height: 48rpx;
-  background: #EEF0FF;
-  border-radius: 12rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+.ready-card { display: flex; align-items: center; gap: 14rpx; margin-top: 32rpx; padding: 24rpx 28rpx; border-radius: 28rpx; background: #eef4fb; border: 2rpx solid #dbe7f3; color: #3E6A9C; font-size: 25rpx; }
+.ready-icon { width: 30rpx; height: 30rpx; flex-shrink: 0; }
 
-.section-icon-text {
-  font-size: 24rpx;
-}
-
-.section-title {
-  font-size: 30rpx;
-  font-weight: 700;
-  color: #222;
-}
-
-/* 描述 */
-.desc-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8rpx;
-}
-
-.desc-label {
-  font-size: 28rpx;
-  font-weight: 600;
-  color: #222;
-}
-
-.clear-btn {
-  display: flex;
-  align-items: center;
-  gap: 6rpx;
-  padding: 6rpx 12rpx;
-  background: #F5F5F5;
-  border-radius: 6rpx;
-}
-
-.clear-icon {
-  font-size: 20rpx;
-  color: #999;
-}
-
-.clear-text {
-  font-size: 22rpx;
-  color: #999;
-}
-
-.desc-hint {
-  font-size: 24rpx;
-  color: #999;
-  display: block;
-  margin-bottom: 16rpx;
-}
-
-.textarea-wrapper {
-  position: relative;
-}
-
-.desc-input {
-  width: 100%;
-  min-height: 240rpx;
-  padding: 20rpx;
-  background: #F8F9FA;
-  border-radius: 12rpx;
-  font-size: 28rpx;
-  color: #333;
-  line-height: 1.8;
-  box-sizing: border-box;
-}
-
-.char-count {
-  position: absolute;
-  right: 16rpx;
-  bottom: 12rpx;
-  font-size: 24rpx;
-  color: #BBB;
-}
-
-/* 信息框 */
-.info-box {
-  display: flex;
-  align-items: flex-start;
-  gap: 12rpx;
-  padding: 20rpx;
-  background: #F8F9FF;
-  border-radius: 12rpx;
-  margin-top: 20rpx;
-}
-
-.info-icon {
-  width: 40rpx;
-  height: 40rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.info-icon-text {
-  font-size: 24rpx;
-}
-
-.info-content {
-  flex: 1;
-}
-
-.info-title {
-  font-size: 26rpx;
-  font-weight: 600;
-  color: #4D6BFE;
-  display: block;
-  margin-bottom: 6rpx;
-}
-
-.info-text {
-  font-size: 24rpx;
-  color: #888;
-  line-height: 1.5;
-}
-
-/* 图表类型 */
-.type-list {
-  display: flex;
-  flex-direction: column;
-  gap: 16rpx;
-}
-
-.type-item {
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-  padding: 20rpx;
-  border-radius: 12rpx;
-  border: 2rpx solid #F0F0F0;
-}
-
-.type-item--active {
-  border-color: #4D6BFE;
-  background: #F8F9FF;
-}
-
-.type-radio {
-  width: 36rpx;
-  height: 36rpx;
-  border-radius: 50%;
-  border: 2rpx solid #DDD;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.type-radio--active {
-  border-color: #4D6BFE;
-  background: #4D6BFE;
-}
-
-.type-radio-dot {
-  width: 16rpx;
-  height: 16rpx;
-  background: #FFF;
-  border-radius: 50%;
-}
-
-.type-info {
-  flex: 1;
-}
-
-.type-name {
-  font-size: 28rpx;
-  color: #222;
-  font-weight: 600;
-  display: block;
-}
-
-.type-desc {
-  font-size: 24rpx;
-  color: #999;
-  display: block;
-  margin-top: 4rpx;
-}
-
-/* 风格主题 */
-.style-list {
-  display: flex;
-  gap: 16rpx;
-  overflow-x: auto;
-  padding-bottom: 8rpx;
-}
-
-.style-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12rpx;
-  min-width: 140rpx;
-}
-
-.style-preview {
-  width: 140rpx;
-  height: 90rpx;
-  border-radius: 12rpx;
-  position: relative;
-  overflow: hidden;
-  border: 2rpx solid transparent;
-}
-
-.style-item--active .style-preview {
-  border-color: #4D6BFE;
-}
-
-.style-check {
-  position: absolute;
-  top: 6rpx;
-  right: 6rpx;
-  width: 32rpx;
-  height: 32rpx;
-  background: #4D6BFE;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.style-check-icon {
-  font-size: 18rpx;
-  color: #FFF;
-}
-
-.style-label {
-  font-size: 24rpx;
-  color: #555;
-  text-align: center;
-}
-
-.style-label--active {
-  color: #4D6BFE;
-  font-weight: 600;
-}
-
-/* 方向布局 */
-.direction-list {
-  display: flex;
-  gap: 12rpx;
-}
-
-.direction-item {
-  flex: 1;
-  padding: 18rpx 0;
-  text-align: center;
-  background: #F8F9FA;
-  border-radius: 12rpx;
-  border: 2rpx solid transparent;
-}
-
-.direction-item--active {
-  background: #EEF0FF;
-  border-color: #4D6BFE;
-}
-
-.direction-text {
-  font-size: 26rpx;
-  color: #555;
-}
-
-.direction-item--active .direction-text {
-  color: #4D6BFE;
-  font-weight: 600;
-}
-
-/* 生成按钮 */
-.generate-btn {
-  background: linear-gradient(135deg, #6A8CFE 0%, #4D6BFE 100%);
-  border-radius: 16rpx;
-  padding: 30rpx 0;
-  text-align: center;
-  margin-top: 8rpx;
-}
-
-.generate-btn-text {
-  color: #FFF;
-  font-size: 32rpx;
-  font-weight: 700;
-}
-
+.bottom-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; padding: 20rpx 28rpx 30rpx; background: linear-gradient(180deg, rgba(252, 250, 252, 0), #FCFAFC 30%); }
+.generate-btn { display: flex; align-items: center; justify-content: center; gap: 12rpx; height: 88rpx; border-radius: 28rpx; background: #5081B8; color: #fff; font-size: 30rpx; font-weight: 700; box-shadow: 0 12rpx 32rpx rgba(80, 129, 184, 0.3); }
+.generate-icon { width: 32rpx; height: 32rpx; }
 </style>

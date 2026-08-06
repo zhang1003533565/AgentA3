@@ -15,6 +15,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -53,6 +54,7 @@ public class PythonAiProxyService {
     private final SystemConfigRepository systemConfigRepository;
     private final String pythonBaseUrl;
     private final long timeoutSeconds;
+    private final long pptTimeoutSeconds;
     private final int fileResponseMaxInMemoryBytes;
     private final String internalToken;
 
@@ -84,6 +86,7 @@ public class PythonAiProxyService {
                                 SystemConfigRepository systemConfigRepository,
                                 @Value("${ai.python.base-url:http://localhost:8081}") String pythonBaseUrl,
                                 @Value("${ai.python.timeout-seconds:65}") long timeoutSeconds,
+                                @Value("${ai.python.ppt-timeout-seconds:300}") long pptTimeoutSeconds,
                                 @Value("${ai.python.file-response-max-in-memory-bytes:52428800}") int fileResponseMaxInMemoryBytes,
                                 @Value("${ai.python.internal-token:}") String internalToken) {
         this.webClientBuilder = webClientBuilder;
@@ -93,6 +96,7 @@ public class PythonAiProxyService {
         this.systemConfigRepository = systemConfigRepository;
         this.pythonBaseUrl = pythonBaseUrl;
         this.timeoutSeconds = timeoutSeconds;
+        this.pptTimeoutSeconds = pptTimeoutSeconds;
         this.fileResponseMaxInMemoryBytes = fileResponseMaxInMemoryBytes;
         this.internalToken = internalToken == null ? "" : internalToken.trim();
     }
@@ -278,6 +282,97 @@ public class PythonAiProxyService {
         return postRagObject("/internal/rag/query", sanitized, authorization, requestedModel);
     }
 
+    public Object generatePptOutline(Map<String, Object> request, String authorization) {
+        return postPptObject("/internal/rag/ppt-generation/outlines", request, authorization,
+                requirePptGenerationModel());
+    }
+
+    public Object generatePptSlides(Map<String, Object> request, String authorization) {
+        return postPptObject("/internal/rag/ppt-generation/slides", request, authorization,
+                requirePptGenerationModel());
+    }
+
+    public Object createPptTask(Map<String, Object> request, String authorization) {
+        return postPptObject("/internal/rag/ppt-generation/tasks", request, authorization,
+                requirePptGenerationModel());
+    }
+
+    public Object getPptTask(String taskId, String authorization) {
+        return getPythonAuthObject("/internal/rag/ppt-generation/tasks/" + taskId,
+                authorization, "PPT 任务查询失败");
+    }
+
+    public GeneratedExportResponse downloadPptTaskArtifact(String artifactPath, String authorization) {
+        validateAuthorization(authorization);
+        if (!StringUtils.hasText(artifactPath) || artifactPath.contains("..")) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 文件路径无效");
+        }
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            ResponseEntity<byte[]> response = buildFileResponseWebClient().get()
+                    .uri(buildUri("/internal/rag/ppt-generation/tasks/" + artifactPath))
+                    .headers(headers -> applyPythonAuthHeaders(headers, authorization, userId))
+                    .retrieve()
+                    .toEntity(byte[].class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+            if (response == null || response.getBody() == null) {
+                throw new BusinessException(502, "Python PPT 文件响应为空");
+            }
+            MediaType contentType = response.getHeaders().getContentType();
+            return new GeneratedExportResponse(response.getBody(),
+                    contentType == null ? MediaType.APPLICATION_OCTET_STREAM : contentType,
+                    response.getHeaders().getContentLength());
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(e.getStatusCode().value(), "PPT 文件读取失败: " + extractRemoteMessage(e));
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(502, "PPT 文件读取失败: " + e.getMessage());
+        }
+    }
+
+    private String requirePptGenerationModel() {
+        String model = resolveAgentBoundModel("ppt_outline_agent");
+        if (!StringUtils.hasText(model)) {
+            model = resolveAgentBoundModel(DEFAULT_AGENT_NAME);
+        }
+        if (!StringUtils.hasText(model)) {
+            throw new BusinessException(Result.ERROR_CODE, "PPT 生成模型尚未配置");
+        }
+        return model;
+    }
+
+    private Object postPptObject(String path,
+                                 Map<String, Object> request,
+                                 String authorization,
+                                 String requestedModel) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        try {
+            return webClientBuilder.build()
+                    .post()
+                    .uri(buildUri(path))
+                    .headers(headers -> applyPythonHeaders(headers, authorization, userId, requestedModel))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(request == null ? Map.of() : request)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(pptTimeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            int remoteStatus = e.getStatusCode().value();
+            int status = remoteStatus >= 400 && remoteStatus < 500 ? remoteStatus : 502;
+            throw new BusinessException(status, "PPT AI 服务调用失败: " + extractRemoteMessage(e));
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(502, "PPT AI 服务调用失败: " + e.getMessage());
+        }
+    }
+
     public SseEmitter streamRag(Map<String, Object> request, String authorization) {
         return streamRag(request, authorization, null);
     }
@@ -435,6 +530,39 @@ public class PythonAiProxyService {
 
     public Object generateVideosBatch(Map<String, Object> request, String authorization) {
         return postVideoObject("/internal/videos/batch", request, authorization);
+    }
+
+    /**
+     * 调用 Python 架构图生成服务，返回 { title, style, nodes, edges } JSON。
+     * 复用 leader_agent 的模型配置（默认 LLM 配置）。
+     */
+    public Object generateArchitecture(Map<String, Object> request, String authorization) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        String requestedModel = resolveAgentBoundModel(DEFAULT_AGENT_NAME);
+        try {
+            return webClientBuilder.build()
+                    .post()
+                    .uri(buildUri("/internal/architecture/generate"))
+                    .headers(headers -> {
+                        if (StringUtils.hasText(requestedModel)) {
+                            applyPythonHeaders(headers, authorization, userId, requestedModel);
+                        } else {
+                            applyPythonAuthHeaders(headers, authorization, userId);
+                        }
+                    })
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(request == null ? Map.of() : request)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 架构图生成服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 架构图生成服务调用失败: " + e.getMessage());
+        }
     }
 
     public Object getVideoTask(String taskId, String authorization) {

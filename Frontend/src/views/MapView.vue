@@ -6,7 +6,12 @@
    ═══════════════════════════════════════════════════ */
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import AppTabBar from '../components/AppTabBar.vue'
-import { getMapPlaceDetail, getMapPlaceList } from '../api/map'
+import {
+  getFloorPlan,
+  getFloorPlanPositions,
+  getMapPlaceDetail,
+  getMapPlaceList,
+} from '../api/map'
 import markerCanteen from '../assets/map/marker-canteen.svg'
 import markerDormitory from '../assets/map/marker-dormitory.svg'
 import markerOther from '../assets/map/marker-other.svg'
@@ -144,6 +149,80 @@ const markerMap = {}          /* poi.id → AMap.Marker 映射 */
 const mapOverlays = []
 let infoWindow = null         /* 全局信息窗 */
 
+const indoorOpen = ref(false)
+const indoorLoading = ref(false)
+const indoorCanteen = ref(null)
+const indoorFloors = ref([])
+const indoorFloorId = ref(null)
+const indoorFloorPlan = ref(null)
+const indoorStalls = ref([])
+const indoorPositions = ref([])
+
+const indoorPositionMap = computed(
+  () => new Map(indoorPositions.value.map(position => [String(position.placeId), position])),
+)
+
+async function selectIndoorFloor(floorId) {
+  indoorFloorId.value = floorId
+  indoorFloorPlan.value = null
+  indoorStalls.value = []
+  indoorPositions.value = []
+  if (!floorId) return
+
+  indoorLoading.value = true
+  try {
+    const [planResponse, stallResponse] = await Promise.all([
+      getFloorPlan(floorId),
+      getMapPlaceList({ sceneType: 'CANTEEN', parentId: floorId, status: 'ENABLED' }),
+    ])
+    const plan = planResponse?.data || null
+    indoorFloorPlan.value = plan
+    indoorStalls.value = (Array.isArray(stallResponse?.data) ? stallResponse.data : [])
+      .filter(place => place.placeType === 'CANTEEN_STALL')
+      .sort((left, right) => (left.sortOrder || 0) - (right.sortOrder || 0))
+    if (plan) {
+      const positionResponse = await getFloorPlanPositions(plan.id)
+      indoorPositions.value = Array.isArray(positionResponse?.data) ? positionResponse.data : []
+    }
+  } catch (error) {
+    mapError.value = error.message || '楼层档口信息加载失败'
+  } finally {
+    indoorLoading.value = false
+  }
+}
+
+async function openIndoorGuide(poi) {
+  indoorOpen.value = true
+  indoorCanteen.value = poi
+  indoorFloors.value = []
+  indoorFloorId.value = null
+  indoorFloorPlan.value = null
+  indoorStalls.value = []
+  indoorPositions.value = []
+  indoorLoading.value = true
+  try {
+    const response = await getMapPlaceList({
+      sceneType: 'CANTEEN',
+      parentId: poi.id,
+      status: 'ENABLED',
+    })
+    indoorFloors.value = (Array.isArray(response?.data) ? response.data : [])
+      .filter(place => place.placeType === 'FLOOR')
+      .sort((left, right) => (left.sortOrder || 0) - (right.sortOrder || 0))
+    if (indoorFloors.value.length) {
+      await selectIndoorFloor(indoorFloors.value[0].id)
+    }
+  } catch (error) {
+    mapError.value = error.message || '食堂楼层加载失败'
+  } finally {
+    indoorLoading.value = false
+  }
+}
+
+function closeIndoorGuide() {
+  indoorOpen.value = false
+}
+
 function createInfoWindowContent(poi) {
   const root = document.createElement('div')
   root.className = 'map-info-window'
@@ -165,6 +244,14 @@ function createInfoWindowContent(poi) {
   description.textContent = poi.desc
 
   root.append(heading, type, description)
+  if (poi.sceneType === 'CANTEEN') {
+    const indoorButton = document.createElement('button')
+    indoorButton.type = 'button'
+    indoorButton.className = 'map-info-window__indoor-button'
+    indoorButton.textContent = '查看楼层与档口'
+    indoorButton.addEventListener('click', () => openIndoorGuide(poi))
+    root.append(indoorButton)
+  }
   return root
 }
 
@@ -528,6 +615,84 @@ onUnmounted(() => {
           </div>
         </div>
       </Transition>
+
+      <Transition name="fade">
+        <div v-if="indoorOpen" class="indoor-guide-mask" @click.self="closeIndoorGuide">
+          <section class="indoor-guide-dialog">
+            <header class="indoor-guide-header">
+              <div>
+                <span class="indoor-guide-eyebrow">食堂室内导览</span>
+                <h2>{{ indoorCanteen?.name || '食堂' }} · 楼层平面图</h2>
+                <p>档口标记使用楼层平面图 X/Y 坐标，与校园地图经纬度相互独立。</p>
+              </div>
+              <button class="indoor-guide-close" type="button" @click="closeIndoorGuide">×</button>
+            </header>
+
+            <nav v-if="indoorFloors.length" class="indoor-guide-tabs">
+              <button
+                v-for="floor in indoorFloors"
+                :key="floor.id"
+                type="button"
+                :class="{ active: String(indoorFloorId) === String(floor.id) }"
+                @click="selectIndoorFloor(floor.id)"
+              >
+                {{ floor.name }}
+              </button>
+            </nav>
+
+            <div v-if="indoorLoading" class="indoor-guide-state">
+              <div class="spinner"></div>
+              <span>正在加载楼层档口...</span>
+            </div>
+            <div v-else-if="!indoorFloors.length" class="indoor-guide-state">
+              暂未配置楼层
+            </div>
+            <div v-else-if="!indoorFloorPlan?.imageUrl" class="indoor-guide-state">
+              当前楼层暂未上传平面图
+            </div>
+            <div v-else class="indoor-guide-body">
+              <div class="indoor-guide-plan">
+                <img :src="indoorFloorPlan.imageUrl" :alt="`${indoorCanteen?.name || '食堂'}楼层平面图`" />
+                <template v-for="stall in indoorStalls" :key="stall.id">
+                  <span
+                    v-if="indoorPositionMap.get(String(stall.id))"
+                    class="indoor-guide-marker"
+                    :style="{
+                      left: `${indoorPositionMap.get(String(stall.id)).xRatio}%`,
+                      top: `${indoorPositionMap.get(String(stall.id)).yRatio}%`,
+                    }"
+                  >
+                    <i></i>
+                    <b>{{ stall.name }}</b>
+                  </span>
+                </template>
+              </div>
+              <aside class="indoor-guide-stalls">
+                <div class="indoor-guide-stalls__title">
+                  本层档口
+                  <span>{{ indoorStalls.length }}</span>
+                </div>
+                <div v-if="!indoorStalls.length" class="indoor-guide-stalls__empty">
+                  该楼层暂无档口
+                </div>
+                <div
+                  v-for="stall in indoorStalls"
+                  :key="stall.id"
+                  class="indoor-guide-stall"
+                >
+                  <span>
+                    <strong>{{ stall.name }}</strong>
+                    <small>{{ stall.locationDesc || '暂无位置说明' }}</small>
+                  </span>
+                  <em :class="{ ready: indoorPositionMap.has(String(stall.id)) }">
+                    {{ indoorPositionMap.has(String(stall.id)) ? '已标记' : '未标记' }}
+                  </em>
+                </div>
+              </aside>
+            </div>
+          </section>
+        </div>
+      </Transition>
     </div>
 
     <!-- ═══ 聊天助手 FAB ═══ -->
@@ -666,6 +831,12 @@ onUnmounted(() => {
 .map-canvas :global(.map-info-window p) {
   margin: 0; color: #64748b; font-size: 13px; line-height: 1.5;
 }
+.map-canvas :global(.map-info-window__indoor-button) {
+  width: 100%; margin-top: 10px; padding: 8px 12px;
+  border: 0; border-radius: 7px; background: #f97316;
+  color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.map-canvas :global(.map-info-window__indoor-button:hover) { background: #ea580c; }
 .spinner {
   width: 32px; height: 32px;
   border: 3px solid #bfdbfe; border-top-color: var(--primary);
@@ -929,6 +1100,104 @@ onUnmounted(() => {
 .fade-enter-active, .fade-leave-active { transition: opacity .2s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 
+.indoor-guide-mask {
+  position: fixed; inset: 0; z-index: 1200;
+  display: grid; place-items: center; padding: 32px;
+  background: rgba(15, 23, 42, .58); backdrop-filter: blur(4px);
+}
+.indoor-guide-dialog {
+  display: flex; width: min(1180px, 94vw); height: min(820px, 88vh);
+  flex-direction: column; overflow: hidden;
+  border: 1px solid var(--border); border-radius: 18px;
+  background: var(--surface); box-shadow: 0 24px 80px rgba(15, 23, 42, .34);
+}
+.indoor-guide-header {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 24px;
+  padding: 22px 26px 18px; border-bottom: 1px solid var(--border);
+}
+.indoor-guide-eyebrow {
+  color: #f97316; font-size: 12px; font-weight: 700; letter-spacing: .08em;
+}
+.indoor-guide-header h2 { margin: 5px 0 4px; color: var(--text); font-size: 23px; }
+.indoor-guide-header p { margin: 0; color: var(--text2); font-size: 13px; }
+.indoor-guide-close {
+  display: grid; width: 34px; height: 34px; place-items: center;
+  border: 0; border-radius: 50%; background: var(--primary-light);
+  color: var(--text2); font-size: 24px; line-height: 1; cursor: pointer;
+}
+.indoor-guide-tabs {
+  display: flex; gap: 8px; padding: 14px 26px;
+  overflow-x: auto; border-bottom: 1px solid var(--border);
+}
+.indoor-guide-tabs button {
+  min-width: 82px; padding: 8px 16px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: transparent; color: var(--text2); font-weight: 600; cursor: pointer;
+}
+.indoor-guide-tabs button.active {
+  border-color: #f97316; background: #fff7ed; color: #c2410c;
+}
+.dark .indoor-guide-tabs button.active { background: rgba(249, 115, 22, .14); color: #fb923c; }
+.indoor-guide-state {
+  display: flex; flex: 1; align-items: center; justify-content: center; gap: 12px;
+  color: var(--text2); font-size: 14px;
+}
+.indoor-guide-body {
+  display: grid; min-height: 0; flex: 1;
+  grid-template-columns: minmax(0, 1fr) 280px; gap: 18px; padding: 20px 26px 26px;
+}
+.indoor-guide-plan {
+  position: relative; align-self: start; overflow: hidden;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+}
+.indoor-guide-plan > img { display: block; width: 100%; height: auto; }
+.indoor-guide-marker {
+  position: absolute; z-index: 2; transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.indoor-guide-marker i {
+  display: block; width: 15px; height: 15px; margin: auto;
+  border: 3px solid #fff; border-radius: 50%; background: #f97316;
+  box-shadow: 0 2px 7px rgba(15, 23, 42, .38);
+}
+.indoor-guide-marker b {
+  display: block; max-width: 150px; margin-top: 4px; padding: 4px 7px;
+  overflow: hidden; border-radius: 5px; background: rgba(31, 41, 55, .9);
+  color: #fff; font-size: 12px; font-weight: 600;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.indoor-guide-stalls {
+  min-height: 0; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+}
+.indoor-guide-stalls__title {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 15px; border-bottom: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font-weight: 700;
+}
+.indoor-guide-stalls__title span {
+  min-width: 24px; padding: 2px 7px; border-radius: 12px;
+  background: var(--primary-light); color: var(--primary); text-align: center; font-size: 12px;
+}
+.indoor-guide-stall {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+}
+.indoor-guide-stall > span { min-width: 0; }
+.indoor-guide-stall strong,
+.indoor-guide-stall small {
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.indoor-guide-stall strong { color: var(--text); font-size: 13px; }
+.indoor-guide-stall small { margin-top: 3px; color: var(--text2); font-size: 11px; }
+.indoor-guide-stall em {
+  flex: 0 0 auto; padding: 3px 7px; border-radius: 10px;
+  background: var(--border); color: var(--text2); font-size: 11px; font-style: normal;
+}
+.indoor-guide-stall em.ready { background: #dcfce7; color: #15803d; }
+.indoor-guide-stalls__empty { padding: 40px 16px; color: var(--text2); text-align: center; }
+
 /* ═══ 响应式 ═══ */
 @media (max-width: 480px) {
   .chat-panel { right: 8px; left: 8px; width: auto; bottom: 80px; }
@@ -939,5 +1208,14 @@ onUnmounted(() => {
   .poi-panel { left: 8px; right: 8px; bottom: 70px; }
   .search-wrapper { width: calc(100% - 80px); }
   .random-modal { width: calc(100% - 48px); padding: 20px; }
+}
+@media (max-width: 760px) {
+  .indoor-guide-mask { padding: 12px; }
+  .indoor-guide-dialog { width: 100%; height: 92vh; }
+  .indoor-guide-header { padding: 18px; }
+  .indoor-guide-body {
+    display: flex; flex-direction: column; overflow-y: auto; padding: 14px 18px 18px;
+  }
+  .indoor-guide-stalls { flex: 0 0 auto; max-height: 230px; }
 }
 </style>

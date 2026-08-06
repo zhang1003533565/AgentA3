@@ -1,7 +1,6 @@
 .facility-place-page {
   min-height: 100%;
   padding: 24px;
-  background: #f5f7fa;
 }
 
 .facility-place-toolbar {
@@ -22,6 +21,41 @@
 .facility-place-toolbar p {
   margin: 0;
   color: #64748b;
+}
+
+.facility-canteen-overview-page {
+  position: relative;
+}
+
+.facility-canteen-overview-page .facility-place-toolbar {
+  min-height: 0;
+  margin: 0;
+}
+
+.facility-canteen-overview-page .facility-place-toolbar > :first-child {
+  display: none;
+}
+
+.facility-canteen-overview-page .facility-place-toolbar > .ant-space {
+  position: absolute;
+  top: 20px;
+  right: 44px;
+  z-index: 2;
+  gap: 16px !important;
+}
+
+.facility-canteen-overview-page .facility-place-toolbar .ant-input-search {
+  width: 300px;
+}
+
+.facility-canteen-overview-page .facility-place-toolbar .ant-input-affix-wrapper,
+.facility-canteen-overview-page .facility-place-toolbar .ant-input-search-button,
+.facility-canteen-overview-page .facility-place-toolbar .ant-btn-primary {
+  height: 40px;
+}
+
+.facility-canteen-overview-page .facility-place-toolbar > .ant-space > .ant-btn-primary {
+  padding-inline: 20px;
 }
 
 .facility-place-back {
@@ -103,10 +137,11 @@
 
 .facility-canteen-stats button {
   display: flex;
-  min-width: 120px;
+  min-width: 128px;
   align-items: center;
+  justify-content: center;
   gap: 12px;
-  padding: 12px 20px;
+  padding: 12px 28px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   color: #64748b;
@@ -118,17 +153,18 @@
 
 .facility-canteen-stats button:hover,
 .facility-canteen-stats button.active {
-  border-color: #486b88;
-  box-shadow: 0 2px 8px rgb(72 107 136 / 10%);
+  border-color: #1677ff;
+  box-shadow: 0 0 0 1px rgb(22 119 255 / 8%);
 }
 
 .facility-canteen-stats button.active {
-  background: #f4f7f9;
+  color: #1677ff;
+  background: #fff;
 }
 
 .facility-canteen-stats button span {
-  color: #36566f;
-  font-size: 24px;
+  color: inherit;
+  font-size: 16px;
   font-weight: 700;
   line-height: 1;
 }
@@ -145,13 +181,12 @@
   border-radius: 12px;
   background: #fff;
   box-shadow: none;
-  transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .facility-canteen-card:hover {
   border-color: #cbd8e2;
   box-shadow: 0 6px 18px rgb(15 23 42 / 8%);
-  transform: translateY(-2px);
 }
 
 .facility-canteen-card-image {
@@ -200,6 +235,7 @@
   display: flex;
   gap: 6px;
   transform: translateX(-50%);
+  z-index: 5;
 }
 
 .facility-canteen-carousel-dots span {
@@ -215,57 +251,67 @@
   background: #fff;
 }
 
-.facility-canteen-card-info {
-  padding: 16px;
+.facility-canteen-image-shade {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgb(8 28 54 / 48%) 0%, rgb(8 28 54 / 12%) 55%, transparent 100%);
 }
 
-.facility-canteen-card-info h2 {
-  margin: 0 0 5px;
-  overflow: hidden;
-  color: #172033;
-  font-size: 18px;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.facility-canteen-card-info > p {
-  min-height: 20px;
-  margin: 0 0 12px;
-  overflow: hidden;
-  color: #64748b;
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.facility-canteen-tags {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-}
-
-.facility-canteen-details {
+.facility-canteen-heading {
+  position: absolute;
+  top: 28px;
+  right: 32px;
+  left: 32px;
+  z-index: 4;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
 }
 
-.facility-canteen-details div {
+.facility-canteen-heading h2 {
+  max-width: 100%;
+  margin: 0;
+  color: #fff;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-shadow: 0 1px 3px rgb(15 23 42 / 35%);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.facility-canteen-heading .ant-tag {
+  margin: 0;
+  padding: 2px 11px;
+  background: rgb(255 255 255 / 94%);
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.facility-canteen-card-info {
+  padding: 20px 32px 12px;
+}
+
+.facility-canteen-summary-row {
   display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  font-size: 13px;
-}
-
-.facility-canteen-details span {
-  color: #64748b;
-}
-
-.facility-canteen-details strong {
+  min-height: 36px;
+  align-items: center;
+  gap: 12px;
   color: #334155;
-  font-weight: 550;
+  font-size: 15px;
+}
+
+.facility-canteen-summary-row .anticon {
+  color: #1677ff;
+  font-size: 18px;
+}
+
+.facility-canteen-summary-row strong {
+  color: #0f172a;
+  font-weight: 700;
 }
 
 .facility-canteen-location {
@@ -315,14 +361,25 @@
 }
 
 .facility-canteen-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 0.75fr) 36px;
-  gap: 8px;
-  padding: 0 16px 16px;
+  display: flex;
+  gap: 16px;
+  padding: 4px 32px 20px;
 }
 
-.facility-canteen-actions .ant-btn {
+.facility-canteen-actions > .ant-btn {
+  flex: 0 1 200px;
+  height: 36px;
   min-width: 0;
+}
+
+.facility-canteen-actions .facility-canteen-more {
+  flex: 0 0 40px;
+  width: 40px;
+  min-width: 40px;
+  height: 36px;
+  margin-left: auto;
+  padding: 0;
+  font-size: 20px;
 }
 
 .facility-image-preview-tip {
@@ -430,6 +487,15 @@
   .facility-place-toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .facility-canteen-overview-page .facility-place-toolbar {
+    min-height: auto;
+    margin-bottom: 12px;
+  }
+
+  .facility-canteen-overview-page .facility-place-toolbar > .ant-space {
+    position: static;
   }
 
   .place-form-grid {

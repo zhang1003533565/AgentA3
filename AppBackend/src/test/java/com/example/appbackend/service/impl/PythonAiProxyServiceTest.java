@@ -660,6 +660,7 @@ class PythonAiProxyServiceTest {
                 systemConfigRepository,
                 "http://localhost:" + port,
                 5,
+                300,
                 maxBytes,
                 "test-internal-token"
         );

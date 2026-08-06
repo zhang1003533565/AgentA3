@@ -1,5 +1,5 @@
 <template>
-  <view class="ppt-flow">
+  <view class="ppt-flow" :class="{ 'ppt-flow--floating-actions': hasFloatingActions }">
     <view class="flow-heading">
       <view class="flow-heading__copy">
         <text class="flow-heading__eyebrow">AI 复习资料 PPT</text>
@@ -32,13 +32,15 @@
     <view v-if="currentStep === 1" class="panel">
       <view class="field">
         <text class="field__label">学习场景</text>
-        <view class="select-field">
-          <view>
-            <text class="select-field__value">复习资料</text>
-            <text class="select-field__hint">将学习资料整理成结构清晰的复习 PPT</text>
+        <picker :range="pptScenes" range-key="label" :value="selectedSceneIndex" @change="selectScene">
+          <view class="select-field">
+            <view>
+              <text class="select-field__value">{{ selectedScene.label }}</text>
+              <text class="select-field__hint">{{ selectedScene.description }}</text>
+            </view>
+            <text class="select-field__arrow">⌄</text>
           </view>
-          <text class="select-field__arrow">⌄</text>
-        </view>
+        </picker>
       </view>
 
       <view class="field">
@@ -69,11 +71,14 @@
           <text class="preview-card__title">资料预览</text>
           <text class="preview-card__count">已读取 {{ formattedCharacterCount }} 字</text>
         </view>
-        <text class="preview-card__content">{{ previewContent }}</text>
-        <text v-if="fileContent.length > previewContent.length" class="preview-card__more">仅展示部分内容</text>
+        <text class="preview-card__content" :class="{ 'preview-card__content--expanded': previewExpanded }">{{ previewContent }}</text>
+        <view v-if="hasPreviewOverflow" class="preview-card__toggle" @tap="previewExpanded = !previewExpanded">
+          <text>{{ previewExpanded ? '收起内容' : '显示全部' }}</text>
+          <text class="preview-card__toggle-arrow" :class="{ 'preview-card__toggle-arrow--expanded': previewExpanded }">⌄</text>
+        </view>
       </view>
 
-      <view class="single-action">
+      <view class="single-action single-action--floating">
         <button class="primary-button" :disabled="!fileInfo" @tap="goNext">下一步</button>
       </view>
     </view>
@@ -101,8 +106,10 @@
         </view>
       </view>
       <view class="bottom-actions">
-        <button class="secondary-button" @tap="goPrevious">上一步</button>
-        <button class="primary-button" @tap="prepareOutline">下一步</button>
+        <view class="bottom-actions__buttons">
+          <button class="secondary-button" @tap="goPrevious">上一步</button>
+          <button class="primary-button" :disabled="apiBusy" @tap="prepareOutline">{{ apiBusy ? '正在生成大纲…' : '下一步' }}</button>
+        </view>
       </view>
     </view>
 
@@ -149,16 +156,18 @@
         <text v-if="outlineSavedAt">已保存 {{ outlineSavedAt }}</text>
       </view>
       <view class="bottom-actions bottom-actions--three">
-        <button class="secondary-button" @tap="goPrevious">上一步</button>
-        <button class="secondary-button" @tap="saveOutlineSnapshot(true)">保存大纲</button>
-        <button class="primary-button" :disabled="!validOutlineItems.length" @tap="confirmOutline">下一步</button>
+        <view class="bottom-actions__buttons">
+          <button class="secondary-button" @tap="goPrevious">上一步</button>
+          <button class="secondary-button" @tap="saveOutlineSnapshot(true)">保存大纲</button>
+          <button class="primary-button" :disabled="!validOutlineItems.length" @tap="confirmOutline">下一步</button>
+        </view>
       </view>
     </view>
 
     <view v-else-if="currentStep === 4" class="panel">
       <view class="scene-summary">
         <text class="scene-summary__label">学习场景</text>
-        <text class="scene-summary__value">复习资料</text>
+        <text class="scene-summary__value">{{ selectedScene.label }}</text>
       </view>
 
       <view class="settings-section">
@@ -233,8 +242,10 @@
       </view>
 
       <view class="bottom-actions">
-        <button class="secondary-button" @tap="goPrevious">上一步</button>
-        <button class="primary-button" @tap="prepareSlides">编辑页面内容</button>
+        <view class="bottom-actions__buttons">
+          <button class="secondary-button" @tap="goPrevious">上一步</button>
+          <button class="primary-button" :disabled="apiBusy" @tap="prepareSlides">{{ apiBusy ? '正在生成页面…' : '编辑页面内容' }}</button>
+        </view>
       </view>
     </view>
 
@@ -303,8 +314,10 @@
       </view>
 
       <view class="bottom-actions">
-        <button class="secondary-button" @tap="goPrevious">返回设置</button>
-        <button class="primary-button" @tap="startMockGeneration">确认并生成</button>
+        <view class="bottom-actions__buttons">
+          <button class="secondary-button" @tap="goPrevious">返回设置</button>
+          <button class="primary-button" :disabled="apiBusy" @tap="startGeneration">{{ apiBusy ? '正在创建任务…' : '确认并生成' }}</button>
+        </view>
       </view>
     </view>
 
@@ -374,8 +387,10 @@
       </view>
 
       <view class="bottom-actions">
-        <button class="secondary-button" @tap="restartFromSettings">重新生成</button>
-        <button class="primary-button" @tap="currentStep = 8">导出下载</button>
+        <view class="bottom-actions__buttons">
+          <button class="secondary-button" @tap="restartFromSettings">重新生成</button>
+          <button class="primary-button" @tap="currentStep = 8">导出下载</button>
+        </view>
       </view>
     </view>
 
@@ -396,7 +411,7 @@
       </view>
 
       <button class="primary-button primary-button--full" :disabled="exportPreparing" @tap="prepareExport">
-        {{ exportPreparing ? '正在生成下载文件…' : exportReady ? '下载文件' : '生成下载文件' }}
+        {{ exportPreparing ? '正在下载文件…' : '下载文件' }}
       </button>
 
       <view v-if="exportReady" class="download-ready">
@@ -406,10 +421,20 @@
         </view>
         <text class="download-ready__title">文件已生成</text>
         <text class="download-ready__name">{{ downloadFileName }}</text>
-        <text class="download-ready__hint">当前为前端页面演示，接入后端后可下载真实文件</text>
+        <text class="download-ready__hint">文件已下载，可使用 PowerPoint、WPS 或系统阅读器打开</text>
       </view>
 
       <button class="back-result-button" @tap="currentStep = 7">返回生成结果</button>
+    </view>
+
+    <view v-if="operationFeedback.active" class="operation-feedback">
+      <view class="operation-feedback__head"><text>{{ operationFeedback.message }}</text><text>{{ operationFeedback.progress }}%</text></view>
+      <view class="operation-feedback__track"><view class="operation-feedback__value" :style="{ width: `${operationFeedback.progress}%` }"></view></view>
+      <text class="operation-feedback__detail">{{ operationFeedback.detail }}</text>
+    </view>
+    <view v-if="operationFeedback.active" class="operation-banter">
+      <text :key="operationBanterIndex" class="operation-banter__text">{{ currentOperationBanter }}</text>
+      <text class="operation-banter__status">请求仍在处理中，请不要关闭或刷新页面</text>
     </view>
 
     <view v-if="historyOpen" class="history-mask" @tap="historyOpen = false">
@@ -417,7 +442,7 @@
         <view class="history-drawer__head">
           <view>
             <text class="history-drawer__title">历史记录</text>
-            <text class="history-drawer__desc">保存在当前设备，仅用于前端演示</text>
+            <text class="history-drawer__desc">大纲和生成配置保存在当前设备</text>
           </view>
           <view class="history-drawer__close" @tap="historyOpen = false">×</view>
         </view>
@@ -448,7 +473,7 @@
           <view v-else class="history-empty">
             <view class="history-empty__icon"><text></text><text></text><text></text></view>
             <text class="history-empty__title">{{ historyTab === 'outline' ? '暂无大纲记录' : '暂无生成记录' }}</text>
-            <text class="history-empty__desc">{{ historyTab === 'outline' ? '保存过的大纲会显示在这里' : '完成一次前端生成后会显示在这里' }}</text>
+            <text class="history-empty__desc">{{ historyTab === 'outline' ? '保存过的大纲会显示在这里' : '完成一次 PPT 生成后会显示在这里' }}</text>
           </view>
         </scroll-view>
       </view>
@@ -457,6 +482,17 @@
 </template>
 
 <script>
+import {
+  createPptTask,
+  downloadPptPreview,
+  downloadPptTaskFile,
+  generatePptOutline,
+  generatePptSlides,
+  getPptOptions,
+  getPptTask,
+  streamPptTask
+} from '@/api/ppt.js'
+
 export default {
   name: 'AiPresentationFlow',
   props: {
@@ -465,11 +501,18 @@ export default {
   data() {
     return {
       currentStep: 1,
+      scene: 'review',
+      pptScenes: [
+        { value: 'review', label: '复习资料', description: '将学习资料整理成结构清晰的复习 PPT', enabled: true, default: true }
+      ],
       fileInfo: null,
       fileContent: '',
+      previewExpanded: false,
       outlineMode: 'ai_outline',
       outlineName: '',
       outlineItems: [],
+      outlineDocument: null,
+      layoutMarkdown: '',
       outlineSavedAt: '',
       outlineLevels: [
         { value: 1, label: '章节' },
@@ -491,6 +534,22 @@ export default {
       },
       progress: 0,
       generationTimer: null,
+      generationStream: null,
+      generationRunId: 0,
+      taskId: '',
+      taskResult: null,
+      apiBusy: false,
+      operationFeedback: { active: false, progress: 0, message: '', detail: '' },
+      operationFeedbackTimer: null,
+      operationBanterIndex: 0,
+      operationBanters: [
+        '程序员的头发正在替你加班，模型也没闲着',
+        '知识点正在排队进大纲，一个都不想落下',
+        'AI 正在和长文本认真较劲，再给它一点时间',
+        '大纲正在排兵布阵，很快就能交卷',
+        '内容有点多，模型正在一页一页认真打包',
+        '先喝口水，精彩的大纲还在路上'
+      ],
       showAllSlides: false,
       exportFormat: 'pptx',
       exportPreparing: false,
@@ -554,8 +613,25 @@ export default {
     currentHistory() {
       return this.historyTab === 'outline' ? this.outlineHistory : this.generationHistory
     },
+    selectedSceneIndex() {
+      const index = this.pptScenes.findIndex(item => item.value === this.scene)
+      return index >= 0 ? index : 0
+    },
+    selectedScene() {
+      return this.pptScenes[this.selectedSceneIndex] || this.pptScenes[0]
+    },
+    hasFloatingActions() {
+      return [1, 2, 3, 4, 5, 7].includes(this.currentStep)
+    },
+    currentOperationBanter() {
+      return this.operationBanters[this.operationBanterIndex] || this.operationBanters[0]
+    },
     previewContent() {
-      return (this.fileContent || '').trim().slice(0, 420)
+      const content = (this.fileContent || '').trim()
+      return this.previewExpanded ? content : content.slice(0, 420)
+    },
+    hasPreviewOverflow() {
+      return (this.fileContent || '').trim().length > 420
     },
     formattedCharacterCount() {
       return String((this.fileContent || '').replace(/\s/g, '').length).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
@@ -595,11 +671,29 @@ export default {
   },
   created() {
     this.restoreHistories()
+    this.loadPptScenes()
   },
   beforeDestroy() {
     this.clearTimers()
   },
   methods: {
+    async loadPptScenes() {
+      try {
+        const options = await getPptOptions()
+        const scenes = (options.scenes || []).filter(item => item?.enabled !== false && item?.value && item?.label)
+        if (!scenes.length) return
+        this.pptScenes = scenes
+        if (!scenes.some(item => item.value === this.scene)) {
+          this.scene = (scenes.find(item => item.default || item.defaultOption) || scenes[0]).value
+        }
+      } catch (error) {
+        // Keep the built-in review scene when the options endpoint is temporarily unavailable.
+      }
+    },
+    selectScene(event) {
+      const selected = this.pptScenes[Number(event?.detail?.value || 0)]
+      if (selected) this.scene = selected.value
+    },
     chooseTxtFile() {
       if (typeof uni.chooseFile === 'function') {
         uni.chooseFile({
@@ -639,6 +733,7 @@ export default {
           return
         }
         this.fileContent = content
+        this.previewExpanded = false
         const estimatedSize = typeof Blob !== 'undefined' ? new Blob([content]).size : encodeURIComponent(content).replace(/%[0-9A-F]{2}/g, 'x').length
         const size = Number(file.size || estimatedSize || 0)
         this.fileInfo = { name, size, sizeLabel: this.formatFileSize(size) }
@@ -672,6 +767,7 @@ export default {
     removeFile() {
       this.fileInfo = null
       this.fileContent = ''
+      this.previewExpanded = false
       this.outlineItems = []
       this.slides = []
     },
@@ -688,17 +784,52 @@ export default {
     toggleSetting(key, event) {
       this.settings[key] = Boolean(event?.detail?.value)
     },
-    prepareOutline() {
+    async prepareOutline() {
       if (!this.fileInfo) return
-      const detected = this.detectOutlineItems()
-      this.outlineItems = detected.length ? detected : [
-        this.createOutlineItem(this.resultName, 1),
-        this.createOutlineItem('资料核心内容', 2),
-        this.createOutlineItem('复习总结', 2)
-      ]
-      this.outlineName = `${this.resultName}大纲`
-      this.outlineSavedAt = ''
-      this.currentStep = 3
+      if (this.outlineMode === 'original_outline') {
+        const detected = this.detectOutlineItems()
+        this.outlineItems = detected.length ? detected : [
+          this.createOutlineItem(this.resultName, 1),
+          this.createOutlineItem('资料核心内容', 2),
+          this.createOutlineItem('复习总结', 2)
+        ]
+        this.outlineDocument = { title: this.resultName, items: this.outlineItems }
+        this.outlineName = `${this.resultName}大纲`
+        this.outlineSavedAt = ''
+        this.currentStep = 3
+        return
+      }
+      this.apiBusy = true
+      this.startOperationFeedback('outline')
+      try {
+        const response = await generatePptOutline({
+          sourceName: this.fileInfo.name,
+          sourceContent: this.fileContent,
+          outlineMode: this.outlineMode,
+          pageCount: this.pageCount,
+          scene: this.scene,
+          topic: this.initialTopic || this.resultName
+        })
+        this.updateOperationFeedback(92, '正在校验并转换大纲格式', '即将进入可编辑大纲')
+        const outline = this.responseData(response)
+        const items = Array.isArray(outline.items) ? outline.items : []
+        if (!items.length) throw new Error('AI 未返回可编辑的大纲')
+        this.outlineItems = items.map((item, index) => ({
+          ...item,
+          id: item.id || `outline-${Date.now()}-${index}`,
+          level: Number(item.level || 1),
+          title: String(item.title || '')
+        }))
+        this.outlineDocument = { ...outline, items: this.outlineItems }
+        this.outlineName = `${outline.title || this.resultName}大纲`
+        this.outlineSavedAt = ''
+        this.currentStep = 3
+      } catch (error) {
+        uni.showToast({ title: this.errorMessage(error, '大纲生成失败'), icon: 'none' })
+      } finally {
+        this.apiBusy = false
+        this.stopOperationFeedback()
+      }
     },
     detectOutlineItems() {
       const lines = String(this.fileContent || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
@@ -761,47 +892,128 @@ export default {
       this.outlineSavedAt = this.formatTime()
       if (showFeedback) uni.showToast({ title: sameAsPrevious ? '大纲已是最新' : '大纲已保存', icon: 'none' })
     },
-    prepareSlides() {
+    async prepareSlides() {
       const outlines = this.validOutlineItems
       if (!outlines.length) {
         this.currentStep = 3
         return
       }
-      const contentLines = String(this.fileContent || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
-      this.slides = Array.from({ length: this.pageCount }, (_, index) => {
-        const outline = outlines[Math.min(Math.max(index - 1, 0), outlines.length - 1)]
-        let title = outline?.title || `第 ${index + 1} 页`
-        if (index === 0 && this.settings.includeCover) title = this.resultName
-        else if (index === 1 && this.settings.includeCatalog) title = '内容目录'
-        else if (index === this.pageCount - 1 && this.settings.includeSummary) title = '复习总结'
-        const related = contentLines.filter(line => outline?.title && (line.includes(outline.title) || outline.title.includes(line))).slice(0, 3)
-        const fallback = contentLines.slice(Math.max(0, (index - 1) * 2), Math.max(0, (index - 1) * 2) + 3)
-        return {
-          id: `slide-${Date.now()}-${index}`,
-          title,
-          content: (related.length ? related : fallback).join('\n'),
-          privatePrompt: ''
+      this.apiBusy = true
+      this.startOperationFeedback('slides')
+      try {
+        const outline = {
+          ...(this.outlineDocument || {}),
+          title: this.outlineName || this.resultName,
+          items: outlines.map(item => ({ ...item }))
         }
-      })
-      this.activeSlideIndex = 0
-      this.currentStep = 5
+        const response = await generatePptSlides({
+          outline,
+          sourceContent: this.fileContent,
+          settings: this.buildSettings(),
+          sharedPrompt: this.sharedPrompt
+        })
+        this.updateOperationFeedback(92, '正在校验并转换页面格式', '即将进入逐页编辑')
+        const result = this.responseData(response)
+        const slides = Array.isArray(result.slides) ? result.slides : []
+        if (slides.length < 2) throw new Error('生成的页面数量不足，请调整大纲后重试')
+        this.slides = slides.map((slide, index) => ({
+          ...slide,
+          id: slide.id || `slide-${Date.now()}-${index}`,
+          title: String(slide.title || `第 ${index + 1} 页`),
+          content: Array.isArray(slide.content) ? slide.content.join('\n') : String(slide.content || ''),
+          privatePrompt: String(slide.privatePrompt || '')
+        }))
+        this.layoutMarkdown = String(result.layoutMarkdown || '')
+        if (result.sharedPrompt) this.sharedPrompt = String(result.sharedPrompt)
+        this.pageCount = this.slides.length
+        this.activeSlideIndex = 0
+        this.currentStep = 5
+      } catch (error) {
+        uni.showToast({ title: this.errorMessage(error, '页面内容生成失败'), icon: 'none' })
+      } finally {
+        this.apiBusy = false
+        this.stopOperationFeedback()
+      }
     },
-    startMockGeneration() {
+    async startGeneration() {
+      if (this.apiBusy || this.slides.length < 2) return
       this.clearTimers()
+      const runId = ++this.generationRunId
+      this.apiBusy = true
       this.currentStep = 6
-      this.progress = 4
-      this.generationTimer = setInterval(() => {
-        const increment = this.progress < 40 ? 5 : this.progress < 80 ? 4 : 3
-        this.progress = Math.min(100, this.progress + increment)
-        if (this.progress >= 100) {
-          clearInterval(this.generationTimer)
-          this.generationTimer = setTimeout(() => {
-            this.recordGenerationHistory()
-            this.currentStep = 7
-            this.generationTimer = null
-          }, 500)
-        }
-      }, 320)
+      this.progress = 2
+      this.taskResult = null
+      try {
+        const response = await createPptTask({
+          sourceName: this.fileInfo?.name || `${this.resultName}.txt`,
+          outline: {
+            ...(this.outlineDocument || {}),
+            title: this.outlineName || this.resultName,
+            items: this.validOutlineItems.map(item => ({ ...item }))
+          },
+          slides: this.slides.map(slide => ({
+            ...slide,
+            content: String(slide.content || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+          })),
+          sharedPrompt: this.sharedPrompt,
+          settings: this.buildSettings(),
+          exportFormats: ['pptx', 'pdf']
+        })
+        const created = this.responseData(response)
+        this.taskId = String(created.taskId || '')
+        if (!this.taskId) throw new Error('服务端未返回 PPT 任务编号')
+        this.apiBusy = false
+        await this.followGenerationTask(runId)
+      } catch (error) {
+        if (runId !== this.generationRunId) return
+        this.apiBusy = false
+        this.currentStep = 5
+        this.progress = 0
+        uni.showToast({ title: this.errorMessage(error, 'PPT 生成失败'), icon: 'none' })
+      }
+    },
+    async followGenerationTask(runId) {
+      try {
+        this.generationStream = streamPptTask(this.taskId, {
+          onEvent: (eventName, payload) => this.applyTaskSnapshot(payload, runId),
+          onDone: payload => this.applyTaskSnapshot(payload, runId),
+          onError: payload => this.applyTaskSnapshot(payload, runId)
+        })
+        await this.generationStream
+        const response = await getPptTask(this.taskId)
+        this.applyTaskSnapshot(this.responseData(response), runId)
+      } catch (error) {
+        if (runId !== this.generationRunId) return
+        await this.pollGenerationTask(runId)
+      } finally {
+        this.generationStream = null
+      }
+    },
+    async pollGenerationTask(runId) {
+      for (let attempt = 0; attempt < 300 && runId === this.generationRunId; attempt += 1) {
+        const response = await getPptTask(this.taskId)
+        const task = this.responseData(response)
+        this.applyTaskSnapshot(task, runId)
+        if (['completed', 'failed'].includes(String(task.status || ''))) return
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+      if (runId === this.generationRunId) throw new Error('PPT 生成等待超时，可稍后重新进入查看')
+    },
+    applyTaskSnapshot(task, runId) {
+      if (!task || runId !== this.generationRunId) return
+      this.taskResult = task
+      this.progress = Math.max(this.progress, Math.min(100, Number(task.progress || 0)))
+      if (task.status === 'failed') {
+        const message = task.error?.message || task.message || 'PPT 生成失败'
+        this.currentStep = 5
+        this.progress = 0
+        throw new Error(message)
+      }
+      if (task.status === 'completed' && this.currentStep === 6) {
+        this.progress = 100
+        this.recordGenerationHistory()
+        this.currentStep = 7
+      }
     },
     generationStatusClass(index) {
       if (index < this.activeGenerationIndex) return 'generation-item__dot--done'
@@ -814,6 +1026,7 @@ export default {
     },
     cancelGeneration() {
       this.clearTimers()
+      this.generationRunId += 1
       this.progress = 0
       this.currentStep = 5
     },
@@ -825,8 +1038,21 @@ export default {
     slideTitle(slide) {
       return this.slides[slide - 1]?.title || `第 ${slide} 页`
     },
-    openSlidePreview(slide) {
-      uni.showToast({ title: `正在查看第 ${slide} 页`, icon: 'none' })
+    async openSlidePreview(slide) {
+      const preview = (this.taskResult?.previews || []).find(item => Number(item.slideIndex) === Number(slide))
+      if (!this.taskId || !preview) {
+        uni.showToast({ title: '当前环境未生成页面预览图', icon: 'none' })
+        return
+      }
+      try {
+        uni.showLoading({ title: '正在读取预览' })
+        const path = await downloadPptPreview(this.taskId, slide)
+        uni.previewImage({ urls: [path], current: path })
+      } catch (error) {
+        uni.showToast({ title: this.errorMessage(error, '预览读取失败'), icon: 'none' })
+      } finally {
+        uni.hideLoading()
+      }
     },
     selectExportFormat(format) {
       if (this.exportFormat !== format) {
@@ -834,18 +1060,31 @@ export default {
         this.exportReady = false
       }
     },
-    prepareExport() {
-      if (this.exportReady) {
-        uni.showToast({ title: '前端演示暂不提供真实文件', icon: 'none' })
+    async prepareExport() {
+      if (!this.taskId) {
+        uni.showToast({ title: 'PPT 任务不存在，请重新生成', icon: 'none' })
+        return
+      }
+      const attachment = (this.taskResult?.attachments || []).find(item => item.type === this.exportFormat)
+      if (!attachment) {
+        const detail = this.taskResult?.formatErrors?.[this.exportFormat]
+        uni.showToast({ title: detail || `当前任务未生成 ${this.exportFormat.toUpperCase()} 文件`, icon: 'none' })
         return
       }
       this.exportPreparing = true
-      clearTimeout(this.exportTimer)
-      this.exportTimer = setTimeout(() => {
-        this.exportPreparing = false
+      try {
+        const path = await downloadPptTaskFile(this.taskId, this.exportFormat)
         this.exportReady = true
-        this.exportTimer = null
-      }, 900)
+        uni.openDocument({
+          filePath: path,
+          showMenu: true,
+          fail: () => uni.showToast({ title: '文件已下载，请从下载列表打开', icon: 'none' })
+        })
+      } catch (error) {
+        uni.showToast({ title: this.errorMessage(error, '文件下载失败'), icon: 'none' })
+      } finally {
+        this.exportPreparing = false
+      }
     },
     openHistory(tab) {
       this.historyTab = tab
@@ -857,11 +1096,13 @@ export default {
         name: this.resultName,
         createdAt: this.formatNow(),
         pageCount: this.pageCount,
+        scene: this.scene,
         pptStyle: this.pptStyle,
         contentLevel: this.contentLevel,
         outlineMode: this.outlineMode,
         settings: { ...this.settings },
-        sharedPrompt: this.sharedPrompt
+        sharedPrompt: this.sharedPrompt,
+        taskId: this.taskId
       }
       this.generationHistory = [item, ...this.generationHistory].slice(0, 30)
       this.persistHistories()
@@ -874,6 +1115,7 @@ export default {
         this.currentStep = 3
       } else {
         this.pageCount = Number(item.pageCount || 15)
+        this.scene = this.pptScenes.some(scene => scene.value === item.scene) ? item.scene : this.scene
         this.pptStyle = item.pptStyle || 'simple'
         this.contentLevel = item.contentLevel || 'standard'
         this.outlineMode = item.outlineMode || this.outlineMode
@@ -909,6 +1151,64 @@ export default {
         })
       } catch (error) {}
     },
+    buildSettings() {
+      return {
+        ...this.settings,
+        pageCount: this.pageCount,
+        pptStyle: this.pptStyle,
+        scene: this.scene,
+        contentLevel: this.contentLevel
+      }
+    },
+    responseData(response) {
+      return response && typeof response === 'object' && Object.prototype.hasOwnProperty.call(response, 'data')
+        ? (response.data || {})
+        : (response || {})
+    },
+    errorMessage(error, fallback) {
+      return String(error?.msg || error?.message || error?.data?.msg || fallback || '操作失败').slice(0, 80)
+    },
+    startOperationFeedback(type) {
+      this.stopOperationFeedback()
+      const phases = type === 'slides'
+        ? [
+            { progress: 10, message: '正在读取大纲与页面设置', detail: '准备页面生成参数' },
+            { progress: 32, message: 'AI 正在组织逐页内容', detail: '根据大纲补充标题与知识点' },
+            { progress: 58, message: '正在匹配页面布局', detail: '为不同内容选择合适版式' },
+            { progress: 78, message: '正在等待页面生成结果', detail: '内容较多时可能需要一些时间' }
+          ]
+        : [
+            { progress: 10, message: '正在读取学习资料', detail: '准备文本与生成参数' },
+            { progress: 30, message: 'AI 正在解析文本结构', detail: '识别主题、章节和核心知识点' },
+            { progress: 56, message: '正在整理复习大纲', detail: '重新组织适合 PPT 的知识结构' },
+            { progress: 78, message: '正在等待大纲生成结果', detail: '资料较长时可能需要一些时间' }
+          ]
+      let phaseIndex = 0
+      let feedbackTicks = 0
+      this.operationBanterIndex = 0
+      this.operationFeedback = { active: true, ...phases[phaseIndex] }
+      this.operationFeedbackTimer = setInterval(() => {
+        feedbackTicks += 1
+        if (feedbackTicks % 3 === 0) {
+          this.operationBanterIndex = (this.operationBanterIndex + 1) % this.operationBanters.length
+        }
+        if (phaseIndex < phases.length - 1) {
+          phaseIndex += 1
+          this.operationFeedback = { active: true, ...phases[phaseIndex] }
+        } else if (this.operationFeedback.progress < 88) {
+          this.operationFeedback = { ...this.operationFeedback, progress: this.operationFeedback.progress + 1 }
+        }
+      }, 900)
+    },
+    updateOperationFeedback(progress, message, detail) {
+      this.operationFeedback = { active: true, progress, message, detail }
+    },
+    stopOperationFeedback() {
+      if (this.operationFeedbackTimer) clearInterval(this.operationFeedbackTimer)
+      this.operationFeedbackTimer = null
+      this.operationFeedback = { active: false, progress: 0, message: '', detail: '' }
+      this.operationBanterIndex = 0
+    },
     formatNow() {
       const date = new Date()
       const pad = value => String(value).padStart(2, '0')
@@ -919,6 +1219,9 @@ export default {
       return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
     },
     clearTimers() {
+      this.stopOperationFeedback()
+      if (this.generationStream?.abort) this.generationStream.abort('ppt_generation_cancelled')
+      this.generationStream = null
       if (this.generationTimer) {
         clearInterval(this.generationTimer)
         clearTimeout(this.generationTimer)
@@ -938,6 +1241,25 @@ export default {
 </style>
 
 <style scoped>
+.ppt-flow--floating-actions{padding-bottom:calc(128rpx + env(safe-area-inset-bottom));box-sizing:border-box}
+.preview-card__content--expanded{display:block;overflow:visible;-webkit-line-clamp:unset}
+.preview-card__toggle{display:flex;align-items:center;justify-content:center;gap:8rpx;margin-top:14rpx;padding-top:14rpx;border-top:1px solid #e4e8f0;color:#5265f5;font-size:21rpx;font-weight:650}
+.preview-card__toggle-arrow{display:inline-block;font-size:24rpx;line-height:1;transition:transform .2s ease}
+.preview-card__toggle-arrow--expanded{transform:rotate(180deg)}
+.single-action--floating,.bottom-actions{position:fixed;z-index:40;left:24rpx;right:24rpx;bottom:calc(18rpx + env(safe-area-inset-bottom));margin:0;padding:12rpx;border:1px solid rgba(222,227,239,.9);border-radius:20rpx;background:rgba(255,255,255,.94);box-shadow:0 14rpx 42rpx rgba(35,50,92,.16);box-sizing:border-box;backdrop-filter:blur(12px)}
+.single-action--floating .primary-button{width:100%}
+.bottom-actions{display:block}
+.bottom-actions__buttons{display:flex;gap:20rpx}
+.operation-feedback{margin-top:20rpx;padding:22rpx;border:1px solid #e2e7f1;border-radius:18rpx;background:#fff;box-shadow:0 10rpx 28rpx rgba(35,50,92,.07)}
+.operation-feedback__head{display:flex;align-items:center;justify-content:space-between;color:#445168;font-size:20rpx;font-weight:700}
+.operation-feedback__head text:last-child{color:#5265f5}
+.operation-feedback__track{height:7rpx;margin-top:10rpx;overflow:hidden;border-radius:99rpx;background:#e8ebf3}
+.operation-feedback__value{height:100%;border-radius:inherit;background:#5265f5;transition:width .35s ease}
+.operation-feedback__detail{display:block;margin-top:8rpx;color:#8a94a6;font-size:18rpx}
+.operation-banter{margin-top:12rpx;padding:18rpx 20rpx;border:1px solid #e5e9f3;border-radius:16rpx;background:rgba(255,255,255,.78);text-align:center}
+.operation-banter__text,.operation-banter__status{display:block}
+.operation-banter__text{color:#566176;font-size:20rpx;line-height:1.5;animation:banter-in .32s ease both}
+.operation-banter__status{margin-top:7rpx;color:#9aa2b1;font-size:17rpx}
 .flow-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:22rpx}
 .flow-heading__copy{min-width:0;flex:1}
 .history-entry{display:flex;min-width:112rpx;height:62rpx;align-items:center;justify-content:center;gap:9rpx;margin-top:10rpx;border:1px solid #d9dff0;border-radius:14rpx;background:#fff;color:#4b5de7;font-size:20rpx;font-weight:650;box-shadow:0 7rpx 18rpx rgba(42,58,120,.05)}
@@ -971,7 +1293,7 @@ export default {
 .add-outline-button::after{border:0}
 .outline-save-tip{display:flex;justify-content:space-between;gap:12rpx;margin-top:15rpx;color:#929bad;font-size:18rpx;line-height:1.45}
 .outline-save-tip text:last-child{flex:none;color:#31a971}
-.bottom-actions--three{gap:12rpx}
+.bottom-actions--three .bottom-actions__buttons{gap:12rpx}
 .bottom-actions--three button{font-size:22rpx}
 .secondary-button[disabled]{opacity:.4}
 .page-editor-count{flex:none;padding:8rpx 13rpx;border-radius:99rpx;background:#eef0ff;color:#5061e7;font-size:20rpx;font-weight:700}
@@ -1032,4 +1354,5 @@ export default {
 .history-empty__icon text{height:4rpx;border-radius:99rpx;background:#aab3c2}
 .history-empty__title{margin-top:22rpx;font-size:24rpx;font-weight:750}
 .history-empty__desc{margin-top:8rpx;color:#929bad;font-size:19rpx}
+@keyframes banter-in{from{opacity:0;transform:translateY(5rpx)}to{opacity:1;transform:translateY(0)}}
 </style>

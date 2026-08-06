@@ -184,8 +184,8 @@
 }
 .tm-table-card :global(.ant-pagination-item a) { color: #94a3b8; }
 .tm-table-card :global(.ant-pagination-item-active) {
-  background: #7c3aed !important;
-  border-color: #7c3aed !important;
+  background: #4a7fad !important;
+  border-color: #4a7fad !important;
 }
 .tm-table-card :global(.ant-pagination-item-active a) { color: #fff !important; }
 .tm-table-card :global(.ant-pagination-prev .ant-pagination-item-link),

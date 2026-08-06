@@ -50,6 +50,9 @@ export const saveFloorPlan = (floorPlaceId, data) =>
 export const deleteFloorPlan = (floorPlaceId) =>
   request({ url: `/api/v1/map-places/floors/${floorPlaceId}/plan`, method: 'delete' })
 
+export const getFloorPlanPositions = (floorPlanId) =>
+  request({ url: `/api/v1/map-places/floor-plans/${floorPlanId}/positions`, method: 'get' })
+
 export const saveIndoorPosition = (placeId, data) =>
   request({ url: `/api/v1/map-places/${placeId}/indoor-position`, method: 'put', data })
 

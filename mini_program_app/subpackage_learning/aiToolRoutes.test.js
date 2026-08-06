@@ -45,21 +45,15 @@ test('every visible AI Create action resolves to a real page and never silently 
   }
 
   assert.match(resolveAiToolDestination({ name: 'PPT生成' }), /resourceGenerate\/resourceGenerate\?resourceType=presentation/)
-  assert.match(resolveAiToolDestination({ name: '思维导图' }), /resourceType=mind_map/)
   assert.match(resolveAiToolDestination({ name: '试卷生成' }), /resourceType=practice_set/)
+  assert.equal(resolveAiToolDestination({ name: '思维导图' }), '/subpackage_ai/mindmapGenerate/mindmapGenerate')
+  assert.equal(resolveAiToolDestination({ name: '活动图' }), '/subpackage_ai/activityGenerate/activityGenerate')
+  assert.equal(resolveAiToolDestination({ name: '架构图' }), '/subpackage_ai/architectureGenerate/architectureGenerate')
+  assert.equal(resolveAiToolDestination({ name: '流程图' }), '/subpackage_ai/flowchartGenerate/flowchartGenerate')
   assert.equal(resolveAiToolDestination({ name: 'Python个性化学习' }), '/subpackage_learning/pythonHome/pythonHome')
   assert.equal(resolveAiToolDestination({ name: 'Python课程学习' }), '/subpackage_learning/pythonHome/pythonHome')
   assert.equal(resolveAiToolDestination({ name: '学习计划' }), '/subpackage_learning/learningPath/learningPath')
   assert.match(resolveAiToolDestination({ name: '深度学习课程学习', desc: 'AI辅助掌握深度学习知识' }), /aiConversation\/aiConversation\?prefill=/)
-
-  for (const name of ['活动图', '架构图', '流程图']) {
-    const description = `${name}的真实能力`
-    const route = resolveAiToolDestination({ name, desc: description })
-    assert.match(route, /^\/subpackage_ai\/aiConversation\/aiConversation\?prefill=/, `${name} should use the real AI conversation`)
-    const prefill = decodeURIComponent(route.split('prefill=')[1])
-    assert.ok(prefill.includes(name), `${name} prefill should identify the selected card`)
-    assert.ok(prefill.includes(description), `${name} prefill should retain the card intent`)
-  }
 })
 
 test('AI Create uses one total resolver for cards and tappable hero actions', () => {

@@ -1,0 +1,186 @@
+.stall-indoor-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.stall-indoor-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.stall-indoor-header .ant-btn-link {
+  height: auto;
+  padding: 0;
+}
+
+.stall-indoor-header h1 {
+  margin: 8px 0 4px;
+  color: #172033;
+  font-size: 24px;
+}
+
+.stall-indoor-header p {
+  margin: 0;
+  color: #70809a;
+}
+
+.stall-indoor-floor-select {
+  width: 180px;
+}
+
+.stall-indoor-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.stall-indoor-stall-list,
+.stall-indoor-plan-card {
+  border-color: #e3e9f0;
+  box-shadow: none;
+}
+
+.stall-indoor-stall-list .ant-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 680px;
+  overflow-y: auto;
+}
+
+.stall-indoor-stall-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid #e5eaf0;
+  border-radius: 8px;
+  background: #fff;
+  color: #344054;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stall-indoor-stall-item:hover,
+.stall-indoor-stall-item.active {
+  border-color: #7ca4c8;
+  background: #f3f7fb;
+}
+
+.stall-indoor-stall-item span {
+  min-width: 0;
+}
+
+.stall-indoor-stall-item strong,
+.stall-indoor-stall-item small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stall-indoor-stall-item small {
+  margin-top: 3px;
+  color: #8491a3;
+}
+
+.stall-indoor-active-tip {
+  color: #58738d;
+  font-size: 13px;
+}
+
+.stall-indoor-plan {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #dce4ec;
+  border-radius: 8px;
+  background: #f5f7fa;
+  cursor: crosshair;
+}
+
+.stall-indoor-plan > img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.stall-indoor-marker {
+  position: absolute;
+  z-index: 2;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.stall-indoor-marker i {
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: auto;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: #5f7890;
+  box-shadow: 0 2px 6px rgb(15 23 42 / 35%);
+}
+
+.stall-indoor-marker b {
+  display: block;
+  max-width: 150px;
+  margin-top: 4px;
+  padding: 3px 7px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: rgb(31 41 55 / 88%);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stall-indoor-marker.active i {
+  background: #1677ff;
+  box-shadow: 0 0 0 4px rgb(22 119 255 / 18%);
+}
+
+.stall-indoor-plan-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 14px;
+  color: #70809a;
+  font-size: 13px;
+}
+
+.stall-indoor-empty {
+  padding: 100px 0;
+}
+
+@media (max-width: 900px) {
+  .stall-indoor-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .stall-indoor-floor-select {
+    width: 100%;
+  }
+
+  .stall-indoor-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .stall-indoor-stall-list .ant-card-body {
+    max-height: 280px;
+  }
+
+  .stall-indoor-plan-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

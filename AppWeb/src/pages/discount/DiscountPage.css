@@ -1,0 +1,421 @@
+/* ===== Discount Module — Stitch Design System Applied ===== */
+
+:root {
+  --discount-primary: #005daa;
+  --discount-primary-container: #0075d5;
+  --discount-primary-bg: rgba(0, 93, 170, 0.1);
+  --discount-bg: #f9f9f9;
+  --discount-surface: #ffffff;
+  --discount-surface-low: #f3f3f4;
+  --discount-text: #1a1c1c;
+  --discount-text-secondary: #404753;
+  --discount-text-muted: #707785;
+  --discount-border: #c0c7d6;
+  --discount-error: #ba1a1a;
+  --discount-error-bg: #ffdad6;
+  --discount-tertiary: #934600;
+  --discount-tertiary-bg: #ffdbc7;
+  --discount-success: #1e7e34;
+  --discount-success-bg: #e6f4ea;
+}
+
+/* ===== Page Shell ===== */
+.discount-page {
+  min-height: 100vh;
+  background: var(--discount-bg);
+}
+
+.discount-hero {
+  padding: 28px 32px 24px;
+  background: var(--discount-surface);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.discount-hero h2 {
+  margin: 0 0 6px;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--discount-text);
+}
+
+.discount-hero p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--discount-text-secondary);
+}
+
+.discount-content {
+  padding: 24px 32px;
+  max-width: 1400px;
+}
+
+/* ===== Stats Cards Row ===== */
+.discount-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.discount-stat-card {
+  background: var(--discount-surface);
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid rgba(192, 199, 214, 0.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: transform 0.2s, box-shadow 0.2s;
+  cursor: default;
+}
+
+.discount-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.discount-stat-card .stat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.discount-stat-card .stat-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--discount-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.discount-stat-card .stat-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.discount-stat-card .stat-icon.blue {
+  background: var(--discount-primary-bg);
+  color: var(--discount-primary);
+}
+
+.discount-stat-card .stat-icon.orange {
+  background: var(--discount-tertiary-bg);
+  color: var(--discount-tertiary);
+}
+
+.discount-stat-card .stat-icon.green {
+  background: var(--discount-success-bg);
+  color: var(--discount-success);
+}
+
+.discount-stat-card .stat-icon.red {
+  background: var(--discount-error-bg);
+  color: var(--discount-error);
+}
+
+.discount-stat-card .stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--discount-text);
+  line-height: 1.2;
+}
+
+.discount-stat-card .stat-sub {
+  font-size: 12px;
+  color: var(--discount-text-muted);
+  margin-top: 4px;
+}
+
+/* ===== Toolbar (Search + Filter + Add) ===== */
+.discount-toolbar {
+  background: var(--discount-surface);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  border: 1px solid rgba(192, 199, 214, 0.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.discount-toolbar .ant-input-search {
+  max-width: 320px;
+}
+
+.discount-toolbar .ant-select {
+  min-width: 140px;
+}
+
+.discount-toolbar .toolbar-spacer {
+  flex: 1;
+}
+
+/* ===== Table Card ===== */
+.discount-table-card {
+  background: var(--discount-surface);
+  border-radius: 12px;
+  border: 1px solid rgba(192, 199, 214, 0.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+}
+
+.discount-table-card .ant-table-thead > tr > th {
+  background: var(--discount-surface-low) !important;
+  color: var(--discount-text-secondary);
+  font-weight: 600;
+  font-size: 14px;
+  border-bottom: 1px solid rgba(192, 199, 214, 0.2);
+  padding: 14px 16px;
+}
+
+.discount-table-card .ant-table-tbody > tr > td {
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(192, 199, 214, 0.08);
+}
+
+.discount-table-card .ant-table-tbody > tr:hover > td {
+  background: rgba(243, 243, 244, 0.5) !important;
+}
+
+/* ===== Status Badges ===== */
+.discount-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.discount-badge.active {
+  background: var(--discount-primary-bg);
+  color: var(--discount-primary);
+}
+
+.discount-badge.active .badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--discount-primary);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+.discount-badge.ended {
+  background: #e8e8e8;
+  color: var(--discount-text-secondary);
+}
+
+.discount-badge.full {
+  background: var(--discount-tertiary-bg);
+  color: var(--discount-tertiary);
+}
+
+.discount-badge.offline {
+  background: var(--discount-error-bg);
+  color: var(--discount-error);
+}
+
+.discount-badge.enabled {
+  background: var(--discount-success-bg);
+  color: var(--discount-success);
+}
+
+.discount-badge.disabled {
+  background: #fce8e6;
+  color: #d93025;
+}
+
+.discount-badge.open {
+  color: #16a34a;
+}
+
+.discount-badge.closed {
+  color: var(--discount-text-secondary);
+}
+
+.discount-badge .badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.discount-badge.open .badge-dot {
+  background: #16a34a;
+}
+
+.discount-badge.closed .badge-dot {
+  background: var(--discount-border);
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ===== Category Pill Tags ===== */
+.discount-category-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.discount-category-tag.blue {
+  background: rgba(0, 93, 170, 0.08);
+  color: var(--discount-primary);
+}
+
+.discount-category-tag.orange {
+  background: var(--discount-tertiary-bg);
+  color: var(--discount-tertiary);
+}
+
+.discount-category-tag.gray {
+  background: #e0e3e6;
+  color: #44474a;
+}
+
+/* ===== Merchant Name Cell ===== */
+.merchant-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.merchant-name-cell .merchant-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--discount-primary-bg);
+  color: var(--discount-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.merchant-name-cell .merchant-info .name {
+  font-weight: 600;
+  color: var(--discount-text);
+}
+
+.merchant-name-cell .merchant-info .sub {
+  font-size: 12px;
+  color: var(--discount-text-muted);
+}
+
+/* ===== Activity Cover Cell ===== */
+.activity-cover-cell {
+  width: 64px;
+  height: 48px;
+  border-radius: 4px;
+  object-fit: cover;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.activity-cover-cell.placeholder {
+  background: var(--discount-surface-low);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--discount-border);
+  font-size: 20px;
+}
+
+/* ===== Count Pill (category page) ===== */
+.count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 9999px;
+  background: var(--discount-primary-bg);
+  color: var(--discount-primary);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+/* ===== Modal Form ===== */
+.discount-form .ant-form-item-label > label {
+  font-weight: 600;
+  color: var(--discount-text-secondary);
+  font-size: 14px;
+}
+
+.discount-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 24px;
+}
+
+.discount-form-grid .full-width {
+  grid-column: 1 / -1;
+}
+
+/* ===== Detail Modal ===== */
+.discount-detail .ant-descriptions-item-label {
+  font-weight: 600;
+  color: var(--discount-text-secondary);
+  background: var(--discount-surface-low);
+}
+
+/* ===== Action Buttons in Table ===== */
+.discount-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.discount-actions .action-link {
+  color: var(--discount-text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  transition: color 0.2s;
+}
+
+.discount-actions .action-link:hover {
+  color: var(--discount-primary);
+}
+
+.discount-actions .action-link.danger {
+  color: var(--discount-error);
+}
+
+.discount-actions .action-link.danger:hover {
+  color: #d32f2f;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+  .discount-hero {
+    padding: 20px 16px;
+  }
+  .discount-content {
+    padding: 16px;
+  }
+  .discount-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .discount-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .discount-toolbar .ant-input-search {
+    max-width: none;
+  }
+  .discount-form-grid {
+    grid-template-columns: 1fr;
+  }
+}

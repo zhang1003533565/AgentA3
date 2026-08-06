@@ -36,6 +36,8 @@ public class DishController {
     public Result<List<DishDTO>> getDishList(
             @Parameter(description = "档口 ID（可选）")
             @RequestParam(required = false) Long stallId,
+            @Parameter(description = "档口点位 ID（可选）")
+            @RequestParam(required = false) Long stallPlaceId,
             @Parameter(description = "分类（可选）")
             @RequestParam(required = false) String category,
             @Parameter(description = "口味（可选）")
@@ -44,7 +46,9 @@ public class DishController {
             @RequestParam(required = false) String name) {
 
         List<DishDTO> result;
-        if (stallId != null) {
+        if (stallPlaceId != null) {
+            result = dishService.getDishesByStallPlaceId(stallPlaceId);
+        } else if (stallId != null) {
             result = dishService.getDishesByStallId(stallId);
         } else if (category != null) {
             result = dishService.getDishesByCategory(category);

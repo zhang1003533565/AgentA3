@@ -145,10 +145,10 @@ export default {
     displayTitle() {
       if (!this.title) return ''
       const chars = Array.from(this.title)
-      if (chars.length <= 10) {
+      if (chars.length <= 14) {
         return this.title
       }
-      return chars.slice(0, 10).join('') + '...'
+      return chars.slice(0, 14).join('') + '...'
     },
     showDefaultCapsule() {
       return this.showWechatCapsule
