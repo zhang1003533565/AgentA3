@@ -663,6 +663,15 @@
 					}
 				},
 				{
+					"path": "importFileBtnTest/importFileBtnTest",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FCFAFC",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "mindmapGenerating/mindmapGenerating",
 					"style": {
 						"navigationBarTitleText": "",
