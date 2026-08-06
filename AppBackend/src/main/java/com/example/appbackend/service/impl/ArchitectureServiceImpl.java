@@ -7,19 +7,28 @@ import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.entity.Result;
 import com.example.appbackend.repository.ArchitectureRecordRepository;
 import com.example.appbackend.service.ArchitectureService;
+import com.example.appbackend.service.FileParseService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * AI 架构图生成服务实现。
@@ -32,13 +41,22 @@ public class ArchitectureServiceImpl implements ArchitectureService {
 
     private final PythonAiProxyService pythonAiProxyService;
     private final ArchitectureRecordRepository architectureRecordRepository;
+    private final FileParseService fileParseService;
     private final ObjectMapper objectMapper;
+
+    @Value("${file.upload-dir:uploads}")
+    private String uploadDir;
+
+    @Value("${file.base-url:http://localhost:8080}")
+    private String fileBaseUrl;
 
     public ArchitectureServiceImpl(PythonAiProxyService pythonAiProxyService,
                                    ArchitectureRecordRepository architectureRecordRepository,
+                                   FileParseService fileParseService,
                                    ObjectMapper objectMapper) {
         this.pythonAiProxyService = pythonAiProxyService;
         this.architectureRecordRepository = architectureRecordRepository;
+        this.fileParseService = fileParseService;
         this.objectMapper = objectMapper;
     }
 
@@ -51,9 +69,16 @@ public class ArchitectureServiceImpl implements ArchitectureService {
             throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
         }
 
+        // 文档解析文本优先：有 sourceText 时拼进 description 传给 AI（与流程图一致）
+        String description = request.getDescription().trim();
+        String sourceText = request.getSourceText() == null ? "" : request.getSourceText().trim();
+        String inputDescription = StringUtils.hasText(sourceText)
+                ? (description + "\n\n【文档内容】\n" + sourceText)
+                : description;
+
         // 构造转发给 Python 的请求体（保持 camelCase 字段名与 Python 端 Pydantic 模型一致）
         Map<String, Object> pythonRequest = new LinkedHashMap<>();
-        pythonRequest.put("description", request.getDescription().trim());
+        pythonRequest.put("description", inputDescription);
         pythonRequest.put("systemType", request.getSystemType() == null ? "" : request.getSystemType());
         pythonRequest.put("architectureStyle", request.getArchitectureStyle() == null ? "" : request.getArchitectureStyle());
         pythonRequest.put("layers", request.getLayers() == null ? List.of() : request.getLayers());
@@ -80,6 +105,60 @@ public class ArchitectureServiceImpl implements ArchitectureService {
         log.info("架构图生成并落库成功 recordId={} userId={} title={}", saved.getId(), userId, saved.getTitle());
 
         return toGenerateResponse(saved, archData);
+    }
+
+    @Override
+    public ArchitectureDTO.UploadResponse uploadAndParse(Long userId, MultipartFile file) {
+        if (userId == null) {
+            throw new BusinessException(Result.UNAUTHORIZED_CODE, "请先登录");
+        }
+        validateUpload(file);
+        String originalName = StringUtils.cleanPath(
+                StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : "architecture-file");
+        String extension = extensionOf(originalName);
+        String fileId = UUID.randomUUID().toString();
+        String objectKey = "architecture/" + LocalDate.now() + "/" + fileId + extension;
+        Path uploadRoot = Paths.get(uploadDir).toAbsolutePath().normalize();
+        Path target = uploadRoot.resolve(objectKey).normalize();
+        if (!target.startsWith(uploadRoot)) {
+            throw new BusinessException(400, "上传路径不合法");
+        }
+        try {
+            Files.createDirectories(target.getParent());
+            file.transferTo(target);
+        } catch (Exception error) {
+            throw new BusinessException(500, "文件保存失败: " + error.getMessage());
+        }
+
+        ArchitectureDTO.UploadResponse response = new ArchitectureDTO.UploadResponse();
+        response.setFileId(fileId);
+        response.setFileName(originalName);
+        response.setSourceFile(buildFileUrl(objectKey));
+        response.setText(fileParseService.parse(target.toFile()));
+        return response;
+    }
+
+    private void validateUpload(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(400, "请选择文件");
+        }
+        if (!List.of(".pdf", ".doc", ".docx", ".ppt", ".pptx", ".md", ".markdown")
+                .contains(extensionOf(file.getOriginalFilename()))) {
+            throw new BusinessException(400, "仅支持 pdf、doc、docx、ppt、pptx、md");
+        }
+    }
+
+    private String buildFileUrl(String objectKey) {
+        String normalizedBaseUrl = StringUtils.hasText(fileBaseUrl)
+                ? fileBaseUrl.trim().replaceAll("/+$", "") : "";
+        return normalizedBaseUrl + "/uploads/" + objectKey.replace('\\', '/');
+    }
+
+    private String extensionOf(String filename) {
+        if (!StringUtils.hasText(filename) || !filename.contains(".")) {
+            return "";
+        }
+        return filename.substring(filename.lastIndexOf('.')).toLowerCase(Locale.ROOT);
     }
 
     @Override
