@@ -377,6 +377,12 @@ async function run() {
   isCompleted.value = false
   aiFinished.value = false
   realBranches.value = []; realRoot.value = ''
+  // 立即重置动画状态，避免请求期间显示上一次的残留
+  revealedLines.value = []; revealedNodes.value = []
+  revealedCount.value = 0; progressPct.value = 0
+  sweepOn.value = false; settleOn.value = false; smooth.value = false
+  showRing.value = true; stepIndex.value = 0
+  floatMsg.value = '正在理解您的主题内容…'; navSubtitle.value = '正在理解您的主题内容…'
   try {
     if (resultId.value) {
       let cached = uni.getStorageSync(`aiMindmapResult:${resultId.value}`)
@@ -404,7 +410,7 @@ function viewResult() {
   const id = state.resultData?.id
   if (id != null) uni.redirectTo({ url: `/subpackage_ai/mindmapViewer/mindmapViewer?id=${encodeURIComponent(id)}` })
 }
-function regenerate() { clearTimers(); aiFinished.value = false; run() }
+function regenerate() { if (runToken) runToken.cancelled = true; clearTimers(); aiFinished.value = false; run() }
 function goBack() { clearTimers(); uni.navigateBack() }
 
 onLoad(options => {
