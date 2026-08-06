@@ -23,6 +23,7 @@ public final class CampusCourseDTO {
         private String coverUrl;
         private String displayImageUrl;
         private String description;
+        private String courseType;
         private Integer sortOrder = 0;
     }
 
@@ -32,8 +33,6 @@ public final class CampusCourseDTO {
         private String title;
         private String summary;
         private String content;
-        private String resourceType;
-        private String resourceUrl;
         @Min(1)
         @Max(100000)
         private Integer estimatedMinutes;
@@ -69,6 +68,7 @@ public final class CampusCourseDTO {
         private Long ownerId;
         private String ownerName;
         private String ownerType;
+        private String courseType;
         private String audienceType;
         private String audienceValues;
         private String publishStatus;
@@ -88,8 +88,6 @@ public final class CampusCourseDTO {
         private String title;
         private String summary;
         private String content;
-        private String resourceType;
-        private String resourceUrl;
         private Integer estimatedMinutes;
         private Boolean required;
         private Integer sortOrder;

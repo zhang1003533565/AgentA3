@@ -18,6 +18,10 @@ public class CampusCourse {
     public static final String AUDIENCE_ALL = "ALL";
     public static final String AUDIENCE_CLASS = "CLASS";
     public static final String AUDIENCE_STUDENT = "STUDENT";
+    public static final String COURSE_TYPE_REQUIRED = "REQUIRED";
+    public static final String COURSE_TYPE_ELECTIVE = "ELECTIVE";
+    public static final String COURSE_TYPE_PUBLIC = "PUBLIC";
+    public static final String COURSE_TYPE_LAB = "LAB";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -49,6 +53,10 @@ public class CampusCourse {
 
     @Column(name = "owner_type", nullable = false, length = 20)
     private String ownerType = "ADMIN";
+
+    /** 课程类型：REQUIRED-必修, ELECTIVE-选修, PUBLIC-公共课, LAB-实验课 */
+    @Column(name = "course_type", length = 30)
+    private String courseType;
 
     @Column(name = "audience_type", nullable = false, length = 20)
     private String audienceType = AUDIENCE_ALL;

@@ -5,6 +5,9 @@ import com.example.appbackend.entity.CampusCourse;
 import com.example.appbackend.entity.User;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.*;
+import com.example.appbackend.service.CourseMaterialService;
+import com.example.appbackend.service.MaterialIdsCodec;
+import com.example.appbackend.service.WordParsingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -20,8 +23,13 @@ class CampusCourseServiceTest {
     private CampusCourseChapterRepository chapters;
     private CampusCourseExamRepository exams;
     private CampusCourseProgressRepository progress;
+    private CampusCourseEnrollmentRepository enrollments;
     private ExamPaperRepository papers;
     private UserRepository users;
+    private CourseMaterialService materialService;
+    private MaterialIdsCodec materialIdsCodec;
+    private WordParsingService wordParsingService;
+    private CampusCourseMaterialRepository materialRepository;
     private CampusCourseService service;
 
     @BeforeEach
@@ -30,9 +38,14 @@ class CampusCourseServiceTest {
         chapters = mock(CampusCourseChapterRepository.class);
         exams = mock(CampusCourseExamRepository.class);
         progress = mock(CampusCourseProgressRepository.class);
+        enrollments = mock(CampusCourseEnrollmentRepository.class);
         papers = mock(ExamPaperRepository.class);
         users = mock(UserRepository.class);
-        service = new CampusCourseService(courses, chapters, exams, progress, papers, users);
+        materialService = mock(CourseMaterialService.class);
+        materialIdsCodec = mock(MaterialIdsCodec.class);
+        wordParsingService = mock(WordParsingService.class);
+        materialRepository = mock(CampusCourseMaterialRepository.class);
+        service = new CampusCourseService(courses, chapters, exams, progress, enrollments, papers, users, materialService, materialIdsCodec, wordParsingService, materialRepository);
         when(chapters.findByCourseIdOrderBySortOrderAscIdAsc(any())).thenReturn(List.of());
         when(exams.findByCourseIdOrderBySortOrderAscIdAsc(any())).thenReturn(List.of());
         when(progress.findByCourseIdAndUserId(any(), any())).thenReturn(List.of());
