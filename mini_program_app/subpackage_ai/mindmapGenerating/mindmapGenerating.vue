@@ -139,7 +139,7 @@ const navTitle = computed(() => {
 const stageStyle = computed(() => ({
   width: CW + 'px',
   height: CH + 'px',
-  transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale.value})`,
+  transform: `translate(${offset.x - bounds.minX * scale.value}px, ${offset.y - bounds.minY * scale.value}px) scale(${scale.value})`,
   transformOrigin: '0 0'
 }))
 
@@ -158,26 +158,26 @@ function stepState(i) {
 
 // 视图适配
 let areaW = 375, areaH = 500
-const bounds = reactive({ w: 560, h: 640, cx: 280, cy: 320 })
+const bounds = reactive({ w: 560, h: 640, cx: 280, cy: 320, minX: 0, minY: 0 })
 function measureArea() {
   uni.createSelectorQuery().select('#canvasArea').boundingClientRect(r => {
     if (r && r.width && r.height) { areaW = r.width; areaH = r.height }
   }).exec()
 }
-// 按节点实际边界计算，避免长标签节点溢出被裁切（线条乱/右侧截断的根因）
+// 按节点实际边界计算（半宽取宽松值），并返回 minX/minY 供坐标归一化，杜绝右侧裁切
 function computeBounds() {
   const L = computeLayout(realBranches.value)
-  const hw = { root: 84, branch: 64, child: 58 }, hh = { root: 26, branch: 20, child: 16 }
+  const hw = { root: 120, branch: 110, child: 90 }, hh = { root: 26, branch: 20, child: 16 }
   let minX = CX - hw.root, maxX = CX + hw.root, minY = CY - hh.root, maxY = CY + hh.root
   L.branchPos.forEach(p => { minX = Math.min(minX, p.x - hw.branch); maxX = Math.max(maxX, p.x + hw.branch); minY = Math.min(minY, p.y - hh.branch); maxY = Math.max(maxY, p.y + hh.branch) })
   L.childPos.forEach(p => { minX = Math.min(minX, p.x - hw.child); maxX = Math.max(maxX, p.x + hw.child); minY = Math.min(minY, p.y - hh.child); maxY = Math.max(maxY, p.y + hh.child) })
-  return { w: maxX - minX, h: maxY - minY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 }
+  return { w: maxX - minX, h: maxY - minY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, minX, minY }
 }
 function fitScale() { return Math.min(areaW / bounds.w, areaH / bounds.h, 1) }
 function growthScale() { return Math.min(fitScale() * 1.05, 1) }
 function applyView(s, center) {
   scale.value = s
-  if (center) { offset.x = areaW / 2 - bounds.cx * s; offset.y = areaH / 2 - bounds.cy * s }
+  if (center) { offset.x = (areaW - bounds.w * s) / 2; offset.y = (areaH - bounds.h * s) / 2 }
 }
 function clampScale(v) { return Math.max(0.3, Math.min(2, v)) }
 
