@@ -90,10 +90,21 @@ public class ChatServiceImpl implements ChatService {
     public PageResponse<ChatDTO.SessionVO> getSessionList(Long userId, Integer current, Integer size) {
         if (current == null) current = 1;
         if (size == null) size = 20;
-        Page<ChatSession> page = sessionRepository.findByUserId(userId, PageRequest.of(current - 1, size));
+        Page<ChatSession> page = sessionRepository.findByUserIdWithMessages(userId, PageRequest.of(current - 1, size));
         List<ChatDTO.SessionVO> records = page.getContent().stream()
                 .map(s -> toSessionVO(s, userId)).collect(Collectors.toList());
         return new PageResponse<>(records, page.getTotalElements(), current, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ChatDTO.SessionVO getSessionById(Long sessionId, Long userId) {
+        ChatSession session = sessionRepository.findByIdWithItem(sessionId)
+                .orElseThrow(() -> new BusinessException(404, "会话不存在"));
+        if (!session.getBuyerId().equals(userId) && !session.getSellerId().equals(userId)) {
+            throw new BusinessException(403, "无权限");
+        }
+        return toSessionVO(session, userId);
     }
 
     @Override
@@ -569,7 +580,8 @@ public class ChatServiceImpl implements ChatService {
             vo.setItemTitle(s.getItem().getTitle());
             vo.setItemPrice(s.getItem().getPrice());
             vo.setItemStatus(s.getItem().getStatus());
-            vo.setItemStatusText(getItemStatusText(s.getItem().getStatus()));
+            vo.setItemTradeType(s.getItem().getTradeType());
+            vo.setItemStatusText(getItemStatusText(s.getItem().getStatus(), s.getItem().getTradeType()));
             String images = s.getItem().getImages();
             if (images != null && !images.isEmpty()) {
                 try {
@@ -608,10 +620,10 @@ public class ChatServiceImpl implements ChatService {
         return vo;
     }
 
-    private String getItemStatusText(Integer status) {
+    private String getItemStatusText(Integer status, String tradeType) {
         if (status == null) return "";
         switch (status) {
-            case 2: return "在售";
+            case 2: return "buy".equals(tradeType) ? "收物" : "出物";
             case 3: return "已售出";
             case 4: return "已下架";
             default: return "";

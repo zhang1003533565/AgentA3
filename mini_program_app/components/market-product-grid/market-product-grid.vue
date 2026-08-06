@@ -27,30 +27,18 @@
         <view class="product-img">
           <image v-if="item.images && item.images.length" class="product-img-src" :src="item.images[0]" mode="aspectFill" />
           <view v-else class="product-img-placeholder">
-            <text class="product-img-placeholder-text">{{ itemCategoryLabel(item) }}</text>
+            <text class="product-img-emoji">{{ itemEmoji(item.id) }}</text>
           </view>
-          <text class="product-status-badge" :class="'product-status-badge--' + item.status">{{ item.statusText }}</text>
+          <view class="product-badge-type" :class="'product-badge-type--' + (item.tradeType || 'sell')">
+            {{ item.tradeType === 'buy' ? '收' : '出' }}
+          </view>
         </view>
         <view class="product-body">
-          <view class="product-main-row">
-            <text class="product-name">{{ item.name }}</text>
-            <view class="product-price-row">
-              <text v-if="priceDisplay(item).prefix" class="product-price-symbol">{{ priceDisplay(item).prefix }}</text>
-              <text class="product-price-num" :class="{ 'product-price-text': !priceDisplay(item).prefix }">{{ priceDisplay(item).text }}</text>
-            </view>
-          </view>
-          <view class="product-info-row">
-            <text class="product-info-chip">{{ itemConditionLabel(item) }}</text>
-            <text class="product-info-chip">{{ itemCategoryLabel(item) }}</text>
-            <text v-if="isNegotiable(item)" class="product-info-chip product-info-chip--blue">可议价</text>
-          </view>
-          <view class="product-location-row">
-            <text class="product-location-label">取货地点</text>
+          <view class="product-title">{{ item.name }}</view>
+          <view class="product-price">¥{{ priceDisplay(item).text }}</view>
+          <view class="product-location-row" v-if="item.pickupPoint || item.location">
+            <view class="product-loc-icon"></view>
             <text class="product-location">{{ itemLocationLabel(item) }}</text>
-          </view>
-          <view class="product-metrics-row">
-            <text class="product-metric">热度 {{ itemHeatScore(item) }}</text>
-            <text class="product-metric">咨询 {{ itemInquiryCount(item) }}</text>
           </view>
           <view class="product-user">
             <view class="product-ava">{{ item.userName ? item.userName.slice(0, 1) : '同' }}</view>
@@ -66,11 +54,11 @@
 <script>
 import {
   formatMarketTime,
-  getMarketConditionLabel,
   getMarketLocationLabel,
   getMarketPriceDisplay
 } from '@/subpackage_lostfound/utils/secondhandItem.js'
-import { getMarketCategoryLabel } from '@/subpackage_lostfound/utils/marketCategories.js'
+
+const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
 
 export default {
   name: 'MarketProductGrid',
@@ -99,17 +87,9 @@ export default {
   methods: {
     fmt: formatMarketTime,
     priceDisplay: getMarketPriceDisplay,
-    itemConditionLabel: getMarketConditionLabel,
     itemLocationLabel: getMarketLocationLabel,
-    itemCategoryLabel: getMarketCategoryLabel,
-    isNegotiable(item) {
-      return Boolean(item.allowBargain || String(item.desc || '').includes('价格可议'))
-    },
-    itemHeatScore(item) {
-      return Number(item.heatScore || item.heat_score || 0)
-    },
-    itemInquiryCount(item) {
-      return Number(item.inquiryCount || item.inquiry_count || 0)
+    itemEmoji(id) {
+      return EMOJIS[(id || 0) % EMOJIS.length]
     },
     handleItemClick(id) {
       this.$emit('item-click', id)
@@ -121,18 +101,21 @@ export default {
 <style scoped>
 .product-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: 1fr 1fr;
   align-items: start;
-  gap: 18rpx;
-  padding: 4rpx 24rpx 200rpx;
+  gap: 12rpx;
+  padding: 4rpx 12rpx 200rpx;
 }
 
 .product-card {
   background: #fff;
-  border-radius: 22rpx;
+  border-radius: 16rpx;
   overflow: hidden;
-  border: 1rpx solid #EEEEEE;
-  box-shadow: 0 6rpx 18rpx rgba(92, 122, 153, 0.05);
+  box-shadow: 0 4rpx 16rpx rgba(30, 41, 59, 0.06);
+  transition: transform 0.15s ease;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 }
 
 .product-card:active {
@@ -146,146 +129,141 @@ export default {
 .product-img {
   position: relative;
   width: 100%;
-  aspect-ratio: 1 / 1;
-  background: #F1F3F5;
+  padding-top: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: #EEF2F7;
   overflow: hidden;
-  border-radius: 18rpx;
 }
 
 .product-img-src {
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 100%;
   height: 100%;
-  border-radius: 18rpx;
 }
 
 .product-img-placeholder {
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 100%;
   height: 100%;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 14rpx;
   color: #8E8E93;
 }
 
-.product-img-placeholder-text {
-  font-size: 24rpx;
-  font-weight: 700;
-}
-
-.product-status-badge {
-  position: absolute;
-  top: 12rpx;
-  left: 12rpx;
-  padding: 6rpx 12rpx;
-  border-radius: 999rpx;
-  background: rgba(29, 29, 31, 0.72);
-  color: #FFFFFF;
-  font-size: 19rpx;
-  font-weight: 800;
+.product-img-emoji {
+  font-size: 58rpx;
   line-height: 1;
 }
 
-.product-status-badge--reserved {
-  background: rgba(92, 122, 153, 0.88);
+.product-badge-type {
+  position: absolute;
+  left: 14rpx;
+  top: 14rpx;
+  min-width: 40rpx;
+  height: 40rpx;
+  padding: 0 8rpx;
+  border-radius: 10rpx;
+  color: #FFFFFF;
+  font-size: 22rpx;
+  font-weight: 800;
+  line-height: 40rpx;
+  text-align: center;
+  box-shadow: 0 4rpx 10rpx rgba(0, 0, 0, 0.2);
 }
 
-.product-status-badge--sold,
-.product-status-badge--offline {
-  background: rgba(142, 142, 147, 0.88);
+.product-badge-type--sell {
+  background: #FF6B35;
+  box-shadow: 0 4rpx 10rpx rgba(255, 107, 53, 0.35);
+}
+
+.product-badge-type--buy {
+  background: #4A90E2;
+  box-shadow: 0 4rpx 10rpx rgba(74, 144, 226, 0.35);
 }
 
 .product-body {
-  padding: 18rpx 18rpx 20rpx;
-}
-
-.product-main-row {
+  padding: 14rpx 16rpx 18rpx;
   display: flex;
   flex-direction: column;
-  gap: 12rpx;
-  margin-bottom: 12rpx;
+  gap: 6rpx;
 }
 
-.product-name {
-  font-size: 27rpx;
-  font-weight: 700;
-  color: #1D1D1F;
-  line-height: 1.35;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  min-height: 0;
-}
-
-.product-price-row {
-  display: flex;
-  align-items: baseline;
-  gap: 2rpx;
-}
-
-.product-price-symbol {
-  font-size: 21rpx;
+.product-title {
+  color: #1D2430;
+  font-size: 24rpx;
   font-weight: 800;
-  color: #1D1D1F;
-  line-height: 1;
-}
-
-.product-price-num {
-  font-size: 33rpx;
-  font-weight: 850;
-  color: #1D1D1F;
-  line-height: 1;
-}
-
-.product-price-text {
-  font-size: 30rpx;
-  color: #4A6278;
-}
-
-.product-info-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8rpx;
-  margin-bottom: 14rpx;
-}
-
-.product-info-chip {
-  max-width: 128rpx;
-  padding: 5rpx 10rpx;
-  border-radius: 10rpx;
-  background: #F5F6F8;
-  color: #6B6F76;
-  font-size: 18rpx;
-  font-weight: 700;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.product-info-chip--blue {
-  background: rgba(92, 122, 153, 0.08);
-  color: #4A6278;
+.product-price {
+  color: #FF4D2E;
+  font-size: 28rpx;
+  font-weight: 900;
+  line-height: 1.2;
 }
 
 .product-location-row {
   display: flex;
-  flex-direction: column;
-  gap: 4rpx;
-  margin-bottom: 14rpx;
+  align-items: center;
+  gap: 6rpx;
+  color: #8A94A6;
+  font-size: 20rpx;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.product-location-label {
-  font-size: 19rpx;
-  color: #A2A8AF;
-  font-weight: 600;
+.product-loc-icon {
+  position: relative;
+  width: 18rpx;
+  height: 18rpx;
+  flex-shrink: 0;
+}
+
+.product-loc-icon::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12rpx;
+  height: 12rpx;
+  margin-left: -6rpx;
+  margin-top: -12rpx;
+  border: 2rpx solid #8A94A6;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  box-sizing: border-box;
+}
+
+.product-loc-icon::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4rpx;
+  height: 4rpx;
+  margin-left: -2rpx;
+  margin-top: -2rpx;
+  background: #8A94A6;
+  border-radius: 50%;
 }
 
 .product-location {
-  font-size: 22rpx;
-  color: #5C5C60;
+  font-size: 20rpx;
+  color: #8A94A6;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -296,28 +274,8 @@ export default {
   display: flex;
   align-items: center;
   gap: 8rpx;
-  padding-top: 14rpx;
-  border-top: 1rpx solid #F0F0F0;
-}
-
-.product-metrics-row {
-  display: flex;
-  align-items: center;
-  gap: 8rpx;
-  margin: 0 0 14rpx;
-}
-
-.product-metric {
-  max-width: 130rpx;
-  padding: 5rpx 10rpx;
-  border-radius: 10rpx;
-  background: rgba(92, 122, 153, 0.08);
-  color: #5C7A99;
-  font-size: 18rpx;
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding-top: 10rpx;
+  border-top: 1rpx solid #F0F2F5;
 }
 
 .product-ava {
@@ -337,6 +295,7 @@ export default {
 .product-uname {
   font-size: 21rpx;
   color: #666A70;
+  font-weight: 600;
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -344,9 +303,10 @@ export default {
 }
 
 .product-time {
-  font-size: 19rpx;
-  color: #A2A8AF;
-  flex-shrink: 0;
+  font-size: 18rpx;
+  color: #9AA2AE;
+  font-weight: 500;
+  margin-left: auto;
 }
 
 .empty-block {

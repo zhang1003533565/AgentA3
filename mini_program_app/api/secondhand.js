@@ -30,6 +30,14 @@ export function createSecondhandItem(data) {
   })
 }
 
+export function updateSecondhandItem(id, data) {
+  return request({
+    url: `/api/secondhand/item/${id}`,
+    method: 'PUT',
+    data
+  })
+}
+
 export function getMySecondhandItems(params = {}) {
   return request({
     url: '/api/secondhand/item/my',
@@ -52,11 +60,25 @@ export function onlineSecondhandItem(id) {
   })
 }
 
+export function deleteSecondhandItem(id) {
+  return request({
+    url: `/api/secondhand/item/${id}`,
+    method: 'DELETE'
+  })
+}
+
 export function getChatSessions(params = {}) {
   return request({
     url: '/api/chat/session/list',
     method: 'GET',
     params
+  })
+}
+
+export function getChatSessionById(sessionId) {
+  return request({
+    url: `/api/chat/session/${sessionId}`,
+    method: 'GET'
   })
 }
 
@@ -194,5 +216,13 @@ export function getMyFavorites(params = {}) {
     url: '/api/secondhand/favorite/my',
     method: 'GET',
     params
+  })
+}
+
+export function reportSecondhandItem(data) {
+  return request({
+    url: '/api/secondhand/reports',
+    method: 'POST',
+    data
   })
 }

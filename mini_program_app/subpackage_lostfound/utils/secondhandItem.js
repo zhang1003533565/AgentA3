@@ -15,6 +15,8 @@ export function normalizeSecondhandItem(item = {}) {
   const location = item.location || item.tradeLocationText || ''
   const status = Number(item.status)
 
+  const tradeType = item.tradeType || item.trade_type || 'sell'
+
   return {
     id: item.id,
     name: item.title || item.name || '',
@@ -23,7 +25,8 @@ export function normalizeSecondhandItem(item = {}) {
     description: item.description || item.desc || '',
     price: item.price,
     originalPrice: item.originalPrice || item.original_price || null,
-    type: 'sell',
+    type: tradeType,
+    tradeType,
     status: status === 4 ? 'offline' : status === 3 ? 'sold' : 'online',
     statusText: item.statusText || (status === 3 ? '已售出' : status === 4 ? '已下架' : '在售'),
     rawStatus: item.status,

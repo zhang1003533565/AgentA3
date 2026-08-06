@@ -41,7 +41,7 @@ export const portalGroups = [
     label: '旧物交易',
     items: [
       { path: '/market/item', label: '物品管理', icon: 'shopping', pageKey: 'market-item' },
-      { path: '/market/category', label: '分类管理', icon: 'appstore', pageKey: 'market-category' },
+      { path: '/market/report', label: '举报管理', icon: 'warning', pageKey: 'market-report' },
     ],
   },
   {
@@ -202,7 +202,6 @@ const columns = {
     { title: '封面', dataIndex: 'coverImage', type: 'image', width: 80 },
     { title: '标题', dataIndex: 'title', width: 220 },
     { title: '分类', dataIndex: 'categoryName', type: 'tag' },
-    { title: '成色', dataIndex: 'conditionText', type: 'tag' },
     { title: '价格', dataIndex: 'priceText', width: 120 },
     { title: '地点', dataIndex: 'location', width: 140 },
     { title: '发布者', dataIndex: 'publisherName', width: 120 },
@@ -213,6 +212,17 @@ const columns = {
     { title: '分类', dataIndex: 'categoryName', type: 'tag', width: 180 },
     { title: '排序', dataIndex: 'sortText', width: 100 },
     { title: '关联物品', dataIndex: 'itemCountText', width: 120 },
+  ],
+  secondhandReport: [
+    { title: 'ID', dataIndex: 'id', width: 70 },
+    { title: '举报人', dataIndex: 'reporterName', width: 120 },
+    { title: '联系方式', dataIndex: 'reporterContact', width: 160 },
+    { title: '商品标题', dataIndex: 'itemTitle', width: 200 },
+    { title: '卖家', dataIndex: 'itemSellerName', width: 120 },
+    { title: '原因类型', dataIndex: 'reasonTypeText', width: 100, type: 'tag' },
+    { title: '详细理由', dataIndex: 'reason', width: 200, ellipsis: true },
+    { title: '状态', dataIndex: 'statusText', width: 100, type: 'status' },
+    { title: '提交时间', dataIndex: 'createTime', width: 160 },
   ],
   merchant: [
     { title: '商家名称', dataIndex: 'merchantName' },
@@ -432,7 +442,7 @@ export const workspacePages = {
     badge: '旧物交易',
     description: '管理员可查看详情、下架与删除，不可编辑用户发布内容。',
     columns: columns.secondhandItem,
-    filters: ['全部', '在售', '已售出', '已下架'],
+    filters: ['全部', '出物', '收物', '已下架'],
     emptyText: '暂无物品数据',
   }),
   'market-category': createPage({
@@ -441,6 +451,14 @@ export const workspacePages = {
     description: '维护校园旧物分类、排序与关联物品规模。',
     columns: columns.secondhandCategory,
     emptyText: '暂无旧物分类数据',
+  }),
+  'market-report': createPage({
+    title: '举报管理',
+    badge: '旧物交易',
+    description: '查看和处理用户对二手物品的举报记录。',
+    columns: columns.secondhandReport,
+    filters: ['全部', '待处理', '已处理', '已驳回'],
+    emptyText: '暂无举报数据',
   }),
   'discount-merchant': createPage({
     title: '',

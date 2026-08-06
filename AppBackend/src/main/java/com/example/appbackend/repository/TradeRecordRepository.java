@@ -5,6 +5,7 @@ import com.example.appbackend.entity.TradeRecord.TradeStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -24,4 +25,8 @@ public interface TradeRecordRepository extends JpaRepository<TradeRecord, Long> 
     List<TradeRecord> findByItemIdAndStatusIn(Long itemId, Collection<TradeStatus> statuses);
 
     Optional<TradeRecord> findByItemIdAndBuyerIdAndStatusIn(Long itemId, Long buyerId, Collection<TradeStatus> statuses);
+
+    @Modifying
+    @Query("DELETE FROM TradeRecord tr WHERE tr.itemId = :itemId")
+    void deleteByItemId(@Param("itemId") Long itemId);
 }
