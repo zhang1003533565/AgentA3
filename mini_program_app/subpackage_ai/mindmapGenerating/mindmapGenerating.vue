@@ -175,9 +175,8 @@ function growthScale() { return Math.min(fitScale() * 1.05, 1) }
 function applyView(s, center) {
   scale.value = s
   if (center) {
-    const cw = Math.max(areaW, bounds.w * s), ch = Math.max(areaH, bounds.h * s)
-    offset.x = (cw - bounds.w * s) / 2
-    offset.y = (ch - bounds.h * s) / 2
+    offset.x = areaW / 2 - bounds.w * s / 2
+    offset.y = areaH / 2 - bounds.h * s / 2
   }
 }
 function clampScale(v) { return Math.max(0.3, Math.min(2, v)) }
