@@ -127,7 +127,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import {
   getErrorMessage,
@@ -143,6 +143,7 @@ const selectedJudge = ref('auto')
 const selectedLane = ref('auto')
 const uploadedDocument = ref(null)
 const isUploading = ref(false)
+const recentItems = ref([])
 
 const sceneOptions = [
   { key: 'administrative', label: '行政流程' },
@@ -173,6 +174,37 @@ const laneOptions = [
 
 const openHistory = () => {
   uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory' })
+}
+
+const loadRecentItems = async () => {
+  try {
+    const list = await getFlowchartHistory()
+    const records = Array.isArray(list) ? list : []
+    recentItems.value = records.map(item => ({
+      id: item.id,
+      title: item.title || '未命名流程图',
+      preview: item.preview || item.description || '',
+      createTime: item.createTime || item.createdAt || ''
+    }))
+  } catch (error) {
+    recentItems.value = []
+  }
+}
+
+// 格式化时间（YYYY-MM-DD HH:mm）
+const formatTime = (timeStr = '') => {
+  if (!timeStr) return ''
+  const date = new Date(timeStr)
+  if (Number.isNaN(date.getTime())) return timeStr
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+const openRecent = (item) => {
+  if (!item || item.id == null) return
+  uni.navigateTo({
+    url: `/subpackage_ai/flowchartViewer/flowchartViewer?id=${encodeURIComponent(item.id)}`
+  })
 }
 
 const importDocument = () => {
@@ -227,6 +259,10 @@ const generateFlowchart = () => {
   uni.setStorageSync('aiFlowchartPendingPayload', payload)
   uni.navigateTo({ url: '/subpackage_ai/flowchartGenerating/flowchartGenerating' })
 }
+
+onMounted(() => {
+  loadRecentItems()
+})
 </script>
 
 <style lang="scss" scoped>
