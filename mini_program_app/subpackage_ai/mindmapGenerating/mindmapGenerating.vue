@@ -105,7 +105,7 @@
 import { ref, computed, reactive } from 'vue'
 import { onLoad, onUnload, onMounted } from '@dcloudio/uni-app'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
-import { buildMindmapPayload, generateMindmap as requestGenerateMindmap, getMindmapDetail } from '@/api/aiDiagram.js'
+import { buildMindmapPayload, generateMindmap as requestGenerateMindmap, getMindmapDetail, getErrorMessage } from '@/api/aiDiagram.js'
 
 const CW = 560, CH = 640, CX = 280, CY = 320
 const BR_X = 140, CH_X = 95
@@ -118,7 +118,6 @@ const state = reactive({ resultData: null })
 const isCompleted = ref(false)
 const pageState = ref('loading')
 const errorMessage = ref('')
-const aiFinished = ref(false)
 
 const realRoot = ref('')
 const realBranches = ref([])
@@ -242,13 +241,6 @@ function computeLayout(branches) {
 let timers = []
 function clearTimers() { timers.forEach(t => clearTimeout(t)); timers = [] }
 function sleep(ms) { return new Promise(r => timers.push(setTimeout(r, ms))) }
-// 给异步请求加超时：到点未返回即 reject，避免请求挂起导致页面无限等待
-function withTimeout(promise, ms) {
-  return new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error('AI 响应超时，请重试')), ms)
-    promise.then(v => { clearTimeout(t); resolve(v) }, e => { clearTimeout(t); reject(e) })
-  })
-}
 let runToken = null
 const alive = () => runToken && !runToken.cancelled
 
@@ -279,19 +271,6 @@ async function play() {
   await sleep(1000); if (!alive()) return
   floatMsg.value = '正在提取核心知识点…'; navSubtitle.value = '正在提取核心知识点…'
   progressPct.value = 28
-  await waitForAIData(8000)
-  limitBranches()
-  // AI 未返回时使用兜底结构，保证动画完整不空屏
-  if (!realBranches.value.length) {
-    realRoot.value = realRoot.value || centerTopic.value || topicText.value || 'AI主题'
-    realBranches.value = [
-      { name: '核心概念', children: ['定义', '特点', '应用'] },
-      { name: '关键方法', children: ['步骤一', '步骤二'] },
-      { name: '常见问题', children: ['误区', '对策'] },
-      { name: '实践场景', children: ['案例', '练习'] }
-    ]
-  }
-  Object.assign(bounds, computeBounds())
   applyView(growthScale(), true)
   await sleep(300); if (!alive()) return
 
@@ -386,22 +365,6 @@ function skipAnimation() {
 }
 
 // ===== 数据 =====
-function waitForAIData(timeout = 8000) {
-  return new Promise(resolve => {
-    const start = Date.now()
-    const tick = () => {
-      if (aiFinished.value) return resolve(true)
-      if (Date.now() - start > timeout) return resolve(false)
-      timers.push(setTimeout(tick, 100))
-    }
-    tick()
-  })
-}
-function handleAIData(result) {
-  if (aiFinished.value) return
-  aiFinished.value = true
-  extractAnimationData(result)
-}
 function extractAnimationData(result) {
   if (!result) return
   const data = result.mindmap || result.data || result
@@ -419,39 +382,46 @@ async function run() {
   pageState.value = 'loading'
   errorMessage.value = ''
   isCompleted.value = false
-  aiFinished.value = false
   realBranches.value = []; realRoot.value = ''
   try {
+    let result
     if (resultId.value) {
       let cached = uni.getStorageSync(`aiMindmapResult:${resultId.value}`)
-      if (!cached || !cached.nodes) cached = await withTimeout(getMindmapDetail(resultId.value), 15000)
-      state.resultData = cached
-      handleAIData(cached)
-      play()
-      return
-    }
-    const payload = buildMindmapPayload({ topic: topicText.value || centerTopic.value, centerTopic: centerTopic.value })
-    // 动画立即开始（不阻塞等待服务器）；AI 数据到达后填充，失败/超时则用兜底完成
-    play()
-    requestGenerateMindmap(payload).then(result => {
+      if (!cached || !cached.nodes) cached = await getMindmapDetail(resultId.value)
+      result = cached
+    } else {
+      const payload = buildMindmapPayload({ topic: topicText.value || centerTopic.value, centerTopic: centerTopic.value })
+      result = await requestGenerateMindmap(payload)
       uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
-      state.resultData = result
-      handleAIData(result)
-    }).catch(error => {
-      console.warn('[mindmapGenerating] AI 生成失败，使用兜底数据:', error && (error.msg || error.message))
-    })
+    }
+    startAnimation(result)
   } catch (error) {
-    if (runToken) runToken.cancelled = true
-    errorMessage.value = (error && (error.msg || error.message)) || '生成失败，请重试'
+    errorMessage.value = getErrorMessage(error, '生成失败，请重试')
     pageState.value = 'error'
+    uni.showToast({ title: errorMessage.value, icon: 'none', duration: 2500 })
   }
+}
+
+// 与流程图/架构图一致：拿到数据再播，数据无效走统一错误态
+function startAnimation(result) {
+  state.resultData = result
+  extractAnimationData(result)
+  limitBranches()
+  if (!realBranches.value.length) {
+    errorMessage.value = 'AI 未生成有效内容，请稍后重试'
+    pageState.value = 'error'
+    return
+  }
+  Object.assign(bounds, computeBounds())
+  pageState.value = 'animating'
+  play()
 }
 
 function viewResult() {
   const id = state.resultData?.id
   if (id != null) uni.redirectTo({ url: `/subpackage_ai/mindmapViewer/mindmapViewer?id=${encodeURIComponent(id)}` })
 }
-function regenerate() { clearTimers(); aiFinished.value = false; run() }
+function regenerate() { clearTimers(); run() }
 function goBack() { clearTimers(); uni.navigateBack() }
 
 onLoad(options => {
