@@ -5,14 +5,6 @@
         <common-page-header title="发布闲置" :fixed="true" :placeholder="true" :showBack="true" :autoBack="false" @back="requestClose" />
 
         <scroll-view scroll-y class="publish-body" :show-scrollbar="false" :scroll-into-view="scrollTarget" scroll-with-animation>
-          <view class="publish-guide">
-            <view class="guide-icon guide-megaphone"></view>
-            <text class="guide-text">真实描述，友好交易，让闲置找到新伙伴～</text>
-            <view class="guide-sparkles">
-              <view class="sparkle sparkle-large"></view>
-              <view class="sparkle sparkle-small"></view>
-            </view>
-          </view>
 
           <view
             id="publish-field-tradetype"
@@ -88,14 +80,7 @@
               <view class="upload-copy">
                 <text class="upload-title">上传商品图片</text>
                 <text class="upload-text">最多9张，首张作为封面</text>
-                <text class="upload-subtle">拍清楚，成交更快哦！</text>
               </view>
-            </view>
-            <view class="photo-tips">
-              <view class="photo-tip"><view class="tip-icon tip-sun"></view><text>光线充足</text></view>
-              <view class="photo-tip"><view class="tip-icon tip-frame"></view><text>正面清晰</text></view>
-              <view class="photo-tip"><view class="tip-icon tip-search"></view><text>细节完整</text></view>
-              <view class="photo-tip"><view class="tip-icon tip-shield"></view><text>真实描述</text></view>
             </view>
             <text v-if="fieldErrors.images" class="field-error-text">{{ fieldErrors.images }}</text>
           </view>
@@ -188,25 +173,6 @@
               <view class="line-arrow"></view>
             </view>
             <text v-if="fieldErrors.pickupPoint" class="field-error-text">{{ fieldErrors.pickupPoint }}</text>
-          </view>
-
-          <view class="section contact-section">
-            <view class="section-head">
-              <view class="section-title-wrap">
-                <view class="title-icon title-icon-contact"></view>
-                <text class="section-title">交易与联系</text>
-              </view>
-              <view class="contact-art">
-                <view class="chat-block chat-block-a"></view>
-                <view class="chat-block chat-block-b"></view>
-                <view class="chat-face"></view>
-              </view>
-            </view>
-            <view class="contact-list">
-              <view class="contact-rule"><view class="contact-rule-icon rule-chat"></view><text>默认通过站内聊天联系</text></view>
-              <view class="contact-rule"><view class="contact-rule-icon rule-exchange"></view><text>双方确认交易后，可自愿交换联系方式</text></view>
-              <view class="contact-rule"><view class="contact-rule-icon rule-platform"></view><text>平台仅提供信息沟通服务，不参与线下交易</text></view>
-            </view>
           </view>
 
           <view class="bottom-spacer"></view>
