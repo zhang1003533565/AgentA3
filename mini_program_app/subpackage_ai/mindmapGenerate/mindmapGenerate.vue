@@ -94,7 +94,7 @@
             </view>
             <view class="recent-info">
               <text class="recent-name">{{ item.title || '未命名思维导图' }}</text>
-              <text class="recent-meta">{{ item.preview || formatTime(item.createTime) }}</text>
+              <text class="recent-meta">{{ formatTime(item.createTime) }}</text>
             </view>
             <image class="recent-arrow" src="/static/icons/icon-forward.svg" mode="aspectFit" />
           </view>
