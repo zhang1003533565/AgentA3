@@ -18,10 +18,7 @@
           :maxlength="2000"
         />
         <view class="input-card__footer">
-          <view class="import-btn" @tap="importDocument">
-            <image class="import-icon" src="/static/icons/diagram/import-file.svg" mode="aspectFit" />
-            <text>{{ isUploading ? '解析中...' : '导入 PPT/Word/PDF' }}</text>
-          </view>
+          <ImportFileButton :loading="isUploading" @click="importDocument" />
           <text class="char-count">{{ topic.length }}/2000</text>
         </view>
       </view>
@@ -124,6 +121,7 @@ import {
   getMindmapHistory,
   uploadMindmapFile
 } from '@/api/aiDiagram.js'
+import ImportFileButton from '../components/ImportFileButton.vue'
 
 const topic = ref('')
 const centerTopic = ref('')
@@ -156,7 +154,7 @@ const expandOptions = [
   { key: 'detail', label: '详细' }
 ]
 
-const openHistory = () => { uni.showToast({ title: '历史记录预留', icon: 'none' }) }
+const openHistory = () => { uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory' }) }
 
 const getOptionLabel = (options, key, fallback = '') => {
   return options.find(item => item.key === key)?.label || fallback || key
@@ -248,7 +246,7 @@ onMounted(() => {
 <style lang="scss" scoped>
 .page {
   min-height: 100vh;
-  background: #F3F3F4;
+  background: #FCFAFC;
   color: #18273F;
 }
 
@@ -306,25 +304,6 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.import-btn {
-  display: flex;
-  align-items: center;
-  height: 54rpx;
-  padding: 0 22rpx;
-  border-radius: 28rpx;
-  background: #F6F5F8;
-  color: #2D4566;
-  font-size: 24rpx;
-  font-weight: 700;
-  box-sizing: border-box;
-}
-
-.import-icon {
-  width: 24rpx;
-  height: 24rpx;
-  margin-right: 10rpx;
 }
 
 .char-count {
@@ -536,7 +515,7 @@ onMounted(() => {
   bottom: 0;
   z-index: 20;
   padding: 22rpx 30rpx 24rpx;
-  background: rgba(243, 243, 244, 0.96);
+  background: rgba(252, 250, 252, 0.96);
   box-sizing: border-box;
 }
 

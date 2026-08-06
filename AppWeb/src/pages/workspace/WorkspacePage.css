@@ -292,15 +292,15 @@
   line-height: 20px;
 }
 
-.market-admin__status--2 {
+.market-admin__status--sell {
   background: #52c41a;
 }
 
-.market-admin__status--3 {
+.market-admin__status--buy {
   background: #1677ff;
 }
 
-.market-admin__status--4 {
+.market-admin__status--offline {
   background: #8c8c8c;
 }
 

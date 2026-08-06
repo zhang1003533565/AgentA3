@@ -47,6 +47,14 @@ public class ChatController {
         return Result.success(chatService.getSessionList(getUserId(httpRequest), current, size));
     }
 
+    @GetMapping("/session/{sessionId}")
+    @Operation(summary = "会话详情", description = "获取单个会话详情（含商品信息）")
+    public Result<ChatDTO.SessionVO> getSessionById(
+            @PathVariable Long sessionId,
+            HttpServletRequest httpRequest) {
+        return Result.success(chatService.getSessionById(sessionId, getUserId(httpRequest)));
+    }
+
     @DeleteMapping("/session/{sessionId}")
     @Operation(summary = "删除会话", description = "删除会话，同时删除该会话下的所有消息")
     public Result<Void> deleteSession(

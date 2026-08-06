@@ -15,6 +15,39 @@
           </view>
 
           <view
+            id="publish-field-tradetype"
+            class="section tradetype-section"
+            :class="{ 'section--error': fieldErrors.tradeType, 'shake-once': shakeField === 'tradeType' }"
+          >
+            <view class="section-head">
+              <view class="section-title-wrap">
+                <text class="section-title" :class="{ 'is-error-text': fieldErrors.tradeType }">出物 / 收物</text>
+              </view>
+            </view>
+            <view class="tradetype-row">
+              <view
+                class="tradetype-card"
+                :class="{ active: publishForm.tradeType === 'sell' }"
+                @click="publishForm.tradeType = 'sell'"
+              >
+                <view class="tradetype-icon tradetype-icon--sell"></view>
+                <text class="tradetype-label">出物</text>
+                <text class="tradetype-desc">我要出售闲置</text>
+              </view>
+              <view
+                class="tradetype-card"
+                :class="{ active: publishForm.tradeType === 'buy' }"
+                @click="publishForm.tradeType = 'buy'"
+              >
+                <view class="tradetype-icon tradetype-icon--buy"></view>
+                <text class="tradetype-label">收物</text>
+                <text class="tradetype-desc">我要求购物品</text>
+              </view>
+            </view>
+            <text v-if="fieldErrors.tradeType" class="field-error-text">请选择出物或收物</text>
+          </view>
+
+          <view
             id="publish-field-images"
             class="section photo-section"
             :class="{ 'section--error': fieldErrors.images, 'shake-once': shakeField === 'images' }"
@@ -74,8 +107,7 @@
               :class="{ 'field-line--error': fieldErrors.name, 'shake-once': shakeField === 'name' }"
             >
               <text class="field-label" :class="{ 'is-error-text': fieldErrors.name }">商品名称</text>
-              <input class="field-input" v-model="publishForm.name" placeholder="请输入商品名称（建议20字以内）" maxlength="20" @input="clearFieldError('name')" />
-              <text class="field-count">{{ titleCount }}/20</text>
+              <input class="field-input" v-model="publishForm.name" placeholder="请输入商品名称" @input="clearFieldError('name')" />
             </view>
             <text v-if="fieldErrors.name" class="field-error-text field-error-text--line">{{ fieldErrors.name }}</text>
             <view
@@ -93,30 +125,6 @@
               />
             </view>
             <text v-if="fieldErrors.price" class="field-error-text field-error-text--line">{{ fieldErrors.price }}</text>
-          </view>
-
-          <view class="section">
-            <view class="section-head">
-              <view class="section-title-wrap">
-                <text class="section-title">商品状态</text>
-                <view class="help-icon">?</view>
-              </view>
-            </view>
-            <view class="condition-grid">
-              <view
-                v-for="c in conditionOptions"
-                :key="c.value"
-                class="option-card condition-card"
-                :class="{ active: publishForm.condition === c.value }"
-                @click="publishForm.condition = c.value"
-              >
-                <view class="condition-icon" :class="'condition-icon--' + c.icon"></view>
-                <view class="condition-copy">
-                  <text class="option-card-title condition-name">{{ c.label }}</text>
-                  <text class="option-card-desc condition-desc">{{ c.desc }}</text>
-                </view>
-              </view>
-            </view>
           </view>
 
           <view
@@ -143,18 +151,6 @@
             <text v-if="fieldErrors.category" class="field-error-text">{{ fieldErrors.category }}</text>
           </view>
 
-          <view class="assurance-card">
-            <view class="assurance-icon"><view class="assurance-check"></view></view>
-            <view class="assurance-copy">
-              <text class="assurance-title">平台保障信息沟通安全</text>
-              <text class="assurance-desc">不参与线下交易</text>
-            </view>
-            <view class="assurance-art">
-              <view class="assurance-bag"></view>
-              <view class="assurance-dot"></view>
-            </view>
-          </view>
-
           <view
             id="publish-field-desc"
             class="section desc-section"
@@ -165,38 +161,33 @@
                 <view class="title-icon title-icon-edit"></view>
                 <text class="section-title" :class="{ 'is-error-text': fieldErrors.desc }">详细描述</text>
               </view>
-              <text class="section-hint">{{ descCount }}/500</text>
             </view>
             <textarea
               class="desc-input"
               :class="{ 'desc-input--error': fieldErrors.desc }"
               v-model="publishForm.desc"
-              maxlength="500"
               placeholder="补充使用时长、瑕疵情况、配件信息、购买时间、交易备注等，让买家更全面了解商品～"
               @input="clearFieldError('desc')"
             />
-            <view class="desc-tags">
-              <view v-for="tag in descTags" :key="tag" class="desc-tag" @click="insertDescTag(tag)">{{ tag }}</view>
-            </view>
             <text v-if="fieldErrors.desc" class="field-error-text">{{ fieldErrors.desc }}</text>
           </view>
 
-          <view class="section">
+          <view
+            id="publish-field-location"
+            class="section"
+            :class="{ 'section--error': fieldErrors.pickupPoint, 'shake-once': shakeField === 'pickupPoint' }"
+          >
             <view class="section-head">
               <view class="section-title-wrap">
                 <view class="title-icon title-icon-location"></view>
-                <text class="section-title">取货地点</text>
+                <text class="section-title" :class="{ 'is-error-text': fieldErrors.pickupPoint }">取货地点</text>
               </view>
             </view>
             <view class="location-line">
-              <input class="location-input" v-model="publishForm.pickupPoint" placeholder="请填写校内取货地点" maxlength="50" />
+              <input class="location-input" v-model="publishForm.pickupPoint" placeholder="请填写校内取货地点" maxlength="50" @input="clearFieldError('pickupPoint')" />
               <view class="line-arrow"></view>
             </view>
-            <view class="location-chips">
-              <view v-for="point in pickupSuggestions" :key="point" class="location-chip" @click="selectPickupPoint(point)">
-                {{ point }}
-              </view>
-            </view>
+            <text v-if="fieldErrors.pickupPoint" class="field-error-text">{{ fieldErrors.pickupPoint }}</text>
           </view>
 
           <view class="section contact-section">
@@ -218,21 +209,12 @@
             </view>
           </view>
 
-          <view class="publish-note">
-            <view class="note-bulb"></view>
-            <view class="note-copy">
-              <text class="note-title">小贴士</text>
-              <text class="note-text">完善信息、上传清晰的商品图，能大大提高成交率哦！</text>
-            </view>
-            <view class="note-curl"></view>
-          </view>
-
           <view class="bottom-spacer"></view>
         </scroll-view>
 
         <view class="publish-submit-area">
           <button class="pbtn" :disabled="submitting" @click="publish">
-            <text>发布闲置</text>
+            <text>{{ itemId ? '保存修改' : '发布闲置' }}</text>
           </button>
         </view>
 
@@ -252,7 +234,7 @@
               >
                 <view class="sheet-category-main">
                   <text class="sheet-category-title">{{ cat.name }}</text>
-                  <text class="sheet-category-desc">{{ cat.children && cat.children.length ? '继续选择细分类' : '无二级分类' }}</text>
+                  <text v-if="cat.children && cat.children.length" class="sheet-category-desc">继续选择细分类</text>
                 </view>
                 <view class="sheet-category-check"></view>
               </view>
@@ -280,7 +262,7 @@
 
 <script>
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
-import { createSecondhandItem } from '@/api/secondhand'
+import { createSecondhandItem, updateSecondhandItem, getSecondhandItemDetail } from '@/api/secondhand'
 import { getUploadErrorMessage, uploadImages } from '@/utils/upload'
 import { MARKET_CATEGORIES } from '@/subpackage_lostfound/utils/marketCategories.js'
 
@@ -294,13 +276,13 @@ const BACKEND_CATEGORY_ID_MAP = {
 
 function createDefaultForm() {
   return {
+    tradeType: '',
     name: '',
     price: '',
     desc: '',
     cat: '',
     images: [],
-    pickupPoint: '',
-    condition: 2
+    pickupPoint: ''
   }
 }
 
@@ -308,26 +290,19 @@ export default {
   name: 'MarketPublishOverlay',
   components: { CommonPageHeader },
   props: {
-    visible: { type: Boolean, default: false }
+    visible: { type: Boolean, default: false },
+    itemId: { type: [String, Number], default: null }
   },
   data() {
     return {
       categories: MARKET_CATEGORIES,
       selectedCategoryLevel1Id: '',
-      conditionOptions: [
-        { value: 1, label: '全新', desc: '未使用', icon: 'new' },
-        { value: 2, label: '很新', desc: '使用很少', icon: 'fresh' },
-        { value: 3, label: '正常使用', desc: '轻微使用痕迹', icon: 'normal' },
-        { value: 4, label: '明显使用', desc: '有较多使用痕迹', icon: 'used' },
-        { value: 5, label: '配件/零件', desc: '适合自取研究', icon: 'parts' }
-      ],
-      descTags: ['使用时长', '瑕疵情况', '配件信息', '购买时间', '议价空间'],
-      pickupSuggestions: ['三食堂门口', '宿舍楼下', '图书馆东门', '校门口', '其他'],
       categorySheetVisible: false,
       submitting: false,
       publishToastText: '',
       publishForm: createDefaultForm(),
       fieldErrors: {
+        tradeType: '',
         images: '',
         name: '',
         price: '',
@@ -348,16 +323,13 @@ export default {
       if (!current) return ''
       const child = this.currentCategoryChildren.find((item) => item.id === this.publishForm.cat)
       return child ? `${current.name} / ${child.name}` : current.name
-    },
-    titleCount() {
-      return Math.min(String(this.publishForm.name || '').length, 20)
-    },
-    descCount() {
-      return String(this.publishForm.desc || '').length
     }
   },
   mounted() {
     this.ensureCategorySelection()
+    if (this.itemId) {
+      this.loadItemForEdit()
+    }
   },
   methods: {
     requestClose() {
@@ -402,16 +374,6 @@ export default {
       this.clearFieldError('category')
       this.categorySheetVisible = false
     },
-    selectPickupPoint(point) {
-      this.publishForm.pickupPoint = point === '其他' ? '' : point
-    },
-    insertDescTag(tag) {
-      const current = String(this.publishForm.desc || '')
-      if (current.includes(tag)) return
-      const connector = current && !current.endsWith('\n') ? '\n' : ''
-      this.publishForm.desc = `${current}${connector}${tag}: `
-      this.clearFieldError('desc')
-    },
     choosePublishImage() {
       uni.chooseImage({
         count: 9 - this.publishForm.images.length,
@@ -438,8 +400,47 @@ export default {
         current: src
       })
     },
+    async loadItemForEdit() {
+      try {
+        uni.showLoading({ title: '加载中...' })
+        const data = await getSecondhandItemDetail(this.itemId)
+        const item = data?.data || data
+        if (!item) return
+        this.publishForm.tradeType = item.tradeType || item.trade_type || 'sell'
+        this.publishForm.name = item.title || ''
+        this.publishForm.desc = item.description || ''
+        this.publishForm.price = item.price != null ? String(item.price) : ''
+        this.publishForm.images = Array.isArray(item.images) ? item.images : []
+        this.publishForm.pickupPoint = item.location || item.pickupPoint || ''
+        const catId = item.categoryId || item.category_id
+        if (catId) {
+          const level1 = this.findCategoryLevel1(catId)
+          if (level1) {
+            this.selectedCategoryLevel1Id = level1.id
+            const level2 = level1.children?.find((c) => Number(c.id) === Number(catId))
+            this.publishForm.cat = level2 ? level2.id : catId
+          }
+        }
+      } catch (e) {
+        console.error('加载商品数据失败', e)
+        uni.showToast({ title: '加载失败', icon: 'none' })
+      } finally {
+        uni.hideLoading()
+      }
+    },
+    findCategoryLevel1(categoryId) {
+      const id = Number(categoryId)
+      for (const cat of this.categories) {
+        if (Number(cat.id) === id) return cat
+        if (cat.children?.some((c) => Number(c.id) === id)) return cat
+      }
+      return null
+    },
     notifyPublishSuccess() {
       uni.$emit('secondhand:item:published')
+      if (this.itemId) {
+        uni.$emit('secondhand:item:updated')
+      }
       const pages = getCurrentPages()
       const currentPage = pages[pages.length - 1]
       if (
@@ -473,11 +474,13 @@ export default {
     },
     focusInvalidField(field) {
       const targetMap = {
+        tradeType: 'publish-field-tradetype',
         images: 'publish-field-images',
         name: 'publish-field-name',
         price: 'publish-field-price',
         desc: 'publish-field-desc',
-        category: 'publish-field-category'
+        category: 'publish-field-category',
+        pickupPoint: 'publish-field-location'
       }
       this.scrollTarget = ''
       this.shakeField = ''
@@ -490,19 +493,23 @@ export default {
       })
     },
     validatePublishForm() {
-      console.log('validate start', this.publishForm.name)
       this.resetFieldErrors()
       const title = String(this.publishForm.name || '').trim()
       const rawDescription = String(this.publishForm.desc || '').trim()
       const priceText = String(this.publishForm.price ?? '').trim()
       const price = Number(priceText)
       const errors = []
+
+      if (!this.publishForm.tradeType) {
+        errors.push({ field: 'tradeType', message: '请选择出物或收物' })
+      }
+
       const images = Array.isArray(this.publishForm.images) ? this.publishForm.images.filter(Boolean) : []
       if (!images.length) {
         errors.push({ field: 'images', message: '请上传至少一张图片' })
       }
-      if (title.length < 4) {
-        errors.push({ field: 'name', message: '商品名称至少4个字' })
+      if (!title) {
+        errors.push({ field: 'name', message: '请输入商品名称' })
       } else if (title.length > 50) {
         errors.push({ field: 'name', message: '商品名称最多50字' })
       }
@@ -515,8 +522,8 @@ export default {
       } else if (price > 99999) {
         errors.push({ field: 'price', message: '价格不能超过99999元' })
       }
-      if (rawDescription.length < 10) {
-        errors.push({ field: 'desc', message: '商品描述至少10个字' })
+      if (!rawDescription) {
+        errors.push({ field: 'desc', message: '请输入商品描述' })
       }
       const selectedLevel1 = this.categories.find((item) => item.id === this.selectedCategoryLevel1Id)
       if (!this.selectedCategoryLevel1Id || !selectedLevel1) {
@@ -538,8 +545,9 @@ export default {
         errors.push({ field: 'category', message: '请选择商品分类' })
       }
 
-      if (!this.publishForm.condition) {
-        return this.showValidationToast('请选择商品成色')
+      const pickup = String(this.publishForm.pickupPoint || '').trim()
+      if (!pickup) {
+        errors.push({ field: 'pickupPoint', message: '请填写校内取货地点' })
       }
 
       errors.forEach((error) => {
@@ -552,34 +560,44 @@ export default {
         return null
       }
       return {
+        tradeType: this.publishForm.tradeType,
         categoryId,
         title,
         description: rawDescription,
         images,
         price,
-        condition: this.publishForm.condition,
-        location: String(this.publishForm.pickupPoint || '').trim() || '校内自提'
+        location: pickup
       }
     },
     async publish() {
-      console.log('publish called')
       if (this.submitting) return
       const payload = this.validatePublishForm()
       if (!payload) return
 
       this.submitting = true
+      const isEdit = !!this.itemId
       try {
-        uni.showLoading({ title: '发布中...' })
-        console.log('submit payload', payload)
-        await createSecondhandItem(payload)
+        uni.showLoading({ title: isEdit ? '保存中...' : '发布中...' })
+        if (isEdit) {
+          await updateSecondhandItem(this.itemId, payload)
+        } else {
+          await createSecondhandItem(payload)
+        }
         this.notifyPublishSuccess()
-        uni.showToast({ title: '发布成功', icon: 'success' })
+        uni.showToast({ title: isEdit ? '保存成功' : '发布成功', icon: 'success' })
         this.resetForm()
         setTimeout(() => {
           this.$emit('close')
         }, 300)
       } catch (error) {
         console.error('发布失败', error)
+        let msg = ''
+        if (error && error.data && typeof error.data === 'object') {
+          msg = error.data.msg || error.data.message || ''
+        }
+        if (!msg) msg = error?.errMsg || error?.message || ''
+        if (msg === 'request:ok' || !msg) msg = `服务器错误 (${error?.statusCode || '未知'})，请检查网络后重试`
+        uni.showToast({ title: msg, icon: 'none' })
       } finally {
         this.submitting = false
         uni.hideLoading()
@@ -677,8 +695,6 @@ export default {
 
 .publish-guide,
 .section,
-.assurance-card,
-.publish-note,
 .publish-submit-area {
   width: 100%;
   margin-bottom: 18rpx;
@@ -1551,120 +1567,6 @@ export default {
   box-sizing: border-box;
 }
 
-.assurance-card {
-  position: relative;
-  display: flex;
-  align-items: center;
-  min-height: 100rpx;
-  padding: 18rpx 34rpx;
-  overflow: hidden;
-}
-
-.assurance-icon {
-  position: relative;
-  width: 38rpx;
-  height: 44rpx;
-  margin-right: 22rpx;
-  color: #55B56C;
-  flex-shrink: 0;
-}
-
-.assurance-icon::before {
-  content: '';
-  position: absolute;
-  top: 3rpx;
-  right: 4rpx;
-  bottom: 3rpx;
-  left: 4rpx;
-  background: currentColor;
-  border-radius: 17rpx 17rpx 19rpx 19rpx;
-}
-
-.assurance-check {
-  position: absolute;
-  left: 13rpx;
-  top: 16rpx;
-  width: 14rpx;
-  height: 8rpx;
-  border-left: 4rpx solid #FFFFFF;
-  border-bottom: 4rpx solid #FFFFFF;
-  transform: rotate(-45deg);
-  z-index: 2;
-}
-
-.assurance-copy {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6rpx;
-}
-
-.assurance-title {
-  color: #4B79DD;
-  font-size: 24rpx;
-  font-weight: 900;
-  line-height: 1.2;
-}
-
-.assurance-desc {
-  color: #667085;
-  font-size: 22rpx;
-  font-weight: 700;
-}
-
-.assurance-art {
-  position: relative;
-  width: 110rpx;
-  height: 70rpx;
-  flex-shrink: 0;
-}
-
-.assurance-bag {
-  position: absolute;
-  right: 18rpx;
-  bottom: 6rpx;
-  width: 48rpx;
-  height: 46rpx;
-  border-radius: 12rpx;
-  background: #DDE9FF;
-}
-
-.assurance-bag::before {
-  content: '';
-  position: absolute;
-  left: 13rpx;
-  top: -10rpx;
-  width: 22rpx;
-  height: 16rpx;
-  border: 5rpx solid #6D91F1;
-  border-bottom: 0;
-  border-radius: 12rpx 12rpx 0 0;
-  box-sizing: border-box;
-}
-
-.assurance-dot {
-  position: absolute;
-  right: 2rpx;
-  bottom: 3rpx;
-  width: 30rpx;
-  height: 30rpx;
-  border-radius: 50%;
-  background: #55B56C;
-}
-
-.assurance-dot::after {
-  content: '';
-  position: absolute;
-  left: 8rpx;
-  top: 9rpx;
-  width: 13rpx;
-  height: 7rpx;
-  border-left: 4rpx solid #FFFFFF;
-  border-bottom: 4rpx solid #FFFFFF;
-  transform: rotate(-45deg);
-}
-
 .desc-section {
   padding-bottom: 22rpx;
 }
@@ -1862,83 +1764,6 @@ export default {
   height: 22rpx;
   border: 3rpx solid currentColor;
   border-radius: 5rpx;
-}
-
-.publish-note {
-  position: relative;
-  display: flex;
-  align-items: center;
-  min-height: 104rpx;
-  padding: 18rpx 26rpx;
-  border: 1rpx solid #F0D49E;
-  background: #FFFCF6;
-  box-shadow: none;
-  overflow: hidden;
-}
-
-.note-bulb {
-  position: relative;
-  width: 38rpx;
-  height: 38rpx;
-  margin-right: 18rpx;
-  color: #F0B65B;
-  flex-shrink: 0;
-}
-
-.note-bulb::before {
-  content: '';
-  position: absolute;
-  left: 8rpx;
-  top: 3rpx;
-  width: 22rpx;
-  height: 24rpx;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.note-bulb::after {
-  content: '';
-  position: absolute;
-  left: 13rpx;
-  bottom: 3rpx;
-  width: 12rpx;
-  height: 8rpx;
-  border-radius: 3rpx;
-  background: currentColor;
-}
-
-.note-copy {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8rpx;
-}
-
-.note-title {
-  color: #E19B35;
-  font-size: 26rpx;
-  font-weight: 900;
-}
-
-.note-text {
-  color: #9C6820;
-  font-size: 23rpx;
-  font-weight: 800;
-  line-height: 1.4;
-}
-
-.note-curl {
-  position: absolute;
-  right: 24rpx;
-  bottom: 16rpx;
-  width: 54rpx;
-  height: 36rpx;
-  border: 4rpx solid rgba(240, 182, 91, 0.34);
-  border-left: 0;
-  border-bottom: 0;
-  border-radius: 50%;
-  transform: rotate(-15deg);
 }
 
 .publish-submit-area {
@@ -2152,6 +1977,111 @@ export default {
   75% {
     transform: translateX(-4rpx);
   }
+}
+
+.tradetype-section {
+  padding-bottom: 24rpx;
+}
+
+.tradetype-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16rpx;
+}
+
+.tradetype-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
+  padding: 28rpx 16rpx;
+  border-radius: 18rpx;
+  border: 2rpx solid #E5EAF0;
+  background: #F6F8FB;
+  box-sizing: border-box;
+  transition: all 160ms ease;
+}
+
+.tradetype-card.active {
+  border-color: #5A83F0;
+  background: #F5F8FF;
+  box-shadow: 0 4rpx 14rpx rgba(90, 131, 240, 0.16);
+}
+
+.tradetype-icon {
+  position: relative;
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 12rpx;
+  background: #E8EDF4;
+  color: #667085;
+}
+
+.tradetype-card.active .tradetype-icon {
+  background: #E4EDFF;
+  color: #4F7DE8;
+}
+
+.tradetype-icon--sell::before {
+  content: '';
+  position: absolute;
+  left: 10rpx;
+  top: 10rpx;
+  width: 24rpx;
+  height: 24rpx;
+  border: 4rpx solid currentColor;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.tradetype-icon--sell::after {
+  content: '';
+  position: absolute;
+  left: 17rpx;
+  top: 17rpx;
+  width: 10rpx;
+  height: 4rpx;
+  background: currentColor;
+  border-radius: 999rpx;
+}
+
+.tradetype-icon--buy::before {
+  content: '';
+  position: absolute;
+  left: 11rpx;
+  top: 11rpx;
+  width: 22rpx;
+  height: 22rpx;
+  border: 4rpx solid currentColor;
+  border-radius: 6rpx;
+  box-sizing: border-box;
+}
+
+.tradetype-icon--buy::after {
+  content: '';
+  position: absolute;
+  left: 19rpx;
+  top: 19rpx;
+  width: 6rpx;
+  height: 6rpx;
+  background: currentColor;
+  border-radius: 50%;
+}
+
+.tradetype-label {
+  font-size: 30rpx;
+  font-weight: 900;
+  color: #0F172A;
+}
+
+.tradetype-card.active .tradetype-label {
+  color: #4F7DE8;
+}
+
+.tradetype-desc {
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #667085;
 }
 
 .bottom-spacer {

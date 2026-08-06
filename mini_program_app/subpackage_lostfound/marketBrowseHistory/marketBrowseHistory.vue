@@ -33,27 +33,37 @@
           <view class="empty-subtitle">切换时间范围看看其他浏览记录</view>
         </view>
 
-        <view v-else class="history-list">
+        <view v-else class="history-content">
           <view v-for="section in groupedItems" :key="section.key" class="date-section">
             <view class="section-label">{{ section.label }}</view>
-            <view class="history-group">
+            <view class="history-grid">
               <view
-                v-for="(item, index) in section.items"
+                v-for="item in section.items"
                 :key="item.id"
-                class="history-row"
-                :class="{ 'history-row--last': index === section.items.length - 1 }"
+                class="history-card"
                 @click="openDetail(item.id)"
               >
-                <image class="cover" :src="item.image || '/static/images/default-goods.svg'" mode="aspectFill" />
-                <view class="main">
-                  <view class="title">{{ item.title || '校园市集商品' }}</view>
-                  <view class="meta">{{ item.campusName || item.tradeLocation || '校园市集' }}</view>
-                  <view class="time">{{ formatTime(item.viewTime) }}</view>
+                <view class="card-cover">
+                  <image v-if="item.image" class="cover-img" :src="item.image" mode="aspectFill" />
+                  <view v-else class="cover-placeholder">
+                    <text class="cover-emoji">{{ itemEmoji(item.id) }}</text>
+                  </view>
+                  <view class="card-badge-type" :class="'card-badge-type--' + (item.tradeType || 'sell')">
+                    {{ item.tradeType === 'buy' ? '收' : '出' }}
+                  </view>
                 </view>
-                <view class="more-dot">
-                  <text></text>
-                  <text></text>
-                  <text></text>
+                <view class="card-body">
+                  <view class="card-title">{{ item.title || '校园市集商品' }}</view>
+                  <view class="card-price">¥{{ formatPrice(item.price) }}</view>
+                  <view class="card-location-row" v-if="item.campusName || item.tradeLocation">
+                    <view class="loc-icon"></view>
+                    <text class="card-location">{{ item.campusName || item.tradeLocation }}</text>
+                  </view>
+                  <view class="card-user">
+                    <view class="user-avatar">{{ (item.userName || '同').slice(0, 1) }}</view>
+                    <text class="user-name">{{ item.userName || '同学' }}</text>
+                    <text class="card-time">{{ formatTime(item.viewTime) }}</text>
+                  </view>
                 </view>
               </view>
             </view>
@@ -67,8 +77,10 @@
 
 <script>
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
+
 const HISTORY_KEY = 'market_browse_history'
 const DAY = 24 * 60 * 60 * 1000
+const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
 const FILTERS = [
   { key: 'all', label: '全部' },
   { key: '3days', label: '3天内' },
@@ -126,6 +138,14 @@ export default {
     this.loadHistory()
   },
   methods: {
+    itemEmoji(id) {
+      return EMOJIS[(id || 0) % EMOJIS.length]
+    },
+    formatPrice(price) {
+      const p = Number(price)
+      if (!Number.isFinite(p) || p <= 0) return '免费'
+      return p.toFixed(p % 1 === 0 ? 0 : 2)
+    },
     loadHistory() {
       try {
         const list = uni.getStorageSync(HISTORY_KEY)
@@ -200,6 +220,7 @@ export default {
   max-width: 430px;
   min-height: 100vh;
   margin: 0 auto;
+  padding: 0 12rpx;
   box-sizing: border-box;
   background: #F7F8FA;
 }
@@ -250,7 +271,7 @@ export default {
 
 .page-body {
   height: calc(100vh - 88rpx);
-  padding: 24rpx 18rpx 72rpx;
+  padding: 24rpx 0 72rpx;
   box-sizing: border-box;
   background: #F7F8FA;
 }
@@ -260,7 +281,7 @@ export default {
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14rpx;
   padding: 18rpx;
-  margin-bottom: 26rpx;
+  margin: 0 12rpx 26rpx;
   border-radius: 24rpx;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 12rpx 30rpx rgba(73, 99, 132, 0.08);
@@ -290,111 +311,222 @@ export default {
   box-shadow: 0 10rpx 22rpx rgba(57, 125, 255, 0.24);
 }
 
-.history-list {
-  padding-bottom: 12rpx;
+.history-content {
+  padding: 0 12rpx;
 }
 
 .date-section {
-  margin-bottom: 28rpx;
+  margin-bottom: 24rpx;
 }
 
 .section-label {
-  margin: 0 0 14rpx 10rpx;
+  margin: 0 0 14rpx 4rpx;
   color: #667085;
   font-size: 25rpx;
   font-weight: 900;
 }
 
-.history-group {
-  overflow: hidden;
-  border-radius: 18rpx;
-  background: #FFFFFF;
-  box-shadow: 0 10rpx 24rpx rgba(73, 99, 132, 0.06);
+.history-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12rpx;
 }
 
-.history-row {
-  position: relative;
+.history-card {
   display: flex;
-  align-items: center;
-  gap: 20rpx;
-  min-height: 132rpx;
-  padding: 18rpx 24rpx;
+  flex-direction: column;
+  background: #FFFFFF;
+  border-radius: 16rpx;
+  overflow: hidden;
+  box-shadow: 0 4rpx 16rpx rgba(30, 41, 59, 0.06);
   box-sizing: border-box;
 }
 
-.history-row::after {
-  content: '';
+.card-cover {
+  position: relative;
+  width: 100%;
+  padding-top: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #EEF2F7;
+  overflow: hidden;
+}
+
+.cover-img {
   position: absolute;
-  right: 24rpx;
-  bottom: 0;
-  left: 140rpx;
-  height: 1rpx;
-  background: #E8EDF3;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
 }
 
-.history-row--last::after {
-  display: none;
+.cover-placeholder {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14rpx;
+  color: #8E8E93;
 }
 
-.cover {
-  width: 92rpx;
-  height: 92rpx;
-  border-radius: 12rpx;
-  background: #EDF3F8;
-  flex-shrink: 0;
+.cover-emoji {
+  font-size: 58rpx;
+  line-height: 1;
 }
 
-.main {
-  flex: 1;
-  min-width: 0;
+.card-badge-type {
+  position: absolute;
+  left: 14rpx;
+  top: 14rpx;
+  min-width: 40rpx;
+  height: 40rpx;
+  padding: 0 8rpx;
+  border-radius: 10rpx;
+  color: #FFFFFF;
+  font-size: 22rpx;
+  font-weight: 800;
+  line-height: 40rpx;
+  text-align: center;
+  box-shadow: 0 4rpx 10rpx rgba(0, 0, 0, 0.2);
 }
 
-.title {
-  color: #162033;
-  font-size: 28rpx;
-  font-weight: 900;
-  line-height: 1.2;
+.card-badge-type--sell {
+  background: #FF6B35;
+  box-shadow: 0 4rpx 10rpx rgba(255, 107, 53, 0.35);
+}
+
+.card-badge-type--buy {
+  background: #4A90E2;
+  box-shadow: 0 4rpx 10rpx rgba(74, 144, 226, 0.35);
+}
+
+.card-body {
+  padding: 14rpx 16rpx 18rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.card-title {
+  color: #1D2430;
+  font-size: 24rpx;
+  font-weight: 800;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.meta {
-  margin-top: 14rpx;
-  color: #6B7788;
-  font-size: 23rpx;
-  font-weight: 800;
+.card-price {
+  color: #FF4D2E;
+  font-size: 28rpx;
+  font-weight: 900;
   line-height: 1.2;
 }
 
-.time {
-  margin-top: 10rpx;
-  color: #8994A3;
-  font-size: 22rpx;
-  font-weight: 600;
-  line-height: 1.2;
-}
-
-.more-dot {
-  display: inline-flex;
+.card-location-row {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 5rpx;
-  width: 46rpx;
-  height: 46rpx;
-  color: #667085;
+  gap: 6rpx;
+  color: #8A94A6;
+  font-size: 20rpx;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loc-icon {
+  position: relative;
+  width: 18rpx;
+  height: 18rpx;
   flex-shrink: 0;
 }
 
-.more-dot text {
-  width: 5rpx;
-  height: 5rpx;
+.loc-icon::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12rpx;
+  height: 12rpx;
+  margin-left: -6rpx;
+  margin-top: -12rpx;
+  border: 2rpx solid #8A94A6;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  box-sizing: border-box;
+}
+
+.loc-icon::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4rpx;
+  height: 4rpx;
+  margin-left: -2rpx;
+  margin-top: -2rpx;
+  background: #8A94A6;
   border-radius: 50%;
-  background: currentColor;
+}
+
+.card-location {
+  font-size: 20rpx;
+  color: #8A94A6;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-user {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  padding-top: 10rpx;
+  border-top: 1rpx solid #F0F2F5;
+}
+
+.user-avatar {
+  width: 34rpx;
+  height: 34rpx;
+  border-radius: 50%;
+  background: rgba(92, 122, 153, 0.12);
+  color: #5C7A99;
+  font-size: 18rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.user-name {
+  font-size: 21rpx;
+  color: #666A70;
+  font-weight: 600;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-time {
+  font-size: 18rpx;
+  color: #9AA2AE;
+  font-weight: 500;
+  margin-left: auto;
 }
 
 .more-text {
-  padding: 8rpx 0 20rpx;
+  padding: 16rpx 0 20rpx;
   color: #8E99A8;
   font-size: 24rpx;
   font-weight: 700;

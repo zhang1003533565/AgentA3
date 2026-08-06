@@ -38,6 +38,15 @@ public class ArchitectureDTO {
 
         @Schema(description = "关系表达", example = "MODULE")
         private String relationType;
+
+        @Schema(description = "文档解析后的文本，可选；填写后 AI 优先基于此生成", example = "")
+        private String sourceText;
+
+        @Schema(description = "已上传文件ID，可选", example = "")
+        private String fileId;
+
+        @Schema(description = "已上传文件访问URL，可选", example = "")
+        private String sourceFile;
     }
 
     /**
@@ -100,5 +109,27 @@ public class ArchitectureDTO {
 
         @Schema(description = "创建时间")
         private String createTime;
+    }
+
+    /**
+     * 文档上传解析响应体，对应前端 POST /api/ai/architecture/upload 的 data 字段。
+     */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Schema(description = "架构图文档上传解析响应")
+    public static class UploadResponse {
+
+        @Schema(description = "文件ID")
+        private String fileId;
+
+        @Schema(description = "原始文件名")
+        private String fileName;
+
+        @Schema(description = "文件访问URL")
+        private String sourceFile;
+
+        @Schema(description = "解析得到的文本内容")
+        private String text;
     }
 }
