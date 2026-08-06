@@ -184,6 +184,28 @@ test('AIPPT uses real outline, slide, task, progress, preview and download APIs'
   assert.match(container, /for \(let index = 0; index < 2; index \+= 1\)[\s\S]*decodeURIComponent\(decoded\)/)
 })
 
+test('AIPPT upload preview expands on demand and keeps next action floating at the bottom', () => {
+  const page = source('resourceGenerate/AIPresentationFlow.vue')
+  assert.match(page, /previewExpanded\s*\?\s*content\s*:\s*content\.slice\(0,\s*420\)/)
+  assert.match(page, /显示全部/)
+  assert.match(page, /收起内容/)
+  assert.match(page, /single-action--floating/)
+  assert.match(page, /\[1,\s*2,\s*3,\s*4,\s*5,\s*7\]\.includes\(this\.currentStep\)/)
+  assert.match(page, /\.single-action--floating,\.bottom-actions\{position:fixed/)
+  assert.match(page, /position:fixed/)
+  assert.match(page, /safe-area-inset-bottom/)
+  assert.match(page, /AI 正在解析文本结构/)
+  assert.match(page, /正在校验并转换大纲格式/)
+  assert.match(page, /operation-feedback__track/)
+  assert.match(page, /operationFeedback\.progress < 88/)
+  assert.doesNotMatch(page, /ppt-flow--operation-busy/)
+  assert.match(page, /\.operation-feedback\{margin-top:20rpx;padding:22rpx/)
+  assert.match(page, /程序员的头发正在替你加班/)
+  assert.match(page, /请求仍在处理中，请不要关闭或刷新页面/)
+  assert.match(page, /feedbackTicks % 3 === 0/)
+  assert.match(page, /@keyframes banter-in/)
+})
+
 test('course resources never display review success when grounding still says model-only', async () => {
   const { learningResourceReviewStatus } = await sourceModule('learningView.js')
   assert.equal(learningResourceReviewStatus({

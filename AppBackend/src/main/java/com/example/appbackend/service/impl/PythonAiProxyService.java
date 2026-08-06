@@ -54,6 +54,7 @@ public class PythonAiProxyService {
     private final SystemConfigRepository systemConfigRepository;
     private final String pythonBaseUrl;
     private final long timeoutSeconds;
+    private final long pptTimeoutSeconds;
     private final int fileResponseMaxInMemoryBytes;
     private final String internalToken;
 
@@ -85,6 +86,7 @@ public class PythonAiProxyService {
                                 SystemConfigRepository systemConfigRepository,
                                 @Value("${ai.python.base-url:http://localhost:8081}") String pythonBaseUrl,
                                 @Value("${ai.python.timeout-seconds:65}") long timeoutSeconds,
+                                @Value("${ai.python.ppt-timeout-seconds:300}") long pptTimeoutSeconds,
                                 @Value("${ai.python.file-response-max-in-memory-bytes:52428800}") int fileResponseMaxInMemoryBytes,
                                 @Value("${ai.python.internal-token:}") String internalToken) {
         this.webClientBuilder = webClientBuilder;
@@ -94,6 +96,7 @@ public class PythonAiProxyService {
         this.systemConfigRepository = systemConfigRepository;
         this.pythonBaseUrl = pythonBaseUrl;
         this.timeoutSeconds = timeoutSeconds;
+        this.pptTimeoutSeconds = pptTimeoutSeconds;
         this.fileResponseMaxInMemoryBytes = fileResponseMaxInMemoryBytes;
         this.internalToken = internalToken == null ? "" : internalToken.trim();
     }
@@ -357,7 +360,7 @@ public class PythonAiProxyService {
                     .bodyValue(request == null ? Map.of() : request)
                     .retrieve()
                     .bodyToMono(Object.class)
-                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .timeout(Duration.ofSeconds(pptTimeoutSeconds))
                     .block();
         } catch (WebClientResponseException e) {
             int remoteStatus = e.getStatusCode().value();
@@ -527,6 +530,39 @@ public class PythonAiProxyService {
 
     public Object generateVideosBatch(Map<String, Object> request, String authorization) {
         return postVideoObject("/internal/videos/batch", request, authorization);
+    }
+
+    /**
+     * 调用 Python 架构图生成服务，返回 { title, style, nodes, edges } JSON。
+     * 复用 leader_agent 的模型配置（默认 LLM 配置）。
+     */
+    public Object generateArchitecture(Map<String, Object> request, String authorization) {
+        validateAuthorization(authorization);
+        String token = normalizeBearerToken(authorization);
+        Long userId = extractUserId(token);
+        String requestedModel = resolveAgentBoundModel(DEFAULT_AGENT_NAME);
+        try {
+            return webClientBuilder.build()
+                    .post()
+                    .uri(buildUri("/internal/architecture/generate"))
+                    .headers(headers -> {
+                        if (StringUtils.hasText(requestedModel)) {
+                            applyPythonHeaders(headers, authorization, userId, requestedModel);
+                        } else {
+                            applyPythonAuthHeaders(headers, authorization, userId);
+                        }
+                    })
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(request == null ? Map.of() : request)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 架构图生成服务调用失败: " + extractRemoteMessage(e));
+        } catch (Exception e) {
+            throw new BusinessException(Result.ERROR_CODE, "Python 架构图生成服务调用失败: " + e.getMessage());
+        }
     }
 
     public Object getVideoTask(String taskId, String authorization) {
