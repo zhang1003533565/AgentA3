@@ -4,18 +4,7 @@
     <nav-bar :title="navTitle" :subtitle="navSubtitle" :showBack="true" :border="false" />
 
     <!-- 画布 -->
-    <view
-      v-if="pageState !== 'error'"
-      class="canvas-area"
-      id="canvasArea"
-      @touchstart="onTouchStart"
-      @touchmove="onTouchMove"
-      @touchend="onTouchEnd"
-      @mousedown="onMouseDown"
-      @mousemove="onMouseMove"
-      @mouseup="onMouseUp"
-      @mouseleave="onMouseUp"
-    >
+    <view v-if="pageState !== 'error'" class="canvas-area" id="canvasArea">
       <view class="canvas-stage" :class="{ smooth: smooth }" :style="stageStyle">
         <svg class="lines-svg" :width="CW" :height="CH" :viewBox="`0 0 ${CW} ${CH}`">
           <path
@@ -103,7 +92,7 @@
 
 <script setup>
 import { ref, computed, reactive } from 'vue'
-import { onLoad, onUnload, onMounted } from '@dcloudio/uni-app'
+import { onLoad, onUnload } from '@dcloudio/uni-app'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { buildMindmapPayload, generateMindmap as requestGenerateMindmap, getMindmapDetail } from '@/api/aiDiagram.js'
 
@@ -165,52 +154,16 @@ function stepState(i) {
 
 // 视图适配
 let areaW = 375, areaH = 500
-const bounds = reactive({ w: 560, h: 640, cx: 280, cy: 320 })
 function measureArea() {
   uni.createSelectorQuery().select('#canvasArea').boundingClientRect(r => {
     if (r && r.width && r.height) { areaW = r.width; areaH = r.height }
   }).exec()
 }
-// 按节点实际边界计算，避免长标签节点溢出被裁切（线条乱/右侧截断的根因）
-function computeBounds() {
-  const L = computeLayout(realBranches.value)
-  const hw = { root: 84, branch: 64, child: 58 }, hh = { root: 26, branch: 20, child: 16 }
-  let minX = CX - hw.root, maxX = CX + hw.root, minY = CY - hh.root, maxY = CY + hh.root
-  L.branchPos.forEach(p => { minX = Math.min(minX, p.x - hw.branch); maxX = Math.max(maxX, p.x + hw.branch); minY = Math.min(minY, p.y - hh.branch); maxY = Math.max(maxY, p.y + hh.branch) })
-  L.childPos.forEach(p => { minX = Math.min(minX, p.x - hw.child); maxX = Math.max(maxX, p.x + hw.child); minY = Math.min(minY, p.y - hh.child); maxY = Math.max(maxY, p.y + hh.child) })
-  return { w: maxX - minX, h: maxY - minY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 }
-}
-function fitScale() { return Math.min(areaW / bounds.w, areaH / bounds.h, 1) }
+function fitScale() { return Math.min(areaW / CW, areaH / CH, 1) }
 function growthScale() { return Math.min(fitScale() * 1.05, 1) }
 function applyView(s, center) {
   scale.value = s
-  if (center) { offset.x = areaW / 2 - bounds.cx * s; offset.y = areaH / 2 - bounds.cy * s }
-}
-function clampScale(v) { return Math.max(0.3, Math.min(2, v)) }
-
-// ===== 生成途中可移动：单指/鼠标拖动 + 双指捏合 + 滚轮缩放 =====
-let drag = null, pinch = null
-function touchDist(ts) { const dx = ts[0].clientX - ts[1].clientX, dy = ts[0].clientY - ts[1].clientY; return Math.sqrt(dx * dx + dy * dy) }
-function recenter() { offset.x = areaW / 2 - bounds.cx * scale.value; offset.y = areaH / 2 - bounds.cy * scale.value }
-function onTouchStart(e) {
-  const ts = e.touches
-  if (ts.length === 1) drag = { x: ts[0].clientX, y: ts[0].clientY, ox: offset.x, oy: offset.y }
-  else if (ts.length === 2) { pinch = { d: touchDist(ts), s: scale.value }; drag = null }
-}
-function onTouchMove(e) {
-  const ts = e.touches
-  if (ts.length === 2 && pinch) { scale.value = clampScale(pinch.s * touchDist(ts) / pinch.d); recenter() }
-  else if (ts.length === 1 && drag) { offset.x = drag.ox + (ts[0].clientX - drag.x); offset.y = drag.oy + (ts[0].clientY - drag.y) }
-}
-function onTouchEnd(e) { if (e.touches.length === 0) { drag = null; pinch = null } }
-function onMouseDown(e) { drag = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y } }
-function onMouseMove(e) { if (drag) { offset.x = drag.ox + (e.clientX - drag.x); offset.y = drag.oy + (e.clientY - drag.y) } }
-function onMouseUp() { drag = null }
-function onWheel(e) {
-  if (!e.ctrlKey && !e.metaKey) return
-  e.preventDefault()
-  scale.value = clampScale(scale.value + (e.deltaY > 0 ? -0.1 : 0.1))
-  recenter()
+  if (center) { offset.x = areaW / 2 - CX * s; offset.y = areaH / 2 - CY * s }
 }
 
 // 布局
@@ -278,8 +231,6 @@ async function play() {
   progressPct.value = 28
   await waitForAIData(8000)
   limitBranches()
-  Object.assign(bounds, computeBounds())
-  applyView(growthScale(), true)
   await sleep(300); if (!alive()) return
 
   // 根节点
@@ -352,7 +303,6 @@ function skipAnimation() {
   if (runToken) runToken.cancelled = true
   clearTimers()
   limitBranches()
-  Object.assign(bounds, computeBounds())
   const layout = computeLayout(realBranches.value)
   revealedLines.value = []; revealedNodes.value = []
   revealedNodes.value.push({ key: 'root', kind: 'root', label: realRoot.value, color: null, x: CX, y: CY, fx: CX, fy: CY })
@@ -444,15 +394,7 @@ onLoad(options => {
   resultId.value = decodeURIComponent(options?.id || '')
   run()
 })
-// #ifdef H5
-onMounted(() => {
-  if (typeof document !== 'undefined') document.addEventListener('wheel', onWheel, { passive: false })
-})
-// #endif
-onUnload(() => {
-  clearTimers()
-  if (typeof document !== 'undefined') document.removeEventListener('wheel', onWheel)
-})
+onUnload(() => clearTimers())
 </script>
 
 <style lang="scss" scoped>
