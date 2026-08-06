@@ -241,24 +241,16 @@ function fitToView() {
 
 // 镜头跟随：让目标 level 的节点行对齐 canvas-area 垂直中心偏上 1/3 位
 // 只在换 level 时调用，避免同层节点生成时频繁抖动
+// 纯计算，不用 createSelectorQuery，避免节点未渲染时回调不触发导致 await 卡死
 function followCameraLevel(level) {
-  return new Promise(resolve => {
-    const nodeSel = `.fn[data-level="${level}"]`
-    uni.createSelectorQuery()
-      .select('.canvas-area').boundingClientRect()
-      .select(nodeSel).boundingClientRect()
-      .exec(res => {
-        const canvas = res && res[0]
-        const node = res && res[1]
-        if (!canvas || !node) { resolve(); return }
-        // 节点中心相对 canvas-area 顶部的偏移（已含 scale）
-        const nodeCenterY = (node.top - canvas.top) + node.height / 2
-        // 目标：节点中心对齐 canvas-area 垂直 1/3 位（偏上，露出下一行）
-        const targetCameraY = canvas.height / 3 - nodeCenterY
-        cameraY.value = targetCameraY
-        resolve()
-      })
-  })
+  // 找该 level 第一个节点的 cy（布局已知值）
+  const node = laidNodes.value.find(n => n.level === level)
+  if (!node) return
+  const viewH = Math.max(360, SCREEN_H - 400 * rpx2px)
+  // 渲染公式：nodeCenterY = viewH/2 - canvasH*scale/2 + cameraY + node.cy*scale
+  // 要让 nodeCenterY = viewH/3，反解 cameraY
+  const targetCameraY = -viewH / 6 + canvasH.value * scale.value / 2 - node.cy * scale.value
+  cameraY.value = targetCameraY
 }
 
 // ===== 动画流程 =====
