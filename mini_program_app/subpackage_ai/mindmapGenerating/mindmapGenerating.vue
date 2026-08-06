@@ -4,18 +4,9 @@
     <nav-bar :title="navTitle" :subtitle="navSubtitle" :showBack="true" :border="false" />
 
     <!-- 画布 -->
-    <view
-      v-if="pageState !== 'error'"
-      class="canvas-area"
-      id="canvasArea"
-      @touchstart="onTouchStart"
-      @touchmove="onTouchMove"
-      @touchend="onTouchEnd"
-      @mousedown="onMouseDown"
-      @mousemove="onMouseMove"
-      @mouseup="onMouseUp"
-      @mouseleave="onMouseUp"
-    >
+    <view v-if="pageState !== 'error'" class="canvas-area" id="canvasArea">
+      <movable-area class="mind-area" scale-area>
+        <movable-view class="mind-movable" direction="all" :scale="true" :scale-min="0.4" :scale-max="2.5">
       <view class="canvas-stage" :class="{ smooth: smooth }" :style="stageStyle">
         <svg class="lines-svg" :width="CW" :height="CH" :viewBox="`0 0 ${CW} ${CH}`">
           <path
@@ -55,6 +46,8 @@
           <text class="node-text" :class="'node-text--' + n.kind">{{ n.label }}</text>
         </view>
       </view>
+        </movable-view>
+      </movable-area>
       <view class="wait-ring" :class="{ hidden: !showRing }"><i></i><i></i><b></b></view>
       <view v-if="!isCompleted" class="skip-btn" @tap="skipAnimation">跳过动画 →</view>
     </view>
@@ -103,7 +96,7 @@
 
 <script setup>
 import { ref, computed, reactive } from 'vue'
-import { onLoad, onUnload, onMounted } from '@dcloudio/uni-app'
+import { onLoad, onUnload } from '@dcloudio/uni-app'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { buildMindmapPayload, generateMindmap as requestGenerateMindmap, getMindmapDetail } from '@/api/aiDiagram.js'
 
@@ -187,31 +180,6 @@ function applyView(s, center) {
   if (center) { offset.x = areaW / 2 - bounds.cx * s; offset.y = areaH / 2 - bounds.cy * s }
 }
 function clampScale(v) { return Math.max(0.3, Math.min(2, v)) }
-
-// ===== 生成途中可移动：单指/鼠标拖动 + 双指捏合 + 滚轮缩放 =====
-let drag = null, pinch = null
-function touchDist(ts) { const dx = ts[0].clientX - ts[1].clientX, dy = ts[0].clientY - ts[1].clientY; return Math.sqrt(dx * dx + dy * dy) }
-function recenter() { offset.x = areaW / 2 - bounds.cx * scale.value; offset.y = areaH / 2 - bounds.cy * scale.value }
-function onTouchStart(e) {
-  const ts = e.touches
-  if (ts.length === 1) drag = { x: ts[0].clientX, y: ts[0].clientY, ox: offset.x, oy: offset.y }
-  else if (ts.length === 2) { pinch = { d: touchDist(ts), s: scale.value }; drag = null }
-}
-function onTouchMove(e) {
-  const ts = e.touches
-  if (ts.length === 2 && pinch) { scale.value = clampScale(pinch.s * touchDist(ts) / pinch.d); recenter() }
-  else if (ts.length === 1 && drag) { offset.x = drag.ox + (ts[0].clientX - drag.x); offset.y = drag.oy + (ts[0].clientY - drag.y) }
-}
-function onTouchEnd(e) { if (e.touches.length === 0) { drag = null; pinch = null } }
-function onMouseDown(e) { drag = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y } }
-function onMouseMove(e) { if (drag) { offset.x = drag.ox + (e.clientX - drag.x); offset.y = drag.oy + (e.clientY - drag.y) } }
-function onMouseUp() { drag = null }
-function onWheel(e) {
-  if (!e.ctrlKey && !e.metaKey) return
-  e.preventDefault()
-  scale.value = clampScale(scale.value + (e.deltaY > 0 ? -0.1 : 0.1))
-  recenter()
-}
 
 // 布局
 function computeLayout(branches) {
@@ -444,20 +412,14 @@ onLoad(options => {
   resultId.value = decodeURIComponent(options?.id || '')
   run()
 })
-// #ifdef H5
-onMounted(() => {
-  if (typeof document !== 'undefined') document.addEventListener('wheel', onWheel, { passive: false })
-})
-// #endif
-onUnload(() => {
-  clearTimers()
-  if (typeof document !== 'undefined') document.removeEventListener('wheel', onWheel)
-})
+onUnload(() => clearTimers())
 </script>
 
 <style lang="scss" scoped>
 .page { height: 100vh; background: #F5F4FA; display: flex; flex-direction: column; overflow: hidden; }
 .canvas-area { flex: 1; position: relative; overflow: hidden; }
+.mind-area { position: absolute; inset: 0; }
+.mind-movable { width: 100%; height: 100%; }
 .canvas-stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .canvas-stage.smooth { transition: transform 0.65s cubic-bezier(0.22, 1, 0.36, 1); }
 .lines-svg { position: absolute; top: 0; left: 0; overflow: visible; z-index: 1; pointer-events: none; }
