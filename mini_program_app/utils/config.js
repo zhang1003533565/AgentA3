@@ -5,13 +5,11 @@ const trimTrailingSlash = value => String(value || '').replace(/\/+$/, '')
 
 export function getApiBaseUrl() {
   const injected = import.meta.env?.VITE_API_BASE_URL || ''
-  // 优先用注入地址；否则本地联调统一指向本机后端（localhost:8080 已验证可用）。
-  // 真机/线上部署时通过 VITE_API_BASE_URL 注入实际服务器地址。
   // #ifdef H5
   return trimTrailingSlash(injected || 'http://localhost:8080')
   // #endif
   // #ifndef H5
-  return trimTrailingSlash(injected || 'http://localhost:8080')
+  return trimTrailingSlash(injected || 'http://120.27.207.149')
   // #endif
 }
 
