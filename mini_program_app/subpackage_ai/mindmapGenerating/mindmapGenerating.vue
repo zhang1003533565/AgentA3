@@ -414,6 +414,21 @@ function extractAnimationData(result) {
   realBranches.value = branches.length ? branches : [{ name: '核心概念', children: [] }]
 }
 
+// 本地兜底：与架构图 mockGenerateArchitecture 同思路，请求失败时离线也能播
+function mockMindmap(payload) {
+  const topic = centerTopic.value || topicText.value || payload?.topic || 'AI主题'
+  return {
+    id: 'mock',
+    title: topic,
+    nodes: [
+      { name: '核心概念', children: [{ name: '定义' }, { name: '特点' }, { name: '应用' }] },
+      { name: '关键方法', children: [{ name: '步骤一' }, { name: '步骤二' }] },
+      { name: '常见问题', children: [{ name: '误区' }, { name: '对策' }] },
+      { name: '实践场景', children: [{ name: '案例' }, { name: '练习' }] }
+    ]
+  }
+}
+
 async function run() {
   pageState.value = 'loading'
   errorMessage.value = ''
@@ -423,24 +438,22 @@ async function run() {
   try {
     if (resultId.value) {
       let cached = uni.getStorageSync(`aiMindmapResult:${resultId.value}`)
-      if (!cached || !cached.nodes) {
-        try { cached = await withTimeout(getMindmapDetail(resultId.value), 15000) } catch (e) { cached = null }
-      }
-      if (!cached || !cached.nodes) cached = uni.getStorageSync('aiMindmapLastResult') || SAMPLE_MINDMAP
+      if (!cached || !cached.nodes) cached = uni.getStorageSync('aiMindmapLastResult')
+      if (!cached || !cached.nodes) cached = mockMindmap()
       state.resultData = cached
       handleAIData(cached)
       play()
       return
     }
     const payload = buildMindmapPayload({ topic: topicText.value || centerTopic.value, centerTopic: centerTopic.value })
-    let result = null
+    let result
     try {
-      result = await withTimeout(requestGenerateMindmap(payload), 20000)
+      result = await requestGenerateMindmap(payload)
       uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
       uni.setStorageSync('aiMindmapLastResult', result)
-    } catch (e) {
-      // 请求失败/超时：回退上次缓存或内置示例，保证动画可播、不弹超时
-      result = uni.getStorageSync('aiMindmapLastResult') || SAMPLE_MINDMAP
+    } catch (error) {
+      // 与架构图一致：请求失败回退本地 mock，照样播动画
+      result = mockMindmap(payload)
     }
     state.resultData = result
     handleAIData(result)
