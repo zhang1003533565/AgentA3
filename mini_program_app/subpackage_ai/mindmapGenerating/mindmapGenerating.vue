@@ -163,7 +163,7 @@ function measureArea() {
 // 按节点实际边界计算（半宽取宽松值），并返回 minX/minY 供坐标归一化，杜绝右侧裁切
 function computeBounds() {
   const L = computeLayout(realBranches.value)
-  const hw = { root: 120, branch: 110, child: 90 }, hh = { root: 26, branch: 20, child: 16 }
+  const hw = { root: 70, branch: 110, child: 90 }, hh = { root: 26, branch: 20, child: 16 }
   let minX = CX - hw.root, maxX = CX + hw.root, minY = CY - hh.root, maxY = CY + hh.root
   L.branchPos.forEach(p => { minX = Math.min(minX, p.x - hw.branch); maxX = Math.max(maxX, p.x + hw.branch); minY = Math.min(minY, p.y - hh.branch); maxY = Math.max(maxY, p.y + hh.branch) })
   L.childPos.forEach(p => { minX = Math.min(minX, p.x - hw.child); maxX = Math.max(maxX, p.x + hw.child); minY = Math.min(minY, p.y - hh.child); maxY = Math.max(maxY, p.y + hh.child) })
