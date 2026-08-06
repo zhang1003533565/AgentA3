@@ -139,7 +139,7 @@ const navTitle = computed(() => {
 const stageStyle = computed(() => ({
   width: CW + 'px',
   height: CH + 'px',
-  transform: `translate(${offset.x - bounds.minX * scale.value}px, ${offset.y - bounds.minY * scale.value}px) scale(${scale.value})`,
+  transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale.value})`,
   transformOrigin: '0 0'
 }))
 
@@ -173,11 +173,12 @@ function computeBounds() {
   L.childPos.forEach(p => { minX = Math.min(minX, p.x - hw.child); maxX = Math.max(maxX, p.x + hw.child); minY = Math.min(minY, p.y - hh.child); maxY = Math.max(maxY, p.y + hh.child) })
   return { w: maxX - minX, h: maxY - minY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, minX, minY }
 }
-function fitScale() { return Math.min(areaW / bounds.w, areaH / bounds.h, 1) }
+// 与 demo 一致：把固定 560x640 画布整体缩放并居中，保证左右节点完整
+function fitScale() { return Math.min(areaW / CW, areaH / CH, 1) }
 function growthScale() { return Math.min(fitScale() * 1.05, 1) }
 function applyView(s, center) {
   scale.value = s
-  if (center) { offset.x = (areaW - bounds.w * s) / 2; offset.y = (areaH - bounds.h * s) / 2 }
+  if (center) { offset.x = areaW / 2 - CX * s; offset.y = areaH / 2 - CY * s }
 }
 function clampScale(v) { return Math.max(0.3, Math.min(2, v)) }
 
