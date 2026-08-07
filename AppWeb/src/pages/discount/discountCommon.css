@@ -1,0 +1,139 @@
+/* ===== Discount Management — Shared Layout ===== */
+
+.discount-manage-page {
+  padding: 24px;
+  background: var(--surface-soft, #f8fafc);
+  min-height: 100vh;
+}
+
+/* Header */
+.discount-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.discount-header-left h2 {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+  margin: 0 0 4px 0;
+}
+
+.discount-header-left p {
+  font-size: 14px;
+  color: var(--text-muted, #475569);
+  margin: 0;
+}
+
+.discount-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Stats */
+.discount-stats {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.stat-item {
+  appearance: none;
+  font: inherit;
+  text-align: left;
+  background: var(--surface, #fff);
+  border-radius: 8px;
+  padding: 12px 28px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid var(--border-light, #e2e8f0);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 128px;
+  justify-content: center;
+}
+
+.stat-item:hover {
+  border-color: var(--brand, #0f766e);
+  box-shadow: 0 2px 8px rgba(15, 118, 110, 0.1);
+}
+
+.stat-item.active {
+  border-color: #1677ff;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(22, 119, 255, 0.08);
+}
+
+.stat-item.active .stat-label,
+.stat-item.active .stat-number {
+  color: #1677ff;
+}
+
+.stat-number {
+  font-size: 16px;
+  font-weight: 700;
+  color: inherit;
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: 16px;
+  color: inherit;
+}
+
+/* Table Card */
+.discount-table-card {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.discount-table-card .ant-table-thead > tr > th {
+  background: var(--surface-soft, #f8fafc) !important;
+  color: var(--text-muted, #475569);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-light, #e2e8f0);
+}
+
+.table-footer {
+  padding: 16px 24px;
+  color: var(--text-muted, #64748b);
+  font-size: 13px;
+  border-top: 1px solid var(--border-light, #e2e8f0);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .discount-manage-page {
+    padding: 16px;
+  }
+
+  .discount-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .discount-header-right {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .discount-stats {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .stat-item {
+    justify-content: space-between;
+  }
+}
