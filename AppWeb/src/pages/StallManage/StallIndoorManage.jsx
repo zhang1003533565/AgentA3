@@ -5,8 +5,9 @@ import {
   DeleteOutlined,
   EnvironmentOutlined,
   PushpinOutlined,
+  ShopOutlined,
 } from '@ant-design/icons'
-import { Button, Card, Empty, Popconfirm, Select, Spin, message } from 'antd'
+import { Button, Card, Empty, Image, Popconfirm, Select, Spin, message } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   deleteIndoorPosition,
@@ -185,8 +186,23 @@ export default function StallIndoorManage() {
               >
                 返回档口列表
               </Button>
-              <h2>{canteen?.name || '食堂'} · 楼层档口定位</h2>
-              <p>点击平面图即可为当前选中档口设置室内坐标。</p>
+              {canteen && (
+                <div className="canteen-info-bar">
+                  {(canteen.imageUrl || canteen.images?.[0]?.imageUrl) ? (
+                    <Image
+                      src={canteen.imageUrl || canteen.images?.[0]?.imageUrl}
+                      preview={false}
+                      className="canteen-info-avatar"
+                    />
+                  ) : (
+                    <div className="canteen-info-avatar placeholder"><ShopOutlined /></div>
+                  )}
+                  <div className="canteen-info-text">
+                    <h2>{canteen.name}</h2>
+                  </div>
+                </div>
+              )}
+              <p className="indoor-subtitle">点击平面图即可为当前选中档口设置室内坐标。</p>
             </div>
             <div className="stall-section-tools">
               <Select

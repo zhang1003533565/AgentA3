@@ -44,9 +44,9 @@ import {
   createMapPlace,
   deleteFloorPlan,
   deleteMapPlace,
+  getCanteenStructure,
   getFloorPlan,
   getMapPlaceDetail,
-  getMapPlaceList,
   saveFloorPlan,
   updateMapPlace,
 } from '../../api/mapPlace'
@@ -165,39 +165,34 @@ export default function StallManage() {
   )
 
   const loadCategories = useCallback(async () => {
-    const [floorResponse, cuisineResponse] = await Promise.all([
-      getMapPlaceList({ sceneType: 'CANTEEN', parentId: canteenId }),
+    const [structureResponse, cuisineResponse] = await Promise.all([
+      getCanteenStructure(canteenId),
       getDishCuisines(canteenId),
     ])
-    setFloors(getRows(floorResponse).filter((item) => item.placeType === 'FLOOR'))
+    setFloors(getRows(structureResponse).filter((item) => item.placeType === 'FLOOR'))
     setCuisines(getRows(cuisineResponse))
   }, [canteenId])
 
   const loadStalls = useCallback(async (preferredStallId = null) => {
     setLoading(true)
     try {
-      const mapResponse = await getMapPlaceDetail(canteenId)
+      const requests = [getMapPlaceDetail(canteenId), getCanteenStructure(canteenId)]
+      if (dishMode) requests.push(getDishCuisines(canteenId))
+      const [mapResponse, structureResponse, cuisineResponse] = await Promise.all(requests)
       const mapPlace = mapResponse.data || null
+
       setCanteen(mapPlace)
-      const floorResponse = await getMapPlaceList({ sceneType: 'CANTEEN', parentId: canteenId })
-      const floorRows = getRows(floorResponse).filter((item) => item.placeType === 'FLOOR')
+      const structureRows = getRows(structureResponse)
+      const floorRows = structureRows.filter((item) => item.placeType === 'FLOOR')
       setFloors(floorRows)
-      const childResponses = await Promise.all(
-        floorRows.map((floor) => getMapPlaceList({ sceneType: 'CANTEEN', parentId: floor.id })),
-      )
-      const directResponse = await getMapPlaceList({ sceneType: 'CANTEEN', parentId: canteenId })
-      const rows = [
-        ...getRows(directResponse),
-        ...childResponses.flatMap(getRows),
-      ].filter((item) => item.placeType === 'CANTEEN_STALL')
+      const rows = structureRows.filter((item) => item.placeType === 'CANTEEN_STALL')
         .map((item) => ({
           ...item,
           floorName: floorRows.find((floor) => String(floor.id) === String(item.parentId))?.name || '-',
           stallStatus: item.stallStatus ?? (item.status === 'ENABLED' ? 1 : 3),
         }))
         .sort((left, right) => (left.sortOrder || 0) - (right.sortOrder || 0))
-      const cuisineResponse = await getDishCuisines(canteenId)
-      setCuisines(getRows(cuisineResponse))
+      setCuisines(cuisineResponse ? getRows(cuisineResponse) : [])
       setStalls(rows)
       setSelectedStallId((current) => {
         if (!dishMode) return null
@@ -731,6 +726,24 @@ export default function StallManage() {
             </Space>
           </div>
         </div>
+
+        {canteen && (() => {
+          const coverUrl = canteen.imageUrl || canteen.images?.[0]?.imageUrl
+          return (
+            <div className="canteen-info-bar">
+              {coverUrl ? (
+                <Image src={coverUrl} preview={false} className="canteen-info-avatar" />
+              ) : (
+                <div className="canteen-info-avatar placeholder"><ShopOutlined /></div>
+              )}
+              <div className="canteen-info-text">
+                <h2>{canteen.name}</h2>
+                {canteen.description && <p>{canteen.description}</p>}
+              </div>
+            </div>
+          )
+        })()}
+
         <div className="stall-card-grid">
           {filteredStalls.map((record) => (
             <Card

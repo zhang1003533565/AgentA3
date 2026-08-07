@@ -17,6 +17,9 @@ export const getMapPlaceList = (params = {}) =>
 export const getMapPlaceDetail = (id) =>
   request({ url: `/api/v1/map-places/${id}`, method: 'get' })
 
+export const getCanteenStructure = (canteenId) =>
+  request({ url: `/api/v1/map-places/canteens/${canteenId}/structure`, method: 'get' })
+
 export const createMapPlace = (data) =>
   request({ url: '/api/v1/map-places', method: 'post', data })
 

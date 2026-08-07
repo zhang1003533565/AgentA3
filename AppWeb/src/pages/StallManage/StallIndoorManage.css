@@ -29,13 +29,48 @@
   padding: 0;
 }
 
-.stall-section-heading h2 {
-  margin: 0 0 4px;
-  color: #1f2937;
-  font-size: 17px;
+/* ---------- 食堂信息条 ---------- */
+
+.canteen-info-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin: 8px 0 6px;
+  padding: 6px 10px;
+  border: 1px solid #e7edf3;
+  border-radius: 16px;
+  background: #fafbfc;
 }
 
-.stall-section-heading p {
+.canteen-info-avatar,
+.canteen-info-avatar img {
+  flex-shrink: 0;
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.canteen-info-avatar.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: #eef3fa;
+  color: #9bb0c7;
+  font-size: 16px;
+}
+
+.canteen-info-text h2 {
+  margin: 0;
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.indoor-subtitle {
   margin: 0;
   color: #70809a;
   font-size: 14px;

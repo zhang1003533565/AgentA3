@@ -122,6 +122,18 @@ public class MapPlaceServiceImpl implements MapPlaceService {
 
     @Override
     @Transactional(readOnly = true)
+    public List<MapPlaceResponse> canteenStructure(Long canteenId) {
+        MapPlace canteen = requirePlace(canteenId);
+        if (!"CANTEEN".equals(canteen.getSceneType()) || !"CANTEEN".equals(canteen.getPlaceType())) {
+            throw new BusinessException(400, "指定点位不是食堂");
+        }
+        return placeRepository.findCanteenStructure(canteenId).stream()
+                .map(item -> toResponse(item, false))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public MapPlaceResponse detail(Long id) {
         return toResponse(requirePlace(id), true);
     }
