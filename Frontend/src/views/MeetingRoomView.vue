@@ -1,8 +1,8 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { getMeetingDetail } from '../api/meetings'
+import { endMeeting, getMeetingDetail } from '../api/meetings'
 import { getUserInfo } from '../utils/auth'
 
 const route = useRoute()
@@ -19,17 +19,34 @@ const showInvite = ref(false)
 const showSettings = ref(false)
 const copyTip = ref('')
 const now = ref(Date.now())
+const ending = ref(false)
+const comments = ref([])
+const commentDraft = ref('')
+const commentListRef = ref(null)
 
 let enteredAt = Date.now()
 let timer = null
+let pollTimer = null
 
 const session = computed(() => detail.value?.session || null)
+
+const isCreator = computed(() => {
+  const user = getUserInfo() || {}
+  const userId = user.userId ?? user.id
+  const creatorId = session.value?.creatorId
+  if (creatorId == null) return true
+  return userId != null && String(creatorId) === String(userId)
+})
+
+const canEndMeeting = computed(() => isCreator.value && session.value?.status === 'active')
 
 const elapsedLabel = computed(() => {
   const startSource = session.value?.startTime
   const startAt = startSource ? new Date(startSource).getTime() : enteredAt
   if (!startAt || Number.isNaN(startAt)) return '00:00'
-  return formatElapsed((now.value - startAt) / 1000)
+  const isEnded = session.value?.status === 'ended' && session.value?.endTime
+  const endAt = isEnded ? new Date(session.value.endTime).getTime() : now.value
+  return formatElapsed((endAt - startAt) / 1000)
 })
 
 const tiles = computed(() => {
@@ -82,6 +99,61 @@ function leaveRoom() {
   router.replace('/meetings')
 }
 
+/* ---------- 评论区 ---------- */
+const commentStorageKey = computed(() => `meeting-comments:${route.params.sessionId}`)
+
+function loadComments() {
+  try {
+    const raw = localStorage.getItem(commentStorageKey.value)
+    comments.value = raw ? JSON.parse(raw) : []
+  } catch {
+    comments.value = []
+  }
+}
+
+function saveComments() {
+  try {
+    localStorage.setItem(commentStorageKey.value, JSON.stringify(comments.value.slice(-200)))
+  } catch {
+    /* 忽略存储异常 */
+  }
+}
+
+function formatClock(date) {
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function sendComment() {
+  const text = commentDraft.value.trim()
+  if (!text) return
+  comments.value.push({
+    name: myName.value || '我',
+    text,
+    time: formatClock(new Date()),
+    isSelf: true,
+  })
+  commentDraft.value = ''
+  saveComments()
+  nextTick(() => {
+    if (commentListRef.value) commentListRef.value.scrollTop = commentListRef.value.scrollHeight
+  })
+}
+
+async function endRoom() {
+  if (!session.value) return
+  ending.value = true
+  error.value = ''
+  try {
+    const result = await endMeeting(session.value.sessionId)
+    if (result?.data) detail.value = result.data
+  } catch (cause) {
+    error.value = cause.message || '结束会议失败'
+  } finally {
+    ending.value = false
+  }
+}
+
 async function loadRoom() {
   loading.value = true
   error.value = ''
@@ -95,19 +167,32 @@ async function loadRoom() {
   }
 }
 
+async function refreshDetail() {
+  if (loading.value || ending.value) return
+  try {
+    const result = await getMeetingDetail(route.params.sessionId)
+    if (result?.data) detail.value = result.data
+  } catch {
+    /* 忽略轮询异常 */
+  }
+}
+
 onMounted(() => {
   const user = getUserInfo() || {}
   myName.value = route.query.name || user.realName || user.username || '我'
   myMicOn.value = route.query.mic !== '0'
   enteredAt = Date.now()
+  loadComments()
   timer = setInterval(() => {
     now.value = Date.now()
   }, 1000)
+  pollTimer = setInterval(refreshDetail, 8000)
   loadRoom()
 })
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
+  if (pollTimer) clearInterval(pollTimer)
 })
 </script>
 
@@ -126,8 +211,8 @@ onBeforeUnmount(() => {
         <div class="room-topbar__info">
           <h1>{{ session.title || '未命名会议' }}</h1>
           <span class="room-topbar__duration">
-            <i class="room-topbar__duration-dot" aria-hidden="true"></i>
-            已进行 {{ elapsedLabel }}
+            <i class="room-topbar__duration-dot" :class="{ 'room-topbar__duration-dot--ended': session.status === 'ended' }" aria-hidden="true"></i>
+            {{ session.status === 'ended' ? '已结束' : `已进行 ${elapsedLabel}` }}
           </span>
         </div>
         <div class="room-topbar__actions">
@@ -137,28 +222,73 @@ onBeforeUnmount(() => {
               <path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.2 5.2l1.7 1.7M17.1 17.1l1.7 1.7M5.2 18.8l1.7-1.7M17.1 6.9l1.7-1.7" />
             </svg>
           </button>
-          <button class="room-btn room-btn--leave" type="button" @click="leaveRoom">离开会议</button>
+          <button
+            v-if="canEndMeeting"
+            class="room-btn room-btn--leave"
+            type="button"
+            :disabled="ending"
+            @click="endRoom"
+          >
+            {{ ending ? '结束中…' : '结束会议' }}
+          </button>
+          <button v-else class="room-btn room-btn--leave" type="button" @click="leaveRoom">离开会议</button>
         </div>
       </header>
 
-      <!-- 参会人员网格 -->
-      <main class="room-grid">
-        <div v-for="tile in tiles" :key="tile.name" class="room-tile">
-          <span class="room-tile__avatar">{{ initialOf(tile.name) }}</span>
-          <span class="room-tile__name">
-            {{ tile.name }}
-            <em v-if="tile.isSelf">（我）</em>
-          </span>
-          <span class="room-tile__mic" :class="tile.micOn ? 'room-tile__mic--on' : 'room-tile__mic--off'">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3Z" />
-              <path d="M18.5 11a6.5 6.5 0 0 1-13 0M12 17.5V21" />
-              <path v-if="!tile.micOn" d="M4.5 4.5l15 15" />
-            </svg>
-            {{ tile.micOn ? '麦克风开启' : '麦克风关闭' }}
-          </span>
-        </div>
-      </main>
+      <!-- 会议已结束提示 -->
+      <div v-if="session.status === 'ended'" class="room-ended-tip">会议已结束，会议记录与 AI 纪要可在会议列表中查看。</div>
+      <div v-else-if="error" class="room-ended-tip room-ended-tip--error">{{ error }}</div>
+
+      <div class="room-body">
+        <!-- 参会人员网格 -->
+        <main class="room-grid">
+          <div v-for="tile in tiles" :key="tile.name" class="room-tile">
+            <span class="room-tile__avatar">{{ initialOf(tile.name) }}</span>
+            <span class="room-tile__name">
+              {{ tile.name }}
+              <em v-if="tile.isSelf">（我）</em>
+            </span>
+            <span class="room-tile__mic" :class="tile.micOn ? 'room-tile__mic--on' : 'room-tile__mic--off'">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3Z" />
+                <path d="M18.5 11a6.5 6.5 0 0 1-13 0M12 17.5V21" />
+                <path v-if="!tile.micOn" d="M4.5 4.5l15 15" />
+              </svg>
+              {{ tile.micOn ? '麦克风开启' : '麦克风关闭' }}
+            </span>
+          </div>
+        </main>
+
+        <!-- 评论区 -->
+        <aside class="room-comments">
+          <div class="room-comments__head">
+            <h2>评论区</h2>
+            <span>{{ comments.length }} 条</span>
+          </div>
+          <div ref="commentListRef" class="room-comments__list">
+            <p v-if="!comments.length" class="room-comments__empty">还没有评论，来抢个沙发吧</p>
+            <div
+              v-for="(comment, index) in comments"
+              :key="index"
+              class="room-comment"
+              :class="{ 'room-comment--self': comment.isSelf }"
+            >
+              <span class="room-comment__avatar">{{ initialOf(comment.name) }}</span>
+              <div class="room-comment__body">
+                <div class="room-comment__meta">
+                  <strong>{{ comment.name }}<em v-if="comment.isSelf">（我）</em></strong>
+                  <time>{{ comment.time }}</time>
+                </div>
+                <p class="room-comment__text">{{ comment.text }}</p>
+              </div>
+            </div>
+          </div>
+          <form class="room-comments__input" @submit.prevent="sendComment">
+            <input v-model="commentDraft" type="text" maxlength="300" placeholder="发表你的评论…" />
+            <button class="room-btn room-btn--primary" type="submit" :disabled="!commentDraft.trim()">发送</button>
+          </form>
+        </aside>
+      </div>
 
       <!-- 字幕条 -->
       <div v-if="subtitlesOn" class="room-subtitles">实时字幕已开启，正在识别会议发言…</div>
@@ -350,6 +480,28 @@ onBeforeUnmount(() => {
   animation: room-pulse 1.4s ease-in-out infinite;
 }
 
+.room-topbar__duration-dot--ended {
+  background: #94a3b8;
+  animation: none;
+}
+
+.room-ended-tip {
+  margin: 14px 22px 0;
+  padding: 10px 16px;
+  border: 1px solid #e5eaf0;
+  border-radius: 10px;
+  color: #64748b;
+  background: #ffffff;
+  font-size: 13px;
+  text-align: center;
+}
+
+.room-ended-tip--error {
+  border-color: #f3c8c8;
+  color: #a54239;
+  background: #fff6f5;
+}
+
 @keyframes room-pulse {
   0%,
   100% {
@@ -409,13 +561,23 @@ onBeforeUnmount(() => {
   background: #b91c1c;
 }
 
+/* ---------- 主体布局 ---------- */
+.room-body {
+  display: grid;
+  flex: 1;
+  gap: 16px;
+  min-height: 0;
+  padding: 20px 22px;
+  grid-template-columns: minmax(0, 1fr) 330px;
+}
+
 /* ---------- 人员网格 ---------- */
 .room-grid {
   display: grid;
-  flex: 1;
   align-content: center;
   gap: 14px;
-  padding: 20px 22px;
+  min-height: 0;
+  overflow: auto;
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
 }
 
@@ -488,6 +650,167 @@ onBeforeUnmount(() => {
 .room-tile__mic--off {
   color: #a54239;
   background: #fff1ef;
+}
+
+/* ---------- 评论区 ---------- */
+.room-comments {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid #e5eaf0;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(30, 43, 76, 0.04);
+}
+
+.room-comments__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  padding: 14px 16px;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.room-comments__head h2 {
+  margin: 0;
+  color: #17233a;
+  font-size: 15px;
+}
+
+.room-comments__head span {
+  color: #8494a7;
+  font-size: 12px;
+}
+
+.room-comments__list {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  padding: 14px 16px;
+  overflow-y: auto;
+}
+
+.room-comments__empty {
+  margin: auto;
+  color: #94a3b8;
+  font-size: 13px;
+  text-align: center;
+}
+
+.room-comment {
+  display: flex;
+  gap: 8px;
+}
+
+.room-comment--self {
+  flex-direction: row-reverse;
+}
+
+.room-comment__avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: #ffffff;
+  background: linear-gradient(135deg, #2563eb, #4f8bf5);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.room-comment__body {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  max-width: calc(100% - 48px);
+  min-width: 0;
+}
+
+.room-comment--self .room-comment__body {
+  justify-items: end;
+}
+
+.room-comment__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.room-comment__meta strong {
+  color: #26384d;
+  font-size: 12px;
+}
+
+.room-comment__meta em {
+  color: #8494a7;
+  font-style: normal;
+}
+
+.room-comment__meta time {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.room-comment__text {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 4px 12px 12px 12px;
+  color: #34506c;
+  background: #f4f7fb;
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.room-comment--self .room-comment__text {
+  border-radius: 12px 4px 12px 12px;
+  color: #ffffff;
+  background: #2563eb;
+}
+
+.room-comments__input {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 12px 14px;
+  border-top: 1px solid #eef2f7;
+}
+
+.room-comments__input input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid #dbe3ef;
+  border-radius: 10px;
+  color: #26384d;
+  background: #ffffff;
+  font-size: 13px;
+}
+
+.room-comments__input input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.room-comments__input .room-btn {
+  min-height: 38px;
+  padding: 0 16px;
+  font-size: 13px;
+}
+
+.room-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.room-btn--primary:hover:not(:disabled) {
+  background: #1d4ed8;
 }
 
 /* ---------- 字幕条 ---------- */
@@ -796,6 +1119,18 @@ onBeforeUnmount(() => {
 }
 
 /* ---------- 响应式 ---------- */
+@media (max-width: 960px) {
+  .room-body {
+    padding: 14px;
+    grid-template-columns: 1fr;
+  }
+
+  .room-comments {
+    flex: 0 0 auto;
+    height: 320px;
+  }
+}
+
 @media (max-width: 640px) {
   .room-topbar {
     padding: 12px 14px;
@@ -806,7 +1141,6 @@ onBeforeUnmount(() => {
   }
 
   .room-grid {
-    padding: 14px;
     gap: 10px;
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   }
