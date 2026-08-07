@@ -1,186 +1,320 @@
+/* ---------- 与档口列表页保持一致的页面结构 ---------- */
+
 .stall-indoor-page {
   display: flex;
   flex-direction: column;
   gap: 18px;
 }
 
-.stall-indoor-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.stall-indoor-header .ant-btn-link {
-  height: auto;
-  padding: 0;
-}
-
-.stall-indoor-header h1 {
-  margin: 8px 0 4px;
-  color: #172033;
-  font-size: 24px;
-}
-
-.stall-indoor-header p {
-  margin: 0;
-  color: #70809a;
-}
-
-.stall-indoor-floor-select {
-  width: 180px;
-}
-
-.stall-indoor-layout {
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  gap: 16px;
-}
-
-.stall-indoor-stall-list,
-.stall-indoor-plan-card {
-  border-color: #e3e9f0;
+.stall-section-card {
+  border: 1px solid #e5eaf1;
+  border-radius: 10px;
   box-shadow: none;
 }
 
-.stall-indoor-stall-list .ant-card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 680px;
-  overflow-y: auto;
+.stall-section-card > .ant-card-body {
+  padding: 20px;
 }
 
-.stall-indoor-stall-item {
+.stall-section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.stall-section-back {
+  height: 32px;
+  padding: 0;
+}
+
+.stall-section-heading h2 {
+  margin: 0 0 4px;
+  color: #1f2937;
+  font-size: 17px;
+}
+
+.stall-section-heading p {
+  margin: 0;
+  color: #70809a;
+  font-size: 14px;
+}
+
+.stall-section-tools {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  padding: 11px 12px;
-  border: 1px solid #e5eaf0;
-  border-radius: 8px;
+  gap: 12px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.stall-floor-filter {
+  width: 140px;
+}
+
+.stall-floor-filter .ant-select-selector {
+  border-color: #d8e0ea !important;
+  border-radius: 6px !important;
+}
+
+/* ---------- 当前定位提示 ---------- */
+
+.stall-indoor-active-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 14px;
+  background: #f3f6f9;
+  color: #58738d;
+  font-size: 13px;
+}
+
+.stall-indoor-active-tip.positioned {
+  background: #f6ffed;
+  color: #389e0d;
+}
+
+/* ---------- 横向档口选择器 ---------- */
+
+.stall-indoor-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #eef2f6;
+}
+
+.stall-indoor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid #e3e9f0;
+  border-radius: 16px;
   background: #fff;
-  color: #344054;
-  text-align: left;
+  color: #4b5563;
+  font-size: 13px;
   cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
 }
 
-.stall-indoor-stall-item:hover,
-.stall-indoor-stall-item.active {
-  border-color: #7ca4c8;
-  background: #f3f7fb;
+.stall-indoor-chip:hover {
+  border-color: #b9c9dc;
+  background: #f8fafc;
 }
 
-.stall-indoor-stall-item span {
-  min-width: 0;
+.stall-indoor-chip.active {
+  border-color: #1677ff;
+  background: #f0f7ff;
+  color: #1677ff;
 }
 
-.stall-indoor-stall-item strong,
-.stall-indoor-stall-item small {
-  display: block;
+.stall-indoor-chip.positioned {
+  padding-right: 10px;
+}
+
+.stall-indoor-chip.positioned .chip-icon {
+  color: #8cbe70;
+}
+
+.stall-indoor-chip.active.positioned .chip-icon {
+  color: #1677ff;
+}
+
+.chip-index {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #eef3fa;
+  color: #5f7890;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.stall-indoor-chip.active .chip-index {
+  background: #1677ff;
+  color: #fff;
+}
+
+.chip-name {
+  max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.stall-indoor-stall-item small {
-  margin-top: 3px;
-  color: #8491a3;
+.chip-icon {
+  font-size: 12px;
 }
 
-.stall-indoor-active-tip {
-  color: #58738d;
-  font-size: 13px;
+/* ---------- 平面图容器 ---------- */
+
+.stall-indoor-plan-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .stall-indoor-plan {
   position: relative;
-  overflow: hidden;
-  border: 1px solid #dce4ec;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  min-height: 500px;
+  max-height: 680px;
+  background:
+    radial-gradient(circle, #e2e9ef 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-color: #f8fafc;
   border-radius: 8px;
-  background: #f5f7fa;
   cursor: crosshair;
 }
 
 .stall-indoor-plan > img {
   display: block;
-  width: 100%;
+  max-width: 100%;
+  max-height: 660px;
+  width: auto;
   height: auto;
+  object-fit: contain;
 }
+
+/* ---------- 定位标记（地图图钉） ---------- */
 
 .stall-indoor-marker {
   position: absolute;
   z-index: 2;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -100%);
+  margin-top: -10px;
   pointer-events: none;
 }
 
+.stall-indoor-marker::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 8px solid transparent;
+  border-top-color: #5f7890;
+}
+
 .stall-indoor-marker i {
-  display: block;
-  width: 14px;
-  height: 14px;
-  margin: auto;
-  border: 3px solid #fff;
-  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 2px solid #fff;
+  border-radius: 50% 50% 50% 0;
   background: #5f7890;
-  box-shadow: 0 2px 6px rgb(15 23 42 / 35%);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  font-style: normal;
+  transform: rotate(-45deg);
+  box-shadow: 0 2px 6px rgb(15 23 42 / 25%);
+}
+
+.stall-indoor-marker i::after {
+  content: attr(data-index);
+  transform: rotate(45deg);
 }
 
 .stall-indoor-marker b {
-  display: block;
-  max-width: 150px;
-  margin-top: 4px;
-  padding: 3px 7px;
+  position: absolute;
+  left: 50%;
+  top: -8px;
+  transform: translate(-50%, -100%);
+  display: none;
+  max-width: 160px;
+  padding: 3px 8px;
   overflow: hidden;
-  border-radius: 4px;
-  background: rgb(31 41 55 / 88%);
-  color: #fff;
+  border: 1px solid #e3e9f0;
+  border-radius: 12px;
+  background: #fff;
+  color: #273449;
   font-size: 12px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
+  box-shadow: 0 2px 8px rgb(15 23 42 / 8%);
+}
+
+.stall-indoor-marker.active::after {
+  border-top-color: #1677ff;
 }
 
 .stall-indoor-marker.active i {
   background: #1677ff;
   box-shadow: 0 0 0 4px rgb(22 119 255 / 18%);
+  transform: rotate(-45deg) scale(1.12);
 }
 
-.stall-indoor-plan-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-top: 14px;
-  color: #70809a;
+.stall-indoor-marker.active b {
+  display: block;
+}
+
+/* ---------- 未定位提示覆盖层 ---------- */
+
+.stall-indoor-hint {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 8px 16px;
+  border-radius: 20px;
+  background: #1677ff;
+  color: #fff;
   font-size: 13px;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgb(22 119 255 / 24%);
+}
+
+.stall-indoor-hint b {
+  font-weight: 600;
+}
+
+/* ---------- 底部说明 ---------- */
+
+.stall-indoor-caption {
+  margin: 0;
+  color: #8c98aa;
+  font-size: 12px;
+  text-align: center;
+}
+
+.stall-indoor-caption b {
+  color: #4b5563;
+  font-weight: 500;
 }
 
 .stall-indoor-empty {
-  padding: 100px 0;
+  padding: 120px 0;
 }
 
+/* ---------- 响应式 ---------- */
+
 @media (max-width: 900px) {
-  .stall-indoor-header {
-    align-items: stretch;
+  .stall-section-heading {
     flex-direction: column;
+    align-items: flex-start;
   }
 
-  .stall-indoor-floor-select {
+  .stall-section-tools {
+    margin-left: 0;
     width: 100%;
   }
 
-  .stall-indoor-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .stall-indoor-stall-list .ant-card-body {
-    max-height: 280px;
-  }
-
-  .stall-indoor-plan-footer {
-    align-items: stretch;
-    flex-direction: column;
+  .stall-indoor-plan {
+    min-height: 360px;
   }
 }
