@@ -855,6 +855,35 @@ export default function StallManage() {
             </Space>
           </div>
         </div>
+        <div className="dish-context-bar">
+          {canteen && (() => {
+            const coverUrl = canteen.imageUrl || canteen.images?.[0]?.imageUrl
+            return (
+              <div className="canteen-info-bar">
+                {coverUrl ? (
+                  <Image src={coverUrl} preview={false} className="canteen-info-avatar" />
+                ) : (
+                  <div className="canteen-info-avatar placeholder"><ShopOutlined /></div>
+                )}
+                <div className="canteen-info-text"><h2>{canteen.name}</h2></div>
+              </div>
+            )
+          })()}
+          {canteen && selectedStall ? <span className="dish-context-separator">/</span> : null}
+          {selectedStall && (() => {
+            const coverUrl = selectedStall.imageUrl || selectedStall.images?.[0]?.imageUrl
+            return (
+              <div className="canteen-info-bar">
+                {coverUrl ? (
+                  <Image src={coverUrl} preview={false} className="canteen-info-avatar" />
+                ) : (
+                  <div className="canteen-info-avatar placeholder"><ShopOutlined /></div>
+                )}
+                <div className="canteen-info-text"><h2>{selectedStall.name}</h2></div>
+              </div>
+            )
+          })()}
+        </div>
         {selectedStall ? (
           dishLoading ? (
             <Spin tip="加载中..." className="stall-empty"><div style={{ minHeight: 200 }} /></Spin>

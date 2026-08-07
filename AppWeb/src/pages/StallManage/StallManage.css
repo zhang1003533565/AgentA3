@@ -250,6 +250,23 @@
   margin-bottom: 20px;
 }
 
+.dish-context-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+.dish-context-bar .canteen-info-bar {
+  margin-bottom: 0;
+}
+
+.dish-context-separator {
+  color: #a8b3c2;
+  font-size: 14px;
+}
+
 /* ---------- 菜品卡片网格 ---------- */
 
 .dish-card-grid {
