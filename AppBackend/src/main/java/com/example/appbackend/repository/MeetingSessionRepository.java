@@ -19,6 +19,8 @@ public interface MeetingSessionRepository extends JpaRepository<MeetingSession, 
 
     boolean existsByRoomCode(String roomCode);
 
+    boolean existsByUserIdAndStatus(Long userId, String status);
+
     @Query("""
             SELECT session FROM MeetingSession session
             WHERE session.userId = :userId

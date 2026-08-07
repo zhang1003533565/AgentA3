@@ -19,8 +19,11 @@ public interface ChatSessionRepository extends JpaRepository<ChatSession, Long> 
 
     Optional<ChatSession> findByItemIdAndBuyerId(Long itemId, Long buyerId);
 
-    @Query("SELECT cs FROM ChatSession cs WHERE cs.buyerId = :userId OR cs.sellerId = :userId ORDER BY cs.lastTime DESC")
-    Page<ChatSession> findByUserId(@Param("userId") Long userId, Pageable pageable);
+    @Query("SELECT cs FROM ChatSession cs LEFT JOIN FETCH cs.item WHERE (cs.buyerId = :userId OR cs.sellerId = :userId) AND EXISTS (SELECT cm FROM ChatMessage cm WHERE cm.sessionId = cs.id) ORDER BY cs.lastTime DESC")
+    Page<ChatSession> findByUserIdWithMessages(@Param("userId") Long userId, Pageable pageable);
+
+    @Query("SELECT cs FROM ChatSession cs LEFT JOIN FETCH cs.item WHERE cs.id = :id")
+    Optional<ChatSession> findByIdWithItem(@Param("id") Long id);
 
     @Query("SELECT COUNT(cm) FROM ChatMessage cm WHERE cm.sessionId = :sessionId AND cm.senderId != :userId AND cm.isRead = false")
     int countUnreadBySessionAndUser(@Param("sessionId") Long sessionId, @Param("userId") Long userId);

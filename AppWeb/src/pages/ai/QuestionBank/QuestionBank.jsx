@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Card, Descriptions, Empty, Form, Input, InputNumber, Select, Space, Spin, Table, Tag, Typography, message } from 'antd'
-import { MinusCircleOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
+import { DeleteOutlined, MinusCircleOutlined, PlusOutlined, SearchOutlined, StarFilled, StarOutlined } from '@ant-design/icons'
 import {
   createExamQuestion,
   deleteExamQuestion,
@@ -328,6 +328,8 @@ function QuestionBank() {
   const [editingId, setEditingId] = useState(null)
   const [editorLoading, setEditorLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  // 已收藏题目 id 集合（纯前端模拟状态，未接接口；翻页后用于回填 isFavorite）
+  const favoriteIdsRef = useRef(new Set())
   // 监听编辑弹窗题型：仅选择题展示选项编辑
   const editorType = Form.useWatch('type', editorForm)
   const editorIsChoice = editorType === 'single_choice' || editorType === 'multiple_choice'
@@ -347,8 +349,13 @@ function QuestionBank() {
         bankId: values.bank || undefined,
       })
       const data = res.data || {}
-      setRows(data.records || [])
-      rowsRef.current = data.records || []
+      // 前端预留 isFavorite 字段，后续接入真实收藏接口后改为读后端返回值
+      const records = (data.records || []).map((record) => ({
+        ...record,
+        isFavorite: record.isFavorite ?? favoriteIdsRef.current.has(record.id),
+      }))
+      setRows(records)
+      rowsRef.current = records
       const nextPagination = {
         current: data.page || current,
         pageSize: data.size || size,
@@ -501,6 +508,61 @@ function QuestionBank() {
     }
   }
 
+  // 单个收藏/取消收藏：仅前端模拟，不调接口
+  const toggleFavorite = (record) => {
+    const next = !record.isFavorite
+    if (next) {
+      favoriteIdsRef.current.add(record.id)
+    } else {
+      favoriteIdsRef.current.delete(record.id)
+    }
+    setRows((prev) => {
+      const nextRows = prev.map((row) => (row.id === record.id ? { ...row, isFavorite: next } : row))
+      rowsRef.current = nextRows
+      return nextRows
+    })
+  }
+
+  // 批量收藏：仅前端模拟，不调接口
+  const handleBatchFavorite = () => {
+    const count = selectedRowKeys.length
+    selectedRowKeys.forEach((id) => favoriteIdsRef.current.add(id))
+    setRows((prev) => {
+      const nextRows = prev.map((row) => (
+        selectedRowKeys.includes(row.id) ? { ...row, isFavorite: true } : row
+      ))
+      rowsRef.current = nextRows
+      return nextRows
+    })
+    setSelectedRowKeys([])
+    message.success(`已收藏 ${count} 道题`)
+  }
+
+  // 批量删除：二次确认后仅前端移除列表数据，不调接口
+  const handleBatchDelete = () => {
+    const count = selectedRowKeys.length
+    confirmDelete({
+      title: '批量删除',
+      content: `确定删除选中的 ${count} 道题吗？`,
+      okText: '确认删除',
+      onOk: () => {
+        setRows((prev) => {
+          const nextRows = prev.filter((row) => !selectedRowKeys.includes(row.id))
+          rowsRef.current = nextRows
+          return nextRows
+        })
+        // 前端同步总数，保持分页文案一致
+        setPagination((prev) => {
+          const next = { ...prev, total: Math.max(prev.total - count, 0) }
+          paginationRef.current = next
+          return next
+        })
+        setSelectedRowKeys([])
+        message.success('删除成功')
+      },
+    })
+  }
+
   // 删除（通用删除确认组件）
   const handleDelete = (record) => {
     confirmDelete({
@@ -554,19 +616,28 @@ function QuestionBank() {
     },
     {
       title: '操作',
-      width: 160,
+      width: 236,
       render: (_, record) => (
         <Space size={16} className="qb-actions">
           <a className="qb-action-link qb-action-view" onClick={() => openDetail(record.id)}>查看</a>
           <a className="qb-action-link qb-action-edit" onClick={() => openEdit(record.id)}>编辑</a>
+          {/* 收藏：单条点击切换，与批量收藏共用同一份前端状态 */}
+          <a
+            className={`qb-action-link qb-action-favorite${record.isFavorite ? ' qb-action-favorite-active' : ''}`}
+            onClick={() => toggleFavorite(record)}
+          >
+            {record.isFavorite ? <StarFilled /> : <StarOutlined />}
+            {record.isFavorite ? '已收藏' : '收藏'}
+          </a>
           <a className="qb-action-link qb-action-delete" onClick={() => handleDelete(record)}>删除</a>
         </Space>
       ),
     },
   ], [])
 
-  // 筛选区域：通过 Table title 渲染在表格容器内、表头上方
+  // 筛选区域：通过 Table title 渲染在表格容器内、表头上方；有勾选时在筛选区下方追加批量操作栏
   const renderFilter = () => (
+    <>
     <Form
       form={form}
       className="question-bank-filter"
@@ -618,6 +689,22 @@ function QuestionBank() {
         </Space>
       </Form.Item>
     </Form>
+
+    {/* 批量操作栏：勾选题目后显示，位于筛选区与表头之间 */}
+    {selectedRowKeys.length > 0 ? (
+      <div className="qb-batch-bar">
+        <span className="qb-batch-count">已选择 {selectedRowKeys.length} 道题</span>
+        <Space size={12}>
+          <Button type="primary" icon={<StarFilled />} className="qb-batch-fav-btn" onClick={handleBatchFavorite}>
+            批量收藏
+          </Button>
+          <Button danger type="primary" icon={<DeleteOutlined />} className="qb-batch-del-btn" onClick={handleBatchDelete}>
+            批量删除
+          </Button>
+        </Space>
+      </div>
+    ) : null}
+    </>
   )
 
   return (
@@ -657,6 +744,7 @@ function QuestionBank() {
       {/* 新增/编辑题目面板（与详情同尺寸的通用右侧面板） */}
       <SidePanel
         title={editorMode === 'edit' ? '编辑题目' : '新增题目'}
+        width={480}
         open={editorOpen}
         onClose={() => setEditorOpen(false)}
         forceRender

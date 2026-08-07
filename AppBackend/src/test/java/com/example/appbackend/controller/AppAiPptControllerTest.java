@@ -32,6 +32,8 @@ class AppAiPptControllerTest {
 
     @Test
     void allPptEndpointsRequireAuthenticatedUser() throws Exception {
+        mvc.perform(get("/api/app/ai/ppt/options"))
+                .andExpect(status().isUnauthorized());
         mvc.perform(post("/api/app/ai/ppt/outlines").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"sourceName\":\"a.txt\",\"sourceContent\":\"content\"}"))
                 .andExpect(status().isUnauthorized());
@@ -47,6 +49,11 @@ class AppAiPptControllerTest {
 
     @Test
     void authenticatedRoutesUseServerOwnedUserIdentity() throws Exception {
+        mvc.perform(get("/api/app/ai/ppt/options")
+                        .requestAttr("userId", 42L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.scenes[0].value").value("review"));
+
         mvc.perform(post("/api/app/ai/ppt/outlines")
                         .requestAttr("userId", 42L)
                         .header("Authorization", "Bearer token")
@@ -68,6 +75,18 @@ class AppAiPptControllerTest {
     private static final class RecordingService implements AiPptService {
         private Long userId;
         private String authorization;
+
+        @Override
+        public AiPptDTO.OptionsResponse getOptions(Long userId) {
+            this.userId = userId;
+            AiPptDTO.SceneOption scene = new AiPptDTO.SceneOption();
+            scene.setValue("review");
+            scene.setLabel("复习资料");
+            AiPptDTO.OptionsResponse response = new AiPptDTO.OptionsResponse();
+            response.setScenes(java.util.List.of(scene));
+            response.setCacheTtlSeconds(86400);
+            return response;
+        }
 
         @Override
         public Object generateOutline(Long userId, AiPptDTO.OutlineRequest request, String authorization) {

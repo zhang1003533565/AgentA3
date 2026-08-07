@@ -32,6 +32,8 @@ public class SecondhandServiceImpl implements SecondhandService {
     @Autowired private SecondhandFavoriteRepository favoriteRepository;
     @Autowired private ChatSessionRepository chatSessionRepository;
     @Autowired private ChatMessageRepository chatMessageRepository;
+    @Autowired private TradeRecordRepository tradeRecordRepository;
+    @Autowired private SecondhandReportRepository reportRepository;
     @Autowired private ObjectMapper objectMapper;
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -82,13 +84,15 @@ public class SecondhandServiceImpl implements SecondhandService {
         categoryRepository.deleteById(id);
     }
 
-    /** 删除物品及其收藏、聊天会话与消息（与单条删除分类级联一致，避免外键残留） */
+    /** 删除物品及其交易记录、举报、收藏、聊天会话与消息（避免外键残留） */
     private void deleteSecondhandItemWithRelations(Long itemId) {
         for (ChatSession session : chatSessionRepository.findByItemId(itemId)) {
             chatMessageRepository.deleteBySessionId(session.getId());
             chatSessionRepository.delete(session);
         }
         favoriteRepository.deleteByItemId(itemId);
+        tradeRecordRepository.deleteByItemId(itemId);
+        reportRepository.deleteByItemId(itemId);
         itemRepository.deleteById(itemId);
     }
 
@@ -111,6 +115,11 @@ public class SecondhandServiceImpl implements SecondhandService {
     public SecondhandDTO.ItemDetailVO getItemDetail(Long id, Long currentUserId) {
         SecondhandItem item = itemRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(404, "物品不存在"));
+        // 已下架商品仅发布者可查看
+        if (Integer.valueOf(4).equals(item.getStatus())
+                && (currentUserId == null || !currentUserId.equals(item.getUserId()))) {
+            throw new BusinessException(403, "该物品已下架");
+        }
         itemRepository.incrementViewCount(id);
         itemRepository.updateHeatScore(id);
         item = itemRepository.findById(id).orElse(item);
@@ -139,6 +148,7 @@ public class SecondhandServiceImpl implements SecondhandService {
         item.setCampusName(req.getCampusName());
         item.setTradeLocation(req.getTradeLocation());
         item.setPickupPoint(req.getPickupPoint());
+        item.setTradeType(req.getTradeType() != null ? req.getTradeType() : "sell");
         item.setStatus(2);
         item = itemRepository.save(item);
         return toItemVO(item);
@@ -164,6 +174,7 @@ public class SecondhandServiceImpl implements SecondhandService {
         if (req.getCampusName() != null) item.setCampusName(req.getCampusName());
         if (req.getTradeLocation() != null) item.setTradeLocation(req.getTradeLocation());
         if (req.getPickupPoint() != null) item.setPickupPoint(req.getPickupPoint());
+        if (req.getTradeType() != null) item.setTradeType(req.getTradeType());
         itemRepository.save(item);
     }
 
@@ -221,12 +232,12 @@ public class SecondhandServiceImpl implements SecondhandService {
 
     @Override
     public PageResponse<SecondhandDTO.ItemVO> getAdminList(Integer current, Integer size, String keyword,
-                                                             Long categoryId, Integer status, Long userId) {
+                                                             Long categoryId, Integer status, String tradeType, Long userId) {
         if (current == null) current = 1;
         if (size == null) size = 10;
         String normalizedKeyword = (keyword == null || keyword.isBlank()) ? null : keyword.trim();
         PageRequest pageRequest = PageRequest.of(current - 1, size, Sort.by(Sort.Direction.DESC, "id"));
-        Page<SecondhandItem> page = itemRepository.findAdminList(status, categoryId, userId, normalizedKeyword, pageRequest);
+        Page<SecondhandItem> page = itemRepository.findAdminList(status, categoryId, userId, tradeType, normalizedKeyword, pageRequest);
         List<SecondhandDTO.ItemVO> records = page.getContent().stream()
                 .map(this::toItemVO).collect(Collectors.toList());
         return new PageResponse<>(records, page.getTotalElements(), current, size);
@@ -288,6 +299,7 @@ public class SecondhandServiceImpl implements SecondhandService {
         List<SecondhandDTO.ItemVO> records = page.getContent().stream()
                 .map(f -> itemRepository.findById(f.getItemId()).orElse(null))
                 .filter(Objects::nonNull)
+                .filter(item -> !Integer.valueOf(4).equals(item.getStatus()))
                 .map(this::toItemVO)
                 .collect(Collectors.toList());
         return new PageResponse<>(records, page.getTotalElements(), current, size);
@@ -353,6 +365,7 @@ public class SecondhandServiceImpl implements SecondhandService {
         vo.setCampusName(item.getCampusName());
         vo.setTradeLocation(item.getTradeLocation());
         vo.setPickupPoint(item.getPickupPoint());
+        vo.setTradeType(item.getTradeType());
         vo.setViewCount(item.getViewCount());
         vo.setFavoriteCount(item.getFavoriteCount());
         vo.setInquiryCount(item.getInquiryCount());
@@ -402,6 +415,7 @@ public class SecondhandServiceImpl implements SecondhandService {
         vo.setCampusName(item.getCampusName());
         vo.setTradeLocation(item.getTradeLocation());
         vo.setPickupPoint(item.getPickupPoint());
+        vo.setTradeType(item.getTradeType());
         vo.setViewCount(item.getViewCount());
         vo.setFavoriteCount(item.getFavoriteCount());
         vo.setInquiryCount(item.getInquiryCount());

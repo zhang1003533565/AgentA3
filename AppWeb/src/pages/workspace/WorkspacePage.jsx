@@ -285,18 +285,15 @@ const colorMap = {
   在售: 'green',
   已售出: 'blue',
   已下架: 'default',
-  全新: 'cyan',
-  几乎全新: 'geekblue',
-  轻微使用痕迹: 'orange',
-  明显使用痕迹: 'gold',
-  仅限零件: 'default',
+  出物: 'green',
+  收物: 'blue',
 }
 
 const SECONDHAND_STATUS_FILTER_MAP = {
   全部: undefined,
-  在售: 2,
-  已售出: 3,
-  已下架: 4,
+  出物: { tradeType: 'sell' },
+  收物: { tradeType: 'buy' },
+  已下架: { status: 4 },
 }
 
 const formatSecondhandPrice = (price, originalPrice) => {
@@ -308,6 +305,13 @@ const formatSecondhandPrice = (price, originalPrice) => {
     return `${currentText} / 原价¥${original.toFixed(original % 1 === 0 ? 0 : 2)}`
   }
   return currentText
+}
+
+const getTradeTypeStatusText = (item = {}) => {
+  const status = Number(item.status)
+  if (status === 4) return '已下架'
+  const tradeType = String(item.tradeType || 'sell')
+  return tradeType === 'buy' ? '收物' : '出物'
 }
 
 const normalizeSecondhandItemRow = (item = {}) => {
@@ -322,8 +326,7 @@ const normalizeSecondhandItemRow = (item = {}) => {
     coverImage,
     publisherName,
     priceText: formatSecondhandPrice(item.price, item.originalPrice),
-    conditionText: item.conditionText || '-',
-    statusText: item.statusText || '-',
+    statusText: getTradeTypeStatusText(item),
     location: item.location || item.tradeLocation || item.pickupPoint || '-',
     heatMeta: `浏览 ${viewCount} · 收藏 ${favoriteCount} · 咨询 ${inquiryCount}`,
   }
@@ -540,11 +543,13 @@ const loadWorkspaceData = async (pageKey, { current, pageSize, keyword, status, 
     }
     case 'market-item':
     case 'market-audit': {
+      const filter = SECONDHAND_STATUS_FILTER_MAP[status] || {}
       const res = await getSecondhandAdminList({
         page: current,
         size: pageSize,
         keyword,
-        status: SECONDHAND_STATUS_FILTER_MAP[status],
+        status: filter.status,
+        tradeType: filter.tradeType,
         categoryId: marketCategoryId || undefined,
       })
       const rows = (res.data?.records || []).map(normalizeSecondhandItemRow)
@@ -4248,11 +4253,11 @@ function WorkspacePage({ pageKey }) {
                       <article key={`rank-${item.id}`} className="market-admin__card">
                         <div className="market-admin__cover">
                           {item.coverImage ? <img src={item.coverImage} alt={item.title || '旧物封面'} /> : <div className="market-admin__cover-empty">暂无图片</div>}
-                          <span className={`market-admin__status market-admin__status--${item.status}`}>{item.statusText || '-'}</span>
+                          <span className={`market-admin__status market-admin__status--${item.status === 4 ? 'offline' : (item.tradeType === 'buy' ? 'buy' : 'sell')}`}>{item.statusText || '-'}</span>
                         </div>
                         <div className="market-admin__card-body">
                           <h4>{item.title || '-'}</h4>
-                          <p>{item.categoryName || '未分类'} · {item.conditionText || '-'}</p>
+                          <p>{item.categoryName || '未分类'}</p>
                           <div className="market-admin__price">{item.priceText || '-'}</div>
                           <div className="market-admin__heat">{item.heatMeta}</div>
                           <div className="market-admin__meta">
@@ -4492,7 +4497,6 @@ function WorkspacePage({ pageKey }) {
             <h3>{marketDetail.title || '-'}</h3>
             <div className="market-detail__row"><span>状态</span><strong>{marketDetail.statusText || '-'}</strong></div>
             <div className="market-detail__row"><span>分类</span><strong>{marketDetail.categoryName || '-'}</strong></div>
-            <div className="market-detail__row"><span>成色</span><strong>{marketDetail.conditionText || '-'}</strong></div>
             <div className="market-detail__row"><span>价格</span><strong>{marketDetail.priceText || '-'}</strong></div>
             <div className="market-detail__row"><span>地点</span><strong>{marketDetail.location || '-'}</strong></div>
             <div className="market-detail__row"><span>发布者</span><strong>{marketDetail.publisherName || '-'}</strong></div>

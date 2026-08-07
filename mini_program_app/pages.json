@@ -600,6 +600,15 @@
 					}
 				},
 				{
+					"path": "diagramHistory/diagramHistory",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "profileRadar/profileRadar",
 					"style": {
 						"navigationBarTitleText": "个人画像",
@@ -654,7 +663,34 @@
 					}
 				},
 				{
+					"path": "importFileBtnTest/importFileBtnTest",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FCFAFC",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "mindmapGenerating/mindmapGenerating",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#F8F7FC",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "mindmapPreview/mindmapPreview",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "mindmapViewer/mindmapViewer",
 					"style": {
 						"navigationBarTitleText": "",
 						"navigationStyle": "custom",
@@ -690,6 +726,15 @@
 					}
 				},
 				{
+					"path": "architectureGenerating/architectureGenerating",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "architecturePreview/architecturePreview",
 					"style": {
 						"navigationBarTitleText": "",
@@ -708,9 +753,45 @@
 					}
 				},
 				{
+					"path": "flowchartGenerating/flowchartGenerating",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "flowchartPreview/flowchartPreview",
 					"style": {
 						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "flowchartViewer/flowchartViewer",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "documentConvert/documentConvert",
+					"style": {
+						"navigationBarTitleText": "格式转换",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "documentConvertDetail/documentConvertDetail",
+					"style": {
+						"navigationBarTitleText": "文档转换",
 						"navigationStyle": "custom",
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
@@ -901,9 +982,30 @@
 					}
 				},
 				{
-					"path": "campusCourseDetail/campusCourseDetail",
+					"path": "campusCourseList/campusCourseList",
 					"style": {
 						"navigationBarTitleText": "校园课程",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "campusCourseDetail/campusCourseDetail",
+					"style": {
+						"navigationBarTitleText": "课程详情",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "chapterLearn/chapterLearn",
+					"style": {
+						"navigationBarTitleText": "章节学习",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "myCourses/myCourses",
+					"style": {
+						"navigationBarTitleText": "我的课程",
 						"navigationStyle": "custom"
 					}
 				}

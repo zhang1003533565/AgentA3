@@ -1,0 +1,489 @@
+<template>
+  <view class="page">
+    <!-- 顶部 -->
+    <view v-if="pageState !== 'error'" class="header">
+      <view class="header-back" @tap="goBack"><text class="header-back-icon">‹</text></view>
+      <view v-if="!isCompleted" class="header-center">
+        <view class="header-title-row">
+          <text class="header-sparkle">✦</text>
+          <text class="header-title-text">AI 正在生成架构图</text>
+        </view>
+        <text class="header-subtitle-text">{{ stageSubtitle }}</text>
+      </view>
+      <view v-else class="header-center">
+        <view class="header-title-row">
+          <text class="header-done-icon">✓</text>
+          <text class="header-title-text header-title-text--done">架构图生成完成</text>
+        </view>
+        <text class="header-subtitle-text header-subtitle-text--done">分层结构已确认，可导出或继续优化</text>
+      </view>
+    </view>
+    <view v-else class="header header--error">
+      <view class="header-back" @tap="goBack"><text class="header-back-icon">‹</text></view>
+    </view>
+
+    <!-- 画布 -->
+    <view v-if="pageState !== 'error'" class="canvas-area">
+      <view class="g-stage" :class="{ smooth: smooth, settle: settleOn }" :style="stageStyle">
+        <template v-for="(layer, li) in layers" :key="layer.key || li">
+          <view class="layer" :class="{ in: layerIn[li] }" :style="layerStyle(layer)" :data-idx="li">
+            <view class="layer-head">
+              <view class="layer-icon" :style="{ background: layer.color }">
+                <arch-icon :iconKey="layer.iconKey" color="#FFFFFF" :size="32" />
+              </view>
+              <text class="layer-name" :style="{ color: layer.color }">{{ layer.name }}</text>
+            </view>
+            <view class="layer-cards">
+              <view
+                v-for="(node, ci) in layer.nodes"
+                :key="node.name || ci"
+                class="arch-card"
+                :class="{ in: cardIn[li + '-' + ci] }"
+                :style="{ borderColor: layer.border }"
+              >
+                <text class="arch-card-name">{{ node.name }}</text>
+                <text v-if="node.description" class="arch-card-desc">{{ node.description }}</text>
+                <view v-if="node.tech && node.tech.length" class="arch-card-tech">
+                  <text
+                    v-for="t in node.tech"
+                    :key="t"
+                    class="tech"
+                    :style="{ color: layer.color, borderColor: layer.color + '55' }"
+                  >{{ t }}</text>
+                </view>
+              </view>
+            </view>
+          </view>
+          <view v-if="li < layers.length - 1" class="layer-arrow" :class="{ in: arrowIn[li] }">
+            <view class="layer-arrow-line"></view>
+            <view class="layer-arrow-head">▼</view>
+          </view>
+        </template>
+
+        <view class="third-party" :class="{ in: tpIn }">
+          <text class="tp-title">第三方服务</text>
+          <view class="tp-grid">
+            <view v-for="(tp, ti) in thirdParty" :key="tp.name || ti" class="tp-item" :class="{ in: tpItemIn[ti] }">
+              <view class="tp-icon"><arch-icon :iconKey="tp.iconKey" color="#FFFFFF" :size="24" /></view>
+              <text class="tp-name">{{ tp.name }}</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="features-row">
+          <view v-for="(f, fi) in features" :key="f" class="feature-item" :class="{ in: featureIn[fi] }">
+            <view class="feature-check"><text class="feature-check-icon">✓</text></view>
+            <text class="feature-text">{{ f }}</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="wait-ring" :class="{ hidden: !showRing }"><i></i><i></i><b></b></view>
+      <view v-if="!isCompleted" class="skip-btn" @tap="skipAnimation">跳过动画 →</view>
+    </view>
+
+    <!-- 步骤点 -->
+    <view v-if="!isCompleted && pageState !== 'error'" class="bottom-steps">
+      <view v-for="(s, idx) in steps" :key="idx" class="bottom-step-dot" :class="'bottom-step-dot--' + stepStatus(idx)">
+        <text v-if="stepStatus(idx) === 'done'" class="bottom-step-check">✓</text>
+      </view>
+    </view>
+
+    <!-- AI 状态卡片 -->
+    <view v-if="!isCompleted && pageState !== 'error'" class="status-float">
+      <view class="status-float-inner">
+        <view class="status-float-top">
+          <text class="status-float-label">✦ AI 正在构建分层架构</text>
+          <view class="status-float-dots"><view class="status-float-dot"></view><view class="status-float-dot"></view><view class="status-float-dot"></view></view>
+        </view>
+        <text class="status-float-msg">{{ waitingText }}</text>
+        <view class="status-float-meta">
+          <text class="status-float-count">已生成 {{ madeCount }} 个组件</text>
+          <text class="status-float-pct">{{ progressPercent }}%</text>
+        </view>
+        <view class="status-float-bar"><view class="status-float-bar-fill" :style="{ width: progressPercent + '%' }"></view></view>
+      </view>
+    </view>
+
+    <!-- 错误状态 -->
+    <view v-if="pageState === 'error'" class="error-state">
+      <view class="error-icon">⚠️</view>
+      <text class="error-title">生成失败</text>
+      <text class="error-msg">{{ errorMessage }}</text>
+      <view class="error-actions">
+        <view class="error-btn error-btn--sec" @tap="goBack"><text>返回上页</text></view>
+        <view class="error-btn error-btn--pri" @tap="retry"><text>重新生成</text></view>
+      </view>
+    </view>
+
+    <!-- 完成按钮 -->
+    <view v-if="isCompleted" class="done-btns">
+      <view class="done-btn done-btn--sec" @tap="goBack"><text>重新描述</text></view>
+      <view class="done-btn done-btn--pri" @tap="viewResult"><text>查看架构图</text><text class="done-btn-arrow">→</text></view>
+    </view>
+  </view>
+</template>
+
+<script setup>
+import { ref, computed, reactive } from 'vue'
+import { onLoad, onUnload } from '@dcloudio/uni-app'
+import ArchIcon from '../architecturePreview/ArchIcon.vue'
+import {
+  generateArchitecture as requestGenerateArchitecture,
+  mockGenerateArchitecture
+} from '@/api/architecture.js'
+import { getErrorMessage } from '@/api/aiDiagram.js'
+
+const state = reactive({ result: null })
+const isCompleted = ref(false)
+const pageState = ref('loading')
+const errorMessage = ref('')
+
+const layers = computed(() => state.result?.layers || [])
+const thirdParty = computed(() => state.result?.thirdParty || [])
+const features = computed(() => state.result?.features || [])
+
+const steps = [{}, {}, {}, {}, {}]
+const stageIndex = ref(0)
+const stageSubtitle = computed(() => ([
+  '正在理解架构需求…',
+  '正在规划分层骨架…',
+  '正在逐层构建组件…',
+  '正在接入第三方与特性…',
+  '正在整理布局…'
+][stageIndex.value] || ''))
+const waitingText = computed(() => ([
+  '解析系统类型与模块…',
+  '分层骨架已生成…',
+  '逐层填充组件与技术标签…',
+  '接入第三方服务与特性…',
+  '微调布局，准备输出…'
+][stageIndex.value] || ''))
+function stepStatus(idx) {
+  if (idx < stageIndex.value) return 'done'
+  if (idx === stageIndex.value) return 'active'
+  return 'pending'
+}
+const progressPercent = computed(() => {
+  if (isCompleted.value) return 100
+  return [16, 28, 62, 86, 95][stageIndex.value] || 0
+})
+
+// 揭示状态（class 绑定，避免 v-if+v-for 优先级问题）
+const layerIn = reactive({})
+const cardIn = reactive({})
+const arrowIn = reactive({})
+const tpIn = ref(false)
+const tpItemIn = reactive({})
+const featureIn = reactive({})
+const settleOn = ref(false)
+const showRing = ref(true)
+const madeCount = ref(0)
+
+const smooth = ref(false)
+const scale = ref(1)
+const cameraY = ref(0)
+const stageStyle = computed(() => ({
+  transform: `translateY(${cameraY.value}px) scale(${scale.value})`,
+  transformOrigin: '0 0',
+  transition: smooth.value ? 'transform 0.6s cubic-bezier(0.22,1,0.36,1)' : 'none'
+}))
+
+function layerStyle(layer) {
+  return { borderColor: layer.border, background: layer.bg }
+}
+function totalComponents() {
+  return layers.value.reduce((s, l) => s + (l.nodes || []).length, 0) + thirdParty.value.length
+}
+
+function fitStage() {
+  const sys = uni.getSystemInfoSync()
+  const viewH = Math.max(360, sys.windowHeight - 320)
+  uni.createSelectorQuery().select('.g-stage').boundingClientRect(rect => {
+    if (rect && rect.height) {
+      const fit = Math.min(viewH / rect.height, 1)
+      scale.value = Math.max(0.4, Number(fit.toFixed(2)))
+    }
+  }).exec()
+}
+
+// 镜头跟随：让目标 layer 垂直中心对齐 canvas-area 垂直中心
+// 只在换 layer 时调用，避免层内卡片生成时频繁抖动
+function followCamera(layerIdx) {
+  return new Promise(resolve => {
+    const canvasSel = '.canvas-area'
+    const layerSel = `.layer[data-idx="${layerIdx}"]`
+    uni.createSelectorQuery()
+      .select(canvasSel).boundingClientRect()
+      .select(layerSel).boundingClientRect()
+      .exec(res => {
+        const canvas = res && res[0]
+        const layer = res && res[1]
+        if (!canvas || !layer) { resolve(); return }
+        // layer 中心相对 canvas-area 顶部的偏移
+        const layerCenterY = (layer.top - canvas.top) + layer.height / 2
+        // 目标：layer 中心对齐 canvas-area 中心
+        // 当前 stage transform = translateY(cameraY) scale(scale)
+        // layer.top 已是缩放后坐标，故平移量直接用像素差
+        const targetCameraY = canvas.height / 2 - layerCenterY
+        cameraY.value = targetCameraY
+        resolve()
+      })
+  })
+}
+
+// 镜头跟随到第三方服务区域
+function followCameraThirdParty() {
+  return new Promise(resolve => {
+    uni.createSelectorQuery()
+      .select('.canvas-area').boundingClientRect()
+      .select('.third-party').boundingClientRect()
+      .exec(res => {
+        const canvas = res && res[0]
+        const tp = res && res[1]
+        if (!canvas || !tp) { resolve(); return }
+        const tpCenterY = (tp.top - canvas.top) + tp.height / 2
+        cameraY.value = canvas.height / 2 - tpCenterY
+        resolve()
+      })
+  })
+}
+
+let timers = []
+function clearTimers() { timers.forEach(t => clearTimeout(t)); timers = [] }
+function sleep(ms) { return new Promise(r => timers.push(setTimeout(r, ms))) }
+
+async function runAnimation() {
+  smooth.value = false
+  scale.value = 1
+  // 阶段0 等待
+  stageIndex.value = 0
+  showRing.value = true
+  await sleep(600)
+
+  // 阶段1 骨架
+  stageIndex.value = 1
+  showRing.value = false
+  timers.push(setTimeout(() => { showRing.value = false }, 400))
+  for (let li = 0; li < layers.value.length; li++) { layerIn[li] = true; await sleep(90) }
+  await sleep(200)
+
+  // 阶段2 逐层构建
+  stageIndex.value = 2
+  for (let li = 0; li < layers.value.length; li++) {
+    const nodes = layers.value[li].nodes || []
+    // 换 layer 时镜头跟随到当前 layer
+    smooth.value = true
+    await followCamera(li)
+    await sleep(120)
+    for (let ci = 0; ci < nodes.length; ci++) {
+      cardIn[li + '-' + ci] = true
+      madeCount.value += 1
+      await sleep(70)
+    }
+    if (li < layers.value.length - 1) { arrowIn[li] = true; await sleep(60) }
+  }
+
+  // 阶段3 第三方 + 特性
+  stageIndex.value = 3
+  tpIn.value = true
+  // 镜头跟随到第三方区域
+  await followCameraThirdParty()
+  await sleep(150)
+  for (let ti = 0; ti < thirdParty.value.length; ti++) { tpItemIn[ti] = true; madeCount.value += 1; await sleep(70) }
+  for (let fi = 0; fi < features.value.length; fi++) { featureIn[fi] = true; await sleep(60) }
+
+  // 阶段4 布局
+  stageIndex.value = 4
+  settleOn.value = true
+  smooth.value = true
+  // 完成后镜头回到顶部，展示全景
+  cameraY.value = 0
+  fitStage()
+  await sleep(700)
+
+  isCompleted.value = true
+}
+
+async function run() {
+  pageState.value = 'loading'
+  errorMessage.value = ''
+  try {
+    const payload = uni.getStorageSync('aiArchitecturePendingPayload')
+    if (!payload || !payload.description) throw new Error('缺少架构描述')
+    let result
+    try {
+      result = await requestGenerateArchitecture(payload)
+    } catch (error) {
+      if (error?.code || error?.statusCode) throw error
+      result = await mockGenerateArchitecture(payload)
+    }
+    uni.setStorageSync(`aiArchitectureResult:${result.id}`, result)
+    startAnimation(result)
+  } catch (error) {
+    errorMessage.value = getErrorMessage(error, '生成失败，请重试')
+    pageState.value = 'error'
+    uni.showToast({ title: errorMessage.value, icon: 'none', duration: 2500 })
+  }
+}
+
+function startAnimation(result) {
+  state.result = result
+  if (!result.layers || !result.layers.length) {
+    errorMessage.value = 'AI 未生成有效内容，请稍后重试'
+    pageState.value = 'error'
+    return
+  }
+  pageState.value = 'animating'
+  runAnimation()
+}
+
+function revealAll() {
+  layers.value.forEach((l, li) => {
+    layerIn[li] = true
+    ;(l.nodes || []).forEach((n, ci) => { cardIn[li + '-' + ci] = true })
+    if (li < layers.value.length - 1) arrowIn[li] = true
+  })
+  tpIn.value = true
+  thirdParty.value.forEach((t, ti) => { tpItemIn[ti] = true })
+  features.value.forEach((f, fi) => { featureIn[fi] = true })
+  madeCount.value = totalComponents()
+}
+
+function skipAnimation() {
+  clearTimers()
+  revealAll()
+  smooth.value = false
+  cameraY.value = 0
+  fitStage()
+  isCompleted.value = true
+}
+
+function retry() {
+  clearTimers()
+  Object.keys(layerIn).forEach(k => delete layerIn[k])
+  Object.keys(cardIn).forEach(k => delete cardIn[k])
+  Object.keys(arrowIn).forEach(k => delete arrowIn[k])
+  Object.keys(tpItemIn).forEach(k => delete tpItemIn[k])
+  Object.keys(featureIn).forEach(k => delete featureIn[k])
+  tpIn.value = false; settleOn.value = false; isCompleted.value = false
+  madeCount.value = 0; stageIndex.value = 0; scale.value = 1; cameraY.value = 0
+  run()
+}
+
+function viewResult() {
+  const id = state.result?.id
+  if (id != null) {
+    uni.redirectTo({ url: `/subpackage_ai/architecturePreview/architecturePreview?recordId=${encodeURIComponent(id)}&title=${encodeURIComponent(state.result?.title || '')}` })
+  }
+}
+function goBack() { clearTimers(); uni.navigateBack() }
+
+onLoad(() => { run() })
+onUnload(() => { clearTimers() })
+</script>
+
+<style lang="scss" scoped>
+.page { height: 100vh; background: #F4F6F9; display: flex; flex-direction: column; overflow: hidden; }
+
+.header { background: #fff; padding: 28rpx 24rpx 24rpx; position: relative; z-index: 10; }
+.header--error { background: #fff; padding: 28rpx 24rpx 24rpx; position: relative; z-index: 10; }
+.header-back { position: absolute; left: 16rpx; top: 24rpx; width: 56rpx; height: 56rpx; display: flex; align-items: center; justify-content: center; }
+.header-back-icon { font-size: 48rpx; color: #1e344f; font-weight: 300; }
+.header-center { display: flex; flex-direction: column; align-items: center; }
+.header-title-row { display: flex; align-items: center; gap: 8rpx; }
+.header-sparkle { font-size: 26rpx; color: #4D6BFE; }
+.header-title-text { font-size: 30rpx; font-weight: 700; color: #1e344f; }
+.header-title-text--done { font-size: 32rpx; }
+.header-done-icon { font-size: 30rpx; color: #34C759; font-weight: 700; }
+.header-subtitle-text { font-size: 24rpx; color: #8290a1; margin-top: 6rpx; }
+.header-subtitle-text--done { color: #B0B3C5; }
+
+.canvas-area { flex: 1; position: relative; overflow: hidden; }
+.g-stage { position: absolute; left: 0; top: 0; width: 100%; padding: 24rpx 24rpx 40rpx; transform-origin: 0 0; }
+.g-stage.smooth { transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1); }
+
+.layer { border: 2rpx solid #d8dee6; border-radius: 24rpx; padding: 18rpx; margin-bottom: 0; opacity: 0; transform: translateY(14px); transition: opacity 0.34s ease, transform 0.34s ease; }
+.layer.in { opacity: 1; transform: translateY(0); }
+.layer-head { display: flex; align-items: center; gap: 12rpx; margin-bottom: 14rpx; }
+.layer-icon { width: 44rpx; height: 44rpx; border-radius: 14rpx; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.layer-name { font-size: 26rpx; font-weight: 700; }
+.layer-cards { display: flex; flex-wrap: wrap; gap: 14rpx; }
+.arch-card { background: #fff; border: 2rpx solid #e2e8ef; border-radius: 18rpx; padding: 12rpx 16rpx; min-width: 150rpx; opacity: 0; transform: translateY(10px) scale(0.85); transition: opacity 0.34s ease, transform 0.34s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.arch-card.in { opacity: 1; transform: translateY(0) scale(1); }
+.arch-card-name { font-size: 24rpx; font-weight: 700; color: #1e344f; display: block; }
+.arch-card-desc { font-size: 20rpx; color: #8290a1; display: block; margin-top: 4rpx; max-width: 220rpx; }
+.arch-card-tech { display: flex; gap: 8rpx; margin-top: 8rpx; flex-wrap: wrap; }
+.tech { font-size: 18rpx; padding: 2rpx 10rpx; border-radius: 10rpx; border: 2rpx solid; }
+.layer-arrow { display: flex; flex-direction: column; align-items: center; height: 36rpx; opacity: 0; transition: opacity 0.3s; }
+.layer-arrow.in { opacity: 1; }
+.layer-arrow-line { width: 4rpx; height: 22rpx; background: #b9c6d6; }
+.layer-arrow-head { color: #b9c6d6; font-size: 18rpx; line-height: 1; margin-top: -4rpx; }
+
+.third-party { border: 2rpx dashed #c3d0de; border-radius: 24rpx; padding: 18rpx; margin-top: 20rpx; opacity: 0; transform: translateX(20px); transition: opacity 0.34s ease, transform 0.34s ease; }
+.third-party.in { opacity: 1; transform: translateX(0); }
+.tp-title { font-size: 24rpx; font-weight: 700; color: #58728c; margin-bottom: 14rpx; display: block; }
+.tp-grid { display: flex; flex-wrap: wrap; gap: 14rpx; }
+.tp-item { display: flex; align-items: center; gap: 10rpx; background: #fff; border: 2rpx solid #e2e8ef; border-radius: 18rpx; padding: 10rpx 16rpx; opacity: 0; transform: scale(0.85); transition: opacity 0.34s ease, transform 0.34s ease; }
+.tp-item.in { opacity: 1; transform: scale(1); }
+.tp-icon { width: 36rpx; height: 36rpx; border-radius: 10rpx; background: #64748B; display: flex; align-items: center; justify-content: center; }
+.tp-name { font-size: 22rpx; font-weight: 600; }
+
+.features-row { display: flex; flex-wrap: wrap; gap: 16rpx; margin-top: 20rpx; justify-content: center; }
+.feature-item { display: flex; align-items: center; gap: 8rpx; opacity: 0; transform: scale(0.8); transition: opacity 0.34s ease, transform 0.34s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.feature-item.in { opacity: 1; transform: scale(1); }
+.feature-check { width: 26rpx; height: 26rpx; border-radius: 50%; background: #34C759; display: flex; align-items: center; justify-content: center; }
+.feature-check-icon { color: #fff; font-size: 16rpx; }
+.feature-text { font-size: 22rpx; color: #58728c; font-weight: 600; }
+
+.g-stage.settle .arch-card, .g-stage.settle .layer { animation: archGlow 0.46s ease-in-out 1; }
+@keyframes archGlow { 0%, 100% { filter: brightness(1); } 45% { filter: brightness(1.08); } }
+
+.wait-ring { position: absolute; left: 50%; top: 40%; width: 148rpx; height: 148rpx; transform: translate(-50%, -50%); transition: opacity 0.3s; }
+.wait-ring.hidden { opacity: 0; }
+.wait-ring i { position: absolute; inset: 0; border: 4rpx solid rgba(77, 107, 254, 0.5); border-radius: 50%; animation: archRing 1.9s ease-out infinite; }
+.wait-ring i:nth-child(2) { animation-delay: 0.65s; }
+.wait-ring b { position: absolute; left: 50%; top: 50%; width: 20rpx; height: 20rpx; transform: translate(-50%, -50%); background: #4D6BFE; border-radius: 50%; animation: archCore 1.9s ease-in-out infinite; }
+@keyframes archRing { 0% { transform: scale(0.25); opacity: 0.9; } 100% { transform: scale(1.15); opacity: 0; } }
+@keyframes archCore { 0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.85; } 50% { transform: translate(-50%, -50%) scale(1.5); opacity: 1; } }
+
+.skip-btn { position: absolute; right: 24rpx; bottom: 24rpx; z-index: 20; padding: 10rpx 24rpx; background: rgba(255, 255, 255, 0.92); border: 2rpx solid #e2e8ef; border-radius: 999rpx; font-size: 24rpx; color: #58728c; }
+
+.bottom-steps { display: flex; align-items: center; justify-content: center; gap: 18rpx; padding: 16rpx 0 8rpx; }
+.bottom-step-dot { width: 18rpx; height: 18rpx; border-radius: 50%; background: #d8dee6; display: flex; align-items: center; justify-content: center; }
+.bottom-step-dot--done { background: #34C759; }
+.bottom-step-check { color: #fff; font-size: 12rpx; font-weight: 700; }
+.bottom-step-dot--active { background: #4D6BFE; animation: archStep 1.2s ease-in-out infinite; }
+@keyframes archStep { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.2); } }
+
+.status-float { padding: 0 24rpx 20rpx; }
+.status-float-inner { background: #fff; border-radius: 24rpx; padding: 24rpx 28rpx; box-shadow: 0 4rpx 24rpx rgba(77, 107, 254, 0.1); }
+.status-float-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8rpx; }
+.status-float-label { font-size: 26rpx; font-weight: 700; color: #1e344f; }
+.status-float-dots { display: flex; gap: 5rpx; }
+.status-float-dot { width: 8rpx; height: 8rpx; border-radius: 50%; background: #4D6BFE; animation: archDot 1.4s ease-in-out infinite; }
+.status-float-dot:nth-child(2) { animation-delay: 0.2s; }
+.status-float-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes archDot { 0%, 80%, 100% { transform: scale(0.5); opacity: 0.3; } 40% { transform: scale(1); opacity: 1; } }
+.status-float-msg { display: block; font-size: 24rpx; color: #8290a1; margin-bottom: 14rpx; }
+.status-float-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10rpx; }
+.status-float-count { font-size: 22rpx; color: #58728c; }
+.status-float-pct { font-size: 22rpx; color: #3E5BD9; font-weight: 700; }
+.status-float-bar { height: 10rpx; background: #eef1f6; border-radius: 5rpx; overflow: hidden; }
+.status-float-bar-fill { height: 100%; background: linear-gradient(90deg, #4D6BFE, #6366F1); border-radius: 5rpx; transition: width 0.6s ease; }
+
+.done-btns { display: flex; gap: 20rpx; padding: 0 24rpx 32rpx; }
+.done-btn { flex: 1; padding: 26rpx; border-radius: 24rpx; display: flex; align-items: center; justify-content: center; gap: 8rpx; font-size: 28rpx; font-weight: 600; }
+.done-btn--sec { background: #fff; color: #1e344f; border: 2rpx solid #e2e8ef; }
+.done-btn--pri { background: #4D6BFE; color: #fff; }
+.done-btn-arrow { font-size: 28rpx; margin-left: 4rpx; }
+
+.error-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80rpx 48rpx; }
+.error-icon { font-size: 96rpx; margin-bottom: 24rpx; }
+.error-title { font-size: 36rpx; font-weight: 700; color: #1e344f; margin-bottom: 16rpx; }
+.error-msg { font-size: 26rpx; color: #8290a1; text-align: center; line-height: 1.6; margin-bottom: 48rpx; word-break: break-all; }
+.error-actions { display: flex; gap: 20rpx; width: 100%; max-width: 560rpx; }
+.error-btn { flex: 1; padding: 26rpx; border-radius: 24rpx; display: flex; align-items: center; justify-content: center; font-size: 28rpx; font-weight: 600; }
+.error-btn--sec { background: #fff; color: #1e344f; border: 2rpx solid #e2e8ef; }
+.error-btn--pri { background: #4D6BFE; color: #fff; }
+</style>

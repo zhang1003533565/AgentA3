@@ -39,7 +39,7 @@ public class TradeServiceImpl implements TradeService {
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final List<TradeStatus> ACTIVE_STATUSES = Arrays.asList(TradeStatus.WAIT_CONFIRM, TradeStatus.TRADING);
     private static final int ITEM_ON_SALE = 2;
-    private static final int ITEM_SOLD = 3;
+    private static final int ITEM_OFFLINE = 4;
     private static final String CONTACT_EXCHANGE_NONE = "NONE";
     private static final String CONTACT_EXCHANGE_REQUESTED = "REQUESTED";
     private static final String CONTACT_EXCHANGE_EXCHANGED = "EXCHANGED";
@@ -112,7 +112,7 @@ public class TradeServiceImpl implements TradeService {
         if (tradeRecord.getStatus() != TradeStatus.TRADING) {
             throw new BusinessException(400, "只有交易中记录可以完成");
         }
-        int updated = itemRepository.updateStatusIfCurrent(tradeRecord.getItemId(), ITEM_ON_SALE, ITEM_SOLD);
+        int updated = itemRepository.updateStatusIfCurrent(tradeRecord.getItemId(), ITEM_ON_SALE, ITEM_OFFLINE);
         if (updated != 1) {
             throw new BusinessException(400, "商品状态异常，无法完成交易");
         }

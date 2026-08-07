@@ -186,11 +186,13 @@ public class SecondhandController {
             @RequestParam(required = false) Long categoryId,
             @Parameter(description = "物品状态")
             @RequestParam(required = false) Integer status,
+            @Parameter(description = "交易类型: sell-出物 buy-收物")
+            @RequestParam(required = false) String tradeType,
             @Parameter(description = "发布者ID")
             @RequestParam(required = false) Long userId,
             HttpServletRequest httpRequest) {
         if (!isAdmin(httpRequest)) throw new BusinessException(Result.FORBIDDEN_CODE, "无权限");
-        return Result.success(secondhandService.getAdminList(current, size, keyword, categoryId, status, userId));
+        return Result.success(secondhandService.getAdminList(current, size, keyword, categoryId, status, tradeType, userId));
     }
 
     @PutMapping("/item/batch")
