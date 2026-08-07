@@ -11,6 +11,7 @@ import {
   Popconfirm,
   Select,
   Space,
+  Spin,
   Table,
   Tag,
   Tabs,
@@ -20,6 +21,7 @@ import {
 import {
   ArrowLeftOutlined,
   AimOutlined,
+  CameraOutlined,
   DeleteOutlined,
   EditOutlined,
   PlusOutlined,
@@ -841,15 +843,60 @@ export default function StallManage() {
           </div>
         </div>
         {selectedStall ? (
-          <Table
-            rowKey="id"
-            columns={dishColumns}
-            dataSource={filteredDishes}
-            loading={dishLoading}
-            pagination={false}
-            locale={{ emptyText: '该档口暂无菜品' }}
-            scroll={{ x: 860 }}
-          />
+          dishLoading ? (
+            <Spin tip="加载中..." className="stall-empty"><div style={{ minHeight: 200 }} /></Spin>
+          ) : filteredDishes.length === 0 ? (
+            <Empty description="该档口暂无菜品" className="stall-empty" />
+          ) : (
+            <div className="dish-card-grid">
+              {filteredDishes.map((dish) => (
+                <Card
+                  key={dish.id}
+                  className="dish-list-card"
+                  bodyStyle={{ padding: 0 }}
+                >
+                  <div className="dish-card-cover">
+                    {dish.imageUrl ? (
+                      <Image
+                        src={dish.imageUrl}
+                        className="dish-card-img"
+                        preview={false}
+                      />
+                    ) : (
+                      <div className="dish-card-img-placeholder">
+                        <CameraOutlined />
+                      </div>
+                    )}
+                    <div className="dish-card-cover-tags">
+                      {dish.isAvailable !== false ? (
+                        <Tag color="success" className="dish-status-tag">上架</Tag>
+                      ) : (
+                        <Tag color="default" className="dish-status-tag">下架</Tag>
+                      )}
+                    </div>
+                  </div>
+                  <div className="dish-card-body">
+                    <div className="dish-card-title-row">
+                      <h3 className="dish-card-name" title={dish.name}>{dish.name}</h3>
+                      <span className="dish-card-price">¥{Number(dish.price || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="dish-card-meta-row">
+                      {dish.category && <Tag className="dish-card-tag">{dish.category}</Tag>}
+                      {dish.taste && <span className="dish-card-taste">{dish.taste}</span>}
+                    </div>
+                    <div className="dish-card-actions">
+                      <Button size="small" icon={<EditOutlined />} onClick={() => openEditDish(dish)}>
+                        编辑
+                      </Button>
+                      <Popconfirm title="确定删除该菜品吗？" onConfirm={() => removeDish(dish)}>
+                        <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                      </Popconfirm>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )
         ) : (
           <Empty description="选择档口后在这里管理菜品" className="stall-empty" />
         )}
