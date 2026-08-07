@@ -84,15 +84,6 @@
                       </view>
                     </view>
                   </view>
-
-                  <!-- 层间连接箭头（右侧） -->
-                  <view
-                    v-if="layerIdx < architectureData.layers.length - 1"
-                    class="layer-arrow"
-                  >
-                    <view class="layer-arrow-line"></view>
-                    <view class="layer-arrow-head">▼</view>
-                  </view>
                 </template>
               </view>
 
@@ -132,34 +123,12 @@
       </scroll-view>
     </view>
 
-    <!-- 底部操作栏（仿 mindmap 胶囊） -->
-    <view class="bottom-bar">
-      <view class="bottom-pill">
-        <!-- 重新生成 -->
-        <view class="bottom-action" @tap="regenerate">
-          <view class="action-icon-box action-icon-box--regen">
-            <view class="regen-icon-shape"></view>
-          </view>
-          <text class="action-label action-label--regen">重新生成</text>
-        </view>
-        <view class="bottom-divider"></view>
-        <!-- 保存图片 -->
-        <view class="bottom-action" @tap="exportImage">
-          <view class="action-icon-box">
-            <view class="save-icon-shape"></view>
-          </view>
-          <text class="action-label">保存图片</text>
-        </view>
-        <view class="bottom-divider"></view>
-        <!-- 分享 -->
-        <view class="bottom-action" @tap="share">
-          <view class="action-icon-box">
-            <view class="share-icon-shape"></view>
-          </view>
-          <text class="action-label">分享</text>
-        </view>
-      </view>
-    </view>
+    <!-- 底部操作栏 -->
+    <AiResultBar
+      @export="exportImage"
+      @optimize="regenerate"
+      @share="share"
+    />
   </view>
 </template>
 
@@ -167,8 +136,12 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import ArchIcon from './ArchIcon.vue'
+import AiResultBar from '../components/AiResultBar.vue'
 import { DEFAULT_ARCHITECTURE_DATA } from './architectureData.js'
 import { getArchitectureDetail, normalizeArchitectureResult } from '@/api/architecture.js'
+// #ifdef H5
+import { domToPng } from '../components/domToPng.js'
+// #endif
 
 // 缩放参数（参考 mindmapViewer）
 const MIN_SCALE = 0.4
@@ -381,7 +354,33 @@ function onCardTap(layer, node) {
 
 function share() { uni.showToast({ title: '分享能力预留', icon: 'none' }) }
 function regenerate() { uni.navigateBack() }
-function exportImage() { uni.showToast({ title: '导出功能预留', icon: 'none' }) }
+function exportImage() {
+  // #ifdef H5
+  if (!architectureData.value.layers?.length) {
+    uni.showToast({ title: '暂无数据', icon: 'none' })
+    return
+  }
+  uni.showLoading({ title: '导出中...' })
+  domToPng('.diagram-stage', {
+    width: stageSize.value.width,
+    height: stageSize.value.height,
+    title: architectureData.value.title,
+    filename: architectureData.value.title
+  })
+    .then(() => {
+      uni.hideLoading()
+      uni.showToast({ title: '已导出 PNG', icon: 'success' })
+    })
+    .catch(err => {
+      uni.hideLoading()
+      console.error('[导出失败]', err)
+      uni.showToast({ title: '导出失败，请重试', icon: 'none' })
+    })
+  // #endif
+  // #ifndef H5
+  uni.showToast({ title: '请在 H5 端导出', icon: 'none' })
+  // #endif
+}
 
 // 加载后端数据
 async function loadArchitecture() {
@@ -572,10 +571,11 @@ loadArchitecture()
   background: #FAFBFC;
 }
 
+/* canvas-content 尺寸 = stage × scale，padding-bottom 200rpx 避让底部 AiResultBar */
 .canvas-content {
   position: relative;
   flex-shrink: 0;
-  padding-bottom: 160rpx;
+  padding-bottom: 200rpx;
 }
 
 .diagram-stage {
@@ -589,8 +589,8 @@ loadArchitecture()
 .diagram-wrap {
   position: relative;
   display: flex;
-  flex-direction: row;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: stretch;
   gap: 16rpx;
   padding: 16rpx 24rpx;
   box-sizing: border-box;
@@ -721,47 +721,24 @@ loadArchitecture()
   line-height: 1.3;
 }
 
-.layer-arrow {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: flex-end;
-  height: 32rpx;
-  padding-right: 60rpx;
-}
-
-.layer-arrow-line {
-  width: 2rpx;
-  height: 14rpx;
-  background: #9CA3AF;
-  opacity: 0.6;
-  margin-right: 4rpx;
-}
-
-.layer-arrow-head {
-  font-size: 22rpx;
-  color: #9CA3AF;
-  line-height: 1;
-  font-weight: 600;
-}
-
 .third-party {
-  width: 180rpx;
+  width: 100%;
   flex-shrink: 0;
   background: #FFFFFF;
   border-radius: 16rpx;
   border: 2rpx solid #E5E7EB;
-  padding: 20rpx 12rpx;
+  padding: 20rpx;
   box-sizing: border-box;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 20rpx;
+  gap: 16rpx;
   box-shadow: 0 2rpx 8rpx rgba(15, 23, 42, 0.04);
-  border-left: 2rpx dashed #9CA3AF;
 }
 
 .third-party-title {
+  width: 100%;
   font-size: 24rpx;
   font-weight: 700;
   color: #1F2937;
@@ -770,37 +747,68 @@ loadArchitecture()
 
 .third-party-item {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 6rpx;
-  width: 100%;
+  gap: 12rpx;
+  background: #F9FAFB;
+  border: 1rpx solid #EEF1F4;
+  border-radius: 12rpx;
+  padding: 10rpx 16rpx;
 }
 
 .third-party-icon {
-  width: 56rpx;
-  height: 56rpx;
+  width: 44rpx;
+  height: 44rpx;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .third-party-name {
   font-size: 22rpx;
   font-weight: 700;
   color: #1F2937;
-  text-align: center;
+  text-align: left;
   line-height: 1.3;
 }
 
 .third-party-desc {
-  font-size: 18rpx;
-  color: #6B7280;
-  text-align: center;
-  line-height: 1.4;
-  white-space: pre-line;
-  word-break: break-all;
+  display: none;
 }
+
+/* ===== 底部特性标签（居中胶囊） ===== */
+.features-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;
+  padding: 8rpx 24rpx 24rpx;
+}
+.feature-item {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  background: #FFFFFF;
+  border: 1rpx solid #E5E7EB;
+  border-radius: 999rpx;
+  padding: 8rpx 20rpx;
+}
+.feature-check {
+  width: 30rpx;
+  height: 30rpx;
+  border-radius: 50%;
+  background: #E8F8F0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.feature-check-icon { color: #10B981; font-size: 20rpx; line-height: 1; }
+.feature-text { font-size: 22rpx; color: #374151; font-weight: 600; }
+.feature-dot { display: none; }
 
 /* ===== 缩放控制（悬浮右上角） ===== */
 .zoom-controls { position: fixed; top: 200rpx; right: 24rpx; z-index: 90; display: flex; flex-direction: column; align-items: center; gap: 10rpx; background: #fff; border-radius: 16rpx; padding: 12rpx 10rpx; box-shadow: 0 4rpx 20rpx rgba(0, 0, 0, 0.08); }
@@ -808,167 +816,6 @@ loadArchitecture()
 .zoom-btn-text { font-size: 30rpx; color: #58728c; line-height: 1; }
 .zoom-value { font-size: 20rpx; color: #8290a1; }
 
-/* ===== 底部操作栏（仿 mindmap 胶囊） ===== */
-.bottom-bar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 100;
-  display: flex;
-  justify-content: center;
-  align-items: flex-end;
-  padding: 16rpx 24rpx calc(20rpx + env(safe-area-inset-bottom));
-  background: linear-gradient(180deg, rgba(250, 251, 252, 0) 0%, rgba(250, 251, 252, 0.85) 40%, rgba(250, 251, 252, 0.95) 100%);
-  box-sizing: border-box;
-  pointer-events: none;
-}
-
-.bottom-pill {
-  pointer-events: auto;
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  width: 100%;
-  max-width: 680rpx;
-  height: 110rpx;
-  background: #FFFFFF;
-  border-radius: 55rpx;
-  box-shadow: 0 4rpx 24rpx rgba(0, 0, 0, 0.08);
-  padding: 0 20rpx;
-  box-sizing: border-box;
-}
-
-.bottom-action {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4rpx;
-  padding: 10rpx 0;
-}
-
-.bottom-action:active {
-  opacity: 0.65;
-}
-
-.bottom-divider {
-  width: 1rpx;
-  height: 40rpx;
-  background: #ECECF0;
-  flex-shrink: 0;
-}
-
-.action-icon-box {
-  width: 60rpx;
-  height: 60rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-.action-icon-box--regen {
-  background: radial-gradient(circle, rgba(139, 92, 246, 0.12) 0%, transparent 70%);
-}
-
-/* 保存图标 — 软盘 */
-.save-icon-shape {
-  width: 26px;
-  height: 26px;
-  border: 2px solid #5A5D7E;
-  border-radius: 3px;
-  position: relative;
-  box-sizing: border-box;
-}
-
-.save-icon-shape::before {
-  content: '';
-  position: absolute;
-  top: 4px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 10px;
-  height: 8px;
-  border: 2px solid #5A5D7E;
-  border-radius: 1px;
-}
-
-.save-icon-shape::after {
-  content: '';
-  position: absolute;
-  bottom: 3px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 14px;
-  height: 7px;
-  background: #5A5D7E;
-  border-radius: 1px;
-}
-
-/* 重新生成图标 — 循环箭头 */
-.regen-icon-shape {
-  width: 26px;
-  height: 26px;
-  border: 2.5px solid #7C5FE0;
-  border-top-color: transparent;
-  border-radius: 50%;
-  position: relative;
-  box-sizing: border-box;
-}
-
-.regen-icon-shape::before {
-  content: '';
-  position: absolute;
-  top: -2px;
-  right: -1px;
-  width: 0;
-  height: 0;
-  border-left: 7px solid #7C5FE0;
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
-}
-
-/* 分享图标 — 链接 */
-.share-icon-shape {
-  width: 26px;
-  height: 26px;
-  position: relative;
-}
-
-.share-icon-shape::before {
-  content: '';
-  position: absolute;
-  top: 1px;
-  right: 1px;
-  width: 11px;
-  height: 11px;
-  border: 2px solid #5A5D7E;
-  border-radius: 50%;
-}
-
-.share-icon-shape::after {
-  content: '';
-  position: absolute;
-  bottom: 1px;
-  left: 1px;
-  width: 11px;
-  height: 11px;
-  border: 2px solid #5A5D7E;
-  border-radius: 50%;
-}
-
-.action-label {
-  font-size: 22rpx;
-  color: #5A5D7E;
-  font-weight: 400;
-}
-
-.action-label--regen {
-  color: #7C5FE0;
-  font-weight: 500;
-}
+/* 底部操作栏样式已抽到 subpackage_ai/components/AiResultBar.vue
+   这里不再写底部栏 CSS，由组件提供 */
 </style>

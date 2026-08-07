@@ -1,59 +1,117 @@
 <template>
 	<view class="meeting-app-page">
-		<nav-bar title="会议" :showBack="true" fixed placeholder :border="false" background="#FFFFFF">
-			<template #right>
-				<view class="top-actions">
-					<view class="round-calendar" @click="go('/subpackage_meeting/meetingSchedule/meetingSchedule')">▣</view>
-					<view class="round-plus" @click="go('/subpackage_meeting/startMeeting/startMeeting')">+</view>
-				</view>
-			</template>
-		</nav-bar>
+		<nav-bar title="会议" :showBack="true" fixed placeholder :border="false" background="#FFFFFF" />
 
-		<view class="meeting-body">
-			<view class="quick-row">
-				<view class="quick-item" @click="go('/subpackage_meeting/startMeeting/startMeeting')">
-					<view class="quick-icon">▶</view>
-					<text>发起会议</text>
-				</view>
-				<view class="quick-item" @click="go('/subpackage_meeting/reserveMeeting/reserveMeeting')">
-					<view class="quick-icon">▣</view>
-					<text>预约会议</text>
-				</view>
-				<view class="quick-item" @click="go('/subpackage_meeting/joinMeeting/joinMeeting')">
-					<view class="quick-icon">+</view>
-					<text>加入会议</text>
-				</view>
-			</view>
-
-			<view class="date-line">
-				<text>{{ todayLabel }}</text>
-				<view class="history-entry" @click="go('/subpackage_meeting/meetingHistory/meetingHistory')">历史会议 ></view>
-			</view>
-
-			<view class="meeting-list">
-				<view v-if="loading" class="empty-state">正在加载会议...</view>
-				<view v-else-if="todayMeetingList.length === 0" class="empty-state">暂无会议，先发起或预约一场会议吧。</view>
-				<view
-					v-for="meeting in todayMeetingList"
-					v-else
-					:key="meeting.sessionId"
-					class="meeting-item"
-					:class="{ 'meeting-item--active': meeting.status === 'active' }"
-					@click="openDetail(meeting)"
-				>
-					<view>
-						<text class="meeting-name">{{ meeting.title || '未命名会议' }}</text>
-						<text class="meeting-time">{{ meetingTime(meeting) }}</text>
-						<text class="meeting-code">会议号：{{ formatRoomCode(meeting.roomCode) }}</text>
+		<scroll-view class="meeting-scroll" scroll-y>
+			<view class="meeting-body">
+				<!-- 快捷入口 -->
+				<view class="quick-row">
+					<view class="quick-item" @click="go('/subpackage_meeting/startMeeting/startMeeting')">
+						<view class="quick-icon quick-icon--start">
+							<image class="quick-icon__img" src="@/static/icons/camera.svg" mode="aspectFit" />
+						</view>
+						<text class="quick-label">发起会议</text>
 					</view>
+					<view class="quick-item" @click="go('/subpackage_meeting/reserveMeeting/reserveMeeting')">
+						<view class="quick-icon quick-icon--reserve">
+							<image class="quick-icon__img" src="@/static/icons/line/calendar.svg" mode="aspectFit" />
+						</view>
+						<text class="quick-label">预约会议</text>
+					</view>
+					<view class="quick-item" @click="go('/subpackage_meeting/joinMeeting/joinMeeting')">
+						<view class="quick-icon quick-icon--join">
+							<image class="quick-icon__img" src="@/static/icons/line/login.svg" mode="aspectFit" />
+						</view>
+						<text class="quick-label">加入会议</text>
+					</view>
+				</view>
+
+				<!-- 即将开始 -->
+				<view class="section">
+					<view class="section-header">
+						<text class="section-title">即将开始</text>
+						<text class="section-date">{{ todayLabel }}</text>
+					</view>
+					<view v-if="loading" class="section-empty">正在加载...</view>
+					<view v-else-if="upcomingMeetings.length === 0" class="section-empty">暂无即将开始的会议</view>
 					<view
-						class="pill"
-						:class="{ 'pill--live': meeting.status === 'active' }"
-						@click.stop="enterMeeting(meeting)"
-					>{{ meeting.status === 'active' ? '进行中' : '加入' }}</view>
+						v-for="meeting in upcomingMeetings"
+						v-else
+						:key="meeting.sessionId"
+						class="meeting-item"
+						@click="openDetail(meeting)"
+					>
+						<view class="meeting-info">
+							<view class="meeting-title-row">
+								<view class="status-dot" :class="`status-dot--${meeting.status}`" />
+								<text class="meeting-name">{{ meeting.title || '未命名会议' }}</text>
+							</view>
+							<view class="meeting-meta">
+								<image class="meta-icon" src="@/static/icons/line/clock.svg" mode="aspectFit" />
+								<text>{{ meetingTime(meeting) }}</text>
+							</view>
+							<view class="meeting-meta">
+								<image class="meta-icon" src="@/static/icons/line/id-card.svg" mode="aspectFit" />
+								<text>会议号 {{ formatRoomCode(meeting.roomCode) }}</text>
+							</view>
+						</view>
+						<!-- 右侧操作区 - 固定宽度保证对齐 -->
+						<view class="action-side">
+							<!-- 统一容器，所有内容在这个高度内靠右排列 -->
+							<view class="action-content">
+								<template v-if="meeting.status === 'active'">
+									<!-- 状态标签 -->
+									<view class="status-tag">进行中</view>
+									<!-- 进入按钮 -->
+									<view
+										class="action-btn action-btn--primary"
+										@click.stop="enterMeeting(meeting)"
+									>
+										<text>进入</text>
+									</view>
+								</template>
+								<text v-else class="action-text action-text--pending">待开始</text>
+							</view>
+						</view>
+					</view>
+				</view>
+
+				<!-- 历史记录 -->
+				<view class="section">
+					<view class="section-title">历史记录</view>
+					<view v-if="historyMeetings.length === 0" class="section-empty">暂无历史记录</view>
+					<view
+						v-for="meeting in historyMeetings"
+						v-else
+						:key="meeting.sessionId"
+						class="meeting-item"
+						@click="openDetail(meeting)"
+					>
+						<view class="meeting-info">
+							<view class="meeting-title-row">
+								<view class="status-dot status-dot--ended" />
+								<text class="meeting-name">{{ meeting.title || '未命名会议' }}</text>
+							</view>
+							<view class="meeting-meta">
+								<image class="meta-icon" src="@/static/icons/line/clock.svg" mode="aspectFit" />
+								<text>{{ historyTime(meeting) }}</text>
+							</view>
+							<view class="meeting-meta">
+								<image class="meta-icon" src="@/static/icons/line/id-card.svg" mode="aspectFit" />
+								<text>会议号 {{ formatRoomCode(meeting.roomCode) }}</text>
+							</view>
+						</view>
+						<!-- 右侧操作区 - 固定宽度保证对齐 -->
+						<view class="action-side">
+							<!-- 统一容器，所有内容在这个高度内居中 -->
+							<view class="action-content">
+								<text class="action-text action-text--ended">已结束</text>
+							</view>
+						</view>
+					</view>
 				</view>
 			</view>
-		</view>
+		</scroll-view>
 	</view>
 </template>
 
@@ -73,14 +131,16 @@ export default {
 		this.loadMeetings()
 	},
 	computed: {
-		todayLabel() {
-			const now = new Date()
-			const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
-			return `今天 · ${now.getMonth() + 1}月${now.getDate()}日 ${weekdays[now.getDay()]}`
-		},
-		// 核心：过滤，首页只保留 待开始 / 进行中，剔除已结束
-		todayMeetingList() {
+		upcomingMeetings() {
 			return this.meetings.filter(item => item.status !== 'ended')
+		},
+		historyMeetings() {
+			return this.meetings.filter(item => item.status === 'ended')
+		},
+		todayLabel() {
+			const date = new Date()
+			const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
+			return `${date.getMonth() + 1}月${date.getDate()}日 ${weekdays[date.getDay()]}`
 		}
 	},
 	methods: {
@@ -90,7 +150,7 @@ export default {
 		async loadMeetings() {
 			this.loading = true
 			try {
-				const res = await getMeetings({ pageNum: 1, pageSize: 20 })
+				const res = await getMeetings({ pageNum: 1, pageSize: 50 })
 				this.meetings = res?.data?.records || []
 			} catch (error) {
 				this.meetings = []
@@ -118,80 +178,286 @@ export default {
 			const code = roomCode || '未生成'
 			return code.replace(/(.{3})/g, '$1 ').trim()
 		},
-		meetingTime(meeting) {
-			const source = meeting.scheduledStartTime || meeting.startTime || meeting.createTime
-			if (!source) return meeting.meetingType === 'reserved' ? '待开始' : '会议中'
+		formatTime(source) {
+			if (!source) return ''
 			const date = new Date(source)
-			if (Number.isNaN(date.getTime())) return meeting.meetingType === 'reserved' ? '待开始' : '会议中'
+			if (Number.isNaN(date.getTime())) return ''
 			const hh = String(date.getHours()).padStart(2, '0')
 			const mm = String(date.getMinutes()).padStart(2, '0')
-			return meeting.meetingType === 'reserved' && meeting.status !== 'active' ? `${hh}:${mm} 预约` : `${hh}:${mm} 开始`
+			return `${hh}:${mm}`
+		},
+		meetingTime(meeting) {
+			const source = meeting.scheduledStartTime || meeting.startTime
+			const time = this.formatTime(source)
+			if (!time) return '时间待定'
+			return `${time} 开始`
+		},
+		historyTime(meeting) {
+			const source = meeting.endTime || meeting.startTime || meeting.createTime
+			if (!source) return ''
+			const date = new Date(source)
+			if (Number.isNaN(date.getTime())) return ''
+			const now = new Date()
+			const isYesterday = date.getDate() === now.getDate() - 1 && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear()
+			const hh = String(date.getHours()).padStart(2, '0')
+			const mm = String(date.getMinutes()).padStart(2, '0')
+			if (isYesterday) return `昨天 ${hh}:${mm}`
+			return `${date.getMonth() + 1}月${date.getDate()}日 ${hh}:${mm}`
 		}
 	}
 }
 </script>
 
 <style lang="scss" scoped>
-.meeting-app-page { min-height: 100vh; background: #f5f7fa; color: #101820; }
-.meeting-body { padding: 8rpx 28rpx 72rpx; box-sizing: border-box; }
-.top-actions {
-	display: flex;
-	align-items: center;
+$primary: #3B82F6;
+$primary-deep: #2563EB;
+$primary-light: #EFF6FF;
+$success: #22C55E;
+$text-main: #1F2937;
+$text-secondary: #6B7280;
+$text-muted: #9CA3AF;
+$bg-page: #F8FAFC;
+$card-radius: 24rpx;
+
+.meeting-app-page {
+	height: 100vh;
+	background: $bg-page;
+	color: $text-main;
+}
+
+.meeting-scroll {
+	height: calc(100vh - var(--window-top, 0px));
+}
+
+.meeting-body {
+	padding: 24rpx 32rpx 48rpx;
+	box-sizing: border-box;
+}
+
+/* 快捷入口 */
+.quick-row {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
 	gap: 20rpx;
+	margin: 36rpx 0 48rpx;
 }
-.round-plus {
-	width: 38rpx;
-	height: 38rpx;
+
+.quick-item {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 18rpx;
+	padding: 32rpx 0;
+	background: #fff;
+	border-radius: $card-radius;
+	box-shadow: 0 8rpx 28rpx rgba(59, 130, 246, 0.08);
+}
+
+.quick-icon {
+	width: 96rpx;
+	height: 96rpx;
 	border-radius: 50%;
-	background: #86C9A8;
-	color: #fff;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	font-size: 32rpx;
-	line-height: 1;
-}
-.round-calendar {
-	width: 38rpx;
-	height: 38rpx;
-	border-radius: 50%;
-	background: #86C9A8;
-	color: #fff;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	font-size: 28rpx;
-	line-height: 1;
+
+	&--start {
+		background: linear-gradient(135deg, #3B82F6, #60A5FA);
+		box-shadow: 0 12rpx 28rpx rgba(59, 130, 246, 0.28);
+	}
+
+	&--reserve {
+		background: linear-gradient(135deg, #0EA5E9, #38BDF8);
+		box-shadow: 0 12rpx 28rpx rgba(14, 165, 233, 0.24);
+	}
+
+	&--join {
+		background: linear-gradient(135deg, #6366F1, #818CF8);
+		box-shadow: 0 12rpx 28rpx rgba(99, 102, 241, 0.24);
+	}
 }
 
-/* 快捷功能按钮 - 统一浅薄荷主题色 */
-.quick-row { display: grid; grid-template-columns: repeat(3, 1fr); margin: 48rpx 8rpx 46rpx; }
-.quick-item { display: flex; flex-direction: column; align-items: center; gap: 16rpx; color: #121b22; font-size: 24rpx; font-weight: 700; }
-.quick-icon { width: 72rpx; height: 72rpx; border-radius: 20rpx; background: linear-gradient(135deg,#86C9A8,#A8DDC2); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 34rpx; box-shadow: 0 12rpx 24rpx rgba(134, 201, 168,.16); }
+.quick-icon__img {
+	width: 44rpx;
+	height: 44rpx;
+	filter: brightness(0) invert(1);
+}
 
-.date-line {
-	margin-bottom: 18rpx;
+.quick-label {
 	font-size: 26rpx;
-	color: #1e2930;
+	font-weight: 600;
+	color: $text-main;
+}
+
+/* 分区 */
+.section {
+	margin-bottom: 40rpx;
+}
+
+.section-header {
 	display: flex;
-	justify-content: space-between;
-	align-items: center;
+	align-items: baseline;
+	gap: 16rpx;
+	margin-bottom: 24rpx;
 }
-.history-entry {
+
+.section-title {
+	font-size: 34rpx;
+	font-weight: 800;
+	color: $text-main;
+}
+
+.section-date {
 	font-size: 24rpx;
-	color: #86C9A8;
+	font-weight: 500;
+	color: $text-secondary;
 }
 
-/* 会议列表卡片 */
-.meeting-list { border-radius: 26rpx; overflow: hidden; background: #fff; }
-.empty-state { padding: 38rpx 24rpx; color: #68747a; font-size: 25rpx; text-align: center; }
-.meeting-item { min-height: 126rpx; padding: 24rpx 28rpx; display: flex; align-items: flex-start; justify-content: space-between; border-bottom: 1rpx solid #EEEEEE; box-sizing: border-box; }
-.meeting-item:last-child { border-bottom: none; }
-.meeting-item--active { background: linear-gradient(90deg, rgba(134, 201, 168, 0.08), rgba(255,255,255,.98)); }
-.meeting-name { display: block; font-size: 27rpx; color: #121b22; font-weight: 800; }
-.meeting-time, .meeting-code { display: block; margin-top: 9rpx; color: #68747a; font-size: 22rpx; }
+.section-empty {
+	padding: 48rpx 0;
+	text-align: center;
+	font-size: 26rpx;
+	color: $text-muted;
+	background: #fff;
+	border-radius: $card-radius;
+}
 
-/* 状态标签 - 淡绿底深绿字 */
-.pill { min-width: 76rpx; height: 44rpx; border-radius: 999rpx; background: #E8F8F2; color: #57A77D; display: flex; align-items: center; justify-content: center; font-size: 22rpx; font-weight: 700; }
-.pill--live { background: #D4F1E5; }
+/* 会议列表项 */
+.meeting-item {
+	display: flex;
+	align-items: center; /* 【关键】整体垂直居中 - 左侧信息和右侧状态在卡片内垂直居中对齐 */
+	gap: 18rpx;
+	padding: 28rpx;
+	margin-bottom: 20rpx;
+	background: #fff;
+	border-radius: $card-radius;
+	box-shadow: 0 8rpx 28rpx rgba(15, 23, 42, 0.04);
+}
+
+.meeting-title-row {
+	display: flex;
+	align-items: center;
+	gap: 14rpx;
+	margin-bottom: 14rpx;
+}
+
+.status-dot {
+	width: 16rpx;
+	height: 16rpx;
+	border-radius: 50%;
+	background: $text-muted;
+	flex-shrink: 0;
+
+	&--active {
+		background: $success;
+		box-shadow: 0 0 0 6rpx rgba(34, 197, 94, 0.12);
+	}
+
+	&--idle,
+	&--reserved {
+		background: $primary;
+	}
+
+	&--ended {
+		background: $text-muted;
+	}
+}
+
+.meeting-info {
+	flex: 1;
+	min-width: 0;
+}
+
+.meeting-name {
+	font-size: 30rpx;
+	font-weight: 700;
+	color: $text-main;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.meeting-meta {
+	display: flex;
+	align-items: center;
+	gap: 10rpx;
+	padding-left: 30rpx;
+	font-size: 24rpx;
+	color: $text-secondary;
+	margin-bottom: 8rpx;
+
+	&:last-child {
+		margin-bottom: 0;
+	}
+}
+
+.meta-icon {
+	width: 24rpx;
+	height: 24rpx;
+}
+
+/* 右侧操作区 - 固定宽度保证所有卡片对齐 */
+.action-side {
+	display: flex;
+	flex-direction: column;
+	align-items: center; /* 【关键】水平居中 */
+	justify-content: center; /* 垂直居中 */
+	width: 140rpx; /* 【关键】固定宽度，确保所有卡片右侧对齐在同一竖列 */
+	flex-shrink: 0; /* 【关键】防止被压缩 */
+}
+
+/* 右侧内容的统一容器 - 控制内部元素的对齐 */
+.action-content {
+	display: flex;
+	flex-direction: column;
+	align-items: center; /* 【关键】内容水平居中（与图 2 一致）*/
+	justify-content: flex-start; /* 【关键】内容从顶部开始排列 */
+	gap: 16rpx; /* 【关键】增大间距，与图 2 更接近 */
+}
+
+/* "进行中" 状态标签 - 与 "待开始" 字体大小一致 */
+.status-tag {
+	font-size: 24rpx; /* 【关键】与 "待开始" 一致的字体大小 */
+	font-weight: 400; /* 【关键】使用常规字重，不要太粗 */
+	color: #16A34A; /* 绿色 */
+	line-height: 1;
+	margin-bottom: 8rpx; /* 【关键】给状态标签底部留出间距 */
+}
+
+.action-status {
+	font-size: 24rpx; /* 保持与 status-tag 一致 */
+	font-weight: 400;
+	color: #16A34A;
+}
+
+.action-btn {
+	height: 50rpx;
+	padding: 0 24rpx; /* 固定 padding，避免过大 */
+	border-radius: 12rpx;
+	border: 2rpx solid #16A34A;
+	background: transparent;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 26rpx;
+	font-weight: 400; /* 【关键】降低字重，更加克制 */
+	color: #16A34A;
+	min-width: 96rpx; /* 【关键】设置最小宽度，但不会无限扩大 */
+	box-sizing: border-box; /* 【关键】包含 padding 在内的总宽度 */
+	width: 100%; /* 【关键】按钮占满容器宽度 */
+}
+
+.action-text {
+	font-size: 24rpx;
+	font-weight: 600;
+	line-height: 1; /* 【关键】消除行高影响，保证垂直居中 */
+
+	&--pending {
+		color: $primary;
+	}
+
+	&--ended {
+		color: $text-muted;
+	}
+}
 </style>

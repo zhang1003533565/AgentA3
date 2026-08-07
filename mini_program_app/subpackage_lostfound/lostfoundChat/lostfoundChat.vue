@@ -11,50 +11,8 @@
             <view class="product-title">{{ curChat.itemTitle || '商品' }}</view>
             <view class="product-meta">
               <text class="product-price">¥{{ priceText(curChat.itemPrice) }}</text>
-              <text class="item-status">{{ itemStatusText }}</text>
+              <text class="item-status" :class="'item-status--' + (curChat.itemTradeType || 'sell')">{{ itemStatusText }}</text>
               <text v-if="tradeInfo" class="trade-status">{{ tradeStatusText }}</text>
-            </view>
-          </view>
-          <view v-if="tradeMenuActions.length" class="trade-more-wrap" @click.stop>
-            <view class="trade-more-btn" @click="tradeMenuVisible = !tradeMenuVisible">⋮</view>
-            <view v-if="tradeMenuVisible" class="trade-menu-dropdown">
-              <view
-                v-for="action in tradeMenuActions"
-                :key="action.type"
-                class="trade-menu-item"
-                :class="action.class"
-                @click="handleMenuAction(action)"
-              >
-                {{ action.label }}
-              </view>
-            </view>
-          </view>
-        </view>
-
-        <view v-if="cancelConfirmVisible" class="cancel-overlay" @click="cancelConfirmVisible = false">
-          <view class="cancel-dialog" @click.stop>
-            <view class="cancel-title">确认取消本次交易？</view>
-            <view class="cancel-desc">取消后仅结束本次交易，聊天记录保留</view>
-            <view class="cancel-actions">
-              <button class="cancel-btn secondary" @click="cancelConfirmVisible = false">再想想</button>
-              <button class="cancel-btn primary" :disabled="acting" @click="confirmCancel">确认取消</button>
-            </view>
-          </view>
-        </view>
-
-        <view v-if="completeConfirmVisible" class="cancel-overlay" @click="completeConfirmVisible = false">
-          <view class="cancel-dialog" @click.stop>
-            <view class="cancel-title">确认完成交易？</view>
-            <view v-if="!hasContactExchange" class="complete-warning">双方尚未交换联系方式，是否仍确认完成交易？</view>
-            <view class="cancel-desc complete-desc">
-              <text>完成后：</text>
-              <text>· 商品将标记为已售出</text>
-              <text>· 当前交易流程结束</text>
-              <text>· 无法继续修改交易状态</text>
-            </view>
-            <view class="cancel-actions">
-              <button class="cancel-btn secondary" @click="completeConfirmVisible = false">取消</button>
-              <button class="cancel-btn primary" :disabled="acting" @click="confirmComplete">确认完成</button>
             </view>
           </view>
         </view>
@@ -319,12 +277,9 @@
 <script>
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import {
-  cancelTradeRecord,
-  completeTradeRecord,
-  confirmTradeRecord,
   createOrGetChatSession,
-  ensureTradeRecordBySession,
   getChatMessages,
+  getChatSessionById,
   getChatSessions,
   getTradeRecords,
   sendChatMessage
@@ -362,6 +317,7 @@ function normalizeSession(item) {
     itemPrice: item.itemPrice,
     itemStatus: item.itemStatus,
     itemStatusText: item.itemStatusText || '',
+    itemTradeType: item.itemTradeType || '',
     otherUserId: item.otherUserId,
     otherName: item.otherUsername || item.sellerName || '用户',
     otherAvatar: pickOtherAvatar(item),
@@ -457,9 +413,6 @@ export default {
       ],
       contactVisibility: {},
       morePanelVisible: false,
-      tradeMenuVisible: false,
-      cancelConfirmVisible: false,
-      completeConfirmVisible: false,
       unsubscribeMessageStore: null,
       messageSyncing: false
     }
@@ -481,7 +434,8 @@ export default {
     itemStatusText() {
       if (this.curChat?.itemStatusText) return this.curChat.itemStatusText
       const status = Number(this.curChat?.itemStatus)
-      if (status === 2) return '在售'
+      const tradeType = this.curChat?.itemTradeType
+      if (status === 2) return tradeType === 'buy' ? '收物' : '出物'
       if (status === 3) return '已售出'
       if (status === 4) return '已下架'
       return ''
@@ -550,15 +504,6 @@ export default {
     },
     selectedContactTemplate() {
       return this.contactTemplates[this.selectedTemplateIndex] || null
-    },
-    tradeMenuActions() {
-      if (!this.curChat) return []
-      const actions = []
-      if (this.tradeInfo?.isSeller || this.curChat.isSeller) {
-        actions.push({ type: 'complete', label: '标记完成', class: 'success' })
-      }
-      actions.push({ type: 'cancel', label: '取消交易', class: 'danger' })
-      return actions
     },
     contactExchangeStateCard() {
       if (!this.tradeInfo) return null
@@ -675,9 +620,6 @@ export default {
       }
     },
     async loadSession() {
-      const sessionListRes = await getChatSessions({ current: 1, size: 100 })
-      const sessions = Array.isArray(sessionListRes?.data?.records) ? sessionListRes.data.records : []
-      const matched = sessions.find((item) => Number(item.sessionId) === Number(this.sessionId))
       const fallback = {
         ...(this.curChat || {}),
         id: this.sessionId,
@@ -686,6 +628,27 @@ export default {
         otherName: this.routeOtherName || this.curChat?.otherName || '聊天',
         otherAvatar: this.routeOtherAvatar || this.curChat?.otherAvatar || ''
       }
+      try {
+        if (this.sessionId) {
+          const sessionRes = await getChatSessionById(this.sessionId)
+          const sessionData = sessionRes?.data
+          if (sessionData) {
+            const session = normalizeSession(sessionData)
+            this.curChat = {
+              ...fallback,
+              ...session,
+              otherName: session.otherName || fallback.otherName,
+              otherAvatar: session.otherAvatar || fallback.otherAvatar
+            }
+            return
+          }
+        }
+      } catch (e) {
+        console.warn('获取单个会话失败，尝试列表查询', e)
+      }
+      const sessionListRes = await getChatSessions({ current: 1, size: 100 })
+      const sessions = Array.isArray(sessionListRes?.data?.records) ? sessionListRes.data.records : []
+      const matched = sessions.find((item) => Number(item.sessionId) === Number(this.sessionId))
       if (!matched) {
         this.curChat = fallback
         return
@@ -839,74 +802,19 @@ export default {
       }
       await this.sendContactInfo()
     },
-    async runTradeAction(type) {
-      if (this.acting) return
-      if (type === 'contactDone' || type === 'contactWaiting') {
-        uni.showToast({ title: type === 'contactDone' ? '已交换联系方式' : '等待对方确认', icon: 'none' })
-        return
-      }
-      if (type === 'shareContact') {
-        await this.sendContactInfo()
-        return
-      }
-      if (type === 'agreeContact') {
-        await this.sendContactInfo()
-        return
-      }
-      if (type === 'declineContact') {
-        await this.declineContactExchange()
-        return
-      }
-      const actions = {
-        confirm: confirmTradeRecord,
-        complete: completeTradeRecord,
-        cancel: cancelTradeRecord
-      }
-      const action = actions[type]
-      if (!action) return
-      try {
-        this.acting = true
-        let tradeId = this.tradeInfo?.id
-        if (!tradeId && type === 'complete') {
-          const ensured = await ensureTradeRecordBySession(this.sessionId)
-          tradeId = ensured?.data?.id
-        }
-        if (!tradeId) {
-          uni.showToast({ title: '当前暂无可操作的交易记录', icon: 'none' })
-          return
-        }
-        await action(tradeId)
-        uni.showToast({ title: '状态已更新', icon: 'success' })
-        await this.loadSession()
-        await this.loadTradeInfo()
-        await this.loadMessages()
-        await refreshMessageState('trade-action')
-      } catch (e) {
-        console.error('交易操作失败', e)
-        uni.showToast({ title: e?.data?.msg || e?.msg || '操作失败', icon: 'none' })
-      } finally {
-        this.acting = false
-      }
-    },
     handleMenuAction(action) {
-      this.tradeMenuVisible = false
-      if (action.type === 'cancel') {
-        this.cancelConfirmVisible = true
+      if (action.type === 'contactDone' || action.type === 'contactWaiting') {
+        uni.showToast({ title: action.type === 'contactDone' ? '已交换联系方式' : '等待对方确认', icon: 'none' })
         return
       }
-      if (action.type === 'complete') {
-        this.completeConfirmVisible = true
+      if (action.type === 'shareContact' || action.type === 'agreeContact') {
+        this.sendContactInfo()
         return
       }
-      this.runTradeAction(action.type)
-    },
-    async confirmCancel() {
-      this.cancelConfirmVisible = false
-      await this.runTradeAction('cancel')
-    },
-    async confirmComplete() {
-      this.completeConfirmVisible = false
-      await this.runTradeAction('complete')
+      if (action.type === 'declineContact') {
+        this.declineContactExchange()
+        return
+      }
     },
     async sendContactInfo() {
       if (this.hasContactExchange) {
@@ -1301,148 +1209,23 @@ export default {
 .trade-status {
   padding: 4rpx 12rpx;
   border-radius: 999rpx;
-  background: #edf4fb;
-  color: #5c7894;
   font-size: 20rpx;
   font-weight: 700;
+}
+
+.item-status--sell {
+  background: rgba(217, 119, 87, 0.12);
+  color: #c8693c;
+}
+
+.item-status--buy {
+  background: rgba(71, 112, 184, 0.12);
+  color: #3f6cb5;
 }
 
 .trade-status {
   background: rgba(92, 138, 184, 0.14);
   color: #4f7599;
-}
-
-.trade-more-wrap {
-  position: relative;
-  flex-shrink: 0;
-  margin-left: 8rpx;
-}
-
-.trade-more-btn {
-  width: 52rpx;
-  height: 52rpx;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #5c7a99;
-  font-size: 34rpx;
-  font-weight: 900;
-  line-height: 1;
-}
-
-.trade-menu-dropdown {
-  position: absolute;
-  top: 58rpx;
-  right: 0;
-  min-width: 200rpx;
-  background: #fff;
-  border-radius: 14rpx;
-  box-shadow: 0 8rpx 28rpx rgba(43, 68, 94, 0.18);
-  overflow: hidden;
-  z-index: 50;
-}
-
-.trade-menu-item {
-  padding: 22rpx 28rpx;
-  font-size: 26rpx;
-  font-weight: 700;
-  color: #172331;
-  border-bottom: 1rpx solid #edf3f8;
-  white-space: nowrap;
-}
-
-.trade-menu-item:last-child {
-  border-bottom: none;
-}
-
-.trade-menu-item.danger {
-  color: #d14343;
-}
-
-.trade-menu-item.success {
-  color: #2d8a55;
-}
-
-.trade-menu-item.muted {
-  color: #7d8c9c;
-}
-
-.cancel-overlay {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.35);
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.cancel-dialog {
-  width: calc(100% - 96rpx);
-  max-width: 520rpx;
-  background: #fff;
-  border-radius: 24rpx;
-  padding: 40rpx 32rpx 28rpx;
-  text-align: center;
-}
-
-.cancel-title {
-  font-size: 30rpx;
-  font-weight: 900;
-  color: #172331;
-}
-
-.cancel-desc {
-  margin-top: 14rpx;
-  font-size: 24rpx;
-  color: #7d8c9c;
-  line-height: 1.5;
-}
-
-.complete-warning {
-  margin-top: 16rpx;
-  padding: 16rpx 18rpx;
-  border-radius: 16rpx;
-  background: #fff7ed;
-  color: #a86824;
-  font-size: 24rpx;
-  font-weight: 800;
-  line-height: 1.5;
-  text-align: left;
-}
-
-.complete-desc {
-  display: flex;
-  flex-direction: column;
-  gap: 6rpx;
-  text-align: left;
-}
-
-.cancel-actions {
-  display: flex;
-  gap: 18rpx;
-  margin-top: 32rpx;
-}
-
-.cancel-btn {
-  flex: 1;
-  height: 80rpx;
-  border-radius: 20rpx;
-  font-size: 26rpx;
-  font-weight: 800;
-}
-
-.cancel-btn::after { border: none; }
-
-.cancel-btn.secondary {
-  background: #f3f6f8;
-  color: #5c7a99;
-}
-
-.cancel-btn.primary {
-  background: #d14343;
-  color: #fff;
 }
 
 .chat-body {

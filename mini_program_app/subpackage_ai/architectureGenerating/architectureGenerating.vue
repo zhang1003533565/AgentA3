@@ -26,7 +26,7 @@
     <view v-if="pageState !== 'error'" class="canvas-area">
       <view class="g-stage" :class="{ smooth: smooth, settle: settleOn }" :style="stageStyle">
         <template v-for="(layer, li) in layers" :key="layer.key || li">
-          <view class="layer" :class="{ in: layerIn[li] }" :style="layerStyle(layer)">
+          <view class="layer" :class="{ in: layerIn[li] }" :style="layerStyle(layer)" :data-idx="li">
             <view class="layer-head">
               <view class="layer-icon" :style="{ background: layer.color }">
                 <arch-icon :iconKey="layer.iconKey" color="#FFFFFF" :size="32" />
@@ -182,8 +182,9 @@ const madeCount = ref(0)
 
 const smooth = ref(false)
 const scale = ref(1)
+const cameraY = ref(0)
 const stageStyle = computed(() => ({
-  transform: `scale(${scale.value})`,
+  transform: `translateY(${cameraY.value}px) scale(${scale.value})`,
   transformOrigin: '0 0',
   transition: smooth.value ? 'transform 0.6s cubic-bezier(0.22,1,0.36,1)' : 'none'
 }))
@@ -204,6 +205,48 @@ function fitStage() {
       scale.value = Math.max(0.4, Number(fit.toFixed(2)))
     }
   }).exec()
+}
+
+// 镜头跟随：让目标 layer 垂直中心对齐 canvas-area 垂直中心
+// 只在换 layer 时调用，避免层内卡片生成时频繁抖动
+function followCamera(layerIdx) {
+  return new Promise(resolve => {
+    const canvasSel = '.canvas-area'
+    const layerSel = `.layer[data-idx="${layerIdx}"]`
+    uni.createSelectorQuery()
+      .select(canvasSel).boundingClientRect()
+      .select(layerSel).boundingClientRect()
+      .exec(res => {
+        const canvas = res && res[0]
+        const layer = res && res[1]
+        if (!canvas || !layer) { resolve(); return }
+        // layer 中心相对 canvas-area 顶部的偏移
+        const layerCenterY = (layer.top - canvas.top) + layer.height / 2
+        // 目标：layer 中心对齐 canvas-area 中心
+        // 当前 stage transform = translateY(cameraY) scale(scale)
+        // layer.top 已是缩放后坐标，故平移量直接用像素差
+        const targetCameraY = canvas.height / 2 - layerCenterY
+        cameraY.value = targetCameraY
+        resolve()
+      })
+  })
+}
+
+// 镜头跟随到第三方服务区域
+function followCameraThirdParty() {
+  return new Promise(resolve => {
+    uni.createSelectorQuery()
+      .select('.canvas-area').boundingClientRect()
+      .select('.third-party').boundingClientRect()
+      .exec(res => {
+        const canvas = res && res[0]
+        const tp = res && res[1]
+        if (!canvas || !tp) { resolve(); return }
+        const tpCenterY = (tp.top - canvas.top) + tp.height / 2
+        cameraY.value = canvas.height / 2 - tpCenterY
+        resolve()
+      })
+  })
 }
 
 let timers = []
@@ -229,6 +272,10 @@ async function runAnimation() {
   stageIndex.value = 2
   for (let li = 0; li < layers.value.length; li++) {
     const nodes = layers.value[li].nodes || []
+    // 换 layer 时镜头跟随到当前 layer
+    smooth.value = true
+    await followCamera(li)
+    await sleep(120)
     for (let ci = 0; ci < nodes.length; ci++) {
       cardIn[li + '-' + ci] = true
       madeCount.value += 1
@@ -240,6 +287,8 @@ async function runAnimation() {
   // 阶段3 第三方 + 特性
   stageIndex.value = 3
   tpIn.value = true
+  // 镜头跟随到第三方区域
+  await followCameraThirdParty()
   await sleep(150)
   for (let ti = 0; ti < thirdParty.value.length; ti++) { tpItemIn[ti] = true; madeCount.value += 1; await sleep(70) }
   for (let fi = 0; fi < features.value.length; fi++) { featureIn[fi] = true; await sleep(60) }
@@ -248,6 +297,8 @@ async function runAnimation() {
   stageIndex.value = 4
   settleOn.value = true
   smooth.value = true
+  // 完成后镜头回到顶部，展示全景
+  cameraY.value = 0
   fitStage()
   await sleep(700)
 
@@ -303,6 +354,7 @@ function skipAnimation() {
   clearTimers()
   revealAll()
   smooth.value = false
+  cameraY.value = 0
   fitStage()
   isCompleted.value = true
 }
@@ -315,7 +367,7 @@ function retry() {
   Object.keys(tpItemIn).forEach(k => delete tpItemIn[k])
   Object.keys(featureIn).forEach(k => delete featureIn[k])
   tpIn.value = false; settleOn.value = false; isCompleted.value = false
-  madeCount.value = 0; stageIndex.value = 0; scale.value = 1
+  madeCount.value = 0; stageIndex.value = 0; scale.value = 1; cameraY.value = 0
   run()
 }
 

@@ -19,9 +19,10 @@ import java.util.stream.Collectors;
 @Transactional
 public class MapPlaceServiceImpl implements MapPlaceService {
 
-    private static final Set<String> SCENES = Set.of("CANTEEN", "SPORTS", "TEACHING", "DORMITORY");
+    private static final Set<String> SCENES = Set.of("CANTEEN", "SPORTS", "TEACHING", "DORMITORY", "OTHER");
     private static final Set<String> ROOT_TYPES = Set.of(
-            "CANTEEN", "SPORTS_GROUND", "TEACHING_BUILDING", "DORMITORY_BUILDING"
+            "CANTEEN", "SPORTS_GROUND", "TEACHING_BUILDING", "DORMITORY_BUILDING",
+            "LANDSCAPE", "ADMIN_BUILDING", "HOSPITAL"
     );
     private static final Map<String, Set<String>> ALLOWED_CHILDREN = Map.ofEntries(
             Map.entry("CANTEEN", Set.of("FLOOR")),
@@ -41,7 +42,10 @@ public class MapPlaceServiceImpl implements MapPlaceService {
             "CANTEEN", "CANTEEN",
             "SPORTS_GROUND", "SPORTS",
             "TEACHING_BUILDING", "TEACHING",
-            "DORMITORY_BUILDING", "DORMITORY"
+            "DORMITORY_BUILDING", "DORMITORY",
+            "LANDSCAPE", "OTHER",
+            "ADMIN_BUILDING", "OTHER",
+            "HOSPITAL", "OTHER"
     );
     private static final Map<String, Set<String>> FLOOR_CHILDREN_BY_SCENE = Map.of(
             "CANTEEN", Set.of("CANTEEN_STALL", "DINING_AREA"),

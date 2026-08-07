@@ -97,33 +97,11 @@
     <!-- #endif -->
 
     <!-- 底部操作栏：固定在屏幕底部，悬浮在 canvas 之上 -->
-    <view class="bottom-bar">
-      <view class="bottom-pill">
-        <!-- 导出 -->
-        <view class="bottom-action" @tap="saveMindmap">
-          <view class="action-icon-box">
-            <view class="save-icon-shape"></view>
-          </view>
-          <text class="action-label">导出</text>
-        </view>
-        <view class="bottom-divider"></view>
-        <!-- 优化 -->
-        <view class="bottom-action" @tap="openOptimizeSheet">
-          <view class="action-icon-box action-icon-box--regen">
-            <view class="regen-icon-shape"></view>
-          </view>
-          <text class="action-label action-label--regen">优化</text>
-        </view>
-        <view class="bottom-divider"></view>
-        <!-- 分享 -->
-        <view class="bottom-action" @tap="shareMindmap">
-          <view class="action-icon-box">
-            <view class="share-icon-shape"></view>
-          </view>
-          <text class="action-label">分享</text>
-        </view>
-      </view>
-    </view>
+    <AiResultBar
+      @export="saveMindmap"
+      @optimize="openOptimizeSheet"
+      @share="shareMindmap"
+    />
 
     <!-- 优化弹窗 -->
     <OptimizeMindMapSheet
@@ -132,6 +110,15 @@
       @close="showOptimizeSheet = false"
       @optimize="onOptimize"
     />
+
+    <!-- AI 优化思考窗（原地刷新，不跳整图重播） -->
+    <AiThinkWindow
+      :visible="showThinkWindow"
+      type="mindmap"
+      done-sub="结构已更新"
+      :done="thinkDone"
+      @view="onThinkView"
+    />
   </view>
 </template>
 
@@ -139,8 +126,12 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import OptimizeMindMapSheet from './OptimizeMindMapSheet.vue'
+import AiResultBar from '../components/AiResultBar.vue'
+import AiThinkWindow from '../components/AiThinkWindow.vue'
 import { getErrorMessage, getMindmapDetail, optimizeMindmap } from '@/api/aiDiagram.js'
-import { exportMindmapAsPNG } from './mindmapExporter.js'
+// #ifdef H5
+import { domToPng } from '../components/domToPng.js'
+// #endif
 
 // 布局参数
 const ROOT_WIDTH = 200
@@ -181,6 +172,8 @@ const canvasRef = ref(null)
 
 // 优化弹窗相关
 const showOptimizeSheet = ref(false)
+const showThinkWindow = ref(false)
+const thinkDone = ref(false) // 思考窗 API 完成信号：optimizeMindmap 返回后置 true，驱动思考窗切成功态
 const currentMindMapData = ref({})
 
 const treeData = computed(() => toTreeData(mindmap))
@@ -603,7 +596,12 @@ function saveMindmap() {
     return
   }
   uni.showLoading({ title: '导出中...' })
-  exportMindmapAsPNG(layout.value, mindmap.title)
+  domToPng('.mindmap-stage', {
+    width: layout.value.width,
+    height: layout.value.height,
+    title: mindmap.title,
+    filename: mindmap.title
+  })
     .then(() => {
       uni.hideLoading()
       uni.showToast({ title: '已导出 PNG', icon: 'success' })
@@ -636,21 +634,31 @@ function openOptimizeSheet() {
   showOptimizeSheet.value = true
 }
 
-// 处理优化提交
+// 处理优化提交：弹窗 → 思考窗 → API 返回后原地刷新并通知思考窗切成功态
 async function onOptimize(payload) {
+  showOptimizeSheet.value = false
+  thinkDone.value = false
+  showThinkWindow.value = true
   try {
-    showOptimizeSheet.value = false
-    uni.showLoading({ title: '优化中...' })
     const result = await optimizeMindmap(payload)
-    uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
-    uni.navigateTo({
-      url: `/subpackage_ai/mindmapGenerating/mindmapGenerating?id=${encodeURIComponent(result.id)}`
-    })
+    if (result?.id) {
+      uni.setStorageSync(`aiMindmapResult:${result.id}`, result)
+    }
+    // 原地刷新思维导图
+    applyMindmap(result)
+    // 通知思考窗：API 已完成，可切成功态显示"查看优化结果"
+    thinkDone.value = true
   } catch (error) {
+    showThinkWindow.value = false
+    thinkDone.value = false
     uni.showToast({ title: getErrorMessage(error, '优化失败'), icon: 'none' })
-  } finally {
-    uni.hideLoading()
   }
+}
+
+// 思考窗走完，用户点"查看优化结果" → 关闭思考窗
+function onThinkView() {
+  showThinkWindow.value = false
+  thinkDone.value = false
 }
 
 onMounted(() => {
@@ -710,11 +718,12 @@ onUnmounted(() => {
   background: #FAFBFC;
 }
 
-/* scroll-view 的可滚动内容，尺寸 = 布局 × scale；底部留空间给 fixed 底部栏 */
+/* scroll-view 的可滚动内容，尺寸 = 布局 × scale
+   padding-bottom 200rpx 避让底部 AiResultBar（约 144rpx + 安全区） */
 .canvas-content {
   position: relative;
   flex-shrink: 0;
-  padding-bottom: 160rpx;
+  padding-bottom: 200rpx;
 }
 
 .mindmap-stage {
@@ -957,174 +966,6 @@ onUnmounted(() => {
 }
 /* #endif */
 
-/* 底部操作栏 — 固定在屏幕底部，悬浮在 canvas 之上 */
-.bottom-bar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 100;
-  display: flex;
-  justify-content: center;
-  align-items: flex-end;
-  padding: 16rpx 24rpx calc(20rpx + env(safe-area-inset-bottom));
-  /* 背景渐变：底部透明过渡到白色，让 canvas 内容自然延伸到底部栏上方 */
-  background: linear-gradient(180deg, rgba(250, 251, 252, 0) 0%, rgba(250, 251, 252, 0.85) 40%, rgba(250, 251, 252, 0.95) 100%);
-  box-sizing: border-box;
-  pointer-events: none; /* 让背景不挡事件，胶囊单独接收 */
-}
-
-/* 胶囊容器需要单独接收点击 */
-.bottom-pill {
-  pointer-events: auto;
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  width: 100%;
-  max-width: 680rpx;
-  height: 110rpx;
-  background: #FFFFFF;
-  border-radius: 55rpx;
-  box-shadow: 0 4rpx 24rpx rgba(0, 0, 0, 0.08);
-  padding: 0 20rpx;
-  box-sizing: border-box;
-}
-
-/* 操作按钮 — 三个等大 */
-.bottom-action {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4rpx;
-  padding: 10rpx 0;
-}
-
-.bottom-action:active {
-  opacity: 0.65;
-}
-
-/* 分隔线 */
-.bottom-divider {
-  width: 1rpx;
-  height: 40rpx;
-  background: #ECECF0;
-  flex-shrink: 0;
-}
-
-/* 图标容器 */
-.action-icon-box {
-  width: 60rpx;
-  height: 60rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-/* 重新生成 — 淡紫色光晕 */
-.action-icon-box--regen {
-  background: radial-gradient(circle, rgba(139, 92, 246, 0.12) 0%, transparent 70%);
-}
-
-/* 保存图标 — 软盘 */
-.save-icon-shape {
-  width: 26px;
-  height: 26px;
-  border: 2px solid #5A5D7E;
-  border-radius: 3px;
-  position: relative;
-  box-sizing: border-box;
-}
-
-.save-icon-shape::before {
-  content: '';
-  position: absolute;
-  top: 4px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 10px;
-  height: 8px;
-  border: 2px solid #5A5D7E;
-  border-radius: 1px;
-}
-
-.save-icon-shape::after {
-  content: '';
-  position: absolute;
-  bottom: 3px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 14px;
-  height: 7px;
-  background: #5A5D7E;
-  border-radius: 1px;
-}
-
-/* 重新生成图标 — 循环箭头 */
-.regen-icon-shape {
-  width: 26px;
-  height: 26px;
-  border: 2.5px solid #7C5FE0;
-  border-top-color: transparent;
-  border-radius: 50%;
-  position: relative;
-  box-sizing: border-box;
-}
-
-.regen-icon-shape::before {
-  content: '';
-  position: absolute;
-  top: -2px;
-  right: -1px;
-  width: 0;
-  height: 0;
-  border-left: 7px solid #7C5FE0;
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
-}
-
-/* 分享图标 — 链接 */
-.share-icon-shape {
-  width: 26px;
-  height: 26px;
-  position: relative;
-}
-
-.share-icon-shape::before {
-  content: '';
-  position: absolute;
-  top: 1px;
-  right: 1px;
-  width: 11px;
-  height: 11px;
-  border: 2px solid #5A5D7E;
-  border-radius: 50%;
-}
-
-.share-icon-shape::after {
-  content: '';
-  position: absolute;
-  bottom: 1px;
-  left: 1px;
-  width: 11px;
-  height: 11px;
-  border: 2px solid #5A5D7E;
-  border-radius: 50%;
-}
-
-/* 标签文字 */
-.action-label {
-  font-size: 22rpx;
-  color: #5A5D7E;
-  font-weight: 400;
-}
-
-.action-label--regen {
-  color: #7C5FE0;
-  font-weight: 500;
-}
+/* 底部操作栏样式已抽到 subpackage_ai/components/AiResultBar.vue
+   这里不再写底部栏 CSS，由组件提供 */
 </style>

@@ -76,13 +76,9 @@ public class MerchantDTO {
         @Schema(description = "营业时间", example = "09:00-21:00")
         private String businessHours;
 
-        @NotBlank(message = "商家账号不能为空")
-        @Size(min = 4, max = 20, message = "账号4-20字")
         @Schema(description = "商家登录账号", example = "merchant001")
         private String username;
 
-        @NotBlank(message = "商家密码不能为空")
-        @Size(min = 6, max = 20, message = "密码6-20字")
         @Schema(description = "商家登录密码", example = "pass123456")
         private String password;
     }
