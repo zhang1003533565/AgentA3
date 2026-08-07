@@ -21,6 +21,8 @@ import AiStudioView from '../views/AiStudioView.vue'
 import CampusServicesView from '../views/CampusServicesView.vue'
 import ActivityPublishView from '../views/ActivityPublishView.vue'
 import ActivitySignInView from '../views/ActivitySignInView.vue'
+import ActivityDetailView from '../views/ActivityDetailView.vue'
+import ActivitySignupView from '../views/ActivitySignupView.vue'
 import AccountSettingsView from '../views/AccountSettingsView.vue'
 import ProfileRadarView from '../views/ProfileRadarView.vue'
 import MineActivitiesView from '../views/MineActivitiesView.vue'
@@ -64,7 +66,9 @@ const routes = [
   { path: '/campus-services', name: 'campus-services', component: CampusServicesView },
   { path: '/discount', name: 'discount', component: CampusDiscountView },
   { path: '/activities/publish', name: 'activity-publish', component: ActivityPublishView },
+  { path: '/activities/:activityId', name: 'activity-detail', component: ActivityDetailView },
   { path: '/activities/:activityId/sign-in', name: 'activity-sign-in', component: ActivitySignInView },
+  { path: '/activities/:activityId/signup', name: 'activity-signup', component: ActivitySignupView },
   { path: '/courses/:courseId', name: 'campus-course', component: CampusCourseView },
   { path: '/mine', name: 'mine', component: MineView },
   { path: '/messages', name: 'messages', component: MessageCenterView },
