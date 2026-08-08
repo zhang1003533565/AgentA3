@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AimOutlined, ArrowLeftOutlined, DeleteOutlined } from '@ant-design/icons'
-import { Button, Card, Empty, Popconfirm, Select, Spin, Tag, message } from 'antd'
+import {
+  AimOutlined,
+  ArrowLeftOutlined,
+  DeleteOutlined,
+  EnvironmentOutlined,
+  PushpinOutlined,
+  ShopOutlined,
+} from '@ant-design/icons'
+import { Button, Card, Empty, Image, Popconfirm, Select, Spin, message } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   deleteIndoorPosition,
@@ -138,99 +145,126 @@ export default function StallIndoorManage() {
     message.success('档口楼层位置已删除')
   }
 
+  const selectedFloor = floors.find((floor) => String(floor.id) === String(selectedFloorId))
+
+  const renderStallSelector = () => {
+    if (!stalls.length) return null
+    return (
+      <div className="stall-indoor-selector">
+        {stalls.map((stall, index) => {
+          const positioned = positionByPlaceId.has(String(stall.id))
+          const active = String(stall.id) === String(activeStallId)
+          return (
+            <button
+              type="button"
+              key={stall.id}
+              className={`stall-indoor-chip${active ? ' active' : ''}${positioned ? ' positioned' : ''}`}
+              onClick={() => setActiveStallId(stall.id)}
+              title={positioned ? '已设置楼层位置' : '未设置楼层位置'}
+            >
+              <span className="chip-index">{index + 1}</span>
+              <span className="chip-name">{stall.name}</span>
+              {positioned ? <PushpinOutlined className="chip-icon" /> : <EnvironmentOutlined className="chip-icon" />}
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
     <div className="stall-indoor-page">
-      <div className="stall-indoor-header">
-        <div>
-          <Button
-            type="link"
-            icon={<ArrowLeftOutlined />}
-            onClick={() => navigate(`/facility/canteen/${canteenId}/stalls`)}
-          >
-            返回档口列表
-          </Button>
-          <h1>{canteen?.name || '食堂'} · 楼层档口定位</h1>
-          <p>这是楼层平面图上的室内位置，使用 X/Y 百分比坐标，不是校园地图经纬度。</p>
-        </div>
-        <Select
-          value={selectedFloorId}
-          onChange={setSelectedFloorId}
-          placeholder="选择楼层"
-          className="stall-indoor-floor-select"
-          options={floors.map((floor) => ({ value: floor.id, label: floor.name }))}
-        />
-      </div>
-
       <Spin spinning={loading || saving}>
-        <div className="stall-indoor-layout">
-          <Card className="stall-indoor-stall-list" title="本层档口">
-            {stalls.length ? stalls.map((stall) => {
-              const positioned = positionByPlaceId.has(String(stall.id))
-              const active = String(stall.id) === String(activeStallId)
-              return (
-                <button
-                  type="button"
-                  key={stall.id}
-                  className={`stall-indoor-stall-item${active ? ' active' : ''}`}
-                  onClick={() => setActiveStallId(stall.id)}
-                >
-                  <span>
-                    <strong>{stall.name}</strong>
-                    <small>{stall.locationDesc || '未填写位置说明'}</small>
-                  </span>
-                  <Tag color={positioned ? 'success' : 'default'}>
-                    {positioned ? '已定位' : '未定位'}
-                  </Tag>
-                </button>
-              )
-            }) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该楼层暂无档口" />}
-          </Card>
-
-          <Card
-            className="stall-indoor-plan-card"
-            title={floors.find((floor) => String(floor.id) === String(selectedFloorId))?.name || '楼层平面图'}
-            extra={activeStall ? (
-              <span className="stall-indoor-active-tip">
-                <AimOutlined /> 当前定位：{activeStall.name}
-              </span>
-            ) : null}
-          >
-            {!floorPlan?.imageUrl ? (
-              <Empty
-                description="该楼层还没有平面图，请先在“楼层与菜系”中上传"
-                className="stall-indoor-empty"
+        <Card className="stall-section-card">
+          <div className="stall-section-heading">
+            <div>
+              <Button
+                type="link"
+                icon={<ArrowLeftOutlined />}
+                className="stall-section-back"
+                onClick={() => navigate(`/facility/canteen/${canteenId}/stalls`)}
+              >
+                返回档口列表
+              </Button>
+              {canteen && (
+                <div className="canteen-info-bar">
+                  {(canteen.imageUrl || canteen.images?.[0]?.imageUrl) ? (
+                    <Image
+                      src={canteen.imageUrl || canteen.images?.[0]?.imageUrl}
+                      preview={false}
+                      className="canteen-info-avatar"
+                    />
+                  ) : (
+                    <div className="canteen-info-avatar placeholder"><ShopOutlined /></div>
+                  )}
+                  <div className="canteen-info-text">
+                    <h2>{canteen.name}</h2>
+                  </div>
+                </div>
+              )}
+              <p className="indoor-subtitle">点击平面图即可为当前选中档口设置室内坐标。</p>
+            </div>
+            <div className="stall-section-tools">
+              <Select
+                value={selectedFloorId}
+                onChange={setSelectedFloorId}
+                placeholder="选择楼层"
+                className="stall-floor-filter"
+                options={floors.map((floor) => ({ value: floor.id, label: floor.name }))}
               />
-            ) : (
-              <>
-                <div className="stall-indoor-plan" onClick={placeActiveStall}>
-                  <img src={floorPlan.imageUrl} alt="楼层平面图" />
-                  {stalls.map((stall) => {
-                    const position = positionByPlaceId.get(String(stall.id))
-                    if (!position) return null
-                    return (
-                      <span
-                        key={stall.id}
-                        className={`stall-indoor-marker${String(stall.id) === String(activeStallId) ? ' active' : ''}`}
-                        style={{ left: `${position.xRatio}%`, top: `${position.yRatio}%` }}
-                      >
-                        <i />
-                        <b>{stall.name}</b>
-                      </span>
-                    )
-                  })}
-                </div>
-                <div className="stall-indoor-plan-footer">
-                  <span>选择左侧档口，然后点击平面图设置 X/Y 位置。</span>
-                  {positionByPlaceId.has(String(activeStallId)) ? (
-                    <Popconfirm title="确定删除当前档口的楼层位置吗？" onConfirm={removeActivePosition}>
-                      <Button danger icon={<DeleteOutlined />}>删除当前定位</Button>
-                    </Popconfirm>
-                  ) : null}
-                </div>
-              </>
-            )}
-          </Card>
-        </div>
+              {activeStall && (
+                <span className={`stall-indoor-active-tip${positionByPlaceId.has(String(activeStallId)) ? ' positioned' : ''}`}>
+                  <AimOutlined />
+                  {activeStall.name}
+                </span>
+              )}
+              {positionByPlaceId.has(String(activeStallId)) && (
+                <Popconfirm title="确定删除当前档口的楼层位置吗？" onConfirm={removeActivePosition}>
+                  <Button danger icon={<DeleteOutlined />}>删除定位</Button>
+                </Popconfirm>
+              )}
+            </div>
+          </div>
+
+          {renderStallSelector()}
+
+          {!floorPlan?.imageUrl ? (
+            <Empty
+              description="该楼层还没有平面图，请先在“楼层与菜系”中上传"
+              className="stall-indoor-empty"
+            />
+          ) : (
+            <div className="stall-indoor-plan-wrapper">
+              <div className="stall-indoor-plan" onClick={placeActiveStall}>
+                <img src={floorPlan.imageUrl} alt="楼层平面图" />
+                {stalls.map((stall, index) => {
+                  const position = positionByPlaceId.get(String(stall.id))
+                  if (!position) return null
+                  const active = String(stall.id) === String(activeStallId)
+                  return (
+                    <span
+                      key={stall.id}
+                      className={`stall-indoor-marker${active ? ' active' : ''}`}
+                      style={{ left: `${position.xRatio}%`, top: `${position.yRatio}%` }}
+                      title={stall.name}
+                    >
+                      <i data-index={index + 1} />
+                      <b>{stall.name}</b>
+                    </span>
+                  )
+                })}
+                {!positionByPlaceId.has(String(activeStallId)) && activeStall && (
+                  <div className="stall-indoor-hint">
+                    点击地图设置 <b>{activeStall.name}</b> 的位置
+                  </div>
+                )}
+              </div>
+              <p className="stall-indoor-caption">
+                共 <b>{stalls.length}</b> 个档口，已定位 <b>{positions.length}</b> 个
+              </p>
+            </div>
+          )}
+        </Card>
       </Spin>
     </div>
   )
