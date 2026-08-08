@@ -7,6 +7,9 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+import java.util.List;
+import java.util.Map;
+
 @Data
 @Schema(description = "LLM 对话请求")
 public class LlmChatRequest {
@@ -35,6 +38,10 @@ public class LlmChatRequest {
     @Size(max = 4000, message = "输入内容最多 4000 字符")
     @Schema(description = "用户输入内容", requiredMode = Schema.RequiredMode.REQUIRED, example = "帮我推荐一个食堂")
     private String input;
+
+    @Size(max = 8, message = "单次最多上传 8 个资源")
+    @Schema(description = "随本次提问上传的资源，支持图片、文档、表格、演示文稿、音视频和压缩包")
+    private List<Map<String, Object>> attachments;
 
     @Pattern(regexp = "^(transform|retry)$", message = "交互类型仅支持 transform 或 retry")
     @Schema(description = "可选的结构化会话操作；普通输入不传", example = "transform")

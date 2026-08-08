@@ -36,3 +36,8 @@ docs/project-document/output/
 # OS
 .DS_Store
 Thumbs.db
+
+# Runtime logs
+logs/
+AppBackend/logs/
+.reasonix/

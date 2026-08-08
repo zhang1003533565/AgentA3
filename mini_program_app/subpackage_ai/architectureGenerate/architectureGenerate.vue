@@ -1,596 +1,721 @@
 <template>
-  <view class="page">
-    <!-- 导航栏 -->
-    <view class="nav-bar">
-      <view class="nav-back" @tap="goBack">
-        <text class="nav-back-icon">‹</text>
+  <view class="page page--architecture">
+    <nav-bar title="AI 架构图" :showBack="true" :border="false">
+      <template #right>
+        <view class="nav-history-action" @tap="openHistory">
+        <image class="nav-history-icon" src="/static/icons/diagram/history.svg" mode="aspectFit" />
       </view>
-      <text class="nav-title">架构图设计</text>
-      <view class="nav-history" @tap="goHistory">
-        <text class="nav-history-icon">🕐</text>
-        <text class="nav-history-text">历史记录</text>
-      </view>
-    </view>
+      </template>
+    </nav-bar>
 
-    <view class="content">
-      <!-- 头部卡片 -->
-      <view class="header-card">
-        <view class="header-info">
-          <text class="header-title">AI 架构图智能生成</text>
-          <text class="header-subtitle">输入需求，自动生成专业架构图</text>
-        </view>
-        <view class="header-icon">
-          <text class="header-icon-text">🧊</text>
-        </view>
-      </view>
-
-      <!-- 架构描述 -->
-      <view class="form-section">
-        <view class="section-header">
-          <text class="section-title">架构描述</text>
-          <view class="ai-write-btn" @tap="aiWrite">
-            <text class="ai-write-icon">✦</text>
-            <text class="ai-write-text">AI 帮你写</text>
-          </view>
-        </view>
-        <view class="textarea-wrapper">
-          <textarea
-            class="desc-input"
-            v-model="description"
-            placeholder="请输入你的系统架构描述，例如：&#10;一个电商系统的微服务架构，包含用户服务、商品服务、订单服务等"
-            :maxlength="500"
-          />
-          <text class="char-count">{{ description.length }}/500</text>
+    <scroll-view class="content" scroll-y>
+      <view class="input-card">
+        <text class="input-label">描述您的架构需求</text>
+        <textarea
+          class="prompt-input"
+          v-model="description"
+          placeholder="例如：生成一个校园二手交易系统的整体架构图，包含核心业务流程和数据流向..."
+          placeholder-class="prompt-placeholder"
+          :maxlength="500"
+        />
+        <view class="input-footer">
+          <ImportFileButton :loading="isUploading" @click="importDocument" />
+          <text class="char-count">{{ description.length }} / 500</text>
         </view>
       </view>
 
-      <!-- 架构类型 -->
-      <view class="form-section">
-        <view class="section-title">架构类型</view>
-        <view class="type-list">
+      <view class="section-title">
+        <image class="section-icon" src="/static/icons/diagram/settings-blue.svg" mode="aspectFit" />
+        <text>架构生成设置</text>
+      </view>
+
+      <view class="field-block">
+        <text class="field-label">系统类型</text>
+        <view class="chip-row">
           <view
-            class="type-item"
-            :class="{ 'type-item--active': selectedType === item.key }"
-            v-for="item in archTypes"
+            class="pill-chip"
+            :class="{ 'pill-chip--active': selectedSystemType === item.key }"
+            v-for="item in systemTypes"
             :key="item.key"
-            @tap="selectedType = item.key"
+            @tap="selectedSystemType = item.key"
           >
-            <view class="type-icon-wrap" :style="{ background: item.bgColor }">
-              <text class="type-icon">{{ item.icon }}</text>
-            </view>
-            <text class="type-label" :class="{ 'type-label--active': selectedType === item.key }">{{ item.label }}</text>
+            {{ item.label }}
           </view>
         </view>
       </view>
 
-      <!-- 风格选择 -->
-      <view class="form-section">
-        <view class="section-title">风格选择</view>
-        <view class="style-list">
+      <view class="field-block">
+        <text class="field-label">架构层级（多选）</text>
+        <view class="layer-list">
           <view
-            class="style-item"
-            :class="{ 'style-item--active': selectedStyle === item.key }"
-            v-for="item in styles"
+            class="layer-row"
+            :class="{ 'layer-row--active': selectedLayer === item.key }"
+            v-for="item in layerOptions"
             :key="item.key"
-            @tap="selectedStyle = item.key"
+            @tap="selectedLayer = item.key"
           >
-            <view class="style-preview" :style="{ background: item.previewBg }">
-              <view class="style-check" v-if="selectedStyle === item.key">
-                <text class="style-check-icon">✓</text>
+            <image class="layer-icon" :src="item.icon" mode="aspectFit" />
+            <view class="layer-copy">
+              <view class="layer-title-line">
+                <text class="layer-title">{{ item.label }}</text>
+                <text class="ai-tag" v-if="item.tag">{{ item.tag }}</text>
               </view>
+              <text class="layer-desc" v-if="item.desc">{{ item.desc }}</text>
             </view>
-            <text class="style-label" :class="{ 'style-label--active': selectedStyle === item.key }">{{ item.label }}</text>
+            <view class="choice-circle" :class="{ 'choice-circle--active': selectedLayer === item.key }"></view>
           </view>
         </view>
       </view>
 
-      <!-- 复杂度 -->
-      <view class="form-section">
-        <view class="section-title">复杂度</view>
-        <view class="complexity-list">
+      <view class="field-block">
+        <text class="field-label">展示内容</text>
+        <view class="checkbox-grid">
           <view
-            class="complexity-item"
-            :class="{ 'complexity-item--active': selectedComplexity === item.key }"
-            v-for="item in complexities"
+            class="checkbox-item"
+            v-for="item in contentOptions"
             :key="item.key"
-            @tap="selectedComplexity = item.key"
+            @tap="toggleContent(item.key)"
           >
-            <view class="complexity-icon">
-              <text class="complexity-icon-text">{{ item.icon }}</text>
-            </view>
-            <view class="complexity-info">
-              <text class="complexity-title">{{ item.label }}</text>
-              <text class="complexity-desc">{{ item.desc }}</text>
-            </view>
+            <view class="checkbox" :class="{ 'checkbox--active': selectedContents.includes(item.key) }"></view>
+            <text>{{ item.label }}</text>
           </view>
         </view>
       </view>
 
-      <!-- 输出设置 -->
-      <view class="form-section">
-        <view class="section-title">输出设置</view>
-        <view class="output-list">
+      <view class="field-block">
+        <text class="field-label">关系表达</text>
+        <view class="relation-list">
           <view
-            class="output-item"
-            :class="{ 'output-item--active': selectedOutput === item.key }"
-            v-for="item in outputs"
+            class="relation-row"
+            :class="{ 'relation-row--active': selectedRelation === item.key }"
+            v-for="item in relationOptions"
             :key="item.key"
-            @tap="selectedOutput = item.key"
+            @tap="selectedRelation = item.key"
           >
-            <view class="output-icon">
-              <text class="output-icon-text">{{ item.icon }}</text>
-            </view>
-            <view class="output-info">
-              <text class="output-title">{{ item.label }}</text>
-              <text class="output-desc">{{ item.desc }}</text>
+            <view class="relation-radio" :class="{ 'relation-radio--active': selectedRelation === item.key }"></view>
+            <view>
+              <view class="relation-title-line">
+                <text class="relation-title">{{ item.label }}</text>
+                <text class="ai-tag" v-if="item.tag">{{ item.tag }}</text>
+              </view>
+              <text class="relation-desc">{{ item.desc }}</text>
             </view>
           </view>
         </view>
       </view>
 
-      <!-- 生成按钮 -->
+      <!-- 最近生成（仿 mindmap 列表） -->
+      <view class="recent-section" v-if="recentItems.length">
+        <text class="recent-title">最近生成</text>
+        <view class="recent-list">
+          <view
+            class="recent-item"
+            v-for="item in recentItems"
+            :key="item.id"
+            @tap="openRecent(item)"
+          >
+            <view class="recent-icon-wrap">
+              <image class="recent-icon" src="/static/icons/diagram/app-grid.svg" mode="aspectFit" />
+            </view>
+            <view class="recent-info">
+              <text class="recent-name">{{ item.title || '未命名架构' }}</text>
+              <text class="recent-meta">{{ item.preview || formatTime(item.createTime) }}</text>
+            </view>
+            <image class="recent-arrow" src="/static/icons/icon-forward.svg" mode="aspectFit" />
+          </view>
+        </view>
+      </view>
+    </scroll-view>
+
+    <view class="bottom-bar">
       <view class="generate-btn" @tap="generateArchitecture">
-        <text class="generate-btn-text">✦ 开始生成架构图</text>
+        <image class="generate-icon" src="/static/icons/diagram/spark-blue.svg" mode="aspectFit" />
+        <text>{{ isGenerating ? 'AI 生成中...' : 'AI 生成架构图' }}</text>
       </view>
-
-
     </view>
   </view>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
+import NavBar from '@/components/nav-bar/nav-bar.vue'
+import {
+  buildArchitecturePayload,
+  getArchitectureHistory,
+  uploadArchitectureFile
+} from '@/api/architecture.js'
+import { getErrorMessage } from '@/api/aiDiagram.js'
+import ImportFileButton from '../components/ImportFileButton.vue'
 
 const description = ref('')
-const selectedType = ref('system')
-const selectedStyle = ref('modern')
-const selectedComplexity = ref('medium')
-const selectedOutput = ref('auto')
+const selectedSystemType = ref('web')
+const selectedLayer = ref('auto')
+const selectedContents = ref(['frontend', 'backend'])
+const selectedRelation = ref('auto')
+const isGenerating = ref(false)
+const isUploading = ref(false)
+const uploadedFile = ref(null)
+const recentItems = ref([])
 
-const archTypes = [
-  { key: 'system', label: '系统架构', icon: '🖥', bgColor: '#EEF0FF' },
-  { key: 'business', label: '业务架构', icon: '', bgColor: '#E8FFF0' },
-  { key: 'tech', label: '技术架构', icon: '⚙', bgColor: '#FFF3E0' },
-  { key: 'data', label: '数据架构', icon: '🗄', bgColor: '#F3E8FF' },
-  { key: 'network', label: '网络架构', icon: '🌐', bgColor: '#FFE8F0' },
+// UI 选项 key → 后端枚举值 映射
+const SYSTEM_TYPE_MAP = {
+  web: 'WEB',
+  app: 'APP',
+  mini: 'MINI_PROGRAM',
+  admin: 'ADMIN'
+}
+const LAYER_MAP = {
+  auto: [],
+  client: ['ACCESS'],
+  application: ['APPLICATION'],
+  service: ['SERVICE'],
+  data: ['DATA']
+}
+const CONTENT_MAP = {
+  frontend: 'FRONTEND',
+  backend: 'BACKEND',
+  storage: 'DATABASE',
+  thirdParty: 'THIRD_PARTY'
+}
+const RELATION_MAP = {
+  auto: 'AUTO',
+  module: 'MODULE',
+  data: 'DATA_FLOW'
+}
+
+const systemTypes = [
+  { key: 'web', label: 'Web系统' },
+  { key: 'app', label: 'APP系统' },
+  { key: 'mini', label: '小程序' },
+  { key: 'admin', label: '管理后台' }
 ]
 
-const styles = [
-  { key: 'modern', label: '简约现代', previewBg: 'linear-gradient(135deg, #F8F9FA 0%, #FFF 50%, #F0F2F5 100%)' },
-  { key: 'tech', label: '科技蓝', previewBg: 'linear-gradient(135deg, #1a3a5c 0%, #2d5a87 50%, #1a3a5c 100%)' },
-  { key: 'flat', label: '扁平卡片', previewBg: 'linear-gradient(135deg, #FFF5E6 0%, #FFE8CC 50%, #FFF0DB 100%)' },
-  { key: 'handdrawn', label: '手绘风格', previewBg: 'linear-gradient(135deg, #F0FFF0 0%, #E8FFE8 50%, #F5FFF5 100%)' },
-  { key: 'dark', label: '深色模式', previewBg: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)' },
+const layerOptions = [
+  { key: 'auto', label: '自动分析', tag: 'AI', desc: '将根据需求智能判断架构层级', icon: '/static/icons/diagram/ai-pen-blue.svg' },
+  { key: 'client', label: '用户层 (Client/User)', icon: '/static/icons/diagram/layer.svg' },
+  { key: 'application', label: '应用层 (Application)', icon: '/static/icons/diagram/app-grid.svg' },
+  { key: 'service', label: '服务层 (Service/Core)', icon: '/static/icons/diagram/server.svg' },
+  { key: 'data', label: '数据层 (Data Storage)', icon: '/static/icons/diagram/database.svg' }
 ]
 
-const complexities = [
-  { key: 'simple', label: '简单', desc: '1-2 层结构', icon: '📦' },
-  { key: 'medium', label: '中等', desc: '3-5 层结构', icon: '📊' },
-  { key: 'complex', label: '复杂', desc: '5 层以上结构', icon: '🏗' },
+const contentOptions = [
+  { key: 'frontend', label: '前端模块' },
+  { key: 'backend', label: '后端服务' },
+  { key: 'storage', label: '数据存储' },
+  { key: 'thirdParty', label: '第三方服务' }
 ]
 
-const outputs = [
-  { key: 'auto', label: '自动布局', desc: '智能优化布局', icon: '🔧' },
-  { key: 'custom', label: '自定义布局', desc: '自由拖拽调整', icon: '' },
+const relationOptions = [
+  { key: 'auto', label: '自动分析', tag: 'AUTO', desc: 'AI 将标注并展示合适的表达方式' },
+  { key: 'module', label: '模块关系', desc: '展示组件间的层级与连接关系' },
+  { key: 'data', label: '数据流向', desc: '着重展示信息的传递与存储路径' }
 ]
 
-const goBack = () => { uni.navigateBack() }
-const goHistory = () => { uni.showToast({ title: '历史记录', icon: 'none' }) }
-const aiWrite = () => { uni.showToast({ title: 'AI帮你写', icon: 'none' }) }
+const openHistory = () => { uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory' }) }
 
-const generateArchitecture = () => {
+// 加载最近生成的架构图列表
+const loadRecentItems = async () => {
+  try {
+    const data = await getArchitectureHistory({ page: 1, size: 10 })
+    const records = (data && data.records) || []
+    recentItems.value = records.map(item => ({
+      id: item.id,
+      title: item.title || '未命名架构',
+      preview: item.preview || item.description || '',
+      createTime: item.createTime || item.createdAt || ''
+    }))
+  } catch (error) {
+    recentItems.value = []
+  }
+}
+
+// 格式化时间（YYYY-MM-DD HH:mm）
+const formatTime = (timeStr = '') => {
+  if (!timeStr) return ''
+  const date = new Date(timeStr)
+  if (Number.isNaN(date.getTime())) return timeStr
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+// 点击最近生成项 → 进入架构图结果页
+const openRecent = (item) => {
+  if (!item || item.id == null) return
+  uni.navigateTo({
+    url: `/subpackage_ai/architecturePreview/architecturePreview?recordId=${encodeURIComponent(item.id)}`
+  })
+}
+const chooseDocumentFile = () => {
+  const extensions = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'md', 'markdown']
+  return new Promise((resolve, reject) => {
+    if (typeof uni.chooseFile === 'function') {
+      uni.chooseFile({
+        count: 1,
+        extension: extensions,
+        success: (res) => resolve(res.tempFiles?.[0] || null),
+        fail: reject
+      })
+      return
+    }
+    if (typeof uni.chooseMessageFile === 'function') {
+      uni.chooseMessageFile({
+        count: 1,
+        type: 'file',
+        extension: extensions,
+        success: (res) => resolve(res.tempFiles?.[0] || null),
+        fail: reject
+      })
+      return
+    }
+    reject(new Error('当前平台不支持文件选择'))
+  })
+}
+
+const importDocument = async () => {
+  if (isUploading.value) return
+  try {
+    const file = await chooseDocumentFile()
+    const filePath = file?.path || file?.tempFilePath
+    if (!filePath) return
+    isUploading.value = true
+    const result = await uploadArchitectureFile(filePath, file.name || '')
+    uploadedFile.value = result
+    if (!description.value.trim() && result.fileName) {
+      description.value = `根据文档《${result.fileName}》生成架构图`
+    }
+    uni.showToast({ title: '文件解析完成', icon: 'none' })
+  } catch (error) {
+    uni.showToast({ title: getErrorMessage(error, '文件解析失败'), icon: 'none' })
+  } finally {
+    isUploading.value = false
+  }
+}
+
+const toggleContent = (key) => {
+  if (selectedContents.value.includes(key)) {
+    selectedContents.value = selectedContents.value.filter(item => item !== key)
+    return
+  }
+  selectedContents.value = [...selectedContents.value, key]
+}
+
+const generateArchitecture = async () => {
   if (!description.value.trim()) {
     uni.showToast({ title: '请输入架构描述', icon: 'none' })
     return
   }
-  uni.navigateTo({
-    url: `/subpackage_ai/architecturePreview/architecturePreview?desc=${encodeURIComponent(description.value)}&type=${selectedType.value}&style=${selectedStyle.value}&complexity=${selectedComplexity.value}`
+  if (isGenerating.value) return
+  // 组装 payload 并跳转生成动画页（由动画页负责调用 API 与播放生长动画）
+  const payload = buildArchitecturePayload({
+    description: description.value.trim(),
+    systemType: SYSTEM_TYPE_MAP[selectedSystemType.value] || 'WEB',
+    architectureStyle: 'AUTO',
+    layers: LAYER_MAP[selectedLayer.value] || [],
+    displayContent: selectedContents.value.map(key => CONTENT_MAP[key]).filter(Boolean),
+    relationType: RELATION_MAP[selectedRelation.value] || 'AUTO',
+    sourceText: uploadedFile.value?.text || '',
+    fileId: uploadedFile.value?.fileId || '',
+    sourceFile: uploadedFile.value?.sourceFile || ''
   })
+  uni.setStorageSync('aiArchitecturePendingPayload', payload)
+  uni.navigateTo({ url: '/subpackage_ai/architectureGenerating/architectureGenerating' })
 }
+
+onMounted(() => {
+  loadRecentItems()
+})
 </script>
 
 <style lang="scss" scoped>
 .page {
   min-height: 100vh;
-  background-color: #F6F8FB;
+  background: #FCFAFC;
+  color: #15233A;
 }
 
-/* 导航栏 */
-.nav-bar {
-  display: flex;
-  align-items: center;
-  padding: 20rpx 24rpx;
-  background: #FFF;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  gap: 16rpx;
-}
-
-.nav-back {
-  width: 60rpx;
-  height: 60rpx;
+.nav-history-action {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 999rpx;
+  transition: background-color 0.18s ease, transform 0.12s ease;
 }
 
-.nav-back-icon {
-  font-size: 48rpx;
-  color: #333;
-  font-weight: 300;
-}
-
-.nav-title {
-  font-size: 34rpx;
-  font-weight: 700;
-  color: #222;
-  flex: 1;
-  text-align: center;
-}
-
-.nav-history {
-  display: flex;
-  align-items: center;
-  gap: 6rpx;
-  padding: 10rpx 16rpx;
-  background: #F5F5F5;
-  border-radius: 8rpx;
+.nav-history-action:active {
+  background: rgba(15, 23, 42, 0.06);
+  transform: scale(0.96);
 }
 
 .nav-history-icon {
-  font-size: 24rpx;
-}
-
-.nav-history-text {
-  font-size: 24rpx;
-  color: #555;
+  width: 34rpx;
+  height: 34rpx;
 }
 
 .content {
-  padding: 20rpx 24rpx 40rpx;
-}
-
-/* 头部卡片 */
-.header-card {
-  background: linear-gradient(135deg, #EEF0FF 0%, #F8F9FF 100%);
-  border-radius: 16rpx;
-  padding: 32rpx 28rpx;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20rpx;
-}
-
-.header-info {
-  flex: 1;
-}
-
-.header-title {
-  font-size: 34rpx;
-  font-weight: 700;
-  color: #222;
-  display: block;
-  margin-bottom: 8rpx;
-}
-
-.header-subtitle {
-  font-size: 24rpx;
-  color: #888;
-  display: block;
-}
-
-.header-icon {
-  width: 100rpx;
-  height: 100rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.header-icon-text {
-  font-size: 64rpx;
-}
-
-/* 表单区块 */
-.form-section {
-  background: #FFF;
-  border-radius: 16rpx;
-  padding: 28rpx 24rpx;
-  margin-bottom: 20rpx;
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20rpx;
-}
-
-.section-title {
-  font-size: 30rpx;
-  font-weight: 700;
-  color: #222;
-}
-
-.ai-write-btn {
-  display: flex;
-  align-items: center;
-  gap: 6rpx;
-  padding: 8rpx 16rpx;
-  background: #EEF0FF;
-  border-radius: 8rpx;
-}
-
-.ai-write-icon {
-  font-size: 22rpx;
-  color: #4D6BFE;
-}
-
-.ai-write-text {
-  font-size: 24rpx;
-  color: #4D6BFE;
-  font-weight: 600;
-}
-
-/* 输入框 */
-.textarea-wrapper {
-  position: relative;
-}
-
-.desc-input {
-  width: 100%;
-  min-height: 200rpx;
-  padding: 20rpx;
-  background: #F8F9FA;
-  border-radius: 12rpx;
-  font-size: 28rpx;
-  color: #333;
-  line-height: 1.6;
+  height: calc(100vh - 88rpx);
+  padding: 30rpx 30rpx 150rpx;
   box-sizing: border-box;
 }
 
+.input-card {
+  height: 440rpx;
+  padding: 34rpx 34rpx 24rpx;
+  border: 1rpx solid #DFE3EA;
+  border-radius: 18rpx;
+  background: #FFFFFF;
+  box-sizing: border-box;
+}
+
+.input-label {
+  display: block;
+  margin-bottom: 14rpx;
+  color: #3A4657;
+  font-size: 22rpx;
+  font-weight: 600;
+}
+
+.prompt-input {
+  width: 100%;
+  height: 270rpx;
+  color: #28364C;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.prompt-placeholder {
+  color: #1F2E44;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.input-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .char-count {
-  position: absolute;
-  right: 16rpx;
-  bottom: 12rpx;
-  font-size: 24rpx;
-  color: #BBB;
+  color: #778397;
+  font-size: 20rpx;
 }
 
-/* 架构类型 */
-.type-list {
-  display: flex;
-  gap: 16rpx;
-  overflow-x: auto;
-  padding-bottom: 8rpx;
-}
-
-.type-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12rpx;
-  min-width: 130rpx;
-}
-
-.type-icon-wrap {
-  width: 80rpx;
-  height: 80rpx;
-  border-radius: 16rpx;
+.section-title {
   display: flex;
   align-items: center;
-  justify-content: center;
-  border: 2rpx solid transparent;
+  margin: 36rpx 0 26rpx;
+  color: #1C2E48;
+  font-size: 30rpx;
+  font-weight: 800;
 }
 
-.type-item--active .type-icon-wrap {
-  border-color: #4D6BFE;
+.section-icon {
+  width: 34rpx;
+  height: 30rpx;
+  margin-right: 12rpx;
 }
 
-.type-icon {
-  font-size: 36rpx;
+.field-block {
+  margin-bottom: 28rpx;
 }
 
-.type-label {
-  font-size: 24rpx;
-  color: #555;
-  text-align: center;
-}
-
-.type-label--active {
-  color: #4D6BFE;
-  font-weight: 600;
-}
-
-/* 风格选择 */
-.style-list {
-  display: flex;
-  gap: 16rpx;
-  overflow-x: auto;
-  padding-bottom: 8rpx;
-}
-
-.style-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12rpx;
-  min-width: 140rpx;
-}
-
-.style-preview {
-  width: 140rpx;
-  height: 90rpx;
-  border-radius: 12rpx;
-  position: relative;
-  overflow: hidden;
-  border: 2rpx solid transparent;
-}
-
-.style-item--active .style-preview {
-  border-color: #4D6BFE;
-}
-
-.style-check {
-  position: absolute;
-  top: 6rpx;
-  right: 6rpx;
-  width: 32rpx;
-  height: 32rpx;
-  background: #4D6BFE;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.style-check-icon {
-  font-size: 18rpx;
-  color: #FFF;
-}
-
-.style-label {
-  font-size: 24rpx;
-  color: #555;
-  text-align: center;
-}
-
-.style-label--active {
-  color: #4D6BFE;
-  font-weight: 600;
-}
-
-/* 复杂度 */
-.complexity-list {
-  display: flex;
-  gap: 16rpx;
-}
-
-.complexity-item {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-  padding: 20rpx 16rpx;
-  border-radius: 12rpx;
-  border: 2rpx solid #F0F0F0;
-}
-
-.complexity-item--active {
-  border-color: #4D6BFE;
-  background: #F8F9FF;
-}
-
-.complexity-icon {
-  width: 56rpx;
-  height: 56rpx;
-  background: #F5F5F5;
-  border-radius: 12rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.complexity-item--active .complexity-icon {
-  background: #EEF0FF;
-}
-
-.complexity-icon-text {
-  font-size: 28rpx;
-}
-
-.complexity-info {
-  flex: 1;
-}
-
-.complexity-title {
-  font-size: 28rpx;
-  color: #222;
-  font-weight: 600;
+.field-label {
   display: block;
-}
-
-.complexity-desc {
+  margin-bottom: 18rpx;
+  color: #344155;
   font-size: 22rpx;
-  color: #999;
-  display: block;
-  margin-top: 4rpx;
+  font-weight: 600;
 }
 
-/* 输出设置 */
-.output-list {
+.chip-row {
   display: flex;
-  gap: 16rpx;
+  gap: 14rpx;
 }
 
-.output-item {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-  padding: 20rpx 16rpx;
-  border-radius: 12rpx;
-  border: 2rpx solid #F0F0F0;
-}
-
-.output-item--active {
-  border-color: #4D6BFE;
-  background: #F8F9FF;
-}
-
-.output-icon {
-  width: 56rpx;
-  height: 56rpx;
-  background: #F5F5F5;
-  border-radius: 12rpx;
+.pill-chip {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-}
-
-.output-item--active .output-icon {
-  background: #EEF0FF;
-}
-
-.output-icon-text {
-  font-size: 28rpx;
-}
-
-.output-info {
-  flex: 1;
-}
-
-.output-title {
-  font-size: 28rpx;
-  color: #222;
-  font-weight: 600;
-  display: block;
-}
-
-.output-desc {
+  height: 50rpx;
+  min-width: 118rpx;
+  padding: 0 22rpx;
+  border: 1rpx solid #DDE3EB;
+  border-radius: 28rpx;
+  background: #FFFFFF;
+  color: #1F2C3F;
   font-size: 22rpx;
-  color: #999;
-  display: block;
-  margin-top: 4rpx;
+  box-sizing: border-box;
 }
 
-/* 生成按钮 */
-.generate-btn {
-  background: linear-gradient(135deg, #6A8CFE 0%, #4D6BFE 100%);
-  border-radius: 16rpx;
-  padding: 30rpx 0;
-  text-align: center;
-  margin-top: 8rpx;
-}
-
-.generate-btn-text {
-  color: #FFF;
-  font-size: 32rpx;
+.pill-chip--active {
+  border-color: #38A6F4;
+  background: #3AA3F5;
+  color: #FFFFFF;
   font-weight: 700;
 }
 
+.layer-list,
+.relation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.layer-row {
+  display: flex;
+  align-items: center;
+  height: 96rpx;
+  padding: 0 26rpx;
+  border: 1rpx solid #DEE3EB;
+  border-radius: 14rpx;
+  background: #FFFFFF;
+  box-sizing: border-box;
+}
+
+.layer-row--active {
+  height: 108rpx;
+  border: 2rpx solid #3AA3F5;
+  background: #EAF6FF;
+}
+
+.layer-icon {
+  width: 34rpx;
+  height: 34rpx;
+  margin-right: 22rpx;
+}
+
+.layer-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.layer-title-line,
+.relation-title-line {
+  display: flex;
+  align-items: center;
+}
+
+.layer-title,
+.relation-title {
+  color: #1F2C3F;
+  font-size: 24rpx;
+  font-weight: 800;
+}
+
+.layer-desc,
+.relation-desc {
+  display: block;
+  margin-top: 6rpx;
+  color: #7C8797;
+  font-size: 18rpx;
+  line-height: 1.25;
+}
+
+.ai-tag {
+  margin-left: 12rpx;
+  color: #3AA3F5;
+  font-size: 16rpx;
+  font-weight: 800;
+}
+
+.choice-circle {
+  width: 26rpx;
+  height: 26rpx;
+  border: 2rpx solid #B8C2D0;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.choice-circle--active {
+  border: 7rpx solid #3AA3F5;
+}
+
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16rpx;
+}
+
+.checkbox-item {
+  display: flex;
+  align-items: center;
+  height: 64rpx;
+  padding: 0 20rpx;
+  border: 1rpx solid #E1E5EC;
+  border-radius: 10rpx;
+  background: #FFFFFF;
+  color: #1F2C3F;
+  font-size: 22rpx;
+  box-sizing: border-box;
+}
+
+.checkbox {
+  position: relative;
+  width: 24rpx;
+  height: 24rpx;
+  margin-right: 12rpx;
+  border: 1rpx solid #CAD2DE;
+  border-radius: 4rpx;
+  box-sizing: border-box;
+}
+
+.checkbox--active {
+  border-color: #3AA3F5;
+  background: #3AA3F5;
+}
+
+.checkbox--active::after {
+  content: "";
+  position: absolute;
+  left: 6rpx;
+  top: 2rpx;
+  width: 7rpx;
+  height: 13rpx;
+  border-right: 2rpx solid #FFFFFF;
+  border-bottom: 2rpx solid #FFFFFF;
+  transform: rotate(45deg);
+}
+
+.relation-row {
+  display: flex;
+  align-items: center;
+  min-height: 100rpx;
+  padding: 18rpx 26rpx;
+  border: 1rpx solid #DEE3EB;
+  border-radius: 14rpx;
+  background: #FFFFFF;
+  box-sizing: border-box;
+}
+
+.relation-row--active {
+  border: 2rpx solid #3AA3F5;
+}
+
+.relation-radio {
+  width: 26rpx;
+  height: 26rpx;
+  margin-right: 20rpx;
+  border: 2rpx solid #B8C2D0;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.relation-radio--active {
+  border: 8rpx solid #3AA3F5;
+}
+
+/* ===== 最近生成 ===== */
+.recent-section {
+  margin-top: 36rpx;
+  margin-bottom: 40rpx;
+}
+
+.recent-title {
+  display: block;
+  margin: 0 0 18rpx 8rpx;
+  color: #545B67;
+  font-size: 24rpx;
+  font-weight: 500;
+}
+
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  height: 130rpx;
+  padding: 0 30rpx;
+  border-radius: 18rpx;
+  background: #FFFFFF;
+  box-sizing: border-box;
+  box-shadow: 0 4rpx 12rpx rgba(35, 43, 58, 0.03);
+}
+
+.recent-item:active {
+  background: #F4F8FC;
+}
+
+.recent-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 68rpx;
+  height: 68rpx;
+  margin-right: 24rpx;
+  border-radius: 12rpx;
+  background: #E8F4FE;
+}
+
+.recent-icon {
+  width: 36rpx;
+  height: 36rpx;
+}
+
+.recent-info {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.recent-name {
+  color: #1E2B3D;
+  font-size: 26rpx;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-meta {
+  margin-top: 4rpx;
+  color: #2D4664;
+  font-size: 20rpx;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-arrow {
+  width: 32rpx;
+  height: 32rpx;
+  opacity: 0.3;
+  flex-shrink: 0;
+}
+
+.bottom-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  padding: 22rpx 30rpx 24rpx;
+  background: #FCFAFC;
+  box-sizing: border-box;
+}
+
+.generate-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 96rpx;
+  border-radius: 16rpx;
+  background: #3AA3F5;
+  color: #FFFFFF;
+  font-size: 28rpx;
+  font-weight: 800;
+}
+
+.generate-icon {
+  width: 34rpx;
+  height: 34rpx;
+  margin-right: 12rpx;
+}
 </style>

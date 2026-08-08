@@ -41,16 +41,15 @@ export const portalGroups = [
     label: '旧物交易',
     items: [
       { path: '/market/item', label: '物品管理', icon: 'shopping', pageKey: 'market-item' },
-      { path: '/market/category', label: '分类管理', icon: 'appstore', pageKey: 'market-category' },
+      { path: '/market/report', label: '举报管理', icon: 'warning', pageKey: 'market-report' },
     ],
   },
   {
     label: '校园特惠',
     items: [
       { path: '/discount/merchant', label: '商家管理', icon: 'shop', pageKey: 'discount-merchant' },
-      { path: '/discount/activity', label: '优惠活动', icon: 'gift', pageKey: 'discount-activity' },
+      { path: '/discount/activity', label: '活动管理', icon: 'gift', pageKey: 'discount-activity' },
       { path: '/discount/category', label: '分类管理', icon: 'tags', pageKey: 'discount-category' },
-      { path: '/discount/analytics', label: '特惠统计', icon: 'fund', pageKey: 'discount-analytics' },
     ],
   },
   {
@@ -58,6 +57,12 @@ export const portalGroups = [
     items: [
       { path: '/meeting/history', label: '会议历史', icon: 'video-camera', pageKey: 'meeting-history' },
       { path: '/meeting/voice-model', label: '语音模型配置', icon: 'audio', pageKey: 'voice-model-config' },
+    ],
+  },
+  {
+    label: '课程学习',
+    items: [
+      { path: '/learning/courses', label: '校园课程管理', icon: 'book' },
     ],
   },
   {
@@ -196,7 +201,6 @@ const columns = {
     { title: '封面', dataIndex: 'coverImage', type: 'image', width: 80 },
     { title: '标题', dataIndex: 'title', width: 220 },
     { title: '分类', dataIndex: 'categoryName', type: 'tag' },
-    { title: '成色', dataIndex: 'conditionText', type: 'tag' },
     { title: '价格', dataIndex: 'priceText', width: 120 },
     { title: '地点', dataIndex: 'location', width: 140 },
     { title: '发布者', dataIndex: 'publisherName', width: 120 },
@@ -207,6 +211,17 @@ const columns = {
     { title: '分类', dataIndex: 'categoryName', type: 'tag', width: 180 },
     { title: '排序', dataIndex: 'sortText', width: 100 },
     { title: '关联物品', dataIndex: 'itemCountText', width: 120 },
+  ],
+  secondhandReport: [
+    { title: 'ID', dataIndex: 'id', width: 70 },
+    { title: '举报人', dataIndex: 'reporterName', width: 120 },
+    { title: '联系方式', dataIndex: 'reporterContact', width: 160 },
+    { title: '商品标题', dataIndex: 'itemTitle', width: 200 },
+    { title: '卖家', dataIndex: 'itemSellerName', width: 120 },
+    { title: '原因类型', dataIndex: 'reasonTypeText', width: 100, type: 'tag' },
+    { title: '详细理由', dataIndex: 'reason', width: 200, ellipsis: true },
+    { title: '状态', dataIndex: 'statusText', width: 100, type: 'status' },
+    { title: '提交时间', dataIndex: 'createTime', width: 160 },
   ],
   merchant: [
     { title: '商家名称', dataIndex: 'merchantName' },
@@ -426,7 +441,7 @@ export const workspacePages = {
     badge: '旧物交易',
     description: '管理员可查看详情、下架与删除，不可编辑用户发布内容。',
     columns: columns.secondhandItem,
-    filters: ['全部', '在售', '已售出', '已下架'],
+    filters: ['全部', '出物', '收物', '已下架'],
     emptyText: '暂无物品数据',
   }),
   'market-category': createPage({
@@ -435,6 +450,14 @@ export const workspacePages = {
     description: '维护校园旧物分类、排序与关联物品规模。',
     columns: columns.secondhandCategory,
     emptyText: '暂无旧物分类数据',
+  }),
+  'market-report': createPage({
+    title: '举报管理',
+    badge: '旧物交易',
+    description: '查看和处理用户对二手物品的举报记录。',
+    columns: columns.secondhandReport,
+    filters: ['全部', '待处理', '已处理', '已驳回'],
+    emptyText: '暂无举报数据',
   }),
   'discount-merchant': createPage({
     title: '',
@@ -456,13 +479,6 @@ export const workspacePages = {
     description: '',
     columns: columns.merchantCategory,
     emptyText: '暂无商家分类数据',
-  }),
-  'discount-analytics': createPage({
-    title: '',
-    badge: '',
-    description: '',
-    columns: columns.summary,
-    emptyText: '暂无特惠统计数据',
   }),
   'system-config': createPage({
     title: '',
@@ -502,4 +518,93 @@ export const getNavMetaByPath = (path) => {
     description: page?.description || '',
     badge: page?.badge || '',
   }
+}
+
+const normalizePortalPath = (path) => {
+  const normalized = String(path || '').split(/[?#]/, 1)[0].replace(/\/+$/, '')
+  return normalized || '/'
+}
+
+export const getBreadcrumbByPath = (path) => {
+  const normalizedPath = normalizePortalPath(path)
+
+  for (const section of navigationSections) {
+    const item = section.items.find((navItem) => normalizePortalPath(navItem.path) === normalizedPath)
+    if (item) {
+      return [
+        section.label,
+        { label: item.label },
+      ]
+    }
+  }
+
+  if (/^\/facility\/canteen\/[^/]+\/stalls$/.test(normalizedPath)) {
+    return [
+      '校园设施',
+      { label: '食堂管理', path: '/facility/canteen' },
+      { label: '档口管理' },
+    ]
+  }
+
+  const indoorMatch = normalizedPath.match(/^\/facility\/canteen\/([^/]+)\/stalls\/indoor$/)
+  if (indoorMatch) {
+    return [
+      '校园设施',
+      { label: '食堂管理', path: '/facility/canteen' },
+      { label: '档口管理', path: `/facility/canteen/${indoorMatch[1]}/stalls` },
+      { label: '楼层档口定位' },
+    ]
+  }
+
+  const dishManagementMatch = normalizedPath.match(/^\/facility\/canteen\/([^/]+)\/stalls\/[^/]+\/dishes$/)
+  if (dishManagementMatch) {
+    return [
+      '校园设施',
+      { label: '食堂管理', path: '/facility/canteen' },
+      { label: '档口管理', path: `/facility/canteen/${dishManagementMatch[1]}/stalls` },
+      { label: '菜品管理' },
+    ]
+  }
+
+  if (normalizedPath === '/activity/create') {
+    return [
+      '校园活动',
+      { label: '活动管理', path: '/activity/manage' },
+      { label: '新建活动' },
+    ]
+  }
+
+  if (/^\/activity\/[^/]+\/edit$/.test(normalizedPath)) {
+    return [
+      '校园活动',
+      { label: '活动管理', path: '/activity/manage' },
+      { label: '编辑活动' },
+    ]
+  }
+
+  if (/^\/activity\/[^/]+$/.test(normalizedPath)) {
+    return [
+      '校园活动',
+      { label: '活动管理', path: '/activity/manage' },
+      { label: '活动详情' },
+    ]
+  }
+
+  if (/^\/ai\/knowledge\/paragraph\/[^/]+\/[^/]+$/.test(normalizedPath)) {
+    return [
+      'AI 模块',
+      { label: '知识库管理', path: '/ai/knowledge' },
+      { label: '段落管理' },
+    ]
+  }
+
+  if (/^\/admin\/paragraph\/[^/]+\/[^/]+$/.test(normalizedPath)) {
+    return [
+      'AI 模块',
+      { label: '知识库聊天', path: '/admin/knowledge-chat' },
+      { label: '段落管理' },
+    ]
+  }
+
+  return null
 }

@@ -37,6 +37,14 @@
           <text class="cell-arrow">›</text>
         </view>
         <view class="cell-divider"></view>
+        <view class="cell" @click="goToMyCourses">
+          <view class="cell-left">
+            <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/book-open.svg" mode="aspectFit" /></view>
+            <text class="cell-label">我的课程</text>
+          </view>
+          <text class="cell-arrow">›</text>
+        </view>
+        <view class="cell-divider"></view>
         <view class="cell" @click="goToMeetingSchedule">
           <view class="cell-left">
             <view class="cell-icon"><image class="cell-icon-img" src="/static/icons/line/calendar.svg" mode="aspectFit" /></view>
@@ -199,6 +207,9 @@ export default {
     },
     goToSchedule() {
       uni.navigateTo({ url: '/subpackage_schedule/schedule/schedule' })
+    },
+    goToMyCourses() {
+      uni.navigateTo({ url: '/subpackage_learning/myCourses/myCourses' })
     },
     goToMeetingSchedule() {
       uni.navigateTo({ url: '/subpackage_meeting/meetingSchedule/meetingSchedule' })

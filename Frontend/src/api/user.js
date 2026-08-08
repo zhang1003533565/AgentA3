@@ -19,6 +19,14 @@ export function register(data) {
   })
 }
 
+export function updatePassword(data) {
+  return request({ url: '/api/auth/password', method: 'PUT', data })
+}
+
+export function updateAvatar(avatarUrl) {
+  return request({ url: '/api/auth/avatar', method: 'PUT', data: { avatarUrl } })
+}
+
 // ========== 消息中心 ==========
 
 export function getMessages(current = 1, size = 100) {

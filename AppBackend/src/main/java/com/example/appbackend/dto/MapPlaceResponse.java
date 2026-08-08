@@ -1,5 +1,6 @@
 package com.example.appbackend.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.example.appbackend.entity.MapFloorPlan;
 import com.example.appbackend.entity.MapPlaceFence;
 import com.example.appbackend.entity.MapPlaceImage;
@@ -18,6 +19,7 @@ public class MapPlaceResponse {
     private String sceneType;
     private String placeType;
     private String name;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private String description;
     private String status;
     private BigDecimal longitude;
@@ -25,6 +27,12 @@ public class MapPlaceResponse {
     private String locationDesc;
     private Boolean mapVisible;
     private Integer sortOrder;
+    private Integer stallStatus;
+    private String businessHours;
+    private BigDecimal avgPrice;
+    private String imageUrl;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Long stallCount;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private List<MapPlaceImage> images = new ArrayList<>();

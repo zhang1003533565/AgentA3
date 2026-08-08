@@ -5,6 +5,7 @@ import {
   QUESTION_GENERATION_AGENT_PREFIX,
   QUESTION_TYPE_OPTIONS,
   buildQuestionGenerationAgentMappings,
+  buildLlmModelOptions,
   resolveQuestionGenerationAgentStatus,
 } from './agentConfig.js'
 
@@ -19,6 +20,30 @@ test('exports the question generation agent prefix and all supported question ty
     'calculation',
     'programming',
   ])
+})
+
+test('builds tested vision model options for vision agents', () => {
+  const originalGetItem = globalThis.localStorage
+  globalThis.localStorage = {
+    getItem: (key) => key.includes('prefixes')
+      ? JSON.stringify({ 'ai.service.vision.qwen_vl': true })
+      : JSON.stringify({}),
+  }
+  try {
+    assert.deepEqual(buildLlmModelOptions([
+      { configKey: 'ai.service.vision.qwen_vl.provider', configValue: 'qwen' },
+      { configKey: 'ai.service.vision.qwen_vl.base-url', configValue: 'https://vision.test/v1' },
+      { configKey: 'ai.service.vision.qwen_vl.api-key', configValue: 'test-key' },
+      { configKey: 'ai.service.vision.qwen_vl.model', configValue: 'qwen-vl-test' },
+    ]), [{
+      value: 'ai.service.vision.qwen_vl',
+      label: '[视觉理解] qwen-vl-test',
+      modality: 'vision',
+      isDefault: false,
+    }])
+  } finally {
+    globalThis.localStorage = originalGetItem
+  }
 })
 
 test('builds question type mappings from enabled non-empty config rows', () => {

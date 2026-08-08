@@ -2,6 +2,7 @@ tools:
   - memory_store
   - agent_model_provider
   - specialist_agents
+  - recognize_image_tool
   - generated_export_tools
   - markdown_export_tool
   - docx_export_tool

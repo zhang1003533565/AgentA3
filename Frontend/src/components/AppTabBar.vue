@@ -43,6 +43,7 @@ const shortcutItems = [
   { label: '我的活动', to: '/mine/activities' },
   { label: 'AI 会话历史', to: '/mine/ai-history' },
   { label: '我的试卷', to: '/mine/papers' },
+  { label: '账户设置', to: '/mine/account-settings' },
 ]
 </script>
 
@@ -58,6 +59,11 @@ const shortcutItems = [
         <RouterLink to="/map">校园地图</RouterLink>
         <RouterLink to="/activities">校园活动</RouterLink>
         <RouterLink to="/meetings">会议</RouterLink>
+        <RouterLink to="/learning">Python 学习</RouterLink>
+        <RouterLink to="/marketplace">校园市集</RouterLink>
+        <RouterLink to="/discount">校园优惠</RouterLink>
+        <RouterLink to="/forum">校园论坛</RouterLink>
+        <RouterLink to="/campus-services">校园服务</RouterLink>
         <RouterLink to="/ai">AI 助手</RouterLink>
         <RouterLink to="/ai-tools">AI 工具</RouterLink>
         <RouterLink to="/resume">我的简历</RouterLink>

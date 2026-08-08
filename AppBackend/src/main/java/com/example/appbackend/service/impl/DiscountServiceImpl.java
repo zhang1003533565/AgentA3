@@ -71,6 +71,7 @@ public class DiscountServiceImpl implements DiscountService {
         checkCreatePermission(currentUserId);
         DiscountActivity a = new DiscountActivity();
         Long merchantId = resolveMerchantId(currentUserId);
+        if (merchantId == null) merchantId = req.getMerchantId();
         applyActivityRequest(a, req, merchantId);
         a = activityRepository.save(a);
         return toActivityVO(a);
@@ -260,6 +261,7 @@ public class DiscountServiceImpl implements DiscountService {
         vo.setTitle(a.getTitle());
         vo.setDescription(a.getDescription());
         vo.setCoverImage(a.getCoverImage());
+        vo.setStartTime(a.getStartTime() != null ? a.getStartTime().format(FMT) : null);
         vo.setEndTime(a.getEndTime() != null ? a.getEndTime().format(FMT) : null);
         vo.setRemainCount(a.getRemainCount());
         Integer realStatus = getRealStatus(a.getStartTime(), a.getEndTime());
@@ -303,6 +305,7 @@ public class DiscountServiceImpl implements DiscountService {
         vo.setTitle(a.getTitle());
         vo.setDescription(a.getDescription());
         vo.setCoverImage(a.getCoverImage());
+        vo.setStartTime(a.getStartTime() != null ? a.getStartTime().format(FMT) : null);
         vo.setEndTime(a.getEndTime() != null ? a.getEndTime().format(FMT) : null);
         vo.setRemainCount(a.getRemainCount());
         Integer realStatus = getRealStatus(a.getStartTime(), a.getEndTime());

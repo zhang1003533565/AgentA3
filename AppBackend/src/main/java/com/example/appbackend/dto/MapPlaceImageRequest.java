@@ -6,4 +6,6 @@ import lombok.Data;
 public class MapPlaceImageRequest {
     private String imageUrl;
     private Integer sortOrder;
+    private Integer focusX;
+    private Integer focusY;
 }

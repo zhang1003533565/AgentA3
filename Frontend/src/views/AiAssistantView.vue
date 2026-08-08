@@ -3,6 +3,8 @@ import { computed, h, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppTabBar from '../components/AppTabBar.vue'
+import { queryLeaderAgent, streamLeaderAgent } from '../api/aiGeneration'
+import { AI_RESOURCE_ACCEPT, uploadAiResource } from '../api/upload'
 
 const IconLine = (props) => {
   const paths = {
@@ -92,13 +94,17 @@ const conversations = ref([
   { id: 2, title: '校园活动策划建议' },
 ])
 const activeConversationId = ref(1)
+const conversationSessionIds = ref({})
 const chatDraft = ref('')
 const chatBusy = ref(false)
+const resourceInput = ref(null)
+const pendingResources = ref([])
 const onlineSearch = ref(true)
 const deepThinking = ref(false)
 const messageList = ref(null)
 const quickPrompts = ['查课表', '图书馆时间', '奖学金申请', '校园卡补办']
 const feedback = ref({})
+let activeStreamTask = null
 
 const messages = ref([
   {
@@ -165,6 +171,7 @@ async function scrollMessages() {
 }
 
 function createConversation() {
+  activeStreamTask?.abort?.('conversation_changed')
   const item = { id: ++conversationSeed, title: '新对话' }
   conversations.value.unshift(item)
   activeConversationId.value = item.id
@@ -174,6 +181,7 @@ function createConversation() {
 }
 
 function switchConversation(id) {
+  activeStreamTask?.abort?.('conversation_changed')
   activeConversationId.value = id
   const conversation = conversations.value.find((item) => item.id === id)
   messages.value = [{
@@ -183,26 +191,234 @@ function switchConversation(id) {
   }]
 }
 
-function sendMessage(text = chatDraft.value) {
-  const value = text.trim()
-  if (!value || chatBusy.value) return
+function resourceEntry(file) {
+  return {
+    localId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    file,
+    name: file.name,
+    size: file.size,
+    status: 'uploading',
+    resource: null,
+    error: '',
+  }
+}
 
-  messages.value.push({ id: Date.now(), role: 'user', content: value })
+async function uploadEntry(entry) {
+  entry.status = 'uploading'
+  entry.error = ''
+  try {
+    entry.resource = await uploadAiResource(entry.file)
+    entry.status = 'success'
+  } catch (cause) {
+    entry.status = 'error'
+    entry.error = cause.message || '上传失败'
+  }
+}
+
+function chooseResources() {
+  resourceInput.value?.click()
+}
+
+function handleResourceSelect(event) {
+  const remaining = 8 - pendingResources.value.length
+  const files = Array.from(event.target.files || []).slice(0, Math.max(0, remaining))
+  if (!files.length) return
+  const entries = files.map(resourceEntry)
+  pendingResources.value.push(...entries)
+  entries.forEach((entry) => void uploadEntry(entry))
+  event.target.value = ''
+}
+
+function removeResource(localId) {
+  pendingResources.value = pendingResources.value.filter((item) => item.localId !== localId)
+}
+
+function formatFileSize(size) {
+  if (!size) return '0 KB'
+  return size >= 1024 * 1024
+    ? `${(size / 1024 / 1024).toFixed(1)} MB`
+    : `${Math.ceil(size / 1024)} KB`
+}
+
+function syncConversationSession(conversationId, sessionId) {
+  const value = String(sessionId || '').trim()
+  if (!value) return
+  conversationSessionIds.value = {
+    ...conversationSessionIds.value,
+    [conversationId]: value,
+  }
+}
+
+function updateChatMessage(id, patch) {
+  const target = messages.value.find((item) => item.id === id)
+  if (target) Object.assign(target, patch)
+  return target
+}
+
+async function sendMessage(text) {
+  const hasExplicitText = typeof text === 'string'
+  const value = String(hasExplicitText ? text : chatDraft.value).trim()
+  const uploading = pendingResources.value.some((item) => item.status === 'uploading')
+  const attachments = hasExplicitText
+    ? []
+    : pendingResources.value
+      .filter((item) => item.status === 'success')
+      .map((item) => item.resource)
+  if ((!value && !attachments.length) || chatBusy.value || uploading) return
+
+  const requestText = value || '请分析我上传的资源'
+  messages.value.push({ id: Date.now(), role: 'user', content: requestText, attachments })
   const conversation = conversations.value.find((item) => item.id === activeConversationId.value)
-  if (conversation?.title === '新对话') conversation.title = value.slice(0, 18)
-  chatDraft.value = ''
+  if (conversation?.title === '新对话') conversation.title = requestText.slice(0, 18)
+  if (!hasExplicitText) {
+    chatDraft.value = ''
+    pendingResources.value = []
+  }
+
+  const assistantMessageId = Date.now() + 1
+  const requestConversationId = activeConversationId.value
+  messages.value.push({
+    id: assistantMessageId,
+    role: 'assistant',
+    content: attachments.length ? '正在读取并分析上传的资源…' : '正在思考…',
+    streaming: true,
+  })
   chatBusy.value = true
   void scrollMessages()
 
-  window.setTimeout(() => {
-    messages.value.push({
-      id: Date.now() + 1,
-      role: 'assistant',
-      ...buildChatReply(value),
+  const requestPayload = {
+    sessionId: conversationSessionIds.value[requestConversationId] || undefined,
+    input: requestText,
+    ...(attachments.length ? { attachments } : {}),
+    metadata: {
+      onlineSearch: onlineSearch.value,
+      deepThinking: deepThinking.value,
+      source: 'web_ai_assistant',
+    },
+  }
+  let streamTouched = false
+  let streamCompleted = false
+
+  try {
+    const streamTask = streamLeaderAgent(requestPayload, {
+      onEvent(eventName, payload) {
+        streamTouched = true
+        syncConversationSession(requestConversationId, payload?.sessionId)
+        if (eventName === 'generation_start' && payload?.answer) {
+          updateChatMessage(assistantMessageId, {
+            content: payload.answer,
+            streaming: true,
+          })
+        } else if (eventName === 'tool_start' && payload?.message) {
+          updateChatMessage(assistantMessageId, {
+            content: payload.message,
+            streaming: true,
+          })
+        }
+        void scrollMessages()
+      },
+      onSession(payload) {
+        streamTouched = true
+        syncConversationSession(requestConversationId, payload?.sessionId)
+      },
+      onSearch(payload) {
+        streamTouched = true
+        const current = messages.value.find((item) => item.id === assistantMessageId)
+        if (current?.streaming) {
+          updateChatMessage(assistantMessageId, {
+            content: payload?.searchKeyword
+              ? `正在检索“${payload.searchKeyword}”…`
+              : '正在检索相关资料…',
+          })
+        }
+        void scrollMessages()
+      },
+      onDelta(content) {
+        if (!content) return
+        streamTouched = true
+        const current = messages.value.find((item) => item.id === assistantMessageId)
+        const previous = current?.receivedDelta ? current.content : ''
+        updateChatMessage(assistantMessageId, {
+          content: `${previous}${content}`,
+          receivedDelta: true,
+          streaming: true,
+        })
+        void scrollMessages()
+      },
+      onDone(payload) {
+        streamTouched = true
+        streamCompleted = true
+        syncConversationSession(requestConversationId, payload?.sessionId)
+        const current = messages.value.find((item) => item.id === assistantMessageId)
+        const finalContent = String(payload?.answer || current?.content || '').trim()
+        updateChatMessage(assistantMessageId, {
+          content: finalContent || 'AI 已完成本次资源分析。',
+          attachments: payload?.attachments || [],
+          resources: payload?.resources || [],
+          streaming: false,
+          receivedDelta: false,
+          answerType: payload?.answerType || 'text',
+        })
+        void scrollMessages()
+      },
+      onError(payload) {
+        const error = new Error(payload?.message || '流式请求失败')
+        error.payload = payload
+        throw error
+      },
     })
+    activeStreamTask = streamTask
+    await streamTask
+
+    if (!streamCompleted) {
+      const current = messages.value.find((item) => item.id === assistantMessageId)
+      if (current?.receivedDelta && String(current.content || '').trim()) {
+        updateChatMessage(assistantMessageId, { streaming: false, receivedDelta: false })
+      } else {
+        throw new Error('AI 未返回完整结果')
+      }
+    }
+  } catch (cause) {
+    if (cause?.name === 'AbortError') {
+      const current = messages.value.find((item) => item.id === assistantMessageId)
+      updateChatMessage(assistantMessageId, {
+        content: current?.receivedDelta && current.content
+          ? `${current.content}\n\n已停止生成。`
+          : '已停止生成。',
+        streaming: false,
+        receivedDelta: false,
+      })
+    } else if (cause?.fallbackToNormalRequest && !streamTouched) {
+      try {
+        const response = await queryLeaderAgent(requestPayload)
+        syncConversationSession(requestConversationId, response?.sessionId)
+        updateChatMessage(assistantMessageId, {
+          content: response?.answer || response?.content || 'AI 已完成本次资源分析。',
+          attachments: response?.attachments || [],
+          resources: response?.resources || [],
+          streaming: false,
+        })
+      } catch (fallbackError) {
+        updateChatMessage(assistantMessageId, {
+          content: fallbackError.message || 'AI 请求失败，请稍后重试。',
+          streaming: false,
+        })
+      }
+    } else {
+      updateChatMessage(assistantMessageId, {
+        content: cause.message || 'AI 请求失败，请稍后重试。',
+        streaming: false,
+      })
+    }
+  } finally {
+    activeStreamTask = null
     chatBusy.value = false
     void scrollMessages()
-  }, deepThinking.value ? 1300 : 700)
+  }
+}
+
+function stopGeneration() {
+  activeStreamTask?.abort?.('user_cancelled')
 }
 
 function regenerate(message) {
@@ -652,6 +868,7 @@ async function startMicrophone() {
 }
 
 onBeforeUnmount(stopMicrophone)
+onBeforeUnmount(() => activeStreamTask?.abort?.('page_unload'))
 
 function createMeeting() {
   const item = {
@@ -804,6 +1021,11 @@ function handleUpload(event) {
                 <div class="message-wrap">
                   <div class="message-bubble">
                     <p>{{ message.content }}</p>
+                    <div v-if="message.attachments?.length" class="message-attachments">
+                      <span v-for="item in message.attachments" :key="item.id || item.url">
+                        <IconLine name="file" :size="14" />{{ item.name }}
+                      </span>
+                    </div>
                     <pre v-if="message.code"><code>{{ message.code }}</code></pre>
                     <div v-if="message.table?.rows?.length" class="response-table">
                         <table>
@@ -828,14 +1050,21 @@ function handleUpload(event) {
                   </div>
                 </div>
               </article>
-              <article v-if="chatBusy" class="message-row assistant">
-                <span class="ai-avatar"><IconLine name="logo" :size="17" /></span>
-                <div class="message-bubble typing-bubble"><i></i><i></i><i></i></div>
-              </article>
             </div>
           </div>
 
           <div class="composer-zone">
+            <div v-if="pendingResources.length" class="upload-queue">
+              <div v-for="item in pendingResources" :key="item.localId" class="upload-item">
+                <IconLine name="file" :size="16" />
+                <span>
+                  <strong>{{ item.name }}</strong>
+                  <small>{{ formatFileSize(item.size) }} · {{ item.status === 'uploading' ? '上传中' : item.status === 'error' ? item.error : '已就绪' }}</small>
+                </span>
+                <button v-if="item.status === 'error'" type="button" @click="uploadEntry(item)">重试</button>
+                <button type="button" title="移除" @click="removeResource(item.localId)"><IconLine name="x" :size="15" /></button>
+              </div>
+            </div>
             <div class="composer-tools">
               <button :class="{ active: onlineSearch }" type="button" @click="onlineSearch = !onlineSearch">
                 <IconLine name="globe" :size="16" />联网搜索
@@ -847,6 +1076,7 @@ function handleUpload(event) {
               </button>
             </div>
             <form class="chat-composer" @submit.prevent="sendMessage()">
+              <input ref="resourceInput" class="resource-input" type="file" multiple :accept="AI_RESOURCE_ACCEPT" @change="handleResourceSelect" />
               <textarea
                 v-model="chatDraft"
                 class="chat-input"
@@ -855,8 +1085,12 @@ function handleUpload(event) {
                 @keydown.enter.exact.prevent="sendMessage()"
               ></textarea>
               <div class="composer-actions">
+                <button class="icon-button" type="button" title="上传资源" :disabled="chatBusy || pendingResources.length >= 8" @click="chooseResources"><IconLine name="plus" /></button>
                 <button class="icon-button" type="button" title="语音输入"><IconLine name="mic" /></button>
-                <button class="send-button" type="submit" :disabled="!chatDraft.trim() || chatBusy" title="发送">
+                <button v-if="chatBusy" class="send-button stop-button" type="button" title="停止生成" @click="stopGeneration">
+                  <IconLine name="x" :size="18" />
+                </button>
+                <button v-else class="send-button" type="submit" :disabled="(!chatDraft.trim() && !pendingResources.some(item => item.status === 'success')) || pendingResources.some(item => item.status === 'uploading')" title="发送">
                   <IconLine name="send" :size="19" />
                 </button>
               </div>
@@ -1430,6 +1664,16 @@ function handleUpload(event) {
 .mini-switch i { display: block; width: 10px; height: 10px; border-radius: 50%; background: #fff; transition: transform .2s ease; }
 .composer-tools button.active .mini-switch { background: #356c9f; }
 .composer-tools button.active .mini-switch i { transform: translateX(10px); }
+.resource-input { display: none; }
+.upload-queue { display: flex; width: min(860px, 100%); gap: 8px; margin: 0 auto 8px; overflow-x: auto; }
+.upload-item { display: flex; min-width: 210px; max-width: 280px; align-items: center; gap: 8px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.upload-item > span { min-width: 0; flex: 1; }
+.upload-item strong, .upload-item small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-item strong { font-size: 12px; }
+.upload-item small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.upload-item > button { color: var(--primary); background: transparent; font-size: 11px; }
+.message-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.message-attachments span { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; font-size: 11px; }
 .chat-composer {
   display: flex;
   width: min(860px, 100%);
@@ -1449,6 +1693,7 @@ function handleUpload(event) {
 .icon-button { color: var(--muted); background: transparent; }
 .icon-button:hover { background: var(--primary-soft); transform: scale(1.04); }
 .send-button { color: #fff !important; background: #1e3a5f; }
+.stop-button { background: #40546b; }
 .send-button:disabled { cursor: not-allowed; opacity: .4; }
 .composer-zone > small { display: block; margin-top: 7px; color: var(--subtle); font-size: 10px; text-align: center; }
 

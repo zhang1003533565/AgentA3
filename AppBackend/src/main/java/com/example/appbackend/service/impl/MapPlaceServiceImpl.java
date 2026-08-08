@@ -19,9 +19,10 @@ import java.util.stream.Collectors;
 @Transactional
 public class MapPlaceServiceImpl implements MapPlaceService {
 
-    private static final Set<String> SCENES = Set.of("CANTEEN", "SPORTS", "TEACHING", "DORMITORY");
+    private static final Set<String> SCENES = Set.of("CANTEEN", "SPORTS", "TEACHING", "DORMITORY", "OTHER");
     private static final Set<String> ROOT_TYPES = Set.of(
-            "CANTEEN", "SPORTS_GROUND", "TEACHING_BUILDING", "DORMITORY_BUILDING"
+            "CANTEEN", "SPORTS_GROUND", "TEACHING_BUILDING", "DORMITORY_BUILDING",
+            "LANDSCAPE", "ADMIN_BUILDING", "HOSPITAL"
     );
     private static final Map<String, Set<String>> ALLOWED_CHILDREN = Map.ofEntries(
             Map.entry("CANTEEN", Set.of("FLOOR")),
@@ -41,7 +42,10 @@ public class MapPlaceServiceImpl implements MapPlaceService {
             "CANTEEN", "CANTEEN",
             "SPORTS_GROUND", "SPORTS",
             "TEACHING_BUILDING", "TEACHING",
-            "DORMITORY_BUILDING", "DORMITORY"
+            "DORMITORY_BUILDING", "DORMITORY",
+            "LANDSCAPE", "OTHER",
+            "ADMIN_BUILDING", "OTHER",
+            "HOSPITAL", "OTHER"
     );
     private static final Map<String, Set<String>> FLOOR_CHILDREN_BY_SCENE = Map.of(
             "CANTEEN", Set.of("CANTEEN_STALL", "DINING_AREA"),
@@ -118,6 +122,18 @@ public class MapPlaceServiceImpl implements MapPlaceService {
 
     @Override
     @Transactional(readOnly = true)
+    public List<MapPlaceResponse> canteenStructure(Long canteenId) {
+        MapPlace canteen = requirePlace(canteenId);
+        if (!"CANTEEN".equals(canteen.getSceneType()) || !"CANTEEN".equals(canteen.getPlaceType())) {
+            throw new BusinessException(400, "指定点位不是食堂");
+        }
+        return placeRepository.findCanteenStructure(canteenId).stream()
+                .map(item -> toResponse(item, false))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public MapPlaceResponse detail(Long id) {
         return toResponse(requirePlace(id), true);
     }
@@ -177,6 +193,22 @@ public class MapPlaceServiceImpl implements MapPlaceService {
         image.setPlaceId(placeId);
         image.setImageUrl(request.getImageUrl().trim());
         image.setSortOrder(request.getSortOrder() == null ? 0 : request.getSortOrder());
+        image.setFocusX(normalizeFocus(request.getFocusX()));
+        image.setFocusY(normalizeFocus(request.getFocusY()));
+        return imageRepository.save(image);
+    }
+
+    @Override
+    public MapPlaceImage updateImage(Long imageId, MapPlaceImageRequest request) {
+        MapPlaceImage image = imageRepository.findById(imageId)
+                .orElseThrow(() -> new BusinessException(404, "图片不存在"));
+        if (request == null || request.getImageUrl() == null || request.getImageUrl().isBlank()) {
+            throw new BusinessException(400, "图片地址不能为空");
+        }
+        image.setImageUrl(request.getImageUrl().trim());
+        image.setSortOrder(request.getSortOrder() == null ? image.getSortOrder() : request.getSortOrder());
+        image.setFocusX(normalizeFocus(request.getFocusX()));
+        image.setFocusY(normalizeFocus(request.getFocusY()));
         return imageRepository.save(image);
     }
 
@@ -186,6 +218,10 @@ public class MapPlaceServiceImpl implements MapPlaceService {
             throw new BusinessException(404, "图片不存在");
         }
         imageRepository.deleteById(imageId);
+    }
+
+    private int normalizeFocus(Integer value) {
+        return value == null ? 50 : Math.max(0, Math.min(100, value));
     }
 
     @Override
@@ -314,6 +350,10 @@ public class MapPlaceServiceImpl implements MapPlaceService {
         if (creating || request.getSortOrder() != null) {
             place.setSortOrder(request.getSortOrder() == null ? 0 : request.getSortOrder());
         }
+        if (request.getStallStatus() != null) place.setStallStatus(request.getStallStatus());
+        if (request.getBusinessHours() != null) place.setBusinessHours(request.getBusinessHours().trim());
+        if (request.getAvgPrice() != null) place.setAvgPrice(request.getAvgPrice());
+        if (request.getImageUrl() != null) place.setImageUrl(request.getImageUrl().trim());
     }
 
     private void validateHierarchy(MapPlace place, Long currentId) {
@@ -362,13 +402,22 @@ public class MapPlaceServiceImpl implements MapPlaceService {
         response.setSceneType(place.getSceneType());
         response.setPlaceType(place.getPlaceType());
         response.setName(place.getName());
-        response.setDescription(place.getDescription());
+        if (includeDetails) {
+            response.setDescription(place.getDescription());
+        }
         response.setStatus(place.getStatus());
         response.setLongitude(place.getLongitude());
         response.setLatitude(place.getLatitude());
         response.setLocationDesc(place.getLocationDesc());
         response.setMapVisible(place.getMapVisible());
         response.setSortOrder(place.getSortOrder());
+        response.setStallStatus(place.getStallStatus());
+        response.setBusinessHours(place.getBusinessHours());
+        response.setAvgPrice(place.getAvgPrice());
+        response.setImageUrl(place.getImageUrl());
+        if ("CANTEEN".equals(place.getPlaceType())) {
+            response.setStallCount(placeRepository.countCanteenStalls(place.getId()));
+        }
         response.setCreatedAt(place.getCreatedAt());
         response.setUpdatedAt(place.getUpdatedAt());
         response.setImages(imageRepository.findByPlaceIdOrderBySortOrderAscIdAsc(place.getId()));
@@ -458,4 +507,5 @@ public class MapPlaceServiceImpl implements MapPlaceService {
             throw new BusinessException(400, "GeoJSON 格式不合法");
         }
     }
+
 }

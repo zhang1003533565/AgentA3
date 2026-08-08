@@ -119,27 +119,27 @@ public class MerchantServiceImpl implements MerchantService {
 
     @Override
     public MerchantDTO.MerchantVO createMerchant(MerchantDTO.MerchantRequest req) {
-        if (userRepository.existsByUsername(req.getUsername()))
-            throw new BusinessException(400, "商家账号已存在");
-        Role merchantRole = roleRepository.findByName("MERCHANT")
-                .orElseThrow(() -> new BusinessException(500, "MERCHANT角色未配置，请先在数据库中创建该角色"));
-
-        User merchantUser = new User();
-        merchantUser.setUsername(req.getUsername());
-        merchantUser.setPassword(req.getPassword());
-        merchantUser.setRole(merchantRole);
-        merchantUser.setPhone(req.getContactPhone());
-        merchantUser.setRealName(req.getContactName());
-        merchantUser = userRepository.save(merchantUser);
-
         Merchant m = new Merchant();
         applyMerchantRequest(m, req);
-        m.setUserId(merchantUser.getId());
+
+        if (req.getUsername() != null && !req.getUsername().isBlank()
+                && req.getPassword() != null && !req.getPassword().isBlank()) {
+            if (userRepository.existsByUsername(req.getUsername()))
+                throw new BusinessException(400, "商家账号已存在");
+            Role merchantRole = roleRepository.findByName("MERCHANT")
+                    .orElseThrow(() -> new BusinessException(500, "MERCHANT角色未配置，请先在数据库中创建该角色"));
+            User merchantUser = new User();
+            merchantUser.setUsername(req.getUsername());
+            merchantUser.setPassword(req.getPassword());
+            merchantUser.setRole(merchantRole);
+            merchantUser.setPhone(req.getContactPhone());
+            merchantUser.setRealName(req.getContactName());
+            merchantUser = userRepository.save(merchantUser);
+            m.setUserId(merchantUser.getId());
+        }
+
         m = merchantRepository.save(m);
-        MerchantDTO.MerchantVO vo = toMerchantVO(m, null, null);
-        vo.setMerchantUsername(req.getUsername());
-        vo.setMerchantPassword(req.getPassword());
-        return vo;
+        return toMerchantVO(m, null, null);
     }
 
     @Override

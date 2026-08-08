@@ -6,7 +6,6 @@ DEPLOY_BRANCH="${DEPLOY_BRANCH:-master}"
 ENV_FILE="${ENV_FILE:-deploy/.env}"
 COMPOSE_FILE="${COMPOSE_FILE:-deploy/compose.submission.yml}"
 DEPLOY_PRUNE_DOCKER="${DEPLOY_PRUNE_DOCKER:-true}"
-DEPLOY_PRUNE_UNTIL="${DEPLOY_PRUNE_UNTIL:-24h}"
 DEPLOY_FORCE_RELEASE_PORTS="${DEPLOY_FORCE_RELEASE_PORTS:-}"
 DEPLOY_RELEASE_PORTS="${DEPLOY_RELEASE_PORTS:-}"
 BACKEND_PORT="${BACKEND_PORT:-}"
@@ -70,6 +69,17 @@ dump_deploy_diagnostics() {
   docker ps --format 'table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}' >&2 || true
 }
 
+prune_docker_artifacts() {
+  local phase="$1"
+  if [[ "$DEPLOY_PRUNE_DOCKER" == "true" ]]; then
+    echo "[deploy] Pruning all unused Docker images and build cache ${phase}; volumes are preserved."
+    docker image prune -af
+    docker builder prune -af
+  else
+    echo "[deploy] Docker prune ${phase} skipped because DEPLOY_PRUNE_DOCKER=${DEPLOY_PRUNE_DOCKER}."
+  fi
+}
+
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "[deploy] Missing $ENV_FILE. Copy deploy/.env.example to deploy/.env and fill real values." >&2
   exit 1
@@ -115,6 +125,7 @@ fi
 
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 "${compose[@]}" config --quiet
+prune_docker_artifacts "before image pull"
 "${compose[@]}" pull config-guard mysql redis backend ai-server web
 "${compose[@]}" run --rm --no-deps config-guard
 "${compose[@]}" down --remove-orphans
@@ -133,10 +144,4 @@ if ! BACKEND_BASE_URL="${BACKEND_BASE_URL:-http://127.0.0.1:${BACKEND_PORT:-1808
   exit 1
 fi
 
-if [[ "$DEPLOY_PRUNE_DOCKER" == "true" ]]; then
-  echo "[deploy] Pruning unused Docker images and build cache older than ${DEPLOY_PRUNE_UNTIL}; volumes are preserved."
-  docker image prune -af --filter "until=${DEPLOY_PRUNE_UNTIL}"
-  docker builder prune -af --filter "until=${DEPLOY_PRUNE_UNTIL}"
-else
-  echo "[deploy] Docker prune skipped because DEPLOY_PRUNE_DOCKER=${DEPLOY_PRUNE_DOCKER}."
-fi
+prune_docker_artifacts "after successful deployment"

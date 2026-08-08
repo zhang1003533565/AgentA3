@@ -2,16 +2,21 @@ package com.example.appbackend.service;
 
 import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.LoadState;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import java.util.List;
 
+@Lazy
 @Service
 public class PlaywrightService {
 
-    private final Playwright playwright;
+    // 使用 ObjectProvider 延迟获取 Playwright，避免在启动阶段触发 Playwright.create()
+    // （该方法会下载/安装浏览器驱动，可能长时间阻塞应用启动）
+    private final ObjectProvider<Playwright> playwrightProvider;
 
-    public PlaywrightService(Playwright playwright) {
-        this.playwright = playwright;
+    public PlaywrightService(ObjectProvider<Playwright> playwrightProvider) {
+        this.playwrightProvider = playwrightProvider;
     }
 
     /**
@@ -22,7 +27,7 @@ public class PlaywrightService {
             .setHeadless(headless)
             .setArgs(List.of("--no-sandbox", "--disable-dev-shm-usage"));
 
-        Browser browser = playwright.chromium().launch(launchOptions);
+        Browser browser = playwrightProvider.getObject().chromium().launch(launchOptions);
         return browser.newContext();
     }
 

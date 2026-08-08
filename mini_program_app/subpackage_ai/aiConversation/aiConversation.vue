@@ -78,6 +78,11 @@
               :content="getDisplayText(message)"
             />
             <text v-else-if="getDisplayText(message)" class="message-text">{{ getDisplayText(message) }}</text>
+            <view v-if="message.inputAttachments?.length" class="input-attachment-list">
+              <view v-for="item in message.inputAttachments" :key="item.id || item.url" class="input-attachment">
+                <text class="input-attachment__name">{{ item.name }}</text>
+              </view>
+            </view>
             <view v-if="isMessageGenerating(message)" class="generation-status">
               <view class="generation-spinner"></view>
               <text class="generation-status__text">图片生成中</text>
@@ -285,7 +290,18 @@
       回到底部 ↓
     </view>
 
+    <scroll-view v-if="pendingResources.length" class="pending-resources" scroll-x>
+      <view v-for="item in pendingResources" :key="item.localId" class="pending-resource">
+        <view class="pending-resource__body">
+          <text class="pending-resource__name">{{ item.name }}</text>
+          <text class="pending-resource__status">{{ item.status === 'uploading' ? '上传中' : item.status === 'error' ? item.error : '已就绪' }}</text>
+        </view>
+        <text v-if="item.status === 'error'" class="pending-resource__action" @click="retryPendingResource(item)">重试</text>
+        <text class="pending-resource__remove" @click="removePendingResource(item.localId)">×</text>
+      </view>
+    </scroll-view>
     <view class="composer">
+      <view class="resource-picker" :class="{ disabled: sending || pendingResources.length >= 8 }" @click="chooseResources">＋</view>
       <textarea
         v-model="inputValue"
         class="composer-input"
@@ -310,6 +326,7 @@
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import SafeMarkdown from '@/components/safe-markdown/safe-markdown.vue'
 import { ASSISTANT_PUBLIC_RESOURCE_HOSTS, BASE_URL } from '@/utils/config.js'
+import { uploadAiResource } from '@/utils/upload.js'
 import {
   downloadAssistantResource,
   getLeaderSessionDetail,
@@ -481,6 +498,7 @@ export default {
       sessionId: '',
       messages: [],
       inputValue: '',
+      pendingResources: [],
       sending: false,
       blockingRequestCount: 0,
       scrollAnchor: 'message-anchor',
@@ -504,7 +522,10 @@ export default {
   },
   computed: {
     canSend() {
-      return !this.sending && this.inputValue.trim().length > 0
+      return !this.sending
+        && !this.pendingResources.some((item) => item.status === 'uploading')
+        && (this.inputValue.trim().length > 0
+          || this.pendingResources.some((item) => item.status === 'success'))
     }
   },
   watch: {
@@ -584,16 +605,24 @@ export default {
         : {}
       const hasRequestText = Object.prototype.hasOwnProperty.call(requestOptions, 'requestText')
       const text = String(hasRequestText ? requestOptions.requestText : this.inputValue).trim()
-      if (!text || this.sending) return
-      const displayText = String(requestOptions.displayText || text).trim()
+      const inputAttachments = hasRequestText
+        ? []
+        : this.pendingResources.filter((item) => item.status === 'success').map((item) => item.resource)
+      const requestText = text || (inputAttachments.length ? '请分析我上传的资源' : '')
+      if (!requestText || this.sending || this.pendingResources.some((item) => item.status === 'uploading')) return
+      const displayText = String(requestOptions.displayText || requestText).trim()
       const displayRole = requestOptions.displayRole === 'action' ? 'action' : 'user'
       const interactionType = String(requestOptions.interactionType || '').trim()
-      if (!hasRequestText) this.inputValue = ''
+      if (!hasRequestText) {
+        this.inputValue = ''
+        this.pendingResources = []
+      }
       const releaseComposer = this.createComposerRelease()
       this.appendMessage({
         role: displayRole,
         content: displayText,
-        requestContent: text,
+        requestContent: requestText,
+        inputAttachments,
         answerType: interactionType ? `action_${interactionType}` : 'text',
         interactionType
       }, true)
@@ -612,7 +641,8 @@ export default {
       const leaderRequest = {
         sessionId: requestContext.sessionId,
         agentName: 'leader_agent',
-        input: text,
+        input: requestText,
+        ...(inputAttachments.length ? { attachments: inputAttachments } : {}),
         ...(interactionType ? {
           interactionType,
           displayInput: displayText,
@@ -1441,6 +1471,7 @@ export default {
       this.messages = []
       this.markLocalMutation()
       this.inputValue = ''
+      this.pendingResources = []
       this.resetResourceState()
       uni.removeStorageSync(STORAGE_KEY)
       this.scrollToBottom(true)
@@ -1485,6 +1516,73 @@ export default {
       return Boolean(context)
         && context.viewEpoch === this.viewEpoch
         && context.sessionId === this.sessionId
+    },
+    chooseResources() {
+      if (this.sending || this.pendingResources.length >= 8) return
+      const supportsAllFiles = typeof uni.chooseMessageFile === 'function'
+        || typeof uni.chooseFile === 'function'
+      const chooser = typeof uni.chooseMessageFile === 'function'
+        ? uni.chooseMessageFile
+        : (typeof uni.chooseFile === 'function' ? uni.chooseFile : uni.chooseMedia)
+      if (typeof chooser !== 'function') {
+        uni.showToast({ title: '当前环境暂不支持文件选择', icon: 'none' })
+        return
+      }
+      if (!supportsAllFiles) {
+        uni.showToast({ title: '当前端支持选择图片和视频', icon: 'none' })
+      }
+      const chooserOptions = {
+        count: 8 - this.pendingResources.length,
+        success: (result) => {
+          const files = Array.isArray(result.tempFiles) ? result.tempFiles : []
+          files.forEach((file) => {
+            const entry = {
+              localId: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              source: file.file || file,
+              name: file.name || String(file.path || file.tempFilePath || '').split('/').pop() || 'resource',
+              status: 'uploading',
+              resource: null,
+              error: ''
+            }
+            this.pendingResources.push(entry)
+            this.uploadPendingResource(entry)
+          })
+        },
+        fail: (error) => {
+          if (!String(error?.errMsg || '').includes('cancel')) {
+            uni.showToast({ title: '选择资源失败', icon: 'none' })
+          }
+        }
+      }
+      if (supportsAllFiles) {
+        chooserOptions.type = 'all'
+        chooserOptions.extension = [
+          'jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'doc', 'docx', 'ppt', 'pptx',
+          'xls', 'xlsx', 'csv', 'txt', 'md', 'mmd', 'json', 'zip',
+          'mp3', 'wav', 'm4a', 'ogg', 'mp4', 'mov', 'webm'
+        ]
+      } else {
+        chooserOptions.mediaType = ['image', 'video']
+      }
+      chooser(chooserOptions)
+    },
+    async uploadPendingResource(entry) {
+      entry.status = 'uploading'
+      entry.error = ''
+      try {
+        entry.resource = await uploadAiResource(entry.source)
+        entry.status = 'success'
+      } catch (error) {
+        entry.status = 'error'
+        entry.error = error?.msg || error?.message || '上传失败'
+      }
+    },
+    retryPendingResource(entry) {
+      if (!entry || entry.status === 'uploading') return
+      this.uploadPendingResource(entry)
+    },
+    removePendingResource(localId) {
+      this.pendingResources = this.pendingResources.filter((item) => item.localId !== localId)
     },
     handleInputConfirm() {
       this.sendMessage()
@@ -3076,6 +3174,86 @@ export default {
   justify-content: center;
   font-size: 22rpx;
   font-weight: 800;
+}
+
+.pending-resources {
+  flex-shrink: 0;
+  width: 100%;
+  padding: 12rpx 24rpx 0;
+  box-sizing: border-box;
+  white-space: nowrap;
+  background: #FFFFFF;
+}
+
+.pending-resource {
+  display: inline-flex;
+  width: 360rpx;
+  align-items: center;
+  gap: 12rpx;
+  margin-right: 12rpx;
+  padding: 16rpx;
+  border: 1rpx solid #E5E7EB;
+  border-radius: 16rpx;
+  background: #F8FAFC;
+  box-sizing: border-box;
+}
+
+.pending-resource__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.pending-resource__name,
+.pending-resource__status {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-resource__name { color: #1F2937; font-size: 24rpx; }
+.pending-resource__status { margin-top: 4rpx; color: #718096; font-size: 20rpx; }
+.pending-resource__action { color: #365F7D; font-size: 22rpx; }
+.pending-resource__remove { color: #718096; font-size: 34rpx; }
+
+.resource-picker {
+  display: flex;
+  width: 76rpx;
+  height: 76rpx;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx solid #D8E0E7;
+  border-radius: 999rpx;
+  color: #365F7D;
+  background: #F8FAFC;
+  font-size: 38rpx;
+}
+
+.resource-picker.disabled { opacity: 0.45; }
+
+.input-attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx;
+  margin-top: 12rpx;
+}
+
+.input-attachment {
+  max-width: 100%;
+  padding: 8rpx 12rpx;
+  border: 1rpx solid rgba(54, 95, 125, 0.18);
+  border-radius: 10rpx;
+  background: rgba(54, 95, 125, 0.06);
+}
+
+.input-attachment__name {
+  display: block;
+  overflow: hidden;
+  color: #365F7D;
+  font-size: 21rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composer {

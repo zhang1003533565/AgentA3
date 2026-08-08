@@ -4,7 +4,9 @@ import com.example.appbackend.dto.*;
 import com.example.appbackend.entity.MapFloorPlan;
 import com.example.appbackend.entity.MapPlaceIndoorPosition;
 import com.example.appbackend.exception.BusinessException;
+import com.example.appbackend.repository.MapPlaceRepository;
 import com.example.appbackend.service.MapPlaceService;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -12,6 +14,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -22,6 +25,9 @@ class MapPlaceServiceImplTest {
 
     @Autowired
     private MapPlaceService service;
+
+    @Autowired
+    private MapPlaceRepository placeRepository;
 
     @Test
     void createsTreeFloorPlanAndIndoorPosition() {
@@ -57,6 +63,30 @@ class MapPlaceServiceImplTest {
         MapPlaceRequest partialCoordinate = place("SPORTS", "FOOTBALL_FIELD", "足球场", sports.getId());
         partialCoordinate.setLongitude(new BigDecimal("114.1234567"));
         assertThrows(BusinessException.class, () -> service.create(partialCoordinate));
+    }
+
+    @Test
+    void countsCanteenStallsBelowItsFloors() throws Exception {
+        MapPlaceRequest canteenRequest = place("CANTEEN", "CANTEEN", "学一食堂", null);
+        canteenRequest.setDescription("食堂详情介绍");
+        MapPlaceResponse canteen = service.create(canteenRequest);
+        MapPlaceResponse firstFloor = service.create(place("CANTEEN", "FLOOR", "一层", canteen.getId()));
+        MapPlaceResponse secondFloor = service.create(place("CANTEEN", "FLOOR", "二层", canteen.getId()));
+        service.create(place("CANTEEN", "CANTEEN_STALL", "面食档口", firstFloor.getId()));
+        service.create(place("CANTEEN", "CANTEEN_STALL", "快餐档口", firstFloor.getId()));
+        service.create(place("CANTEEN", "CANTEEN_STALL", "饮品档口", secondFloor.getId()));
+
+        assertEquals(3L, placeRepository.countCanteenStalls(canteen.getId()));
+        List<MapPlaceResponse> structure = service.canteenStructure(canteen.getId());
+        assertEquals(5, structure.size());
+        assertEquals(2, structure.stream().filter(item -> "FLOOR".equals(item.getPlaceType())).count());
+        assertEquals(3, structure.stream().filter(item -> "CANTEEN_STALL".equals(item.getPlaceType())).count());
+        MapPlaceResponse listItem = service.list("CANTEEN", null, "CANTEEN", null, null).getFirst();
+        assertEquals(3L, listItem.getStallCount());
+        assertNull(listItem.getDescription());
+        assertFalse(JsonMapper.builder().findAndAddModules().build()
+                .writeValueAsString(listItem).contains("\"description\""));
+        assertEquals("食堂详情介绍", service.detail(canteen.getId()).getDescription());
     }
 
     private MapPlaceRequest place(String scene, String type, String name, Long parentId) {

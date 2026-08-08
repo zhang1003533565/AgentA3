@@ -18,6 +18,7 @@ public class ChatDTO {
         private BigDecimal itemPrice;
         private Integer itemStatus;
         private String itemStatusText;
+        private String itemTradeType;
         private Long sellerId;
         private String sellerName;
         private Long otherUserId;
@@ -92,6 +93,8 @@ public class ChatDTO {
         private Long itemId;
         private Long buyerId;
         private Long sellerId;
+        private String buyerName;
+        private String sellerName;
         private String status;
         private String statusText;
         private String createTime;

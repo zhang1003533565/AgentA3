@@ -13,13 +13,16 @@ public class DishDTO {
     @NotBlank(message = "菜品名称不能为空")
     private String name;
 
-    @NotNull(message = "所属档口 ID 不能为空")
     private Long stallId;
+
+    private Long stallPlaceId;
 
     @NotNull(message = "菜品价格不能为空")
     private BigDecimal price;
 
     private String category;
+
+    private Long cuisineId;
 
     private String imageUrl;
 

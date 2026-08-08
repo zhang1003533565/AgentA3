@@ -24,7 +24,7 @@ public interface SecondhandService {
     void onlineItem(Long id, Long userId, boolean isAdmin);
     void soldItem(Long id, Long userId, boolean isAdmin);
     PageResponse<SecondhandDTO.ItemVO> getAdminList(Integer current, Integer size, String keyword,
-                                                     Long categoryId, Integer status, Long userId);
+                                                     Long categoryId, Integer status, String tradeType, Long userId);
     void batchOperation(SecondhandDTO.BatchRequest req);
 
     // ========== 收藏 ==========

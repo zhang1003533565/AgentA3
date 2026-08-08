@@ -15,7 +15,16 @@
         </view>
       </view>
 
-      <scroll-view scroll-y class="page-body" :show-scrollbar="false">
+      <scroll-view
+        scroll-y
+        class="page-body"
+        :show-scrollbar="false"
+        refresher-enabled
+        :refresher-triggered="refreshing"
+        refresher-background="#F7F8FA"
+        @refresherrefresh="refreshPage"
+      >
+        <view class="page-body-inner">
         <view v-if="myItems.length === 0" class="empty">
           <image class="empty-illustration" src="/static/illustrations/market-empty-publish.svg" mode="aspectFit" />
           <view class="empty-title">{{ emptyTitle }}</view>
@@ -27,42 +36,38 @@
           </view>
         </view>
 
-        <view v-for="item in myItems" :key="item.id" class="publish-card">
-          <view class="item-cover" @click="goToDetail(item.id)">
-            <image v-if="item.images && item.images.length" :src="item.images[0]" mode="aspectFill" />
-            <view v-else class="cover-placeholder"></view>
-          </view>
-
-          <view class="item-main">
-            <view class="item-title" @click="goToDetail(item.id)">{{ item.name }}</view>
-            <view class="item-price">¥{{ priceText(item.price) }}</view>
-            <view class="item-time">{{ fmt(item.ctime) }}发布</view>
-
-            <view class="item-operate">
-              <view class="status-pill" :class="'status-pill--' + itemDisplayStatus(item).key">
-                {{ itemDisplayStatus(item).label }}
-              </view>
-              <view class="manage-link" @click.stop="openManage(item)">
-                <text>管理</text>
-                <view class="chevron-icon"></view>
-              </view>
+        <view v-for="item in myItems" :key="item.id" class="publish-card" @click="goToDetail(item.id)">
+          <view class="card-cover">
+            <image v-if="item.images && item.images.length" :src="item.images[0]" mode="aspectFill" class="cover-img" />
+            <view v-else class="cover-placeholder">
+              <text class="cover-emoji">{{ itemEmoji(item.id) }}</text>
             </view>
-
-            <view class="item-metrics">
-              <view class="metric">
-                <view class="metric-icon eye-icon"></view>
-                <text>浏览 {{ item.viewCount || 0 }}</text>
-              </view>
-              <view class="metric">
-                <image class="metric-icon metric-icon-img" src="/static/icons/line/star.svg" mode="aspectFit" />
-                <text>收藏 {{ item.favoriteCount || 0 }}</text>
-              </view>
-              <view class="metric">
-                <view class="metric-icon chat-icon"></view>
-                <text>咨询 {{ item.inquiryCount || 0 }}</text>
-              </view>
+            <view class="card-badge-type" :class="'card-badge-type--' + (item.tradeType || 'sell')">
+              {{ item.tradeType === 'buy' ? '收' : '出' }}
+            </view>
+            <view v-if="item.status === 'offline'" class="card-badge-offline">已下架</view>
+          </view>
+          <view class="card-body">
+            <view class="card-title">{{ item.name }}</view>
+            <view class="card-price">¥{{ priceText(item.price) }}</view>
+            <view class="card-location-row" v-if="item.pickupPoint">
+              <view class="loc-icon"></view>
+              <text class="card-location">校内·{{ item.pickupPoint }}</text>
+            </view>
+            <view class="card-seller">
+              <view class="seller-avatar">{{ item.sellerName ? item.sellerName[0] : '我' }}</view>
+              <text class="seller-name">{{ item.sellerName || '我' }}</text>
+              <text class="card-time">{{ fmt(item.ctime) }}</text>
+            </view>
+            <view v-if="item.status === 'offline'" class="card-actions" @click.stop>
+              <view class="card-action-btn card-action-btn--primary" @click="relistItem(item.id)">重新上架</view>
+              <view class="card-action-btn card-action-btn--danger" @click="confirmDelete(item)">删除商品</view>
+            </view>
+            <view v-else-if="item.status === 'online'" class="card-actions" @click.stop>
+              <view class="card-action-btn card-action-btn--danger" @click="offlineItem(item)">下架商品</view>
             </view>
           </view>
+        </view>
         </view>
       </scroll-view>
     </view>
@@ -77,16 +82,17 @@
 <script>
 import CommonPageHeader from '@/components/common-page-header/common-page-header.vue'
 import MarketPublishOverlay from '@/components/market-publish-overlay/market-publish-overlay.vue'
-import { getChatSessions, getMySecondhandItems, getTradeRecords, offlineSecondhandItem, onlineSecondhandItem } from '@/api/secondhand'
+import { deleteSecondhandItem, getChatSessions, getMySecondhandItems, getTradeRecords, offlineSecondhandItem, onlineSecondhandItem } from '@/api/secondhand'
 import { getToken, getUserInfo } from '@/utils/storage.js'
 
 const FILTERS = [
   { key: 'all', label: '全部' },
-  { key: 'online', label: '在售' },
-  { key: 'trading', label: '交易中' },
-  { key: 'sold', label: '已售' },
+  { key: 'sell', label: '在出物' },
+  { key: 'buy', label: '在收物' },
   { key: 'offline', label: '已下架' }
 ]
+
+const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
 
 const ACTIVE_TRADE_STATUS = ['WAIT_CONFIRM', 'TRADING']
 
@@ -166,19 +172,24 @@ function normalizeItem(item) {
     name: item.title || item.name || '',
     desc: item.description || '',
     price: item.price,
-    type: 'sell',
+    tradeType: item.tradeType || item.trade_type || 'sell',
+    type: item.tradeType || item.trade_type || 'sell',
     status: statusNumber === 4 ? 'offline' : statusNumber === 3 ? 'sold' : 'online',
     statusText: item.statusText || (statusNumber === 3 ? '已售' : statusNumber === 4 ? '已下架' : '在售'),
     images: Array.isArray(item.images) ? item.images : [],
     userId: item.userId || sellerId,
     sellerId,
+    sellerName: firstValue(item.sellerName, seller.nickname, seller.name, item.nickname, item.username, ''),
+    sellerAvatar: firstValue(item.sellerAvatar, seller.avatar, seller.avatarUrl, item.avatar, item.avatarUrl, ''),
     buyerId: firstValue(trade.buyerId, trade.buyerUserId, normalizeId(buyer)),
     sessionId: trade.sessionId || trade.chatSessionId,
     intentSessionId: '',
     ctime: formatTimestamp(item.createTime),
     viewCount: Number(item.viewCount || item.view_count || 0),
     favoriteCount: Number(item.favoriteCount || item.favorite_count || 0),
-    inquiryCount: Number(item.inquiryCount || item.inquiry_count || 0)
+    inquiryCount: Number(item.inquiryCount || item.inquiry_count || 0),
+    pickupPoint: item.pickupPoint || item.location || '',
+    categoryName: item.categoryName || item.category_name || ''
   }
 }
 
@@ -237,6 +248,7 @@ export default {
     return {
       items: [],
       loading: false,
+      refreshing: false,
       currentUserId: '',
       activeFilter: 'all',
       filters: FILTERS,
@@ -249,16 +261,23 @@ export default {
     myItems() {
       if (this.activeFilter === 'all') return this.items
       return this.items.filter((item) => {
-        if (this.activeFilter === 'trading') return this.isTradingItem(item)
-        if (this.activeFilter === 'online') return item.status === 'online' && !this.isTradingItem(item)
-        return item.status === this.activeFilter
+        if (this.activeFilter === 'sell') return item.tradeType === 'sell' && item.status !== 'offline'
+        if (this.activeFilter === 'buy') return item.tradeType === 'buy' && item.status !== 'offline'
+        if (this.activeFilter === 'offline') return item.status === 'offline'
+        return true
       })
     },
     tradingCount() {
       return this.items.filter((item) => this.isTradingItem(item)).length
     },
+    sellCount() {
+      return this.items.filter((item) => item.tradeType === 'sell' && item.status !== 'offline').length
+    },
+    buyCount() {
+      return this.items.filter((item) => item.tradeType === 'buy' && item.status !== 'offline').length
+    },
     publishSummary() {
-      return `${this.items.length}件商品 · ${this.tradingCount}件交易中`
+      return `出${this.sellCount} · 收${this.buyCount} · 交易中${this.tradingCount}`
     },
     emptyText() {
       const current = this.filters.find((item) => item.key === this.activeFilter)
@@ -334,10 +353,18 @@ export default {
         )
         const tradeMap = createTradeMap(tradeRecords)
         const intentSessionMap = createIntentSessionMap(sessionRecords, cancelledSessionIds)
+
+        const userInfo = getUserInfo() || {}
+        const nestedUser = userInfo.user || userInfo.profile || userInfo.data || {}
+        const currentUserName = firstValue(userInfo.nickname, userInfo.name, userInfo.username, nestedUser.nickname, nestedUser.name, nestedUser.username, '我')
+        const currentUserAvatar = firstValue(userInfo.avatar, userInfo.avatarUrl, nestedUser.avatar, nestedUser.avatarUrl, '')
+
         this.items = itemRecords.map((record) => {
           const item = normalizeItem(record)
           const trade = tradeMap.get(String(item.id))
           const intentSession = intentSessionMap.get(String(item.id))
+          if (!item.sellerName) item.sellerName = currentUserName
+          if (!item.sellerAvatar) item.sellerAvatar = currentUserAvatar
           if (!trade) {
             return {
               ...item,
@@ -360,6 +387,17 @@ export default {
         this.loading = false
       }
     },
+    async refreshPage() {
+      if (this.refreshing) return
+      this.refreshing = true
+      try {
+        this.loadCurrentUser()
+        await this.loadItems()
+        uni.showToast({ title: '已刷新', icon: 'none', duration: 900 })
+      } finally {
+        this.refreshing = false
+      }
+    },
     fmt(ts) {
       const time = typeof ts === 'string' ? new Date(ts.replace(/-/g, '/')).getTime() : ts
       const d = new Date(time)
@@ -375,6 +413,9 @@ export default {
       const price = Number(value)
       if (!Number.isFinite(price)) return '0.00'
       return price.toFixed(2)
+    },
+    itemEmoji(id) {
+      return EMOJIS[(id || 0) % EMOJIS.length]
     },
     isTradingItem(item) {
       return isActiveTrade(item?.tradeStatus)
@@ -402,6 +443,62 @@ export default {
         await this.loadItems()
       } catch (error) {
         console.error('更新状态失败', error)
+      }
+    },
+    async relistItem(id) {
+      try {
+        await onlineSecondhandItem(id)
+        uni.showToast({ title: '已重新上架', icon: 'success' })
+        await this.loadItems()
+      } catch (error) {
+        console.error('重新上架失败', error)
+        uni.showToast({ title: error?.data?.msg || error?.msg || '操作失败', icon: 'none' })
+      }
+    },
+    offlineItem(item) {
+      if (!item || !item.id) return
+      uni.showModal({
+        title: '确认下架',
+        content: `确定下架"${item.name || '该商品'}"吗？下架后将不再展示。`,
+        confirmText: '下架',
+        confirmColor: '#FF4D2E',
+        success: (res) => {
+          if (!res.confirm) return
+          this.doOffline(item.id)
+        }
+      })
+    },
+    async doOffline(id) {
+      try {
+        await offlineSecondhandItem(id)
+        uni.showToast({ title: '已下架', icon: 'success' })
+        await this.loadItems()
+      } catch (error) {
+        console.error('下架失败', error)
+        uni.showToast({ title: error?.data?.msg || error?.msg || '下架失败', icon: 'none' })
+      }
+    },
+    confirmDelete(item) {
+      if (!item || !item.id) return
+      uni.showModal({
+        title: '删除商品',
+        content: `确定删除"${item.name || '该商品'}"吗？删除后不可恢复。`,
+        confirmText: '删除',
+        confirmColor: '#FF4D2E',
+        success: (res) => {
+          if (!res.confirm) return
+          this.deleteItem(item.id)
+        }
+      })
+    },
+    async deleteItem(id) {
+      try {
+        await deleteSecondhandItem(id)
+        uni.showToast({ title: '已删除', icon: 'success' })
+        await this.loadItems()
+      } catch (error) {
+        console.error('删除失败', error)
+        uni.showToast({ title: error?.data?.msg || error?.msg || '删除失败', icon: 'none' })
       }
     },
     isCurrentUserPublisher(item) {
@@ -511,24 +608,30 @@ export default {
 <style lang="scss">
 .page-root {
   width: 100%;
+  height: 100vh;
   min-height: 100vh;
   background: #F7F8FA;
+  overflow: hidden;
 }
 
 .screen {
   width: 100%;
   max-width: 430px;
+  height: 100vh;
   min-height: 100vh;
   margin: 0 auto;
   background: #F7F8FA;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .filter-tabs {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   align-items: center;
   height: 112rpx;
-  margin: 20rpx 18rpx 0;
+  margin: 20rpx 12rpx 0;
   padding: 12rpx 14rpx;
   background: #FFFFFF;
   border-radius: 24rpx;
@@ -567,14 +670,22 @@ export default {
 }
 
 .page-body {
-  height: calc(100vh - 220rpx - var(--status-bar-height));
-  padding: 26rpx 18rpx 34rpx;
-  box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
+  height: 0;
   background: #F7F8FA;
 }
 
+.page-body-inner {
+  padding: 26rpx 12rpx 34rpx;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12rpx;
+}
+
 .empty {
-  min-height: calc(100vh - 380rpx - var(--status-bar-height));
+  grid-column: 1 / -1;
+  min-height: calc(100vh - 380rpx - var(--status-bar-height, 0px));
   padding: 118rpx 0 80rpx;
   text-align: center;
   box-sizing: border-box;
@@ -642,223 +753,242 @@ export default {
 }
 
 .publish-card {
-  display: grid;
-  grid-template-columns: 160rpx 1fr;
-  gap: 20rpx;
-  margin-bottom: 18rpx;
-  padding: 16rpx;
-  border: 1rpx solid #E8ECF2;
-  border-radius: 18rpx;
+  display: flex;
+  flex-direction: column;
   background: #FFFFFF;
-  box-shadow: 0 6rpx 18rpx rgba(30, 41, 59, 0.045);
+  border-radius: 16rpx;
+  overflow: hidden;
+  box-shadow: 0 4rpx 16rpx rgba(30, 41, 59, 0.06);
   box-sizing: border-box;
 }
 
-.item-cover {
-  width: 160rpx;
-  height: 160rpx;
-  border-radius: 14rpx;
-  overflow: hidden;
+.card-cover {
+  position: relative;
+  width: 100%;
+  padding-top: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: #EEF2F7;
+  overflow: hidden;
 }
 
-.item-cover image {
+.cover-img {
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 100%;
   height: 100%;
-  display: block;
 }
 
 .cover-placeholder {
-  position: relative;
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 100%;
   height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14rpx;
+  color: #8E8E93;
 }
 
-.cover-placeholder::before {
-  content: '';
+.cover-emoji {
+  font-size: 58rpx;
+  line-height: 1;
+}
+
+.card-badge-type {
   position: absolute;
-  left: 62rpx;
-  top: 58rpx;
-  width: 86rpx;
-  height: 66rpx;
-  border: 5rpx solid #A5AFBF;
-  border-radius: 12rpx;
-  box-sizing: border-box;
+  left: 14rpx;
+  top: 14rpx;
+  min-width: 40rpx;
+  height: 40rpx;
+  padding: 0 8rpx;
+  border-radius: 10rpx;
+  color: #FFFFFF;
+  font-size: 22rpx;
+  font-weight: 800;
+  line-height: 40rpx;
+  text-align: center;
+  box-shadow: 0 4rpx 10rpx rgba(0, 0, 0, 0.2);
 }
 
-.cover-placeholder::after {
-  content: '';
-  position: absolute;
-  left: 76rpx;
-  top: 116rpx;
-  width: 62rpx;
-  height: 34rpx;
-  border-left: 5rpx solid #A5AFBF;
-  border-bottom: 5rpx solid #A5AFBF;
-  transform: skew(-28deg);
+.card-badge-type--sell {
+  background: #FF6B35;
+  box-shadow: 0 4rpx 10rpx rgba(255, 107, 53, 0.35);
 }
 
-.item-main {
-  min-width: 0;
-  display: grid;
-  grid-template-rows: auto auto auto 1fr auto;
+.card-badge-type--buy {
+  background: #4A90E2;
+  box-shadow: 0 4rpx 10rpx rgba(74, 144, 226, 0.35);
 }
 
-.item-title {
-  color: #111827;
-  font-size: 25rpx;
-  font-weight: 900;
-  line-height: 1.35;
+.card-body {
+  padding: 14rpx 16rpx 18rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.card-title {
+  color: #1D2430;
+  font-size: 24rpx;
+  font-weight: 800;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.item-price {
-  margin-top: 16rpx;
-  color: #111827;
-  font-size: 32rpx;
+.card-price {
+  color: #FF4D2E;
+  font-size: 28rpx;
   font-weight: 900;
-  line-height: 1;
-}
-
-.item-time {
-  margin-top: 12rpx;
-  color: #66738A;
-  font-size: 22rpx;
   line-height: 1.2;
 }
 
-.item-operate {
+.card-location-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12rpx;
-  margin-top: 8rpx;
-}
-
-.status-pill {
-  min-width: 66rpx;
-  height: 34rpx;
-  padding: 0 14rpx;
-  border-radius: 999rpx;
-  font-size: 22rpx;
-  font-weight: 800;
-  line-height: 34rpx;
-  text-align: center;
-  box-sizing: border-box;
-}
-
-.status-pill--online {
-  background: #DCF8EA;
-  color: #13B566;
-}
-
-.status-pill--trading {
-  background: #E6F0FF;
-  color: #2F73E0;
-}
-
-.status-pill--sold,
-.status-pill--offline {
-  background: #F0F2F5;
-  color: #737D8C;
-}
-
-.manage-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 10rpx;
-  color: #66738A;
-  font-size: 23rpx;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.chevron-icon {
-  width: 13rpx;
-  height: 13rpx;
-  border-right: 3rpx solid currentColor;
-  border-top: 3rpx solid currentColor;
-  transform: rotate(45deg);
-  border-radius: 2rpx;
-}
-
-.item-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8rpx;
-  margin-top: 14rpx;
-  padding-top: 11rpx;
-  border-top: 1rpx solid #E7EAF0;
-}
-
-.metric {
-  display: flex;
-  align-items: center;
-  gap: 7rpx;
-  color: #66738A;
-  font-size: 21rpx;
+  gap: 6rpx;
+  color: #8A94A6;
+  font-size: 20rpx;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.metric-icon {
+.loc-icon {
   position: relative;
-  width: 23rpx;
-  height: 23rpx;
-  color: #66738A;
+  width: 18rpx;
+  height: 18rpx;
   flex-shrink: 0;
 }
 
-.metric-icon-img {
-  display: block;
-  opacity: 0.78;
-}
-
-.eye-icon::before {
+.loc-icon::before {
   content: '';
   position: absolute;
-  left: 1rpx;
-  top: 6rpx;
-  width: 21rpx;
-  height: 13rpx;
-  border: 2.5rpx solid currentColor;
-  border-radius: 50%;
+  left: 50%;
+  top: 50%;
+  width: 12rpx;
+  height: 12rpx;
+  margin-left: -6rpx;
+  margin-top: -12rpx;
+  border: 2rpx solid #8A94A6;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
   box-sizing: border-box;
 }
 
-.eye-icon::after {
+.loc-icon::after {
   content: '';
   position: absolute;
-  left: 9rpx;
-  top: 10rpx;
-  width: 5rpx;
-  height: 5rpx;
+  left: 50%;
+  top: 50%;
+  width: 4rpx;
+  height: 4rpx;
+  margin-left: -2rpx;
+  margin-top: -2rpx;
+  background: #8A94A6;
   border-radius: 50%;
-  background: currentColor;
 }
 
-.chat-icon::before {
-  content: '';
-  position: absolute;
-  left: 1rpx;
-  top: 4rpx;
-  width: 21rpx;
-  height: 16rpx;
-  border: 2.5rpx solid currentColor;
-  border-radius: 8rpx;
-  box-sizing: border-box;
+.card-location {
+  font-size: 20rpx;
+  color: #8A94A6;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.chat-icon::after {
-  content: '';
+.card-seller {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  padding-top: 10rpx;
+  border-top: 1rpx solid #F0F2F5;
+}
+
+.seller-avatar {
+  width: 34rpx;
+  height: 34rpx;
+  border-radius: 50%;
+  background: rgba(92, 122, 153, 0.12);
+  color: #5C7A99;
+  font-size: 18rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.seller-name {
+  font-size: 21rpx;
+  color: #666A70;
+  flex: 1;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-time {
+  font-size: 18rpx;
+  color: #9AA2AE;
+  font-weight: 500;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.card-badge-offline {
   position: absolute;
-  left: 7rpx;
-  bottom: 1rpx;
-  width: 7rpx;
-  height: 7rpx;
-  border-left: 2.5rpx solid currentColor;
-  border-bottom: 2.5rpx solid currentColor;
-  transform: rotate(-18deg);
+  right: 14rpx;
+  top: 14rpx;
+  min-width: 40rpx;
+  height: 40rpx;
+  padding: 0 10rpx;
+  border-radius: 10rpx;
+  background: rgba(0, 0, 0, 0.55);
+  color: #FFFFFF;
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 40rpx;
+  text-align: center;
+}
+
+.card-actions {
+  display: flex;
+  gap: 12rpx;
+  margin-top: 12rpx;
+  padding-top: 12rpx;
+  border-top: 1rpx solid #F0F2F5;
+}
+
+.card-action-btn {
+  flex: 1;
+  height: 56rpx;
+  border-radius: 10rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 23rpx;
+  font-weight: 700;
+}
+
+.card-action-btn--primary {
+  background: #F0F5FF;
+  color: #416FF0;
+}
+
+.card-action-btn--danger {
+  background: #FFF0ED;
+  color: #FF4D2E;
 }
 </style>

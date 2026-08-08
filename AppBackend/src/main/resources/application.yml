@@ -43,14 +43,22 @@ spring:
   servlet:
     multipart:
       max-file-size: 200MB
-      max-request-size: 200MB
+      max-request-size: 500MB
   data:
+    neo4j:
+      repositories:
+        type: none
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
       connect-timeout: ${REDIS_CONNECT_TIMEOUT:2s}
       timeout: ${REDIS_COMMAND_TIMEOUT:2s}
+  neo4j:
+    uri: ${NEO4J_URI:bolt://localhost:7687}
+    authentication:
+      username: ${NEO4J_USERNAME:neo4j}
+      password: ${NEO4J_PASSWORD:neo4j-dev-password}
 
 # JWT 认证配置
 # JWT_SECRET: JWT 签名密钥，生产环境务必修改
@@ -90,6 +98,7 @@ ai:
   python:
     base-url: ${AI_PYTHON_BASE_URL:http://localhost:8081}
     timeout-seconds: ${AI_PYTHON_TIMEOUT_SECONDS:65}
+    ppt-timeout-seconds: ${AI_PYTHON_PPT_TIMEOUT_SECONDS:300}
     file-response-max-in-memory-bytes: ${AI_PYTHON_FILE_RESPONSE_MAX_IN_MEMORY_BYTES:52428800}
     internal-token: ${AI_INTERNAL_TOKEN:dev-internal-token-change-me-32chars}
   assistant:
@@ -99,6 +108,9 @@ ai:
       fallback-max-entries: ${AI_LEARNING_WORKFLOW_FALLBACK_MAX_ENTRIES:1024}
 
 knowledge:
+  graph:
+    neo4j:
+      enabled: ${NEO4J_ENABLED:false}
   maxkb:
     timeout-seconds: ${KNOWLEDGE_MAXKB_TIMEOUT_SECONDS:30}
     file-response-max-in-memory-bytes: ${KNOWLEDGE_MAXKB_FILE_RESPONSE_MAX_IN_MEMORY_BYTES:52428800}
@@ -121,6 +133,14 @@ aliyun:
 file:
   upload-dir: uploads
   base-url: ${FILE_BASE_URL:http://localhost:8080}
+
+# 课程资料上传配置（文件夹大小上限与扩展名白名单，便于后期调整）
+# max-folder-bytes: 同一文件夹（同一 upload_batch_id）累计字节上限，默认 2GB
+# 注意：单请求体积仍受 spring.servlet.multipart 上限限制，需前端分批上传
+course-material:
+  max-folder-bytes: ${COURSE_MATERIAL_MAX_FOLDER_BYTES:2147483648}
+  allowed-extensions: ${COURSE_MATERIAL_ALLOWED_EXTENSIONS:mp4,avi,pdf,ppt,pptx,doc,docx,xls,xlsx,png,jpg,jpeg,gif,webp,mp3,txt}
+  storage-prefix: ${COURSE_MATERIAL_STORAGE_PREFIX:smart-campus/course-materials}
 
 browser:
   headless: true  # 可视化浏览器，调试用

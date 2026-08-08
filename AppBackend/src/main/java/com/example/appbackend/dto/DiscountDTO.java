@@ -66,6 +66,7 @@ public static class ActivityRequest {
         private String title;
         private String description;
         private String coverImage;
+        private String startTime;
         private String endTime;
         private Integer remainCount;
         private Double distance;

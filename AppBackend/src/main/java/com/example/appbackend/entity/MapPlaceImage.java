@@ -25,6 +25,12 @@ public class MapPlaceImage {
     @Column(name = "sort_order", nullable = false)
     private Integer sortOrder = 0;
 
+    @Column(name = "focus_x")
+    private Integer focusX = 50;
+
+    @Column(name = "focus_y")
+    private Integer focusY = 50;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

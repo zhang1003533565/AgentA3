@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button,
   Card,
+  Dropdown,
   Empty,
   Form,
   Image,
@@ -21,11 +22,14 @@ import {
   ApartmentOutlined,
   DeleteOutlined,
   EditOutlined,
+  EllipsisOutlined,
   EnvironmentOutlined,
   FileImageOutlined,
   PlusOutlined,
+  ShopOutlined,
   UploadOutlined,
 } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import {
   addMapPlaceImage,
   createMapPlace,
@@ -36,13 +40,16 @@ import {
   deleteMapPlaceImage,
   getFloorPlan,
   getMapPlaceDetail,
+  getMapPlaceList,
   getMapPlaceTree,
   saveFloorPlan,
   saveIndoorPosition,
   saveMapPlaceFence,
+  updateMapPlaceImage,
   updateMapPlace,
 } from '../../../api/mapPlace'
 import { MAP_BUILDING_UPLOAD_FOLDER, uploadImage } from '../../../api/upload'
+import SidePanel from '../../../components/SidePanel/SidePanel'
 import './FacilityPlaceManage.css'
 
 const SCENE_CONFIG = {
@@ -136,10 +143,57 @@ const normalizeFileList = (images = []) =>
     status: 'done',
     url: item.imageUrl,
     imageId: item.id,
+    focusX: item.focusX ?? 50,
+    focusY: item.focusY ?? 50,
   }))
 
-export default function FacilityPlaceManage({ sceneType }) {
+function CanteenCarousel({ images = [] }) {
+  const [currentIndex, setCurrentIndex] = useState(0)
+
+  useEffect(() => {
+    if (images.length <= 1) return undefined
+    const timer = window.setInterval(() => {
+      setCurrentIndex((previous) => (previous + 1) % images.length)
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [images])
+
+  if (!images.length) {
+    return (
+      <div className="facility-canteen-card-placeholder">
+        <ShopOutlined />
+      </div>
+    )
+  }
+
+  return (
+    <div className="facility-canteen-carousel">
+      {images.map((image, index) => (
+        <img
+          key={image.id || image.imageUrl}
+          src={image.imageUrl}
+          alt="食堂"
+          className={index === currentIndex % images.length ? 'active' : ''}
+          style={{ objectPosition: `${image.focusX ?? 50}% ${image.focusY ?? 50}%` }}
+        />
+      ))}
+      {images.length > 1 ? (
+        <div className="facility-canteen-carousel-dots">
+          {images.map((image, index) => (
+            <span
+              key={image.id || image.imageUrl}
+              className={index === currentIndex % images.length ? 'active' : ''}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+export default function FacilityPlaceManage({ sceneType, rootPlaceId = null }) {
   const config = SCENE_CONFIG[sceneType]
+  const navigate = useNavigate()
   const [form] = Form.useForm()
   const [planForm] = Form.useForm()
   const [positionForm] = Form.useForm()
@@ -150,6 +204,7 @@ export default function FacilityPlaceManage({ sceneType }) {
   const [editing, setEditing] = useState(null)
   const [parent, setParent] = useState(null)
   const [fileList, setFileList] = useState([])
+  const [previewImageUid, setPreviewImageUid] = useState(null)
   const [planOpen, setPlanOpen] = useState(false)
   const [planFloor, setPlanFloor] = useState(null)
   const [plan, setPlan] = useState(null)
@@ -157,22 +212,55 @@ export default function FacilityPlaceManage({ sceneType }) {
   const [positionPlace, setPositionPlace] = useState(null)
   const [positionPlan, setPositionPlan] = useState(null)
   const [keyword, setKeyword] = useState('')
+  const [rootPlace, setRootPlace] = useState(null)
+  const [statusFilter, setStatusFilter] = useState('ALL')
   const planImageUrl = Form.useWatch('imageUrl', planForm)
   const positionX = Form.useWatch('xRatio', positionForm)
   const positionY = Form.useWatch('yRatio', positionForm)
   const positionId = Form.useWatch('positionId', positionForm)
 
-  const flatPlaces = useMemo(() => flattenTree(tree), [tree])
+  const flatPlaces = useMemo(
+    () => flattenTree(rootPlace ? [{ ...rootPlace, children: tree }] : tree),
+    [rootPlace, tree],
+  )
 
   const loadTree = useCallback(async () => {
     setLoading(true)
     try {
+      if (rootPlaceId) {
+        const loadChildren = async (parentId) => {
+          const response = await getMapPlaceList({ sceneType, parentId })
+          const children = Array.isArray(response.data) ? response.data : []
+          return Promise.all(
+            children.map(async (child) => ({
+              ...child,
+              children: getAllowedChildTypes(sceneType, child).length
+                ? await loadChildren(child.id)
+                : [],
+            })),
+          )
+        }
+        const [rootResponse, children] = await Promise.all([
+          getMapPlaceDetail(rootPlaceId),
+          loadChildren(rootPlaceId),
+        ])
+        setRootPlace(rootResponse.data || null)
+        setTree(children)
+        return
+      }
+      if (sceneType === 'CANTEEN') {
+        const response = await getMapPlaceList({ sceneType, placeType: config.rootType })
+        setRootPlace(null)
+        setTree(Array.isArray(response.data) ? response.data : [])
+        return
+      }
       const response = await getMapPlaceTree(sceneType)
+      setRootPlace(null)
       setTree(Array.isArray(response.data) ? response.data : [])
     } finally {
       setLoading(false)
     }
-  }, [sceneType])
+  }, [config.rootType, rootPlaceId, sceneType])
 
   useEffect(() => {
     loadTree()
@@ -180,22 +268,24 @@ export default function FacilityPlaceManage({ sceneType }) {
 
   const filteredTree = useMemo(() => {
     const query = keyword.trim().toLowerCase()
-    if (!query) return tree
     const filterNodes = (nodes) =>
       nodes.reduce((result, node) => {
         const children = filterNodes(node.children || [])
-        if (node.name.toLowerCase().includes(query) || children.length) {
+        const matchesStatus = statusFilter === 'ALL' || node.status === statusFilter
+        const matchesKeyword = !query || node.name.toLowerCase().includes(query)
+        if ((matchesStatus && matchesKeyword) || children.length) {
           result.push({ ...node, children })
         }
         return result
       }, [])
     return filterNodes(tree)
-  }, [keyword, tree])
+  }, [keyword, statusFilter, tree])
 
   const openCreate = (parentPlace = null) => {
     setEditing(null)
     setParent(parentPlace)
     setFileList([])
+    setPreviewImageUid(null)
     const allowed = getAllowedChildTypes(sceneType, parentPlace)
     form.resetFields()
     form.setFieldsValue({
@@ -216,7 +306,9 @@ export default function FacilityPlaceManage({ sceneType }) {
       const detail = response.data
       setEditing(detail)
       setParent(flatPlaces.find((item) => item.id === detail.parentId) || null)
-      setFileList(normalizeFileList(detail.images))
+      const normalizedImages = normalizeFileList(detail.images)
+      setFileList(normalizedImages)
+      setPreviewImageUid(normalizedImages[0]?.uid || null)
       form.resetFields()
       form.setFieldsValue({
         ...detail,
@@ -236,28 +328,45 @@ export default function FacilityPlaceManage({ sceneType }) {
       [...previousIds].filter((id) => !retainedIds.has(id)).map((id) => deleteMapPlaceImage(id)),
     )
     const newFiles = fileList.filter((item) => !item.imageId && item.url)
-    await Promise.all(
-      newFiles.map((item, index) =>
-        addMapPlaceImage(placeId, { imageUrl: item.url, sortOrder: index }),
+    const retainedFiles = fileList.filter((item) => item.imageId)
+    await Promise.all([
+      ...retainedFiles.map((item, index) =>
+        updateMapPlaceImage(item.imageId, {
+          imageUrl: item.url,
+          sortOrder: index,
+          focusX: item.focusX ?? 50,
+          focusY: item.focusY ?? 50,
+        }),
       ),
-    )
+      ...newFiles.map((item, index) =>
+        addMapPlaceImage(placeId, {
+          imageUrl: item.url,
+          sortOrder: retainedFiles.length + index,
+          focusX: item.focusX ?? 50,
+          focusY: item.focusY ?? 50,
+        }),
+      ),
+    ])
   }
 
   const savePlace = async () => {
     const values = await form.validateFields()
+    const usesSeparateLocationPanel = sceneType === 'CANTEEN' && !rootPlaceId
     setSaving(true)
     try {
       const payload = {
-        parentId: values.parentId ?? null,
+        parentId: editing ? (editing.parentId ?? null) : (parent?.id ?? null),
         sceneType,
-        placeType: values.placeType,
+        placeType: values.placeType || editing?.placeType || getAllowedChildTypes(sceneType, parent)[0],
         name: values.name,
         description: values.description || '',
         status: values.status,
-        longitude: values.longitude ?? null,
-        latitude: values.latitude ?? null,
-        locationDesc: values.locationDesc || '',
-        mapVisible: Boolean(values.mapVisible),
+        longitude: usesSeparateLocationPanel ? (editing?.longitude ?? null) : (values.longitude ?? null),
+        latitude: usesSeparateLocationPanel ? (editing?.latitude ?? null) : (values.latitude ?? null),
+        locationDesc: usesSeparateLocationPanel ? (editing?.locationDesc || '') : (values.locationDesc || ''),
+        mapVisible: usesSeparateLocationPanel
+          ? (editing ? Boolean(editing.mapVisible) : true)
+          : Boolean(values.mapVisible),
         sortOrder: values.sortOrder || 0,
       }
       const response = editing
@@ -265,12 +374,12 @@ export default function FacilityPlaceManage({ sceneType }) {
         : await createMapPlace(payload)
       const placeId = response.data.id
       await syncImages(placeId)
-      if (values.geometryData?.trim()) {
+      if (!usesSeparateLocationPanel && values.geometryData?.trim()) {
         await saveMapPlaceFence(placeId, {
           geometryType: values.geometryType,
           geometryData: values.geometryData.trim(),
         })
-      } else if (editing?.fence) {
+      } else if (!usesSeparateLocationPanel && editing?.fence) {
         await deleteMapPlaceFence(placeId)
       }
       message.success(editing ? '点位已更新' : '点位已创建')
@@ -287,22 +396,62 @@ export default function FacilityPlaceManage({ sceneType }) {
     await loadTree()
   }
 
+  const confirmRemovePlace = (record) => {
+    Modal.confirm({
+      title: `确定删除“${record.name}”吗？`,
+      content: '存在下级点位时不能删除。',
+      okText: '删除',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: () => removePlace(record),
+    })
+  }
+
   const uploadFile = async (file) => {
     try {
       const url = await uploadImage(file, MAP_BUILDING_UPLOAD_FOLDER)
+      const uid = `new-${Date.now()}`
       setFileList((previous) => [
         ...previous,
         {
-          uid: `new-${Date.now()}`,
+          uid,
           name: file.name,
           status: 'done',
           url,
+          focusX: 50,
+          focusY: 50,
         },
       ])
+      setPreviewImageUid(uid)
     } catch (error) {
       message.error(error?.message || '图片上传失败')
     }
     return false
+  }
+
+  const previewImage = fileList.find((item) => item.uid === previewImageUid) || null
+
+  const updatePreviewFocus = (event) => {
+    if (!previewImage || (event.type === 'pointermove' && event.buttons !== 1)) return
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const focusX = Math.round(Math.max(0, Math.min(100, ((event.clientX - bounds.left) / bounds.width) * 100)))
+    const focusY = Math.round(Math.max(0, Math.min(100, ((event.clientY - bounds.top) / bounds.height) * 100)))
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    setFileList((previous) => previous.map((item) =>
+      item.uid === previewImage.uid ? { ...item, focusX, focusY } : item,
+    ))
+  }
+
+  const resetPreviewFocus = () => {
+    if (!previewImage) return
+    setFileList((previous) => previous.map((item) =>
+      item.uid === previewImage.uid ? { ...item, focusX: 50, focusY: 50 } : item,
+    ))
+  }
+
+  const removeImageFile = (file) => {
+    setFileList((previous) => previous.filter((item) => item.uid !== file.uid))
+    if (previewImageUid === file.uid) setPreviewImageUid(null)
   }
 
   const openPlan = async (floor) => {
@@ -429,7 +578,17 @@ export default function FacilityPlaceManage({ sceneType }) {
           record.parentId && flatPlaces.find((item) => item.id === record.parentId)?.placeType === 'FLOOR'
         return (
           <Space wrap>
-            {childTypes.length ? (
+            {!rootPlaceId && sceneType === 'CANTEEN' && record.placeType === 'CANTEEN' ? (
+              <Button
+                type="primary"
+                ghost
+                size="small"
+                icon={<ShopOutlined />}
+                onClick={() => navigate(`/facility/canteen/${record.id}/stalls`)}
+              >
+                进入档口
+              </Button>
+            ) : childTypes.length ? (
               <Button size="small" icon={<PlusOutlined />} onClick={() => openCreate(record)}>
                 新增下级
               </Button>
@@ -462,12 +621,40 @@ export default function FacilityPlaceManage({ sceneType }) {
 
   if (!config) return <Empty description="未知设施场景" />
 
+  const pageTitle = rootPlace ? `${rootPlace.name} · 档口管理` : config.title
+  const pageDescription = rootPlace
+    ? '进入食堂后单独加载并管理楼层、档口和就餐区域。'
+    : sceneType === 'CANTEEN'
+      ? ''
+      : config.description
+  const createParent = rootPlace || null
+  const createLabel = rootPlace
+    ? '新增楼层'
+    : sceneType === 'CANTEEN'
+      ? '新增食堂'
+      : '新增顶级设施'
+  const isCanteenOverview = sceneType === 'CANTEEN' && !rootPlaceId
+  const canteenCounts = {
+    ALL: tree.length,
+    ENABLED: tree.filter((item) => item.status === 'ENABLED').length,
+    DISABLED: tree.filter((item) => item.status === 'DISABLED').length,
+  }
+
   return (
-    <div className="facility-place-page">
+    <div className={`facility-place-page${isCanteenOverview ? ' facility-canteen-overview-page' : ''}`}>
       <div className="facility-place-toolbar">
         <div>
-          <h1>{config.title}</h1>
-          <p>{config.description}</p>
+          {rootPlace ? (
+            <Button
+              type="link"
+              className="facility-place-back"
+              onClick={() => navigate('/facility/canteen')}
+            >
+              ← 返回食堂列表
+            </Button>
+          ) : null}
+          {!isCanteenOverview ? <h1>{pageTitle}</h1> : null}
+          {pageDescription ? <p>{pageDescription}</p> : null}
         </div>
         <Space>
           <Input.Search
@@ -476,48 +663,152 @@ export default function FacilityPlaceManage({ sceneType }) {
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
           />
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreate()}>
-            新增顶级设施
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreate(createParent)}>
+            {createLabel}
           </Button>
         </Space>
       </div>
 
-      <Card className="facility-place-card">
-        <Table
-          rowKey="id"
-          columns={columns}
-          dataSource={filteredTree}
-          loading={loading}
-          pagination={false}
-          expandable={{ defaultExpandAllRows: true }}
-          locale={{ emptyText: '暂无设施点位' }}
-          scroll={{ x: 1080 }}
-        />
-      </Card>
+      {isCanteenOverview ? (
+        <>
+          <div className="facility-canteen-stats">
+            {[
+              ['ALL', '全部'],
+              ['ENABLED', '启用'],
+              ['DISABLED', '停用'],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={statusFilter === value ? 'active' : ''}
+                onClick={() => setStatusFilter(value)}
+              >
+                {label}
+                <span>{canteenCounts[value]}</span>
+              </button>
+            ))}
+          </div>
+          {filteredTree.length ? (
+            <div className="facility-canteen-grid">
+              {filteredTree.map((canteen) => {
+                const hasLocation = canteen.longitude != null && canteen.latitude != null
+                return (
+                  <Card
+                    key={canteen.id}
+                    className="facility-canteen-card"
+                    styles={{ body: { padding: 0 } }}
+                  >
+                    <div className="facility-canteen-card-image">
+                      <CanteenCarousel images={canteen.images} />
+                      <div className="facility-canteen-image-shade" />
+                      <div className="facility-canteen-heading">
+                        <h2>{canteen.name}</h2>
+                        <Tag color={canteen.status === 'ENABLED' ? 'success' : 'default'}>
+                          {canteen.status === 'ENABLED' ? '启用' : '停用'}
+                        </Tag>
+                      </div>
+                    </div>
+                    <div className="facility-canteen-card-info">
+                      <div className="facility-canteen-summary-row">
+                        <ShopOutlined />
+                        <span><strong>{canteen.stallCount ?? 0}</strong> 个档口</span>
+                      </div>
+                      <div className="facility-canteen-summary-row">
+                        <EnvironmentOutlined />
+                        <span>{hasLocation ? '点位已配置' : '暂未配置点位'}</span>
+                      </div>
+                    </div>
+                    <div className="facility-canteen-actions">
+                      <Button
+                        type="primary"
+                        icon={<ShopOutlined />}
+                        onClick={() => navigate(`/facility/canteen/${canteen.id}/stalls`)}
+                      >
+                        进入档口管理
+                      </Button>
+                      <Dropdown
+                        trigger={['click']}
+                        placement="bottomRight"
+                        menu={{
+                          items: [
+                            { key: 'location', icon: <EnvironmentOutlined />, label: '位置管理' },
+                            { key: 'edit', icon: <EditOutlined />, label: '编辑食堂' },
+                            { type: 'divider' },
+                            { key: 'delete', icon: <DeleteOutlined />, label: '删除食堂', danger: true },
+                          ],
+                          onClick: ({ key }) => {
+                            if (key === 'location') navigate(`/facility/marker?mapPlaceId=${canteen.id}`)
+                            if (key === 'edit') openEdit(canteen)
+                            if (key === 'delete') confirmRemovePlace(canteen)
+                          },
+                        }}
+                      >
+                        <Button
+                          className="facility-canteen-more"
+                          icon={<EllipsisOutlined />}
+                          aria-label={`${canteen.name}更多操作`}
+                        />
+                      </Dropdown>
+                    </div>
+                  </Card>
+                )
+              })}
+            </div>
+          ) : (
+            <Card className="facility-place-card">
+              <Empty description={loading ? '正在加载食堂' : '暂无符合条件的食堂'} />
+            </Card>
+          )}
+        </>
+      ) : (
+        <Card className="facility-place-card">
+          <Table
+            rowKey="id"
+            columns={columns}
+            dataSource={filteredTree}
+            loading={loading}
+            pagination={false}
+            expandable={rootPlaceId ? { defaultExpandAllRows: true } : undefined}
+            locale={{ emptyText: rootPlaceId ? '该食堂暂无楼层或档口' : '暂无设施点位' }}
+            scroll={{ x: 1080 }}
+          />
+        </Card>
+      )}
 
-      <Modal
-        width={760}
+      <SidePanel
         title={editing ? '编辑点位' : parent ? `在“${parent.name}”下新增` : '新增顶级设施'}
         open={editorOpen}
-        confirmLoading={saving}
-        onCancel={() => setEditorOpen(false)}
-        onOk={savePlace}
-        forceRender
+        onClose={() => setEditorOpen(false)}
+        destroyOnHidden
+        footer={(
+          <>
+            <Button onClick={() => setEditorOpen(false)}>取消</Button>
+            <Button type="primary" loading={saving} onClick={savePlace}>保存</Button>
+          </>
+        )}
       >
         <Form form={form} layout="vertical">
-          <div className="place-form-grid">
+          {isCanteenOverview ? (
             <Form.Item name="name" label="点位名称" rules={[{ required: true, message: '请输入点位名称' }]}>
               <Input />
             </Form.Item>
-            <Form.Item name="placeType" label="点位类型" rules={[{ required: true }]}>
-              <Select
-                disabled={Boolean(editing)}
-                options={getAllowedChildTypes(sceneType, parent).map((value) => ({
-                  value,
-                  label: TYPE_LABELS[value] || value,
-                }))}
-              />
-            </Form.Item>
+          ) : (
+            <div className="place-form-grid">
+              <Form.Item name="name" label="点位名称" rules={[{ required: true, message: '请输入点位名称' }]}>
+                <Input />
+              </Form.Item>
+              <Form.Item name="placeType" label="点位类型" rules={[{ required: true }]}>
+                <Select
+                  disabled={Boolean(editing)}
+                  options={getAllowedChildTypes(sceneType, parent).map((value) => ({
+                    value,
+                    label: TYPE_LABELS[value] || value,
+                  }))}
+                />
+              </Form.Item>
+            </div>
+          )}
+          <div className="place-form-grid">
             <Form.Item name="status" label="状态">
               <Select options={STATUS_OPTIONS} />
             </Form.Item>
@@ -528,47 +819,91 @@ export default function FacilityPlaceManage({ sceneType }) {
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={2} />
           </Form.Item>
-          <Form.Item name="locationDesc" label="位置说明">
-            <Input placeholder="例如：东区体育馆北侧" />
-          </Form.Item>
-          <div className="place-form-grid">
-            <Form.Item name="longitude" label="经度">
-              <InputNumber min={-180} max={180} precision={7} style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="latitude" label="纬度">
-              <InputNumber min={-90} max={90} precision={7} style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="mapVisible" label="室外地图显示" valuePropName="checked">
-              <Switch />
-            </Form.Item>
-          </div>
+          {!isCanteenOverview ? (
+            <>
+              <Form.Item name="locationDesc" label="位置说明">
+                <Input placeholder="例如：东区体育馆北侧" />
+              </Form.Item>
+              <div className="place-form-grid">
+                <Form.Item name="longitude" label="经度">
+                  <InputNumber min={-180} max={180} precision={7} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="latitude" label="纬度">
+                  <InputNumber min={-90} max={90} precision={7} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="mapVisible" label="室外地图显示" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+              </div>
+            </>
+          ) : null}
           <Form.Item label="图片">
             <Upload
               listType="picture-card"
               fileList={fileList}
               beforeUpload={uploadFile}
-              onRemove={(file) => setFileList((previous) => previous.filter((item) => item.uid !== file.uid))}
+              onPreview={(file) => setPreviewImageUid(file.uid)}
+              onRemove={removeImageFile}
             >
               <div><UploadOutlined /><div>上传</div></div>
             </Upload>
+            {isCanteenOverview ? (
+              <div className="facility-image-preview-tip">
+                点击已上传图片，可调整它在食堂卡片中的展示位置。
+              </div>
+            ) : null}
           </Form.Item>
-          <div className="place-form-grid">
-            <Form.Item name="geometryType" label="户外围栏类型">
-              <Select options={[
-                { value: 'POLYGON', label: '区域 Polygon' },
-                { value: 'LINESTRING', label: '路线 LineString' },
-              ]} />
-            </Form.Item>
-          </div>
-          <Form.Item
-            name="geometryData"
-            label="围栏 GeoJSON"
-            extra="可留空；坐标顺序统一为 [经度, 纬度]。"
-          >
-            <Input.TextArea rows={5} placeholder='{"type":"Polygon","coordinates":[...]}' />
-          </Form.Item>
+          {isCanteenOverview && previewImage ? (
+            <div className="facility-image-position-editor">
+              <div className="facility-image-position-editor__header">
+                <div>
+                  <strong>卡片展示预览</strong>
+                  <span>在图片上点击或拖动，选择希望重点展示的位置</span>
+                </div>
+                <Button size="small" onClick={resetPreviewFocus}>恢复居中</Button>
+              </div>
+              <div
+                className="facility-image-position-preview"
+                role="application"
+                aria-label="拖动设置图片展示位置"
+                onPointerDown={updatePreviewFocus}
+                onPointerMove={updatePreviewFocus}
+              >
+                <img
+                  src={previewImage.url}
+                  alt="食堂卡片展示预览"
+                  draggable={false}
+                  style={{ objectPosition: `${previewImage.focusX ?? 50}% ${previewImage.focusY ?? 50}%` }}
+                />
+                <span
+                  className="facility-image-focus-point"
+                  style={{ left: `${previewImage.focusX ?? 50}%`, top: `${previewImage.focusY ?? 50}%` }}
+                />
+              </div>
+              <p>保存后，食堂卡片会按照当前预览位置裁切图片；原图文件不会被修改。</p>
+            </div>
+          ) : null}
+          {!isCanteenOverview ? (
+            <>
+              <div className="place-form-grid">
+                <Form.Item name="geometryType" label="户外围栏类型">
+                  <Select options={[
+                    { value: 'POLYGON', label: '区域 Polygon' },
+                    { value: 'LINESTRING', label: '路线 LineString' },
+                  ]} />
+                </Form.Item>
+              </div>
+              <Form.Item
+                name="geometryData"
+                label="围栏 GeoJSON"
+                extra="可留空；坐标顺序统一为 [经度, 纬度]。"
+              >
+                <Input.TextArea rows={5} placeholder='{"type":"Polygon","coordinates":[...]}' />
+              </Form.Item>
+            </>
+          ) : null}
         </Form>
-      </Modal>
+      </SidePanel>
 
       <Modal
         title={`楼层平面图 · ${planFloor?.name || ''}`}

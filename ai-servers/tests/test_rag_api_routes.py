@@ -175,6 +175,26 @@ class RagApiRoutesTest(unittest.TestCase):
 
         self.assertTrue(export_tool["enabled"])
 
+    def test_ai_ppt_tool_is_configurable_but_not_leader_callable_before_wiring(self):
+        request = SimpleNamespace(metadata={
+            "toolToggles": {"ai_ppt_generation_tool": False},
+        })
+
+        catalog = self._rag_routes._build_leader_callable_catalog(request)
+        content_tool = next(
+            item
+            for item in catalog["contentTools"]
+            if item["name"] == "ai_ppt_generation_tool"
+        )
+
+        self.assertFalse(content_tool["enabled"])
+        self.assertEqual("unwired", content_tool["invocation"])
+        self.assertEqual("registered", content_tool["status"])
+        self.assertNotIn(
+            "ai_ppt_generation_tool",
+            {item["name"] for item in catalog["tools"]},
+        )
+
     def test_file_transform_action_forces_real_export_tool(self):
         request = SimpleNamespace(metadata={
             "interactionType": "transform",
@@ -681,6 +701,52 @@ class RagApiRoutesTest(unittest.TestCase):
         self.assertNotIn("课堂互动建议", payload["answer"])
         self.assertEqual("direct_agent", payload["trace"][-1]["stage"])
         self.assertEqual("direct_agent", payload["metadata"]["executionMode"])
+
+    def test_image_attachment_automatically_calls_bound_vision_tool(self):
+        response = self.client.post(
+            "/internal/rag/query",
+            headers=self.headers,
+            json={
+                "input": "请分析这张图片",
+                "agentName": "leader_agent",
+                "attachments": [{
+                    "type": "image",
+                    "mimeType": "image/png",
+                    "name": "screen.png",
+                    "url": "https://files.test/screen.png",
+                }],
+                "metadata": {"agentModelConfigs": self.agent_model_configs},
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("recognize_image_tool", payload["strategy"])
+        self.assertEqual("image_analysis", payload["answerType"])
+        self.assertEqual("vision_agent", payload["metadata"]["boundAgent"])
+        self.assertEqual("attachment", payload["metadata"]["routeMode"])
+
+    def test_stream_image_attachment_uses_same_vision_tool_route(self):
+        response = self.client.post(
+            "/internal/rag/query/stream",
+            headers=self.headers,
+            json={
+                "input": "请分析这张图片",
+                "agentName": "leader_agent",
+                "attachments": [{
+                    "type": "image",
+                    "mimeType": "image/png",
+                    "name": "screen.png",
+                    "url": "https://files.test/screen.png",
+                }],
+                "metadata": {"agentModelConfigs": self.agent_model_configs},
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn('"ragStrategy": "recognize_image_tool"', response.text)
+        self.assertIn('"answerType": "image_analysis"', response.text)
+        self.assertIn('"boundAgent": "vision_agent"', response.text)
 
     def test_ppt_layout_normalizer_rewrites_legacy_fields(self):
         raw = """## PPT 布局方案

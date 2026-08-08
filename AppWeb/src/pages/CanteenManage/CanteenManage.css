@@ -52,14 +52,15 @@
   text-align: left;
   background: var(--surface, #fff);
   border-radius: 8px;
-  padding: 12px 20px;
+  padding: 12px 28px;
   cursor: pointer;
   transition: all 0.2s ease;
   border: 1px solid var(--border-light, #e2e8f0);
   display: flex;
   align-items: center;
   gap: 12px;
-  min-width: 120px;
+  min-width: 128px;
+  justify-content: center;
 }
 
 .stat-item:hover {
@@ -68,32 +69,38 @@
 }
 
 .stat-item.active {
-  border-color: var(--brand, #0f766e);
-  background: linear-gradient(135deg, rgba(15, 118, 110, 0.05), rgba(15, 118, 110, 0.02));
+  border-color: #1677ff;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(22, 119, 255, 0.08);
 }
 
 .stat-number {
-  font-size: 24px;
+  font-size: 16px;
   font-weight: 700;
-  color: var(--brand, #0f766e);
+  color: inherit;
   line-height: 1;
 }
 
 .stat-label {
-  font-size: 14px;
-  color: var(--text-muted, #475569);
+  font-size: 16px;
+  color: inherit;
+}
+
+.stat-item.active .stat-label,
+.stat-item.active .stat-number {
+  color: #1677ff;
 }
 
 /* 卡片网格 */
 .canteen-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 24px;
 }
 
 @media (max-width: 1200px) {
   .canteen-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -123,13 +130,17 @@
   border: 1px solid var(--border-light, #e2e8f0);
   border-radius: 12px;
   overflow: hidden;
-  transition: all 0.3s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
   background: var(--surface, #fff);
 }
 
 .canteen-card:hover {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-  transform: translateY(-2px);
+  border-color: #cbd5e1;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.07);
+}
+
+.canteen-card > .ant-card-body {
+  padding: 0;
 }
 
 .canteen-card.deleting {
@@ -209,7 +220,7 @@
   transform: translateX(-50%);
   display: flex;
   gap: 6px;
-  z-index: 2;
+  z-index: 5;
 }
 
 .canteen-carousel-dots .dot {
@@ -226,9 +237,62 @@
   border-radius: 4px;
 }
 
-/* 基本信息 */
+/* 图片上的名称与状态 */
+.canteen-card-image-shade {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(8, 28, 54, 0.48) 0%, rgba(8, 28, 54, 0.12) 55%, transparent 100%);
+}
+
+.canteen-card-heading {
+  position: absolute;
+  top: 28px;
+  left: 32px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.canteen-card-heading h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 26px;
+  line-height: 1.25;
+  font-weight: 700;
+  text-shadow: 0 1px 3px rgba(15, 23, 42, 0.35);
+}
+
+.canteen-card-heading .status-tag {
+  margin: 0;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+/* 列表摘要 */
 .canteen-card-info {
-  padding: 16px;
+  padding: 20px 32px 12px;
+}
+
+.canteen-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+  color: var(--text-secondary, #334155);
+  font-size: 15px;
+}
+
+.canteen-summary-row .anticon {
+  color: #1677ff;
+  font-size: 18px;
+}
+
+.canteen-summary-row strong {
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
 }
 
 .canteen-card-title {
@@ -309,17 +373,20 @@
 /* 操作按钮 */
 .canteen-card-actions {
   display: flex;
-  gap: 8px;
-  padding: 0 16px 16px;
+  gap: 16px;
+  padding: 4px 32px 20px;
   position: relative;
 }
 
-.canteen-card-actions .ant-btn {
+.canteen-card-actions > .ant-btn {
   flex: 1;
+  height: 40px;
 }
 
-.canteen-card-actions .ant-btn:last-child {
-  flex: 0 0 36px;
+.canteen-card-actions .canteen-more-button {
+  width: 64px;
+  height: 40px;
+  font-size: 20px;
 }
 
 .canteen-location-tip {
