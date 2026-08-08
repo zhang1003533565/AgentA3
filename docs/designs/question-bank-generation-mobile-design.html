@@ -1,0 +1,846 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>题库生成移动端界面设计稿</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top left, rgba(193, 212, 230, 0.55), transparent 28%),
+        linear-gradient(180deg, #eef3f7 0%, #f5f7fa 46%, #eef2f5 100%);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #1f2937;
+    }
+
+    .canvas {
+      width: 1440px;
+      height: 980px;
+      margin: 0 auto;
+      padding: 48px 44px;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-bottom: 34px;
+    }
+
+    .title-block h1 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.2;
+      font-weight: 800;
+      letter-spacing: 0;
+      color: #18212d;
+    }
+
+    .title-block p {
+      margin: 10px 0 0;
+      font-size: 16px;
+      line-height: 1.6;
+      color: #607086;
+    }
+
+    .tag {
+      padding: 10px 16px;
+      border: 1px solid rgba(120, 140, 161, 0.22);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.82);
+      font-size: 14px;
+      font-weight: 700;
+      color: #516274;
+      backdrop-filter: blur(10px);
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 28px;
+    }
+
+    .panel {
+      padding: 22px 22px 28px;
+      border: 1px solid rgba(190, 204, 218, 0.65);
+      border-radius: 34px;
+      background: rgba(255, 255, 255, 0.55);
+      box-shadow: 0 24px 48px rgba(125, 144, 165, 0.12);
+      backdrop-filter: blur(10px);
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      padding: 0 6px;
+    }
+
+    .panel-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: #17212e;
+    }
+
+    .panel-desc {
+      font-size: 13px;
+      color: #75869a;
+    }
+
+    .phone {
+      width: 100%;
+      height: 770px;
+      overflow: hidden;
+      border: 1px solid #cad7e3;
+      border-radius: 34px;
+      background: #f5f8fb;
+      box-shadow: 0 30px 52px rgba(86, 103, 124, 0.18);
+    }
+
+    .nav {
+      height: 94px;
+      padding: 22px 22px 0;
+      background: linear-gradient(180deg, #e7f1f9 0%, #edf4f9 100%);
+    }
+
+    .status-bar {
+      height: 14px;
+      width: 112px;
+      margin: 0 auto 14px;
+      border-radius: 999px;
+      background: rgba(83, 104, 128, 0.16);
+    }
+
+    .nav-row {
+      display: grid;
+      grid-template-columns: 48px 1fr 48px;
+      align-items: center;
+    }
+
+    .back {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-size: 20px;
+      color: #273243;
+      background: rgba(255, 255, 255, 0.62);
+    }
+
+    .nav-title {
+      text-align: center;
+      font-size: 18px;
+      font-weight: 800;
+      color: #16202c;
+    }
+
+    .nav-action {
+      justify-self: end;
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      border: 1px solid rgba(129, 146, 165, 0.18);
+      background: rgba(255, 255, 255, 0.62);
+    }
+
+    .content {
+      padding: 16px 14px 120px;
+    }
+
+    .stepper {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .step {
+      padding: 10px 8px;
+      border-radius: 14px;
+      border: 1px solid #d9e2ea;
+      background: #ffffff;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: #6b7280;
+    }
+
+    .step.active {
+      border-color: #8ba1b4;
+      background: #e9eff4;
+      color: #324354;
+    }
+
+    .step.done {
+      border-color: #c8d5df;
+      background: #f5f8fb;
+      color: #516274;
+    }
+
+    .card {
+      margin-bottom: 12px;
+      padding: 16px;
+      border: 1px solid #e4ebf1;
+      border-radius: 20px;
+      background: #ffffff;
+    }
+
+    .card-title {
+      margin: 0 0 12px;
+      font-size: 15px;
+      font-weight: 800;
+      color: #18222f;
+    }
+
+    .seg-row,
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .seg,
+    .chip {
+      padding: 9px 12px;
+      border: 1px solid #d9e2ea;
+      border-radius: 12px;
+      background: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      color: #617184;
+    }
+
+    .seg.active,
+    .chip.active {
+      border-color: #8ea4b8;
+      background: #e8eef3;
+      color: #304152;
+    }
+
+    .textarea,
+    .input,
+    .upload {
+      width: 100%;
+      border: 1px solid #dfe7ee;
+      border-radius: 16px;
+      background: #f8fafc;
+      color: #4b5d71;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .textarea {
+      height: 122px;
+      padding: 14px 14px 0;
+    }
+
+    .input {
+      height: 46px;
+      padding: 12px 14px;
+    }
+
+    .upload {
+      padding: 16px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .muted {
+      margin-top: 8px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #7b8794;
+    }
+
+    .route-box {
+      margin-top: 12px;
+      padding: 12px;
+      border: 1px solid #e0e8ef;
+      border-radius: 16px;
+      background: #fbfcfd;
+    }
+
+    .route-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      font-size: 12px;
+      font-weight: 800;
+      color: #314253;
+    }
+
+    .route-tag {
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #e8eef3;
+      font-size: 11px;
+      font-weight: 700;
+      color: #607086;
+    }
+
+    .selector {
+      height: 42px;
+      margin-top: 8px;
+      padding: 0 12px;
+      border: 1px solid #dfe7ee;
+      border-radius: 14px;
+      background: #f8fafc;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: #4b5d71;
+    }
+
+    .selector strong {
+      color: #233243;
+      font-size: 13px;
+    }
+
+    .arrow {
+      color: #91a0af;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+
+    .summary-item {
+      padding: 12px;
+      border-radius: 14px;
+      background: #f6f8fb;
+    }
+
+    .summary-label {
+      display: block;
+      font-size: 11px;
+      color: #7b8794;
+    }
+
+    .summary-value {
+      display: block;
+      margin-top: 6px;
+      font-size: 14px;
+      font-weight: 800;
+      color: #233243;
+    }
+
+    .progress-box {
+      padding: 14px;
+      border-radius: 18px;
+      background: #f6f8fb;
+    }
+
+    .progress-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #334155;
+    }
+
+    .progress-bar {
+      height: 8px;
+      border-radius: 999px;
+      background: #dfe7ee;
+      overflow: hidden;
+    }
+
+    .progress-value {
+      height: 100%;
+      width: 68%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #8ba1b4 0%, #5d7387 100%);
+    }
+
+    .timeline {
+      margin-top: 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .timeline-item {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      font-size: 12px;
+      color: #536375;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      margin-top: 4px;
+      border-radius: 50%;
+      background: #becbd7;
+    }
+
+    .dot.active {
+      background: #5d7387;
+      box-shadow: 0 0 0 5px rgba(141, 163, 181, 0.18);
+    }
+
+    .banner {
+      padding: 12px 14px;
+      border-radius: 16px;
+      font-size: 13px;
+      line-height: 1.5;
+      font-weight: 700;
+    }
+
+    .banner.success {
+      background: #e6eef2;
+      color: #324354;
+    }
+
+    .banner.warn {
+      margin-top: 10px;
+      background: #f9f1dd;
+      color: #725a22;
+    }
+
+    .issue-list {
+      margin-top: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .issue {
+      padding: 11px 12px;
+      border-radius: 14px;
+      background: #f8fafc;
+      font-size: 12px;
+      color: #556476;
+    }
+
+    .question-card {
+      margin-top: 12px;
+      padding: 14px;
+      border-radius: 18px;
+      background: #f8fafc;
+    }
+
+    .question-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .question-no {
+      font-size: 14px;
+      font-weight: 800;
+      color: #223244;
+    }
+
+    .badge {
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: #e8eef3;
+      font-size: 11px;
+      font-weight: 700;
+      color: #516274;
+    }
+
+    .stem,
+    .option,
+    .answer {
+      font-size: 12px;
+      line-height: 1.65;
+      color: #4b5d71;
+    }
+
+    .option {
+      margin-top: 5px;
+    }
+
+    .answer {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #dfe7ee;
+    }
+
+    .ops {
+      display: flex;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .ghost,
+    .primary {
+      height: 40px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .ghost {
+      flex: 1;
+      border: 1px solid #d6e0e8;
+      background: #ffffff;
+      color: #58687a;
+    }
+
+    .primary {
+      flex: 1.4;
+      background: #5e7387;
+      color: #ffffff;
+    }
+
+    .footer-bar {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 14px;
+      padding: 12px;
+      border: 1px solid #dbe4ec;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.95);
+      box-shadow: 0 18px 34px rgba(103, 120, 142, 0.14);
+    }
+
+    .phone-shell {
+      position: relative;
+    }
+
+    .tiny {
+      margin-top: 8px;
+      font-size: 11px;
+      color: #7b8794;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <main class="canvas">
+    <section class="header">
+      <div class="title-block">
+        <h1>题库生成移动端界面设计稿</h1>
+        <p>基于现有小程序 AI 工具页风格，覆盖生成设置、生成中、结果预览三个关键状态。</p>
+      </div>
+      <div class="tag">界面设计稿 · 2026-07-30</div>
+    </section>
+
+    <section class="board">
+      <article class="panel">
+        <div class="panel-head">
+          <div class="panel-title">01 生成设置</div>
+          <div class="panel-desc">先来源，后规则</div>
+        </div>
+        <div class="phone">
+          <div class="nav">
+            <div class="status-bar"></div>
+            <div class="nav-row">
+              <div class="back">‹</div>
+              <div class="nav-title">题库生成</div>
+              <div class="nav-action"></div>
+            </div>
+          </div>
+          <div class="phone-shell">
+            <div class="content">
+              <div class="stepper">
+                <div class="step active">1 设置</div>
+                <div class="step">2 生成</div>
+                <div class="step">3 预览</div>
+              </div>
+
+              <section class="card">
+                <h3 class="card-title">资料来源</h3>
+                <div class="seg-row">
+                  <div class="seg active">直接导入资料</div>
+                  <div class="seg">知识库选课</div>
+                </div>
+                <div class="route-box">
+                  <div class="route-title">
+                    <span>路径一：直接导入资料</span>
+                    <span class="route-tag">当前选择</span>
+                  </div>
+                  <div class="chip-row">
+                    <div class="chip active">粘贴文本</div>
+                    <div class="chip">上传 TXT</div>
+                    <div class="chip">上传 DOCX</div>
+                  </div>
+                  <div class="textarea">请粘贴老师讲义、复习提纲或知识点摘要…</div>
+                  <div class="muted">当前输入 612 字，建议保留章节标题与关键术语。</div>
+                </div>
+                <div class="route-box">
+                  <div class="route-title">
+                    <span>路径二：从知识库选择课程与章节</span>
+                    <span class="route-tag">第二导入路</span>
+                  </div>
+                  <div class="selector">
+                    <span>对应课程</span>
+                    <strong>Python 程序设计基础</strong>
+                    <span class="arrow">›</span>
+                  </div>
+                  <div class="selector">
+                    <span>章节范围</span>
+                    <strong>第 3 章 循环结构</strong>
+                    <span class="arrow">›</span>
+                  </div>
+                  <div class="chip-row" style="margin-top: 10px;">
+                    <div class="chip active">3.1 for 循环</div>
+                    <div class="chip active">3.2 while 循环</div>
+                    <div class="chip">3.3 break / continue</div>
+                  </div>
+                  <div class="muted">按课程与章节自动提取知识库内容，作为生成材料的第二条导入路径。</div>
+                </div>
+              </section>
+
+              <section class="card">
+                <h3 class="card-title">出题规则</h3>
+                <div class="input">来源标题：Python 循环与函数复习</div>
+                <div class="muted"></div>
+                <div class="chip-row" style="margin-top: 10px;">
+                  <div class="chip active">单选题</div>
+                  <div class="chip">多选题</div>
+                  <div class="chip">判断题</div>
+                  <div class="chip">填空题</div>
+                  <div class="chip">简答题</div>
+                </div>
+                <div class="chip-row" style="margin-top: 12px;">
+                  <div class="chip">简单</div>
+                  <div class="chip active">中等</div>
+                  <div class="chip">困难</div>
+                </div>
+                <div class="chip-row" style="margin-top: 12px;">
+                  <div class="chip">5 题</div>
+                  <div class="chip active">10 题</div>
+                  <div class="chip">15 题</div>
+                  <div class="chip">20 题</div>
+                </div>
+              </section>
+
+              <section class="card">
+                <h3 class="card-title">本次生成摘要</h3>
+                <div class="summary-grid">
+                  <div class="summary-item">
+                    <span class="summary-label">输入方式</span>
+                    <span class="summary-value">知识库章节</span>
+                  </div>
+                  <div class="summary-item">
+                    <span class="summary-label">题型</span>
+                    <span class="summary-value">单选题</span>
+                  </div>
+                  <div class="summary-item">
+                    <span class="summary-label">对应课程</span>
+                    <span class="summary-value">Python 程序设计基础</span>
+                  </div>
+                  <div class="summary-item">
+                    <span class="summary-label">章节范围</span>
+                    <span class="summary-value">第 3 章 循环结构</span>
+                  </div>
+                </div>
+              </section>
+            </div>
+            <div class="footer-bar">
+              <div class="tiny">生成前会先进行结构校验，未通过不会导入题库。</div>
+              <div class="ops">
+                <div class="primary" style="flex: 1;">开始生成</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head">
+          <div class="panel-title">02 智能生成</div>
+          <div class="panel-desc">后台任务可离页继续</div>
+        </div>
+        <div class="phone">
+          <div class="nav">
+            <div class="status-bar"></div>
+            <div class="nav-row">
+              <div class="back">‹</div>
+              <div class="nav-title">题库生成</div>
+              <div class="nav-action"></div>
+            </div>
+          </div>
+          <div class="phone-shell">
+            <div class="content">
+              <div class="stepper">
+                <div class="step done">1 设置</div>
+                <div class="step active">2 生成</div>
+                <div class="step">3 预览</div>
+              </div>
+
+              <section class="card">
+                <h3 class="card-title">当前进度</h3>
+                <div class="progress-box">
+                  <div class="progress-top">
+                    <span>正在调用题库生成智能体</span>
+                    <span>68%</span>
+                  </div>
+                  <div class="progress-bar">
+                    <div class="progress-value"></div>
+                  </div>
+                  <div class="timeline">
+                    <div class="timeline-item">
+                      <div class="dot"></div>
+                      <div>材料解析完成：识别标题、正文和关键知识点。</div>
+                    </div>
+                    <div class="timeline-item">
+                      <div class="dot active"></div>
+                      <div>正在生成题目：根据“单选题 / 中等 / 最多 10 题”输出候选结果。</div>
+                    </div>
+                    <div class="timeline-item">
+                      <div class="dot"></div>
+                      <div>下一步将自动进行结构校验与可导入检查。</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="card">
+                <h3 class="card-title">材料摘要</h3>
+                <div class="summary-grid">
+                  <div class="summary-item">
+                    <span class="summary-label">来源</span>
+                    <span class="summary-value">知识库章节</span>
+                  </div>
+                  <div class="summary-item">
+                    <span class="summary-label">智能体</span>
+                    <span class="summary-value">题库生成智能体</span>
+                  </div>
+                  <div class="summary-item">
+                    <span class="summary-label">课程</span>
+                    <span class="summary-value">Python 程序设计基础</span>
+                  </div>
+                  <div class="summary-item">
+                    <span class="summary-label">章节</span>
+                    <span class="summary-value">第 3 章 循环结构</span>
+                  </div>
+                </div>
+              </section>
+
+              <section class="card">
+                <h3 class="card-title">说明</h3>
+                <div class="issue-list">
+                  <div class="issue">生成过程会在后台继续执行，你可以先离开当前页面。</div>
+                  <div class="issue">如果失败，系统会给出明确原因，不会自动导入题库。</div>
+                  <div class="issue">完成后返回本页即可继续查看和编辑生成结果。</div>
+                </div>
+              </section>
+            </div>
+            <div class="footer-bar">
+              <div class="ops">
+                <div class="ghost">稍后查看</div>
+                <div class="primary">返回首页</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head">
+          <div class="panel-title">03 结果预览</div>
+          <div class="panel-desc">先校验，再导入</div>
+        </div>
+        <div class="phone">
+          <div class="nav">
+            <div class="status-bar"></div>
+            <div class="nav-row">
+              <div class="back">‹</div>
+              <div class="nav-title">题库生成</div>
+              <div class="nav-action"></div>
+            </div>
+          </div>
+          <div class="phone-shell">
+            <div class="content">
+              <div class="stepper">
+                <div class="step done">1 设置</div>
+                <div class="step done">2 生成</div>
+                <div class="step active">3 预览</div>
+              </div>
+
+              <section class="card">
+                <div class="banner success">已通过校验，可导入题库。</div>
+                <div class="banner warn">发现 2 条提醒：建议补全第 4 题解析，并检查第 7 题选项表述。</div>
+              </section>
+
+              <section class="card">
+                <h3 class="card-title">结果摘要</h3>
+                <div class="summary-grid">
+                  <div class="summary-item">
+                    <span class="summary-label">生成题数</span>
+                    <span class="summary-value">10 题</span>
+                  </div>
+                  <div class="summary-item">
+                    <span class="summary-label">警告数</span>
+                    <span class="summary-value">2 条</span>
+                  </div>
+                  <div class="summary-item">
+                    <span class="summary-label">缺失信息</span>
+                    <span class="summary-value">0 条</span>
+                  </div>
+                  <div class="summary-item">
+                    <span class="summary-label">来源标题</span>
+                    <span class="summary-value">Python 循环与函数复习</span>
+                  </div>
+                </div>
+              </section>
+
+              <section class="card">
+                <h3 class="card-title">题目预览</h3>
+                <div class="question-card">
+                  <div class="question-head">
+                    <div class="question-no">1. 单选题</div>
+                    <div class="badge">可导入</div>
+                  </div>
+                  <div class="stem">在 Python 中，`for` 循环最适合处理以下哪一类场景？</div>
+                  <div class="option">A. 需要反复遍历一个序列中的每个元素</div>
+                  <div class="option">B. 需要等待网络请求返回</div>
+                  <div class="option">C. 需要手动声明内存空间</div>
+                  <div class="option">D. 需要关闭解释器</div>
+                  <div class="answer">答案：A　解析：`for` 循环用于按顺序遍历列表、元组、字符串等可迭代对象。</div>
+                  <div class="ops">
+                    <div class="ghost">编辑</div>
+                    <div class="ghost">删除</div>
+                  </div>
+                </div>
+
+                <div class="question-card">
+                  <div class="question-head">
+                    <div class="question-no">2. 单选题</div>
+                    <div class="badge">有提醒</div>
+                  </div>
+                  <div class="stem">下列哪项最适合用函数进行封装？</div>
+                  <div class="option">A. 重复出现的逻辑步骤</div>
+                  <div class="option">B. 仅运行一次且无复用价值的内容</div>
+                  <div class="answer">答案：A　解析：函数用于复用逻辑、提高可读性和维护性。</div>
+                </div>
+              </section>
+            </div>
+            <div class="footer-bar">
+              <div class="ops">
+                <div class="ghost">继续生成</div>
+                <div class="primary">导入当前题库</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

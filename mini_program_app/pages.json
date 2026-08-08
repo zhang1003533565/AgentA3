@@ -636,6 +636,15 @@
 					}
 				},
 				{
+					"path": "questionBankGenerate/questionBankGenerate",
+					"style": {
+						"navigationBarTitleText": "",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "pptGenerate/pptGenerate",
 					"style": {
 						"navigationBarTitleText": "",
@@ -943,6 +952,34 @@
 					"path": "attemptResult/attemptResult",
 					"style": {
 						"navigationBarTitleText": "答题结果",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "myQuestionBank/myQuestionBank",
+					"style": {
+						"navigationBarTitleText": "我的题库",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "questionFolderDetail/questionFolderDetail",
+					"style": {
+						"navigationBarTitleText": "收藏夹详情",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "questionFolderAdd/questionFolderAdd",
+					"style": {
+						"navigationBarTitleText": "添加题目",
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "questionFolderPush/questionFolderPush",
+					"style": {
+						"navigationBarTitleText": "推送到收藏夹",
 						"navigationStyle": "custom"
 					}
 				}
