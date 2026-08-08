@@ -95,22 +95,16 @@
                     />
                     <view v-else class="hot-img-placeholder">
                       <text class="hot-img-emoji">{{ itemEmoji(item.id) }}</text>
-                      <text class="hot-img-placeholder-text">{{ itemCategoryLabel(item) }}</text>
                     </view>
-                    <text class="hot-status-badge" :class="'hot-status-badge--' + item.status">{{ item.statusText }}</text>
+                    <view class="hot-badge-type" :class="'hot-badge-type--' + (item.tradeType || 'sell')">
+                      {{ item.tradeType === 'buy' ? '收' : '出' }}
+                    </view>
                   </view>
                   <view class="hot-body">
-                    <text class="hot-name">{{ item.title }}</text>
-                    <text class="hot-desc">{{ item.categoryLevel2Name || item.categoryName || itemCategoryLabel(item) }}</text>
-                    <view class="hot-price-line">
-                      <view class="hot-price-row">
-                        <text v-if="priceDisplay(item).prefix" class="hot-price-symbol">{{ priceDisplay(item).prefix }}</text>
-                        <text class="hot-price" :class="{ 'hot-price-text': !priceDisplay(item).prefix }">{{ priceDisplay(item).text }}</text>
-                      </view>
-                      <text class="hot-info-chip">{{ itemConditionLabel(item) }}</text>
-                    </view>
+                    <view class="hot-title">{{ item.title }}</view>
+                    <view class="hot-price">¥{{ priceDisplay(item).text }}</view>
                     <view class="hot-location-row">
-                      <image class="hot-location-icon" src="/static/icons/mi-location.svg" mode="aspectFit" />
+                      <view class="hot-loc-icon"></view>
                       <text class="hot-location">{{ itemLocationLabel(item) }}</text>
                     </view>
                     <view class="hot-user">
@@ -132,32 +126,6 @@
                 <view class="hot-empty-icon"></view>
                 <text class="hot-empty-title">暂无热门商品</text>
                 <text class="hot-empty-desc">快来发布校园闲置吧</text>
-              </view>
-            </view>
-
-            <!-- ===== 5. Campus Zones ===== -->
-            <view class="section">
-              <view class="section-head">
-                <text class="section-title">校园专区</text>
-              </view>
-              <view class="zone-list">
-                <view
-                  class="zone-row"
-                  v-for="(z, zi) in zones"
-                  :key="zi"
-                  @click="onZoneClick"
-                >
-                  <view class="zone-icon-box">
-                    <view class="zone-line-icon" :class="'zone-line-icon--' + zi">
-                      <view class="zone-line-icon-mark"></view>
-                    </view>
-                  </view>
-                  <view class="zone-text">
-                    <text class="zone-title">{{ z.title }}</text>
-                    <text class="zone-desc">{{ z.sub }}</text>
-                  </view>
-                  <text class="zone-arrow">›</text>
-                </view>
               </view>
             </view>
 
@@ -195,12 +163,6 @@ import { getSecondhandItemList } from '@/api/secondhand'
 
 const EMOJIS = ['📱', '💻', '📷', '🎧', '⌚', '📚', '👟', '🧥', '🪑', '🏠', '🎮', '🎸', '🖥️', '📦']
 
-const ZONES = [
-  { emoji: '', title: '学长学姐推荐', sub: '毕业季闲置 · 高年级教材', primary: true },
-  { emoji: '', title: '急售专区',     sub: '低价急出 · 限时优惠',     primary: false },
-  { emoji: '', title: '免费领取',     sub: '赠品 · 资料 · 二手好物',  primary: false },
-]
-
 const BANNERS = [
   { tag: '🔥 本校热门', title: '期末季专场',   subtitle: '教材 · 资料 · 考研真题' },
   { tag: '🆕 新生必备', title: '入学季好物',   subtitle: '宿舍用品 · 日用百货' },
@@ -215,7 +177,6 @@ export default {
     return {
       unreadCount: 0,
       items: [],
-      zones: ZONES,
       banners: BANNERS,
       bannerIndex: 0,
       productTints: PRODUCT_TINTS,
@@ -288,6 +249,7 @@ export default {
             title: r.title,
             description: r.description || '',
             price: r.price,
+            tradeType: r.tradeType || r.trade_type || 'sell',
             originalPrice: r.originalPrice || r.original_price || null,
             condition: r.condition || r.itemCondition || null,
             conditionText: r.conditionText || r.conditionName || '',
@@ -386,9 +348,6 @@ export default {
       this.bannerTimer = setInterval(() => {
         this.bannerIndex = (this.bannerIndex + 1) % this.banners.length
       }, 4000)
-    },
-    onZoneClick() {
-      uni.showToast({ title: '校园专区即将开放', icon: 'none' })
     },
     goToSearch() {
       if (this.searchTransitioning) return
@@ -1011,35 +970,36 @@ export default {
 .hot-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 18rpx;
+  gap: 12rpx;
 }
 
 .hot-card {
   background: #fff;
-  border-radius: 24rpx;
+  border-radius: 16rpx;
   overflow: hidden;
-  border: 1rpx solid rgba(228, 232, 238, 0.95);
-  box-shadow: 0 10rpx 28rpx rgba(92, 122, 153, 0.08);
-  padding: 12rpx 12rpx 0;
+  box-shadow: 0 4rpx 16rpx rgba(30, 41, 59, 0.06);
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 }
 
 .hot-img {
   position: relative;
   width: 100%;
-  aspect-ratio: 1.18 / 1;
+  padding-top: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border-radius: 18rpx;
-  background: #F1F3F5;
+  background: #EEF2F7;
 }
 
 .hot-img-src {
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 100%;
   height: 100%;
-  border-radius: 18rpx;
 }
 
 .hot-img-placeholder {
@@ -1055,150 +1015,107 @@ export default {
   line-height: 1;
 }
 
-.hot-img-placeholder-text {
-  font-size: 22rpx;
-  font-weight: 700;
-}
-
-.hot-status-badge {
+.hot-badge-type {
   position: absolute;
-  top: 12rpx;
-  left: 12rpx;
-  padding: 6rpx 12rpx;
-  border-radius: 999rpx;
-  background: rgba(29, 29, 31, 0.72);
+  left: 14rpx;
+  top: 14rpx;
+  min-width: 40rpx;
+  height: 40rpx;
+  padding: 0 8rpx;
+  border-radius: 10rpx;
   color: #FFFFFF;
-  font-size: 19rpx;
+  font-size: 22rpx;
   font-weight: 800;
-  line-height: 1;
+  line-height: 40rpx;
+  text-align: center;
+  box-shadow: 0 4rpx 10rpx rgba(0, 0, 0, 0.2);
 }
 
-.hot-status-badge--reserved {
-  background: rgba(92, 122, 153, 0.88);
+.hot-badge-type--sell {
+  background: #FF6B35;
+  box-shadow: 0 4rpx 10rpx rgba(255, 107, 53, 0.35);
 }
 
-.hot-status-badge--sold,
-.hot-status-badge--offline {
-  background: rgba(142, 142, 147, 0.88);
+.hot-badge-type--buy {
+  background: #4A90E2;
+  box-shadow: 0 4rpx 10rpx rgba(74, 144, 226, 0.35);
 }
 
 .hot-body {
-  padding: 16rpx 4rpx 18rpx;
-}
-
-.hot-main-row {
+  padding: 14rpx 16rpx 18rpx;
   display: flex;
   flex-direction: column;
-  gap: 12rpx;
-  margin-bottom: 12rpx;
+  gap: 6rpx;
 }
 
-.hot-name {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  font-size: 27rpx;
+.hot-title {
+  color: #1D2430;
+  font-size: 24rpx;
   font-weight: 800;
-  color: #1D1D1F;
-  line-height: 1.32;
-  min-height: 0;
-}
-
-.hot-desc {
-  display: block;
-  margin-top: 10rpx;
-  font-size: 22rpx;
-  color: #8C929A;
-  line-height: 1.25;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.hot-price-line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12rpx;
-  margin-top: 16rpx;
-}
-
-.hot-price-row {
-  display: flex;
-  align-items: baseline;
-  gap: 2rpx;
-}
-
-.hot-price-symbol {
-  font-size: 24rpx;
-  font-weight: 800;
-  color: #1D1D1F;
-  line-height: 1;
 }
 
 .hot-price {
-  font-size: 36rpx;
-  font-weight: 850;
-  color: #1D1D1F;
-  line-height: 1;
-}
-
-.hot-price-text {
-  font-size: 30rpx;
-  color: #4A6278;
-}
-
-.hot-info-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8rpx;
-  margin-bottom: 14rpx;
-}
-
-.hot-info-chip {
-  max-width: 116rpx;
-  padding: 6rpx 12rpx;
-  border-radius: 12rpx;
-  background: rgba(79, 143, 232, 0.1);
-  color: #2F7FE5;
-  font-size: 20rpx;
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.hot-info-chip--blue {
-  background: rgba(92, 122, 153, 0.08);
-  color: #4A6278;
+  color: #FF4D2E;
+  font-size: 28rpx;
+  font-weight: 900;
+  line-height: 1.2;
 }
 
 .hot-location-row {
   display: flex;
   align-items: center;
   gap: 6rpx;
-  margin-top: 14rpx;
-  margin-bottom: 14rpx;
+  color: #8A94A6;
+  font-size: 20rpx;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.hot-location-icon {
-  width: 26rpx;
-  height: 26rpx;
+.hot-loc-icon {
+  position: relative;
+  width: 18rpx;
+  height: 18rpx;
   flex-shrink: 0;
-  opacity: 0.5;
 }
 
-.hot-location-label {
-  font-size: 19rpx;
-  color: #A2A8AF;
-  font-weight: 600;
+.hot-loc-icon::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12rpx;
+  height: 12rpx;
+  margin-left: -6rpx;
+  margin-top: -12rpx;
+  border: 2rpx solid #8A94A6;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  box-sizing: border-box;
+}
+
+.hot-loc-icon::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4rpx;
+  height: 4rpx;
+  margin-left: -2rpx;
+  margin-top: -2rpx;
+  background: #8A94A6;
+  border-radius: 50%;
 }
 
 .hot-location {
-  font-size: 22rpx;
-  color: #8C929A;
-  font-weight: 600;
+  font-size: 20rpx;
+  color: #8A94A6;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1208,8 +1125,8 @@ export default {
   display: flex;
   align-items: center;
   gap: 8rpx;
-  padding-top: 14rpx;
-  border-top: 1rpx solid #EEF1F4;
+  padding-top: 10rpx;
+  border-top: 1rpx solid #F0F2F5;
 }
 
 .hot-ava {
@@ -1229,6 +1146,7 @@ export default {
 .hot-uname {
   font-size: 21rpx;
   color: #666A70;
+  font-weight: 600;
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1236,8 +1154,10 @@ export default {
 }
 
 .hot-time {
-  font-size: 19rpx;
-  color: #A2A8AF;
+  font-size: 18rpx;
+  color: #9AA2AE;
+  font-weight: 500;
+  margin-left: auto;
   flex-shrink: 0;
 }
 

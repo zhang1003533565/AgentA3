@@ -18,6 +18,7 @@ public class ChatDTO {
         private BigDecimal itemPrice;
         private Integer itemStatus;
         private String itemStatusText;
+        private String itemTradeType;
         private Long sellerId;
         private String sellerName;
         private Long otherUserId;

@@ -14,6 +14,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -76,6 +77,10 @@ class MapPlaceServiceImplTest {
         service.create(place("CANTEEN", "CANTEEN_STALL", "饮品档口", secondFloor.getId()));
 
         assertEquals(3L, placeRepository.countCanteenStalls(canteen.getId()));
+        List<MapPlaceResponse> structure = service.canteenStructure(canteen.getId());
+        assertEquals(5, structure.size());
+        assertEquals(2, structure.stream().filter(item -> "FLOOR".equals(item.getPlaceType())).count());
+        assertEquals(3, structure.stream().filter(item -> "CANTEEN_STALL".equals(item.getPlaceType())).count());
         MapPlaceResponse listItem = service.list("CANTEEN", null, "CANTEEN", null, null).getFirst();
         assertEquals(3L, listItem.getStallCount());
         assertNull(listItem.getDescription());

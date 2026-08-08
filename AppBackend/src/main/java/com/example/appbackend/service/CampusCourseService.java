@@ -1,6 +1,8 @@
 package com.example.appbackend.service;
 
 import com.example.appbackend.dto.CampusCourseDTO;
+import com.example.appbackend.dto.MaterialDTO;
+import com.example.appbackend.dto.WordContentDTO;
 import com.example.appbackend.entity.*;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.*;
@@ -16,23 +18,38 @@ public class CampusCourseService {
     private final CampusCourseChapterRepository chapterRepository;
     private final CampusCourseExamRepository courseExamRepository;
     private final CampusCourseProgressRepository progressRepository;
+    private final CampusCourseEnrollmentRepository enrollmentRepository;
     private final ExamPaperRepository paperRepository;
     private final UserRepository userRepository;
+    private final CourseMaterialService materialService;
+    private final MaterialIdsCodec materialIdsCodec;
+    private final WordParsingService wordParsingService;
+    private final CampusCourseMaterialRepository materialRepository;
 
     public CampusCourseService(
             CampusCourseRepository courseRepository,
             CampusCourseChapterRepository chapterRepository,
             CampusCourseExamRepository courseExamRepository,
             CampusCourseProgressRepository progressRepository,
+            CampusCourseEnrollmentRepository enrollmentRepository,
             ExamPaperRepository paperRepository,
-            UserRepository userRepository
+            UserRepository userRepository,
+            CourseMaterialService materialService,
+            MaterialIdsCodec materialIdsCodec,
+            WordParsingService wordParsingService,
+            CampusCourseMaterialRepository materialRepository
     ) {
         this.courseRepository = courseRepository;
         this.chapterRepository = chapterRepository;
         this.courseExamRepository = courseExamRepository;
         this.progressRepository = progressRepository;
+        this.enrollmentRepository = enrollmentRepository;
         this.paperRepository = paperRepository;
         this.userRepository = userRepository;
+        this.materialService = materialService;
+        this.materialIdsCodec = materialIdsCodec;
+        this.wordParsingService = wordParsingService;
+        this.materialRepository = materialRepository;
     }
 
     @Transactional(readOnly = true)
@@ -192,6 +209,113 @@ public class CampusCourseService {
         return detail(course, userId, false);
     }
 
+    @Transactional
+    public void enroll(Long courseId, Long userId) {
+        CampusCourse course = requireCourse(courseId);
+        User user = requireUser(userId);
+        if (!CampusCourse.STATUS_PUBLISHED.equals(course.getPublishStatus()) || !accessible(course, user)) {
+            throw new BusinessException(403, "该课程暂不可加入");
+        }
+        if (enrollmentRepository.existsByUserIdAndCourseId(userId, courseId)) {
+            throw new BusinessException(400, "已加入该课程");
+        }
+        CampusCourseEnrollment enrollment = new CampusCourseEnrollment();
+        enrollment.setUserId(userId);
+        enrollment.setCourseId(courseId);
+        enrollmentRepository.save(enrollment);
+    }
+
+    @Transactional
+    public void unenroll(Long courseId, Long userId) {
+        requireCourse(courseId);
+        requireUser(userId);
+        if (!enrollmentRepository.existsByUserIdAndCourseId(userId, courseId)) {
+            throw new BusinessException(400, "尚未加入该课程");
+        }
+        enrollmentRepository.deleteByUserIdAndCourseId(userId, courseId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<CampusCourseDTO.CourseSummary> myEnrolledCourses(Long userId) {
+        requireUser(userId);
+        List<CampusCourseEnrollment> enrollments = enrollmentRepository
+                .findByUserIdOrderByEnrolledTimeDesc(userId);
+        return enrollments.stream()
+                .map(enrollment -> courseRepository.findById(enrollment.getCourseId())
+                        .filter(course -> CampusCourse.STATUS_PUBLISHED.equals(course.getPublishStatus()))
+                        .map(course -> summary(course, userId))
+                        .orElse(null))
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> chapterDetail(Long courseId, Long chapterId, Long userId) {
+        CampusCourse course = requireCourse(courseId);
+        User user = requireUser(userId);
+        if (!CampusCourse.STATUS_PUBLISHED.equals(course.getPublishStatus()) || !accessible(course, user)) {
+            throw new BusinessException(404, "课程不存在或尚未发布");
+        }
+        CampusCourseChapter chapterEntity = requireChapter(courseId, chapterId);
+        CampusCourseProgress progress = progressRepository
+                .findByCourseIdAndChapterIdAndUserId(courseId, chapterId, userId)
+                .orElse(null);
+        CampusCourseDTO.ChapterView chapterView = chapterView(chapterEntity, progress);
+        List<MaterialDTO.MaterialView> materials = materialService.getChapterMaterials(courseId, chapterId);
+        List<MaterialDTO.MaterialView> additionalMaterials = materialService.getChapterAdditionalMaterials(courseId, chapterId);
+        List<MaterialDTO.MaterialView> wordMaterials = materialService.getChapterWordMaterials(courseId, chapterId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("courseName", course.getName());
+        result.put("courseId", course.getId());
+        result.put("chapter", chapterView);
+        result.put("materials", materials);
+        result.put("additionalMaterials", additionalMaterials);
+        result.put("wordMaterials", wordMaterials);
+        return result;
+    }
+
+    /**
+     * 轻量检查某章节的资源状态（视频/Word/附件是否存在）。
+     * 前端进入章节详情前先调用此接口，根据返回的标志决定是否渲染对应占位区域。
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Boolean> chapterResources(Long courseId, Long chapterId, Long userId) {
+        CampusCourse course = requireCourse(courseId);
+        User user = requireUser(userId);
+        if (!CampusCourse.STATUS_PUBLISHED.equals(course.getPublishStatus()) || !accessible(course, user)) {
+            throw new BusinessException(404, "课程不存在或尚未发布");
+        }
+        CampusCourseChapter chapter = requireChapter(courseId, chapterId);
+        Map<String, Boolean> result = new LinkedHashMap<>();
+        result.put("hasVideo", !materialIdsCodec.parse(chapter.getMaterialIds()).isEmpty());
+        result.put("hasWordDocuments", !materialIdsCodec.parse(chapter.getWordMaterialIds()).isEmpty());
+        result.put("hasAttachments", !materialIdsCodec.parse(chapter.getAdditionalMaterialIds()).isEmpty());
+        return result;
+    }
+
+    /**
+     * 获取章节关联的 Word 文档指定分页内容。
+     */
+    @Transactional(readOnly = true)
+    public WordContentDTO.PageResponse wordContent(
+            Long courseId, Long chapterId, Long materialId, int page, int pageSize, Long userId
+    ) {
+        CampusCourse course = requireCourse(courseId);
+        User user = requireUser(userId);
+        if (!CampusCourse.STATUS_PUBLISHED.equals(course.getPublishStatus()) || !accessible(course, user)) {
+            throw new BusinessException(404, "课程不存在或尚未发布");
+        }
+        CampusCourseChapter chapter = requireChapter(courseId, chapterId);
+        List<Long> wordIds = materialIdsCodec.parse(chapter.getWordMaterialIds());
+        if (!wordIds.contains(materialId)) {
+            throw new BusinessException(400, "该 Word 资料不属于当前章节");
+        }
+        CampusCourseMaterial material = materialRepository.findById(materialId)
+                .filter(m -> !Boolean.TRUE.equals(m.getDeleted()))
+                .orElseThrow(() -> new BusinessException(404, "Word 资料不存在或已下架"));
+        return wordParsingService.parsePage(material, page, pageSize);
+    }
+
     private CampusCourseDTO.CourseDetail detail(CampusCourse course, Long userId, boolean admin) {
         List<CampusCourseProgress> progresses = userId == null
                 ? List.of()
@@ -239,6 +363,7 @@ public class CampusCourseService {
                 .map(user -> firstNonBlank(user.getRealName(), user.getUsername()))
                 .orElse("管理员"));
         view.setOwnerType(course.getOwnerType());
+        view.setCourseType(course.getCourseType());
         view.setAudienceType(course.getAudienceType());
         view.setAudienceValues(course.getAudienceValues());
         view.setPublishStatus(course.getPublishStatus());
@@ -265,8 +390,6 @@ public class CampusCourseService {
         view.setTitle(chapter.getTitle());
         view.setSummary(chapter.getSummary());
         view.setContent(chapter.getContent());
-        view.setResourceType(chapter.getResourceType());
-        view.setResourceUrl(chapter.getResourceUrl());
         view.setEstimatedMinutes(chapter.getEstimatedMinutes());
         view.setRequired(chapter.getRequired());
         view.setSortOrder(chapter.getSortOrder());
@@ -297,6 +420,7 @@ public class CampusCourseService {
         course.setCoverUrl(trim(request.getCoverUrl(), 500));
         course.setDisplayImageUrl(trim(request.getDisplayImageUrl(), 500));
         course.setDescription(trim(request.getDescription(), 2000));
+        course.setCourseType(trim(request.getCourseType(), 30));
         course.setSemester(null);
         course.setEstimatedHours(null);
         course.setAudienceType(CampusCourse.AUDIENCE_ALL);
@@ -308,8 +432,6 @@ public class CampusCourseService {
         chapter.setTitle(required(request.getTitle(), "章节标题", 160));
         chapter.setSummary(trim(request.getSummary(), 1000));
         chapter.setContent(request.getContent() == null ? null : request.getContent().trim());
-        chapter.setResourceType(trim(request.getResourceType(), 30));
-        chapter.setResourceUrl(trim(request.getResourceUrl(), 500));
         chapter.setEstimatedMinutes(request.getEstimatedMinutes());
         chapter.setRequired(request.getRequired() == null || request.getRequired());
         chapter.setSortOrder(value(request.getSortOrder(), 0));
@@ -357,6 +479,7 @@ public class CampusCourseService {
         target.setOwnerId(source.getOwnerId());
         target.setOwnerName(source.getOwnerName());
         target.setOwnerType(source.getOwnerType());
+        target.setCourseType(source.getCourseType());
         target.setAudienceType(source.getAudienceType());
         target.setAudienceValues(source.getAudienceValues());
         target.setPublishStatus(source.getPublishStatus());

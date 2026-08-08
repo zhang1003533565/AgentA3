@@ -33,9 +33,13 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public Result<?> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException e, HttpServletResponse response) {
+        long maxSize = e.getMaxUploadSize();
+        String hint = maxSize > 0
+                ? String.format("上传文件大小超出限制（单文件最大 %dMB，单次请求最大 500MB），请压缩后重试或分批上传", maxSize / (1024 * 1024))
+                : "上传文件大小超出限制，请压缩后重试或分批上传";
         log.warn("上传文件超限: {}", e.getMessage());
         response.setStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
-        return Result.error(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE, "上传文件过大");
+        return Result.error(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE, hint);
     }
 
     @ExceptionHandler(RuntimeException.class)

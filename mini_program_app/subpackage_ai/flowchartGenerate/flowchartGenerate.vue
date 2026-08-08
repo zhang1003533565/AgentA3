@@ -20,10 +20,7 @@
         />
         <view class="input-footer">
           <text class="char-count">{{ flowDescription.length }} / 500</text>
-          <view class="import-btn" @tap="importDocument">
-            <image class="import-icon" src="/static/icons/diagram/import-file.svg" mode="aspectFit" />
-            <text>导入文档</text>
-          </view>
+          <ImportFileButton :loading="isUploading" @click="importDocument" />
         </view>
       </view>
 
@@ -101,6 +98,23 @@
         <image class="ready-icon" src="/static/icons/diagram/spark-blue.svg" mode="aspectFit" />
         <text>AI 已就绪，点击生成后将构建流程骨架并逐节点生长</text>
       </view>
+
+      <!-- 最近生成 -->
+      <view class="recent-section" v-if="recentItems.length">
+        <text class="recent-title">最近生成</text>
+        <view class="recent-list">
+          <view class="recent-item" v-for="item in recentItems" :key="item.id" @tap="openRecent(item)">
+            <view class="recent-icon-wrap">
+              <image class="recent-icon" src="/static/icons/diagram/flow-white.svg" mode="aspectFit" />
+            </view>
+            <view class="recent-info">
+              <text class="recent-name">{{ item.title || '未命名流程图' }}</text>
+              <text class="recent-meta">{{ item.preview || formatTime(item.createTime) }}</text>
+            </view>
+            <image class="recent-arrow" src="/static/icons/icon-forward.svg" mode="aspectFit" />
+          </view>
+        </view>
+      </view>
     </scroll-view>
 
     <view class="bottom-bar">
@@ -113,13 +127,14 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import {
   getErrorMessage,
   getFlowchartHistory,
   uploadFlowchartFile
 } from '@/api/aiDiagram.js'
+import ImportFileButton from '../components/ImportFileButton.vue'
 
 const flowDescription = ref('')
 const selectedScene = ref('administrative')
@@ -127,6 +142,8 @@ const selectedGranularity = ref('auto')
 const selectedJudge = ref('auto')
 const selectedLane = ref('auto')
 const uploadedDocument = ref(null)
+const isUploading = ref(false)
+const recentItems = ref([])
 
 const sceneOptions = [
   { key: 'administrative', label: '行政流程' },
@@ -155,27 +172,39 @@ const laneOptions = [
   { key: 'department', label: '按部门', icon: '/static/icons/diagram/users-line.svg' }
 ]
 
-const openHistory = async () => {
+const openHistory = () => {
+  uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory' })
+}
+
+const loadRecentItems = async () => {
   try {
-    const records = await getFlowchartHistory()
-    if (!records.length) {
-      uni.showToast({ title: '暂无生成记录', icon: 'none' })
-      return
-    }
-    uni.showActionSheet({
-      itemList: records.slice(0, 6).map(item => `${item.title} · ${item.type || 'FLOWCHART'}`),
-      success: ({ tapIndex }) => {
-        const record = records[tapIndex]
-        if (record?.id) {
-          uni.navigateTo({
-            url: `/subpackage_ai/flowchartViewer/flowchartViewer?id=${encodeURIComponent(record.id)}`
-          })
-        }
-      }
-    })
+    const list = await getFlowchartHistory()
+    const records = Array.isArray(list) ? list : []
+    recentItems.value = records.map(item => ({
+      id: item.id,
+      title: item.title || '未命名流程图',
+      preview: item.preview || item.description || '',
+      createTime: item.createTime || item.createdAt || ''
+    }))
   } catch (error) {
-    uni.showToast({ title: getErrorMessage(error, '加载历史失败'), icon: 'none' })
+    recentItems.value = []
   }
+}
+
+// 格式化时间（YYYY-MM-DD HH:mm）
+const formatTime = (timeStr = '') => {
+  if (!timeStr) return ''
+  const date = new Date(timeStr)
+  if (Number.isNaN(date.getTime())) return timeStr
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+const openRecent = (item) => {
+  if (!item || item.id == null) return
+  uni.navigateTo({
+    url: `/subpackage_ai/flowchartViewer/flowchartViewer?id=${encodeURIComponent(item.id)}`
+  })
 }
 
 const importDocument = () => {
@@ -192,7 +221,7 @@ const importDocument = () => {
         uni.showToast({ title: '仅支持 PDF、Word、PPT、Markdown', icon: 'none' })
         return
       }
-      uni.showLoading({ title: '解析中...', mask: true })
+      isUploading.value = true
       try {
         const result = await uploadFlowchartFile(filePath, fileName)
         uploadedDocument.value = result
@@ -203,7 +232,7 @@ const importDocument = () => {
       } catch (error) {
         uni.showToast({ title: getErrorMessage(error, '文件解析失败'), icon: 'none' })
       } finally {
-        uni.hideLoading()
+        isUploading.value = false
       }
     }
   })
@@ -230,10 +259,14 @@ const generateFlowchart = () => {
   uni.setStorageSync('aiFlowchartPendingPayload', payload)
   uni.navigateTo({ url: '/subpackage_ai/flowchartGenerating/flowchartGenerating' })
 }
+
+onMounted(() => {
+  loadRecentItems()
+})
 </script>
 
 <style lang="scss" scoped>
-.page { min-height: 100vh; background: #F4F6F9; color: #1e344f; }
+.page { min-height: 100vh; background: #FCFAFC; color: #1e344f; }
 
 .nav-history-action { display: flex; align-items: center; justify-content: center; width: 64rpx; height: 64rpx; border-radius: 999rpx; }
 .nav-history-icon { width: 32rpx; height: 32rpx; opacity: 0.72; }
@@ -245,8 +278,6 @@ const generateFlowchart = () => {
 .prompt-placeholder { color: #a9b6c4; font-size: 27rpx; line-height: 1.6; }
 .input-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 10rpx; }
 .char-count { color: #8290a1; font-size: 22rpx; }
-.import-btn { display: flex; align-items: center; gap: 8rpx; font-size: 24rpx; color: #3E6A9C; padding: 10rpx 20rpx; border: 2rpx solid #d8e2ec; border-radius: 999rpx; }
-.import-icon { width: 26rpx; height: 26rpx; }
 
 .section-title { display: flex; align-items: center; gap: 10rpx; margin: 32rpx 4rpx 16rpx; font-size: 26rpx; font-weight: 700; color: #1e344f; }
 .section-icon { width: 28rpx; height: 28rpx; }
@@ -275,7 +306,92 @@ const generateFlowchart = () => {
 .ready-card { display: flex; align-items: center; gap: 14rpx; margin-top: 32rpx; padding: 24rpx 28rpx; border-radius: 28rpx; background: #eef4fb; border: 2rpx solid #dbe7f3; color: #3E6A9C; font-size: 25rpx; }
 .ready-icon { width: 30rpx; height: 30rpx; flex-shrink: 0; }
 
-.bottom-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; padding: 20rpx 28rpx 30rpx; background: linear-gradient(180deg, rgba(244, 246, 249, 0), #F4F6F9 30%); }
+.bottom-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; padding: 20rpx 28rpx 30rpx; background: linear-gradient(180deg, rgba(252, 250, 252, 0), #FCFAFC 30%); }
 .generate-btn { display: flex; align-items: center; justify-content: center; gap: 12rpx; height: 88rpx; border-radius: 28rpx; background: #5081B8; color: #fff; font-size: 30rpx; font-weight: 700; box-shadow: 0 12rpx 32rpx rgba(80, 129, 184, 0.3); }
 .generate-icon { width: 32rpx; height: 32rpx; }
+
+/* ===== 最近生成 ===== */
+.recent-section {
+  margin-top: 36rpx;
+  margin-bottom: 40rpx;
+}
+
+.recent-title {
+  display: block;
+  margin: 0 0 18rpx 8rpx;
+  color: #545B67;
+  font-size: 24rpx;
+  font-weight: 500;
+}
+
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  height: 130rpx;
+  padding: 0 30rpx;
+  border-radius: 18rpx;
+  background: #FFFFFF;
+  box-sizing: border-box;
+  box-shadow: 0 4rpx 12rpx rgba(35, 43, 58, 0.03);
+}
+
+.recent-item:active {
+  background: #F4F8FC;
+}
+
+.recent-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 68rpx;
+  height: 68rpx;
+  margin-right: 24rpx;
+  border-radius: 12rpx;
+  background: #E8F4FE;
+}
+
+.recent-icon {
+  width: 36rpx;
+  height: 36rpx;
+}
+
+.recent-info {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.recent-name {
+  color: #1E2B3D;
+  font-size: 26rpx;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-meta {
+  margin-top: 4rpx;
+  color: #2D4664;
+  font-size: 20rpx;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-arrow {
+  width: 32rpx;
+  height: 32rpx;
+  opacity: 0.3;
+  flex-shrink: 0;
+}
 </style>

@@ -70,6 +70,10 @@ public class SecondhandItem {
     @Schema(description = "自提点", example = "三教门口")
     private String pickupPoint;
 
+    @Column(name = "trade_type", length = 20, columnDefinition = "VARCHAR(20) DEFAULT 'sell' COMMENT '交易类型: sell-出物 buy-收物'")
+    @Schema(description = "交易类型: sell-出物 buy-收物", example = "sell")
+    private String tradeType = "sell";
+
     @Column(name = "view_count", columnDefinition = "INT DEFAULT 0 COMMENT '浏览量'")
     @Schema(description = "浏览量", example = "128")
     private Integer viewCount = 0;

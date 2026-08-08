@@ -33,6 +33,11 @@ public class MapPlaceController {
         return Result.success(mapPlaceService.tree(sceneType));
     }
 
+    @GetMapping("/canteens/{canteenId}/structure")
+    public Result<List<MapPlaceResponse>> canteenStructure(@PathVariable Long canteenId) {
+        return Result.success(mapPlaceService.canteenStructure(canteenId));
+    }
+
     @GetMapping("/{id}")
     public Result<MapPlaceResponse> detail(@PathVariable Long id) {
         return Result.success(mapPlaceService.detail(id));
