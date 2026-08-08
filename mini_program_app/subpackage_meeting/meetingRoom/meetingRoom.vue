@@ -70,7 +70,17 @@
 										<text>进入</text>
 									</view>
 								</template>
-								<text v-else class="action-text action-text--pending">待开始</text>
+								<template v-else>
+									<text class="action-text action-text--pending">待开始</text>
+									<!-- 仅主持人可见：开始会议 -->
+									<view
+										v-if="isHost(meeting)"
+										class="action-btn action-btn--pending"
+										@click.stop="enterMeeting(meeting)"
+									>
+										<text>开始</text>
+									</view>
+								</template>
 							</view>
 						</view>
 					</view>
@@ -118,6 +128,7 @@
 <script>
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getMeetings, startMeeting } from '@/api/ai.js'
+import { getToken, getUserInfo } from '@/utils/storage.js'
 
 export default {
 	components: { NavBar },
@@ -173,6 +184,46 @@ export default {
 			uni.navigateTo({
 				url: `/subpackage_meeting/meetingLive/meetingLive?sessionId=${encodeURIComponent(meeting.sessionId)}&title=${encodeURIComponent(meeting.title || '未命名会议')}&roomCode=${encodeURIComponent(meeting.roomCode || '')}`
 			})
+		},
+		// 仅主持人可见开始按钮：列表项 creatorId 与当前用户 id 一致即为主持人
+		isHost(meeting) {
+			const currentId = this.getCurrentUserId()
+			return !!currentId && meeting?.creatorId != null && String(meeting.creatorId) === currentId
+		},
+		// 登录响应未返回用户 id：优先读本地缓存，缺失时解析 JWT 中的 userId（与 lostfound 模块同款实现）
+		getCurrentUserId() {
+			const user = getUserInfo()
+			const storedId = user?.id || user?.userId
+			if (storedId !== undefined && storedId !== null && storedId !== '') return String(storedId)
+			const token = getToken()
+			const payload = token ? token.split('.')[1] : ''
+			if (!payload) return ''
+			try {
+				const decoded = JSON.parse(this.decodeBase64Url(payload))
+				return decoded?.userId != null ? String(decoded.userId) : ''
+			} catch (error) {
+				return ''
+			}
+		},
+		decodeBase64Url(value) {
+			const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
+			const input = `${value || ''}`.replace(/-/g, '+').replace(/_/g, '/')
+			let output = ''
+			let buffer = 0
+			let bits = 0
+			for (let i = 0; i < input.length; i += 1) {
+				const char = input.charAt(i)
+				if (char === '=') break
+				const index = chars.indexOf(char)
+				if (index < 0) continue
+				buffer = (buffer << 6) | index
+				bits += 6
+				if (bits >= 8) {
+					bits -= 8
+					output += String.fromCharCode((buffer >> bits) & 0xff)
+				}
+			}
+			return output
 		},
 		formatRoomCode(roomCode) {
 			const code = roomCode || '未生成'
@@ -445,6 +496,12 @@ $card-radius: 24rpx;
 	min-width: 96rpx; /* 【关键】设置最小宽度，但不会无限扩大 */
 	box-sizing: border-box; /* 【关键】包含 padding 在内的总宽度 */
 	width: 100%; /* 【关键】按钮占满容器宽度 */
+}
+
+/* "开始" 按钮 - 边框与文字同“待开始”蓝色（仅主持人可见） */
+.action-btn--pending {
+	border-color: $primary;
+	color: $primary;
 }
 
 .action-text {
