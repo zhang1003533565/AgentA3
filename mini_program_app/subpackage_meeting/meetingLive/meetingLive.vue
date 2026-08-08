@@ -9,45 +9,126 @@
 				<text class="live-title">{{ title }}</text>
 				<text class="live-time">{{ elapsedText }}</text>
 			</view>
-			<text class="end-text" @click="confirmEndMeeting">结束</text>
+			<text class="end-text" @click="openEndPanel">结束</text>
 		</view>
 
 		<!-- 中间主区域：参会画面居中（核心视觉） -->
 		<view class="main-view-area">
-			<view class="member-grid">
-				<view v-for="member in visibleMembers" :key="member.name" class="member-card" :class="member.className">
-					<view class="face">
-						<view class="hair"></view>
-						<view class="head"></view>
-						<view class="body"></view>
+			<view class="member-slider" @touchstart="handleSwipeStart" @touchend="handleSwipeEnd" @mousedown="handleSwipeStart" @mouseup="handleSwipeEnd">
+				<view class="member-pages" :style="{ transform: 'translateX(-' + memberPageIndex * 100 + '%)' }">
+					<view v-for="(page, pageIndex) in pagedMembers" :key="pageIndex" class="member-grid">
+						<view
+							v-for="member in page"
+							:key="member.name"
+							class="member-card"
+							:class="{ 'member-card--speaking': member.speaking }"
+						>
+							<view v-if="member.speaking" class="speaking-tag">正在发言</view>
+							<view class="member-avatar">
+								<svg class="member-avatar-icon" viewBox="0 0 96 96" fill="currentColor">
+									<circle cx="48" cy="30" r="20"/>
+									<path d="M14 90c0-19 15-30 34-30s34 11 34 30z"/>
+								</svg>
+							</view>
+							<view class="member-info-row">
+								<svg
+									class="member-mic-icon"
+									:class="{ 'member-mic-icon--speaking': member.speaking }"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								>
+									<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+									<path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+									<line x1="12" y1="19" x2="12" y2="23"/>
+									<line x1="8" y1="23" x2="16" y2="23"/>
+								</svg>
+								<text class="member-name">{{ member.name }}</text>
+							</view>
+						</view>
 					</view>
-					<view class="name-chip">{{ member.name }}</view>
 				</view>
+			</view>
+			<!-- 分页指示器：对齐图二，多页时显示 -->
+			<view v-if="pagedMembers.length > 1" class="member-pager">
+				<view class="member-pager-dots">
+					<view
+						v-for="(page, pageIndex) in pagedMembers"
+						:key="pageIndex"
+						class="member-pager-dot"
+						:class="{ 'member-pager-dot--active': pageIndex === memberPageIndex }"
+					></view>
+				</view>
+				<text class="member-pager-text">{{ memberPageIndex + 1 }} / {{ pagedMembers.length }}</text>
+			</view>
+
+			<!-- 实时字幕区域 -->
+			<view class="subtitle-card">
+				<view class="subtitle-header">
+					<text class="subtitle-title">实时字幕</text>
+					<view class="subtitle-summary-toggle" @click="setAgentSummary(!agentEnabled)">
+						<text class="subtitle-summary-text">AI 总结</text>
+						<view class="subtitle-summary-switch" :class="{ 'subtitle-summary-switch--active': agentEnabled }">
+							<view class="subtitle-summary-knob"></view>
+						</view>
+					</view>
+				</view>
+				<scroll-view class="subtitle-body" scroll-y>
+					<view v-if="subtitleLines.length === 0" class="subtitle-empty"></view>
+					<view v-else class="subtitle-list">
+						<text v-for="(item, index) in subtitleLines" :key="item.id || index" class="subtitle-item">{{ item.speaker }}：{{ item.text }}</text>
+					</view>
+				</scroll-view>
 			</view>
 		</view>
 
 		<!-- 底部固定操作栏 -->
 		<view class="live-bottom">
 			<view class="control-row">
-				<view class="control-item" :class="{ 'control-item--active': muted }" @click="toggleMute">
-					<view class="control-icon">♩</view>
-					<text>{{ muted ? '解除静音' : '静音' }}</text>
-				</view>
-				<view class="control-item" :class="{ 'control-item--active': cameraOpen }" @click="toggleCamera">
-					<view class="control-icon">◎</view>
-					<text>{{ cameraOpen ? '关闭视频' : '开启视频' }}</text>
-				</view>
-				<view class="control-item" :class="{ 'control-item--active': shareScreenOpen }" @click="toggleShareScreen">
-					<view class="control-icon">▣</view>
-					<text>{{ shareScreenOpen ? '停止共享' : '共享屏幕' }}</text>
+				<view class="control-item" :class="{ 'control-item--active': !muted }" @click="toggleMute">
+					<view class="control-icon">
+						<svg class="control-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+							<path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+							<line x1="12" y1="19" x2="12" y2="23"/>
+							<line x1="8" y1="23" x2="16" y2="23"/>
+						</svg>
+					</view>
+					<text class="control-label">麦克风</text>
 				</view>
 				<view class="control-item" @click="showMembers">
-					<view class="control-icon">♟</view>
-					<text>成员({{ members.length }})</text>
+					<view class="control-icon">
+						<svg class="control-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+							<circle cx="12" cy="7" r="4"/>
+						</svg>
+					</view>
+					<text class="control-label">成员({{ members.length }})</text>
 				</view>
-				<view class="control-item" @click="showMore">
-					<view class="control-icon">•••</view>
-					<text>更多</text>
+				<view class="control-item" :class="{ 'control-item--active': subtitlePanelVisible }" @click="openSubtitlePanel">
+					<view class="control-icon">
+						<svg class="control-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+							<circle cx="9" cy="10" r="1" fill="currentColor"/>
+							<circle cx="12" cy="10" r="1" fill="currentColor"/>
+							<circle cx="15" cy="10" r="1" fill="currentColor"/>
+						</svg>
+					</view>
+					<text class="control-label">字幕</text>
+				</view>
+				<view class="control-item" @click="shareMeeting">
+					<view class="control-icon">
+						<svg class="control-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+							<circle cx="9" cy="7" r="4"/>
+							<line x1="20" y1="8" x2="20" y2="14"/>
+							<line x1="23" y1="11" x2="17" y2="11"/>
+						</svg>
+					</view>
+					<text class="control-label">邀请</text>
 				</view>
 			</view>
 		</view>
@@ -105,6 +186,31 @@
 			</scroll-view>
 		</view>
 
+		<!-- 实时字幕半屏弹窗 -->
+		<view v-if="subtitlePanelVisible" class="panel-mask" @click="closeSubtitlePanel"></view>
+		<view v-if="subtitlePanelVisible" class="sheet-panel subtitle-panel">
+			<view class="sheet-handle"></view>
+			<view class="sheet-title-row">
+				<text class="sheet-title">实时字幕</text>
+				<text class="sheet-close" @click="closeSubtitlePanel">×</text>
+			</view>
+			<scroll-view class="subtitle-record-scroll" scroll-y>
+				<view v-if="subtitleRecords.length === 0" class="subtitle-record-empty">暂无字幕记录</view>
+				<view v-else class="subtitle-record-list">
+					<view v-for="(item, index) in subtitleRecords" :key="index" class="subtitle-record-item">
+						<view class="subtitle-record-avatar">{{ (item.speaker || '').slice(0,1) }}</view>
+						<view class="subtitle-record-main">
+							<view class="subtitle-record-meta">
+								<text class="subtitle-record-name">{{ item.speaker }}</text>
+								<text class="subtitle-record-time">{{ item.time }}</text>
+							</view>
+							<text class="subtitle-record-text">{{ item.text }}</text>
+						</view>
+					</view>
+				</view>
+			</scroll-view>
+		</view>
+
 		<!-- 原有底部弹窗：成员 / 更多 -->
 		<view v-if="panelVisible" class="panel-mask" @click="closePanel"></view>
 		<view v-if="memberPanelVisible" class="sheet-panel">
@@ -140,6 +246,23 @@
 				<view class="more-row" @click="shareMeeting"><text>分享会议</text><text>复制邀请文案</text></view>
 				<view class="more-row" @click="openMeetingDetail"><text>会议详情</text><text>查看会议号与参会人</text></view>
 			</view>
+		</view>
+
+		<!-- 结束会议操作面板：对齐图二设计，主持人可全员结束，普通参会人仅可离开 -->
+		<view v-if="endPanelVisible" class="panel-mask" @click="closeEndPanel"></view>
+		<view v-if="endPanelVisible" class="end-panel-wrap">
+			<view class="end-panel">
+				<view v-if="isHost" class="end-action end-action--danger" @click="handleEndAll">全员结束会议</view>
+				<view class="end-action end-action--leave" @click="handleLeaveMeeting">离开会议</view>
+				<view v-if="isHost" class="end-action end-action--ai" @click="handleAiHost">
+					<text>AI 托管</text>
+					<svg class="end-action-ai-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<line x1="7" y1="17" x2="17" y2="7"/>
+						<polyline points="7 7 17 7 17 17"/>
+					</svg>
+				</view>
+			</view>
+			<view class="end-cancel" @click="closeEndPanel">取消</view>
 		</view>
 	</view>
 </template>
@@ -194,7 +317,27 @@ export default {
 			memberPanelVisible: false,
 			morePanelVisible: false,
 			asrPanelVisible: false,
-			members: []
+			subtitlePanelVisible: false,
+			endPanelVisible: false,
+			isHost: false,
+			subtitleRecords: [],
+			members: [],
+			memberPageIndex: 0,
+			swipeStartX: 0,
+			// TODO 测试数据，正式环境删除
+			mockMemberList: [
+				{ id: 1, nickname: '测试学生', avatar: '', speaking: true, muted: false },
+				{ id: 2, nickname: '成员2', avatar: '', speaking: false, muted: true },
+				{ id: 3, nickname: '成员3', avatar: '', speaking: false, muted: false },
+				{ id: 4, nickname: '成员4', avatar: '', speaking: false, muted: true },
+				{ id: 5, nickname: '成员5', avatar: '', speaking: false, muted: false },
+				{ id: 6, nickname: '成员6', avatar: '', speaking: false, muted: true },
+				{ id: 7, nickname: '成员7', avatar: '', speaking: false, muted: false },
+				{ id: 8, nickname: '成员8', avatar: '', speaking: false, muted: true },
+				{ id: 9, nickname: '成员9', avatar: '', speaking: false, muted: false },
+				{ id: 10, nickname: '成员10', avatar: '', speaking: false, muted: true }
+			]
+			// TODO 测试数据结束
 		}
 	},
 	onLoad(options) {
@@ -206,6 +349,9 @@ export default {
 		if (options?.shareScreen === '1') this.shareScreenOpen = true
 
 		this.initCurrentMember()
+		// TODO 测试数据，正式环境删除
+		this.initMockMembers()
+		// TODO 测试数据结束
 		this.startTimer()
 		this.loadMeeting()
 		this.initAsr()
@@ -228,7 +374,16 @@ export default {
 			return (this.roomCode || '').replace(/\s+/g, '')
 		},
 		visibleMembers() {
-			return this.members.slice(0, 4)
+			return this.members
+		},
+		// 成员分页：每页 2列×3行 共6人，左右滑动翻页
+		pagedMembers() {
+			const pages = []
+			const list = this.visibleMembers
+			for (let i = 0; i < list.length; i += 6) {
+				pages.push(list.slice(i, i + 6))
+			}
+			return pages.length ? pages : [[]]
 		},
 		livePanelTitle() {
 			return this.agentEnabled ? 'AI 实时总结流' : '语音识别弹幕'
@@ -238,6 +393,9 @@ export default {
 		},
 		livePanelEmptyText() {
 			return this.agentEnabled ? '开启后会根据实时识别内容生成滚动会议总结' : '识别到发言后，会在这里显示每位成员说的话'
+		},
+		subtitleLines() {
+			return this.asrItems.filter(item => item.isFinal).slice(-3)
 		},
 		asrReconnectVisible() {
 			return !this.asrSocketReady && !this.muted && !!this.sessionId
@@ -251,6 +409,14 @@ export default {
 		},
 		closeAsrPanel() {
 			this.asrPanelVisible = false
+		},
+		// 新增：打开实时字幕半屏弹窗
+		openSubtitlePanel() {
+			this.closePanel()
+			this.subtitlePanelVisible = true
+		},
+		closeSubtitlePanel() {
+			this.subtitlePanelVisible = false
 		},
 		startTimer() {
 			this.stopTimer()
@@ -273,14 +439,32 @@ export default {
 				if (session.title) this.title = session.title
 				if (session.roomCode) this.roomCode = session.roomCode
 				if (Array.isArray(detail.participants) && detail.participants.length > 0) {
-					this.members = toMeetingMembers(detail.participants.slice(0, 6))
+					// TODO 测试数据，正式环境删除：使用模拟成员时不覆盖
+					if (this.members.length === 0 || !this.mockMemberList.length) {
+						this.members = toMeetingMembers(detail.participants.slice(0, 6))
+					}
+					// TODO 测试数据结束
 				}
+				// 与 meetingDetail 主持人逻辑对齐：第一位参会人即主持人
+				const hostName = Array.isArray(detail.participants) ? String(detail.participants[0] || '').trim() : ''
+				const currentName = getCurrentDisplayName()
+				this.isHost = !!hostName && !!currentName && hostName === currentName
 			} catch (error) {}
 		},
 		initCurrentMember() {
 			const currentName = getCurrentDisplayName()
 			this.members = currentName ? toMeetingMembers([currentName], currentName) : []
 		},
+		// TODO 测试数据，正式环境删除
+		initMockMembers() {
+			this.members = this.mockMemberList.map((item, index) => ({
+				...item,
+				name: item.nickname,
+				isSelf: index === 0,
+				className: `avatar-${['a', 'b', 'c', 'd'][index % 4]}`
+			}))
+		},
+		// TODO 测试数据结束
 		toggleMute() {
 			this.muted = !this.muted
 			if (this.muted) {
@@ -714,6 +898,17 @@ export default {
 			if (this.meetingTranscriptLines.length > 80) {
 				this.meetingTranscriptLines = this.meetingTranscriptLines.slice(this.meetingTranscriptLines.length - 80)
 			}
+			const now = new Date()
+			const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+			this.subtitleRecords.push({
+				speaker: item.speaker || '参会成员',
+				text,
+				time,
+				isSelf: item.isSelf
+			})
+			if (this.subtitleRecords.length > 200) {
+				this.subtitleRecords = this.subtitleRecords.slice(-200)
+			}
 			if (this.agentEnabled) {
 				this.scheduleAiSummary()
 			}
@@ -860,6 +1055,25 @@ export default {
 				item.text = text
 			}
 		},
+		getSwipeClientX(event) {
+			const touch = event?.changedTouches?.[0]
+			return touch ? touch.clientX : (event?.clientX || 0)
+		},
+		handleSwipeStart(event) {
+			this.swipeStartX = this.getSwipeClientX(event)
+		},
+		// 左右滑动翻页查看其他成员
+		handleSwipeEnd(event) {
+			if (!this.swipeStartX) return
+			const delta = this.getSwipeClientX(event) - this.swipeStartX
+			this.swipeStartX = 0
+			const maxIndex = this.pagedMembers.length - 1
+			if (delta <= -40 && this.memberPageIndex < maxIndex) {
+				this.memberPageIndex += 1
+			} else if (delta >= 40 && this.memberPageIndex > 0) {
+				this.memberPageIndex -= 1
+			}
+		},
 		showMembers() {
 			this.morePanelVisible = false
 			this.memberPanelVisible = true
@@ -895,18 +1109,31 @@ export default {
 				url: `/subpackage_meeting/meetingDetail/meetingDetail?sessionId=${encodeURIComponent(this.sessionId || '')}&title=${encodeURIComponent(this.title)}&roomCode=${encodeURIComponent(this.roomCode || '')}`
 			})
 		},
-		confirmEndMeeting() {
-			uni.showModal({
-				title: '结束会议',
-				content: '确定要结束当前会议吗？',
-				confirmText: '结束',
-				confirmColor: '#ff5f55',
-				success: (res) => {
-					if (res.confirm) {
-						this.endMeeting()
-					}
-				}
-			})
+		openEndPanel() {
+			this.endPanelVisible = true
+		},
+		closeEndPanel() {
+			this.endPanelVisible = false
+		},
+		// 主持人：全员结束会议
+		handleEndAll() {
+			this.closeEndPanel()
+			this.endMeeting()
+		},
+		// 普通参会人：仅自己离开，不结束会议
+		handleLeaveMeeting() {
+			this.closeEndPanel()
+			this.leaveMeeting()
+		},
+		// TODO 前端模拟，正式环境接入 AI 托管接口
+		handleAiHost() {
+			this.closeEndPanel()
+			uni.showToast({ title: '已开启 AI 托管', icon: 'none' })
+			this.leaveMeeting()
+		},
+		leaveMeeting() {
+			this.stopTimer()
+			uni.redirectTo({ url: '/subpackage_meeting/meetingRoom/meetingRoom' })
 		},
 		async endMeeting() {
 			if (this.sessionId) {
@@ -927,6 +1154,8 @@ export default {
 	min-height: 100vh;
 	background: #ffffff;
 	color: #151f25;
+	display: flex;
+	flex-direction: column;
 }
 .status-bar { height: var(--status-bar-height); min-height: 42rpx; }
 
@@ -951,85 +1180,250 @@ export default {
 
 /* 中间主画面区域 */
 .main-view-area {
-	flex:1;
+	flex: 1;
 	display: flex;
+	flex-direction: column;
 	justify-content: center;
-	padding: 60rpx 40rpx;
-	min-height: calc(100vh - 320rpx);
+	padding: 40rpx 40rpx 24rpx;
 	box-sizing: border-box;
 }
+.member-slider {
+	flex: 1;
+	min-height: 0;
+	width: 100%;
+	overflow: hidden;
+	user-select: none;
+}
+.member-pages {
+	display: flex;
+	height: 100%;
+	transition: transform .25s ease;
+}
 .member-grid {
+	height: 100%;
+	width: 100%;
+	flex-shrink: 0;
 	display: grid;
 	grid-template-columns: repeat(2, 1fr);
+	grid-template-rows: repeat(3, 1fr);
 	gap: 24rpx;
-	width: 100%;
-	max-width: 620rpx;
+	padding: 0 30rpx;
+	box-sizing: border-box;
 }
 .member-card {
 	position: relative;
-	height: 280rpx;
+	min-height: 0;
+	aspect-ratio: 1 / 1;
 	border-radius: 24rpx;
 	overflow: hidden;
-	background: linear-gradient(180deg, #e9eeef, #bec8ca);
+	background: #ffffff;
+	border: 2rpx solid #e0e0e0;
 	display: flex;
-	align-items: flex-end;
-	justify-content: center;
-}
-.avatar-b { background: linear-gradient(180deg, #e2ecee, #a7c0c8); }
-.avatar-c { background: linear-gradient(180deg, #e9ecec, #ccd2d3); }
-.avatar-d { background: linear-gradient(180deg, #f0eeea, #d9c8bd); }
-
-.name-chip {
-	position: absolute;
-	left: 16rpx;
-	bottom: 16rpx;
-	min-width: 48rpx;
-	height: 32rpx;
-	padding: 0 14rpx;
-	border-radius: 16rpx;
-	background: rgba(22, 29, 36, .48);
-	color: #fff;
-	font-size: 20rpx;
-	display: flex;
+	flex-direction: column;
 	align-items: center;
 	justify-content: center;
 }
-.face { position: relative; width: 160rpx; height: 220rpx; margin-bottom: 0; }
-.head {
-	position: absolute;
-	left: 44rpx;
-	top: 32rpx;
-	width: 72rpx;
-	height: 84rpx;
-	border-radius: 38rpx 38rpx 32rpx 32rpx;
-	background: #f4c9a6;
-	z-index: 2;
+.member-card--speaking {
+	border-color: #86C9A8;
 }
-.hair {
+.speaking-tag {
 	position: absolute;
-	left: 36rpx;
-	top: 20rpx;
-	width: 84rpx;
-	height: 60rpx;
-	border-radius: 46rpx 46rpx 20rpx 20rpx;
-	background: #242424;
-	z-index: 3;
+	top: 16rpx;
+	right: 16rpx;
+	color: #86C9A8;
+	font-size: 20rpx;
+	font-weight: 500;
 }
-.body {
+.member-avatar {
+	width: 220rpx;
+	height: 220rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: #d3d8dd;
+}
+.member-avatar-icon {
+	width: 100%;
+	height: 100%;
+}
+.member-info-row {
 	position: absolute;
-	left: 10rpx;
-	bottom: 0;
-	width: 136rpx;
-	height: 96rpx;
-	border-radius: 42rpx 42rpx 0 0;
-	background: #f7f7f7;
-	z-index: 1;
+	left: 20rpx;
+	bottom: 16rpx;
+	display: flex;
+	align-items: center;
+	gap: 8rpx;
 }
-.avatar-b .body { background: #316f8e; }
-.avatar-c .hair { background: #1e1d1c; }
-.avatar-c .body { background: #dfe6ea; }
-.avatar-d .hair { background: #3c2d26; }
-.avatar-d .body { background: #efe7df; }
+.member-mic-icon {
+	width: 28rpx;
+	height: 28rpx;
+	color: #b0b8bf;
+	flex-shrink: 0;
+}
+.member-mic-icon--speaking {
+	color: #86C9A8;
+}
+.member-name {
+	color: #151f25;
+	font-size: 24rpx;
+	font-weight: 500;
+}
+/* 成员分页指示器 */
+.member-pager {
+	margin-top: 20rpx;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8rpx;
+}
+.member-pager-dots {
+	display: flex;
+	align-items: center;
+	gap: 10rpx;
+}
+.member-pager-dot {
+	width: 12rpx;
+	height: 12rpx;
+	border-radius: 50%;
+	background: #d8dde2;
+}
+.member-pager-dot--active {
+	background: #86C9A8;
+}
+.member-pager-text {
+	color: #8a9299;
+	font-size: 20rpx;
+}
+/* 实时字幕区域 */
+.subtitle-card {
+	margin-top: 24rpx;
+	padding: 24rpx;
+	border-radius: 24rpx;
+	background: #ffffff;
+	border: 2rpx solid #f0f0f0;
+	box-shadow: 0 8rpx 24rpx rgba(31,42,48,.04);
+}
+.subtitle-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 16rpx;
+}
+.subtitle-title {
+	color: #151f25;
+	font-size: 28rpx;
+	font-weight: 900;
+}
+.subtitle-summary-toggle {
+	display: flex;
+	align-items: center;
+	gap: 10rpx;
+}
+.subtitle-summary-text {
+	color: #86C9A8;
+	font-size: 22rpx;
+	font-weight: 850;
+}
+.subtitle-summary-switch {
+	width: 88rpx;
+	height: 48rpx;
+	padding: 5rpx;
+	border-radius: 999rpx;
+	background: #e4e4e4;
+	box-sizing: border-box;
+	display: flex;
+	justify-content: flex-start;
+}
+.subtitle-summary-switch--active {
+	justify-content: flex-end;
+	background: #86C9A8;
+}
+.subtitle-summary-knob {
+	width: 38rpx;
+	height: 38rpx;
+	border-radius: 50%;
+	background: #fff;
+	box-shadow: 0 5rpx 12rpx rgba(0,0,0,.18);
+}
+.subtitle-body {
+	height: 120rpx;
+}
+.subtitle-list {
+	display: flex;
+	flex-direction: column;
+	gap: 12rpx;
+}
+.subtitle-item {
+	color: #151f25;
+	font-size: 22rpx;
+	line-height: 1.5;
+	word-break: break-all;
+}
+.subtitle-empty {
+	height: 100%;
+}
+/* 实时字幕半屏弹窗 */
+.subtitle-panel {
+	min-height: 60vh;
+}
+.subtitle-record-scroll {
+	flex: 1;
+}
+.subtitle-record-empty {
+	margin-top: 128rpx;
+	text-align: center;
+	color: #999;
+	font-size: 23rpx;
+}
+.subtitle-record-list {
+	display: flex;
+	flex-direction: column;
+	gap: 24rpx;
+	padding: 8rpx 0 24rpx;
+}
+.subtitle-record-item {
+	display: flex;
+	gap: 18rpx;
+}
+.subtitle-record-avatar {
+	width: 56rpx;
+	height: 56rpx;
+	border-radius: 50%;
+	background: #86C9A8;
+	color: #fff;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 22rpx;
+	font-weight: 900;
+	flex-shrink: 0;
+}
+.subtitle-record-main {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 10rpx;
+}
+.subtitle-record-meta {
+	display: flex;
+	align-items: center;
+	gap: 12rpx;
+}
+.subtitle-record-name {
+	color: #151f25;
+	font-size: 25rpx;
+	font-weight: 800;
+}
+.subtitle-record-time {
+	color: #999;
+	font-size: 20rpx;
+}
+.subtitle-record-text {
+	color: #151f25;
+	font-size: 24rpx;
+	line-height: 1.5;
+	word-break: break-all;
+}
 
 /* 底部操作栏 */
 .live-bottom {
@@ -1037,7 +1431,7 @@ export default {
 }
 .control-row {
 	display: grid;
-	grid-template-columns: repeat(5, 1fr);
+	grid-template-columns: repeat(4, 1fr);
 	gap: 8rpx;
 }
 .control-item {
@@ -1045,7 +1439,7 @@ export default {
 	flex-direction: column;
 	align-items: center;
 	gap: 10rpx;
-	color: #1c272d;
+	color: #8a9299;
 	font-size: 20rpx;
 }
 .control-item--active { color: #86C9A8; }
@@ -1055,7 +1449,14 @@ export default {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	font-size: 34rpx;
+}
+.control-icon-svg {
+	width: 44rpx;
+	height: 44rpx;
+}
+.control-label {
+	font-size: 20rpx;
+	line-height: 1;
 }
 
 /* 通用底部弹窗 */
@@ -1266,4 +1667,54 @@ export default {
 .more-row { justify-content: space-between; color: #151f25; font-size: 25rpx; }
 .more-row--switch { min-height: 88rpx; }
 .more-row text:last-child { color: #666; font-size: 22rpx; }
+
+/* 结束会议操作面板：对齐图二 */
+.end-panel-wrap {
+	position: fixed;
+	top: calc(var(--status-bar-height) + 108rpx);
+	right: 24rpx;
+	z-index: 31;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 16rpx;
+}
+.end-panel {
+	width: 340rpx;
+	padding: 20rpx;
+	border-radius: 24rpx;
+	background: #ffffff;
+	box-shadow: 0 18rpx 48rpx rgba(31,42,48,.16);
+	display: flex;
+	flex-direction: column;
+	gap: 16rpx;
+	box-sizing: border-box;
+}
+.end-action {
+	height: 84rpx;
+	border-radius: 16rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8rpx;
+	font-size: 26rpx;
+	font-weight: 700;
+}
+.end-action--danger { background: #ff5f55; color: #ffffff; }
+.end-action--leave { background: #e5e7eb; color: #151f25; }
+.end-action--ai { background: #ffffff; border: 2rpx solid #d1d5db; color: #151f25; box-sizing: border-box; }
+.end-action-ai-icon { width: 24rpx; height: 24rpx; }
+.end-cancel {
+	height: 72rpx;
+	padding: 0 44rpx;
+	border-radius: 20rpx;
+	background: #e5e7eb;
+	color: #151f25;
+	font-size: 26rpx;
+	font-weight: 700;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-shadow: 0 12rpx 28rpx rgba(31,42,48,.10);
+}
 </style>
