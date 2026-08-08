@@ -129,9 +129,36 @@
 					}
 				},
 				{
+					"path": "reportPost/reportPost",
+					"style": {
+						"navigationBarTitleText": "举报帖子",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
 					"path": "userProfile/userProfile",
 					"style": {
 						"navigationBarTitleText": "个人主页",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "followingList/followingList",
+					"style": {
+						"navigationBarTitleText": "关注列表",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
+					}
+				},
+				{
+					"path": "followersList/followersList",
+					"style": {
+						"navigationBarTitleText": "粉丝列表",
 						"navigationStyle": "custom",
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
@@ -160,6 +187,15 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black",
 						"enablePullDownRefresh": true
+					}
+				},
+				{
+					"path": "messageCategory/messageCategory",
+					"style": {
+						"navigationBarTitleText": "消息列表",
+						"navigationStyle": "custom",
+						"navigationBarBackgroundColor": "#FFFFFF",
+						"navigationBarTextStyle": "black"
 					}
 				},
 				{
