@@ -24,6 +24,7 @@ public class CommentResponse {
     private Long replyToId;
     private String replyToUsername;
     private String content;
+    private List<String> images;
     private Integer likeCount;
     private Boolean isLiked;
     private String status;

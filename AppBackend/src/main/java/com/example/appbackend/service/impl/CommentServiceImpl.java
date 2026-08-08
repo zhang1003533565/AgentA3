@@ -67,12 +67,46 @@ public class CommentServiceImpl implements CommentService {
         comment.setParentId(request.getParentId());
         comment.setReplyToId(request.getReplyToId());
         comment.setContent(request.getContent());
+        comment.setImages(serializeImages(request.getImages()));
         comment.setLikeCount(0);
         comment.setStatus(STATUS_NORMAL);
 
         ForumComment saved = commentRepository.save(comment);
         postRepository.incrementCommentCount(request.getPostId());
         return toCommentResponse(saved, new ArrayList<>(), userId);
+    }
+
+    private String serializeImages(List<String> images) {
+        if (images == null || images.isEmpty()) {
+            return null;
+        }
+        return "[" + images.stream()
+                .map(img -> "\"" + img.replace("\"", "\\\"") + "\"")
+                .collect(Collectors.joining(",")) + "]";
+    }
+
+    private List<String> parseImages(String images) {
+        if (images == null || images.isBlank()) {
+            return new ArrayList<>();
+        }
+        String trimmed = images.trim();
+        if (trimmed.startsWith("[")) {
+            trimmed = trimmed.substring(1, trimmed.length() - 1);
+        }
+        if (trimmed.isBlank()) {
+            return new ArrayList<>();
+        }
+        List<String> result = new ArrayList<>();
+        for (String part : trimmed.split(",")) {
+            String item = part.trim();
+            if (item.length() >= 2 && item.startsWith("\"") && item.endsWith("\"")) {
+                item = item.substring(1, item.length() - 1);
+            }
+            if (!item.isEmpty()) {
+                result.add(item);
+            }
+        }
+        return result;
     }
 
     @Override
@@ -185,6 +219,7 @@ public class CommentServiceImpl implements CommentService {
         response.setParentId(comment.getParentId());
         response.setReplyToId(comment.getReplyToId());
         response.setContent(comment.getContent());
+        response.setImages(parseImages(comment.getImages()));
         response.setLikeCount(comment.getLikeCount());
         response.setStatus(comment.getStatus());
         response.setCreateTime(comment.getCreateTime());

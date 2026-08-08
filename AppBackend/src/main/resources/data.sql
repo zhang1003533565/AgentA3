@@ -1241,14 +1241,17 @@ INSERT INTO activity_notice (id, activity_id, title, content, publisher_id, publ
 -- 论坛话题（forum_post.topic_id 外键依赖；与小程序分类/发帖选项 id 对齐）
 -- =============================================
 INSERT IGNORE INTO forum_topic (id, topic_name, post_count, is_hot, status, create_time) VALUES
-(1, '校园生活', 0, 1, 'ACTIVE', NOW()),
-(2, '学习交流', 0, 1, 'ACTIVE', NOW()),
-(3, '求职招聘', 0, 1, 'ACTIVE', NOW()),
-(4, '二手交易', 0, 1, 'ACTIVE', NOW()),
-(5, '情感树洞', 0, 1, 'ACTIVE', NOW()),
-(6, '美食探店', 0, 1, 'ACTIVE', NOW()),
-(7, '求助问答', 0, 0, 'ACTIVE', NOW()),
-(8, '失物招领', 0, 0, 'ACTIVE', NOW())
+(1, '热门', 0, 1, 'ACTIVE', NOW()),
+(2, '最新', 0, 0, 'ACTIVE', NOW()),
+(3, '📢公告', 0, 0, 'ACTIVE', NOW()),
+(4, '💰集市', 0, 1, 'ACTIVE', NOW()),
+(5, '😊求助', 0, 0, 'ACTIVE', NOW()),
+(6, '🔑失物', 0, 0, 'ACTIVE', NOW()),
+(7, '💕表白', 0, 0, 'ACTIVE', NOW()),
+(8, '🍟美食', 0, 1, 'ACTIVE', NOW()),
+(9, '🤝搭子', 0, 0, 'ACTIVE', NOW()),
+(10, '📚学习资料', 0, 0, 'ACTIVE', NOW()),
+(11, '🌸影忆青春', 0, 0, 'ACTIVE', NOW())
 ON DUPLICATE KEY UPDATE topic_name = VALUES(topic_name), status = 'ACTIVE';
 
 CREATE TABLE IF NOT EXISTS forum_follow (

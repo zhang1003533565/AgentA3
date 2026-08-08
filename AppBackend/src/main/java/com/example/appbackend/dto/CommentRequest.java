@@ -7,6 +7,8 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -26,4 +28,7 @@ public class CommentRequest {
 
     @Schema(description = "回复目标用户ID", example = "2")
     private Long replyToId;
+
+    @Schema(description = "评论图片URL列表")
+    private List<String> images;
 }
