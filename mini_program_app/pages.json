@@ -796,7 +796,61 @@
 						"navigationBarBackgroundColor": "#FFFFFF",
 						"navigationBarTextStyle": "black"
 					}
-				}
+				},
+				{
+   				"path": "watermarkHome/watermarkHome",
+  			  	"style": {
+        			"navigationBarTitleText": "水印工具",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+				},
+				{
+				"path": "watermarkAddEdit/watermarkAddEdit",
+				"style": {
+					"navigationBarTitleText": "",
+					"navigationStyle": "custom",
+					"navigationBarBackgroundColor": "#FFFFFF",
+					"navigationBarTextStyle": "black"
+					}
+			},
+				{
+    			"path": "watermarkRemoveEdit/watermarkRemoveEdit",
+    			"style": {
+        			"navigationBarTitleText": "",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+			},
+			{
+    			"path": "watermarkBatch/watermarkBatch",
+    			"style": {
+        			"navigationBarTitleText": "",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+			},
+			{
+    			"path": "watermarkHistory/watermarkHistory",
+    			"style": {
+        			"navigationBarTitleText": "",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+			},
+			{
+    			"path": "watermarkHelp/watermarkHelp",
+    			"style": {
+        			"navigationBarTitleText": "",
+        			"navigationStyle": "custom",
+        			"navigationBarBackgroundColor": "#ffffff",
+        			"navigationBarTextStyle": "black"
+    				}
+			}
 			]
 		},
 		{
