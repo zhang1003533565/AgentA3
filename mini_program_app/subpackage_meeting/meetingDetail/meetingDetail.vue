@@ -68,8 +68,8 @@
 				</view>
 			</view>
 
-			<!-- AI 会议纪要 -->
-			<view class="entry-card" :class="{ disabled: !hasResults && status !== 'ended' }" @click="onAiCardClick">
+			<!-- AI 会议纪要：预约（待开始）会议不展示 -->
+			<view v-if="status !== 'idle'" class="entry-card" :class="{ disabled: !hasResults && status !== 'ended' }" @click="onAiCardClick">
 				<view class="entry-icon entry-icon--ai">
 					<image class="entry-icon__img" src="@/static/icons/line/sparkles.svg" mode="aspectFit" />
 				</view>
@@ -94,8 +94,8 @@
 				</view>
 			</view>
 
-			<!-- 会议记录 -->
-			<view class="entry-card" :class="{ disabled: !hasRecords }" @click="onRecordCardClick">
+			<!-- 会议记录：预约（待开始）会议不展示 -->
+			<view v-if="status !== 'idle'" class="entry-card" :class="{ disabled: !hasRecords }" @click="onRecordCardClick">
 				<view class="entry-icon entry-icon--record">
 					<image class="entry-icon__img" src="@/static/icons/line/clipboard.svg" mode="aspectFit" />
 				</view>
@@ -122,22 +122,6 @@
 
 		</view>
 
-		<!-- 全部参会人弹窗 -->
-		<view v-if="showMemberPopup" class="popup-mask" @click.self="closeMemberPopup">
-			<view class="popup-box">
-				<view class="popup-title">全部参会人</view>
-				<view class="member-list">
-					<view v-for="(name, index) in participants" :key="name" class="member-item">
-						<view class="member-avatar">{{ name.slice(0,1) }}</view>
-						<text class="member-name">{{ name }}</text>
-						<view v-if="index === 0" class="host-tag">主持人</view>
-					</view>
-				</view>
-				<view class="popup-btn-row">
-					<view class="confirm-btn" @click="closeMemberPopup">关闭</view>
-				</view>
-			</view>
-		</view>
 	</view>
 </template>
 
@@ -159,7 +143,6 @@ export default {
 			records: [],
 			results: [],
 			organizing: false,
-			showMemberPopup: false,
 			showAiResults: false,
 			showRecords: false
 		}
@@ -317,13 +300,6 @@ export default {
 			uni.navigateTo({
 				url: `/subpackage_meeting/participantRecord/participantRecord?sessionId=${encodeURIComponent(this.sessionId)}&title=${encodeURIComponent(this.title)}`
 			})
-		},
-		openAllMemberPopup() {
-			if (this.participants.length <= 1) return
-			this.showMemberPopup = true
-		},
-		closeMemberPopup() {
-			this.showMemberPopup = false
 		}
 	}
 }
@@ -811,81 +787,5 @@ $card-radius: 24rpx;
 		background: #FEF2F2;
 		color: $danger;
 	}
-}
-
-/* 弹窗 */
-.popup-mask {
-	position: fixed;
-	top: 0;
-	left: 0;
-	right: 0;
-	bottom: 0;
-	background: rgba(0,0,0,0.5);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	z-index: 999;
-}
-
-.popup-box {
-	width: 660rpx;
-	background: #fff;
-	border-radius: $card-radius;
-	overflow: hidden;
-}
-
-.popup-title {
-	text-align: center;
-	font-size: 30rpx;
-	padding: 36rpx 0 20rpx;
-	font-weight: 800;
-}
-
-.member-list {
-	max-height: 60vh;
-	padding: 0 40rpx 20rpx;
-}
-
-.member-item {
-	display: flex;
-	align-items: center;
-	gap: 24rpx;
-	height: 96rpx;
-	border-bottom: 1rpx solid #F1F5F9;
-
-	&:last-child {
-		border-bottom: none;
-	}
-}
-
-.member-avatar {
-	width: 64rpx;
-	height: 64rpx;
-	border-radius: 50%;
-	background: linear-gradient(135deg, #BFDBFE, #93C5FD);
-	color: #fff;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	font-weight: 700;
-}
-
-.member-name {
-	flex: 1;
-	font-size: 28rpx;
-	color: $text-main;
-}
-
-.popup-btn-row {
-	border-top: 1rpx solid #F1F5F9;
-}
-
-.confirm-btn {
-	height: 96rpx;
-	text-align: center;
-	line-height: 96rpx;
-	font-size: 28rpx;
-	color: $primary;
-	font-weight: 700;
 }
 </style>
