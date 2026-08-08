@@ -1,0 +1,45 @@
+@import './discountCommon.css';
+
+/* Merchant name cell */
+.merchant-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.merchant-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(0, 93, 170, 0.08);
+  color: #1677ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.merchant-name {
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+}
+
+.merchant-name--link {
+  cursor: pointer;
+  color: #1677ff;
+}
+
+.merchant-name--link:hover {
+  color: #4096ff;
+  text-decoration: underline;
+}
+
+.merchant-address {
+  font-size: 12px;
+  color: var(--text-muted, #94a3b8);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -18,6 +18,12 @@ import { getUserInfo } from '../utils/auth'
 
 const router = useRouter()
 
+/* ---------- 参会小组弹窗 ---------- */
+const groupModalVisible = ref(false)
+const groupLibrary = ref([])
+const groupSelection = ref([])
+const newGroupName = ref('')
+
 const mode = ref('quick')
 const reserveTab = ref('reserve')
 
@@ -32,7 +38,6 @@ const form = ref({ title: '', roomCode: '', displayName: '', scheduledStartTime:
 const duration = ref(60)
 const micOn = ref(true)
 const participants = ref([])
-const participantQuery = ref('')
 
 const durationOptions = [
   { value: 30, label: '30 分钟' },
@@ -137,7 +142,6 @@ function resetForm() {
   duration.value = 60
   micOn.value = true
   participants.value = []
-  participantQuery.value = ''
 }
 
 function selectMode(key) {
@@ -153,11 +157,56 @@ function selectReserveTab(tab) {
   notice.value = ''
 }
 
-function addParticipant() {
-  const name = participantQuery.value.trim()
+function loadGroupLibrary() {
+  try {
+    const raw = localStorage.getItem('meeting-groups')
+    groupLibrary.value = raw ? JSON.parse(raw) : []
+  } catch {
+    groupLibrary.value = []
+  }
+}
+
+function saveGroupLibrary() {
+  try {
+    localStorage.setItem('meeting-groups', JSON.stringify(groupLibrary.value))
+  } catch {
+    /* 忽略存储异常 */
+  }
+}
+
+function openGroupModal() {
+  loadGroupLibrary()
+  groupSelection.value = [...participants.value]
+  newGroupName.value = ''
+  groupModalVisible.value = true
+}
+
+function addGroupToLibrary() {
+  const name = newGroupName.value.trim()
   if (!name) return
-  if (!participants.value.includes(name)) participants.value.push(name)
-  participantQuery.value = ''
+  if (!groupLibrary.value.includes(name)) {
+    groupLibrary.value.push(name)
+    saveGroupLibrary()
+  }
+  if (!groupSelection.value.includes(name)) groupSelection.value.push(name)
+  newGroupName.value = ''
+}
+
+function toggleGroup(name) {
+  if (groupSelection.value.includes(name)) {
+    groupSelection.value = groupSelection.value.filter((item) => item !== name)
+  } else {
+    groupSelection.value.push(name)
+  }
+}
+
+function confirmGroups() {
+  participants.value = [...groupSelection.value]
+  groupModalVisible.value = false
+}
+
+function cancelGroups() {
+  groupModalVisible.value = false
 }
 
 function removeParticipant(name) {
@@ -467,7 +516,7 @@ onMounted(() => {
             <template v-if="subMode === 'join'">
               <label>
                 <span>会议号</span>
-                <input v-model="form.roomCode" class="feature-input" placeholder="请输入 9 位会议号" />
+                <input v-model="form.roomCode" class="feature-input" placeholder="请输入 6 位会议号" />
               </label>
               <label>
                 <span>姓名</span>
@@ -526,23 +575,17 @@ onMounted(() => {
               </div>
 
               <div class="reserve-field">
-                <span class="reserve-field__label">参会人员</span>
-                <div class="participant-add">
-                  <input
-                    v-model="participantQuery"
-                    class="feature-input"
-                    placeholder="搜索或输入姓名，回车添加"
-                    @keydown.enter.prevent="addParticipant"
-                  />
-                  <button type="button" class="meet-btn" @click="addParticipant">添加</button>
-                </div>
+                <span class="reserve-field__label">参会小组</span>
+                <button type="button" class="group-select-trigger" @click="openGroupModal">
+                  <span v-if="participants.length">已选 {{ participants.length }} 个小组，点击修改</span>
+                  <span v-else class="group-select-trigger__placeholder">请选择参会小组</span>
+                </button>
                 <div v-if="participants.length" class="participant-chips">
                   <span v-for="name in participants" :key="name" class="participant-chip">
                     {{ name }}
-                    <button type="button" aria-label="移除参会人" @click="removeParticipant(name)">×</button>
+                    <button type="button" aria-label="移除参会小组" @click="removeParticipant(name)">×</button>
                   </span>
                 </div>
-                <p v-else class="participant-hint">尚未添加参会人</p>
               </div>
 
               <div class="reserve-toggle-row">
@@ -734,6 +777,42 @@ onMounted(() => {
             </button>
           </footer>
         </template>
+      </div>
+    </div>
+
+    <!-- 参会小组选择弹窗 -->
+    <div v-if="groupModalVisible" class="detail-mask" @click.self="cancelGroups">
+      <div class="detail-modal group-modal" role="dialog" aria-modal="true" aria-label="选择参会小组">
+        <button class="detail-modal__close" type="button" aria-label="关闭" @click="cancelGroups">×</button>
+        <header class="group-modal__head">
+          <h2>选择参会小组</h2>
+        </header>
+        <div class="group-modal__add">
+          <input
+            v-model="newGroupName"
+            class="feature-input"
+            placeholder="输入新小组名称"
+            @keydown.enter.prevent="addGroupToLibrary"
+          />
+          <button type="button" class="meet-btn meet-btn--primary" @click="addGroupToLibrary">新建小组</button>
+        </div>
+        <p v-if="!groupLibrary.length" class="group-modal__empty">暂无小组，请先输入名称新建小组</p>
+        <ul v-else class="group-modal__list">
+          <li v-for="group in groupLibrary" :key="group">
+            <label class="group-option" :class="{ 'group-option--checked': groupSelection.includes(group) }">
+              <input
+                type="checkbox"
+                :checked="groupSelection.includes(group)"
+                @change="toggleGroup(group)"
+              />
+              <span>{{ group }}</span>
+            </label>
+          </li>
+        </ul>
+        <footer class="group-modal__footer">
+          <button type="button" class="meet-btn" @click="cancelGroups">取消</button>
+          <button type="button" class="meet-btn meet-btn--primary" @click="confirmGroups">确定</button>
+        </footer>
       </div>
     </div>
   </div>
@@ -981,19 +1060,11 @@ onMounted(() => {
   font-weight: 700;
 }
 
-.participant-add {
-  display: flex;
-  gap: 8px;
-}
-
-.participant-add .feature-input {
-  flex: 1;
-}
-
 .participant-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin-top: 8px;
 }
 
 .participant-chip {
@@ -1024,10 +1095,118 @@ onMounted(() => {
   background: rgba(37, 99, 235, 0.24);
 }
 
-.participant-hint {
-  margin: 0;
+.group-select-trigger {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  color: #26384d;
+  background: #ffffff;
+  font-size: 14px;
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.group-select-trigger:hover {
+  border-color: #93b4f0;
+}
+
+.group-select-trigger:focus-visible {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.group-select-trigger__placeholder {
   color: #94a3b8;
-  font-size: 12px;
+}
+
+.group-modal {
+  width: min(440px, 100%);
+}
+
+.group-modal__head {
+  margin-bottom: 14px;
+}
+
+.group-modal__head h2 {
+  margin: 0;
+  color: #17233a;
+  font-size: 18px;
+}
+
+.group-modal__add {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.group-modal__add .feature-input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.group-modal__empty {
+  margin: 0;
+  padding: 22px 0;
+  color: #94a3b8;
+  font-size: 13px;
+  text-align: center;
+}
+
+.group-modal__list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.group-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e5eaf0;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #26384d;
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.group-option:hover {
+  border-color: #93b4f0;
+}
+
+.group-option--checked {
+  border-color: #2563eb;
+  background: #eef4ff;
+}
+
+.group-option input {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  accent-color: #2563eb;
+}
+
+.group-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.group-modal__footer .meet-btn {
+  min-width: 96px;
 }
 
 .reserve-toggle-row {

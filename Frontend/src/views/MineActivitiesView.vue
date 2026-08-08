@@ -3,7 +3,8 @@ import { useRouter } from 'vue-router';
 import AppTabBar from '../components/AppTabBar.vue';
 import { getMyRegistrations, getMyFavorites, cancelRegistration, registerActivity, removeFavorite, getActivityList } from '../api/activity';
 import { getUserInfo } from '../utils/auth';
-import { mockRegistrations, mockHistoryRegistrations, mockFavorites } from '../mock/activityData';
+import { mockRegistrations, mockHistoryRegistrations, mockFavorites, mockActivities } from '../mock/activityData';
+const FAV_KEY = 'activity_favorites';
 const router = useRouter();
 const activeTab = ref('registered');
 const loading = ref(false);
@@ -89,19 +90,33 @@ async function loadRegisteredActivities() {
  }
 }
 async function loadFavoriteActivities() {
- try {
- const res = await getMyFavorites();
- const data = res?.data || {};
- let records = Array.isArray(data) ? data : data.records || [];
- if (records.length === 0) {
- records = mockFavorites;
- }
- favoriteActivities.value = records;
- }
- catch (err) {
- console.error('加载收藏活动失败，使用Mock数据:', err);
- favoriteActivities.value = mockFavorites;
- }
+  try {
+    const raw = localStorage.getItem(FAV_KEY);
+    const ids = raw ? JSON.parse(raw) : [];
+    if (ids.length > 0) {
+      favoriteActivities.value = ids.map(id => {
+        const act = mockActivities.find(a => a.id === id);
+        if (!act) return null;
+        return {
+          id: act.id,
+          title: act.title,
+          startTime: act.startTime,
+          endTime: act.endTime,
+          location: act.location,
+          organizer: act.organizer || act.organizerName || '未知主办方',
+          coverImage: act.coverImage,
+          currentPeople: act.currentPeople,
+          maxPeople: act.maxPeople,
+        };
+      }).filter(Boolean);
+    } else {
+      favoriteActivities.value = [];
+    }
+  }
+  catch (err) {
+    console.error('加载收藏活动失败:', err);
+    favoriteActivities.value = mockFavorites;
+  }
 }
 async function loadHistoryActivities() {
  try {
@@ -152,14 +167,17 @@ async function handleCancelRegistration(registrationId, activity) {
  }
 }
 async function handleRemoveFavorite(activityId) {
- try {
- await removeFavorite(activityId);
- alert('已取消收藏');
- loadFavoriteActivities();
- }
- catch (err) {
- alert(err?.message || '操作失败');
- }
+  try {
+    const raw = localStorage.getItem(FAV_KEY);
+    const ids = raw ? JSON.parse(raw) : [];
+    const newIds = ids.filter(id => id !== activityId);
+    localStorage.setItem(FAV_KEY, JSON.stringify(newIds));
+    alert('已取消收藏');
+    loadFavoriteActivities();
+  }
+  catch (err) {
+    alert(err?.message || '操作失败');
+  }
 }
 async function handleRegisterFromFavorite(activityId) {
  try {
@@ -244,10 +262,14 @@ function getActivityStatus(item) {
  const now = new Date();
  const startTime = new Date(item.activity?.startTime?.replace(' ', 'T') || item.startTime?.replace(' ', 'T'));
  const endTime = new Date(item.activity?.endTime?.replace(' ', 'T') || item.endTime?.replace(' ', 'T'));
+ const curPeople = item.activity?.currentPeople || item.currentPeople || 0;
+ const maxPeople = item.activity?.maxPeople || item.maxPeople || 0;
+ if (maxPeople > 0 && curPeople >= maxPeople)
+ return { text: '报名已满', class: 'status-full' };
  if (now > endTime)
  return { text: '已结束', class: 'status-ended' };
  if (now < startTime)
- return { text: '未开始', class: 'status-upcoming' };
+ return { text: '即将开始', class: 'status-upcoming' };
  return { text: '进行中', class: 'status-ongoing' };
 }
 function getTabCount(tabKey) {
@@ -725,18 +747,23 @@ function getTabCount(tabKey) {
 }
 
 .status-upcoming {
-  background: rgba(250, 204, 21, 0.15);
-  color: #854d0e;
+  background: rgba(250, 204, 21, 0.9);
+  color: #713f12;
 }
 
 .status-ongoing {
-  background: rgba(34, 197, 94, 0.15);
-  color: #166534;
+  background: rgba(34, 197, 94, 0.9);
+  color: #14532d;
 }
 
 .status-ended {
-  background: rgba(100, 116, 139, 0.15);
-  color: #475569;
+  background: rgba(100, 116, 139, 0.9);
+  color: #ffffff;
+}
+
+.status-full {
+  background: rgba(239, 68, 68, 0.9);
+  color: #ffffff;
 }
 
 .card-body {
