@@ -93,6 +93,7 @@
       :visible="showThinkWindow"
       type="flowchart"
       :doneSub="optimizeDoneSub"
+      :done="thinkDone"
       @view="onThinkView"
     />
     <canvas canvas-id="flowchartExportCanvas" class="export-canvas" :style="exportCanvasStyle" />
@@ -265,38 +266,93 @@ function flattenLanes(data) {
 // ===== 优化（弹窗 + 思考窗 + 带指令重生成） =====
 const showOptimizeSheet = ref(false)
 const showThinkWindow = ref(false)
+const thinkDone = ref(false)
 const optimizeDoneSub = ref('结构已更新')
 const optimizePending = ref(null)
 const currentChartData = ref({})
 
 function openOptimizeSheet() {
-  currentChartData.value = { title: chart.value.title, nodes: chart.value.nodes }
+  currentChartData.value = {
+    title: chart.value.title,
+    type: chart.value.type,
+    lanes: chart.value.lanes,
+    nodes: chart.value.nodes,
+    edges: chart.value.edges
+  }
   showOptimizeSheet.value = true
 }
 function shareFlow() {
   uni.showToast({ title: '分享能力预留', icon: 'none' })
 }
 
+function describeCurrentFlow() {
+  const laneText = (chart.value.lanes || [])
+    .map(lane => lane.label || lane.name || lane.id)
+    .filter(Boolean)
+    .slice(0, 8)
+    .join('、')
+  const nodeText = (chart.value.nodes || [])
+    .map(node => {
+      const lane = node.lane || node.laneId
+      return `${node.name || node.label || node.id}${lane ? `（${lane}）` : ''}`
+    })
+    .filter(Boolean)
+    .slice(0, 24)
+    .join(' -> ')
+  const edgeText = (chart.value.edges || [])
+    .map(edge => {
+      const label = edge.label || edge.condition
+      return `${edge.source} -> ${edge.target}${label ? `（${label}）` : ''}`
+    })
+    .filter(Boolean)
+    .slice(0, 32)
+    .join('；')
+  return [
+    laneText ? `当前泳道：${laneText}` : '',
+    nodeText ? `当前节点顺序：${nodeText}` : '',
+    edgeText ? `当前连线：${edgeText}` : ''
+  ].filter(Boolean).join('\n')
+}
+
+function buildOptimizeDescription(base, userInstruction) {
+  const original = base.content || base.description || chart.value.title || ''
+  return [
+    '请基于当前流程图进行优化，不要重新生成无关流程。',
+    original ? `原始需求：${original}` : '',
+    describeCurrentFlow(),
+    userInstruction ? `优化要求：${userInstruction}` : ''
+  ].filter(Boolean).join('\n\n')
+}
+
 async function onOptimize(payload) {
   showOptimizeSheet.value = false
   optimizePending.value = null
+  thinkDone.value = false
   showThinkWindow.value = true
   try {
     const base = uni.getStorageSync('aiFlowchartPendingPayload') || {}
-    const desc = base.description || chart.value.title || ''
-    const newPayload = { ...base, description: payload.userInstruction ? `${desc}\n优化要求：${payload.userInstruction}` : desc }
+    const userInstruction = String(payload.userInstruction || '').trim()
+    const optimizedDescription = buildOptimizeDescription(base, userInstruction)
+    const newPayload = {
+      ...base,
+      content: optimizedDescription,
+      description: optimizedDescription
+    }
     const result = flattenLanes(await generateFlowchart(newPayload))
-    uni.setStorageSync(`aiFlowchartResult:${result.id}`, result)
+    if (result?.id) uni.setStorageSync(`aiFlowchartResult:${result.id}`, result)
     optimizePending.value = result
     optimizeDoneSub.value = `已更新「${result.title || '流程图'}」`
+    thinkDone.value = true
   } catch (error) {
     showThinkWindow.value = false
+    thinkDone.value = false
     uni.showToast({ title: getErrorMessage(error, '优化失败'), icon: 'none' })
   }
 }
 
 function onThinkView() {
   showThinkWindow.value = false
+  thinkDone.value = false
   const r = optimizePending.value
   if (r) {
     chart.value = r
