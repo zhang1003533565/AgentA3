@@ -52,10 +52,10 @@
             </view>
             <view class="file-status-actions">
               <view class="file-action" @tap.stop="previewUploadedFile">
-                <view class="eye-line"></view>
+                <image class="file-action__icon" src="/static/icons/diagram/eye-lucide.svg" mode="aspectFit" />
               </view>
               <view class="file-action" @tap.stop="removeUploadedFile">
-                <view class="trash-line"></view>
+                <image class="file-action__icon" src="/static/icons/diagram/trash-2-lucide.svg" mode="aspectFit" />
               </view>
             </view>
           </view>
@@ -187,23 +187,6 @@
     </scroll-view>
 
     <view class="bottom-bar">
-      <view class="status-flow">
-        <view class="status-flow__item">
-          <view class="flow-icon flow-icon--info">i</view>
-          <text>无内容时按钮置灰</text>
-        </view>
-        <view class="status-flow__arrow"></view>
-        <view class="status-flow__item">
-          <view class="flow-icon flow-icon--progress"></view>
-          <text>生成中显示进度</text>
-        </view>
-        <view class="status-flow__arrow"></view>
-        <view class="status-flow__item">
-          <view class="flow-icon flow-icon--plus"></view>
-          <text>生成完成自动跳转结果页</text>
-        </view>
-      </view>
-
       <view
         class="generate-btn"
         :class="{ 'generate-btn--disabled': !canGenerate, 'generate-btn--loading': isGenerating }"
@@ -506,7 +489,7 @@ onShow(() => {
 .content-inner {
   width: 100%;
   box-sizing: border-box;
-  padding: 24rpx 30rpx calc(250rpx + env(safe-area-inset-bottom));
+  padding: 24rpx 30rpx calc(168rpx + env(safe-area-inset-bottom));
 }
 
 .section-card {
@@ -751,57 +734,9 @@ onShow(() => {
   background: #F6F4FC;
 }
 
-.eye-line {
-  position: relative;
+.file-action__icon {
   width: 30rpx;
-  height: 20rpx;
-  border: 3rpx solid #182033;
-  border-radius: 50%;
-  box-sizing: border-box;
-}
-
-.eye-line::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 8rpx;
-  height: 8rpx;
-  border-radius: 50%;
-  background: #182033;
-  transform: translate(-50%, -50%);
-}
-
-.trash-line {
-  position: relative;
-  width: 24rpx;
-  height: 28rpx;
-  border: 3rpx solid #182033;
-  border-top: 0;
-  border-radius: 0 0 4rpx 4rpx;
-  box-sizing: border-box;
-}
-
-.trash-line::before {
-  content: "";
-  position: absolute;
-  left: -6rpx;
-  top: -9rpx;
-  width: 30rpx;
-  height: 4rpx;
-  border-radius: 999rpx;
-  background: #182033;
-}
-
-.trash-line::after {
-  content: "";
-  position: absolute;
-  left: 6rpx;
-  top: -15rpx;
-  width: 12rpx;
-  height: 4rpx;
-  border-radius: 999rpx;
-  background: #182033;
+  height: 30rpx;
 }
 
 .file-success {
@@ -1210,90 +1145,9 @@ onShow(() => {
   right: 0;
   bottom: 0;
   z-index: 20;
-  padding: 18rpx 30rpx calc(20rpx + env(safe-area-inset-bottom));
-  background: rgba(250, 249, 252, 0.97);
+  padding: 0 30rpx calc(20rpx + env(safe-area-inset-bottom));
+  background: transparent;
   box-sizing: border-box;
-}
-
-.status-flow {
-  display: flex;
-  align-items: center;
-  gap: 8rpx;
-  margin-bottom: 18rpx;
-}
-
-.status-flow__item {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  min-width: 0;
-  height: 48rpx;
-  padding: 0 9rpx;
-  border-radius: 11rpx;
-  background: #F3F2F8;
-  color: #68748A;
-  font-size: 17rpx;
-  line-height: 1;
-  box-sizing: border-box;
-}
-
-.status-flow__item text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.flow-icon {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 22rpx;
-  height: 22rpx;
-  margin-right: 7rpx;
-  color: #6D778D;
-  font-size: 15rpx;
-  font-weight: 800;
-  line-height: 1;
-  box-sizing: border-box;
-}
-
-.flow-icon--info {
-  border: 3rpx solid #6D778D;
-  border-radius: 50%;
-}
-
-.flow-icon--progress {
-  border: 4rpx dotted #7C4DE8;
-  border-radius: 50%;
-}
-
-.flow-icon--plus::before,
-.flow-icon--plus::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 18rpx;
-  height: 3rpx;
-  border-radius: 999rpx;
-  background: #52617B;
-  transform: translate(-50%, -50%);
-}
-
-.flow-icon--plus::after {
-  transform: translate(-50%, -50%) rotate(90deg);
-}
-
-.status-flow__arrow {
-  flex-shrink: 0;
-  width: 10rpx;
-  height: 10rpx;
-  border-top: 2rpx solid #C1C7D4;
-  border-right: 2rpx solid #C1C7D4;
-  transform: rotate(45deg);
 }
 
 .generate-btn {
