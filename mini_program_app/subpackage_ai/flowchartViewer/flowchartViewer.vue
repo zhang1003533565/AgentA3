@@ -30,20 +30,28 @@
         <view class="diagram-canvas" :style="innerStyle">
           <view
             v-for="lane in laneBands"
-            :key="lane.name"
+            :key="lane.id || lane.name"
             class="lane-band"
             :style="lane.style"
           >
-            <text>{{ lane.name }}</text>
+            <text>{{ lane.label || lane.name }}</text>
           </view>
 
-          <view
-            v-for="edge in positionedEdges"
-            :key="edge.key"
-            class="edge-line"
-            :class="{ 'edge-line--back': edge.back }"
-            :style="edge.lineStyle"
-          />
+          <svg class="diagram-lines" :width="canvasSize.width" :height="canvasSize.height">
+            <defs>
+              <marker id="viewerArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+                <path d="M 0 1 L 8 5 L 0 9 Z" fill="#91a6ba" />
+              </marker>
+            </defs>
+            <path
+              v-for="edge in positionedEdges"
+              :key="edge.key"
+              class="edge-path"
+              :class="{ 'edge-path--back': edge.kind === 'back', 'edge-path--branch': edge.type === 'branch' || edge.kind === 'branch' }"
+              :d="edge.path"
+              marker-end="url(#viewerArrow)"
+            />
+          </svg>
           <text
             v-for="edge in positionedEdges.filter(item => item.label)"
             :key="`${edge.key}-label`"
@@ -55,7 +63,7 @@
             v-for="node in positionedNodes"
             :key="node.id"
             class="flow-node"
-            :class="`flow-node--${node.type || 'action'}`"
+            :class="`flow-node--${node.type || 'process'}`"
             :style="node.style"
           >
             <text class="node-name">{{ node.name }}</text>
@@ -92,22 +100,19 @@
 </template>
 
 <script setup>
-import { computed, getCurrentInstance, onMounted, onUnmounted, nextTick, ref } from 'vue'
+import { computed, getCurrentInstance, onMounted, onUnmounted, ref } from 'vue'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import AiResultBar from '../components/AiResultBar.vue'
 import AiThinkWindow from '../components/AiThinkWindow.vue'
 import OptimizeMindMapSheet from '../mindmapViewer/OptimizeMindMapSheet.vue'
 import { getErrorMessage, getFlowchartDetail, getFlowchartHistory, generateFlowchart } from '@/api/aiDiagram.js'
-import { computeLevels } from '../flowchartLayout.js'
+import { layoutFlowchart, FLOW_NODE_W, FLOW_NODE_H } from '../flowchartLayout.js'
 // #ifdef H5
 import { domToPng } from '../components/domToPng.js'
 // #endif
 
-const NODE_WIDTH = 210
-const NODE_HEIGHT = 78
-const COLUMN_GAP = 100
-const ROW_GAP = 36
-const LANE_HEIGHT = 210
+const NODE_WIDTH = FLOW_NODE_W
+const NODE_HEIGHT = FLOW_NODE_H
 const instance = getCurrentInstance()
 
 const loading = ref(true)
@@ -121,43 +126,28 @@ function readPageOptions() {
   return current.options || current.$page?.options || {}
 }
 
-const positionedNodes = computed(() => {
-  const nodes = chart.value.nodes || []
-  const edges = chart.value.edges || []
-  // 使用 DFS 回边感知的分层，避免"驳回/返回"等环边导致层级爆炸、节点跑出画布
-  const { level } = computeLevels(nodes, edges)
+const laidFlow = computed(() => layoutFlowchart(chart.value))
 
-  const laneNames = (chart.value.lanes || []).map(lane => lane.name).filter(Boolean)
-  nodes.forEach(node => {
-    if (node.lane && !laneNames.includes(node.lane)) laneNames.push(node.lane)
-  })
-  const laneIndex = new Map(laneNames.map((name, index) => [name, index]))
-  const slots = new Map()
-  return nodes.map((node, index) => {
-    const currentLevel = level.get(String(node.id)) || 0
-    const laneKey = node.lane || (laneNames[0] || '')
-    const rowKey = `${laneKey}:${currentLevel}`
-    const rowIndex = slots.get(rowKey) || 0
-    slots.set(rowKey, rowIndex + 1)
-    const laneOffset = laneNames.length ? (laneIndex.get(laneKey) || 0) * LANE_HEIGHT : 0
-    const x = 70 + currentLevel * (NODE_WIDTH + COLUMN_GAP)
-    const y = 72 + laneOffset + rowIndex * (NODE_HEIGHT + ROW_GAP)
+const positionedNodes = computed(() => {
+  return (laidFlow.value.nodes || []).map(node => {
+    const x = Math.round(node.cx - NODE_WIDTH / 2)
+    const y = Math.round(node.cy - NODE_HEIGHT / 2)
     return {
       ...node,
       x,
       y,
       w: NODE_WIDTH,
       h: NODE_HEIGHT,
-      style: { left: `${x}px`, top: `${y}px`, width: `${NODE_WIDTH}px`, minHeight: `${NODE_HEIGHT}px` }
+      style: { left: `${x}px`, top: `${y}px`, width: `${NODE_WIDTH}px`, height: `${NODE_HEIGHT}px` }
     }
   })
 })
 
 const canvasSize = computed(() => {
-  const nodes = positionedNodes.value
-  const maxX = Math.max(760, ...nodes.map(node => node.x + NODE_WIDTH + 100))
-  const maxY = Math.max(500, ...nodes.map(node => node.y + NODE_HEIGHT + 110))
-  return { width: maxX, height: maxY }
+  return {
+    width: Math.max(760, laidFlow.value.canvasW || 0),
+    height: Math.max(500, laidFlow.value.canvasH || 0)
+  }
 })
 
 const canvasStyle = computed(() => ({
@@ -177,47 +167,25 @@ const innerStyle = computed(() => ({
 }))
 
 const laneBands = computed(() => {
-  const lanes = (chart.value.lanes || []).filter(lane => lane.name)
-  return lanes.map((lane, index) => ({
-    name: lane.name,
+  return (laidFlow.value.lanes || []).map(lane => ({
+    ...lane,
     style: {
-      top: `${28 + index * LANE_HEIGHT}px`,
-      height: `${LANE_HEIGHT - 18}px`,
-      width: `${canvasSize.value.width - 56}px`
+      left: `${lane.x}px`,
+      top: `${lane.y}px`,
+      width: `${lane.w}px`,
+      height: `${lane.h}px`
     }
   }))
 })
 
 const positionedEdges = computed(() => {
-  const nodeMap = new Map(positionedNodes.value.map(node => [String(node.id), node]))
-  return (chart.value.edges || []).map((edge, index) => {
-    const source = nodeMap.get(String(edge.source))
-    const target = nodeMap.get(String(edge.target))
-    if (!source || !target) return null
-    const startX = source.x + NODE_WIDTH
-    const startY = source.y + NODE_HEIGHT / 2
-    const endX = target.x
-    const endY = target.y + NODE_HEIGHT / 2
-    const deltaX = endX - startX
-    const deltaY = endY - startY
-    const width = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
-    const angle = Math.atan2(deltaY, deltaX) * 180 / Math.PI
-    const label = edge.label || edge.condition || ''
-    return {
-      key: `${edge.source}-${edge.target}-${index}`,
-      label,
-      lineStyle: {
-        left: `${startX}px`,
-        top: `${startY}px`,
-        width: `${width}px`,
-        transform: `rotate(${angle}deg)`
-      },
-      labelStyle: {
-        left: `${(startX + endX) / 2}px`,
-        top: `${(startY + endY) / 2 - 20}px`
-      }
+  return (laidFlow.value.edges || []).map(edge => ({
+    ...edge,
+    labelStyle: {
+      left: `${(edge.x1 + edge.x2) / 2}px`,
+      top: `${(edge.y1 + edge.y2) / 2 - 20}px`
     }
-  }).filter(Boolean)
+  }))
 })
 
 const exportCanvasStyle = computed(() => ({
@@ -255,7 +223,7 @@ onUnmounted(() => {
 // #endif
 
 function openHistory() {
-  uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory' })
+  uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory?type=flowchart' })
 }
 
 function goGenerate() {
@@ -364,26 +332,34 @@ function drawExportCanvas() {
   context.setFontSize(22)
   context.fillText(chart.value.title || 'AI 流程图', 32, 38)
   positionedEdges.value.forEach(edge => {
-    const transform = edge.lineStyle.transform.match(/-?[\d.]+/)
-    const angle = transform ? Number(transform[0]) * Math.PI / 180 : 0
-    const startX = Number.parseFloat(edge.lineStyle.left)
-    const startY = Number.parseFloat(edge.lineStyle.top)
-    const length = Number.parseFloat(edge.lineStyle.width)
     context.setStrokeStyle('#9AA8BC')
     context.setLineWidth(2)
     context.beginPath()
-    context.moveTo(startX, startY)
-    context.lineTo(startX + Math.cos(angle) * length, startY + Math.sin(angle) * length)
+    context.moveTo(edge.x1, edge.y1)
+    context.lineTo(edge.x2, edge.y2)
     context.stroke()
   })
   positionedNodes.value.forEach(node => {
-    const color = node.type === 'decision' ? '#FFF5E5' : node.type === 'exception' ? '#FFF0F0' : '#FFFFFF'
-    const border = node.type === 'decision' ? '#F0A12B' : node.type === 'exception' ? '#DD6B6B' : '#5081B8'
+    const color = node.type === 'decision' ? '#FFF5E5' : '#FFFFFF'
+    const border = node.type === 'decision' ? '#F0A12B' : '#5081B8'
     context.setFillStyle(color)
     context.setStrokeStyle(border)
     context.setLineWidth(2)
-    context.fillRect(node.x, node.y, node.w || NODE_WIDTH, node.h || NODE_HEIGHT)
-    context.strokeRect(node.x, node.y, node.w || NODE_WIDTH, node.h || NODE_HEIGHT)
+    if (node.type === 'decision') {
+      const cx = node.x + (node.w || NODE_WIDTH) / 2
+      const cy = node.y + (node.h || NODE_HEIGHT) / 2
+      context.beginPath()
+      context.moveTo(cx, node.y - 10)
+      context.lineTo(node.x + (node.w || NODE_WIDTH) - 18, cy)
+      context.lineTo(cx, node.y + (node.h || NODE_HEIGHT) + 10)
+      context.lineTo(node.x + 18, cy)
+      context.closePath()
+      context.fill()
+      context.stroke()
+    } else {
+      context.fillRect(node.x, node.y, node.w || NODE_WIDTH, node.h || NODE_HEIGHT)
+      context.strokeRect(node.x, node.y, node.w || NODE_WIDTH, node.h || NODE_HEIGHT)
+    }
     context.setFillStyle('#1E344F')
     context.setFontSize(15)
     context.fillText(String(node.name || ''), node.x + 12, node.y + 32)
@@ -456,15 +432,20 @@ onMounted(() => {
 .diagram-stage { flex: 1; width: 100%; min-height: 0; background-color: #f7f9fb; background-image: radial-gradient(#dbe3ec 1px, transparent 1px); background-size: 22rpx 22rpx; }
 .diagram-movable { width: 100%; height: 100%; }
 .diagram-canvas { position: relative; margin: 36px; transform-origin: 0 0; }
-.lane-band { position: absolute; left: 28px; display: flex; align-items: flex-start; padding: 16px 18px; box-sizing: border-box; border: 1px solid #dce6ef; border-radius: 14px; background: rgba(239, 246, 252, .68); color: #58728c; font-size: 14px; }
-.edge-line { position: absolute; z-index: 1; height: 2px; transform-origin: left center; background: #91a6ba; }
-.edge-line::after { position: absolute; top: -4px; right: -1px; width: 0; height: 0; border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 8px solid #91a6ba; content: ''; }
-.edge-line--back { background: repeating-linear-gradient(90deg, #91a6ba 0 6px, transparent 6px 11px); }
-.edge-line--back::after { border-left-color: #91a6ba; }
+.diagram-lines { position: absolute; left: 0; top: 0; z-index: 1; overflow: visible; pointer-events: none; }
+.lane-band { position: absolute; display: flex; align-items: flex-start; padding: 14px 16px; box-sizing: border-box; border: 1px solid #dce6ef; border-radius: 14px; background: rgba(239, 246, 252, .68); color: #58728c; font-size: 14px; z-index: 0; }
+.edge-path { stroke: #91a6ba; stroke-width: 2; fill: none; }
+.edge-path--branch { stroke: #5d8ff4; }
+.edge-path--back { stroke-dasharray: 6 6; }
 .edge-label { position: absolute; z-index: 3; padding: 2px 6px; border-radius: 6px; background: #f7f9fb; color: #a36a14; font-size: 12px; transform: translateX(-50%); }
-.flow-node { position: absolute; z-index: 2; display: flex; align-items: center; justify-content: center; flex-direction: column; padding: 12px 14px; border: 2px solid #5081b8; border-radius: 10px; background: #fff; box-sizing: border-box; color: #1e344f; text-align: center; }
+.flow-node { position: absolute; z-index: 2; display: flex; align-items: center; justify-content: center; flex-direction: column; padding: 8px 12px; border: 2px solid #5081b8; border-radius: 10px; background: #fff; box-sizing: border-box; color: #1e344f; text-align: center; }
 .flow-node--start, .flow-node--end { border-radius: 999px; border-color: #4b9d76; background: #eefaf3; }
-.flow-node--decision { border-color: #f0a12b; background: #fff8ec; }
+.flow-node--process, .flow-node--action { border-color: #5081b8; background: #fff; }
+.flow-node--decision { border-color: transparent; background: transparent; overflow: visible; }
+.flow-node--decision::before { content: ""; position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; border: 2px solid #f0a12b; border-radius: 8px; background: #fff8ec; transform: translate(-50%, -50%) rotate(45deg); box-sizing: border-box; }
+.flow-node--decision .node-name,
+.flow-node--decision .node-meta { position: relative; z-index: 2; max-width: 112px; }
+.flow-node--decision .node-name { font-size: 13px; line-height: 1.25; }
 .flow-node--exception { border-color: #dd6b6b; background: #fff3f3; }
 .flow-node--data { border-color: #7d72c8; background: #f5f2ff; }
 .node-name { font-size: 15px; font-weight: 700; line-height: 1.4; }

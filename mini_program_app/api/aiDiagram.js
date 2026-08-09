@@ -212,9 +212,47 @@ export function normalizeFlowchart(result = {}) {
     id: String(result.id || ''),
     title: result.title || 'AI 流程图',
     type: result.type || 'FLOWCHART',
+    sceneType: result.sceneType || result.processType || 'ADMIN',
+    nodeGranularity: result.nodeGranularity || result.nodeLevel || 'AUTO',
+    requestedDecisionMode: result.requestedDecisionMode || result.decisionMode || 'AUTO',
+    resolvedDecisionMode: result.resolvedDecisionMode || (Array.isArray(result.nodes) && result.nodes.some(node => String(node.type || '').toLowerCase() === 'decision') ? 'ENABLED' : 'DISABLED'),
+    requestedSwimlaneMode: result.requestedSwimlaneMode || result.swimlaneMode || result.swimlane || 'AUTO',
+    resolvedSwimlaneMode: result.resolvedSwimlaneMode || (Array.isArray(result.lanes) && result.lanes.length ? 'ROLE' : 'NONE'),
     lanes: Array.isArray(result.lanes) ? result.lanes : [],
-    nodes: Array.isArray(result.nodes) ? result.nodes : [],
-    edges: Array.isArray(result.edges) ? result.edges : [],
+    nodes: Array.isArray(result.nodes) ? result.nodes.map(normalizeFlowNode) : [],
+    edges: Array.isArray(result.edges) ? result.edges.map((edge, index) => normalizeFlowEdge(edge, index)) : [],
     createTime: result.createTime || ''
+  }
+}
+
+function normalizeFlowNode(node = {}) {
+  const rawType = String(node.type || 'process').toLowerCase()
+  const type = rawType.includes('start')
+    ? 'start'
+    : rawType.includes('end')
+      ? 'end'
+      : rawType.includes('decision') || rawType.includes('judge')
+        ? 'decision'
+        : 'process'
+  const label = node.label || node.name || node.description || '流程步骤'
+  return {
+    ...node,
+    id: String(node.id || label),
+    type,
+    label,
+    name: node.name || label,
+    laneId: node.laneId || node.lane || ''
+  }
+}
+
+function normalizeFlowEdge(edge = {}, index = 0) {
+  const label = edge.label || edge.condition || ''
+  return {
+    ...edge,
+    id: edge.id || `e${index + 1}`,
+    source: String(edge.source || ''),
+    target: String(edge.target || ''),
+    label,
+    type: edge.type || (label ? 'branch' : 'normal')
   }
 }

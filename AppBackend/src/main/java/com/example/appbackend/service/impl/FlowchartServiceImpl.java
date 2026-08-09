@@ -17,8 +17,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -49,21 +54,36 @@ public class FlowchartServiceImpl implements FlowchartService {
         if (request == null) {
             throw new BusinessException(400, "请求参数不能为空");
         }
-        String description = trim(request.getDescription());
+        String description = firstText(request.getContent(), request.getDescription());
         String sourceText = trim(request.getSourceText());
-        String inputText = StringUtils.hasText(sourceText) ? sourceText : description;
+        String inputText = combineInput(description, sourceText);
         if (!StringUtils.hasText(inputText)) {
             throw new BusinessException(400, "请输入流程描述或上传可解析文件");
         }
+        String sceneType = normalizeSceneType(firstText(request.getSceneType(), request.getProcessType()));
+        String nodeGranularity = normalizeNodeGranularity(firstText(request.getNodeGranularity(), request.getNodeLevel()));
+        String requestedDecisionMode = normalizeDecisionMode(request.getDecisionMode());
+        String requestedSwimlaneMode = normalizeSwimlaneMode(firstText(request.getSwimlaneMode(), request.getSwimlane()));
+
+        request.setDescription(description);
+        request.setContent(description);
+        request.setSceneType(sceneType);
+        request.setProcessType(sceneType);
+        request.setNodeGranularity(nodeGranularity);
+        request.setNodeLevel(nodeGranularity);
+        request.setDecisionMode(requestedDecisionMode);
+        request.setSwimlaneMode(requestedSwimlaneMode);
+        request.setSwimlane(requestedSwimlaneMode);
 
         FlowchartDTO.FlowchartData data = flowchartAIService.generate(request, inputText, authorization);
+        completeResultMetadata(data, sceneType, nodeGranularity, requestedDecisionMode, requestedSwimlaneMode);
         FlowchartRecord record = new FlowchartRecord();
         record.setId(UUID.randomUUID().toString());
         record.setUserId(userId);
         record.setTitle(data.getTitle());
         record.setDescription(inputText);
-        record.setProcessType(request.getProcessType());
-        record.setDiagramType(request.getDiagramType());
+        record.setProcessType(sceneType);
+        record.setDiagramType(data.getType());
         record.setConfigJson(writeJson(request));
         record.setFlowJson(writeJson(data));
         recordRepository.save(record);
@@ -111,7 +131,10 @@ public class FlowchartServiceImpl implements FlowchartService {
         FlowchartRecord record = recordRepository.findByIdAndUserId(id, userId)
                 .orElseThrow(() -> new BusinessException(404, "流程图记录不存在"));
         try {
-            return toResponse(record, objectMapper.readValue(record.getFlowJson(), FlowchartDTO.FlowchartData.class));
+            FlowchartDTO.FlowchartData data = objectMapper.readValue(record.getFlowJson(), FlowchartDTO.FlowchartData.class);
+            completeResultMetadata(data, record.getProcessType(), data.getNodeGranularity(),
+                    data.getRequestedDecisionMode(), data.getRequestedSwimlaneMode());
+            return toResponse(record, data);
         } catch (Exception error) {
             throw new BusinessException(500, "流程图记录数据损坏");
         }
@@ -122,6 +145,12 @@ public class FlowchartServiceImpl implements FlowchartService {
         response.setId(record.getId());
         response.setTitle(data.getTitle());
         response.setType(data.getType());
+        response.setSceneType(data.getSceneType());
+        response.setNodeGranularity(data.getNodeGranularity());
+        response.setRequestedDecisionMode(data.getRequestedDecisionMode());
+        response.setResolvedDecisionMode(data.getResolvedDecisionMode());
+        response.setRequestedSwimlaneMode(data.getRequestedSwimlaneMode());
+        response.setResolvedSwimlaneMode(data.getResolvedSwimlaneMode());
         response.setLanes(data.getLanes());
         response.setNodes(data.getNodes());
         response.setEdges(data.getEdges());
@@ -135,12 +164,258 @@ public class FlowchartServiceImpl implements FlowchartService {
         item.setTitle(record.getTitle());
         item.setCreateTime(record.getCreateTime());
         item.setType(record.getDiagramType());
+        item.setDescription(record.getDescription());
+        try {
+            FlowchartDTO.FlowchartData data = objectMapper.readValue(record.getFlowJson(), FlowchartDTO.FlowchartData.class);
+            completeResultMetadata(data, record.getProcessType(), data.getNodeGranularity(),
+                    data.getRequestedDecisionMode(), data.getRequestedSwimlaneMode());
+            item.setSceneType(data.getSceneType());
+            item.setNodeGranularity(data.getNodeGranularity());
+            item.setRequestedDecisionMode(data.getRequestedDecisionMode());
+            item.setResolvedDecisionMode(data.getResolvedDecisionMode());
+            item.setRequestedSwimlaneMode(data.getRequestedSwimlaneMode());
+            item.setResolvedSwimlaneMode(data.getResolvedSwimlaneMode());
+        } catch (Exception ignored) {
+            item.setSceneType(record.getProcessType());
+        }
         return item;
+    }
+
+    private void completeResultMetadata(FlowchartDTO.FlowchartData data,
+                                        String sceneType,
+                                        String nodeGranularity,
+                                        String requestedDecisionMode,
+                                        String requestedSwimlaneMode) {
+        if (data == null) {
+            return;
+        }
+        data.setSceneType(normalizeSceneType(firstText(data.getSceneType(), sceneType)));
+        data.setNodeGranularity(normalizeNodeGranularity(firstText(data.getNodeGranularity(), nodeGranularity)));
+        data.setRequestedDecisionMode(normalizeDecisionMode(firstText(data.getRequestedDecisionMode(), requestedDecisionMode)));
+        data.setRequestedSwimlaneMode(normalizeSwimlaneMode(firstText(data.getRequestedSwimlaneMode(), requestedSwimlaneMode)));
+        normalizeNodes(data);
+        normalizeLanes(data);
+        normalizeEdges(data);
+        if (!StringUtils.hasText(data.getResolvedDecisionMode())) {
+            boolean hasDecision = data.getNodes() != null && data.getNodes().stream()
+                    .anyMatch(node -> "decision".equalsIgnoreCase(node.getType()));
+            data.setResolvedDecisionMode(hasDecision ? "ENABLED" : "DISABLED");
+        } else {
+            data.setResolvedDecisionMode(normalizeResolvedDecisionMode(data.getResolvedDecisionMode()));
+        }
+        if ("NONE".equals(data.getRequestedSwimlaneMode())) {
+            data.setLanes(new ArrayList<>());
+            data.getNodes().forEach(node -> {
+                node.setLaneId(null);
+                node.setLane(null);
+            });
+            data.setResolvedSwimlaneMode("NONE");
+        } else if (!StringUtils.hasText(data.getResolvedSwimlaneMode())) {
+            data.setResolvedSwimlaneMode(resolveSwimlaneMode(data));
+        } else {
+            data.setResolvedSwimlaneMode(normalizeSwimlaneMode(data.getResolvedSwimlaneMode()));
+        }
+        if ("NONE".equals(data.getResolvedSwimlaneMode())) {
+            data.setType("FLOWCHART");
+        } else {
+            data.setType("SWIMLANE");
+        }
+    }
+
+    private void normalizeNodes(FlowchartDTO.FlowchartData data) {
+        if (data.getNodes() == null) {
+            data.setNodes(new ArrayList<>());
+        }
+        for (FlowchartDTO.Node node : data.getNodes()) {
+            if (!StringUtils.hasText(node.getName())) {
+                node.setName(firstText(node.getLabel(), node.getDescription(), "流程步骤"));
+            }
+            if (!StringUtils.hasText(node.getLabel())) {
+                node.setLabel(node.getName());
+            }
+            node.setType(normalizeNodeType(node.getType()));
+            if ("NONE".equals(data.getRequestedDecisionMode()) && "decision".equals(node.getType())) {
+                node.setType("process");
+            }
+            if (!StringUtils.hasText(node.getLaneId()) && StringUtils.hasText(node.getLane())) {
+                node.setLaneId(slug(node.getLane()));
+            }
+        }
+    }
+
+    private void normalizeLanes(FlowchartDTO.FlowchartData data) {
+        if (data.getLanes() == null) {
+            data.setLanes(new ArrayList<>());
+        }
+        String requested = data.getRequestedSwimlaneMode();
+        String laneType = "DEPARTMENT".equals(requested) ? "department" : "role";
+        for (FlowchartDTO.Lane lane : data.getLanes()) {
+            if (!StringUtils.hasText(lane.getLabel())) {
+                lane.setLabel(firstText(lane.getName(), lane.getId(), "泳道"));
+            }
+            if (!StringUtils.hasText(lane.getName())) {
+                lane.setName(lane.getLabel());
+            }
+            if (!StringUtils.hasText(lane.getId())) {
+                lane.setId(slug(lane.getLabel()));
+            }
+            if (!StringUtils.hasText(lane.getType())) {
+                lane.setType(laneType);
+            }
+        }
+        Map<String, FlowchartDTO.Lane> laneByAlias = new HashMap<>();
+        for (FlowchartDTO.Lane lane : data.getLanes()) {
+            addLaneAlias(laneByAlias, lane.getId(), lane);
+            addLaneAlias(laneByAlias, lane.getLabel(), lane);
+            addLaneAlias(laneByAlias, lane.getName(), lane);
+            addLaneAlias(laneByAlias, slug(lane.getLabel()), lane);
+            addLaneAlias(laneByAlias, slug(lane.getName()), lane);
+        }
+        for (FlowchartDTO.Node node : data.getNodes()) {
+            FlowchartDTO.Lane lane = laneByAlias.get(firstText(node.getLaneId(), node.getLane()));
+            if (lane != null) {
+                node.setLaneId(lane.getId());
+                node.setLane(lane.getLabel());
+            }
+        }
+        if ("ROLE".equals(requested) || "DEPARTMENT".equals(requested)) {
+            ensureRequiredLane(data, laneType);
+        }
+    }
+
+    private void addLaneAlias(Map<String, FlowchartDTO.Lane> laneByAlias, String alias, FlowchartDTO.Lane lane) {
+        if (StringUtils.hasText(alias)) {
+            laneByAlias.put(alias, lane);
+        }
+    }
+
+    private void ensureRequiredLane(FlowchartDTO.FlowchartData data, String laneType) {
+        Set<String> existing = new LinkedHashSet<>();
+        data.getLanes().forEach(lane -> {
+            existing.add(firstText(lane.getId(), slug(lane.getLabel())));
+            existing.add(slug(lane.getLabel()));
+            existing.add(slug(lane.getName()));
+        });
+        for (FlowchartDTO.Node node : data.getNodes()) {
+            String laneLabel = firstText(node.getLaneId(), node.getLane());
+            if (StringUtils.hasText(laneLabel)
+                    && !existing.contains(laneLabel)
+                    && !existing.contains(slug(laneLabel))) {
+                FlowchartDTO.Lane lane = new FlowchartDTO.Lane();
+                lane.setId(slug(laneLabel));
+                lane.setLabel(laneLabel);
+                lane.setName(laneLabel);
+                lane.setType(laneType);
+                data.getLanes().add(lane);
+                existing.add(lane.getId());
+            }
+        }
+        if (data.getLanes().isEmpty()) {
+            FlowchartDTO.Lane lane = new FlowchartDTO.Lane();
+            lane.setId("main");
+            lane.setLabel("department".equals(laneType) ? "责任部门" : "主要参与者");
+            lane.setName(lane.getLabel());
+            lane.setType(laneType);
+            data.getLanes().add(lane);
+        }
+        String fallbackLaneId = data.getLanes().get(0).getId();
+        String fallbackLaneName = data.getLanes().get(0).getLabel();
+        data.getNodes().forEach(node -> {
+            if (!StringUtils.hasText(node.getLaneId())) {
+                node.setLaneId(fallbackLaneId);
+                node.setLane(fallbackLaneName);
+            }
+        });
+    }
+
+    private void normalizeEdges(FlowchartDTO.FlowchartData data) {
+        if (data.getEdges() == null) {
+            data.setEdges(new ArrayList<>());
+        }
+        for (int index = 0; index < data.getEdges().size(); index += 1) {
+            FlowchartDTO.Edge edge = data.getEdges().get(index);
+            if (!StringUtils.hasText(edge.getId())) {
+                edge.setId("e" + (index + 1));
+            }
+            if (!StringUtils.hasText(edge.getType())) {
+                edge.setType(StringUtils.hasText(edge.getLabel()) || StringUtils.hasText(edge.getCondition())
+                        ? "branch" : "normal");
+            }
+        }
+    }
+
+    private String combineInput(String description, String sourceText) {
+        if (StringUtils.hasText(description) && StringUtils.hasText(sourceText)) {
+            return description + "\n\n文件解析内容：\n" + sourceText;
+        }
+        return StringUtils.hasText(sourceText) ? sourceText : description;
+    }
+
+    private String normalizeSceneType(String value) {
+        String text = firstText(value, "ADMIN").toUpperCase(Locale.ROOT);
+        if (text.contains("BUSINESS") || text.contains("业务")) return "BUSINESS";
+        if (text.contains("LEARNING") || text.contains("STUDY") || text.contains("学习")) return "LEARNING";
+        if (text.contains("LIFE") || text.contains("生活")) return "LIFE";
+        return "ADMIN";
+    }
+
+    private String normalizeNodeGranularity(String value) {
+        String text = firstText(value, "AUTO").toUpperCase(Locale.ROOT);
+        if (text.contains("SIMPLE") || text.contains("简")) return "SIMPLE";
+        if (text.contains("DETAIL") || text.contains("详细")) return "DETAILED";
+        if (text.contains("STANDARD") || text.contains("标准")) return "STANDARD";
+        return "AUTO";
+    }
+
+    private String normalizeDecisionMode(String value) {
+        String text = firstText(value, "AUTO").toUpperCase(Locale.ROOT);
+        if (text.contains("FORCE") || text.contains("INCLUDE") || text.contains("强制")) return "FORCE";
+        if (text.contains("NONE") || text.contains("LINEAR") || text.contains("不使用") || text.contains("不包含")) return "NONE";
+        return "AUTO";
+    }
+
+    private String normalizeResolvedDecisionMode(String value) {
+        String text = firstText(value, "DISABLED").toUpperCase(Locale.ROOT);
+        return text.contains("ENABLE") || text.contains("TRUE") || text.contains("YES") ? "ENABLED" : "DISABLED";
+    }
+
+    private String normalizeSwimlaneMode(String value) {
+        String text = firstText(value, "AUTO").toUpperCase(Locale.ROOT);
+        if (text.contains("DEPARTMENT") || text.contains("部门")) return "DEPARTMENT";
+        if (text.contains("ROLE") || text.contains("角色")) return "ROLE";
+        if (text.contains("NONE") || text.contains("HIDDEN") || text.contains("不显示")) return "NONE";
+        return "AUTO";
+    }
+
+    private String resolveSwimlaneMode(FlowchartDTO.FlowchartData data) {
+        if (data.getLanes() == null || data.getLanes().isEmpty()) {
+            return "NONE";
+        }
+        boolean department = data.getLanes().stream().anyMatch(lane -> "department".equalsIgnoreCase(lane.getType()));
+        return department ? "DEPARTMENT" : "ROLE";
+    }
+
+    private String normalizeNodeType(String value) {
+        String text = firstText(value, "process").toLowerCase(Locale.ROOT);
+        if (text.contains("start")) return "start";
+        if (text.contains("end")) return "end";
+        if (text.contains("decision") || text.contains("judge")) return "decision";
+        return "process";
+    }
+
+    private String slug(String value) {
+        String text = firstText(value, "lane").trim().toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9\\u4e00-\\u9fa5]+", "-")
+                .replaceAll("^-+|-+$", "");
+        return StringUtils.hasText(text) ? text : "lane";
     }
 
     private void validateUpload(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(400, "请选择文件");
+        }
+        if (file.getSize() > 20L * 1024 * 1024) {
+            throw new BusinessException(400, "文件不能超过 20MB");
         }
         if (!List.of(".pdf", ".doc", ".docx", ".ppt", ".pptx", ".md", ".markdown")
                 .contains(extensionOf(file.getOriginalFilename()))) {
@@ -171,5 +446,14 @@ public class FlowchartServiceImpl implements FlowchartService {
 
     private String trim(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private String firstText(String... values) {
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value.trim();
+            }
+        }
+        return "";
     }
 }

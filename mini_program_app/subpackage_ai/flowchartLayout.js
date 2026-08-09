@@ -7,6 +7,8 @@ export const FLOW_NODE_H = 56
 const GAP_X = 56
 const GAP_Y = 64
 const TOP = 48
+const LANE_H = 150
+const LANE_LEFT = 28
 
 export function computeLevels(nodes, edges) {
   const idSet = new Set(nodes.map(n => String(n.id)))
@@ -53,8 +55,14 @@ export function computeLevels(nodes, edges) {
 
 // 返回 { nodes:[{...node, cx, cy, level}], edges:[{...edge, key, kind, x1,y1,x2,y2, path, label}], canvasW, canvasH }
 export function layoutFlowchart(chart = {}) {
-  const nodes = chart.nodes || []
+  const nodes = normalizeNodes(chart.nodes || [])
   const edges = chart.edges || []
+  const lanes = normalizeLanes(chart.lanes || [], nodes, chart.resolvedSwimlaneMode)
+  if (lanes.length) return layoutSwimlaneFlow(nodes, edges, lanes)
+  return layoutPlainFlow(nodes, edges)
+}
+
+function layoutPlainFlow(nodes, edges) {
   const { level, back } = computeLevels(nodes, edges)
 
   const byLevel = new Map()
@@ -121,7 +129,75 @@ export function layoutFlowchart(chart = {}) {
     }
   }).filter(Boolean)
 
-  return { nodes: laidNodes, edges: laidEdges, canvasW, canvasH }
+  return { nodes: laidNodes, edges: laidEdges, lanes: [], canvasW, canvasH }
+}
+
+function layoutSwimlaneFlow(nodes, edges, lanes) {
+  const { level, back } = computeLevels(nodes, edges)
+  const laneIndex = new Map(lanes.map((lane, index) => [lane.id, index]))
+  const slots = new Map()
+  let maxLevel = 0
+  nodes.forEach(node => {
+    maxLevel = Math.max(maxLevel, level.get(String(node.id)) || 0)
+  })
+
+  const canvasW = Math.max(520, LANE_LEFT + (maxLevel + 1) * (FLOW_NODE_W + GAP_X) + 80)
+  const canvasH = TOP + lanes.length * LANE_H + 40
+  const laneBands = lanes.map((lane, index) => ({
+    ...lane,
+    x: 14,
+    y: TOP - 30 + index * LANE_H,
+    w: canvasW - 28,
+    h: LANE_H - 14
+  }))
+
+  const laidNodes = nodes.map(node => {
+    const l = level.get(String(node.id)) || 0
+    const laneId = node.laneId || node.lane || lanes[0]?.id || ''
+    const lanePos = laneIndex.has(laneId) ? laneIndex.get(laneId) : 0
+    const key = `${laneId}:${l}`
+    const slot = slots.get(key) || 0
+    slots.set(key, slot + 1)
+    return {
+      ...node,
+      laneId,
+      cx: LANE_LEFT + 94 + l * (FLOW_NODE_W + GAP_X),
+      cy: TOP + 42 + lanePos * LANE_H + slot * (FLOW_NODE_H + 18),
+      level: l
+    }
+  })
+  const nodeMap = new Map(laidNodes.map(node => [String(node.id), node]))
+
+  const laidEdges = edges.map((edge, index) => {
+    const s = nodeMap.get(String(edge.source))
+    const t = nodeMap.get(String(edge.target))
+    if (!s || !t) return null
+    const isBack = back.has(index)
+    let x1, y1, x2, y2, path
+    if (isBack) {
+      x1 = s.cx - FLOW_NODE_W / 2
+      y1 = s.cy
+      x2 = t.cx - FLOW_NODE_W / 2
+      y2 = t.cy
+      path = `M ${x1} ${y1} C ${x1 - 70} ${y1 - 10}, ${x2 - 70} ${y2 + 10}, ${x2} ${y2}`
+    } else {
+      x1 = s.cx + FLOW_NODE_W / 2
+      y1 = s.cy
+      x2 = t.cx - FLOW_NODE_W / 2
+      y2 = t.cy
+      const mx = (x1 + x2) / 2
+      path = `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`
+    }
+    return {
+      ...edge,
+      key: edge.id || `${edge.source}-${edge.target}-${index}`,
+      kind: isBack ? 'back' : (edge.type === 'branch' ? 'branch' : 'h'),
+      x1, y1, x2, y2, path,
+      label: edge.label || edge.condition || ''
+    }
+  }).filter(Boolean)
+
+  return { nodes: laidNodes, edges: laidEdges, lanes: laneBands, canvasW, canvasH }
 }
 
 // 墨实顺序：按 level 升序，每个节点先画其引导边再落节点；剩余边（分支/回流）最后画。
@@ -141,4 +217,54 @@ export function inkSequence(laid) {
     if (!used.has(e.key)) seq.push({ edge: e })
   })
   return seq
+}
+
+function normalizeNodes(nodes) {
+  return nodes.map(node => {
+    const rawType = String(node.type || 'process').toLowerCase()
+    const type = rawType.includes('start')
+      ? 'start'
+      : rawType.includes('end')
+        ? 'end'
+        : rawType.includes('decision') || rawType.includes('judge')
+          ? 'decision'
+          : 'process'
+    const name = node.name || node.label || '流程步骤'
+    return {
+      ...node,
+      id: String(node.id || name),
+      type,
+      name,
+      label: node.label || name,
+      laneId: node.laneId || node.lane || ''
+    }
+  })
+}
+
+function normalizeLanes(lanes, nodes, resolvedMode) {
+  const mode = String(resolvedMode || '').toUpperCase()
+  if (mode === 'NONE') return []
+  const list = lanes.map((lane, index) => {
+    const label = lane.label || lane.name || lane.id || `泳道${index + 1}`
+    return {
+      id: lane.id || lane.name || `lane-${index + 1}`,
+      label,
+      name: lane.name || label,
+      type: lane.type || (mode === 'DEPARTMENT' ? 'department' : 'role')
+    }
+  })
+  const seen = new Set(list.map(lane => String(lane.id)))
+  nodes.forEach(node => {
+    const laneId = node.laneId || node.lane
+    if (laneId && !seen.has(String(laneId))) {
+      list.push({
+        id: laneId,
+        label: node.lane || laneId,
+        name: node.lane || laneId,
+        type: mode === 'DEPARTMENT' ? 'department' : 'role'
+      })
+      seen.add(String(laneId))
+    }
+  })
+  return list
 }
