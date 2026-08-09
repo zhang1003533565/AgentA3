@@ -1,7 +1,7 @@
 """AI 架构图生成路由。
 
 暴露 POST /internal/architecture/generate，由 Java 后端 PythonAiProxyService 代理调用。
-返回 { title, style, nodes, edges } JSON 结构（不是 Mermaid 文本）。
+返回 { title, layers, groups, nodes, edges } JSON 结构（不是 Mermaid 文本）。
 """
 
 from typing import List, Optional
@@ -32,6 +32,7 @@ class ArchitectureGenerateRequest(BaseModel):
     displayContent: List[str] = Field(default_factory=list, description="展示内容数组")
     relationMode: str = Field(default="", description="关系表达 AUTO/MODULE/DATA_FLOW/CALL")
     relationType: str = Field(default="", description="关系表达 AUTO/MODULE/DATA_FLOW/CALL_CHAIN/DEPLOYMENT")
+    hierarchyMode: str = Field(default="STRUCTURED", description="架构层级表达 STRUCTURED")
 
 
 class ArchitectureGenerateResponse(BaseModel):
@@ -51,6 +52,8 @@ class ArchitectureGenerateResponse(BaseModel):
     focusContents: List[str] = Field(default_factory=list)
     requestedRelationMode: str = "AUTO"
     resolvedRelationMode: str = "MODULE"
+    requestedHierarchyMode: str = "STRUCTURED"
+    resolvedHierarchyMode: str = "STRUCTURED"
 
 
 @router.post("/generate", response_model=ArchitectureGenerateResponse)

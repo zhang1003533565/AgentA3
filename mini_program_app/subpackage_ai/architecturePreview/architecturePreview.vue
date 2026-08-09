@@ -52,27 +52,96 @@
                       <text class="layer-label-text" :style="{ color: layer.color }">{{ layer.name }}</text>
                     </view>
 
-                    <!-- 层内卡片 -->
-                    <view class="layer-cards">
-                      <view
-                        v-for="node in layer.nodes"
-                        :key="node.name"
-                        class="arch-card"
-                        @tap="onCardTap(layer, node)"
-                        @mousedown.stop
-                      >
-                        <view class="arch-card-icon" :style="{ color: layer.color }">
-                          <arch-icon :iconKey="node.iconKey || defaultIconKey(layer)" :color="layer.color" :size="56" />
+                    <!-- 层内结构 -->
+                    <view class="layer-body">
+                      <view v-if="layerHasGroups(layer)" class="layer-groups">
+                        <view
+                          v-for="group in visibleLayerGroups(layer)"
+                          :key="group.id || group.name"
+                          class="layer-group"
+                          :style="layerGroupStyle(layer)"
+                        >
+                          <view class="layer-group-head">
+                            <text class="layer-group-title" :style="{ color: layer.color }">{{ group.name }}</text>
+                            <text v-if="group.description" class="layer-group-desc">{{ group.description }}</text>
+                          </view>
+                          <view class="layer-group-cards">
+                            <view
+                              v-for="node in group.nodes"
+                              :key="node.id || node.name"
+                              class="arch-card arch-card--nested"
+                              :class="{ 'arch-card--has-children': nodeChildren(node).length }"
+                              @tap="onCardTap(layer, node)"
+                              @mousedown.stop
+                            >
+                              <view class="arch-card-icon" :style="{ color: layer.color }">
+                                <arch-icon :iconKey="node.iconKey || defaultIconKey(layer)" :color="layer.color" :size="50" />
+                              </view>
+                              <text class="arch-card-name">{{ node.name }}</text>
+                              <text v-if="node.description" class="arch-card-desc">{{ node.description }}</text>
+                              <view v-if="node.tech && node.tech.length" class="arch-card-tech">
+                                <text
+                                  v-for="t in node.tech"
+                                  :key="t"
+                                  class="arch-card-tech-item"
+                                  :style="{ color: layer.color, borderColor: layer.color + '55' }"
+                                >{{ t }}</text>
+                              </view>
+                              <view v-if="nodeChildren(node).length" class="node-children">
+                                <view
+                                  v-for="child in nodeChildren(node)"
+                                  :key="child.id || child.name"
+                                  class="node-child"
+                                  :style="{ borderColor: layer.color + '33', background: layer.bg }"
+                                >
+                                  <text class="node-child-dot" :style="{ background: layer.color }"></text>
+                                  <view class="node-child-copy">
+                                    <text class="node-child-name">{{ child.name }}</text>
+                                    <text v-if="child.description" class="node-child-desc">{{ child.description }}</text>
+                                  </view>
+                                </view>
+                              </view>
+                            </view>
+                          </view>
                         </view>
-                        <text class="arch-card-name">{{ node.name }}</text>
-                        <text v-if="node.description" class="arch-card-desc">{{ node.description }}</text>
-                        <view v-if="node.tech && node.tech.length" class="arch-card-tech">
-                          <text
-                            v-for="t in node.tech"
-                            :key="t"
-                            class="arch-card-tech-item"
-                            :style="{ color: layer.color, borderColor: layer.color + '55' }"
-                          >{{ t }}</text>
+                      </view>
+
+                      <view v-else class="layer-cards">
+                        <view
+                          v-for="node in layer.nodes"
+                          :key="node.id || node.name"
+                          class="arch-card"
+                          :class="{ 'arch-card--has-children': nodeChildren(node).length }"
+                          @tap="onCardTap(layer, node)"
+                          @mousedown.stop
+                        >
+                          <view class="arch-card-icon" :style="{ color: layer.color }">
+                            <arch-icon :iconKey="node.iconKey || defaultIconKey(layer)" :color="layer.color" :size="56" />
+                          </view>
+                          <text class="arch-card-name">{{ node.name }}</text>
+                          <text v-if="node.description" class="arch-card-desc">{{ node.description }}</text>
+                          <view v-if="node.tech && node.tech.length" class="arch-card-tech">
+                            <text
+                              v-for="t in node.tech"
+                              :key="t"
+                              class="arch-card-tech-item"
+                              :style="{ color: layer.color, borderColor: layer.color + '55' }"
+                            >{{ t }}</text>
+                          </view>
+                          <view v-if="nodeChildren(node).length" class="node-children">
+                            <view
+                              v-for="child in nodeChildren(node)"
+                              :key="child.id || child.name"
+                              class="node-child"
+                              :style="{ borderColor: layer.color + '33', background: layer.bg }"
+                            >
+                              <text class="node-child-dot" :style="{ background: layer.color }"></text>
+                              <view class="node-child-copy">
+                                <text class="node-child-name">{{ child.name }}</text>
+                                <text v-if="child.description" class="node-child-desc">{{ child.description }}</text>
+                              </view>
+                            </view>
+                          </view>
                         </view>
                       </view>
                     </view>
@@ -199,6 +268,27 @@ function defaultIconKey(layer) {
   return layer.iconKey
 }
 
+function nodeChildren(node) {
+  return Array.isArray(node?.children) ? node.children : []
+}
+
+function layerHasGroups(layer) {
+  return visibleLayerGroups(layer).length > 0
+}
+
+function visibleLayerGroups(layer) {
+  return Array.isArray(layer?.groups)
+    ? layer.groups.filter(group => Array.isArray(group?.nodes) && group.nodes.length)
+    : []
+}
+
+function layerGroupStyle(layer) {
+  return {
+    borderColor: layer.border,
+    background: layer.bg,
+  }
+}
+
 // 第三方服务图标颜色
 const THIRD_PARTY_PALETTE = [
   { main: '#3B82F6', light: '#EFF6FF', border: '#BFDBFE' },
@@ -267,21 +357,28 @@ const relationArrow = computed(() => (resolvedRelationMode.value === 'MODULE' ? 
 
 const nodeNameMap = computed(() => {
   const map = new Map()
+  const collectNode = (node) => {
+    const id = node?.id || node?.name
+    if (id) map.set(String(id), node.name || id)
+    ;(node?.children || []).forEach(collectNode)
+  }
   ;(architectureData.value.nodes || []).forEach(node => {
     if (node?.id) map.set(String(node.id), node.name || node.id)
   })
   ;(architectureData.value.layers || []).forEach(layer => {
-    ;(layer.nodes || []).forEach(node => {
-      const id = node.id || node.name
-      if (id) map.set(String(id), node.name || id)
+    ;(layer.groups || []).forEach(group => {
+      const groupId = group?.id || group?.name
+      if (groupId) map.set(String(groupId), group.name || groupId)
+      ;(group?.nodes || []).forEach(collectNode)
     })
+    ;(layer.nodes || []).forEach(collectNode)
   })
   return map
 })
 
 const relationEdges = computed(() => {
   const edges = Array.isArray(architectureData.value.edges) ? architectureData.value.edges : []
-  return edges.slice(0, 8).map(edge => ({
+  return edges.slice(0, 12).map(edge => ({
     ...edge,
     sourceName: nodeNameMap.value.get(String(edge.source || '')) || edge.source || '',
     targetName: nodeNameMap.value.get(String(edge.target || '')) || edge.target || '',
@@ -492,6 +589,8 @@ function mergeWithDefaults(normalized) {
     requestedRelationMode: normalized.requestedRelationMode || normalized.relationMode || 'AUTO',
     resolvedRelationMode: normalized.resolvedRelationMode || normalized.relationMode || 'MODULE',
     relationMode: normalized.resolvedRelationMode || normalized.relationMode || 'MODULE',
+    requestedHierarchyMode: normalized.requestedHierarchyMode || normalized.hierarchyMode || 'STRUCTURED',
+    resolvedHierarchyMode: normalized.resolvedHierarchyMode || normalized.hierarchyMode || 'STRUCTURED',
     nodes: Array.isArray(normalized.nodes) ? normalized.nodes : [],
     edges: Array.isArray(normalized.edges) ? normalized.edges : [],
     layers: [],
@@ -508,21 +607,26 @@ function mergeWithDefaults(normalized) {
       if (l && l.key) normalizedLayersMap.set(l.key, l)
     })
   }
-  // 每层的最小节点数（默认层节点数 = 该层期望规模）
-  const MIN_NODES = { client: 3, gateway: 1, service: 4, dao: 1, storage: 2, infra: 3 }
   // 按默认顺序输出
   base.layers.forEach(defaultLayer => {
     const nl = normalizedLayersMap.get(defaultLayer.key)
-    const minRequired = MIN_NODES[defaultLayer.key] || 1
-    if (nl && Array.isArray(nl.nodes) && nl.nodes.length >= minRequired) {
-      // 后端该层节点数达标，用后端数据
+    const hasLayerContent = Boolean(
+      nl &&
+        (
+          (Array.isArray(nl.nodes) && nl.nodes.length) ||
+          (Array.isArray(nl.groups) && nl.groups.some(group => Array.isArray(group?.nodes) && group.nodes.length))
+        )
+    )
+    if (hasLayerContent) {
+      // 后端该层有有效结构，用后端数据；不再按默认节点数强行替换。
       result.layers.push({
         ...defaultLayer,
         ...nl,
-        nodes: nl.nodes
+        groups: Array.isArray(nl.groups) ? nl.groups : [],
+        nodes: Array.isArray(nl.nodes) ? nl.nodes : []
       })
     } else {
-      // 后端该层缺失或节点不足，用默认数据补全
+      // 后端该层完全缺失时，用默认数据兜底
       result.layers.push(JSON.parse(JSON.stringify(defaultLayer)))
     }
   })
@@ -724,6 +828,62 @@ loadArchitecture()
   align-content: flex-start;
 }
 
+.layer-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.layer-groups {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 16rpx;
+  min-width: 0;
+}
+
+.layer-group {
+  min-width: 280rpx;
+  max-width: 520rpx;
+  flex: 1 1 320rpx;
+  border: 1rpx solid;
+  border-radius: 18rpx;
+  padding: 14rpx;
+  box-sizing: border-box;
+}
+
+.layer-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+  min-width: 0;
+  margin-bottom: 12rpx;
+}
+
+.layer-group-title {
+  font-size: 23rpx;
+  font-weight: 800;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.layer-group-desc {
+  min-width: 0;
+  color: #64748B;
+  font-size: 19rpx;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layer-group-cards {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  align-content: flex-start;
+}
+
 .arch-card {
   flex: 1 1 0;
   min-width: 140rpx;
@@ -738,6 +898,16 @@ loadArchitecture()
   align-items: center;
   box-shadow: 0 4rpx 12rpx rgba(15, 23, 42, 0.05);
   cursor: pointer;
+}
+
+.arch-card--nested {
+  min-width: 160rpx;
+  max-width: 230rpx;
+  padding-top: 16rpx;
+}
+
+.arch-card--has-children {
+  max-width: 280rpx;
 }
 
 .arch-card:active {
@@ -787,6 +957,64 @@ loadArchitecture()
   border-radius: 999rpx;
   border: 1rpx solid;
   line-height: 1.3;
+}
+
+.node-children {
+  width: 100%;
+  margin-top: 12rpx;
+  padding-top: 10rpx;
+  border-top: 1rpx solid #EEF1F4;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.node-child {
+  display: flex;
+  align-items: flex-start;
+  gap: 8rpx;
+  width: 100%;
+  padding: 8rpx 10rpx;
+  border: 1rpx solid;
+  border-radius: 10rpx;
+  box-sizing: border-box;
+}
+
+.node-child-dot {
+  width: 8rpx;
+  height: 8rpx;
+  border-radius: 50%;
+  margin-top: 9rpx;
+  flex-shrink: 0;
+}
+
+.node-child-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.node-child-name {
+  max-width: 190rpx;
+  color: #1F2937;
+  font-size: 19rpx;
+  line-height: 1.25;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-child-desc {
+  max-width: 190rpx;
+  margin-top: 2rpx;
+  color: #6B7280;
+  font-size: 17rpx;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .third-party {

@@ -5,8 +5,11 @@ import com.example.appbackend.entity.FlowchartRecord;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.FlowchartRecordRepository;
 import com.example.appbackend.service.FileParseService;
+import com.example.appbackend.service.FileSummaryResult;
+import com.example.appbackend.service.FileSummaryService;
 import com.example.appbackend.service.FlowchartAIService;
 import com.example.appbackend.service.FlowchartService;
+import com.example.appbackend.service.ParsedFileContent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -30,6 +33,7 @@ import java.util.UUID;
 public class FlowchartServiceImpl implements FlowchartService {
     private final FlowchartAIService flowchartAIService;
     private final FileParseService fileParseService;
+    private final FileSummaryService fileSummaryService;
     private final FlowchartRecordRepository recordRepository;
     private final ObjectMapper objectMapper;
 
@@ -41,10 +45,12 @@ public class FlowchartServiceImpl implements FlowchartService {
 
     public FlowchartServiceImpl(FlowchartAIService flowchartAIService,
                                 FileParseService fileParseService,
+                                FileSummaryService fileSummaryService,
                                 FlowchartRecordRepository recordRepository,
                                 ObjectMapper objectMapper) {
         this.flowchartAIService = flowchartAIService;
         this.fileParseService = fileParseService;
+        this.fileSummaryService = fileSummaryService;
         this.recordRepository = recordRepository;
         this.objectMapper = objectMapper;
     }
@@ -111,10 +117,20 @@ public class FlowchartServiceImpl implements FlowchartService {
         }
 
         FlowchartDTO.UploadResponse response = new FlowchartDTO.UploadResponse();
+        ParsedFileContent parsed = fileParseService.parseDetailed(target.toFile());
+        FileSummaryResult summary = fileSummaryService.summarize(originalName, parsed.text());
         response.setFileId(fileId);
         response.setFileName(originalName);
         response.setSourceFile(buildFileUrl(objectKey));
-        response.setText(fileParseService.parse(target.toFile()));
+        response.setText(parsed.text());
+        response.setSummary(summary.summary());
+        response.setSummaryStatus(summary.status());
+        response.setSummaryModel(summary.model());
+        response.setTextLength(parsed.textLength());
+        response.setTruncated(parsed.truncated());
+        response.setPageCount(parsed.pageCount());
+        response.setSlideCount(parsed.slideCount());
+        response.setParagraphCount(parsed.paragraphCount());
         return response;
     }
 

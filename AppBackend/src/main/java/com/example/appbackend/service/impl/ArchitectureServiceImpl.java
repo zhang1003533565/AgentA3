@@ -8,6 +8,9 @@ import com.example.appbackend.entity.Result;
 import com.example.appbackend.repository.ArchitectureRecordRepository;
 import com.example.appbackend.service.ArchitectureService;
 import com.example.appbackend.service.FileParseService;
+import com.example.appbackend.service.FileSummaryResult;
+import com.example.appbackend.service.FileSummaryService;
+import com.example.appbackend.service.ParsedFileContent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +45,7 @@ public class ArchitectureServiceImpl implements ArchitectureService {
     private final PythonAiProxyService pythonAiProxyService;
     private final ArchitectureRecordRepository architectureRecordRepository;
     private final FileParseService fileParseService;
+    private final FileSummaryService fileSummaryService;
     private final ObjectMapper objectMapper;
 
     @Value("${file.upload-dir:uploads}")
@@ -53,10 +57,12 @@ public class ArchitectureServiceImpl implements ArchitectureService {
     public ArchitectureServiceImpl(PythonAiProxyService pythonAiProxyService,
                                    ArchitectureRecordRepository architectureRecordRepository,
                                    FileParseService fileParseService,
+                                   FileSummaryService fileSummaryService,
                                    ObjectMapper objectMapper) {
         this.pythonAiProxyService = pythonAiProxyService;
         this.architectureRecordRepository = architectureRecordRepository;
         this.fileParseService = fileParseService;
+        this.fileSummaryService = fileSummaryService;
         this.objectMapper = objectMapper;
     }
 
@@ -87,6 +93,7 @@ public class ArchitectureServiceImpl implements ArchitectureService {
         String systemType = firstText(request.getSystemType(), "WEB");
         String architectureStyle = firstText(request.getArchitectureStyle(), "AUTO");
         String requestedRelationMode = normalizeRelationMode(firstText(request.getRelationMode(), request.getRelationType(), "AUTO"));
+        String requestedHierarchyMode = normalizeHierarchyMode(firstText(request.getHierarchyMode(), "STRUCTURED"));
 
         // 构造转发给 Python 的请求体（保持 camelCase 字段名与 Python 端 Pydantic 模型一致）
         Map<String, Object> pythonRequest = new LinkedHashMap<>();
@@ -100,6 +107,7 @@ public class ArchitectureServiceImpl implements ArchitectureService {
         pythonRequest.put("displayContent", focusContents);
         pythonRequest.put("relationMode", requestedRelationMode);
         pythonRequest.put("relationType", requestedRelationMode);
+        pythonRequest.put("hierarchyMode", requestedHierarchyMode);
 
         Object rawResponse = pythonAiProxyService.generateArchitecture(pythonRequest, authorization);
         Map<String, Object> archData = new LinkedHashMap<>(parseArchitectureData(rawResponse));
@@ -116,6 +124,8 @@ public class ArchitectureServiceImpl implements ArchitectureService {
         archData.put("requestedRelationMode", requestedRelationMode);
         archData.put("resolvedRelationMode", resolvedRelationMode);
         archData.put("relationMode", resolvedRelationMode);
+        archData.put("requestedHierarchyMode", requestedHierarchyMode);
+        archData.put("resolvedHierarchyMode", normalizeHierarchyMode(getString(archData, "resolvedHierarchyMode", requestedHierarchyMode)));
 
         // 落库
         ArchitectureRecord record = new ArchitectureRecord();
@@ -124,18 +134,21 @@ public class ArchitectureServiceImpl implements ArchitectureService {
         record.setDescription(request.getDescription().trim());
         record.setSystemType(systemType);
         record.setArchitectureStyle(architectureStyle);
-        record.setConfigJson(writeJson(Map.of(
-                "autoArchitectureLayers", autoArchitectureLayers,
-                "architectureLayers", architectureLayers,
-                "layers", architectureLayers,
-                "focusContents", focusContents,
-                "displayContent", focusContents,
-                "requestedRelationMode", requestedRelationMode,
-                "resolvedRelationMode", resolvedRelationMode,
-                "relationMode", requestedRelationMode,
-                "relationType", requestedRelationMode,
-                "systemType", systemType
-        )));
+        Map<String, Object> configData = new LinkedHashMap<>();
+        configData.put("autoArchitectureLayers", autoArchitectureLayers);
+        configData.put("architectureLayers", architectureLayers);
+        configData.put("layers", architectureLayers);
+        configData.put("focusContents", focusContents);
+        configData.put("displayContent", focusContents);
+        configData.put("requestedRelationMode", requestedRelationMode);
+        configData.put("resolvedRelationMode", resolvedRelationMode);
+        configData.put("relationMode", requestedRelationMode);
+        configData.put("relationType", requestedRelationMode);
+        configData.put("requestedHierarchyMode", requestedHierarchyMode);
+        configData.put("resolvedHierarchyMode", normalizeHierarchyMode(getString(archData, "resolvedHierarchyMode", requestedHierarchyMode)));
+        configData.put("hierarchyMode", requestedHierarchyMode);
+        configData.put("systemType", systemType);
+        record.setConfigJson(writeJson(configData));
         record.setArchitectureJson(writeJson(archData));
         ArchitectureRecord saved = architectureRecordRepository.save(record);
         log.info("架构图生成并落库成功 recordId={} userId={} title={}", saved.getId(), userId, saved.getTitle());
@@ -167,16 +180,29 @@ public class ArchitectureServiceImpl implements ArchitectureService {
         }
 
         ArchitectureDTO.UploadResponse response = new ArchitectureDTO.UploadResponse();
+        ParsedFileContent parsed = fileParseService.parseDetailed(target.toFile());
+        FileSummaryResult summary = fileSummaryService.summarize(originalName, parsed.text());
         response.setFileId(fileId);
         response.setFileName(originalName);
         response.setSourceFile(buildFileUrl(objectKey));
-        response.setText(fileParseService.parse(target.toFile()));
+        response.setText(parsed.text());
+        response.setSummary(summary.summary());
+        response.setSummaryStatus(summary.status());
+        response.setSummaryModel(summary.model());
+        response.setTextLength(parsed.textLength());
+        response.setTruncated(parsed.truncated());
+        response.setPageCount(parsed.pageCount());
+        response.setSlideCount(parsed.slideCount());
+        response.setParagraphCount(parsed.paragraphCount());
         return response;
     }
 
     private void validateUpload(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(400, "请选择文件");
+        }
+        if (file.getSize() > 20L * 1024 * 1024) {
+            throw new BusinessException(400, "文件不能超过 20MB");
         }
         if (!List.of(".pdf", ".doc", ".docx", ".ppt", ".pptx", ".md", ".markdown")
                 .contains(extensionOf(file.getOriginalFilename()))) {
@@ -223,12 +249,25 @@ public class ArchitectureServiceImpl implements ArchitectureService {
                     getString(config, "resolvedRelationMode", ""),
                     "AUTO".equals(requestedRelationMode) ? "MODULE" : requestedRelationMode
             ));
+            String requestedHierarchyMode = normalizeHierarchyMode(firstText(
+                    getString(archData, "requestedHierarchyMode", ""),
+                    getString(config, "requestedHierarchyMode", ""),
+                    getString(config, "hierarchyMode", ""),
+                    "STRUCTURED"
+            ));
+            String resolvedHierarchyMode = normalizeHierarchyMode(firstText(
+                    getString(archData, "resolvedHierarchyMode", ""),
+                    getString(config, "resolvedHierarchyMode", ""),
+                    requestedHierarchyMode
+            ));
             items.add(new ArchitectureDTO.HistoryItem(
                     record.getId(),
                     record.getTitle(),
                     record.getSystemType(),
                     requestedRelationMode,
                     resolvedRelationMode,
+                    requestedHierarchyMode,
+                    resolvedHierarchyMode,
                     record.getCreateTime() == null ? null : record.getCreateTime().toString()
             ));
         }
@@ -320,6 +359,14 @@ public class ArchitectureServiceImpl implements ArchitectureService {
         return "AUTO";
     }
 
+    private String normalizeHierarchyMode(String value) {
+        String text = StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : "STRUCTURED";
+        if (List.of("AUTO", "STRUCTURED", "FLAT").contains(text)) {
+            return "FLAT".equals(text) ? "STRUCTURED" : text;
+        }
+        return "STRUCTURED";
+    }
+
     private List<String> firstNonEmptyList(List<String> preferred, List<String> fallback) {
         if (preferred != null && !preferred.isEmpty()) {
             return preferred;
@@ -383,6 +430,17 @@ public class ArchitectureServiceImpl implements ArchitectureService {
         if ("AUTO".equals(resolvedRelationMode)) {
             resolvedRelationMode = "MODULE";
         }
+        String requestedHierarchyMode = normalizeHierarchyMode(firstText(
+                getString(archData, "requestedHierarchyMode", ""),
+                getString(config, "requestedHierarchyMode", ""),
+                getString(config, "hierarchyMode", ""),
+                "STRUCTURED"
+        ));
+        String resolvedHierarchyMode = normalizeHierarchyMode(firstText(
+                getString(archData, "resolvedHierarchyMode", ""),
+                getString(config, "resolvedHierarchyMode", ""),
+                requestedHierarchyMode
+        ));
         List<String> architectureLayers = objectToStringList(archData.get("architectureLayers"));
         if (architectureLayers.isEmpty()) {
             architectureLayers = objectToStringList(config.get("architectureLayers"));
@@ -411,6 +469,8 @@ public class ArchitectureServiceImpl implements ArchitectureService {
                 focusContents,
                 requestedRelationMode,
                 resolvedRelationMode,
+                requestedHierarchyMode,
+                resolvedHierarchyMode,
                 nodes,
                 edges,
                 record.getCreateTime() == null ? null : record.getCreateTime().toString()

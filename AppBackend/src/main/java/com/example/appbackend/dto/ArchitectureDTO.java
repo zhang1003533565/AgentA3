@@ -57,6 +57,9 @@ public class ArchitectureDTO {
         @Schema(description = "关系表达模式（新版字段）", example = "DATA_FLOW")
         private String relationMode;
 
+        @Schema(description = "架构层级表达模式", example = "STRUCTURED")
+        private String hierarchyMode;
+
         @Schema(description = "文档解析后的文本，可选；填写后 AI 优先基于此生成", example = "")
         private String sourceText;
 
@@ -115,6 +118,12 @@ public class ArchitectureDTO {
         @Schema(description = "AI 最终采用的关系表达")
         private String resolvedRelationMode;
 
+        @Schema(description = "用户请求的层级表达")
+        private String requestedHierarchyMode;
+
+        @Schema(description = "AI 最终采用的层级表达")
+        private String resolvedHierarchyMode;
+
         @Schema(description = "节点数组（兼容旧格式）")
         private List<Object> nodes;
 
@@ -149,6 +158,12 @@ public class ArchitectureDTO {
         @Schema(description = "AI 最终采用的关系表达")
         private String resolvedRelationMode;
 
+        @Schema(description = "用户请求的层级表达")
+        private String requestedHierarchyMode;
+
+        @Schema(description = "AI 最终采用的层级表达")
+        private String resolvedHierarchyMode;
+
         @Schema(description = "创建时间")
         private String createTime;
     }
@@ -173,5 +188,29 @@ public class ArchitectureDTO {
 
         @Schema(description = "解析得到的文本内容")
         private String text;
+
+        @Schema(description = "AI 或本地规则生成的文件摘要")
+        private String summary;
+
+        @Schema(description = "摘要来源状态：AI、LOCAL、AI_FALLBACK、EMPTY")
+        private String summaryStatus;
+
+        @Schema(description = "摘要使用的模型，兜底摘要为 local")
+        private String summaryModel;
+
+        @Schema(description = "解析文本长度")
+        private Integer textLength;
+
+        @Schema(description = "解析文本是否因长度限制被截断")
+        private Boolean truncated;
+
+        @Schema(description = "PDF 页数")
+        private Integer pageCount;
+
+        @Schema(description = "PPT 幻灯片数")
+        private Integer slideCount;
+
+        @Schema(description = "解析到的段落或文本块数量")
+        private Integer paragraphCount;
     }
 }

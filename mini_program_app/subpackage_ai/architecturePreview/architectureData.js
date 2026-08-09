@@ -57,6 +57,8 @@ export const ARCH_ICONS = {
 export const DEFAULT_ARCHITECTURE_DATA = {
   title: '二手交易平台架构图',
   subtitle: '分层解耦 · 高可用 · 易扩展 · 高性能 · 安全可靠 · 可维护',
+  requestedHierarchyMode: 'STRUCTURED',
+  resolvedHierarchyMode: 'STRUCTURED',
   layers: [
     {
       key: 'client',

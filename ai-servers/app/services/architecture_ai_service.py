@@ -7,8 +7,8 @@
 4. 校验节点关系（边必须引用存在的节点 id）
 5. 返回结构化结果
 
-与现有 diagram_architecture_agent（返回 Mermaid 文本）独立，本服务输出用户要求的
-{ title, style, nodes, edges } JSON 结构，供前端按节点/连线渲染。
+与现有 diagram_architecture_agent（返回 Mermaid 文本）独立，本服务输出结构化
+{ title, layers, groups, nodes, edges } JSON，供前端按层级、分组和关系渲染。
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from app.model_providers.runtime_config import set_active_llm_config, reset_acti
 
 SYSTEM_PROMPT = """你是一名资深系统架构师，负责根据用户需求生成结构完整的企业级软件系统架构图。
 
-【核心要求】必须输出完整的 6 层分层结构 + 右侧第三方服务 + 底部特性，缺一不可。
+【核心要求】必须输出完整的 6 层分层结构 + 层内分组/子模块层级 + 右侧第三方服务 + 底部特性，缺一不可。
 
 【6 个标准架构层】（从上到下，必须全部输出，即使该层没有内容也要输出空 nodes 数组）
 1. 客户端层（client）：用户直接接触的入口。常见节点：移动 App、Web 端、微信小程序、管理后台、PC 客户端、桌面端等。
@@ -49,6 +49,8 @@ JSON 结构：
   "title": "架构标题",
   "style": "架构风格描述，如：前后端分离 / 微服务",
   "subtitle": "副标题，3-5 个关键词用 · 分隔",
+  "requestedHierarchyMode": "STRUCTURED",
+  "resolvedHierarchyMode": "STRUCTURED",
   "layers": [
     {
       "key": "client",
@@ -57,13 +59,46 @@ JSON 结构：
       "bg": "#EEF0FF",
       "border": "#C7D2FE",
       "iconKey": "monitor",
+      "groups": [
+        {
+          "id": "client_user_entry",
+          "name": "用户入口",
+          "description": "用户侧访问终端",
+          "nodes": [
+            {
+              "id": "mobile_app",
+              "name": "移动 App",
+              "description": "买卖物品、下单交易",
+              "tech": ["UniApp"],
+              "children": [
+                {
+                  "id": "mobile_trade_page",
+                  "name": "交易页面",
+                  "description": "商品浏览、下单与沟通",
+                  "tech": ["Vue3"]
+                }
+              ]
+            }
+          ]
+        }
+      ],
       "nodes": [
         {
+          "id": "mobile_app",
           "name": "移动 App",
           "description": "买卖物品、下单交易",
-          "tech": ["Vue3", "Vite"]
+          "tech": ["Vue3", "Vite"],
+          "children": [
+            {
+              "id": "mobile_trade_page",
+              "name": "交易页面",
+              "description": "商品浏览、下单与沟通",
+              "tech": ["Vue3"]
+            }
+          ]
         },
         {
+          "id": "web_client",
           "name": "Web 端",
           "description": "浏览商品、管理订单",
           "tech": ["Vue3"]
@@ -209,10 +244,17 @@ JSON 结构：
 - layers[].key: 固定为 client/gateway/service/dao/storage/infra 之一
 - layers[].name: 中文层名
 - layers[].color/bg/border/iconKey: 按上面示例填写
+- requestedHierarchyMode/resolvedHierarchyMode: 固定输出 STRUCTURED，表示结果具备层内层级结构
+- layers[].groups: 层内分组数组。优先把同一层的模块按职责归入 1-3 个分组，不能只有扁平卡片
+- layers[].groups[].id: 稳定英文/拼音/下划线 id，必须唯一
+- layers[].groups[].nodes: 该分组下的一级模块
 - layers[].nodes: 每层 1-6 个节点
+- layers[].nodes[].id: 稳定唯一 id，edges 必须引用这些 id 或其 children id
 - layers[].nodes[].name: 节点名（如 "用户服务"）
 - layers[].nodes[].description: 1-2 行功能描述
 - layers[].nodes[].tech: 技术栈数组，至少 1 个
+- layers[].nodes[].children: 子模块/组件数组。服务层、数据层、基础设施层等关键层必须尽量拆出 1-3 个真实子模块；禁止为凑层级虚构不合理组件
+- children[].id/name/description/tech: 与一级节点字段一致，并必须包含 parentId 语义，可由解析器补齐 parentId/level
 - thirdParty: 数组，至少 3 个元素；每项含 name/description/iconKey
 - features: 数组，至少 4 个中文特性词
 - requestedRelationMode: 用户请求的关系表达，取 AUTO/MODULE/DATA_FLOW/CALL
@@ -231,7 +273,7 @@ JSON 结构：
 - DATA_FLOW 模式：edges[].type 使用 dataFlow，必须突出数据从入口到服务再到存储的方向，direction 使用 forward，label 可写请求、用户数据、订单数据等
 - CALL 模式：edges[].type 使用 call，必须突出服务或模块之间谁调用谁，direction 使用 forward，label 可写调用、API、服务依赖等；不要把它画成数据最终入库路径
 - AUTO 模式：先分析需求，再把 resolvedRelationMode 设置为 MODULE/DATA_FLOW/CALL 中最合适的一个，并按该模式生成 edges
-- **必须输出 layers + thirdParty + features + nodes + edges + requestedRelationMode + resolvedRelationMode**
+- **必须输出 layers + layers[].groups + layers[].nodes[].children + thirdParty + features + nodes + edges + requestedRelationMode + resolvedRelationMode + requestedHierarchyMode + resolvedHierarchyMode**
 """
 
 
@@ -302,9 +344,142 @@ def _system_type_instruction(system_type: str) -> str:
     return f"系统类型：{normalized}。这是强约束：入口节点、模块命名和架构边界必须符合该系统形态。"
 
 
+def _hierarchy_instruction() -> str:
+    return (
+        "架构层级表达：HARD。最终 JSON 必须保留可渲染的层内层级，不允许只输出扁平的 layers[].nodes[] 卡片。"
+        "每个关键层优先拆成 groups；每个复杂业务节点优先拆出真实 children，并通过 parentId/level 语义表达模块、子模块、组件关系。"
+        "不得为了凑层级虚构用户需求中没有依据的模块。"
+    )
+
+
 def _slugify(value: str, fallback: str) -> str:
     text = re.sub(r"[^0-9A-Za-z_\u4e00-\u9fff]+", "_", value or "").strip("_")
     return text or fallback
+
+
+def _unique_id(value: str, fallback: str, used_ids: set[str]) -> str:
+    base = _slugify(value, fallback)
+    node_id = base
+    index = 2
+    while node_id in used_ids:
+        node_id = f"{base}_{index}"
+        index += 1
+    used_ids.add(node_id)
+    return node_id
+
+
+def _as_list(value: Any) -> List[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _normalize_tech(value: Any) -> List[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _normalize_layer_node(
+    node: Dict[str, Any],
+    layer_key: str,
+    default_icon_key: str,
+    index: int,
+    used_ids: set[str],
+    group_id: str = "",
+    parent_id: str = "",
+    level: int = 1,
+) -> Optional[Dict[str, Any]]:
+    name = str(node.get("name") or node.get("label") or "").strip()
+    if not name:
+        return None
+    raw_id = str(node.get("id") or node.get("nodeId") or name).strip()
+    node_id = _unique_id(raw_id, f"{layer_key}_{index + 1}", used_ids)
+    tech = _normalize_tech(node.get("tech") or node.get("technologies") or [])
+    normalized: Dict[str, Any] = {
+        "id": node_id,
+        "name": name,
+        "type": str(node.get("type") or layer_key).strip() or layer_key,
+        "layer": layer_key,
+        "description": str(node.get("description") or node.get("desc") or "").strip(),
+        "tech": tech,
+        "iconKey": str(node.get("iconKey") or default_icon_key).strip() or default_icon_key,
+        "level": level,
+    }
+    if group_id:
+        normalized["groupId"] = group_id
+    if parent_id:
+        normalized["parentId"] = parent_id
+
+    raw_children = (
+        node.get("children")
+        or node.get("childNodes")
+        or node.get("components")
+        or node.get("submodules")
+        or []
+    )
+    children: List[Dict[str, Any]] = []
+    for child_index, child in enumerate(_as_list(raw_children)):
+        if not isinstance(child, dict):
+            continue
+        normalized_child = _normalize_layer_node(
+            child,
+            layer_key=layer_key,
+            default_icon_key=default_icon_key,
+            index=child_index,
+            used_ids=used_ids,
+            group_id=group_id,
+            parent_id=node_id,
+            level=level + 1,
+        )
+        if normalized_child:
+            children.append(normalized_child)
+    if children:
+        normalized["children"] = children
+    return normalized
+
+
+def _normalize_layer_group(
+    group: Dict[str, Any],
+    layer_key: str,
+    default_icon_key: str,
+    index: int,
+    used_ids: set[str],
+) -> Optional[Dict[str, Any]]:
+    name = str(group.get("name") or group.get("label") or "").strip()
+    if not name:
+        return None
+    raw_id = str(group.get("id") or group.get("groupId") or name).strip()
+    group_id = _unique_id(raw_id, f"{layer_key}_group_{index + 1}", used_ids)
+    nodes: List[Dict[str, Any]] = []
+    raw_nodes = group.get("nodes") or group.get("children") or group.get("items") or []
+    for node_index, node in enumerate(_as_list(raw_nodes)):
+        if not isinstance(node, dict):
+            continue
+        normalized_node = _normalize_layer_node(
+            node,
+            layer_key=layer_key,
+            default_icon_key=default_icon_key,
+            index=node_index,
+            used_ids=used_ids,
+            group_id=group_id,
+            level=1,
+        )
+        if normalized_node:
+            nodes.append(normalized_node)
+    return {
+        "id": group_id,
+        "name": name,
+        "description": str(group.get("description") or group.get("desc") or "").strip(),
+        "layer": layer_key,
+        "nodes": nodes,
+    }
+
+
+def _walk_nodes(nodes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    flattened: List[Dict[str, Any]] = []
+    for node in nodes:
+        flattened.append(node)
+        flattened.extend(_walk_nodes(_as_list(node.get("children"))))
+    return flattened
 
 
 def _flatten_layer_nodes(layers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -312,20 +487,27 @@ def _flatten_layer_nodes(layers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     used_ids = set()
     for layer in layers:
         layer_key = str(layer.get("key") or "layer")
-        for index, node in enumerate(layer.get("nodes") or []):
-            name = str(node.get("name") or "").strip()
-            if not name:
+        layer_nodes: List[Dict[str, Any]] = []
+        for group in _as_list(layer.get("groups")):
+            if isinstance(group, dict):
+                layer_nodes.extend(_walk_nodes(_as_list(group.get("nodes"))))
+        layer_nodes.extend(_walk_nodes(_as_list(layer.get("nodes"))))
+        for index, node in enumerate(layer_nodes):
+            node_id = str(node.get("id") or "").strip()
+            if not node_id or node_id in used_ids:
                 continue
-            node_id = str(node.get("id") or _slugify(name, f"{layer_key}_{index + 1}"))
-            if node_id in used_ids:
-                node_id = f"{node_id}_{index + 1}"
             used_ids.add(node_id)
             nodes.append({
                 "id": node_id,
-                "name": name,
+                "name": str(node.get("name") or node_id),
                 "type": str(node.get("type") or layer_key),
                 "layer": layer_key,
                 "description": str(node.get("description") or ""),
+                "tech": _normalize_tech(node.get("tech")),
+                "iconKey": str(node.get("iconKey") or ""),
+                "parentId": str(node.get("parentId") or ""),
+                "groupId": str(node.get("groupId") or ""),
+                "level": int(node.get("level") or 1),
             })
     return nodes
 
@@ -366,7 +548,11 @@ def _normalize_edges(raw_edges: Any, nodes: List[Dict[str, Any]], resolved_relat
 def _layer_has_nodes(layers: List[Dict[str, Any]], layer_keys: List[str]) -> bool:
     wanted = set(layer_keys)
     for layer in layers:
-        if layer.get("key") in wanted and layer.get("nodes"):
+        if layer.get("key") not in wanted:
+            continue
+        if layer.get("nodes"):
+            return True
+        if any(group.get("nodes") for group in _as_list(layer.get("groups")) if isinstance(group, dict)):
             return True
     return False
 
@@ -422,12 +608,16 @@ def _build_default_edges(nodes: List[Dict[str, Any]], resolved_relation_mode: st
     }
     edges: List[Dict[str, Any]] = []
     for left_key, right_key in zip(layer_order, layer_order[1:]):
-        left_nodes = by_layer.get(left_key) or []
-        right_nodes = by_layer.get(right_key) or []
+        left_nodes = [node for node in by_layer.get(left_key, []) if not node.get("parentId")]
+        right_nodes = [node for node in by_layer.get(right_key, []) if not node.get("parentId")]
         if not left_nodes or not right_nodes:
             continue
         if resolved_relation_mode == "MODULE":
-            pairs = [(left_nodes[0], right_nodes[0])]
+            max_pairs = min(max(len(left_nodes), len(right_nodes)), 3)
+            pairs = [
+                (left_nodes[index % len(left_nodes)], right_nodes[index % len(right_nodes)])
+                for index in range(max_pairs)
+            ]
         else:
             pairs = [(source, right_nodes[index % len(right_nodes)]) for index, source in enumerate(left_nodes[:3])]
         for source, target in pairs:
@@ -458,6 +648,7 @@ def _build_user_prompt(
         parts.append(f"架构模式：{architecture_style}")
     parts.append("规则强度说明：")
     parts.append(_system_type_instruction(system_type))
+    parts.append(_hierarchy_instruction())
     parts.append(_layer_strength_instruction(auto_architecture_layers, layers))
     parts.append(_focus_strength_instruction(display_content))
     parts.append(_relation_instruction(requested_relation_mode, resolved_relation_mode))
@@ -554,46 +745,59 @@ def _parse_architecture(
     for layer in raw_layers:
         if not isinstance(layer, dict):
             continue
-        key = str(layer.get("key") or "").strip()
+        key = str(layer.get("key") or "").strip().lower()
         if not key:
             continue
         provided[key] = layer
 
-    # 输出 6 层（缺失的层用空 nodes 兜底）
+    # 输出 6 层（缺失的层用空 nodes/groups 兜底）
     normalized_layers = []
+    used_ids: set[str] = set()
     for std in STANDARD_LAYERS:
         key = std["key"]
         if key in provided:
             pl = provided[key]
-            nodes_raw = pl.get("nodes")
-            if not isinstance(nodes_raw, list):
-                nodes_raw = []
-            nodes = []
-            for n in nodes_raw:
-                if not isinstance(n, dict):
+            groups: List[Dict[str, Any]] = []
+            for group_index, group in enumerate(_as_list(pl.get("groups"))):
+                if not isinstance(group, dict):
                     continue
-                name = str(n.get("name") or "").strip()
-                if not name:
-                    continue
-                desc = str(n.get("description") or "").strip()
-                tech_raw = n.get("tech") or n.get("technologies") or []
-                if not isinstance(tech_raw, list):
-                    tech_raw = []
-                tech = [str(t).strip() for t in tech_raw if str(t).strip()]
-                nodes.append({
-                    "name": name,
-                    "description": desc,
-                    "tech": tech,
-                    "iconKey": n.get("iconKey") or std["iconKey"],
-                })
+                normalized_group = _normalize_layer_group(
+                    group,
+                    layer_key=key,
+                    default_icon_key=std["iconKey"],
+                    index=group_index,
+                    used_ids=used_ids,
+                )
+                if normalized_group:
+                    groups.append(normalized_group)
+
+            nodes: List[Dict[str, Any]] = []
+            if groups:
+                # 兼容旧前端字段：layer.nodes 保留各分组下的一级节点，但结果页优先按 groups 渲染。
+                nodes = [node for group in groups for node in _as_list(group.get("nodes"))]
+            else:
+                for node_index, raw_node in enumerate(_as_list(pl.get("nodes"))):
+                    if not isinstance(raw_node, dict):
+                        continue
+                    normalized_node = _normalize_layer_node(
+                        raw_node,
+                        layer_key=key,
+                        default_icon_key=std["iconKey"],
+                        index=node_index,
+                        used_ids=used_ids,
+                        level=1,
+                    )
+                    if normalized_node:
+                        nodes.append(normalized_node)
             normalized_layers.append({
                 **std,
                 "name": str(pl.get("name") or std["name"]).strip(),
+                "groups": groups,
                 "nodes": nodes,
             })
         else:
             # 该层缺失，输出空 nodes
-            normalized_layers.append({**std, "nodes": []})
+            normalized_layers.append({**std, "groups": [], "nodes": []})
 
     # 解析 thirdParty
     raw_tp = data.get("thirdParty") or data.get("third_party") or []
@@ -657,6 +861,8 @@ def _parse_architecture(
         "requestedRelationMode": requested_relation_mode,
         "resolvedRelationMode": final_relation_mode,
         "relationMode": final_relation_mode,
+        "requestedHierarchyMode": "STRUCTURED",
+        "resolvedHierarchyMode": "STRUCTURED",
     }
 
 
@@ -692,23 +898,28 @@ def _parse_legacy_nodes(
         {"key": "infra",   "name": "基础设施层", "color": "#F59E0B", "bg": "#FFFBEB", "border": "#FDE68A", "iconKey": "server"},
     ]
     used = set()
+    used_ids: set[str] = set()
     layers = []
     for std in STANDARD_LAYERS:
         types = LAYER_TYPES.get(std["key"], [])
         matched = []
-        for n in nodes:
+        for index, n in enumerate(nodes):
             if not isinstance(n, dict) or n.get("id") in used:
                 continue
             t = (n.get("type") or "").lower()
             if t in types:
                 used.add(n.get("id"))
-                matched.append({
-                    "name": n.get("name") or "",
-                    "description": n.get("description") or "",
-                    "tech": n.get("technologies") or n.get("tech") or [],
-                    "iconKey": n.get("iconKey") or std["iconKey"],
-                })
-        layers.append({**std, "nodes": matched})
+                normalized_node = _normalize_layer_node(
+                    n,
+                    layer_key=std["key"],
+                    default_icon_key=std["iconKey"],
+                    index=index,
+                    used_ids=used_ids,
+                    level=1,
+                )
+                if normalized_node:
+                    matched.append(normalized_node)
+        layers.append({**std, "groups": [], "nodes": matched})
     _validate_selected_layers(layers, architecture_layers)
     third_party = [
         {"name": "短信服务", "description": "验证码、通知", "iconKey": "sms"},
@@ -734,6 +945,8 @@ def _parse_legacy_nodes(
         "requestedRelationMode": requested_relation_mode,
         "resolvedRelationMode": resolved_relation_mode,
         "relationMode": resolved_relation_mode,
+        "requestedHierarchyMode": "STRUCTURED",
+        "resolvedHierarchyMode": "STRUCTURED",
     }
 
 

@@ -33,12 +33,58 @@
               </view>
               <text class="layer-name" :style="{ color: layer.color }">{{ layer.name }}</text>
             </view>
-            <view class="layer-cards">
+            <view v-if="layerHasGroups(layer)" class="layer-groups">
+              <view
+                v-for="(group, gi) in visibleLayerGroups(layer)"
+                :key="group.id || group.name || gi"
+                class="layer-group"
+                :class="{ in: groupIn[li + '-' + gi] }"
+                :style="{ borderColor: layer.border }"
+              >
+                <view class="layer-group-head">
+                  <text class="layer-group-title" :style="{ color: layer.color }">{{ group.name }}</text>
+                  <text v-if="group.description" class="layer-group-desc">{{ group.description }}</text>
+                </view>
+                <view class="layer-cards">
+                  <view
+                    v-for="(node, ci) in group.nodes"
+                    :key="node.id || node.name || ci"
+                    class="arch-card"
+                    :class="{ in: cardIn[groupCardKey(li, gi, ci)] }"
+                    :style="{ borderColor: layer.border }"
+                  >
+                    <text class="arch-card-name">{{ node.name }}</text>
+                    <text v-if="node.description" class="arch-card-desc">{{ node.description }}</text>
+                    <view v-if="node.tech && node.tech.length" class="arch-card-tech">
+                      <text
+                        v-for="t in node.tech"
+                        :key="t"
+                        class="tech"
+                        :style="{ color: layer.color, borderColor: layer.color + '55' }"
+                      >{{ t }}</text>
+                    </view>
+                    <view v-if="nodeChildren(node).length" class="node-children">
+                      <view
+                        v-for="(child, childIndex) in nodeChildren(node)"
+                        :key="child.id || child.name || childIndex"
+                        class="node-child"
+                        :class="{ in: childIn[groupChildKey(li, gi, ci, childIndex)] }"
+                        :style="{ borderColor: layer.color + '33', background: layer.bg }"
+                      >
+                        <text class="node-child-dot" :style="{ background: layer.color }"></text>
+                        <text class="node-child-name">{{ child.name }}</text>
+                      </view>
+                    </view>
+                  </view>
+                </view>
+              </view>
+            </view>
+            <view v-else class="layer-cards">
               <view
                 v-for="(node, ci) in layer.nodes"
-                :key="node.name || ci"
+                :key="node.id || node.name || ci"
                 class="arch-card"
-                :class="{ in: cardIn[li + '-' + ci] }"
+                :class="{ in: cardIn[cardKey(li, ci)] }"
                 :style="{ borderColor: layer.border }"
               >
                 <text class="arch-card-name">{{ node.name }}</text>
@@ -50,6 +96,18 @@
                     class="tech"
                     :style="{ color: layer.color, borderColor: layer.color + '55' }"
                   >{{ t }}</text>
+                </view>
+                <view v-if="nodeChildren(node).length" class="node-children">
+                  <view
+                    v-for="(child, childIndex) in nodeChildren(node)"
+                    :key="child.id || child.name || childIndex"
+                    class="node-child"
+                    :class="{ in: childIn[childKey(li, ci, childIndex)] }"
+                    :style="{ borderColor: layer.color + '33', background: layer.bg }"
+                  >
+                    <text class="node-child-dot" :style="{ background: layer.color }"></text>
+                    <text class="node-child-name">{{ child.name }}</text>
+                  </view>
                 </view>
               </view>
             </view>
@@ -98,7 +156,7 @@
         </view>
         <text class="status-float-msg">{{ animationWaitingText }}</text>
         <view class="status-float-meta">
-          <text class="status-float-count">已生成 {{ madeCount }} 个组件</text>
+          <text class="status-float-count">已生成 {{ madeCount }} 个结构项</text>
           <text class="status-float-pct">{{ animationProgressPercent }}%</text>
         </view>
         <view class="status-float-bar"><view class="status-float-bar-fill" :style="{ width: animationProgressPercent + '%' }"></view></view>
@@ -195,18 +253,18 @@ const resolvedRelationMode = computed(() => {
 
 const RELATION_COPY = {
   MODULE: {
-    subtitles: ['正在解析系统需求', '正在识别核心业务模块', '正在划分系统架构层级', '正在建立模块连接', '正在优化架构布局'],
-    waiting: ['识别系统组成与边界', '整理模块归属关系', '逐层生成模块卡片', '建立结构连接', '准备输出模块关系架构图'],
+    subtitles: ['正在解析系统需求', '正在规划分层骨架', '正在展开层内模块', '正在建立层级关系', '正在优化架构布局'],
+    waiting: ['识别系统组成与边界', '生成架构层与模块组', '填充分组、节点与子模块', '建立结构连接与上下游关系', '准备输出模块关系架构图'],
     progress: [16, 34, 62, 86, 95],
   },
   DATA_FLOW: {
-    subtitles: ['正在解析数据来源', '正在识别核心数据节点', '正在分析数据传递路径', '正在连接服务与存储节点', '正在优化箭头与路径'],
-    waiting: ['识别输入、处理与存储位置', '提取关键数据节点', '生成数据流向路径', '强化方向箭头', '准备输出数据流架构图'],
+    subtitles: ['正在解析数据来源', '正在规划数据层级', '正在展开处理模块', '正在连接数据路径', '正在优化箭头与路径'],
+    waiting: ['识别输入、处理与存储位置', '生成数据入口、服务与存储分组', '填充数据处理节点和子模块', '建立跨层数据流向', '准备输出数据流架构图'],
     progress: [16, 32, 64, 88, 95],
   },
   CALL: {
-    subtitles: ['正在识别系统服务', '正在分析模块依赖', '正在解析服务调用关系', '正在建立调用方向', '正在优化服务布局'],
-    waiting: ['识别 API、Service 与模块边界', '整理调用依赖', '生成调用链路', '标注调用方向', '准备输出调用关系架构图'],
+    subtitles: ['正在识别系统服务', '正在拆解服务层级', '正在解析模块依赖', '正在建立调用方向', '正在优化服务布局'],
+    waiting: ['识别 API、Service 与模块边界', '展开服务、适配器与组件', '生成调用链路与依赖关系', '标注跨层调用方向', '准备输出调用关系架构图'],
     progress: [16, 33, 63, 87, 95],
   },
 }
@@ -237,7 +295,9 @@ function relationModeLabel(mode) {
 }
 
 const layerIn = reactive({})
+const groupIn = reactive({})
 const cardIn = reactive({})
+const childIn = reactive({})
 const arrowIn = reactive({})
 const tpIn = ref(false)
 const tpItemIn = reactive({})
@@ -260,8 +320,49 @@ const stageStyle = computed(() => ({
 function layerStyle(layer) {
   return { borderColor: layer.border, background: layer.bg }
 }
+
+function nodeChildren(node) {
+  return Array.isArray(node?.children) ? node.children : []
+}
+
+function visibleLayerGroups(layer) {
+  return Array.isArray(layer?.groups)
+    ? layer.groups.filter(group => Array.isArray(group?.nodes) && group.nodes.length)
+    : []
+}
+
+function layerHasGroups(layer) {
+  return visibleLayerGroups(layer).length > 0
+}
+
+function cardKey(layerIndex, nodeIndex) {
+  return `${layerIndex}-${nodeIndex}`
+}
+
+function childKey(layerIndex, nodeIndex, childIndex) {
+  return `${layerIndex}-${nodeIndex}-${childIndex}`
+}
+
+function groupCardKey(layerIndex, groupIndex, nodeIndex) {
+  return `${layerIndex}-g${groupIndex}-${nodeIndex}`
+}
+
+function groupChildKey(layerIndex, groupIndex, nodeIndex, childIndex) {
+  return `${layerIndex}-g${groupIndex}-${nodeIndex}-${childIndex}`
+}
+
+function layerComponentCount(layer) {
+  const groups = visibleLayerGroups(layer)
+  if (groups.length) {
+    return groups.reduce((sum, group) => (
+      sum + 1 + (group.nodes || []).reduce((nodeSum, node) => nodeSum + 1 + nodeChildren(node).length, 0)
+    ), 0)
+  }
+  return (layer.nodes || []).reduce((sum, node) => sum + 1 + nodeChildren(node).length, 0)
+}
+
 function totalComponents() {
-  return layers.value.reduce((s, l) => s + (l.nodes || []).length, 0) + thirdParty.value.length
+  return layers.value.reduce((s, l) => s + layerComponentCount(l), 0) + thirdParty.value.length
 }
 
 function fitStage() {
@@ -347,15 +448,41 @@ async function runAnimation() {
   // 阶段2 逐层构建
   stageIndex.value = 2
   for (let li = 0; li < layers.value.length; li++) {
-    const nodes = layers.value[li].nodes || []
+    const layer = layers.value[li]
     // 换 layer 时镜头跟随到当前 layer
     smooth.value = true
     await followCamera(li)
     await sleep(60)
-    for (let ci = 0; ci < nodes.length; ci++) {
-      cardIn[li + '-' + ci] = true
-      madeCount.value += 1
-      await sleep(70)
+    const groups = visibleLayerGroups(layer)
+    if (groups.length) {
+      for (let gi = 0; gi < groups.length; gi++) {
+        groupIn[`${li}-${gi}`] = true
+        madeCount.value += 1
+        await sleep(70)
+        const nodes = groups[gi].nodes || []
+        for (let ci = 0; ci < nodes.length; ci++) {
+          cardIn[groupCardKey(li, gi, ci)] = true
+          madeCount.value += 1
+          await sleep(70)
+          for (let childIndex = 0; childIndex < nodeChildren(nodes[ci]).length; childIndex++) {
+            childIn[groupChildKey(li, gi, ci, childIndex)] = true
+            madeCount.value += 1
+            await sleep(45)
+          }
+        }
+      }
+    } else {
+      const nodes = layer.nodes || []
+      for (let ci = 0; ci < nodes.length; ci++) {
+        cardIn[cardKey(li, ci)] = true
+        madeCount.value += 1
+        await sleep(70)
+        for (let childIndex = 0; childIndex < nodeChildren(nodes[ci]).length; childIndex++) {
+          childIn[childKey(li, ci, childIndex)] = true
+          madeCount.value += 1
+          await sleep(45)
+        }
+      }
     }
     if (li < layers.value.length - 1) { arrowIn[li] = true; await sleep(60) }
   }
@@ -418,7 +545,21 @@ function startAnimation(result) {
 function revealAll() {
   layers.value.forEach((l, li) => {
     layerIn[li] = true
-    ;(l.nodes || []).forEach((n, ci) => { cardIn[li + '-' + ci] = true })
+    const groups = visibleLayerGroups(l)
+    if (groups.length) {
+      groups.forEach((group, gi) => {
+        groupIn[`${li}-${gi}`] = true
+        ;(group.nodes || []).forEach((node, ci) => {
+          cardIn[groupCardKey(li, gi, ci)] = true
+          nodeChildren(node).forEach((child, childIndex) => { childIn[groupChildKey(li, gi, ci, childIndex)] = true })
+        })
+      })
+    } else {
+      ;(l.nodes || []).forEach((node, ci) => {
+        cardIn[cardKey(li, ci)] = true
+        nodeChildren(node).forEach((child, childIndex) => { childIn[childKey(li, ci, childIndex)] = true })
+      })
+    }
     if (li < layers.value.length - 1) arrowIn[li] = true
   })
   tpIn.value = true
@@ -439,7 +580,9 @@ function skipAnimation() {
 function retry() {
   clearTimers()
   Object.keys(layerIn).forEach(k => delete layerIn[k])
+  Object.keys(groupIn).forEach(k => delete groupIn[k])
   Object.keys(cardIn).forEach(k => delete cardIn[k])
+  Object.keys(childIn).forEach(k => delete childIn[k])
   Object.keys(arrowIn).forEach(k => delete arrowIn[k])
   Object.keys(tpItemIn).forEach(k => delete tpItemIn[k])
   Object.keys(featureIn).forEach(k => delete featureIn[k])
@@ -486,12 +629,23 @@ onUnload(() => { clearTimers() })
 .layer-icon { width: 44rpx; height: 44rpx; border-radius: 14rpx; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .layer-name { font-size: 26rpx; font-weight: 700; }
 .layer-cards { display: flex; flex-wrap: wrap; gap: 14rpx; }
+.layer-groups { display: flex; flex-direction: column; gap: 14rpx; }
+.layer-group { border: 2rpx solid #e2e8ef; border-radius: 18rpx; padding: 14rpx; background: rgba(255, 255, 255, 0.58); opacity: 0; transform: translateY(10px); transition: opacity 0.3s ease, transform 0.3s ease; }
+.layer-group.in { opacity: 1; transform: translateY(0); }
+.layer-group-head { display: flex; align-items: baseline; gap: 10rpx; margin-bottom: 10rpx; min-width: 0; }
+.layer-group-title { font-size: 22rpx; font-weight: 800; line-height: 1.25; }
+.layer-group-desc { color: #64748B; font-size: 19rpx; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .arch-card { background: #fff; border: 2rpx solid #e2e8ef; border-radius: 18rpx; padding: 12rpx 16rpx; min-width: 150rpx; opacity: 0; transform: translateY(10px) scale(0.85); transition: opacity 0.34s ease, transform 0.34s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .arch-card.in { opacity: 1; transform: translateY(0) scale(1); }
 .arch-card-name { font-size: 24rpx; font-weight: 700; color: #1e344f; display: block; }
 .arch-card-desc { font-size: 20rpx; color: #8290a1; display: block; margin-top: 4rpx; max-width: 220rpx; }
 .arch-card-tech { display: flex; gap: 8rpx; margin-top: 8rpx; flex-wrap: wrap; }
 .tech { font-size: 18rpx; padding: 2rpx 10rpx; border-radius: 10rpx; border: 2rpx solid; }
+.node-children { width: 100%; display: flex; flex-direction: column; gap: 7rpx; margin-top: 10rpx; padding-top: 8rpx; border-top: 1rpx solid #eef2f7; }
+.node-child { display: flex; align-items: center; gap: 8rpx; padding: 7rpx 9rpx; border: 1rpx solid; border-radius: 10rpx; opacity: 0; transform: translateY(6px); transition: opacity 0.24s ease, transform 0.24s ease; }
+.node-child.in { opacity: 1; transform: translateY(0); }
+.node-child-dot { width: 8rpx; height: 8rpx; border-radius: 50%; flex-shrink: 0; }
+.node-child-name { color: #1f2937; font-size: 18rpx; line-height: 1.25; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .layer-arrow { display: flex; flex-direction: column; align-items: center; height: 36rpx; opacity: 0; transition: opacity 0.3s; }
 .layer-arrow.in { opacity: 1; }
 .layer-arrow-line { width: 4rpx; height: 22rpx; background: #b9c6d6; }

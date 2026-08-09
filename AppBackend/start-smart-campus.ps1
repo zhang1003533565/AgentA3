@@ -58,8 +58,10 @@ $MysqlCollation = if ($env:MYSQL_COLLATION) { $env:MYSQL_COLLATION } else { "utf
 $MysqlWaitSeconds = if ($env:MYSQL_WAIT_SECONDS) { [int]$env:MYSQL_WAIT_SECONDS } else { 90 }
 $AdminerPort = if ($env:ADMINER_PORT) { [int]$env:ADMINER_PORT } else { 0 }
 $BackendPort = if ($env:SERVER_PORT) { [int]$env:SERVER_PORT } else { 8080 }
-# Host port mapped from container's 3306 (see docker-compose.yml). Defaults to 3307.
-$MysqlHostPort = if ($env:MYSQL_HOST_PORT) { [int]$env:MYSQL_HOST_PORT } else { 3307 }
+# Host port mapped from container's 3306 (see docker-compose.yml). Defaults to 3306.
+$MysqlHostPort = if ($env:MYSQL_HOST_PORT) { [int]$env:MYSQL_HOST_PORT } else { 3306 }
+$Neo4jEnabled = if ($env:NEO4J_ENABLED) { @("1", "true", "yes", "on") -contains $env:NEO4J_ENABLED.ToLowerInvariant() } else { $false }
+$Neo4jWaitSeconds = if ($env:NEO4J_WAIT_SECONDS) { [int]$env:NEO4J_WAIT_SECONDS } else { $MysqlWaitSeconds }
 $DataSqlPath = Join-Path $PSScriptRoot "src\main\resources\data.sql"
 $ImportDataSql = $false
 if ($env:IMPORT_DATA_SQL) {
@@ -115,6 +117,19 @@ function Invoke-Compose {
         & docker compose @args
     } else {
         & docker-compose @args
+    }
+}
+
+function Invoke-ComposeWithInput {
+    param(
+        [string]$InputText,
+        [object[]]$ComposeArgs
+    )
+
+    if ($script:UseDockerComposeV2) {
+        $InputText | & docker compose @ComposeArgs
+    } else {
+        $InputText | & docker-compose @ComposeArgs
     }
 }
 
@@ -225,8 +240,19 @@ function Import-DataSqlIfRequested {
     Write-Log "IMPORT_DATA_SQL=1 detected. Importing data.sql into '$MysqlDatabase'."
     Write-Log "Warning: data.sql contains TRUNCATE statements and may reset local seed data."
 
-    Get-Content -Raw -Encoding UTF8 $DataSqlPath |
-        Invoke-Compose exec -T -e "MYSQL_PWD=$MysqlRootPassword" $MysqlService mysql --default-character-set=utf8mb4 -uroot $MysqlDatabase
+    $sqlText = Get-Content -Raw -Encoding UTF8 $DataSqlPath
+    $composeArgs = @(
+        "exec",
+        "-T",
+        "-e",
+        "MYSQL_PWD=$MysqlRootPassword",
+        $MysqlService,
+        "mysql",
+        "--default-character-set=utf8mb4",
+        "-uroot",
+        $MysqlDatabase
+    )
+    Invoke-ComposeWithInput -InputText $sqlText -ComposeArgs $composeArgs
 
     if ($LASTEXITCODE -ne 0) {
         Stop-WithError "Failed to import data.sql."
@@ -248,6 +274,26 @@ function Wait-ForRedis {
     }
 
     Stop-WithError "Redis did not become ready within ${MysqlWaitSeconds}s."
+}
+
+function Wait-ForNeo4j {
+    if (-not $Neo4jEnabled) {
+        Write-Log "Skipping Neo4j readiness check. Set NEO4J_ENABLED=true to enable knowledge graph storage."
+        return
+    }
+
+    Write-Log "Waiting for Neo4j container..."
+    for ($i = 0; $i -lt $Neo4jWaitSeconds; $i++) {
+        $ErrorActionPreference = "SilentlyContinue"
+        $status = docker inspect -f "{{.State.Health.Status}}" smart-campus-neo4j 2>$null
+        $ErrorActionPreference = "Stop"
+        if ($LASTEXITCODE -eq 0 -and $status -eq "healthy") {
+            return
+        }
+        Start-Sleep -Seconds 1
+    }
+
+    Stop-WithError "Neo4j did not become healthy within ${Neo4jWaitSeconds}s."
 }
 
 function Ensure-BackendTools {
@@ -290,7 +336,7 @@ function Show-CosConfigStatus {
 }
 
 function Set-DataSourceUrl {
-    # Host MySQL port (3307) is mapped from container's 3306 via docker-compose.yml.
+    # Host MySQL port is mapped from container's 3306 via docker-compose.yml.
     # characterEncoding must use the Java charset name "UTF-8" (NOT "utf8mb4" --
     # MySQL Connector/J rejects MySQL charset names here with UnsupportedEncodingException).
     # Connector/J 8.0.26+ automatically uses utf8mb4 on the server side when UTF-8 is given.
@@ -298,13 +344,22 @@ function Set-DataSourceUrl {
     $existing = [Environment]::GetEnvironmentVariable("SPRING_DATASOURCE_URL", "Process")
     if ($existing) {
         Write-Log "Using configured SPRING_DATASOURCE_URL: $existing"
-        return
+    } else {
+        $url = "jdbc:mysql://localhost:${MysqlHostPort}/${MysqlDatabase}?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai"
+        $env:SPRING_DATASOURCE_URL = $url
+        Write-Log "Using default SPRING_DATASOURCE_URL: $url"
+        Write-Log "Tip: Override by setting SPRING_DATASOURCE_URL in .env or your shell environment."
     }
 
-    $url = "jdbc:mysql://localhost:${MysqlHostPort}/${MysqlDatabase}?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai"
-    $env:SPRING_DATASOURCE_URL = $url
-    Write-Log "Using default SPRING_DATASOURCE_URL: $url"
-    Write-Log "Tip: Override by setting SPRING_DATASOURCE_URL in .env or your shell environment."
+    if (-not [Environment]::GetEnvironmentVariable("SPRING_DATASOURCE_USERNAME", "Process")) {
+        $env:SPRING_DATASOURCE_USERNAME = "root"
+        Write-Log "Using default SPRING_DATASOURCE_USERNAME: root"
+    }
+
+    if (-not [Environment]::GetEnvironmentVariable("SPRING_DATASOURCE_PASSWORD", "Process")) {
+        $env:SPRING_DATASOURCE_PASSWORD = $MysqlRootPassword
+        Write-Log "Using MYSQL_ROOT_PASSWORD as SPRING_DATASOURCE_PASSWORD."
+    }
 }
 
 function Start-Backend {
@@ -331,6 +386,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Wait-ForMysql
 Wait-ForRedis
+Wait-ForNeo4j
 Ensure-Database
 Import-DataSqlIfRequested
 Ensure-BackendTools

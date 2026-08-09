@@ -591,6 +591,7 @@ function generateArchitecture() {
     displayContent: focusContents,
     relationMode,
     relationType: relationMode,
+    hierarchyMode: 'STRUCTURED',
     sourceText: description.value.trim(),
     fileId: uploadedFile.value?.fileId || uploadedFile.value?.id || null,
     sourceFile,

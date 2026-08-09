@@ -4,9 +4,12 @@ import com.example.appbackend.dto.MindMapDTO;
 import com.example.appbackend.entity.MindMapRecord;
 import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.MindMapRecordRepository;
+import com.example.appbackend.service.FileSummaryResult;
+import com.example.appbackend.service.FileSummaryService;
 import com.example.appbackend.service.FileParseService;
 import com.example.appbackend.service.MindMapAIService;
 import com.example.appbackend.service.MindMapService;
+import com.example.appbackend.service.ParsedFileContent;
 import com.example.appbackend.service.support.MindMapGenerationConstraints;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,6 +31,7 @@ public class MindMapServiceImpl implements MindMapService {
 
     private final MindMapAIService mindMapAIService;
     private final FileParseService fileParseService;
+    private final FileSummaryService fileSummaryService;
     private final MindMapRecordRepository recordRepository;
     private final ObjectMapper objectMapper;
 
@@ -39,10 +43,12 @@ public class MindMapServiceImpl implements MindMapService {
 
     public MindMapServiceImpl(MindMapAIService mindMapAIService,
                               FileParseService fileParseService,
+                              FileSummaryService fileSummaryService,
                               MindMapRecordRepository recordRepository,
                               ObjectMapper objectMapper) {
         this.mindMapAIService = mindMapAIService;
         this.fileParseService = fileParseService;
+        this.fileSummaryService = fileSummaryService;
         this.recordRepository = recordRepository;
         this.objectMapper = objectMapper;
     }
@@ -152,12 +158,21 @@ public class MindMapServiceImpl implements MindMapService {
             throw new BusinessException(500, "文件保存失败: " + error.getMessage());
         }
 
-        String text = fileParseService.parse(target.toFile());
+        ParsedFileContent parsed = fileParseService.parseDetailed(target.toFile());
+        FileSummaryResult summary = fileSummaryService.summarize(originalName, parsed.text());
         MindMapDTO.UploadResponse response = new MindMapDTO.UploadResponse();
         response.setFileId(fileId);
         response.setFileName(originalName);
         response.setSourceFile(buildFileUrl(objectKey));
-        response.setText(text);
+        response.setText(parsed.text());
+        response.setSummary(summary.summary());
+        response.setSummaryStatus(summary.status());
+        response.setSummaryModel(summary.model());
+        response.setTextLength(parsed.textLength());
+        response.setTruncated(parsed.truncated());
+        response.setPageCount(parsed.pageCount());
+        response.setSlideCount(parsed.slideCount());
+        response.setParagraphCount(parsed.paragraphCount());
         return response;
     }
 
@@ -180,9 +195,12 @@ public class MindMapServiceImpl implements MindMapService {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(400, "请选择文件");
         }
+        if (file.getSize() > 20L * 1024 * 1024) {
+            throw new BusinessException(400, "文件不能超过 20MB");
+        }
         String extension = extensionOf(file.getOriginalFilename());
-        if (!List.of(".pdf", ".doc", ".docx", ".ppt", ".pptx").contains(extension)) {
-            throw new BusinessException(400, "仅支持 pdf、doc、docx、ppt、pptx");
+        if (!List.of(".pdf", ".doc", ".docx", ".ppt", ".pptx", ".md", ".markdown").contains(extension)) {
+            throw new BusinessException(400, "仅支持 pdf、doc、docx、ppt、pptx、md");
         }
     }
 

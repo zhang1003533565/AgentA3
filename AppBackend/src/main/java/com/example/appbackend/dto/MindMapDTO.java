@@ -78,6 +78,14 @@ public class MindMapDTO {
         private String fileName;
         private String sourceFile;
         private String text;
+        private String summary;
+        private String summaryStatus;
+        private String summaryModel;
+        private Integer textLength;
+        private Boolean truncated;
+        private Integer pageCount;
+        private Integer slideCount;
+        private Integer paragraphCount;
     }
 
     @Data
