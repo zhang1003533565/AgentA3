@@ -16,14 +16,6 @@
       </template>
     </nav-bar>
 
-    <!-- 缩放控制（悬浮右上角） -->
-    <view class="zoom-controls">
-      <view class="zoom-btn" @tap="zoomOut"><text class="zoom-btn-text">−</text></view>
-      <text class="zoom-value">{{ Math.round(scale * 100) }}%</text>
-      <view class="zoom-btn" @tap="zoomIn"><text class="zoom-btn-text">＋</text></view>
-      <view class="zoom-btn" @tap="zoomFit"><text class="zoom-btn-text">⤢</text></view>
-    </view>
-
     <view class="canvas-wrapper" :class="{ 'canvas-wrapper--dragging': isDragging }">
       <scroll-view
         ref="canvasRef"
@@ -384,17 +376,6 @@ function centerStage() {
   const stageH = stageSize.value.height * scale.value
   scrollLeft.value = Math.max(0, Math.round((stageW - width) / 2))
   scrollTop.value = Math.max(0, Math.round((stageH - height) / 2))
-}
-
-function zoomIn() {
-  scale.value = clamp(Number((scale.value + 0.1).toFixed(2)), MIN_SCALE, MAX_SCALE)
-}
-function zoomOut() {
-  scale.value = clamp(Number((scale.value - 0.1).toFixed(2)), MIN_SCALE, MAX_SCALE)
-}
-function zoomFit() {
-  scale.value = getFitScale()
-  nextTick(centerStage)
 }
 
 // 测量画布与 stage 尺寸
@@ -1001,12 +982,6 @@ loadArchitecture()
 .feature-check-icon { color: #10B981; font-size: 20rpx; line-height: 1; }
 .feature-text { font-size: 22rpx; color: #374151; font-weight: 600; }
 .feature-dot { display: none; }
-
-/* ===== 缩放控制（悬浮右上角） ===== */
-.zoom-controls { position: fixed; top: 200rpx; right: 24rpx; z-index: 90; display: flex; flex-direction: column; align-items: center; gap: 10rpx; background: #fff; border-radius: 16rpx; padding: 12rpx 10rpx; box-shadow: 0 4rpx 20rpx rgba(0, 0, 0, 0.08); }
-.zoom-btn { width: 52rpx; height: 52rpx; border-radius: 12rpx; background: #f1f4f8; display: flex; align-items: center; justify-content: center; }
-.zoom-btn-text { font-size: 30rpx; color: #58728c; line-height: 1; }
-.zoom-value { font-size: 20rpx; color: #8290a1; }
 
 /* 底部操作栏样式已抽到 subpackage_ai/components/AiResultBar.vue
    这里不再写底部栏 CSS，由组件提供 */
