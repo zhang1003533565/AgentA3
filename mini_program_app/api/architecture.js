@@ -220,9 +220,9 @@ function normalizeEdges(edges = [], mode = 'MODULE') {
     ...edge,
     source: edge.source || edge.from || '',
     target: edge.target || edge.to || '',
-    type: edge.type || defaultType,
+    type: defaultType,
     label: edge.label || '',
-    direction: edge.direction || defaultDirection,
+    direction: defaultDirection,
   }))
 }
 

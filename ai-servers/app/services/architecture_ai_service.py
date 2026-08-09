@@ -273,6 +273,35 @@ def _relation_instruction(requested_relation_mode: str, resolved_relation_mode: 
     return f"{prefix}\n{mode_text}"
 
 
+def _layer_strength_instruction(auto_architecture_layers: bool, layers: List[str]) -> str:
+    normalized_layers = [str(layer).strip().upper() for layer in layers if str(layer).strip()]
+    if auto_architecture_layers or not normalized_layers:
+        return "架构层级：AUTO。由 AI 根据需求决定各层内容密度，但仍必须输出标准 6 层结构。"
+    return (
+        "架构层级：用户已手动选择 "
+        + ", ".join(normalized_layers)
+        + "。这是强包含约束：所选层级必须出现并重点展开；未选层级可作为必要支撑保留，但不能抢主视觉。"
+    )
+
+
+def _focus_strength_instruction(display_content: List[str]) -> str:
+    normalized = [str(item).strip().upper() for item in display_content if str(item).strip()]
+    if not normalized:
+        return "重点展示：AUTO。由 AI 根据需求自动判断重点模块。"
+    return (
+        "重点展示："
+        + ", ".join(normalized)
+        + "。这是强引导，不是排他约束：生成完整架构时必须优先展开这些内容，但不能删除必要的上下游模块。"
+    )
+
+
+def _system_type_instruction(system_type: str) -> str:
+    normalized = (system_type or "WEB").strip().upper()
+    if normalized == "AUTO":
+        return "系统类型：AUTO。由 AI 根据需求判断系统形态。"
+    return f"系统类型：{normalized}。这是强约束：入口节点、模块命名和架构边界必须符合该系统形态。"
+
+
 def _slugify(value: str, fallback: str) -> str:
     text = re.sub(r"[^0-9A-Za-z_\u4e00-\u9fff]+", "_", value or "").strip("_")
     return text or fallback
@@ -325,13 +354,58 @@ def _normalize_edges(raw_edges: Any, nodes: List[Dict[str, Any]], resolved_relat
             edges.append({
                 "source": source,
                 "target": target,
-                "type": edge.get("type") or edge_type,
+                "type": edge_type,
                 "label": str(edge.get("label") or ""),
-                "direction": edge.get("direction") or direction,
+                "direction": direction,
             })
     if edges:
         return edges
     return _build_default_edges(nodes, resolved_relation_mode)
+
+
+def _layer_has_nodes(layers: List[Dict[str, Any]], layer_keys: List[str]) -> bool:
+    wanted = set(layer_keys)
+    for layer in layers:
+        if layer.get("key") in wanted and layer.get("nodes"):
+            return True
+    return False
+
+
+def _validate_selected_layers(layers: List[Dict[str, Any]], selected_layers: List[str]) -> None:
+    layer_requirements = {
+        "CLIENT": ["client"],
+        "APPLICATION": ["gateway", "service"],
+        "SERVICE": ["service"],
+        "DATA": ["dao", "storage"],
+    }
+    missing: List[str] = []
+    for raw in selected_layers or []:
+        key = str(raw or "").strip().upper()
+        required_keys = layer_requirements.get(key)
+        if required_keys and not _layer_has_nodes(layers, required_keys):
+            missing.append(key)
+    if missing:
+        raise HTTPException(status_code=502, detail=f"架构图缺少用户强制选择的层级：{', '.join(missing)}")
+
+
+def _validate_focus_contents(layers: List[Dict[str, Any]], third_party: List[Dict[str, Any]], focus_contents: List[str]) -> None:
+    focus_requirements = {
+        "FRONTEND": ["client"],
+        "BACKEND": ["service"],
+        "DATABASE": ["storage"],
+    }
+    missing: List[str] = []
+    for raw in focus_contents or []:
+        key = str(raw or "").strip().upper()
+        if key == "THIRD_PARTY":
+            if not third_party:
+                missing.append(key)
+            continue
+        required_keys = focus_requirements.get(key)
+        if required_keys and not _layer_has_nodes(layers, required_keys):
+            missing.append(key)
+    if missing:
+        raise HTTPException(status_code=502, detail=f"架构图缺少重点展示内容：{', '.join(missing)}")
 
 
 def _build_default_edges(nodes: List[Dict[str, Any]], resolved_relation_mode: str) -> List[Dict[str, Any]]:
@@ -375,18 +449,17 @@ def _build_user_prompt(
     display_content: List[str],
     requested_relation_mode: str,
     resolved_relation_mode: str,
+    auto_architecture_layers: bool,
 ) -> str:
     """把用户输入和配置参数组装成 user prompt。"""
     parts: List[str] = []
     parts.append(f"需求描述：{description or '(未提供)'}")
-    if system_type:
-        parts.append(f"系统类型：{system_type}")
     if architecture_style:
         parts.append(f"架构模式：{architecture_style}")
-    if layers:
-        parts.append(f"架构层级：{', '.join(layers)}")
-    if display_content:
-        parts.append(f"展示内容：{', '.join(display_content)}")
+    parts.append("规则强度说明：")
+    parts.append(_system_type_instruction(system_type))
+    parts.append(_layer_strength_instruction(auto_architecture_layers, layers))
+    parts.append(_focus_strength_instruction(display_content))
     parts.append(_relation_instruction(requested_relation_mode, resolved_relation_mode))
     parts.append("请基于上述需求生成架构图 JSON。")
     return "\n".join(parts)
@@ -556,11 +629,16 @@ def _parse_architecture(
     if not features:
         features = ["高可用", "易扩展", "高性能", "安全可靠", "可维护"]
 
-    model_resolved_mode = _normalize_relation_mode(
-        data.get("resolvedRelationMode") or data.get("relationMode") or resolved_relation_mode
-    )
-    final_relation_mode = model_resolved_mode if model_resolved_mode != "AUTO" else resolved_relation_mode
+    if requested_relation_mode == "AUTO":
+        model_resolved_mode = _normalize_relation_mode(
+            data.get("resolvedRelationMode") or data.get("relationMode") or resolved_relation_mode
+        )
+        final_relation_mode = model_resolved_mode if model_resolved_mode != "AUTO" else resolved_relation_mode
+    else:
+        final_relation_mode = resolved_relation_mode
     nodes = _flatten_layer_nodes(normalized_layers)
+    _validate_selected_layers(normalized_layers, architecture_layers)
+    _validate_focus_contents(normalized_layers, third_party, focus_contents)
     edges = _normalize_edges(data.get("edges"), nodes, final_relation_mode)
 
     return {
@@ -631,6 +709,13 @@ def _parse_legacy_nodes(
                     "iconKey": n.get("iconKey") or std["iconKey"],
                 })
         layers.append({**std, "nodes": matched})
+    _validate_selected_layers(layers, architecture_layers)
+    third_party = [
+        {"name": "短信服务", "description": "验证码、通知", "iconKey": "sms"},
+        {"name": "对象存储", "description": "图片、文件存储", "iconKey": "oss"},
+        {"name": "支付服务", "description": "微信支付、支付宝", "iconKey": "payment"},
+    ]
+    _validate_focus_contents(layers, third_party, focus_contents)
     flat_nodes = _flatten_layer_nodes(layers)
     normalized_edges = _normalize_edges(edges, flat_nodes, resolved_relation_mode)
     return {
@@ -638,11 +723,7 @@ def _parse_legacy_nodes(
         "style": style.strip() if isinstance(style, str) else "",
         "subtitle": subtitle.strip() if isinstance(subtitle, str) else "分层解耦 · 高可用 · 易扩展",
         "layers": layers,
-        "thirdParty": [
-            {"name": "短信服务", "description": "验证码、通知", "iconKey": "sms"},
-            {"name": "对象存储", "description": "图片、文件存储", "iconKey": "oss"},
-            {"name": "支付服务", "description": "微信支付、支付宝", "iconKey": "payment"},
-        ],
+        "thirdParty": third_party,
         "features": ["高可用", "易扩展", "高性能", "安全可靠", "可维护"],
         "nodes": flat_nodes,
         "edges": normalized_edges,
@@ -695,6 +776,7 @@ class ArchitectureAIService:
             display_content=display_content or [],
             requested_relation_mode=requested_relation_mode,
             resolved_relation_mode=resolved_relation_mode,
+            auto_architecture_layers=auto_architecture_layers,
         )
 
         # 将 Java 透传的 LLM 配置写入线程上下文

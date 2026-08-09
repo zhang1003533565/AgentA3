@@ -103,11 +103,9 @@ public class ArchitectureServiceImpl implements ArchitectureService {
 
         Object rawResponse = pythonAiProxyService.generateArchitecture(pythonRequest, authorization);
         Map<String, Object> archData = new LinkedHashMap<>(parseArchitectureData(rawResponse));
-        String resolvedRelationMode = normalizeRelationMode(getString(
-                archData,
-                "resolvedRelationMode",
-                "AUTO".equals(requestedRelationMode) ? getString(archData, "relationMode", "MODULE") : requestedRelationMode
-        ));
+        String resolvedRelationMode = "AUTO".equals(requestedRelationMode)
+                ? normalizeRelationMode(getString(archData, "resolvedRelationMode", getString(archData, "relationMode", "MODULE")))
+                : requestedRelationMode;
         if ("AUTO".equals(resolvedRelationMode)) {
             resolvedRelationMode = "MODULE";
         }
