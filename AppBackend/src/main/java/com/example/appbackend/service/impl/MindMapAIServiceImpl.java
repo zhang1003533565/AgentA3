@@ -5,6 +5,7 @@ import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.SystemConfigRepository;
 import com.example.appbackend.service.MindMapAIService;
 import com.example.appbackend.service.SystemConfigService;
+import com.example.appbackend.service.support.MindMapGenerationConstraints;
 import com.example.appbackend.service.support.MindMapTopicExtractor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -15,8 +16,11 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class MindMapAIServiceImpl implements MindMapAIService {
@@ -39,13 +43,26 @@ public class MindMapAIServiceImpl implements MindMapAIService {
     }
 
     @Override
-    public MindMapDTO.MindMapData generate(String inputText, String centerTopic, String depth, String structure, String detail, String authorization) {
-        String resolvedCenterTopic = MindMapTopicExtractor.extract(centerTopic, inputText, "", "");
+    public MindMapDTO.MindMapData generate(String inputText,
+                                           String centerTopic,
+                                           String centerTopicMode,
+                                           String depth,
+                                           String structure,
+                                           String detail,
+                                           String authorization) {
+        MindMapGenerationConstraints constraints = MindMapGenerationConstraints.resolve(
+                centerTopicMode,
+                centerTopic,
+                depth,
+                structure,
+                detail,
+                inputText
+        );
         AiRuntimeConfig aiConfig = resolveRuntimeConfig();
         if (aiConfig == null) {
-            return generateLocalMindMap(inputText, resolvedCenterTopic, depth, structure, detail);
+            return generateLocalMindMap(inputText, constraints);
         }
-        String prompt = buildPrompt(inputText, resolvedCenterTopic, depth, structure, detail);
+        String prompt = buildPrompt(inputText, constraints);
 
         Map<String, Object> systemMessage = new HashMap<>();
         systemMessage.put("role", "system");
@@ -78,7 +95,7 @@ public class MindMapAIServiceImpl implements MindMapAIService {
             if (!StringUtils.hasText(content)) {
                 throw new BusinessException(500, "AI 未返回思维导图 JSON");
             }
-            return parseAndValidate(content, resolvedCenterTopic, inputText);
+            return parseAndValidate(content, constraints, inputText);
         } catch (WebClientResponseException error) {
             throw new BusinessException(500, "AI 请求失败: " + error.getResponseBodyAsString());
         } catch (BusinessException error) {
@@ -181,32 +198,35 @@ public class MindMapAIServiceImpl implements MindMapAIService {
         return result;
     }
 
-    private String buildPrompt(String inputText, String centerTopic, String depth, String structure, String detail) {
+    private String buildPrompt(String inputText, MindMapGenerationConstraints constraints) {
         String normalizedInput = inputText == null ? "" : inputText.trim();
         if (normalizedInput.length() > MAX_AI_INPUT_CHARS) {
             normalizedInput = normalizedInput.substring(0, MAX_AI_INPUT_CHARS);
         }
-        String normalizedCenterTopic = defaultText(centerTopic, "");
-        String normalizedStructure = normalizeStructure(structure);
-        String structureInstruction = structureInstruction(normalizedStructure);
         return """
                 请根据输入内容生成树形思维导图 JSON。
 
-                要求：
-                - 层级清晰
-                - 不遗漏核心知识
-                - 不生成无关内容
-                - 如果“建议中心主题”不为空，JSON title 必须围绕它命名
-                - 不要把“生成、制作、思维导图”等操作词、文件编号、日期或姓名当成 title
-                - title 控制在 10 个汉字左右，优先表达学科、课程、项目或知识对象
-                - 必须按照“结构方式规则”组织一级节点；不同结构方式的一级节点命名和组织维度必须明显不同，不要只替换同义词
+                %s
+
+                输出要求：
                 - 只返回严格 JSON，不要 Markdown，不要解释
-                - JSON 顶层必须包含 title 和 nodes
+                - JSON 顶层必须包含 title、requestedCenterTopicMode、resolvedCenterTopic、requestedDepth、resolvedDepth、requestedStructure、resolvedStructure、detailLevel 和 nodes
+                - requestedDepth 必须为 "%s"，resolvedDepth 必须为最终采用的 2/3/4 数字
+                - requestedStructure 必须为 "%s"，resolvedStructure 必须为最终采用的 KNOWLEDGE/COURSE/REVIEW/PROJECT
+                - detailLevel 必须为 "%s"
                 - nodes 是数组，每个节点包含 name，可选 children
+                - title 与 resolvedCenterTopic 必须一致或语义完全一致
 
                 输出格式：
                 {
-                  "title": "计算机网络知识体系",
+                  "title": "计算机网络",
+                  "requestedCenterTopicMode": "%s",
+                  "resolvedCenterTopic": "计算机网络",
+                  "requestedDepth": "%s",
+                  "resolvedDepth": 3,
+                  "requestedStructure": "%s",
+                  "resolvedStructure": "KNOWLEDGE",
+                  "detailLevel": "%s",
                   "nodes": [
                     {
                       "name": "计算机网络基础",
@@ -222,16 +242,49 @@ public class MindMapAIServiceImpl implements MindMapAIService {
                   ]
                 }
 
-                层级深度：%s
-                结构方式：%s
-                结构方式规则：%s
-                详细程度：%s
-                建议中心主题：%s
+                当前系统预解析参数：
+                requestedCenterTopicMode=%s
+                resolvedCenterTopic=%s
+                requestedDepth=%s
+                resolvedDepth=%d
+                requestedStructure=%s
+                resolvedStructure=%s
+                detailLevel=%s
 
                 输入内容：
                 %s
-                """.formatted(defaultText(depth, "自动"), normalizedStructure, structureInstruction,
-                defaultText(detail, "standard"), normalizedCenterTopic, normalizedInput);
+                """.formatted(
+                constraints.promptInstructions(),
+                constraints.requestedDepth(),
+                constraints.requestedStructure(),
+                constraints.detailLevel(),
+                constraints.requestedCenterTopicMode(),
+                constraints.requestedDepth(),
+                constraints.requestedStructure(),
+                constraints.detailLevel(),
+                constraints.requestedCenterTopicMode(),
+                constraints.resolvedCenterTopic(),
+                constraints.requestedDepth(),
+                constraints.resolvedDepth(),
+                constraints.requestedStructure(),
+                constraints.resolvedStructure(),
+                constraints.detailLevel(),
+                normalizedInput
+        );
+    }
+
+    private MindMapDTO.MindMapData parseAndValidate(String content, MindMapGenerationConstraints constraints, String inputText) {
+        String json = extractJson(content);
+        try {
+            MindMapDTO.MindMapData data = objectMapper.readValue(json, MindMapDTO.MindMapData.class);
+            applyConstraints(data, constraints, inputText);
+            validateMindMap(data);
+            return data;
+        } catch (BusinessException error) {
+            throw error;
+        } catch (Exception error) {
+            throw new BusinessException(500, "AI 返回内容不是合法思维导图 JSON");
+        }
     }
 
     private MindMapDTO.MindMapData parseAndValidate(String content, String centerTopic, String inputText) {
@@ -247,6 +300,111 @@ public class MindMapAIServiceImpl implements MindMapAIService {
         } catch (Exception error) {
             throw new BusinessException(500, "AI 返回内容不是合法思维导图 JSON");
         }
+    }
+
+    private void applyConstraints(MindMapDTO.MindMapData data,
+                                  MindMapGenerationConstraints constraints,
+                                  String inputText) {
+        String resolvedCenterTopic;
+        if (constraints.isUserDefinedCenterTopic()) {
+            resolvedCenterTopic = constraints.resolvedCenterTopic();
+        } else {
+            String aiTopic = firstText(data.getResolvedCenterTopic(), data.getTitle());
+            String fallbackTopic = MindMapTopicExtractor.extract("", inputText, "", "");
+            resolvedCenterTopic = MindMapTopicExtractor.normalizeGeneratedTitle(aiTopic, firstText(fallbackTopic, constraints.resolvedCenterTopic()));
+        }
+        if (!StringUtils.hasText(resolvedCenterTopic)) {
+            resolvedCenterTopic = "思维导图";
+        }
+
+        int resolvedDepth = "AUTO".equals(constraints.requestedDepth())
+                ? normalizeResolvedDepth(data.getResolvedDepth(), constraints.resolvedDepth())
+                : constraints.resolvedDepth();
+        String resolvedStructure = "AUTO".equals(constraints.requestedStructure())
+                ? normalizeStructureCode(data.getResolvedStructure(), constraints.resolvedStructure())
+                : constraints.resolvedStructure();
+
+        data.setTitle(constraints.isUserDefinedCenterTopic()
+                ? constraints.resolvedCenterTopic()
+                : MindMapTopicExtractor.normalizeGeneratedTitle(data.getTitle(), resolvedCenterTopic));
+        data.setResolvedCenterTopic(data.getTitle());
+        data.setRequestedCenterTopicMode(constraints.requestedCenterTopicMode());
+        data.setRequestedDepth(constraints.requestedDepth());
+        data.setResolvedDepth(resolvedDepth);
+        data.setRequestedStructure(constraints.requestedStructure());
+        data.setResolvedStructure(resolvedStructure);
+        data.setDetailLevel(constraints.detailLevel());
+        data.setNodes(sanitizeNodes(data.getNodes(), 1, resolvedDepth, data.getTitle(), constraints.siblingLimit()));
+        if (data.getNodes().isEmpty()) {
+            data.setNodes(buildTopicNodes(data.getTitle(), resolvedDepth, constraints.detailLevel(), resolvedStructure));
+        }
+    }
+
+    private int normalizeResolvedDepth(Integer value, int fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        return Math.max(2, Math.min(4, value));
+    }
+
+    private String normalizeStructureCode(String value, String fallback) {
+        String normalized = defaultText(value, fallback).toLowerCase(Locale.ROOT);
+        if (normalized.contains("course") || normalized.contains("课程")) return "COURSE";
+        if (normalized.contains("review") || normalized.contains("exam") || normalized.contains("复习")) return "REVIEW";
+        if (normalized.contains("project") || normalized.contains("task") || normalized.contains("项目")) return "PROJECT";
+        if (normalized.contains("knowledge") || normalized.contains("知识")) return "KNOWLEDGE";
+        return StringUtils.hasText(fallback) ? fallback : "KNOWLEDGE";
+    }
+
+    private List<MindMapDTO.Node> sanitizeNodes(List<MindMapDTO.Node> nodes,
+                                                int level,
+                                                int maxDepth,
+                                                String parentName,
+                                                int siblingLimit) {
+        if (nodes == null || nodes.isEmpty() || level > maxDepth) {
+            return new ArrayList<>();
+        }
+        List<MindMapDTO.Node> result = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        String parentKey = semanticKey(parentName);
+        for (MindMapDTO.Node node : nodes) {
+            if (node == null) {
+                continue;
+            }
+            String name = cleanNodeName(node.getName());
+            String key = semanticKey(name);
+            if (!StringUtils.hasText(name) || !StringUtils.hasText(key) || key.equals(parentKey) || seen.contains(key)) {
+                continue;
+            }
+            node.setName(name);
+            seen.add(key);
+            if (level >= maxDepth) {
+                node.setChildren(new ArrayList<>());
+            } else {
+                node.setChildren(sanitizeNodes(node.getChildren(), level + 1, maxDepth, name, siblingLimit));
+            }
+            result.add(node);
+            if (result.size() >= siblingLimit) {
+                break;
+            }
+        }
+        return result;
+    }
+
+    private String cleanNodeName(String value) {
+        String text = defaultText(value, "").replaceAll("[\\r\\n\\t]+", " ").replaceAll("\\s+", " ").trim();
+        text = text.replaceAll("^(关于|有关|这里主要介绍|主要介绍|需要注意的是|这里主要讲|主要讲)", "").trim();
+        text = text.replaceAll("(相关知识|相关内容|基本介绍|概念介绍|知识介绍|的介绍|介绍)$", "").trim();
+        return text.length() > 36 ? text.substring(0, 36) : text;
+    }
+
+    private String semanticKey(String value) {
+        return cleanNodeName(value)
+                .replaceAll("[\\s\\p{Punct}，。、“”‘’（）()【】《》：:；;·-]+", "")
+                .replace("相关", "")
+                .replace("基础", "")
+                .replace("基本", "")
+                .toLowerCase(Locale.ROOT);
     }
 
     private void validateMindMap(MindMapDTO.MindMapData data) {
@@ -361,73 +519,30 @@ public class MindMapAIServiceImpl implements MindMapAIService {
         return value.substring(0, value.length() - suffix.length());
     }
 
-    private String normalizeStructure(String structure) {
-        String value = defaultText(structure, "自动").toLowerCase();
-        if (value.contains("课程体系") || value.contains("course")) {
-            return "课程体系";
-        }
-        if (value.contains("复习提纲") || value.contains("review") || value.contains("exam")) {
-            return "复习提纲";
-        }
-        if (value.contains("项目拆解") || value.contains("project") || value.contains("task")) {
-            return "项目拆解";
-        }
-        if (value.contains("知识梳理") || value.contains("knowledge")) {
-            return "知识梳理";
-        }
-        if (value.contains("自动") || value.contains("auto")) {
-            return "自动";
-        }
-        return "知识梳理";
-    }
-
-    private String structureInstruction(String structure) {
-        return switch (structure) {
-            case "课程体系" -> "按课程模块、先修关系、系统能力、实践训练和拓展方向组织一级节点，突出教学路径与模块层次。";
-            case "复习提纲" -> "按考试重点、知识清单、易错难点、题型练习和复盘安排组织一级节点，突出重点回顾与复习路径。";
-            case "项目拆解" -> "按项目目标、阶段计划、任务分解、资源依赖和交付验收组织一级节点，突出任务边界、依赖和执行顺序。";
-            case "知识梳理" -> "按概念定义、核心原理、关键方法、应用场景和总结复盘组织一级节点，突出关键点提炼与知识关系。";
-            default -> "先判断输入更适合课程体系、复习提纲、项目拆解还是知识梳理，再使用对应结构规则生成，不要混用多种组织方式。";
-        };
-    }
-
-    private String inferStructure(String title) {
-        String normalized = defaultText(title, "").toLowerCase();
-        if (title.contains("复习") || title.contains("提纲") || title.contains("考试")
-                || normalized.contains("review") || normalized.contains("exam")) {
-            return "复习提纲";
-        }
-        if (title.contains("项目") || title.contains("任务") || title.contains("拆解")
-                || normalized.contains("project") || normalized.contains("task")) {
-            return "项目拆解";
-        }
-        if (title.contains("课程") || title.contains("体系") || title.contains("模块")
-                || title.contains("计算机") || normalized.contains("course") || normalized.contains("computer")) {
-            return "课程体系";
-        }
-        return "知识梳理";
-    }
-
-    private MindMapDTO.MindMapData generateLocalMindMap(String inputText, String centerTopic, String depth, String structure, String detail) {
-        String title = normalizeTitle(inputText, centerTopic);
-        int maxDepth = resolveDepth(depth);
-        String normalizedStructure = normalizeStructure(structure);
-        boolean detailed = "detailed".equalsIgnoreCase(defaultText(detail, "standard"))
-                || "详细".equals(defaultText(detail, "standard"));
-
+    private MindMapDTO.MindMapData generateLocalMindMap(String inputText, MindMapGenerationConstraints constraints) {
+        String title = constraints.isUserDefinedCenterTopic()
+                ? constraints.resolvedCenterTopic()
+                : normalizeTitle(inputText, constraints.resolvedCenterTopic());
         MindMapDTO.MindMapData data = new MindMapDTO.MindMapData();
         data.setTitle(title);
-        data.setNodes(buildTopicNodes(title, maxDepth, detailed, normalizedStructure));
+        data.setRequestedCenterTopicMode(constraints.requestedCenterTopicMode());
+        data.setResolvedCenterTopic(title);
+        data.setRequestedDepth(constraints.requestedDepth());
+        data.setResolvedDepth(constraints.resolvedDepth());
+        data.setRequestedStructure(constraints.requestedStructure());
+        data.setResolvedStructure(constraints.resolvedStructure());
+        data.setDetailLevel(constraints.detailLevel());
+        data.setNodes(buildTopicNodes(title, constraints.resolvedDepth(), constraints.detailLevel(), constraints.resolvedStructure()));
         validateMindMap(data);
         return data;
     }
 
-    private List<MindMapDTO.Node> buildTopicNodes(String title, int maxDepth, boolean detailed, String structure) {
-        String resolvedStructure = "自动".equals(structure) ? inferStructure(title) : structure;
-        return buildNodes(maxDepth, detailed, switch (resolvedStructure) {
-            case "课程体系" -> courseBranches(title);
-            case "复习提纲" -> reviewBranches();
-            case "项目拆解" -> projectBranches();
+    private List<MindMapDTO.Node> buildTopicNodes(String title, int maxDepth, String detailLevel, String structure) {
+        boolean detailed = "DETAILED".equals(detailLevel);
+        return buildNodes(maxDepth, detailed, switch (normalizeStructureCode(structure, "KNOWLEDGE")) {
+            case "COURSE" -> courseBranches(title);
+            case "REVIEW" -> reviewBranches();
+            case "PROJECT" -> projectBranches();
             default -> knowledgeBranches(title);
         });
     }
@@ -475,11 +590,11 @@ public class MindMapAIServiceImpl implements MindMapAIService {
 
     private List<List<String>> reviewBranches() {
         return List.of(
-                branch("考试重点", "高频概念", "核心公式", "必背结论"),
-                branch("知识清单", "章节要点", "关联关系", "记忆线索"),
+                branch("核心知识", "重点概念", "关键结论", "必要关系"),
+                branch("知识清单", "章节要点", "关联关系", "回顾线索"),
                 branch("易错难点", "常见误区", "辨析方法", "纠错提醒"),
-                branch("题型练习", "基础题型", "综合题型", "答题步骤"),
-                branch("复盘安排", "错题整理", "阶段检查", "临考回顾")
+                branch("练习回顾", "基础练习", "综合练习", "解题步骤"),
+                branch("复盘安排", "错题整理", "阶段检查", "回顾计划")
         );
     }
 
@@ -539,17 +654,6 @@ public class MindMapAIServiceImpl implements MindMapAIService {
         MindMapDTO.Node node = new MindMapDTO.Node();
         node.setName(name);
         return node;
-    }
-
-    private int resolveDepth(String depth) {
-        String value = defaultText(depth, "3");
-        if (value.contains("2")) {
-            return 2;
-        }
-        if (value.contains("4")) {
-            return 4;
-        }
-        return 3;
     }
 
     private String normalizeTitle(String inputText, String centerTopic) {

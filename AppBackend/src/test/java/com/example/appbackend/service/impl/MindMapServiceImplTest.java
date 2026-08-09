@@ -55,6 +55,8 @@ class MindMapServiceImplTest {
 
         Assertions.assertNotNull(response.getId());
         Assertions.assertEquals("Linux学习路线", response.getTitle());
+        Assertions.assertEquals("AUTO", response.getRequestedCenterTopicMode());
+        Assertions.assertEquals("KNOWLEDGE", response.getResolvedStructure());
         Assertions.assertFalse(response.getNodes().isEmpty());
         Assertions.assertEquals("Linux 基础", response.getNodes().get(0).getName());
         Assertions.assertFalse(response.getNodes().get(0).getChildren().isEmpty());
@@ -70,9 +72,16 @@ class MindMapServiceImplTest {
 
         MindMapDTO.MindMapData data = new MindMapDTO.MindMapData();
         data.setTitle("计算机课程体系");
+        data.setRequestedCenterTopicMode("USER_DEFINED");
+        data.setResolvedCenterTopic("计算机课程体系");
+        data.setRequestedDepth("3");
+        data.setResolvedDepth(3);
+        data.setRequestedStructure("COURSE");
+        data.setResolvedStructure("COURSE");
+        data.setDetailLevel("STANDARD");
         data.setNodes(List.of(node("基础课程")));
 
-        when(aiService.generate(anyString(), anyString(), anyString(), anyString(), anyString(), any())).thenReturn(data);
+        when(aiService.generate(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), any())).thenReturn(data);
         when(recordRepository.save(any(MindMapRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         MindMapServiceImpl service = new MindMapServiceImpl(aiService, fileParseService, recordRepository, objectMapper);
@@ -91,9 +100,10 @@ class MindMapServiceImplTest {
         verify(aiService).generate(
                 inputCaptor.capture(),
                 eq("计算机课程体系"),
+                eq("USER_DEFINED"),
                 eq("3"),
-                eq("课程体系"),
-                eq("standard"),
+                eq("COURSE"),
+                eq("STANDARD"),
                 eq(null)
         );
         Assertions.assertTrue(inputCaptor.getValue().contains("请重点整理实验实践部分"));

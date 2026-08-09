@@ -40,3 +40,26 @@ test('prefers parsed document title over noisy file names with names and ids', a
     '星核创研项目'
   )
 })
+
+test('mind map request distinguishes auto suggested center topic from user-defined center topic', () => {
+  const page = readFileSync(join(__dirname, 'mindmapGenerate/mindmapGenerate.vue'), 'utf8')
+  const generating = readFileSync(join(__dirname, 'mindmapGenerating/mindmapGenerating.vue'), 'utf8')
+  const api = readFileSync(join(__dirname, '../api/aiDiagram.js'), 'utf8')
+
+  assert.match(page, /currentCenterTopicMode/)
+  assert.match(page, /USER_DEFINED/)
+  assert.match(page, /centerTopicMode=/)
+  assert.match(page, /structure=\$\{encodeURIComponent\(selectedStructure\.value\)\}/)
+  assert.match(generating, /centerTopicMode:\s*centerTopicMode\.value/)
+  assert.match(api, /centerTopicMode:\s*String\(centerTopicMode/)
+})
+
+test('mind map generating animation uses resolved structure and detail metadata', () => {
+  const generating = readFileSync(join(__dirname, 'mindmapGenerating/mindmapGenerating.vue'), 'utf8')
+
+  assert.match(generating, /resolvedStructure/)
+  assert.match(generating, /detailLevel/)
+  assert.match(generating, /识别为：/)
+  assert.match(generating, /正在拆分功能模块/)
+  assert.match(generating, /正在提取核心内容并合并次要信息/)
+})

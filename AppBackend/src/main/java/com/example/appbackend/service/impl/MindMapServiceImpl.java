@@ -7,7 +7,7 @@ import com.example.appbackend.repository.MindMapRecordRepository;
 import com.example.appbackend.service.FileParseService;
 import com.example.appbackend.service.MindMapAIService;
 import com.example.appbackend.service.MindMapService;
-import com.example.appbackend.service.support.MindMapTopicExtractor;
+import com.example.appbackend.service.support.MindMapGenerationConstraints;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -54,19 +54,29 @@ public class MindMapServiceImpl implements MindMapService {
         }
         String topic = trim(request.getTopic());
         String centerTopic = trim(request.getCenterTopic());
+        String centerTopicMode = trim(request.getCenterTopicMode());
         String sourceText = trim(request.getSourceText());
-        String resolvedCenterTopic = MindMapTopicExtractor.extract(centerTopic, topic, sourceText, request.getSourceFile());
-        String inputText = composeInputText(topic, sourceText, resolvedCenterTopic);
+        String preInputText = composeInputText(topic, sourceText, centerTopic);
+        MindMapGenerationConstraints constraints = MindMapGenerationConstraints.resolve(
+                centerTopicMode,
+                centerTopic,
+                request.getDepth(),
+                request.getStructure(),
+                request.getDetail(),
+                preInputText
+        );
+        String inputText = composeInputText(topic, sourceText, constraints.resolvedCenterTopic());
         if (!StringUtils.hasText(inputText)) {
             throw new BusinessException(400, "请输入主题或上传可解析文件");
         }
 
         MindMapDTO.MindMapData data = mindMapAIService.generate(
                 inputText,
-                resolvedCenterTopic,
-                request.getDepth(),
-                request.getStructure(),
-                request.getDetail(),
+                constraints.resolvedCenterTopic(),
+                constraints.requestedCenterTopicMode(),
+                constraints.requestedDepth(),
+                constraints.requestedStructure(),
+                constraints.detailLevel(),
                 authorization
         );
 
@@ -78,9 +88,9 @@ public class MindMapServiceImpl implements MindMapService {
         record.setSourceFile(firstText(request.getSourceFile(), request.getFileId()));
         record.setContent(inputText);
         record.setMindMapJson(writeJson(data));
-        record.setDepth(request.getDepth());
-        record.setStructureType(request.getStructure());
-        record.setDetailLevel(request.getDetail());
+        record.setDepth(data.getRequestedDepth());
+        record.setStructureType(data.getRequestedStructure());
+        record.setDetailLevel(data.getDetailLevel());
         recordRepository.save(record);
         return toGenerateResponse(record, data);
     }
@@ -180,6 +190,13 @@ public class MindMapServiceImpl implements MindMapService {
         MindMapDTO.GenerateResponse response = new MindMapDTO.GenerateResponse();
         response.setId(record.getId());
         response.setTitle(data.getTitle());
+        response.setRequestedCenterTopicMode(data.getRequestedCenterTopicMode());
+        response.setResolvedCenterTopic(data.getResolvedCenterTopic());
+        response.setRequestedDepth(data.getRequestedDepth());
+        response.setResolvedDepth(data.getResolvedDepth());
+        response.setRequestedStructure(data.getRequestedStructure());
+        response.setResolvedStructure(data.getResolvedStructure());
+        response.setDetailLevel(data.getDetailLevel());
         response.setNodes(data.getNodes());
         response.setCreateTime(record.getCreateTime());
         return response;
@@ -191,6 +208,20 @@ public class MindMapServiceImpl implements MindMapService {
         item.setTitle(record.getTitle());
         item.setCreateTime(record.getCreateTime());
         item.setPreview(preview(record.getContent()));
+        MindMapDTO.MindMapData data = readDataOrNull(record.getMindMapJson());
+        if (data != null) {
+            item.setRequestedCenterTopicMode(data.getRequestedCenterTopicMode());
+            item.setResolvedCenterTopic(data.getResolvedCenterTopic());
+            item.setRequestedDepth(data.getRequestedDepth());
+            item.setResolvedDepth(data.getResolvedDepth());
+            item.setRequestedStructure(data.getRequestedStructure());
+            item.setResolvedStructure(data.getResolvedStructure());
+            item.setDetailLevel(data.getDetailLevel());
+        } else {
+            item.setRequestedDepth(record.getDepth());
+            item.setRequestedStructure(record.getStructureType());
+            item.setDetailLevel(record.getDetailLevel());
+        }
         return item;
     }
 
@@ -212,6 +243,17 @@ public class MindMapServiceImpl implements MindMapService {
             return objectMapper.readValue(json, MindMapDTO.MindMapData.class);
         } catch (Exception error) {
             throw new BusinessException(500, "思维导图记录数据损坏");
+        }
+    }
+
+    private MindMapDTO.MindMapData readDataOrNull(String json) {
+        if (!StringUtils.hasText(json)) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, MindMapDTO.MindMapData.class);
+        } catch (Exception error) {
+            return null;
         }
     }
 

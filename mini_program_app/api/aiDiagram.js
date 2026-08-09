@@ -20,6 +20,7 @@ export const AI_FLOWCHART_ENDPOINTS = {
 export function buildMindmapPayload({
   topic = '',
   centerTopic = '',
+  centerTopicMode = 'AUTO',
   depth = 'auto',
   structure = '知识梳理',
   detail = 'standard',
@@ -32,6 +33,7 @@ export function buildMindmapPayload({
   return {
     topic: finalTopic,
     centerTopic: finalCenterTopic,
+    centerTopicMode: String(centerTopicMode || 'AUTO'),
     depth: String(depth || 'auto'),
     structure: String(structure || '知识梳理'),
     detail: String(detail || 'standard'),
@@ -122,6 +124,13 @@ export function normalizeMindmap(result = {}) {
   return {
     id: String(result.id || ''),
     title: result.title || 'AI 思维导图',
+    requestedCenterTopicMode: result.requestedCenterTopicMode || result.centerTopicMode || 'AUTO',
+    resolvedCenterTopic: result.resolvedCenterTopic || result.centerTopic || result.title || '',
+    requestedDepth: result.requestedDepth || result.depth || 'AUTO',
+    resolvedDepth: result.resolvedDepth || '',
+    requestedStructure: result.requestedStructure || result.structure || 'AUTO',
+    resolvedStructure: result.resolvedStructure || result.structureType || '',
+    detailLevel: result.detailLevel || result.detail || 'STANDARD',
     nodes: Array.isArray(result.nodes) ? result.nodes : [],
     createTime: result.createTime || result.createdAt || ''
   }

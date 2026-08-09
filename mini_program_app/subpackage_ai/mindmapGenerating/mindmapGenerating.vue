@@ -102,6 +102,7 @@ const BRANCH_COLORS = ['#4D6BFE', '#E05555', '#2DB88A', '#F0A030', '#9B59B6', '#
 
 const topicText = ref('')
 const centerTopic = ref('')
+const centerTopicMode = ref('AUTO')
 const depth = ref('auto')
 const structure = ref('知识梳理')
 const detail = ref('standard')
@@ -158,6 +159,81 @@ function stepState(i) {
   return 'pending'
 }
 
+function setStatus(message) {
+  floatMsg.value = message
+  navSubtitle.value = message
+}
+
+function normalizeStructureMode(value = '') {
+  const text = String(value || '').toLowerCase()
+  if (text.includes('course') || text.includes('课程')) return 'COURSE'
+  if (text.includes('review') || text.includes('exam') || text.includes('复习')) return 'REVIEW'
+  if (text.includes('project') || text.includes('task') || text.includes('项目')) return 'PROJECT'
+  if (text.includes('knowledge') || text.includes('知识')) return 'KNOWLEDGE'
+  if (text.includes('auto') || text.includes('自动')) return 'AUTO'
+  return 'KNOWLEDGE'
+}
+
+function normalizeDetailMode(value = '') {
+  const text = String(value || '').toLowerCase()
+  if (text.includes('simple') || text.includes('简洁')) return 'SIMPLE'
+  if (text.includes('detail') || text.includes('详细') || text.includes('完整')) return 'DETAILED'
+  return 'STANDARD'
+}
+
+function structureProfile() {
+  const data = state.resultData || {}
+  const requested = normalizeStructureMode(data.requestedStructure || structure.value)
+  const resolved = normalizeStructureMode(data.resolvedStructure || (requested === 'AUTO' ? '' : requested))
+  const profiles = {
+    KNOWLEDGE: {
+      label: '知识梳理',
+      branch: '正在整理知识分类…',
+      child: '正在建立概念层级…',
+      optimize: '正在合并重复信息…',
+      layout: '正在优化知识结构…'
+    },
+    COURSE: {
+      label: '课程体系',
+      branch: '正在整理学习内容…',
+      child: '正在划分基础与进阶模块…',
+      optimize: '正在建立课程层级…',
+      layout: '正在优化课程结构…'
+    },
+    REVIEW: {
+      label: '复习提纲',
+      branch: '正在压缩冗余内容…',
+      child: '正在整理重点概念…',
+      optimize: '正在建立复习层级…',
+      layout: '正在优化复习提纲…'
+    },
+    PROJECT: {
+      label: '项目拆解',
+      branch: '正在拆分功能模块…',
+      child: '正在整理任务结构…',
+      optimize: '正在建立项目层级…',
+      layout: '正在优化项目拆解…'
+    }
+  }
+  return profiles[resolved] || profiles.KNOWLEDGE
+}
+
+function detailIntroMessage() {
+  const data = state.resultData || {}
+  const mode = normalizeDetailMode(data.detailLevel || detail.value)
+  if (mode === 'SIMPLE') return '正在提取核心内容并合并次要信息…'
+  if (mode === 'DETAILED') return '正在识别更多重要子概念…'
+  return '正在平衡信息完整性与阅读体验…'
+}
+
+function animationLimits() {
+  const data = state.resultData || {}
+  const mode = normalizeDetailMode(data.detailLevel || detail.value)
+  if (mode === 'SIMPLE') return { branch: 4, child: 3 }
+  if (mode === 'DETAILED') return { branch: 8, child: 5 }
+  return { branch: 6, child: 4 }
+}
+
 // 视图适配
 let areaW = 375, areaH = 500
 const bounds = reactive({ w: 560, h: 640, cx: 280, cy: 320, minX: 0, minY: 0 })
@@ -190,16 +266,17 @@ function clampScale(v) { return Math.max(0.3, Math.min(2, v)) }
 // 布局
 function computeLayout(branches) {
   const branchPos = [], childPos = []
+  const limits = animationLimits()
   const right = [], left = []
   branches.forEach((b, i) => (i % 2 === 0 ? right : left).push(i))
   const place = (idxs, side) => {
-    const n = idxs.length
-    const span = 175
-    const startY = CY - span * (n - 1) / 2
-    idxs.forEach((bi, k) => {
-      const bx = CX + side * BR_X, by = startY + k * span
-      branchPos[bi] = { x: bx, y: by, side }
-      const kids = (branches[bi].children || []).slice(0, 4)
+      const n = idxs.length
+      const span = 175
+      const startY = CY - span * (n - 1) / 2
+      idxs.forEach((bi, k) => {
+        const bx = CX + side * BR_X, by = startY + k * span
+        branchPos[bi] = { x: bx, y: by, side }
+      const kids = (branches[bi].children || []).slice(0, limits.child)
       const h = 28, gap = 11
       const totalH = h * kids.length + gap * (kids.length - 1)
       let y0 = by - totalH / 2
@@ -224,7 +301,8 @@ let runToken = null
 const alive = () => runToken && !runToken.cancelled
 
 function totalNodes() {
-  return 1 + realBranches.value.length + realBranches.value.reduce((s, b) => s + Math.min(4, (b.children || []).length), 0)
+  const limits = animationLimits()
+  return 1 + realBranches.value.length + realBranches.value.reduce((s, b) => s + Math.min(limits.child, (b.children || []).length), 0)
 }
 function pushNode(kind, label, color, x, y, fx, fy) {
   revealedNodes.value.push({ key: kind + '-' + revealedNodes.value.length, kind, label, color, x, y, fx, fy })
@@ -241,16 +319,24 @@ async function play() {
   revealedCount.value = 0; progressPct.value = 0
   sweepOn.value = false; settleOn.value = false; smooth.value = false
   showRing.value = true; stepIndex.value = 0
-  floatMsg.value = '正在理解您的主题内容…'; navSubtitle.value = '正在理解您的主题内容…'
+  const isAutoStructure = normalizeStructureMode(structure.value) === 'AUTO'
+  setStatus(isAutoStructure ? '正在分析内容结构…' : '正在理解您的主题内容…')
   measureArea()
   applyView(growthScale(), true)
 
   // 阶段0 等待
   progressPct.value = 20
-  await sleep(1000); if (!alive()) return
-  floatMsg.value = '正在提取核心知识点…'; navSubtitle.value = '正在提取核心知识点…'
+  await sleep(650); if (!alive()) return
+  setStatus(isAutoStructure ? '正在判断最合适的组织方式…' : '正在提取核心知识点…')
   progressPct.value = 28
   await waitForAIData(8000)
+  const profile = structureProfile()
+  if (isAutoStructure) {
+    setStatus(`识别为：${profile.label}`)
+    await sleep(360); if (!alive()) return
+  }
+  setStatus(detailIntroMessage())
+  await sleep(320); if (!alive()) return
   limitBranches()
   Object.assign(bounds, computeBounds())
   applyView(growthScale(), true)
@@ -264,7 +350,7 @@ async function play() {
 
   // 阶段1 分支
   stepIndex.value = 1
-  floatMsg.value = '正在构建知识层级结构…'; navSubtitle.value = '正在构建知识层级结构…'
+  setStatus(profile.branch)
   const layout = computeLayout(realBranches.value)
   for (let i = 0; i < realBranches.value.length; i++) {
     if (!alive()) return
@@ -278,6 +364,7 @@ async function play() {
 
   // 阶段2 子节点
   stepIndex.value = 2
+  setStatus(profile.child)
   for (const c of layout.childPos) {
     if (!alive()) return
     const parent = layout.branchPos[c.bi]
@@ -290,7 +377,7 @@ async function play() {
 
   // 阶段3 优化（高光扫线 + 波浪落定）
   stepIndex.value = 3
-  floatMsg.value = '正在优化节点关系…'; navSubtitle.value = '正在优化节点关系…'
+  setStatus(profile.optimize)
   progressPct.value = 93
   sweepOn.value = true
   await sleep(820); if (!alive()) return
@@ -301,7 +388,7 @@ async function play() {
 
   // 阶段4 布局（平滑适配）
   stepIndex.value = 4
-  floatMsg.value = '正在生成可视化布局…'; navSubtitle.value = '正在生成可视化布局…'
+  setStatus(profile.layout)
   progressPct.value = 97
   smooth.value = true
   applyView(fitScale(), true)
@@ -311,7 +398,8 @@ async function play() {
 }
 
 function limitBranches() {
-  realBranches.value = realBranches.value.slice(0, 6).map(b => ({ name: b.name, children: (b.children || []).slice(0, 4) }))
+  const limits = animationLimits()
+  realBranches.value = realBranches.value.slice(0, limits.branch).map(b => ({ name: b.name, children: (b.children || []).slice(0, limits.child) }))
 }
 
 function goComplete() {
@@ -387,7 +475,7 @@ async function run() {
   revealedCount.value = 0; progressPct.value = 0
   sweepOn.value = false; settleOn.value = false; smooth.value = false
   showRing.value = true; stepIndex.value = 0
-  floatMsg.value = '正在理解您的主题内容…'; navSubtitle.value = '正在理解您的主题内容…'
+  setStatus(normalizeStructureMode(structure.value) === 'AUTO' ? '正在分析内容结构…' : '正在理解您的主题内容…')
   try {
     if (resultId.value) {
       let cached = uni.getStorageSync(`aiMindmapResult:${resultId.value}`)
@@ -400,6 +488,7 @@ async function run() {
     const payload = buildMindmapPayload({
       topic: topicText.value || centerTopic.value,
       centerTopic: centerTopic.value,
+      centerTopicMode: centerTopicMode.value,
       depth: depth.value,
       structure: structure.value,
       detail: detail.value,
@@ -430,6 +519,7 @@ function goBack() { clearTimers(); uni.navigateBack() }
 onLoad(options => {
   topicText.value = decodeURIComponent(options?.topic || '')
   centerTopic.value = decodeURIComponent(options?.centerTopic || '')
+  centerTopicMode.value = decodeURIComponent(options?.centerTopicMode || 'AUTO')
   depth.value = decodeURIComponent(options?.depth || 'auto')
   structure.value = decodeURIComponent(options?.structure || '知识梳理')
   detail.value = decodeURIComponent(options?.detail || 'standard')

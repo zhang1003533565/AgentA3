@@ -18,6 +18,9 @@ public class MindMapDTO {
         private String centerTopic;
 
         @Size(max = 20)
+        private String centerTopicMode;
+
+        @Size(max = 20)
         private String depth;
 
         @Size(max = 60)
@@ -38,6 +41,13 @@ public class MindMapDTO {
     @Data
     public static class MindMapData {
         private String title;
+        private String requestedCenterTopicMode;
+        private String resolvedCenterTopic;
+        private String requestedDepth;
+        private Integer resolvedDepth;
+        private String requestedStructure;
+        private String resolvedStructure;
+        private String detailLevel;
         private List<Node> nodes = new ArrayList<>();
     }
 
@@ -51,6 +61,13 @@ public class MindMapDTO {
     public static class GenerateResponse {
         private String id;
         private String title;
+        private String requestedCenterTopicMode;
+        private String resolvedCenterTopic;
+        private String requestedDepth;
+        private Integer resolvedDepth;
+        private String requestedStructure;
+        private String resolvedStructure;
+        private String detailLevel;
         private List<Node> nodes = new ArrayList<>();
         private LocalDateTime createTime;
     }
@@ -74,6 +91,13 @@ public class MindMapDTO {
     public static class HistoryItem {
         private String id;
         private String title;
+        private String requestedCenterTopicMode;
+        private String resolvedCenterTopic;
+        private String requestedDepth;
+        private Integer resolvedDepth;
+        private String requestedStructure;
+        private String resolvedStructure;
+        private String detailLevel;
         private LocalDateTime createTime;
         private String preview;
     }

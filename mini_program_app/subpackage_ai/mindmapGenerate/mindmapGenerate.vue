@@ -271,13 +271,13 @@ const suggestedCenterTopic = computed(() => extractMindmapCenterTopic({
 
 const openHistory = () => { uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory' }) }
 
-const getOptionLabel = (options, key, fallback = '') => {
-  return options.find(item => item.key === key)?.label || fallback || key
-}
-
 const syncSuggestedCenterTopic = () => {
   if (centerTopicEdited.value) return
   centerTopic.value = suggestedCenterTopic.value
+}
+
+const currentCenterTopicMode = () => {
+  return centerTopicEdited.value && centerTopic.value.trim() ? 'USER_DEFINED' : 'AUTO'
 }
 
 const onCenterTopicInput = (event) => {
@@ -409,6 +409,11 @@ const loadRecentItems = async () => {
       id: item.id,
       title: item.title || '未命名思维导图',
       preview: item.preview || item.description || '',
+      requestedDepth: item.requestedDepth || item.depth || '',
+      resolvedDepth: item.resolvedDepth || '',
+      requestedStructure: item.requestedStructure || item.structure || '',
+      resolvedStructure: item.resolvedStructure || item.structureType || '',
+      detailLevel: item.detailLevel || item.detail || '',
       createTime: item.createTime || item.createdAt || ''
     }))
   } catch (error) {
@@ -439,11 +444,38 @@ const formatFileSize = (size = 0) => {
 }
 
 const recentMeta = (item = {}) => {
-  const text = String(item.preview || '').trim()
-  return text || '思维导图 · 自动 · 标准'
+  const structureMap = {
+    AUTO: '自动',
+    KNOWLEDGE: '知识梳理',
+    COURSE: '课程体系',
+    REVIEW: '复习提纲',
+    PROJECT: '项目拆解',
+    auto: '自动',
+    knowledge: '知识梳理',
+    course: '课程体系',
+    review: '复习提纲',
+    project: '项目拆解'
+  }
+  const detailMap = {
+    SIMPLE: '简洁',
+    STANDARD: '标准',
+    DETAILED: '详细',
+    simple: '简洁',
+    standard: '标准',
+    detail: '详细',
+    detailed: '详细'
+  }
+  const structureKey = item.resolvedStructure || item.requestedStructure || 'AUTO'
+  const detailKey = item.detailLevel || 'STANDARD'
+  const requestedDepth = String(item.requestedDepth || '').trim()
+  const depthText = item.resolvedDepth
+    ? `${item.resolvedDepth}层`
+    : (/^[234]$/.test(requestedDepth) ? `${requestedDepth}层` : '自动')
+  return `${structureMap[structureKey] || structureKey} · ${depthText} · ${detailMap[detailKey] || '标准'}`
 }
 
 const generateMindmap = async () => {
+  const centerTopicMode = currentCenterTopicMode()
   const finalCenterTopic = centerTopic.value.trim() || suggestedCenterTopic.value
   const finalTopic = topic.value.trim() || finalCenterTopic || uploadedFile.value?.fileName || ''
   const sourceText = uploadedFile.value?.text || ''
@@ -454,7 +486,7 @@ const generateMindmap = async () => {
   if (isGenerating.value) return
   isGenerating.value = true
   uni.navigateTo({
-    url: `/subpackage_ai/mindmapGenerating/mindmapGenerating?topic=${encodeURIComponent(finalTopic)}&centerTopic=${encodeURIComponent(finalCenterTopic)}&depth=${selectedDepth.value}&structure=${encodeURIComponent(getOptionLabel(structureOptions, selectedStructure.value, '知识梳理'))}&detail=${encodeURIComponent(selectedExpand.value)}&sourceText=${encodeURIComponent(sourceText)}&sourceFile=${encodeURIComponent(uploadedFile.value?.sourceFile || '')}&fileId=${encodeURIComponent(uploadedFile.value?.fileId || '')}`,
+    url: `/subpackage_ai/mindmapGenerating/mindmapGenerating?topic=${encodeURIComponent(finalTopic)}&centerTopic=${encodeURIComponent(finalCenterTopic)}&centerTopicMode=${encodeURIComponent(centerTopicMode)}&depth=${selectedDepth.value}&structure=${encodeURIComponent(selectedStructure.value)}&detail=${encodeURIComponent(selectedExpand.value)}&sourceText=${encodeURIComponent(sourceText)}&sourceFile=${encodeURIComponent(uploadedFile.value?.sourceFile || '')}&fileId=${encodeURIComponent(uploadedFile.value?.fileId || '')}`,
     fail: error => {
       isGenerating.value = false
       uni.showToast({ title: getErrorMessage(error, '生成页打开失败'), icon: 'none' })
