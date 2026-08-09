@@ -81,6 +81,7 @@
                 <input
                   class="theme-input"
                   v-model="centerTopic"
+                  @input="onCenterTopicInput"
                   placeholder="不填写将由 AI 自动提取"
                   placeholder-class="theme-placeholder"
                   :maxlength="10"
@@ -203,15 +204,17 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import NavBar from '@/components/nav-bar/nav-bar.vue'
 import { getErrorMessage, getMindmapHistory, uploadMindmapFile } from '@/api/aiDiagram.js'
 import { BASE_URL } from '@/utils/config.js'
 import ImportFileButton from '../components/ImportFileButton.vue'
+import { extractMindmapCenterTopic } from '../utils/mindmapTopicExtractor.js'
 
 const topic = ref('')
 const centerTopic = ref('')
+const centerTopicEdited = ref(false)
 const selectedDepth = ref('auto')
 const selectedStructure = ref('auto')
 const selectedExpand = ref('standard')
@@ -260,11 +263,29 @@ const uploadedFileTypeLabel = computed(() => {
 })
 
 const uploadedFileSizeText = computed(() => formatFileSize(uploadedFile.value?.size || uploadedFile.value?.fileSize))
+const suggestedCenterTopic = computed(() => extractMindmapCenterTopic({
+  userText: topic.value,
+  fileName: uploadedFile.value?.fileName || '',
+  text: uploadedFile.value?.text || ''
+}))
 
 const openHistory = () => { uni.navigateTo({ url: '/subpackage_ai/diagramHistory/diagramHistory' }) }
 
 const getOptionLabel = (options, key, fallback = '') => {
   return options.find(item => item.key === key)?.label || fallback || key
+}
+
+const syncSuggestedCenterTopic = () => {
+  if (centerTopicEdited.value) return
+  centerTopic.value = suggestedCenterTopic.value
+}
+
+const onCenterTopicInput = (event) => {
+  const value = String(event?.detail?.value ?? centerTopic.value ?? '').trim()
+  centerTopicEdited.value = Boolean(value)
+  if (!value) {
+    syncSuggestedCenterTopic()
+  }
 }
 
 const chooseDocumentFile = () => {
@@ -308,9 +329,7 @@ const importDocument = async () => {
       filePath,
       size: file.size || result?.size || result?.fileSize || 0
     }
-    if (!centerTopic.value && result.fileName) {
-      centerTopic.value = result.fileName.replace(/\.(pdf|docx?|pptx?)$/i, '')
-    }
+    syncSuggestedCenterTopic()
     uni.showToast({ title: '文件解析完成', icon: 'none' })
   } catch (error) {
     uni.showToast({ title: getErrorMessage(error, '文件解析失败'), icon: 'none' })
@@ -425,7 +444,8 @@ const recentMeta = (item = {}) => {
 }
 
 const generateMindmap = async () => {
-  const finalTopic = centerTopic.value.trim() || topic.value.trim() || uploadedFile.value?.fileName || ''
+  const finalCenterTopic = centerTopic.value.trim() || suggestedCenterTopic.value
+  const finalTopic = topic.value.trim() || finalCenterTopic || uploadedFile.value?.fileName || ''
   const sourceText = uploadedFile.value?.text || ''
   if (!canGenerate.value || (!finalTopic && !sourceText)) {
     uni.showToast({ title: '请输入内容或导入文件', icon: 'none' })
@@ -434,7 +454,7 @@ const generateMindmap = async () => {
   if (isGenerating.value) return
   isGenerating.value = true
   uni.navigateTo({
-    url: `/subpackage_ai/mindmapGenerating/mindmapGenerating?topic=${encodeURIComponent(topic.value.trim() || finalTopic)}&centerTopic=${encodeURIComponent(finalTopic)}&depth=${selectedDepth.value}&structure=${encodeURIComponent(getOptionLabel(structureOptions, selectedStructure.value, '知识梳理'))}&detail=${encodeURIComponent(selectedExpand.value)}&sourceText=${encodeURIComponent(sourceText)}&sourceFile=${encodeURIComponent(uploadedFile.value?.sourceFile || '')}&fileId=${encodeURIComponent(uploadedFile.value?.fileId || '')}`,
+    url: `/subpackage_ai/mindmapGenerating/mindmapGenerating?topic=${encodeURIComponent(finalTopic)}&centerTopic=${encodeURIComponent(finalCenterTopic)}&depth=${selectedDepth.value}&structure=${encodeURIComponent(getOptionLabel(structureOptions, selectedStructure.value, '知识梳理'))}&detail=${encodeURIComponent(selectedExpand.value)}&sourceText=${encodeURIComponent(sourceText)}&sourceFile=${encodeURIComponent(uploadedFile.value?.sourceFile || '')}&fileId=${encodeURIComponent(uploadedFile.value?.fileId || '')}`,
     fail: error => {
       isGenerating.value = false
       uni.showToast({ title: getErrorMessage(error, '生成页打开失败'), icon: 'none' })
@@ -445,6 +465,8 @@ const generateMindmap = async () => {
 onMounted(() => {
   loadRecentItems()
 })
+
+watch(suggestedCenterTopic, syncSuggestedCenterTopic)
 
 onShow(() => {
   isGenerating.value = false

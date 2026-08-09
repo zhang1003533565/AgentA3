@@ -27,9 +27,11 @@ export function buildMindmapPayload({
   sourceFile = '',
   fileId = ''
 } = {}) {
-  const finalTopic = String(centerTopic || topic || '').trim()
+  const finalTopic = String(topic || centerTopic || '').trim()
+  const finalCenterTopic = String(centerTopic || '').trim()
   return {
     topic: finalTopic,
+    centerTopic: finalCenterTopic,
     depth: String(depth || 'auto'),
     structure: String(structure || '知识梳理'),
     detail: String(detail || 'standard'),

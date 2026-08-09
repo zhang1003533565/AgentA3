@@ -7,6 +7,7 @@ import com.example.appbackend.repository.MindMapRecordRepository;
 import com.example.appbackend.service.FileParseService;
 import com.example.appbackend.service.MindMapAIService;
 import com.example.appbackend.service.MindMapService;
+import com.example.appbackend.service.support.MindMapTopicExtractor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -52,14 +53,17 @@ public class MindMapServiceImpl implements MindMapService {
             throw new BusinessException(400, "请求参数不能为空");
         }
         String topic = trim(request.getTopic());
+        String centerTopic = trim(request.getCenterTopic());
         String sourceText = trim(request.getSourceText());
-        String inputText = StringUtils.hasText(sourceText) ? sourceText : topic;
+        String resolvedCenterTopic = MindMapTopicExtractor.extract(centerTopic, topic, sourceText, request.getSourceFile());
+        String inputText = composeInputText(topic, sourceText, resolvedCenterTopic);
         if (!StringUtils.hasText(inputText)) {
             throw new BusinessException(400, "请输入主题或上传可解析文件");
         }
 
         MindMapDTO.MindMapData data = mindMapAIService.generate(
                 inputText,
+                resolvedCenterTopic,
                 request.getDepth(),
                 request.getStructure(),
                 request.getDetail(),
@@ -79,6 +83,20 @@ public class MindMapServiceImpl implements MindMapService {
         record.setDetailLevel(request.getDetail());
         recordRepository.save(record);
         return toGenerateResponse(record, data);
+    }
+
+    private String composeInputText(String topic, String sourceText, String centerTopic) {
+        StringBuilder builder = new StringBuilder();
+        if (StringUtils.hasText(centerTopic)) {
+            builder.append("建议中心主题：").append(centerTopic).append("\n");
+        }
+        if (StringUtils.hasText(topic)) {
+            builder.append("用户输入要求：").append(topic).append("\n");
+        }
+        if (StringUtils.hasText(sourceText)) {
+            builder.append("文件解析内容：\n").append(sourceText);
+        }
+        return builder.toString().trim();
     }
 
     @Override

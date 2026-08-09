@@ -429,7 +429,7 @@ function goBack() { clearTimers(); uni.navigateBack() }
 
 onLoad(options => {
   topicText.value = decodeURIComponent(options?.topic || '')
-  centerTopic.value = decodeURIComponent(options?.centerTopic || options?.topic || '')
+  centerTopic.value = decodeURIComponent(options?.centerTopic || '')
   depth.value = decodeURIComponent(options?.depth || 'auto')
   structure.value = decodeURIComponent(options?.structure || '知识梳理')
   detail.value = decodeURIComponent(options?.detail || 'standard')

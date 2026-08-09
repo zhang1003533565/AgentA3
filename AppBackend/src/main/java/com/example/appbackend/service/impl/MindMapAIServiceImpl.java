@@ -5,6 +5,7 @@ import com.example.appbackend.exception.BusinessException;
 import com.example.appbackend.repository.SystemConfigRepository;
 import com.example.appbackend.service.MindMapAIService;
 import com.example.appbackend.service.SystemConfigService;
+import com.example.appbackend.service.support.MindMapTopicExtractor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
@@ -38,12 +39,13 @@ public class MindMapAIServiceImpl implements MindMapAIService {
     }
 
     @Override
-    public MindMapDTO.MindMapData generate(String inputText, String depth, String structure, String detail, String authorization) {
+    public MindMapDTO.MindMapData generate(String inputText, String centerTopic, String depth, String structure, String detail, String authorization) {
+        String resolvedCenterTopic = MindMapTopicExtractor.extract(centerTopic, inputText, "", "");
         AiRuntimeConfig aiConfig = resolveRuntimeConfig();
         if (aiConfig == null) {
-            return generateLocalMindMap(inputText, depth, structure, detail);
+            return generateLocalMindMap(inputText, resolvedCenterTopic, depth, structure, detail);
         }
-        String prompt = buildPrompt(inputText, depth, structure, detail);
+        String prompt = buildPrompt(inputText, resolvedCenterTopic, depth, structure, detail);
 
         Map<String, Object> systemMessage = new HashMap<>();
         systemMessage.put("role", "system");
@@ -76,7 +78,7 @@ public class MindMapAIServiceImpl implements MindMapAIService {
             if (!StringUtils.hasText(content)) {
                 throw new BusinessException(500, "AI 未返回思维导图 JSON");
             }
-            return parseAndValidate(content);
+            return parseAndValidate(content, resolvedCenterTopic, inputText);
         } catch (WebClientResponseException error) {
             throw new BusinessException(500, "AI 请求失败: " + error.getResponseBodyAsString());
         } catch (BusinessException error) {
@@ -161,7 +163,7 @@ public class MindMapAIServiceImpl implements MindMapAIService {
             if (!StringUtils.hasText(content)) {
                 throw new BusinessException(500, "AI 未返回优化后的思维导图 JSON");
             }
-            return parseAndValidate(content);
+            return parseAndValidate(content, currentMindMap == null ? "" : currentMindMap.getTitle(), userInstruction);
         } catch (WebClientResponseException error) {
             throw new BusinessException(500, "AI 请求失败: " + error.getResponseBodyAsString());
         } catch (BusinessException error) {
@@ -179,11 +181,12 @@ public class MindMapAIServiceImpl implements MindMapAIService {
         return result;
     }
 
-    private String buildPrompt(String inputText, String depth, String structure, String detail) {
+    private String buildPrompt(String inputText, String centerTopic, String depth, String structure, String detail) {
         String normalizedInput = inputText == null ? "" : inputText.trim();
         if (normalizedInput.length() > MAX_AI_INPUT_CHARS) {
             normalizedInput = normalizedInput.substring(0, MAX_AI_INPUT_CHARS);
         }
+        String normalizedCenterTopic = defaultText(centerTopic, "");
         String normalizedStructure = normalizeStructure(structure);
         String structureInstruction = structureInstruction(normalizedStructure);
         return """
@@ -193,6 +196,9 @@ public class MindMapAIServiceImpl implements MindMapAIService {
                 - 层级清晰
                 - 不遗漏核心知识
                 - 不生成无关内容
+                - 如果“建议中心主题”不为空，JSON title 必须围绕它命名
+                - 不要把“生成、制作、思维导图”等操作词、文件编号、日期或姓名当成 title
+                - title 控制在 10 个汉字左右，优先表达学科、课程、项目或知识对象
                 - 必须按照“结构方式规则”组织一级节点；不同结构方式的一级节点命名和组织维度必须明显不同，不要只替换同义词
                 - 只返回严格 JSON，不要 Markdown，不要解释
                 - JSON 顶层必须包含 title 和 nodes
@@ -220,17 +226,20 @@ public class MindMapAIServiceImpl implements MindMapAIService {
                 结构方式：%s
                 结构方式规则：%s
                 详细程度：%s
+                建议中心主题：%s
 
                 输入内容：
                 %s
                 """.formatted(defaultText(depth, "自动"), normalizedStructure, structureInstruction,
-                defaultText(detail, "standard"), normalizedInput);
+                defaultText(detail, "standard"), normalizedCenterTopic, normalizedInput);
     }
 
-    private MindMapDTO.MindMapData parseAndValidate(String content) {
+    private MindMapDTO.MindMapData parseAndValidate(String content, String centerTopic, String inputText) {
         String json = extractJson(content);
         try {
             MindMapDTO.MindMapData data = objectMapper.readValue(json, MindMapDTO.MindMapData.class);
+            String fallbackTitle = MindMapTopicExtractor.extract(centerTopic, inputText, "", "");
+            data.setTitle(MindMapTopicExtractor.normalizeGeneratedTitle(data.getTitle(), fallbackTitle));
             validateMindMap(data);
             return data;
         } catch (BusinessException error) {
@@ -399,8 +408,8 @@ public class MindMapAIServiceImpl implements MindMapAIService {
         return "知识梳理";
     }
 
-    private MindMapDTO.MindMapData generateLocalMindMap(String inputText, String depth, String structure, String detail) {
-        String title = normalizeTitle(inputText);
+    private MindMapDTO.MindMapData generateLocalMindMap(String inputText, String centerTopic, String depth, String structure, String detail) {
+        String title = normalizeTitle(inputText, centerTopic);
         int maxDepth = resolveDepth(depth);
         String normalizedStructure = normalizeStructure(structure);
         boolean detailed = "detailed".equalsIgnoreCase(defaultText(detail, "standard"))
@@ -543,13 +552,8 @@ public class MindMapAIServiceImpl implements MindMapAIService {
         return 3;
     }
 
-    private String normalizeTitle(String inputText) {
-        String title = defaultText(inputText, "思维导图")
-                .replaceAll("\\s+", " ")
-                .replaceFirst("^请?帮?我?生成(一份|一个)?", "")
-                .replaceFirst("^请?帮?我?制作(一份|一个)?", "")
-                .replaceFirst("的?思维导图$", "")
-                .trim();
+    private String normalizeTitle(String inputText, String centerTopic) {
+        String title = MindMapTopicExtractor.extract(centerTopic, inputText, "", "");
         if (!StringUtils.hasText(title)) {
             title = "思维导图";
         }

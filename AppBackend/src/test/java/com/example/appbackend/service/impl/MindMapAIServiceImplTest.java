@@ -55,7 +55,7 @@ class MindMapAIServiceImplTest {
     }
 
     private List<String> topLevelNames(MindMapAIServiceImpl service, String inputText, String structure) {
-        MindMapDTO.MindMapData data = service.generate(inputText, "3", structure, "standard", null);
+        MindMapDTO.MindMapData data = service.generate(inputText, "", "3", structure, "standard", null);
         return data.getNodes().stream()
                 .map(MindMapDTO.Node::getName)
                 .toList();

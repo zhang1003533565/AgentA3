@@ -14,6 +14,9 @@ public class MindMapDTO {
         @Size(max = 4000)
         private String topic;
 
+        @Size(max = 40)
+        private String centerTopic;
+
         @Size(max = 20)
         private String depth;
 
