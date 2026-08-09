@@ -208,12 +208,14 @@ const scale = ref(1)
 const offset = reactive({ x: 0, y: 0 })
 const cameraY = ref(0)
 const smooth = ref(false)
+const CAMERA_TRANSITION_MS = 460
+const CAMERA_EPSILON = 1
 const stageStyle = computed(() => ({
   width: canvasW.value + 'px',
   height: canvasH.value + 'px',
   transform: `translate(${offset.x}px, ${cameraY.value}px) scale(${scale.value})`,
   transformOrigin: '0 0',
-  transition: smooth.value ? 'transform 0.6s cubic-bezier(0.22,1,0.36,1)' : 'none'
+  transition: smooth.value ? `transform ${CAMERA_TRANSITION_MS}ms cubic-bezier(0.22,1,0.36,1)` : 'none'
 }))
 
 function nodeBox(node) {
@@ -249,24 +251,55 @@ function fitToView() {
   // 用实际内容尺寸计算 scale，避免内容小于画布时被缩得过小
   const contentW = state.laid?.canvasW || canvasW.value
   const contentH = state.laid?.canvasH || canvasH.value
-  const view = { w: SCREEN_W, h: Math.max(360, SCREEN_H - 400 * rpx2px) }
+  const view = getCameraViewSize()
   const fit = Math.min(view.w / contentW, view.h / contentH, 1)
   scale.value = Math.max(0.3, Math.min(fit, 1))
   centerOn()
 }
 
-// 镜头跟随：让目标 level 的节点行对齐 canvas-area 垂直中心偏上 1/3 位
-// 只在换 level 时调用，避免同层节点生成时频繁抖动
-// 纯计算，不用 createSelectorQuery，避免节点未渲染时回调不触发导致 await 卡死
-function followCameraLevel(level) {
-  // 找该 level 第一个节点的 cy（布局已知值）
-  const node = laidNodes.value.find(n => n.level === level)
+function isHorizontalFlow() {
+  return Boolean((state.laid?.lanes || []).length)
+}
+
+function getCameraViewSize() {
+  return {
+    w: SCREEN_W,
+    h: Math.max(360, SCREEN_H - 400 * rpx2px)
+  }
+}
+
+function targetCameraX(node, view) {
+  if (!isHorizontalFlow()) return Math.round(canvasW.value / 2 - (state.laid?.canvasW || canvasW.value) / 2 * scale.value)
+  const targetX = view.w * 0.42
+  const canvasLeft = view.w / 2 - canvasW.value / 2
+  return Math.round(targetX - canvasLeft - node.cx * scale.value)
+}
+
+function targetCameraY(node, view) {
+  if (!isHorizontalFlow()) {
+    const targetY = view.h * 0.36
+    const canvasTop = view.h / 2 - canvasH.value / 2
+    return Math.round(targetY - canvasTop - node.cy * scale.value)
+  }
+
+  const canvasTop = view.h / 2 - canvasH.value / 2
+  const currentY = canvasTop + cameraY.value + node.cy * scale.value
+  const minY = view.h * 0.34
+  const maxY = view.h * 0.64
+  if (currentY < minY) return Math.round(cameraY.value + minY - currentY)
+  if (currentY > maxY) return Math.round(cameraY.value + maxY - currentY)
+  return cameraY.value
+}
+
+async function followCameraNode(node) {
   if (!node) return
-  const viewH = Math.max(360, SCREEN_H - 400 * rpx2px)
-  // 渲染公式：nodeCenterY = viewH/2 - canvasH*scale/2 + cameraY + node.cy*scale
-  // 要让 nodeCenterY = viewH/3，反解 cameraY
-  const targetCameraY = -viewH / 6 + canvasH.value * scale.value / 2 - node.cy * scale.value
-  cameraY.value = targetCameraY
+  const view = getCameraViewSize()
+  const nextX = targetCameraX(node, view)
+  const nextY = targetCameraY(node, view)
+  const moved = Math.abs(nextX - offset.x) > CAMERA_EPSILON || Math.abs(nextY - cameraY.value) > CAMERA_EPSILON
+  offset.x = nextX
+  cameraY.value = nextY
+  if (moved) await sleep(CAMERA_TRANSITION_MS)
 }
 
 // ===== 动画流程 =====
@@ -298,19 +331,19 @@ async function runAnimation() {
 
   // 阶段2 墨实
   stageIndex.value = inkStage
-  let lastFollowLevel = -1
+  let lastFollowKey = ''
   for (const item of state.seq) {
     if (item.node) {
+      const followKey = `${isHorizontalFlow() ? 'x' : 'y'}:${item.node.level}`
+      if (followKey !== lastFollowKey) {
+        smooth.value = true
+        await followCameraNode(item.node)
+        lastFollowKey = followKey
+        await sleep(50)
+      }
       inkedIds[item.node.id] = true
       inkedCount.value += 1
       if (nodeType(item.node) === 'decision') stageIndex.value = branchStage
-      // 换 level 时镜头跟随到当前节点行
-      if (item.node.level !== lastFollowLevel) {
-        smooth.value = true
-        await followCameraLevel(item.node.level)
-        lastFollowLevel = item.node.level
-        await sleep(120)
-      }
       await sleep(170)
     } else {
       drawnKeys[item.edge.key] = true
