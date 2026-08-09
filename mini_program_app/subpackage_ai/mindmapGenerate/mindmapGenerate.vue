@@ -4,9 +4,6 @@
       title="AI 思维导图"
       :showBack="true"
       :border="false"
-      background="linear-gradient(180deg, #F3F1FD 0%, #FAF9FC 100%)"
-      titleColor="#182033"
-      iconColor="#182033"
     >
       <template #right>
         <view class="nav-history-action" @tap="openHistory">
@@ -69,7 +66,6 @@
         </view>
 
         <view class="section-card settings-card">
-          <view class="settings-rail"></view>
           <view class="settings-content">
             <view class="settings-title">
               <image class="settings-title__icon" src="/static/icons/diagram/settings-spark.svg" mode="aspectFit" />
@@ -480,28 +476,6 @@ onShow(() => {
   color: #182033;
 }
 
-:deep(.nav-bar) {
-  padding: 0 34rpx;
-}
-
-:deep(.nav-title) {
-  font-size: 34rpx;
-  line-height: 1.18;
-  font-weight: 800;
-  color: #182033;
-}
-
-:deep(.market-back-button) {
-  color: #182033;
-}
-
-:deep(.market-back-button::before) {
-  width: 24rpx;
-  height: 24rpx;
-  border-left-width: 5rpx;
-  border-bottom-width: 5rpx;
-}
-
 .nav-history-action {
   display: flex;
   align-items: center;
@@ -867,18 +841,8 @@ onShow(() => {
   overflow: hidden;
 }
 
-.settings-rail {
-  position: absolute;
-  left: 0;
-  top: 28rpx;
-  bottom: 28rpx;
-  width: 7rpx;
-  border-radius: 999rpx;
-  background: #7C4DE8;
-}
-
 .settings-content {
-  padding: 30rpx 28rpx 28rpx 36rpx;
+  padding: 30rpx 28rpx 28rpx;
 }
 
 .settings-title {
