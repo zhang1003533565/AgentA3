@@ -829,10 +829,10 @@ onShow(() => {
 }
 
 .scene-chip--active {
-  border-color: #86A9D6;
-  background: #F0F5FC;
-  color: #1F3D5C;
-  box-shadow: inset 0 0 0 1rpx rgba(71, 108, 154, 0.08);
+  border-color: #5F91CF;
+  background: #E8F2FF;
+  color: #245F9E;
+  box-shadow: 0 6rpx 14rpx rgba(62, 122, 196, 0.10);
 }
 
 .segmented {
@@ -878,11 +878,11 @@ onShow(() => {
 
 .segmented-item--active {
   z-index: 1;
-  border: 2rpx solid #86A9D6;
+  border: 2rpx solid #5F91CF;
   border-radius: 12rpx;
-  background: #F2F6FC;
-  color: #1F3D5C;
-  box-shadow: inset 0 0 0 1rpx rgba(71, 108, 154, 0.08);
+  background: #EAF3FF;
+  color: #245F9E;
+  box-shadow: 0 6rpx 14rpx rgba(62, 122, 196, 0.08);
 }
 
 .segmented-item--active::before,
@@ -914,7 +914,7 @@ onShow(() => {
 }
 
 .segmented-item--active .segmented-desc {
-  color: #55708E;
+  color: #4D78A8;
 }
 
 .recent-card {
